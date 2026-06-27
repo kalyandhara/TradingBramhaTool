@@ -129,7 +129,7 @@ def _compute_canslim(df: pd.DataFrame, nifty_df: pd.DataFrame | None) -> tuple:
     # L — Leader: stock 12m return > Nifty 12m return (RS outperformance)
     if nifty_df is not None:
         nifty_aligned = nifty_df["close"].reindex(df.index, method="ffill")
-        nifty_aligned = nifty_aligned.fillna(method="bfill")
+        nifty_aligned = nifty_aligned.bfill()
 
         # RS Line normalized to 100 at first available point
         rs_raw = df["close"] / nifty_aligned.replace(0, float("nan"))
@@ -185,7 +185,7 @@ def build_chart(symbol: str, df: pd.DataFrame, ew: dict,
     # RS Line vs Nifty50
     rs_line = None
     if nifty_df is not None:
-        nifty_aligned = nifty_df["close"].reindex(df.index, method="ffill").fillna(method="bfill")
+        nifty_aligned = nifty_df["close"].reindex(df.index, method="ffill").bfill()
         rs_raw = df["close"] / nifty_aligned.replace(0, float("nan"))
         rs_line = (rs_raw / rs_raw.iloc[0]) * 100
 
