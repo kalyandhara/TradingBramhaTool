@@ -1,0 +1,1326 @@
+//@version=6
+// © kalyan - Enhanced by Technical Analysis
+// Profit Maximizer with Advanced Technical Signals
+// FIXED: Elliott Wave bar spacing, EW depth defaults, type mismatch, ATR hardcoding, EW table
+// ENHANCED: Short/Long-term Extension, Valuation, Earnings Power, Stage Analysis
+
+strategy("Profit Maximizer Enhanced Strategy", shorttitle="PMax+Strat", overlay=true, format=format.price, precision=2, initial_capital=10000, default_qty_type=strategy.cash, default_qty_value=1000, max_lines_count=500, max_labels_count=500, max_boxes_count=100)
+
+// ============ ORIGINAL PMAX SETTINGS ============
+src = input.source(hl2, title="Source")
+Periods = input.int(10, title="ATR Length")
+Multiplier = input.float(3.0, title="ATR Multiplier", step=0.1)
+mav = input.string("EMA", title="Moving Average Type", options=["SMA", "EMA", "WMA", "TMA", "VAR", "WWMA", "ZLEMA", "TSF"])
+length = input.int(10, "Moving Average Length", minval=1)
+changeATR = input.bool(true, title="Change ATR Calculation Method ?")
+Normalize = input.bool(false, title="Normalize ATR ?")
+
+// ============ NEW TECHNICAL INDICATOR INPUTS ============
+group1 = "Technical Indicators"
+useRSI = input.bool(true, title="Use RSI Filter", group=group1)
+rsiLen = input.int(14, "RSI Length", minval=1, group=group1)
+useRSIDiv = input.bool(true, title="Use RSI Divergence", group=group1)
+rsiFastLen = input.int(5, "Fast RSI Length", minval=1, group=group1, tooltip="Used for RSI Momentum Divergence calculation.")
+rsiOverbought = input.int(70, "RSI Overbought", minval=50, maxval=100, group=group1)
+rsiOversold = input.int(30, "RSI Oversold", minval=0, maxval=50, group=group1)
+
+useMACD = input.bool(true, title="Use MACD Filter", group=group1)
+macdFast = input.int(12, "MACD Fast", minval=1, group=group1)
+macdSlow = input.int(26, "MACD Slow", minval=1, group=group1)
+macdSignal = input.int(9, "MACD Signal", minval=1, group=group1)
+
+useVolume = input.bool(true, title="Use Volume Filter", group=group1)
+volLen = input.int(20, "Volume MA Length", minval=1, group=group1)
+
+useADX = input.bool(true, title="Use ADX Trend Filter", group=group1)
+adxLen = input.int(14, "ADX Length", minval=1, group=group1)
+adxSmoothing = input.int(14, "ADX Smoothing", minval=1, group=group1)
+adxThreshold = input.int(25, "ADX Threshold", minval=10, group=group1)
+
+useEMACross = input.bool(true, title="Use 9/21 EMA Crossover", group=group1)
+ema9Len = input.int(9, "Fast EMA Length", minval=1, group=group1)
+ema21Len = input.int(21, "Slow EMA Length", minval=1, group=group1)
+
+useTrendSMA200 = input.bool(true, title="Use SMA 200 Trend Filter", group=group1)
+sma200Len = input.int(200, "SMA 200 Length", minval=1, group=group1)
+
+useBollingerBands = input.bool(true, title="Use Bollinger Bands Squeeze", group=group1)
+bbLen = input.int(20, "BB Length", minval=1, group=group1)
+bbStdDev = input.float(2.0, "BB Std Dev", minval=0.1, step=0.1, group=group1)
+
+useAccumDist = input.bool(true, title="Use Accumulation/Distribution", group=group1)
+adLen = input.int(14, "A/D Length", minval=1, group=group1)
+
+useBreakout = input.bool(true, title="Use Breakout Detection", group=group1)
+resistanceLen = input.int(20, "Resistance/Support Period", minval=5, group=group1)
+
+useATRBreakout = input.bool(true, title="Use ATR Breakout", group=group1)
+atrBLen = input.int(14, "ATR Breakout Length", minval=1, group=group1)
+atrBMult = input.float(1.5, "ATR Breakout Multiplier", minval=0.1, step=0.1, group=group1)
+
+useVWAP = input.bool(true, title="Use VWAP Filter", group=group1)
+vwapLen = input.int(20, "VWAP Length", minval=1, group=group1)
+
+groupRS = "Relative Strength (vs Benchmark)"
+useRS = input.bool(true, "Use Relative Strength Filter", group=groupRS)
+rsBenchmark = input.symbol("NSE:NIFTY", "Benchmark Symbol", group=groupRS, tooltip="Index/ETF used to measure Relative Strength (default NSE:NIFTY for Indian equities; swap to SPY/QQQ for US)")
+rsLen = input.int(52, "RS Smoothing Length", minval=1, group=groupRS, tooltip="Mansfield RS normalization period (Stan Weinstein uses a 52-period SMA of the price/benchmark ratio)")
+rsTrendLen = input.int(5, "RS Trend Lookback", minval=1, group=groupRS, tooltip="Bars used to determine whether the RS line is rising or falling")
+
+groupRegime = "Market Regime Filter"
+useRegime = input.bool(true, "Use Regime Filter", group=groupRegime, tooltip="Gates conviction and halves position size when the broad market is below its long-term trend (VCPBot NORMAL/CASH logic, Varmer 200-MA regime rule)")
+regimeBenchmark = input.symbol("NSE:NIFTY", "Regime Benchmark", group=groupRegime, tooltip="Index whose trend defines market regime — default NSE:NIFTY for Indian equities")
+regimeSmaLen = input.int(200, "Regime SMA Length", minval=10, group=groupRegime)
+
+groupBT = "Backtest Settings"
+useExits = input.bool(true, "Use TP/SL Exits", group=groupBT)
+rrRatio = input.float(2.5, "Risk:Reward Ratio (Target)", minval=1.0, step=0.1, group=groupBT, tooltip="Target profit relative to risk.")
+atrRiskMult = input.float(2.0, "ATR Risk Multiplier", minval=0.5, step=0.1, group=groupBT, tooltip="Stop loss distance based on ATR.")
+useTrailing = input.bool(true, "Use Trailing Stop", group=groupBT)
+trailPerc = input.float(1.0, "Trailing Stop %", minval=0.0, step=0.1, group=groupBT) / 100
+
+groupRisk = "Position Sizing (Risk-Based)"
+riskPerTradePct = input.float(1.0, "Risk Per Trade (%)", minval=0.1, maxval=5.0, step=0.1, group=groupRisk, tooltip="% of equity risked if the stop is hit. Position size is derived from this and the ATR stop distance — NOT a flat % of equity, per Capital-Management discipline (volatile names get smaller size, quiet names get larger size automatically).")
+maxAllocPct = input.float(20.0, "Max Allocation Per Trade (%)", minval=1.0, maxval=100.0, step=1.0, group=groupRisk, tooltip="Hard concentration cap on position value as % of equity, independent of the risk calc above (SwingEdge default).")
+
+groupDate = "Date Range Filter"
+startYear  = input.int(2023, "Start Year", group=groupDate)
+startMonth = input.int(1, "Start Month", 1, 12, group=groupDate)
+startDay   = input.int(1, "Start Day", 1, 31, group=groupDate)
+endYear    = input.int(2099, "End Year", group=groupDate)
+endMonth   = input.int(12, "End Month", 1, 12, group=groupDate)
+endDay     = input.int(31, "End Day", 1, 31, group=groupDate)
+withinWindow = time >= timestamp(startYear, startMonth, startDay, 00, 00) and time <= timestamp(endYear, endMonth, endDay, 23, 59)
+
+// ============ ELLIOTT WAVE INPUTS ============
+groupEW = "Elliott Wave Predictor"
+ewDepth    = input.int(5, "ZigZag Depth (Daily=5, Weekly=3, Monthly=2)", minval=2, group=groupEW)
+showWaves  = input.bool(true,  "Show Wave Labels on Pivots",  group=groupEW)
+showProj   = input.bool(true,  "Show EW Projections",         group=groupEW)
+showFibLvl = input.bool(true,  "Show Fibonacci Level Lines",  group=groupEW)
+trendDirEW = input.string("Auto", "EW Trend Direction", options=["Auto","Bullish","Bearish"], group=groupEW)
+manualWave = input.string("Auto", "Last Completed Wave", options=["Auto","1","2A","2B","2C","3","4A","4B","4C","5"], group=groupEW)
+colorProj  = input.color(#2196F3, "Projection Color", group=groupEW)
+// ── New EW Analysis Features ──
+showExtension = input.bool(true, "Show Extension Analysis", group=groupEW)
+showValuation = input.bool(true, "Show Valuation Analysis", group=groupEW)
+showEarnings  = input.bool(true, "Show Earnings Power",    group=groupEW)
+
+// ============ ELLIOTT WAVE STATE & ARRAYS ============
+var float lastPP   = na
+var int   lastPB   = na
+var int   lastDir  = 0
+var int   pivCnt   = 0          // running count of confirmed pivots (drives wave offset)
+var line  ewCurLine = na        // live zigzag line being extended
+var label ewCurLbl  = na        // live dot label being extended
+var float[] px     = array.new_float()
+var int[]   pt     = array.new_int()
+var int[]   pTime  = array.new_int()
+var label[] lbls   = array.new_label()
+
+// ============ DISPLAY SETTINGS ============
+group2 = "Display"
+showsupport = input.bool(true, title="Show Moving Average?", group=group2)
+showsignalsk = input.bool(true, title="Show MA Crossing Signals?", group=group2)
+showsignalsc = input.bool(false, title="Show Price/Pmax Crossing Signals?", group=group2)
+highlighting = input.bool(true, title="Highlighter On/Off ?", group=group2)
+showBands = input.bool(false, title="Show Support/Resistance Bands?", group=group2)
+showSignalStrength = input.bool(true, title="Show Decision Panel?", group=group2, tooltip="Condensed decision/conviction/risk panel — the primary view for acting on this strategy.")
+showFactorDetail = input.bool(false, title="Show Factor Detail (Advanced)?", group=group2, tooltip="Full 16-factor breakdown table, hidden by default to keep the chart readable. Enable for diagnosis of why a signal did/didn't fire.")
+
+// ============ ELLIOTT WAVE FUNCTIONS (v2 engine — proven working) ============
+
+// Map manual wave selection string → 9-cycle index
+wIdx9(w) =>
+    switch w
+        "1"  => 0
+        "2A" => 1
+        "2B" => 2
+        "2C" => 3
+        "3"  => 4
+        "4A" => 5
+        "4B" => 6
+        "4C" => 7
+        "5"  => 8
+        => 0
+
+// Wave label for each 9-cycle position (zigzag pivot-dot labels)
+wLabel9(idx) =>
+    switch idx % 9
+        0 => "W1"
+        1 => "(ax)"
+        2 => "(ay)"
+        3 => "W2"
+        4 => "W3"
+        5 => "(az)"
+        6 => "(ax)"
+        7 => "W4"
+        8 => "W5"
+        => "?"
+
+// Auto-detect current wave position: longest leg = Wave 3 (index 4)
+autoOff9() =>
+    sz  = array.size(px)
+    int best = 0
+    if sz >= 5
+        float maxL = 0.0
+        int   maxI = 1
+        int   st   = math.max(1, sz - 18)
+        for i = st to sz - 1
+            ll = math.abs(array.get(px, i) - array.get(px, i - 1))
+            if ll > maxL
+                maxL := ll
+                maxI := i
+        best := (4 - (maxI - 1) + 900) % 9
+    best
+
+// Timeframe-aware bar spacing: how many bars per EW projection segment
+f_ewBarSpacing() =>
+    int sp = 21  // Daily default
+    if timeframe.ismonthly
+        sp := 2
+    else if timeframe.isweekly
+        sp := 4
+    else if timeframe.isdaily
+        sp := 21
+    else if timeframe.isintraday
+        int secsPerBar = timeframe.in_seconds()
+        int barsPerDay = math.max(1, int(23400 / secsPerBar))
+        sp := math.max(3, math.min(barsPerDay, 390))
+    sp
+
+// Human-readable wave label for each 9-cycle position.
+// Impulse cycle (cycleNum even): W1 W2 W3 W4 W5 + sub-wave interim labels 2a 2b 4a 4b
+// Corrective cycle (cycleNum odd): (a)(b)(c)(d)(e) + zigzag interim labels (ax)(ay)(az)
+// Appends prime marks (') for repeated cycles to keep them visually distinct.
+f_waveLabel(cIdx, cNum) =>
+    string lbl = "?"
+    if cNum % 2 == 0
+        lbl := cIdx == 0 ? "W1" : cIdx == 3 ? "W2" : cIdx == 4 ? "W3" : cIdx == 7 ? "W4" : cIdx == 8 ? "W5" : cIdx == 1 ? "2a" : cIdx == 2 ? "2b" : cIdx == 5 ? "4a" : cIdx == 6 ? "4b" : "?"
+    else
+        lbl := cIdx == 0 ? "(a)" : cIdx == 3 ? "(b)" : cIdx == 4 ? "(c)" : cIdx == 7 ? "(d)" : cIdx == 8 ? "(e)" : cIdx == 1 ? "(ax)" : cIdx == 2 ? "(ay)" : cIdx == 5 ? "(az)" : cIdx == 6 ? "(ax)" : "?"
+    // Add prime marks for cycles beyond the first (max 3 primes)
+    if cNum == 1
+        lbl := lbl + "'"
+    else if cNum == 2
+        lbl := lbl + "''"
+    else if cNum >= 3
+        lbl := lbl + "'''"
+    lbl
+
+// ============ ORIGINAL PMAX CALCULATION ============
+atr2 = ta.sma(ta.tr, Periods)
+atr = changeATR ? ta.atr(Periods) : atr2
+sumSeries(src, len) =>
+    cumVal = ta.cum(src)
+    cumVal - nz(cumVal[len])
+valpha = 2/(length+1)
+vud1 = src>src[1] ? src-src[1] : 0
+vdd1 = src<src[1] ? src[1]-src : 0
+vUD = sumSeries(vud1, 9)
+vDD = sumSeries(vdd1, 9)
+vCMO = nz((vUD-vDD)/(vUD+vDD))
+vVar = 0.0
+vVar := nz(valpha*math.abs(vCMO)*src)+(1-valpha*math.abs(vCMO))*nz(vVar[1])
+wwalpha = 1/ length
+WWMA = 0.0
+WWMA := wwalpha*src + (1-wwalpha)*nz(WWMA[1])
+zxLag = length/2==math.round(length/2) ? length/2 : (length - 1) / 2
+zxEMAData = (src + (src - src[zxLag]))
+ZLEMA = ta.ema(zxEMAData, length)
+lrc = ta.linreg(src, length, 0)
+lrc1 = ta.linreg(src, length, 1)
+lrs = (lrc-lrc1)
+TSF = ta.linreg(src, length, 0)+lrs
+
+getMA(src, length) =>
+    ma = 0.0
+    if mav == "SMA"
+        ma := ta.sma(src, length)
+    if mav == "EMA"
+        ma := ta.ema(src, length)
+    if mav == "WMA"
+        ma := ta.wma(src, length)
+    if mav == "TMA"
+        ma := ta.sma(ta.sma(src, math.ceil(length / 2)), math.floor(length / 2) + 1)
+    if mav == "VAR"
+        ma := vVar
+    if mav == "WWMA"
+        ma := WWMA
+    if mav == "ZLEMA"
+        ma := ZLEMA
+    if mav == "TSF"
+        ma := TSF
+    ma
+
+MAvg = getMA(src, length)
+longStop = Normalize ? MAvg - Multiplier*atr/close : MAvg - Multiplier*atr
+longStopPrev = nz(longStop[1], longStop)
+longStop := MAvg > longStopPrev ? math.max(longStop, longStopPrev) : longStop
+shortStop = Normalize ? MAvg + Multiplier*atr/close : MAvg + Multiplier*atr
+shortStopPrev = nz(shortStop[1], shortStop)
+shortStop := MAvg < shortStopPrev ? math.min(shortStop, shortStopPrev) : shortStop
+
+dir = 1
+dir := nz(dir[1], dir)
+dir := dir == -1 and MAvg > shortStopPrev ? 1 : dir == 1 and MAvg < longStopPrev ? -1 : dir
+PMax = dir==1 ? longStop: shortStop
+
+// ============ TECHNICAL INDICATORS ============
+
+// Candlestick Patterns
+bullishEngulfing = close > open and close[1] < open[1] and close > open[1] and open < close[1]
+
+highest5 = ta.highest(close, 5)
+lowest5 = ta.lowest(close, 5)
+
+hammerPattern = (high - low) > 2 * math.abs(close - open) and (close - low) > 0.67 * (high - low) and close > open and close >= highest5[1]
+shootingStarPattern = (high - low) > 2 * math.abs(close - open) and (high - close) > 0.67 * (high - low) and close < open and close <= lowest5[1]
+bearishEngulfing = close < open and close[1] > open[1] and close < open[1] and open > close[1]
+insideBar = high < high[1] and low > low[1]
+morningStarPattern = close[2] < open[2] and close[1] < open[1] and high[1] < low[2] and close > open and close > open[2]
+eveningStarPattern = close[2] > open[2] and close[1] > open[1] and low[1] > high[2] and close < open and close < open[2]
+
+// RSI
+rsi = ta.rsi(close, rsiLen)
+rsiOB = rsi > rsiOverbought
+rsiOS = rsi < rsiOversold
+rsiBullish = rsi > 50
+rsiBearish = rsi < 50
+
+// MACD
+[macdLine, signalLine, macdHist] = ta.macd(close, macdFast, macdSlow, macdSignal)
+macdBullish = macdLine > signalLine and macdHist > 0
+macdBearish = macdLine < signalLine and macdHist < 0
+macdCrossUp = ta.crossover(macdLine, signalLine)
+macdCrossDown = ta.crossunder(macdLine, signalLine)
+
+// Volume
+vol = volume
+volMA = ta.sma(vol, volLen)
+volAboveMA = vol > volMA
+
+// ADX
+[diPlus, diMinus, adxValue] = ta.dmi(adxLen, adxSmoothing)
+adxStrong = adxValue > adxThreshold
+
+// EMA Cross
+ema9 = ta.ema(close, ema9Len)
+ema21 = ta.ema(close, ema21Len)
+emaCrossUp = ta.crossover(ema9, ema21)
+emaCrossDown = ta.crossunder(ema9, ema21)
+emaBullish = ema9 > ema21
+emaBearish = ema9 < ema21
+
+emaRetestUp = (close > ema9 * 0.98 and close < ema9 * 1.02) and (open < ema9 * 0.98) and (close > open) and close > ema9
+emaRetestDown = (close > ema9 * 0.98 and close < ema9 * 1.02) and (open > ema9 * 1.02) and (close < open) and close < ema9
+
+// PMax Signals
+buySignalPmax = ta.crossover(MAvg, PMax)
+sellSignalPmax = ta.crossunder(MAvg, PMax)
+buySignalPrice = ta.crossover(close, PMax)
+sellSignalPrice = ta.crossunder(close, PMax)
+
+// Dashboard Logic
+sma200Val = ta.sma(close, sma200Len)
+trendBull = close > sma200Val
+trendBear = close < sma200Val
+
+adVal = ta.cum(volume * (high - low == 0 ? 0 : (2 * close - low - high) / (high - low)))
+adMA = ta.sma(adVal, adLen)
+adBull = adVal > adMA
+adBear = adVal < adMA
+
+[bbUpper, bbBasis, bbLower] = ta.bb(close, bbLen, bbStdDev)
+bbBull = close > bbUpper
+bbBear = close < bbLower
+
+resVal = ta.highest(high, resistanceLen)[1]
+supVal = ta.lowest(low, resistanceLen)[1]
+breakBull = close > resVal
+breakBear = close < supVal
+
+macdBull = macdBullish or macdCrossUp
+macdBear = macdBearish or macdCrossDown
+
+// FIX #6: Use Periods input for ATR Breakout (was hardcoded 14)
+atrVal = ta.atr(atrBLen)
+atrBull = close > (MAvg + (atrVal * atrBMult)) and adxValue > adxThreshold
+atrBear = close < (MAvg - (atrVal * atrBMult)) and adxValue > adxThreshold
+
+rsiFast = ta.rsi(close, rsiFastLen)
+rsiDiff = rsiFast - rsi
+isBullDiv = rsiDiff > 0
+isBearDiv = rsiDiff < 0
+
+// ============ ELLIOTT WAVE PIVOT DETECTION (v2 engine) ============
+// Uses same variable names (px, pt, lbls) already declared above.
+// Draws live zigzag lines between pivots so you can visually confirm detection.
+ph = ta.pivothigh(high, ewDepth, ewDepth)
+pl = ta.pivotlow(low,  ewDepth, ewDepth)
+
+if not na(ph)
+    if lastDir != 1
+        if not na(lastPP)
+            ewCurLine := line.new(lastPB, lastPP, bar_index[ewDepth], ph, color=color.green, width=2)
+            ewCurLbl  := label.new(bar_index[ewDepth], ph, "·", style=label.style_label_down, color=color.new(color.blue, 0), textcolor=color.white, size=size.small)
+            array.push(lbls, ewCurLbl)
+            pivCnt += 1
+        lastPP  := ph
+        lastPB  := bar_index[ewDepth]
+        lastDir := 1
+        array.push(px, ph)
+        array.push(pt, bar_index[ewDepth])
+        array.push(pTime, time[ewDepth])
+    else if ph >= lastPP
+        lastPP := ph
+        lastPB := bar_index[ewDepth]
+        if not na(ewCurLine)
+            line.set_xy2(ewCurLine, bar_index[ewDepth], ph)
+        if not na(ewCurLbl)
+            label.set_xy(ewCurLbl, bar_index[ewDepth], ph)
+        if array.size(px) > 0
+            array.set(px,    array.size(px)    - 1, ph)
+            array.set(pt,    array.size(pt)    - 1, bar_index[ewDepth])
+            array.set(pTime, array.size(pTime) - 1, time[ewDepth])
+
+if not na(pl)
+    if lastDir != -1
+        if not na(lastPP)
+            ewCurLine := line.new(lastPB, lastPP, bar_index[ewDepth], pl, color=color.red, width=2)
+            ewCurLbl  := label.new(bar_index[ewDepth], pl, "·", style=label.style_label_up, color=color.new(color.orange, 0), textcolor=color.white, size=size.small)
+            array.push(lbls, ewCurLbl)
+            pivCnt += 1
+        lastPP  := pl
+        lastPB  := bar_index[ewDepth]
+        lastDir := -1
+        array.push(px, pl)
+        array.push(pt, bar_index[ewDepth])
+        array.push(pTime, time[ewDepth])
+    else if pl <= lastPP
+        lastPP := pl
+        lastPB := bar_index[ewDepth]
+        if not na(ewCurLine)
+            line.set_xy2(ewCurLine, bar_index[ewDepth], pl)
+        if not na(ewCurLbl)
+            label.set_xy(ewCurLbl, bar_index[ewDepth], pl)
+        if array.size(px) > 0
+            array.set(px,    array.size(px)    - 1, pl)
+            array.set(pt,    array.size(pt)    - 1, bar_index[ewDepth])
+            array.set(pTime, array.size(pTime) - 1, time[ewDepth])
+
+// EW trend direction: used by dashboard cells and signal filters
+ewIsBull = true
+if trendDirEW == "Bearish"
+    ewIsBull := false
+else if trendDirEW == "Auto"
+    szEW = array.size(px)
+    if szEW > 1
+        ewIsBull := array.get(px, szEW - 1) > array.get(px, math.max(0, szEW - 7))
+
+// Trend flags for confluence table and signal conditions
+ewTrendBull = ewIsBull
+ewTrendBear = not ewIsBull
+
+// VWAP (rolling, length-based — anchored ta.vwap() resets every session and is unsuitable for swing/positional use)
+vwapVal = ta.sma(hlc3 * volume, vwapLen) / ta.sma(volume, vwapLen)
+vwapBull = close > vwapVal
+vwapBear = close < vwapVal
+
+// ============ RELATIVE STRENGTH (Mansfield RS vs Benchmark) ============
+// RS Ratio = price / benchmark. Mansfield RS oscillates around 0: >0 = outperforming the benchmark, <0 = underperforming.
+benchClose = request.security(rsBenchmark, timeframe.period, close, lookahead=barmerge.lookahead_off)
+rsRatio = close / benchClose
+rsRatioMA = ta.sma(rsRatio, rsLen)
+rsMansfield = nz((rsRatio / rsRatioMA - 1) * 100)
+rsBullish = rsMansfield > 0
+rsBearish = rsMansfield < 0
+rsRising = rsMansfield > rsMansfield[rsTrendLen]
+rsFalling = rsMansfield < rsMansfield[rsTrendLen]
+
+// ============ MARKET REGIME FILTER (Index vs Long-Term SMA) ============
+// VCPBot: NORMAL (index >= SMA200) = full size; CASH/RISK-OFF (index < SMA200) = preserve capital.
+// Varmer 200-MA regime rule: cut size 50% in RISK-OFF rather than blocking entries outright.
+regimeClose = request.security(regimeBenchmark, timeframe.period, close, lookahead=barmerge.lookahead_off)
+regimeSma = ta.sma(regimeClose, regimeSmaLen)
+regimeRiskOff = useRegime and regimeClose < regimeSma
+
+// ============ ELLIOTT WAVE FORWARD EXTENSION — ADVANCED ANALYSIS ============
+// Computes: Short/Long-term Extension, Valuation, Earnings Power, Stage Analysis
+// Uses the zigzag pivot data (px, pt arrays) plus price action to derive these.
+ 
+// ── Helper: best estimate of the current wave position (0-8 in 9-cycle) ──
+f_getCurrentSimI() =>
+    offset2 = manualWave != "Auto" ? (wIdx9(manualWave) - (pivCnt - 1) + 900) % 9 : autoOff9()
+    int curI = (pivCnt - 1 + offset2) % 9
+    curI
+
+// ── Helper: get recent swing data ──
+f_getSwingData(sz, pxArr) =>
+    float L0 = sz >= 2 ? math.abs(array.get(pxArr, sz-1) - array.get(pxArr, sz-2)) : na
+    float L1 = sz >= 3 ? math.abs(array.get(pxArr, sz-2) - array.get(pxArr, sz-3)) : na
+    float L2 = sz >= 4 ? math.abs(array.get(pxArr, sz-3) - array.get(pxArr, sz-4)) : na
+    [L0, L1, L2]
+
+// ── Short-term Extension — true if current bar extends beyond the nearest projected wave target ──
+//    e.g. if in wave 3, close exceeds the 1.618 extension of wave 1
+f_shortTermExt(simI, pxArr, sz, isBull) =>
+    bool ext = false
+    if sz < 3
+        ext := false
+    else
+        [L0, L1, L2] = f_getSwingData(sz, pxArr)
+        float len1 = na(L0) ? close * 0.05 : L0
+        float len2 = len1 * 0.618
+        float len3 = len1 * 1.618
+        float dir0 = isBull ? 1.0 : -1.0
+        float w1End = array.get(pxArr, sz-2) + dir0 * len1
+        float w3target = w1End + dir0 * len3
+        // If in impulse phase (simI 0,4,8) and price already exceeded next target
+        if simI == 0         // just finished W1 → check if extended through W3 target
+            ext := isBull ? close > w3target : close < w3target
+        else if simI == 4    // just finished W3 → check if extended through W5 target
+            float w5target = w3target + dir0 * len1
+            ext := isBull ? close > w5target : close < w5target
+        else if simI == 8    // just finished W5 → extended beyond cycle completion
+            float cycleExt = len1 * 2.618
+            float cycleTarget = array.get(pxArr, sz-1) + dir0 * cycleExt
+            ext := isBull ? close > cycleTarget : close < cycleTarget
+        else
+            // Corrective phase — check if break of recent pivot high/low (indicating extension)
+            ext := false
+    ext
+
+// ── Long-term Extension — true if the overall multi-cycle structure shows extension
+//    beyond normal Fibonacci relationships
+f_longTermExt(pxArr, sz, isBull) =>
+    bool ext = false
+    if sz >= 9
+        // Compare total move from 9 pivots ago to now vs average swing length
+        float totalMove = math.abs(array.get(pxArr, sz-1) - array.get(pxArr, math.max(0, sz-9)))
+        float avgSwing = 0.0
+        int count = 0
+        for i = math.max(1, sz-8) to sz-1
+            avgSwing += math.abs(array.get(pxArr, i) - array.get(pxArr, i-1))
+            count += 1
+        if count > 0
+            avgSwing := avgSwing / count
+            // If total move > 3x average swing, it's a long-term extension
+            ext := totalMove > avgSwing * 3.0
+    ext
+
+// ── Valuation — overvalued / undervalued based on:
+//    - Distance from projected Fibonacci targets (extensions = overvalued)
+//    - Current wave position (W3/W5 peaks = overvalued, W2/W4 troughs = undervalued)
+//    - RSI extremes
+f_valuation(simI, isBull) =>
+    string val = "Fair"
+    // Wave position based valuation
+    if simI == 4 and isBull and rsiOB     // Wave 3 peak + overbought = overvalued
+        val := "Overvalued"
+    else if simI == 4 and not isBull and rsiOS
+        val := "Overvalued"               // Wave 3 downside = oversold = bearishly overvalued
+    else if simI == 8 and isBull and rsiOB  // Wave 5 peak = classic exhaustion
+        val := "Overvalued"
+    else if simI == 8 and not isBull and rsiOS
+        val := "Overvalued"
+    else if (simI == 3 or simI == 7) and rsiOS  // W2 or W4 trough = undervalued
+        val := "Undervalued"
+    else if (simI == 3 or simI == 7) and rsiOB
+        val := "Undervalued"              // bearish W2/W4 peak = oversold mode
+    else if simI == 0 and rsi < 40        // W1 start = still undervalued
+        val := "Undervalued"
+    val
+
+// ── Earnings Power — proxy using volume + momentum + wave structure
+//    Strong = accumulating volume + impulse wave + expanding momentum
+//    Weak = declining volume + corrective wave + contracting momentum
+//    Neutral = otherwise
+f_earningsPower(simI, isBull) =>
+    string ep = "Neutral"
+    // Strength: impulse wave (0,4,8) with high volume and ADX > 25
+    bool impulsePhase = (simI == 0 or simI == 4 or simI == 8)
+    bool correctivePhase = (simI == 1 or simI == 2 or simI == 3 or simI == 5 or simI == 6 or simI == 7)
+    if impulsePhase and volAboveMA and adxStrong
+        ep := "Strong"
+    else if correctivePhase and not volAboveMA
+        ep := "Weak"
+    else if impulsePhase and not volAboveMA
+        ep := "Moderate"
+    else if correctivePhase and volAboveMA
+        ep := "Moderate"
+    ep
+
+// ── Stage Analysis — classifies the current wave into a trend stage
+//    Stage 1: Accumulation (baseline after downtrend, W1 starting)
+//    Stage 2: Advancing (uptrend, W3 progressing)
+//    Stage 3: Top/Distribution (W5, overbought, volume declining)
+//    Stage 4: Declining (corrective cycle, downtrend)
+//    Also works inverted for bear markets
+f_stageAnalysis(simI, dir0, isBull) =>
+    string stage = "Neutral"
+    int curCycle = int(math.floor((pivCnt) / 9))
+
+    if isBull
+        if simI == 0 or simI == 1 or simI == 2
+            stage := "Stage 1: Accumulation"
+        else if simI == 3 or simI == 4
+            stage := "Stage 2: Advancing"
+        else if simI == 5 or simI == 6 or simI == 7
+            stage := "Stage 2: Advancing"
+        else if simI == 8
+            stage := "Stage 3: Distribution"
+    else
+        if simI == 0 or simI == 1 or simI == 2
+            stage := "Stage 4: Declining"
+        else if simI == 3 or simI == 4
+            stage := "Stage 4: Declining"
+        else if simI == 8
+            stage := "Stage 1: Accumulation"
+
+    // Override for corrective cycles
+    if curCycle % 2 == 1
+        if isBull
+            stage := "Correction within Uptrend"
+        else
+            stage := "Correction within Downtrend"
+    stage
+
+// ── Safe pivot-price lookup by absolute array index (na if out of bounds) ──
+f_pxAt(idx, sz) =>
+    float v = na
+    if idx >= 0 and idx < sz
+        v := array.get(px, idx)
+    v
+
+// ── Resolve all EW advanced analysis values ──
+// NOTE: Rule/constraint checks are anchored on simI (the current 9-cycle position),
+// not on a fixed window off array length — otherwise they compare whichever pivots
+// happen to fall sz-N back, regardless of whether those are actually W1/W2/W3/W4/W5
+// for the wave count currently in progress.
+f_resolveEWAnalysis() =>
+    sz = array.size(px)
+    int simI = f_getCurrentSimI()
+
+    // Short-term Extension: defined only when sufficient pivot data exists
+    bool shortTermExt = false, bool longTermExt = false
+    string valuation = "Fair", string earnings = "Neutral", string stage = "Neutral"
+
+    // --- Inviolable Rules ---
+    bool r1_v = false // W2 > 100% W1
+    bool r2_v = false // W3 shortest
+    bool r3_v = false // W4 overlaps W1
+
+    // --- Modern Constraints ---
+    bool c_fib = true
+    bool c_alt = false
+    bool c_w3s = false
+
+    if sz >= 3
+        shortTermExt := f_shortTermExt(simI, px, sz, ewIsBull)
+        longTermExt   := f_longTermExt(px, sz, ewIsBull)
+        valuation     := f_valuation(simI, ewIsBull)
+        earnings      := f_earningsPower(simI, ewIsBull)
+
+        // base = array index of THIS cycle's W1-end pivot (9-position idx 0)
+        int base = sz - 1 - simI
+        float w1Start = f_pxAt(base - 1, sz)
+        float w1End   = f_pxAt(base,     sz)
+        float w2px    = f_pxAt(base + 3, sz)
+        float w3px    = f_pxAt(base + 4, sz)
+        float w4px    = f_pxAt(base + 7, sz)
+        float w5px    = f_pxAt(base + 8, sz)
+
+        // Rule 1: W2 never retraces beyond 100% of Wave 1's start
+        if not na(w1Start) and not na(w2px)
+            if (ewIsBull and w2px < w1Start) or (not ewIsBull and w2px > w1Start)
+                r1_v := true
+
+        // Rule 3: W4 never overlaps Wave 1 price territory — check both the
+        // confirmed W4 pivot and, while W4 is still live (simI==4, forming),
+        // the current bar's intrabar extreme.
+        if not na(w1End)
+            if simI == 4
+                if (ewIsBull and low < w1End) or (not ewIsBull and high > w1End)
+                    r3_v := true
+            else if not na(w4px)
+                if (ewIsBull and w4px < w1End) or (not ewIsBull and w4px > w1End)
+                    r3_v := true
+
+        // Lengths for Rule 2 + modern constraints — each na until its pivots exist
+        float len1 = (not na(w1Start) and not na(w1End)) ? math.abs(w1End - w1Start) : na
+        float len2 = (not na(w1End)   and not na(w2px))  ? math.abs(w1End - w2px)    : na
+        float len3 = (not na(w2px)    and not na(w3px))  ? math.abs(w3px  - w2px)    : na
+        float len4 = (not na(w3px)    and not na(w4px))  ? math.abs(w3px  - w4px)    : na
+        float len5 = not na(w4px) ? (not na(w5px) ? math.abs(w5px - w4px) : math.abs(close - w4px)) : na
+
+        // Rule 2: Wave 3 is never the shortest of Waves 1/3/5
+        if not na(len1) and not na(len3) and not na(len5)
+            if len3 < len1 and len3 < len5
+                r2_v := true
+
+        // Constraint D: Alternation (Sharp vs Sideways)
+        if not na(len1) and not na(len2) and not na(len3) and not na(len4)
+            c_alt := math.abs((len2 / len1) - (len4 / len3)) > 0.2
+
+        // Constraint A/B/C: Fib alignment (W3 >= 1.618x W1, W2 between 50-78.6% of W1)
+        if not na(len1) and not na(len2) and not na(len3)
+            c_fib := (len3 >= len1 * 1.618) and (len2 >= len1 * 0.5 and len2 <= len1 * 0.786)
+
+        c_w3s := simI == 4 and adxStrong and volAboveMA
+
+    [simI, shortTermExt, longTermExt, valuation, earnings, r1_v, r2_v, r3_v, c_fib, c_alt, c_w3s]
+
+// Resolve the analysis values at the current bar
+[simI, shortTermExt, longTermExt, valuationStr, earningsPower, r1_v, r2_v, r3_v, c_fib, c_alt, c_w3s] = f_resolveEWAnalysis()
+
+// ============ BUY / SELL SIGNALS ============
+ewValid = not (r1_v or r2_v or r3_v)
+
+// HARD TREND GATE: PMax direction + SMA200 + Elliott Wave trend must all agree before a
+// "strong" signal can fire — promotes trend from a single scoring point (among 16) to a
+// gate, so a high confluence score can never produce a STRONG BUY/SELL against the
+// dominant trend. Unconditional (not tied to the useTrendSMA200 toggle), since this is a
+// conviction safeguard, not an optional scoring factor.
+trendAlignedBull = dir == 1 and close > sma200Val and ewIsBull
+trendAlignedBear = dir == -1 and close < sma200Val and not ewIsBull
+
+strongBuySignal = (buySignalPmax or buySignalPrice) and (not useVolume or volAboveMA) and (not useADX or adxStrong) and (not useMACD or (macdBullish or macdCrossUp)) and (not useRSI or (rsi < rsiOversold or (rsi < 60 and rsiBullish))) and (not useEMACross or (emaBullish or emaCrossUp)) and (not useATRBreakout or atrBull) and (not useRSIDiv or isBullDiv) and (bullishEngulfing or hammerPattern or emaRetestUp or morningStarPattern or (insideBar and close > open)) and ewValid and trendAlignedBull
+
+weakBuySignal = (buySignalPmax or buySignalPrice) and volAboveMA and (emaBullish or emaCrossUp) and trendBull and (bullishEngulfing or hammerPattern or emaRetestUp or (insideBar and close > open))
+
+strongSellSignal = (sellSignalPmax or sellSignalPrice) and (not useVolume or volAboveMA) and (not useADX or adxStrong) and (not useMACD or (macdBearish or macdCrossDown)) and (not useRSI or (rsi > rsiOverbought or (rsi > 40 and rsiBearish))) and (not useEMACross or (emaBearish or emaCrossDown)) and (not useATRBreakout or atrBear) and (not useRSIDiv or isBearDiv) and (bearishEngulfing or shootingStarPattern or emaRetestDown or eveningStarPattern or (insideBar and close < open)) and ewValid and trendAlignedBear
+
+weakSellSignal = (sellSignalPmax or sellSignalPrice) and volAboveMA and (emaBearish or emaCrossDown) and trendBear and (bearishEngulfing or shootingStarPattern or emaRetestDown or (insideBar and close < open))
+
+// ============ CONFLUENCE SCORING ============
+calcConfluence(p1, p2, v, a, m, r, e, t, ad, b, br, ab, rd, vwp, pat_bull, pat_bear, ew_trend, rs) =>
+    int score = 0
+    score += (p1 ? 1 : 0) + (p2 ? 1 : 0) + (v ? 1 : 0) + (a ? 1 : 0) + (m ? 1 : 0) + (ab ? 1 : 0) + (rd ? 1 : 0)
+    score += (r ? 1 : 0) + (e ? 1 : 0) + (t ? 1 : 0) + (ad ? 1 : 0) + (b ? 1 : 0) + (br ? 1 : 0) + (vwp ? 1 : 0)
+    score += (ew_trend ? 1 : 0) + (rs ? 1 : 0)
+    score += (pat_bull or pat_bear ? 2 : 0)
+    score
+
+bullPatternConfirm = bullishEngulfing or hammerPattern or emaRetestUp or morningStarPattern or (insideBar and close > open)
+bearPatternConfirm = bearishEngulfing or shootingStarPattern or emaRetestDown or eveningStarPattern or (insideBar and close < open)
+
+signalStrengthBuy  = calcConfluence(buySignalPmax, buySignalPrice, useVolume and volAboveMA, useADX and adxStrong, useMACD and macdBull, useRSI and (rsi < rsiOversold or (rsi < 60 and rsiBullish)), useEMACross and (emaBullish or emaCrossUp), useTrendSMA200 and trendBull, useAccumDist and adBull, useBollingerBands and bbBull, useBreakout and breakBull, useATRBreakout and atrBull, useRSIDiv and isBullDiv, useVWAP and vwapBull, bullPatternConfirm, false, ewTrendBull, useRS and rsBullish)
+signalStrengthSell = calcConfluence(sellSignalPmax, sellSignalPrice, useVolume and volAboveMA, useADX and adxStrong, useMACD and macdBear, useRSI and (rsi > rsiOverbought or (rsi > 40 and rsiBearish)), useEMACross and (emaBearish or emaCrossDown), useTrendSMA200 and trendBear, useAccumDist and adBear, useBollingerBands and bbBear, useBreakout and breakBear, useATRBreakout and atrBear, useRSIDiv and isBearDiv, useVWAP and vwapBear, false, bearPatternConfirm, ewTrendBear, useRS and rsBearish)
+
+// ============ PLOTTING ============
+plot(showsupport ? MAvg : na, color=#0585E1, linewidth=2, title="Moving Avg Line")
+pALL = plot(PMax, color=color.red, linewidth=2, title="PMax")
+plot(showBands ? longStop : na, color=color.new(color.green, 50), linewidth=1, style=plot.style_line, title="Long Stop")
+plot(showBands ? shortStop : na, color=color.new(color.red, 50), linewidth=1, style=plot.style_line, title="Short Stop")
+plot(useEMACross ? ema9 : na, color=color.new(color.orange, 20), linewidth=1, title="EMA 9")
+plot(useEMACross ? ema21 : na, color=color.new(color.purple, 20), linewidth=1, title="EMA 21")
+
+// Buy Signals
+plotshape(strongBuySignal and showsignalsk ? PMax*0.995 : na,
+          title="Strong Buy", text="BUY+", location=location.absolute,
+          style=shape.diamond, size=size.small, color=color.green,
+          textcolor=color.white)
+
+plotshape(weakBuySignal and not strongBuySignal and showsignalsk ? PMax*0.995 : na,
+          title="Weak Buy", text="Buy", location=location.absolute,
+          style=shape.labelup, size=size.tiny, color=#00FF00,
+          textcolor=color.black)
+
+// Sell Signals
+plotshape(strongSellSignal and showsignalsk ? PMax*1.005 : na,
+          title="Strong Sell", text="SELL-", location=location.absolute,
+          style=shape.diamond, size=size.small, color=color.red,
+          textcolor=color.white)
+
+plotshape(weakSellSignal and not strongSellSignal and showsignalsk ? PMax*1.005 : na,
+          title="Weak Sell", text="Sell", location=location.absolute,
+          style=shape.labeldown, size=size.tiny, color=#FF6B6B,
+          textcolor=color.black)
+
+// Price Crossing Signals
+buySignalPriceCross = ta.crossover(close, PMax)
+plotshape(buySignalPriceCross and showsignalsc ? PMax*0.995 : na, title="Price Buy", text="Buy",
+          location=location.absolute, style=shape.labelup, size=size.tiny,
+          color=#0F18BF, textcolor=color.white)
+
+sellSignalPriceCross = ta.crossunder(close, PMax)
+plotshape(sellSignalPriceCross and showsignalsc ? PMax*1.005 : na, title="Price Sell", text="Sell",
+          location=location.absolute, style=shape.labeldown, size=size.tiny,
+          color=#0F18BF, textcolor=color.white)
+
+// Trend Highlighting
+mPlot = plot(ohlc4, title="", style=plot.style_circles, linewidth=1, display=display.none)
+longFillColor  = highlighting ? (MAvg>PMax ? color.new(color.green, 80) : na) : na
+shortFillColor = highlighting ? (MAvg<PMax ? color.new(color.red, 80) : na) : na
+fill(mPlot, pALL, title="UpTrend Highlighter", color=longFillColor)
+fill(mPlot, pALL, title="DownTrend Highlighter", color=shortFillColor)
+
+// ============ INSTITUTIONAL POSITION MANAGEMENT LOGIC ============
+currStr = dir == 1 ? signalStrengthBuy : signalStrengthSell
+prevStr = dir[1] == 1 ? signalStrengthBuy[1] : signalStrengthSell[1]
+bool isStrengthening = currStr > prevStr
+bool isWeakening = currStr < prevStr and currStr > 0
+
+// FIX: maxSignals must reflect only ENABLED factors — previously hardcoded to 18 regardless
+// of how many useX toggles were off, which silently deflated confluencePct and made the
+// 50/70/85% thresholds harder to reach the more filters a user disabled.
+int alwaysOnSignals = 5   // PMax MA cross + PMax price cross + candlestick pattern(2pts) + EW trend
+int enabledToggleSignals = (useVolume ? 1 : 0) + (useADX ? 1 : 0) + (useMACD ? 1 : 0) + (useRSI ? 1 : 0) + (useEMACross ? 1 : 0) + (useTrendSMA200 ? 1 : 0) + (useAccumDist ? 1 : 0) + (useBollingerBands ? 1 : 0) + (useBreakout ? 1 : 0) + (useATRBreakout ? 1 : 0) + (useRSIDiv ? 1 : 0) + (useVWAP ? 1 : 0) + (useRS ? 1 : 0)
+int maxSignals = alwaysOnSignals + enabledToggleSignals
+float confluencePct = (currStr / maxSignals) * 100
+float prevConfluencePct = (prevStr / maxSignals) * 100
+
+bool bullMomentumGaining   = dir == 1  and isStrengthening and confluencePct > 50
+bool bullMomentumWeakening = dir == 1  and isWeakening     and confluencePct > 50
+bool bearMomentumGaining   = dir == -1 and isStrengthening and confluencePct > 50
+bool bearMomentumWeakening = dir == -1 and isWeakening     and confluencePct > 50
+
+string finalDecision = "WAIT"
+color decisionColor = color.rgb(100, 100, 100)
+
+if dir == 1
+    if confluencePct >= 85 and strongBuySignal
+        finalDecision := "STRONG BUY [NEW]"
+        decisionColor := color.new(color.green, 0)
+    else if confluencePct >= 70 and confluencePct < 85 and bullMomentumGaining
+        finalDecision := "BUY - ACCUMULATE"
+        decisionColor := color.new(color.lime, 20)
+    else if confluencePct >= 50 and confluencePct < 70 and bullMomentumWeakening
+        finalDecision := "BOOK PROFIT [25%]"
+        decisionColor := color.new(color.orange, 30)
+    else if confluencePct >= 50 and confluencePct < 70
+        finalDecision := "HOLD - MAINTAIN"
+        decisionColor := color.new(color.yellow, 40)
+    else if confluencePct < 50 and prevConfluencePct >= 50 and isWeakening
+        finalDecision := "SCALE OUT [50%]"
+        decisionColor := color.new(color.orange, 20)
+    else if confluencePct < 50
+        finalDecision := "EXIT / WAIT"
+        decisionColor := color.new(color.red, 60)
+
+else if dir == -1
+    if confluencePct >= 85 and strongSellSignal
+        finalDecision := "STRONG SELL [NEW]"
+        decisionColor := color.new(color.red, 0)
+    else if confluencePct >= 70 and confluencePct < 85 and bearMomentumGaining
+        finalDecision := "SELL - REDUCE"
+        decisionColor := color.new(color.rgb(255, 100, 100), 20)
+    else if confluencePct >= 50 and confluencePct < 70 and bearMomentumWeakening
+        finalDecision := "COVER PROFIT [25%]"
+        decisionColor := color.new(color.rgb(200, 100, 0), 30)
+    else if confluencePct >= 50 and confluencePct < 70
+        finalDecision := "HOLD - PROTECT"
+        decisionColor := color.new(color.orange, 40)
+    else if confluencePct < 50 and prevConfluencePct >= 50 and isWeakening
+        finalDecision := "UNWIND [50%]"
+        decisionColor := color.new(color.rgb(200, 100, 0), 20)
+    else if confluencePct < 50
+        finalDecision := "CLOSE / WAIT"
+        decisionColor := color.new(color.lime, 60)
+
+// FIX #5: Was `dir != prevStr[1]` (int vs signal strength) → corrected to `dir != dir[1]`
+if confluencePct < 50 and dir != dir[1]
+    finalDecision := "NEUTRAL - WAIT"
+    decisionColor := color.rgb(120, 120, 120)
+
+// ============ RISK-BASED POSITION SIZING ============
+// FIX: sizing previously was a pure % of equity by confluence tier, ignoring stop distance
+// entirely — a 1% ATR stock and a 6% ATR stock got the same size. Now: risk a fixed % of
+// equity (riskPerTradePct) against the ATR stop distance, capped at maxAllocPct of equity,
+// then scaled by the existing confluence-tier conviction fraction and halved in a regime
+// risk-off market (Varmer's 200-MA rule). default_qty_type=strategy.cash, so qty used at
+// entry is a cash amount, not a contract count. Computed here (before the dashboard) so the
+// Decision Panel can display stop/target/risk alongside the headline call.
+atrCurrent = ta.atr(Periods)
+longSL  = close - (atrCurrent * atrRiskMult)
+longTP  = close + ((close - longSL) * rrRatio)
+shortSL = close + (atrCurrent * atrRiskMult)
+shortTP = close - ((shortSL - close) * rrRatio)
+
+float positionSizeFraction = 0.0
+if confluencePct >= 85
+    positionSizeFraction := 1.0
+else if confluencePct >= 70
+    positionSizeFraction := 0.75
+else if confluencePct >= 50
+    positionSizeFraction := 0.50
+else if confluencePct >= 25
+    positionSizeFraction := 0.25
+else
+    positionSizeFraction := 0.0
+
+regimeSizeMult = regimeRiskOff ? 0.5 : 1.0
+
+f_riskBasedAlloc(stopDistance, sizeFraction) =>
+    float alloc = 0.0
+    if stopDistance > 0
+        float riskBasedCash = strategy.equity * (riskPerTradePct / 100) / (stopDistance / close)
+        float cappedCash    = math.min(riskBasedCash, strategy.equity * (maxAllocPct / 100))
+        alloc := cappedCash * sizeFraction * regimeSizeMult
+    alloc
+
+longAllocCash  = f_riskBasedAlloc(close - longSL,  positionSizeFraction)
+shortAllocCash = f_riskBasedAlloc(shortSL - close, positionSizeFraction)
+longAllocPct   = strategy.equity > 0 ? (longAllocCash  / strategy.equity) * 100 : 0.0
+shortAllocPct  = strategy.equity > 0 ? (shortAllocCash / strategy.equity) * 100 : 0.0
+concentrationWarnLong  = longAllocPct  > 10  // Kalyan philosophy: single stock <10% of portfolio
+concentrationWarnShort = shortAllocPct > 10
+
+// ============ DECISION PANEL — primary dashboard ============
+// Condensed view designed to be read in seconds: decision, conviction tier, position/risk,
+// regime, and structure risk. The granular 16-factor table moves to an optional detail view
+// (showFactorDetail) below so it doesn't compete for visual attention with the headline call.
+if showSignalStrength
+    var table decisionPanel = table.new(position.top_right, 2, 5, frame_color=color.gray, border_width=1)
+
+    // -- Row 0: Decision --
+    table.cell(decisionPanel, 0, 0, "DECISION", text_color=color.white, bgcolor=color.black, text_size=size.small)
+    table.cell(decisionPanel, 1, 0, finalDecision, text_color=color.white, bgcolor=decisionColor, text_size=size.normal)
+
+    // -- Row 1: Conviction tier (confluence% + trend gate + EW validity combined) --
+    bool dirAligned = (dir == 1 and trendAlignedBull) or (dir == -1 and trendAlignedBear)
+    bool aPlusSetup = dirAligned and ewValid and confluencePct >= 85
+    bool bSetup     = dirAligned and ewValid and confluencePct >= 70
+    string convictionTier = aPlusSetup ? "A+ HIGH CONVICTION" : bSetup ? "B GOOD SETUP" : confluencePct >= 50 ? "C MODERATE" : "WAIT / NO EDGE"
+    color  convictionBg   = aPlusSetup ? color.new(color.green, 0) : bSetup ? color.new(color.teal, 20) : confluencePct >= 50 ? color.new(color.orange, 30) : color.new(color.gray, 60)
+    string convictionSub  = str.tostring(math.round(confluencePct)) + "% confluence (" + str.tostring(currStr) + "/" + str.tostring(maxSignals) + " factors)"
+
+    table.cell(decisionPanel, 0, 1, "CONVICTION", text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(decisionPanel, 1, 1, convictionTier + "\n" + convictionSub, text_color=color.white, bgcolor=convictionBg, text_size=size.small)
+
+    // -- Row 2: Position & Risk (stop/target/allocation, direction-aware) --
+    float  activeStop   = dir == 1 ? longSL : shortSL
+    float  activeTarget = dir == 1 ? longTP : shortTP
+    float  activeAlloc  = dir == 1 ? longAllocPct : shortAllocPct
+    bool   activeWarn   = dir == 1 ? concentrationWarnLong : concentrationWarnShort
+    float  stopDistPct  = close != 0 ? math.abs(close - activeStop) / close * 100 : 0.0
+    string posLine1 = "Stop " + str.tostring(activeStop, format.mintick) + " (" + str.tostring(stopDistPct, "#.##") + "%)  |  Target " + str.tostring(activeTarget, format.mintick) + "  |  R:R " + str.tostring(rrRatio, "#.#")
+    string posLine2 = "Alloc " + str.tostring(activeAlloc, "#.#") + "% of equity (risk " + str.tostring(riskPerTradePct, "#.#") + "%, cap " + str.tostring(maxAllocPct, "#.#") + "%)" + (activeWarn ? "  ⚠ EXCEEDS 10% SINGLE-STOCK RULE" : "")
+    color  posBg = activeWarn ? color.new(color.red, 30) : color.new(#1a1a2e, 30)
+
+    table.cell(decisionPanel, 0, 2, "POSITION & RISK", text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(decisionPanel, 1, 2, posLine1 + "\n" + posLine2, text_color=color.white, bgcolor=posBg, text_size=size.tiny)
+
+    // -- Row 3: Market Regime --
+    string regimeStatus = not useRegime ? "OFF" : regimeRiskOff ? "RISK-OFF" : "NORMAL"
+    color  regimeBg     = not useRegime ? color.new(color.gray, 80) : regimeRiskOff ? color.new(color.red, 30) : color.new(color.green, 30)
+    string regimeSub    = not useRegime ? "Disabled" : syminfo.ticker(regimeBenchmark) + (regimeRiskOff ? " < SMA" + str.tostring(regimeSmaLen) + " — size halved" : " >= SMA" + str.tostring(regimeSmaLen) + " — full size")
+
+    table.cell(decisionPanel, 0, 3, "REGIME", text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(decisionPanel, 1, 3, regimeStatus + "\n" + regimeSub, text_color=color.white, bgcolor=regimeBg, text_size=size.small)
+
+    // -- Row 4: Structure Risk (EW validity + Extension/Valuation condensed) --
+    string structStatus = not ewValid ? "EW INVALID" : (shortTermExt and longTermExt) ? "EXHAUSTION" : longTermExt ? "OVER-EXTENDED" : shortTermExt ? "IMPULSE EXT" : "NORMAL"
+    color  structBg      = not ewValid ? color.new(color.maroon, 20) : (shortTermExt and longTermExt) ? color.new(color.maroon, 20) : longTermExt ? color.new(color.red, 30) : shortTermExt ? color.new(color.orange, 30) : color.new(color.gray, 60)
+    string structSub = not ewValid ? (r1_v ? "Wave 2 > 100% retrace" : r2_v ? "Wave 3 shortest" : "Wave 4 overlaps Wave 1") : ("EW " + (ewTrendBull ? "Bullish" : "Bearish") + " | Valuation: " + valuationStr + " | RSI " + str.tostring(rsi, "#.#") + " | ADX " + str.tostring(adxValue, "#.#"))
+
+    table.cell(decisionPanel, 0, 4, "STRUCTURE RISK", text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(decisionPanel, 1, 4, structStatus + "\n" + structSub, text_color=color.white, bgcolor=structBg, text_size=size.tiny)
+
+// ============ FACTOR DETAIL TABLE (Advanced — hidden by default) ============
+// position.middle_right (not top_right) so it doesn't overlap the Decision Panel when both
+// are enabled at once, and not bottom_right so it doesn't collide with the EW projection table.
+if showFactorDetail
+    var table signalTable = table.new(position.middle_right, 20, 3, frame_color=color.gray, border_width=1)
+
+    // ── Extension Risk (Unified Short/Long Term) ──
+    string extStatus = "NORMAL"
+    color  extBg     = color.new(color.gray, 60)
+    string extDetail = "Standard Growth"
+    if not showExtension
+        extStatus := "OFF"
+        extBg     := color.new(color.gray, 80)
+        extDetail := "Disabled"
+    else if shortTermExt and longTermExt
+        extStatus := "EXHAUSTION"
+        extBg     := color.new(color.maroon, 20)
+        extDetail := "Critical Cycle Risk"
+    else if longTermExt
+        extStatus := "OVER-EXTENDED"
+        extBg     := color.new(color.red, 30)
+        extDetail := "Long-Term Stretch"
+    else if shortTermExt
+        extStatus := "IMPULSE EXT"
+        extBg     := color.new(color.orange, 30)
+        extDetail := "Momentum Stretch"
+
+    table.cell(signalTable, 12, 0, "Extension Risk", text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 12, 1, extStatus,        text_color=color.white, bgcolor=extBg,     text_size=size.small)
+    table.cell(signalTable, 12, 2, extDetail,        text_color=color.white, bgcolor=color.new(#1a1a2e, 30), text_size=size.tiny)
+
+    // Valuation
+    table.cell(signalTable, 13, 0, "Valuation", text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    string valDisplay = not showValuation ? "OFF" : valuationStr
+    color valBg = not showValuation ? color.new(color.gray, 80) : valuationStr == "Overvalued" ? color.new(color.red, 30) : valuationStr == "Undervalued" ? color.new(color.green, 30) : color.new(color.gray, 60)
+    color valTxtCol = not showValuation ? color.gray : valuationStr == "Overvalued" ? color.red : valuationStr == "Undervalued" ? color.lime : color.white
+    table.cell(signalTable, 13, 1, valDisplay, text_color=valTxtCol, bgcolor=valBg, text_size=size.small)
+    table.cell(signalTable, 13, 2, not showValuation ? "Disabled" : valuationStr == "Overvalued" ? "Caution" : valuationStr == "Undervalued" ? "Opportunity" : "Hold", text_color=color.white, bgcolor=color.new(#1a1a2e, 30), text_size=size.tiny)
+
+    // Earnings Power
+    table.cell(signalTable, 14, 0, "Earnings Power", text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    string epDisplay = not showEarnings ? "OFF" : earningsPower
+    color epBg = not showEarnings ? color.new(color.gray, 80) : earningsPower == "Strong" ? color.new(color.green, 30) : earningsPower == "Weak" ? color.new(color.red, 30) : color.new(color.gray, 60)
+    color epTxtCol = not showEarnings ? color.gray : earningsPower == "Strong" ? color.lime : earningsPower == "Weak" ? color.red : color.white
+    table.cell(signalTable, 14, 1, epDisplay, text_color=epTxtCol, bgcolor=epBg, text_size=size.small)
+    table.cell(signalTable, 14, 2, not showEarnings ? "Disabled" : (ewIsBull ? "Bullish" : "Bearish"), text_color=not showEarnings ? color.gray : (ewIsBull ? color.lime : color.red), bgcolor=color.new(#1a1a2e, 30), text_size=size.tiny)
+
+    // ── Relative Strength vs Benchmark (Mansfield RS) ──
+    string rsStatusTxt = not useRS ? "OFF" : rsBullish ? "OUTPERFORM" : rsBearish ? "UNDERPERFORM" : "INLINE"
+    color  rsBg = not useRS ? color.new(color.gray, 80) : rsBullish ? color.new(color.green, 30) : rsBearish ? color.new(color.red, 30) : color.new(color.gray, 60)
+    color  rsTxtCol = not useRS ? color.gray : rsBullish ? color.lime : rsBearish ? color.red : color.white
+    string rsDetail = (rsRising ? "Rising " : rsFalling ? "Falling " : "Flat ") + str.tostring(rsMansfield, "#.##") + "% vs " + syminfo.ticker(rsBenchmark)
+
+    table.cell(signalTable, 16, 0, "Rel Strength", text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 16, 1, rsStatusTxt,    text_color=rsTxtCol,    bgcolor=rsBg, text_size=size.small)
+    table.cell(signalTable, 16, 2, rsDetail,       text_color=color.white, bgcolor=color.new(#1a1a2e, 30), text_size=size.tiny)
+
+    // ── Elliott Wave Unified Row ──
+    string ewStatus = "WAIT"
+    color  ewBg     = color.new(color.gray, 80)
+    string ewDetail = "Standard"
+
+    if not ewValid
+        ewStatus := "INVALID"
+        ewBg     := color.new(color.maroon, 20)
+        ewDetail := r1_v ? "W2 > 100%" : r2_v ? "W3 Short" : "W4 Overlap"
+    else
+        ewStatus := ewTrendBull ? "BULLISH" : "BEARISH"
+        ewBg     := ewTrendBull ? color.new(color.green, 30) : color.new(color.red, 30)
+        ewDetail := (not c_fib or not c_alt) ? "Low Prob (Guideline Gap)" : "High Prob (Aligned)"
+
+    table.cell(signalTable, 11, 0, "Elliott Wave", text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 11, 1, ewStatus,       text_color=color.white, bgcolor=ewBg,     text_size=size.small)
+    table.cell(signalTable, 11, 2, ewDetail,       text_color=color.white, bgcolor=color.new(#1a1a2e, 30), text_size=size.tiny)
+
+    adxRsiBull = adxStrong and rsiBullish
+    adxRsiBear = adxStrong and rsiBearish
+    table.cell(signalTable, 15, 0, "ADX+RSI",      text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 15, 1, "Buy Signal",   text_color=adxRsiBull ? color.white : color.gray, bgcolor=adxRsiBull ? color.new(color.green, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 15, 2, "Sell Signal",  text_color=adxRsiBear ? color.white : color.gray, bgcolor=adxRsiBear ? color.new(color.red, 30) : color.new(color.gray, 80), text_size=size.small)
+
+    table.cell(signalTable, 0, 0, "Category",       text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 0, 1, "Bullish Signal", text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 0, 2, "Bearish Signal", text_color=color.white, bgcolor=color.navy, text_size=size.small)
+
+    // CONSOLIDATED TREND ALIGNMENT (SMA 200, EMA Cross, PMax)
+    int bullTrendScore = (trendBull ? 1 : 0) + (emaBullish ? 1 : 0) + (dir == 1 ? 1 : 0)
+    int bearTrendScore = (trendBear ? 1 : 0) + (emaBearish ? 1 : 0) + (dir == -1 ? 1 : 0)
+    string bullTrendAlign = str.tostring(bullTrendScore) + "/3 Aligned"
+    string bearTrendAlign = str.tostring(bearTrendScore) + "/3 Aligned"
+    color bullTCol = bullTrendScore == 3 ? color.new(color.green, 30) : bullTrendScore == 2 ? color.new(color.teal, 30) : bullTrendScore == 1 ? color.new(color.orange, 50) : color.new(color.gray, 80)
+    color bearTCol = bearTrendScore == 3 ? color.new(color.red, 30) : bearTrendScore == 2 ? color.new(color.maroon, 30) : bearTrendScore == 1 ? color.new(color.orange, 50) : color.new(color.gray, 80)
+
+    table.cell(signalTable, 1, 0, "Trend Align",    text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 1, 1, bullTrendAlign,   text_color=color.white, bgcolor=bullTCol,   text_size=size.small)
+    table.cell(signalTable, 1, 2, bearTrendAlign,   text_color=color.white, bgcolor=bearTCol,   text_size=size.small)
+
+    table.cell(signalTable, 2, 0, "Momentum",       text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 2, 1, "RSI > 50",       text_color=rsiBullish ? color.white : color.gray, bgcolor=rsiBullish ? color.new(color.green, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 2, 2, "RSI < 50",       text_color=rsiBearish ? color.white : color.gray, bgcolor=rsiBearish ? color.new(color.red, 30) : color.new(color.gray, 80), text_size=size.small)
+    
+    // UPDATED VOLUME ROW: Seeded with Stage Logic
+    string volBullLabel = adBull ? (simI < 3 ? "Early Acc" : simI < 8 ? "Inst. Buy" : "Blow-off") : "Wait"
+    string volBearLabel = adBear ? (simI < 3 ? "Init. Sell" : simI < 8 ? "Panic Liqu." : "Late Dist") : "Wait"
+    table.cell(signalTable, 3, 0, "Vol/Stage",      text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 3, 1, volBullLabel,     text_color=adBull ? color.white : color.gray, bgcolor=adBull ? color.new(color.green, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 3, 2, volBearLabel,     text_color=adBear ? color.white : color.gray, bgcolor=adBear ? color.new(color.red, 30) : color.new(color.gray, 80), text_size=size.small)
+
+    // UPDATED VOLATILITY ROW: VCP & PCI Logic
+    float atr10 = ta.atr(10), float atr20 = ta.atr(20), float bbWidth_ = (bbUpper - bbLower) / bbBasis
+    bool isVCP = atr10 < atr20 * 0.9, bool isPCI = bbWidth_ < ta.sma(bbWidth_, 20)
+    string volBullTxt = bbBull ? "VOL EXPANSION" : (isVCP or isPCI) and close > bbBasis ? "VCP/PCI TIGHT" : "STABLE"
+    string volBearTxt = bbBear ? "VOL EXPANSION" : (isVCP or isPCI) and close < bbBasis ? "VCP/PCI TIGHT" : "STABLE"
+    color volBullCol = bbBull ? color.new(color.green, 30) : (isVCP or isPCI) and close > bbBasis ? color.new(color.teal, 30) : color.new(color.gray, 80)
+    color volBearCol = bbBear ? color.new(color.red, 30) : (isVCP or isPCI) and close < bbBasis ? color.new(color.teal, 30) : color.new(color.gray, 80)
+    
+    table.cell(signalTable, 4, 0, "Volatility",     text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 5, 0, "Breakout",       text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 5, 1, "Resist Break",   text_color=breakBull ? color.white : color.gray, bgcolor=breakBull ? color.new(color.green, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 5, 2, "Support Break",  text_color=breakBear ? color.white : color.gray, bgcolor=breakBear ? color.new(color.red, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 6, 0, "MACD",           text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 6, 1, "MACD Bullish",   text_color=macdBull ? color.white : color.gray, bgcolor=macdBull ? color.new(color.green, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 6, 2, "MACD Bearish",   text_color=macdBear ? color.white : color.gray, bgcolor=macdBear ? color.new(color.red, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 7, 0, "EMA Cross",      text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 7, 1, "9 > 21 EMA",     text_color=emaBullish ? color.white : color.gray, bgcolor=emaBullish ? color.new(color.green, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 7, 2, "9 < 21 EMA",     text_color=emaBearish ? color.white : color.gray, bgcolor=emaBearish ? color.new(color.red, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 8, 0, "VWAP",           text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 8, 1, "Price > VWAP",   text_color=vwapBull ? color.white : color.gray, bgcolor=vwapBull ? color.new(color.green, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 8, 2, "Price < VWAP",   text_color=vwapBear ? color.white : color.gray, bgcolor=vwapBear ? color.new(color.red, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 9, 0, "ATR Break",      text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 9, 1, "ATR & ADX ↑",    text_color=atrBull ? color.white : color.gray, bgcolor=atrBull ? color.new(color.green, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 9, 2, "ATR & ADX ↓",    text_color=atrBear ? color.white : color.gray, bgcolor=atrBear ? color.new(color.red, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 10, 0, "RSI Div",       text_color=color.white, bgcolor=color.navy, text_size=size.small)
+    table.cell(signalTable, 10, 1, "Bullish Div",   text_color=isBullDiv ? color.white : color.gray, bgcolor=isBullDiv ? color.new(color.green, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 10, 2, "Bearish Div",   text_color=isBearDiv ? color.white : color.gray, bgcolor=isBearDiv ? color.new(color.red, 30) : color.new(color.gray, 80), text_size=size.small)
+    table.cell(signalTable, 4, 1, volBullTxt,       text_color=color.white, bgcolor=volBullCol, text_size=size.small)
+    table.cell(signalTable, 4, 2, volBearTxt,       text_color=color.white, bgcolor=volBearCol, text_size=size.small)
+
+    string positionSize = ""
+    if confluencePct >= 85
+        positionSize := "100% POSITION"
+    else if confluencePct >= 70
+        positionSize := "75% POSITION"
+    else if confluencePct >= 50
+        positionSize := "50% HOLD"
+    else if confluencePct >= 25
+        positionSize := "25% REDUCE"
+    else
+        positionSize := "0% CLOSE"
+
+    table.cell(signalTable, 19, 0, "CONFLUENCE",   text_color=color.white, bgcolor=color.black, text_size=size.small)
+    table.cell(signalTable, 19, 1, finalDecision,  text_color=color.white, bgcolor=decisionColor, text_size=size.small)
+    table.cell(signalTable, 19, 2, str.tostring(math.round(confluencePct)) + "% | " + positionSize, text_color=color.white, bgcolor=decisionColor, text_size=size.small)
+
+// ============ ELLIOTT WAVE VISUALS — barstate.islast (v2 engine) ============
+if barstate.islast
+    sz = array.size(px)
+
+    // Relabel all historical pivot dots with wave numbers
+    if showWaves and sz > 0
+        offset = manualWave != "Auto" ? (wIdx9(manualWave) - (pivCnt - 1) + 900) % 9 : autoOff9()
+        for i = 0 to array.size(lbls) - 1
+            label.set_text(array.get(lbls, i), wLabel9(i + offset))
+
+    if showProj and sz >= 3
+        // ── Determine wave position ──
+        offset2 = manualWave != "Auto" ? (wIdx9(manualWave) - (pivCnt - 1) + 900) % 9 : autoOff9()
+        simI := (pivCnt - 1 + offset2) % 9
+
+        // ── Determine trend ──
+        isBull = ewIsBull
+
+        // ── Recent swing lengths ──
+        L0 = math.abs(array.get(px, sz-1) - array.get(px, sz-2))
+        L1 = sz >= 3 ? math.abs(array.get(px, sz-2) - array.get(px, sz-3)) : L0
+        L2 = sz >= 4 ? math.abs(array.get(px, sz-3) - array.get(px, sz-4)) : L1
+
+        // ── Per-simI: resolve w1Len and originP ──
+        float w1Len   = L0
+        float originP = close
+
+        if simI == 0
+            w1Len   := L0
+            originP := isBull ? close - w1Len : close + w1Len
+        else if simI == 1
+            w1Len   := L1
+            originP := isBull ? array.get(px, sz-2) - w1Len : array.get(px, sz-2) + w1Len
+        else if simI == 2
+            w1Len   := sz >= 4 ? math.abs(array.get(px, sz-3) - array.get(px, sz-4)) : L2
+            originP := sz >= 4 ? array.get(px, sz-4) : (isBull ? close - w1Len : close + w1Len)
+        else if simI == 3
+            w1Len   := sz >= 5 ? math.abs(array.get(px, sz-4) - array.get(px, sz-5)) : L1
+            originP := sz >= 5 ? array.get(px, sz-5) : (isBull ? close - w1Len : close + w1Len)
+        else if simI == 4
+            w1Len   := sz >= 6 ? math.abs(array.get(px, sz-5) - array.get(px, sz-6)) : (sz >= 5 ? math.abs(array.get(px, sz-4) - array.get(px, sz-5)) : L1)
+            originP := sz >= 6 ? array.get(px, sz-6) : (isBull ? close - w1Len * 1.618 : close + w1Len * 1.618)
+        else
+            avgLen  = (L0 + L1 + L2) / 3.0
+            w1Len   := avgLen
+            originP := isBull ? close - w1Len * 2.0 : close + w1Len * 2.0
+
+        // Floor: prevent invisible zero-length projections
+        if w1Len < close * 0.001
+            w1Len := close * 0.05
+
+        // ── Fibonacci ratios ──
+        len1 = w1Len
+        len2 = len1 * 0.618
+        len3 = len1 * 1.618
+        len4 = len3 * 0.382
+        len5 = len1
+
+        dir0  = isBull ? 1.0 : -1.0
+        r_w1  = dir0 * len1
+        r_w2  = r_w1 - dir0 * len2
+        r_w3  = r_w2 + dir0 * len3
+        r_w4  = r_w3 - dir0 * len4
+        r_w5  = r_w4 + dir0 * len5
+
+        w1End = originP + r_w1
+        w2c   = originP + r_w2
+        w3    = originP + r_w3
+        w4c   = originP + r_w4
+        w5    = originP + r_w5
+        w2a   = w1End - dir0 * len1 * 0.382
+        w2b   = w2a   + dir0 * (math.abs(w1End - w2a) * 0.5)
+        w4a   = w3    - dir0 * len3 * 0.236
+        w4b   = w4a   + dir0 * (math.abs(w3 - w4a) * 0.5)
+
+        cycle0Net = w5 - originP
+
+        // ── Smart overshoot: if next target is 4A but already exceeded → advance ──
+        nextI = (simI + 1) % 9
+        if nextI == 5
+            if isBull and close < w4a
+                simI := 5
+                w4b  := close + (w3 - close) * 0.5
+            else if not isBull and close > w4a
+                simI := 5
+                w4b  := close - (close - w3) * 0.5
+
+        // ── Bar spacing & 1-year lookahead ──
+        int barSp = f_ewBarSpacing()
+        int barsPerYear = timeframe.ismonthly ? 12 : timeframe.isweekly ? 52 : timeframe.isdaily ? 252 : timeframe.isintraday ? math.max(10, int(23400 / math.max(1, timeframe.in_seconds())) * 252) : 252
+        int numSegs = math.min(36, math.max(12, int(math.ceil(barsPerYear / barSp))))
+
+        // ── Projection table ──
+        var table tblEW = table.new(position.bottom_right, 4, 14, border_width=1)
+        table.cell(tblEW, 0, 0, "Wave",    bgcolor=colorProj,              text_color=color.white,  text_size=size.small)
+        table.cell(tblEW, 1, 0, "Target",  bgcolor=colorProj,              text_color=color.white,  text_size=size.small)
+        table.cell(tblEW, 2, 0, "% Move",  bgcolor=colorProj,              text_color=color.white,  text_size=size.small)
+        table.cell(tblEW, 3, 0, "Phase",   bgcolor=colorProj,              text_color=color.white,  text_size=size.small)
+
+        int   row    = 1
+        float simP   = close
+        int   simT   = bar_index
+
+        for s = 1 to numSegs
+            effAbsIdx = simI + s
+            cycleNum  = int(math.floor(effAbsIdx / 9))
+            currIdx   = effAbsIdx % 9
+
+            cycleSign = (cycleNum % 2 == 0) ? 1.0 : -1.0
+            activeDir = (isBull ? 1.0 : -1.0) * cycleSign
+
+            float priorCyclesMove = 0.0
+            if cycleNum == 1
+                priorCyclesMove := cycle0Net
+            else if cycleNum >= 2
+                priorCyclesMove := (cycleNum % 2 == 1) ? cycle0Net : 0.0
+
+            cw1  = activeDir * len1
+            cw2  = cw1  - activeDir * len2
+            cw3  = cw2  + activeDir * len3
+            cw4  = cw3  - activeDir * len4
+            cw5  = cw4  + activeDir * len5
+            cw2a = cw1  - activeDir * len1 * 0.382
+            cw2b = cw2a + activeDir * (math.abs(cw1 - cw2a) * 0.5)
+            cw2c = cw2
+            cw4a = cw3  - activeDir * len3 * 0.236
+            cw4b = cw4a + activeDir * (math.abs(cw3 - cw4a) * 0.5)
+            cw4c = cw4
+
+            float  relTp = 0.0
+            string fd    = ""
+
+            if currIdx == 0
+                relTp := cw1,  fd := "Impulse"
+            else if currIdx == 1
+                relTp := cw2a, fd := "0.382 W1"
+            else if currIdx == 2
+                relTp := cw2b, fd := "50%  2A"
+            else if currIdx == 3
+                relTp := cw2c, fd := "0.618 W1"
+            else if currIdx == 4
+                relTp := cw3,  fd := "1.618 ext"
+            else if currIdx == 5
+                relTp := cw4a, fd := "0.236 W3"
+            else if currIdx == 6
+                relTp := cw4b, fd := "50%  4A"
+            else if currIdx == 7
+                relTp := cw4c, fd := "0.382 W3"
+            else if currIdx == 8
+                relTp := cw5,  fd := "2.618 ext"
+
+            tp  = originP + priorCyclesMove + relTp
+            nt  = simT + barSp
+
+            string lb = f_waveLabel(currIdx, cycleNum)
+
+            bool isMainNode = currIdx == 0 or currIdx == 3 or currIdx == 4 or currIdx == 7 or currIdx == 8
+            bool isW2orW4 = isMainNode and (currIdx == 3 or currIdx == 7) and (cycleNum % 2 == 0)
+
+            color lineCol  = isW2orW4  ? color.new(color.orange, 0) :
+                             not isMainNode ? color.new(color.gray, 40) :
+                             (isBull and cycleNum % 2 == 0) ? color.new(color.lime, 0) : color.new(color.red, 20)
+
+            color lblBg    = isW2orW4  ? color.new(color.orange, 10) :
+                             not isMainNode ? color.new(color.gray, 60) :
+                             (isBull and cycleNum % 2 == 0) ? color.new(color.green, 10) : color.new(color.red, 10)
+
+            int   lWidth   = isMainNode ? 2 : 1
+            lineStyle      = isMainNode ? line.style_dashed : line.style_dotted
+
+            line.new(simT, simP, nt, tp, color=lineCol, style=lineStyle, width=lWidth)
+
+            if isMainNode
+                label.new(nt, tp, lb, color=lblBg, style=label.style_label_left, textcolor=color.white, size=size.small)
+
+            if isMainNode and row <= 13
+                pct = (tp - close) / close * 100
+                bg  = pct > 0 ? color.new(color.green, 30) : color.new(color.red, 30)
+                string phaseStr = cycleNum % 2 == 0 ? (currIdx == 3 or currIdx == 7 ? "Corrective" : "Impulse") : "Corrective"
+                color  phaseBg  = phaseStr == "Impulse" ? color.new(color.teal, 50) : color.new(color.orange, 50)
+                table.cell(tblEW, 0, row, lb,                               bgcolor=color.new(#1a1a2e, 30), text_color=color.white,  text_size=size.tiny)
+                table.cell(tblEW, 1, row, str.tostring(tp, format.mintick), bgcolor=color.new(#1a1a2e, 30), text_color=color.white,  text_size=size.tiny)
+                table.cell(tblEW, 2, row, str.tostring(pct, "#.##") + "%",  bgcolor=bg,                     text_color=color.white,  text_size=size.tiny)
+                table.cell(tblEW, 3, row, phaseStr,                         bgcolor=phaseBg,                text_color=color.white,  text_size=size.tiny)
+                row += 1
+
+            simP := tp
+            simT := nt
+
+        if showFibLvl
+            fibStart = array.get(pt, math.max(0, sz - 9))
+            fibEnd   = simT + 20
+
+            line.new(fibStart, w2a,  fibEnd, w2a,  color=color.new(color.green, 50),   style=line.style_dotted)
+            label.new(fibEnd,  w2a,  "Ret 0.382 → W2a", color=color.new(color.gray, 100), style=label.style_label_left, textcolor=color.new(color.green, 10),  size=size.tiny)
+
+            line.new(fibStart, w2c,  fibEnd, w2c,  color=color.new(color.green, 50),   style=line.style_dotted)
+            label.new(fibEnd,  w2c,  "Ret 0.618 → W2",  color=color.new(color.gray, 100), style=label.style_label_left, textcolor=color.new(color.green, 10),  size=size.tiny)
+
+            line.new(fibStart, w3,   fibEnd, w3,   color=color.new(colorProj,   50),   style=line.style_dotted)
+            label.new(fibEnd,  w3,   "Ext 1.618 → W3",  color=color.new(color.gray, 100), style=label.style_label_left, textcolor=color.new(colorProj,  10),   size=size.tiny)
+
+            line.new(fibStart, w4c,  fibEnd, w4c,  color=color.new(color.orange, 50),  style=line.style_dotted)
+            label.new(fibEnd,  w4c,  "Ret 0.382 → W4",  color=color.new(color.gray, 100), style=label.style_label_left, textcolor=color.new(color.orange, 10), size=size.tiny)
+
+            line.new(fibStart, w5,   fibEnd, w5,   color=color.new(colorProj,   50),   style=line.style_dotted)
+            label.new(fibEnd,  w5,   "Ext 2.618 → W5",  color=color.new(color.gray, 100), style=label.style_label_left, textcolor=color.new(colorProj,  10),   size=size.tiny)
+
+// ============ ALERTS ============
+alertcondition(strongBuySignal and confluencePct >= 85, title="[T1-BUY] 85%+ Confluence", message="STRONG BUY: Initiate 100% position - Confluence 85%+ with momentum alignment")
+alertcondition(strongSellSignal and confluencePct >= 85, title="[T1-SELL] 85%+ Confluence", message="STRONG SELL: Initiate 100% short - Confluence 85%+ with momentum alignment")
+alertcondition(bullMomentumGaining and confluencePct >= 70 and confluencePct < 85, title="[T2-BUY] 70-85% Confluence", message="BUY SIGNAL: Accumulate position - Confluence 70-85% with strengthening momentum")
+alertcondition(bearMomentumGaining and confluencePct >= 70 and confluencePct < 85, title="[T2-SELL] 70-85% Confluence", message="SELL SIGNAL: Reduce exposure - Confluence 70-85% with strengthening bearish momentum")
+alertcondition(confluencePct >= 50 and confluencePct < 70 and dir == 1, title="[T3-HOLD] 50-70% Confluence", message="HOLD POSITION: Maintain existing longs - Confluence 50-70%")
+alertcondition(confluencePct >= 50 and confluencePct < 70 and dir == -1, title="[T3-PROTECT] 50-70% Confluence", message="PROTECT POSITION: Maintain shorts with stops - Confluence 50-70%")
+alertcondition(bullMomentumWeakening and confluencePct >= 50 and confluencePct < 70, title="[T4-PROFIT] Weakening Bullish", message="BOOK PROFIT: Scale out 25% - Bullish momentum weakening at 50-70% confluence")
+alertcondition(bearMomentumWeakening and confluencePct >= 50 and confluencePct < 70, title="[T4-COVER] Weakening Bearish", message="COVER PROFIT: Scale out 25% - Bearish momentum weakening at 50-70% confluence")
+alertcondition(confluencePct < 50 and prevConfluencePct >= 50 and isWeakening, title="[T5-EXIT] Momentum Breakdown", message="EXIT SIGNAL: Scale out 50% - Confluence falling below 50%")
+alertcondition(emaCrossUp and confluencePct >= 50, title="[EMA-BULL] Golden Cross + Confluence", message="EMA 9 crossed above EMA 21 with strong confluence - Bullish confirmation")
+alertcondition(emaCrossDown and confluencePct >= 50, title="[EMA-BEAR] Death Cross + Confluence", message="EMA 9 crossed below EMA 21 with strong confluence - Bearish confirmation")
+alertcondition(regimeRiskOff and not regimeRiskOff[1], title="[REGIME] Market Turned Risk-Off", message="REGIME FLIP: Benchmark fell below its long-term SMA — new entries sized at 50%, review existing exposure")
+alertcondition(not regimeRiskOff and regimeRiskOff[1], title="[REGIME] Market Turned Risk-On", message="REGIME FLIP: Benchmark reclaimed its long-term SMA — full position sizing restored")
+
+// ============ BACKTESTING — TRADE EXECUTION ============
+// Stop/target/risk-based qty (longSL/longTP/shortSL/shortTP/longAllocCash/shortAllocCash)
+// are computed earlier, before the dashboard, so the Decision Panel can display them too.
+
+// Long Entry
+if strongBuySignal and withinWindow and confluencePct >= 85
+    strategy.entry("Long", strategy.long, qty=longAllocCash, comment="T1-BUY: 85%+ Confluence")
+    if useExits
+        int trailOffset = int((close * trailPerc) / syminfo.mintick)
+        strategy.exit("Exit Long", "Long", limit=longTP, stop=longSL, trail_price=useTrailing ? close : na, trail_offset=useTrailing ? trailOffset : na, comment_loss="SL ATR", comment_profit="TP ATR", comment_trailing="TSL")
+
+else if bullMomentumGaining and withinWindow and confluencePct >= 70 and confluencePct < 85
+    strategy.entry("Long", strategy.long, qty=longAllocCash*0.75, comment="T2-BUY: 70-85% Add Position")
+    if useExits
+        int trailOffset = int((close * trailPerc) / syminfo.mintick)
+        strategy.exit("Add Exit Long", "Long", limit=longTP, stop=longSL, trail_price=useTrailing ? close : na, trail_offset=useTrailing ? trailOffset : na, comment_loss="SL ATR", comment_profit="TP ATR", comment_trailing="TSL")
+
+// Short Entry
+if strongSellSignal and withinWindow and confluencePct >= 85
+    strategy.entry("Short", strategy.short, qty=shortAllocCash, comment="T1-SELL: 85%+ Confluence")
+    if useExits
+        int trailOffset = int((close * trailPerc) / syminfo.mintick)
+        strategy.exit("Exit Short", "Short", limit=shortTP, stop=shortSL, trail_price=useTrailing ? close : na, trail_offset=useTrailing ? trailOffset : na, comment_loss="SL ATR", comment_profit="TP ATR", comment_trailing="TSL")
+
+else if bearMomentumGaining and withinWindow and confluencePct >= 70 and confluencePct < 85
+    strategy.entry("Short", strategy.short, qty=shortAllocCash*0.75, comment="T2-SELL: 70-85% Add Position")
+    if useExits
+        int trailOffset = int((close * trailPerc) / syminfo.mintick)
+        strategy.exit("Add Exit Short", "Short", limit=shortTP, stop=shortSL, trail_price=useTrailing ? close : na, trail_offset=useTrailing ? trailOffset : na, comment_loss="SL ATR", comment_profit="TP ATR", comment_trailing="TSL")

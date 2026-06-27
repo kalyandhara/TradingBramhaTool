@@ -1,0 +1,35 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+
+# Data & exports
+*.xlsx
+*.csv
+*.json
+*.db
+*.log
+
+# Sector rotation outputs
+sector_rotation_*.html
+sector_rotation_*.png
+sector_rotation_trail_*.json
+
+# Obsidian / editor
+.obsidian/
+*.canvas
+
+# Images pasted into vault
+Pasted image*.png
+
+# Raw data dumps
+raw/
+
+# Env
+.env
+*.env
