@@ -83,12 +83,70 @@ def gain_loss_badge(x: float) -> str:
     return f"{arrow} {x:+.2f}%"
 
 
-def render_condition_table(mv_conds: dict, tf_conds: dict) -> None:
+def render_condition_table(mv_conds: dict, tf_conds: dict,
+                            canslim_conds: dict | None = None) -> None:
     rows = [{"Strategy": "Minervini", "Condition": k, "Pass": "✅" if v else "❌"}
             for k, v in mv_conds.items()]
     rows += [{"Strategy": "TechnoFunda", "Condition": k, "Pass": "✅" if v else "❌"}
              for k, v in tf_conds.items()]
+    if canslim_conds:
+        rows += [{"Strategy": "CANSLIM", "Condition": k,
+                  "Pass": ("✅" if v else "❌") if v is not None else "—"}
+                 for k, v in canslim_conds.items()]
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+
+def _compute_canslim(df: pd.DataFrame, nifty_df: pd.DataFrame | None) -> tuple:
+    """
+    Returns (score, conds, rs_pct, rs_line) where:
+      score    — int, number of CANSLIM conditions that pass (max 4 computable)
+      conds    — dict of condition_label → True/False/None
+      rs_pct   — float, stock 12m return minus Nifty 12m return (outperformance %)
+      rs_line  — pd.Series (normalized to 100 at start) or None
+    """
+    conds: dict = {}
+    rs_pct: float = 0.0
+    rs_line = None
+
+    last = float(df["close"].iloc[-1])
+
+    # N — New High: within 15% of 52-week high
+    high_52 = float(df["high"].tail(252).max()) if len(df) >= 60 else float(df["high"].max())
+    conds["N — Near 52w High (<15% below)"] = (high_52 - last) / high_52 < 0.15
+
+    # S — Supply/Demand: today's volume ≥ 50-day average
+    vol50 = float(df["volume"].tail(50).mean())
+    vol_last = float(df["volume"].iloc[-1])
+    conds["S — Volume ≥ 50d Average"] = vol_last >= vol50
+
+    # M — Market direction: Nifty50 above its SMA200
+    if nifty_df is not None and len(nifty_df) >= 200:
+        nifty_sma200 = float(nifty_df["close"].rolling(200).mean().iloc[-1])
+        conds["M — Market Above SMA200 (Uptrend)"] = float(nifty_df["close"].iloc[-1]) > nifty_sma200
+    else:
+        conds["M — Market Above SMA200 (Uptrend)"] = None
+
+    # L — Leader: stock 12m return > Nifty 12m return (RS outperformance)
+    if nifty_df is not None:
+        nifty_aligned = nifty_df["close"].reindex(df.index, method="ffill")
+        nifty_aligned = nifty_aligned.fillna(method="bfill")
+
+        # RS Line normalized to 100 at first available point
+        rs_raw = df["close"] / nifty_aligned.replace(0, float("nan"))
+        rs_line = (rs_raw / rs_raw.iloc[0]) * 100
+
+        lookback = min(252, len(df) - 1)
+        if lookback >= 21:
+            stock_12m = (float(df["close"].iloc[-1]) / float(df["close"].iloc[-lookback]) - 1) * 100
+            nifty_12m = (float(nifty_aligned.iloc[-1]) / float(nifty_aligned.iloc[-lookback]) - 1) * 100
+            rs_pct = stock_12m - nifty_12m
+
+        conds["L — RS Leader (outperforms Nifty50)"] = rs_pct > 0
+    else:
+        conds["L — RS Leader (outperforms Nifty50)"] = None
+
+    score = sum(1 for v in conds.values() if v is True)
+    return score, conds, rs_pct, rs_line
 
 
 def _volume_profile(df: pd.DataFrame, n_bins: int = 50):
@@ -107,7 +165,8 @@ def _volume_profile(df: pd.DataFrame, n_bins: int = 50):
     return bin_centers, vap
 
 
-def build_chart(symbol: str, df: pd.DataFrame, ew: dict) -> go.Figure:
+def build_chart(symbol: str, df: pd.DataFrame, ew: dict,
+                nifty_df: pd.DataFrame | None = None) -> go.Figure:
     rsi9  = RSIIndicator(df["close"], window=9).rsi()
     sma50  = df["close"].rolling(50).mean()
     sma150 = df["close"].rolling(150).mean()
@@ -123,13 +182,25 @@ def build_chart(symbol: str, df: pd.DataFrame, ew: dict) -> go.Figure:
     macd_hist   = macd_line - macd_signal
     hist_colors = ["#26a69a" if v >= 0 else "#ef5350" for v in macd_hist]
 
+    # RS Line vs Nifty50
+    rs_line = None
+    if nifty_df is not None:
+        nifty_aligned = nifty_df["close"].reindex(df.index, method="ffill").fillna(method="bfill")
+        rs_raw = df["close"] / nifty_aligned.replace(0, float("nan"))
+        rs_line = (rs_raw / rs_raw.iloc[0]) * 100
+
     bin_centers, vap = _volume_profile(df)
     vap_max = vap.max() if vap.max() > 0 else 1.0
 
+    n_rows = 5 if rs_line is not None else 4
+    heights = [0.44, 0.11, 0.17, 0.15, 0.13] if rs_line is not None else [0.50, 0.12, 0.20, 0.18]
+    titles  = (symbol, "Volume", "RSI(9)", "MACD (12,26,9)", "RS Line vs Nifty50") \
+              if rs_line is not None else (symbol, "Volume", "RSI(9)", "MACD (12,26,9)")
+
     fig = make_subplots(
-        rows=4, cols=1, shared_xaxes=True,
-        row_heights=[0.50, 0.12, 0.20, 0.18], vertical_spacing=0.03,
-        subplot_titles=(symbol, "Volume", "RSI(9)", "MACD (12, 26, 9)"),
+        rows=n_rows, cols=1, shared_xaxes=True,
+        row_heights=heights, vertical_spacing=0.03,
+        subplot_titles=titles,
     )
 
     fig.add_trace(go.Candlestick(
@@ -212,7 +283,22 @@ def build_chart(symbol: str, df: pd.DataFrame, ew: dict) -> go.Figure:
     ), row=4, col=1)
     fig.add_hline(y=0, row=4, col=1, line_dash="dot", line_color="gray", line_width=1)
 
-    fig.update_layout(height=1000, xaxis_rangeslider_visible=False,
+    # RS Line (row 5, only when Nifty data is available)
+    if rs_line is not None:
+        rs_ma30 = rs_line.rolling(30).mean()
+        fig.add_trace(go.Scatter(
+            x=df.index, y=rs_line, name="RS Line",
+            line=dict(color="#00bcd4", width=1.5), fill="tozeroy",
+            fillcolor="rgba(0,188,212,0.08)",
+        ), row=5, col=1)
+        fig.add_trace(go.Scatter(
+            x=df.index, y=rs_ma30, name="RS MA(30)",
+            line=dict(color="#ff9800", width=1, dash="dot"), showlegend=True,
+        ), row=5, col=1)
+        fig.add_hline(y=100, row=5, col=1, line_dash="dash", line_color="gray", line_width=1)
+
+    chart_height = 1100 if rs_line is not None else 1000
+    fig.update_layout(height=chart_height, xaxis_rangeslider_visible=False,
                        legend=dict(orientation="h", yanchor="bottom", y=1.02))
     return fig
 
@@ -544,12 +630,16 @@ with tab2:
                 mv_score, mv_conds = sp.score_minervini(df, nifty_df=nifty_df)
                 tf_score, tf_conds = sp.score_technofunda(df)
                 ew = ew_module.analyze_ew(df)
+                cs_score, cs_conds, rs_pct, _ = _compute_canslim(df, nifty_df)
 
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3, c4, c5 = st.columns(5)
                 c1.metric("Minervini", f"{mv_score}/8")
                 c2.metric("TechnoFunda", f"{tf_score}/6")
                 c3.metric("Total", f"{mv_score + tf_score}/14")
                 c4.metric("EW Confidence", f"{ew['confidence']}%")
+                c5.metric("CANSLIM (RS)", f"{cs_score}/4",
+                           delta=f"{rs_pct:+.1f}% vs Nifty",
+                           delta_color="normal")
 
                 st.info(
                     f"**Wave Position:** {ew['wave_pos']}  |  "
@@ -558,8 +648,9 @@ with tab2:
                     f"{ew['note']}"
                 )
 
-                st.plotly_chart(build_chart(symbol, df, ew), use_container_width=True)
-                render_condition_table(mv_conds, tf_conds)
+                st.plotly_chart(build_chart(symbol, df, ew, nifty_df=nifty_df),
+                                use_container_width=True)
+                render_condition_table(mv_conds, tf_conds, cs_conds)
 
                 if st.button("Add to Watchlist", key="sa_wl"):
                     db.add_watchlist_symbol(symbol, "From Stock Analyzer")
