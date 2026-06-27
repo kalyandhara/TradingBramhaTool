@@ -27,6 +27,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import screener_pipeline as sp
 import ew_module
+import scanner_templates as sc
 import screener_scraper as ss
 import multibagger_candidates as mb
 import promoter_profit_surprise as pps
@@ -336,6 +337,53 @@ with st.expander("Set total capital (used for % capital-at-risk)"):
 
 st.divider()
 
+def _render_scanner_card(card: dict, scanner_name: str) -> None:
+    sym = card["symbol"]
+    tag_html = " ".join(
+        f'<span style="background:#eef2ff;color:#4f46e5;padding:2px 8px;'
+        f'border-radius:4px;font-size:12px;margin-right:4px;">{t}</span>'
+        for t in card.get("tags", [])
+    )
+    reasons_html = "".join(
+        f'<div style="display:flex;margin-bottom:6px;font-size:13px;color:#444;">'
+        f'<span style="color:#10b981;font-weight:bold;margin-right:6px;">✓</span>{r}</div>'
+        for r in card.get("reasons", [])
+    )
+    st.markdown(
+        f"""
+        <div style="border:1px solid #e0e0e0;border-radius:8px;padding:16px;
+                    margin-bottom:4px;background:white;">
+          <div style="display:flex;align-items:center;margin-bottom:10px;">
+            <div style="width:36px;height:36px;border-radius:6px;
+                        background:linear-gradient(135deg,#667eea,#764ba2);
+                        color:white;display:flex;align-items:center;
+                        justify-content:center;font-weight:bold;
+                        margin-right:10px;flex-shrink:0;">{sym[0]}</div>
+            <span style="font-size:16px;font-weight:600;">{sym}</span>
+          </div>
+          <div style="margin-bottom:10px;">{tag_html}</div>
+          <div style="font-size:11px;color:#888;font-weight:600;margin-bottom:6px;
+                      text-transform:uppercase;letter-spacing:0.5px;">Why it's interesting</div>
+          {reasons_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+    c1, c2, c3 = st.columns([3, 2, 2])
+    with c1:
+        if st.button("Analyze →", key=f"sc_a_{sym}_{scanner_name}"):
+            st.session_state["selected_symbol"] = sym
+            st.info("Switch to **Stock Analyzer** tab.")
+    with c2:
+        if st.button("+ Watchlist", key=f"sc_w_{sym}_{scanner_name}"):
+            db.add_watchlist_symbol(sym, card.get("pattern_type", scanner_name))
+            st.success(f"Added {sym}")
+    with c3:
+        if st.button("★ Save", key=f"sc_s_{sym}_{scanner_name}"):
+            db.save_scanner_hit(sym, scanner_name, card.get("pattern_type", ""))
+            st.success(f"Saved {sym}")
+
+
 with st.expander("Daily Workflow (IST)"):
     st.markdown(
         "| Time | Action |\n|---|---|\n"
@@ -346,9 +394,9 @@ with st.expander("Daily Workflow (IST)"):
     )
     st.caption("Screener pipeline auto-runs at 4:05 PM — aligned with the post-market review window.")
 
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs(
+tab1, tab2, tab3, tab4, tab5, tab6, tab7, tab8 = st.tabs(
     ["Screener", "Stock Analyzer", "Portfolio", "Watchlist", "Alerts",
-     "Other Screeners", "Pipeline Log"]
+     "Other Screeners", "Pipeline Log", "Scanner Hub"]
 )
 
 
@@ -846,3 +894,82 @@ with tab7:
         st.code("\n".join(lines[-200:]), language=None)
     else:
         st.info("No log file yet — run the pipeline at least once.")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Tab 8 — Scanner Hub (SwingEdge-inspired pre-built pattern scanners)
+# ──────────────────────────────────────────────────────────────────────────────
+with tab8:
+    st.subheader("Scanner Hub")
+    st.caption("Pre-built pattern scanners — choose a scanner, select a universe, run.")
+
+    hub_left, hub_main = st.columns([1, 3])
+
+    with hub_left:
+        st.markdown("**Pre-Built Scanners**")
+        by_cat: dict[str, list[str]] = {}
+        for name, spec in sc.SCANNERS.items():
+            by_cat.setdefault(spec["category"], []).append(name)
+        for cat in ["Pattern", "Momentum", "Trend", "Entry", "Risk"]:
+            if cat not in by_cat:
+                continue
+            st.markdown(f"<span style='font-size:11px;color:#888;font-weight:600;text-transform:uppercase;'>{cat}</span>", unsafe_allow_html=True)
+            for name in by_cat[cat]:
+                if st.button(name, key=f"hub_sel_{name}", use_container_width=True):
+                    st.session_state["hub_scanner"] = name
+                    st.session_state.pop("hub_results", None)
+
+        selected_scanner = st.session_state.get("hub_scanner", list(sc.SCANNERS.keys())[0])
+        st.divider()
+        st.markdown(f"**Selected:** {selected_scanner}")
+        st.caption(sc.SCANNERS[selected_scanner]["description"])
+
+        st.divider()
+        screener_res = st.session_state.get("screener_results")
+        if screener_res is not None and not screener_res.empty:
+            universe = sorted(screener_res["Symbol"].unique())
+            st.caption(f"Universe: {len(universe)} stocks from screener")
+        else:
+            st.caption("No screener results — enter symbols manually:")
+            raw = st.text_area("Symbols (comma / newline)", key="hub_manual", height=80)
+            universe = [s.strip().upper() for s in raw.replace(",", "\n").splitlines() if s.strip()]
+
+        if st.button("Run Scanner", type="primary", key="hub_run"):
+            if not universe:
+                st.warning("Run the screener first (Tab 1) or enter symbols above.")
+            else:
+                with st.spinner(f"Running {selected_scanner} on {len(universe)} symbols..."):
+                    hits = sc.run_scanner(selected_scanner, universe, cached_fetch_ohlcv)
+                st.session_state["hub_results"] = hits
+                st.session_state["hub_scanner_ran"] = selected_scanner
+
+        saved_df = db.get_saved_scanner_hits(selected_scanner)
+        if not saved_df.empty:
+            st.divider()
+            st.markdown(f"**Saved ({len(saved_df)})**")
+            for _, row in saved_df.iterrows():
+                c1, c2 = st.columns([3, 1])
+                c1.write(row["symbol"])
+                if c2.button("✕", key=f"hub_del_{row['symbol']}"):
+                    db.remove_scanner_hit(row["symbol"], selected_scanner)
+                    st.rerun()
+
+    with hub_main:
+        hits = st.session_state.get("hub_results")
+        ran_for = st.session_state.get("hub_scanner_ran", "")
+
+        if hits is None:
+            st.info("Choose a scanner on the left and click **Run Scanner**.")
+        elif ran_for != selected_scanner:
+            st.info(f"Last run was for **{ran_for}**. Click **Run Scanner** to scan with **{selected_scanner}**.")
+        elif not hits:
+            st.info(f"No stocks matched **{selected_scanner}** in this universe.")
+        else:
+            st.caption(f"{len(hits)} stocks matched · sorted by score")
+            cols_n = 3
+            for i in range(0, len(hits), cols_n):
+                batch = hits[i:i + cols_n]
+                cols = st.columns(cols_n)
+                for col, card in zip(cols, batch):
+                    with col:
+                        _render_scanner_card(card, selected_scanner)

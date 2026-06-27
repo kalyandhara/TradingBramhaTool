@@ -79,6 +79,16 @@ def init_db() -> None:
                 key TEXT PRIMARY KEY,
                 value TEXT
             );
+
+            CREATE TABLE IF NOT EXISTS scanner_saved (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                symbol TEXT NOT NULL,
+                scanner_name TEXT NOT NULL,
+                pattern_type TEXT,
+                notes TEXT,
+                saved_date TEXT NOT NULL,
+                UNIQUE(symbol, scanner_name)
+            );
             """
         )
         conn.commit()
@@ -265,6 +275,51 @@ def set_setting(key: str, value: str) -> None:
             "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)", (key, value)
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Scanner saved results
+# ──────────────────────────────────────────────────────────────────────────────
+
+def save_scanner_hit(symbol: str, scanner_name: str, pattern_type: str = "",
+                     notes: str = "") -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "INSERT OR REPLACE INTO scanner_saved "
+            "(symbol, scanner_name, pattern_type, notes, saved_date) VALUES (?, ?, ?, ?, ?)",
+            (symbol.upper(), scanner_name, pattern_type, notes, date.today().isoformat()),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def remove_scanner_hit(symbol: str, scanner_name: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute(
+            "DELETE FROM scanner_saved WHERE symbol = ? AND scanner_name = ?",
+            (symbol.upper(), scanner_name),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_saved_scanner_hits(scanner_name: str | None = None) -> pd.DataFrame:
+    conn = get_connection()
+    try:
+        if scanner_name:
+            return pd.read_sql_query(
+                "SELECT * FROM scanner_saved WHERE scanner_name = ? ORDER BY saved_date DESC",
+                conn, params=(scanner_name,),
+            )
+        return pd.read_sql_query(
+            "SELECT * FROM scanner_saved ORDER BY saved_date DESC", conn
+        )
     finally:
         conn.close()
 
