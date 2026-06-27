@@ -117,13 +117,19 @@ def build_chart(symbol: str, df: pd.DataFrame, ew: dict) -> go.Figure:
     ema21 = df["close"].ewm(span=21, adjust=False).mean()
     ema50 = df["close"].ewm(span=50, adjust=False).mean()
 
+    # MACD (12, 26, 9)
+    macd_line   = df["close"].ewm(span=12, adjust=False).mean() - df["close"].ewm(span=26, adjust=False).mean()
+    macd_signal = macd_line.ewm(span=9, adjust=False).mean()
+    macd_hist   = macd_line - macd_signal
+    hist_colors = ["#26a69a" if v >= 0 else "#ef5350" for v in macd_hist]
+
     bin_centers, vap = _volume_profile(df)
     vap_max = vap.max() if vap.max() > 0 else 1.0
 
     fig = make_subplots(
-        rows=3, cols=1, shared_xaxes=True,
-        row_heights=[0.55, 0.15, 0.30], vertical_spacing=0.03,
-        subplot_titles=(symbol, "Volume", "PTF RSI(9)"),
+        rows=4, cols=1, shared_xaxes=True,
+        row_heights=[0.50, 0.12, 0.20, 0.18], vertical_spacing=0.03,
+        subplot_titles=(symbol, "Volume", "RSI(9)", "MACD (12, 26, 9)"),
     )
 
     fig.add_trace(go.Candlestick(
@@ -191,7 +197,22 @@ def build_chart(symbol: str, df: pd.DataFrame, ew: dict) -> go.Figure:
     fig.add_hline(y=80, row=3, col=1, line_dash="dot", line_color="gray")
     fig.add_hline(y=20, row=3, col=1, line_dash="dot", line_color="gray")
 
-    fig.update_layout(height=850, xaxis_rangeslider_visible=False,
+    # MACD row
+    fig.add_trace(go.Bar(
+        x=df.index, y=macd_hist, name="MACD Hist",
+        marker_color=hist_colors, showlegend=True,
+    ), row=4, col=1)
+    fig.add_trace(go.Scatter(
+        x=df.index, y=macd_line, name="MACD",
+        line=dict(color="#2196f3", width=1.5),
+    ), row=4, col=1)
+    fig.add_trace(go.Scatter(
+        x=df.index, y=macd_signal, name="Signal",
+        line=dict(color="#ff9800", width=1.5, dash="dot"),
+    ), row=4, col=1)
+    fig.add_hline(y=0, row=4, col=1, line_dash="dot", line_color="gray", line_width=1)
+
+    fig.update_layout(height=1000, xaxis_rangeslider_visible=False,
                        legend=dict(orientation="h", yanchor="bottom", y=1.02))
     return fig
 
