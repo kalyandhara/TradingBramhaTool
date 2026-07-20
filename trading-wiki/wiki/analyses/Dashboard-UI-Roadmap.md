@@ -138,7 +138,9 @@ Everything the plan needs is either already present or is a small extension of a
 
 ## Outcome (fill in later)
 - **2026-07-19:** M1 still not shipped as of this review — the Setup Intelligence panel (2026-07-16) covered the *per-symbol* synthesis but not the Scanner Hub /100 rollup. M2 backend (pattern geometry endpoints) is fully in place; only the on-chart overlay remains. Phase 0 (git consolidation) identified as the true first step. Execution started this session — see [[log]].
-- _Milestone 1 ship + one session of use → record observed benefit + weight refinements here. Same for M2, M3, M4._
+- **2026-07-20 — Phase 0 done, M1 SHIPPED & verified.** Phase 0: repo consolidated into 9 logical commits (1.9 GB vendored dir + node_modules gitignored; HEAD now self-consistent — all `dashboard_app.py` local imports resolve). M1: `_overall_rating()` fuses Minervini/8 + TechnoFunda/6 + CANSLIM/computable + EW-confidence/100 (weights 0.35/0.25/0.20/0.20, tunable via a Scanner Hub "Overall Rating weights" expander that re-normalises to 1.0). Each scanner-hit card now shows an **Overall NN/100 colour badge** (≥85 green / 70–84 amber / 50–69 grey / <50 red) with an M/TF/C/EW breakdown tooltip; results **sort by Overall Rating** with a **Min Overall Rating** floor slider. Computed once at scan time (reuses the scanner's cached OHLCV). **Verified live:** Stage 2 scan over 15 large-caps → TITAN 76/100, SUNPHARMA 75/100, correctly sorted, no errors. Rendered in [dashboard_app.py](tools/dashboard_app.py) `_overall_rating`/`_rating_badge_html`.
+- **Next:** one session of daily use → refine weights; then **M2** (on-chart pattern boxes — backend already live) is the recommended next PR.
+- _Same record-the-benefit step for M2, M3, M4._
 
 ## Related Pages
 - [[sources/MarketTerminal-UI-Reference]] — the design source this roadmap targets.

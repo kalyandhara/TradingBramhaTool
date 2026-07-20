@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-07-20] build | Phase 0 consolidation + M1 Overall Rating rollup (Scanner Hub)
+- **Phase 0 (git de-risk):** consolidated ~35 untracked files + 4 modified into 9 logical commits on `master`. Extended `.gitignore` to exclude `node_modules/`, the **1.9 GB** vendored `tools/indian-trading-agent-main/`, `.playwright-mcp/`, `secrets.toml`. Verified: all `tools/*.py` byte-compile (Py 3.14.4); every local module `dashboard_app.py` imports now resolves to a committed file (closed the "fresh checkout won't launch" risk). Committed to trunk (solo repo), nothing pushed.
+- **M1 (SHIPPED & verified):** added `_overall_rating()` to [dashboard_app.py](tools/dashboard_app.py) — one cross-system /100 score fusing Minervini/8 + TechnoFunda/6 + CANSLIM/computable + EW-confidence/100 (default weights 0.35/0.25/0.20/0.20, tunable + auto-normalised in a new Scanner Hub "Overall Rating weights" expander). Each hit card shows a colour-coded **Overall NN/100** badge with an M/TF/C/EW tooltip; results sort by it, with a **Min Overall Rating** floor slider. Computed once at scan time from the scanner's cached OHLCV.
+- **Verified live** (launched the app, drove the Scanner Hub): Stage 2 scan over 15 large-caps → TITAN **76/100**, SUNPHARMA **75/100**, correctly sorted, no server errors.
+- Roadmap updated: [[analyses/Dashboard-UI-Roadmap]] Outcome. Next recommended PR: **M2** (on-chart pattern boxes — backend endpoints already live).
+
 ## [2026-07-19] analysis | Dashboard roadmap reconciled + expanded (Phase 0–4)
 - Updated [[analyses/Dashboard-UI-Roadmap]] with a grounded 2026-07-19 current-state pass: 17 pages across 5 sidebar groups; chart-server detectors (vcp/rounding_bottom/trendlines/harmonic/reversal_events) all exposed.
 - Two findings: **M1 (Overall Rating /100 rollup) never shipped** (Setup Intelligence panel shipped instead — per-symbol, not the Scanner Hub rollup); **~35 untracked files, only 5 commits** — tracked `dashboard_app.py` imports untracked modules, so HEAD wouldn't launch → version control is the #1 blocker.
