@@ -131,6 +131,26 @@ Japanese candlestick patterns are short-term price formations (1–6 bars) that 
 - At 1-day horizon: ranked 5th
 - **Key implication:** Candle patterns alone provide a modest edge; filtering with a second indicator is required for consistent outperformance
 
+### Bulkowski's Top-10 (Encyclopedia of Candlestick Charts) — a second dataset (2026-07-19)
+
+Thomas Bulkowski's ranked list, where % is how often the pattern resolves in the listed direction. **The direction is frequently the opposite of the name** — the single biggest lesson here.
+
+| Pattern | Behaves as | Accuracy |
+|---------|-----------|----------|
+| **Bearish** Three-Line Strike | Bullish **Reversal** | 84% |
+| Three Black Crows | Bearish Reversal | 78% |
+| Evening Star | Bearish Reversal | 72% |
+| Abandoned Baby | Bullish Reversal | 70% |
+| Two Black Gapping | Bearish Continuation | 68% |
+| **Bullish** Three-Line Strike | Bearish **Reversal** | 65% |
+| Inverted Hammer | Bearish Continuation | 65% |
+| Bearish Breakaway | Bearish Reversal | 63% |
+| Matching Low | Bearish Continuation | 61% |
+| Upside Tasuki Gap | Bullish Continuation | 57% |
+
+- **Names lie.** A *bearish* three-line strike acts *bullish* 84% of the time; a *bullish* three-line strike acts *bearish* 65%. Trade the measured behavior, not the label.
+- These figures reflect frequency-of-direction in Bulkowski's sample, not expectancy — a high-hit-rate pattern can still lose money if the adverse moves are large. Consistent with the Morris finding: use candles as a filtered input, never alone.
+
 ---
 
 ## How to Use
@@ -168,3 +188,5 @@ Japanese candlestick patterns are short-term price formations (1–6 bars) that 
 
 ## Sources
 - [Litchfield-Morris-Candlestick-Charting-Explained-2006](../sources/Litchfield-Morris-Candlestick-Charting-Explained-2006.md)
+- [[sources/Forthius-Reversal-Scanner-Pine]] (2026-07-02) — working Pine implementation detecting ~15 of these patterns with per-pattern geometry-based quality scores
+- [[sources/Fingrad-Trading-Infographics-Collection]] (2026-07-19) — Bulkowski top-10 accuracy percentages (name-vs-behavior mismatch)

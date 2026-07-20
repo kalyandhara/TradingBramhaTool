@@ -13,6 +13,7 @@ related:
   - concepts/Trading-Psychology-Champion.md
   - analyses/Kalyan-Trading-Philosophy.md
   - sources/Minervini-Think-Trade-Champion.md
+  - sources/TV-VCP-Scanner-Minervini-valchak.md
 ---
 
 # Minervini SEPA Strategy
@@ -161,6 +162,11 @@ Valid base patterns within Stage 2:
 - [Capital Management Methods](../concepts/Capital-Management-Methods.md)
 - [Performance Metrics](../concepts/Performance-Metrics.md)
 
+## Public Pine Implementation
+
+[[sources/TV-VCP-Scanner-Minervini-valchak]] — TradingView invite-only Pine v5 script by *valchak*. Six-gate signal (Trend Template ∧ VCP Valid ∧ VDU ∧ BreakingOut ∧ VolumeSurge ∧ NotExtended). Commits specific numbers where the book leaves ranges: 200-day slope ≥ 22 bars, price ≥ 30% above 52-week low (tightened from book's 25%), first contraction 10–35%, final 3–10%, tightening ≤ 0.9×, extension cap 12% above pivot. Two presets — "Practical Defaults" (US mega-cap growth) and "Textbook-Strict" (VDU 0.7, extension 5%, tighter ratios). Useful as a second reference implementation next to our [[analyses/VCPBot-Architecture|VCPBot]].
+
 ## Sources
 
 1. [Minervini-Think-Trade-Champion](../sources/Minervini-Think-Trade-Champion.md) — full book; all sections
+2. [TV-VCP-Scanner-Minervini-valchak](../sources/TV-VCP-Scanner-Minervini-valchak.md) — Pine v5 scanner; numeric operationalisation of the Trend Template and VCP

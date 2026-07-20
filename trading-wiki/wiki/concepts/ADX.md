@@ -51,7 +51,9 @@ If ADX < 20 = chop = no trade, even if all other signals align.
 ## Related
 - [[strategies/TechnoFunda-Swing]] — ADX is one of 7 required conditions
 - [[concepts/RSI]] — RSI for momentum, ADX for trend strength
+- [[concepts/SuperTrend]] — the *SuperTrend + RSI + ADX* confluence uses **ADX crossing above 25** as the "is there a trend at all" gate before acting on a SuperTrend flip
 - [[concepts/Multi-Timeframe-Analysis]] — index-level ADX regime check is a specific case of top-down MTF context
 
 ## Sources
 - [[sources/SwingEdge-Learn-Indicators-Deep-Dive]] (2026-06-22) — 5-band value table, slope-over-level rule, two-level (stock + index) regime-filter application
+- [[sources/Fingrad-Trading-Infographics-Collection]] (2026-07-19) — ADX>25 as the trend gate in the SuperTrend+RSI+ADX confluence setup

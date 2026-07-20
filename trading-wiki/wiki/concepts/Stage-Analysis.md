@@ -88,6 +88,8 @@ Key addition: in Stages 1 and 3 (direction undetermined), trade the range edges 
 - [VCPBot Trend Template](../strategies/VCPBot-Trend-Template.md) — automated implementation of 8-criterion filter
 - [[strategies/False-Break-Buildup-Trading]] — discretionary entries for Stage 1/3 ranges where direction isn't yet confirmed
 - [[concepts/Distribution-Days]] — SwingEdge's "bearish DMA stack" (faster MAs under slower, negative slopes) is explicitly the mirror image of the Stage 2 trend template here, i.e. Stage 4/decline; distribution-day clustering is one of its composite-score inputs
+- [[concepts/Percent-R-Trend-Exhaustion]] — a bullish exhaustion signal near a stock's lows is a candidate confirming signal for a Stage 1→2 transition; proposed (not yet built) as one leg of an "Early Reversal Detector" combined with MA-reclaim and RS-turning-up
+- **Design warning from [[sources/Forthius-Reversal-Scanner-Pine]]'s live behavior**: that script's trend classifier reads "ranging" (neither up nor down) rather than "down" during the exact Stage 4→1→2 transition window, and its bullish-pattern gate defaults to requiring an actual downtrend — meaning it goes quiet right at the moment a Stage transition detector most needs to fire. Any Stage classifier or Early Reversal Detector built here should treat "ranging after a prior decline" as a first-class permissive state, not an opt-in relaxation.
 
 ## Examples in This Wiki
 

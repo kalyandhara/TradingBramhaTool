@@ -127,6 +127,7 @@ Simplified order flow via VWAP:
 - [VCP](VCP.md) — VCP breakout combined with volume spike signals institutional entry
 - [EMA](EMA.md) — VWAP + EMA(21) as simplified order flow proxy (Austin Silver approach)
 - [Performance-Metrics](Performance-Metrics.md) — profit factor helps evaluate whether order flow confirmation adds edge
+- [[sources/BSE-NSE-BlockDeal-InsiderTrading-APIs-2026]] — whole-market bulk-deal, block-deal, and insider-trading feeds (both exchanges, confirmed working, free) are a coarser but genuinely investable proxy for institutional/insider footprint when tick-level order flow isn't available
 
 ## Iceberg Orders and VWAP Algo Mechanics (Varmer)
 

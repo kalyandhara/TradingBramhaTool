@@ -50,3 +50,4 @@ A second, rule-based trailing-stop algorithm (distinct from the ATR/Chandelier a
 ## Sources
 - [[sources/PMax-Optimization-Pine]] (2026-06-14)
 - [[sources/Dolzhenko-Algorithmic-Trading-Systems-2024]] (2026-06-15) — Trailing System Order algorithm
+- [[sources/TradingView-Goodyear-PMax-Strat-Confluence-2026]] (2026-07-02) — a personal "PMax+Strat" script combining this indicator with Elliott Wave, %R Trend Exhaustion, and ~13 other confluence factors into a single-chart dashboard

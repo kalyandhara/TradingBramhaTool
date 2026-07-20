@@ -45,6 +45,7 @@ A trailing stop should respect the timeframe that produced the entry. A daily-en
 - [[concepts/MACD-Divergence]] — the weekly-regime/daily-setup/intraday-trigger MACD template applies this framework to one specific indicator
 - [[concepts/Stage-Analysis]] — weekly Stage context (e.g. confirmed Stage 2 on the weekly) is the regime layer this framework asks you to check before trusting a daily pattern
 - [[sources/Price-Action-Trading-MTF-Brandon-Kenny-2023]] — prior wiki coverage of HTF-buildup + LTF-false-break entries, a related but distinct MTF application focused on entry timing rather than regime/setup/trigger layering
+- [[concepts/Volume-Profile]] — the volume-structure application of this framework (added 2026-07-03): profiles per timeframe stacked side by side, reading POC/value-area confluence across timeframes instead of trend alignment
 
 ## Sources
 - [[sources/SwingEdge-Learn-Process-Risk-Workflow]] (2026-06-22) — three-timeframe template, alignment rules, MTF-for-exits rule

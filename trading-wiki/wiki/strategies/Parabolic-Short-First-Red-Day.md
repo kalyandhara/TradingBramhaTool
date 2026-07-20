@@ -140,6 +140,7 @@ When a first-red-day trade begins working (stock breaks low-of-day and drops):
 - [[concepts/Support-Resistance]] — the prior base is the target zone on mean reversion; broken resistance becomes support on the way back
 - [[strategies/Supply-Demand-Zone-Trading]] — the parabolic top is a supply zone (RBD: Rally → Base → Drop); short on retest of the base
 - [[concepts/Capital-Management-Methods]] — exponential bet sizing and pyramiding are the position management tools for this setup
+- [[strategies/Drop-Recovery-Reversal-Screen]] — the mirror-image strategy: exhaustion after a *down* move (drop % then recovery %) instead of exhaustion after an up move
 
 ## Sources
 

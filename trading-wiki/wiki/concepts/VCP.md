@@ -3,8 +3,8 @@ title: "VCP — Volatility Contraction Pattern"
 category: concept
 tags: [breakout, contraction, swing, Mark-Minervini, algorithmic]
 created: 2026-06-14
-updated: 2026-06-15
-sources: 3
+updated: 2026-07-06
+sources: 4
 related:
   - concepts/Darvas-Box.md
   - concepts/Stage-Analysis.md
@@ -14,6 +14,7 @@ related:
   - strategies/VCPBot-Trend-Template.md
   - strategies/Minervini-SEPA.md
   - sources/Minervini-Think-Trade-Champion.md
+  - sources/TV-VCP-Scanner-Minervini-valchak.md
 ---
 
 # VCP — Volatility Contraction Pattern
@@ -107,6 +108,31 @@ From [Minervini-Think-Trade-Champion](../sources/Minervini-Think-Trade-Champion.
 - **Pivot buy point**: when price breaks above the high of the tightest contraction on expanding volume — this is the "line of least resistance" (Jesse Livermore's concept)
 - **Overhead supply dynamics**: each contraction wrings out more weak holders (wet towel analogy); by the pivot, supply is exhausted; even small demand moves price sharply
 
+### valchak's Pine Screener Preset (2026-07-06)
+
+Second reference implementation — TradingView invite-only script ([[sources/TV-VCP-Scanner-Minervini-valchak]]). Commits numeric ranges the book leaves discretionary:
+
+| Parameter | Practical Defaults | Textbook-Strict |
+|-----------|-------------------|-----------------|
+| Contraction count | 2–6 | 2–6 |
+| First contraction depth | 10–35% | 10–35% |
+| Final contraction depth | 3–10% | tighter |
+| Tightening ratio (each vs prior) | ≤ 0.9× | ≤ 0.5× |
+| Base duration | 15–325 bars (~3–65 weeks) | same |
+| Pivot confirmation bars (L/R) | 3 | 5 |
+| Breakout volume vs 50d avg | ≥ 1.4× | ≥ 1.4× |
+| VDU threshold | 1.0× (off) | 0.7× |
+| Max extension above pivot | 12% | 5% |
+
+Six-gate signal engine (all must be true on same bar): Trend Template ∧ VCP Valid ∧ VDU ∧ BreakingOut ∧ VolumeSurge ∧ **NotExtended** (anti-chase, ≤ 12% above pivot).
+
+Divergences from Minervini's book:
+- **200-day slope**: valchak requires ≥ 22 trading days uptrend (book says "≥ 1 month, prefer 4–5")
+- **Above 52-week low**: valchak defaults to ≥ 30% (book says ≥ 25%) — tightened
+- **Pivot confirmation lag**: 3 bars L/R before pivot is drawn (safer, but structurally later than book's intraday breakout entry)
+
+Compared to [[analyses/VCPBot-Architecture]] (our internal 3-tier): valchak has no explicit "left-side high + prior ≥30% advance" macro anchor — relies entirely on Trend Template to gate for Stage 2.
+
 ### Base Patterns Containing VCP Characteristics
 | Pattern | Notes |
 |---------|-------|
@@ -123,8 +149,10 @@ From [Minervini-Think-Trade-Champion](../sources/Minervini-Think-Trade-Champion.
 - [[strategies/VCPBot-Trend-Template]] — Pre-filter that all stocks must pass before VCP detection
 - [[analyses/VCPBot-Architecture]] — Full bot architecture and pipeline
 - [[analyses/VCPBot-Risk-System]] — Risk sizing and regime logic
+- [[concepts/Reversal-Chart-Patterns]] — shares the same "volume contracts before the real move" signature, applied to Double Top/Bottom and Head & Shoulders necklines instead of VCP contractions
 
 ## Sources
 1. VCPBot GitHub (algorithmic 3-tier detection)
 2. Personal notes PDF (Darvas/VCP discussion)
 3. [Minervini-Think-Trade-Champion](../sources/Minervini-Think-Trade-Champion.md) — Sections 6, 7; original VCP definition, footprint notation, supply/demand dynamics
+4. [TV-VCP-Scanner-Minervini-valchak](../sources/TV-VCP-Scanner-Minervini-valchak.md) — Pine v5 invite-only scanner; 6-gate signal engine; numeric contraction/extension defaults; RS proxy formula

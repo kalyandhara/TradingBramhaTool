@@ -101,5 +101,9 @@ This is the Ryan Litchfield framework (Ch. 10): *Candlesticks are not the setup;
 - [[concepts/MACD-Divergence]] — alternative presignal filter
 - [[strategies/Supply-Demand-Zone-Trading]] — S&D zones as structural filter layer
 
+## Concrete Reference Implementation
+[[sources/Forthius-Reversal-Scanner-Pine]] codes this exact strategy end-to-end: EMA trend context → a 5-factor confluence pre-condition (volume/S-R/RSI/ADX/RSI-divergence) → ~15 candlestick patterns as the trigger, each with its own geometry-based quality score (0-10 composite, A/B/C graded). If this strategy is ever ported to Python for bulk screening, that script's per-pattern quality formulas (e.g. penetration-ratio for Piercing Line/Dark Cloud Cover, not just "closed past midpoint") are the right level of detail to replicate.
+
 ## Sources
 - [Litchfield-Morris-Candlestick-Charting-Explained-2006](../sources/Litchfield-Morris-Candlestick-Charting-Explained-2006.md)
+- [[sources/Forthius-Reversal-Scanner-Pine]] (2026-07-02)

@@ -3,9 +3,9 @@ title: "AADHARHFC — Aadhar Housing Finance Ltd."
 category: entity
 tags: [finance-housing, vcp, stage-2, distribution-days, swing]
 created: 2026-06-22
-updated: 2026-06-22
-sources: 1
-related: [sources/SwingEdge-AADHARHFC-20260621, entities/KDDL, entities/NRBBEARING, concepts/VCP, concepts/Stage-Analysis, concepts/ADX, concepts/RSI]
+updated: 2026-07-03
+sources: 2
+related: [sources/SwingEdge-AADHARHFC-20260621, sources/SwingEdge-Structural-Breakout-Screener-20260703, entities/KDDL, entities/NRBBEARING, concepts/VCP, concepts/Stage-Analysis, concepts/ADX, concepts/RSI]
 bias: watching
 ---
 
@@ -17,6 +17,7 @@ bias: watching
 - **Market cap band**: Large mid cap
 
 ## Price & Chart Context
+- **2026-07-02 (scan date) — status upgrade**: appears in SwingEdge's Structural Breakout scan as **Neckline Reversal · Confirmed break · 9w base · 9 touches · Weekly ✓**. The 06-21 snapshot's grade-C/skip-flag read (6 distribution days, weak ADX 15) has resolved into a confirmed neckline clear with weekly-timeframe confirmation — the caution flags were early-base noise, not thesis failure. Watch for the scan's "retest" state (holding above the neckline on pullback) as the lower-risk entry.
 - Snapshot date: 2026-06-21
 - Price (snapshot): ~₹515.1
 - Pattern: Stage 2 uptrend, VCP active, handle formation after a constructive advance off the 52-week low
@@ -50,3 +51,4 @@ Risk distance: 5.9% to stop (~2.0x ATR) — no "stop too wide" flag, unlike KDDL
 
 ## Sources
 - [[sources/SwingEdge-AADHARHFC-20260621]] — Swing Edge stock detail page, 2026-06-21 snapshot
+- [[sources/SwingEdge-Structural-Breakout-Screener-20260703]] — Structural Breakout scan card, scan date 2026-07-02

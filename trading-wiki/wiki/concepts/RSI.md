@@ -43,11 +43,17 @@ Shorter RSI (7 or 9) for active swings; longer (21+) for position/weekly context
 - Trading divergence alone with no price confirmation — divergence is "a tell, not a clock": it can resolve in the trend's favor repeatedly before an actual reversal arrives.
 - Running RSI on choppy, range-bound names — it generates constant noise there regardless of period; only meaningful on names with clear structure.
 
+## Confluence Uses (2026-07-19)
+- **RSI 40–60 trend band → a full setup:** the regime-aware ranges above are formalized into two with-trend entries (RSI-40 pullback / RSI-60 breakout) on the 21 & 50 EMA in [[strategies/RSI-60-40-Setup]].
+- **Fibonacci + RSI:** buy a ~61.8% [[concepts/Fibonacci-Retracement]] pullback *only* when RSI is turning up out of oversold — pairing a location edge with a momentum edge.
+
 ## Related
 - [[concepts/EMA]] — Combine RSI timing with EMA trend direction
 - [[concepts/ConnorsRSI]] — composite short-period (3,2,100) variant used for mean-reversion exit timing; uses a much shorter RSI(3) lookback than the classic 14-period RSI documented here
 - [[concepts/MACD-Divergence]] — same bullish/bearish divergence logic, but on smoother (more-lagged, less frequent, typically more reliable) data
+- [[strategies/RSI-60-40-Setup]] · [[concepts/Fibonacci-Retracement]]
 
 ## Sources
 - [[sources/Connors-MA-Quantified-Approach-2013]] — cross-reference only (introduces the related ConnorsRSI composite)
 - [[sources/SwingEdge-Learn-Indicators-Deep-Dive]] (2026-06-22) — regime-aware ranges, hidden divergence, swing failure swings, period selection
+- [[sources/Fingrad-Trading-Infographics-Collection]] (2026-07-19) — RSI 40–60 trend-band setup and Fibonacci+RSI confluence entry

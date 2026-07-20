@@ -47,3 +47,4 @@ The 20 SMA at the center is the same short-term mean many traders already watch.
 
 ## Sources
 - [[sources/SwingEdge-Learn-Indicators-Deep-Dive]] (2026-06-22) — squeeze/bandwidth formula, band-walk framing, %B scan usage
+- [[sources/Fingrad-Trading-Infographics-Collection]] (2026-07-19) — squeeze uptrend/downtrend entry-exit walkthrough; middle-band entry/exit rule (restates the above; corroborating reference)
