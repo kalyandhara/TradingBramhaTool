@@ -791,6 +791,75 @@ def _score_ring_html(score: float, signal: str) -> str:
     )
 
 
+# ── Overall Rating (M1) — one cross-system quality score /100 ──────────────────
+# Fuses the four scoring frameworks already computed elsewhere in the app into a
+# single triage number, independent of which scanner matched. Weights bias toward
+# Minervini as the most-referenced framework on the wiki; tune them in the Scanner
+# Hub sidebar (changes apply on the next scan). See
+# wiki/analyses/Dashboard-UI-Roadmap.md Milestone 1.
+OVERALL_WEIGHTS = {"minervini": 0.35, "technofunda": 0.25, "canslim": 0.20, "ew": 0.20}
+
+
+def _overall_rating(df: pd.DataFrame, nifty_df: pd.DataFrame | None,
+                    weights: dict | None = None) -> tuple[int | None, dict]:
+    """Return (rating 0-100, breakdown) fusing Minervini/8 + TechnoFunda/6 +
+    CANSLIM/computable + EW confidence/100. Rating is None if scoring fails
+    (e.g. too few bars). Each sub-score is normalised to 0-1 then weighted."""
+    w = weights or OVERALL_WEIGHTS
+    try:
+        mv, _ = sp.score_minervini(df, nifty_df=nifty_df)          # 0-8
+        tf, _ = sp.score_technofunda(df)                           # 0-6
+        cs, cs_conds, _, _ = _compute_canslim(df, nifty_df)        # 0-4 (some None)
+        ew_conf = int(ew_module.analyze_ew(df).get("confidence", 0) or 0)  # 0-100
+    except Exception:
+        return None, {}
+
+    # Normalise CANSLIM by the count of computable (non-None) conditions so a
+    # missing benchmark doesn't silently deflate the score.
+    computable = sum(1 for v in cs_conds.values() if v is not None)
+    mv_n = mv / 8.0
+    tf_n = tf / 6.0
+    cs_n = (cs / computable) if computable else 0.0
+    ew_n = ew_conf / 100.0
+
+    rating = round(100 * (mv_n * w["minervini"] + tf_n * w["technofunda"]
+                          + cs_n * w["canslim"] + ew_n * w["ew"]))
+    return rating, {
+        "Minervini": f"{mv}/8", "TechnoFunda": f"{tf}/6",
+        "CANSLIM": f"{cs}/{computable}" if computable else "n/a",
+        "EW conf": str(ew_conf),
+    }
+
+
+def _rating_color(r: int | None) -> str:
+    """Color scale for the Overall Rating badge (matches Market Terminal source)."""
+    if r is None:
+        return "#9a8778"
+    if r >= 85:
+        return "#16a34a"   # green
+    if r >= 70:
+        return "#d97706"   # amber
+    if r >= 50:
+        return "#6b7280"   # grey
+    return "#dc2626"       # red
+
+
+def _rating_badge_html(card: dict) -> str:
+    """Overall Rating pill for the scanner card header. Empty when not computed."""
+    if card.get("overall") is None:
+        return ""
+    r = card["overall"]
+    bd = card.get("overall_breakdown", {})
+    tip = " · ".join(f"{k} {v}" for k, v in bd.items())
+    return (
+        f'<span title="Overall Rating (M/TF/C/EW): {tip}" '
+        f'style="display:inline-block;background:{_rating_color(r)};color:#fff;'
+        f'border-radius:99px;padding:2px 10px;font-size:12px;font-weight:700;'
+        f'margin-right:8px;flex-shrink:0;">{r}<span style="font-weight:500;'
+        f'opacity:.8;font-size:10px;">/100</span></span>'
+    )
+
+
 def _scanner_stats_html(card: dict) -> str:
     """Compact stat row (RS · Vol Q · From pivot · Vol ×50d) + fail-risk chips.
     Renders only the fields the card actually carries, so scanners that don't
@@ -863,7 +932,9 @@ def _render_scanner_card(card: dict, scanner_name: str) -> None:
                         justify-content:center;font-weight:bold;
                         margin-right:10px;flex-shrink:0;">{sym[0]}</div>
             <div style="flex-grow:1;">
-              <div style="font-size:16px;font-weight:700;color:#3a2a1e;">{sym}</div>
+              <div style="display:flex;align-items:center;font-size:16px;font-weight:700;color:#3a2a1e;">
+                {_rating_badge_html(card)}<span>{sym}</span>
+              </div>
               <div style="margin-top:2px;">
                 <span style="background:#fff1e0;color:#c2410c;padding:2px 9px;
                             border-radius:99px;font-size:11px;font-weight:600;
@@ -1547,6 +1618,20 @@ if current_page == "Scanner Hub":
         st.markdown(f"**Selected:** {selected_scanner}")
         st.caption(sc.SCANNERS[selected_scanner]["description"])
 
+        with st.expander("Overall Rating weights"):
+            st.caption("Tune the /100 cross-system rollup. Applies on the next scan.")
+            _wm = st.slider("Minervini", 0.0, 1.0, OVERALL_WEIGHTS["minervini"], 0.05, key="ow_m")
+            _wt = st.slider("TechnoFunda", 0.0, 1.0, OVERALL_WEIGHTS["technofunda"], 0.05, key="ow_tf")
+            _wc = st.slider("CANSLIM", 0.0, 1.0, OVERALL_WEIGHTS["canslim"], 0.05, key="ow_c")
+            _we = st.slider("Elliott Wave", 0.0, 1.0, OVERALL_WEIGHTS["ew"], 0.05, key="ow_ew")
+            _wtot = _wm + _wt + _wc + _we
+            if _wtot > 0:
+                st.session_state["hub_overall_weights"] = {
+                    "minervini": _wm / _wtot, "technofunda": _wt / _wtot,
+                    "canslim": _wc / _wtot, "ew": _we / _wtot,
+                }
+                st.caption(f"Normalised (raw sum {_wtot:.2f} → 1.00)")
+
         st.divider()
         screener_res = st.session_state.get("screener_results")
         universe_mode = st.radio(
@@ -1614,6 +1699,20 @@ if current_page == "Scanner Hub":
                 with st.spinner(f"Running {selected_scanner} on {len(universe)} symbols…"):
                     hits = sc.run_scanner(selected_scanner, universe, cached_fetch_ohlcv,
                                           benchmark_df=bench_df)
+                # M1 — attach a cross-system Overall Rating to each hit once, here
+                # at scan time (reuses the OHLCV the scanner just fetched — cached).
+                # bench_df is the Nifty50 benchmark used for RS-based sub-scores.
+                _ow = st.session_state.get("hub_overall_weights", OVERALL_WEIGHTS)
+                if hits:
+                    with st.spinner(f"Scoring {len(hits)} matches…"):
+                        for _h in hits:
+                            try:
+                                _r, _bd = _overall_rating(
+                                    cached_fetch_ohlcv(_h["symbol"]), bench_df, _ow)
+                            except Exception:
+                                _r, _bd = None, {}
+                            _h["overall"] = _r
+                            _h["overall_breakdown"] = _bd
                 st.session_state["hub_results"] = hits
                 st.session_state["hub_scanner_ran"] = selected_scanner
 
@@ -1689,8 +1788,26 @@ if current_page == "Scanner Hub":
 
                 shown = [h for h in hits if _keep(h)]
 
+            # M1 — Overall Rating floor + sort (scored names first, highest first).
+            has_overall = any(h.get("overall") is not None for h in shown)
+            sort_label = "scanner score"
+            if has_overall:
+                min_overall = st.slider(
+                    "Min Overall Rating", 0, 100, 0, 5, key="hub_min_overall",
+                    help="Cross-system /100 rollup (Minervini + TechnoFunda + CANSLIM + EW). "
+                         "0 = show all.",
+                )
+                if min_overall > 0:
+                    shown = [h for h in shown if (h.get("overall") or 0) >= min_overall]
+                shown = sorted(
+                    shown,
+                    key=lambda h: (h.get("overall") is not None, h.get("overall") or 0),
+                    reverse=True,
+                )
+                sort_label = "Overall Rating"
+
             filt_note = "" if len(shown) == len(hits) else f" ({len(hits)} matched)"
-            st.caption(f"Showing {len(shown)} stocks{filt_note} · sorted by score")
+            st.caption(f"Showing {len(shown)} stocks{filt_note} · sorted by {sort_label}")
             if not shown:
                 st.info("No stocks match the current filter pills — widen the filter above.")
             cols_n = 3
