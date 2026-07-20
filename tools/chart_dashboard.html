@@ -1258,6 +1258,13 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
   fvgCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:9;width:100%;height:100%;';
   chartMain.appendChild(fvgCanvas);
 
+  // ── Pattern base-zone canvas overlay (VCP / Rounding Bottom footprints) ────
+  // z-index below fvg so the FVG imbalance boxes and volume-profile histogram
+  // stay legible on top. Drawn on demand by drawPatternZones().
+  const patternCanvas = document.createElement('canvas');
+  patternCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:8;width:100%;height:100%;';
+  chartMain.appendChild(patternCanvas);
+
   // Track whether we've ever seen a real (>0) size. If the chart was created
   // at fallback 300×200 because chartMain was 0×0 at construction time, the
   // first resize to real dimensions is also when we need to *re-apply* the
@@ -1292,6 +1299,9 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
           drawVolumeProfile(pane);
         if (pane && pane.indicators && pane.indicators.has('fvg'))
           drawFVG(pane);
+        if (pane && pane.indicators &&
+            (pane.indicators.has('vcp') || pane.indicators.has('roundbottom')))
+          drawPatternZones(pane);
       }
     }
   });
@@ -1303,7 +1313,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
                  priceEl, chgEl, badge,
                  bars: [], indicators: new Set(savedIndicators),
                  rangePreset: savedRangePreset || DEFAULT_RANGE_PRESET,
-                 indSeries: {}, subCharts: {}, volCanvas, fvgCanvas };
+                 indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas };
 
   // ── Time-scale sync: main chart drives all sub-pane charts ─────────────────
   chart.timeScale().subscribeVisibleTimeRangeChange(range => {
@@ -1315,6 +1325,10 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
     // x-axis (unlike Volume Profile, which only depends on the y-axis) must
     // also trigger a redraw — otherwise the boxes drift away from their bars.
     if (pane.indicators && pane.indicators.has('fvg')) drawFVG(pane);
+    // Pattern base-zone boxes are time+price anchored — same staleness as FVG.
+    if (pane.indicators &&
+        (pane.indicators.has('vcp') || pane.indicators.has('roundbottom')))
+      drawPatternZones(pane);
     // Volume Profile histogram uses priceToCoordinate — pan/zoom changes
     // the y-scale mapping, so it needs a redraw on range change too. FVG
     // is time-anchored; VP is price-scale-anchored. Both stale on zoom
@@ -1598,6 +1612,7 @@ async function copyChartSnapshot(pane) {
     // same z-order as on screen.
     let y = headerH;
     ctx.drawImage(mainShot, 0, y);
+    if (pane.patternCanvas) ctx.drawImage(pane.patternCanvas, 0, y, mainShot.width, mainShot.height);
     if (pane.volCanvas) ctx.drawImage(pane.volCanvas, 0, y, mainShot.width, mainShot.height);
     if (pane.fvgCanvas) ctx.drawImage(pane.fvgCanvas, 0, y, mainShot.width, mainShot.height);
     y += mainShot.height;
@@ -2275,6 +2290,57 @@ function drawFVG(pane) {
   });
 }
 
+// ── Pattern base-zone shading (VCP + Rounding Bottom footprints) ──────────────
+// Draws a semi-transparent filled rectangle over each active pattern's
+// consolidation/base window so the footprint is legible at a glance
+// (Milestone 2). Mirrors drawFVG's box style — time-anchored via
+// timeToCoordinate, price-anchored via priceToCoordinate — and is redrawn on
+// pan/zoom/resize from the same hooks. The actionable trade-plan detail still
+// lives in each overlay's collapsible info panel; this only marks *where* the
+// pattern sits. Zone data is stashed on pane.vcp.baseZone / pane.rb.baseZone
+// when those overlays render, and nulled on teardown.
+function drawPatternZones(pane) {
+  const canvas = pane.patternCanvas;
+  if (!canvas) return;
+  const W = canvas.width  = canvas.offsetWidth;
+  const H = canvas.height = canvas.offsetHeight;
+  if (W === 0 || H === 0) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  const ts = pane.chart.timeScale();
+
+  const box = (zone, fill, stroke, label) => {
+    if (!zone) return;
+    const xL = ts.timeToCoordinate(zone.start);
+    const xR = ts.timeToCoordinate(zone.end);
+    const yT = pane.series.priceToCoordinate(zone.high);
+    const yB = pane.series.priceToCoordinate(zone.low);
+    if (xL === null || xR === null || yT === null || yB === null) return;
+    const x = Math.max(0, xL);
+    const w = Math.min(W, xR) - x;
+    if (w <= 0) return;
+    const y = Math.min(yT, yB);
+    const h = Math.max(1, Math.abs(yB - yT));
+    ctx.fillStyle = fill;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = stroke;
+    ctx.lineWidth = 1;
+    ctx.setLineDash([4, 3]);
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
+    ctx.font = '10px -apple-system, "Segoe UI", sans-serif';
+    ctx.fillStyle = stroke;
+    ctx.fillText(label, x + 4, y + 11);
+  };
+
+  if (pane.indicators && pane.indicators.has('vcp'))
+    box(pane.vcp && pane.vcp.baseZone,
+        'rgba(38,198,218,0.10)', 'rgba(38,198,218,0.6)', 'VCP base');
+  if (pane.indicators && pane.indicators.has('roundbottom'))
+    box(pane.rb && pane.rb.baseZone,
+        'rgba(255,171,64,0.10)', 'rgba(255,171,64,0.6)', 'Rounding base');
+}
+
 // ── Elliott Wave overlay rendering (integration layer for elliott_wave.js) ────
 // elliott_wave.js (window.EW) is a pure computation module with zero chart
 // dependency. Everything in this section is the "plug" that adapts its
@@ -2617,7 +2683,9 @@ function clearRoundingBottom(pane) {
   });
   setPaneMarkers(pane, 'roundbottom', null);
   if (pane.rb.infoEl) pane.rb.infoEl.style.display = 'none';
+  pane.rb.baseZone = null;
   pane.rb.lastFetchKey = null;
+  drawPatternZones(pane);
 }
 
 async function renderRoundingBottom(pane) {
@@ -2658,6 +2726,8 @@ async function renderRoundingBottom(pane) {
   // right edge, keeping them out of unrelated history.
   const fromTime = saucer.base_start_time || pane.bars[0].time;
   const toTime   = saucer.last_time       || pane.bars[pane.bars.length - 1].time;
+  // Base-zone footprint box: base window (x) × trough→rim (y).
+  rb.baseZone = {start: fromTime, end: toTime, low: saucer.trough_price, high: saucer.rim};
   const ensureLine = (key, opts) => {
     if (!rb[key]) rb[key] = pane.chart.addLineSeries({
       priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
@@ -2708,6 +2778,7 @@ async function renderRoundingBottom(pane) {
   setPaneMarkers(pane, 'roundbottom', markers);
 
   renderRbInfo(pane, saucer);
+  drawPatternZones(pane);
 }
 
 function renderRbInfo(pane, saucer) {
@@ -2826,7 +2897,9 @@ function clearVCP(pane) {
   pane.vcp.legSeries = [];
   setPaneMarkers(pane, 'vcp', null);
   if (pane.vcp.infoEl) pane.vcp.infoEl.style.display = 'none';
+  pane.vcp.baseZone = null;
   pane.vcp.lastFetchKey = null;
+  drawPatternZones(pane);
 }
 
 async function renderVCP(pane) {
@@ -2884,6 +2957,9 @@ async function renderVCP(pane) {
   // Pivot line (dashed cyan) + entry/stop/target (solid cyan/red/green).
   const fromTime = g.base_start_time || pane.bars[0].time;
   const toTime   = g.base_end_time   || pane.bars[pane.bars.length - 1].time;
+  // Base-zone footprint box: base window (x) × base_low→pivot (y). Drawn on the
+  // pattern canvas by drawPatternZones (see renderVcpInfo call below).
+  vcp.baseZone = {start: fromTime, end: toTime, low: g.base_low, high: g.pivot};
   const ensureLine = (key, opts) => {
     if (!vcp[key]) vcp[key] = pane.chart.addLineSeries({
       priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
@@ -2924,6 +3000,7 @@ async function renderVCP(pane) {
   setPaneMarkers(pane, 'vcp', markers);
 
   renderVcpInfo(pane, g);
+  drawPatternZones(pane);
 }
 
 function renderVcpInfo(pane, g) {
