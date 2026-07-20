@@ -1,0 +1,129 @@
+================================================================================
+  ASTROLOGY-BASED TRADING — QUICK REFERENCE
+================================================================================
+
+LUNAR PHASES & MARKET CHARACTER:
+
+  ● NEW MOON (0-1 days)      → High Volatility, Reversals
+                                 Action: Use tight stops, watch for flips
+
+  ● WAXING MOON (1-14 days)  → Rising Energy, Bullish
+                                 Action: Favor LONGS, hold winners, add on dips
+
+  ● FULL MOON (14-16 days)   → Peak Energy, Profit-Taking
+                                 Action: Take profits, consider SHORTS
+
+  ● WANING MOON (16-29 days) → Declining Energy, Bearish
+                                 Action: Favor SHORTS, reduce long positions
+
+================================================================================
+
+MARKET INTENSITY SCALE (Trading Volatility Forecast):
+
+  ❌ 0-20:   Dead market (rare)
+  🔵 20-40:  Low volatility   → Range-bound, lower average move
+  🟢 40-70:  Normal volatility → Standard conditions
+  🟠 70-85:  High volatility  → REDUCE position size, tight stops
+  🔴 85-100: Extreme volatility → Minimal size, watch for gaps
+
+================================================================================
+
+OPTIMAL TRADING WINDOWS (IST):
+
+  Entry:  Sunrise + 15 minutes (allows market participants to assess overnight news)
+  Exit:   Sunset - 15 minutes (reduces after-hours risk)
+
+  Example (Mumbai):
+    Sunrise: 6:00 AM  →  Optimal Entry: 6:15 AM
+    Sunset:  6:00 PM  →  Optimal Exit:  5:45 PM
+
+================================================================================
+
+VIMSHOTTARI DASHA PERIODS & CHARACTERISTICS:
+
+  1. KETU    (7 yr)  → Sacrifice, spirituality, detachment      [Avoid risk]
+  2. VENUS   (20 yr) → Pleasure, gains, expansion               [Bullish]
+  3. SUN     (6 yr)  → Authority, ego, confidence               [Bullish]
+  4. MOON    (10 yr) → Emotions, wealth accumulation            [Mixed]
+  5. MARS    (7 yr)  → Action, conflict, energy, risk-taking    [Active]
+  6. RAHU    (18 yr) → Ambition, wealth, unconventional         [Speculative]
+  7. JUPITER (16 yr) → Wisdom, expansion, prosperity            [Bullish]
+  8. SATURN  (19 yr) → Restriction, delays, losses              [Defensive]
+  9. MERCURY (17 yr) → Communication, trade, short-term gains   [Mixed]
+
+  → Identify YOUR current dasha. Bullish periods (Venus, Jupiter, Sun): aggressive.
+  → Defensive periods (Saturn, Ketu, Rahu): conservative.
+
+================================================================================
+
+DAILY CHECKLIST (Pre-Market):
+
+  ✓ Check lunar phase & illumination
+  ✓ Review market intensity for the day (80+ = reduce size)
+  ✓ Note optimal entry/exit times
+  ✓ Check if at New/Full Moon (expect volatility)
+  ✓ Adjust watchlist/strategy if needed
+  ✓ (Optional) Review your current dasha period
+
+================================================================================
+
+DASHBOARD ACCESS:
+
+  1. Launch: py -3 -m streamlit run tools/dashboard_app.py
+  2. Open: http://localhost:8501
+  3. Go to: "Astro Timing" tab (rightmost)
+  4. Select city + date
+  5. Review timing & recommendations
+
+================================================================================
+
+LOADING ASTROHORA DATA:
+
+  Option A (Recommended):
+    1. Run AstroHora software
+    2. Generate birth chart (Natal or Prashna)
+    3. Export as CSV or Excel
+    4. In Dashboard → Astro Timing → Upload file
+    5. View chart summary & dasha analysis
+
+  Option B (Quick Demo):
+    1. In Dashboard → Astro Timing → "Load Example Chart"
+    2. See sample output format
+
+================================================================================
+
+KEY INDICATORS AT A GLANCE:
+
+  Lunar Illumination      Range: 0-100%
+  Cycle Day               Range: 0-29.53 days (reset at New Moon)
+  Market Intensity        Range: 0-100 (higher = more volatile)
+  Sunrise/Sunset (IST)    6:00 AM / 6:00 PM (approximate, varies by date/season)
+
+================================================================================
+
+IMPORTANT CAVEATS:
+
+  ⚠️  Astrology is CORRELATIVE, not causal. Use with other technical/fundamental analysis.
+  ⚠️  This is a TIMING tool, not a directional predictor.
+  ⚠️  All times are IST (India Standard Time). Adjust if trading in other zones.
+  ⚠️  Dasha periods are APPROXIMATE without birth chart input. For precision, use AstroHora.
+  ⚠️  Lunar phases are universal. City selection only affects sunrise/sunset times.
+
+================================================================================
+
+CONTACT / UPDATES:
+
+  Modules:
+    - astro_trading.py           (daily timing + lunar calculations)
+    - astrohora_loader.py        (birth chart parser)
+    - dashboard_app.py           (Streamlit UI integration)
+
+  Docs:
+    - ASTRO_TRADING_GUIDE.md     (detailed guide)
+    - ASTRO_QUICK_REF.txt        (this file)
+
+  Source Data:
+    - AstroHora EXE files        (in Downloads/)
+    - PyEphem library            (for astronomical calculations)
+
+================================================================================
