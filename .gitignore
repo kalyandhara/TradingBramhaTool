@@ -33,3 +33,13 @@ raw/
 # Env
 .env
 *.env
+.streamlit/secrets.toml
+
+# Node
+node_modules/
+
+# Vendored / external reference projects (not part of the dashboard build; 1.9 GB)
+tools/indian-trading-agent-main/
+
+# Tooling artifacts
+.playwright-mcp/
