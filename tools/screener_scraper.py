@@ -57,9 +57,16 @@ def _session(sessionid: str) -> requests.Session:
 
 
 def _check_authenticated(session: requests.Session, resp: requests.Response) -> None:
-    if "/register/" in resp.url or resp.history and any("/register/" in h.headers.get("Location", "") for h in resp.history):
-        sys.exit(
-            "Got redirected to the login/register page — the sessionid cookie is "
+    # screener.in redirects expired sessions to /login/ (sometimes /register/).
+    # Raise instead of sys.exit so the dashboard can surface the real cause —
+    # previously an expired cookie parsed as "0 results" and showed the
+    # misleading "no stocks passed thresholds" message.
+    landed = resp.url or ""
+    redirect_targets = [h.headers.get("Location", "") for h in resp.history]
+    if any(seg in landed for seg in ("/register/", "/login/")) or \
+            any(("/register/" in loc or "/login/" in loc) for loc in redirect_targets):
+        raise RuntimeError(
+            "screener.in redirected to the login page — the sessionid cookie is "
             "invalid or expired. Re-grab it from your browser and try again."
         )
 
@@ -70,7 +77,16 @@ def fetch_results_page(session: requests.Session, query: str, page: int) -> Beau
     resp = session.get(url, headers=HEADERS, params=params, timeout=30, allow_redirects=True)
     _check_authenticated(session, resp)
     resp.raise_for_status()
-    return BeautifulSoup(resp.text, "html.parser")
+    soup = BeautifulSoup(resp.text, "html.parser")
+    # A login form served without a redirect also means the session is dead —
+    # don't let it masquerade as an empty result set.
+    if soup.find("table", class_="data-table") is None \
+            and soup.find("input", attrs={"name": "password"}) is not None:
+        raise RuntimeError(
+            "screener.in served the login form instead of results — the "
+            "sessionid cookie is invalid or expired."
+        )
+    return soup
 
 
 def parse_results_table(soup: BeautifulSoup) -> tuple[list[dict], int]:
@@ -192,6 +208,66 @@ def fetch_sector_and_history(session: requests.Session, slug: str) -> tuple[str 
     return industry, quarterly_fii
 
 
+def fetch_fundamental_safe_symbols(
+    sessionid: str, max_pledge_pct: float = 5.0,
+) -> set[str]:
+    """NSE trading symbols passing a promoter-pledge + cash-flow health gate.
+
+    Chartink has no pledge% or cash-flow fields to scan on, but screener.in's
+    query language does (confirmed via its public /api/ratio/search/ endpoint:
+    "Pledged percentage" and "Cash from operations last year"). Runs that
+    query through the same /screen/raw/ endpoint used by fetch_all_results and
+    returns the set of NSE symbols (parsed from each row's company-page slug)
+    that pass — the caller intersects this with a separate technical-scan
+    candidate list.
+    """
+    query = (
+        f"Pledged percentage < {max_pledge_pct} AND\n"
+        "Cash from operations last year > 0"
+    )
+    session = _session(sessionid)
+    rows = fetch_all_results(session, query)
+    return {row["_slug"].upper() for row in rows if row.get("_slug")}
+
+
+def fetch_high_growth_stocks(
+    sessionid: str,
+    min_sales_growth_5y: float = 15.0,
+    min_profit_growth_5y: float = 15.0,
+    min_yoy_qtr_profit_growth: float = 15.0,
+    min_roe: float = 15.0,
+    min_roce: float = 15.0,
+    min_opm: float = 10.0,
+) -> pd.DataFrame:
+    """Sustained-growth quality screen: 5Y sales/profit CAGR plus a recent
+    quarterly profit-growth kicker, gated by ROE/ROCE/OPM quality.
+
+    Note: screener.in has no analyst-consensus "profit surprise %" field (its
+    /api/ratio/search/ returns nothing for "surprise") — YoY Quarterly profit
+    growth is the closest real proxy for an earnings-acceleration signal, not
+    a true estimate-vs-actual surprise.
+    """
+    query = (
+        f"Sales growth 5Years > {min_sales_growth_5y} AND\n"
+        f"Profit growth 5Years > {min_profit_growth_5y} AND\n"
+        f"YOY Quarterly profit growth > {min_yoy_qtr_profit_growth} AND\n"
+        f"Return on equity > {min_roe} AND\n"
+        f"Return on capital employed > {min_roce} AND\n"
+        f"OPM > {min_opm}"
+    )
+    session = _session(sessionid)
+    rows = fetch_all_results(session, query)
+    if not rows:
+        return pd.DataFrame()
+
+    df = pd.DataFrame(rows)
+    for col in df.columns:
+        if col in ("Name", "_slug"):
+            continue
+        df[col] = pd.to_numeric(df[col].astype(str).str.replace(",", ""), errors="coerce")
+    return df
+
+
 def build_dataset(sessionid: str, query: str) -> pd.DataFrame:
     session = _session(sessionid)
 
@@ -247,7 +323,10 @@ if __name__ == "__main__":
     if "--query" in sys.argv:
         query = sys.argv[sys.argv.index("--query") + 1]
 
-    df = build_dataset(sessionid, query)
+    try:
+        df = build_dataset(sessionid, query)
+    except RuntimeError as e:          # e.g. expired sessionid cookie
+        sys.exit(str(e))
     out_path = BASE_DIR / f"screener_export_{datetime.today().strftime('%Y%m%d')}.csv"
     df.to_csv(out_path, index=False)
     quarter_count = sum(c.startswith("FII_") for c in df.columns)

@@ -296,8 +296,9 @@ def fetch_screener_stocks(slug: str) -> list[str]:
 
 def fetch_ohlcv(symbol: str, days: int = 300) -> pd.DataFrame | None:
     ticker = f"{symbol}.NS"
+    period = "max" if not days or days <= 0 else f"{days}d"
     try:
-        df = yf.download(ticker, period=f"{days}d", interval="1d",
+        df = yf.download(ticker, period=period, interval="1d",
                          progress=False, auto_adjust=True)
     except Exception as e:
         log.warning("  [skip] yfinance error for %s: %s", ticker, e)
@@ -327,8 +328,9 @@ def fetch_ohlcv(symbol: str, days: int = 300) -> pd.DataFrame | None:
 
 def fetch_nifty50(days: int = 300) -> pd.DataFrame | None:
     """Download Nifty 50 index data for RS computation."""
+    period = "max" if not days or days <= 0 else f"{days}d"
     try:
-        df = yf.download("^NSEI", period=f"{days}d", interval="1d",
+        df = yf.download("^NSEI", period=period, interval="1d",
                          progress=False, auto_adjust=True)
     except Exception:
         return None
