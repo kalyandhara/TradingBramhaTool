@@ -1,0 +1,694 @@
+#!/usr/bin/env python3
+"""
+chart_server.py — Flask backend for the multi-chart live dashboard.
+
+  REST  GET  /api/ohlcv?symbol=RELIANCE.NS&timeframe=1d&bars=200
+  REST  GET  /api/symbols
+  WS    ws://localhost:5001/ws   (browser subscribes via JSON messages)
+
+Live feed routing:
+  symbol ends with .NS/.BO  →  yfinance 30-second poller
+  bare coin name (BTC …)   →  Hyperliquid WebSocket bridge
+"""
+
+from __future__ import annotations
+import asyncio
+import json
+import logging
+import queue
+import sys
+import threading
+import time
+from pathlib import Path
+
+from flask import Flask, jsonify, request, send_from_directory
+from flask_sock import Sock
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import data_source as ds
+import symbol_directory as sym_dir
+import reversal_calendar as rev_cal
+import scanner_templates as sc
+import harmonic_patterns as hp
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s  %(levelname)-7s  %(name)s  %(message)s",
+    datefmt="%H:%M:%S",
+)
+log = logging.getLogger("chart_server")
+
+HERE = Path(__file__).resolve().parent
+app = Flask(__name__, static_folder=str(HERE))
+sock = Sock(app)
+
+# ── Client registry ───────────────────────────────────────────────────────────
+# Each browser WS connection gets an outbound queue; a sender thread drains it.
+
+_lock = threading.Lock()
+_client_queues: dict[int, queue.Queue] = {}          # ws_id → Queue[str]
+_client_subs:   dict[int, set[tuple]] = {}           # ws_id → {(symbol, tf)}
+_sub_clients:   dict[tuple, set[int]] = {}           # (symbol, tf) → {ws_id}
+
+
+def _register(ws_id: int) -> queue.Queue:
+    q: queue.Queue = queue.Queue(maxsize=500)
+    with _lock:
+        _client_queues[ws_id] = q
+        _client_subs[ws_id] = set()
+    return q
+
+
+def _unregister(ws_id: int) -> None:
+    with _lock:
+        for key in _client_subs.pop(ws_id, set()):
+            _sub_clients.get(key, set()).discard(ws_id)
+        _client_queues.pop(ws_id, None)
+
+
+def _subscribe(ws_id: int, symbol: str, timeframe: str) -> None:
+    key = (symbol, timeframe)
+    with _lock:
+        _client_subs[ws_id].add(key)
+        _sub_clients.setdefault(key, set()).add(ws_id)
+    _ensure_feed(symbol, timeframe)
+
+
+def _broadcast(symbol: str, timeframe: str, payload: dict) -> None:
+    key = (symbol, timeframe)
+    msg = json.dumps(payload)
+    with _lock:
+        targets = [_client_queues[i]
+                   for i in list(_sub_clients.get(key, set()))
+                   if i in _client_queues]
+    for q in targets:
+        try:
+            q.put_nowait(msg)
+        except queue.Full:
+            pass
+
+
+# ── Hyperliquid WebSocket bridge ──────────────────────────────────────────────
+
+_hl_loop: asyncio.AbstractEventLoop | None = None
+_hl_ws_ref: list = [None]      # [websockets.WebSocketClientProtocol | None]
+_hl_subs: set[tuple] = set()   # (coin, interval) already subscribed at HL
+_hl_lock = threading.Lock()
+
+
+def _hl_start() -> None:
+    global _hl_loop
+    _hl_loop = asyncio.new_event_loop()
+    asyncio.run_coroutine_threadsafe(_hl_maintain(), _hl_loop)
+    t = threading.Thread(target=_hl_loop.run_forever, daemon=True, name="hl-loop")
+    t.start()
+    log.info("Hyperliquid asyncio loop started")
+
+
+async def _hl_maintain() -> None:
+    """Persistent Hyperliquid WS with auto-reconnect and re-subscribe."""
+    import websockets
+    uri = "wss://api.hyperliquid.xyz/ws"
+    backoff = 2
+    while True:
+        try:
+            async with websockets.connect(uri, ping_interval=20,
+                                          ping_timeout=15) as ws:
+                _hl_ws_ref[0] = ws
+                backoff = 2
+                log.info("HL WS connected — re-subscribing %d feeds", len(_hl_subs))
+                with _hl_lock:
+                    subs_snapshot = list(_hl_subs)
+                for coin, interval in subs_snapshot:
+                    await ws.send(json.dumps({
+                        "method": "subscribe",
+                        "subscription": {"type": "candle", "coin": coin,
+                                         "interval": interval},
+                    }))
+                async for raw in ws:
+                    _hl_on_message(raw)
+        except Exception as e:
+            log.warning("HL WS error: %s — reconnect in %ds", e, backoff)
+        finally:
+            _hl_ws_ref[0] = None
+        await asyncio.sleep(backoff)
+        backoff = min(backoff * 2, 30)
+
+
+def _hl_on_message(raw: str) -> None:
+    try:
+        msg = json.loads(raw)
+    except Exception:
+        return
+    if msg.get("channel") != "candle":
+        return
+    d = msg.get("data", {})
+    coin, interval = d.get("s", ""), d.get("i", "")
+    if not coin or not interval:
+        return
+    _broadcast(coin, interval, {
+        "type": "candle",
+        "symbol": coin,
+        "timeframe": interval,
+        "bar": {
+            "time":   int(d["t"]) // 1000,
+            "open":   float(d["o"]),
+            "high":   float(d["h"]),
+            "low":    float(d["l"]),
+            "close":  float(d["c"]),
+            "volume": float(d["v"]),
+        },
+    })
+
+
+def _hl_subscribe(coin: str, interval: str) -> None:
+    key = (coin, interval)
+    with _hl_lock:
+        if key in _hl_subs:
+            return
+        _hl_subs.add(key)
+    ws = _hl_ws_ref[0]
+    if _hl_loop and ws:
+        msg = json.dumps({
+            "method": "subscribe",
+            "subscription": {"type": "candle", "coin": coin, "interval": interval},
+        })
+        asyncio.run_coroutine_threadsafe(ws.send(msg), _hl_loop)
+
+
+# ── yfinance live poller ──────────────────────────────────────────────────────
+
+_yf_active: set[tuple] = set()
+_yf_lock = threading.Lock()
+_YF_INTERVAL = 30   # seconds between polls
+
+
+def _yf_poll(symbol: str, timeframe: str) -> None:
+    key = (symbol, timeframe)
+    with _lock:
+        still_needed = bool(_sub_clients.get(key))
+    if not still_needed:
+        with _yf_lock:
+            _yf_active.discard(key)
+        return
+
+    try:
+        bars = ds.SOURCES["yfinance"].get_ohlcv(symbol, timeframe, bars=2)
+        if bars:
+            bar = bars[-1]
+            _broadcast(symbol, timeframe, {
+                "type": "candle", "symbol": symbol,
+                "timeframe": timeframe, "bar": bar,
+            })
+    except Exception as e:
+        log.debug("yf poll error %s: %s", symbol, e)
+
+    t = threading.Timer(_YF_INTERVAL, _yf_poll, args=(symbol, timeframe))
+    t.daemon = True
+    t.start()
+
+
+def _yf_start(symbol: str, timeframe: str) -> None:
+    key = (symbol, timeframe)
+    with _yf_lock:
+        if key in _yf_active:
+            return
+        _yf_active.add(key)
+    t = threading.Timer(1, _yf_poll, args=(symbol, timeframe))
+    t.daemon = True
+    t.start()
+
+
+# ── Feed dispatcher ───────────────────────────────────────────────────────────
+
+_HL_TF = ds.HyperliquidSource._TF
+
+
+def _ensure_feed(symbol: str, timeframe: str) -> None:
+    source = ds.detect_source(symbol)
+    if source.name == "hyperliquid":
+        hl_interval = _HL_TF.get(timeframe, "1h")
+        _hl_subscribe(symbol, hl_interval)
+    else:
+        _yf_start(symbol, timeframe)
+
+
+# ── REST endpoints ────────────────────────────────────────────────────────────
+
+@app.route("/")
+def index():
+    return send_from_directory(HERE, "chart_dashboard.html")
+
+
+@app.route("/elliott_wave.js")
+def elliott_wave_js():
+    return send_from_directory(HERE, "elliott_wave.js", mimetype="application/javascript")
+
+
+@app.route("/volume_profile.js")
+def volume_profile_js():
+    return send_from_directory(HERE, "volume_profile.js", mimetype="application/javascript")
+
+
+@app.route("/fvg.js")
+def fvg_js():
+    return send_from_directory(HERE, "fvg.js", mimetype="application/javascript")
+
+
+@app.route("/percent_r_trend_exhaustion.js")
+def percent_r_trend_exhaustion_js():
+    return send_from_directory(HERE, "percent_r_trend_exhaustion.js", mimetype="application/javascript")
+
+
+@app.route("/api/ohlcv")
+def api_ohlcv():
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars      = min(int(request.args.get("bars", 300)), 3000)  # 3000 covers 10Y+ daily
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    data   = source.get_ohlcv(symbol, timeframe, bars)
+    # Fallback chain when the primary fetch returns empty. Handles three cases:
+    #   • BSE-only bare tickers (DOLPHMED, ADON, MARINE) not in the NSE-first
+    #     directory → try .BO / .NS
+    #   • Company-name inputs from BSE feeds ("GALLANTT ISPAT LTD.BO" or the
+    #     raw multi-word name) → strip suffix, take the first token, search
+    #     the symbol directory, try .NS / .BO
+    #   • Anything else that returned empty → cross-exchange retry (BSE ↔ NSE)
+    # Sparse-history guard: Yahoo returns a 1–3 bar stub for many BSE tickers
+    # (e.g. GRAPHITE.BO) even when the NSE variant has full history. Treat any
+    # tiny result on a multi-year request as "empty" and run the same fallback.
+    _sparse = data is not None and 0 < len(data) < 5 and bars >= 20
+    if (not data or _sparse) and not symbol.startswith("^"):
+        yf_source = ds.SOURCES["yfinance"]
+        # Strip any trailing suffix so we can re-derive the ticker from the
+        # base name (fixes the case where URL handler appended '.BO' to a
+        # company name like "GALLANTT ISPAT LTD.BO").
+        import re
+        bare = re.sub(r"\.(NS|BO|BSE)$", "", symbol, flags=re.IGNORECASE)
+        first_token = bare.split()[0] if " " in bare else bare
+        candidates: list[str] = []
+        # Search the symbol directory by first token — most reliable path for
+        # both bare BSE tickers and company names.
+        try:
+            hits = sym_dir.search(first_token, limit=5)
+            for h in hits:
+                candidates.append(h["symbol"])
+        except Exception:
+            pass
+        # Generic cross-exchange suffixes as a last resort.
+        candidates.extend([f"{first_token}.NS", f"{first_token}.BO"])
+        seen = {symbol}
+        for cand in candidates:
+            if cand in seen:
+                continue
+            seen.add(cand)
+            try:
+                cand_data = yf_source.get_ohlcv(cand, timeframe, bars)
+            except Exception:
+                cand_data = None
+            # Prefer a candidate only if it clearly beats the sparse original —
+            # otherwise a same-sparse candidate would replace the real ticker.
+            if cand_data and len(cand_data) >= max(5, len(data or [])):
+                symbol, source, data = cand, yf_source, cand_data
+                break
+    # Previous *daily* close, independent of the requested timeframe — this
+    # is the benchmark Google Finance / exchanges use for "today's change".
+    # One extra call per pane-load (not per WS tick), so the cost is cheap.
+    try:
+        prev_close = source.get_previous_close(symbol)
+    except Exception as e:
+        log.warning("get_previous_close failed for %s: %s", symbol, e)
+        prev_close = None
+    return jsonify({"symbol": symbol, "timeframe": timeframe, "bars": data,
+                    "prev_close": prev_close, "source": source.name})
+
+
+def _bars_to_df(bars: list[dict]):
+    """Convert an /api/ohlcv-shaped bars list into a DataFrame with a
+    DatetimeIndex, which is what scanner_templates functions expect.
+    Kept here rather than in each endpoint so future pattern endpoints
+    (auto-trendlines, structural resistance, fib swing) share the shape."""
+    import pandas as pd
+    if not bars:
+        return None
+    df = pd.DataFrame(bars)
+    df["time"] = pd.to_datetime(df["time"], unit="s", utc=True)
+    df = df.set_index("time")
+    return df
+
+
+@app.route("/api/rounding_bottom")
+def api_rounding_bottom():
+    """Rounding Bottom / saucer geometry for chart overlay rendering. Runs
+    the same detector as the Scanner Hub's "Rounding Bottom" card (see
+    scanner_templates.scan_rounding_bottom + concepts/Rounding-Bottom.md),
+    but returns bar timestamps and geometry instead of a card. When no
+    qualifying saucer is present the endpoint returns {"saucer": null} —
+    the client hides the overlay in that case."""
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < 60:
+        return jsonify({"symbol": symbol, "saucer": None})
+
+    hit = sc.scan_rounding_bottom(df)
+    if not hit or "geometry" not in hit:
+        return jsonify({"symbol": symbol, "saucer": None})
+
+    g = hit["geometry"]
+    # Map bar indices to unix timestamps using the bars list the client
+    # already has — keeps the detector implementation index-based (simpler
+    # to test) while the wire format uses timestamps (what LWC needs).
+    def _t(idx):
+        if idx is None or idx < 0 or idx >= len(bars):
+            return None
+        return int(bars[idx]["time"])
+
+    saucer = {
+        "rim": g["rim"],
+        "trough_time":       _t(g["trough_bar_idx"]),
+        "trough_price":      g["trough_price"],
+        "base_start_time":   _t(g["base_start_bar_idx"]),
+        "last_time":         int(bars[-1]["time"]),
+        "breakout_time":     _t(g["breakout_bar_idx"]),
+        "state":             g["state"],
+        "family":            g["family"],
+        "decline_pct":       g["decline_pct"],
+        "symmetry_pct":      g["symmetry_pct"],
+        "trough_days":       g["trough_days"],
+        "ema_turn":          g["ema_turn"],
+        "vol_confirmed":     g["vol_confirmed"],
+        "score":             g["score"],
+        "reasons":           hit.get("reasons", []),
+        # Actionable trade plan — see scan_rounding_bottom for the derivation.
+        "verdict":           g["verdict"],
+        "entry":             g["entry"],
+        "stop":              g["stop"],
+        "target":            g["target"],
+        "risk_reward":       g["risk_reward"],
+    }
+    return jsonify({"symbol": symbol, "saucer": saucer})
+
+
+@app.route("/api/vcp")
+def api_vcp():
+    """VCP (Volatility Contraction Pattern) coiling geometry for chart
+    overlay use. See scanner_templates.detect_vcp_geometry + concepts/VCP.md.
+    Returns per-contraction bar timestamps + prices + a Minervini-style
+    trade plan (BUY/WEAK BUY/READY/WATCH with entry/stop/target/RR)."""
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < 110:
+        return jsonify({"symbol": symbol, "vcp": None})
+
+    g = sc.detect_vcp_geometry(df)
+    if g is None:
+        return jsonify({"symbol": symbol, "vcp": None})
+
+    def _t(idx):
+        if idx is None or idx < 0 or idx >= len(bars):
+            return None
+        return int(bars[idx]["time"])
+
+    # Convert every bar_idx to a unix timestamp so the client can render
+    # without knowing the raw DataFrame index. Same convention as /api/
+    # rounding_bottom — keeps the detector implementation index-based.
+    contractions_wire = []
+    for cc in g["contractions"]:
+        contractions_wire.append({
+            "high_time":  _t(cc["high_bar_idx"]),
+            "high_price": cc["high_price"],
+            "low_time":   _t(cc["low_bar_idx"]),
+            "low_price":  cc["low_price"],
+            "depth_pct":  cc["depth_pct"],
+            "in_progress": cc["in_progress"],
+        })
+
+    vcp = {
+        "pivot":             g["pivot"],
+        "base_low":          g["base_low"],
+        "base_start_time":   _t(g["base_start_bar_idx"]),
+        "base_end_time":     int(bars[-1]["time"]),
+        "contractions":      contractions_wire,
+        "footprint":         g["footprint"],
+        "base_weeks":        g["base_weeks"],
+        "n_contractions":    g["n_contractions"],
+        "vol_drying":        g["vol_drying"],
+        "vol_confirmed":     g["vol_confirmed"],
+        "vol_expansion":     g["vol_expansion"],
+        "dist_to_pivot_pct": g["dist_to_pivot_pct"],
+        "verdict":           g["verdict"],
+        "entry":             g["entry"],
+        "stop":              g["stop"],
+        "target":            g["target"],
+        "risk_reward":       g["risk_reward"],
+    }
+    return jsonify({"symbol": symbol, "vcp": vcp})
+
+
+@app.route("/api/trendlines")
+def api_trendlines():
+    """Supply / demand trendlines via scanner_templates.detect_trendline_break
+    (port of "Trend Lines by Kris" Pine). Returns two-point anchors + a
+    projected end-of-data point for each active line so the client can draw
+    them as extended-forward line series."""
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    # Pivot lookback tuning per timeframe — daily uses the Pine default of
+    # 20; intraday needs a smaller window or all recent pivots get swallowed.
+    prd_default = {
+        "1m": 6, "5m": 8, "15m": 10, "30m": 10,
+        "1h": 12, "4h": 15, "1d": 20, "1w": 20,
+    }.get(timeframe, 20)
+    prd = int(request.args.get("prd", prd_default))
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < prd * 4 + 5:
+        return jsonify({"symbol": symbol, "trendlines": None})
+
+    tl = sc.detect_trendline_break(df, prd=prd)
+    if tl is None:
+        return jsonify({"symbol": symbol, "trendlines": None})
+
+    def _t(idx):
+        if idx is None or idx < 0 or idx >= len(bars):
+            return None
+        return int(bars[idx]["time"])
+
+    def _wire(side: dict | None) -> dict | None:
+        if side is None:
+            return None
+        return {
+            "t1": _t(side["x1"]), "y1": side["y1"],
+            "t2": _t(side["x2"]), "y2": side["y2"],
+            "t3": _t(side["x3"]), "y3": side["y3"],
+            "broken":   side["broken"],
+            "bars_ago": side["bars_ago"],
+            "level":    side["level"],
+            "angle":    side["angle"],
+        }
+
+    return jsonify({
+        "symbol": symbol,
+        "trendlines": {
+            "supply": _wire(tl["supply"]),
+            "demand": _wire(tl["demand"]),
+            "prd":    prd,
+        },
+    })
+
+
+@app.route("/api/harmonic")
+def api_harmonic():
+    """Harmonic (Gartley/Bat/Butterfly/Crab) pattern geometry for overlay.
+    See harmonic_patterns.detect_last_pattern. Returns X-A-B-C-D pivot
+    times + prices and the entry/stop/targets trade plan, or {"harmonic": null}."""
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    # Timeframe-aware default: ZigZag confirmation eats bars, so the D pivot
+    # rarely sits within 10 bars of the tail on daily data. Autopsy 2026-07-14
+    # showed HDFCBANK carrying a valid Gartley at age_bars=44 that was filtered
+    # out by the old max_age=10. Loosen to a horizon that matches how a trader
+    # would still act on the pattern.
+    _default_max_age = {
+        "1m": 8, "5m": 12, "15m": 15, "30m": 20,
+        "1h": 25, "4h": 30, "1d": 50, "1w": 20,
+    }.get(timeframe, 30)
+    max_age = int(request.args.get("max_age", _default_max_age))
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < 30:
+        return jsonify({"symbol": symbol, "harmonic": None})
+
+    m = hp.detect_last_pattern(df, max_age_bars=max_age)
+    if m is None:
+        return jsonify({"symbol": symbol, "harmonic": None})
+
+    def _t(idx):
+        if idx is None or idx < 0 or idx >= len(bars):
+            return None
+        return int(bars[idx]["time"])
+
+    pts = m["points"]
+    harmonic = {
+        "pattern":   m["pattern"],
+        "direction": m["direction"],
+        "ratios":    m["ratios"],
+        "age_bars":  m["age_bars"],
+        "points": {
+            k: {"time": _t(v["idx"]), "price": v["price"]}
+            for k, v in pts.items()
+        },
+        "trade": m["trade"],
+    }
+    return jsonify({"symbol": symbol, "harmonic": harmonic})
+
+
+@app.route("/api/tick")
+def api_tick():
+    symbol = request.args.get("symbol", "").strip().upper()
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    price = ds.detect_source(symbol).get_latest_price(symbol)
+    return jsonify({"symbol": symbol, "price": price})
+
+
+@app.route("/api/symbols/search")
+def api_symbols_search():
+    """TradingView-style typeahead search across NSE/BSE/US/Crypto."""
+    q     = request.args.get("q", "").strip()
+    limit = min(int(request.args.get("limit", 20)), 50)
+    if not q:
+        return jsonify({"results": []})
+    return jsonify({"results": sym_dir.search(q, limit=limit)})
+
+
+@app.route("/api/reversal_events")
+def api_reversal_events():
+    """Reversal-candidate days (yoga + lunar) from the SQLite calendar.
+
+    Query params:
+      from  YYYY-MM-DD  (required)
+      to    YYYY-MM-DD  (required)
+
+    Returns a list of {event_date, event_type, display_name, category,
+    start_ts, end_ts, weekday} sorted by date+time, plus a parallel
+    `coincidence` list of {event_date, score, events} for the same window.
+    The chart can use the coincidence list to highlight "sharper reversal"
+    days (score ≥ 2) without re-aggregating client-side.
+    """
+    from datetime import date as _date
+    try:
+        d_from = _date.fromisoformat(request.args.get("from", ""))
+        d_to   = _date.fromisoformat(request.args.get("to", ""))
+    except ValueError:
+        return jsonify({"error": "from/to must be YYYY-MM-DD"}), 400
+
+    events = rev_cal.events_in_range(d_from, d_to)
+    coincidence = rev_cal.coincidence_scores(d_from, d_to)
+    return jsonify({"events": events, "coincidence": coincidence,
+                    "from": d_from.isoformat(), "to": d_to.isoformat()})
+
+
+@app.route("/api/symbols")
+def api_symbols():
+    return jsonify({
+        "nse": [
+            "RELIANCE.NS","TCS.NS","HDFCBANK.NS","INFY.NS","ICICIBANK.NS",
+            "SBIN.NS","HINDUNILVR.NS","ITC.NS","KOTAKBANK.NS","LT.NS",
+            "BHARTIARTL.NS","AXISBANK.NS","ASIANPAINT.NS","MARUTI.NS",
+            "WIPRO.NS","HCLTECH.NS","SUNPHARMA.NS","TITAN.NS","NTPC.NS",
+            "POWERGRID.NS","BAJFINANCE.NS","ONGC.NS","COALINDIA.NS","JSWSTEEL.NS",
+            "TATASTEEL.NS","M&M.NS","ULTRACEMCO.NS","TECHM.NS","ADANIENT.NS",
+            "ADANIPORTS.NS","HINDALCO.NS","DRREDDY.NS","DIVISLAB.NS","CIPLA.NS",
+        ],
+        "crypto": [
+            "BTC","ETH","SOL","AVAX","ARB","OP","MATIC","DOGE","LINK","UNI",
+            "AAVE","APT","SUI","INJ","TIA","JUP","WIF","PEPE","BNB","TON",
+            "SEI","NEAR","FTM","ATOM","DOT","LTC","XRP","ADA","TRUMP","HYPE",
+        ],
+    })
+
+
+# ── WebSocket endpoint ────────────────────────────────────────────────────────
+
+@sock.route("/ws")
+def ws_handler(ws):
+    ws_id = id(ws)
+    q = _register(ws_id)
+    log.info("WS client connected  id=%d", ws_id)
+
+    def sender():
+        while True:
+            try:
+                msg = q.get(timeout=20)
+                if msg is None:
+                    return
+                ws.send(msg)
+            except queue.Empty:
+                try:
+                    ws.send(json.dumps({"type": "ping"}))
+                except Exception:
+                    return
+            except Exception:
+                return
+
+    sender_t = threading.Thread(target=sender, daemon=True, name=f"ws-send-{ws_id}")
+    sender_t.start()
+
+    try:
+        while True:
+            raw = ws.receive()
+            if raw is None:
+                break
+            try:
+                msg = json.loads(raw)
+                if msg.get("action") == "subscribe":
+                    sym = sym_dir.resolve_symbol(msg.get("symbol", "").strip().upper())
+                    tf  = msg.get("timeframe", "1d")
+                    if sym and tf:
+                        _subscribe(ws_id, sym, tf)
+                        log.debug("subscribe  %s/%s  client=%d", sym, tf, ws_id)
+            except Exception as e:
+                log.debug("WS parse error: %s", e)
+    except Exception as e:
+        log.debug("WS recv error: %s", e)
+    finally:
+        _unregister(ws_id)
+        q.put(None)   # stop sender thread
+        log.info("WS client disconnected  id=%d", ws_id)
+
+
+# ── Entry point ───────────────────────────────────────────────────────────────
+
+if __name__ == "__main__":
+    _hl_start()
+    log.info("Chart server → http://localhost:5001")
+    app.run(host="0.0.0.0", port=5001, debug=False, threaded=True)

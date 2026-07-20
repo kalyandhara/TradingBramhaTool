@@ -1,0 +1,3636 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trading Bramha — Multi-Chart</title>
+<script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<!-- Elliott Wave detection plug-in — pure computation module, see elliott_wave.js -->
+<script src="/elliott_wave.js"></script>
+<!-- Volume Profile (POC/Value Area/HVN/LVN) plug-in — pure computation module, see volume_profile.js -->
+<script src="/volume_profile.js"></script>
+<!-- Fair Value Gap detection plug-in — pure computation module, see fvg.js -->
+<script src="/fvg.js"></script>
+<!-- %R Trend Exhaustion oscillator plug-in — pure computation module, see percent_r_trend_exhaustion.js -->
+<script src="/percent_r_trend_exhaustion.js"></script>
+<style>
+/* ── Theme variables ──────────────────────────────────────────────────────── */
+:root {
+  --bg-page:        #0d1117;
+  --bg-header:      #161b22;
+  --bg-pane:        #131722;
+  --bg-pane-header: rgba(22,27,34,0.97);
+  --bg-input:       #1c2128;
+  --bg-input-alt:   #21262d;
+  --bg-dropdown:    #161b22;
+  --bg-hover:       #1c2128;
+  --border:         #30363d;
+  --border-soft:    #21262d;
+  --text-primary:   #e6edf3;
+  --text-secondary: #8b949e;
+  --text-chart:     #c9d1d9;
+  --text-muted:     #6e7681;
+  --text-load:      #484f58;
+  --accent:         #58a6ff;
+  --grid-line:      #1e222d;
+  --grid-line-sub:  #1a1e2a;
+  --overlay-bg:     rgba(13,17,23,0.82);
+  --exch-nse-bg:    #1a3a2a;
+  --exch-us-bg:     #1a2a3a;
+  --exch-crypto-bg: #2a1a3a;
+  --exch-index-bg:  #3a2a1a;
+  --ws-live-bg:     #1a3a2a;
+  --ws-off-bg:      #3a1a1a;
+  --ws-retry-bg:    #2a2a1a;
+  --so-icon-fg:     #0d1117;
+}
+html.light {
+  --bg-page:        #f6f8fa;
+  --bg-header:      #ffffff;
+  --bg-pane:        #ffffff;
+  --bg-pane-header: rgba(255,255,255,0.97);
+  --bg-input:       #f6f8fa;
+  --bg-input-alt:   #eaeef2;
+  --bg-dropdown:    #ffffff;
+  --bg-hover:       #f0f2f5;
+  --border:         #d0d7de;
+  --border-soft:    #e8eaed;
+  --text-primary:   #1f2328;
+  --text-secondary: #57606a;
+  --text-chart:     #424a53;
+  --text-muted:     #6e7681;
+  --text-load:      #8c8c8c;
+  --accent:         #0969da;
+  --grid-line:      #e8eaed;
+  --grid-line-sub:  #f0f2f5;
+  --overlay-bg:     rgba(246,248,250,0.92);
+  --exch-nse-bg:    #dcfce7;
+  --exch-us-bg:     #dbeafe;
+  --exch-crypto-bg: #ede9fe;
+  --exch-index-bg:  #fef3c7;
+  --ws-live-bg:     #dcfce7;
+  --ws-off-bg:      #fee2e2;
+  --ws-retry-bg:    #fef9c3;
+  --so-icon-fg:     #ffffff;
+}
+
+/* ── Reset & base ─────────────────────────────────────────────────────────── */
+*, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+html, body {
+  height: 100%; overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--bg-page); color: var(--text-primary);
+}
+
+/* ── Header ───────────────────────────────────────────────────────────────── */
+#header {
+  height: 46px; display: flex; align-items: center; gap: 14px;
+  padding: 0 16px; background: var(--bg-header);
+  border-bottom: 1px solid var(--border); flex-shrink: 0;
+}
+#header .logo { font-size: 14px; font-weight: 700; color: var(--accent); white-space: nowrap; }
+#header label { font-size: 12px; color: var(--text-secondary); display: flex; align-items: center; gap: 5px; }
+#header select {
+  background: var(--bg-input-alt); border: 1px solid var(--border); color: var(--text-primary);
+  padding: 3px 8px; border-radius: 6px; font-size: 12px; cursor: pointer;
+  outline: none;
+}
+#header select:focus { border-color: var(--accent); }
+#ws-indicator {
+  font-size: 11px; font-weight: 600; flex-shrink: 0;
+  padding: 3px 10px; border-radius: 12px;
+}
+.ws-live   { background: var(--ws-live-bg);  color: #3fb950; }
+.ws-off    { background: var(--ws-off-bg);   color: #f85149; }
+.ws-retry  { background: var(--ws-retry-bg); color: #d29922; }
+
+/* ── Theme toggle ─────────────────────────────────────────────────────────── */
+.theme-switch {
+  display: flex; align-items: center;
+  background: var(--bg-input-alt); border: 1px solid var(--border);
+  border-radius: 16px; padding: 2px; gap: 1px; flex-shrink: 0;
+}
+.theme-switch input[type=radio] { display: none; }
+.theme-switch label {
+  display: flex; align-items: center; gap: 4px;
+  padding: 2px 10px; border-radius: 13px; cursor: pointer;
+  font-size: 11px; font-weight: 600; color: var(--text-secondary);
+  transition: background .15s, color .15s;
+  user-select: none;
+}
+.theme-switch input:checked + label {
+  background: var(--bg-header); color: var(--accent);
+  box-shadow: 0 1px 3px rgba(0,0,0,.2);
+}
+
+/* ── Grid ─────────────────────────────────────────────────────────────────── */
+#grid {
+  display: grid; gap: 3px; padding: 3px;
+  height: calc(100vh - 46px); overflow: hidden;
+  background: var(--bg-page);
+}
+/* Layout classes applied dynamically */
+.g1 { grid-template-columns: 1fr;                  grid-template-rows: 1fr; }
+.g2 { grid-template-columns: 1fr 1fr;              grid-template-rows: 1fr; }
+.g4 { grid-template-columns: 1fr 1fr;              grid-template-rows: 1fr 1fr; }
+.g6 { grid-template-columns: repeat(3,1fr);        grid-template-rows: 1fr 1fr; }
+.g8 { grid-template-columns: repeat(4,1fr);        grid-template-rows: 1fr 1fr; }
+
+/* ── Pane ─────────────────────────────────────────────────────────────────── */
+.pane {
+  position: relative; display: flex; flex-direction: column;
+  background: var(--bg-pane); border: 1px solid var(--border-soft); border-radius: 4px;
+  overflow: hidden; min-height: 0;
+}
+
+/* ── Pane header ──────────────────────────────────────────────────────────── */
+.ph {
+  display: flex; align-items: center; gap: 5px; flex-shrink: 0;
+  padding: 4px 8px; background: var(--bg-pane-header);
+  border-bottom: 1px solid var(--border-soft); z-index: 5;
+}
+.ph input[type=text] {
+  width: 110px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text-primary);
+  padding: 2px 6px; border-radius: 4px; font-size: 11px; outline: none;
+  text-transform: uppercase;
+}
+.ph input[type=text]:focus { border-color: var(--accent); }
+
+/* ── Symbol search (TradingView-style typeahead) ─────────────────────────────── */
+.sym-wrap { position: relative; }
+.sym-dropdown {
+  display: none; position: absolute; top: 100%; left: 0; margin-top: 4px;
+  width: 320px; max-height: 380px; overflow-y: auto; z-index: 60;
+  background: var(--bg-dropdown); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.25); padding: 4px 0;
+}
+.sym-dropdown.open { display: block; }
+.sym-dropdown .sym-empty {
+  padding: 14px 12px; font-size: 12px; color: var(--text-muted); text-align: center;
+}
+.sym-opt {
+  display: flex; align-items: center; gap: 8px; padding: 6px 12px;
+  cursor: pointer; font-size: 12px;
+}
+.sym-opt:hover, .sym-opt.hl { background: var(--bg-hover); }
+.sym-opt .so-icon {
+  width: 20px; height: 20px; border-radius: 50%; flex-shrink: 0;
+  display: flex; align-items: center; justify-content: center;
+  font-size: 10px; font-weight: 700; color: var(--so-icon-fg);
+}
+.sym-opt .so-main { flex: 1; min-width: 0; overflow: hidden; }
+.sym-opt .so-symbol { color: var(--accent); font-weight: 700; }
+.sym-opt .so-name {
+  color: var(--text-secondary); font-size: 11px; white-space: nowrap; overflow: hidden;
+  text-overflow: ellipsis; margin-left: 6px;
+}
+.sym-opt .so-meta { flex-shrink: 0; text-align: right; }
+.sym-opt .so-type { color: var(--text-muted); font-size: 10px; display: block; }
+.sym-opt .so-exch {
+  font-size: 9px; font-weight: 700; padding: 1px 6px; border-radius: 8px;
+  margin-top: 2px; display: inline-block;
+}
+.so-exch.NSE, .so-exch.BSE     { background: var(--exch-nse-bg);    color: #3fb950; }
+.so-exch.NASDAQ, .so-exch.NYSE { background: var(--exch-us-bg);     color: #58a6ff; }
+.so-exch.CRYPTO                { background: var(--exch-crypto-bg); color: #bc8cff; }
+.so-exch.INDEX                 { background: var(--exch-index-bg);  color: #d29922; }
+.ph select {
+  background: var(--bg-input); border: 1px solid var(--border); color: var(--text-primary);
+  padding: 2px 4px; border-radius: 4px; font-size: 11px; cursor: pointer;
+  outline: none;
+}
+.ph select:focus { border-color: var(--accent); }
+
+/* ── Indicators button + dropdown ─────────────────────────────────────────── */
+.ind-wrap { position: relative; }
+.ind-btn {
+  background: var(--bg-input); border: 1px solid var(--border); color: var(--text-secondary);
+  padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700;
+  letter-spacing: .03em; cursor: pointer; outline: none; white-space: nowrap;
+}
+.ind-btn:hover, .ind-btn.active { border-color: var(--accent); color: var(--accent); }
+.snap-btn { padding: 2px 7px; font-size: 13px; line-height: 1.4; }
+
+/* ── Visible-range presets (1M/3M/6M/1Y/All) ─────────────────────────────── */
+.range-row {
+  display: flex; gap: 4px; padding: 3px 8px; background: var(--bg-pane-header);
+  border-bottom: 1px solid var(--border-soft);
+}
+.range-btn {
+  background: transparent; border: 1px solid transparent; color: var(--text-secondary);
+  padding: 1px 7px; border-radius: 4px; font-size: 10px; font-weight: 600;
+  cursor: pointer; outline: none;
+}
+.range-btn:hover { border-color: var(--border); color: var(--text-primary); }
+.range-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ind-panel {
+  display: none; position: absolute; top: 100%; left: 0; margin-top: 4px;
+  width: 220px; max-height: 360px; overflow-y: auto; z-index: 50;
+  background: var(--bg-dropdown); border: 1px solid var(--border); border-radius: 6px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.2); padding: 8px 0;
+}
+.ind-panel.open { display: block; }
+.ind-group-title {
+  font-size: 10px; font-weight: 700; letter-spacing: .05em; color: var(--text-secondary);
+  padding: 6px 12px 4px; text-transform: uppercase;
+}
+.ind-row {
+  display: flex; align-items: center; gap: 8px; padding: 5px 12px;
+  cursor: pointer; font-size: 12px; color: var(--text-chart);
+}
+.ind-row:hover { background: var(--bg-hover); }
+.ind-row input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
+.ind-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.ind-divider { height: 1px; background: var(--border-soft); margin: 6px 0; }
+
+/* ── Ticker bar ───────────────────────────────────────────────────────────── */
+.ticker-wrap {
+  margin-left: auto; display: flex; align-items: center; gap: 6px;
+}
+.sym-badge {
+  font-size: 11px; font-weight: 600; color: var(--text-secondary);
+  white-space: nowrap; max-width: 110px; overflow: hidden; text-overflow: ellipsis;
+}
+.sym-company {
+  font-size: 10px; color: var(--text-secondary); opacity: .7;
+  white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis;
+}
+.sym-exch-badge {
+  font-size: 9px; font-weight: 700; letter-spacing: .3px;
+  padding: 1px 5px; border-radius: 8px; white-space: nowrap;
+}
+.sym-exch-badge.NSE { color: #3fb950; background: rgba(63,185,80,.15); border: 1px solid rgba(63,185,80,.3); }
+.sym-exch-badge.BSE { color: #d29922; background: rgba(210,153,34,.15); border: 1px solid rgba(210,153,34,.3); }
+.price-el {
+  font-family: "Courier New", monospace; font-size: 13px; font-weight: 700;
+  padding: 2px 8px; border-radius: 4px; min-width: 90px; text-align: right;
+  transition: background 0.15s ease-out;
+}
+.price-el.up   { color: #3fb950; }
+.price-el.down { color: #f85149; }
+@keyframes fgreen { 0%,100% { background:transparent; } 20% { background:rgba(63,185,80,.35); } }
+@keyframes fred   { 0%,100% { background:transparent; } 20% { background:rgba(248,81,73,.35); } }
+.flash-g { animation: fgreen .6s ease-out; }
+.flash-r { animation: fred   .6s ease-out; }
+
+/* Pill badge, Google-Finance style: arrow + % + absolute change vs the
+   previous daily close, all on one line so it costs no extra row height. */
+.chg-el {
+  font-size: 10.5px; font-weight: 600; white-space: nowrap;
+  padding: 1px 7px; border-radius: 10px; display: inline-flex;
+  align-items: center; gap: 3px; line-height: 1.5;
+}
+.chg-el.up   { color: #3fb950; background: rgba(63,185,80,.15); }
+.chg-el.down { color: #f85149; background: rgba(248,81,73,.15); }
+.chg-el .chg-arrow { font-size: 9px; }
+
+/* Liquid-ETF / cash-equivalent tag — hidden by default, .active by JS. */
+.etf-badge {
+  display: none; font-size: 9.5px; font-weight: 700; letter-spacing: .3px;
+  padding: 1px 6px; border-radius: 10px; color: #b98700;
+  background: rgba(255, 214, 10, .18); border: 1px solid rgba(255, 214, 10, .35);
+  cursor: help;
+}
+.etf-badge.active { display: inline-flex; }
+
+/* Momentum indicators disabled by the ETF-mode detector — greyed and
+   click-blocked, but still visible so the user sees WHAT was suppressed. */
+.ind-row.ind-disabled { opacity: .35; cursor: not-allowed; }
+.ind-row.ind-disabled input { pointer-events: none; }
+
+/* ── Snapshot toast ───────────────────────────────────────────────────────── */
+.snap-toast {
+  position: fixed; left: 50%; bottom: 24px; transform: translateX(-50%);
+  background: var(--bg-dropdown); border: 1px solid var(--border); color: var(--text-primary);
+  padding: 8px 16px; border-radius: 6px; font-size: 12px; z-index: 999;
+  box-shadow: 0 8px 24px rgba(0,0,0,.3);
+  opacity: 0; transition: opacity .2s ease-out; pointer-events: none;
+}
+.snap-toast.show { opacity: 1; }
+
+/* ── Chart body & sub-panes ───────────────────────────────────────────────── */
+.chart-body {
+  flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+}
+.chart-main {
+  /* min-height gives the candlestick chart a hard floor so it can't be
+     collapsed to zero by a stack of sub-pane indicators. Previously with
+     flex:1 + min-height:0, a pane with 6 sub-panes (6×100=600px fixed)
+     in a g4 layout would leave chart-main at 0px and show only sub-panes.
+     100px is the same as one sub-pane — enough to see candles even when
+     everything is squeezed. */
+  flex: 1 1 auto; min-height: 100px; position: relative; overflow: hidden;
+}
+/* Sub-panes must be allowed to shrink so the main chart's min-height wins.
+   Individual sub-pane min-height keeps oscillators still readable when
+   space is tight; below that they overflow-scroll rather than disappear. */
+.sub-panes { display: flex; flex-direction: column; flex-shrink: 1; min-height: 0; overflow: hidden; }
+.sub-pane {
+  height: 100px; min-height: 50px; flex-shrink: 1;
+  position: relative; border-top: 1px solid var(--border-soft); overflow: hidden;
+}
+.sub-pane-label {
+  position: absolute; top: 4px; left: 8px; z-index: 10; pointer-events: none;
+  font-size: 9px; font-weight: 700; letter-spacing: .05em;
+  color: var(--text-secondary); text-transform: uppercase;
+}
+.loading-msg {
+  position: absolute; inset: 0; display: flex; align-items: center;
+  justify-content: center; color: var(--text-load); font-size: 13px; pointer-events: none;
+}
+
+/* ── Elliott Wave info overlay ────────────────────────────────────────────── */
+/* Moved to bottom-left so it never overlaps the top-corner INDICATORS
+   dropdown or the ticker bar (LAURUSLABS case, 2026-07-03). Defaults to
+   collapsed on first render — the actionable info (fib target prices, VP
+   confluence stars) is already on the right price axis; the wave-math list
+   is context, not a decision. State persists per-pane in localStorage. */
+.ew-info {
+  position: absolute; bottom: 8px; left: 8px; z-index: 8;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
+  padding: 6px 9px 6px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
+  max-width: 260px; display: none;
+}
+.ew-info b { color: #00e5ff; }
+.ew-info i { color: var(--text-muted); font-style: normal; }
+.ew-info-toggle {
+  position: absolute; top: 2px; right: 4px; cursor: pointer;
+  font-size: 11px; line-height: 1; color: var(--text-muted);
+  padding: 2px 4px; user-select: none;
+}
+.ew-info-toggle:hover { color: var(--text-chart); }
+.ew-info.collapsed .ew-info-body { display: none; }
+.ew-info.collapsed { padding: 2px 22px 2px 8px; max-width: none; width: auto; }
+.ew-info.collapsed .ew-info-toggle { top: 0; }
+/* Compact one-line summary shown when collapsed — the same identifier the
+   full panel starts with, so the user knows what's parked there. */
+.ew-info-summary {
+  font-size: 10.5px; font-weight: 600; color: #00e5ff;
+  white-space: nowrap; display: none;
+}
+.ew-info.collapsed .ew-info-summary { display: inline-block; }
+
+/* ── Reversal Calendar info overlay ───────────────────────────────────────── */
+/* Anchored bottom-right so it doesn't overlap the top-left ew-info panel
+   when both Elliott Wave and Reversal Calendar are toggled on. */
+.rev-info {
+  position: absolute; bottom: 6px; right: 8px; z-index: 8; pointer-events: none;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
+  padding: 6px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
+  max-width: 260px; display: none;
+}
+
+/* ── Rounding Bottom info overlay ─────────────────────────────────────────── */
+/* Anchored top-right (opposite corner from the collapsed ew-info at
+   bottom-left) so overlays don't stack on each other. Same collapse-and-
+   persist pattern as ew-info; default is collapsed to a small chip. */
+.rb-info {
+  position: absolute; top: 6px; right: 8px; z-index: 8;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
+  padding: 6px 22px 6px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
+  max-width: 240px; display: none;
+}
+.rb-info b { color: #ffab40; }
+.rb-info-toggle {
+  position: absolute; top: 2px; right: 4px; cursor: pointer;
+  font-size: 11px; line-height: 1; color: var(--text-muted);
+  padding: 2px 4px; user-select: none;
+}
+.rb-info-toggle:hover { color: var(--text-chart); }
+.rb-info.collapsed .rb-info-body { display: none; }
+.rb-info.collapsed { padding: 2px 22px 2px 8px; max-width: none; width: auto; }
+.rb-info.collapsed .rb-info-toggle { top: 0; }
+.rb-info-summary {
+  font-size: 10.5px; font-weight: 600; color: #ffab40;
+  white-space: nowrap; display: none;
+}
+.rb-info.collapsed .rb-info-summary { display: inline-block; }
+
+/* ── VCP Coiling info overlay ─────────────────────────────────────────────── */
+/* Anchored top-center — four corners are occupied by INDICATORS button,
+   Rounding Bottom, Elliott Wave, and Reversal Calendar. Same collapse-and-
+   persist pattern as ew-info and rb-info. */
+.vcp-info {
+  position: absolute; top: 6px; left: 50%; transform: translateX(-50%); z-index: 8;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
+  padding: 6px 22px 6px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
+  max-width: 280px; display: none;
+}
+.vcp-info b { color: #26c6da; }
+.vcp-info-toggle {
+  position: absolute; top: 2px; right: 4px; cursor: pointer;
+  font-size: 11px; line-height: 1; color: var(--text-muted);
+  padding: 2px 4px; user-select: none;
+}
+.vcp-info-toggle:hover { color: var(--text-chart); }
+.vcp-info.collapsed .vcp-info-body { display: none; }
+.vcp-info.collapsed { padding: 2px 22px 2px 8px; max-width: none; width: auto; }
+.vcp-info.collapsed .vcp-info-toggle { top: 0; }
+.vcp-info-summary {
+  font-size: 10.5px; font-weight: 600; color: #26c6da;
+  white-space: nowrap; display: none;
+}
+.vcp-info.collapsed .vcp-info-summary { display: inline-block; }
+</style>
+</head>
+<body>
+
+<!-- ── Header ── -->
+<div id="header">
+  <span class="logo">📈 Trading Bramha — Multi-Chart</span>
+  <label>Charts
+    <select id="cnt-sel">
+      <option value="1">1</option>
+      <option value="2">2</option>
+      <option value="4">4</option>
+      <option value="6">6</option>
+      <option value="8">8</option>
+    </select>
+  </label>
+  <div style="margin-left:auto;display:flex;align-items:center;gap:10px;">
+    <div id="ws-indicator" class="ws-off">⬤ Offline</div>
+    <div class="theme-switch">
+      <input type="radio" name="theme" id="th-dark"  value="dark"  checked>
+      <label for="th-dark">🌙 Dark</label>
+      <input type="radio" name="theme" id="th-light" value="light">
+      <label for="th-light">☀️ Light</label>
+    </div>
+  </div>
+</div>
+
+<!-- ── Grid ── -->
+<div id="grid"></div>
+
+<script>
+'use strict';
+
+// ── Theme ─────────────────────────────────────────────────────────────────────
+const CHART_THEMES = {
+  dark: {
+    chartBg:      '#131722',
+    textColor:    '#c9d1d9',
+    subText:      '#8b949e',
+    gridLine:     '#1e222d',
+    gridLineSub:  '#1a1e2a',
+    border:       '#30363d',
+    borderSoft:   '#21262d',
+  },
+  light: {
+    chartBg:      '#ffffff',
+    textColor:    '#424a53',
+    subText:      '#57606a',
+    gridLine:     '#e8eaed',
+    gridLineSub:  '#f0f2f5',
+    border:       '#d0d7de',
+    borderSoft:   '#e8eaed',
+  },
+};
+let currentTheme = localStorage.getItem('tb-theme') || 'dark';
+
+function applyTheme(mode) {
+  currentTheme = mode;
+  localStorage.setItem('tb-theme', mode);
+  if (mode === 'light') document.documentElement.classList.add('light');
+  else                  document.documentElement.classList.remove('light');
+  const t = CHART_THEMES[mode];
+  // Re-apply options to every live chart and sub-chart
+  if (typeof panes !== 'undefined') {
+    panes.forEach(p => {
+      if (!p) return;
+      p.chart.applyOptions({
+        layout: {background:{type:'solid', color:t.chartBg}, textColor:t.textColor},
+        grid: {vertLines:{color:t.gridLine}, horzLines:{color:t.gridLine}},
+        rightPriceScale: {borderColor:t.border},
+        timeScale: {borderColor:t.border},
+      });
+      Object.values(p.subCharts).forEach(({chart:sub}) => {
+        sub.applyOptions({
+          layout: {background:{type:'solid', color:t.chartBg}, textColor:t.subText},
+          grid: {vertLines:{color:t.gridLineSub}, horzLines:{color:t.gridLineSub}},
+          rightPriceScale: {borderColor:t.borderSoft},
+          timeScale: {borderColor:t.borderSoft},
+        });
+      });
+    });
+  }
+}
+
+function mainChartOpts() {
+  const t = CHART_THEMES[currentTheme];
+  return {
+    layout: {background:{type:'solid', color:t.chartBg}, textColor:t.textColor},
+    grid: {vertLines:{color:t.gridLine}, horzLines:{color:t.gridLine}},
+    crosshair: {mode: LightweightCharts.CrosshairMode.Normal},
+    rightPriceScale: {borderColor:t.border},
+    timeScale: {borderColor:t.border, timeVisible:true, secondsVisible:false},
+  };
+}
+
+function subChartOpts() {
+  const t = CHART_THEMES[currentTheme];
+  return {
+    layout: {background:{type:'solid', color:t.chartBg}, textColor:t.subText},
+    grid: {vertLines:{color:t.gridLineSub}, horzLines:{color:t.gridLineSub}},
+    rightPriceScale: {borderColor:t.borderSoft, scaleMargins:{top:0.08, bottom:0.08}},
+    timeScale: {borderColor:t.borderSoft, visible:false},
+    crosshair: {mode: LightweightCharts.CrosshairMode.Normal},
+    handleScroll: false, handleScale: false,
+  };
+}
+
+// ── Config ────────────────────────────────────────────────────────────────────
+const SERVER  = 'http://localhost:5001';
+const WS_URL  = 'ws://localhost:5001/ws';
+
+const TIMEFRAMES = ['1m','5m','15m','30m','1h','4h','1d','1w'];
+
+// Default bar counts per timeframe.  Daily needs 2600 to cover 10 years of
+// trading days (~252/yr × 10 = 2520).  Weekly can show 20+ years in 1000 bars.
+const TF_BARS = {
+  '1m':  200, '5m':  200, '15m': 200, '30m': 200,
+  '1h':  500, '4h':  500,
+  '1d': 2600,  // ← 10Y+ daily history
+  '1w': 1000,
+};
+
+// How much of the fetched history to actually show by default. TF_BARS above
+// controls how far back you *can* zoom (2600 daily bars = 10Y+); this controls
+// what's on screen on first load. Without this, fitContent() was cramming all
+// 2600 daily bars into the chart at once ("stretched to max timeframe"). Bar
+// counts below are trading-day-accurate for '1d'; other timeframes just show
+// that many most-recent bars, which is still a sane zoomed-in default even
+// though the preset labels are a daily-chart convention.
+const RANGE_PRESETS = [
+  { label: '1M',  bars: 21 },
+  { label: '3M',  bars: 63 },
+  { label: '6M',  bars: 126 },
+  { label: '1Y',  bars: 252 },
+  { label: 'All', bars: null },
+];
+const DEFAULT_RANGE_PRESET = '6M';
+
+function applyRangeView(pane) {
+  const n = pane.bars.length;
+  if (!n) return;
+  const preset = RANGE_PRESETS.find(p => p.label === pane.rangePreset) || RANGE_PRESETS[2];
+  if (!preset.bars || preset.bars >= n) {
+    pane.chart.timeScale().fitContent();
+  } else {
+    pane.chart.timeScale().setVisibleLogicalRange({ from: n - preset.bars, to: n - 1 });
+  }
+}
+
+const DEFAULT_SYMS = [
+  {symbol:'RELIANCE.NS', tf:'1d'},
+  {symbol:'TCS.NS',      tf:'1d'},
+  {symbol:'BTC',         tf:'1h'},
+  {symbol:'ETH',         tf:'1h'},
+  {symbol:'HDFCBANK.NS', tf:'1d'},
+  {symbol:'SOL',         tf:'1h'},
+  {symbol:'INFY.NS',     tf:'1d'},
+  {symbol:'AVAX',        tf:'1h'},
+];
+
+const GRID_CLASSES = {1:'g1',2:'g2',4:'g4',6:'g6',8:'g8'};
+
+// ── Indicator catalogue ─────────────────────────────────────────────────────────
+// Each entry: key (storage id), label, group, color, lines (sub-series suffixes)
+const INDICATOR_DEFS = [
+  {key:'sma20',     label:'SMA (20)',          group:'Moving Averages', color:'#2962ff'},
+  {key:'sma50',     label:'SMA (50)',          group:'Moving Averages', color:'#ff9800'},
+  {key:'sma200',    label:'SMA (200)',         group:'Moving Averages', color:'#f23645'},
+  {key:'ema20',     label:'EMA (20)',          group:'Moving Averages', color:'#00bd6f'},
+  {key:'ema50',     label:'EMA (50)',          group:'Moving Averages', color:'#9c27b0'},
+  {key:'ema200',    label:'EMA (200)',         group:'Moving Averages', color:'#e91e63'},
+  {key:'vwap',      label:'VWAP',              group:'Moving Averages', color:'#ffd60a'},
+  {key:'bollinger', label:'Bollinger (20, 2)', group:'Bands & Channels', color:'#9aa4af'},
+  {key:'donchian',  label:'Donchian (20)',     group:'Bands & Channels', color:'#26c6da'},
+  {key:'keltner',   label:'Keltner (20, 1.5)',     group:'Bands & Channels', color:'#f48fb1'},
+  {key:'pmax',      label:'PMax (EMA10, ATR10 × 3)', group:'Bands & Channels', color:'#26a69a'},
+  // ── Sub-pane oscillators ────────────────────────────────────────────────────
+  {key:'rsi',       label:'RSI (14)',               group:'Oscillators',       color:'#7b61ff'},
+  {key:'macd',      label:'MACD (12, 26, 9)',       group:'Oscillators',       color:'#2962ff'},
+  {key:'obv',       label:'OBV',                    group:'Oscillators',       color:'#00bd6f'},
+  {key:'rs',        label:'RS vs Benchmark',        group:'Oscillators',       color:'#ffd60a'},
+  {key:'prte',      label:'%R Trend Exhaustion',    group:'Oscillators',       color:'#2466A7'},
+  {key:'roc',       label:'ROC + RSI Zones (21,5,5,14)', group:'Oscillators',    color:'#2962ff'},
+  {key:'stoch',     label:'Stochastic (14,3,3)',    group:'Oscillators',       color:'#26c6da'},
+  // ── Volume ──────────────────────────────────────────────────────────────────
+  {key:'volume',     label:'Volume',                 group:'Volume',            color:'#888888'},
+  {key:'volprofile', label:'Volume Profile (POC/VA/HVN/LVN)', group:'Volume',  color:'#9aa4af'},
+  // ── Pattern Recognition ──────────────────────────────────────────────────────
+  {key:'elliott',      label:'Elliott Wave (1-5, A-B-C)', group:'Pattern Recognition', color:'#00e5ff'},
+  {key:'fvg',          label:'Fair Value Gap',            group:'Pattern Recognition', color:'#26a69a'},
+  {key:'roundbottom',  label:'Rounding Bottom (saucer)',  group:'Pattern Recognition', color:'#ffab40'},
+  {key:'vcp',          label:'VCP Coiling',               group:'Pattern Recognition', color:'#26c6da'},
+  {key:'trendlines',   label:'Trendlines (supply/demand)', group:'Pattern Recognition', color:'#ff9800'},
+  {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab)', group:'Pattern Recognition', color:'#ba68c8'},
+  // ── Calendar ────────────────────────────────────────────────────────────────
+  {key:'reversal_calendar', label:'Reversal Calendar (Yogas + Lunar)',
+                                                     group:'Calendar',           color:'#ffd60a'},
+];
+const INDICATOR_GROUPS = ['Moving Averages', 'Bands & Channels', 'Oscillators', 'Volume', 'Pattern Recognition', 'Calendar'];
+
+function renderIndicatorPanel() {
+  let html = '';
+  INDICATOR_GROUPS.forEach((g, gi) => {
+    if (gi > 0) html += '<div class="ind-divider"></div>';
+    html += `<div class="ind-group-title">${g}</div>`;
+    INDICATOR_DEFS.filter(d => d.group === g).forEach(d => {
+      html += `
+        <label class="ind-row">
+          <input type="checkbox" class="ind-chk" data-key="${d.key}">
+          <span class="ind-swatch" style="background:${d.color}"></span>
+          ${d.label}
+        </label>`;
+    });
+  });
+  return html;
+}
+
+// ── Indicator math (computed from a full bars[] array of {time,open,high,low,close,volume}) ──
+function smaSeries(bars, period) {
+  const out = [];
+  let sum = 0;
+  for (let i = 0; i < bars.length; i++) {
+    sum += bars[i].close;
+    if (i >= period) sum -= bars[i - period].close;
+    if (i >= period - 1) out.push({time: bars[i].time, value: sum / period});
+  }
+  return out;
+}
+
+function emaSeries(bars, period) {
+  const out = [];
+  const k = 2 / (period + 1);
+  let prev = null;
+  for (let i = 0; i < bars.length; i++) {
+    const c = bars[i].close;
+    if (prev === null) {
+      if (i === period - 1) {
+        // seed with SMA of first `period` closes
+        let sum = 0;
+        for (let j = 0; j <= i; j++) sum += bars[j].close;
+        prev = sum / period;
+        out.push({time: bars[i].time, value: prev});
+      }
+      continue;
+    }
+    prev = c * k + prev * (1 - k);
+    out.push({time: bars[i].time, value: prev});
+  }
+  return out;
+}
+
+function vwapSeries(bars) {
+  // Anchored VWAP, resets at the start of each calendar day (UTC).
+  const out = [];
+  let cumPV = 0, cumVol = 0, curDay = null;
+  for (let i = 0; i < bars.length; i++) {
+    const b = bars[i];
+    const day = new Date(b.time * 1000).toISOString().slice(0, 10);
+    if (day !== curDay) { curDay = day; cumPV = 0; cumVol = 0; }
+    const typical = (b.high + b.low + b.close) / 3;
+    const vol = b.volume || 0;
+    cumPV  += typical * vol;
+    cumVol += vol;
+    out.push({time: b.time, value: cumVol > 0 ? cumPV / cumVol : b.close});
+  }
+  return out;
+}
+
+function bollingerSeries(bars, period, mult) {
+  const mid = [], upper = [], lower = [];
+  for (let i = period - 1; i < bars.length; i++) {
+    let sum = 0;
+    for (let j = i - period + 1; j <= i; j++) sum += bars[j].close;
+    const mean = sum / period;
+    let sqSum = 0;
+    for (let j = i - period + 1; j <= i; j++) sqSum += Math.pow(bars[j].close - mean, 2);
+    const sd = Math.sqrt(sqSum / period);
+    mid.push({time: bars[i].time, value: mean});
+    upper.push({time: bars[i].time, value: mean + mult * sd});
+    lower.push({time: bars[i].time, value: mean - mult * sd});
+  }
+  return {mid, upper, lower};
+}
+
+function donchianSeries(bars, period) {
+  const upper = [], lower = [], mid = [];
+  for (let i = period - 1; i < bars.length; i++) {
+    let hi = -Infinity, lo = Infinity;
+    for (let j = i - period + 1; j <= i; j++) {
+      if (bars[j].high > hi) hi = bars[j].high;
+      if (bars[j].low  < lo) lo = bars[j].low;
+    }
+    upper.push({time: bars[i].time, value: hi});
+    lower.push({time: bars[i].time, value: lo});
+    mid.push({time: bars[i].time, value: (hi + lo) / 2});
+  }
+  return {upper, lower, mid};
+}
+
+function atrSeries(bars, period) {
+  const out = [];
+  let prevClose = null, atr = null;
+  const trs = [];
+  for (let i = 0; i < bars.length; i++) {
+    const b = bars[i];
+    const tr = prevClose === null
+      ? b.high - b.low
+      : Math.max(b.high - b.low, Math.abs(b.high - prevClose), Math.abs(b.low - prevClose));
+    trs.push(tr);
+    prevClose = b.close;
+    if (i === period - 1) {
+      atr = trs.slice(0, period).reduce((a, v) => a + v, 0) / period;
+      out.push({time: b.time, value: atr});
+    } else if (i > period - 1) {
+      atr = (atr * (period - 1) + tr) / period;
+      out.push({time: b.time, value: atr});
+    }
+  }
+  return out;
+}
+
+// PMax — EMA-of-source ± ATR × Multiplier, ratcheting trailing band that flips
+// direction when the smoothed source crosses the opposite stop. Port of the
+// original PMax Pine (see tools/pmax.pine, lines 211-267). Defaults match the
+// Pine (src=hl2, atr_len=10, atr_mult=3.0, ma=EMA, ma_len=10, changeATR=true).
+// Returns an array of {time, pmax, dir, ma} — one point per bar once warmed up.
+function pmaxSeries(bars, atrLen = 10, atrMult = 3.0, maLen = 10) {
+  if (!bars || bars.length < Math.max(atrLen, maLen) + 2) return [];
+  // Wilder ATR (matches ta.atr in Pine when changeATR=true).
+  const atr = atrSeries(bars, atrLen);
+  const atrByTime = new Map(atr.map(a => [a.time, a.value]));
+  // EMA of hl2.
+  const alpha = 2 / (maLen + 1);
+  let ema = null;
+  const out = [];
+  let longStopPrev = null, shortStopPrev = null, dir = 1;
+  for (let i = 0; i < bars.length; i++) {
+    const b = bars[i];
+    const src = (b.high + b.low) / 2;
+    ema = ema === null ? src : alpha * src + (1 - alpha) * ema;
+    // Warm-up: only start emitting once ATR has a value AND we've seeded ~maLen
+    // bars into the EMA — mirrors Pine's na-propagation.
+    if (i < maLen - 1) continue;
+    const a = atrByTime.get(b.time);
+    if (a === undefined) continue;
+    let longStop  = ema - atrMult * a;
+    let shortStop = ema + atrMult * a;
+    if (longStopPrev !== null && ema > longStopPrev)  longStop  = Math.max(longStop,  longStopPrev);
+    if (shortStopPrev !== null && ema < shortStopPrev) shortStop = Math.min(shortStop, shortStopPrev);
+    if      (dir === -1 && ema > (shortStopPrev ?? shortStop)) dir = 1;
+    else if (dir ===  1 && ema < (longStopPrev  ?? longStop))  dir = -1;
+    const pmax = dir === 1 ? longStop : shortStop;
+    out.push({time: b.time, pmax, dir, ma: ema});
+    longStopPrev  = longStop;
+    shortStopPrev = shortStop;
+  }
+  return out;
+}
+
+function keltnerSeries(bars, period, mult) {
+  const emaMid = emaSeries(bars, period);
+  const atr = atrSeries(bars, period);
+  const atrByTime = new Map(atr.map(a => [a.time, a.value]));
+  const mid = [], upper = [], lower = [];
+  emaMid.forEach(pt => {
+    const a = atrByTime.get(pt.time);
+    if (a === undefined) return;
+    mid.push(pt);
+    upper.push({time: pt.time, value: pt.value + mult * a});
+    lower.push({time: pt.time, value: pt.value - mult * a});
+  });
+  return {mid, upper, lower};
+}
+
+// Wilder RSI. Previously used an accumulator seed that could produce
+// avgGain=0 even when the price series was monotonically rising in the small
+// (e.g. a liquid ETF where daily diffs frequently round to 0.00). One rare
+// small down-day would then land as avgLoss>0 with avgGain=0, giving
+// rs=0 -> RSI=0 -> phantom vertical plunges on an otherwise flat panel
+// (see the LIQUIDCASE.NS case, 2026-07-03). Switching to Wilder EMA from
+// bar 1 with a warmup period and a proper neutral-when-both-zero branch.
+function rsiSeries(bars, period = 14) {
+  if (!bars || bars.length < period + 1) return [];
+  const out = [];
+  const alpha = 1 / period;
+  let avgGain = 0, avgLoss = 0;
+  for (let i = 1; i < bars.length; i++) {
+    const diff = bars[i].close - bars[i - 1].close;
+    const gain = diff > 0 ?  diff : 0;
+    const loss = diff < 0 ? -diff : 0;
+    avgGain = alpha * gain + (1 - alpha) * avgGain;
+    avgLoss = alpha * loss + (1 - alpha) * avgLoss;
+    if (i < period) continue;                           // warmup
+    // Neutral (not 0/100) while price hasn't moved either way — this is what
+    // prevented the false plunge on near-monotonic series.
+    let value;
+    if (avgGain === 0 && avgLoss === 0)      value = 50;
+    else if (avgLoss === 0)                  value = 100;
+    else                                     value = 100 - 100 / (1 + avgGain / avgLoss);
+    out.push({time: bars[i].time, value});
+  }
+  return out;
+}
+
+function macdCalc(bars, fast = 12, slow = 26, signal = 9) {
+  const fastEma = emaSeries(bars, fast);
+  const slowEma = emaSeries(bars, slow);
+  const fastMap = new Map(fastEma.map(p => [p.time, p.value]));
+  const macdLine = [];
+  slowEma.forEach(p => {
+    const f = fastMap.get(p.time);
+    if (f !== undefined) macdLine.push({time: p.time, value: f - p.value});
+  });
+  // EMA of MACD line = signal
+  const k = 2 / (signal + 1);
+  const signalLine = [];
+  let prev = null;
+  for (let i = 0; i < macdLine.length; i++) {
+    const v = macdLine[i].value;
+    if (prev === null) {
+      if (i === signal - 1) {
+        let sum = 0;
+        for (let j = 0; j <= i; j++) sum += macdLine[j].value;
+        prev = sum / signal;
+        signalLine.push({time: macdLine[i].time, value: prev});
+      }
+      continue;
+    }
+    prev = v * k + prev * (1 - k);
+    signalLine.push({time: macdLine[i].time, value: prev});
+  }
+  const sigMap = new Map(signalLine.map(p => [p.time, p.value]));
+  const hist = [];
+  macdLine.forEach(p => {
+    const sv = sigMap.get(p.time);
+    if (sv !== undefined) hist.push({time: p.time, value: p.value - sv, color: p.value - sv >= 0 ? '#26a69a' : '#ef5350'});
+  });
+  const sigTimes = new Set(signalLine.map(p => p.time));
+  return {macd: macdLine.filter(p => sigTimes.has(p.time)), signal: signalLine, hist};
+}
+
+function volumeBarSeries(bars) {
+  // Colored like the candlesticks themselves (up/down by bar direction).
+  return bars.map(b => ({
+    time: b.time,
+    value: b.volume || 0,
+    color: b.close >= b.open ? 'rgba(38,166,154,0.7)' : 'rgba(239,83,80,0.7)',
+  }));
+}
+
+// Stochastic Oscillator (Lane, late 1950s) — Full Stochastic (k, kSmooth, dSmooth).
+// Defaults 14/3/3 = the widely-taught "slow stochastic".
+//   raw %K  = 100 × (close − lowestLow(k)) / (highestHigh(k) − lowestLow(k))
+//   %K      = SMA(raw %K, kSmooth)
+//   %D      = SMA(%K, dSmooth)
+// Returns {k: [{time,value}], d: [{time,value}]}. Values in [0, 100], with the
+// standard 80 / 20 overbought / oversold guide lines rendered in the sub-pane.
+function stochSeries(bars, k = 14, kSmooth = 3, dSmooth = 3) {
+  if (!bars || bars.length < k + kSmooth + dSmooth) return {k: [], d: []};
+  const raw = [];
+  for (let i = k - 1; i < bars.length; i++) {
+    let hh = -Infinity, ll = Infinity;
+    for (let j = i - k + 1; j <= i; j++) {
+      if (bars[j].high > hh) hh = bars[j].high;
+      if (bars[j].low  < ll) ll = bars[j].low;
+    }
+    const rng = hh - ll;
+    const v = rng > 0 ? 100 * (bars[i].close - ll) / rng : 50;
+    raw.push({time: bars[i].time, value: v});
+  }
+  const sma = (arr, n) => {
+    const out = [];
+    let sum = 0;
+    for (let i = 0; i < arr.length; i++) {
+      sum += arr[i].value;
+      if (i >= n) sum -= arr[i - n].value;
+      if (i >= n - 1) out.push({time: arr[i].time, value: sum / n});
+    }
+    return out;
+  };
+  const kSm = sma(raw, kSmooth);
+  const dSm = sma(kSm, dSmooth);
+  return {k: kSm, d: dSm};
+}
+
+function obvSeries(bars) {
+  const out = [];
+  let obv = 0;
+  for (let i = 0; i < bars.length; i++) {
+    if (i > 0) {
+      if (bars[i].close > bars[i - 1].close)      obv += (bars[i].volume || 0);
+      else if (bars[i].close < bars[i - 1].close) obv -= (bars[i].volume || 0);
+    }
+    out.push({time: bars[i].time, value: obv});
+  }
+  return out;
+}
+
+// ── ROC + RSI Zones — port of "Rate Of Change and rsi zones" Pine v5 ─────────
+// Base ROC = SMA(100*(src-src[length])/src[length], roc_smooth). Layered on
+// top is a second colored line that only appears when both ROC and RSI agree
+// on a regime — GREEN when RSI<40 & ROC<0 (deep oversold), RED when RSI>60 &
+// ROC>0 (extended overbought). Buy/sell triangles fire when the ROC crosses
+// its own SMA in the confirming zone. Fill between ROC and zero is inverted:
+// green when ROC<0 (contrarian bullish exhaustion), red when ROC>0 (overheat).
+function rocRsiSeries(bars, {length = 21, rocSmooth = 5, rocSmaVal = 5, rsiLen = 14} = {}) {
+  const n = bars.length;
+  const empty = {roc: [], overlayGreen: [], overlayRed: [], baseline: [],
+                 buys: [], sells: []};
+  if (n < Math.max(length + rocSmooth, rsiLen) + 2) return empty;
+
+  // RSI (Wilder RMA) — matches Pine's ta.rma
+  const rsiArr = new Array(n).fill(NaN);
+  {
+    const alpha = 1 / rsiLen;
+    let ag = 0, al = 0;
+    for (let i = 1; i < n; i++) {
+      const d = bars[i].close - bars[i - 1].close;
+      ag = alpha * (d > 0 ?  d : 0) + (1 - alpha) * ag;
+      al = alpha * (d < 0 ? -d : 0) + (1 - alpha) * al;
+      if (i >= rsiLen) {
+        rsiArr[i] = (ag === 0 && al === 0) ? 50
+                   : al === 0 ? 100
+                   : 100 - 100 / (1 + ag / al);
+      }
+    }
+  }
+
+  // Raw ROC then SMA-smooth it
+  const rawRoc = new Array(n).fill(NaN);
+  for (let i = length; i < n; i++) {
+    const prev = bars[i - length].close;
+    if (prev !== 0) rawRoc[i] = 100 * (bars[i].close - prev) / prev;
+  }
+  const rocArr = new Array(n).fill(NaN);
+  {
+    let sum = 0, cnt = 0;
+    for (let i = 0; i < n; i++) {
+      if (!isNaN(rawRoc[i])) { sum += rawRoc[i]; cnt++; }
+      if (cnt > rocSmooth) { sum -= rawRoc[i - rocSmooth]; cnt--; }
+      if (cnt === rocSmooth) rocArr[i] = sum / rocSmooth;
+    }
+  }
+
+  // SMA of the ROC — Pine uses it for the cross-signal comparator
+  const rocSmaArr = new Array(n).fill(NaN);
+  {
+    let sum = 0, cnt = 0;
+    for (let i = 0; i < n; i++) {
+      if (!isNaN(rocArr[i])) { sum += rocArr[i]; cnt++; }
+      if (cnt > rocSmaVal) { sum -= rocArr[i - rocSmaVal]; cnt--; }
+      if (cnt === rocSmaVal) rocSmaArr[i] = sum / rocSmaVal;
+    }
+  }
+
+  const roc = [], overlayGreen = [], overlayRed = [], baseline = [];
+  const buys = [], sells = [];
+  for (let i = 0; i < n; i++) {
+    const r = rocArr[i], rs = rsiArr[i];
+    if (isNaN(r)) continue;
+    const t = bars[i].time;
+    roc.push({time: t, value: r});
+    baseline.push({time: t, value: r});
+    // Zone overlays (only render where the condition holds — gaps stay blank).
+    if (!isNaN(rs) && rs < 40 && r < 0) overlayGreen.push({time: t, value: r});
+    if (!isNaN(rs) && rs > 60 && r > 0) overlayRed.push({time: t, value: r});
+    // Buy/sell markers on the ROC×SMA cross with regime confirmation.
+    const rSma = rocSmaArr[i], rPrev = rocArr[i - 1], rSmaPrev = rocSmaArr[i - 1];
+    if (!isNaN(rSma) && !isNaN(rPrev) && !isNaN(rSmaPrev)) {
+      const crossedUp   = rPrev <= rSmaPrev && r > rSma;
+      const crossedDown = rPrev >= rSmaPrev && r < rSma;
+      if (crossedUp && rSma < r && r < 0 && !isNaN(rs) && rs < 50) {
+        buys.push({time: t, position: 'belowBar', color: '#26a69a', shape: 'arrowUp', text: '▲'});
+      }
+      if (crossedDown && rSma > r && r > 0 && !isNaN(rs) && rs > 50) {
+        sells.push({time: t, position: 'aboveBar', color: '#ef5350', shape: 'arrowDown', text: '▼'});
+      }
+    }
+  }
+  return {roc, overlayGreen, overlayRed, baseline, buys, sells};
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
+let panes   = [];   // [{symbol, tf, chart, series, lastPrice, lastClose, resizeObs}]
+let socket  = null;
+let wsReady = false;
+let retryTimer = null;
+let retryDelay = 2000;
+
+// ── Persistence ───────────────────────────────────────────────────────────────
+const LS_COUNT = 'tb_chart_count';
+const LS_PANES = 'tb_pane_cfg';
+// Elliott Wave info panel collapse preference — global (not per-pane) because
+// the panel behaves identically on every pane and the user's preference
+// (visible or hidden) applies universally. Default: collapsed.
+const LS_EW_COLLAPSED = 'tb_ew_collapsed';
+function loadEwCollapsed() { return localStorage.getItem(LS_EW_COLLAPSED) !== '0'; }
+function saveEwCollapsed(v) { localStorage.setItem(LS_EW_COLLAPSED, v ? '1' : '0'); }
+// Rounding Bottom info panel — same collapse-and-persist model as Elliott Wave.
+const LS_RB_COLLAPSED = 'tb_rb_collapsed';
+function loadRbCollapsed() { return localStorage.getItem(LS_RB_COLLAPSED) !== '0'; }
+function saveRbCollapsed(v) { localStorage.setItem(LS_RB_COLLAPSED, v ? '1' : '0'); }
+// VCP info panel — same collapse-and-persist model as the other overlays.
+const LS_VCP_COLLAPSED = 'tb_vcp_collapsed';
+function loadVcpCollapsed() { return localStorage.getItem(LS_VCP_COLLAPSED) !== '0'; }
+function saveVcpCollapsed(v) { localStorage.setItem(LS_VCP_COLLAPSED, v ? '1' : '0'); }
+
+function loadCount()   { return parseInt(localStorage.getItem(LS_COUNT) || '4'); }
+function saveCount(n)  { localStorage.setItem(LS_COUNT, String(n)); }
+function loadPaneCfg() { try { return JSON.parse(localStorage.getItem(LS_PANES)||'{}'); } catch { return {}; } }
+function savePaneCfg() {
+  const c = {};
+  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...p.indicators], rangePreset:p.rangePreset}; });
+  localStorage.setItem(LS_PANES, JSON.stringify(c));
+}
+
+// ── Symbol search (TradingView-style typeahead, backed by /api/symbols/search) ──
+const symSearchCache = new Map();   // query → results[] (small in-memory cache)
+
+function debounce(fn, ms) {
+  let t = null;
+  return (...args) => {
+    clearTimeout(t);
+    t = setTimeout(() => fn(...args), ms);
+  };
+}
+
+async function fetchSymbolMatches(query) {
+  const q = query.trim();
+  if (!q) return [];
+  if (symSearchCache.has(q)) return symSearchCache.get(q);
+  try {
+    const r = await fetch(`${SERVER}/api/symbols/search?q=${encodeURIComponent(q)}&limit=20`);
+    if (!r.ok) return [];
+    const d = await r.json();
+    const results = d.results || [];
+    symSearchCache.set(q, results);
+    return results;
+  } catch (e) {
+    console.warn('Symbol search failed:', e);
+    return [];
+  }
+}
+
+// Icon initial + deterministic color per exchange/type, echoing the TV picker look.
+const EXCH_ICON_COLOR = {
+  NSE: '#3fb950', BSE: '#3fb950', NASDAQ: '#58a6ff', NYSE: '#58a6ff',
+  CRYPTO: '#bc8cff', INDEX: '#d29922',
+};
+const TYPE_LABEL = {
+  stock: 'stock', index: 'index', crypto: 'spot crypto',
+};
+
+function renderSymResults(container, results, query) {
+  if (!results.length) {
+    container.innerHTML = `<div class="sym-empty">No matches for "${query}"</div>`;
+    return;
+  }
+  container.innerHTML = results.map((r, i) => {
+    const color = EXCH_ICON_COLOR[r.exchange] || '#8b949e';
+    const initial = r.display.charAt(0);
+    return `
+      <div class="sym-opt" data-idx="${i}">
+        <span class="so-icon" style="background:${color}">${initial}</span>
+        <span class="so-main">
+          <span class="so-symbol">${r.display}</span>
+          <span class="so-name">${r.name}</span>
+        </span>
+        <span class="so-meta">
+          <span class="so-type">${TYPE_LABEL[r.type] || r.type}</span>
+          <span class="so-exch ${r.exchange}">${r.exchange}</span>
+        </span>
+      </div>`;
+  }).join('');
+}
+
+// ── Price formatting ──────────────────────────────────────────────────────────
+function fmtPrice(p) {
+  if (p === null || p === undefined || isNaN(p)) return '—';
+  if (p >= 1000)  return p.toFixed(2);
+  if (p >= 1)     return p.toFixed(4);
+  return p.toFixed(6);
+}
+function fmtChg(chgPct) {
+  if (chgPct === null || isNaN(chgPct)) return '';
+  const sign = chgPct >= 0 ? '+' : '';
+  return `${sign}${chgPct.toFixed(2)}%`;
+}
+// Currency prefix for the absolute change figure. The symbol suffix alone
+// is unambiguous for NSE/BSE (.NS/.BO) and indices (^), but a bare ticker
+// could be a US stock (AAPL) or a crypto coin (BTC) — those look identical
+// as strings. We disambiguate using `source` ('yfinance' vs 'hyperliquid'),
+// which the server already resolved via detect_source() and echoes back on
+// every /api/ohlcv response — cheaper and more correct than re-guessing here.
+function currencyPrefix(symbol, source) {
+  const s = symbol.toUpperCase();
+  if (s.endsWith('.NS') || s.endsWith('.BO') || s.endsWith('.BSE')) return '₹';
+  if (s.startsWith('^')) return '';
+  if (source === 'hyperliquid') return '';   // crypto — no fixed prefix
+  return '$';                                 // yfinance + no suffix = US equity
+}
+function fmtAbsChange(diff, symbol, source) {
+  if (diff === null || isNaN(diff)) return '';
+  // Explicit sign always shown (never rely on pill color alone — same
+  // accessibility convention as gain_loss_badge() in dashboard_app.py).
+  const sign = diff > 0 ? '+' : (diff < 0 ? '-' : '');
+  const prefix = currencyPrefix(symbol, source);
+  const abs = Math.abs(diff);
+  // Equities (₹/$): clean 2-decimal display matching how prices are quoted
+  // (Google Finance shows "+0.65", not "+0.650000"). Crypto (no prefix)
+  // keeps fmtPrice's adaptive precision since its magnitudes span from
+  // sub-cent meme coins to $100k+ BTC.
+  const formatted = prefix ? abs.toFixed(2) : fmtPrice(abs);
+  return `${sign}${prefix}${formatted}`;
+}
+
+// ── Grid builder ──────────────────────────────────────────────────────────────
+function buildGrid(count) {
+  // Tear down existing panes
+  panes.forEach(p => {
+    if (p.resizeObs) p.resizeObs.disconnect();
+    Object.values(p.subCharts || {}).forEach(sub => {
+      if (sub.ro) sub.ro.disconnect();
+      try { sub.chart.remove(); } catch {}
+    });
+    if (p.chart) try { p.chart.remove(); } catch {}
+  });
+  panes = [];
+
+  const grid = document.getElementById('grid');
+  grid.innerHTML = '';
+  grid.className = GRID_CLASSES[count] || 'g4';
+
+  const saved = loadPaneCfg();
+
+  for (let i = 0; i < count; i++) {
+    const def  = DEFAULT_SYMS[i % DEFAULT_SYMS.length];
+    const cfg  = saved[i] || {};
+    const sym  = cfg.symbol || def.symbol;
+    const tf   = cfg.tf     || def.tf;
+    const pane = makePane(i, sym, tf, cfg.indicators || [], cfg.rangePreset);
+    grid.appendChild(pane.el);
+    panes.push(pane);
+    // Stagger loads to avoid hammering the server
+    setTimeout(() => loadData(i), i * 180);
+  }
+}
+
+// ── Pane factory ──────────────────────────────────────────────────────────────
+function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
+  savedIndicators = savedIndicators || [];
+  const el = document.createElement('div');
+  el.className = 'pane';
+  el.innerHTML = `
+    <div class="ph">
+      <div class="sym-wrap">
+        <input type="text" class="sym-in" value="${symbol}" autocomplete="off"
+               title="Type a symbol or company name, pick a match, or press Enter to load">
+        <div class="sym-dropdown"></div>
+      </div>
+      <select class="tf-sel">${TIMEFRAMES.map(t =>
+        `<option value="${t}"${t===tf?' selected':''}>${t}</option>`
+      ).join('')}</select>
+      <div class="ind-wrap">
+        <button type="button" class="ind-btn">INDICATORS</button>
+        <div class="ind-panel">${renderIndicatorPanel()}</div>
+      </div>
+      <button type="button" class="ind-btn snap-btn" title="Copy chart image to clipboard">📷</button>
+      <div class="ticker-wrap">
+        <span class="sym-badge">${symbol}</span>
+        <span class="sym-company"></span>
+        <span class="sym-exch-badge"></span>
+        <span class="price-el" title="Last price">—</span>
+        <span class="chg-el"  title="Change vs previous close">—</span>
+        <span class="etf-badge" title="Liquid-ETF / cash-equivalent detected — momentum indicators (RSI, MACD, %R, RS, Elliott) are hidden because they produce noise-level signals on a near-monotonic yield instrument. Volume, volume profile and moving averages remain available.">CASH-EQ</span>
+      </div>
+    </div>
+    <div class="range-row">${RANGE_PRESETS.map(p =>
+      `<button type="button" class="range-btn" data-range="${p.label}">${p.label}</button>`
+    ).join('')}</div>
+    <div class="chart-body">
+      <div class="chart-main">
+        <div class="loading-msg">Loading…</div>
+      </div>
+      <div class="sub-panes"></div>
+    </div>`;
+
+  const symIn      = el.querySelector('.sym-in');
+  const symDrop    = el.querySelector('.sym-dropdown');
+  const tfSel      = el.querySelector('.tf-sel');
+  const chartMain  = el.querySelector('.chart-main');
+  const priceEl    = el.querySelector('.price-el');
+  const chgEl      = el.querySelector('.chg-el');
+  const badge      = el.querySelector('.sym-badge');
+  const companyEl  = el.querySelector('.sym-company');
+  const exchBadge  = el.querySelector('.sym-exch-badge');
+  const indBtn     = el.querySelector('.ind-btn');
+  const indPanel   = el.querySelector('.ind-panel');
+  const snapBtn    = el.querySelector('.snap-btn');
+
+  // ── LWC chart ──────────────────────────────────────────────────────────────
+  const chart = LightweightCharts.createChart(chartMain, {
+    width:  chartMain.clientWidth  || 300,
+    height: chartMain.clientHeight || 200,
+    ...mainChartOpts(),
+  });
+
+  const series = chart.addCandlestickSeries({
+    upColor:       '#26a69a',
+    downColor:     '#ef5350',
+    borderVisible: false,
+    wickUpColor:   '#26a69a',
+    wickDownColor: '#ef5350',
+  });
+
+  // ── Volume profile canvas overlay (always present, drawn on demand) ────────
+  const volCanvas = document.createElement('canvas');
+  volCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:10;width:100%;height:100%;';
+  chartMain.appendChild(volCanvas);
+
+  // ── Fair Value Gap canvas overlay (always present, drawn on demand) ────────
+  // z-index below volCanvas so the volume profile histogram (right edge)
+  // stays legible if both indicators are on at once.
+  const fvgCanvas = document.createElement('canvas');
+  fvgCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:9;width:100%;height:100%;';
+  chartMain.appendChild(fvgCanvas);
+
+  // Track whether we've ever seen a real (>0) size. If the chart was created
+  // at fallback 300×200 because chartMain was 0×0 at construction time, the
+  // first resize to real dimensions is also when we need to *re-apply* the
+  // visible range view — otherwise setData()'s bars are placed on the fallback
+  // time axis and stay off-screen after the true axis is measured, showing
+  // a completely blank chart.
+  let hadRealSize = false;
+  const resizeObs = new ResizeObserver(entries => {
+    for (const e of entries) {
+      const {width, height} = e.contentRect;
+      if (width > 0 && height > 0) {
+        chart.resize(Math.floor(width), Math.floor(height));
+        if (!hadRealSize) {
+          hadRealSize = true;
+          // First real measurement — re-fit the range so any bars loaded
+          // during the 0×0 window snap into the correct visible extent.
+          if (pane && pane.bars && pane.bars.length) {
+            try { applyRangeView(pane); } catch {}
+          }
+        }
+        // A resize changes how many bars are visible but does NOT fire
+        // subscribeVisibleTimeRangeChange (that only fires on pan/zoom),
+        // so sub-panes (RSI/Volume/etc.) would otherwise be left showing
+        // the stale time range from before the resize. Re-push it here.
+        const range = chart.timeScale().getVisibleRange();
+        if (range && pane && pane.subCharts) {
+          Object.values(pane.subCharts).forEach(({chart: sub}) => {
+            try { sub.timeScale().setVisibleRange(range); } catch {}
+          });
+        }
+        if (pane && pane.indicators && pane.indicators.has('volprofile'))
+          drawVolumeProfile(pane);
+        if (pane && pane.indicators && pane.indicators.has('fvg'))
+          drawFVG(pane);
+      }
+    }
+  });
+  resizeObs.observe(chartMain);
+
+  // ── Pane object ────────────────────────────────────────────────────────────
+  const pane = { idx, el, chart, series, resizeObs, symbol, tf,
+                 lastPrice: null, openPrice: null, prevClose: null, dataSource: null,
+                 priceEl, chgEl, badge,
+                 bars: [], indicators: new Set(savedIndicators),
+                 rangePreset: savedRangePreset || DEFAULT_RANGE_PRESET,
+                 indSeries: {}, subCharts: {}, volCanvas, fvgCanvas };
+
+  // ── Time-scale sync: main chart drives all sub-pane charts ─────────────────
+  chart.timeScale().subscribeVisibleTimeRangeChange(range => {
+    if (!range) return;
+    Object.values(pane.subCharts).forEach(({chart: sub}) => {
+      try { sub.timeScale().setVisibleRange(range); } catch {}
+    });
+    // FVG boxes are anchored to time coordinates, so panning/zooming the
+    // x-axis (unlike Volume Profile, which only depends on the y-axis) must
+    // also trigger a redraw — otherwise the boxes drift away from their bars.
+    if (pane.indicators && pane.indicators.has('fvg')) drawFVG(pane);
+    // Volume Profile histogram uses priceToCoordinate — pan/zoom changes
+    // the y-scale mapping, so it needs a redraw on range change too. FVG
+    // is time-anchored; VP is price-scale-anchored. Both stale on zoom
+    // for the same reason (mapping changed) — now both redraw.
+    if (pane.indicators && pane.indicators.has('volprofile')) drawVolumeProfile(pane);
+  });
+
+  // ── Crosshair sync to sub-pane charts ─────────────────────────────────────
+  chart.subscribeCrosshairMove(param => {
+    Object.values(pane.subCharts).forEach(sub => {
+      if (!sub.series) return;
+      if (!param.point || !param.time) {
+        try { sub.chart.clearCrosshairPosition(); } catch {}
+      } else {
+        try { sub.chart.setCrosshairPosition(NaN, param.time, sub.series); } catch {}
+      }
+    });
+  });
+
+  // ── Controls ───────────────────────────────────────────────────────────────
+  function applySymbol(s) {
+    s = s.trim().toUpperCase();
+    if (!s) return;
+    pane.symbol = s;
+    pane.lastPrice = null;
+    pane.openPrice = null;
+    pane.prevClose = null;
+    pane.dataSource = null;
+    badge.textContent = s;
+    companyEl.textContent = '';
+    exchBadge.textContent = '';
+    exchBadge.className = 'sym-exch-badge';
+    priceEl.textContent = '—';
+    priceEl.className = 'price-el';
+    chgEl.textContent  = '';
+    chgEl.className    = 'chg-el';
+    series.setData([]);
+    const bare = s.replace(/\.(NS|BO|BSE)$/i, '');
+    const suffix = (s.match(/\.(NS|BO|BSE)$/i) || [''])[0].toUpperCase();
+    const wantExch = suffix === '.NS' ? 'NSE' : (suffix === '.BO' || suffix === '.BSE') ? 'BSE' : null;
+    fetchSymbolMatches(bare).then(results => {
+      // If pane symbol has an exchange suffix, only accept matches from that
+      // exchange — otherwise a BSE-only ticker like 'MARINE.BO' would fall
+      // back to NSE 'MARINE.NS' (a totally different company) and mislabel
+      // the chart.
+      let match = results.find(r => r.symbol.toUpperCase() === pane.symbol.toUpperCase());
+      if (!match && wantExch) {
+        match = results.find(r => r.exchange === wantExch && r.display.toUpperCase() === bare);
+      }
+      if (!match && !wantExch) {
+        match = results.find(r => r.display.toUpperCase() === bare) || results[0];
+      }
+      if (match) {
+        companyEl.textContent = match.name;
+        companyEl.title = match.name;
+        exchBadge.textContent = match.exchange;
+        exchBadge.className = `sym-exch-badge ${match.exchange}`;
+      } else if (wantExch) {
+        exchBadge.textContent = wantExch;
+        exchBadge.className = `sym-exch-badge ${wantExch}`;
+      }
+    });
+    // Same anti-race guard as the tf-change handler — clear sub-pane data so
+    // the visible-range subscribe callback doesn't align to stale coords.
+    Object.values(pane.subCharts || {}).forEach(sub => {
+      ['series', 'fastLine', 'slowLine', 'macdLine', 'signalLine', 'hist']
+        .forEach(k => { if (sub[k] && sub[k].setData) { try { sub[k].setData([]); } catch {} } });
+    });
+    savePaneCfg();
+    loadData(idx);
+  }
+
+  // ── Symbol search dropdown (TradingView-style typeahead) ───────────────────
+  let symResults  = [];
+  let symHlIdx    = -1;
+
+  function closeSymDropdown() {
+    symDrop.classList.remove('open');
+    symResults = [];
+    symHlIdx = -1;
+  }
+
+  function highlightSymOpt(i) {
+    symDrop.querySelectorAll('.sym-opt').forEach(o => o.classList.remove('hl'));
+    if (i < 0 || i >= symResults.length) { symHlIdx = -1; return; }
+    symHlIdx = i;
+    const opt = symDrop.querySelector(`.sym-opt[data-idx="${i}"]`);
+    if (opt) { opt.classList.add('hl'); opt.scrollIntoView({block: 'nearest'}); }
+  }
+
+  function pickSymResult(i) {
+    const r = symResults[i];
+    if (!r) return;
+    symIn.value = r.display;
+    closeAllSymbolDropdowns();
+    applySymbol(r.symbol);
+  }
+
+  const runSymSearch = debounce(async (q) => {
+    const results = await fetchSymbolMatches(q);
+    symResults = results;
+    symHlIdx = -1;
+    renderSymResults(symDrop, results, q);
+    symDrop.classList.add('open');
+  }, 180);
+
+  symIn.addEventListener('input', () => {
+    const q = symIn.value.trim();
+    if (!q) { closeSymDropdown(); return; }
+    runSymSearch(q);
+  });
+
+  symIn.addEventListener('focus', () => {
+    if (symIn.value.trim()) runSymSearch(symIn.value.trim());
+  });
+
+  symIn.addEventListener('click', e => e.stopPropagation());
+
+  symIn.addEventListener('keydown', e => {
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      if (symDrop.classList.contains('open') && symResults.length)
+        highlightSymOpt((symHlIdx + 1) % symResults.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      if (symDrop.classList.contains('open') && symResults.length)
+        highlightSymOpt((symHlIdx - 1 + symResults.length) % symResults.length);
+    } else if (e.key === 'Enter') {
+      e.preventDefault();
+      if (symDrop.classList.contains('open') && symHlIdx >= 0) {
+        pickSymResult(symHlIdx);
+      } else if (symDrop.classList.contains('open') && symResults.length) {
+        pickSymResult(0);
+      } else {
+        closeAllSymbolDropdowns();
+        applySymbol(symIn.value);
+      }
+    } else if (e.key === 'Escape') {
+      closeSymDropdown();
+      symIn.blur();
+    }
+  });
+
+  symDrop.addEventListener('click', e => {
+    const opt = e.target.closest('.sym-opt');
+    if (!opt) return;
+    pickSymResult(parseInt(opt.dataset.idx, 10));
+  });
+
+  symDrop.addEventListener('mousemove', e => {
+    const opt = e.target.closest('.sym-opt');
+    if (opt) highlightSymOpt(parseInt(opt.dataset.idx, 10));
+  });
+
+  pane._closeSymDropdown = closeSymDropdown;
+
+  tfSel.addEventListener('change', () => {
+    pane.tf = tfSel.value;
+    series.setData([]);
+    // Also clear every sub-pane's data — otherwise old-tf data lingers
+    // visible during the async loadData(), and the visible-range subscribe
+    // callback fires against stale time coordinates that don't intersect the
+    // incoming new-tf data (see NH.NS %R collapse, 2026-07-03).
+    Object.values(pane.subCharts || {}).forEach(sub => {
+      ['series', 'fastLine', 'slowLine', 'macdLine', 'signalLine', 'hist']
+        .forEach(k => { if (sub[k] && sub[k].setData) { try { sub[k].setData([]); } catch {} } });
+    });
+    savePaneCfg();
+    loadData(idx);
+  });
+
+  // ── Indicators dropdown ──────────────────────────────────────────────────────
+  indBtn.addEventListener('click', e => {
+    e.stopPropagation();
+    const willOpen = !indPanel.classList.contains('open');
+    closeAllIndicatorPanels();
+    if (willOpen) { indPanel.classList.add('open'); indBtn.classList.add('active'); }
+  });
+
+  snapBtn.addEventListener('click', () => copyChartSnapshot(pane));
+
+  const rangeBtns = el.querySelectorAll('.range-btn');
+  rangeBtns.forEach(btn => {
+    btn.classList.toggle('active', btn.dataset.range === pane.rangePreset);
+    btn.addEventListener('click', () => {
+      pane.rangePreset = btn.dataset.range;
+      rangeBtns.forEach(b => b.classList.toggle('active', b === btn));
+      applyRangeView(pane);
+      savePaneCfg();
+    });
+  });
+
+  indPanel.querySelectorAll('.ind-chk').forEach(chk => {
+    const key = chk.dataset.key;
+    chk.checked = pane.indicators.has(key);
+    chk.addEventListener('change', () => {
+      // Row may have been greyed out by ETF-mode after last render — the
+      // CSS blocks the click but a keyboard-driven change event can still
+      // fire, so belt-and-braces refuse it here too.
+      const row = chk.closest('.ind-row');
+      if (chk.checked && row && row.classList.contains('ind-disabled')) {
+        chk.checked = false;
+        return;
+      }
+      if (chk.checked) pane.indicators.add(key);
+      else             pane.indicators.delete(key);
+      applyIndicators(pane);
+      savePaneCfg();
+    });
+  });
+
+  return pane;
+}
+
+// ── Chart snapshot (copy image to clipboard) ────────────────────────────────────
+// Composited entirely from existing canvases — the main chart's own
+// takeScreenshot() already bakes in every series/marker Lightweight Charts
+// drew (candles, overlays, %R/RSI/etc. lines, reversal arrows), so the only
+// extra work is layering our own overlay canvases (volume profile / FVG) on
+// top and stacking each visible sub-pane's screenshot underneath. No new
+// external library (e.g. html2canvas) needed for this.
+let _snapToastEl = null;
+function showToast(msg, ms = 2200) {
+  if (!_snapToastEl) {
+    _snapToastEl = document.createElement('div');
+    _snapToastEl.className = 'snap-toast';
+    document.body.appendChild(_snapToastEl);
+  }
+  _snapToastEl.textContent = msg;
+  _snapToastEl.classList.add('show');
+  clearTimeout(_snapToastEl._hideTimer);
+  _snapToastEl._hideTimer = setTimeout(() => _snapToastEl.classList.remove('show'), ms);
+}
+
+async function copyChartSnapshot(pane) {
+  try {
+    const chartMain = pane.el.querySelector('.chart-main');
+    const mainShot = pane.chart.takeScreenshot();
+    const dpr = mainShot.width / (chartMain.clientWidth || mainShot.width) || 1;
+
+    // Stack sub-panes in the order they appear on screen.
+    const subShots = Array.from(pane.el.querySelectorAll('.sub-pane')).map(subEl => {
+      const sub = pane.subCharts[subEl.dataset.key];
+      if (!sub) return null;
+      return {shot: sub.chart.takeScreenshot(), label: sub.label ? sub.label.textContent : subEl.dataset.key};
+    }).filter(Boolean);
+
+    const headerH = Math.round(26 * dpr);
+    const totalW  = mainShot.width;
+    const totalH  = headerH + mainShot.height + subShots.reduce((s, x) => s + x.shot.height, 0);
+
+    const out = document.createElement('canvas');
+    out.width = totalW;
+    out.height = totalH;
+    const ctx = out.getContext('2d');
+
+    const rootStyle = getComputedStyle(document.documentElement);
+    ctx.fillStyle = rootStyle.getPropertyValue('--bg-pane-header').trim() || '#161b22';
+    ctx.fillRect(0, 0, totalW, totalH);
+
+    // Header: symbol · timeframe · price · change (mirrors the on-screen ticker
+    // bar, including its theme-aware text color and up/down price coloring).
+    const symVal  = pane.el.querySelector('.sym-in').value;
+    const tfVal   = pane.el.querySelector('.tf-sel').value;
+    const priceEl = pane.el.querySelector('.price-el');
+    const chgEl   = pane.el.querySelector('.chg-el');
+    const textPrimary = rootStyle.getPropertyValue('--text-primary').trim() || '#e6edf3';
+    ctx.font = `${Math.round(13 * dpr)}px -apple-system, "Segoe UI", sans-serif`;
+    ctx.textBaseline = 'middle';
+    let hx = 10 * dpr;
+    [[`${symVal}   ${tfVal}`, textPrimary],
+     [priceEl.textContent,    getComputedStyle(priceEl).color || textPrimary],
+     [chgEl.textContent,      getComputedStyle(chgEl).color   || textPrimary],
+    ].forEach(([txt, color]) => {
+      ctx.fillStyle = color;
+      ctx.fillText(txt, hx, headerH / 2);
+      hx += ctx.measureText(txt + '   ').width;
+    });
+
+    // Overlay canvases (volume profile / FVG) draw on top of the candle chart —
+    // same z-order as on screen.
+    let y = headerH;
+    ctx.drawImage(mainShot, 0, y);
+    if (pane.volCanvas) ctx.drawImage(pane.volCanvas, 0, y, mainShot.width, mainShot.height);
+    if (pane.fvgCanvas) ctx.drawImage(pane.fvgCanvas, 0, y, mainShot.width, mainShot.height);
+    y += mainShot.height;
+
+    subShots.forEach(({shot, label}) => {
+      ctx.drawImage(shot, 0, y);
+      const fontSize = Math.round(10 * dpr), padX = 6 * dpr, padY = 3 * dpr;
+      ctx.font = `${fontSize}px -apple-system, "Segoe UI", sans-serif`;
+      const tw = ctx.measureText(label).width;
+      ctx.fillStyle = 'rgba(0,0,0,0.55)';
+      ctx.fillRect(4 * dpr, y + 4 * dpr, tw + padX * 2, fontSize + padY * 2);
+      ctx.fillStyle = '#c9d1d9';
+      ctx.textBaseline = 'top';
+      ctx.fillText(label, 4 * dpr + padX, y + 4 * dpr + padY);
+      y += shot.height;
+    });
+
+    out.toBlob(async blob => {
+      if (!blob) { showToast('Snapshot failed — could not render image'); return; }
+      try {
+        await navigator.clipboard.write([new ClipboardItem({'image/png': blob})]);
+        showToast('Chart copied to clipboard');
+      } catch (clipErr) {
+        // Clipboard image writes need a secure context + user gesture; if the
+        // browser blocks it, fall back to a direct download so the click
+        // still does something useful.
+        const a = document.createElement('a');
+        a.href = URL.createObjectURL(blob);
+        a.download = `${symVal}_${tfVal}_${Date.now()}.png`;
+        a.click();
+        URL.revokeObjectURL(a.href);
+        showToast('Clipboard blocked — downloaded image instead');
+      }
+    }, 'image/png');
+  } catch (err) {
+    console.error('Chart snapshot error:', err);
+    showToast('Snapshot failed: ' + err.message);
+  }
+}
+
+// ── Indicators dropdown helpers ─────────────────────────────────────────────────
+function closeAllIndicatorPanels() {
+  document.querySelectorAll('.ind-panel.open').forEach(p => p.classList.remove('open'));
+  document.querySelectorAll('.ind-btn.active').forEach(b => b.classList.remove('active'));
+}
+
+// ── Symbol search dropdown helpers ──────────────────────────────────────────────
+function closeAllSymbolDropdowns() {
+  panes.forEach(p => { if (p._closeSymDropdown) p._closeSymDropdown(); });
+}
+
+document.addEventListener('click', () => {
+  closeAllIndicatorPanels();
+  closeAllSymbolDropdowns();
+});
+
+// ── Indicator overlay rendering ─────────────────────────────────────────────────
+function removeIndicatorSeries(pane, key) {
+  const existing = pane.indSeries[key];
+  if (!existing) return;
+  (Array.isArray(existing) ? existing : [existing]).forEach(s => {
+    try { pane.chart.removeSeries(s); } catch {}
+  });
+  delete pane.indSeries[key];
+}
+
+function addLine(pane, color, lineWidth = 1, lineStyle = 0) {
+  return pane.chart.addLineSeries({
+    color, lineWidth, lineStyle, priceLineVisible: false, lastValueVisible: false,
+    crosshairMarkerVisible: false,
+  });
+}
+
+// Momentum / directional-signal indicators that are meaningless on a
+// cash-equivalent instrument (Liquid ETFs like LIQUIDCASE.NS, LIQUIDBEES,
+// etc.): applying them produces phantom oversold reads, spurious %R
+// exhaustion dots and Elliott counts on what is effectively a savings
+// account. Volume/volume-profile/MAs stay — those are structural, not
+// momentum, and remain informative on any series.
+const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'stoch', 'elliott'];
+
+// Detect liquid-ETF / cash-equivalent behaviour from bar statistics rather
+// than symbol lists — new liquid ETFs launch faster than any hardcoded set
+// stays current. Threshold picked from the LIQUIDCASE.NS autopsy: median
+// |daily return| ≈ 0.018% (< 0.05%) and worst single-day |return| ≈ 0.01%
+// (< 0.5%). A normal small-cap prints 1–3% median swings; the two-order-of-
+// magnitude gap makes this robust without a per-instrument config.
+function isLikelyLiquidETF(bars) {
+  if (!bars || bars.length < 60) return false;
+  const rets = [];
+  for (let i = 1; i < bars.length; i++) {
+    const p = bars[i - 1].close, c = bars[i].close;
+    if (p > 0 && c > 0) rets.push(Math.abs((c - p) / p) * 100);
+  }
+  if (rets.length < 60) return false;
+  const sorted = rets.slice().sort((a, b) => a - b);
+  const median = sorted[Math.floor(sorted.length / 2)];
+  const worst = sorted[sorted.length - 1];
+  return median < 0.05 && worst < 0.5;
+}
+
+// Sync the pane's INDICATORS panel to reflect ETF mode: grey-and-disable
+// the momentum rows, uncheck any that are currently active (so they get
+// torn down in the same applyIndicators pass), and toggle the CASH-EQ tag.
+function applyEtfMode(pane, isEtf) {
+  const badge = pane.el.querySelector('.etf-badge');
+  if (badge) badge.classList.toggle('active', !!isEtf);
+  const panel = pane.el.querySelector('.ind-panel');
+  if (!panel) return;
+  MOMENTUM_KEYS.forEach(key => {
+    const chk = panel.querySelector(`.ind-chk[data-key="${key}"]`);
+    if (!chk) return;
+    const row = chk.closest('.ind-row');
+    if (row) row.classList.toggle('ind-disabled', !!isEtf);
+    if (isEtf && pane.indicators.has(key)) {
+      pane.indicators.delete(key);
+      chk.checked = false;
+    }
+  });
+}
+
+function applyIndicators(pane) {
+  const bars = pane.bars;
+  // ETF-mode gate runs BEFORE anything else so momentum indicators get
+  // removed on the same pass they would otherwise be rendered.
+  applyEtfMode(pane, isLikelyLiquidETF(bars));
+  // Remove overlay series for indicators no longer selected
+  Object.keys(pane.indSeries).forEach(key => {
+    if (!pane.indicators.has(key)) removeIndicatorSeries(pane, key);
+  });
+  // Remove sub-pane charts for deselected oscillators
+  ['rsi','macd','obv','rs','prte','roc','stoch','volume'].forEach(key => {
+    if (!pane.indicators.has(key) && pane.subCharts[key]) removeSubPane(pane, key);
+  });
+  // Clear volume profile canvas if deselected
+  if (!pane.indicators.has('volprofile') && pane.volCanvas) {
+    const ctx = pane.volCanvas.getContext('2d');
+    ctx.clearRect(0, 0, pane.volCanvas.width, pane.volCanvas.height);
+    pane.vp = null;
+  }
+  // Clear FVG canvas if deselected
+  if (!pane.indicators.has('fvg') && pane.fvgCanvas) {
+    const ctx = pane.fvgCanvas.getContext('2d');
+    ctx.clearRect(0, 0, pane.fvgCanvas.width, pane.fvgCanvas.height);
+    pane.fvgZones = null;
+  }
+  // Tear down Elliott Wave overlay if deselected
+  if (!pane.indicators.has('elliott') && pane.ew) clearElliottWave(pane);
+  // Tear down Rounding Bottom overlay if deselected
+  if (!pane.indicators.has('roundbottom') && pane.rb) clearRoundingBottom(pane);
+  // Tear down VCP overlay if deselected
+  if (!pane.indicators.has('vcp') && pane.vcp) clearVCP(pane);
+  // Tear down Trendlines overlay if deselected
+  if (!pane.indicators.has('trendlines') && pane.tl) clearTrendlines(pane);
+  // Tear down Harmonic overlay if deselected
+  if (!pane.indicators.has('harmonic') && pane.hm) clearHarmonic(pane);
+  // Tear down Reversal Calendar markers if deselected
+  if (!pane.indicators.has('reversal_calendar') && pane.rev) clearReversalCalendar(pane);
+  if (!bars || bars.length < 2) return;
+
+  INDICATOR_DEFS.forEach(def => {
+    const key = def.key;
+    if (!pane.indicators.has(key)) return;
+    if (pane.indSeries[key]) return; // already rendered, will be refreshed in-place below
+
+    switch (key) {
+      case 'sma20':  pane.indSeries[key] = addLine(pane, def.color); break;
+      case 'sma50':  pane.indSeries[key] = addLine(pane, def.color); break;
+      case 'sma200': pane.indSeries[key] = addLine(pane, def.color); break;
+      case 'ema20':  pane.indSeries[key] = addLine(pane, def.color); break;
+      case 'ema50':  pane.indSeries[key] = addLine(pane, def.color); break;
+      case 'ema200': pane.indSeries[key] = addLine(pane, def.color); break;
+      case 'vwap':   pane.indSeries[key] = addLine(pane, def.color); break;
+      case 'bollinger':
+        pane.indSeries[key] = [
+          addLine(pane, def.color, 1),
+          addLine(pane, def.color, 1, 2),
+          addLine(pane, def.color, 1, 2),
+        ];
+        break;
+      case 'donchian':
+        pane.indSeries[key] = [
+          addLine(pane, def.color, 1),
+          addLine(pane, def.color, 1),
+          addLine(pane, def.color, 1, 2),
+        ];
+        break;
+      case 'keltner':
+        pane.indSeries[key] = [
+          addLine(pane, def.color, 1),
+          addLine(pane, def.color, 1, 2),
+          addLine(pane, def.color, 1, 2),
+        ];
+        break;
+      case 'pmax':
+        // Two colored line series: green for up-trend segments, red for down.
+        // Each series holds the PMax value only during its direction — LWC
+        // draws a gap on flip, which is visually accurate for a trend break.
+        pane.indSeries[key] = [
+          addLine(pane, '#26a69a', 2),  // up-trend PMax
+          addLine(pane, '#f23645', 2),  // down-trend PMax
+        ];
+        break;
+      // sub-pane indicators — created in the computation section below
+      case 'rsi': case 'macd': case 'obv': case 'rs': case 'volprofile': break;
+    }
+  });
+
+  // (Re)compute and push data into each active indicator's series
+  pane.indicators.forEach(key => {
+    const s = pane.indSeries[key];
+    if (!s) return;
+    switch (key) {
+      case 'sma20':  s.setData(smaSeries(bars, 20));  break;
+      case 'sma50':  s.setData(smaSeries(bars, 50));  break;
+      case 'sma200': s.setData(smaSeries(bars, 200)); break;
+      case 'ema20':  s.setData(emaSeries(bars, 20));  break;
+      case 'ema50':  s.setData(emaSeries(bars, 50));  break;
+      case 'ema200': s.setData(emaSeries(bars, 200)); break;
+      case 'vwap':   s.setData(vwapSeries(bars));     break;
+      case 'bollinger': {
+        const {mid, upper, lower} = bollingerSeries(bars, 20, 2);
+        s[0].setData(mid); s[1].setData(upper); s[2].setData(lower);
+        break;
+      }
+      case 'donchian': {
+        const {upper, lower, mid} = donchianSeries(bars, 20);
+        s[0].setData(upper); s[1].setData(lower); s[2].setData(mid);
+        break;
+      }
+      case 'keltner': {
+        const {mid, upper, lower} = keltnerSeries(bars, 20, 1.5);
+        s[0].setData(mid); s[1].setData(upper); s[2].setData(lower);
+        break;
+      }
+      case 'pmax': {
+        const rows = pmaxSeries(bars, 10, 3.0, 10);
+        const up = [], dn = [];
+        rows.forEach(r => {
+          if (r.dir === 1) up.push({time: r.time, value: r.pmax});
+          else             dn.push({time: r.time, value: r.pmax});
+        });
+        s[0].setData(up); s[1].setData(dn);
+        break;
+      }
+    }
+  });
+
+  // ── Sub-pane oscillators ───────────────────────────────────────────────────
+  if (pane.indicators.has('rsi')) {
+    if (!pane.subCharts.rsi) {
+      const sub = addSubPane(pane, 'rsi', 'RSI (14)');
+      sub.series = sub.chart.addLineSeries({
+        color: '#7b61ff', lineWidth: 1.5,
+        priceLineVisible: false, lastValueVisible: true,
+      });
+      sub.series.createPriceLine({price:70, color:'rgba(248,81,73,0.45)',  lineWidth:1, lineStyle:1, axisLabelVisible:false});
+      sub.series.createPriceLine({price:50, color:'rgba(140,140,140,0.25)',lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      sub.series.createPriceLine({price:30, color:'rgba(63,185,80,0.45)',  lineWidth:1, lineStyle:1, axisLabelVisible:false});
+    }
+    pane.subCharts.rsi.series.setData(rsiSeries(bars, 14));
+  }
+
+  if (pane.indicators.has('macd')) {
+    if (!pane.subCharts.macd) {
+      const sub = addSubPane(pane, 'macd', 'MACD (12,26,9)');
+      sub.hist = sub.chart.addHistogramSeries({
+        priceLineVisible: false, lastValueVisible: false,
+        priceScaleId: 'right',
+      });
+      sub.macdLine = sub.chart.addLineSeries({
+        color: '#2962ff', lineWidth: 1.5,
+        priceLineVisible: false, lastValueVisible: true,
+      });
+      sub.signalLine = sub.chart.addLineSeries({
+        color: '#ff9800', lineWidth: 1, lineStyle: 2,
+        priceLineVisible: false, lastValueVisible: true,
+      });
+      sub.series = sub.macdLine;   // used for crosshair sync
+    }
+    const {macd, signal, hist} = macdCalc(bars);
+    pane.subCharts.macd.hist.setData(hist);
+    pane.subCharts.macd.macdLine.setData(macd);
+    pane.subCharts.macd.signalLine.setData(signal);
+  }
+
+  if (pane.indicators.has('obv')) {
+    if (!pane.subCharts.obv) {
+      const sub = addSubPane(pane, 'obv', 'OBV');
+      sub.series = sub.chart.addLineSeries({
+        color: '#00bd6f', lineWidth: 1.5,
+        priceLineVisible: false, lastValueVisible: true,
+      });
+    }
+    pane.subCharts.obv.series.setData(obvSeries(bars));
+  }
+
+  if (pane.indicators.has('rs')) {
+    if (!pane.subCharts.rs) {
+      const sub = addSubPane(pane, 'rs', 'RS vs Benchmark');
+      sub.series = sub.chart.addLineSeries({
+        color: '#ffd60a', lineWidth: 1.5,
+        priceLineVisible: false, lastValueVisible: true,
+      });
+      sub.series.createPriceLine({price:100, color:'rgba(180,180,180,0.3)', lineWidth:1, lineStyle:2, axisLabelVisible:false});
+    }
+    fetchRsData(pane, bars);   // async: fetches ref symbol and sets data
+  }
+
+  if (pane.indicators.has('prte')) {
+    if (!pane.subCharts.prte) {
+      const sub = addSubPane(pane, 'prte', '%R Trend Exhaustion');
+      sub.slowLine = sub.chart.addLineSeries({
+        color: '#8bafff', lineWidth: 1,
+        priceLineVisible: false, lastValueVisible: false,
+      });
+      sub.fastLine = sub.chart.addLineSeries({
+        color: '#c9c9c9', lineWidth: 1,
+        priceLineVisible: false, lastValueVisible: true,
+      });
+      sub.series = sub.fastLine;   // used for crosshair sync
+      const th = 20;
+      sub.fastLine.createPriceLine({price:0,          color:'rgba(202,0,23,0.4)',   lineWidth:1, lineStyle:1, axisLabelVisible:false});
+      sub.fastLine.createPriceLine({price:-th,         color:'rgba(202,0,23,0.4)',   lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      sub.fastLine.createPriceLine({price:-50,         color:'rgba(140,140,140,0.25)', lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      sub.fastLine.createPriceLine({price:-(100-th),   color:'rgba(36,102,167,0.4)', lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      sub.fastLine.createPriceLine({price:-100,        color:'rgba(36,102,167,0.4)', lineWidth:1, lineStyle:1, axisLabelVisible:false});
+    }
+    const prte = PRTE.compute(bars);
+    pane.subCharts.prte.fastLine.setData(prte.fast);
+    pane.subCharts.prte.slowLine.setData(prte.slow);
+    // Headline signal: reversal arrows the bar a trend exhausts (▼ bearish
+    // as OB is left, ▲ bullish as OS is left). Trend-start points (just
+    // entered a zone) get a smaller warning circle.
+    const markers = [
+      ...prte.obReversal.map(p => ({time: p.time, position: 'aboveBar', color: '#CA0017', shape: 'arrowDown', text: '▼'})),
+      ...prte.osReversal.map(p => ({time: p.time, position: 'belowBar', color: '#2466A7', shape: 'arrowUp',   text: '▲'})),
+      ...prte.obStart.map(p    => ({time: p.time, position: 'aboveBar', color: '#CA0017', shape: 'circle'})),
+      ...prte.osStart.map(p    => ({time: p.time, position: 'belowBar', color: '#2466A7', shape: 'circle'})),
+    ].sort((a, b) => a.time - b.time);
+    pane.subCharts.prte.fastLine.setMarkers(markers);
+  }
+
+  if (pane.indicators.has('roc')) {
+    if (!pane.subCharts.roc) {
+      const sub = addSubPane(pane, 'roc', 'ROC + RSI Zones (21,5,5,14)');
+      // Fill layer: baseline series at zero. Colors are inverted vs the ROC
+      // line — green fill below zero (contrarian bullish exhaustion tell),
+      // red fill above zero (overheat warning) — matches the Pine original.
+      sub.baseline = sub.chart.addBaselineSeries({
+        baseValue: {type: 'price', price: 0},
+        topLineColor:    'rgba(0,0,0,0)',
+        topFillColor1:   'rgba(239,83,80,0.28)',
+        topFillColor2:   'rgba(239,83,80,0.05)',
+        bottomLineColor: 'rgba(0,0,0,0)',
+        bottomFillColor1:'rgba(38,166,154,0.05)',
+        bottomFillColor2:'rgba(38,166,154,0.28)',
+        priceLineVisible: false, lastValueVisible: false,
+      });
+      // Base blue ROC line (always visible).
+      sub.rocLine = sub.chart.addLineSeries({
+        color: '#2962ff', lineWidth: 1,
+        priceLineVisible: false, lastValueVisible: true,
+      });
+      // Zone-overlay lines — only carry data where the confluence holds.
+      // Line becomes visually thicker in-zone because it's drawn over the
+      // base line, matching Pine's linewidth=2 conditional plot.
+      sub.overlayGreen = sub.chart.addLineSeries({
+        color: '#26a69a', lineWidth: 2,
+        priceLineVisible: false, lastValueVisible: false,
+      });
+      sub.overlayRed = sub.chart.addLineSeries({
+        color: '#ef5350', lineWidth: 2,
+        priceLineVisible: false, lastValueVisible: false,
+      });
+      sub.series = sub.rocLine;   // used for crosshair sync
+      sub.rocLine.createPriceLine({price:0, color:'rgba(120,123,134,0.6)', lineWidth:1, lineStyle:0, axisLabelVisible:false});
+    }
+    const r = rocRsiSeries(bars);
+    pane.subCharts.roc.baseline.setData(r.baseline);
+    pane.subCharts.roc.rocLine.setData(r.roc);
+    pane.subCharts.roc.overlayGreen.setData(r.overlayGreen);
+    pane.subCharts.roc.overlayRed.setData(r.overlayRed);
+    const markers = [...r.buys, ...r.sells].sort((a,b) => a.time - b.time);
+    pane.subCharts.roc.rocLine.setMarkers(markers);
+  }
+
+  if (pane.indicators.has('stoch')) {
+    if (!pane.subCharts.stoch) {
+      const sub = addSubPane(pane, 'stoch', 'Stochastic (14,3,3)');
+      sub.kLine = sub.chart.addLineSeries({
+        color: '#26c6da', lineWidth: 1.5,
+        priceLineVisible: false, lastValueVisible: true,
+      });
+      sub.dLine = sub.chart.addLineSeries({
+        color: '#ff9800', lineWidth: 1, lineStyle: 2,
+        priceLineVisible: false, lastValueVisible: true,
+      });
+      // 80 / 50 / 20 guide lines — canonical Lane thresholds.
+      sub.kLine.createPriceLine({price:80, color:'rgba(248,81,73,0.45)',  lineWidth:1, lineStyle:1, axisLabelVisible:false});
+      sub.kLine.createPriceLine({price:50, color:'rgba(140,140,140,0.25)',lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      sub.kLine.createPriceLine({price:20, color:'rgba(63,185,80,0.45)',  lineWidth:1, lineStyle:1, axisLabelVisible:false});
+      sub.series = sub.kLine;   // crosshair sync target
+    }
+    const {k, d} = stochSeries(bars, 14, 3, 3);
+    pane.subCharts.stoch.kLine.setData(k);
+    pane.subCharts.stoch.dLine.setData(d);
+  }
+
+  if (pane.indicators.has('volprofile')) {
+    // Defer to next animation frame — priceToCoordinate returns null right
+    // after setData because LWC hasn't finished recomputing the price scale
+    // yet (that's why the VP histogram disappeared on tf change, SUVEN.NS
+    // case 2026-07-04). One RAF is enough for LWC to settle its layout.
+    requestAnimationFrame(() => {
+      if (pane.indicators.has('volprofile')) drawVolumeProfile(pane);
+    });
+  }
+
+  if (pane.indicators.has('fvg')) {
+    drawFVG(pane);
+  }
+
+  if (pane.indicators.has('volume')) {
+    if (!pane.subCharts.volume) {
+      const sub = addSubPane(pane, 'volume', 'Volume');
+      sub.series = sub.chart.addHistogramSeries({
+        priceLineVisible: false, lastValueVisible: true,
+        priceFormat: {type: 'volume'},
+      });
+    }
+    pane.subCharts.volume.series.setData(volumeBarSeries(bars));
+  }
+
+  // ── Elliott Wave overlay (plug-in module, see elliott_wave.js) ────────────────
+  if (pane.indicators.has('elliott')) {
+    renderElliottWave(pane);
+  }
+
+  // ── Rounding Bottom overlay (server-side detection, see scanner_templates.py) ─
+  if (pane.indicators.has('roundbottom')) {
+    renderRoundingBottom(pane);
+  }
+
+  // ── VCP Coiling overlay (server-side detection, see scanner_templates.py) ────
+  if (pane.indicators.has('vcp')) {
+    renderVCP(pane);
+  }
+
+  // ── Trendlines overlay (server-side detection, see scanner_templates.py) ─────
+  if (pane.indicators.has('harmonic')) {
+    renderHarmonic(pane);
+  }
+  if (pane.indicators.has('trendlines')) {
+    renderTrendlines(pane);
+  }
+
+  // ── Reversal Calendar overlay (yogas + lunar phases, see reversal_calendar.py)
+  if (pane.indicators.has('reversal_calendar')) {
+    renderReversalCalendar(pane);
+  }
+
+  // ── Sub-pane time-range re-sync (fixes stale-range collapse) ─────────────────
+  // The subscribeVisibleTimeRangeChange callback runs whenever the main
+  // chart's range changes, but on tf/symbol reloads it fires BEFORE sub-pane
+  // series get their new data (order: main setData → applyRangeView → THIS
+  // function's setData calls). Sub-panes therefore accept a visible range
+  // that doesn't intersect their (still-stale) data, and when new data
+  // finally arrives via setData above, Lightweight Charts silently reverts
+  // to fit-to-content — which crushes narrow-range oscillators like the %R
+  // panel to a hairline (NH.NS %R pane collapsed to just the -27.24 marker,
+  // 2026-07-03). Re-syncing HERE, after every setData, guarantees the
+  // sub-panes end up aligned to whatever the main chart is showing.
+  syncSubPaneRanges(pane);
+}
+
+// Standalone so anything that changes the main-chart visible range (loadData,
+// range-preset buttons, tf change) can re-align sub-panes without duplicating
+// the try/catch loop.
+function syncSubPaneRanges(pane) {
+  if (!pane || !pane.subCharts) return;
+  let range;
+  try { range = pane.chart.timeScale().getVisibleRange(); } catch { return; }
+  if (!range) return;
+  Object.values(pane.subCharts).forEach(({chart: sub}) => {
+    try { sub.timeScale().setVisibleRange(range); } catch {}
+  });
+}
+
+// ── Sub-pane chart lifecycle ───────────────────────────────────────────────────
+function addSubPane(pane, key, labelText) {
+  const container = pane.el.querySelector('.sub-panes');
+  const el = document.createElement('div');
+  el.className = 'sub-pane';
+  el.dataset.key = key;
+  container.appendChild(el);
+
+  const labelEl = document.createElement('div');
+  labelEl.className = 'sub-pane-label';
+  labelEl.textContent = labelText || key;
+  el.appendChild(labelEl);
+
+  const subChart = LightweightCharts.createChart(el, {
+    width:  el.clientWidth  || 300,
+    height: el.clientHeight || 100,
+    ...subChartOpts(),
+  });
+
+  const ro = new ResizeObserver(entries => {
+    for (const e of entries) {
+      const {width, height} = e.contentRect;
+      if (width > 0 && height > 0) subChart.resize(Math.floor(width), Math.floor(height));
+    }
+  });
+  ro.observe(el);
+
+  // Sync to current visible range of main chart
+  setTimeout(() => {
+    try {
+      const range = pane.chart.timeScale().getVisibleRange();
+      if (range) subChart.timeScale().setVisibleRange(range);
+    } catch {}
+  }, 60);
+
+  const sub = {chart: subChart, el, ro, label: labelEl, series: null};
+  pane.subCharts[key] = sub;
+  return sub;
+}
+
+function removeSubPane(pane, key) {
+  const sub = pane.subCharts[key];
+  if (!sub) return;
+  if (sub.ro) sub.ro.disconnect();
+  try { sub.chart.remove(); } catch {}
+  sub.el.remove();
+  delete pane.subCharts[key];
+}
+
+// ── Volume Profile canvas overlay ─────────────────────────────────────────────
+// ── Volume Profile (POC / Value Area / HVN / LVN) ──────────────────────────────
+// Computation lives in volume_profile.js (window.VP, pure, no chart dependency).
+// This function is the rendering "plug": draws the histogram, POC line, Value
+// Area band, and HVN/LVN pocket highlights onto the per-pane canvas overlay
+// that already sits on top of the candlestick chart.
+const VP_OPTS = {bins: 30, valueAreaPct: 0.70, hvnMult: 1.5, lvnMult: 0.5,
+                 hvnExpandTol: 0.85, lvnExpandTol: 1.30};
+
+function drawVolumeProfile(pane) {
+  const canvas = pane.volCanvas;
+  if (!canvas || !pane.bars || pane.bars.length < 10) { pane.vp = null; return; }
+  const bars = pane.bars;
+  const W = canvas.width  = canvas.offsetWidth;
+  const H = canvas.height = canvas.offsetHeight;
+  if (W === 0 || H === 0) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  const profile = VP.computeProfile(bars, VP_OPTS);
+  pane.vp = profile;
+  if (!profile) return;
+
+  const {bins, binEdges, poc, valueArea, hvnZones, lvnZones} = profile;
+  const maxVol = Math.max(...bins);
+  if (maxVol === 0) return;
+  const maxBarW = W * 0.18;
+  const inHvn = i => hvnZones.some(z => i >= z._lo && i <= z._hi);
+  const inLvn = i => lvnZones.some(z => i >= z._lo && i <= z._hi);
+  // Re-derive bin indices for zones (computeProfile returns price boundaries
+  // only) so the histogram bars can be colored by node classification.
+  hvnZones.forEach(z => { z._lo = Math.round((z.low - profile.lo) / profile.binSize); z._hi = Math.round((z.high - profile.lo) / profile.binSize) - 1; });
+  lvnZones.forEach(z => { z._lo = Math.round((z.low - profile.lo) / profile.binSize); z._hi = Math.round((z.high - profile.lo) / profile.binSize) - 1; });
+
+  // ── Histogram bars, colored by classification ──
+  bins.forEach((vol, i) => {
+    if (vol === 0) return;
+    const price = binEdges[i] + profile.binSize / 2;
+    const y = pane.series.priceToCoordinate(price);
+    if (y === null || y < 0 || y > H) return;
+    const barW = (vol / maxVol) * maxBarW;
+    const barH = Math.max(1, (H / bins.length) * 0.75);
+    ctx.fillStyle = i === poc.idx ? 'rgba(255,214,10,0.65)'   // POC bin — gold
+                  : inHvn(i)      ? 'rgba(63,185,80,0.40)'    // HVN — green
+                  : inLvn(i)      ? 'rgba(248,81,73,0.30)'    // LVN — red/orange
+                  :                 'rgba(99,120,180,0.28)';  // normal node
+    ctx.fillRect(W - barW, y - barH / 2, barW, barH);
+  });
+
+  // ── Value Area band (shaded) + VAH/VAL lines ──
+  const yVAH = pane.series.priceToCoordinate(valueArea.high);
+  const yVAL = pane.series.priceToCoordinate(valueArea.low);
+  if (yVAH !== null && yVAL !== null) {
+    ctx.fillStyle = 'rgba(255,214,10,0.06)';
+    ctx.fillRect(0, yVAH, W, yVAL - yVAH);
+    [['VAH', valueArea.high, yVAH], ['VAL', valueArea.low, yVAL]].forEach(([label, price, y]) => {
+      ctx.strokeStyle = 'rgba(255,214,10,0.55)';
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      ctx.setLineDash([]);
+      ctx.fillStyle = '#ffd60a'; ctx.font = '10px monospace';
+      ctx.fillText(`${label} ${price.toFixed(2)}`, 6, y - 3);
+    });
+  }
+
+  // ── POC line (full width, solid) ──
+  const yPOC = pane.series.priceToCoordinate(poc.price);
+  if (yPOC !== null) {
+    ctx.strokeStyle = 'rgba(255,214,10,0.9)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(0, yPOC); ctx.lineTo(W, yPOC); ctx.stroke();
+    ctx.fillStyle = '#ffd60a'; ctx.font = 'bold 10px monospace';
+    ctx.fillText(`POC ${poc.price.toFixed(2)}`, 6, yPOC - 3);
+  }
+}
+
+// ── Fair Value Gap overlay rendering (integration layer for fvg.js) ───────────
+// fvg.js (window.FVG) is a pure computation module with zero chart dependency.
+// This is the "plug" that draws each gap zone as a translucent box from its
+// left edge (the candle that opened the gap) to either the bar that filled it
+// or the right edge of the loaded data if it's still open — green = bullish,
+// red = bearish, matching the convention from the source tutorial this
+// feature was modeled on (see wiki/sources/YT-MultiChart-TradingView-Alternative.md).
+const FVG_OPTS = {minSizePct: 0, maxZones: 60};
+
+function drawFVG(pane) {
+  const canvas = pane.fvgCanvas;
+  if (!canvas || !pane.bars || pane.bars.length < 3 || typeof FVG === 'undefined') {
+    pane.fvgZones = null;
+    return;
+  }
+  const W = canvas.width  = canvas.offsetWidth;
+  const H = canvas.height = canvas.offsetHeight;
+  if (W === 0 || H === 0) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  const zones = FVG.compute(pane.bars, FVG_OPTS);
+  pane.fvgZones = zones;
+  if (!zones.length) return;
+
+  const lastBarTime = pane.bars[pane.bars.length - 1].time;
+  const ts = pane.chart.timeScale();
+
+  zones.forEach(z => {
+    const xLeft = ts.timeToCoordinate(z.startTime);
+    if (xLeft === null) return; // scrolled out of view to the left
+    const xRight = z.filledTime
+      ? ts.timeToCoordinate(z.filledTime)
+      : ts.timeToCoordinate(lastBarTime);
+    const yTop    = pane.series.priceToCoordinate(z.top);
+    const yBottom = pane.series.priceToCoordinate(z.bottom);
+    if (xRight === null || yTop === null || yBottom === null) return;
+
+    const x = Math.max(0, xLeft);
+    const w = Math.min(W, xRight) - x;
+    if (w <= 0) return;
+    const y = Math.min(yTop, yBottom);
+    const h = Math.max(1, Math.abs(yBottom - yTop));
+
+    // Open (unfilled) gaps are drawn solid; filled gaps fade out so the chart
+    // stays readable while still showing where price has already "tagged" the
+    // imbalance — a filled gap is historical context, not an active level.
+    const filled = z.filledTime !== null;
+    ctx.fillStyle = z.bullish
+      ? (filled ? 'rgba(38,166,154,0.08)' : 'rgba(38,166,154,0.22)')
+      : (filled ? 'rgba(239,83,80,0.08)'  : 'rgba(239,83,80,0.22)');
+    ctx.fillRect(x, y, w, h);
+
+    ctx.strokeStyle = z.bullish
+      ? (filled ? 'rgba(38,166,154,0.25)' : 'rgba(38,166,154,0.7)')
+      : (filled ? 'rgba(239,83,80,0.25)'  : 'rgba(239,83,80,0.7)');
+    ctx.lineWidth = 1;
+    ctx.setLineDash(filled ? [3, 3] : []);
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
+  });
+}
+
+// ── Elliott Wave overlay rendering (integration layer for elliott_wave.js) ────
+// elliott_wave.js (window.EW) is a pure computation module with zero chart
+// dependency. Everything in this section is the "plug" that adapts its
+// output onto a Lightweight Charts series: line paths, text markers,
+// Fibonacci projection rays, and the numeric info panel. To swap charting
+// libraries later, only this section needs to change — EW.analyze() itself
+// never has to know what's drawing it.
+const EW_OPTS = {atrPeriod: 14, atrMult: 1.2, minPct: 0.5};
+const EW_MAX_RENDERED  = 3;   // cap how many wave-structures are drawn at once
+const EW_MIN_SCORE     = 25;  // hide near-zero-confidence noise structures
+const EW_VP_CONFLUENCE_TOL = 0.004; // 0.4% price tolerance for EW+VolumeProfile confluence
+
+// ── Central marker merger ─────────────────────────────────────────────────────
+// Multiple indicators want to put text markers on the candlestick series
+// (Elliott Wave puts wave numbers, the Reversal Calendar puts yoga/lunar
+// glyphs). Lightweight Charts' setMarkers() replaces the whole marker set
+// on each call, so calling it from two places would have them overwrite
+// each other. Each indicator registers its markers under a source key in
+// pane._markerSrcs, and we merge + push exactly once via setPaneMarkers().
+function setPaneMarkers(pane, source, markers) {
+  if (!pane._markerSrcs) pane._markerSrcs = {};
+  if (!markers || !markers.length) delete pane._markerSrcs[source];
+  else pane._markerSrcs[source] = markers;
+  const merged = [];
+  Object.values(pane._markerSrcs).forEach(arr => merged.push(...arr));
+  merged.sort((a, b) => a.time - b.time);
+  try { pane.series.setMarkers(merged); } catch {}
+}
+
+function ensureEwState(pane) {
+  if (!pane.ew) {
+    pane.ew = {
+      lineSeries: {},        // structure id -> LWC line series (the zigzag path)
+      fibLineSeries: [],     // [LWC line series] for the active fib projection rays
+      infoEl: null,
+      infoBody: null,        // inner div that receives the html — outer holds the collapse toggle
+      infoSummary: null,     // the compact one-line chip shown when collapsed
+      // Default collapsed on first render — the actionable info (fib
+      // targets + VP-confluence stars) is already labeled on the right
+      // axis; the wave-math list is context, not a decision. User's toggle
+      // choice persists across pages via localStorage (LS_EW_COLLAPSED).
+      collapsed: loadEwCollapsed(),
+      lastComputeKey: null,
+    };
+  }
+  return pane.ew;
+}
+
+function clearElliottWave(pane) {
+  if (!pane.ew) return;
+  Object.values(pane.ew.lineSeries).forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
+  pane.ew.fibLineSeries.forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
+  setPaneMarkers(pane, 'elliott', null);
+  if (pane.ew.infoEl) pane.ew.infoEl.style.display = 'none';
+  pane.ew.lineSeries = {};
+  pane.ew.fibLineSeries = [];
+  pane.ew.lastComputeKey = null;
+}
+
+// Presentation policy: rank by confidence score (ties broken by recency), then
+// cap to EW_MAX_RENDERED. This keeps low-confidence noise (inevitable with any
+// volatility-adaptive pivot detector during flat/choppy stretches) from
+// cluttering the chart, while always surfacing the cleanest wave counts found.
+function selectStructuresToRender(impulses) {
+  return impulses
+    .filter(imp => imp.score >= EW_MIN_SCORE)
+    .slice()
+    .sort((a, b) => (b.score - a.score) || (b.startIdx - a.startIdx))
+    .slice(0, EW_MAX_RENDERED);
+}
+
+function ewWavePointPosition(p) {
+  return p.type === 'high' ? 'aboveBar' : 'belowBar';
+}
+
+function renderElliottWave(pane) {
+  const ew = ensureEwState(pane);
+  const bars = pane.bars;
+  if (!bars || bars.length < EW_OPTS.atrPeriod + 10) {
+    if (ew.infoEl) ew.infoEl.style.display = 'none';
+    return;
+  }
+
+  // Cheap guard: skip recompute if the bar series hasn't materially changed
+  // since the last call (e.g. an unrelated indicator toggle re-ran applyIndicators).
+  const lastBar = bars[bars.length - 1];
+  const cacheKey = bars.length + ':' + lastBar.time + ':' + lastBar.close;
+  if (ew.lastComputeKey === cacheKey) return;
+  ew.lastComputeKey = cacheKey;
+
+  const {impulses, correctives} = EW.analyze(bars, EW_OPTS);
+  const shown = selectStructuresToRender(impulses);
+  const shownIds = new Set(shown.map(s => s.id));
+  const shownCorrectives = correctives.filter(c => shownIds.has(c.parentImpulseId));
+
+  const allStructures = [...shown, ...shownCorrectives];
+
+  // Drop line series for structures that fell out of the rendered set.
+  Object.keys(ew.lineSeries).forEach(id => {
+    if (!allStructures.some(s => s.id === id)) {
+      try { pane.chart.removeSeries(ew.lineSeries[id]); } catch {}
+      delete ew.lineSeries[id];
+    }
+  });
+
+  const lastImpulse    = shown[shown.length - 1];
+  const lastCorrective = shownCorrectives[shownCorrectives.length - 1];
+
+  // ── Elliott Wave + Volume Profile confluence ──────────────────────────────
+  // Only meaningful once both modules have run — relies on drawVolumeProfile()
+  // having already populated pane.vp earlier in this same applyIndicators()
+  // pass. A wave point "confluences" with a volume zone when its price sits
+  // inside (or within tolerance of) the POC, a Value Area edge, or an HVN/LVN
+  // pocket — see VOLUME_PROFILE_MODULE.md for the exact confluence rule.
+  let confluentKeys = new Set();
+  let confluenceList = [];
+  if (pane.indicators.has('volprofile') && pane.vp && typeof VP !== 'undefined') {
+    const ewPoints = [];
+    if (lastImpulse)    lastImpulse.points.forEach(p => ewPoints.push({time: p.time, price: p.price, label: p.label}));
+    if (lastCorrective) lastCorrective.points.forEach(p => ewPoints.push({time: p.time, price: p.price, label: p.label}));
+    confluenceList = VP.findConfluence(ewPoints, pane.vp, EW_VP_CONFLUENCE_TOL);
+    confluentKeys = new Set(confluenceList.map(c => c.time + ':' + c.label));
+  }
+
+  // Draw/refresh the zigzag path + collect text markers for each structure.
+  const markers = [];
+  allStructures.forEach(s => {
+    let line = ew.lineSeries[s.id];
+    if (!line) {
+      line = pane.chart.addLineSeries({
+        color: s.type === 'impulse' ? '#00e5ff' : '#ffab40',
+        lineWidth: 2,
+        lineStyle: s.type === 'impulse' ? 0 : 2,           // solid impulse, dashed corrective
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        // Zigzag connectors span pivots that may sit outside the currently
+        // visible candle range — including them in the price-scale auto-fit
+        // stretches the y-axis and crushes the candles (TCS.NS, 2026-07-03).
+        // The candle series remains the sole autoscale driver.
+        autoscaleInfoProvider: () => null,
+      });
+      ew.lineSeries[s.id] = line;
+    }
+    line.setData(s.points.map(p => ({time: p.time, value: p.price})));
+
+    s.points.forEach(p => {
+      const isConfluent = confluentKeys.has(p.time + ':' + p.label);
+      markers.push({
+        time: p.time,
+        position: ewWavePointPosition(p),
+        color: isConfluent ? '#ffd60a' : (s.type === 'impulse' ? '#00e5ff' : '#ffab40'),
+        shape: 'circle',
+        size: isConfluent ? 1.4 : 0.8,
+        text: isConfluent ? p.label + '★' : p.label,
+      });
+    });
+  });
+
+  setPaneMarkers(pane, 'elliott', markers);
+
+  const fibConfluence = renderEwFibLevels(pane, lastImpulse, lastCorrective);
+  renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConfluence);
+}
+
+function renderEwFibLevels(pane, lastImpulse, lastCorrective) {
+  const ew = ensureEwState(pane);
+  ew.fibLineSeries.forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
+  ew.fibLineSeries = [];
+  if (!pane.bars.length) return [];
+
+  const lastTime = pane.bars[pane.bars.length - 1].time;
+  const rawLevels = [];
+  if (lastImpulse)    rawLevels.push(...EW.fibLevelsForImpulse(lastImpulse));
+  if (lastCorrective) rawLevels.push(...EW.fibLevelsForCorrective(lastCorrective));
+
+  // Forward-looking confluence runs against the FULL raw set so a far-off
+  // extension that lands on a real POC/HVN can still be marked confluent
+  // even if the distance filter below would otherwise cull it.
+  let fibConfluentLabels = new Set();
+  if (pane.indicators.has('volprofile') && pane.vp && typeof VP !== 'undefined' && rawLevels.length) {
+    const asPoints = rawLevels.map(lv => ({time: lv.fromTime, price: lv.price, label: lv.label}));
+    const matched = VP.findConfluence(asPoints, pane.vp, EW_VP_CONFLUENCE_TOL);
+    fibConfluentLabels = new Set(matched.map(m => m.label));
+  }
+
+  // Extension math (2.618×W1 etc.) can produce targets very far from the
+  // last close — beyond ±40% they clutter the right-axis without giving the
+  // user anything actionable. VP-confluent levels are always kept because
+  // those ARE the signal even when distant.
+  const lastClose = pane.bars[pane.bars.length - 1].close;
+  const MAX_FIB_DIST = 0.40;
+  const levels = rawLevels.filter(lv => {
+    if (!Number.isFinite(lv.price)) return false;
+    if (fibConfluentLabels.has(lv.label)) return true;
+    if (!lastClose) return false;
+    return Math.abs(lv.price - lastClose) / lastClose <= MAX_FIB_DIST;
+  });
+
+  levels.forEach(lv => {
+    if (lv.fromTime >= lastTime) return; // nothing to draw yet
+    const isConfluent = fibConfluentLabels.has(lv.label);
+    const s = pane.chart.addLineSeries({
+      color: isConfluent ? 'rgba(255,214,10,0.9)' : 'rgba(255,214,10,0.55)',
+      lineWidth: isConfluent ? 2 : 1,
+      lineStyle: 3,
+      priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
+      title: isConfluent ? lv.label + ' ★VP' : lv.label,
+      // Fib targets/extensions can sit far above/below the candle range
+      // (e.g. W3 2.618×W1, W5 targets, C 1.618×A) — including them in
+      // autoscale is what stretched the y-axis to 1000–2825 on TCS.NS and
+      // crushed the actual candle range into a hairline. Same guard as the
+      // impulse zigzag: draw them, label them, but don't let them drive the
+      // price scale.
+      autoscaleInfoProvider: () => null,
+    });
+    s.setData([{time: lv.fromTime, value: lv.price}, {time: lastTime, value: lv.price}]);
+    ew.fibLineSeries.push(s);
+  });
+
+  return levels.filter(lv => fibConfluentLabels.has(lv.label));
+}
+
+function renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConfluence) {
+  const ew = ensureEwState(pane);
+  if (!ew.infoEl) {
+    ew.infoEl = document.createElement('div');
+    ew.infoEl.className = 'ew-info';
+    if (ew.collapsed) ew.infoEl.classList.add('collapsed');
+    // Layout: [summary chip] [toggle button] + [body div (hidden when collapsed)].
+    // The summary chip is what the user sees when the panel is collapsed —
+    // "EW: Bullish 5W · 70/100" — enough to know it's alive without stealing
+    // real estate. Body carries the full rich content; toggle switches modes
+    // and persists the choice to localStorage so it survives reloads.
+    const summary = document.createElement('span');
+    summary.className = 'ew-info-summary';
+    const body = document.createElement('div');
+    body.className = 'ew-info-body';
+    const toggle = document.createElement('span');
+    toggle.className = 'ew-info-toggle';
+    toggle.textContent = ew.collapsed ? '▸' : '×';
+    toggle.title = ew.collapsed ? 'Show Elliott Wave info' : 'Collapse';
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nowCollapsed = !ew.infoEl.classList.contains('collapsed');
+      ew.infoEl.classList.toggle('collapsed', nowCollapsed);
+      ew.collapsed = nowCollapsed;
+      toggle.textContent = nowCollapsed ? '▸' : '×';
+      toggle.title      = nowCollapsed ? 'Show Elliott Wave info' : 'Collapse';
+      saveEwCollapsed(nowCollapsed);
+    });
+    ew.infoEl.appendChild(summary);
+    ew.infoEl.appendChild(toggle);
+    ew.infoEl.appendChild(body);
+    ew.infoBody = body;
+    ew.infoSummary = summary;
+    pane.el.querySelector('.chart-main').appendChild(ew.infoEl);
+  }
+  if (!lastImpulse) { ew.infoEl.style.display = 'none'; return; }
+  // Compact chip: label + confidence, matches the leading line of the full
+  // panel so users know what's parked there when it's collapsed.
+  if (ew.infoSummary) {
+    ew.infoSummary.textContent =
+      `EW: ${lastImpulse.bullish ? 'Bullish' : 'Bearish'} ` +
+      `${lastImpulse.final ? '5W' : '5W?'} · ${lastImpulse.score}/100`;
+  }
+
+  const fmtPct = v => v == null ? '—' : (v * 100).toFixed(0) + '%';
+  const fmtR   = v => v == null ? '—' : v.toFixed(2) + '×';
+  const r = lastImpulse.ratios;
+
+  let html = `<b>${lastImpulse.bullish ? 'Bullish' : 'Bearish'} Impulse (1-5)</b>` +
+             (lastImpulse.final ? '' : ' <i>forming</i>') +
+             `<br>W1 len: ${Math.abs(lastImpulse.lengths.wave1).toFixed(2)}` +
+             `<br>W2 retrace: ${fmtPct(r.w2retrPct)} of W1` +
+             `<br>W3 extension: ${fmtR(r.w3extRatio)} of W1` +
+             `<br>W4 retrace: ${fmtPct(r.w4retrPct)} of W3` +
+             `<br>W5: ${fmtR(r.w5Ratio)} of W1` +
+             (lastImpulse.diagonal ? '<br><i style="color:#d29922">⚠ W4 overlaps W1 (diagonal?)</i>' : '') +
+             `<br>Confidence: ${lastImpulse.score}/100`;
+
+  if (lastCorrective) {
+    html += `<hr style="border-color:#30363d;margin:4px 0;">` +
+            `<b>Corrective ${lastCorrective.complete ? 'A-B-C' : '(forming)'}</b>`;
+    if (lastCorrective.ratios.bRetracePct != null)
+      html += `<br>B retrace: ${fmtPct(lastCorrective.ratios.bRetracePct)} of A` +
+              ` <i>(${lastCorrective.ratios.patternGuess})</i>`;
+    if (lastCorrective.ratios.cVsA != null)
+      html += `<br>C: ${fmtR(lastCorrective.ratios.cVsA)} of A`;
+  }
+
+  if ((confluenceList && confluenceList.length) || (fibConfluence && fibConfluence.length)) {
+    html += `<hr style="border-color:#30363d;margin:4px 0;">` +
+            `<b style="color:#ffd60a">★ Volume Profile confluence</b>`;
+    (confluenceList || []).forEach(c => {
+      html += `<br>W${c.label} @ ${c.price.toFixed(2)} → ${c.matches.map(m => m.type).join('+')}`;
+    });
+    (fibConfluence || []).forEach(lv => {
+      html += `<br>${lv.label} target ${lv.price.toFixed(2)} → on VP zone`;
+    });
+  }
+
+  // Write to the body div, not the container — the container also holds the
+  // toggle button, which innerHTML= would clobber (breaking the collapse UI
+  // on every re-render).
+  if (ew.infoBody) ew.infoBody.innerHTML = html;
+  else             ew.infoEl.innerHTML   = html;
+  ew.infoEl.style.display = 'block';
+}
+
+// ── Rounding Bottom overlay ───────────────────────────────────────────────────
+// Server-side detection (see chart_server.py::api_rounding_bottom + Python
+// scanner_templates.scan_rounding_bottom + concepts/Rounding-Bottom.md). The
+// chart just draws what the server returns: horizontal dashed rim line, a
+// marker at the trough and (if breakout confirmed) at the clear bar, plus a
+// small info chip in the top-right corner that mirrors the ew-info collapse
+// behavior.
+function ensureRbState(pane) {
+  if (!pane.rb) {
+    pane.rb = {
+      rimLine:    null,        // dashed horizontal at rim price
+      entryLine:  null,        // solid horizontal at suggested entry
+      stopLine:   null,        // solid horizontal at suggested stop (red)
+      targetLine: null,        // solid horizontal at measured-move target (green)
+      infoEl:   null,
+      infoBody: null,
+      infoSummary: null,
+      collapsed: loadRbCollapsed(),
+      lastFetchKey: null,      // symbol+tf+lastBarTime — skip refetch when unchanged
+    };
+  }
+  return pane.rb;
+}
+
+function clearRoundingBottom(pane) {
+  if (!pane.rb) return;
+  ['rimLine', 'entryLine', 'stopLine', 'targetLine'].forEach(k => {
+    if (pane.rb[k]) {
+      try { pane.chart.removeSeries(pane.rb[k]); } catch {}
+      pane.rb[k] = null;
+    }
+  });
+  setPaneMarkers(pane, 'roundbottom', null);
+  if (pane.rb.infoEl) pane.rb.infoEl.style.display = 'none';
+  pane.rb.lastFetchKey = null;
+}
+
+async function renderRoundingBottom(pane) {
+  const rb = ensureRbState(pane);
+  if (!pane.bars || !pane.bars.length) return;
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  if (rb.lastFetchKey === key) return;      // no new data since last call
+  rb.lastFetchKey = key;
+
+  let saucer = null;
+  try {
+    const barCount = TF_BARS[pane.tf] || 300;
+    const url = `${SERVER}/api/rounding_bottom?symbol=${encodeURIComponent(pane.symbol)}` +
+                `&timeframe=${pane.tf}&bars=${barCount}`;
+    const res = await fetch(url);
+    if (res.ok) saucer = (await res.json()).saucer || null;
+  } catch (e) {
+    console.warn('rounding_bottom fetch failed:', e);
+  }
+
+  // If the response came back after the user toggled the indicator off,
+  // or after a symbol/tf change (fetchKey has been reset), don't render.
+  if (!pane.indicators.has('roundbottom')) return;
+  const stillCurrentKey = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  if (stillCurrentKey !== key) return;
+
+  if (!saucer) {
+    clearRoundingBottom(pane);
+    renderRbInfo(pane, null);
+    return;
+  }
+
+  // Reference lines: rim (gold dashed), entry (cyan), stop (red), target
+  // (green). All autoscale-excluded so a target sitting 30-50% above the
+  // current candles doesn't stretch the y-axis (same guard as the EW fibs
+  // and the LAURUSLABS fix). The lines only span the pattern window +
+  // right edge, keeping them out of unrelated history.
+  const fromTime = saucer.base_start_time || pane.bars[0].time;
+  const toTime   = saucer.last_time       || pane.bars[pane.bars.length - 1].time;
+  const ensureLine = (key, opts) => {
+    if (!rb[key]) rb[key] = pane.chart.addLineSeries({
+      priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
+      autoscaleInfoProvider: () => null,
+      ...opts,
+    });
+    return rb[key];
+  };
+  ensureLine('rimLine',    {color: '#ffab40', lineWidth: 2, lineStyle: 3, title: 'Rim'})
+    .setData([{time: fromTime, value: saucer.rim}, {time: toTime, value: saucer.rim}]);
+  if (Number.isFinite(saucer.entry)) {
+    ensureLine('entryLine',  {color: '#26c6da', lineWidth: 1, lineStyle: 0, title: 'Entry'})
+      .setData([{time: fromTime, value: saucer.entry},  {time: toTime, value: saucer.entry}]);
+  }
+  if (Number.isFinite(saucer.stop)) {
+    ensureLine('stopLine',   {color: '#f85149', lineWidth: 1, lineStyle: 0, title: 'Stop'})
+      .setData([{time: fromTime, value: saucer.stop},   {time: toTime, value: saucer.stop}]);
+  }
+  if (Number.isFinite(saucer.target)) {
+    ensureLine('targetLine', {color: '#3fb950', lineWidth: 1, lineStyle: 0, title: 'Target'})
+      .setData([{time: fromTime, value: saucer.target}, {time: toTime, value: saucer.target}]);
+  }
+
+  // Markers: gold circle at the trough, arrow-up at the breakout (if the
+  // state is confirmed/retest). Uses setPaneMarkers so it composes cleanly
+  // with the Elliott Wave and Reversal Calendar marker sources.
+  const markers = [];
+  if (saucer.trough_time) {
+    markers.push({
+      time: saucer.trough_time,
+      position: 'belowBar',
+      color: '#ffab40',
+      shape: 'circle',
+      size: 1.2,
+      text: 'Trough',
+    });
+  }
+  if (saucer.breakout_time) {
+    markers.push({
+      time: saucer.breakout_time,
+      position: 'belowBar',
+      color: saucer.vol_confirmed ? '#3fb950' : '#ffab40',
+      shape: 'arrowUp',
+      size: 1.4,
+      text: saucer.vol_confirmed ? 'Rim clear ✓' : 'Rim clear',
+    });
+  }
+  setPaneMarkers(pane, 'roundbottom', markers);
+
+  renderRbInfo(pane, saucer);
+}
+
+function renderRbInfo(pane, saucer) {
+  const rb = ensureRbState(pane);
+  if (!rb.infoEl) {
+    rb.infoEl = document.createElement('div');
+    rb.infoEl.className = 'rb-info';
+    if (rb.collapsed) rb.infoEl.classList.add('collapsed');
+    const summary = document.createElement('span');
+    summary.className = 'rb-info-summary';
+    const body = document.createElement('div');
+    body.className = 'rb-info-body';
+    const toggle = document.createElement('span');
+    toggle.className = 'rb-info-toggle';
+    toggle.textContent = rb.collapsed ? '▸' : '×';
+    toggle.title = rb.collapsed ? 'Show Rounding Bottom info' : 'Collapse';
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nowCollapsed = !rb.infoEl.classList.contains('collapsed');
+      rb.infoEl.classList.toggle('collapsed', nowCollapsed);
+      rb.collapsed = nowCollapsed;
+      toggle.textContent = nowCollapsed ? '▸' : '×';
+      toggle.title      = nowCollapsed ? 'Show Rounding Bottom info' : 'Collapse';
+      saveRbCollapsed(nowCollapsed);
+    });
+    rb.infoEl.appendChild(summary);
+    rb.infoEl.appendChild(toggle);
+    rb.infoEl.appendChild(body);
+    rb.infoBody = body;
+    rb.infoSummary = summary;
+    pane.el.querySelector('.chart-main').appendChild(rb.infoEl);
+  }
+  if (!saucer) { rb.infoEl.style.display = 'none'; return; }
+
+  // Verdict → colour. Green for BUY-side calls, red only reserved for
+  // active sell signals from other overlays; here WATCH is gold (paying
+  // attention) and WEAK BUY is orange (real signal, missing volume).
+  const verdictColor = ({
+    'BUY':                '#3fb950',
+    'BUY (retest hold)':  '#3fb950',
+    'WEAK BUY':           '#f0883e',
+    'WATCH':              '#ffd60a',
+  })[saucer.verdict] || '#8b949e';
+
+  // Compact chip leads with the verdict — the ONE thing worth surfacing at
+  // a glance. Family/state stay in the expanded panel where they belong.
+  rb.infoSummary.innerHTML =
+    `<span style="color:${verdictColor}">RB: ${saucer.verdict}</span> · ${saucer.score}/100`;
+
+  const emaTag = saucer.ema_turn ? ' <i style="color:#3fb950">EMA turn ✓</i>' : '';
+  const rr = Number.isFinite(saucer.risk_reward) ? `${saucer.risk_reward}×` : '—';
+
+  // The trade-plan block sits at the TOP of the expanded panel because
+  // that's what makes the overlay actionable. Everything below it is
+  // context that justifies the plan.
+  let html =
+    `<b style="color:${verdictColor}">${saucer.verdict}</b>` +
+    ` · <span style="color:var(--text-muted)">R:R ${rr}</span>` +
+    `<div style="margin-top:3px;font-family:'Courier New',monospace;font-size:10px">` +
+      `<span style="color:#26c6da">Entry ₹${saucer.entry.toFixed(2)}</span> · ` +
+      `<span style="color:#f85149">Stop ₹${saucer.stop.toFixed(2)}</span> · ` +
+      `<span style="color:#3fb950">Target ₹${saucer.target.toFixed(2)}</span>` +
+    `</div>` +
+    `<hr style="border-color:#30363d;margin:4px 0;">` +
+    `<i>${saucer.family}</i> · State: <b>${saucer.state}</b>${emaTag}` +
+    `<br>Rim ₹${saucer.rim.toFixed(2)} · Decline ${saucer.decline_pct.toFixed(1)}% ` +
+    `· Symmetry ${saucer.symmetry_pct}%` +
+    `<br>Trough width: ${saucer.trough_days}d · Score ${saucer.score}/100`;
+  if (saucer.breakout_time && saucer.vol_confirmed === false) {
+    html += `<br><i style="color:#d29922">⚠ Rim cleared on light volume — verdict downgraded</i>`;
+  }
+  if (Array.isArray(saucer.reasons) && saucer.reasons.length) {
+    html += `<hr style="border-color:#30363d;margin:4px 0;">` +
+            saucer.reasons.map(r => `<div style="color:var(--text-muted)">${r}</div>`).join('');
+  }
+  if (rb.infoBody) rb.infoBody.innerHTML = html;
+  else             rb.infoEl.innerHTML   = html;
+  rb.infoEl.style.display = 'block';
+}
+
+// ── VCP Coiling overlay ───────────────────────────────────────────────────────
+// Server-side pivot-based detection (see chart_server.py::api_vcp +
+// scanner_templates.detect_vcp_geometry + concepts/VCP.md). Draws the
+// contraction ladder as a series of line segments connecting each swing
+// high to its corresponding leg low, plus a horizontal pivot line and the
+// standard entry/stop/target reference lines.
+function ensureVcpState(pane) {
+  if (!pane.vcp) {
+    pane.vcp = {
+      pivotLine:      null,
+      entryLine:      null,
+      stopLine:       null,
+      targetLine:     null,
+      // One line series per contraction leg — kept in an array so we can
+      // clear/re-create when the count changes (new pivot detected, etc.).
+      legSeries:      [],
+      infoEl:         null,
+      infoBody:       null,
+      infoSummary:    null,
+      collapsed:      loadVcpCollapsed(),
+      lastFetchKey:   null,
+    };
+  }
+  return pane.vcp;
+}
+
+function clearVCP(pane) {
+  if (!pane.vcp) return;
+  ['pivotLine', 'entryLine', 'stopLine', 'targetLine'].forEach(k => {
+    if (pane.vcp[k]) {
+      try { pane.chart.removeSeries(pane.vcp[k]); } catch {}
+      pane.vcp[k] = null;
+    }
+  });
+  pane.vcp.legSeries.forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
+  pane.vcp.legSeries = [];
+  setPaneMarkers(pane, 'vcp', null);
+  if (pane.vcp.infoEl) pane.vcp.infoEl.style.display = 'none';
+  pane.vcp.lastFetchKey = null;
+}
+
+async function renderVCP(pane) {
+  const vcp = ensureVcpState(pane);
+  if (!pane.bars || !pane.bars.length) return;
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  if (vcp.lastFetchKey === key) return;
+  vcp.lastFetchKey = key;
+
+  let g = null;
+  try {
+    const barCount = TF_BARS[pane.tf] || 300;
+    const url = `${SERVER}/api/vcp?symbol=${encodeURIComponent(pane.symbol)}` +
+                `&timeframe=${pane.tf}&bars=${barCount}`;
+    const res = await fetch(url);
+    if (res.ok) g = (await res.json()).vcp || null;
+  } catch (e) { console.warn('vcp fetch failed:', e); }
+
+  if (!pane.indicators.has('vcp')) return;
+  const stillCurrentKey = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  if (stillCurrentKey !== key) return;
+
+  if (!g) {
+    clearVCP(pane);
+    renderVcpInfo(pane, null);
+    return;
+  }
+
+  // Contraction ladder — one thin cyan zigzag from each swing high down to
+  // its leg low and back up to the next swing high (or the current bar for
+  // the in-progress leg). Rendered as individual line series so tearing
+  // them down on a new fetch is trivial. autoscaleInfoProvider excluded
+  // because the pivot might sit above visible candles on breakout.
+  vcp.legSeries.forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
+  vcp.legSeries = [];
+  g.contractions.forEach((cc, i) => {
+    const line = pane.chart.addLineSeries({
+      color: cc.in_progress ? 'rgba(38,198,218,0.9)' : 'rgba(38,198,218,0.55)',
+      lineWidth: cc.in_progress ? 2 : 1,
+      lineStyle: 0,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      autoscaleInfoProvider: () => null,
+    });
+    const nextHi = g.contractions[i + 1];
+    const points = [
+      {time: cc.high_time, value: cc.high_price},
+      {time: cc.low_time,  value: cc.low_price},
+    ];
+    if (nextHi) points.push({time: nextHi.high_time, value: nextHi.high_price});
+    line.setData(points);
+    vcp.legSeries.push(line);
+  });
+
+  // Pivot line (dashed cyan) + entry/stop/target (solid cyan/red/green).
+  const fromTime = g.base_start_time || pane.bars[0].time;
+  const toTime   = g.base_end_time   || pane.bars[pane.bars.length - 1].time;
+  const ensureLine = (key, opts) => {
+    if (!vcp[key]) vcp[key] = pane.chart.addLineSeries({
+      priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
+      autoscaleInfoProvider: () => null,
+      ...opts,
+    });
+    return vcp[key];
+  };
+  ensureLine('pivotLine', {color: '#26c6da', lineWidth: 2, lineStyle: 3, title: 'Pivot'})
+    .setData([{time: fromTime, value: g.pivot}, {time: toTime, value: g.pivot}]);
+  if (Number.isFinite(g.entry) && g.entry !== g.pivot) {
+    ensureLine('entryLine', {color: '#26c6da', lineWidth: 1, lineStyle: 0, title: 'Entry'})
+      .setData([{time: fromTime, value: g.entry}, {time: toTime, value: g.entry}]);
+  } else if (vcp.entryLine) {
+    // Entry coincides with pivot — no separate line needed.
+    try { pane.chart.removeSeries(vcp.entryLine); } catch {}
+    vcp.entryLine = null;
+  }
+  if (Number.isFinite(g.stop)) {
+    ensureLine('stopLine',   {color: '#f85149', lineWidth: 1, lineStyle: 0, title: 'Stop'})
+      .setData([{time: fromTime, value: g.stop},   {time: toTime, value: g.stop}]);
+  }
+  if (Number.isFinite(g.target)) {
+    ensureLine('targetLine', {color: '#3fb950', lineWidth: 1, lineStyle: 0, title: 'Target'})
+      .setData([{time: fromTime, value: g.target}, {time: toTime, value: g.target}]);
+  }
+
+  // Markers: a cyan diamond at each contraction low so the "coil" is
+  // legible at a glance without labels crowding the chart.
+  const markers = g.contractions.map(cc => ({
+    time:     cc.low_time,
+    position: 'belowBar',
+    color:    cc.in_progress ? '#26c6da' : 'rgba(38,198,218,0.7)',
+    shape:    'circle',
+    size:     0.9,
+    text:     `${cc.depth_pct}%`,
+  }));
+  setPaneMarkers(pane, 'vcp', markers);
+
+  renderVcpInfo(pane, g);
+}
+
+function renderVcpInfo(pane, g) {
+  const vcp = ensureVcpState(pane);
+  if (!vcp.infoEl) {
+    vcp.infoEl = document.createElement('div');
+    vcp.infoEl.className = 'vcp-info';
+    if (vcp.collapsed) vcp.infoEl.classList.add('collapsed');
+    const summary = document.createElement('span');
+    summary.className = 'vcp-info-summary';
+    const body = document.createElement('div');
+    body.className = 'vcp-info-body';
+    const toggle = document.createElement('span');
+    toggle.className = 'vcp-info-toggle';
+    toggle.textContent = vcp.collapsed ? '▸' : '×';
+    toggle.title = vcp.collapsed ? 'Show VCP info' : 'Collapse';
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nowCollapsed = !vcp.infoEl.classList.contains('collapsed');
+      vcp.infoEl.classList.toggle('collapsed', nowCollapsed);
+      vcp.collapsed = nowCollapsed;
+      toggle.textContent = nowCollapsed ? '▸' : '×';
+      toggle.title      = nowCollapsed ? 'Show VCP info' : 'Collapse';
+      saveVcpCollapsed(nowCollapsed);
+    });
+    vcp.infoEl.appendChild(summary);
+    vcp.infoEl.appendChild(toggle);
+    vcp.infoEl.appendChild(body);
+    vcp.infoBody = body;
+    vcp.infoSummary = summary;
+    pane.el.querySelector('.chart-main').appendChild(vcp.infoEl);
+  }
+  if (!g) { vcp.infoEl.style.display = 'none'; return; }
+
+  // Verdict color mirrors the RB overlay so the two speak the same visual
+  // language: green BUY, orange WEAK, gold READY/WATCH, muted for anything
+  // that doesn't warrant action.
+  const verdictColor = ({
+    'BUY':      '#3fb950',
+    'WEAK BUY': '#f0883e',
+    'READY':    '#ffd60a',
+    'WATCH':    '#8b949e',
+  })[g.verdict] || '#8b949e';
+
+  // Compact chip leads with verdict + footprint (the Minervini WW notation
+  // "28/12/6" telling you at a glance whether the depths are shrinking).
+  vcp.infoSummary.innerHTML =
+    `<span style="color:${verdictColor}">VCP: ${g.verdict}</span> · ` +
+    `<span style="font-family:'Courier New',monospace">${g.footprint}</span>`;
+
+  const rr = Number.isFinite(g.risk_reward) ? `${g.risk_reward}×` : '—';
+  const volTag = g.vol_confirmed
+    ? '<i style="color:#3fb950">volume dried ✓</i>'
+    : g.vol_drying
+      ? '<i style="color:#ffd60a">volume drying</i>'
+      : '<i style="color:#d29922">volume not dry yet</i>';
+  const expandTag = g.vol_expansion
+    ? ' · <i style="color:#3fb950">expansion ✓</i>' : '';
+
+  let html =
+    `<b style="color:${verdictColor}">${g.verdict}</b>` +
+    ` · <span style="color:var(--text-muted)">R:R ${rr}</span>` +
+    `<div style="margin-top:3px;font-family:'Courier New',monospace;font-size:10px">` +
+      `<span style="color:#26c6da">Entry ₹${g.entry.toFixed(2)}</span> · ` +
+      `<span style="color:#f85149">Stop ₹${g.stop.toFixed(2)}</span> · ` +
+      `<span style="color:#3fb950">Target ₹${g.target.toFixed(2)}</span>` +
+    `</div>` +
+    `<hr style="border-color:#30363d;margin:4px 0;">` +
+    `Footprint: <b>${g.footprint}</b> · ${g.n_contractions} contractions` +
+    `<br>Pivot ₹${g.pivot.toFixed(2)} · Base low ₹${g.base_low.toFixed(2)}` +
+    `<br>Base: ${g.base_weeks}w · ${g.dist_to_pivot_pct}% from pivot` +
+    `<br>${volTag}${expandTag}`;
+
+  if (vcp.infoBody) vcp.infoBody.innerHTML = html;
+  else              vcp.infoEl.innerHTML   = html;
+  vcp.infoEl.style.display = 'block';
+}
+
+// ── Trendlines overlay (supply/demand) ────────────────────────────────────────
+// Backed by /api/trendlines (which calls scanner_templates.detect_trendline_break,
+// a port of the "Trend Lines by Kris" Pine indicator). Draws the two active
+// lines — falling supply (red) between the two most recent pivot highs, rising
+// demand (orange) between the two most recent pivot lows — each extended
+// forward to the last bar so the projected level is visible.
+function ensureTlState(pane) {
+  if (!pane.tl) {
+    pane.tl = {supplyLine: null, demandLine: null, lastFetchKey: null};
+  }
+  return pane.tl;
+}
+
+function clearTrendlines(pane) {
+  if (!pane.tl) return;
+  ['supplyLine', 'demandLine'].forEach(k => {
+    if (pane.tl[k]) {
+      try { pane.chart.removeSeries(pane.tl[k]); } catch {}
+      pane.tl[k] = null;
+    }
+  });
+  pane.tl.lastFetchKey = null;
+}
+
+async function renderTrendlines(pane) {
+  const tl = ensureTlState(pane);
+  if (!pane.bars || !pane.bars.length) return;
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  if (tl.lastFetchKey === key) return;
+  tl.lastFetchKey = key;
+
+  let g = null;
+  try {
+    const barCount = TF_BARS[pane.tf] || 300;
+    const url = `${SERVER}/api/trendlines?symbol=${encodeURIComponent(pane.symbol)}` +
+                `&timeframe=${pane.tf}&bars=${barCount}`;
+    const res = await fetch(url);
+    if (res.ok) g = (await res.json()).trendlines || null;
+  } catch (e) { console.warn('trendlines fetch failed:', e); }
+
+  if (!pane.indicators.has('trendlines')) return;
+  const stillCurrentKey = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  if (stillCurrentKey !== key) return;
+
+  if (!g) { clearTrendlines(pane); return; }
+
+  const draw = (seriesKey, side, color) => {
+    if (!side || side.t1 == null || side.t2 == null || side.t3 == null) {
+      if (tl[seriesKey]) { try { pane.chart.removeSeries(tl[seriesKey]); } catch {}; tl[seriesKey] = null; }
+      return;
+    }
+    if (!tl[seriesKey]) {
+      tl[seriesKey] = pane.chart.addLineSeries({
+        color, lineWidth: 2,
+        lineStyle: side.broken ? 2 /* dashed once broken */ : 0,
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        autoscaleInfoProvider: () => null,
+      });
+    } else {
+      // If broken-state flipped, refresh the line style.
+      tl[seriesKey].applyOptions({lineStyle: side.broken ? 2 : 0, color});
+    }
+    // Three points: two pivot anchors + projected end-of-data. Lightweight-
+    // charts requires strictly increasing time; anchors are already ordered.
+    tl[seriesKey].setData([
+      {time: side.t1, value: side.y1},
+      {time: side.t2, value: side.y2},
+      {time: side.t3, value: side.y3},
+    ]);
+  };
+
+  draw('supplyLine', g.supply, '#f23645');  // falling supply — red
+  draw('demandLine', g.demand, '#ff9800');  // rising demand — orange (matches screenshot)
+}
+
+// ── Harmonic pattern overlay (Gartley/Bat/Butterfly/Crab) ─────────────────────
+// Backed by /api/harmonic (harmonic_patterns.detect_last_pattern). Draws the
+// X-A-B-C-D zigzag as one line series, the X→D diagonal as a dashed line, five
+// pivot labels via setPaneMarkers, and price lines for entry/stop/T1/T2.
+const HARMONIC_COLORS = {
+  bullish: '#26c6da',
+  bearish: '#ff5252',
+};
+
+function ensureHmState(pane) {
+  if (!pane.hm) {
+    pane.hm = {zigzag: null, diagonal: null, priceLines: [], lastFetchKey: null};
+  }
+  return pane.hm;
+}
+
+function clearHarmonic(pane) {
+  if (!pane.hm) return;
+  ['zigzag', 'diagonal'].forEach(k => {
+    if (pane.hm[k]) {
+      try { pane.chart.removeSeries(pane.hm[k]); } catch {}
+      pane.hm[k] = null;
+    }
+  });
+  (pane.hm.priceLines || []).forEach(pl => {
+    try { pane.series.removePriceLine(pl); } catch {}
+  });
+  pane.hm.priceLines = [];
+  setPaneMarkers(pane, 'harmonic', null);
+  pane.hm.lastFetchKey = null;
+}
+
+async function renderHarmonic(pane) {
+  const hm = ensureHmState(pane);
+  if (!pane.bars || !pane.bars.length) return;
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  if (hm.lastFetchKey === key) return;
+  hm.lastFetchKey = key;
+
+  let g = null;
+  try {
+    const barCount = TF_BARS[pane.tf] || 300;
+    const url = `${SERVER}/api/harmonic?symbol=${encodeURIComponent(pane.symbol)}` +
+                `&timeframe=${pane.tf}&bars=${barCount}`;
+    const res = await fetch(url);
+    if (res.ok) g = (await res.json()).harmonic || null;
+  } catch (e) { console.warn('harmonic fetch failed:', e); }
+
+  if (!pane.indicators.has('harmonic')) return;
+  const stillCurrentKey = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  if (stillCurrentKey !== key) return;
+
+  // Tear down previous overlay first — otherwise stale price lines pile up on
+  // each re-render when the pattern (or its D-pivot) shifts.
+  ['zigzag', 'diagonal'].forEach(k => {
+    if (hm[k]) { try { pane.chart.removeSeries(hm[k]); } catch {}; hm[k] = null; }
+  });
+  (hm.priceLines || []).forEach(pl => {
+    try { pane.series.removePriceLine(pl); } catch {}
+  });
+  hm.priceLines = [];
+
+  if (!g || !g.points) { setPaneMarkers(pane, 'harmonic', null); return; }
+  const pts = ['X','A','B','C','D'].map(k => g.points[k]).filter(p => p && p.time != null);
+  if (pts.length !== 5) { setPaneMarkers(pane, 'harmonic', null); return; }
+
+  const color = HARMONIC_COLORS[g.direction] || '#ba68c8';
+
+  hm.zigzag = pane.chart.addLineSeries({
+    color, lineWidth: 2, lineStyle: 0,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+    autoscaleInfoProvider: () => null,
+  });
+  hm.zigzag.setData(pts.map(p => ({time: p.time, value: p.price})));
+
+  hm.diagonal = pane.chart.addLineSeries({
+    color, lineWidth: 1, lineStyle: 2,  // dashed X→D
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+    autoscaleInfoProvider: () => null,
+  });
+  hm.diagonal.setData([
+    {time: pts[0].time, value: pts[0].price},
+    {time: pts[4].time, value: pts[4].price},
+  ]);
+
+  // Pivot labels — X/A/B/C/D above highs, below lows, matching direction.
+  // Bullish LHLHL: X(L) A(H) B(L) C(H) D(L); bearish inverted.
+  const bull = g.direction === 'bullish';
+  const kinds = bull ? ['L','H','L','H','L'] : ['H','L','H','L','H'];
+  const labels = ['X','A','B','C','D'];
+  const markers = pts.map((p, i) => ({
+    time: p.time,
+    position: kinds[i] === 'H' ? 'aboveBar' : 'belowBar',
+    color,
+    shape: kinds[i] === 'H' ? 'arrowDown' : 'arrowUp',
+    text: labels[i],
+  }));
+  setPaneMarkers(pane, 'harmonic', markers);
+
+  // Entry / stop / targets — priced against the D pivot.
+  const t = g.trade || {};
+  const mk = (price, label, col, style) => {
+    if (price == null) return;
+    const pl = pane.series.createPriceLine({
+      price, color: col, lineWidth: 1, lineStyle: style,
+      axisLabelVisible: true, title: label,
+    });
+    hm.priceLines.push(pl);
+  };
+  mk(t.entry,       `H:${g.pattern} entry`, color,     0);
+  mk(t.stop,        'H:stop',               '#f23645', 2);
+  if (t.targets && t.targets.length) {
+    mk(t.targets[0], 'H:T1 (0.382 AD)',     '#26a69a', 2);
+    mk(t.targets[1], 'H:T2 (0.618 AD)',     '#26a69a', 2);
+  }
+}
+
+// ── Reversal Calendar overlay ─────────────────────────────────────────────────
+// Backed by /api/reversal_events (which reads tools/reversal_calendar.db).
+// One marker per event, with a short glyph that fits in the marker bubble.
+// When ≥2 events fall on the same calendar day (coincidence ≥ 2), the marker
+// goes brighter & bigger and the tooltip lists all of them — per the user's
+// spec that overlapping muhurtas trigger a sharper reversal.
+
+const REVERSAL_GLYPHS = {
+  indra:           'I',  ravi:        'R',  sarvarthasiddhi: 'SS',
+  amritsiddhi:     'AS', dwipushkar:  'DP', tripushkar:      'TP',
+  ravipushya:      'RP', gurupushya:  'GP', maitreya:        'M',
+  full_moon:       'F',  new_moon:    'N',
+};
+const REVERSAL_COLORS = {
+  // single-event marker — muted gold
+  single: '#bf8f00',
+  // coincidence ≥ 2 — bright gold (matches POC line)
+  coincident: '#ffd60a',
+};
+
+function ensureRevState(pane) {
+  if (!pane.rev) {
+    pane.rev = {
+      lastFetchKey: null,   // skip re-fetch when bar window hasn't moved much
+      eventsByDate: null,
+    };
+  }
+  return pane.rev;
+}
+
+function clearReversalCalendar(pane) {
+  if (!pane.rev) return;
+  setPaneMarkers(pane, 'reversal', null);
+  pane.rev.lastFetchKey = null;
+  pane.rev.eventsByDate = null;
+}
+
+function _isoDateUTC(unixSec) {
+  // The server stores event_date in IST. Bar timestamps from yfinance for
+  // Indian symbols are at IST midnight (00:00 IST = 18:30 UTC prev day),
+  // so use the UTC date of the bar to match against event_date. This is
+  // good enough for daily bars; intraday bars also match via the first bar
+  // of their date.
+  return new Date(unixSec * 1000).toISOString().slice(0, 10);
+}
+
+async function renderReversalCalendar(pane) {
+  const rev = ensureRevState(pane);
+  const bars = pane.bars;
+  if (!bars || bars.length < 2) return;
+
+  const first = bars[0].time, last = bars[bars.length - 1].time;
+  const from = _isoDateUTC(first);
+  const to   = _isoDateUTC(last + 86400); // +1 day for inclusivity
+  const key  = `${from}:${to}`;
+
+  if (rev.lastFetchKey !== key || !rev.eventsByDate) {
+    try {
+      const r = await fetch(`${SERVER}/api/reversal_events?from=${from}&to=${to}`);
+      if (!r.ok) throw new Error(r.status);
+      const data = await r.json();
+
+      // Group by event_date so coincidences become one marker with a combined
+      // label (matches reversal_calendar.coincidence_scores() server-side).
+      const grouped = {};
+      (data.events || []).forEach(ev => {
+        (grouped[ev.event_date] = grouped[ev.event_date] || []).push(ev);
+      });
+      rev.eventsByDate = grouped;
+      rev.lastFetchKey = key;
+    } catch (e) {
+      console.warn('reversal_events fetch failed:', e);
+      setPaneMarkers(pane, 'reversal', null);
+      return;
+    }
+  }
+
+  // Map each event date to the bar.time of the *first* bar on that date —
+  // markers are anchored to bar timestamps, not arbitrary times, so this
+  // ensures every marker actually sits on a candle.
+  const firstBarOfDate = {};
+  bars.forEach(b => {
+    const d = _isoDateUTC(b.time);
+    if (firstBarOfDate[d] === undefined) firstBarOfDate[d] = b.time;
+  });
+
+  const markers = [];
+  Object.entries(rev.eventsByDate).forEach(([d, evs]) => {
+    const t = firstBarOfDate[d];
+    if (t === undefined) return; // event not in the visible bar range
+    const coincident = evs.length >= 2;
+    const labels = evs.map(e => REVERSAL_GLYPHS[e.event_type] || e.event_type[0].toUpperCase());
+    const titles = evs.map(e => e.display_name).join(' + ');
+    markers.push({
+      time: t,
+      position: 'belowBar',
+      color: coincident ? REVERSAL_COLORS.coincident : REVERSAL_COLORS.single,
+      shape: coincident ? 'arrowUp' : 'circle',
+      size: coincident ? 1.4 : 0.8,
+      text: labels.join('+'),
+      // Lightweight Charts doesn't natively render marker tooltips, but the
+      // browser will pick up the underlying SVG <title> if we encode it in
+      // the text — keep the visible glyphs short and put the human-readable
+      // names in a separate per-pane info panel below.
+    });
+  });
+
+  setPaneMarkers(pane, 'reversal', markers);
+
+  // Update a small info panel listing today's + tomorrow's events so users
+  // see *what* the markers represent without hovering.
+  renderReversalInfo(pane, rev.eventsByDate);
+}
+
+function renderReversalInfo(pane, eventsByDate) {
+  let el = pane.el.querySelector('.rev-info');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'rev-info';
+    pane.el.querySelector('.chart-main').appendChild(el);
+  }
+  const today = new Date().toISOString().slice(0, 10);
+  const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);
+  const items = [];
+  [today, tomorrow].forEach(d => {
+    if (eventsByDate[d]) {
+      const labels = eventsByDate[d].map(e => e.display_name).join(' + ');
+      items.push(`<b>${d === today ? 'Today' : 'Tomorrow'}:</b> ${labels}`);
+    }
+  });
+  if (!items.length) { el.style.display = 'none'; return; }
+  el.innerHTML = '<b style="color:#ffd60a">★ Reversal Calendar</b><br>' + items.join('<br>');
+  el.style.display = 'block';
+}
+
+// ── RS vs Benchmark (async fetch) ─────────────────────────────────────────────
+async function fetchRsData(pane, bars) {
+  const sym = pane.symbol;
+  const ref = (sym.endsWith('.NS') || sym.endsWith('.BO')) ? '^NSEI' : 'BTC';
+  try {
+    const r = await fetch(`${SERVER}/api/ohlcv?symbol=${encodeURIComponent(ref)}&timeframe=${pane.tf}&bars=${TF_BARS[pane.tf] || 300}`);
+    if (!r.ok) throw new Error(r.status);
+    const d = await r.json();
+    const refBars = d.bars || [];
+    if (!refBars.length || !pane.subCharts.rs) return;
+    const refMap = new Map(refBars.map(b => [b.time, b.close]));
+    const pairs = bars
+      .filter(b => refMap.has(b.time))
+      .map(b => ({time: b.time, value: b.close / refMap.get(b.time)}));
+    if (!pairs.length) return;
+    const base = pairs[0].value;
+    const rsData = pairs.map(p => ({time: p.time, value: (p.value / base) * 100}));
+    if (pane.subCharts.rs && pane.subCharts.rs.series) {
+      pane.subCharts.rs.series.setData(rsData);
+      pane.subCharts.rs.label.textContent = `RS vs ${ref}`;
+    }
+  } catch(e) {
+    console.warn('RS fetch failed:', e);
+  }
+}
+
+// ── Data loader ───────────────────────────────────────────────────────────────
+async function loadData(idx) {
+  const p = panes[idx];
+  if (!p) return;
+
+  const loader = p.el.querySelector('.loading-msg');
+  if (loader) { loader.textContent = 'Loading…'; loader.style.display = 'flex'; }
+
+  let ok = false;
+  const reqSym = p.symbol;
+  const reqTf  = p.tf;
+  try {
+    const barCount = TF_BARS[p.tf] || 300;
+    const url = `${SERVER}/api/ohlcv?symbol=${encodeURIComponent(p.symbol)}&timeframe=${p.tf}&bars=${barCount}`;
+    const res  = await fetch(url);
+    if (!res.ok) throw new Error(res.status);
+    const data = await res.json();
+    const bars = data.bars || [];
+
+    // Race guard: if the pane switched symbols/tf while we were fetching,
+    // drop this response — otherwise a slow first-load (e.g. saved ADON.BO)
+    // can clobber a URL-param navigation to a different ticker.
+    if (p.symbol !== reqSym || p.tf !== reqTf) {
+      return;
+    }
+
+    if (bars.length) {
+      // Server resolves bare/typed tickers to their canonical fetch symbol
+      // (e.g. 'IFCI' -> 'IFCI.NS'). Sync the resolved value back into pane
+      // state so the WebSocket subscription key matches what the server
+      // broadcasts ticks under — without this, typing a bare NSE ticker
+      // would load candles but never get live updates.
+      if (data.symbol && data.symbol !== p.symbol) {
+        p.symbol = data.symbol;
+        p.badge.textContent = data.symbol;
+        const bare = data.symbol.replace(/\.(NS|BO|BSE)$/i, '');
+        const sfx = (data.symbol.match(/\.(NS|BO|BSE)$/i) || [''])[0].toUpperCase();
+        const wantExch = sfx === '.NS' ? 'NSE' : (sfx === '.BO' || sfx === '.BSE') ? 'BSE' : null;
+        fetchSymbolMatches(bare).then(results => {
+          const cEl = p.el.querySelector('.sym-company');
+          const eEl = p.el.querySelector('.sym-exch-badge');
+          let match = results.find(r => r.symbol.toUpperCase() === data.symbol.toUpperCase());
+          if (!match && wantExch) {
+            match = results.find(r => r.exchange === wantExch && r.display.toUpperCase() === bare.toUpperCase());
+          }
+          if (!match && !wantExch) {
+            match = results.find(r => r.display.toUpperCase() === bare.toUpperCase()) || results[0];
+          }
+          if (match && cEl) {
+            cEl.textContent = match.name;
+            cEl.title = match.name;
+            eEl.textContent = match.exchange;
+            eEl.className = `sym-exch-badge ${match.exchange}`;
+          } else if (wantExch && eEl) {
+            if (cEl) cEl.textContent = '';
+            eEl.textContent = wantExch;
+            eEl.className = `sym-exch-badge ${wantExch}`;
+          }
+        });
+        savePaneCfg();
+      }
+      p.series.setData(bars);
+      p.bars = bars;
+      applyRangeView(p);
+      // Sanity check: if the range didn't take (which happens when the pane
+      // container was 0×0 at chart construction and its logical extent hasn't
+      // been re-measured yet), fall back to fitContent — the ResizeObserver
+      // will re-apply the preset range once real dimensions land.
+      requestAnimationFrame(() => {
+        try {
+          const r = p.chart.timeScale().getVisibleRange();
+          if (!r || r.from == null || r.to == null || r.from === r.to) {
+            p.chart.timeScale().fitContent();
+          }
+        } catch {}
+      });
+      applyIndicators(p);
+      if (p.indicators.has('volprofile')) drawVolumeProfile(p);
+      if (p.indicators.has('fvg')) drawFVG(p);
+      const last = bars[bars.length - 1];
+      p.openPrice = bars[0].open;
+      p.prevClose = (typeof data.prev_close === 'number') ? data.prev_close : null;
+      p.dataSource = data.source || null;
+      updateTicker(idx, last.close, false);
+      ok = true;
+    } else if (loader) {
+      loader.textContent = `⚠ ${p.symbol} — no data`;
+      loader.style.display = 'flex';
+    }
+  } catch(e) {
+    console.warn(`load failed [${p.symbol}]:`, e);
+    if (loader) {
+      loader.textContent = `⚠ ${p.symbol} — load failed`;
+      // Force visible: previous successful loads hide the loader, and if
+      // this failure hits on a symbol switch the message would otherwise be
+      // written to a hidden element (silent blank chart).
+      loader.style.display = 'flex';
+    }
+  }
+
+  // Only hide the loader on a successful fetch — the failure paths above
+  // set their own visible error text and leave it shown, so the user sees
+  // *why* the chart is blank instead of looking at it forever.
+  if (loader && ok) loader.style.display = 'none';
+
+  if (wsReady) wsSubscribe(idx);
+}
+
+// ── Ticker update ─────────────────────────────────────────────────────────────
+function updateTicker(idx, price, flash = true) {
+  const p = panes[idx];
+  if (!p) return;
+
+  const prev = p.lastPrice;
+  const up   = prev === null || price >= prev;
+  p.lastPrice = price;
+
+  p.priceEl.textContent = fmtPrice(price);
+  p.priceEl.className   = `price-el ${up ? 'up' : 'down'}`;
+
+  // "Today's" change, Google-Finance-style: vs. previous daily close when
+  // the server was able to resolve one (prev_close on /api/ohlcv). Falls
+  // back to change-vs-first-loaded-bar only if prev_close is unavailable
+  // (e.g. a brand-new listing with <2 daily candles) — better to show a
+  // number with a caveat than nothing.
+  const basis = p.prevClose !== null ? p.prevClose : p.openPrice;
+  if (basis !== null && basis !== 0) {
+    const diff = price - basis;
+    const chgPct = (diff / basis) * 100;
+    const up2 = chgPct >= 0;
+    p.chgEl.innerHTML = `<span class="chg-arrow">${up2 ? '▲' : '▼'}</span>` +
+                        `<span>${fmtChg(chgPct)}</span>` +
+                        `<span>${fmtAbsChange(diff, p.symbol, p.dataSource)}</span>`;
+    p.chgEl.className = `chg-el ${up2 ? 'up' : 'down'}`;
+    p.chgEl.title = p.prevClose !== null
+      ? 'Change vs previous close'
+      : 'Change vs first loaded bar (previous close unavailable)';
+  }
+
+  if (flash && prev !== null) {
+    const cls = up ? 'flash-g' : 'flash-r';
+    p.priceEl.classList.remove('flash-g', 'flash-r');
+    void p.priceEl.offsetWidth;   // force reflow to restart animation
+    p.priceEl.classList.add(cls);
+  }
+}
+
+// ── WebSocket ─────────────────────────────────────────────────────────────────
+function setWsStatus(state) {
+  const el = document.getElementById('ws-indicator');
+  const map = {
+    live:  ['⬤ Live',        'ws-live'],
+    off:   ['⬤ Offline',     'ws-off'],
+    retry: ['⬤ Reconnecting','ws-retry'],
+  };
+  const [txt, cls] = map[state] || map.off;
+  el.textContent = txt;
+  el.className   = cls;
+}
+
+function connectWS() {
+  clearTimeout(retryTimer);
+  if (socket) { try { socket.close(); } catch {} }
+  setWsStatus('retry');
+
+  socket = new WebSocket(WS_URL);
+
+  socket.onopen = () => {
+    wsReady = true;
+    retryDelay = 2000;
+    setWsStatus('live');
+    panes.forEach((_, i) => wsSubscribe(i));
+  };
+
+  socket.onmessage = evt => {
+    try {
+      const msg = JSON.parse(evt.data);
+      if (msg.type === 'ping') return;
+      if (msg.type === 'candle') onCandleMsg(msg);
+    } catch {}
+  };
+
+  socket.onclose = () => {
+    wsReady = false;
+    setWsStatus('off');
+    retryTimer = setTimeout(() => {
+      retryDelay = Math.min(retryDelay * 1.5, 30000);
+      connectWS();
+    }, retryDelay);
+  };
+
+  socket.onerror = () => socket.close();
+}
+
+function wsSubscribe(idx) {
+  const p = panes[idx];
+  if (!p || !wsReady) return;
+  socket.send(JSON.stringify({action:'subscribe', symbol:p.symbol, timeframe:p.tf}));
+}
+
+function onCandleMsg(msg) {
+  panes.forEach((p, i) => {
+    if (p.symbol !== msg.symbol) return;
+    // Filter by timeframe too — otherwise a 1d tick lands on a 4h/1w pane and
+    // series.update() writes a phantom bar off the pane's time grid, showing
+    // up as a "mirrored duplicate" candle floating near current price.
+    if (msg.timeframe && msg.timeframe !== p.tf) return;
+    const bar = msg.bar;
+    p.series.update(bar);
+    updateTicker(i, bar.close, true);
+
+    if (p.bars && p.bars.length) {
+      const lastBar = p.bars[p.bars.length - 1];
+      if (lastBar.time === bar.time) p.bars[p.bars.length - 1] = bar;
+      else                           p.bars.push(bar);
+      if (p.indicators.size) applyIndicators(p);
+    }
+  });
+}
+
+// ── Bootstrap ─────────────────────────────────────────────────────────────────
+const cntSel = document.getElementById('cnt-sel');
+const saved  = loadCount();
+cntSel.value = String(saved);
+
+cntSel.addEventListener('change', () => {
+  const n = parseInt(cntSel.value);
+  saveCount(n);
+  buildGrid(n);
+  if (wsReady) panes.forEach((_, i) => wsSubscribe(i));
+});
+
+// ── Theme radio buttons ────────────────────────────────────────────────────────
+(function () {
+  // Restore saved theme before first grid build so charts use correct colors
+  if (currentTheme === 'light') document.documentElement.classList.add('light');
+  document.querySelectorAll('input[name="theme"]').forEach(r => {
+    if (r.value === currentTheme) r.checked = true;
+    r.addEventListener('change', () => applyTheme(r.value));
+  });
+})();
+
+// ── URL param: ?symbol=RELIANCE.NS&tf=1d  ─────────────────────────────────
+// Opening the chart from an external grid injects these params so pane 0
+// auto-loads the requested ticker without any manual typing. This MUST run
+// BEFORE buildGrid() — earlier versions applied the URL symbol after grid
+// build via a 50 ms setTimeout, which raced with the initial loadData(0)
+// call started by buildGrid on the LAST-SAVED symbol. When the URL symbol
+// changed between openings, the previous symbol's slower fetch would land
+// after the URL-triggered fetch and overwrite the correct chart.
+(function () {
+  const params = new URLSearchParams(window.location.search);
+  const rawSym = params.get('symbol') || params.get('s');
+  const tf     = params.get('tf') || params.get('timeframe');
+  const exch   = (params.get('exchange') || params.get('exch') || '').toUpperCase();
+  if (!rawSym) return;
+  let sym = rawSym.trim().toUpperCase();
+  const hasSuffix = /\.(NS|BO|BSE)$/i.test(sym);
+  if (!hasSuffix && exch === 'BSE') sym += '.BO';
+  else if (!hasSuffix && exch === 'NSE') sym += '.NS';
+  const display = sym.replace(/\.(NS|BO|BSE)$/i, '');
+  // Override pane 0 in the persisted pane config so buildGrid picks up
+  // the URL symbol on its first pass — no race, no double-fetch. Write
+  // localStorage directly since savePaneCfg() derives its dict from the
+  // live panes[] array (which doesn't exist yet at this point).
+  const cfg = loadPaneCfg();
+  cfg[0] = Object.assign({}, cfg[0] || {}, {symbol: sym});
+  if (tf) cfg[0].tf = tf;
+  localStorage.setItem(LS_PANES, JSON.stringify(cfg));
+  document.title = `${display} — Trading Bramha`;
+})();
+
+buildGrid(saved);
+connectWS();
+</script>
+</body>
+</html>
