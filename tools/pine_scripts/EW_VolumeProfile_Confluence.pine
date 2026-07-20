@@ -1,0 +1,568 @@
+// This source code is subject to the terms of the Mozilla Public License 2.0
+//@version=5
+// =============================================================================
+// Elliott Wave + Volume Profile Confluence
+//
+// Pine Script v5 port of the same exact algorithms used in Trading Bramha's
+// chart_dashboard.html (elliott_wave.js + volume_profile.js):
+//   - Volume Profile: proportional intrabar binning, POC, Value Area (single
+//     -bin greater-of-two-neighbors expansion), HVN/LVN pocket detection with
+//     peak/trough expansion + merge.
+//   - Elliott Wave: ATR-adaptive ZigZag pivots (non-repainting except the
+//     trailing pivot), greedy non-overlapping Impulse (1-5) detection with the
+//     3 hard Elliott rules + diagonal flag + Fibonacci confidence score,
+//     Corrective (A-B-C) detection, and Fibonacci projections for W3/W5/C.
+//   - Confluence: flags any wave point / fib target that lines up with the
+//     POC, a Value Area edge, or an HVN/LVN pocket.
+//
+// See VOLUME_PROFILE_MODULE.md and ELLIOTT_WAVE_MODULE.md in the repo for the
+// full written explanation of every formula below — this script mirrors that
+// document section-by-section so the two implementations stay in sync.
+//
+// Heavy work (the whole pipeline) runs only on barstate.islast, the standard
+// pattern for profile/structure indicators in Pine — it avoids recomputing
+// and redrawing hundreds of objects on every historical bar.
+// =============================================================================
+indicator("EW + Volume Profile Confluence", overlay = true, max_boxes_count = 500,
+          max_lines_count = 500, max_labels_count = 500)
+
+// ── Inputs ────────────────────────────────────────────────────────────────────
+g_vp = "Volume Profile"
+i_lookback     = input.int(300, "Lookback bars", minval = 50, maxval = 5000, group = g_vp)
+i_bins         = input.int(30, "Price bins", minval = 10, maxval = 100, group = g_vp)
+i_vaPct        = input.float(0.70, "Value Area %", minval = 0.5, maxval = 0.95, step = 0.01, group = g_vp)
+i_hvnMult      = input.float(1.5, "HVN seed threshold (x mean bin volume)", group = g_vp)
+i_lvnMult      = input.float(0.5, "LVN seed threshold (x mean bin volume)", group = g_vp)
+i_hvnExpandTol = input.float(0.85, "HVN expand tolerance", group = g_vp)
+i_lvnExpandTol = input.float(1.30, "LVN expand tolerance", group = g_vp)
+i_showVP       = input.bool(true, "Show Volume Profile", group = g_vp)
+
+g_ew = "Elliott Wave"
+i_atrLen   = input.int(14, "ATR period", group = g_ew)
+i_atrMult  = input.float(1.2, "ZigZag threshold (x ATR)", group = g_ew)
+i_minPct   = input.float(0.5, "ZigZag minimum threshold (% of price)", group = g_ew)
+i_minScore = input.int(25, "Minimum confidence score to display", minval = 0, maxval = 100, group = g_ew)
+i_maxShown = input.int(2, "Max impulses shown", minval = 1, maxval = 5, group = g_ew)
+i_showEW   = input.bool(true, "Show Elliott Wave", group = g_ew)
+
+g_cf = "Confluence"
+i_confTolPctRaw = input.float(0.4, "Confluence tolerance (%)", minval = 0.05, maxval = 3.0, group = g_cf)
+
+// ATR must be a plain unconditional series (built up every bar) so that
+// historical offsets atrSeries[k] are valid inside the islast-gated loops.
+atrSeries = ta.atr(i_atrLen)
+confTolPct = i_confTolPctRaw / 100.0
+
+// ── Persistent state shared between the Volume Profile and Elliott Wave
+//    sections (both run inside their own `barstate.islast` block on the same
+//    bar, so plain top-level `var` is enough to pass data between them) ─────
+var box[]   vpBoxes  = array.new_box()
+var line[]  vpLines  = array.new_line()
+var label[] vpLabels = array.new_label()
+var line[]  ewLines  = array.new_line()
+var label[] ewLabels = array.new_label()
+var line[]  fibLines  = array.new_line()
+var label[] fibLabels = array.new_label()
+
+var float   vpPocPrice = na
+var float   vpVAH = na
+var float   vpVAL = na
+var float[] hvnLow  = array.new_float()
+var float[] hvnHigh = array.new_float()
+var float[] lvnLow  = array.new_float()
+var float[] lvnHigh = array.new_float()
+
+// =============================================================================
+// Helper functions — all declared at top level (Pine v5 forbids defining
+// functions inside if/for/while blocks).
+// =============================================================================
+
+// NOTE: every loop below over array.size(x)-1 is written as an explicit
+// `while i < size` rather than `for i = 0 to size-1`. Pine's `for` infers a
+// *descending* direction whenever the upper bound is less than the lower
+// bound (e.g. size=0 makes the bound -1), which would wrongly execute on an
+// empty array instead of zero times. `while` has no such ambiguity.
+
+f_deleteBoxes(box[] arr) =>
+    i = 0
+    while i < array.size(arr)
+        box.delete(array.get(arr, i))
+        i += 1
+    array.clear(arr)
+
+f_deleteLines(line[] arr) =>
+    i = 0
+    while i < array.size(arr)
+        line.delete(array.get(arr, i))
+        i += 1
+    array.clear(arr)
+
+f_deleteLabels(label[] arr) =>
+    i = 0
+    while i < array.size(arr)
+        label.delete(array.get(arr, i))
+        i += 1
+    array.clear(arr)
+
+// Section 1 — Volume Profile ---------------------------------------------------
+
+// Proportional intrabar volume binning: each of the last `n+1` bars splits its
+// volume across every bin its [low,high] range overlaps, weighted by the
+// fraction of the bar's range inside that bin.
+f_buildHistogram(int n, float lo, float hi, int bins) =>
+    binSize = (hi - lo) / bins
+    float[] histBins = array.new_float(bins, 0.0)
+    for k = n to 0
+        bH = high[k]
+        bL = low[k]
+        bV = volume[k]
+        rng = bH - bL
+        if bV > 0
+            if rng <= 0
+                idx = int(math.max(0, math.min(bins - 1, math.floor((close[k] - lo) / binSize))))
+                array.set(histBins, idx, array.get(histBins, idx) + bV)
+            else
+                i0 = int(math.max(0, math.min(bins - 1, math.floor((bL - lo) / binSize))))
+                i1 = int(math.max(0, math.min(bins - 1, math.floor((bH - lo) / binSize))))
+                for i = i0 to i1
+                    binLow = lo + i * binSize
+                    binHigh = lo + (i + 1) * binSize
+                    overlap = math.max(0.0, math.min(bH, binHigh) - math.max(bL, binLow))
+                    if overlap > 0
+                        array.set(histBins, i, array.get(histBins, i) + bV * (overlap / rng))
+    histBins
+
+// Merge overlapping/adjacent index ranges (selection sort by lowIdx — the
+// number of seeds is always small, so O(n^2) is irrelevant here), converting
+// the surviving merged ranges into price boundaries pushed onto outLow/outHigh.
+f_mergeRanges(int[] loArr, int[] hiArr, float[] outLow, float[] outHigh, float lo, float binSize) =>
+    n = array.size(loArr)
+    a = 0
+    while a < n - 1
+        minIdx = a
+        b = a + 1
+        while b < n
+            if array.get(loArr, b) < array.get(loArr, minIdx)
+                minIdx := b
+            b += 1
+        if minIdx != a
+            tmpLo = array.get(loArr, a)
+            array.set(loArr, a, array.get(loArr, minIdx))
+            array.set(loArr, minIdx, tmpLo)
+            tmpHi = array.get(hiArr, a)
+            array.set(hiArr, a, array.get(hiArr, minIdx))
+            array.set(hiArr, minIdx, tmpHi)
+        a += 1
+    curLo = -1
+    curHi = -1
+    i = 0
+    while i < n
+        a2 = array.get(loArr, i)
+        b2 = array.get(hiArr, i)
+        if curLo < 0
+            curLo := a2
+            curHi := b2
+        else if a2 <= curHi + 1
+            curHi := math.max(curHi, b2)
+        else
+            array.push(outLow, lo + curLo * binSize)
+            array.push(outHigh, lo + (curHi + 1) * binSize)
+            curLo := a2
+            curHi := b2
+        i += 1
+    if curLo >= 0
+        array.push(outLow, lo + curLo * binSize)
+        array.push(outHigh, lo + (curHi + 1) * binSize)
+
+// Section 2 — Elliott Wave confluence + drawing helpers -----------------------
+
+// Does `price` line up with the POC / Value Area edges / any HVN or LVN
+// pocket computed in Section 1? Returns a space-joined tag string, "" if none.
+f_checkConfluence(float price) =>
+    string result = ""
+    tol = price * confTolPct
+    if not na(vpPocPrice)
+        if math.abs(price - vpPocPrice) <= tol
+            result := result + "POC "
+        if math.abs(price - vpVAH) <= tol
+            result := result + "VAH "
+        if math.abs(price - vpVAL) <= tol
+            result := result + "VAL "
+        hi3 = 0
+        while hi3 < array.size(hvnLow)
+            if price >= array.get(hvnLow, hi3) - tol and price <= array.get(hvnHigh, hi3) + tol
+                result := result + "HVN "
+            hi3 += 1
+        li3 = 0
+        while li3 < array.size(lvnLow)
+            if price >= array.get(lvnLow, li3) - tol and price <= array.get(lvnHigh, li3) + tol
+                result := result + "LVN "
+            li3 += 1
+    result
+
+f_drawWavePoint(int barIdx, float price, string text, bool isHigh, string confTag) =>
+    confluent = str.length(confTag) > 0
+    displayText = confluent ? text + " *" + confTag : text
+    colr = confluent ? color.new(color.yellow, 0) : color.new(color.aqua, 0)
+    lbl = label.new(barIdx, price, displayText,
+                    style = isHigh ? label.style_label_down : label.style_label_up,
+                    color = colr, textcolor = color.black,
+                    size = confluent ? size.normal : size.small)
+    array.push(ewLabels, lbl)
+
+// `lineStyle` is intentionally left untyped: line.style_dashed/dotted are not
+// plain ints in Pine's type system, so let the compiler infer the type from
+// the call site rather than risking a type-mismatch with an explicit `int`.
+f_drawFibLevel(int fromBar, int toBar, float price, string label_, color baseColor, lineStyle) =>
+    confTag = f_checkConfluence(price)
+    confluent = str.length(confTag) > 0
+    fl = line.new(fromBar, price, toBar, price,
+                  color = confluent ? color.new(baseColor, 0) : color.new(baseColor, 55),
+                  width = confluent ? 2 : 1, style = lineStyle)
+    array.push(fibLines, fl)
+    text = confluent ? label_ + " *VP " + confTag : label_
+    fLbl = label.new(toBar, price, text,
+                     style = label.style_label_left, color = color.new(baseColor, 80),
+                     textcolor = baseColor, size = size.tiny)
+    array.push(fibLabels, fLbl)
+
+// =============================================================================
+// SECTION 1 RUN — Volume Profile (heavy work, last bar only)
+// =============================================================================
+if barstate.islast and i_showVP
+    n = math.min(i_lookback, bar_index)
+    lo = low[0]
+    hi = high[0]
+    for k = 0 to n
+        lo := math.min(lo, low[k])
+        hi := math.max(hi, high[k])
+
+    if hi > lo
+        binSize = (hi - lo) / i_bins
+        bins = f_buildHistogram(n, lo, hi, i_bins)
+
+        pocIdx = 0
+        for i = 1 to i_bins - 1
+            if array.get(bins, i) > array.get(bins, pocIdx)
+                pocIdx := i
+        pocLow = lo + pocIdx * binSize
+        pocHigh = lo + (pocIdx + 1) * binSize
+        vpPocPrice := (pocLow + pocHigh) / 2.0
+
+        total = 0.0
+        for i = 0 to i_bins - 1
+            total += array.get(bins, i)
+        target = total * i_vaPct
+        vaLowIdx = pocIdx
+        vaHighIdx = pocIdx
+        cum = array.get(bins, pocIdx)
+        while cum < target and (vaLowIdx > 0 or vaHighIdx < i_bins - 1)
+            canGoBelow = vaLowIdx > 0
+            canGoAbove = vaHighIdx < i_bins - 1
+            volBelow = canGoBelow ? array.get(bins, vaLowIdx - 1) : 0.0
+            volAbove = canGoAbove ? array.get(bins, vaHighIdx + 1) : 0.0
+            // Prefer the larger neighbor; if only one side still has room,
+            // that side wins regardless of volume (avoids out-of-bounds access
+            // and the unreliable na/division-by-zero "infinity" trick).
+            goBelow = canGoBelow and (not canGoAbove or volBelow >= volAbove)
+            if goBelow
+                vaLowIdx -= 1
+                cum += array.get(bins, vaLowIdx)
+            else
+                vaHighIdx += 1
+                cum += array.get(bins, vaHighIdx)
+        vpVAH := lo + (vaHighIdx + 1) * binSize
+        vpVAL := lo + vaLowIdx * binSize
+
+        meanVol = total / i_bins
+        thHvn = meanVol * i_hvnMult
+        thLvn = meanVol * i_lvnMult
+
+        int[] hLoIdx = array.new_int()
+        int[] hHiIdx = array.new_int()
+        int[] lLoIdx = array.new_int()
+        int[] lHiIdx = array.new_int()
+
+        for i = 0 to i_bins - 1
+            v = array.get(bins, i)
+            // At the profile's outer edges there is no neighbor on that side —
+            // treat the missing side as "not disqualifying" rather than using
+            // an unreliable division-by-zero infinity sentinel.
+            leftOk = i == 0 ? true : v >= array.get(bins, i - 1)
+            rightOk = i == i_bins - 1 ? true : v >= array.get(bins, i + 1)
+            if v >= thHvn and leftOk and rightOk
+                lo2 = i
+                hi2 = i
+                while lo2 > 0 and array.get(bins, lo2 - 1) >= v * i_hvnExpandTol
+                    lo2 -= 1
+                while hi2 < i_bins - 1 and array.get(bins, hi2 + 1) >= v * i_hvnExpandTol
+                    hi2 += 1
+                array.push(hLoIdx, lo2)
+                array.push(hHiIdx, hi2)
+
+        for i = 0 to i_bins - 1
+            v = array.get(bins, i)
+            leftOk = i == 0 ? true : v <= array.get(bins, i - 1)
+            rightOk = i == i_bins - 1 ? true : v <= array.get(bins, i + 1)
+            if v <= thLvn and leftOk and rightOk
+                lo2 = i
+                hi2 = i
+                while lo2 > 0 and array.get(bins, lo2 - 1) <= thLvn * i_lvnExpandTol
+                    lo2 -= 1
+                while hi2 < i_bins - 1 and array.get(bins, hi2 + 1) <= thLvn * i_lvnExpandTol
+                    hi2 += 1
+                array.push(lLoIdx, lo2)
+                array.push(lHiIdx, hi2)
+
+        array.clear(hvnLow)
+        array.clear(hvnHigh)
+        array.clear(lvnLow)
+        array.clear(lvnHigh)
+        f_mergeRanges(hLoIdx, hHiIdx, hvnLow, hvnHigh, lo, binSize)
+        f_mergeRanges(lLoIdx, lHiIdx, lvnLow, lvnHigh, lo, binSize)
+
+        // ── Draw everything ──
+        f_deleteBoxes(vpBoxes)
+        f_deleteLines(vpLines)
+        f_deleteLabels(vpLabels)
+
+        leftBar = bar_index - n
+        rightBar = bar_index
+        maxVol = array.get(bins, pocIdx)
+
+        for i = 0 to i_bins - 1
+            v = array.get(bins, i)
+            if v > 0
+                binLow = lo + i * binSize
+                binHigh = lo + (i + 1) * binSize
+                colr = i == pocIdx ? color.new(color.yellow, 35) : color.new(color.gray, 70)
+                w = int(math.round((v / maxVol) * 40))
+                b = box.new(rightBar - w, binHigh, rightBar, binLow, border_width = 0, bgcolor = colr)
+                array.push(vpBoxes, b)
+
+        hi4 = 0
+        while hi4 < array.size(hvnLow)
+            b = box.new(leftBar, array.get(hvnHigh, hi4), rightBar, array.get(hvnLow, hi4),
+                        border_width = 1, border_color = color.new(color.green, 60),
+                        bgcolor = color.new(color.green, 88))
+            array.push(vpBoxes, b)
+            hi4 += 1
+        li4 = 0
+        while li4 < array.size(lvnLow)
+            b = box.new(leftBar, array.get(lvnHigh, li4), rightBar, array.get(lvnLow, li4),
+                        border_width = 1, border_color = color.new(color.red, 60),
+                        bgcolor = color.new(color.red, 90))
+            array.push(vpBoxes, b)
+            li4 += 1
+
+        vaBox = box.new(leftBar, vpVAH, rightBar, vpVAL, border_width = 0, bgcolor = color.new(color.yellow, 94))
+        array.push(vpBoxes, vaBox)
+
+        pocLine = line.new(leftBar, vpPocPrice, rightBar, vpPocPrice, color = color.yellow, width = 2)
+        array.push(vpLines, pocLine)
+        pocLbl = label.new(rightBar, vpPocPrice, "POC " + str.tostring(vpPocPrice, format.mintick),
+                           style = label.style_label_left, color = color.new(color.yellow, 0),
+                           textcolor = color.black, size = size.small)
+        array.push(vpLabels, pocLbl)
+
+        vahLine = line.new(leftBar, vpVAH, rightBar, vpVAH, color = color.new(color.yellow, 40), width = 1, style = line.style_dashed)
+        valLine = line.new(leftBar, vpVAL, rightBar, vpVAL, color = color.new(color.yellow, 40), width = 1, style = line.style_dashed)
+        array.push(vpLines, vahLine)
+        array.push(vpLines, valLine)
+
+        vahLbl = label.new(leftBar, vpVAH, "VAH " + str.tostring(vpVAH, format.mintick),
+                           style = label.style_label_right, color = color.new(color.yellow, 70),
+                           textcolor = color.yellow, size = size.tiny)
+        valLbl = label.new(leftBar, vpVAL, "VAL " + str.tostring(vpVAL, format.mintick),
+                           style = label.style_label_right, color = color.new(color.yellow, 70),
+                           textcolor = color.yellow, size = size.tiny)
+        array.push(vpLabels, vahLbl)
+        array.push(vpLabels, valLbl)
+
+// =============================================================================
+// SECTION 2 RUN — Elliott Wave (heavy work, last bar only)
+// =============================================================================
+if barstate.islast and i_showEW
+    n = math.min(i_lookback, bar_index - i_atrLen - 5)
+
+    if n > 30
+        // ── ZigZag pivots (ATR-adaptive, non-repainting except the last) ──
+        float[] pivPrice = array.new_float()
+        int[]   pivBar   = array.new_int()
+        int[]   pivType  = array.new_int()   // 1 = high, -1 = low
+
+        hi2 = high[n]
+        lo2 = low[n]
+        hiIdx = n
+        loIdx = n
+        dir = 0
+        seedIdx = -1
+        for k = n - 1 to 0
+            if high[k] > hi2
+                hi2 := high[k]
+                hiIdx := k
+            if low[k] < lo2
+                lo2 := low[k]
+                loIdx := k
+            thr = math.max(close[k] * i_minPct / 100.0, atrSeries[k] * i_atrMult)
+            if hiIdx > loIdx and (hi2 - low[k]) >= thr
+                dir := -1
+                seedIdx := hiIdx
+                break
+            if loIdx > hiIdx and (high[k] - lo2) >= thr
+                dir := 1
+                seedIdx := loIdx
+                break
+
+        if dir != 0
+            array.push(pivBar, seedIdx)
+            array.push(pivPrice, dir == 1 ? low[seedIdx] : high[seedIdx])
+            array.push(pivType, dir == 1 ? -1 : 1)
+
+            extIdx = seedIdx
+            extPrice = dir == 1 ? high[seedIdx] : low[seedIdx]
+            extDir = dir
+            // Explicit `while k >= 0` (not `for k = seedIdx-1 to 0`) — if
+            // seedIdx is 0, seedIdx-1 is -1, and Pine's `for` would infer an
+            // *ascending* 1-element range [-1, 0] and evaluate close[-1]
+            // (an invalid "future" history reference). The while-loop simply
+            // never executes when seedIdx is already 0.
+            k = seedIdx - 1
+            while k >= 0
+                thr = math.max(close[k] * i_minPct / 100.0, atrSeries[k] * i_atrMult)
+                if extDir == 1
+                    if high[k] > extPrice
+                        extPrice := high[k]
+                        extIdx := k
+                    if (extPrice - low[k]) >= thr
+                        array.push(pivBar, extIdx)
+                        array.push(pivPrice, extPrice)
+                        array.push(pivType, 1)
+                        extDir := -1
+                        extIdx := k
+                        extPrice := low[k]
+                else
+                    if low[k] < extPrice
+                        extPrice := low[k]
+                        extIdx := k
+                    if (high[k] - extPrice) >= thr
+                        array.push(pivBar, extIdx)
+                        array.push(pivPrice, extPrice)
+                        array.push(pivType, -1)
+                        extDir := 1
+                        extIdx := k
+                        extPrice := high[k]
+                k -= 1
+            array.push(pivBar, extIdx)
+            array.push(pivPrice, extPrice)
+            array.push(pivType, extDir == 1 ? 1 : -1)
+
+        // ── Clear previous draw, then detect + render impulses/correctives ──
+        f_deleteLines(ewLines)
+        f_deleteLabels(ewLabels)
+        f_deleteLines(fibLines)
+        f_deleteLabels(fibLabels)
+
+        npiv = array.size(pivBar)
+        shownCount = 0
+        s = 0
+        lastBar2 = bar_index
+
+        while s <= npiv - 6 and shownCount < i_maxShown
+            t0 = array.get(pivType, s)
+            bullish = t0 == -1
+            p0 = array.get(pivPrice, s)
+            p1 = array.get(pivPrice, s + 1)
+            p2 = array.get(pivPrice, s + 2)
+            p3 = array.get(pivPrice, s + 3)
+            p4 = array.get(pivPrice, s + 4)
+            p5 = array.get(pivPrice, s + 5)
+            sign = bullish ? 1.0 : -1.0
+            w1 = (p1 - p0) * sign
+            w2 = (p1 - p2) * sign
+            w3 = (p3 - p2) * sign
+            w4 = (p3 - p4) * sign
+            w5 = (p5 - p4) * sign
+
+            validLegs = w1 > 0 and w2 > 0 and w3 > 0 and w4 > 0 and w5 > 0
+            rule1 = bullish ? p2 > p0 : p2 < p0
+            rule2 = bullish ? p3 > p1 : p3 < p1
+            rule3 = not (w3 < w1 and w3 < w5)
+
+            if validLegs and rule1 and rule2 and rule3
+                diagonal = bullish ? p4 < p1 : p4 > p1
+                w2r = w2 / w1
+                w3r = w3 / w1
+                w4r = w4 / w3
+                w5r = w5 / w1
+                score2 = 100.0 - math.min(100.0, math.abs(w2r - 0.618) / 0.618 * 100.0)
+                score3 = 100.0 - math.min(100.0, math.abs(w3r - 1.618) / 1.618 * 100.0)
+                score4 = 100.0 - math.min(100.0, math.abs(w4r - 0.382) / 0.382 * 100.0)
+                score5 = 100.0 - math.min(100.0, math.abs(w5r - 1.0) / 1.0 * 100.0)
+                score = int((score2 + score3 + score4 + score5) / 4.0)
+
+                if score >= i_minScore
+                    shownCount += 1
+                    b0 = array.get(pivBar, s)
+                    b1 = array.get(pivBar, s + 1)
+                    b2_ = array.get(pivBar, s + 2)
+                    b3 = array.get(pivBar, s + 3)
+                    b4 = array.get(pivBar, s + 4)
+                    b5 = array.get(pivBar, s + 5)
+                    waveColor = diagonal ? color.orange : color.aqua
+
+                    l1 = line.new(b0, p0, b1, p1, color = waveColor, width = 2)
+                    l2 = line.new(b1, p1, b2_, p2, color = waveColor, width = 2)
+                    l3 = line.new(b2_, p2, b3, p3, color = waveColor, width = 2)
+                    l4 = line.new(b3, p3, b4, p4, color = waveColor, width = 2)
+                    l5 = line.new(b4, p4, b5, p5, color = waveColor, width = 2)
+                    array.push(ewLines, l1)
+                    array.push(ewLines, l2)
+                    array.push(ewLines, l3)
+                    array.push(ewLines, l4)
+                    array.push(ewLines, l5)
+
+                    f_drawWavePoint(b0, p0, "0", not bullish, f_checkConfluence(p0))
+                    f_drawWavePoint(b1, p1, "1", bullish, f_checkConfluence(p1))
+                    f_drawWavePoint(b2_, p2, "2", not bullish, f_checkConfluence(p2))
+                    f_drawWavePoint(b3, p3, "3", bullish, f_checkConfluence(p3))
+                    f_drawWavePoint(b4, p4, "4", not bullish, f_checkConfluence(p4))
+                    f_drawWavePoint(b5, p5, "5", bullish, f_checkConfluence(p5))
+
+                    // ── Fibonacci projections: Wave 3 (from p2), Wave 5 (from p4) ──
+                    w1len = math.abs(p1 - p0)
+                    f_drawFibLevel(b2_, lastBar2, p2 + sign * w1len * 1.0,   "W3 1.0x",   color.yellow, line.style_dashed)
+                    f_drawFibLevel(b2_, lastBar2, p2 + sign * w1len * 1.618, "W3 1.618x", color.yellow, line.style_dashed)
+                    f_drawFibLevel(b2_, lastBar2, p2 + sign * w1len * 2.618, "W3 2.618x", color.yellow, line.style_dashed)
+                    f_drawFibLevel(b4, lastBar2, p4 + sign * w1len * 0.618, "W5 0.618x", color.yellow, line.style_dashed)
+                    f_drawFibLevel(b4, lastBar2, p4 + sign * w1len * 1.0,   "W5 1.0x",   color.yellow, line.style_dashed)
+                    f_drawFibLevel(b4, lastBar2, p4 + sign * w1len * 1.618, "W5 1.618x", color.yellow, line.style_dashed)
+
+                    // ── Corrective A-B-C, if pivots exist beyond wave 5 ──
+                    avail = npiv - (s + 5) - 1
+                    if avail >= 1
+                        legs = math.min(avail, 3)
+                        abcLabels = array.from("A", "B", "C")
+                        prevBarIdx = b5
+                        prevPrice = p5
+                        for i = 0 to legs - 1
+                            curBar = array.get(pivBar, s + 5 + i + 1)
+                            curPrice = array.get(pivPrice, s + 5 + i + 1)
+                            ln = line.new(prevBarIdx, prevPrice, curBar, curPrice, color = color.new(color.orange, 0), width = 2, style = line.style_dashed)
+                            array.push(ewLines, ln)
+                            curIsHigh = array.get(pivType, s + 5 + i + 1) == 1
+                            f_drawWavePoint(curBar, curPrice, array.get(abcLabels, i), curIsHigh, f_checkConfluence(curPrice))
+                            prevBarIdx := curBar
+                            prevPrice := curPrice
+
+                        if legs >= 2
+                            pA = array.get(pivPrice, s + 6)
+                            pB = array.get(pivPrice, s + 7)
+                            bB = array.get(pivBar, s + 7)
+                            lenA = math.abs(pA - p5)
+                            dirA = pA >= p5 ? 1.0 : -1.0
+                            f_drawFibLevel(bB, lastBar2, pB + dirA * lenA * 0.618, "C 0.618x", color.orange, line.style_dotted)
+                            f_drawFibLevel(bB, lastBar2, pB + dirA * lenA * 1.0,   "C 1.0x",   color.orange, line.style_dotted)
+                            f_drawFibLevel(bB, lastBar2, pB + dirA * lenA * 1.618, "C 1.618x", color.orange, line.style_dotted)
+
+            s += 5
