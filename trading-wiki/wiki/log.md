@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-07-20] build | M2 pattern base-zone shading (chart overlays) + scope correction
+- **Finding:** the four M2 pattern overlays (VCP / Rounding Bottom / Harmonic / Trendlines) were **already built** in [chart_dashboard.html](tools/chart_dashboard.html) — richer than the 2026-07-08 roadmap spec (trade plans + info panels, not just boxes). Added post-roadmap, committed today in Phase 0. So M2 was ~85% done, not greenfield.
+- **Did NOT** rebuild the literal "filled box + click-tooltip" model — it would duplicate the existing collapsible info panels and risk regressing a working feature.
+- **Built the one missing visual:** a semi-transparent **shaded base-zone box** on a new `patternCanvas` layer — VCP (base_start→base_end × base_low→pivot, cyan) + Rounding Bottom (base window × trough→rim, gold). Mirrors the FVG box style; redrawn on pan/zoom/resize; cleared on teardown; included in chart-image export.
+- **Verified live** (TITAN, VCP WATCH 4/8/5/3): painted box pixels matched `timeToCoordinate`/`priceToCoordinate` of the base window to ±1px, correct colour, 19,141px; toggle-off cleared canvas to 0px. RB uses the identical verified `box()` path (no live RB pattern to demo). Full write-up: [[analyses/Dashboard-UI-Roadmap]] Outcome.
+- Next spine milestone: **M3** (AI projection line), gated behind ratings/patterns per the overtrust guardrails.
+
 ## [2026-07-20] build | Phase 0 consolidation + M1 Overall Rating rollup (Scanner Hub)
 - **Phase 0 (git de-risk):** consolidated ~35 untracked files + 4 modified into 9 logical commits on `master`. Extended `.gitignore` to exclude `node_modules/`, the **1.9 GB** vendored `tools/indian-trading-agent-main/`, `.playwright-mcp/`, `secrets.toml`. Verified: all `tools/*.py` byte-compile (Py 3.14.4); every local module `dashboard_app.py` imports now resolves to a committed file (closed the "fresh checkout won't launch" risk). Committed to trunk (solo repo), nothing pushed.
 - **M1 (SHIPPED & verified):** added `_overall_rating()` to [dashboard_app.py](tools/dashboard_app.py) — one cross-system /100 score fusing Minervini/8 + TechnoFunda/6 + CANSLIM/computable + EW-confidence/100 (default weights 0.35/0.25/0.20/0.20, tunable + auto-normalised in a new Scanner Hub "Overall Rating weights" expander). Each hit card shows a colour-coded **Overall NN/100** badge with an M/TF/C/EW tooltip; results sort by it, with a **Min Overall Rating** floor slider. Computed once at scan time from the scanner's cached OHLCV.
