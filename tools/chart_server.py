@@ -30,6 +30,7 @@ import symbol_directory as sym_dir
 import reversal_calendar as rev_cal
 import scanner_templates as sc
 import harmonic_patterns as hp
+import projection as proj
 
 logging.basicConfig(
     level=logging.INFO,
@@ -568,6 +569,35 @@ def api_harmonic():
         "trade": m["trade"],
     }
     return jsonify({"symbol": symbol, "harmonic": harmonic})
+
+
+@app.route("/api/projection")
+def api_projection():
+    """Forward price-projection line (Milestone 3). Composes deterministic,
+    inspectable projected-price candidates (Elliott Wave Fib targets + VCP /
+    Rounding Bottom / Harmonic measured-moves) into a single primary projection
+    with a confidence band + confluence count. Returns {"projection": null}
+    when nothing clears the Medium confidence floor — the anti-overtrust
+    guardrail: show nothing rather than a weak number. See projection.py +
+    concepts wiki/analyses/Dashboard-UI-Roadmap.md M3."""
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < 30:
+        return jsonify({"symbol": symbol, "projection": None})
+
+    p = proj.compute_projection(df, timeframe)
+    # Anchor the projection line to the last bar's time so the client can draw a
+    # forward slope without needing future timestamps on the axis.
+    if p is not None:
+        p["anchor_time"] = int(bars[-1]["time"])
+    return jsonify({"symbol": symbol, "projection": p})
 
 
 @app.route("/api/tick")

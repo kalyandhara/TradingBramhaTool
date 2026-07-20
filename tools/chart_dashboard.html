@@ -431,6 +431,34 @@ html, body {
   white-space: nowrap; display: none;
 }
 .vcp-info.collapsed .vcp-info-summary { display: inline-block; }
+
+/* ── PMax trade-state overlay ─────────────────────────────────────────────── */
+/* Anchored bottom-center — the last free edge (corners hold ew/rev/rb/proj,
+   top-center holds vcp). Not collapsible: when PMax is on, its position state
+   (LONG/SHORT, entry, trailing stop, targets) IS the reason you turned it on. */
+.pmax-info {
+  position: absolute; bottom: 6px; left: 50%; transform: translateX(-50%); z-index: 8;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
+  padding: 6px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
+  white-space: nowrap; display: none;
+}
+
+/* ── Price Projection info overlay (Milestone 3) ──────────────────────────── */
+/* Anchored bottom-right — the remaining free corner. Not collapsible: a
+   projection is rare (only shown when a setup clears the Medium confidence
+   floor) and is the one number worth reading in full when present. */
+.proj-info {
+  position: absolute; bottom: 6px; right: 8px; z-index: 8;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
+  padding: 7px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
+  max-width: 260px; display: none;
+}
+.proj-badge {
+  display: inline-block; border-radius: 99px; padding: 1px 8px;
+  font-size: 10px; font-weight: 700; color: #0d1117;
+}
+.proj-info hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+.proj-disclaimer { color: var(--text-muted); font-style: italic; font-size: 9.5px; }
 </style>
 </head>
 <body>
@@ -606,7 +634,7 @@ const INDICATOR_DEFS = [
   {key:'bollinger', label:'Bollinger (20, 2)', group:'Bands & Channels', color:'#9aa4af'},
   {key:'donchian',  label:'Donchian (20)',     group:'Bands & Channels', color:'#26c6da'},
   {key:'keltner',   label:'Keltner (20, 1.5)',     group:'Bands & Channels', color:'#f48fb1'},
-  {key:'pmax',      label:'PMax (EMA10, ATR10 × 3)', group:'Bands & Channels', color:'#26a69a'},
+  {key:'pmax',      label:'PMax (EMA10, ATR10 × 3) + signals', group:'Bands & Channels', color:'#26a69a'},
   // ── Sub-pane oscillators ────────────────────────────────────────────────────
   {key:'rsi',       label:'RSI (14)',               group:'Oscillators',       color:'#7b61ff'},
   {key:'macd',      label:'MACD (12, 26, 9)',       group:'Oscillators',       color:'#2962ff'},
@@ -625,6 +653,7 @@ const INDICATOR_DEFS = [
   {key:'vcp',          label:'VCP Coiling',               group:'Pattern Recognition', color:'#26c6da'},
   {key:'trendlines',   label:'Trendlines (supply/demand)', group:'Pattern Recognition', color:'#ff9800'},
   {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab)', group:'Pattern Recognition', color:'#ba68c8'},
+  {key:'projection',   label:'Price Projection (EW + patterns)', group:'Pattern Recognition', color:'#4c9aff'},
   // ── Calendar ────────────────────────────────────────────────────────────────
   {key:'reversal_calendar', label:'Reversal Calendar (Yogas + Lunar)',
                                                      group:'Calendar',           color:'#ffd60a'},
@@ -788,6 +817,48 @@ function pmaxSeries(bars, atrLen = 10, atrMult = 3.0, maLen = 10) {
     shortStopPrev = shortStop;
   }
   return out;
+}
+
+// PMax trade signals — a flip of `dir` IS the reversal, and that's the only
+// actionable event the indicator produces. The two colored lines alone don't
+// say where the flip happened or what to risk, so this turns each flip into an
+// explicit trade: entry at the flip bar's close, stop at the PMax band on that
+// bar (the band is the invalidation level by construction), and targets at
+// 1R/2R/3R off that initial risk. `hit` records how far price has already run
+// since the flip, so a stale signal reads as "TP2 ✓" rather than looking live.
+// Returns oldest → newest; the last element is the currently-open position.
+function pmaxSignals(rows, bars) {
+  if (!rows || rows.length < 2) return [];
+  const barByTime = new Map(bars.map(b => [b.time, b]));
+  const sigs = [];
+  for (let i = 1; i < rows.length; i++) {
+    if (rows[i].dir === rows[i - 1].dir) continue;
+    const r = rows[i];
+    const b = barByTime.get(r.time);
+    const entry = b ? b.close : r.ma;
+    const stop  = r.pmax;
+    const risk  = Math.abs(entry - stop);
+    const sign  = r.dir === 1 ? 1 : -1;
+    sigs.push({
+      time: r.time, dir: r.dir, entry, stop, risk, idx: i,
+      targets: risk > 0 ? [1, 2, 3].map(m => entry + sign * m * risk) : [],
+      hit: 0,
+    });
+  }
+  // Best excursion since each flip, in whole R — drives the TPn ✓ badges.
+  sigs.forEach((s, n) => {
+    const end = n + 1 < sigs.length ? sigs[n + 1].idx : rows.length;
+    if (!s.risk) return;
+    let best = 0;
+    for (let i = s.idx; i < end; i++) {
+      const b = barByTime.get(rows[i].time);
+      if (!b) continue;
+      const move = s.dir === 1 ? b.high - s.entry : s.entry - b.low;
+      if (move > best) best = move;
+    }
+    s.hit = Math.min(3, Math.floor(best / s.risk));
+  });
+  return sigs;
 }
 
 function keltnerSeries(bars, period, mult) {
@@ -1265,6 +1336,11 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
   patternCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:8;width:100%;height:100%;';
   chartMain.appendChild(patternCanvas);
 
+  // ── Price-projection canvas overlay (Milestone 3 forward line + label) ─────
+  const projCanvas = document.createElement('canvas');
+  projCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:7;width:100%;height:100%;';
+  chartMain.appendChild(projCanvas);
+
   // Track whether we've ever seen a real (>0) size. If the chart was created
   // at fallback 300×200 because chartMain was 0×0 at construction time, the
   // first resize to real dimensions is also when we need to *re-apply* the
@@ -1302,6 +1378,8 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
         if (pane && pane.indicators &&
             (pane.indicators.has('vcp') || pane.indicators.has('roundbottom')))
           drawPatternZones(pane);
+        if (pane && pane.indicators && pane.indicators.has('projection'))
+          drawProjection(pane);
       }
     }
   });
@@ -1313,7 +1391,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
                  priceEl, chgEl, badge,
                  bars: [], indicators: new Set(savedIndicators),
                  rangePreset: savedRangePreset || DEFAULT_RANGE_PRESET,
-                 indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas };
+                 indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas, projCanvas };
 
   // ── Time-scale sync: main chart drives all sub-pane charts ─────────────────
   chart.timeScale().subscribeVisibleTimeRangeChange(range => {
@@ -1329,6 +1407,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
     if (pane.indicators &&
         (pane.indicators.has('vcp') || pane.indicators.has('roundbottom')))
       drawPatternZones(pane);
+    if (pane.indicators && pane.indicators.has('projection')) drawProjection(pane);
     // Volume Profile histogram uses priceToCoordinate — pan/zoom changes
     // the y-scale mapping, so it needs a redraw on range change too. FVG
     // is time-anchored; VP is price-scale-anchored. Both stale on zoom
@@ -1613,6 +1692,7 @@ async function copyChartSnapshot(pane) {
     let y = headerH;
     ctx.drawImage(mainShot, 0, y);
     if (pane.patternCanvas) ctx.drawImage(pane.patternCanvas, 0, y, mainShot.width, mainShot.height);
+    if (pane.projCanvas) ctx.drawImage(pane.projCanvas, 0, y, mainShot.width, mainShot.height);
     if (pane.volCanvas) ctx.drawImage(pane.volCanvas, 0, y, mainShot.width, mainShot.height);
     if (pane.fvgCanvas) ctx.drawImage(pane.fvgCanvas, 0, y, mainShot.width, mainShot.height);
     y += mainShot.height;
@@ -1767,8 +1847,12 @@ function applyIndicators(pane) {
   if (!pane.indicators.has('vcp') && pane.vcp) clearVCP(pane);
   // Tear down Trendlines overlay if deselected
   if (!pane.indicators.has('trendlines') && pane.tl) clearTrendlines(pane);
+  // Tear down PMax flip markers + trade levels if deselected
+  if (!pane.indicators.has('pmax') && pane.pmaxTrade) clearPmaxTrade(pane);
   // Tear down Harmonic overlay if deselected
   if (!pane.indicators.has('harmonic') && pane.hm) clearHarmonic(pane);
+  // Tear down Price Projection overlay if deselected
+  if (!pane.indicators.has('projection') && pane.proj) clearProjection(pane);
   // Tear down Reversal Calendar markers if deselected
   if (!pane.indicators.has('reversal_calendar') && pane.rev) clearReversalCalendar(pane);
   if (!bars || bars.length < 2) return;
@@ -1856,6 +1940,7 @@ function applyIndicators(pane) {
           else             dn.push({time: r.time, value: r.pmax});
         });
         s[0].setData(up); s[1].setData(dn);
+        renderPmaxTrade(pane, rows, bars);
         break;
       }
     }
@@ -2068,6 +2153,11 @@ function applyIndicators(pane) {
   }
   if (pane.indicators.has('trendlines')) {
     renderTrendlines(pane);
+  }
+
+  // ── Price Projection overlay (Milestone 3, server-side see projection.py) ────
+  if (pane.indicators.has('projection')) {
+    renderProjection(pane);
   }
 
   // ── Reversal Calendar overlay (yogas + lunar phases, see reversal_calendar.py)
@@ -3155,6 +3245,119 @@ async function renderTrendlines(pane) {
   draw('demandLine', g.demand, '#ff9800');  // rising demand — orange (matches screenshot)
 }
 
+// ── PMax trade overlay (flip markers + live position levels) ──────────────────
+// The two PMax lines show WHERE the trailing band is but not WHEN it flipped or
+// what to do about it. This layer makes each flip legible: a BUY/SELL arrow on
+// the flip bar, and — for the currently-open direction only — entry / trailing
+// stop / TP1-3 price lines plus a bottom-center state chip.
+const PMAX_UP   = '#26a69a';
+const PMAX_DOWN = '#f23645';
+
+function ensurePmaxState(pane) {
+  if (!pane.pmaxTrade) pane.pmaxTrade = {priceLines: [], infoEl: null};
+  return pane.pmaxTrade;
+}
+
+function clearPmaxTrade(pane) {
+  const st = pane.pmaxTrade;
+  if (!st) return;
+  (st.priceLines || []).forEach(pl => {
+    try { pane.series.removePriceLine(pl); } catch {}
+  });
+  st.priceLines = [];
+  if (st.infoEl) {
+    try { st.infoEl.remove(); } catch {}
+    st.infoEl = null;
+  }
+  setPaneMarkers(pane, 'pmax', null);
+  pane.pmaxTrade = null;
+}
+
+function renderPmaxTrade(pane, rows, bars) {
+  const st = ensurePmaxState(pane);
+  // Price lines are rebuilt every recompute (timeframe change, new bar).
+  (st.priceLines || []).forEach(pl => {
+    try { pane.series.removePriceLine(pl); } catch {}
+  });
+  st.priceLines = [];
+
+  const sigs = pmaxSignals(rows, bars);
+  if (!sigs.length) {
+    setPaneMarkers(pane, 'pmax', null);
+    if (st.infoEl) st.infoEl.style.display = 'none';
+    return;
+  }
+
+  // Every historical flip gets an arrow so the reversal history is readable.
+  setPaneMarkers(pane, 'pmax', sigs.map(s => s.dir === 1
+    ? {time: s.time, position: 'belowBar', color: PMAX_UP,   shape: 'arrowUp',   text: 'BUY'}
+    : {time: s.time, position: 'aboveBar', color: PMAX_DOWN, shape: 'arrowDown', text: 'SELL'}));
+
+  // Levels are drawn for the open position only — the last flip.
+  const sig  = sigs[sigs.length - 1];
+  const cur  = rows[rows.length - 1];
+  const last = bars[bars.length - 1];
+  // Trailing stop is the LIVE band, not the flip-bar band: PMax ratchets, so
+  // the current value is the real invalidation price today.
+  const trail = cur && cur.dir === sig.dir ? cur.pmax : sig.stop;
+  const long  = sig.dir === 1;
+  const col   = long ? PMAX_UP : PMAX_DOWN;
+
+  const mk = (price, title, color, style) => {
+    if (!Number.isFinite(price)) return;
+    try {
+      st.priceLines.push(pane.series.createPriceLine({
+        price, color, lineWidth: 1, lineStyle: style,
+        axisLabelVisible: true, title,
+      }));
+    } catch {}
+  };
+  mk(sig.entry, 'PMax Entry', '#4c9aff', 0);
+  mk(trail,     'PMax SL',    PMAX_DOWN, 2);
+  sig.targets.forEach((t, i) => mk(t, `TP${i + 1}`, PMAX_UP, 2));
+
+  renderPmaxInfo(pane, sig, trail, last, long, col);
+}
+
+function renderPmaxInfo(pane, sig, trail, last, long, col) {
+  const st = ensurePmaxState(pane);
+  if (!st.infoEl) {
+    st.infoEl = document.createElement('div');
+    st.infoEl.className = 'pmax-info';
+    pane.el.querySelector('.chart-main').appendChild(st.infoEl);
+  }
+  const px  = last ? last.close : sig.entry;
+  const fmt = v => Number.isFinite(v) ? v.toFixed(2) : '—';
+  const pnl = sig.risk ? ((long ? px - sig.entry : sig.entry - px) / sig.risk) : 0;
+  // Where the ratcheting trail now sits RELATIVE TO ENTRY, in R. Negative is
+  // live risk (stop still behind entry); zero is breakeven; positive means the
+  // trail has locked in that much profit. This is the number that tells you
+  // whether the position still costs you anything to hold.
+  const stopR = sig.risk ? ((long ? trail - sig.entry : sig.entry - trail) / sig.risk) : 0;
+  const stopTag = stopR >= 0
+    ? `<span style="color:${PMAX_UP}">stop locks +${stopR.toFixed(1)}R</span>`
+    : `<span style="color:var(--text-muted)">risk ${Math.abs(stopR).toFixed(1)}R</span>`;
+  const tps   = sig.targets.map((t, i) =>
+    `<span style="color:${i < sig.hit ? PMAX_UP : 'var(--text-muted)'}">` +
+    `TP${i + 1} ${fmt(t)}${i < sig.hit ? ' ✓' : ''}</span>`).join(' · ');
+  const dt = new Date(sig.time * 1000).toISOString().slice(0, 10);
+
+  st.infoEl.innerHTML =
+    `<b style="color:${col}">PMax ${long ? 'LONG' : 'SHORT'}</b>` +
+    ` <span style="color:var(--text-muted)">since ${dt}</span>` +
+    ` · <span style="color:${pnl >= 0 ? PMAX_UP : PMAX_DOWN}">${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}R</span>` +
+    `<div style="margin-top:3px;font-family:'Courier New',monospace;font-size:10px">` +
+      `<span style="color:#4c9aff">Entry ${fmt(sig.entry)}</span> · ` +
+      `<span style="color:${PMAX_DOWN}">Trail SL ${fmt(trail)}</span> · ` +
+      stopTag +
+      `<br>${tps}` +
+    `</div>` +
+    `<div style="margin-top:2px;color:var(--text-muted)">` +
+      `Exit when the band flips — a ${long ? 'SELL' : 'BUY'} arrow closes this position.` +
+    `</div>`;
+  st.infoEl.style.display = 'block';
+}
+
 // ── Harmonic pattern overlay (Gartley/Bat/Butterfly/Crab) ─────────────────────
 // Backed by /api/harmonic (harmonic_patterns.detect_last_pattern). Draws the
 // X-A-B-C-D zigzag as one line series, the X→D diagonal as a dashed line, five
@@ -3271,6 +3474,154 @@ async function renderHarmonic(pane) {
     mk(t.targets[0], 'H:T1 (0.382 AD)',     '#26a69a', 2);
     mk(t.targets[1], 'H:T2 (0.618 AD)',     '#26a69a', 2);
   }
+}
+
+// ── Price Projection overlay (Milestone 3) ────────────────────────────────────
+// Backed by /api/projection (projection.py). Draws a dashed forward slope from
+// the last bar's close to a projected target price, a right-edge price+% label,
+// and a bottom-right info panel carrying the confidence band + reasoning +
+// invalidation. The projection is DETERMINISTIC (Elliott Wave Fib targets + VCP/
+// Rounding/Harmonic measured-moves), and the server suppresses anything below
+// Medium confidence — so when this draws nothing, that IS the signal.
+function ensureProjState(pane) {
+  if (!pane.proj) pane.proj = {infoEl: null, data: null, lastFetchKey: null};
+  return pane.proj;
+}
+
+function clearProjection(pane) {
+  if (!pane.proj) return;
+  if (pane.projCanvas) {
+    const ctx = pane.projCanvas.getContext('2d');
+    ctx.clearRect(0, 0, pane.projCanvas.width, pane.projCanvas.height);
+  }
+  if (pane.proj.infoEl) pane.proj.infoEl.style.display = 'none';
+  pane.proj.data = null;
+  pane.proj.lastFetchKey = null;
+}
+
+async function renderProjection(pane) {
+  const pr = ensureProjState(pane);
+  if (!pane.bars || !pane.bars.length) return;
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  if (pr.lastFetchKey === key) return;
+  pr.lastFetchKey = key;
+
+  let p = null;
+  try {
+    const barCount = TF_BARS[pane.tf] || 300;
+    const url = `${SERVER}/api/projection?symbol=${encodeURIComponent(pane.symbol)}` +
+                `&timeframe=${pane.tf}&bars=${barCount}`;
+    const res = await fetch(url);
+    if (res.ok) p = (await res.json()).projection || null;
+  } catch (e) { console.warn('projection fetch failed:', e); }
+
+  if (!pane.indicators.has('projection')) return;
+  const stillCurrentKey = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  if (stillCurrentKey !== key) return;
+
+  pr.data = p;
+  drawProjection(pane);
+  renderProjInfo(pane, p);
+}
+
+function drawProjection(pane) {
+  const canvas = pane.projCanvas;
+  if (!canvas) return;
+  const W = canvas.width  = canvas.offsetWidth;
+  const H = canvas.height = canvas.offsetHeight;
+  if (W === 0 || H === 0) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  const p = pane.proj && pane.proj.data;
+  if (!p || !pane.indicators.has('projection')) return;
+
+  const ts = pane.chart.timeScale();
+  const anchorX = ts.timeToCoordinate(p.anchor_time);
+  const y0 = pane.series.priceToCoordinate(p.current_price);
+  const y1 = pane.series.priceToCoordinate(p.projected_price);
+  if (anchorX === null || y0 === null || y1 === null) return;
+
+  // Forward horizon in pixels: bar spacing × indicative horizon, clamped so the
+  // slope stays on-screen. The line conveys direction + magnitude, not a date.
+  const prevBar = pane.bars.length > 1 ? pane.bars[pane.bars.length - 2] : null;
+  const xPrev = prevBar ? ts.timeToCoordinate(prevBar.time) : null;
+  const spacing = (xPrev !== null && anchorX !== null) ? Math.abs(anchorX - xPrev) : 6;
+  let horizonPx = spacing * (p.horizon_bars || 20);
+  horizonPx = Math.max(50, Math.min(horizonPx, 220));
+  const x1 = anchorX + horizonPx;
+
+  const up = p.direction === 'up';
+  const col = up ? '#26a69a' : '#ef5350';
+
+  // Dashed projection slope.
+  ctx.save();
+  ctx.strokeStyle = col;
+  ctx.lineWidth = 1.8;
+  ctx.setLineDash([6, 4]);
+  ctx.beginPath();
+  ctx.moveTo(anchorX, y0);
+  ctx.lineTo(x1, y1);
+  ctx.stroke();
+  ctx.setLineDash([]);
+
+  // Anchor dot + target dot.
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.arc(anchorX, y0, 2.5, 0, 2 * Math.PI); ctx.fill();
+  ctx.beginPath(); ctx.arc(x1, y1, 3, 0, 2 * Math.PI); ctx.fill();
+
+  // Right-edge label: projected price + % move, stacked. Clamped inside canvas.
+  const l1 = `₹${p.projected_price.toFixed(2)}`;
+  const l2 = `${p.pct_move >= 0 ? '+' : ''}${p.pct_move.toFixed(1)}%`;
+  ctx.font = 'bold 11px -apple-system, "Segoe UI", sans-serif';
+  const boxW = Math.max(ctx.measureText(l1).width, ctx.measureText(l2).width) + 12;
+  const boxH = 30;
+  let lx = x1 + 6;
+  if (lx + boxW > W) lx = Math.max(0, x1 - boxW - 6);
+  let ly = y1 - boxH / 2;
+  ly = Math.max(2, Math.min(ly, H - boxH - 2));
+  ctx.fillStyle = up ? 'rgba(38,166,154,0.16)' : 'rgba(239,83,80,0.16)';
+  ctx.strokeStyle = col; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.roundRect(lx, ly, boxW, boxH, 4); ctx.fill(); ctx.stroke();
+  ctx.fillStyle = col;
+  ctx.textBaseline = 'middle';
+  ctx.fillText(l1, lx + 6, ly + 9);
+  ctx.font = '10px -apple-system, "Segoe UI", sans-serif';
+  ctx.fillText(l2, lx + 6, ly + 22);
+  ctx.restore();
+}
+
+function renderProjInfo(pane, p) {
+  const pr = ensureProjState(pane);
+  if (!pr.infoEl) {
+    pr.infoEl = document.createElement('div');
+    pr.infoEl.className = 'proj-info';
+    pane.el.querySelector('.chart-main').appendChild(pr.infoEl);
+  }
+  if (!p) { pr.infoEl.style.display = 'none'; return; }
+
+  const bandColor = p.band === 'High' ? '#3fb950' : '#f0883e';
+  const moveColor = p.direction === 'up' ? '#26a69a' : '#ef5350';
+  const sign = p.pct_move >= 0 ? '+' : '';
+  const confluence = p.confluence_count > 1
+    ? `<span style="color:#3fb950"> · ${p.confluence_count} methods agree</span>` : '';
+  const inval = (p.invalidation != null)
+    ? `<br><span style="color:var(--text-muted)">Invalidation (stop): ₹${p.invalidation.toFixed(2)}</span>` : '';
+
+  pr.infoEl.innerHTML =
+    `<div style="margin-bottom:3px;">` +
+      `<span class="proj-badge" style="background:${bandColor}">${p.band} confidence</span> ` +
+      `<b style="color:${moveColor}">₹${p.projected_price.toFixed(2)} (${sign}${p.pct_move.toFixed(1)}%)</b>` +
+    `</div>` +
+    `<span style="color:var(--text-muted)">via</span> ${p.source} · conf ${p.confidence}%${confluence}` +
+    `<hr>` +
+    `<div style="color:var(--text-chart)">${p.reasoning}</div>` +
+    inval +
+    `<hr>` +
+    `<div class="proj-disclaimer">Indicative model projection from Elliott Wave + pattern ` +
+    `measured-moves — not investment advice. Verify against your own analysis.</div>`;
+  pr.infoEl.style.display = 'block';
 }
 
 // ── Reversal Calendar overlay ─────────────────────────────────────────────────
