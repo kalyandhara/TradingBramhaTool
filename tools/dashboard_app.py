@@ -17,6 +17,7 @@ import csv
 import json
 from datetime import date, datetime, timedelta, time
 from pathlib import Path
+from urllib.parse import quote
 
 import numpy as np
 import pandas as pd
@@ -44,6 +45,9 @@ import volume_fetcher as vf
 import india_market_intel as imi
 import harmonic_patterns as hp
 import sentiment_index as senti
+import market_verdict as mvd
+import block_deal_intel as bdi
+import nse_oi_momentum as oim
 import browser_cookie_helper as bch
 import stock_council as council
 
@@ -67,7 +71,10 @@ def _analyze_url(sym) -> str | None:
     s = str(sym).strip().upper().replace(".NS", "")
     if not s or s.startswith("^"):
         return None
-    return f"{DASHBOARD_BASE}/?nav=analyze&symbol={s}"
+    # Percent-encode: NSE tickers legitimately contain "&" (M&M, GVT&D), which
+    # unescaped ends the symbol parameter early and silently deep-links to the
+    # wrong stock rather than failing visibly.
+    return f"{DASHBOARD_BASE}/?nav=analyze&symbol={quote(s, safe='')}"
 
 
 def _analyze_colcfg() -> "st.column_config.LinkColumn":
@@ -140,9 +147,49 @@ def cached_fno_symbols() -> set[str]:
         return set()
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_oi_momentum_scan(include_no_read: bool = False):
+    """Stock-futures price-vs-OI readings for the most recent settled session.
+
+    Cached for an hour because the underlying F&O bhavcopy is END-OF-DAY — it
+    does not change intraday, so a shorter TTL would only re-download the same
+    ~1.2 MB zip. Returns (records, trade_date); an empty list with a None date
+    means nothing was reachable in the lookback window.
+    """
+    stf, trade_date = oim.fetch_fo_bhavcopy()
+    if stf.empty:
+        return [], None
+    return oim.scan(stf, trade_date, include_no_read=include_no_read), trade_date
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def cached_fetch_nifty50(days: int = 300):
     return sp.fetch_nifty50(days=days)
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def cached_latest_sentiment():
+    """Newest PERSISTED sentiment reading, for the overview ribbon.
+
+    Deliberately a DB read, never a compute: compute_sentiment() takes ~24s
+    (bhavcopy + sector indices + PMax), and the ribbon renders on every single
+    Streamlit rerun. Returns None when nothing has been persisted yet — the
+    verdict engine treats that as a caution flag rather than a green light.
+    Refreshing happens on the Market Sentiment page, which owns that button.
+    """
+    try:
+        hist = senti.history(days=1)
+        if hist.empty:
+            return None
+        row = hist.iloc[-1]
+        return {
+            "reading_date": row["reading_date"].date().isoformat(),
+            "score": float(row["score"]),
+            "band":  row["band"],
+            "inputs": json.loads(row["inputs_json"]),
+        }
+    except Exception:
+        return None
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -748,7 +795,10 @@ if not active_alerts.empty:
 ov1, ov2, ov3, ov4, ov5 = st.columns(5)
 ov1.metric("Nifty 50", f"{nifty_last:,.0f}" if nifty_last else "—",
            f"{nifty_day_chg:+.2f}%" if nifty_day_chg is not None else None)
-ov2.metric("Regime", nifty_regime)
+# Labelled by its actual basis, not "Regime": the banner below owns that word
+# and answers a different question (50 SMA + vol → trending/ranging). Two
+# adjacent boxes both saying "Regime" with different answers read as a bug.
+ov2.metric("vs 200 SMA", nifty_regime)
 ov3.metric("Portfolio P&L", fmt_money(portfolio_summary["pl"]),
            fmt_pct(portfolio_summary["pl_pct"]))
 if nifty_day_chg is not None and portfolio_summary["open_count"] > 0:
@@ -756,6 +806,101 @@ if nifty_day_chg is not None and portfolio_summary["open_count"] > 0:
                 f"vs Nifty {gain_loss_badge(nifty_day_chg)}")
 ov4.metric("Capital at Risk", fmt_pct(portfolio_summary["capital_at_risk_pct"]).replace("+", ""))
 ov5.metric("Active Alerts Triggered", f"{triggered_count}/{len(active_alerts)}")
+
+# ── Regime banner + today's verdict ───────────────────────────────────────────
+# Five true numbers above still do not answer "do I trade today, and how big?".
+# market_verdict collapses the same sentiment inputs into one decision plus the
+# flags that produced it, so the ribbon can be argued with rather than obeyed.
+regime_info = mvd.classify_regime(nifty_overview)
+if regime_info["label"] != "UNKNOWN":
+    vol_txt = ""
+    if regime_info["vol"] is not None and regime_info["vol_baseline"] is not None:
+        vol_txt = (f"Vol {regime_info['vol']:.2f}% "
+                   f"(baseline {regime_info['vol_baseline']:.2f}%)")
+    dist_txt = ""
+    if regime_info["dist_pct"] is not None:
+        dist_txt = f"Price within {abs(regime_info['dist_pct']):.1f}% of 50 SMA"
+    st.markdown(
+        f"""
+        <div style="padding:10px 14px;border-radius:10px;background:#fff8e1;
+                    border:1px solid #ffe082;margin:6px 0 10px 0;">
+          <span style="font-size:11px;color:#8d6e63;letter-spacing:.5px;">MARKET REGIME</span>
+          <span style="font-size:11px;font-weight:700;background:#ffe082;color:#6d4c41;
+                       padding:2px 8px;border-radius:10px;margin-left:8px;">
+            {regime_info['label']}</span>
+          <span style="font-size:11px;color:#8d6e63;margin-left:10px;">{vol_txt}</span>
+          <div style="font-size:15px;color:#4e342e;margin-top:5px;">{regime_info['playbook']}</div>
+          <div style="font-size:11px;color:#8d6e63;margin-top:2px;">{dist_txt}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+_senti_reading = cached_latest_sentiment()
+# A reading from three sessions ago must not read as today's green light.
+_stale_flags = []
+if _senti_reading and _senti_reading.get("reading_date"):
+    _age = (date.today() - date.fromisoformat(_senti_reading["reading_date"])).days
+    if _age >= 1:
+        _stale_flags.append(
+            f"Sentiment reading is {_age} day(s) old — refresh Market Sentiment")
+verdict = mvd.build_verdict(_senti_reading, portfolio_summary, _stale_flags)
+
+vcol, scol = st.columns([4, 1])
+with vcol:
+    st.markdown(
+        f"""
+        <div style="font-size:11px;color:#777;letter-spacing:.5px;">TODAY'S VERDICT</div>
+        <div style="font-size:30px;font-weight:800;color:{verdict['color']};line-height:1.15;">
+          {verdict['verdict']}
+        </div>
+        <div style="font-size:14px;color:#444;margin-top:4px;">{verdict['instruction']}</div>
+        """,
+        unsafe_allow_html=True,
+    )
+with scol:
+    st.markdown(
+        f"""
+        <div style="text-align:right;">
+          <div style="font-size:11px;color:#777;">Position Size</div>
+          <div style="font-size:30px;font-weight:800;color:{verdict['color']};line-height:1.15;">
+            {verdict['size_pct']}%</div>
+          <div style="font-size:11px;color:#777;">max {verdict['max_trades']} trade(s) today</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+if verdict["caution"]:
+    st.markdown("<div style='font-size:11px;color:#c62828;letter-spacing:.5px;"
+                "margin-top:8px;'>CAUTION</div>", unsafe_allow_html=True)
+    for c in verdict["caution"]:
+        st.markdown(f"<div style='color:#c62828;font-size:13px;'>✖ {c}</div>",
+                    unsafe_allow_html=True)
+if verdict["favorable"]:
+    st.markdown("<div style='font-size:11px;color:#2e7d32;letter-spacing:.5px;"
+                "margin-top:8px;'>FAVORABLE</div>", unsafe_allow_html=True)
+    for f in verdict["favorable"]:
+        st.markdown(f"<div style='color:#2e7d32;font-size:13px;'>✔ {f}</div>",
+                    unsafe_allow_html=True)
+
+with st.expander("Why this verdict?"):
+    d1, d2, d3 = st.columns(3)
+    d1.metric("Min Conviction Required", verdict["min_conviction"])
+    d2.metric("Caution Flags",   verdict["n_caution"])
+    d3.metric("Favorable Flags", verdict["n_favorable"])
+    if verdict["score"] is not None:
+        st.caption(f"Sentiment score {verdict['score']} ({verdict['band']}) "
+                   f"· reading dated {verdict['as_of']}")
+    st.markdown("**Decision rule**")
+    for line in verdict["rule"]:
+        st.markdown(f"- {line}")
+    st.caption(
+        "Each sentiment component votes once, by the share of its own weight it "
+        "earned. Portfolio heat and stale data can only add caution, never "
+        "conviction. Thresholds are defaults — tune them against Verdict "
+        "Calibration before trusting the ladder with size."
+    )
 
 with st.expander("Set total capital (used for % capital-at-risk)"):
     new_cap = st.number_input(
@@ -992,7 +1137,7 @@ with st.expander("Daily Workflow (IST)"):
 PAGE_GROUPS = {
     "Screening":        ["Screener", "Other Screeners", "Scanner Hub", "Breakout Screener",
                          "High-Growth Screener", "TradingView Screener"],
-    "Market Intel":     ["Market Sentiment", "India Market Intel"],
+    "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
     "Research":         ["Stock Analyzer", "Sector Map", "Astro Timing", "Telegram Signals"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
     "Ops":              ["Pipeline Log"],
@@ -3281,6 +3426,10 @@ if current_page == "Market Sentiment":
         with st.spinner("Computing sentiment…"):
             try:
                 reading = senti.compute_sentiment(persist=True)
+                # The overview ribbon reads this through a 5-minute cache. Without
+                # an explicit bust, refreshing here leaves the verdict above still
+                # flagging a stale reading that no longer exists.
+                cached_latest_sentiment.clear()
             except Exception as e:
                 st.error(f"Sentiment compute failed: {e}")
     else:
@@ -3535,6 +3684,148 @@ if current_page == "India Market Intel":
         "Corporate announcements aren't wired up yet — the whole-market feed is very high volume "
         "without a watchlist filter to scope it to."
     )
+
+    # ── Deal Intelligence (CEAVET) ────────────────────────────────────────────
+    # The tables below are complete and say nothing at a glance: 190 deal rows
+    # do not tell you which company an institution actually accumulated. This
+    # aggregates per company above a value floor and answers it in six parts.
+    # Rendered above the tabs because it is the summary the tables are evidence
+    # for. All rules live in block_deal_intel.py — nothing here is a model.
+    st.markdown("### Deal Intelligence — CEAVET summary")
+    di_c1, di_c2 = st.columns([1, 3])
+    with di_c1:
+        di_min_lakh = st.number_input(
+            "Min deal value per company (₹ lakh)", min_value=50.0, max_value=100000.0,
+            value=500.0, step=50.0, key="imi_ceavet_min",
+            help="Aggregate buy+sell value across all of a company's deals today.",
+        )
+    di_run = st.button("Analyze deals", key="imi_ceavet_run")
+
+    if di_run:
+        with st.spinner("Aggregating deals and checking price context…"):
+            try:
+                _n_bulk  = imi.fetch_nse_bulk_deals()
+                _n_block = imi.fetch_nse_block_deals()
+                _b_bulk  = imi.fetch_bse_bulk_deals()
+                _b_block = imi.fetch_bse_block_deals()
+                _deals = bdi.normalize_deals(_n_bulk, _n_block, _b_bulk, _b_block)
+
+                def _deal_price_ctx(sym: str):
+                    """CMP / volume / post-deal return for one scrip.
+
+                    Only NSE-listed tickers resolve through the yfinance-backed
+                    fetcher, so BSE-only scrips legitimately return None and the
+                    Evaluate section reports the gap instead of inventing one.
+                    """
+                    try:
+                        pdf = cached_fetch_ohlcv(sym, days=90)
+                    except Exception:
+                        return None
+                    if pdf is None or pdf.empty or "close" not in pdf.columns:
+                        return None
+                    ctx = {"cmp": float(pdf["close"].iloc[-1])}
+                    if "volume" in pdf.columns and len(pdf) >= 21:
+                        avg20 = float(pdf["volume"].iloc[-21:-1].mean())
+                        if avg20:
+                            ctx["vol_ratio"] = float(pdf["volume"].iloc[-1]) / avg20
+                    # Post-deal action, only when the deal actually predates the
+                    # latest bar — same-day deals have nothing to evaluate yet.
+                    try:
+                        sym_dates = pd.to_datetime(
+                            _deals.loc[_deals["symbol"] == sym, "date"],
+                            dayfirst=True, errors="coerce").dropna()
+                        if len(sym_dates):
+                            deal_day = sym_dates.max().normalize()
+                            idx = pd.to_datetime(pdf.index).normalize()
+                            prior = pdf[idx <= deal_day]
+                            if len(prior) and idx.max() > deal_day:
+                                base = float(prior["close"].iloc[-1])
+                                if base:
+                                    ctx["ret_since_pct"] = (ctx["cmp"] - base) / base * 100.0
+                                    ctx["bars_since"] = int((idx > deal_day).sum())
+                    except Exception:
+                        pass
+                    return ctx
+
+                st.session_state["imi_ceavet"] = bdi.summarize_all(
+                    _deals, min_value=di_min_lakh * 1e5, price_ctx_fn=_deal_price_ctx)
+            except Exception as e:
+                st.error(f"Deal analysis failed: {e}")
+
+    _ceavet = st.session_state.get("imi_ceavet")
+    if _ceavet is not None:
+        if not _ceavet:
+            st.info(f"No company had aggregate deal value above ₹{di_min_lakh:.0f} lakh.")
+        else:
+            _strength_color = {
+                "HIGH": "#2e7d32", "INFORMATIVE": "#1565c0", "MODERATE": "#b8860b",
+                "BEARISH": "#c62828", "WEAK": "#8d6e63", "LOW": "#8d6e63",
+                "NOISE": "#9e9e9e",
+            }
+            # Lead with the count that matters: how many of these are actually
+            # worth a look versus how many are churn wearing a big number.
+            _actionable = [r for r in _ceavet
+                           if r["strength"] in bdi.ACTIONABLE_STRENGTHS]
+            st.caption(
+                f"{len(_ceavet)} company(ies) above ₹{di_min_lakh:.0f}L · "
+                f"**{len(_actionable)}** carry an ownership signal · "
+                f"{len(_ceavet) - len(_actionable)} are self-crossing or intermediary churn. "
+                f"Ordered by signal strength, so churn sinks below real signal "
+                f"regardless of headline size."
+            )
+
+            def _deal_chart_url(rec) -> str:
+                # Deals arrive under the exchange's own ticker, so route each
+                # scrip to the venue it actually traded on — a BSE scrip name
+                # will not resolve as an NSE symbol.
+                exch = rec["venues"][0] if rec.get("venues") else "NSE"
+                return (f"http://localhost:5001/?symbol={rec['symbol']}"
+                        f"&exchange={exch}&tf=1d")
+
+            _tbl = pd.DataFrame([{
+                "Scrip":       r["symbol"],
+                "Value (₹L)":  round(r["total_value"] / 1e5, 1),
+                "Signal":      r["strength"],
+                "Action":      r["action"],
+                "Venue":       "/".join(r["venues"]),
+                "Chart":       _deal_chart_url(r),
+            } for r in _ceavet])
+            st.dataframe(
+                _tbl, use_container_width=True, hide_index=True,
+                column_config={
+                    "Chart": st.column_config.LinkColumn(
+                        "Chart", help="Open in Chart Tool",
+                        display_text="📈 Open", width="small",
+                    ),
+                },
+            )
+            for r in _ceavet:
+                col = _strength_color.get(r["strength"], "#9e9e9e")
+                head = (f"{r['symbol']} — ₹{r['total_value']/1e5:,.0f}L · "
+                        f"{r['strength']} · {r['action']}")
+                with st.expander(head, expanded=(r is _ceavet[0])):
+                    st.markdown(
+                        f"<span style='background:{col};color:#fff;padding:2px 10px;"
+                        f"border-radius:10px;font-size:12px;font-weight:700;'>"
+                        f"{r['strength']} — {r['action']}</span>"
+                        f"&nbsp;&nbsp;<a href='{_deal_chart_url(r)}' target='_blank' "
+                        f"style='font-size:12px;'>📈 Open chart</a>",
+                        unsafe_allow_html=True)
+                    for letter, label, key in [
+                        ("C", "Context", "C"), ("E", "Event", "E"),
+                        ("A", "Analysis — institutional motive", "A"),
+                        ("V", "Value — actionable clues", "V"),
+                        ("E", "Evaluate — confirmation", "E2"),
+                        ("T", "Takeaway", "T"),
+                    ]:
+                        st.markdown(f"**{letter} · {label}** — {r['ceavet'][key]}")
+            st.caption(
+                "Rule-based classification of public deal data, not investment "
+                "advice. The takeaway grades the strength of the *signal*; "
+                "position decisions remain yours. Deal feeds carry no history "
+                "endpoint, so this reflects today's disclosures only."
+            )
+    st.divider()
 
     intel_tabs = st.tabs(["Bulk Deals", "Block Deals", "Insider Trading", "Gap & Volume Scanner"])
 
@@ -3815,3 +4106,199 @@ if current_page == "India Market Intel":
                     "Gap %": st.column_config.NumberColumn("Gap %", format="%.2f%%"),
                 },
             )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Page — OI Momentum (price change vs open-interest change, stock futures)
+# The reading NSE's own "Change in Open Interest" page is built around, taken
+# from the F&O bhavcopy instead: same fields, no Akamai block, and the
+# stock-vs-index filter is mechanical rather than done by eye. All rules live in
+# nse_oi_momentum.py — nothing here is a model.
+# ──────────────────────────────────────────────────────────────────────────────
+if current_page == "OI Momentum":
+
+    def _oi_chart_url(sym: str) -> str:
+        """Chart-tool link for an F&O underlying.
+
+        Every name here is an NSE F&O underlying, so the .NS suffix always
+        resolves and no exchange branch is needed (unlike the deal tables, which
+        carry BSE scrips). The symbol is percent-encoded because NSE tickers
+        legitimately contain "&" — M&M and GVT&D both trade in F&O, and raw they
+        would truncate the query parameter and open the wrong chart.
+        """
+        return f"http://localhost:5001/?symbol={quote(f'{sym}.NS', safe='')}&tf=1d"
+
+    st.subheader("OI Momentum — is the move built, or just vacated?")
+    st.caption(
+        "Price change paired with **open-interest change** across the stock-futures "
+        "universe. Price alone says where a contract traded; OI says how much "
+        "conviction is still sitting behind it. Rising OI means fresh positions are "
+        "backing the move; falling OI means it is running on exits. "
+        "**End-of-day only** — the F&O bhavcopy is a settled file, so this is last "
+        "session's positioning, not a live feed. Observation tool, not a "
+        "buy/sell recommendation."
+    )
+
+    _oi_recs, _oi_date = cached_oi_momentum_scan()
+
+    if not _oi_recs:
+        st.warning(
+            "No F&O bhavcopy was reachable in the last 7 calendar days. Holidays and "
+            "long weekends make this normal; NSE archives can also lag late in the "
+            "evening on a settlement day."
+        )
+    else:
+        _dte = _oi_recs[0]["days_to_expiry"]
+        st.caption(
+            f"Session **{_oi_date:%d %b %Y}** · {len(_oi_recs)} of ~210 stock futures "
+            f"cleared the materiality floors "
+            f"(|price| ≥ {oim.MIN_PRICE_PCT}%, |OI| ≥ {oim.MIN_OI_PCT}%) · "
+            f"{_dte} session(s) to near-month expiry."
+        )
+        if _dte <= oim.EXPIRY_NOISE_DAYS:
+            st.warning(
+                f"Expiry is {_dte} session(s) away. OI drains out of the front "
+                f"contract into the next one regardless of what anyone thinks of the "
+                f"stock, so every reading below is graded UNRELIABLE this week."
+            )
+
+        # ── Breadth ───────────────────────────────────────────────────────────
+        # A universe-wide tilt is worth more than any single name and costs
+        # nothing to read, so it goes above the table.
+        _b = oim.breadth(_oi_recs)
+        _bull_built = _b[oim.LONG_BUILDUP]
+        _bear_built = _b[oim.SHORT_BUILDUP]
+        m1, m2, m3, m4 = st.columns(4)
+        m1.metric("Long build-up", _bull_built, help="Price up + OI up — supported")
+        m2.metric("Short covering", _b[oim.SHORT_COVERING],
+                  help="Price up + OI down — running on exits")
+        m3.metric("Short build-up", _bear_built, help="Price down + OI up — supported")
+        m4.metric("Long unwinding", _b[oim.LONG_UNWINDING],
+                  help="Price down + OI down — holders leaving")
+        if _bull_built or _bear_built:
+            _tilt = ("bullish" if _bull_built > _bear_built else
+                     "bearish" if _bear_built > _bull_built else "evenly split")
+            st.caption(
+                f"Fresh positioning is **{_tilt}**: {_bull_built} names had longs "
+                f"built into them versus {_bear_built} that had shorts built into "
+                f"them. Covering and unwinding are excluded from that count on "
+                f"purpose — they are positions leaving, not conviction arriving."
+            )
+
+        # ── Filters ───────────────────────────────────────────────────────────
+        fc1, fc2 = st.columns([2, 1])
+        with fc1:
+            _readings = st.multiselect(
+                "Readings", [oim.LONG_BUILDUP, oim.SHORT_COVERING,
+                             oim.SHORT_BUILDUP, oim.LONG_UNWINDING],
+                default=[oim.LONG_BUILDUP, oim.SHORT_COVERING],
+                key="oim_readings",
+                help="Defaults to the two up-move cases: build-up versus covering.",
+            )
+        with fc2:
+            _supported_only = st.checkbox(
+                "Supported moves only", value=False, key="oim_supported",
+                help="Keep only names where OI ROSE — fresh positions backing the "
+                     "move — and drop covering/unwinding entirely.",
+            )
+
+        _view = [r for r in _oi_recs if r["reading"] in _readings]
+        if _supported_only:
+            _view = [r for r in _view if r["supported"]]
+
+        if not _view:
+            st.info("No names match the current filters.")
+        else:
+            _strength_color = {
+                "STRONG": "#2e7d32", "MODERATE": "#1565c0",
+                "UNSUPPORTED": "#b8860b", "UNRELIABLE": "#9e9e9e",
+            }
+            _actionable = [r for r in _view
+                           if r["strength"] in oim.ACTIONABLE_STRENGTHS]
+            st.caption(
+                f"{len(_view)} name(s) shown · **{len(_actionable)}** are supported "
+                f"by fresh positioning · ordered by signal strength, so a large "
+                f"unsupported move sinks below a smaller built one."
+            )
+
+            _tbl = pd.DataFrame([{
+                "Symbol":    r["symbol"],
+                "Reading":   r["reading"],
+                "Strength":  r["strength"],
+                "Price %":   round(r["price_pct"], 2),
+                "OI %":      round(r["oi_pct"], 2),
+                "OI":        int(r["oi"]),
+                "Turnover (₹cr)": round(r["turnover"] / 1e7, 0),
+                "Chart":     _oi_chart_url(r["symbol"]),
+            } for r in _view])
+            _tbl = _with_analyze_col(_tbl, "Symbol", after="Chart")
+            st.dataframe(
+                _tbl, use_container_width=True, hide_index=True,
+                column_config={
+                    "Chart": st.column_config.LinkColumn(
+                        "Chart", display_text="📈 Open", width="small"),
+                    "Analyze": _analyze_colcfg(),
+                    "Price %": st.column_config.NumberColumn("Price %", format="%.2f%%"),
+                    "OI %": st.column_config.NumberColumn("OI %", format="%.2f%%"),
+                },
+            )
+
+            # ── Per-name reads ────────────────────────────────────────────────
+            # Grouped by reading, not a flat top-N slice. Covering and unwinding
+            # are graded UNSUPPORTED by construction, so a global cap sorted by
+            # strength would let build-ups fill every slot and silently hide a
+            # whole category the user explicitly asked to see.
+            st.markdown("#### What each reading means")
+            _PER_READING = 8
+            for _reading in _readings:
+                _group = [r for r in _view if r["reading"] == _reading]
+                if not _group:
+                    continue
+                st.markdown(
+                    f"**{_reading}** — {len(_group)} name(s)"
+                    + (f", showing the {_PER_READING} with the largest OI change"
+                       if len(_group) > _PER_READING else "")
+                )
+                for r in _group[:_PER_READING]:
+                    col = _strength_color.get(r["strength"], "#9e9e9e")
+                    with st.expander(
+                        f"{r['symbol']} — {r['strength']} · "
+                        f"price {r['price_pct']:+.2f}% · OI {r['oi_pct']:+.2f}%"
+                    ):
+                        _h1, _h2, _h3 = st.columns([3, 1, 1])
+                        with _h1:
+                            st.markdown(
+                                f"<span style='color:{col};font-weight:700'>"
+                                f"{r['reading']} · {r['bias']}</span>",
+                                unsafe_allow_html=True,
+                            )
+                        with _h2:
+                            st.link_button(
+                                "📈 Chart", url=_oi_chart_url(r["symbol"]),
+                                help="Open in Chart Tool",
+                                use_container_width=True,
+                            )
+                        with _h3:
+                            _au = _analyze_url(r["symbol"])
+                            if _au:
+                                st.link_button(
+                                    "↗ Analyze", url=_au,
+                                    help="Open the 3-POV Council analysis in a new tab",
+                                    use_container_width=True,
+                                )
+                        st.write(r["detail"])
+                        st.caption(
+                            f"Futures close ₹{r['close']:,.2f} · spot ₹{r['spot']:,.2f} · "
+                            f"series OI {r['oi']:,.0f} ({r['oi_chg']:+,.0f}) · "
+                            f"turnover ₹{r['turnover']/1e7:,.0f} crore · "
+                            f"{r['days_to_expiry']} session(s) to expiry."
+                        )
+                        for c in r["caveats"]:
+                            st.warning(c)
+
+        st.caption(
+            "OI is summed across **every listed expiry**, not just the front month. "
+            "Near expiry, OI drains out of the front contract and reappears in the "
+            "next one — reading the front month alone turns ordinary rollover into a "
+            "confident and entirely fictitious short-covering signal."
+        )

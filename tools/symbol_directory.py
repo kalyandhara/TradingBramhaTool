@@ -148,6 +148,15 @@ def _fetch_bse_live() -> list[dict] | None:
             r = requests.get(url, timeout=15, headers=BSE_HEADERS)
             if r.status_code != 200 or "csv" not in r.headers.get("content-type", "").lower() and "octet" not in r.headers.get("content-type", "").lower():
                 continue
+            # Before the day's file exists (pre-open, weekend, holiday) BSE
+            # answers 200 with an HTML error page, which csv.DictReader happily
+            # parses into ~71 rows of garbage keyed by a "<!DOCTYPE html…"
+            # column. It currently yields zero entries and falls through to the
+            # next date, but only by luck — sniff the payload instead.
+            head = r.text.lstrip()[:200].upper()
+            if head.startswith("<") or "<HTML" in head or "<!DOCTYPE" in head:
+                log.debug("BSE bhavcopy %s returned HTML, not CSV — skipping", d.isoformat())
+                continue
             reader = csv.DictReader(io.StringIO(r.text))
             entries = []
             seen = set()
@@ -159,9 +168,21 @@ def _fetch_bse_live() -> list[dict] | None:
                 # Keep only equity stocks (STK), skip debt / warrants / suspended
                 if not sym or not name or instr != "STK":
                     continue
-                # Series A/B/T are regular equity; skip Z (suspended), F (fixed
-                # income), etc. Series can be blank for some rows — allow that.
-                if sers and sers not in ("A", "B", "T", "M", "X", "P", "MT"):
+                # Series filter is a DENYLIST, not an allowlist. It used to allow
+                # only (A,B,T,M,X,P,MT), which silently dropped 1,049 of 4,992
+                # STK rows — 21% of BSE — including every one of the 440 XT-series
+                # names (X-group trade-to-trade). BCC FUBA INDIA (BCCFUBA, XT) was
+                # invisible in search because of it, despite trading normally.
+                # An allowlist fails closed on every new BSE group code and does
+                # so silently; a denylist fails open, so an unknown series shows
+                # up and can be judged rather than vanishing.
+                # Exclusions verified against yfinance (bars returned per series):
+                #   F  liquid/debt ETFs .... 0 bars
+                #   G  gilts, SGBs ......... 0 bars
+                #   R  rights entitlements . ~1 bar, expire within weeks
+                #   Z/ZY suspended ......... ~2 bars/month
+                # XT/IF/MS/TS all return full history and are kept.
+                if sers in ("F", "G", "R", "Z", "ZY"):
                     continue
                 key = sym.upper()
                 if key in seen:

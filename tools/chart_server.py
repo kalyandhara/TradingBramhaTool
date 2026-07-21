@@ -181,7 +181,29 @@ def _hl_subscribe(coin: str, interval: str) -> None:
 
 _yf_active: set[tuple] = set()
 _yf_lock = threading.Lock()
-_YF_INTERVAL = 30   # seconds between polls
+_YF_INTERVAL = 30    # seconds between polls while the market is open
+_YF_INTERVAL_CLOSED = 600   # back off hard when it is not
+
+
+def _market_open(symbol: str) -> bool:
+    """Rough session check so we don't hammer Yahoo overnight. Deliberately
+    generous at both ends (pre-open auction, closing auction settle) and
+    holiday-unaware — a holiday just costs a few idle polls, whereas getting
+    this too tight would silently freeze a live chart."""
+    from datetime import datetime as _dt, time as _t
+    from zoneinfo import ZoneInfo
+    s = symbol.upper()
+    try:
+        if s.endswith(".NS") or s.endswith(".BO") or s.endswith(".BSE"):
+            tz, open_t, close_t = ZoneInfo("Asia/Kolkata"), _t(9, 0), _t(15, 45)
+        else:
+            tz, open_t, close_t = ZoneInfo("America/New_York"), _t(9, 0), _t(16, 30)
+        now = _dt.now(tz)
+    except Exception:
+        return True   # unknown venue → keep polling rather than go dark
+    if now.weekday() >= 5:
+        return False
+    return open_t <= now.time() <= close_t
 
 
 def _yf_poll(symbol: str, timeframe: str) -> None:
@@ -193,18 +215,24 @@ def _yf_poll(symbol: str, timeframe: str) -> None:
             _yf_active.discard(key)
         return
 
+    is_open = _market_open(symbol)
     try:
-        bars = ds.SOURCES["yfinance"].get_ohlcv(symbol, timeframe, bars=2)
-        if bars:
-            bar = bars[-1]
-            _broadcast(symbol, timeframe, {
-                "type": "candle", "symbol": symbol,
-                "timeframe": timeframe, "bar": bar,
-            })
+        if is_open:
+            # bars=3 stays on data_source's cheap "1mo" daily path, and on a
+            # daily timeframe the last bar is now the current session rebuilt
+            # from intraday — so this genuinely moves during the session
+            # instead of re-broadcasting the last completed candle forever.
+            bars = ds.SOURCES["yfinance"].get_ohlcv(symbol, timeframe, bars=3)
+            if bars:
+                _broadcast(symbol, timeframe, {
+                    "type": "candle", "symbol": symbol,
+                    "timeframe": timeframe, "bar": bars[-1],
+                })
     except Exception as e:
         log.debug("yf poll error %s: %s", symbol, e)
 
-    t = threading.Timer(_YF_INTERVAL, _yf_poll, args=(symbol, timeframe))
+    t = threading.Timer(_YF_INTERVAL if is_open else _YF_INTERVAL_CLOSED,
+                        _yf_poll, args=(symbol, timeframe))
     t.daemon = True
     t.start()
 
@@ -256,6 +284,11 @@ def fvg_js():
     return send_from_directory(HERE, "fvg.js", mimetype="application/javascript")
 
 
+@app.route("/fibonacci.js")
+def fibonacci_js():
+    return send_from_directory(HERE, "fibonacci.js", mimetype="application/javascript")
+
+
 @app.route("/percent_r_trend_exhaustion.js")
 def percent_r_trend_exhaustion_js():
     return send_from_directory(HERE, "percent_r_trend_exhaustion.js", mimetype="application/javascript")
@@ -269,6 +302,7 @@ def api_ohlcv():
     if not symbol:
         return jsonify({"error": "symbol required"}), 400
     symbol = sym_dir.resolve_symbol(symbol)
+    requested = symbol          # remember it so a swap below can be reported
     source = ds.detect_source(symbol)
     data   = source.get_ohlcv(symbol, timeframe, bars)
     # Fallback chain when the primary fetch returns empty. Handles three cases:
@@ -291,12 +325,18 @@ def api_ohlcv():
         bare = re.sub(r"\.(NS|BO|BSE)$", "", symbol, flags=re.IGNORECASE)
         first_token = bare.split()[0] if " " in bare else bare
         candidates: list[str] = []
-        # Search the symbol directory by first token — most reliable path for
-        # both bare BSE tickers and company names.
+        # Search the FULL name before the first token. Searching only the first
+        # token silently answers about a different company: "BCC FUBA INDIA LTD"
+        # reduced to "BCC", whose top directory hit is BCCL.BO (Bhatia Colour
+        # Chem) — a chart for the wrong business, rendered without complaint.
+        # The full string matches BCCFUBA.BO exactly; the first token stays as a
+        # second pass so partial/misspelled input still resolves.
         try:
-            hits = sym_dir.search(first_token, limit=5)
-            for h in hits:
-                candidates.append(h["symbol"])
+            queries = [bare] if bare == first_token else [bare, first_token]
+            for q in queries:
+                for h in sym_dir.search(q, limit=5):
+                    if h["symbol"] not in candidates:
+                        candidates.append(h["symbol"])
         except Exception:
             pass
         # Generic cross-exchange suffixes as a last resort.
@@ -323,8 +363,17 @@ def api_ohlcv():
     except Exception as e:
         log.warning("get_previous_close failed for %s: %s", symbol, e)
         prev_close = None
-    return jsonify({"symbol": symbol, "timeframe": timeframe, "bars": data,
-                    "prev_close": prev_close, "source": source.name})
+    # A cross-exchange swap is a legitimate rescue (Yahoo's BSE feed is often a
+    # 1-3 bar stub while the NSE line has full history), but doing it silently
+    # means you can ask for .BO, get .NS, and never be told — the chart just
+    # quietly answers a different question. Report it so the client can say so.
+    resp = {"symbol": symbol, "timeframe": timeframe, "bars": data,
+            "prev_close": prev_close, "source": source.name}
+    if symbol != requested:
+        resp["requested_symbol"] = requested
+        resp["exchange_fallback"] = (
+            f"{requested} had no usable history on this feed — showing {symbol}")
+    return jsonify(resp)
 
 
 def _bars_to_df(bars: list[dict]):

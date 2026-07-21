@@ -89,6 +89,12 @@ class YFinanceSource(DataSource):
                 period = "max"   # full listing history — covers 10Y+ breakout stocks
             elif bars > 252:
                 period = "10y"
+            elif bars <= 10:
+                # Cheap path for the small daily fetches that run on a timer
+                # (previous-close lookup, the live poller). Pulling 5y of daily
+                # history to read the last 2-3 rows cost ~0.7s per call, per
+                # symbol, every 30s. "1mo" always covers >=10 trading days.
+                period = "1mo"
         try:
             with self._lock:
                 df = yf.download(symbol, period=period, interval=yf_iv,
@@ -120,6 +126,19 @@ class YFinanceSource(DataSource):
         # `NaN` literal, res.json() throws, and the chart renders blank with
         # no visible error. Drop any row where any of OHLC is NaN before we
         # even reach the tail/serialise step.
+        #
+        # On a daily request that NaN row is *today's session* — yfinance emits
+        # the placeholder before it publishes the aggregated daily candle. So
+        # dropping it silently left every NSE/BSE daily chart a session behind,
+        # and made "today's change" read exactly +0.00% (the last bar and the
+        # previous close both resolved to yesterday). Keep the drop, but
+        # remember the placeholder's timestamp so we can rebuild the candle
+        # from intraday data below. The placeholder index is authoritative for
+        # the timestamp, which avoids inventing one in the wrong timezone.
+        live_ts = None
+        if timeframe == "1d" and len(df):
+            if bool(df[["Open", "High", "Low", "Close"]].iloc[-1].isna().all()):
+                live_ts = df.index[-1]
         df = df.dropna(subset=["Open", "High", "Low", "Close"])
         df = df.tail(bars)
         import math
@@ -144,7 +163,82 @@ class YFinanceSource(DataSource):
                 "close":  round(c, 4),
                 "volume": v,
             })
+
+        # Rebuild the current session's daily candle from intraday bars so the
+        # chart, the ticker and every indicator see today rather than the last
+        # completed session.
+        if live_ts is not None:
+            live = self._session_bar_from_intraday(symbol, live_ts)
+            if live and (not out or live["time"] > out[-1]["time"]):
+                out.append(live)
+                if len(out) > bars:
+                    out = out[-bars:]
         return out
+
+    def _session_bar_from_intraday(self, symbol: str, session_ts) -> dict | None:
+        """Aggregate the current session's intraday bars into one daily candle.
+
+        `session_ts` is the timestamp of yfinance's own placeholder row, so the
+        synthesized bar lands exactly on the daily grid. Returns None rather
+        than guessing whenever the intraday data does not clearly belong to
+        that session — a stale-but-honest chart beats a fabricated candle.
+        """
+        # Relies on yfinance's default prepost=False: the intraday fetch returns
+        # regular-session bars only (AAPL 1m over a full day = exactly 390).
+        # If that default is ever changed here, a pre-open call would aggregate
+        # thin pre-market ticks into what looks like a full daily candle.
+        import math
+        import yfinance as yf
+        for interval in ("1m", "5m"):
+            try:
+                with self._lock:
+                    m = yf.download(symbol, period="1d", interval=interval,
+                                    progress=False, auto_adjust=True)
+            except Exception as e:
+                log.debug("intraday fetch failed for %s @%s: %s", symbol, interval, e)
+                continue
+            if m is None or m.empty:
+                continue
+            if isinstance(m.columns, pd.MultiIndex):
+                m.columns = [c[0] for c in m.columns]
+            m = m.rename(columns=str.title)
+            if not {"Open", "High", "Low", "Close"} <= set(m.columns):
+                continue
+            m = m.dropna(subset=["Open", "High", "Low", "Close"])
+            if m.empty:
+                continue
+            # period="1d" returns the *most recent* session, which on a holiday
+            # or over a weekend is not the session we are filling. Yahoo's
+            # intraday index is UTC and NSE/BSE/US sessions never straddle a UTC
+            # date boundary, so comparing calendar dates is sufficient here.
+            try:
+                if m.index[-1].date() != session_ts.date():
+                    log.debug("intraday session %s != placeholder %s for %s — skipping",
+                              m.index[-1].date(), session_ts.date(), symbol)
+                    return None
+            except Exception:
+                return None
+            try:
+                o = float(m["Open"].iloc[0])
+                h = float(m["High"].max())
+                l = float(m["Low"].min())
+                c = float(m["Close"].iloc[-1])
+                v = float(m["Volume"].sum()) if "Volume" in m.columns else 0.0
+            except Exception:
+                continue
+            if any(math.isnan(x) for x in (o, h, l, c)):
+                continue
+            if math.isnan(v):
+                v = 0.0
+            return {
+                "time":   int(session_ts.timestamp()),
+                "open":   round(o, 4),
+                "high":   round(h, 4),
+                "low":    round(l, 4),
+                "close":  round(c, 4),
+                "volume": v,
+            }
+        return None
 
     def get_latest_price(self, symbol: str) -> float | None:
         import yfinance as yf
@@ -154,19 +248,16 @@ class YFinanceSource(DataSource):
         except Exception:
             return None
 
-    def get_previous_close(self, symbol: str) -> float | None:
-        # yfinance's fast_info.previous_close is exchange-reported (matches
-        # what Google Finance / the ticker tape shows) and is one cheap call
-        # instead of a full daily-candle download — try it first.
-        try:
-            import yfinance as yf
-            with self._lock:
-                pc = yf.Ticker(symbol).fast_info.get("previousClose")
-            if pc:
-                return float(pc)
-        except Exception as e:
-            log.debug("fast_info previous_close failed for %s: %s", symbol, e)
-        return super().get_previous_close(symbol)
+    # NOTE: there used to be a get_previous_close() override here that read
+    # yfinance's fast_info.previousClose. It was removed deliberately.
+    # fast_info.previousClose is relative to *today*, while the chart's last
+    # bar was the last *completed* session — so whenever today's candle was
+    # missing the two references collapsed onto the same session and the
+    # change read exactly +0.00%. The base implementation derives the previous
+    # close from bars[-2] of the same series the chart is drawing, so the two
+    # can never disagree by construction. With today's candle now rebuilt
+    # above, it yields the same number Google shows during a session, and the
+    # last completed session's change outside one.
 
 
 # ── Hyperliquid ───────────────────────────────────────────────────────────────
