@@ -3,9 +3,9 @@ title: "Fair Value Gap (FVG)"
 category: concept
 tags: [fvg, fair-value-gap, imbalance, smc, ict, pullback-entry, rejection-wick, demand-zone, mtf, auto-threshold, luxalgo]
 created: 2026-07-03
-updated: 2026-07-16
-sources: 3
-related: [concepts/Market-Structure-CHOCH-BOS, strategies/Supply-Demand-Zone-Trading, concepts/Support-Resistance, concepts/Trend-Lines, concepts/Order-Blocks, concepts/Multi-Timeframe-Analysis]
+updated: 2026-07-22
+sources: 7
+related: [concepts/Market-Structure-CHOCH-BOS, strategies/Supply-Demand-Zone-Trading, concepts/Support-Resistance, concepts/Trend-Lines, concepts/Order-Blocks, concepts/Multi-Timeframe-Analysis, concepts/Fair-Value-Breaker-FBG, concepts/Fibonacci-Retracement, concepts/FPV-Flow-Price-Volume-Ownership, analyses/FVG-FBG-Fibonacci-Chart-Roadmap, sources/FVG-LuxAlgo-Pine, sources/FVG-DGT-Pine, sources/FVG-Zeiierman-MTF-Pine]
 ---
 
 # Fair Value Gap (FVG)
@@ -34,8 +34,48 @@ The canonical [[sources/LuxAlgo-Smart-Money-Concepts-Pine|LuxAlgo SMC]] indicato
 - **Auto threshold** (instead of ATR×0.5): the significance filter is the cumulative mean of absolute bar-delta-% × 2 — an adaptive baseline that self-scales as the series evolves, rather than a fixed ATR multiple. Optional; can be turned off for raw gaps.
 - Cosmetically each gap is drawn as **two half-boxes** split at the midpoint (a visual gradient), and boxes extend forward N bars.
 
+### LuxAlgo standalone FVG indicator — mitigation statistics dashboard (2026-07-22)
+LuxAlgo also ships a **dedicated FVG-only** indicator ([[sources/FVG-LuxAlgo-Pine]], separate from the SMC superset) that adds features the superset lacks:
+- **Detection uses a `close[1] > high[2]` directional gate** alongside `low > high[2]` and the size threshold — the middle candle must have *closed* above the prior two-bar high. Same intent as the directional-middle-candle filter above, expressed as a close-vs-prior-high test.
+- **Dashboard of fill % + average bars-to-mitigation** — turns FVG mitigation from binary (filled/unfilled) into a measurable expectancy ("how many bars until an FVG of this type typically fills"). Genuinely new quantitative angle; a port target for `tools/fvg.js`.
+- **"Dynamic" mitigation mode** — instead of deleting a gap the instant it's touched, keeps tracking how a partially-mitigated gap evolves. Softens LuxAlgo's usual wick-through-deletes-the-gap stance (see the contradiction callout above) toward the Quant script's "partial fill = entry, not death" lifecycle.
+- **Mitigation-level display** — optional draw of the level price must reclaim to mitigate (lower extremity for bullish, upper for bearish). Alerts fire on fill. Auto threshold (cumulative-mean) and custom-timeframe (MTF) options as in the superset.
+
+### DGT variant — fill logic as a user setting + LTF/intrabar detection (2026-07-22)
+"Fair Value Gaps by DGT" ([[sources/FVG-DGT-Pine]], by [[DGT]]) contributes two things the LuxAlgo scripts don't:
+- **Four selectable fill definitions** — the user picks what counts as "filled": **Any Touch** (price reaches the near edge) · **Midpoint Reached** (50% / consequent-encroachment level) · **Wick Sweep** (a wick fully crosses) · **Body Beyond** (a body/close pushes fully through). This *parameterizes* the mitigation-rule contradiction below: **Any Touch = LuxAlgo's aggressive wick-through** and **Body Beyond ≈ the Quant script's close-through invalidation** are just the two ends of one dial. The right way to port this is a `fill_mode` parameter, not a hard-coded rule.
+- **Three-source detection: current TF + HTF + LTF/intrabar** — LuxAlgo only projects gaps *down* from a higher timeframe; DGT also reads gaps on a *lower* timeframe (intrabar), auto-selecting the LTF from chart resolution, surfacing imbalances hidden inside the current bar.
+- Also: continuous **unfilled → partially repaired → fully resolved** lifecycle with live fill %, and hover-tooltips anchored on the gap midpoint.
+
+### Zeiierman variant — volume-effort + DSP trend filter inside the gap (2026-07-22)
+"Multitimeframe FVG" ([[sources/FVG-Zeiierman-MTF-Pine]], by [[Zeiierman]]) layers *context* onto the standard gap rather than changing the gap primitive:
+- **Bull/Bear Power inside the box** — volume-weighted sub-bars estimate buy vs sell effort per gap (Buy ≈ low→close, Sell ≈ high→close), colored by dominance. First source to put a *volume/effort* read directly on the imbalance zone — operationalizes the price+volume half of [[concepts/FPV-Flow-Price-Volume-Ownership]] at the single-gap level. (Estimates from OHLCV geometry, not real bid/ask.)
+- **Butterworth two-pole low-pass trend filter** (Passband Ripple dB, Cutoff 0–0.5) classifies each FVG **trend-aligned vs countertrend** — mechanizes "only trade FVGs with structure" with a DSP smoother instead of an EMA/pivot. Notable but not necessary to port (reuse an existing trend gate).
+- **Wick-sensitivity impulse filter** — candidate wick sizes vs a running average; another adaptive significance filter (cousin of LuxAlgo's cumulative-mean and the Quant ATR×0.5), but keyed on *wick* size.
+- **"Mitigated on Mid" toggle** — midpoint touch vs full closure; the Midpoint↔Body-Beyond choice from the DGT fill-mode spectrum exposed as a boolean. HTF *or* LTF selection + optional active-gap table as in the others.
+
 > [!contradiction] Mitigation rule differs from the Quant-script lifecycle above
 > This page's lifecycle (from the Quant script) invalidates an FVG only on a **close fully through** the far side — wick penetration is the entry, not the death of the zone. The **LuxAlgo** implementation deletes the gap on any **wick through** the far side (`low < bottom` bull / `high > top` bear). Same primitive, different lifecycle: LuxAlgo is a pure *visualizer* that wants clean charts, so it retires touched gaps aggressively; the Quant script is an *entry-signal engine* that needs the zone to survive the touch it trades. Pick the close-through rule when the FVG must survive to produce a pullback entry; the wick-through rule when you only want currently-untouched gaps on screen.
+>
+> **Resolution (2026-07-22):** the [[sources/FVG-DGT-Pine|DGT indicator]] treats fill logic as a *setting* with four definitions — **Any Touch** (= LuxAlgo wick-through) at one end, **Body Beyond** (= Quant close-through) at the other, with Midpoint and Wick Sweep in between. Both rules are valid endpoints of one configurable spectrum; model it as a `fill_mode` parameter rather than choosing a side.
+
+### Retail-friendly actionable rules (2026-07-22 framework)
+A condensed rule set from [[sources/FVG-FBG-Fibonacci-Retail-Framework]], consistent with the lifecycle above:
+- **Trade only when:** market structure supports the direction · a **liquidity sweep** happened before the FVG · price returns to the zone · **volume confirms** the displacement.
+- **Entry:** 50% of the FVG (optimal) or the full zone (aggressive); SL below/above the sweep or displacement candle.
+- **Exit:** TP1 return to origin · TP2 next liquidity pool · TP3 opposite-side FVG.
+- **Do NOT trade:** no displacement · no sweep · inside an HTF FVG (chop) · during news · low-volume sessions.
+- **FPV (price+volume) strength read:** Price↑+Vol↑ = strong long FVG; Price↓+Vol↑ = strong short; either on falling volume = weak. See the two-component FPV note in [[concepts/FPV-Flow-Price-Volume-Ownership]].
+
+### Fibonacci confluence
+Draw the Fib across the displacement candle (low→high for a bullish FVG):
+- **0.50 ≈ the FVG midpoint** — the cleanest continuation entry (SL below the displacement candle; TP at Fib 1.0 / next liquidity).
+- **0.618 = the "reaction test"** — a clean rejection there confirms a strong FVG; slicing through 0.618 on weak volume signals the imbalance is failing (and may become an FBG).
+- **1.272 / 1.618 / 2.0 extensions** = mechanical take-profit zones (they tend to align with liquidity pools / opposite-side FVGs).
+The chart's [fibonacci.js](tools/fibonacci.js) already computes these levels; scoring them against FVG zones is planned as FF-1 in [[analyses/FVG-FBG-Fibonacci-Chart-Roadmap]].
+
+### When an FVG fails → FBG
+A returning price that **closes through the opposite boundary** invalidates the FVG *and* flips it into a **breaker** — a reversal zone. That failure mode is its own concept: [[concepts/Fair-Value-Breaker-FBG]].
 
 ## Variants / Parameters
 - ATR multiplier (default 0.5) and ATR length (14) for minimum gap size; raise the multiplier for fewer, more significant zones.
@@ -64,3 +104,6 @@ The canonical [[sources/LuxAlgo-Smart-Money-Concepts-Pine|LuxAlgo SMC]] indicato
 1. [BOS-FVG-Pullback-Signals-Pine](../sources/BOS-FVG-Pullback-Signals-Pine.md) — Pine v6 indicator by Quant (MPL-2.0), ingested 2026-07-03; quality filters, lifecycle rules, and the 3-condition rejection signal are from this script.
 2. `tools/fvg.js` (this repo, 2026-06) — prior chart-side FVG zone detection; basic 3-candle definition and fill tracking.
 3. [LuxAlgo-Smart-Money-Concepts-Pine](../sources/LuxAlgo-Smart-Money-Concepts-Pine.md) — Pine v5 indicator by [[LuxAlgo]] (CC BY-NC-SA 4.0), ingested 2026-07-16; source for the MTF (`request.security`) detection, auto-threshold significance filter, two-half-box rendering, and the wick-through mitigation variant (contradiction callout above).
+4. [FVG-LuxAlgo-Pine](../sources/FVG-LuxAlgo-Pine.md) — LuxAlgo's standalone FVG-only TradingView indicator, ingested 2026-07-22; source for the mitigation-statistics dashboard (fill % + average bars-to-mitigation), the `close[1] > high[2]` directional gate, and the "Dynamic" mitigation mode.
+5. [FVG-DGT-Pine](../sources/FVG-DGT-Pine.md) — "Fair Value Gaps by DGT" TradingView indicator by [[DGT]], ingested 2026-07-22; source for the four fill-classification definitions (Any Touch / Midpoint / Wick Sweep / Body Beyond — the mitigation-rule spectrum that resolves the contradiction above) and current-TF + HTF + LTF/intrabar three-source detection.
+6. [FVG-Zeiierman-MTF-Pine](../sources/FVG-Zeiierman-MTF-Pine.md) — "Multitimeframe FVG" TradingView indicator by [[Zeiierman]], ingested 2026-07-22; source for the in-gap Bull/Bear Power volume-effort visualization, the Butterworth two-pole trend-alignment filter, the wick-sensitivity impulse filter, and the midpoint-vs-full mitigation toggle.

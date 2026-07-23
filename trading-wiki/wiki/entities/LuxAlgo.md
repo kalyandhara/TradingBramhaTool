@@ -4,9 +4,9 @@ category: entity
 entity_type: organization
 tags: [luxalgo, tradingview, pine-script, smc, indicator-vendor]
 created: 2026-07-16
-updated: 2026-07-16
-sources: 1
-related: [sources/LuxAlgo-Smart-Money-Concepts-Pine, concepts/Order-Blocks, concepts/Market-Structure-CHOCH-BOS]
+updated: 2026-07-22
+sources: 2
+related: [sources/LuxAlgo-Smart-Money-Concepts-Pine, sources/FVG-LuxAlgo-Pine, concepts/Order-Blocks, concepts/Market-Structure-CHOCH-BOS, concepts/Fair-Value-Gap]
 ---
 
 # LuxAlgo
@@ -19,6 +19,7 @@ Their open-source Pine scripts are released under **CC BY-NC-SA 4.0** (attributi
 
 ## Contributions ingested
 - [[sources/LuxAlgo-Smart-Money-Concepts-Pine]] (2026-07-16) — the full SMC superset indicator; primary source for [[concepts/Order-Blocks]], [[concepts/Equal-Highs-Lows]], [[concepts/Premium-Discount-Zones]], and the internal-vs-swing structure model on [[concepts/Market-Structure-CHOCH-BOS]].
+- [[sources/FVG-LuxAlgo-Pine]] (2026-07-22) — the standalone FVG-only indicator; added the mitigation-statistics dashboard (fill % + average bars-to-mitigation), `close[1]` directional gate, and "Dynamic" mitigation mode to [[concepts/Fair-Value-Gap]].
 
 ## Notes
 - Not SEBI/registered advice — an indicator vendor. Their tooling is descriptive (marks structure/zones), not predictive; same "reactive not predictive" framing as [[sources/YT-Samir-Varmer-Physicist-Trader]].

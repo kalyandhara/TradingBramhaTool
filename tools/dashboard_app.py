@@ -1759,6 +1759,12 @@ if current_page == "Scanner Hub":
                     st.session_state.pop("hub_results", None)
 
         selected_scanner = st.session_state.get("hub_scanner", list(sc.SCANNERS.keys())[0])
+        # A session can hold a scanner name that no longer exists (the four
+        # per-duration breakout buttons became one combined entry) — fall back
+        # rather than KeyError on the description lookup below.
+        if selected_scanner not in sc.SCANNERS:
+            selected_scanner = list(sc.SCANNERS.keys())[0]
+            st.session_state["hub_scanner"] = selected_scanner
         st.divider()
         st.markdown(f"**Selected:** {selected_scanner}")
         st.caption(sc.SCANNERS[selected_scanner]["description"])
@@ -1950,6 +1956,24 @@ if current_page == "Scanner Hub":
                     reverse=True,
                 )
                 sort_label = "Overall Rating"
+
+            # Combined consolidation-breakout scan: longest duration outranks
+            # any score — a 10-year breakout is a rarer, bigger statement than
+            # a high-scoring 6-month one. Re-sort AFTER the Overall Rating
+            # block above so duration stays the primary key. Presentation
+            # stays the standard 3-column card grid (user decision, see memory
+            # scanner-results-card-presentation): duration is tags[0] on each
+            # card, so the ordering + label carry the duration story.
+            has_duration = any("duration_days" in h for h in shown)
+            if has_duration:
+                shown = sorted(
+                    shown,
+                    key=lambda h: (h.get("duration_days", 0),
+                                   h.get("overall") or 0,
+                                   h.get("score", 0)),
+                    reverse=True,
+                )
+                sort_label = "breakout duration (longest first)"
 
             filt_note = "" if len(shown) == len(hits) else f" ({len(hits)} matched)"
             st.caption(f"Showing {len(shown)} stocks{filt_note} · sorted by {sort_label}")

@@ -1017,6 +1017,12 @@ def scan_6m_consolidation_breakout(df: pd.DataFrame) -> dict | None:
 
     return {
         "pattern_type": "6-Month Consolidation Breakout",
+        # Structured copies of the tag numbers — the combined-breakout table
+        # renders these as columns instead of parsing tag strings back apart.
+        "broke_level": round(prior_126_high, 2),
+        "breakout_pct": round((last_close - prior_126_high) / prior_126_high * 100, 1),
+        "range_pct": round(consolidation_pct, 1),
+        "vol_ratio": round(vol_ratio, 2),
         "tags": [
             f"Broke {prior_126_high:.0f}",
             f"{consolidation_pct:.0f}% range",
@@ -1094,6 +1100,11 @@ def _consolidation_breakout(
 
     return {
         "pattern_type": f"{label} Consolidation Breakout",
+        # Structured copies of the tag numbers — see the 6M scanner's note.
+        "broke_level": round(prior_high, 2),
+        "breakout_pct": round(breakout_pct, 1),
+        "range_pct": round(range_pct, 1),
+        "vol_ratio": round(vol_ratio, 2),
         "tags": [
             f"Broke {prior_high:.0f}",
             f"{range_pct:.0f}% range",
@@ -1117,6 +1128,31 @@ def scan_5y_breakout(df: pd.DataFrame) -> dict | None:
 def scan_10y_breakout(df: pd.DataFrame) -> dict | None:
     """10-year / all-time high breakout, EMA50 filter, Vol>2L — generational move."""
     return _consolidation_breakout(df, lookback=2520, label="10-Year", max_range_pct=200)
+
+
+def scan_all_duration_breakout(df: pd.DataFrame) -> dict | None:
+    """Every consolidation-breakout duration in a single pass.
+
+    Tries the longest window first (10Y → 5Y → 1Y → 6M) and reports a stock
+    once, at the LONGEST duration whose gates it clears — a 10-year breakout
+    by construction also clears the 1-year and 6-month highs, so the longest
+    label is the only non-redundant one. ``duration_days`` drives the hub's
+    longest-first table sort.
+    """
+    tiers = [
+        (2520, "10-Year", scan_10y_breakout),
+        (1260, "5-Year",  scan_5y_breakout),
+        (252,  "1-Year",  scan_1y_breakout),
+        (126,  "6-Month", scan_6m_consolidation_breakout),
+    ]
+    for days, label, fn in tiers:
+        hit = fn(df)
+        if hit:
+            hit["duration_days"] = days
+            hit["duration_label"] = label
+            hit["tags"] = [label, *hit.get("tags", [])]
+            return hit
+    return None
 
 
 def scan_high_tight_flag(df: pd.DataFrame, min_pole_pct: float = 90.0,
@@ -2558,27 +2594,17 @@ SCANNERS: dict[str, dict] = {
         "description": "Below key MAs with distribution volume — stocks to avoid or short",
         "category": "Risk",
     },
-    "6M Consolidation Breakout": {
-        "fn": scan_6m_consolidation_breakout,
+    # One combined entry replaced the four separate 6M/1Y/5Y/10Y buttons
+    # (2026-07-22): each stock reports once at the LONGEST duration it broke,
+    # and the hub renders a single longest-first table instead of cards.
+    "Consolidation Breakout (6M–10Y)": {
+        "fn": scan_all_duration_breakout,
         "description": (
-            "Chartink-style: Close > EMA50, Close > 126-day high (fresh breakout), "
-            "prior 6-month range ≤40% (was consolidating), Volume > 2L"
+            "All durations in one pass — 10-year, 5-year, 1-year and 6-month "
+            "consolidation breakouts (Close > period high, above EMA50, Volume "
+            "> 2L, range gate per duration). Each stock is reported at the "
+            "longest duration it cleared; results table sorts longest first."
         ),
-        "category": "Pattern",
-    },
-    "1Y Breakout": {
-        "fn": scan_1y_breakout,
-        "description": "Close > 252-day high (1-year breakout) after consolidation ≤50%, above EMA50, Volume > 2L",
-        "category": "Pattern",
-    },
-    "5Y Breakout": {
-        "fn": scan_5y_breakout,
-        "description": "Close > 1260-day high (5-year breakout) after consolidation ≤80%, above EMA50, Volume > 2L",
-        "category": "Pattern",
-    },
-    "10Y Breakout": {
-        "fn": scan_10y_breakout,
-        "description": "Close > 2520-day high (10-year / all-time breakout), above EMA50, Volume > 2L — generational breakout",
         "category": "Pattern",
     },
     "High Tight Flag": {

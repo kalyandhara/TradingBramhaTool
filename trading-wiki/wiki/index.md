@@ -6,7 +6,7 @@ sources_ingested: 71
 ---
 
 # Trading Wiki — Index
-_Last updated: 2026-07-19 | Pages: 176 | Sources ingested: 71_
+_Last updated: 2026-07-22 | Pages: 188 | Sources ingested: 76_
 
 ## Overview
 - [Market Overview & Current Thesis](overview.md)
@@ -14,6 +14,11 @@ _Last updated: 2026-07-19 | Pages: 176 | Sources ingested: 71_
 ## Sources
 | Page | Type | Date | Key Topics |
 |------|------|------|------------|
+| [FVG-Zeiierman-MTF-Pine](sources/FVG-Zeiierman-MTF-Pine.md) | TradingView Pine indicator ([[Zeiierman]], Wizard, open-source) | 2026-07-22 | "Multitimeframe FVG": layers *context* on the standard gap — **Bull/Bear Power** volume-effort sub-bars drawn inside each box (Buy≈low→close, Sell≈high→close; first per-gap volume read → FPV); **Butterworth two-pole low-pass trend filter** classifying FVGs trend-aligned vs countertrend (DSP, unusual in retail); wick-sensitivity impulse filter (wick vs running avg); "Mitigated on Mid" toggle (Midpoint↔Body-Beyond as a boolean); HTF *or* LTF via `request.security`; active-gap table. Port target: per-gap bull/bear power in `tools/fvg.js` (FF-5) |
+| [FVG-DGT-Pine](sources/FVG-DGT-Pine.md) | TradingView Pine indicator ([[DGT]]/dgtrd, Pine Wizard, open-source) | 2026-07-22 | "Fair Value Gaps by DGT": **fill logic as a user setting** — four definitions (Any Touch / Midpoint / Wick Sweep / Body Beyond) that *parameterize* the wiki's wick-through-vs-close-through mitigation contradiction (Any Touch↔Body Beyond = the two ends); three-source detection **current TF + HTF + LTF/intrabar** (Auto LTF from chart resolution — new intrabar capability); live per-gap fill %; unfilled→partial→resolved lifecycle; midpoint tooltips; ICT framing. Port target: `fill_mode` param for `tools/fvg.js` |
+| [FVG-LuxAlgo-Pine](sources/FVG-LuxAlgo-Pine.md) | TradingView Pine indicator ([[LuxAlgo]], open-source) | 2026-07-22 | Standalone FVG-only tool (vs the SMC superset): 3-condition detection with a `close[1] > high[2]` **directional gate**; fixed-% or **Auto (cumulative-mean)** threshold; unmitigated-only display + optional mitigation levels; **"Dynamic"** mode tracks evolving touched gaps; **dashboard of fill % + average bars-to-mitigation** (new quantitative angle, port target for `tools/fvg.js`); fill alerts; MTF timeframe select; contrarian (fill) vs trend-following use |
+| [FVG-FBG-Fibonacci-Retail-Framework](sources/FVG-FBG-Fibonacci-Retail-Framework.md) | Framework | 2026-07-22 | FVG (continuation) + FBG (reversal) actionable rules; Fibonacci confluence (0.50 midpoint / 0.618–0.705 breaker retest / 1.272–1.618 targets); retail 2+NO→skip checklist; price+volume FPV |
+| [Crash-Proof-Market-Health-Ownership-Framework](sources/Crash-Proof-Market-Health-Ownership-Framework.md) | Framework | 2026-07-21 | Market-health 2-of-5 kill switch; shareholding as structural filter; market×ownership matrix; FPV; crash-proof stage flow; MCX example |
 | [Fingrad-Trading-Infographics-Collection](sources/Fingrad-Trading-Infographics-Collection.md) | Infographic collection (Obsidian note "Fibonacci the"; Fingrad / Haseeb Badar / Bulkowski) | 2026-07-19 | 16 trading infographics — Fibonacci retracement+extension+golden-zone+Fib/RSI (→ new concept page), RSI 60-40 setup on 21/50 EMA (→ new strategy), SuperTrend+5/20-EMA and SuperTrend+RSI+ADX confluence, 50/200 golden-death cross, 5-8-13 EMA ribbon, Bulkowski top-10 candlestick accuracy %, Bollinger squeeze, MACD price-action, trader taxonomy |
 | [LuxAlgo-Smart-Money-Concepts-Pine](sources/LuxAlgo-Smart-Money-Concepts-Pine.md) | Pine Script v5 indicator ([[LuxAlgo]], CC BY-NC-SA 4.0) | 2026-07-16 | Canonical/most-forked SMC superset: two-tier **internal (5-bar) vs swing (50-bar) structure**; BOS/CHoCH via close-cross + per-tier trend bias; **order blocks** = last opposing candle before the break, volatility-parsed (ATR-200); **EQH/EQL** liquidity pools (ATR-threshold equality); **premium/discount/equilibrium** 5% Fib bands on trailing swing range; **Strong/Weak High-Low** protected-vs-vulnerable extremes; MTF + auto-threshold **FVG** (two half-boxes, wick-through mitigation); MTF PDH/PWH/PMH levels; 16 alerts. Spawned 3 new concept pages; OB port is highest-value TODO |
 | [Investopedia-Stochastic-Oscillator](sources/Investopedia-Stochastic-Oscillator.md) | Investopedia article (fetch-blocked; filed from canonical Lane reference) | 2026-07-14 | Stochastic Oscillator by George C. Lane (late 1950s); %K = 100 × (Close − LL(n))/(HH(n) − LL(n)), %D = SMA(%K, 3); Fast (14,1,3) vs Slow (14,3,3) vs Full variants; 80/20/50 thresholds; crossover / exit-from-extreme / divergence / Lane bull-bear setup signals; wired into chart tool as sub-pane oscillator |
@@ -91,6 +96,8 @@ _Last updated: 2026-07-19 | Pages: 176 | Sources ingested: 71_
 ## Concepts
 | Page | Summary | Updated |
 |------|---------|---------|
+| [FPV-Flow-Price-Volume-Ownership](concepts/FPV-Flow-Price-Volume-Ownership.md) | Price+Volume+Ownership timing-confirmation; 4 combos (strong/weak/accumulation/late); **naming-collision flag** — now THREE meanings of "FPV" across the project | 2026-07-22 |
+| [Fair-Value-Breaker-FBG](concepts/Fair-Value-Breaker-FBG.md) | Failed FVG that flips into a reversal/breaker zone (close through opposite boundary); retest entry at Fib 0.618–0.705 with volume spike = strong breaker; trapped-liquidity mechanic | 2026-07-22 |
 | [RSI](concepts/RSI.md) | Momentum oscillator; regime-aware ranges; hidden divergence; swing-failure swings | 2026-06-22 |
 | [EMA](concepts/EMA.md) | 9/20/21/50/200 periods; SMA vs EMA; slope-over-position rule; stretch/mean-reversion | 2026-06-22 |
 | [Darvas-Box](concepts/Darvas-Box.md) | High-Dry-Fry breakout; lollipop low = stop on closing basis; + Chartink scanner #9 | 2026-06-15 |
@@ -133,7 +140,7 @@ _Last updated: 2026-07-19 | Pages: 176 | Sources ingested: 71_
 | [Percent-R-Trend-Exhaustion](concepts/Percent-R-Trend-Exhaustion.md) | Dual-length Williams %R; signal fires on zone *exit* not entry; validated live on Goodyear India bottom | 2026-07-02 |
 | [Reversal-Chart-Patterns](concepts/Reversal-Chart-Patterns.md) | Double Top/Bottom, Head & Shoulders/Inverse H&S from swing pivots; 5-factor quality score; Follow-Through Proof self-grades signals against real forward price action | 2026-07-02 |
 | [Trend-Lines](concepts/Trend-Lines.md) | Diagonal S/R from confirmed pivots; supply line (lower highs) vs demand line (higher lows); ≤30° normalized-angle durability filter; body-close break rule; supply-line break ≈ early CHOCH | 2026-07-03 |
-| [Fair-Value-Gap](concepts/Fair-Value-Gap.md) | 3-candle imbalance zone; ATR-scaled size + directional-middle-candle quality filters; partial fill = entry, full close-through = invalidation; 3-condition pullback-rejection entry; + LuxAlgo MTF + auto-threshold variant (wick-through mitigation) | 2026-07-16 |
+| [Fair-Value-Gap](concepts/Fair-Value-Gap.md) | 3-candle imbalance zone; ATR-scaled size + directional-middle-candle quality filters; partial fill = entry, full close-through = invalidation; 3-condition pullback-rejection entry; + LuxAlgo MTF + auto-threshold variant (wick-through mitigation) + standalone LuxAlgo FVG dashboard (fill % + avg bars-to-mitigation, "Dynamic" mode) + DGT 4-way fill-mode spectrum (Any Touch↔Body Beyond resolves the mitigation contradiction) + LTF/intrabar detection + Zeiierman in-gap Bull/Bear Power (volume-effort) + Butterworth trend-alignment filter | 2026-07-22 |
 | [Volume-Profile](concepts/Volume-Profile.md) | Volume-by-price histogram; POC/VAH/VAL (70% VA), HVN/LVN; delta model (who built each node); acceptance-above-POC test; MTF value confluence; allocation + VA-expansion method choices documented | 2026-07-03 |
 | [High-Tight-Flag](concepts/High-Tight-Flag.md) | Rarest continuation pattern: ≥90% pole in ≤8wk, 10–25% flag on drying volume; entry only at flag-high break with 1.5×+ volume; rising-volume flag = distribution; strictness IS the edge | 2026-07-03 |
 | [Rounding-Bottom](concepts/Rounding-Bottom.md) | Saucer base: gradual U, 12–40% deep, linear-fit legs + time symmetry, EMA-21 turn at trough = knife filter; rim breakout lifecycle; Classic Reversal vs Constructive Base by 200-DMA; V-bottom ≠ saucer | 2026-07-03 |
@@ -142,6 +149,7 @@ _Last updated: 2026-07-19 | Pages: 176 | Sources ingested: 71_
 ## Strategies
 | Page | Timeframe | Summary | Updated |
 |------|-----------|---------|---------|
+| [Crash-Proof-3-Filter-System](strategies/Crash-Proof-3-Filter-System.md) | Swing | Gate stack (veto-only): Market-health 2-of-5 kill switch + Stage-2 stock filter + FII/DII/MF/Retail ownership flow; all three must align; FPV confirms timing; educational (unbacktested) | 2026-07-21 |
 | [TechnoFunda-Swing](strategies/TechnoFunda-Swing.md) | Swing | 7-condition system: VWAP+EMA+SMA+RSI+ADX+VCP+ATR | 2026-06-14 |
 | [VCPBot-Trend-Template](strategies/VCPBot-Trend-Template.md) | Swing | Minervini 7-condition MA stack + RS Rank dual-gate | 2026-06-14 |
 | [RSI-60-40-Setup](strategies/RSI-60-40-Setup.md) | Swing | Trend-continuation on 21/50 EMA stack; RSI-40 pullback + RSI-60 breakout entries; stop below 50/21 EMA; 2–3R targets; educational (unbacktested) | 2026-07-19 |
@@ -169,6 +177,8 @@ _Last updated: 2026-07-19 | Pages: 176 | Sources ingested: 71_
 ## Analyses
 | Page | Date | Topic |
 |------|------|-------|
+| [FVG-FBG-Fibonacci-Chart-Roadmap](analyses/FVG-FBG-Fibonacci-Chart-Roadmap.md) | 2026-07-22 | Chart roadmap (FF-1…FF-5) for FVG+FBG+Fibonacci. Two of three primitives already exist (`fvg.js`, `fibonacci.js`) so most is confluence wiring: FF-1 score Fib levels vs FVG zones (0.50=midpoint), FF-2 upgrade chart FVG to quality-gated detection, FF-3 **FBG breaker detector** (only greenfield piece), FF-4 FBG retest ↔ Fib 0.618–0.705 strong/weak grading, FF-5 price+volume + retail "2+NO→skip" gate. Expands [[analyses/Dashboard-UI-Roadmap]] Phase 2 |
+| [Decision-Support-Gating-Roadmap](analyses/Decision-Support-Gating-Roadmap.md) | 2026-07-21 | Roadmap turning the crash-proof 3-filter system into dashboard surfaces (DS-1…DS-4). Grounded finding: `market_verdict.py` already implements the "2+ conditions fail → STAND DOWN" market-health kill switch, so DS-1 extends an existing engine; the one real data gap is the full FII/DII/MF/Retail ownership split (`nse_shareholding_fetch.py` fetches FII only). DS-3 combination matrix (market×ownership) is the novel decision surface; DS-4 FPV chip last, per overtrust discipline. Expands [[analyses/Dashboard-UI-Roadmap]] Phase 2 |
 | [Setup-Intelligence-Panel-2026-07-16](analyses/Setup-Intelligence-Panel-2026-07-16.md) | 2026-07-16 | SwingEdge-style "Setup Intelligence" card shipped on the existing Council engine — **zero new computation**: status badge ← `card.verdict`, RS/Breakout-Readiness/Accumulation chips ← existing subscores, bullish/risk factor split ← `facts` dict. Key architectural insight: we were closer to SwingEdge than the UI implied — the analytics existed, only the presentation was missing. Found a category bug in SwingEdge's own card (MACD-below-zero listed as *bullish* with a −2 score). Remaining true gaps: volume-profile POC factors (needs `volume_profile.js` → Python port) + pivot/VCP-compression wiring (code already in `scanner_templates.py`) |
 | [Dashboard-UI-Roadmap](analyses/Dashboard-UI-Roadmap.md) | 2026-07-08 | 4-milestone plan toward the Market Terminal-style Predictive Analysis view: M1 Overall Rating rollup in Scanner Hub (1-2h, highest ROI) → M2 pattern boxes + click-for-metadata tooltip on chart (3-4h, reuses `/api/vcp` + `/api/rounding_bottom` + `/api/trendlines`) → M3 AI Prediction line + % with confidence guardrails (6-8h, leverages Pree Market Tool) → M4 consolidated Predictive Analysis tab (4-6h composition). Sequencing rule: don't start N until N-1 shipped |
 | [Astro-Engine-Cross-Check](analyses/Astro-Engine-Cross-Check.md) | 2026-07-08 | Calibration plan for local astro engine (PyEphem-based) via 3-way triangulation against Astro-Seek + Cafe Astrology; five diff categories (Rx stations / lunations / ingresses / VoC — Modern-vs-Traditional-vs-Hellenistic identifier / OOB); one-off calibration, ±2 min tolerance for stations & lunations, day-level for OOB; deferred until user kicks off |
@@ -183,6 +193,8 @@ _Last updated: 2026-07-19 | Pages: 176 | Sources ingested: 71_
 ## Entities
 | Page | Ticker | Bias | Updated | Sources |
 |------|--------|------|---------|---------|
+| [Zeiierman](entities/Zeiierman.md) | — | — (author) | 2026-07-22 | 1 |
+| [DGT (dgtrd)](entities/DGT.md) | — | — (author) | 2026-07-22 | 1 |
 | [JAYBARMARU](entities/JAYBARMARU.md) | JAYBARMARU | watching | 2026-06-14 | 1 |
 | [SHRIRAMFIN](entities/SHRIRAMFIN.md) | SHRIRAMFIN | watching | 2026-06-14 | 1 |
 | [IOLCP](entities/IOLCP.md) | IOLCP | watching | 2026-07-03 | 2 |

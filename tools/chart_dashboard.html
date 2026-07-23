@@ -384,12 +384,41 @@ html, body {
   max-width: 260px; display: none;
 }
 
+/* ── Top-right action stack ───────────────────────────────────────────────── */
+/* Single flex row anchored to the top-RIGHT corner. It started top-left, but
+   the symbol-autocomplete dropdown and the INDICATORS panel both open from
+   the top-left toolbar and landed underneath the cards, so the user could
+   not pick a scrip or toggle an indicator while cards were up (NESTLEIND
+   case, 2026-07-22). Right-anchored the cards only overlap the top rows of
+   the price scale — the same tradeoff the old rev-info corner made. Every
+   card that can demand a decision (FVG signal, Fibonacci trade plan, price
+   projection) plus the Rounding Bottom chip lives here as a normal flow
+   child, so any number of simultaneous cards align on the top edge and flow
+   with a gap — replacing the old per-card corner assignments, which collided
+   when two overlays claimed the same corner (FVG + projection were both
+   bottom-right). Cards wrap to a second right-aligned row on narrow panes
+   rather than clipping. `order` on each card fixes the visual sequence
+   regardless of which overlay the user toggled on first. pointer-events pass
+   through the (possibly empty) container but stay live on the cards
+   themselves. */
+.action-stack {
+  position: absolute; top: 6px; right: 8px; z-index: 9;
+  display: flex; flex-direction: row; flex-wrap: wrap; align-items: flex-start;
+  justify-content: flex-end;
+  /* Reserve the left ~280px at every width: that's where the symbol
+     autocomplete and INDICATORS panel drop down, and cards must never sit
+     under them — wrap into right-aligned rows instead. */
+  gap: 6px; max-width: calc(100% - 280px);
+  pointer-events: none;
+}
+.action-stack > * { position: relative; pointer-events: auto; flex-shrink: 0; }
+
 /* ── Rounding Bottom info overlay ─────────────────────────────────────────── */
-/* Anchored top-right (opposite corner from the collapsed ew-info at
-   bottom-left) so overlays don't stack on each other. Same collapse-and-
-   persist pattern as ew-info; default is collapsed to a small chip. */
+/* Lives in the top-left .action-stack (order 0: chip-sized, so it leads the
+   row without pushing the cards far right). Same collapse-and-persist
+   pattern as ew-info; default is collapsed to a small chip. */
 .rb-info {
-  position: absolute; top: 6px; right: 8px; z-index: 8;
+  order: 0;
   background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
   padding: 6px 22px 6px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
   max-width: 240px; display: none;
@@ -457,11 +486,12 @@ html, body {
 }
 
 /* ── Price Projection info overlay (Milestone 3) ──────────────────────────── */
-/* Anchored bottom-right — the remaining free corner. Not collapsible: a
-   projection is rare (only shown when a setup clears the Medium confidence
-   floor) and is the one number worth reading in full when present. */
+/* Lives in the top-left .action-stack (order 4 — after the signal and the
+   plan that quotes it). Not collapsible: a projection is rare (only shown
+   when a setup clears the Medium confidence floor) and is the one number
+   worth reading in full when present. */
 .proj-info {
-  position: absolute; bottom: 6px; right: 8px; z-index: 8;
+  order: 4;
   background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
   padding: 7px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
   max-width: 260px; display: none;
@@ -474,12 +504,12 @@ html, body {
 .proj-disclaimer { color: var(--text-muted); font-style: italic; font-size: 9.5px; }
 
 /* ── Fibonacci trade-plan info overlay ────────────────────────────────────── */
-/* Bottom-LEFT so it never collides with .proj-info bottom-right: the two are
-   most useful side by side, since the plan quotes the projection it was
-   built from. Collapsible like the pattern overlays because the plan is long
-   when it has blockers to explain. */
+/* Lives in the top-left .action-stack (order 3 — directly left of .proj-info,
+   since the plan quotes the projection it was built from). Collapsible like
+   the pattern overlays because the plan is long when it has blockers to
+   explain. */
 .fib-info {
-  position: absolute; bottom: 6px; left: 8px; z-index: 8;
+  order: 3;
   background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
   padding: 7px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
   max-width: 290px; display: none;
@@ -495,6 +525,50 @@ html, body {
 .fib-row span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
 .fib-why { color: var(--text-muted); font-size: 9.5px; }
 .fib-block { color: #e0705c; font-size: 9.5px; }
+/* ── MA Bias card ─────────────────────────────────────────────────────────── */
+/* Leads the .action-stack row (order 1, right after the Rounding Bottom
+   chip): regime → stack → trigger → distrust is the lens the other
+   actionable cards should be read through, so it comes first. */
+.ma-info {
+  order: 1;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
+  padding: 7px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
+  max-width: 270px; display: none;
+}
+.ma-info .ma-head { cursor: pointer; font-weight: 700; user-select: none; }
+.ma-info.collapsed .ma-body { display: none; }
+.ma-badge {
+  display: inline-block; border-radius: 99px; padding: 1px 8px;
+  font-size: 10px; font-weight: 700; color: #0d1117;
+}
+.ma-info hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+.ma-row { display: flex; justify-content: space-between; gap: 10px; }
+.ma-row span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+.ma-why { color: var(--text-muted); font-size: 9.5px; }
+.ma-warn { color: #f0883e; font-size: 9.5px; }
+
+/* FVG actionable-signal panel — order 2, right after the MA Bias lens:
+   a live signal is read through the bias, then acted on. */
+.fvg-info {
+  order: 2;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
+  padding: 7px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
+  max-width: 260px; display: none;
+}
+.fvg-info .fvg-head { cursor: pointer; font-weight: 700; user-select: none; }
+.fvg-info.collapsed .fvg-body { display: none; }
+.fvg-badge {
+  display: inline-block; border-radius: 99px; padding: 1px 8px;
+  font-size: 10px; font-weight: 700; color: #0d1117;
+}
+.fvg-info hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+.fvg-row { display: flex; justify-content: space-between; gap: 10px; }
+.fvg-row span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+.fvg-why { color: var(--text-muted); font-size: 9.5px; }
+.fvg-power {
+  height: 5px; border-radius: 3px; margin: 3px 0;
+  background: linear-gradient(to right, #26a69a var(--buy, 50%), #ef5350 var(--buy, 50%));
+}
 </style>
 </head>
 <body>
@@ -663,10 +737,13 @@ const INDICATOR_DEFS = [
   {key:'sma20',     label:'SMA (20)',          group:'Moving Averages', color:'#2962ff'},
   {key:'sma50',     label:'SMA (50)',          group:'Moving Averages', color:'#ff9800'},
   {key:'sma200',    label:'SMA (200)',         group:'Moving Averages', color:'#f23645'},
+  {key:'ema9',      label:'EMA (9)',           group:'Moving Averages', color:'#00e5ff'},
   {key:'ema20',     label:'EMA (20)',          group:'Moving Averages', color:'#00bd6f'},
   {key:'ema50',     label:'EMA (50)',          group:'Moving Averages', color:'#9c27b0'},
   {key:'ema200',    label:'EMA (200)',         group:'Moving Averages', color:'#e91e63'},
   {key:'vwap',      label:'VWAP',              group:'Moving Averages', color:'#ffd60a'},
+  {key:'mabias',    label:'MA Bias (9/20 cross · 50/200 regime) + card',
+                                               group:'Moving Averages', color:'#4c9aff'},
   {key:'bollinger', label:'Bollinger (20, 2)', group:'Bands & Channels', color:'#9aa4af'},
   {key:'donchian',  label:'Donchian (20)',     group:'Bands & Channels', color:'#26c6da'},
   {key:'keltner',   label:'Keltner (20, 1.5)',     group:'Bands & Channels', color:'#f48fb1'},
@@ -684,7 +761,7 @@ const INDICATOR_DEFS = [
   {key:'volprofile', label:'Volume Profile (POC/VA/HVN/LVN)', group:'Volume',  color:'#9aa4af'},
   // ── Pattern Recognition ──────────────────────────────────────────────────────
   {key:'elliott',      label:'Elliott Wave (1-5, A-B-C)', group:'Pattern Recognition', color:'#00e5ff'},
-  {key:'fvg',          label:'Fair Value Gap',            group:'Pattern Recognition', color:'#26a69a'},
+  {key:'fvg',          label:'Fair Value Gap + Buy/Sell signal (FPV)', group:'Pattern Recognition', color:'#26a69a'},
   {key:'roundbottom',  label:'Rounding Bottom (saucer)',  group:'Pattern Recognition', color:'#ffab40'},
   {key:'vcp',          label:'VCP Coiling',               group:'Pattern Recognition', color:'#26c6da'},
   {key:'trendlines',   label:'Trendlines (supply/demand)', group:'Pattern Recognition', color:'#ff9800'},
@@ -1705,11 +1782,19 @@ function showToast(msg, ms = 2200) {
 // document root, so --overlay-bg etc. would silently fall back to nothing).
 // Reading them off getComputedStyle also means the snapshot follows the live
 // Dark/Light toggle for free.
-const SNAP_PANEL_SEL = '.ew-info, .rb-info, .vcp-info, .pmax-info, .proj-info, .rev-info';
+/* .action-stack is cloned as a whole: its cards (rb/fvg/fib/proj) are static
+   flex children, so cloning them individually would lose their stacked
+   positions — and cloning the stack also picks up the FVG and Fib cards,
+   which the old per-panel list never included. */
+const SNAP_PANEL_SEL = '.ew-info, .vcp-info, .pmax-info, .rev-info, .action-stack';
 
 async function renderOverlayPanels(chartMain) {
   const panels = Array.from(chartMain.querySelectorAll(SNAP_PANEL_SEL))
-    .filter(el => el.offsetParent !== null && getComputedStyle(el).display !== 'none');
+    .filter(el => el.offsetParent !== null && getComputedStyle(el).display !== 'none')
+    // An action stack with no visible card contributes nothing — drop it so
+    // an otherwise panel-free chart skips the foreignObject pass entirely.
+    .filter(el => !el.classList.contains('action-stack')
+      || Array.from(el.children).some(c => getComputedStyle(c).display !== 'none'));
   if (!panels.length) return null;
 
   const w = chartMain.clientWidth, h = chartMain.clientHeight;
@@ -1885,7 +1970,9 @@ function addLine(pane, color, lineWidth = 1, lineStyle = 0) {
 // exhaustion dots and Elliott counts on what is effectively a savings
 // account. Volume/volume-profile/MAs stay — those are structural, not
 // momentum, and remain informative on any series.
-const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'stoch', 'elliott'];
+// mabias joins them: a trend-bias card on a monotonic yield line would read
+// "permanent golden cross" — technically true, decisionally meaningless.
+const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'stoch', 'elliott', 'mabias'];
 
 // Detect liquid-ETF / cash-equivalent behaviour from bar statistics rather
 // than symbol lists — new liquid ETFs launch faster than any hardcoded set
@@ -1946,12 +2033,15 @@ function applyIndicators(pane) {
     ctx.clearRect(0, 0, pane.volCanvas.width, pane.volCanvas.height);
     pane.vp = null;
   }
-  // Clear FVG canvas if deselected
+  // Clear FVG canvas + buy/sell signal markers/panel if deselected
   if (!pane.indicators.has('fvg') && pane.fvgCanvas) {
     const ctx = pane.fvgCanvas.getContext('2d');
     ctx.clearRect(0, 0, pane.fvgCanvas.width, pane.fvgCanvas.height);
     pane.fvgZones = null;
+    clearFVGSignals(pane);
   }
+  // Tear down MA Bias card + cross markers if deselected
+  if (!pane.indicators.has('mabias') && pane.maBias) clearMABias(pane);
   // Tear down Elliott Wave overlay if deselected
   if (!pane.indicators.has('elliott') && pane.ew) clearElliottWave(pane);
   // Tear down Rounding Bottom overlay if deselected
@@ -1981,6 +2071,7 @@ function applyIndicators(pane) {
       case 'sma20':  pane.indSeries[key] = addLine(pane, def.color); break;
       case 'sma50':  pane.indSeries[key] = addLine(pane, def.color); break;
       case 'sma200': pane.indSeries[key] = addLine(pane, def.color); break;
+      case 'ema9':   pane.indSeries[key] = addLine(pane, def.color); break;
       case 'ema20':  pane.indSeries[key] = addLine(pane, def.color); break;
       case 'ema50':  pane.indSeries[key] = addLine(pane, def.color); break;
       case 'ema200': pane.indSeries[key] = addLine(pane, def.color); break;
@@ -2028,6 +2119,7 @@ function applyIndicators(pane) {
       case 'sma20':  s.setData(smaSeries(bars, 20));  break;
       case 'sma50':  s.setData(smaSeries(bars, 50));  break;
       case 'sma200': s.setData(smaSeries(bars, 200)); break;
+      case 'ema9':   s.setData(emaSeries(bars, 9));   break;
       case 'ema20':  s.setData(emaSeries(bars, 20));  break;
       case 'ema50':  s.setData(emaSeries(bars, 50));  break;
       case 'ema200': s.setData(emaSeries(bars, 200)); break;
@@ -2124,16 +2216,26 @@ function applyIndicators(pane) {
 
   if (pane.indicators.has('prte')) {
     if (!pane.subCharts.prte) {
-      const sub = addSubPane(pane, 'prte', '%R Trend Exhaustion');
+      // Taller pane (150 vs the default 100px): %R sweeps the full 0→−100
+      // band constantly, so at 100px the swings compressed into a near-flat
+      // ribbon (user report, 2026-07-22).
+      const sub = addSubPane(pane, 'prte', '%R Trend Exhaustion', 150);
+      // The lines were 1px pale grey + pale blue — indistinguishable from
+      // each other, and the grey vanished entirely on the light theme.
+      // Deep blue (fast) vs orange (slow) separate cleanly on BOTH themes;
+      // fast carries the weight since it holds the markers + value label.
       sub.slowLine = sub.chart.addLineSeries({
-        color: '#8bafff', lineWidth: 1,
+        color: '#f0883e', lineWidth: 1,
         priceLineVisible: false, lastValueVisible: false,
       });
       sub.fastLine = sub.chart.addLineSeries({
-        color: '#c9c9c9', lineWidth: 1,
+        color: '#2466A7', lineWidth: 2,
         priceLineVisible: false, lastValueVisible: true,
       });
       sub.series = sub.fastLine;   // used for crosshair sync
+      // Squeeze the default 8% scale margins to 4% — every pixel of a
+      // bounded oscillator's pane should go to the 0→−100 band itself.
+      sub.chart.priceScale('right').applyOptions({scaleMargins: {top: 0.04, bottom: 0.04}});
       const th = 20;
       sub.fastLine.createPriceLine({price:0,          color:'rgba(202,0,23,0.4)',   lineWidth:1, lineStyle:1, axisLabelVisible:false});
       sub.fastLine.createPriceLine({price:-th,         color:'rgba(202,0,23,0.4)',   lineWidth:1, lineStyle:2, axisLabelVisible:false});
@@ -2234,6 +2336,12 @@ function applyIndicators(pane) {
 
   if (pane.indicators.has('fvg')) {
     drawFVG(pane);
+    renderFVGSignals(pane);
+  }
+
+  // ── MA Bias overlay (regime / stack / trigger / distrust card + crosses) ────
+  if (pane.indicators.has('mabias')) {
+    renderMABias(pane);
   }
 
   if (pane.indicators.has('volume')) {
@@ -2317,10 +2425,14 @@ function syncSubPaneRanges(pane) {
 }
 
 // ── Sub-pane chart lifecycle ───────────────────────────────────────────────────
-function addSubPane(pane, key, labelText) {
+function addSubPane(pane, key, labelText, height) {
   const container = pane.el.querySelector('.sub-panes');
   const el = document.createElement('div');
   el.className = 'sub-pane';
+  // Optional per-indicator height override (px) — the default 100px suits
+  // most oscillators, but full-range ones like %R need more vertical room
+  // to be readable. CSS flex-shrink still applies when space is tight.
+  if (height) el.style.height = height + 'px';
   el.dataset.key = key;
   container.appendChild(el);
 
@@ -2502,6 +2614,461 @@ function drawFVG(pane) {
     ctx.strokeRect(x, y, w, h);
     ctx.setLineDash([]);
   });
+}
+
+// ── FVG actionable buy/sell signal (integration layer for FVG.signals) ────────
+// drawFVG() above paints every raw gap; this layer runs FVG.signals() — the
+// ATR-gated pullback-rejection state machine — and surfaces the ONE actionable
+// verdict per side: a BUY/SELL arrow marker plus a bottom-right panel grading it
+// with the price+volume "FPV" read and Zeiierman-style bull/bear power.
+// Computation is cached per (symbol,tf,lastBar) so pan/zoom redraws of drawFVG
+// don't recompute it; only a new bar set does.
+const FVG_SIG_OPTS = {atrMult: 0.5, atrLen: 14, volLen: 20, recent: 10};
+
+function ensureFvgSigState(pane) {
+  if (!pane.fvgSig) pane.fvgSig = {infoEl: null, data: null, lastKey: null, collapsed: false};
+  return pane.fvgSig;
+}
+
+function clearFVGSignals(pane) {
+  setPaneMarkers(pane, 'fvg', null);
+  if (pane.fvgSig) {
+    if (pane.fvgSig.infoEl) pane.fvgSig.infoEl.style.display = 'none';
+    pane.fvgSig.data = null;
+    pane.fvgSig.lastKey = null;
+  }
+}
+
+function renderFVGSignals(pane) {
+  const st = ensureFvgSigState(pane);
+  if (!pane.bars || pane.bars.length < 25 || typeof FVG === 'undefined' || !FVG.signals) {
+    clearFVGSignals(pane);
+    return;
+  }
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  // Recompute only when the bar set actually changed; otherwise just re-attach
+  // markers (setMarkers is idempotent) so a re-render doesn't drop them.
+  if (st.lastKey !== key) {
+    st.lastKey = key;
+    st.data = FVG.signals(pane.bars, FVG_SIG_OPTS);
+  }
+  const d = st.data;
+
+  const markers = [];
+  const arrow = (sig, bullish) => {
+    if (!sig) return;
+    // A live signal is bright; a stale one (older than `recent` bars) is muted
+    // so the eye isn't drawn to an entry that has already passed.
+    const strong = sig.fpv.strength === 'STRONG';
+    const base = bullish ? (strong ? '#26a69a' : '#7fd0c8') : (strong ? '#ef5350' : '#f0a1a0');
+    const color = sig.live ? base : (bullish ? 'rgba(38,166,154,0.45)' : 'rgba(239,83,80,0.45)');
+    markers.push({
+      time: sig.time,
+      position: bullish ? 'belowBar' : 'aboveBar',
+      color,
+      shape: bullish ? 'arrowUp' : 'arrowDown',
+      text: sig.fpv.rec,
+    });
+  };
+  if (d) { arrow(d.buy, true); arrow(d.sell, false); }
+  setPaneMarkers(pane, 'fvg', markers.length ? markers : null);
+
+  renderFVGInfo(pane, d);
+}
+
+// One flex container per pane for the top-left card row: actionable overlay
+// cards append here (instead of claiming their own absolute corner) so
+// however many are visible at once, they align and flow without overlap.
+function ensureActionStack(pane) {
+  const main = pane.el.querySelector('.chart-main');
+  let stack = main.querySelector(':scope > .action-stack');
+  if (!stack) {
+    stack = document.createElement('div');
+    stack.className = 'action-stack';
+    main.appendChild(stack);
+  }
+  return stack;
+}
+
+function renderFVGInfo(pane, d) {
+  const st = ensureFvgSigState(pane);
+  if (!st.infoEl) {
+    st.infoEl = document.createElement('div');
+    st.infoEl.className = 'fvg-info';
+    ensureActionStack(pane).appendChild(st.infoEl);
+    st.infoEl.addEventListener('click', ev => {
+      if (!ev.target.closest('.fvg-head')) return;
+      st.collapsed = !st.collapsed;
+      st.infoEl.classList.toggle('collapsed', st.collapsed);
+    });
+  }
+  const el = st.infoEl;
+
+  // Choose the headline signal: the most recent of buy/sell.
+  let head = null, bullish = true;
+  if (d && d.buy && d.sell) {
+    if (d.buy.barsAgo <= d.sell.barsAgo) { head = d.buy; bullish = true; }
+    else { head = d.sell; bullish = false; }
+  } else if (d && d.buy) { head = d.buy; bullish = true; }
+  else if (d && d.sell) { head = d.sell; bullish = false; }
+
+  if (!head) {
+    // No fired signal — but an active (armed) zone is still worth showing.
+    const armed = d && (d.activeBull || d.activeBear);
+    if (!armed) { el.style.display = 'none'; return; }
+    const z = d.activeBull || d.activeBear;
+    const side = d.activeBull ? 'bullish' : 'bearish';
+    el.innerHTML =
+      `<div class="fvg-head"><span class="fvg-badge" style="background:#8b949e">ARMED</span> ` +
+      `FVG signal <span style="color:var(--text-muted)">▾</span></div>` +
+      `<div class="fvg-body"><div class="fvg-why">No rejection entry yet. An active ${side} ` +
+      `zone ${z.bottom.toFixed(2)}–${z.top.toFixed(2)} is waiting for price to tag it and ` +
+      `reject.</div><hr><div class="proj-disclaimer">Rule-based FVG pullback state machine — not investment advice.</div></div>`;
+    el.classList.toggle('collapsed', st.collapsed);
+    el.style.display = 'block';
+    return;
+  }
+
+  const f = head.fpv;
+  const strongCol = f.strength === 'STRONG' ? '#3fb950' : f.strength === 'WEAK' ? '#f0883e' : '#8b949e';
+  const dirCol = bullish ? '#26a69a' : '#ef5350';
+  const recency = head.live
+    ? `<span style="color:${dirCol}">live · ${head.barsAgo}b ago</span>`
+    : `<span style="color:var(--text-muted)">historical · ${head.barsAgo}b ago</span>`;
+
+  const volTxt = f.hasVolume
+    ? `${f.volRatio.toFixed(2)}× avg (${f.volUp ? 'expanding' : 'thin'})`
+    : 'no volume data';
+
+  let body =
+    `<div class="fvg-row"><span>Signal</span><span style="color:${dirCol}">${f.rec}</span></div>` +
+    `<div class="fvg-row"><span>At</span><span>${head.price.toFixed(2)}</span></div>` +
+    `<div class="fvg-row"><span>Zone</span><span>${head.zone.bottom.toFixed(2)}–${head.zone.top.toFixed(2)}</span></div>` +
+    `<div class="fvg-row"><span>When</span><span>${recency}</span></div><hr>` +
+    `<div class="fvg-row"><span>Price + Volume</span><span style="color:${strongCol}">${f.strength}</span></div>` +
+    `<div class="fvg-row"><span>Displacement vol</span><span>${volTxt}</span></div>` +
+    `<div class="fvg-row"><span>Bull / bear power</span><span>${f.buyPct}% / ${f.sellPct}%</span></div>` +
+    `<div class="fvg-power" style="--buy:${f.buyPct}%"></div>`;
+
+  // The framework's honest caveat: rising on thin volume is a distrust signal.
+  if (f.strength === 'WEAK') {
+    body += `<div class="fvg-why" style="color:#f0883e">⚠ ${bullish ? 'Rejection' : 'Rejection'} on thinning ` +
+            `volume — the framework rates this a weak ${bullish ? 'long' : 'short'} (distrust the move).</div>`;
+  }
+  // Show a second signal on the other side if one also exists.
+  const other = bullish ? (d && d.sell) : (d && d.buy);
+  if (other) {
+    body += `<hr><div class="fvg-why">Also: ${other.fpv.rec} ${other.barsAgo}b ago ` +
+            `@ ${other.price.toFixed(2)} (${other.live ? 'live' : 'historical'}).</div>`;
+  }
+  body += `<hr><div class="proj-disclaimer">Rule-based FVG pullback-rejection entry graded by ` +
+          `price+volume — not investment advice.</div>`;
+
+  const badgeCol = f.strength === 'STRONG' ? '#3fb950' : f.strength === 'WEAK' ? '#f0883e' : '#8b949e';
+  el.innerHTML =
+    `<div class="fvg-head"><span class="fvg-badge" style="background:${badgeCol}">${f.rec}</span> ` +
+    `<span style="color:var(--text-muted)">▾</span></div>` +
+    `<div class="fvg-body">${body}</div>`;
+  el.classList.toggle('collapsed', st.collapsed);
+  el.style.display = 'block';
+}
+
+// ── MA Bias overlay ───────────────────────────────────────────────────────────
+// The professional moving-average read as a four-tier gate, not a signal:
+//   1 Regime   — price vs 200 SMA + golden/death cross (50/200 SMA): may I
+//                be long at all?
+//   2 Quality  — EMA stack order (9>20>50>200 = orderly trend); MAs braided
+//                within a fraction of an ATR = chop, stand down.
+//   3 Trigger  — the 9/20 EMA cross for momentum entries, plus the
+//                pullback-to-rising-20-EMA bounce.
+//   4 Distrust — volume on the cross bar (same FPV read as the FVG card),
+//                extension from the 20 EMA (chasing), and a whipsaw counter.
+// A cross that fails a tier is reported as information, not invitation —
+// e.g. a 9/20 bull cross under a bearish 50/200 regime prints COUNTER-TREND.
+// All client-side from bars[]; independent of which MA *lines* are toggled
+// on, so the card works without cluttering the chart with six lines.
+// Computation cached per (symbol,tf,lastBar), same policy as the FVG card.
+const MA_BIAS_OPTS = {
+  whipsawWin: 15,  // bars scanned for repeat 9/20 crosses
+  whipsawN:   3,   // crosses within that window that mark a whipsaw zone
+  recent:     10,  // a 9/20 cross younger than this is "live"
+  extAtr:     2,   // |close − 20 EMA| beyond this × ATR14 = overextended
+  braidAtr:   0.8, // 9/20/50 EMA spread under this × ATR14 = braided (chop)
+  volLen:     20,  // trailing volume average for cross-bar grading
+};
+
+function maBiasCompute(bars) {
+  if (!bars || bars.length < 60) return null;
+  const O = MA_BIAS_OPTS;
+  const toMap = arr => { const m = new Map(); arr.forEach(pt => m.set(pt.time, pt.value)); return m; };
+  const e9   = toMap(emaSeries(bars, 9));
+  const e20  = toMap(emaSeries(bars, 20));
+  const e50  = toMap(emaSeries(bars, 50));
+  const s50  = toMap(smaSeries(bars, 50));
+  const s200 = bars.length >= 200 ? toMap(smaSeries(bars, 200)) : null;
+  const atrArr = atrSeries(bars, 14);
+  const atr  = atrArr.length ? atrArr[atrArr.length - 1].value : null;
+  const last = bars[bars.length - 1];
+  const iLast = bars.length - 1;
+
+  // Sign-change scan of fast−slow; shared by the 9/20 and 50/200 pairs.
+  const crossings = (fast, slow) => {
+    const out = [];
+    let prev = null;
+    for (let i = 0; i < bars.length; i++) {
+      const t = bars[i].time;
+      const f = fast.get(t), sl = slow.get(t);
+      if (f === undefined || sl === undefined) continue;
+      const diff = f - sl;
+      if (prev !== null && ((prev <= 0 && diff > 0) || (prev >= 0 && diff < 0)))
+        out.push({i, time: t, dir: diff > 0 ? 1 : -1, price: bars[i].close});
+      prev = diff;
+    }
+    return out;
+  };
+  const fastCrosses   = crossings(e9, e20);
+  const regimeCrosses = s200 ? crossings(s50, s200) : [];
+
+  // Tier 1 — regime. Needs a real 200 SMA; on short history it stays null
+  // and the verdict is capped below rather than pretending a regime exists.
+  const s200Last = s200 ? s200.get(last.time) : undefined;
+  const s50Last  = s50.get(last.time);
+  let regime = null;
+  if (s200Last !== undefined && s50Last !== undefined) {
+    const above200 = last.close > s200Last;
+    const gcBull = s50Last > s200Last;
+    const lastRC = regimeCrosses.length ? regimeCrosses[regimeCrosses.length - 1] : null;
+    regime = {
+      above200, gcBull,
+      dir: above200 && gcBull ? 1 : (!above200 && !gcBull ? -1 : 0),
+      lastCross: lastRC ? {dir: lastRC.dir, barsAgo: iLast - lastRC.i, price: lastRC.price} : null,
+    };
+  }
+
+  // Tier 2 — stack quality.
+  const v9 = e9.get(last.time), v20 = e20.get(last.time), v50 = e50.get(last.time);
+  let stack = null;
+  if (v9 !== undefined && v20 !== undefined && v50 !== undefined) {
+    const withS200 = s200Last !== undefined;
+    const bull = v9 > v20 && v20 > v50 && (!withS200 || v50 > s200Last);
+    const bear = v9 < v20 && v20 < v50 && (!withS200 || v50 < s200Last);
+    const spread = Math.max(v9, v20, v50) - Math.min(v9, v20, v50);
+    stack = {
+      aligned: bull ? 1 : bear ? -1 : 0,
+      withS200,
+      braided: atr !== null && spread < O.braidAtr * atr,
+      spreadAtr: atr ? spread / atr : null,
+    };
+  }
+
+  // Tier 3 — trigger: the latest 9/20 cross, volume-graded at its own bar.
+  let trigger = null;
+  const lastFC = fastCrosses.length ? fastCrosses[fastCrosses.length - 1] : null;
+  if (lastFC) {
+    let volRatio = null;
+    const cb = bars[lastFC.i];
+    if (cb.volume) {
+      let sum = 0, n = 0;
+      for (let j = Math.max(0, lastFC.i - O.volLen); j < lastFC.i; j++) {
+        if (bars[j].volume) { sum += bars[j].volume; n++; }
+      }
+      if (n >= 5 && sum > 0) volRatio = cb.volume / (sum / n);
+    }
+    const barsAgo = iLast - lastFC.i;
+    trigger = {dir: lastFC.dir, barsAgo, price: lastFC.price, live: barsAgo <= O.recent, volRatio};
+  }
+  // Pullback bounce: in an aligned trend, price tagged the 20 EMA within the
+  // last 3 bars and the latest close is back on the trend side of it.
+  let pullback = 0;
+  if (stack && stack.aligned !== 0 && v20 !== undefined) {
+    for (let j = Math.max(0, iLast - 2); j <= iLast; j++) {
+      const m = e20.get(bars[j].time);
+      if (m === undefined) continue;
+      if (stack.aligned === 1  && bars[j].low  <= m && last.close > v20) pullback = 1;
+      if (stack.aligned === -1 && bars[j].high >= m && last.close < v20) pullback = -1;
+    }
+  }
+
+  // Tier 4 — distrust.
+  const ext = v20 !== undefined ? last.close - v20 : null;
+  const whipsawCount = fastCrosses.filter(c => iLast - c.i < O.whipsawWin).length;
+  const distrust = {
+    extPct: ext !== null && v20 ? (ext / v20) * 100 : null,
+    extended: ext !== null && atr !== null && Math.abs(ext) > O.extAtr * atr,
+    whipsawCount,
+    whipsaw: whipsawCount >= O.whipsawN,
+    thinVolume: !!(trigger && trigger.volRatio !== null && trigger.volRatio < 1),
+  };
+
+  // Verdict ladder — chop gates veto first, then regime × trigger.
+  let verdict = 'MIXED';
+  if (stack && stack.braided) verdict = 'CHOP';
+  else if (distrust.whipsaw) verdict = 'CHOP';
+  else if (regime && regime.dir !== 0) {
+    const agree = stack && stack.aligned === regime.dir;
+    if (trigger && trigger.live && trigger.dir !== regime.dir) verdict = 'COUNTER-TREND';
+    else if (agree) verdict = regime.dir === 1 ? 'LONG' : 'SHORT';
+    // regime set but stack disagrees → stays MIXED
+  }
+
+  return {verdict, regime, stack, trigger, pullback, distrust, fastCrosses, regimeCrosses};
+}
+
+function ensureMABiasState(pane) {
+  if (!pane.maBias) pane.maBias = {infoEl: null, data: null, lastKey: null, collapsed: false};
+  return pane.maBias;
+}
+
+function clearMABias(pane) {
+  setPaneMarkers(pane, 'mabias', null);
+  if (pane.maBias) {
+    if (pane.maBias.infoEl) pane.maBias.infoEl.style.display = 'none';
+    pane.maBias.data = null;
+    pane.maBias.lastKey = null;
+  }
+}
+
+function renderMABias(pane) {
+  const st = ensureMABiasState(pane);
+  if (!pane.bars || pane.bars.length < 60) { clearMABias(pane); return; }
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  if (st.lastKey !== key) {
+    st.lastKey = key;
+    st.data = maBiasCompute(pane.bars);
+  }
+  const d = st.data;
+  if (!d) { clearMABias(pane); return; }
+
+  // Markers: every 50/200 cross is regime history worth keeping on screen;
+  // 9/20 crosses stay muted except the latest so old entries don't shout.
+  const markers = [];
+  d.regimeCrosses.forEach(c => markers.push(c.dir === 1
+    ? {time: c.time, position: 'belowBar', color: '#ffd60a', shape: 'circle', text: 'GC'}
+    : {time: c.time, position: 'aboveBar', color: '#ef5350', shape: 'circle', text: 'DC'}));
+  d.fastCrosses.forEach((c, idx) => {
+    const latest = idx === d.fastCrosses.length - 1;
+    const bull = c.dir === 1;
+    const m = {
+      time: c.time,
+      position: bull ? 'belowBar' : 'aboveBar',
+      color: latest && d.trigger && d.trigger.live
+        ? (bull ? '#26a69a' : '#ef5350')
+        : (bull ? 'rgba(38,166,154,0.35)' : 'rgba(239,83,80,0.35)'),
+      shape: bull ? 'arrowUp' : 'arrowDown',
+    };
+    if (latest) m.text = '9/20';
+    markers.push(m);
+  });
+  setPaneMarkers(pane, 'mabias', markers.length ? markers : null);
+
+  renderMABiasInfo(pane, d);
+}
+
+const MA_BADGE = {
+  LONG:            {label: 'LONG BIAS',         color: '#3fb950'},
+  SHORT:           {label: 'SHORT BIAS',        color: '#ef5350'},
+  'COUNTER-TREND': {label: 'COUNTER-TREND',     color: '#f0883e'},
+  CHOP:            {label: 'CHOP — STAND DOWN', color: '#8b949e'},
+  MIXED:           {label: 'MIXED',             color: '#8b949e'},
+};
+
+function renderMABiasInfo(pane, d) {
+  const st = ensureMABiasState(pane);
+  if (!st.infoEl) {
+    st.infoEl = document.createElement('div');
+    st.infoEl.className = 'ma-info';
+    ensureActionStack(pane).appendChild(st.infoEl);
+    st.infoEl.addEventListener('click', ev => {
+      if (!ev.target.closest('.ma-head')) return;
+      st.collapsed = !st.collapsed;
+      st.infoEl.classList.toggle('collapsed', st.collapsed);
+    });
+  }
+  const el = st.infoEl;
+  const b = MA_BADGE[d.verdict] || MA_BADGE.MIXED;
+
+  // Tier 1 — regime row (+ last golden/death cross when one exists).
+  let regimeTxt, gcTxt = '';
+  if (!d.regime) {
+    regimeTxt = `<span style="color:var(--text-muted)">— · &lt;200 bars of history</span>`;
+  } else {
+    const dirCol = d.regime.dir === 1 ? '#26a69a' : d.regime.dir === -1 ? '#ef5350' : '#f0883e';
+    const word = d.regime.dir === 1 ? 'BULL' : d.regime.dir === -1 ? 'BEAR' : 'MIXED';
+    regimeTxt = `<span style="color:${dirCol}">${word}</span> · ${d.regime.above200 ? 'above' : 'below'} 200 SMA`;
+    if (d.regime.lastCross) {
+      const gc = d.regime.lastCross.dir === 1;
+      gcTxt = `<div class="ma-row"><span>${gc ? 'Golden' : 'Death'} cross</span>` +
+              `<span style="color:${gc ? '#ffd60a' : '#ef5350'}">${d.regime.lastCross.barsAgo}b ago ` +
+              `@ ${d.regime.lastCross.price.toFixed(2)}</span></div>`;
+    }
+  }
+
+  // Tier 2 — stack row.
+  let stackTxt = '—';
+  if (d.stack) {
+    const chain = d.stack.withS200 ? '9&gt;20&gt;50&gt;200' : '9&gt;20&gt;50';
+    stackTxt = d.stack.aligned === 1  ? `<span style="color:#26a69a">${chain} ✓ aligned</span>`
+             : d.stack.aligned === -1 ? `<span style="color:#ef5350">inverted (bearish)</span>`
+             : `<span style="color:#f0883e">mixed</span>`;
+  }
+
+  // Tier 3 — trigger rows.
+  let trigTxt = `<span style="color:var(--text-muted)">no 9/20 cross yet</span>`;
+  if (d.trigger) {
+    const bull = d.trigger.dir === 1;
+    const c = bull ? '#26a69a' : '#ef5350';
+    const rec = d.trigger.live
+      ? `<span style="color:${c}">live · ${d.trigger.barsAgo}b ago</span>`
+      : `<span style="color:var(--text-muted)">stale · ${d.trigger.barsAgo}b ago</span>`;
+    trigTxt = `<span style="color:${c}">9/20 ${bull ? 'bull' : 'bear'}</span> @ ${d.trigger.price.toFixed(2)} · ${rec}`;
+  }
+  const volTxt = d.trigger && d.trigger.volRatio !== null
+    ? `${d.trigger.volRatio.toFixed(2)}× avg (${d.trigger.volRatio >= 1 ? 'expanding' : 'thin'})`
+    : 'no volume data';
+  const extTxt = d.distrust.extPct !== null
+    ? `${d.distrust.extPct >= 0 ? '+' : ''}${d.distrust.extPct.toFixed(1)}% from 20 EMA${d.distrust.extended ? '' : ' (ok)'}`
+    : '—';
+
+  let body =
+    `<div class="ma-row"><span>Regime</span><span>${regimeTxt}</span></div>` +
+    gcTxt +
+    `<div class="ma-row"><span>Stack</span><span>${stackTxt}</span></div><hr>` +
+    `<div class="ma-row"><span>Trigger</span><span>${trigTxt}</span></div>` +
+    (d.pullback !== 0
+      ? `<div class="ma-row"><span>Pullback</span><span style="color:#26a69a">tagged ` +
+        `${d.pullback === 1 ? 'rising' : 'falling'} 20 EMA and held</span></div>`
+      : '') +
+    `<div class="ma-row"><span>Cross vol</span><span>${volTxt}</span></div>` +
+    `<div class="ma-row"><span>Extension</span><span>${extTxt}</span></div>`;
+
+  // Tier 4 — every reason to doubt the verdict, spelled out in the same
+  // distrust voice as the FVG card.
+  const warns = [];
+  if (d.stack && d.stack.braided && d.stack.spreadAtr !== null)
+    warns.push(`MAs braided within ${d.stack.spreadAtr.toFixed(1)} ATR — no trend to follow.`);
+  if (d.distrust.whipsaw)
+    warns.push(`${d.distrust.whipsawCount} crosses in ${MA_BIAS_OPTS.whipsawWin} bars — whipsaw zone, halve conviction.`);
+  if (d.verdict === 'COUNTER-TREND')
+    warns.push('9/20 cross fights the 50/200 regime — information, not invitation.');
+  if (d.distrust.thinVolume)
+    warns.push('Cross printed on thin volume — distrust the move.');
+  if (d.distrust.extended)
+    warns.push(`Price &gt; ${MA_BIAS_OPTS.extAtr} ATR from the 20 EMA — chasing risk; wait for the pullback.`);
+  warns.forEach(w => { body += `<div class="ma-warn">⚠ ${w}</div>`; });
+  if ((d.verdict === 'LONG' || d.verdict === 'SHORT') && (!d.trigger || !d.trigger.live))
+    body += `<div class="ma-why">Bias only — no fresh 9/20 trigger inside ${MA_BIAS_OPTS.recent} bars.</div>`;
+
+  body += `<hr><div class="proj-disclaimer">Rule-based MA regime/stack/trigger read — ` +
+          `lagging by construction, not investment advice.</div>`;
+
+  el.innerHTML =
+    `<div class="ma-head"><span class="ma-badge" style="background:${b.color}">${b.label}</span> ` +
+    `MA Stack <span style="color:var(--text-muted)">▾</span></div>` +
+    `<div class="ma-body">${body}</div>`;
+  el.classList.toggle('collapsed', st.collapsed);
+  el.style.display = 'block';
 }
 
 // ── Pattern base-zone shading (VCP + Rounding Bottom footprints) ──────────────
@@ -3023,7 +3590,7 @@ function renderRbInfo(pane, saucer) {
     rb.infoEl.appendChild(body);
     rb.infoBody = body;
     rb.infoSummary = summary;
-    pane.el.querySelector('.chart-main').appendChild(rb.infoEl);
+    ensureActionStack(pane).appendChild(rb.infoEl);
   }
   if (!saucer) { rb.infoEl.style.display = 'none'; return; }
 
@@ -3729,7 +4296,7 @@ function renderProjInfo(pane, p) {
   if (!pr.infoEl) {
     pr.infoEl = document.createElement('div');
     pr.infoEl.className = 'proj-info';
-    pane.el.querySelector('.chart-main').appendChild(pr.infoEl);
+    ensureActionStack(pane).appendChild(pr.infoEl);
   }
   if (!p) { pr.infoEl.style.display = 'none'; return; }
 
@@ -3933,7 +4500,7 @@ function renderFibInfo(pane, d) {
   if (!st.infoEl) {
     st.infoEl = document.createElement('div');
     st.infoEl.className = 'fib-info';
-    pane.el.querySelector('.chart-main').appendChild(st.infoEl);
+    ensureActionStack(pane).appendChild(st.infoEl);
     st.infoEl.addEventListener('click', ev => {
       if (!ev.target.closest('.fib-head')) return;
       st.collapsed = !st.collapsed;
