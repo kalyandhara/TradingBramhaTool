@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-07-23] build | M4 Predictive Analysis page — roadmap spine COMPLETE (M1→M4)
+- New **Predictive Analysis** page ([dashboard_app.py](tools/dashboard_app.py), Research group) — the roadmap's composition milestone, built exactly as scoped: **zero new backend**, pure assembly of shipped pieces.
+- Left rail: last Scanner Hub run's hits ranked by M1 Overall Rating (badge cards → click to load); manual symbol fallback. Right: /100 badge + M/TF/C/EW chips · **Chart Tool iframe** (M2 base zones + M3 projection + all saved overlays; warns if chart_server down) · **Setup Intelligence + Council drill-down** (Stock Analyzer engine reused).
+- **Verified live:** TITAN → **81/100** (M 7/8 · TF 6/6 · C 2/4 · EW 75); iframe embedded; Setup Intelligence rendered (RS Strong / Breakout High / Accumulation Constructive); no exceptions.
+- **Milestones M1–M4 all shipped and live-verified.** Remaining: Phase 2 (RSI-60-40 scanner, orphaned-detector wiring) and Phase 3 (backtest harness — the biggest open credibility gap). Full record: [[analyses/Dashboard-UI-Roadmap]].
+
 ## [2026-07-23] build | M3 verified + projection engine anti-overtrust fixes
 - **M3 (price-projection line) verified end-to-end and hardened.** The build itself (projection.py + /api/projection + chart overlay) had landed in `e123915`; this session's live verification **caught a real overtrust bug**: the chart client fetches 2600 daily bars (10Y), EW ran over the full decade → TITAN printed **"+137.9% High confidence"**.
 - Three fixes in [projection.py](tools/projection.py): (1) `ANALYSIS_BARS=300` — fixed analysis window, so 2600-bar and 300-bar requests now produce identical projections; (2) `MAX_MOVE_PCT` per-timeframe plausibility cap (daily >60% rejected as a candidate); (3) EW effective confidence = count_conf × (0.4 + 0.6×target_prob) — a 35%-prob Fib target can no longer surface as "High" on wave-count confidence alone.
