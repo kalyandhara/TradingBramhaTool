@@ -35,6 +35,19 @@ HIGH_FLOOR = 66
 MEDIUM_FLOOR = 45
 # Two candidates count as "in agreement" when within this fraction of each other.
 CONFLUENCE_TOL = 0.03  # 3%
+# Analysis window: detectors are tuned for ~this many bars. The chart client
+# fetches far more history for display (TF_BARS['1d'] = 2600 ≈ 10Y), and running
+# ZigZag/EW over a decade produces a gigantic W1 leg and absurd Fib targets
+# (observed: TITAN +138% "High confidence"). Slice before analyzing so the
+# projection is independent of how much history the client happens to fetch.
+ANALYSIS_BARS = 300
+# Plausibility ceiling on the implied move, per timeframe. A projection beyond
+# this is rejected as a candidate outright — belt-and-braces against any
+# detector emitting a technically-valid but practically absurd target.
+MAX_MOVE_PCT = {
+    "1m": 8, "5m": 10, "15m": 12, "30m": 15,
+    "1h": 20, "4h": 30, "1d": 60, "1w": 100,
+}
 # How far forward (in bars) the client draws the projection line. Indicative
 # horizon for slope/magnitude — NOT a dated forecast. Tuned per timeframe.
 HORIZON_BARS = {
@@ -71,13 +84,17 @@ def _ew_candidate(df):
         return None
     # Highest-probability target is the primary projection.
     price, prob, label = max(targets, key=lambda t: t[1])
-    conf = int(ew.get("confidence", 0) or 0)
+    count_conf = int(ew.get("confidence", 0) or 0)
+    # Effective confidence blends the wave-count reliability with the specific
+    # target's probability — a 35%-probability Fib level must not surface as
+    # "High" purely on the strength of the count.
+    conf = round(count_conf * (0.4 + 0.6 * prob / 100.0))
     return {
         "source": f"Elliott Wave {wave}",
         "price": float(price),
         "confidence": conf,
         "direction": "up",  # W3/W5 impulse targets are above current by construction
-        "reasoning": f"{wave} Fib target {label} (count confidence {conf}%, "
+        "reasoning": f"{wave} Fib target {label} (count confidence {count_conf}%, "
                      f"target prob {prob}%). {ew.get('note', '')}".strip(),
         "invalidation": ew.get("stop_zone"),
     }
@@ -166,6 +183,8 @@ def compute_projection(df, timeframe: str = "1d") -> dict | None:
     """
     if df is None or len(df) < 30:
         return None
+    # Fixed analysis window — see ANALYSIS_BARS note above.
+    df = df.iloc[-ANALYSIS_BARS:]
     current = float(df["close"].iloc[-1])
 
     candidates = [
@@ -175,6 +194,13 @@ def compute_projection(df, timeframe: str = "1d") -> dict | None:
             _rb_candidate(df),
             _harmonic_candidate(df, timeframe),
         ) if c is not None
+    ]
+    # Plausibility gate: drop any candidate whose implied move exceeds the
+    # timeframe's ceiling — absurd targets never even compete for primary.
+    cap = MAX_MOVE_PCT.get(timeframe, 60)
+    candidates = [
+        c for c in candidates
+        if abs(c["price"] - current) / current * 100.0 <= cap
     ]
     if not candidates:
         return None
