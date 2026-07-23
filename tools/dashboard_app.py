@@ -1138,7 +1138,7 @@ PAGE_GROUPS = {
     "Screening":        ["Screener", "Other Screeners", "Scanner Hub", "Breakout Screener",
                          "High-Growth Screener", "TradingView Screener"],
     "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
-    "Research":         ["Stock Analyzer", "Sector Map", "Astro Timing", "Telegram Signals"],
+    "Research":         ["Predictive Analysis", "Stock Analyzer", "Sector Map", "Astro Timing", "Telegram Signals"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
     "Ops":              ["Pipeline Log"],
 }
@@ -1986,6 +1986,135 @@ if current_page == "Scanner Hub":
                 for col, card in zip(cols, batch):
                     with col:
                         _render_scanner_card(card, selected_scanner)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Predictive Analysis (Milestone 4) — the consolidated "should I take this
+# trade" surface. PURE COMPOSITION of shipped pieces: M1's Overall Rating
+# (ranked candidate rail from the last Scanner Hub run) + the Chart Tool iframe
+# carrying M2 pattern overlays and the M3 price-projection line + the Setup
+# Intelligence / Council engine from the Stock Analyzer. No new backend.
+# See wiki/analyses/Dashboard-UI-Roadmap.md §Milestone 4.
+# ──────────────────────────────────────────────────────────────────────────────
+if current_page == "Predictive Analysis":
+    st.subheader("Predictive Analysis")
+    st.caption(
+        "One screen: ranked candidates (left) → annotated chart + ratings + setup "
+        "intelligence (right). Candidates come from the last **Scanner Hub** run; "
+        "the chart carries the pattern overlays and price projection from the Chart Tool."
+    )
+
+    pa_left, pa_main = st.columns([1, 2.6], gap="medium")
+
+    with pa_left:
+        hits = st.session_state.get("hub_results") or []
+        ran_for = st.session_state.get("hub_scanner_ran", "")
+        ranked = sorted(
+            hits,
+            key=lambda h: (h.get("overall") is not None, h.get("overall") or 0),
+            reverse=True,
+        )
+        st.markdown("**Candidates**")
+        if not ranked:
+            st.info("No Scanner Hub results in this session — run a scanner there "
+                    "first, or type a symbol below.")
+        else:
+            st.caption(f"{len(ranked)} from **{ran_for}** · ranked by Overall Rating")
+            for h in ranked[:30]:
+                _sym = h["symbol"]
+                bcol, vcol = st.columns([4, 1])
+                with bcol:
+                    st.markdown(
+                        f'<div style="display:flex;align-items:center;padding:3px 0;">'
+                        f'{_rating_badge_html(h)}'
+                        f'<b style="color:#3a2a1e;margin-right:8px;">{_sym}</b>'
+                        f'<span style="background:#fff1e0;color:#c2410c;padding:1px 8px;'
+                        f'border-radius:99px;font-size:10.5px;">'
+                        f'{h.get("pattern_type", ran_for)}</span></div>',
+                        unsafe_allow_html=True,
+                    )
+                with vcol:
+                    if st.button("→", key=f"pa_view_{_sym}", help=f"Analyze {_sym}"):
+                        st.session_state["pa_symbol"] = _sym
+
+        st.divider()
+        mcol1, mcol2 = st.columns([3, 1])
+        pa_manual = mcol1.text_input("Any symbol", key="pa_manual",
+                                     placeholder="e.g. TITAN",
+                                     label_visibility="collapsed")
+        if mcol2.button("Go", key="pa_go", use_container_width=True) and pa_manual.strip():
+            st.session_state["pa_symbol"] = pa_manual.strip().upper()
+
+    with pa_main:
+        pa_sym = st.session_state.get("pa_symbol")
+        if not pa_sym:
+            st.info("Pick a candidate on the left (→) or type a symbol to load the "
+                    "annotated chart, ratings breakdown, and setup intelligence.")
+        else:
+            pa_df = cached_fetch_ohlcv(pa_sym)
+            if pa_df is None:
+                st.error(f"No usable data for {pa_sym} (illiquid, too short, or not "
+                         "on yfinance).")
+            else:
+                pa_bench = cached_fetch_nifty50()
+                _pa_w = st.session_state.get("hub_overall_weights", OVERALL_WEIGHTS)
+                pa_rating, pa_bd = _overall_rating(pa_df, pa_bench, _pa_w)
+                pa_chips = "".join(
+                    f'<span style="background:#f7efe3;border-radius:6px;padding:2px 8px;'
+                    f'margin-right:6px;font-size:11px;color:#5c4a3a;">'
+                    f'<b style="color:#9a8778;font-weight:600;">{k}</b> {v}</span>'
+                    for k, v in (pa_bd or {}).items()
+                )
+                st.markdown(
+                    f'<div style="display:flex;align-items:center;flex-wrap:wrap;'
+                    f'margin-bottom:4px;">'
+                    f'{_rating_badge_html({"overall": pa_rating, "overall_breakdown": pa_bd or {}})}'
+                    f'<span style="font-size:20px;font-weight:800;color:#3a2a1e;'
+                    f'margin-right:12px;">{pa_sym}</span>{pa_chips}</div>',
+                    unsafe_allow_html=True,
+                )
+
+                # Annotated chart — the Chart Tool iframe carries every overlay the
+                # user has enabled there (M2 base zones, harmonic, trendlines, M3
+                # price projection, MA Bias, …). Indicator selection persists in
+                # the Chart Tool's own localStorage, so it survives reloads.
+                _pa_chart_sym = pa_sym if ("." in pa_sym or pa_sym.startswith("^")) \
+                    else f"{pa_sym}.NS"
+                import socket as _socket
+                try:
+                    _socket.create_connection(("127.0.0.1", 5001), timeout=0.4).close()
+                    _chart_up = True
+                except OSError:
+                    _chart_up = False
+                if _chart_up:
+                    components.iframe(
+                        f"http://localhost:5001/?symbol={_pa_chart_sym}&tf=1d",
+                        height=620,
+                    )
+                    st.caption(
+                        "Overlays follow the indicator set saved in the Chart Tool — "
+                        "enable Price Projection / VCP / Rounding Bottom there once and "
+                        "every Predictive Analysis load carries them."
+                    )
+                else:
+                    st.warning(
+                        "Chart Tool server (port 5001) is not running — start it with "
+                        "`start.bat` (or `py tools/chart_server.py`) to embed the "
+                        "annotated chart here."
+                    )
+
+                # Setup Intelligence + Council — same engine as the Stock Analyzer.
+                st.divider()
+                with st.spinner("Running deterministic council…"):
+                    pa_fund = cached_fetch_fundamentals(pa_sym)
+                    pa_bundle, pa_bull, pa_bear, pa_card = council.run_council(
+                        pa_sym, pa_df, pa_bench, pa_fund, regime=nifty_regime
+                    )
+                render_setup_intelligence(
+                    council.setup_intelligence(pa_bundle, pa_bull, pa_bear, pa_card)
+                )
+                with st.expander("Council drill-down (Bull / Bear / Judge)"):
+                    render_council(pa_bundle, pa_bull, pa_bear, pa_card)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
