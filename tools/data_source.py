@@ -95,13 +95,28 @@ class YFinanceSource(DataSource):
                 # history to read the last 2-3 rows cost ~0.7s per call, per
                 # symbol, every 30s. "1mo" always covers >=10 trading days.
                 period = "1mo"
-        try:
-            with self._lock:
-                df = yf.download(symbol, period=period, interval=yf_iv,
-                                 progress=False, auto_adjust=True)
-        except Exception as e:
-            log.warning("yfinance download failed for %s: %s", symbol, e)
-            return []
+        # yfinance intermittently returns an empty / 1-3 row STUB for thinly-traded
+        # BSE/SME names (e.g. DIACABS.BO, VILAS) even when full history exists — a
+        # plain re-fetch almost always succeeds. Retry on empty-or-stub before
+        # giving up; the endpoint's cross-exchange fallback only rescues the case
+        # where the OTHER exchange isn't stubbing at the same moment, so a
+        # simultaneous double-stub would otherwise render a 1-candle chart.
+        import time as _time
+        want_full = bars >= 20          # a real multi-year request, not the cheap 1mo poll
+        df = None
+        for attempt in range(3):
+            try:
+                with self._lock:
+                    df = yf.download(symbol, period=period, interval=yf_iv,
+                                     progress=False, auto_adjust=True)
+            except Exception as e:
+                log.warning("yfinance download failed for %s (try %d): %s",
+                            symbol, attempt + 1, e)
+                df = None
+            if not (df is None or df.empty or (want_full and len(df) < 5)):
+                break
+            if attempt < 2:
+                _time.sleep(0.4 * (attempt + 1))   # brief backoff, outside the lock
         if df is None or df.empty:
             return []
         if isinstance(df.columns, pd.MultiIndex):

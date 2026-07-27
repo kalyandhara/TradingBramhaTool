@@ -111,3 +111,4 @@ _To be completed after the diff is run. Placeholder for the per-category pass/fa
 - [[sources/AstroSeek-iCal-Planner]] — primary calibration oracle #1 (three VoC variants make this the most useful VoC source).
 - [[sources/CafeAstrology-Ephemeris]] — primary calibration oracle #2 (only source with OOB table).
 - [[concepts/Out-of-Bounds-Planets]] — the OOB category to add to the local engine as part of this calibration.
+- [[concepts/Mercury-Retrograde-Market-Cycle]] — a downstream consumer of the Rx **station dates** this calibration validates; note the local engine computes Mercury position/declination but **not yet** retrograde state/stations (a straightforward velocity-sign addition).

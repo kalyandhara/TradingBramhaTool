@@ -512,6 +512,57 @@ def api_vcp():
     return jsonify({"symbol": symbol, "vcp": vcp})
 
 
+@app.route("/api/falling_wedge")
+def api_falling_wedge():
+    """Falling-wedge geometry for chart overlay (FW-3). See
+    scanner_templates.detect_falling_wedge_geometry + concepts/Falling-Wedge.md.
+    Returns the two converging trendline endpoints (times + prices), the breakout
+    state, confidence and the metric surface, or {"falling_wedge": null}."""
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < 60:
+        return jsonify({"symbol": symbol, "falling_wedge": None})
+
+    g = sc.detect_falling_wedge_geometry(df)
+    if g is None:
+        return jsonify({"symbol": symbol, "falling_wedge": None})
+
+    def _t(idx):
+        if idx is None or idx < 0 or idx >= len(bars):
+            return None
+        return int(bars[idx]["time"])
+
+    fw = {
+        "upper": {"t0": _t(g["upper_x0"]), "y0": g["upper_y0"],
+                  "t1": _t(g["upper_x1"]), "y1": g["upper_y1"]},
+        "lower": {"t0": _t(g["lower_x0"]), "y0": g["lower_y0"],
+                  "t1": _t(g["lower_x1"]), "y1": g["lower_y1"]},
+        "breakout_time":   _t(g["breakout_bar"]),
+        "last_close":      g["last_close"],
+        "state":           g["state"],
+        "state_label":     g["state_label"],
+        "confidence":      round(g["confidence"], 1),
+        "containment_pct": round(g["containment"] * 100, 1),
+        "convergence_pct": round(g["conv_ratio"] * 100, 1),
+        "touches_h":       g["touches_h"],
+        "touches_l":       g["touches_l"],
+        "vol_dry":         g["vol_dry"],
+        "vol_trend":       round(g["vol_trend"], 2),
+        "entry":           g["entry"],
+        "stop":            g["stop"],
+        "target":          g["target"],
+        "rr":              round(g["rr"], 2),
+    }
+    return jsonify({"symbol": symbol, "falling_wedge": fw})
+
+
 @app.route("/api/trendlines")
 def api_trendlines():
     """Supply / demand trendlines via scanner_templates.detect_trendline_break

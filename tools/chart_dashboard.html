@@ -215,6 +215,18 @@ html, body {
 .ind-btn:hover, .ind-btn.active { border-color: var(--accent); color: var(--accent); }
 .snap-btn { padding: 2px 7px; font-size: 13px; line-height: 1.4; }
 
+/* ── Per-symbol external quick links (Screener / TradingView / Google / X) ── */
+.qlinks { display: inline-flex; gap: 4px; align-items: center; }
+.qlink {
+  display: inline-flex; align-items: center; justify-content: center;
+  min-width: 22px; height: 20px; padding: 0 5px; box-sizing: border-box;
+  background: var(--bg-input); border: 1px solid var(--border);
+  color: var(--text-secondary); border-radius: 4px;
+  font-size: 10px; font-weight: 800; letter-spacing: .02em;
+  text-decoration: none; cursor: pointer; white-space: nowrap;
+}
+.qlink:hover { border-color: var(--accent); color: var(--accent); }
+
 /* ── Visible-range presets (1M/3M/6M/1Y/All) ─────────────────────────────── */
 .range-row {
   display: flex; gap: 4px; padding: 3px 8px; background: var(--bg-pane-header);
@@ -659,7 +671,11 @@ function mainChartOpts() {
     layout: {background:{type:'solid', color:t.chartBg}, textColor:t.textColor},
     grid: {vertLines:{color:t.gridLine}, horzLines:{color:t.gridLine}},
     crosshair: {mode: LightweightCharts.CrosshairMode.Normal},
-    rightPriceScale: {borderColor:t.border},
+    // minimumWidth pins the right price-axis to a fixed width shared with the
+    // sub-panes, so their plot areas are identical widths and bars line up
+    // vertically (and shrink together) instead of drifting when the price-label
+    // digit count differs between the main chart and a 0-100 oscillator.
+    rightPriceScale: {borderColor:t.border, minimumWidth: 72},
     timeScale: {borderColor:t.border, timeVisible:true, secondsVisible:false},
   };
 }
@@ -669,7 +685,7 @@ function subChartOpts() {
   return {
     layout: {background:{type:'solid', color:t.chartBg}, textColor:t.subText},
     grid: {vertLines:{color:t.gridLineSub}, horzLines:{color:t.gridLineSub}},
-    rightPriceScale: {borderColor:t.borderSoft, scaleMargins:{top:0.08, bottom:0.08}},
+    rightPriceScale: {borderColor:t.borderSoft, scaleMargins:{top:0.08, bottom:0.08}, minimumWidth: 72},
     timeScale: {borderColor:t.borderSoft, visible:false},
     crosshair: {mode: LightweightCharts.CrosshairMode.Normal},
     handleScroll: false, handleScale: false,
@@ -716,6 +732,48 @@ function applyRangeView(pane) {
   } else {
     pane.chart.timeScale().setVisibleLogicalRange({ from: n - preset.bars, to: n - 1 });
   }
+}
+
+// Pad an indicator series to the FULL bar grid with leading whitespace points
+// ({time} only, no value) so a sub-pane chart's logical-index space matches the
+// main chart's exactly. Indicator series skip their warm-up bars (RSI(14) starts
+// 14 bars in), which otherwise leaves each sub-pane on a *shorter* grid — so the
+// sub-pane's last logical index is < the main's and range-sync drifts (the sub's
+// right edge sat 14 bars behind the main, showing a wider window). With matching
+// grids, setVisibleLogicalRange aligns main+subs 1:1 — same right edge, same left
+// edge, symmetric shrink. Whitespace points draw nothing.
+function padToBars(series, bars) {
+  if (!series || !series.length || !bars || !bars.length) return series || [];
+  const firstT = series[0].time;
+  const pad = [];
+  for (let i = 0; i < bars.length && bars[i].time < firstT; i++) pad.push({time: bars[i].time});
+  return pad.length ? pad.concat(series) : series;
+}
+
+// External research quick links for a symbol. Only NSE/BSE equities get them
+// (Screener/Google-Finance/TV-NSE are exchange-specific; crypto/indices don't map).
+// base = ticker without the .NS/.BO suffix (e.g. JAYNECOIND); exch = 'NSE' | 'BSE'.
+function symbolQuickLinks(base, exch) {
+  if (!base || !exch) return [];
+  const b = encodeURIComponent(base);
+  return [
+    {short: 'S',  label: 'Screener.in',       url: `https://www.screener.in/company/${b}/`},
+    {short: 'TV', label: 'TradingView',       url: `https://in.tradingview.com/chart/RwFMdhOX/?symbol=${exch}%3A${b}`},
+    {short: 'GF', label: 'Google Finance',    url: `https://www.google.com/finance/beta/quote/${b}:${exch}`},
+    {short: '𝕏',  label: 'X / Twitter (live)', url: `https://x.com/search?q=%23${b}&src=typed_query&f=live`},
+  ];
+}
+
+function renderQuickLinks(el, base, exch) {
+  const cont = el && el.querySelector('.qlinks');
+  if (!cont) return;
+  const links = symbolQuickLinks(base, exch);
+  if (!links.length) { cont.style.display = 'none'; cont.innerHTML = ''; return; }
+  cont.style.display = '';
+  cont.innerHTML = links.map(l =>
+    `<a class="qlink" href="${l.url}" target="_blank" rel="noopener noreferrer" ` +
+    `title="${l.label} — ${base}">${l.short}</a>`
+  ).join('');
 }
 
 const DEFAULT_SYMS = [
@@ -765,6 +823,7 @@ const INDICATOR_DEFS = [
   {key:'roundbottom',  label:'Rounding Bottom (saucer)',  group:'Pattern Recognition', color:'#ffab40'},
   {key:'vcp',          label:'VCP Coiling',               group:'Pattern Recognition', color:'#26c6da'},
   {key:'trendlines',   label:'Trendlines (supply/demand)', group:'Pattern Recognition', color:'#ff9800'},
+  {key:'falling_wedge', label:'Falling Wedge (converging → breakout)', group:'Pattern Recognition', color:'#26a69a'},
   {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab)', group:'Pattern Recognition', color:'#ba68c8'},
   {key:'projection',   label:'Price Projection (EW + patterns)', group:'Pattern Recognition', color:'#4c9aff'},
   {key:'fib',          label:'Fibonacci + Trade Plan (VP + Projection confluence)',
@@ -1385,6 +1444,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
         <div class="ind-panel">${renderIndicatorPanel()}</div>
       </div>
       <button type="button" class="ind-btn snap-btn" title="Copy chart image to clipboard">📷</button>
+      <div class="qlinks" title="External research links for this symbol"></div>
       <div class="ticker-wrap">
         <span class="sym-badge">${symbol}</span>
         <span class="sym-company"></span>
@@ -1487,13 +1547,8 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
         // A resize changes how many bars are visible but does NOT fire
         // subscribeVisibleTimeRangeChange (that only fires on pan/zoom),
         // so sub-panes (RSI/Volume/etc.) would otherwise be left showing
-        // the stale time range from before the resize. Re-push it here.
-        const range = chart.timeScale().getVisibleRange();
-        if (range && pane && pane.subCharts) {
-          Object.values(pane.subCharts).forEach(({chart: sub}) => {
-            try { sub.timeScale().setVisibleRange(range); } catch {}
-          });
-        }
+        // the stale range from before the resize. Re-push it here (logical).
+        syncSubPaneRanges(pane);
         if (pane && pane.indicators && pane.indicators.has('volprofile'))
           drawVolumeProfile(pane);
         if (pane && pane.indicators && pane.indicators.has('fvg'))
@@ -1520,9 +1575,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
   // ── Time-scale sync: main chart drives all sub-pane charts ─────────────────
   chart.timeScale().subscribeVisibleTimeRangeChange(range => {
     if (!range) return;
-    Object.values(pane.subCharts).forEach(({chart: sub}) => {
-      try { sub.timeScale().setVisibleRange(range); } catch {}
-    });
+    syncSubPaneRanges(pane);   // logical-range sync (see syncSubPaneRanges)
     // FVG boxes are anchored to time coordinates, so panning/zooming the
     // x-axis (unlike Volume Profile, which only depends on the y-axis) must
     // also trigger a redraw — otherwise the boxes drift away from their bars.
@@ -1575,6 +1628,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
     const bare = s.replace(/\.(NS|BO|BSE)$/i, '');
     const suffix = (s.match(/\.(NS|BO|BSE)$/i) || [''])[0].toUpperCase();
     const wantExch = suffix === '.NS' ? 'NSE' : (suffix === '.BO' || suffix === '.BSE') ? 'BSE' : null;
+    renderQuickLinks(el, bare, wantExch);   // per-symbol external research links
     fetchSymbolMatches(bare).then(results => {
       // If pane symbol has an exchange suffix, only accept matches from that
       // exchange — otherwise a BSE-only ticker like 'MARINE.BO' would fall
@@ -2050,6 +2104,7 @@ function applyIndicators(pane) {
   if (!pane.indicators.has('vcp') && pane.vcp) clearVCP(pane);
   // Tear down Trendlines overlay if deselected
   if (!pane.indicators.has('trendlines') && pane.tl) clearTrendlines(pane);
+  if (!pane.indicators.has('falling_wedge') && pane.fw) clearFallingWedge(pane);
   // Tear down PMax flip markers + trade levels if deselected
   if (!pane.indicators.has('pmax') && pane.pmaxTrade) clearPmaxTrade(pane);
   // Tear down Harmonic overlay if deselected
@@ -2165,7 +2220,7 @@ function applyIndicators(pane) {
       sub.series.createPriceLine({price:50, color:'rgba(140,140,140,0.25)',lineWidth:1, lineStyle:2, axisLabelVisible:false});
       sub.series.createPriceLine({price:30, color:'rgba(63,185,80,0.45)',  lineWidth:1, lineStyle:1, axisLabelVisible:false});
     }
-    pane.subCharts.rsi.series.setData(rsiSeries(bars, 14));
+    pane.subCharts.rsi.series.setData(padToBars(rsiSeries(bars, 14), bars));
   }
 
   if (pane.indicators.has('macd')) {
@@ -2187,7 +2242,7 @@ function applyIndicators(pane) {
     }
     const {macd, signal, hist} = macdCalc(bars);
     pane.subCharts.macd.hist.setData(hist);
-    pane.subCharts.macd.macdLine.setData(macd);
+    pane.subCharts.macd.macdLine.setData(padToBars(macd, bars));   // primary → full grid
     pane.subCharts.macd.signalLine.setData(signal);
   }
 
@@ -2199,7 +2254,7 @@ function applyIndicators(pane) {
         priceLineVisible: false, lastValueVisible: true,
       });
     }
-    pane.subCharts.obv.series.setData(obvSeries(bars));
+    pane.subCharts.obv.series.setData(padToBars(obvSeries(bars), bars));
   }
 
   if (pane.indicators.has('rs')) {
@@ -2244,7 +2299,7 @@ function applyIndicators(pane) {
       sub.fastLine.createPriceLine({price:-100,        color:'rgba(36,102,167,0.4)', lineWidth:1, lineStyle:1, axisLabelVisible:false});
     }
     const prte = PRTE.compute(bars);
-    pane.subCharts.prte.fastLine.setData(prte.fast);
+    pane.subCharts.prte.fastLine.setData(padToBars(prte.fast, bars));   // primary → full grid
     pane.subCharts.prte.slowLine.setData(prte.slow);
     // Headline signal: reversal arrows the bar a trend exhausts (▼ bearish
     // as OB is left, ▲ bullish as OS is left). Trend-start points (just
@@ -2294,8 +2349,8 @@ function applyIndicators(pane) {
       sub.rocLine.createPriceLine({price:0, color:'rgba(120,123,134,0.6)', lineWidth:1, lineStyle:0, axisLabelVisible:false});
     }
     const r = rocRsiSeries(bars);
-    pane.subCharts.roc.baseline.setData(r.baseline);
-    pane.subCharts.roc.rocLine.setData(r.roc);
+    pane.subCharts.roc.baseline.setData(padToBars(r.baseline, bars));   // primary grid anchors
+    pane.subCharts.roc.rocLine.setData(padToBars(r.roc, bars));
     pane.subCharts.roc.overlayGreen.setData(r.overlayGreen);
     pane.subCharts.roc.overlayRed.setData(r.overlayRed);
     const markers = [...r.buys, ...r.sells].sort((a,b) => a.time - b.time);
@@ -2320,7 +2375,7 @@ function applyIndicators(pane) {
       sub.series = sub.kLine;   // crosshair sync target
     }
     const {k, d} = stochSeries(bars, 14, 3, 3);
-    pane.subCharts.stoch.kLine.setData(k);
+    pane.subCharts.stoch.kLine.setData(padToBars(k, bars));   // primary → full grid
     pane.subCharts.stoch.dLine.setData(d);
   }
 
@@ -2352,7 +2407,7 @@ function applyIndicators(pane) {
         priceFormat: {type: 'volume'},
       });
     }
-    pane.subCharts.volume.series.setData(volumeBarSeries(bars));
+    pane.subCharts.volume.series.setData(padToBars(volumeBarSeries(bars), bars));
   }
 
   // ── Elliott Wave overlay (plug-in module, see elliott_wave.js) ────────────────
@@ -2376,6 +2431,11 @@ function applyIndicators(pane) {
   }
   if (pane.indicators.has('trendlines')) {
     renderTrendlines(pane);
+  }
+
+  // ── Falling Wedge overlay (server-side detection, see scanner_templates.py) ──
+  if (pane.indicators.has('falling_wedge')) {
+    renderFallingWedge(pane);
   }
 
   // ── Price Projection overlay (Milestone 3, server-side see projection.py) ────
@@ -2416,11 +2476,16 @@ function applyIndicators(pane) {
 // the try/catch loop.
 function syncSubPaneRanges(pane) {
   if (!pane || !pane.subCharts) return;
-  let range;
-  try { range = pane.chart.timeScale().getVisibleRange(); } catch { return; }
-  if (!range) return;
+  // Sync by LOGICAL range (bar indices), not time range. With every sub-series
+  // padded to the full bar grid (padToBars), logical index i is the same bar in
+  // the main and every sub-pane, so this pins the sub-panes to the main's exact
+  // visible-bar window — right edge fixed on the latest bar, symmetric shrink
+  // from the left — instead of the old time-range sync that let them drift.
+  let lr;
+  try { lr = pane.chart.timeScale().getVisibleLogicalRange(); } catch { return; }
+  if (!lr) return;
   Object.values(pane.subCharts).forEach(({chart: sub}) => {
-    try { sub.timeScale().setVisibleRange(range); } catch {}
+    try { sub.timeScale().setVisibleLogicalRange(lr); } catch {}
   });
 }
 
@@ -2455,11 +2520,11 @@ function addSubPane(pane, key, labelText, height) {
   });
   ro.observe(el);
 
-  // Sync to current visible range of main chart
+  // Sync to the main chart's current visible window (logical — see syncSubPaneRanges).
   setTimeout(() => {
     try {
-      const range = pane.chart.timeScale().getVisibleRange();
-      if (range) subChart.timeScale().setVisibleRange(range);
+      const lr = pane.chart.timeScale().getVisibleLogicalRange();
+      if (lr) subChart.timeScale().setVisibleLogicalRange(lr);
     } catch {}
   }, 60);
 
@@ -3120,6 +3185,27 @@ function drawPatternZones(pane) {
   if (pane.indicators && pane.indicators.has('roundbottom'))
     box(pane.rb && pane.rb.baseZone,
         'rgba(255,171,64,0.10)', 'rgba(255,171,64,0.6)', 'Rounding base');
+
+  // Falling-wedge translucent fill — a quadrilateral between the two converging
+  // trendlines (upper-left → upper-right → lower-right → lower-left). Poly is
+  // stashed on pane.fw.poly by renderFallingWedge and nulled on teardown.
+  if (pane.indicators && pane.indicators.has('falling_wedge') && pane.fw && pane.fw.poly) {
+    const p = pane.fw.poly;
+    const pts = [
+      [ts.timeToCoordinate(p.ut0), pane.series.priceToCoordinate(p.uy0)],
+      [ts.timeToCoordinate(p.ut1), pane.series.priceToCoordinate(p.uy1)],
+      [ts.timeToCoordinate(p.lt1), pane.series.priceToCoordinate(p.ly1)],
+      [ts.timeToCoordinate(p.lt0), pane.series.priceToCoordinate(p.ly0)],
+    ];
+    if (pts.every(pt => pt[0] !== null && pt[1] !== null)) {
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0], pts[0][1]);
+      for (let i = 1; i < 4; i++) ctx.lineTo(pts[i][0], pts[i][1]);
+      ctx.closePath();
+      ctx.fillStyle = 'rgba(38,166,154,0.10)';
+      ctx.fill();
+    }
+  }
 }
 
 // ── Elliott Wave overlay rendering (integration layer for elliott_wave.js) ────
@@ -3936,6 +4022,107 @@ async function renderTrendlines(pane) {
   draw('demandLine', g.demand, '#ff9800');  // rising demand — orange (matches screenshot)
 }
 
+// ── Falling Wedge overlay ─────────────────────────────────────────────────────
+// Backed by /api/falling_wedge (scanner_templates.detect_falling_wedge_geometry,
+// concepts/Falling-Wedge.md). Draws the two converging downward trendlines (green),
+// a translucent fill between them (painted by drawPatternZones from pane.fw.poly),
+// a breakout marker, and a compact stat label. FW-3 of Falling-Wedge-Scanner-Fit.
+const FW_COLOR = '#26a69a';
+
+function ensureFwState(pane) {
+  if (!pane.fw) pane.fw = {upperLine: null, lowerLine: null, poly: null, infoEl: null, lastFetchKey: null};
+  return pane.fw;
+}
+
+function clearFallingWedge(pane) {
+  const fw = pane.fw;
+  if (!fw) return;
+  ['upperLine', 'lowerLine'].forEach(k => {
+    if (fw[k]) { try { pane.chart.removeSeries(fw[k]); } catch {}; fw[k] = null; }
+  });
+  fw.poly = null;
+  if (fw.infoEl) { try { fw.infoEl.remove(); } catch {}; fw.infoEl = null; }
+  setPaneMarkers(pane, 'fw', null);
+  fw.lastFetchKey = null;
+  drawPatternZones(pane);
+}
+
+async function renderFallingWedge(pane) {
+  const fw = ensureFwState(pane);
+  if (!pane.bars || !pane.bars.length) return;
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  if (fw.lastFetchKey === key) return;
+  fw.lastFetchKey = key;
+
+  let w = null;
+  try {
+    const barCount = TF_BARS[pane.tf] || 300;
+    const url = `${SERVER}/api/falling_wedge?symbol=${encodeURIComponent(pane.symbol)}` +
+                `&timeframe=${pane.tf}&bars=${barCount}`;
+    const res = await fetch(url);
+    if (res.ok) w = (await res.json()).falling_wedge || null;
+  } catch (e) { console.warn('falling_wedge fetch failed:', e); }
+
+  // Guard against a stale response landing after the user toggled off / switched.
+  if (!pane.indicators.has('falling_wedge')) return;
+  const stillCurrent = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  if (stillCurrent !== key) return;
+
+  if (!w || !w.upper || !w.lower || w.upper.t0 == null || w.lower.t0 == null) {
+    clearFallingWedge(pane); return;
+  }
+
+  const line = (seriesKey, seg, dashed) => {
+    if (!fw[seriesKey]) {
+      fw[seriesKey] = pane.chart.addLineSeries({
+        color: FW_COLOR, lineWidth: 2, lineStyle: dashed ? 2 : 0,
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+        autoscaleInfoProvider: () => null,
+      });
+    } else {
+      fw[seriesKey].applyOptions({lineStyle: dashed ? 2 : 0});
+    }
+    fw[seriesKey].setData([{time: seg.t0, value: seg.y0}, {time: seg.t1, value: seg.y1}]);
+  };
+  const broken = w.state === 'confirmed';
+  line('upperLine', w.upper, broken);   // upper dashes once price has broken it
+  line('lowerLine', w.lower, false);
+
+  // Stash the quadrilateral for the translucent fill (drawn by drawPatternZones).
+  fw.poly = {
+    ut0: w.upper.t0, uy0: w.upper.y0, ut1: w.upper.t1, uy1: w.upper.y1,
+    lt0: w.lower.t0, ly0: w.lower.y0, lt1: w.lower.t1, ly1: w.lower.y1,
+  };
+
+  // Breakout / state marker on the last bar.
+  const mk = w.state === 'confirmed'
+    ? {time: w.breakout_time, position: 'belowBar', color: FW_COLOR, shape: 'arrowUp', text: 'WEDGE BREAK'}
+    : {time: w.breakout_time, position: 'belowBar', color: '#9aa4af', shape: 'circle',
+       text: w.state === 'pre-breakout' ? 'PRE-BREAK' : 'WEDGE'};
+  if (mk.time != null) setPaneMarkers(pane, 'fw', [mk]);
+
+  // Compact stat label (bottom-left) mirroring the source screener's tiles.
+  if (!fw.infoEl) {
+    fw.infoEl = document.createElement('div');
+    fw.infoEl.style.cssText =
+      'position:absolute;left:8px;bottom:8px;z-index:9;pointer-events:none;' +
+      'font:11px -apple-system,"Segoe UI",sans-serif;color:var(--text-chart);' +
+      'background:rgba(38,166,154,0.12);border:1px solid rgba(38,166,154,0.5);' +
+      'border-radius:6px;padding:5px 9px;line-height:1.5;';
+    const host = pane.patternCanvas && pane.patternCanvas.parentElement;
+    if (host) host.appendChild(fw.infoEl);
+  }
+  const rrTxt = (w.rr != null) ? ` · R:R ${w.rr}` : '';
+  fw.infoEl.innerHTML =
+    `<b>Falling Wedge · ${w.state_label}</b> · conf ${w.confidence}` +
+    ` · contain ${w.containment_pct}% · conv ${w.convergence_pct}%` +
+    ` · ${w.touches_h}H/${w.touches_l}L · ${w.vol_dry ? 'vol↓' : 'vol~'}` +
+    `<br>entry ${w.entry} · stop ${w.stop} · target ${w.target}${rrTxt}`;
+
+  drawPatternZones(pane);
+}
+
 // ── PMax trade overlay (flip markers + live position levels) ──────────────────
 // The two PMax lines show WHERE the trailing band is but not WHEN it flipped or
 // what to do about it. This layer makes each flip legible: a BUY/SELL arrow on
@@ -4706,8 +4893,9 @@ async function fetchRsData(pane, bars) {
     const base = pairs[0].value;
     const rsData = pairs.map(p => ({time: p.time, value: (p.value / base) * 100}));
     if (pane.subCharts.rs && pane.subCharts.rs.series) {
-      pane.subCharts.rs.series.setData(rsData);
+      pane.subCharts.rs.series.setData(padToBars(rsData, bars));
       pane.subCharts.rs.label.textContent = `RS vs ${ref}`;
+      syncSubPaneRanges(pane);   // async arrival — re-pin to the main's window
     }
   } catch(e) {
     console.warn('RS fetch failed:', e);
@@ -4777,6 +4965,14 @@ async function loadData(idx) {
       }
       p.series.setData(bars);
       p.bars = bars;
+      // Per-symbol external research links (covers the initial load and reloads;
+      // p.symbol is canonical after the reconciliation block above).
+      {
+        const qbare = p.symbol.replace(/\.(NS|BO|BSE)$/i, '');
+        const qsfx  = (p.symbol.match(/\.(NS|BO|BSE)$/i) || [''])[0].toUpperCase();
+        renderQuickLinks(p.el, qbare,
+          qsfx === '.NS' ? 'NSE' : (qsfx === '.BO' || qsfx === '.BSE') ? 'BSE' : null);
+      }
       applyRangeView(p);
       // Sanity check: if the range didn't take (which happens when the pane
       // container was 0×0 at chart construction and its logical extent hasn't

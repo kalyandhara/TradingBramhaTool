@@ -32,6 +32,8 @@ from ta.trend import ADXIndicator, MACD
 from ta.volatility import AverageTrueRange
 
 import screener_pipeline as sp
+import scanner_templates as sc
+import volume_profile as vp
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -273,6 +275,36 @@ def gather_evidence(
     # ── Swing low for stop placement (lowest low of last 10 bars) ──
     F["swing_low_10"] = float(low.tail(10).min())
     F["swing_high_20"] = float(high.tail(20).max())
+
+    # ── Volume Profile — POC / value-area location (previously orphaned) ──
+    # volume_profile.py was computed only on the chart; wire its price-vs-profile
+    # read into the evidence so Setup Intelligence can speak to acceptance and the
+    # POC magnet. Best-effort: any failure leaves vp_* absent and the panel simply
+    # omits the volume-profile factors.
+    # A trailing NaN yfinance gap bar (the repo's recurring OHLCV bug) makes the
+    # histogram's hi=NaN and describe_position's "current price"=NaN, so drop NaN
+    # OHLC rows first — the same dropna discipline used in scan_pead/opportunity_hub.
+    try:
+        vp_df = df.dropna(subset=["high", "low", "close", "volume"])
+        profile = vp.compute_profile(vp_df)
+        pos = vp.describe_position(vp_df, profile)
+    except Exception:
+        pos = None
+    if pos:
+        F["vp_zone"] = pos["zone"]                     # above_value | inside_value | below_value
+        F["vp_poc"] = pos["poc"]
+        F["vp_vah"] = pos["vah"]
+        F["vp_val"] = pos["val"]
+        F["vp_above_poc"] = pos["above_poc"]
+        F["vp_poc_distance_pct"] = pos["poc_distance_pct"]
+        F["vp_pct_volume_above_poc"] = pos["pct_volume_above_poc"]
+
+    # ── RSI 60-40 with-trend setup (reuses the scanner, so the panel and the
+    # Scanner Hub can never disagree about whether the setup is live) ──
+    try:
+        F["rsi_60_40"] = sc.scan_rsi_60_40(df)   # None or the hit dict
+    except Exception:
+        F["rsi_60_40"] = None
 
     # ── Fundamentals ──
     if fundamentals:
@@ -659,6 +691,15 @@ def setup_intelligence(b: EvidenceBundle, bull: Thesis, bear: Thesis,
         ("Breakout readiness", br_label, br_tone),
         ("Accumulation", acc_label, acc_tone),
     ]
+    # Volume-profile location chip (only when the profile computed).
+    vp_zone = F.get("vp_zone")
+    if vp_zone:
+        loc_label, loc_tone = {
+            "above_value":  ("Above value", "good"),
+            "inside_value": ("In value", "neutral"),
+            "below_value":  ("Below value", "bad"),
+        }.get(vp_zone, ("Unclear", "neutral"))
+        chips.append(("Value-area location", loc_label, loc_tone))
 
     bulls: list[str] = []
     risks: list[str] = []
@@ -718,6 +759,13 @@ def setup_intelligence(b: EvidenceBundle, bull: Thesis, bear: Thesis,
     if F.get("rs_uptrend"):
         bulls.append("RS line trending up — leadership confirmed.")
 
+    # RSI 60-40 with-trend continuation setup (from the scanner).
+    r6040 = F.get("rsi_60_40")
+    if r6040:
+        kind = "RSI-40 pullback at EMA support" if "Pullback" in r6040["pattern_type"] \
+            else "RSI-60 breakout clearing the 20-day high"
+        bulls.append(f"RSI 60-40 setup live — {kind} (with-trend continuation entry).")
+
     # ── Structure ──
     pfh = F.get("pct_from_52w_high")
     if pfh is not None:
@@ -756,6 +804,36 @@ def setup_intelligence(b: EvidenceBundle, bull: Thesis, bear: Thesis,
             bulls.append(f"₹{tcr:.1f} Cr daily turnover — liquid enough to trade.")
         elif tcr < 2:
             risks.append(f"₹{tcr:.1f} Cr daily turnover — thin, slippage/exit risk.")
+
+    # ── Volume profile — POC / value-area acceptance (previously orphaned) ──
+    vp_zone = F.get("vp_zone")
+    if vp_zone:
+        poc = F.get("vp_poc")
+        vah = F.get("vp_vah")
+        val = F.get("vp_val")
+        poc_dist = F.get("vp_poc_distance_pct")
+        if vp_zone == "above_value":
+            bulls.append(
+                f"Trading above the value area (VAH ₹{vah:.0f}) — price accepted "
+                f"higher, POC ₹{poc:.0f} now support beneath.")
+        elif vp_zone == "below_value":
+            risks.append(
+                f"Trading below the value area (VAL ₹{val:.0f}) — POC ₹{poc:.0f} "
+                f"overhead as resistance; supply not yet cleared.")
+        else:  # inside_value
+            if F.get("vp_above_poc"):
+                bulls.append(
+                    f"Inside value, above the POC (₹{poc:.0f}) — upper-half "
+                    f"acceptance, control price as support.")
+            else:
+                risks.append(
+                    f"Inside value, below the POC (₹{poc:.0f}) — must reclaim the "
+                    f"control price for a clean long.")
+        # A tight coil right on the control price is a decision point worth flagging.
+        if poc_dist is not None and abs(poc_dist) <= 1.0:
+            bulls.append(
+                f"Price sitting on the POC (within {abs(poc_dist):.1f}%) — "
+                f"high-volume fair-value pivot, tight-stop decision point.")
 
     # ── Fundamentals (only when yfinance actually returned them) ──
     if b.has_fundamentals:

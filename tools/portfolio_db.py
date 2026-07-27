@@ -23,7 +23,7 @@ ALERT_CATEGORIES = ["Price", "Pattern", "Volume", "Earnings", "Performance"]
 ALERT_METRICS = {
     "Price": ["close"],
     "Volume": ["volume_ratio"],
-    "Pattern": ["total_score", "wave_pos"],
+    "Pattern": ["total_score", "wave_pos", "rsi_60_40"],
     "Performance": ["portfolio_pl_pct"],
     "Earnings": [],  # uses target_date instead of metric/operator/threshold
 }

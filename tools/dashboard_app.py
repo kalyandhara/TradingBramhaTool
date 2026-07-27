@@ -31,6 +31,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import screener_pipeline as sp
 import ew_module
 import scanner_templates as sc
+import opportunity_hub as oh
 import screener_scraper as ss
 import multibagger_candidates as mb
 import promoter_profit_surprise as pps
@@ -126,6 +127,15 @@ def cached_fetch_ohlcv(symbol: str, days: int = 300):
 
     # Fallback to screener_pipeline
     return sp.fetch_ohlcv(symbol, days=days)
+
+
+def _scanner_fetch_fn(scanner_name: str):
+    """Fetch fn for run_scanner. Scanners flagged ``needs_full_history`` (ATH /
+    IPO-base breakout) get the full listing history; every other scanner keeps the
+    default ~300-bar window. Used by both the Scanner Hub and the Opportunity Hub."""
+    if sc.SCANNERS.get(scanner_name, {}).get("needs_full_history"):
+        return lambda s: cached_fetch_ohlcv(s, days=6000)
+    return cached_fetch_ohlcv
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -747,6 +757,14 @@ def check_alert(alert: pd.Series, portfolio_summary: dict) -> tuple[bool, str]:
         if alert["metric"] == "wave_pos":
             ew = ew_module.analyze_ew(df)
             value = ew["wave_pos"]
+        elif alert["metric"] == "rsi_60_40":
+            # Fires when the RSI 60-40 with-trend setup is live; the compared
+            # value is the setup's standalone quality (score_base 0-100), else 0.
+            hit = sc.scan_rsi_60_40(df)
+            value = hit["score_base"] if hit else 0.0
+            detail = (f"{hit['pattern_type'].split('·')[-1].strip()} {value:.0f}"
+                      if hit else "no setup")
+            return _compare(value, alert["operator"], alert["threshold"]), detail
         else:
             nifty_df = cached_fetch_nifty50()
             mv_score, _ = sp.score_minervini(df, nifty_df=nifty_df)
@@ -1135,8 +1153,8 @@ with st.expander("Daily Workflow (IST)"):
 # must match a "if current_page == '...':" block below exactly.
 # ──────────────────────────────────────────────────────────────────────────────
 PAGE_GROUPS = {
-    "Screening":        ["Screener", "Other Screeners", "Scanner Hub", "Breakout Screener",
-                         "High-Growth Screener", "TradingView Screener"],
+    "Screening":        ["Opportunity Hub", "Screener", "Other Screeners", "Scanner Hub",
+                         "Breakout Screener", "High-Growth Screener", "TradingView Screener"],
     "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
     "Research":         ["Predictive Analysis", "Stock Analyzer", "Sector Map", "Astro Timing", "Telegram Signals"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
@@ -1736,6 +1754,165 @@ if current_page == "Pipeline Log":
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Opportunity Hub — top-down Sector→Industry→Stock→Pattern→Entry funnel (Phase 1)
+# Composition of shipped pieces: sector/industry strength is derived bottom-up
+# from constituents' momentum (opportunity_hub.py), then the EXISTING Scanner Hub
+# scanners run on just the leading stocks. See wiki Opportunity-Hub-Roadmap.
+# ──────────────────────────────────────────────────────────────────────────────
+if current_page == "Opportunity Hub":
+    st.subheader("Opportunity Hub")
+    st.caption("Top-down funnel — **Right Sector → Right Industry → Right Stock → "
+               "Right Pattern → Right Entry**. Leading sectors & industries are "
+               "ranked bottom-up from their constituents' momentum, then a pattern "
+               "scanner runs on just the leaders. The Hub narrows & ranks — you "
+               "validate the setup and manage the risk.")
+
+    _pct_cols = {
+        "avg_momentum": st.column_config.NumberColumn("Avg Mom %", format="%.1f"),
+        "median_momentum": st.column_config.NumberColumn("Median %", format="%.1f"),
+        "breadth_pct": st.column_config.NumberColumn("Breadth %", format="%.0f"),
+        "count": st.column_config.NumberColumn("# Stocks", format="%d"),
+    }
+
+    oh_left, oh_main = st.columns([1, 3])
+
+    with oh_left:
+        st.markdown("**1 · Universe**")
+        oh_mode = st.radio(
+            "Source", ["Full Market (Bhavcopy)", "Screener results", "Manual symbols"],
+            key="oh_universe_mode",
+            help="Each stock needs a sector tag + OHLCV — 200–300 names is a good "
+                 "balance of coverage vs speed (results cache after the first run).")
+        oh_universe: list[str] = []
+        oh_top_n = 200
+        if oh_mode == "Full Market (Bhavcopy)":
+            oh_top_n = st.slider("Top N by traded value", 50, 1000, 200, 50, key="oh_bhav_n")
+        elif oh_mode == "Screener results":
+            _sr = st.session_state.get("screener_results")
+            if _sr is not None and not _sr.empty:
+                oh_universe = sorted(_sr["Symbol"].unique())
+                st.caption(f"{len(oh_universe)} stocks from screener")
+            else:
+                st.caption("No screener results yet — run the Daily Screener Pipeline first.")
+        else:
+            _raw = st.text_area("Symbols (comma / newline)", key="oh_manual", height=80)
+            oh_universe = [s.strip().upper() for s in _raw.replace(",", "\n").splitlines() if s.strip()]
+
+        if st.button("Build Funnel", type="primary", key="oh_build"):
+            if oh_mode == "Full Market (Bhavcopy)":
+                with st.spinner("Loading market universe…"):
+                    try:
+                        oh_universe = cached_fetch_bhavcopy_universe(oh_top_n)
+                    except Exception as exc:
+                        st.error(f"Bhavcopy fetch failed: {exc}")
+            if not oh_universe:
+                st.warning("No universe loaded — pick a source above.")
+            else:
+                prog = st.progress(0.0, text="Tagging sectors + momentum…")
+                def _oh_prog(i, total):
+                    prog.progress(min(i / total, 1.0),
+                                  text=f"Tagging sectors + momentum… {i}/{total}")
+                with st.spinner("Building the funnel…"):
+                    tbl = oh.build_constituent_table(
+                        oh_universe, cached_fetch_ohlcv, progress_cb=_oh_prog)
+                prog.empty()
+                st.session_state["oh_table"] = tbl
+                for _k in ("oh_hits", "oh_hits_scanner"):
+                    st.session_state.pop(_k, None)
+
+        st.divider()
+        st.markdown("**Pattern scanner** (step 4)")
+        oh_scanner = st.selectbox(
+            "Scanner", list(sc.SCANNERS.keys()), key="oh_scanner",
+            help="Runs on the leading-industry stocks only.")
+        st.caption(sc.SCANNERS[oh_scanner]["description"])
+
+    with oh_main:
+        tbl = st.session_state.get("oh_table")
+        if tbl is None:
+            st.info("Pick a universe on the left and click **Build Funnel**.")
+        elif tbl.empty:
+            st.warning("No stocks could be placed (each needs a yfinance sector tag "
+                       "+ a computable momentum). Try a different / larger universe.")
+        else:
+            st.caption(f"{len(tbl)} stocks placed across {tbl['sector'].nunique()} "
+                       f"sectors · {tbl['industry'].nunique()} industries.")
+
+            # ── 2 · Right Sector ───────────────────────────────────────────────
+            st.markdown("#### 2 · Right Sector")
+            sr = oh.rank_groups(tbl, "sector", min_constituents=3)
+            if sr.empty:
+                st.info("No sector has ≥3 constituents in this universe — widen it.")
+            else:
+                st.dataframe(sr, use_container_width=True, hide_index=True,
+                             column_config=_pct_cols)
+                _pos = sr[sr["avg_momentum"] > 0]["sector"].head(3).tolist()
+                _def_sec = _pos or sr["sector"].head(3).tolist()
+                sel_sectors = st.multiselect(
+                    "Leading sectors to drill into", sr["sector"].tolist(),
+                    default=_def_sec, key="oh_sectors")
+
+                # ── 3 · Right Industry ─────────────────────────────────────────
+                if sel_sectors:
+                    st.markdown("#### 3 · Right Industry")
+                    sub = tbl[tbl["sector"].isin(sel_sectors)]
+                    ir = oh.rank_groups(sub, "industry", min_constituents=1)
+                    st.dataframe(ir, use_container_width=True, hide_index=True,
+                                 column_config=_pct_cols)
+                    _def_ind = (ir[ir["avg_momentum"] > 0]["industry"].tolist()
+                                or ir["industry"].tolist())
+                    sel_inds = st.multiselect(
+                        "Leading industries", ir["industry"].tolist(),
+                        default=_def_ind, key="oh_industries")
+
+                    # ── 4 · Right Stock → Pattern → Entry ──────────────────────
+                    stocks = oh.stocks_in_groups(sub, "industry", sel_inds)
+                    st.markdown(f"#### 4 · Right Stock → Pattern → Entry "
+                                f"· {len(stocks)} candidates in the leaders")
+                    if stocks and st.button(
+                            f"Scan {len(stocks)} leading stocks with {oh_scanner}",
+                            type="primary", key="oh_scan"):
+                        try:
+                            _bench = cached_fetch_nifty50()
+                        except Exception:
+                            _bench = None
+                        with st.spinner(f"Running {oh_scanner} on {len(stocks)} leaders…"):
+                            _hits = sc.run_scanner(oh_scanner, stocks,
+                                                   _scanner_fetch_fn(oh_scanner),
+                                                   benchmark_df=_bench)
+                        _ow = st.session_state.get("hub_overall_weights", OVERALL_WEIGHTS)
+                        for _h in _hits:
+                            try:
+                                _r, _bd = _overall_rating(
+                                    cached_fetch_ohlcv(_h["symbol"]), _bench, _ow)
+                            except Exception:
+                                _r, _bd = None, {}
+                            _h["overall"] = _r
+                            _h["overall_breakdown"] = _bd
+                        st.session_state["oh_hits"] = _hits
+                        st.session_state["oh_hits_scanner"] = oh_scanner
+
+                    _hits = st.session_state.get("oh_hits")
+                    _ran = st.session_state.get("oh_hits_scanner", "")
+                    if _hits is not None:
+                        if not _hits:
+                            st.info(f"No **{_ran}** matches among the leading stocks. "
+                                    "Try another scanner, or widen the sectors/industries.")
+                        else:
+                            shown = sorted(
+                                _hits,
+                                key=lambda h: (h.get("overall") is not None,
+                                               h.get("overall") or 0),
+                                reverse=True)
+                            st.caption(f"{len(shown)} matches from **{_ran}** on the "
+                                       f"leaders · sorted by Overall Rating")
+                            for i in range(0, len(shown), 3):
+                                cols = st.columns(3)
+                                for col, card in zip(cols, shown[i:i + 3]):
+                                    with col:
+                                        _render_scanner_card(card, _ran)
+
+
 # Tab 8 — Scanner Hub (SwingEdge-inspired pre-built pattern scanners)
 # ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Scanner Hub":
@@ -1768,6 +1945,49 @@ if current_page == "Scanner Hub":
         st.divider()
         st.markdown(f"**Selected:** {selected_scanner}")
         st.caption(sc.SCANNERS[selected_scanner]["description"])
+
+        # Quality Small-Cap PEAD (Phase 5.1) carries its own fundamentals gate,
+        # tuned here. Stored in session_state and read by the Run handler.
+        is_quality_pead = sc.SCANNERS[selected_scanner].get("quality_pead", False)
+        if is_quality_pead:
+            with st.expander("Quality gate (fundamentals)", expanded=True):
+                st.caption("yfinance fundamentals — no login. Applied to the "
+                           "universe BEFORE the drift scan. Cards show "
+                           "ROE · OPM · PE · PEG · market cap.")
+                q_allcaps = st.toggle(
+                    "All market caps", value=True, key="qp_allcaps",
+                    help="On: no market-cap limit (all caps). Off: restrict to a "
+                         "small/mid-cap ceiling set below.")
+                q_mcap = None
+                if not q_allcaps:
+                    q_mcap = st.slider("Max market cap (₹ Cr) — cap ceiling",
+                                       500, 50000, 20000, step=500, key="qp_mcap")
+                q_de = st.slider("Max Debt/Equity (0.10 ≈ zero debt)",
+                                 0.0, 2.0, 0.10, step=0.05, key="qp_de")
+                q_roe = st.slider("Min ROE %", 0, 40, 15, step=1, key="qp_roe")
+                q_opm = st.slider("Min OPM %", 0, 50, 10, step=1, key="qp_opm")
+                st.caption("Valuation caps (0 = no limit):")
+                q_max_pe = st.slider("Max PE (0 = off)", 0, 150, 0, step=1, key="qp_max_pe")
+                q_max_peg = st.slider("Max PEG (0 = off)", 0.0, 5.0, 0.0, step=0.1,
+                                      key="qp_max_peg",
+                                      help="Includes the computed ~PEG (PE÷growth) "
+                                           "when yfinance's vendor PEG is absent.")
+                q_complete = st.toggle(
+                    "Require complete fundamentals", value=True, key="qp_complete",
+                    help="On: drop names whose debt/ROE/OPM/PE/PEG yfinance can't "
+                         "confirm (honest — can't call a name 'zero-debt' unseen). "
+                         "Off: keep them, skipping only the missing checks.")
+                st.session_state["qp_params"] = {
+                    "max_market_cap_cr": q_mcap, "max_de_ratio": q_de,
+                    "min_roe_pct": float(q_roe), "min_opm_pct": float(q_opm),
+                    "max_pe": (float(q_max_pe) if q_max_pe > 0 else None),
+                    "max_peg": (float(q_max_peg) if q_max_peg > 0 else None),
+                    "require_complete": q_complete,
+                }
+                st.caption("⚠ Fetches fundamentals per symbol — prefer the "
+                           "**Screener results** universe or a smaller Top-N; a "
+                           "full 300+ market scan is slow on the first run "
+                           "(results cache after).")
 
         with st.expander("Overall Rating weights"):
             st.caption("Tune the /100 cross-system rollup. Applies on the next scan.")
@@ -1847,9 +2067,23 @@ if current_page == "Scanner Hub":
                     bench_df = cached_fetch_nifty50()
                 except Exception:
                     bench_df = None
-                with st.spinner(f"Running {selected_scanner} on {len(universe)} symbols…"):
-                    hits = sc.run_scanner(selected_scanner, universe, cached_fetch_ohlcv,
-                                          benchmark_df=bench_df)
+                if sc.SCANNERS[selected_scanner].get("quality_pead", False):
+                    # Phase 5.1 composite — quality fundamentals gate ∩ Proxy-PEAD.
+                    qp = st.session_state.get("qp_params", {})
+                    prog = st.progress(0.0, text="Screening fundamentals…")
+                    def _qp_progress(i, total):
+                        prog.progress(min(i / total, 1.0),
+                                      text=f"Screening fundamentals… {i}/{total}")
+                    with st.spinner(f"Running {selected_scanner} on {len(universe)} symbols…"):
+                        hits = sc.run_quality_pead(
+                            universe, cached_fetch_ohlcv, benchmark_df=bench_df,
+                            progress_cb=_qp_progress, **qp)
+                    prog.empty()
+                else:
+                    with st.spinner(f"Running {selected_scanner} on {len(universe)} symbols…"):
+                        hits = sc.run_scanner(selected_scanner, universe,
+                                              _scanner_fetch_fn(selected_scanner),
+                                              benchmark_df=bench_df)
                 # M1 — attach a cross-system Overall Rating to each hit once, here
                 # at scan time (reuses the OHLCV the scanner just fetched — cached).
                 # bench_df is the Nifty50 benchmark used for RS-based sub-scores.
@@ -3957,13 +4191,23 @@ if current_page == "India Market Intel":
                 head = (f"{r['symbol']} — ₹{r['total_value']/1e5:,.0f}L · "
                         f"{r['strength']} · {r['action']}")
                 with st.expander(head, expanded=(r is _ceavet[0])):
-                    st.markdown(
-                        f"<span style='background:{col};color:#fff;padding:2px 10px;"
-                        f"border-radius:10px;font-size:12px;font-weight:700;'>"
-                        f"{r['strength']} — {r['action']}</span>"
-                        f"&nbsp;&nbsp;<a href='{_deal_chart_url(r)}' target='_blank' "
-                        f"style='font-size:12px;'>📈 Open chart</a>",
-                        unsafe_allow_html=True)
+                    _badge_col, _wl_col = st.columns([4, 1])
+                    with _badge_col:
+                        st.markdown(
+                            f"<span style='background:{col};color:#fff;padding:2px 10px;"
+                            f"border-radius:10px;font-size:12px;font-weight:700;'>"
+                            f"{r['strength']} — {r['action']}</span>"
+                            f"&nbsp;&nbsp;<a href='{_deal_chart_url(r)}' target='_blank' "
+                            f"style='font-size:12px;'>📈 Open chart</a>",
+                            unsafe_allow_html=True)
+                    with _wl_col:
+                        # Watchlist add can't ride an HTML <a> — it needs a Python
+                        # call, so it's a compact button beside the chart link.
+                        if st.button("★ Watchlist", key=f"imi_ceavet_wl_{r['symbol']}",
+                                     help="Add this scrip to your watchlist"):
+                            db.add_watchlist_symbol(
+                                r["symbol"], f"From Deal Intel — {r['strength']}")
+                            st.success(f"{r['symbol']} added to watchlist.")
                     for letter, label, key in [
                         ("C", "Context", "C"), ("E", "Event", "E"),
                         ("A", "Analysis — institutional motive", "A"),

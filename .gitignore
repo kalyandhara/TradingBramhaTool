@@ -43,3 +43,7 @@ tools/indian-trading-agent-main/
 
 # Tooling artifacts
 .playwright-mcp/
+
+# Local data cache — regenerable equity lists + captured screener.in session
+# cookies + persistent Playwright browser profile. Never commit (session data).
+tools/cache/

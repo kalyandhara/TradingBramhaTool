@@ -8,6 +8,7 @@ sources: 1
 related:
   - concepts/Market-Sentiment-Index.md
   - sources/Madhur-Raut-Market-Sentiment-Index-Infographic.md
+  - analyses/Market-Sentiment-Futures-Roadmap.md
 ---
 
 # Analysis: Market Sentiment Index — Roadmap Fit

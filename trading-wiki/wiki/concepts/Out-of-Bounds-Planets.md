@@ -48,7 +48,7 @@ Financial-astrology traders treat OOB windows as **regime modifiers** — not en
 ## Related Concepts
 - [[concepts/PMax]] and [[concepts/EMA]] — the *setup* layer OOB modulates. OOB doesn't replace them, it amplifies their read.
 - [[concepts/Multi-Timeframe-Analysis]] — OOB is a *daily/date-based* filter that combines cleanly with intraday TA.
-- Retrograde cycles (concept page not yet in wiki — flagged as future ingest) — OOB and retrograde amplify each other.
+- [[concepts/Mercury-Retrograde-Market-Cycle]] — the *other* Mercury filter: apparent motion (retrograde/direct) vs OOB's declination. Distinct states that can co-occur and compound; same "regime modifier, not signal" discipline.
 - Lunations and eclipses — OOB near a lunation/eclipse is a heightened-conviction context.
 
 ## Examples in This Wiki

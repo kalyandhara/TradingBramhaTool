@@ -23,6 +23,20 @@ def _ema_series(series: pd.Series, n: int) -> pd.Series:
     return series.ewm(span=n, adjust=False).mean()
 
 
+def _rsi_series(close: pd.Series, n: int = 14) -> pd.Series:
+    """Wilder's RSI (0-100), aligned to ``close`` with NaN through the warm-up.
+    A flat/all-gains window (no average loss) reads 100 rather than dividing by
+    zero."""
+    delta = close.diff()
+    gain = delta.clip(lower=0.0)
+    loss = -delta.clip(upper=0.0)
+    avg_gain = gain.ewm(alpha=1.0 / n, min_periods=n, adjust=False).mean()
+    avg_loss = loss.ewm(alpha=1.0 / n, min_periods=n, adjust=False).mean()
+    rs = avg_gain / avg_loss.replace(0.0, np.nan)
+    rsi = 100.0 - 100.0 / (1.0 + rs)
+    return rsi.where(avg_loss != 0.0, 100.0)
+
+
 # Benchmark weighted trailing return for the active scan (set by run_scanner
 # when a benchmark DataFrame is supplied). When set, _rs_raw returns the
 # stock's EXCESS return over the benchmark — a true relative-strength line —
@@ -360,6 +374,172 @@ def scan_momentum_continuation(df: pd.DataFrame) -> dict | None:
         "tags": ["MA stack", f"{mom_3m:.0f}% 3m return"],
         "reasons": reasons,
         "score": round(mom_3m, 2),
+    }
+
+
+def _suv_series(vol: pd.Series, lookback: int = 30, use_log: bool = False) -> pd.Series:
+    """Standardized Unexpected Volume (SUV) — a per-bar volume z-score with an
+    anti-leak baseline. Ported from the TradingView 8-criteria PEAD screener
+    ([[sources/TV-PEAD-Screener-PineScript]]).
+
+    Baseline = the `lookback` bars STRICTLY BEFORE each bar (`volume.shift(1)`
+    rolling), so an event bar never inflates the mean/std it is measured against
+    — the "pre-D0 baseline" fix (a trailing average that includes the elevated
+    post-earnings bars deflates the reading for weeks). `use_log` runs the z on
+    log(volume): volume is right-skewed, so one prior spike otherwise inflates
+    std and suppresses SUV across the whole PEAD window. Sigma floor prevents
+    div-by-≈0 on thin names; output clamped to [-10, 20] so a lone historical
+    spike + a quiet tape can't yield a ±40 reading.
+    """
+    v = vol.astype(float)
+    if use_log:
+        cur = np.log(v.where(v > 0))
+        floor = 0.2
+    else:
+        cur = v
+        floor = 1.0
+    prior = cur.shift(1)
+    mean = prior.rolling(lookback).mean()
+    std = prior.rolling(lookback).std().clip(lower=floor)
+    z = (cur - mean) / std
+    return z.clip(lower=-10.0, upper=20.0)
+
+
+def scan_pead(df: pd.DataFrame,
+              lookback: int = 20,
+              min_react_atr: float = 1.5,
+              min_react_pct: float = 4.0,
+              min_suv: float = 1.5,
+              suv_lookback: int = 30,
+              suv_log: bool = False,
+              drift_tol: float = 0.98) -> dict | None:
+    """Proxy-PEAD (Post-Earnings Announcement Drift) — Phase 1, price-only.
+
+    Our Python data sources have no free analyst-consensus estimate for NSE (see
+    screener_scraper.py; screener.in returns nothing for "surprise"), so a *true*
+    SUE is not computable in this scanner. (TradingView Pine's request.earnings
+    can — a separate platform path; and a time-series SUE needs EPS history the
+    scanner is not wired for, since run_scanner attaches the symbol only AFTER
+    this runs. Both are Phase 3.) Instead we infer the earnings event from price:
+    a large reaction on Standardized-Unexpected-Volume is the market pricing the
+    surprise, and we require the move to be *holding / extending* — the drift.
+
+    Event gate (bullish side only in Phase 1):
+      • one bar in the last `lookback` sessions (and ≥1 bar ago, so drift is
+        observable) whose up-reaction ≥ `min_react_atr`×ATR(14) AND
+        ≥ `min_react_pct`% close-to-close,
+      • with SUV ≥ `min_suv` σ — a proper volume z-score vs a `suv_lookback`-bar
+        PRE-EVENT baseline (anti-leak), not a raw ratio vs a contaminated mean.
+    Drift gate: current close still ≥ `drift_tol`× the event-bar close — the
+    reaction has not been given back.
+
+    HONESTY: labelled "Proxy-PEAD", not SUE. The event is inferred from the price
+    reaction, not a confirmed earnings date — Phase 2 reconciles against a real
+    result calendar (yfinance earnings dates).
+    """
+    if len(df) < 60:
+        return None
+    # Drop NaN OHLCV bars up front — yfinance occasionally returns gap/holiday
+    # rows with NaN prices, and because every NaN comparison is False they slip
+    # through all the gates below (observed: ULTRACEMCO firing with "nan% gap",
+    # score 100). Reset the index so the positional iloc logic stays consistent.
+    df = df.dropna(
+        subset=[c for c in ("open", "high", "low", "close", "volume") if c in df.columns]
+    ).reset_index(drop=True)
+    if len(df) < 60:
+        return None
+    close = df["close"]
+    high = df["high"]
+    vol = df["volume"]
+    last = float(close.iloc[-1])
+    if np.isnan(last):
+        return None
+
+    med_vol50 = float(vol.tail(50).median())
+    if not (med_vol50 > 0):
+        return None
+    atr = _atr_series(df, 14)
+    suv = _suv_series(vol, suv_lookback, suv_log)   # standardized unexpected volume
+
+    n = len(df)
+    # Candidate event bars: at least 1 session ago (need drift), within lookback.
+    start = max(1, n - 1 - lookback)
+    best = None  # (react_atr, idx)
+    for i in range(start, n - 1):
+        prev_c = float(close.iloc[i - 1])
+        if prev_c <= 0:
+            continue
+        react = float(close.iloc[i]) - prev_c          # full-day reaction
+        if np.isnan(react) or react <= 0:
+            continue                                    # bullish side only (Phase 1)
+        react_pct = react / prev_c * 100.0
+        atr_i = float(atr.iloc[i])
+        if np.isnan(atr_i) or atr_i <= 0:
+            continue
+        react_atr = react / atr_i
+        suv_i = float(suv.iloc[i])
+        if (react_atr < min_react_atr or react_pct < min_react_pct
+                or np.isnan(suv_i) or suv_i < min_suv):
+            continue
+        if best is None or react_atr > best[0]:
+            best = (react_atr, i)
+
+    if best is None:
+        return None
+
+    react_atr, e = best
+    prev_c = float(close.iloc[e - 1])
+    event_close = float(close.iloc[e])
+    react_pct = (event_close - prev_c) / prev_c * 100.0
+    suv_e = float(suv.iloc[e])                       # SUV z-score at the event
+    vol_x = float(vol.iloc[e]) / med_vol50           # kept for display + 'Vol Confirmed' pill
+    bars_since = (n - 1) - e
+
+    # Drift gate — the reaction must still be intact.
+    if last < event_close * drift_tol:
+        return None
+    drift_pct = (last / event_close - 1.0) * 100.0
+
+    # 0-100 score: surprise magnitude + drift continuation + volume conviction
+    # (SUV z-score, capped), tuned so the Hub's strength pills (Strongest ≥65 /
+    # Moderate 45-65) bite.
+    score = 40.0 + react_atr * 8.0 + drift_pct * 1.5 + min(max(suv_e, 0.0), 6.0) * 2.5
+    score = float(max(0.0, min(100.0, score)))
+
+    # Optional "gap at open" colour if the frame carries an open column.
+    gap_at_open = None
+    if "open" in df.columns:
+        o = float(df["open"].iloc[e])
+        if o > prev_c:
+            gap_at_open = (o - prev_c) / prev_c * 100.0
+
+    reasons = [
+        f"Earnings-like reaction +{react_pct:.1f}% ({react_atr:.1f}×ATR), "
+        f"{bars_since} session(s) ago",
+        f"Standardized Unexpected Volume {suv_e:.1f}σ vs a {suv_lookback}-day "
+        f"pre-event baseline ({vol_x:.1f}× median) — institutional footprint",
+        f"Drift intact: price {drift_pct:+.1f}% since the event — reaction held, not faded",
+        "Proxy-PEAD: event inferred from the price reaction, not a confirmed "
+        "earnings date (Phase 1 — no consensus estimate in our NSE data)",
+    ]
+    if gap_at_open is not None:
+        reasons.insert(1, f"Gapped +{gap_at_open:.1f}% at the open — classic post-result gap")
+    if last >= float(high.iloc[e]):
+        reasons.append("Closed above the event-bar high — drift extending, not just holding")
+
+    tags = [
+        "Proxy-PEAD",
+        f"{react_pct:.0f}% gap",
+        f"SUV {suv_e:.1f}σ",
+        f"{bars_since}d drift",
+        f"{drift_pct:+.0f}% since",
+    ]
+    return {
+        "pattern_type": "Proxy-PEAD Drift",
+        "tags": tags,
+        "reasons": reasons,
+        "score": round(score, 2),
+        "vol_x50d": round(vol_x, 2),   # lights up the Hub 'Vol Confirmed' pill
     }
 
 
@@ -2525,8 +2705,677 @@ def scan_harmonic_reversal(df: pd.DataFrame) -> dict | None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Opportunity Hub Phase 3 — the three greenfield detectors
+# (candlestick patterns · IPO-base breakout · all-time-high breakout).
+# ATH & IPO carry a ``needs_full_history`` marker in the registry so the hubs feed
+# them the full listing history instead of the default ~300-bar window.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _clean_ohlc(df: pd.DataFrame) -> pd.DataFrame:
+    """Drop NaN OHLCV bars + reset index (the recurring yfinance-gap-bar guard)."""
+    cols = [c for c in ("open", "high", "low", "close", "volume") if c in df.columns]
+    return df.dropna(subset=cols).reset_index(drop=True)
+
+
+def scan_candlestick(df: pd.DataFrame, min_vol_x: float = 1.0) -> dict | None:
+    """Bullish candlestick reversal/continuation on the LATEST bar, with context.
+
+    Fires only on a *fresh* (last-bar) bullish pattern — Bullish Engulfing,
+    Hammer, Piercing Line, or Morning Star — and prefers ones forming after a
+    pullback (at/below EMA20) rather than when already extended, with volume
+    confirmation. A candlestick is a trigger, not a system: score stays modest.
+    """
+    if len(df) < 30:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < 30:
+        return None
+    o, h, l, c, v = df["open"], df["high"], df["low"], df["close"], df["volume"]
+    n = len(df)
+    i = n - 1
+    avg_vol = float(v.tail(20).mean())
+    if not (avg_vol > 0):
+        return None
+    vol_x = float(v.iloc[i]) / avg_vol
+    ema20 = _ema_series(c, 20)
+    rng = float(h.iloc[i] - l.iloc[i])
+    if rng <= 0:
+        return None
+    body = abs(float(c.iloc[i] - o.iloc[i]))
+
+    def is_bull_engulf() -> bool:
+        return (c.iloc[i - 1] < o.iloc[i - 1] and c.iloc[i] > o.iloc[i]
+                and o.iloc[i] <= c.iloc[i - 1] and c.iloc[i] >= o.iloc[i - 1])
+
+    def is_hammer() -> bool:
+        lower = min(o.iloc[i], c.iloc[i]) - l.iloc[i]
+        upper = h.iloc[i] - max(o.iloc[i], c.iloc[i])
+        return body > 0 and lower >= 2 * body and upper <= body and body <= 0.4 * rng
+
+    def is_piercing() -> bool:
+        mid = (o.iloc[i - 1] + c.iloc[i - 1]) / 2
+        return (c.iloc[i - 1] < o.iloc[i - 1] and o.iloc[i] < l.iloc[i - 1]
+                and mid < c.iloc[i] < o.iloc[i - 1])
+
+    def is_morning_star() -> bool:
+        if n < 3:
+            return False
+        first_body = o.iloc[i - 2] - c.iloc[i - 2]                 # >0 if red
+        big_red = first_body > 0 and first_body > 0.5 * (h.iloc[i - 2] - l.iloc[i - 2])
+        small = abs(c.iloc[i - 1] - o.iloc[i - 1]) < 0.4 * max(first_body, 1e-9)
+        big_green = c.iloc[i] > o.iloc[i] and c.iloc[i] > (o.iloc[i - 2] + c.iloc[i - 2]) / 2
+        return bool(big_red and small and big_green)
+
+    found: list[tuple[str, float]] = []            # (name, base strength 0-100)
+    if is_morning_star():
+        found.append(("Morning Star", 70))
+    if is_bull_engulf():
+        found.append(("Bullish Engulfing", 62))
+    if is_piercing():
+        found.append(("Piercing Line", 55))
+    if is_hammer():
+        found.append(("Hammer", 52))
+    if not found:
+        return None
+
+    name, base = max(found, key=lambda x: x[1])
+
+    # Context: reversal candles earn their keep after a pullback, not when extended.
+    dist_ema20 = (float(c.iloc[i]) / float(ema20.iloc[i]) - 1.0) * 100.0 if ema20.iloc[i] > 0 else 0.0
+    pullback = float(l.iloc[i]) <= float(ema20.iloc[i]) * 1.02      # dipped to/through EMA20
+    # Volume gate (engulfing/star want conviction; hammers can be quieter).
+    if name in ("Bullish Engulfing", "Morning Star") and vol_x < min_vol_x:
+        return None
+
+    score = base + min(max(vol_x - 1.0, 0.0), 2.0) * 6.0
+    if pullback:
+        score += 6.0
+    if dist_ema20 > 12:            # already extended — discount the reversal read
+        score -= 12.0
+    score = float(max(0.0, min(100.0, score)))
+
+    reasons = [
+        f"{name} on the latest bar — bullish {'reversal' if name != 'Bullish Engulfing' else 'reversal/continuation'} candle",
+        f"Volume {vol_x:.1f}× the 20-day average" + (" — conviction" if vol_x >= 1.5 else ""),
+        ("Formed after a pullback to EMA20 — higher-quality location"
+         if pullback else f"{dist_ema20:+.1f}% vs EMA20"),
+    ]
+    tags = [name, f"Vol {vol_x:.1f}×"]
+    if pullback:
+        tags.append("At EMA20")
+    return {
+        "pattern_type": f"Candlestick: {name}",
+        "tags": tags,
+        "reasons": reasons,
+        "score": round(score, 2),
+        "vol_x50d": round(vol_x, 2),          # lights the Hub 'Vol Confirmed' pill
+    }
+
+
+def scan_ipo_breakout(df: pd.DataFrame,
+                      max_history_bars: int = 500,
+                      min_history_bars: int = 40,
+                      base_window: int = 20,
+                      min_vol_x: float = 1.5,
+                      max_extended_pct: float = 8.0) -> dict | None:
+    """First-base breakout for a RECENTLY LISTED stock (IPO base).
+
+    Recency is read from the *total* listing history (needs the hub's full-history
+    fetch): a stock with only `min_history_bars`–`max_history_bars` bars is young.
+    Fires when price makes a new post-listing closing high out of a recent base
+    (`base_window` bars) on ≥`min_vol_x`× volume, and isn't already extended.
+    """
+    if df is None or len(df) < min_history_bars:
+        return None
+    df = _clean_ohlc(df)
+    n = len(df)
+    if not (min_history_bars <= n <= max_history_bars):
+        return None                                  # not a recent listing (or too raw)
+    c, h, v = df["close"], df["high"], df["volume"]
+    last = float(c.iloc[-1])
+    # New post-listing closing high (allow ties within a hair).
+    prior_high = float(c.iloc[:-1].max())
+    if last < prior_high * 0.999:
+        return None
+    # A base must precede the breakout: the `base_window` bars before today were a
+    # tight-ish range (not a vertical ramp).
+    base = c.iloc[-(base_window + 1):-1]
+    if len(base) < base_window // 2:
+        return None
+    base_hi, base_lo = float(base.max()), float(base.min())
+    if base_lo <= 0:
+        return None
+    base_range_pct = (base_hi - base_lo) / base_lo * 100.0
+    if base_range_pct > 35:
+        return None                                  # too loose to be a base
+    # Volume expansion on the breakout.
+    avg_vol = float(v.tail(min(50, n)).median())
+    if not (avg_vol > 0):
+        return None
+    vol_x = float(v.iloc[-1]) / avg_vol
+    if vol_x < min_vol_x:
+        return None
+    # Not already extended above the base.
+    extended = (last - base_hi) / base_hi * 100.0
+    if extended > max_extended_pct:
+        return None
+
+    age_days = n
+    score = 50.0 + min(max(vol_x - 1.0, 0.0), 3.0) * 8.0 + max(0.0, (35 - base_range_pct)) * 0.4
+    score = float(max(0.0, min(100.0, score)))
+    reasons = [
+        f"Recently listed (~{age_days} sessions of history) — IPO / early-stage name",
+        f"New post-listing high: {last:.2f} clears the prior high {prior_high:.2f}",
+        f"Broke a {len(base)}-bar base ({base_lo:.2f}–{base_hi:.2f}, {base_range_pct:.0f}% wide)",
+        f"Volume {vol_x:.1f}× median — breakout conviction",
+    ]
+    return {
+        "pattern_type": "IPO-Base Breakout",
+        "tags": ["IPO Breakout", f"~{age_days}d listed", f"base {base_range_pct:.0f}%",
+                 f"Vol {vol_x:.1f}×"],
+        "reasons": reasons,
+        "score": round(score, 2),
+        "vol_x50d": round(vol_x, 2),
+    }
+
+
+def scan_ath_breakout(df: pd.DataFrame,
+                      min_history_bars: int = 250,
+                      buffer_pct: float = 0.5,
+                      confirm_bars: int = 3,
+                      min_vol_x: float = 1.3,
+                      max_extended_pct: float = 10.0) -> dict | None:
+    """All-time-high breakout — a new closing high over the ENTIRE listing history.
+
+    Needs the hub's full-history fetch (the default ~300-bar window would make this
+    a mere ~1-year high, duplicating 52-Week High Leaders). Requires enough history
+    to be a real ATH (`min_history_bars`), the prior ATH taken over all bars except
+    the last `confirm_bars`, volume confirmation, and not already extended.
+    """
+    if df is None or len(df) < min_history_bars:
+        return None
+    df = _clean_ohlc(df)
+    n = len(df)
+    if n < min_history_bars:
+        return None
+    c, h, v = df["close"], df["high"], df["volume"]
+    last = float(c.iloc[-1])
+    # Prior ATH = highest high before the breakout window.
+    prior_ath = float(h.iloc[:-confirm_bars].max())
+    if prior_ath <= 0:
+        return None
+    # New high: today clears the prior ATH (within a small buffer for close vs high).
+    if not (float(h.iloc[-1]) >= prior_ath and last >= prior_ath * (1 - buffer_pct / 100.0)):
+        return None
+    # Not a vertical blow-off already far above the prior ATH.
+    extended = (last - prior_ath) / prior_ath * 100.0
+    if extended > max_extended_pct:
+        return None
+    # Volume confirmation.
+    avg_vol = float(v.tail(50).median())
+    if not (avg_vol > 0):
+        return None
+    vol_x = float(v.iloc[-1]) / avg_vol
+    if vol_x < min_vol_x:
+        return None
+    # Base quality bonus: was price coiling near the highs (last ~30 bars tight)
+    # rather than spiking straight up?
+    recent = c.tail(30)
+    coil_pct = (float(recent.max()) - float(recent.min())) / float(recent.min()) * 100.0 \
+        if float(recent.min()) > 0 else 999.0
+    coiled = coil_pct <= 25.0
+
+    years = round(n / 250.0, 1)
+    score = 55.0 + min(max(vol_x - 1.0, 0.0), 3.0) * 8.0 + (8.0 if coiled else 0.0)
+    score = float(max(0.0, min(100.0, score)))
+    reasons = [
+        f"New all-time high — clears the prior ATH {prior_ath:.2f} over ~{years}y of history",
+        f"Close {last:.2f} ({extended:+.1f}% vs prior ATH — not yet extended)",
+        f"Volume {vol_x:.1f}× median — breakout conviction",
+        ("Broke out of a tight base near the highs (constructive)" if coiled
+         else "Faster run into the high — watch for a retest"),
+    ]
+    tags = ["ATH Breakout", f"{years}y history", f"Vol {vol_x:.1f}×"]
+    if coiled:
+        tags.append("Coiled base")
+    return {
+        "pattern_type": "All-Time-High Breakout",
+        "tags": tags,
+        "reasons": reasons,
+        "score": round(score, 2),
+        "vol_x50d": round(vol_x, 2),
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Scanner registry
 # ──────────────────────────────────────────────────────────────────────────────
+
+def scan_rsi_60_40(df: pd.DataFrame) -> dict | None:
+    """RSI 60-40 with-trend continuation setup (21 & 50 EMA).
+
+    In a healthy uptrend RSI(14) does not obey the textbook 70/30 rules — it
+    oscillates in a ~40-60 band, making buyable higher-lows near 40 and getting
+    rejected (a breakout trigger, not a sell) near 60. This scanner requires that
+    regime, then fires one of two with-trend entries:
+
+      A. RSI-40 pullback — RSI dipped near 40 and is turning up at EMA21/EMA50
+         support, ideally with a bullish confirmation bar. Stop below EMA50.
+      B. RSI-60 breakout — RSI is breaking up through ~60 as price clears a
+         recent high on expanding volume. Stop below EMA21.
+
+    Trend gate (all required): price above both EMAs and EMA21 stacked above
+    EMA50. Emits ``score_base`` + ``rs_raw`` so the hub blends the RS percentile
+    like the other graded scanners. See ``strategies/RSI-60-40-Setup``.
+    """
+    if df is None or len(df) < 70:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < 70:
+        return None
+
+    close = df["close"]
+    ema21 = _ema_series(close, 21)
+    ema50 = _ema_series(close, 50)
+    rsi = _rsi_series(close, 14)
+    if np.isnan(rsi.iloc[-1]) or np.isnan(rsi.iloc[-2]) or np.isnan(ema50.iloc[-1]):
+        return None
+
+    last = float(close.iloc[-1])
+    prev_close = float(close.iloc[-2])
+    open_last = float(df["open"].iloc[-1]) if "open" in df.columns else prev_close
+    e21 = float(ema21.iloc[-1])
+    e50 = float(ema50.iloc[-1])
+    rsi_now = float(rsi.iloc[-1])
+    rsi_prev = float(rsi.iloc[-2])
+
+    # --- Trend gate (all required) ---
+    if not (last > e21 and last > e50 and e21 > e50):
+        return None
+
+    # --- RSI regime gate: recent RSI must behave as a 40-60 band, not a blow-off ---
+    recent = rsi.tail(20).dropna()
+    if len(recent) < 15:
+        return None
+    if float(recent.min()) < 30.0 or float(recent.max()) > 80.0 or float(recent.median()) < 40.0:
+        return None  # left the 40-60 regime (oversold, blow-off, or downtrend)
+
+    vol20 = float(df["volume"].tail(20).mean())
+    vol_last = float(df["volume"].iloc[-1])
+    vol_x = vol_last / vol20 if vol20 > 0 else 0.0
+    bull_bar = last > open_last and last > prev_close
+
+    setup = None
+    reasons: list[str] = []
+    tags: list[str] = []
+    entry = stop = None
+    base = 0.0
+
+    # --- A. RSI-40 pullback entry ---
+    near_support = (last <= e21 * 1.03) or (abs(last - e50) / e50 <= 0.03)
+    if 36.0 <= rsi_now <= 50.0 and rsi_now > rsi_prev and near_support:
+        setup = "RSI-40 Pullback"
+        prox_rsi = max(0.0, 1.0 - abs(rsi_now - 42.0) / 10.0)
+        dist_sup = min(abs(last - e21), abs(last - e50)) / last
+        prox_sup = max(0.0, 1.0 - dist_sup / 0.03)
+        base = 40.0 + 30.0 * prox_rsi + 20.0 * prox_sup + (10.0 if bull_bar else 0.0)
+        entry = last
+        stop = round(e50 * 0.995, 2)   # below the 50 EMA per the rules
+        reasons = [
+            f"RSI(14) {rsi_now:.0f} turning up from the ~40 floor — buyable dip in an uptrend",
+            f"Price {last:.0f} at EMA support (EMA21 {e21:.0f} · EMA50 {e50:.0f})",
+        ]
+        reasons.append("Bullish bar at support — entry confirmation present" if bull_bar
+                       else "⚠ No bullish confirmation bar yet — wait for a green candle")
+        tags = [f"RSI {rsi_now:.0f}", "Pullback to EMA", "Stop < EMA50"]
+
+    # --- B. RSI-60 breakout entry ---
+    else:
+        recent_high = float(df["high"].iloc[-21:-1].max())
+        breaking_60 = (rsi_prev < 60.0 <= rsi_now) or (rsi_now >= 58.0 and rsi_now > rsi_prev)
+        if breaking_60 and last >= recent_high:
+            setup = "RSI-60 Breakout"
+            prox_rsi = max(0.0, min(1.0, (rsi_now - 58.0) / 7.0))
+            vol_score = max(0.0, min(1.0, (vol_x - 1.0) / 0.5))
+            base = 45.0 + 25.0 * prox_rsi + 20.0 * vol_score + (10.0 if bull_bar else 0.0)
+            entry = last
+            stop = round(e21 * 0.995, 2)   # below the 21 EMA per the rules
+            reasons = [
+                f"RSI(14) {rsi_now:.0f} breaking above 60 — momentum trigger, not a sell",
+                f"Price {last:.0f} clearing the 20-day high {recent_high:.0f}",
+            ]
+            reasons.append(
+                f"Volume {vol_x:.1f}× 20-day average — breakout backed by participation"
+                if vol_x >= 1.5 else
+                "⚠ Volume below 1.5× average — breakout lacks strong participation")
+            tags = [f"RSI {rsi_now:.0f}", "60 breakout", "Stop < EMA21"]
+
+    if setup is None:
+        return None
+
+    # 2R target (conservative end of the strategy's 2R-3R band).
+    if entry and stop and entry > stop:
+        target = round(entry + 2.0 * (entry - stop), 2)
+        reasons.append(f"Trade plan — entry {entry:.0f} · stop {stop:.0f} · target {target:.0f} (2R)")
+
+    return {
+        "pattern_type": f"RSI 60-40 · {setup}",
+        "tags": tags,
+        "reasons": reasons,
+        "score_base": round(min(100.0, base), 1),
+        "rs_raw": _rs_raw(df),
+        "vol_x50d": round(vol_x, 2),
+    }
+
+
+def scan_order_block(df: pd.DataFrame) -> dict | None:
+    """Bullish order block (SMC demand zone) retest entry.
+
+    The last down-close candle *before* a bullish displacement that BREAKS
+    STRUCTURE (BOS / CHOCH up) marks where institutions absorbed supply — a
+    demand zone price tends to return to and bounce from. This scanner fires when
+    a **fresh (unmitigated, not violated) bullish order block is being retested
+    right now**: recent price has dipped back into the zone and is holding above
+    its low. Reuses the repo's `detect_bos_choch` structure walk and
+    `detect_volume_confirmation`. Emits a structured entry/stop/target (stop
+    below the zone, target at the displacement extension or 2R). See
+    ``concepts/Order-Block``.
+    """
+    if df is None or len(df) < 60:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < 60:
+        return None
+    ev = detect_bos_choch(df)
+    if ev is None or ev["signal"] not in ("BOS", "CHOCH"):
+        return None
+
+    n = len(df)
+    o, h, l, c = df["open"], df["high"], df["low"], df["close"]
+    atr = float(_atr_series(df, 14).iloc[-1])
+    if np.isnan(atr) or atr <= 0:
+        return None
+
+    bk = n - 1 - ev["bars_ago"]          # the structure-break bar index
+    if bk < 3 or bk > n - 2:
+        return None
+
+    # Order block = last DOWN-close candle before the break bar (search back ~8).
+    ob_idx = None
+    for j in range(bk - 1, max(0, bk - 8) - 1, -1):
+        if c.iloc[j] < o.iloc[j]:
+            ob_idx = j
+            break
+    if ob_idx is None:
+        return None
+    ob_low = float(l.iloc[ob_idx])
+    ob_high = float(h.iloc[ob_idx])
+    if ob_high <= ob_low:
+        return None
+
+    # Displacement out of the zone into the break must be a real move (≥ 1 ATR).
+    disp_high = float(h.iloc[ob_idx:].max())
+    if (disp_high - ob_high) < atr:
+        return None
+
+    # Freshness: not yet violated — no close below the zone low after the break.
+    after = c.iloc[bk + 1:]
+    if len(after) and bool((after < ob_low).any()):
+        return None
+
+    # Mitigation NOW: recent low dipped back into the zone and price holds above it.
+    last = float(c.iloc[-1])
+    recent_low = float(l.tail(3).min())
+    if not (recent_low <= ob_high and last >= ob_low):
+        return None
+
+    entry = last
+    stop = round(ob_low * 0.995, 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+    target = round(max(disp_high, entry + 2.0 * risk), 2)
+
+    vc = detect_volume_confirmation(df)
+    vol_ok = bool(vc and vc["pass"])
+    vol20 = float(df["volume"].tail(20).mean())
+    vol_x = float(df["volume"].iloc[-1]) / vol20 if vol20 > 0 else 0.0
+
+    # ── Score (0-100) — displacement strength · volume · freshness · location ──
+    disp_strength = min((disp_high - ob_high) / atr, 3.0) / 3.0
+    bars_since = n - 1 - ob_idx
+    fresh = 1.0 if 3 <= bars_since <= 20 else (0.5 if bars_since <= 30 else 0.2)
+    zone_pos = (last - ob_low) / (ob_high - ob_low) if ob_high > ob_low else 0.5
+    prox = max(0.0, 1.0 - abs(min(zone_pos, 1.5) - 0.5))   # best entering mid-zone
+    base = 10.0 + 35.0 * disp_strength + (20.0 if vol_ok else 0.0) + 20.0 * fresh + 15.0 * prox
+
+    reasons = [
+        f"Bullish {ev['signal']} — displacement broke structure at ₹{ev['level']:.0f}",
+        f"Demand zone ₹{ob_low:.0f}–₹{ob_high:.0f} (last down candle before the move), "
+        f"unmitigated {bars_since} bars",
+        "Price retesting the order block and holding above the zone low",
+        (f"Displacement backed by volume ({vc['best_up_rvol']:.1f}× avg)" if vol_ok
+         else "⚠ Displacement volume unconfirmed — weaker order block"),
+        f"Trade plan — entry {entry:.0f} · stop {stop:.0f} · target {target:.0f} "
+        f"(R:R {(target - entry) / risk:.1f})",
+    ]
+    return {
+        "pattern_type": f"Bullish Order Block · {ev['signal']}",
+        "tags": ["Order Block", ev["signal"], f"Zone {ob_low:.0f}-{ob_high:.0f}"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, base), 1),
+        "rs_raw": _rs_raw(df),
+        "entry": round(entry, 2),
+        "stop": stop,
+        "target": target,
+        "vol_x50d": round(vol_x, 2),
+    }
+
+
+def detect_falling_wedge_geometry(df: pd.DataFrame, window: int = 60,
+                                  touch_tol: float = 0.015) -> dict | None:
+    """Falling-wedge detection core → geometry dict, or None.
+
+    Shared by ``scan_falling_wedge`` (the hub card) and the ``/api/falling_wedge``
+    chart overlay (FW-3). **Assumes a clean OHLCV frame** (the caller drops NaN rows).
+    Returns the upper/lower trendline endpoints as **bar indices into the passed df**
+    (+ prices) so the chart can map them to timestamps, plus the breakout state, a
+    0-100 confidence, the metric surface, and the trade plan. See
+    ``concepts/Falling-Wedge`` for the algorithm.
+    """
+    if df is None or len(df) < window:
+        return None
+    n = window
+    off = len(df) - n                            # abs bar index of the window's first bar
+    w = df.tail(window).reset_index(drop=True)
+    high = w["high"].to_numpy(float)
+    low = w["low"].to_numpy(float)
+    close = w["close"].to_numpy(float)
+    n = len(w)
+    last = float(close[-1])
+    if last <= 0:
+        return None
+
+    # 1) Swing pivots (look-back 1). The last bar can't be a confirmed pivot.
+    sh = [(i, high[i]) for i in range(1, n - 1) if high[i] > high[i - 1] and high[i] > high[i + 1]]
+    sl = [(i, low[i]) for i in range(1, n - 1) if low[i] < low[i - 1] and low[i] < low[i + 1]]
+    if len(sh) < 2 or len(sl) < 2:
+        return None
+
+    # 2) Fit upper through the last ≤3 swing highs, lower through the last ≤3 swing lows.
+    hx = np.array([p[0] for p in sh[-3:]], float); hy = np.array([p[1] for p in sh[-3:]], float)
+    lx = np.array([p[0] for p in sl[-3:]], float); ly = np.array([p[1] for p in sl[-3:]], float)
+    su, iu = np.polyfit(hx, hy, 1)
+    slo, il = np.polyfit(lx, ly, 1)
+
+    def u(x): return iu + su * x
+    def lo(x): return il + slo * x
+
+    # 3) Geometric validation.
+    if not (su < 0 and slo < 0):                 # both trendlines must fall
+        return None
+    if su >= slo:                                # upper must be steeper (more negative)
+        return None
+    x0 = int(min(hx.min(), lx.min()))            # oldest fitted swing (bar index)
+    x1 = n - 1                                   # current bar (last)
+    if (x1 - x0) < 15:                           # a wedge must span real time, not 5 bars
+        return None
+    gap_old = u(x0) - lo(x0)
+    gap_now = u(x1) - lo(x1)
+    if gap_old <= 0 or gap_now <= 0 or gap_now >= gap_old:   # must be open + converging
+        return None
+    conv_ratio = (gap_old - gap_now) / gap_old
+    if conv_ratio < 0.10:                        # too parallel — a channel, not a wedge
+        return None
+
+    # Touches: pivots sitting within tolerance of their line (≥2 each required).
+    tu = sum(1 for i, p in sh if abs(p - u(i)) <= touch_tol * p)
+    tl = sum(1 for i, p in sl if abs(p - lo(i)) <= touch_tol * p)
+    if tu < 2 or tl < 2:
+        return None
+
+    # 4) Confidence factors (0-1 each), weighted blend documented below.
+    steep_ratio = su / slo                                   # >1 when upper steeper
+    inside = 0
+    for i in range(n):
+        if high[i] <= u(i) * (1 + touch_tol) and low[i] >= lo(i) * (1 - touch_tol):
+            inside += 1
+    containment = inside / n
+    if containment < 0.55:                       # lines don't actually bound price → not a wedge
+        return None
+
+    # Volume behaviour (FW-2) — a real wedge CONTRACTS into the apex (dry-up) then
+    # expands on breakout, the VCP-style tell. Compare early- vs late-window volume,
+    # excluding the last (breakout) bar so its spike can't mask the into-apex dry-up.
+    vol_arr = w["volume"].to_numpy(float) if "volume" in w.columns else np.zeros(n)
+    third = max(5, n // 3)
+    vol_early = float(np.mean(vol_arr[:third])) if third else 0.0
+    vol_late = (float(np.mean(vol_arr[-third - 1:-1])) if n > third + 1
+                else float(np.mean(vol_arr[-third:])))
+    vol_trend = (vol_late / vol_early) if vol_early > 0 else 1.0
+    if vol_trend > 1.30:                         # volume RISING into the apex → not a valid coil
+        return None
+    vol_dry = vol_trend <= 0.90
+
+    last_piv = max(sh[-1][0], sl[-1][0])
+    recency = max(0.0, 1.0 - (n - 1 - last_piv) / window)
+    touch_score = min(1.0, (tu + tl) / 6.0)                  # 2+2 → .67, 3+3 → 1.0
+    conv_score = min(1.0, conv_ratio / 0.5)                  # 50% narrowing → full
+    steep_score = min(1.0, max(0.0, (steep_ratio - 1.0) / 1.5))
+    vol_score = min(1.0, max(0.0, (1.0 - vol_trend) / 0.30))  # 0.70×→1.0, ≥1.0×→0
+    # Weights: containment .28 · convergence .22 · touches .18 · steepness .12
+    #          · volume-dry-up .12 · recency .08  (sum 1.0).
+    conf = 100.0 * (0.28 * containment + 0.22 * conv_score + 0.18 * touch_score +
+                    0.12 * steep_score + 0.12 * vol_score + 0.08 * recency)
+
+    # 5) Breakout state + actionability gate.
+    u_now, l_now = u(x1), lo(x1)
+    pos = (last - l_now) / (u_now - l_now)                   # 0 lower … 1 upper line
+    if last > u_now:
+        state, state_lbl, bonus = "confirmed", "Breakout", 8.0
+    elif (u_now - last) / u_now <= 0.005:
+        state, state_lbl, bonus = "pre-breakout", "Pre-Breakout", 4.0
+    elif pos >= 0.5:
+        state, state_lbl, bonus = "forming", "Forming", 0.0
+    else:
+        return None                                          # deep in the wedge — not actionable
+    conf = min(100.0, conf + bonus)
+
+    # Trade plan — enter on/above the upper line, stop below the lower line,
+    # target = measured move (wedge height at its widest).
+    entry = round(max(last, u_now), 2)
+    recent_low = float(low[-10:].min())
+    stop = round(min(l_now, recent_low) * 0.995, 2)
+    if entry <= stop:
+        return None
+    target = round(entry + gap_old, 2)
+    rr = (target - entry) / (entry - stop)
+
+    vol20 = float(w["volume"].tail(20).mean()) if "volume" in w.columns else 0.0
+    vol_last = float(w["volume"].iloc[-1]) if "volume" in w.columns else 0.0
+    vol_x = vol_last / vol20 if vol20 > 0 else 0.0
+
+    return {
+        # Trendline endpoints as bar indices into the passed df (+ prices) — FW-3 overlay.
+        "upper_x0": off + x0, "upper_y0": round(u(x0), 2),
+        "upper_x1": off + x1, "upper_y1": round(u_now, 2),
+        "lower_x0": off + x0, "lower_y0": round(lo(x0), 2),
+        "lower_x1": off + x1, "lower_y1": round(l_now, 2),
+        "breakout_bar": off + x1, "last_close": round(last, 2),
+        # Scalars for the card text + metric surface.
+        "upper_slope": su, "lower_slope": slo,
+        "gap_old": gap_old, "gap_now": gap_now, "conv_ratio": conv_ratio,
+        "containment": containment, "touches_h": tu, "touches_l": tl,
+        "vol_trend": vol_trend, "vol_dry": vol_dry, "vol_x": vol_x,
+        "state": state, "state_label": state_lbl, "confidence": conf,
+        "entry": entry, "stop": stop, "target": target, "rr": rr,
+        "u_now": u_now, "l_now": l_now,
+    }
+
+
+def scan_falling_wedge(df: pd.DataFrame, window: int = 60,
+                       touch_tol: float = 0.015) -> dict | None:
+    """Falling wedge — two converging DOWNWARD trendlines → bullish breakout.
+
+    Thin hub-card wrapper over ``detect_falling_wedge_geometry`` (which the
+    ``/api/falling_wedge`` chart overlay shares). Cleans the frame, runs the
+    detection core, and formats the card (pattern + tags + reasons + trade plan +
+    the FW-2 metric surface). See ``concepts/Falling-Wedge`` /
+    ``analyses/Falling-Wedge-Scanner-Fit``.
+    """
+    if df is None:
+        return None
+    df = _clean_ohlc(df)
+    g = detect_falling_wedge_geometry(df, window, touch_tol)
+    if g is None:
+        return None
+    su, slo = g["upper_slope"], g["lower_slope"]
+    gap_old, gap_now, conv_ratio = g["gap_old"], g["gap_now"], g["conv_ratio"]
+    containment = g["containment"]
+    tu, tl = g["touches_h"], g["touches_l"]
+    vol_trend, vol_dry, vol_x = g["vol_trend"], g["vol_dry"], g["vol_x"]
+    state, state_lbl = g["state"], g["state_label"]
+    last, u_now = g["last_close"], g["u_now"]
+    entry, stop, target, rr = g["entry"], g["stop"], g["target"], g["rr"]
+
+    reasons = [
+        f"Falling wedge — converging down-lines (upper slope {su:.2f} steeper than lower {slo:.2f})",
+        f"Gap narrowed {conv_ratio * 100:.0f}% (widest {gap_old:.0f} → now {gap_now:.0f})",
+        f"{tu} upper / {tl} lower touches · containment {containment * 100:.0f}%",
+        {"confirmed":    f"Breakout — close {last:.0f} cleared the upper line {u_now:.0f}",
+         "pre-breakout": f"Pre-breakout — {last:.0f} within 0.5% of the upper line {u_now:.0f}",
+         "forming":      f"Forming — price in the upper half; upper line at {u_now:.0f}"}[state],
+        f"Trade plan — entry {entry:.0f} · stop {stop:.0f} · target {target:.0f} "
+        f"(measured move, R:R {rr:.1f})",
+    ]
+    reasons.append(
+        f"Volume drying into the apex ({vol_trend:.2f}× early-window) — healthy contraction"
+        if vol_dry else
+        f"⚠ Volume flat/rising into the apex ({vol_trend:.2f}× early-window) — weaker wedge")
+    if vol_x >= 1.5 and state == "confirmed":
+        reasons.append(f"Breakout volume {vol_x:.1f}× 20-day average — expansion on the break")
+
+    return {
+        "pattern_type": f"Falling Wedge · {state_lbl}",
+        "tags": ["Falling Wedge", state_lbl,
+                 f"Contain {containment * 100:.0f}%", f"Conv {conv_ratio * 100:.0f}%",
+                 f"{tu}H/{tl}L touches", ("Vol dry↓" if vol_dry else "Vol flat")],
+        "reasons": reasons,
+        "score_base": round(g["confidence"], 1),
+        "rs_raw": _rs_raw(df),
+        "entry": entry,
+        "stop": stop,
+        "target": target,
+        "vol_x50d": round(vol_x, 2),
+        # FW-2 metric surface.
+        "containment_pct": round(containment * 100, 1),
+        "convergence_pct": round(conv_ratio * 100, 1),
+        "touches_h": tu,
+        "touches_l": tl,
+        "vol_trend": round(vol_trend, 2),
+        "vol_dry": vol_dry,
+    }
+
 
 SCANNERS: dict[str, dict] = {
     "52-Week High Leaders": {
@@ -2544,6 +3393,30 @@ SCANNERS: dict[str, dict] = {
         "description": "Quality stocks that touched EMA21 and are recovering above it",
         "category": "Entry",
     },
+    "Order Block Retest": {
+        "fn": scan_order_block,
+        "description": (
+            "Bullish order block (SMC demand zone) retest. Finds the last "
+            "down-close candle before a displacement that BROKE STRUCTURE (BOS/"
+            "CHOCH up ≥1 ATR), confirms the zone is still unmitigated (never "
+            "closed below since), and fires when price is retesting it now and "
+            "holding above the zone low. Carries a structured entry/stop/target "
+            "(stop below the zone, target at the displacement extension or 2R)."
+        ),
+        "category": "Entry",
+    },
+    "RSI 60-40 Setup": {
+        "fn": scan_rsi_60_40,
+        "description": (
+            "With-trend RSI 60-40 continuation (21 & 50 EMA). Requires an uptrend "
+            "regime — price above both EMAs, EMA21 stacked over EMA50, and RSI(14) "
+            "oscillating in the ~40-60 band — then fires one of two entries: an "
+            "RSI-40 PULLBACK turning up at EMA support (stop < EMA50), or an RSI-60 "
+            "BREAKOUT clearing the 20-day high on ≥1.5× volume (stop < EMA21). Each "
+            "hit carries a 2R trade plan. A continuation system, not a reversal one."
+        ),
+        "category": "Entry",
+    },
     "Darvas Box": {
         "fn": scan_darvas_box,
         "description": (
@@ -2556,6 +3429,41 @@ SCANNERS: dict[str, dict] = {
     "Momentum Continuation": {
         "fn": scan_momentum_continuation,
         "description": "Strong uptrends near 20-day highs with intact MA stack",
+        "category": "Momentum",
+    },
+    "Proxy-PEAD Drift": {
+        "fn": scan_pead,
+        "description": (
+            "Post-Earnings Announcement Drift (Phase 1, price-only). Infers the "
+            "earnings event from a large up-reaction (≥1.5×ATR, ≥4%) on ≥1.5σ "
+            "Standardized Unexpected Volume (a proper volume z-score vs a 30-day "
+            "PRE-event baseline, not a raw ratio) in the last 20 sessions, and "
+            "fires only while the move is still holding/extending — the drift. "
+            "Labelled 'Proxy' because our NSE data has no free consensus estimate, "
+            "so the event is inferred from the reaction, not a confirmed earnings "
+            "date. SUV upgrade absorbed from the TradingView PEAD screener ingest."
+        ),
+        "category": "Momentum",
+    },
+    "Zero-Debt Quality PEAD": {
+        # Composite: the "fn" is scan_pead (so any generic caller still gets the
+        # drift scan), but the Scanner Hub routes this entry through
+        # run_quality_pead() — the quality_pead marker — to apply the yfinance
+        # zero-debt / high-ROE / high-OPM quality gate at the symbol level first.
+        "fn": scan_pead,
+        "quality_pead": True,
+        "description": (
+            "Zero-Debt + high ROE/OPM names (ANY market cap by default) carrying "
+            "the Proxy-PEAD drift edge. A yfinance fundamentals gate (Debt/Equity "
+            "≈ 0, ROE & OPM floors, optional market-cap ceiling and optional Max "
+            "PE / Max PEG valuation caps — NO login needed) pre-filters the "
+            "universe, then Proxy-PEAD Drift runs over the survivors. Each card "
+            "shows ROE · OPM · PE · PEG · market cap. Tick the ceiling toggle "
+            "below to restrict to small/mid-caps, where the post-earnings "
+            "under-reaction edge is theoretically largest. ROCE proper needs "
+            "screener.in (Phase 5.2); ROA & ~PEG shown as labelled proxies. Tune "
+            "the gate in the sliders below."
+        ),
         "category": "Momentum",
     },
     "Base Formation": {
@@ -2650,6 +3558,52 @@ SCANNERS: dict[str, dict] = {
         ),
         "category": "Entry",
     },
+    "Candlestick Patterns": {
+        "fn": scan_candlestick,
+        "description": (
+            "Fresh bullish candlestick on the LATEST bar — Bullish Engulfing, "
+            "Hammer, Piercing Line or Morning Star — with volume confirmation and "
+            "a preference for pullback locations (at/below EMA20) over extended "
+            "ones. A trigger, not a system, so scores stay modest. (Opportunity "
+            "Hub Phase 3.)"
+        ),
+        "category": "Entry",
+    },
+    "IPO-Base Breakout": {
+        "fn": scan_ipo_breakout,
+        "needs_full_history": True,
+        "description": (
+            "First-base breakout for RECENTLY LISTED names — young stocks (read "
+            "from total listing history) making a new post-listing high out of a "
+            "tight base on ≥1.5× volume, not yet extended. Needs full listing "
+            "history (the hubs feed it automatically). (Opportunity Hub Phase 3.)"
+        ),
+        "category": "Pattern",
+    },
+    "ATH Breakout (all-time high)": {
+        "fn": scan_ath_breakout,
+        "needs_full_history": True,
+        "description": (
+            "TRUE all-time-high breakout — a new closing high over the entire "
+            "listing history (not the ~1-year high of 52-Week Leaders), volume-"
+            "confirmed, not extended, with a bonus when it breaks from a tight "
+            "base near the highs. Needs full history (the hubs feed it "
+            "automatically). (Opportunity Hub Phase 3.)"
+        ),
+        "category": "Pattern",
+    },
+    "Falling Wedge": {
+        "fn": scan_falling_wedge,
+        "description": (
+            "Falling wedge → bullish breakout. Two CONVERGING downward trendlines "
+            "(upper steeper than lower) over the last 60 bars, fitted by regression "
+            "through the swing highs/lows, ≥2 touches per side. 0-100 confidence "
+            "from containment · convergence · touches · steepness · recency; fires "
+            "on an actionable wedge (Breakout close>upper / Pre-Breakout within 0.5% "
+            "/ Forming in the upper half) with a measured-move entry/stop/target."
+        ),
+        "category": "Pattern",
+    },
     "Harmonic Reversal (XABCD)": {
         "fn": scan_harmonic_reversal,
         "description": (
@@ -2697,6 +3651,247 @@ def run_scanner(scanner_name: str, symbols: list[str], fetch_fn,
                 continue
     finally:
         _BENCHMARK_WRET = None      # never leak benchmark state across scans
+
+    _finalize_relative_strength(results)
+    return sorted(results, key=lambda x: x.get("score", 0), reverse=True)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Phase 5.1 — Quality-gated Small-Cap Proxy-PEAD
+# ------------------------------------------------------------------------------
+# The zero-debt / high-ROE / high-OPM small-cap gate the user asked for, combined
+# with the Proxy-PEAD drift engine. Fundamentals come from yfinance `.info` —
+# NO screener.in login required (the session-capture path was abandoned as too
+# fragile on this machine; see wiki log 2026-07-24).
+#
+# yfinance field units (verified 2026-07-24):
+#   • marketCap       — currency (INR); /1e7 = ₹ Crore
+#   • debtToEquity    — PERCENT form (95.4 ⇒ D/E ratio 0.95); ratio = field/100
+#   • returnOnEquity  — ratio (0.156 ⇒ 15.6%)
+#   • operatingMargins— ratio (0.393 ⇒ 39.3%)
+#   • returnOnAssets  — ratio; carried as an HONEST ROA PROXY for ROCE (true ROCE
+#                       = EBIT / capital employed is not in yfinance; the real
+#                       ROCE upgrade needs screener.in — deferred to Phase 5.2).
+#
+# NSE fundamentals coverage in yfinance is PATCHY — many names return None for
+# some/all of these. Missing fields are surfaced, never faked; `require_complete`
+# controls whether a name with an unverifiable gate is dropped (default) or kept.
+#
+# Architectural note: scan_pead is symbol-blind (run_scanner attaches the symbol
+# only AFTER the fn runs), so the quality gate CANNOT live inside it. It is
+# applied here at the SYMBOL level — filter on fundamentals first, then run
+# scan_pead on the survivors' OHLCV — exactly the universe-join the roadmap scoped.
+# ──────────────────────────────────────────────────────────────────────────────
+
+_FUND_CACHE: dict[str, dict | None] = {}
+
+
+def _yf_symbol(symbol: str) -> str:
+    """Scanner-hub universes carry bare NSE tickers; yfinance needs the .NS suffix."""
+    return symbol if ("." in symbol or symbol.startswith("^")) else f"{symbol}.NS"
+
+
+def fetch_fundamentals_yf(symbol: str, use_cache: bool = True) -> dict | None:
+    """Login-free fundamentals for the quality gate, via yfinance `.info`.
+
+    Returns a dict with market_cap_cr / de_ratio / roe_pct / opm_pct / roa_pct
+    (any of which may be None when yfinance has no value), or None if the whole
+    lookup failed. Cached per process so re-runs over the same universe are fast.
+    """
+    if use_cache and symbol in _FUND_CACHE:
+        return _FUND_CACHE[symbol]
+    try:
+        import yfinance as yf
+        info = yf.Ticker(_yf_symbol(symbol)).info or {}
+    except Exception:
+        if use_cache:
+            _FUND_CACHE[symbol] = None
+        return None
+
+    mc = info.get("marketCap")
+    de = info.get("debtToEquity")        # percent form → ratio = /100
+    roe = info.get("returnOnEquity")
+    opm = info.get("operatingMargins")
+    roa = info.get("returnOnAssets")
+    pe = info.get("trailingPE") or info.get("forwardPE")
+
+    # PEG: prefer yfinance's own ratio; it's sparse for NSE (often None), so fall
+    # back to PE / (earnings growth %) — labelled 'calc' so the card can mark it
+    # approximate rather than passing it off as the vendor's figure.
+    peg = info.get("trailingPegRatio") or info.get("pegRatio")
+    peg_src = "yf" if peg is not None else None
+    if peg is None:
+        eg = info.get("earningsGrowth")
+        if pe and eg and eg > 0:
+            peg = pe / (eg * 100.0)
+            peg_src = "calc"
+
+    out = {
+        "market_cap_cr": round(mc / 1e7) if mc else None,
+        "de_ratio": round(de / 100.0, 3) if de is not None else None,
+        "roe_pct": round(roe * 100.0, 1) if roe is not None else None,
+        "opm_pct": round(opm * 100.0, 1) if opm is not None else None,
+        "roa_pct": round(roa * 100.0, 1) if roa is not None else None,
+        "pe": round(pe, 1) if pe else None,
+        "peg": round(peg, 2) if peg is not None else None,
+        "peg_src": peg_src,
+        # Sector / industry classification (login-free) — used by the Opportunity
+        # Hub funnel to rank sector & industry leadership bottom-up.
+        "sector": info.get("sector"),
+        "industry": info.get("industry"),
+    }
+    if use_cache:
+        _FUND_CACHE[symbol] = out
+    return out
+
+
+def passes_quality_gate(f: dict | None, *,
+                        max_market_cap_cr: float | None = None,
+                        max_de_ratio: float | None = 0.10,
+                        min_roe_pct: float | None = 15.0,
+                        min_opm_pct: float | None = 10.0,
+                        max_pe: float | None = None,
+                        max_peg: float | None = None,
+                        require_complete: bool = True) -> bool:
+    """True iff the fundamentals clear the zero-debt + quality (+ valuation) gate.
+
+    Cap-agnostic by default (`max_market_cap_cr=None` → all caps); pass a ceiling
+    to restrict to small/mid-caps. Valuation caps (`max_pe`, `max_peg`) are off by
+    default; when set they screen out expensive names (PEG may be the computed
+    `~` proxy — see fetch_fundamentals_yf). A gate whose data is missing fails
+    when `require_complete` (the honest default — we can't call a name 'zero-debt'
+    if we can't see its debt); with `require_complete=False` a missing field is
+    skipped rather than failing.
+    """
+    if f is None:
+        return False
+
+    checks = (
+        (max_market_cap_cr, f.get("market_cap_cr"), lambda v: v <= max_market_cap_cr),
+        (max_de_ratio,      f.get("de_ratio"),      lambda v: v <= max_de_ratio),
+        (min_roe_pct,       f.get("roe_pct"),       lambda v: v >= min_roe_pct),
+        (min_opm_pct,       f.get("opm_pct"),       lambda v: v >= min_opm_pct),
+        (max_pe,            f.get("pe"),            lambda v: v <= max_pe),
+        (max_peg,           f.get("peg"),           lambda v: v <= max_peg),
+    )
+    for threshold, value, ok in checks:
+        if threshold is None:
+            continue                    # this gate disabled
+        if value is None:
+            if require_complete:
+                return False            # unverifiable → drop
+            continue                    # lenient → skip this check
+        if not ok(value):
+            return False
+    return True
+
+
+def _attach_quality(hit: dict, f: dict, max_de_ratio: float) -> None:
+    """Fold the quality + valuation metrics onto a Proxy-PEAD hit as pills + a
+    reason line, and relabel it as the composite scanner."""
+    de, roe, opm = f.get("de_ratio"), f.get("roe_pct"), f.get("opm_pct")
+    mc, roa = f.get("market_cap_cr"), f.get("roa_pct")
+    pe, peg, peg_src = f.get("pe"), f.get("peg"), f.get("peg_src")
+    peg_pfx = "~" if peg_src == "calc" else ""     # ~ marks a computed (not vendor) PEG
+
+    qtags: list[str] = []
+    if de is not None:
+        qtags.append("Zero-Debt ✓" if de <= max_de_ratio else f"D/E {de:.2f}")
+    if roe is not None:
+        qtags.append(f"ROE {roe:.0f}%")
+    if opm is not None:
+        qtags.append(f"OPM {opm:.0f}%")
+    if pe is not None:
+        qtags.append(f"PE {pe:.0f}")
+    if peg is not None:
+        qtags.append(f"PEG {peg_pfx}{peg:.2f}")
+    if mc is not None:
+        qtags.append(f"₹{mc:,}Cr")
+
+    hit["pattern_type"] = "Zero-Debt Quality PEAD"
+    hit["quality_tags"] = qtags
+    hit["fundamentals"] = f
+    # Quality/valuation pills lead the metric row, drift tags follow.
+    hit["tags"] = qtags + hit.get("tags", [])
+
+    def _fmt(label, val, suffix=""):
+        return f"{label} {val}{suffix}" if val is not None else f"{label} n/a"
+    quality_line = "Quality: " + ", ".join([
+        _fmt("D/E", f"{de:.2f}" if de is not None else None),
+        _fmt("ROE", f"{roe:.0f}" if roe is not None else None, "%"),
+        _fmt("OPM", f"{opm:.0f}" if opm is not None else None, "%"),
+        _fmt("PE", f"{pe:.1f}" if pe is not None else None),
+        _fmt("PEG", f"{peg_pfx}{peg:.2f}" if peg is not None else None),
+        _fmt("mcap", f"₹{mc:,}Cr" if mc is not None else None),
+    ])
+    if roa is not None:
+        quality_line += f" · ROA {roa:.0f}%"
+    quality_line += (
+        " (yfinance; ~PEG = PE÷growth when vendor PEG absent; true ROCE via "
+        "screener.in is Phase 5.2)")
+    hit.setdefault("reasons", []).insert(0, quality_line)
+
+
+def run_quality_pead(symbols: list[str], fetch_fn,
+                     benchmark_df: pd.DataFrame | None = None, *,
+                     max_market_cap_cr: float | None = None,
+                     max_de_ratio: float | None = 0.10,
+                     min_roe_pct: float | None = 15.0,
+                     min_opm_pct: float | None = 10.0,
+                     max_pe: float | None = None,
+                     max_peg: float | None = None,
+                     require_complete: bool = True,
+                     pead_kwargs: dict | None = None,
+                     progress_cb=None) -> list[dict]:
+    """Phase 5.1 composite: quality small-cap gate ∩ Proxy-PEAD drift.
+
+    For each symbol: confirm the fundamentals gate (cheap, login-free) FIRST, and
+    only then fetch OHLCV + run scan_pead — so the expensive price fetch runs only
+    on quality survivors. Quality metrics are attached to every hit as pills.
+
+    `progress_cb(i, total)` is called as symbols are processed (for a UI bar).
+    """
+    pead_kwargs = pead_kwargs or {}
+
+    global _BENCHMARK_WRET
+    _BENCHMARK_WRET = None
+    if benchmark_df is not None and not benchmark_df.empty:
+        try:
+            col = "close" if "close" in benchmark_df.columns else "Close"
+            _BENCHMARK_WRET = _weighted_trailing_return(benchmark_df[col])
+        except Exception:
+            _BENCHMARK_WRET = None
+
+    results: list[dict] = []
+    total = len(symbols)
+    try:
+        for i, sym in enumerate(symbols, 1):
+            if progress_cb is not None:
+                try:
+                    progress_cb(i, total)
+                except Exception:
+                    pass
+            f = fetch_fundamentals_yf(sym)
+            if not passes_quality_gate(
+                    f, max_market_cap_cr=max_market_cap_cr, max_de_ratio=max_de_ratio,
+                    min_roe_pct=min_roe_pct, min_opm_pct=min_opm_pct,
+                    max_pe=max_pe, max_peg=max_peg,
+                    require_complete=require_complete):
+                continue
+            try:
+                df = fetch_fn(sym)
+            except Exception:
+                continue
+            if df is None or df.empty:
+                continue
+            hit = scan_pead(df, **pead_kwargs)
+            if not hit:
+                continue
+            hit["symbol"] = sym
+            _attach_quality(hit, f, max_de_ratio if max_de_ratio is not None else 0.10)
+            results.append(hit)
+    finally:
+        _BENCHMARK_WRET = None
 
     _finalize_relative_strength(results)
     return sorted(results, key=lambda x: x.get("score", 0), reverse=True)
