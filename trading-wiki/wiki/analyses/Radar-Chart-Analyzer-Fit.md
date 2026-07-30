@@ -82,6 +82,13 @@ data source for a v1.**
   > lands first, RC-2 collapses into "read the new layer" and the flaky session path is
   > only a fallback. Also: RC-1's four axes and FR-2's six donuts **must share one
   > `fundamental_score` module** — two scorers would be two fundamental opinions.
+  > **✅ 2026-07-30 — confirmed: RC-2 no longer needs screener.in.** FR-1 shipped
+  > ([fundamentals_deep.py](tools/fundamentals_deep.py), `0821fdb`) and
+  > `derive_fundamentals()` returns `revenue_cagr_3y` / `profit_cagr_3y` / **`roce`**
+  > (+ `roce_prev`) live — measured on ITC 37.54% and TITAN 17.23%. RC-2 is now
+  > "read the new layer"; the screener.in path is dead weight for this purpose.
+  > Caveat carried forward: yfinance returns 4–5 annual columns for most NSE names, so
+  > **5Y CAGRs are usually `None`** — RC-2 must render those axes `DATA N/A`, not 0.
 - **RC-3 — Portfolio radar + compare overlay + score table.** Drive from `portfolio_db`
   holdings (sorted by invested value, ≤10), overlay several radars, render the score table
   — the video's portfolio view, on our own holdings, no Groww MCP.

@@ -254,8 +254,13 @@ until measured, every threshold here is hand-set.
       back to a computed `PE÷growth` marked `~` when yfinance's vendor PEG is
       absent — sparse for NSE), and added optional **Max PE / Max PEG** valuation
       filters to the gate (0 = off). Renamed from "Quality Small-Cap PEAD".
-  - ⏭ **5.2** — true ROCE + deeper fundamentals from screener.in (needs a working
-    session) and a quality-tier score booster.
+  - ⏭ **5.2** — ~~true ROCE + deeper fundamentals from screener.in (needs a working
+    session)~~ **unblocked 2026-07-30 — no screener.in session needed.** FR-1 shipped
+    [fundamentals_deep.py](tools/fundamentals_deep.py) (`0821fdb`): `derive_fundamentals()`
+    returns **true ROCE** (EBIT ÷ (equity + total debt)) plus 3Y CAGRs, margins, FCF and
+    working-capital days from free yfinance statements. 5.2 is now "swap the ROA proxy for
+    `roce` and widen the gate", plus the quality-tier score booster. Note the gate runs
+    per-symbol, so budget four statement calls per name (cached 1h in the dashboard).
   - ⏭ **5.3** — backtest whether the quality gate lifts PEAD expectancy (rides Phase 4).
 
 ## Outcome (fill in later)

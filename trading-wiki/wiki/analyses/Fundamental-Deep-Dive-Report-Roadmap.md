@@ -294,15 +294,21 @@ above is what decides it:
 
 Pick before FR-0 — it's the one decision that's expensive to reverse later.
 
+> [!done] **Surface decided 2026-07-30: (a) Streamlit + a shared style primitive.**
+> Built as [report_style.py](tools/report_style.py) (`report_css()` + six helpers) rather
+> than a `_report_css()` private in `dashboard_app.py`, so the chart tool or any future
+> surface can import the same tokens. The dark editorial skin was dropped as predicted;
+> the structure and the semantic roles carried over intact.
+
 ## Action Taken / Plan
 - ✅ Ingested the 4 screenshots (2026-07-29) — **both layers**: the information
   architecture (14 components) *and* the design/visual system (geometry, type, semantic
   colour roles, 6 component recipes). Grounded audit filed; pointers added from
   [[analyses/Dashboard-UI-Roadmap]] Phase 2 and [[analyses/Radar-Chart-Analyzer-Fit]].
   **Nothing built.**
-- ⏭ When ready: decide the **surface** (Streamlit + `_report_css` vs an HTML report page),
-  then **FR-0 + FR-1** together — FR-1 is the only genuinely new data layer and it retires
-  two standing dependencies (RC-2, PEAD 5.2).
+- ✅ **Surface decided + FR-0 & FR-1 SHIPPED 2026-07-30** (`0821fdb`) — see Outcome.
+- ⏭ **FR-2 next** — the shared `fundamental_score` band scorer. FR-1 deliberately left
+  valuation untoned so FR-2 owns *all* band judgement in one place.
 - ⚠️ If the pixel-exact palette ever matters, **get the screenshot files onto disk** and
   re-sample; the hexes here are eyeballed.
 
@@ -315,6 +321,41 @@ Pick before FR-0 — it's the one decision that's expensive to reverse later.
   and found the theme conflict: the mockup's dark editorial chrome matches
   `chart_dashboard.html`'s tokens, **not** the Streamlit dashboard's cream theme. Added
   **FR-0** (shared style primitive) and an explicit surface choice ahead of it._
+- **2026-07-30 — FR-0 + FR-1 SHIPPED, verified & deployed** (`0821fdb`).
+  - **FR-1 — [fundamentals_deep.py](tools/fundamentals_deep.py)**, the first code in this
+    repo to fetch yfinance's statements (`income_stmt` / `quarterly_income_stmt` /
+    `balance_sheet` / `cashflow` — free, login-free, previously unused). Derives 3Y/5Y
+    revenue & profit CAGR, per-year net margin & OPM, **ROCE**, debtor & working-capital
+    days, FCF + negative-FCF streak, and a `coverage` meter (have/total/missing).
+  - **The blocked dependency is retired:** ROCE = EBIT ÷ (equity + total debt) now comes
+    from free data, so [[analyses/Radar-Chart-Analyzer-Fit]] **RC-2** and
+    [[analyses/PEAD-Scanner-Roadmap]] **5.2** no longer wait on a screener.in session.
+  - **FR-0 — [report_style.py](tools/report_style.py)**: `report_css()` token block + six
+    helpers (card · chip · stat_card · bar_row · callout · donut). Semantic roles carried
+    over from the mockup; palette mapped onto the dashboard's **cream/brown** hues as the
+    design audit predicted. Donut is inline SVG — a dial, not a chart, so no Plotly.
+  - **Surface:** built as a **module**, not a `_report_css()` private, so any surface can
+    import the same tokens.
+  - **Stock Analyzer now leads with** a sticky identity header (name · price · change ·
+    sector/industry/cap-band/coverage chips · statement as-of) + a 9-metric valuation
+    strip + a 5-metric statement-derived growth strip.
+  - **Honesty devices are in the data layer, not the view:** missing is `None` (never a
+    default), a CAGR through a loss is `None`, `available` reflects whether statements
+    actually came back, 52W range renders `DATA N/A` on a <252-bar lookback rather than
+    mislabelling a 60-bar range, and `coverage` is explicitly a *coverage* meter.
+  - **Found & fixed a real unit bug while displaying it:** `fetch_fundamentals` multiplied
+    `dividendYield` by 100, but yfinance 1.4.1 already returns a **percentage** — TITAN
+    read **31%** (actual 0.31% = ₹15 on ₹4,850) and ITC **559%** (actual 5.59%). The
+    sibling margin/growth fields *are* fractions and keep their ×100. No other consumer.
+  - **Verified live:** ITC → P/E 17.25× · D/E 0.03× (green) · ROE 29.34% · ROCE 37.54%
+    (prev 38.4%) · div yield 5.59% post-fix · net margin 26.45% · FCF ₹16,281 Cr · debtor
+    days 18 · coverage **9/11** with both 5Y CAGRs correctly *not computable* (yfinance
+    returns 4–5 annual columns; a 5Y CAGR needs six). TITAN cross-checked. Sticky header
+    held across a 622px scroll; all 14 stat cards at equal width; zero console errors, no
+    server exceptions.
+  - **Deliberately NOT in this phase:** band-scoring. Only D/E, ROE and ROCE are toned,
+    using floors this repo already states (High-Growth sliders, multibagger query).
+    Valuation bands are FR-2's, in **one** shared `fundamental_score`.
 
 ## Related Pages
 - [[analyses/Dashboard-UI-Roadmap]] — the analyzer this extends (Phase 2 features).
