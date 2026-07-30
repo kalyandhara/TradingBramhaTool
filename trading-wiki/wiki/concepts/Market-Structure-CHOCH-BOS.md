@@ -1,10 +1,10 @@
 ---
 title: "Market Structure: CHOCH vs BOS"
 category: concept
-tags: [smart-money, smc, choch, bos, mss, market-structure, fvg, liquidity, swing-highs-lows, order-blocks, internal-structure, strong-weak-high-low, luxalgo]
+tags: [smart-money, smc, choch, bos, mss, market-structure, fvg, liquidity, swing-highs-lows, order-blocks, internal-structure, strong-weak-high-low, luxalgo, break-quality, chain-count, failed-breakout]
 created: 2026-06-22
-updated: 2026-07-16
-sources: 2
+updated: 2026-07-29
+sources: 3
 related: [strategies/Supply-Demand-Zone-Trading, concepts/Support-Resistance, concepts/Order-Flow, concepts/Elliott-Wave, concepts/Order-Blocks, concepts/Premium-Discount-Zones, concepts/Equal-Highs-Lows]
 ---
 
@@ -50,11 +50,42 @@ The LuxAlgo reference also tags the most recent swing extremes as **Strong** vs 
 
 Reading: price is *drawn toward* weak extremes (they hold liquidity / are likely to break) and *defends* strong ones. A break of a **strong** high/low is the meaningful structural event; a break of a **weak** one is expected continuation. This pairs directly with [[concepts/Premium-Discount-Zones]] (buy near the strong low in discount) and with [[concepts/Equal-Highs-Lows]] (weak highs above are often the liquidity target).
 
+### Grading the break — quality, chain length, and fast failure (from the SBC reference)
+[[sources/Structure-Break-Chain-SBC-Pine|Structure Break Chain (SharpStrat)]] adds the layer both
+the LuxAlgo reference and this page's earlier text left implicit: **not every BOS is equally good,
+and a run of them means something a single one doesn't.**
+
+- **Break quality, ATR-normalised.** Score each break as
+  `0.6 × (distance beyond the level ÷ ATR14) + 0.4 × (|close − open| ÷ ATR14)` →
+  **STRONG ≥ 0.75 · NORMAL ≥ 0.35 · WEAK** below. So a good break is one that travels a
+  meaningful multiple of the symbol's own volatility *and* is carried by a decisive candle body.
+  Being in ATR units, the same thresholds work across symbols and timeframes.
+- **Chain count — consecutive BOS since the last CHoCH.** A CHoCH resets the counter to 1; each
+  same-direction BOS increments it. High chain = structurally persistent trend; the reset *is* the
+  character change, which makes CHoCH and chain length two views of one state. Completed-chain
+  averages are best computed at CHoCH events (excluding the in-progress chain).
+- **Failed break, time-boxed.** After a break, if price **closes back inside** the broken level
+  within N bars (SBC default 3), tag it **FAILED**. This is the mechanical form of this page's own
+  caveat that "a single CHOCH is a warning, not a confirmed reversal" — and it is *faster* than
+  waiting for a full counter-structure break to invalidate.
+- **Confirmation is a choice, not a given.** Comparing the **close** to the level is the
+  conservative rule (LuxAlgo's and ours); comparing the **wick** (`high`/`low`) fires earlier and
+  noisier. State which one a given reading used.
+- **Pivot length is a claim about what "swing" means.** SBC uses **15** bars each side, LuxAlgo
+  **5 (internal) + 50 (swing)**, this wiki's Python port **5**. A 5-bar pivot is labelling
+  *internal* structure — fine, as long as it isn't read as major structure. See the
+  internal-vs-swing section above.
+- **Presentation idea worth keeping:** encode quality as **opacity** (strong = solid, weak = faded)
+  rather than more text, and scale label offsets by ATR (BOS 0.7× · CHoCH 1.6× · FAILED 2.4×) so
+  stacked events stay legible.
+
 ### Order blocks are derived from the break
 A BOS/CHoCH doesn't just label the trend — in SMC it *creates a zone*. The last opposing candle before the impulse that caused the break becomes an **order block** ([[concepts/Order-Blocks]]) — the pullback entry zone for trading the new direction. Structure break → order block → return-to-zone entry is the core SMC loop.
 
 ## Variants / Parameters
 - **Timeframe dependency**: CHOCH/BOS are timeframe-relative — a CHOCH on the 15-minute chart can be a minor pullback within a still-intact BOS sequence on the daily chart. Always state which timeframe a CHOCH/BOS call applies to.
+- **Break quality thresholds** (SBC): STRONG ≥ 0.75 / NORMAL ≥ 0.35 on `0.6×dist/ATR + 0.4×body/ATR`. Weights and cut-offs are the author's judgement, not a measured constant — treat them as a starting calibration.
+- **Failed-break window**: 3 bars (SBC default). Shorter = only the immediate fakeout; longer = catches slow failures but overlaps the next structural event. `0` disables the check entirely.
 - **CHOCH vs. simple pullback**: not every break of an HL/LH is a real trend change — this is the SMC equivalent of the false-break risk already documented in [[strategies/False-Break-Buildup-Trading]]; treat a single CHOCH as a *warning*, not a confirmed reversal, until price also fails to reclaim the broken level (echoing the "failed retest" pattern from [[concepts/Distribution-Days]]) or a subsequent BOS confirms the new direction.
 
 ## Common Mistakes
@@ -75,8 +106,10 @@ A BOS/CHoCH doesn't just label the trend — in SMC it *creates a zone*. The las
 
 ## Examples in This Wiki
 - **Python port (2026-07-03)**: `detect_bos_choch()` in `tools/scanner_templates.py` implements this page's swing-labeling rule mechanically — confirmed pivot highs/lows (5 bars each side), close above the last swing high = CHOCH when structure is bearish / BOS when already bullish, and a later close below a swing low re-flips structure and invalidates the bullish event (this page's "treat a single CHOCH as a warning" caveat, enforced in code). Used as the Structure check in the Early Reversal Detector's six-check validation layer.
+- **Port gaps identified (2026-07-29)**: measured against [[sources/Structure-Break-Chain-SBC-Pine]], `detect_bos_choch()` returns only `{signal, level, bars_ago}` — no **quality** grade, no **chain** count, no fast **failed-break** flag, bullish-only, close-confirmed, `pivot_len=5`. Additive-key enrichment plan (SBC-1…SBC-4) lives on the source page; three existing consumers (SMC checklist Structure check, `scan_order_block`, the `BOS/CHOCH` tag) keep working if the new keys are additive. **Nothing built yet.**
 - None yet with live price levels — apply to a specific entity page's chart the next time a live CHOCH/BOS sequence is being tracked on a real ticker.
 
 ## Sources
 1. Social media trading infographic ("CHOCH vs BOS" comparison card, source/author unattributed in the image) — ingested 2026-06-22, terminology and the annotated chart sequence (HH/HL/LH/LL, BOS, CHOCH, MSS, FVG, LIQ, HTF POI) are this page's primary source.
 2. [LuxAlgo-Smart-Money-Concepts-Pine](../sources/LuxAlgo-Smart-Money-Concepts-Pine.md) — Pine v5 indicator by [[LuxAlgo]] (CC BY-NC-SA 4.0), ingested 2026-07-16; source for the internal-vs-swing two-tier model, Strong/Weak High-Low tagging, the close-cross + per-tier-bias break rule, and the structure→order-block linkage.
+3. [Structure-Break-Chain-SBC-Pine](../sources/Structure-Break-Chain-SBC-Pine.md) — Pine v6 indicator by SharpStrat (MPL 2.0), ingested 2026-07-29; source for **break-quality grading** (ATR-normalised distance + body), the **chain counter** (consecutive BOS since the last CHoCH), **time-boxed failed breaks**, wick-vs-close confirmation as an explicit choice, and the 15-bar pivot length. Independently confirms the trend-state-decides-the-label rule (now triple-sourced).

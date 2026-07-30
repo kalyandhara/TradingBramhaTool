@@ -116,3 +116,4 @@ tagging. The genuinely new work is peer-*relative* scoring + the comparison-tabl
 - [[analyses/Opportunity-Hub-Roadmap]] — provides the industry-tagging engine peer resolution reuses; peer comparison is its inverted (constituent-vs-anchor) view.
 - [[analyses/Dashboard-UI-Roadmap]] — the analyzer this extends (Phase 2 features).
 - [[analyses/Setup-Intelligence-Visual-Spec]] — sibling ingested mockup; the "vs anchor" drill reuses the Setup Intelligence read.
+- [[analyses/Fundamental-Deep-Dive-Report-Roadmap]] — its report shell has a **Peers** tab; PC-1…PC-4 fills it (build once, surface twice).

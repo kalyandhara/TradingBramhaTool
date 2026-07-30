@@ -4,9 +4,10 @@ category: analysis
 tags: [radar-chart, roadmap, stock-analyzer, fundamentals, plotly, scorecard, dashboard]
 timeframe: milestone-plan
 created: 2026-07-25
-updated: 2026-07-25
+updated: 2026-07-29
 sources: 1
 related:
+  - analyses/Fundamental-Deep-Dive-Report-Roadmap.md
   - sources/YT-Stock-Radar-Chart-Skill.md
   - concepts/Radar-Chart-Stock-Scoring.md
   - analyses/Dashboard-UI-Roadmap.md
@@ -74,6 +75,13 @@ data source for a v1.**
 - **RC-2 — screener.in enrichment.** Add 3Y sales/profit CAGR + true ROCE from the
   screener.in session (rides Phase 5.2 plumbing) to match the video's Growth/Finance
   fidelity; degrade gracefully to yfinance when the session is down.
+  > **2026-07-29 — RC-2 may not need screener.in at all.** The
+  > [[analyses/Fundamental-Deep-Dive-Report-Roadmap]] audit found yfinance's
+  > `income_stmt` / `balance_sheet` / `cashflow` (free, no login, *unused anywhere in the
+  > repo*) make 3Y/5Y CAGRs and ROCE (EBIT ÷ (equity+debt)) computable directly. If **FR-1**
+  > lands first, RC-2 collapses into "read the new layer" and the flaky session path is
+  > only a fallback. Also: RC-1's four axes and FR-2's six donuts **must share one
+  > `fundamental_score` module** — two scorers would be two fundamental opinions.
 - **RC-3 — Portfolio radar + compare overlay + score table.** Drive from `portfolio_db`
   holdings (sorted by invested value, ≤10), overlay several radars, render the score table
   — the video's portfolio view, on our own holdings, no Groww MCP.
