@@ -51,6 +51,8 @@ import block_deal_intel as bdi
 import nse_oi_momentum as oim
 import browser_cookie_helper as bch
 import stock_council as council
+import fundamentals_deep as fdeep
+import report_style as rs
 
 try:
     from ta.momentum import RSIIndicator
@@ -93,6 +95,10 @@ def _with_analyze_col(df, symbol_col: str, after: str | None = "Chart"):
     pos = (out.columns.get_loc(after) + 1) if (after in out.columns) else len(out.columns)
     out.insert(pos, "Analyze", urls)
     return out
+
+# FR-0 style primitive — one token block for every HTML surface on the page.
+# Injected once, before anything that calls the rs.* helpers.
+st.markdown(rs.report_css(), unsafe_allow_html=True)
 
 st.markdown(
     """
@@ -208,6 +214,13 @@ def cached_fetch_fundamentals(symbol: str) -> dict:
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def cached_fundamentals_deep(symbol: str) -> dict:
+    """FR-1 statement layer. Four yfinance statement calls, so cache it hard —
+    annual/quarterly filings change quarterly at best, never intraday."""
+    return fdeep.derive_fundamentals(symbol)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def cached_fetch_safe_symbols(sessionid: str, max_pledge_pct: float = 5.0) -> set[str]:
     return ss.fetch_fundamental_safe_symbols(sessionid, max_pledge_pct=max_pledge_pct)
 
@@ -303,6 +316,169 @@ def _render_thesis(title: str, thesis, accent: str) -> None:
     st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     if thesis.breakers:
         st.caption("⚠️ Thesis-breakers: " + "; ".join(thesis.breakers))
+
+
+def _cr(v: float | None, currency: str | None = "INR") -> str | None:
+    """Indian-crore formatting for statement figures (1 Cr = 1e7).
+
+    Non-INR reporting currencies are left in millions rather than silently
+    converted — yfinance reports some cross-listed names in USD and a crore
+    label on a dollar figure would be wrong, not just unusual.
+    """
+    if v is None:
+        return None
+    if (currency or "INR").upper() != "INR":
+        return f"{v/1e6:,.0f}M {currency}"
+    return f"₹{v/1e7:,.0f} Cr"
+
+
+def _q(v: float | None, suffix: str = "", dp: int = 2) -> str | None:
+    """Format a number, preserving None so stat_card can render DATA N/A."""
+    return None if v is None else f"{v:,.{dp}f}{suffix}"
+
+
+def render_fundamental_header(symbol: str, df: pd.DataFrame,
+                              fundamentals: dict, deep: dict) -> None:
+    """FR-1 — sticky identity header + the 9-metric strip, plus the growth and
+    quality figures that only exist now that statements are fetched.
+
+    Tone discipline: colour is applied only where this repo already has a stated
+    threshold (D/E, ROE, ROCE — the High-Growth Screener sliders and the
+    multibagger query use exactly these floors). Valuation bands (P/E, P/B) are
+    deliberately left neutral here: band-scoring is FR-2's job and must live in
+    ONE shared scorer feeding both these figures and the radar's axes, or the
+    page grows a fourth competing "overall" verdict.
+    """
+    f, d = fundamentals or {}, deep or {}
+    cur = d.get("currency") or "INR"
+
+    price = float(df["close"].iloc[-1])
+    prev = float(df["close"].iloc[-2]) if len(df) > 1 else price
+    chg = (price / prev - 1) * 100 if prev else 0.0
+    as_of = str(df.index[-1])[:10]
+    # A move that rounds to 0.00% is flat, not a down day — an unqualified ▼ on
+    # "-0.00%" reads as a rendering fault.
+    if chg > 0.005:
+        chg_arrow, chg_col = "▲", rs.TOKENS["good"]
+    elif chg < -0.005:
+        chg_arrow, chg_col = "▼", rs.TOKENS["risk"]
+    else:
+        chg_arrow, chg_col = "•", rs.TOKENS["text_muted"]
+
+    # ── Identity header ──
+    chips = []
+    if f.get("sector"):
+        chips.append(rs.chip(f["sector"], "info"))
+    if f.get("industry"):
+        chips.append(rs.chip(f["industry"], "neutral"))
+    mcap = f.get("market_cap")
+    if mcap:
+        # NSE convention: >₹20,000 Cr large, ₹5,000-20,000 Cr mid, below small.
+        cr = mcap / 1e7
+        band = "LARGE CAP" if cr >= 20000 else ("MID CAP" if cr >= 5000 else "SMALL CAP")
+        chips.append(rs.chip(band, "neutral"))
+    cov = d.get("coverage") or {}
+    if cov:
+        cov_tone = "good" if cov.get("have", 0) >= cov.get("total", 11) - 2 else "warn"
+        chips.append(rs.chip("STATEMENT FIELDS", cov_tone,
+                             f"{cov.get('have', 0)}/{cov.get('total', 0)}"))
+    if not d.get("available"):
+        chips.append(rs.chip("NO STATEMENTS", "absent"))
+
+    st.markdown(
+        f"""
+        <div style="position:sticky;top:0;z-index:99;background:{rs.TOKENS['surface_warm']};
+                    border:1px solid {rs.TOKENS['border']};border-radius:11px;
+                    padding:11px 15px;margin:4px 0 10px 0;">
+          <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">
+            <span style="font-family:Georgia,'Times New Roman',serif;font-size:23px;
+                         font-weight:700;color:{rs.TOKENS['accent']};">{symbol}</span>
+            <span style="font-size:13px;color:{rs.TOKENS['text_body']};">
+              {d.get('long_name') or ''}</span>
+            <span class="tb-mono" style="font-size:26px;font-weight:700;
+                         color:{rs.TOKENS['text']};margin-left:auto;">₹{price:,.2f}</span>
+            <span class="tb-mono" style="font-size:14px;font-weight:700;color:{chg_col};">
+              {chg_arrow} {chg:+.2f}%</span>
+          </div>
+          <div style="margin-top:7px;">{''.join(chips)}</div>
+          <div class="tb-micro" style="margin-top:2px;">
+            PRICE AS OF {as_of} · STATEMENTS AS OF {d.get('as_of') or '—'}</div>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── 9-metric strip ──
+    d2e, roe, roce = f.get("debt_to_equity"), f.get("roe"), d.get("roce")
+    # 52W range is computed from the loaded frame, but only when the frame
+    # actually covers a year. On a 3M lookback a 60-bar high/low labelled
+    # "52W RANGE" would be a quietly wrong number, so it renders DATA N/A.
+    if len(df) >= 252:
+        hi = float(df["high"].tail(252).max())
+        lo = float(df["low"].tail(252).min())
+    else:
+        hi = lo = None
+    cells = [
+        rs.stat_card("P / E", _q(f.get("pe"), "×")),
+        rs.stat_card("P / B", _q(f.get("pb"), "×")),
+        # yfinance reports debtToEquity as a percentage (50 = 0.50×).
+        rs.stat_card("D / E", None if d2e is None else f"{d2e/100:,.2f}×",
+                     tone=("good" if (d2e is not None and d2e < 50)
+                           else "risk" if (d2e is not None and d2e > 100) else "neutral")),
+        rs.stat_card("ROE", _q(roe, "%"),
+                     tone="good" if (roe is not None and roe >= 15) else "neutral"),
+        rs.stat_card("ROCE", _q(roce, "%"),
+                     sub=None if d.get("roce_prev") is None else f"prev {d['roce_prev']:.1f}%",
+                     tone="good" if (roce is not None and roce >= 15) else "neutral"),
+        rs.stat_card("EPS TTM", _q(f.get("eps_ttm") if f.get("eps_ttm") is not None
+                                   else d.get("eps_ttm"))),
+        rs.stat_card("DIV YIELD", _q(f.get("dividend_yield"), "%")),
+        rs.stat_card("MKT CAP", _cr(mcap, cur)),
+        rs.stat_card("52W RANGE",
+                     None if (hi is None or lo is None) else f"{lo:,.0f}–{hi:,.0f}"),
+    ]
+    st.markdown(rs.section("Valuation & Quality"), unsafe_allow_html=True)
+    # Both rows on a 5-column grid: the second row holds 4 cards and simply
+    # leaves the fifth slot empty, so card widths stay identical down the page.
+    st.markdown(rs.strip(cells[:5], cols=5) + rs.strip(cells[5:], cols=5),
+                unsafe_allow_html=True)
+
+    # ── Statement-derived figures (the layer FR-1 adds) ──
+    if d.get("available"):
+        g = [
+            rs.stat_card("REV CAGR 3Y", _q(d.get("revenue_cagr_3y"), "%"),
+                         sub=_q(d.get("revenue_cagr_5y"), "% (5Y)") or "5Y n/a"),
+            rs.stat_card("PROFIT CAGR 3Y", _q(d.get("profit_cagr_3y"), "%"),
+                         sub=_q(d.get("profit_cagr_5y"), "% (5Y)") or "5Y n/a"),
+            rs.stat_card("NET MARGIN", _q(d.get("net_margin"), "%"),
+                         sub=_q(d.get("opm"), "% OPM")),
+            rs.stat_card("FREE CASH FLOW", _cr(d.get("fcf"), cur),
+                         sub=(f"{d['fcf_negative_streak']}y negative streak"
+                              if d.get("fcf_negative_streak") else None),
+                         tone="risk" if d.get("fcf_negative_streak") else "neutral"),
+            rs.stat_card("DEBTOR DAYS", _q(d.get("debtor_days"), "d", 0),
+                         sub=_q(d.get("wc_days"), "d working cap", 0)),
+        ]
+        st.markdown(rs.section("Growth & Quality — from financial statements"),
+                    unsafe_allow_html=True)
+        st.markdown(rs.strip(g, cols=5), unsafe_allow_html=True)
+        miss = (d.get("coverage") or {}).get("missing") or []
+        st.caption(
+            f"{d.get('annual_periods', 0)} annual / {d.get('quarterly_periods', 0)} "
+            f"quarterly periods available from yfinance"
+            + (f" · not computable: {', '.join(miss)}" if miss else "")
+            + " · a 5Y CAGR needs six annual columns; fewer means it is genuinely "
+              "unavailable, not zero."
+        )
+    else:
+        st.markdown(
+            rs.callout("No financial statements.",
+                       "yfinance returned no income statement, balance sheet or "
+                       "cash-flow for this symbol — common for newly-listed and "
+                       "thin BSE/SME names. Growth, ROCE and working-capital "
+                       "figures are not shown rather than estimated.",
+                       tone="absent"),
+            unsafe_allow_html=True)
 
 
 _TONE_DOT   = {"good": "🟢", "neutral": "🟡", "bad": "🔴"}
@@ -1331,6 +1507,13 @@ if current_page == "Stock Analyzer":
             if df is None:
                 st.error(f"No usable data for {symbol} (illiquid, too short, or not on yfinance).")
             else:
+                # FR-1 — identity header + valuation/quality strip lead the page:
+                # who is this company and what does it cost, before any signal.
+                with st.spinner("Fetching fundamentals & statements..."):
+                    _fund = cached_fetch_fundamentals(symbol)
+                    _deep = cached_fundamentals_deep(symbol)
+                render_fundamental_header(symbol, df, _fund, _deep)
+
                 nifty_df = cached_fetch_nifty50(days=tf_days)
                 mv_score, mv_conds = sp.score_minervini(df, nifty_df=nifty_df)
                 tf_score, tf_conds = sp.score_technofunda(df)
@@ -1380,7 +1563,7 @@ if current_page == "Stock Analyzer":
                 # ── 3-POV Council: Bull / Bear / Judge ──
                 st.divider()
                 with st.spinner("Running deterministic council..."):
-                    fundamentals = cached_fetch_fundamentals(symbol)
+                    fundamentals = _fund          # already fetched for the header
                     bundle, bull, bear, card = council.run_council(
                         symbol, df, nifty_df, fundamentals, regime=nifty_regime
                     )

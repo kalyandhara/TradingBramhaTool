@@ -184,9 +184,18 @@ def fetch_fundamentals(symbol: str) -> dict[str, Any]:
         "debt_to_equity": d2e,                                                       # yf gives %
         "revenue_growth": rev_g * 100 if isinstance(rev_g, (int, float)) else None,  # -> %
         "earnings_growth": earn_g * 100 if isinstance(earn_g, (int, float)) else None,
-        "dividend_yield": div_y * 100 if isinstance(div_y, (int, float)) else None,
+        # NOT scaled by 100: unlike the margin/growth fields above (which yfinance
+        # returns as fractions), dividendYield already comes back as a percentage
+        # — TITAN reads 0.31 for ₹15 on a ₹4,850 price, ITC 5.59 for ₹16 on ₹285.
+        # The old ×100 turned those into 31% and 559%.
+        "dividend_yield": div_y if isinstance(div_y, (int, float)) else None,
         "sector":        g("sector"),
         "industry":      g("industry"),
+        # Present in .info all along but never mapped; the deep-dive metric strip
+        # (FR-1) reads them from here so a symbol with no filed statements still
+        # shows EPS and book value.
+        "eps_ttm":       g("trailingEps"),
+        "book_value":    g("bookValue"),
     }
 
 
