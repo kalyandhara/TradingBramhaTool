@@ -563,6 +563,79 @@ def api_falling_wedge():
     return jsonify({"symbol": symbol, "falling_wedge": fw})
 
 
+@app.route("/api/structure_chain")
+def api_structure_chain():
+    """Market-structure break chain for the chart overlay — SBC-4. See
+    scanner_templates.detect_structure_chain (port of Structure Break Chain [SBC],
+    © SharpStrat, MPL 2.0) + concepts/Market-Structure-CHOCH-BOS.md.
+
+    Returns every BOS/CHOCH event with its ATR-normalised quality grade, chain
+    position and failed flag, the recent swing levels, and the run statistics —
+    all bar indices mapped to chart timestamps. {"structure_chain": null} when no
+    structural break exists in the window."""
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    # A pivot is pivot_len bars on each side, so intraday needs a tighter window
+    # or the whole session gets swallowed by one swing (same shape as /api/trendlines).
+    piv_default = {
+        "1m": 5, "5m": 6, "15m": 8, "30m": 10,
+        "1h": 10, "4h": 12, "1d": 15, "1w": 15,
+    }.get(timeframe, 15)
+    pivot_len  = max(2, min(int(request.args.get("pivot_len", piv_default)), 100))
+    confirm    = request.args.get("confirm", "close")
+    fail_win   = max(0, min(int(request.args.get("fail_win", 3)), 100))
+    max_swings = max(0, min(int(request.args.get("max_swings", 15)), 60))
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < pivot_len * 2 + 20:
+        return jsonify({"symbol": symbol, "structure_chain": None})
+
+    r = sc.detect_structure_chain(df, pivot_len=pivot_len, confirm=confirm,
+                                  fail_win=fail_win, max_swings=max_swings)
+    if r is None:
+        return jsonify({"symbol": symbol, "structure_chain": None})
+
+    def _t(idx):
+        if idx is None or idx < 0 or idx >= len(bars):
+            return None
+        return int(bars[idx]["time"])
+
+    last_t = _t(len(bars) - 1)
+    events = []
+    for e in r["events"]:
+        t = _t(e["bar"])
+        if t is None:
+            continue
+        events.append({
+            "time":        t,
+            "pivot_time":  _t(e["pivot_bar"]),
+            "failed_time": _t(e["failed_bar"]),
+            "type":        e["type"],
+            "direction":   e["direction"],
+            "level":       e["level"],
+            "quality":     e["quality"],
+            "score":       e["score"],
+            "chain":       e["chain"],
+            "failed":      e["failed"],
+        })
+    # Each swing is drawn from its pivot bar to the right edge, as in the source.
+    swings = [{"t0": _t(s["bar"]), "t1": last_t, "level": s["level"], "kind": s["kind"]}
+              for s in r["swings"] if _t(s["bar"]) is not None]
+
+    return jsonify({"symbol": symbol, "structure_chain": {
+        "events": events,
+        "swings": swings,
+        "live_swing_high": r["live_swing_high"],
+        "live_swing_low": r["live_swing_low"],
+        "stats": r["stats"],
+    }})
+
+
 @app.route("/api/trendlines")
 def api_trendlines():
     """Supply / demand trendlines via scanner_templates.detect_trendline_break

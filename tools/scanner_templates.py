@@ -2081,6 +2081,174 @@ def _atr_series(df: pd.DataFrame, n: int = 14) -> pd.Series:
     return tr.ewm(alpha=1 / n, adjust=False).mean()   # Wilder smoothing
 
 
+def detect_structure_chain(df: pd.DataFrame, pivot_len: int = 15,
+                           confirm: str = "close", fail_win: int = 3,
+                           max_swings: int = 15) -> dict | None:
+    """Full market-structure break chain — port of the Structure Break Chain [SBC]
+    Pine indicator (© SharpStrat, MPL 2.0; see sources/Structure-Break-Chain-SBC-Pine.md
+    and concepts/Market-Structure-CHOCH-BOS.md).
+
+    Where `detect_bos_choch` returns only the latest surviving *bullish* event, this
+    walks the whole series and returns **every** structural break in both directions
+    with the three gradings SBC contributes:
+
+      * quality  — 0.6 x (distance beyond the level / ATR14)
+                 + 0.4 x (|close - open| / ATR14)  ->  STRONG >= 0.75,
+                   NORMAL >= 0.35, else WEAK. ATR-normalised, so the thresholds
+                   travel across symbols and timeframes.
+      * chain    — consecutive same-direction breaks since the last CHOCH. A CHOCH
+                   resets it to 1; each following BOS increments. The reset *is* the
+                   character change.
+      * failed   — price closed back inside the broken level within `fail_win` bars.
+                   Always close-tested (as in the source) even when `confirm="wick"`,
+                   and never on the break bar itself. fail_win=0 disables the check.
+
+    Faithful to the source: one structural event per bar with bullish priority, the
+    broken level is consumed until a fresh pivot forms, and completed-chain averages
+    accumulate only at CHOCH events (so the in-progress chain is excluded).
+
+    Deliberate difference: pivots reuse this module's window-max rule (as in
+    `detect_bos_choch`) rather than Pine's strict comparison, so a flat plateau can
+    register as a pivot. Immaterial on real data, but it is not a byte-for-byte port.
+
+    Returns None when there is not enough history, else:
+      {"events": [...], "swings": [...], "stats": {...}}
+    with bar *indices* (the caller maps them to timestamps).
+    """
+    if confirm not in ("close", "wick"):
+        confirm = "close"
+    need = pivot_len * 2 + 20
+    if df is None or len(df) < need:
+        return None
+
+    high, low, close, open_ = df["high"], df["low"], df["close"], df["open"]
+    atr = _atr_series(df).fillna(0.0)
+    n = len(df)
+
+    def _qual(dist: float, i: int) -> tuple[str, float]:
+        a = max(float(atr.iloc[i]), 1e-6)
+        s = (dist / a) * 0.6 + (abs(float(close.iloc[i]) - float(open_.iloc[i])) / a) * 0.4
+        return ("STRONG" if s >= 0.75 else "NORMAL" if s >= 0.35 else "WEAK"), round(s, 2)
+
+    sh: float | None = None            # live (unbroken) swing high
+    sh_bar: int | None = None
+    sl: float | None = None
+    sl_bar: int | None = None
+    swings: list[dict] = []
+
+    trend = 0                          # 1 up / -1 down / 0 unknown
+    chain = 0
+    events: list[dict] = []
+    tot_bos = tot_choch = max_chain = n_chains = 0
+    sum_chains = 0.0
+
+    watch: dict | None = None          # armed failure watch for the last break
+
+    for i in range(pivot_len, n):
+        # ── pivot confirmation (a pivot at j is only knowable pivot_len bars later)
+        j = i - pivot_len
+        if j >= pivot_len:
+            win_hi = high.iloc[j - pivot_len: j + pivot_len + 1]
+            win_lo = low.iloc[j - pivot_len: j + pivot_len + 1]
+            if float(high.iloc[j]) == float(win_hi.max()):
+                sh, sh_bar = float(high.iloc[j]), j
+                swings.append({"bar": j, "level": round(sh, 2), "kind": "high"})
+            if float(low.iloc[j]) == float(win_lo.min()):
+                sl, sl_bar = float(low.iloc[j]), j
+                swings.append({"bar": j, "level": round(sl, 2), "kind": "low"})
+
+        ref_hi = float(close.iloc[i]) if confirm == "close" else float(high.iloc[i])
+        ref_lo = float(close.iloc[i]) if confirm == "close" else float(low.iloc[i])
+        chain_before = chain
+        event = None
+
+        # ── bullish break (takes precedence on ties, as in the source) ──
+        if sh is not None and ref_hi > sh:
+            kind, score = _qual(ref_hi - sh, i)
+            if trend == -1:
+                label, chain = "CHOCH", 1
+                tot_choch += 1
+                if chain_before > 0:
+                    n_chains += 1
+                    sum_chains += chain_before
+            else:
+                label = "BOS"
+                chain = 1 if trend == 0 else chain + 1
+                tot_bos += 1
+            event = {"bar": i, "type": label, "direction": "up", "level": round(sh, 2),
+                     "pivot_bar": sh_bar, "quality": kind, "score": score, "chain": chain}
+            trend = 1
+            sh, sh_bar = None, None      # level consumed
+
+        # ── bearish break (only if no bullish event fired on this bar) ──
+        elif sl is not None and ref_lo < sl:
+            kind, score = _qual(sl - ref_lo, i)
+            if trend == 1:
+                label, chain = "CHOCH", 1
+                tot_choch += 1
+                if chain_before > 0:
+                    n_chains += 1
+                    sum_chains += chain_before
+            else:
+                label = "BOS"
+                chain = 1 if trend == 0 else chain + 1
+                tot_bos += 1
+            event = {"bar": i, "type": label, "direction": "down", "level": round(sl, 2),
+                     "pivot_bar": sl_bar, "quality": kind, "score": score, "chain": chain}
+            trend = -1
+            sl, sl_bar = None, None
+
+        if event is not None:
+            event["failed"] = False
+            event["failed_bar"] = None
+            events.append(event)
+            max_chain = max(max_chain, chain)
+            watch = ({"level": event["level"], "dir": 1 if event["direction"] == "up" else -1,
+                      "bar": i, "idx": len(events) - 1} if fail_win > 0 else None)
+            continue                     # failure is never tested on the break bar
+
+        # ── failed-break watch (only on bars that produced no new event) ──
+        if watch is not None:
+            elapsed = i - watch["bar"]
+            c = float(close.iloc[i])
+            if 0 < elapsed <= fail_win:
+                broke_back = (c < watch["level"]) if watch["dir"] == 1 else (c > watch["level"])
+                if broke_back:
+                    events[watch["idx"]]["failed"] = True
+                    events[watch["idx"]]["failed_bar"] = i
+                    watch = None
+            elif elapsed > fail_win:
+                watch = None
+
+    if not events:
+        return None
+
+    last = events[-1]
+    return {
+        "events": events,
+        # Only the most recent pivots are returned — the chart draws one line each.
+        "swings": swings[-max_swings:] if max_swings > 0 else [],
+        "live_swing_high": round(sh, 2) if sh is not None else None,
+        "live_swing_low": round(sl, 2) if sl is not None else None,
+        "stats": {
+            "trend": trend,
+            "chain": chain,
+            "max_chain": max_chain,
+            "avg_chain": round(sum_chains / n_chains, 1) if n_chains else None,
+            "completed_chains": n_chains,
+            "total_bos": tot_bos,
+            "total_choch": tot_choch,
+            "failed_count": sum(1 for e in events if e["failed"]),
+            "last_quality": last["quality"],
+            "last_type": last["type"],
+            "last_bars_ago": n - 1 - last["bar"],
+            "pivot_len": pivot_len,
+            "confirm": confirm,
+            "fail_win": fail_win,
+        },
+    }
+
+
 def detect_bos_choch(df: pd.DataFrame, pivot_len: int = 5,
                      lookback: int = 120) -> dict | None:
     """Bullish market-structure event (SMC swing-labeling walk): a close above

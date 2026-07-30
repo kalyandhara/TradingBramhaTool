@@ -481,21 +481,22 @@ html, body {
 .vcp-info.collapsed .vcp-info-summary { display: inline-block; }
 
 /* ── PMax trade-state overlay ─────────────────────────────────────────────── */
-/* Anchored bottom-center — the last free edge (corners hold ew/rev/rb/proj,
-   top-center holds vcp). Not collapsible: when PMax is on, its position state
-   (LONG/SHORT, entry, trailing stop, targets) IS the reason you turned it on. */
-/* Anchored TOP-centre and set noticeably larger than the other overlays: this
-   panel carries live position state (are you long, where is the stop, how much
-   is locked in) and gets read mid-session at a glance, so it is deliberately
-   the most legible thing on the chart rather than another 10px footnote.
-   z-index sits above the other panels so a collapsed neighbour cannot clip it. */
+/* Anchored TOP-centre. Carries live position state (are you long, where is the
+   stop, how much is locked in) and gets read mid-session at a glance. Collapse
+   works like the MA/FVG cards — clicking the header (.pmax-head) hides the body
+   down to a one-line chip; the choice persists per browser via localStorage
+   (LS_PMAX_COLLAPSED). Sized at the same 10.5px house style as the other
+   overlays so no card visually shouts over its neighbours. z-index sits above
+   the other panels so a collapsed neighbour cannot clip it. */
 .pmax-info {
   position: absolute; top: 6px; left: 50%; transform: translateX(-50%); z-index: 9;
   background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 7px;
-  padding: 9px 14px; font-size: 13.5px; line-height: 1.65; color: var(--text-chart);
+  padding: 7px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
   white-space: nowrap; display: none;
   box-shadow: 0 2px 10px rgba(0,0,0,0.22);
 }
+.pmax-info .pmax-head { cursor: pointer; font-weight: 700; user-select: none; }
+.pmax-info.collapsed .pmax-body { display: none; }
 
 /* ── Price Projection info overlay (Milestone 3) ──────────────────────────── */
 /* Lives in the top-left .action-stack (order 4 — after the signal and the
@@ -558,6 +559,27 @@ html, body {
 .ma-row span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
 .ma-why { color: var(--text-muted); font-size: 9.5px; }
 .ma-warn { color: #f0883e; font-size: 9.5px; }
+
+/* ── Structure Break Chain card ───────────────────────────────────────────── */
+/* order 5 — trailing the actionable cards: structure state is context for the
+   signals above it, not a trigger of its own. Same collapse-on-head-click
+   pattern as .ma-info / .fvg-info. Port of Structure Break Chain [SBC]
+   (© SharpStrat, MPL 2.0) — see sources/Structure-Break-Chain-SBC-Pine.md. */
+.sbc-info {
+  order: 5;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
+  padding: 7px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
+  max-width: 250px; display: none;
+}
+.sbc-info .sbc-head { cursor: pointer; font-weight: 700; user-select: none; }
+.sbc-info.collapsed .sbc-body { display: none; }
+.sbc-chain {
+  display: inline-block; border-radius: 99px; padding: 1px 7px; margin-left: 4px;
+  font-size: 10px; font-weight: 700; color: #0d1117;
+}
+.sbc-row { display: flex; justify-content: space-between; gap: 10px; }
+.sbc-row span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
+.sbc-note { color: var(--text-muted); font-size: 9.5px; }
 
 /* FVG actionable-signal panel — order 2, right after the MA Bias lens:
    a live signal is read through the bias, then acted on. */
@@ -824,6 +846,7 @@ const INDICATOR_DEFS = [
   {key:'vcp',          label:'VCP Coiling',               group:'Pattern Recognition', color:'#26c6da'},
   {key:'trendlines',   label:'Trendlines (supply/demand)', group:'Pattern Recognition', color:'#ff9800'},
   {key:'falling_wedge', label:'Falling Wedge (converging → breakout)', group:'Pattern Recognition', color:'#26a69a'},
+  {key:'structure_chain', label:'Structure Break Chain (BOS/CHoCH + quality)', group:'Pattern Recognition', color:'#00e676'},
   {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab)', group:'Pattern Recognition', color:'#ba68c8'},
   {key:'projection',   label:'Price Projection (EW + patterns)', group:'Pattern Recognition', color:'#4c9aff'},
   {key:'fib',          label:'Fibonacci + Trade Plan (VP + Projection confluence)',
@@ -1282,6 +1305,12 @@ function saveRbCollapsed(v) { localStorage.setItem(LS_RB_COLLAPSED, v ? '1' : '0
 const LS_VCP_COLLAPSED = 'tb_vcp_collapsed';
 function loadVcpCollapsed() { return localStorage.getItem(LS_VCP_COLLAPSED) !== '0'; }
 function saveVcpCollapsed(v) { localStorage.setItem(LS_VCP_COLLAPSED, v ? '1' : '0'); }
+
+// PMax carries live position state, so unlike the pattern overlays it defaults
+// to EXPANDED (only '1' collapses); the user's toggle still persists per browser.
+const LS_PMAX_COLLAPSED = 'tb_pmax_collapsed';
+function loadPmaxCollapsed() { return localStorage.getItem(LS_PMAX_COLLAPSED) === '1'; }
+function savePmaxCollapsed(v) { localStorage.setItem(LS_PMAX_COLLAPSED, v ? '1' : '0'); }
 
 function loadCount()   { return parseInt(localStorage.getItem(LS_COUNT) || '4'); }
 function saveCount(n)  { localStorage.setItem(LS_COUNT, String(n)); }
@@ -2105,6 +2134,8 @@ function applyIndicators(pane) {
   // Tear down Trendlines overlay if deselected
   if (!pane.indicators.has('trendlines') && pane.tl) clearTrendlines(pane);
   if (!pane.indicators.has('falling_wedge') && pane.fw) clearFallingWedge(pane);
+  // Tear down the Structure Break Chain overlay if deselected
+  if (!pane.indicators.has('structure_chain') && pane.sbc) clearStructureChain(pane);
   // Tear down PMax flip markers + trade levels if deselected
   if (!pane.indicators.has('pmax') && pane.pmaxTrade) clearPmaxTrade(pane);
   // Tear down Harmonic overlay if deselected
@@ -2436,6 +2467,11 @@ function applyIndicators(pane) {
   // ── Falling Wedge overlay (server-side detection, see scanner_templates.py) ──
   if (pane.indicators.has('falling_wedge')) {
     renderFallingWedge(pane);
+  }
+
+  // ── Structure Break Chain (server-side detection, see scanner_templates.py) ──
+  if (pane.indicators.has('structure_chain')) {
+    renderStructureChain(pane);
   }
 
   // ── Price Projection overlay (Milestone 3, server-side see projection.py) ────
@@ -4123,6 +4159,142 @@ async function renderFallingWedge(pane) {
   drawPatternZones(pane);
 }
 
+// ── Structure Break Chain overlay ─────────────────────────────────────────────
+// Backed by /api/structure_chain (scanner_templates.detect_structure_chain — a port
+// of Structure Break Chain [SBC], © SharpStrat, MPL 2.0; see
+// sources/Structure-Break-Chain-SBC-Pine.md + concepts/Market-Structure-CHOCH-BOS.md).
+// Draws: dashed swing levels, a BOS/CHoCH/FAILED marker per event, and a chain card.
+// Quality is encoded as marker OPACITY (strong = solid, weak = faded), as in the
+// source — so a weak break visually recedes instead of shouting a fourth label.
+const SBC_BULL  = '0,230,118';    // #00e676  (rgb triples — alpha is per-quality)
+const SBC_BEAR  = '255,23,68';    // #ff1744
+const SBC_CHOCH = '255,171,0';    // #ffab00
+const SBC_FAIL  = '213,0,249';    // #d500f9
+const SBC_SWING = '#455a64';
+const SBC_MAX_MARKERS = 30;       // most recent events only — history stays legible
+const SBC_ALPHA = {STRONG: 1, NORMAL: 0.72, WEAK: 0.4};   // Pine: 0 / 28 / 60 transp.
+
+function ensureSbcState(pane) {
+  if (!pane.sbc) pane.sbc = {swingLines: [], infoEl: null, infoBody: null,
+                             collapsed: false, lastFetchKey: null};
+  return pane.sbc;
+}
+
+function clearStructureChain(pane) {
+  const st = pane.sbc;
+  if (!st) return;
+  (st.swingLines || []).forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
+  st.swingLines = [];
+  if (st.infoEl) { try { st.infoEl.remove(); } catch {}; st.infoEl = null; st.infoBody = null; }
+  setPaneMarkers(pane, 'sbc', null);
+  pane.sbc = null;
+}
+
+async function renderStructureChain(pane) {
+  const st = ensureSbcState(pane);
+  if (!pane.bars || !pane.bars.length) return;
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  if (st.lastFetchKey === key) return;
+  st.lastFetchKey = key;
+
+  let d = null;
+  try {
+    const barCount = TF_BARS[pane.tf] || 300;
+    const url = `${SERVER}/api/structure_chain?symbol=${encodeURIComponent(pane.symbol)}` +
+                `&timeframe=${pane.tf}&bars=${barCount}&max_swings=12`;
+    const res = await fetch(url);
+    if (res.ok) d = (await res.json()).structure_chain || null;
+  } catch (e) { console.warn('structure_chain fetch failed:', e); }
+
+  // Guard against a stale response landing after the user toggled off / switched.
+  if (!pane.indicators.has('structure_chain')) return;
+  const stillCurrent = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  if (stillCurrent !== key) return;
+
+  if (!d || !d.events || !d.events.length) { clearStructureChain(pane); return; }
+
+  // ── dashed swing levels (one thin line each, pivot → right edge) ──
+  (st.swingLines || []).forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
+  st.swingLines = [];
+  (d.swings || []).forEach(sw => {
+    if (sw.t0 == null || sw.t1 == null || sw.t1 <= sw.t0) return;
+    const s = pane.chart.addLineSeries({
+      color: SBC_SWING, lineWidth: 1, lineStyle: 2,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      autoscaleInfoProvider: () => null,
+    });
+    s.setData([{time: sw.t0, value: sw.level}, {time: sw.t1, value: sw.level}]);
+    st.swingLines.push(s);
+  });
+
+  // ── one marker per event (+ a separate FAILED marker where it broke back) ──
+  const markers = [];
+  d.events.slice(-SBC_MAX_MARKERS).forEach(e => {
+    const up = e.direction === 'up';
+    const a  = SBC_ALPHA[e.quality] != null ? SBC_ALPHA[e.quality] : 0.72;
+    const rgb = e.type === 'CHOCH' ? SBC_CHOCH : (up ? SBC_BULL : SBC_BEAR);
+    markers.push({
+      time: e.time,
+      position: up ? 'belowBar' : 'aboveBar',
+      color: `rgba(${rgb},${a})`,
+      shape: e.type === 'CHOCH' ? 'circle' : (up ? 'arrowUp' : 'arrowDown'),
+      text: `${e.type === 'CHOCH' ? 'CHoCH' : 'BOS'} ${e.quality[0]}${e.chain > 1 ? '·' + e.chain : ''}`,
+    });
+    if (e.failed && e.failed_time != null) {
+      markers.push({time: e.failed_time, position: up ? 'aboveBar' : 'belowBar',
+                    color: `rgba(${SBC_FAIL},0.9)`, shape: 'square', text: '✗ FAILED'});
+    }
+  });
+  setPaneMarkers(pane, 'sbc', markers);
+
+  renderSbcInfo(pane, d);
+}
+
+function renderSbcInfo(pane, d) {
+  const st = ensureSbcState(pane);
+  if (!st.infoEl) {
+    st.infoEl = document.createElement('div');
+    st.infoEl.className = 'sbc-info' + (st.collapsed ? ' collapsed' : '');
+    const head = document.createElement('div');
+    head.className = 'sbc-head';
+    const body = document.createElement('div');
+    body.className = 'sbc-body';
+    st.infoEl.appendChild(head);
+    st.infoEl.appendChild(body);
+    st.infoHead = head;
+    st.infoBody = body;
+    st.infoEl.addEventListener('click', ev => {
+      if (!ev.target.closest('.sbc-head')) return;
+      st.collapsed = !st.collapsed;
+      st.infoEl.classList.toggle('collapsed', st.collapsed);
+    });
+    ensureActionStack(pane).appendChild(st.infoEl);
+  }
+  const s = d.stats;
+  const last = d.events[d.events.length - 1];
+  const trendTxt = s.trend === 1 ? 'BULLISH' : s.trend === -1 ? 'BEARISH' : 'UNSET';
+  const trendCol = s.trend === 1 ? `rgb(${SBC_BULL})` : s.trend === -1 ? `rgb(${SBC_BEAR})` : '#90a4ae';
+  const lastCol  = last.type === 'CHOCH' ? `rgb(${SBC_CHOCH})`
+                 : last.direction === 'up' ? `rgb(${SBC_BULL})` : `rgb(${SBC_BEAR})`;
+
+  st.infoEl.style.display = 'block';
+  st.infoHead.innerHTML =
+    `<span style="color:${trendCol}">Structure ${trendTxt}</span>` +
+    `<span class="sbc-chain" style="background:${trendCol}">chain ${s.chain}</span>`;
+  st.infoBody.innerHTML =
+    `<div class="sbc-row"><span>Last event</span>` +
+      `<span style="color:${lastCol}">${last.type} ${last.quality}` +
+      `${last.failed ? ' ✗' : ''} · ${s.last_bars_ago}b ago</span></div>` +
+    `<div class="sbc-row"><span>Level broken</span><span>${last.level}</span></div>` +
+    `<div class="sbc-row"><span>BOS / CHoCH</span><span>${s.total_bos} / ${s.total_choch}</span></div>` +
+    `<div class="sbc-row"><span>Chain max / avg</span>` +
+      `<span>${s.max_chain} / ${s.avg_chain != null ? s.avg_chain : '—'}</span></div>` +
+    `<div class="sbc-row"><span>Failed breaks</span><span>${s.failed_count}</span></div>` +
+    `<div class="sbc-note">pivot ${s.pivot_len} · ${s.confirm}-confirmed · fail window ${s.fail_win}b` +
+    `<br>quality = 0.6·dist/ATR + 0.4·body/ATR; opacity shows it</div>`;
+}
+
 // ── PMax trade overlay (flip markers + live position levels) ──────────────────
 // The two PMax lines show WHERE the trailing band is but not WHEN it flipped or
 // what to do about it. This layer makes each flip legible: a BUY/SELL arrow on
@@ -4132,7 +4304,7 @@ const PMAX_UP   = '#26a69a';
 const PMAX_DOWN = '#f23645';
 
 function ensurePmaxState(pane) {
-  if (!pane.pmaxTrade) pane.pmaxTrade = {priceLines: [], infoEl: null};
+  if (!pane.pmaxTrade) pane.pmaxTrade = {priceLines: [], infoEl: null, collapsed: loadPmaxCollapsed()};
   return pane.pmaxTrade;
 }
 
@@ -4203,6 +4375,13 @@ function renderPmaxInfo(pane, sig, trail, last, long, col) {
     st.infoEl = document.createElement('div');
     st.infoEl.className = 'pmax-info';
     pane.el.querySelector('.chart-main').appendChild(st.infoEl);
+    // Click the header to collapse to a one-line chip; persist the choice.
+    st.infoEl.addEventListener('click', ev => {
+      if (!ev.target.closest('.pmax-head')) return;
+      st.collapsed = !st.collapsed;
+      st.infoEl.classList.toggle('collapsed', st.collapsed);
+      savePmaxCollapsed(st.collapsed);
+    });
   }
   const px  = last ? last.close : sig.entry;
   const fmt = v => Number.isFinite(v) ? v.toFixed(2) : '—';
@@ -4223,24 +4402,29 @@ function renderPmaxInfo(pane, sig, trail, last, long, col) {
     `TP${i + 1} ${fmt(t)}${i < sig.hit ? ' ✓' : ''}</span>`).join(' · ');
   const dt = new Date(sig.time * 1000).toISOString().slice(0, 10);
 
-  // Sizes are set here rather than inherited so this panel stays legible
-  // independent of the 10-11px house style the other overlays use — the
-  // direction line is the one you check mid-session, so it leads at 16px.
+  // Font sizes inherit the 10.5px house style shared by every other overlay so
+  // no card shouts over its neighbours. The header line (identity + live R) is
+  // the click target and the one line that survives collapse — the entry/stop/
+  // targets detail and exit note live in the body and fold away.
   st.infoEl.innerHTML =
-    `<div style="font-size:16px;font-weight:700;">` +
+    `<div class="pmax-head">` +
       `<span style="color:${col}">PMax ${long ? 'LONG' : 'SHORT'}</span>` +
-      ` <span style="color:var(--text-muted);font-weight:400;font-size:12.5px;">since ${dt}</span>` +
+      ` <span style="color:var(--text-muted);font-weight:400;font-size:9.5px;">since ${dt}</span>` +
       ` · <span style="color:${pnl >= 0 ? PMAX_UP : PMAX_DOWN}">${pnl >= 0 ? '+' : ''}${pnl.toFixed(1)}R</span>` +
+      ` <span style="color:var(--text-muted);font-weight:400;">▾</span>` +
     `</div>` +
-    `<div style="margin-top:5px;font-family:'Courier New',monospace;font-size:13.5px;font-weight:700;">` +
-      `<span style="color:#4c9aff">Entry ${fmt(sig.entry)}</span> · ` +
-      `<span style="color:${PMAX_DOWN}">Trail SL ${fmt(trail)}</span> · ` +
-      stopTag +
-      `<br>${tps}` +
-    `</div>` +
-    `<div style="margin-top:4px;font-size:12px;opacity:.85;">` +
-      `Exit when the band flips — a ${long ? 'SELL' : 'BUY'} arrow closes this position.` +
+    `<div class="pmax-body">` +
+      `<div style="margin-top:5px;font-family:'Courier New',monospace;font-weight:700;">` +
+        `<span style="color:#4c9aff">Entry ${fmt(sig.entry)}</span> · ` +
+        `<span style="color:${PMAX_DOWN}">Trail SL ${fmt(trail)}</span> · ` +
+        stopTag +
+        `<br>${tps}` +
+      `</div>` +
+      `<div style="margin-top:4px;font-size:9.5px;opacity:.85;">` +
+        `Exit when the band flips — a ${long ? 'SELL' : 'BUY'} arrow closes this position.` +
+      `</div>` +
     `</div>`;
+  st.infoEl.classList.toggle('collapsed', st.collapsed);
   st.infoEl.style.display = 'block';
 }
 
