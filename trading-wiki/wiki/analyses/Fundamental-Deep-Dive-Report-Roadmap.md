@@ -307,8 +307,10 @@ Pick before FR-0 — it's the one decision that's expensive to reverse later.
   [[analyses/Dashboard-UI-Roadmap]] Phase 2 and [[analyses/Radar-Chart-Analyzer-Fit]].
   **Nothing built.**
 - ✅ **Surface decided + FR-0 & FR-1 SHIPPED 2026-07-30** (`0821fdb`) — see Outcome.
-- ⏭ **FR-2 next** — the shared `fundamental_score` band scorer. FR-1 deliberately left
-  valuation untoned so FR-2 owns *all* band judgement in one place.
+- ✅ **FR-2 SHIPPED 2026-07-30** (`50532a1`) — [fundamental_score.py](tools/fundamental_score.py)
+  is now the single band scorer; **RC-1 must consume `score_all()`**, not grow its own bands.
+- ⏭ **FR-3 next** — annual table + 8-quarter EPS card grid. `derive_fundamentals()` already
+  returns `annual` and `quarters` (with date-matched YoY), so FR-3 is rendering, not fetching.
 - ⚠️ If the pixel-exact palette ever matters, **get the screenshot files onto disk** and
   re-sample; the hexes here are eyeballed.
 
@@ -356,6 +358,39 @@ Pick before FR-0 — it's the one decision that's expensive to reverse later.
   - **Deliberately NOT in this phase:** band-scoring. Only D/E, ROE and ROCE are toned,
     using floors this repo already states (High-Growth sliders, multibagger query).
     Valuation bands are FR-2's, in **one** shared `fundamental_score`.
+- **2026-07-30 — FR-2 SHIPPED, verified & deployed** (`50532a1`).
+  - **[fundamental_score.py](tools/fundamental_score.py) is the one scorer.** Six axes —
+    Valuation · Growth · Health · Returns · **Capital Allocation** · **Earnings
+    Consistency**; the last two only became computable because FR-1 fetched the cash-flow
+    statement and the annual profit history. Every band is an explicit constant with its
+    reasoning beside it, calibrated for **NSE** (compounders at P/E 50–90 are normal here).
+  - **No overall number.** Output is per-axis score + verdict word + the
+    **business-quality-vs-entry-price split as two words**. TITAN: *GOOD QUALITY business,
+    OVERVALUED entry.* This is the structural answer to the "fourth Overall" risk flagged
+    in Evidence Against.
+  - **Three calibration flaws caught by running it on real names** — worth keeping, because
+    each one is a *class* of error this kind of page makes:
+    1. **Loss-makers scored CHEAP** (SWIGGY): no earnings → no P/E, no PEG → P/B alone
+       carried the axis. Now an explicit **`NO EARNINGS`** state — unscored for a *stated
+       reason*, which is different from a data gap and must render differently.
+    2. **A mean hides a veto** (TITAN, D/E 1.95× → "STRONG"): Health now blends mean with
+       the **worst** sub-score 50/50. Leverage is not compensable by working capital.
+    3. **`Working Capital` is not a stress metric** — yfinance defines it as current assets
+       minus current liabilities, so it **includes cash**; MAPMYINDIA scored STRETCHED for
+       being debt-free and cash-rich. Replaced with **debtor days** in the Health axis.
+       WC days stays *displayed* in FR-1's strip, and WC *trend* belongs to FR-4.
+  - **A real FR-1 bug surfaced and fixed:** quarterly YoY compared **4 columns back**, but
+    yfinance's frames have gaps (TITAN's lacks `2025-09-30`) — so March was compared with
+    the previous **December**: **+17% reported where the truth was +48%**. Now **date-matched
+    ±45d**; no match → no YoY. Growth prefers this over yfinance's opaque `revenueGrowth`
+    (80.5% for the same quarter).
+  - **Verified live:** all seven SVG arcs fill exactly their score with the correct tone
+    (DOM-measured); SWIGGY renders the absent path grey with no centre value; coverage
+    16/17 TITAN · 17/17 ITC · 13/17 SWIGGY; empty / P/E-only / loss-making inputs degrade
+    without fabricating a verdict. No screenshot — Browser pane not compositing.
+  - **Earnings Consistency is realised, not consensus** — profitable years, growth years,
+    margin stability. The beat/miss version has no free NSE source
+    ([[analyses/PEAD-Scanner-Roadmap]]) and the caption states the difference.
 
 ## Related Pages
 - [[analyses/Dashboard-UI-Roadmap]] — the analyzer this extends (Phase 2 features).

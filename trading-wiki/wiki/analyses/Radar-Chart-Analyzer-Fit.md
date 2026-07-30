@@ -89,6 +89,16 @@ data source for a v1.**
   > "read the new layer"; the screener.in path is dead weight for this purpose.
   > Caveat carried forward: yfinance returns 4–5 annual columns for most NSE names, so
   > **5Y CAGRs are usually `None`** — RC-2 must render those axes `DATA N/A`, not 0.
+  > **✅ 2026-07-30 — the shared scorer also exists now.** FR-2 shipped
+  > [fundamental_score.py](tools/fundamental_score.py) (`50532a1`): `score_all(fundamentals,
+  > deep)` returns six banded axes (Valuation · Growth · Health · Returns · Capital
+  > Allocation · Earnings Consistency) with score, verdict word, driver line and coverage.
+  > **RC-1 must consume it, not grow its own bands** — that was the whole point of the
+  > one-scorer rule. Three calibration lessons RC-1 inherits for free: loss-makers get an
+  > explicit `NO EARNINGS` valuation rather than a fake CHEAP off P/B; Health blends in its
+  > worst sub-score so leverage can't be averaged away; and **debtor days, not
+  > working-capital days**, is the health metric (yfinance's WC includes cash, so it flags
+  > cash-rich firms as stretched).
 - **RC-3 — Portfolio radar + compare overlay + score table.** Drive from `portfolio_db`
   holdings (sorted by invested value, ≤10), overlay several radars, render the score table
   — the video's portfolio view, on our own holdings, no Groww MCP.
