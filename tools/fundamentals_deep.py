@@ -204,21 +204,51 @@ def _annual_history(stmts: dict[str, Any]) -> list[dict[str, Any]]:
     return rows
 
 
+def _year_ago_index(columns: Any, i: int, tol_days: int = 45) -> int | None:
+    """Position of the column closest to one year before `columns[i]`.
+
+    Deliberately NOT `i + 4`. yfinance's quarterly frames have gaps — TITAN's is
+    missing 2025-09-30 — and counting four columns back then silently compares
+    March against the previous December, inflating "YoY" by a whole quarter of
+    seasonality (it read 80% where the true figure was 17%). Matching on the
+    date and returning None when no quarter lands within the tolerance keeps a
+    gap looking like a gap.
+    """
+    try:
+        target = pd.Timestamp(columns[i]) - pd.DateOffset(years=1)
+    except Exception:
+        return None
+    best, best_gap = None, None
+    for j in range(len(columns)):
+        if j == i:
+            continue
+        try:
+            gap = abs((pd.Timestamp(columns[j]) - target).days)
+        except Exception:
+            continue
+        if gap <= tol_days and (best_gap is None or gap < best_gap):
+            best, best_gap = j, gap
+    return best
+
+
 def _quarterly_history(stmts: dict[str, Any]) -> list[dict[str, Any]]:
     """Quarterly revenue / net income / EPS with YoY, newest first.
 
-    YoY compares against the same quarter a year earlier (4 columns back), not
-    the previous quarter — sequential comparison would read seasonality as
-    growth. When the fourth-back column is absent the YoY is None, not 0.
+    YoY compares against the same quarter a year earlier — matched by date, not
+    by column offset — because sequential comparison would read seasonality as
+    growth and offset counting breaks on gapped frames. No match, no YoY.
     """
     inc = stmts.get("income_q")
     rev, ni, eps = _row(inc, _REVENUE), _row(inc, _NET_INC), _row(inc, _BASIC_EPS)
     if inc is None or (rev is None and ni is None):
         return []
+    cols = list(inc.columns)
     rows = []
-    for i, col in enumerate(inc.columns):
+    for i, col in enumerate(cols):
         r, n = _at(rev, i), _at(ni, i)
-        r_yoy, n_yoy = _at(rev, i + 4), _at(ni, i + 4)
+        j = _year_ago_index(cols, i)
+        r_yoy = None if j is None else _at(rev, j)
+        n_yoy = None if j is None else _at(ni, j)
         rows.append({
             "period":      _period_label(col),
             "revenue":     r,

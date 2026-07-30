@@ -237,7 +237,10 @@ def donut(value: str | None, caption: str, verdict: str | None = None,
 
     `pct` fills the arc 0-100. When `value` is None the arc renders as a faint
     absent-coloured track with a DATA N/A caption: a missing axis must look
-    missing rather than resolve to a neutral middle.
+    missing rather than resolve to a neutral middle. Passing a `verdict` with a
+    None value replaces that caption — an explicit state such as NO EARNINGS
+    already says why there is no number, and DATA N/A under it would read as a
+    second, vaguer excuse.
     """
     fg, _ = tone_colors("absent" if value is None else tone)
     r = size / 2 - 7
@@ -249,7 +252,7 @@ def donut(value: str | None, caption: str, verdict: str | None = None,
         f'font-family="{MONO}" font-size="15" font-weight="700" fill="{fg}">{value}</text>')
     verdict_html = (f'<div style="font-size:11px;font-weight:700;color:{fg};'
                     f'margin-top:2px;">{verdict}</div>') if verdict else ""
-    na_html = ("" if value is not None else
+    na_html = ("" if (value is not None or verdict) else
                f'<div class="tb-na" style="font-size:11px;margin-top:2px;">{NA}</div>')
     return (
         f'<div style="text-align:center;">'

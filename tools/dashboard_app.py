@@ -52,6 +52,7 @@ import nse_oi_momentum as oim
 import browser_cookie_helper as bch
 import stock_council as council
 import fundamentals_deep as fdeep
+import fundamental_score as fscore
 import report_style as rs
 
 try:
@@ -479,6 +480,83 @@ def render_fundamental_header(symbol: str, df: pd.DataFrame,
                        "figures are not shown rather than estimated.",
                        tone="absent"),
             unsafe_allow_html=True)
+
+
+def _axis_tone(score: int | None) -> str:
+    """Score band -> semantic tone. Absent scores are grey, never a middling
+    amber that would read as 'average' when it means 'unknown'."""
+    if score is None:
+        return "absent"
+    if score >= 70:
+        return "good"
+    if score >= 45:
+        return "warn"
+    return "risk"
+
+
+def render_fundamental_signals(score: dict) -> None:
+    """FR-2 — six signal donuts, the coverage dial, and the good-business vs
+    bad-entry split, all off the one shared scorer in fundamental_score.py.
+
+    No overall number is rendered here on purpose. The page already carries the
+    M1 technical Overall Rating and the council verdict; a fourth /100 badged
+    "fundamental" would be read as a competing master score. The split is two
+    words instead.
+    """
+    axes, cov = score.get("axes") or {}, score.get("coverage") or {}
+    biz, entry = score.get("business") or {}, score.get("entry") or {}
+
+    st.markdown(rs.section("Fundamental signals"), unsafe_allow_html=True)
+
+    # ── Verdict chips + coverage dial ──
+    biz_tone = _axis_tone(biz.get("score"))
+    entry_tone = _axis_tone(entry.get("score"))
+    chips = (
+        rs.chip("Business", biz_tone, biz.get("word") or rs.NA) +
+        rs.chip("Entry", entry_tone, entry.get("word") or rs.NA)
+    )
+    have, total = cov.get("have", 0), cov.get("total", 0)
+    dial = rs.donut(f"{have}/{total}" if total else None, "Scored inputs",
+                    pct=(have / total * 100) if total else None,
+                    tone="good" if (total and have / total >= 0.8) else "warn")
+    st.markdown(
+        rs.card(
+            f'<div style="display:flex;align-items:center;gap:18px;">'
+            f'  <div style="flex:1;">{chips}'
+            f'    <div style="font-size:12px;color:{rs.TOKENS["text_body"]};margin-top:6px;">'
+            f'      A good business and a good entry price are separate questions — '
+            f'      this page answers them separately and never merges them into one '
+            f'      number. Fundamental read only; the technical Overall Rating '
+            f'      /100 is a different lens.</div>'
+            f'  </div>{dial}</div>'
+        ),
+        unsafe_allow_html=True,
+    )
+
+    # ── Six donuts ──
+    cells = []
+    for name in fscore.AXES:
+        a = axes.get(name) or {}
+        s = a.get("score")
+        cells.append(
+            f'<div style="flex:1;min-width:120px;">'
+            f'{rs.donut(None if s is None else str(s), a.get("label", name), a.get("verdict"), pct=s, tone=_axis_tone(s))}'
+            f'<div style="font-size:9.5px;color:{rs.TOKENS["text_muted"]};'
+            f'text-align:center;margin-top:2px;line-height:1.35;">'
+            f'{a.get("drivers") or "no inputs available"}</div></div>'
+        )
+    st.markdown(
+        f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 6px 0;">'
+        f'{"".join(cells)}</div>',
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "Bands are calibrated for NSE listed equity and live in one place "
+        "(`fundamental_score.py`) so this page and the fundamental radar can "
+        "never disagree. Earnings Consistency measures **realised** results "
+        "(profitable years, growth years, margin stability) — consensus "
+        "estimates have no free NSE source, so this is not a beat/miss record."
+    )
 
 
 _TONE_DOT   = {"good": "🟢", "neutral": "🟡", "bad": "🔴"}
@@ -1513,6 +1591,7 @@ if current_page == "Stock Analyzer":
                     _fund = cached_fetch_fundamentals(symbol)
                     _deep = cached_fundamentals_deep(symbol)
                 render_fundamental_header(symbol, df, _fund, _deep)
+                render_fundamental_signals(fscore.score_all(_fund, _deep))
 
                 nifty_df = cached_fetch_nifty50(days=tf_days)
                 mv_score, mv_conds = sp.score_minervini(df, nifty_df=nifty_df)
