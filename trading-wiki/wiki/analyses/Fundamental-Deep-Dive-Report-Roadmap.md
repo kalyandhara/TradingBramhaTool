@@ -309,8 +309,11 @@ Pick before FR-0 — it's the one decision that's expensive to reverse later.
 - ✅ **Surface decided + FR-0 & FR-1 SHIPPED 2026-07-30** (`0821fdb`) — see Outcome.
 - ✅ **FR-2 SHIPPED 2026-07-30** (`50532a1`) — [fundamental_score.py](tools/fundamental_score.py)
   is now the single band scorer; **RC-1 must consume `score_all()`**, not grow its own bands.
-- ⏭ **FR-3 next** — annual table + 8-quarter EPS card grid. `derive_fundamentals()` already
-  returns `annual` and `quarters` (with date-matched YoY), so FR-3 is rendering, not fetching.
+- ✅ **FR-3 SHIPPED 2026-07-30** (`1ed75ab`) — annual table + quarterly EPS card grid, plus a
+  `_drop_unusable_bars` fix for NaN forming bars that was corrupting the whole analyzer.
+- ⏭ **FR-4 next** — three-state red flags. Note the mockup's **8**-quarter grid is really
+  ~5: yfinance returns 5–6 quarterly columns, so FR-4's WC/debtor-day *trend* flag has only
+  4–5 annual points to work with and must degrade to "not checked" rather than assert a trend.
 - ⚠️ If the pixel-exact palette ever matters, **get the screenshot files onto disk** and
   re-sample; the hexes here are eyeballed.
 
@@ -391,6 +394,28 @@ Pick before FR-0 — it's the one decision that's expensive to reverse later.
   - **Earnings Consistency is realised, not consensus** — profitable years, growth years,
     margin stability. The beat/miss version has no free NSE source
     ([[analyses/PEAD-Scanner-Roadmap]]) and the caption states the difference.
+- **2026-07-30 — FR-3 SHIPPED, verified & deployed** (`1ed75ab`).
+  - **Annual table** (revenue · YoY · net profit · YoY · net margin · OPM · EPS) +
+    **quarterly EPS card grid** labelled by Indian fiscal quarter, |YoY| ≥ 40% annotated.
+    Pure rendering — FR-1's `derive_fundamentals()` already held the data.
+  - **The mockup's "8-quarter" grid is really ~5 here.** yfinance returns 5–6 quarterly
+    columns, so the grid renders what exists and says how many. Likewise the best quarter
+    is "**highest of the N shown**", not "Record Quarter" — an all-time claim off five
+    quarters would be unsupported. Gapped quarters read "no year-ago quarter filed".
+  - **"Consensus Data Unavailable" shipped as copy**, exactly as scoped.
+  - > [!warning] **A NaN forming bar was silently corrupting the whole analyzer.**
+    > yfinance returns a bar for the *current* session with volume but NaN OHLC. One NaN
+    > close made the header read ₹nan, `score_minervini` score **0/8 where the truth was
+    > 1/8**, `score_technofunda` **1/6 instead of 4/6**, and CANSLIM print `+nan% vs Nifty`.
+    > **This is the fourth time this repo has hit this class of bug** (`scan_pead`,
+    > `volume_profile`, Opportunity Hub momentum each grew their own `dropna`), so the fix
+    > went into `cached_fetch_ohlcv` + `cached_fetch_nifty50` where every page inherits it.
+    > **The failure mode is what makes it dangerous: it looks like a market signal.** A
+    > stock "failing every Minervini condition" reads as a weak stock, not a broken frame.
+  - **Verified live post-fix:** ITC ₹286.25 · +0.56% · as of 2026-07-29 · Minervini 1/8 ·
+    TechnoFunda 4/6 · RS −24.3% · no NaN on the page. **Caveat:** the annual table's cells
+    were verified through the identical data path, not on screen — Streamlit renders
+    dataframes to canvas (unreadable from the DOM) and the Browser pane was not compositing.
 
 ## Related Pages
 - [[analyses/Dashboard-UI-Roadmap]] — the analyzer this extends (Phase 2 features).
