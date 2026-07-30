@@ -121,6 +121,24 @@ st.markdown(
 # Streamlit rerun caused by widget interaction elsewhere on the page)
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _drop_unusable_bars(df):
+    """Drop rows that carry no close price.
+
+    During a live session yfinance returns a bar for TODAY with volume but NaN
+    OHLC. A single NaN last close then poisons everything downstream at once:
+    the price header renders ₹nan, `score_minervini` fails every comparison
+    against it (0/8), the CANSLIM RS reads +nan%, and EW confidence collapses.
+
+    This exact class of bug has been fixed three separate times downstream in
+    this repo — `scan_pead`, `volume_profile`, and the Opportunity Hub momentum
+    ranking each grew their own `dropna`. Doing it once at the fetch means every
+    page inherits the fix instead of the next consumer rediscovering it.
+    """
+    if df is None or "close" not in getattr(df, "columns", []):
+        return df
+    return df[df["close"].notna()]
+
+
 @st.cache_data(ttl=300, show_spinner=False)
 def cached_fetch_ohlcv(symbol: str, days: int = 300):
     # Try enhanced volume fetcher first
@@ -128,12 +146,12 @@ def cached_fetch_ohlcv(symbol: str, days: int = 300):
         volume_fetcher = vf.VolumeFetcher(verbose=False)
         df = volume_fetcher.fetch_with_volume(symbol, days=days, validate=True)
         if df is not None:
-            return df
+            return _drop_unusable_bars(df)
     except Exception as e:
         st.warning(f"Volume fetcher error: {e}")
 
     # Fallback to screener_pipeline
-    return sp.fetch_ohlcv(symbol, days=days)
+    return _drop_unusable_bars(sp.fetch_ohlcv(symbol, days=days))
 
 
 def _scanner_fetch_fn(scanner_name: str):
@@ -181,7 +199,9 @@ def cached_oi_momentum_scan(include_no_read: bool = False):
 
 @st.cache_data(ttl=300, show_spinner=False)
 def cached_fetch_nifty50(days: int = 300):
-    return sp.fetch_nifty50(days=days)
+    # Same forming-bar hazard as the per-symbol fetch: a NaN last close on the
+    # index turns every relative-strength reading into nan.
+    return _drop_unusable_bars(sp.fetch_nifty50(days=days))
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -556,6 +576,110 @@ def render_fundamental_signals(score: dict) -> None:
         "never disagree. Earnings Consistency measures **realised** results "
         "(profitable years, growth years, margin stability) — consensus "
         "estimates have no free NSE source, so this is not a beat/miss record."
+    )
+
+
+#: |YoY| beyond this on a quarter is annotated rather than left for the reader
+#: to spot. Wide enough that ordinary Indian seasonality doesn't trip it.
+_QTR_ANOMALY_PCT = 40.0
+
+
+def render_fundamental_history(deep: dict) -> None:
+    """FR-3 — the annual table and the quarterly EPS card grid.
+
+    Two different surfaces on purpose. Years are a *comparison* (how did margin
+    trend over five years) and a table is the honest shape for that. Quarters
+    are read one at a time, with their own annotations, so they get cards.
+
+    Nothing here is fetched: FR-1's `derive_fundamentals()` already returns
+    `annual` and `quarters` with date-matched YoY.
+    """
+    d = deep or {}
+    annual, quarters = d.get("annual") or [], d.get("quarters") or []
+    cur = d.get("currency") or "INR"
+    if not annual and not quarters:
+        return
+
+    if annual:
+        st.markdown(rs.section("Annual financials"), unsafe_allow_html=True)
+        rows = []
+        for a in annual:
+            rows.append({
+                "Year":        a["period"],
+                "Revenue":     _cr(a.get("revenue"), cur) or "—",
+                "Rev YoY":     "—" if a.get("revenue_yoy") is None else f"{a['revenue_yoy']:+.1f}%",
+                "Net Profit":  _cr(a.get("net_income"), cur) or "—",
+                "Profit YoY":  "—" if a.get("profit_yoy") is None else f"{a['profit_yoy']:+.1f}%",
+                "Net Margin":  "—" if a.get("net_margin") is None else f"{a['net_margin']:.1f}%",
+                "OPM":         "—" if a.get("opm") is None else f"{a['opm']:.1f}%",
+                "EPS":         "—" if a.get("eps") is None else f"{a['eps']:,.2f}",
+            })
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+
+    if quarters:
+        n = len(quarters)
+        st.markdown(rs.section(f"Quarterly earnings — last {n} reported"),
+                    unsafe_allow_html=True)
+
+        revs = [q.get("revenue") for q in quarters if q.get("revenue") is not None]
+        best_rev = max(revs) if revs else None
+
+        cells = []
+        for q in quarters:
+            eps, yoy = q.get("eps"), q.get("profit_yoy")
+            tone = "neutral" if yoy is None else ("good" if yoy >= 0 else "risk")
+            # "Highest of the N shown" — NOT "record quarter". yfinance returns
+            # about six quarters, so an all-time claim would be unsupported.
+            is_best = (best_rev is not None and q.get("revenue") == best_rev)
+
+            sub_bits = []
+            if q.get("revenue") is not None:
+                sub_bits.append(_cr(q["revenue"], cur))
+            if yoy is not None:
+                sub_bits.append(f"{'▲' if yoy >= 0 else '▼'} {yoy:+.1f}% profit YoY")
+            elif q.get("revenue_yoy") is None:
+                sub_bits.append("no year-ago quarter filed")
+
+            card_tone = "good" if is_best else tone
+            body = rs.stat_card(
+                fdeep.fiscal_quarter_label(q["period"]),
+                None if eps is None else f"{eps:,.2f}",
+                sub=" · ".join(b for b in sub_bits if b),
+                tone=card_tone,
+            )
+            flags = ""
+            if is_best:
+                flags += rs.chip(f"Highest revenue of the {n} shown", "good")
+            if yoy is not None and abs(yoy) >= _QTR_ANOMALY_PCT:
+                flags += rs.chip("Outlier" if yoy > 0 else "Sharp drop",
+                                 "good" if yoy > 0 else "risk",
+                                 f"{yoy:+.0f}% YoY")
+            cells.append(f'<div style="flex:1;min-width:165px;">{body}'
+                         f'<div style="margin-top:4px;">{flags}</div></div>')
+
+        st.markdown(
+            f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0;">'
+            f'{"".join(cells)}</div>',
+            unsafe_allow_html=True,
+        )
+        st.caption(
+            "Card value is **EPS**; revenue and profit-YoY sit underneath. YoY is "
+            "matched to the same quarter a year earlier **by date** — yfinance's "
+            "quarterly frames have gaps, and counting four columns back would "
+            "compare a March quarter against the previous December."
+        )
+
+    # The honest panel the source mockup shipped, kept as copy rather than built.
+    st.markdown(
+        rs.callout(
+            "Consensus data unavailable.",
+            "There is no free NSE analyst-consensus feed, so this page cannot show "
+            "a beat/miss record or an estimate-revision trend — and does not "
+            "approximate one. What is shown above is entirely reported actuals: "
+            "filed revenue, profit, margin and EPS, with year-on-year changes "
+            "computed from the filings themselves.",
+            tone="risk"),
+        unsafe_allow_html=True,
     )
 
 
@@ -1592,6 +1716,7 @@ if current_page == "Stock Analyzer":
                     _deep = cached_fundamentals_deep(symbol)
                 render_fundamental_header(symbol, df, _fund, _deep)
                 render_fundamental_signals(fscore.score_all(_fund, _deep))
+                render_fundamental_history(_deep)
 
                 nifty_df = cached_fetch_nifty50(days=tf_days)
                 mv_score, mv_conds = sp.score_minervini(df, nifty_df=nifty_df)

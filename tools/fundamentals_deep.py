@@ -174,6 +174,26 @@ def _pct(numer: float | None, denom: float | None) -> float | None:
     return round(numer / denom * 100, 2)
 
 
+#: Indian fiscal year runs April-March, so a March quarter is Q4 and the FY is
+#: named for the calendar year it ends in (Apr-2025 → Mar-2026 is FY26).
+_FY_QUARTER = {6: 1, 9: 2, 12: 3, 3: 4}
+
+
+def fiscal_quarter_label(period: str) -> str:
+    """`2026-03-31` -> `Q4 FY26`. Falls back to the raw date for off-cycle
+    period ends, which is honest about the Apr-Mar assumption rather than
+    forcing a quarter number onto a company that does not use it."""
+    try:
+        ts = pd.Timestamp(period)
+    except Exception:
+        return str(period)
+    q = _FY_QUARTER.get(ts.month)
+    if q is None:
+        return ts.date().isoformat()
+    fy = ts.year if ts.month <= 3 else ts.year + 1
+    return f"Q{q} FY{fy % 100:02d}"
+
+
 def _period_label(col: Any) -> str:
     try:
         return pd.Timestamp(col).date().isoformat()
@@ -184,22 +204,52 @@ def _period_label(col: Any) -> str:
 # ──────────────────────────────────────────────────────────────────────────────
 # Derive
 # ──────────────────────────────────────────────────────────────────────────────
+def _is_one_year_apart(a: Any, b: Any) -> bool:
+    """True when `a` is roughly a year after `b` (300-430 days).
+
+    Annual columns are normally contiguous, but a transition year or a gap would
+    otherwise make an adjacent-column comparison silently span two years — the
+    same failure the quarterly YoY hit.
+    """
+    try:
+        gap = (pd.Timestamp(a) - pd.Timestamp(b)).days
+    except Exception:
+        return False
+    return 300 <= gap <= 430
+
+
 def _annual_history(stmts: dict[str, Any]) -> list[dict[str, Any]]:
-    """Per-year revenue / net income / EBIT with margins, newest first."""
+    """Per-year revenue / net income / EBIT / EPS with margins and YoY, newest
+    first. YoY is only filled when the adjacent column really is a year older."""
     inc = stmts.get("income")
     rev, ni, ebit = _row(inc, _REVENUE), _row(inc, _NET_INC), _row(inc, _EBIT)
+    eps = _row(inc, _BASIC_EPS)
     if inc is None or rev is None:
         return []
+    cols = list(inc.columns)
     rows = []
-    for i, col in enumerate(inc.columns):
+    for i, col in enumerate(cols):
         r, n, e = _at(rev, i), _at(ni, i), _at(ebit, i)
+        # yfinance sometimes returns a trailing all-NaN column. That is an empty
+        # column, not a year in which the company earned nothing, so it is
+        # dropped rather than rendered as a row of dashes or counted as history.
+        if r is None and n is None:
+            continue
+        prev_ok = (i + 1 < len(cols)) and _is_one_year_apart(col, cols[i + 1])
+        r_prev = _at(rev, i + 1) if prev_ok else None
+        n_prev = _at(ni, i + 1) if prev_ok else None
         rows.append({
             "period":     _period_label(col),
             "revenue":    r,
             "net_income": n,
             "ebit":       e,
+            "eps":        _at(eps, i),
             "net_margin": _pct(n, r),
             "opm":        _pct(e, r),
+            "revenue_yoy": (round((r / r_prev - 1) * 100, 2)
+                            if (r is not None and r_prev not in (None, 0) and r_prev > 0) else None),
+            "profit_yoy": (round((n / n_prev - 1) * 100, 2)
+                           if (n is not None and n_prev not in (None, 0) and n_prev > 0) else None),
         })
     return rows
 
