@@ -54,6 +54,7 @@ import stock_council as council
 import fundamentals_deep as fdeep
 import fundamental_score as fscore
 import red_flags as rflags
+import scenarios as scen
 import report_style as rs
 
 try:
@@ -593,6 +594,84 @@ def render_fundamental_signals(score: dict) -> None:
         "never disagree. Earnings Consistency measures **realised** results "
         "(profitable years, growth years, margin stability) — consensus "
         "estimates have no free NSE source, so this is not a beat/miss record."
+    )
+
+
+_SCENARIO_TONE = {"Bull": "good", "Base": "info", "Bear": "risk"}
+
+
+def render_scenarios(res: dict | None, deep: dict | None) -> None:
+    """FR-5 — bull/base/bear business-size scenarios with the arithmetic shown.
+
+    Kept deliberately distinct from the chart's projection line. That one
+    projects PRICE from Elliott-Wave and measured-move geometry; this projects
+    the SIZE OF THE BUSINESS from filed revenue and margin. Different objects,
+    different units — the copy says so, because a reader who conflates them
+    would think two independent methods agreed.
+    """
+    st.markdown(rs.section("Forward scenarios — business size"), unsafe_allow_html=True)
+
+    if not res:
+        n = len((deep or {}).get("annual") or [])
+        st.markdown(
+            rs.callout("Not enough filed history for scenarios.",
+                       f"Projecting a range needs at least {scen.MIN_ANNUAL} annual "
+                       f"periods with revenue and margin; yfinance returned {n}. "
+                       f"Nothing is extrapolated from a single growth observation.",
+                       tone="absent"),
+            unsafe_allow_html=True)
+        return
+
+    rows = res["scenarios"]
+    peak = max((r["revenue"] or 0) for r in rows) or 1.0
+
+    bars = []
+    for r in rows:
+        tone = _SCENARIO_TONE.get(r["name"], "neutral")
+        profit_txt = _cr(r["profit"]) or "—"
+        bars.append(rs.bar_row(
+            f'{r["name"]} case (revenue {r["growth_pct"]:+.1f}%/yr · margin {r["margin_pct"]:.1f}%)',
+            f'{_cr(r["revenue"])}  |  net profit est. {profit_txt}',
+            pct=(r["revenue"] or 0) / peak * 100,
+            tone=tone,
+            right=r["how"],
+            footnote=r["derivation"],
+        ))
+
+    st.markdown(rs.card("".join(bars)), unsafe_allow_html=True)
+
+    notes = []
+    if res.get("bull_capped"):
+        notes.append(
+            f"Growth is capped at {res['growth_cap_pct']:.0f}%/yr for the "
+            f"projection (observed best: {res['bull_growth_raw']:+.1f}%). Compounding "
+            f"an exceptional year for {res['horizon_years']} years is how a bar chart "
+            f"turns into a cartoon — the same plausibility guard the chart's price "
+            f"projection uses.")
+    if res.get("outlier_margin"):
+        notes.append(res["outlier_margin"]["note"])
+    for n in notes:
+        st.markdown(rs.callout("Guard applied.", n, tone="warn"), unsafe_allow_html=True)
+
+    # "1 Thing to Track" — the highest-emphasis card on the page, used once.
+    d = res["driver"]
+    st.markdown(
+        rs.card(
+            f'<div style="font-size:12.5px;color:{rs.TOKENS["text_body"]};line-height:1.5;">'
+            f'<b style="color:{rs.TOKENS["accent"]};">{d["threshold"]}</b><br>{d["detail"]}'
+            f'</div>',
+            title=f'1 thing to track — {d["which"]}', emphasis=True),
+        unsafe_allow_html=True)
+
+    st.caption(
+        f"**Arithmetic extrapolation, not a forecast.** Every bar is the filed "
+        f"{res['base_period'][:4]} revenue compounded forward {res['horizon_years']} years "
+        f"at a rate this company has actually printed, times a margin it has actually "
+        f"earned — the derivation under each bar can be redone by hand. The band is built "
+        f"from only {res['growth_observations']} growth observations, so it is wide and "
+        f"noisy. This projects the **size of the business**, and is a different object from "
+        f"the chart tool's **price** projection (Elliott-Wave / measured moves) — neither "
+        f"confirms the other."
     )
 
 
@@ -1807,6 +1886,7 @@ if current_page == "Stock Analyzer":
                 render_fundamental_signals(fscore.score_all(_fund, _deep))
                 render_fundamental_history(_deep)
                 render_red_flags(cached_red_flags(symbol))
+                render_scenarios(scen.build(_deep), _deep)
 
                 nifty_df = cached_fetch_nifty50(days=tf_days)
                 mv_score, mv_conds = sp.score_minervini(df, nifty_df=nifty_df)
