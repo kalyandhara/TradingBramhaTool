@@ -3,9 +3,9 @@ title: "EMA — Exponential Moving Average"
 category: concept
 tags: [trend, moving-average, dynamic-support, regime-filter, slope]
 created: 2026-06-14
-updated: 2026-06-22
-sources: 1
-related: [concepts/RSI.md, concepts/Stage-Analysis, sources/SwingEdge-Learn-Indicators-Deep-Dive]
+updated: 2026-07-30
+sources: 4
+related: [concepts/RSI.md, concepts/Stage-Analysis, sources/SwingEdge-Learn-Indicators-Deep-Dive, sources/MA-Trend-Capture-Guide-Pasted]
 ---
 
 # EMA — Exponential Moving Average
@@ -44,6 +44,55 @@ Crossovers are lagging *confirmations*, not triggers (see Common Mistakes) — b
 - The **5/20 EMA crossover** is the entry-timer in the [[concepts/SuperTrend]] "winning combination" confluence setup.
 - The **21 EMA (dynamic support) / 50 EMA (major support)** pairing underpins the [[strategies/RSI-60-40-Setup]] — RSI's 40–60 band behavior anchored to those two EMAs.
 
+## The Two-Condition Gate & the No-Trade Zone (2026-07-30 addition)
+A restatement of the moving-average material (see Sources) contributed one rule this page
+did not state explicitly: **two conditions must hold together before a trend trade, and
+the case where only one holds has its own name.**
+
+| Fast vs slow MA | Price vs fast MA | Read |
+|---|---|---|
+| fast **above** slow | price **above** fast | **Long permitted** — trend and location agree |
+| fast **below** slow | price **below** fast | **Short permitted** |
+| fast above slow | price **below** fast | **No-trade zone** — the big picture is still up but price has lost the near rail; likely sideways. Stand aside rather than "buying the dip into strength" |
+| fast below slow | price above fast | No-trade zone (mirror) |
+
+The useful half is the third row. Most write-ups stop at the crossover and never name the
+in-between state, which is where whipsaws are actually manufactured. Suggested pairings:
+**20/200 for swing, 50/200 for positional.**
+
+**We already implement a stricter version of this.** The chart's **MA Bias** overlay
+([chart_dashboard.html](tools/chart_dashboard.html), `maBiasCompute`) runs a four-tier gate —
+regime (price vs 200 SMA + 50/200 golden cross) → stack quality (9>20>50>200) → trigger
+(9/20 cross, pullback-to-rising-20-EMA) → distrust (cross-bar volume, extension, whipsaw
+counter) — and reports a cross that fails a tier as information rather than invitation
+(`COUNTER-TREND`). The two-condition gate is the coarse form of tiers 1–2.
+
+### Two smaller additions
+- **100-period MA** was missing from the period table above: it sits between the 50 (the
+  swing "line in the sand") and the 200 (regime), useful as a medium-term filter when the
+  50 is too twitchy and the 200 too slow.
+- **MA as a zone, not a line.** Plot a *pair* (e.g. 10 and 20) and treat the space between
+  them — or a single MA offset by a small percentage — as the support/resistance band.
+  Price rarely respects a line to the tick; it respects an area. This is the same instinct
+  behind the MA Bias overlay's ATR-based "braided" test.
+
+> [!warning] The "45° slope = strong trend" rule does not survive contact with a chart
+> The same source proposes measuring trend strength as the fast MA's angle
+> (`atan(slope) × 180/π`) and calling **> 45°** strong. **An angle in degrees is not a
+> property of the data** — it depends on the chart's pixel aspect ratio, the zoom level,
+> and whether the price axis is linear or log. The identical series can read 20° or 70°
+> by dragging the window edge, and a ₹50 stock and a ₹5,000 stock cannot share a threshold.
+> Use a **scale-free** measure instead: slope as **% change per bar**, or slope
+> **normalised by ATR** — which is exactly what this repo already does (`extAtr`,
+> `braidAtr` in `MA_BIAS_OPTS`). Keep the *idea* (slope encodes strength, and a flattening
+> fast MA warns before price does); discard the *units*.
+
+Also treat "when 10>20>50>100>200 all align, increase position size" with care — it
+conflicts with the sizing discipline in [[analyses/Kalyan-Trading-Philosophy]] and
+[[strategies/Crash-Proof-3-Filter-System]], where size is set by **market regime and risk
+per trade**, not by how many MAs happen to be stacked. A full stack is a reason to *take*
+the trade, not to enlarge it.
+
 ## Cross-Asset Confirmation (2026-06-29 addition)
 A crypto momentum screener (Hyperliquid perpetuals, intraday) uses the same
 ascending-stack logic at faster periods: **EMA9 > EMA21 > EMA50 + price > VWAP** as one
@@ -61,3 +110,6 @@ equity timeframes — see [[strategies/Hyperliquid-Momentum-Screener]].
 - [[sources/SwingEdge-Learn-Indicators-Deep-Dive]] (2026-06-22) — SMA/EMA distinction, per-period role breakdown, slope-over-position rule, stretch/mean-reversion heuristic
 - [[sources/YT-Breakout-Screener-AIUniversity-20260629]] (2026-06-29) — EMA9/21/50 + VWAP as one of three filters in a crypto momentum screener
 - [[sources/Fingrad-Trading-Infographics-Collection]] (2026-07-19) — 50/200 golden-death cross, 5-8-13 EMA ribbon confirmation, 5/20 crossover
+- [[sources/MA-Trend-Capture-Guide-Pasted]] (2026-07-30) — explicit two-condition gate + the named no-trade zone, 100-period MA, MA-as-zone; the 45°-slope rule rejected on scale-dependence grounds
+
+_(Frontmatter `sources:` read 1 while three were listed; corrected to 4 with this update.)_

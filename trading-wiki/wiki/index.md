@@ -6,7 +6,7 @@ sources_ingested: 77
 ---
 
 # Trading Wiki — Index
-_Last updated: 2026-07-29 | Pages: 197 | Sources ingested: 80_
+_Last updated: 2026-07-30 | Pages: 198 | Sources ingested: 81_
 
 ## Overview
 - [Market Overview & Current Thesis](overview.md)
@@ -70,6 +70,7 @@ _Last updated: 2026-07-29 | Pages: 197 | Sources ingested: 80_
 | [SwingEdge-Learn-Intro-Swing-vs-Day](sources/SwingEdge-Learn-Intro-Swing-vs-Day.md) | Educational article (lesson 1/22) | 2026-06-22 | Mostly intro-level; review-cadence checklist (pre-market/post-close/weekly/monthly) + full 22-lesson catalog for prioritizing future ingests |
 | [SwingEdge-Learn-Trends-Stages](sources/SwingEdge-Learn-Trends-Stages.md) | Educational article (lesson 2/22) | 2026-06-22 | "Scanners are interns, you interview each chart"; RS = filter not verdict (resolves INDSWFTLAB's RS-100-overowned tension); failed-breakdown-precedes-squeeze pattern |
 | [SwingEdge-Learn-Indicators-Deep-Dive](sources/SwingEdge-Learn-Indicators-Deep-Dive.md) | Educational articles (6 lessons) | 2026-06-22 | MA/RSI/MACD/Bollinger/ADX/ATR deep dives — merged into RSI/MACD/ADX/EMA/Capital-Management concept pages + new Bollinger-Bands-Squeeze page |
+| [MA-Trend-Capture-Guide-Pasted](sources/MA-Trend-Capture-Guide-Pasted.md) | Article, pasted (origin unverified) | 2026-07-30 | Moving-average trend guide — **low-yield ingest**, ~6 of 7 techniques already held. New: explicit two-condition gate + named **no-trade zone**, 100-period MA, MA-as-zone. Rejected its 45°-slope rule (degrees are chart-scale dependent; repo already normalises by ATR) and its stack-implies-bigger-size claim |
 | [SwingEdge-Learn-Process-Risk-Workflow](sources/SwingEdge-Learn-Process-Risk-Workflow.md) | Educational articles (12 lessons) | 2026-06-22 | Entries/exits/MTF/psychology/pyramiding — completes all 22 Learn lessons; new MTF & Anchored-VWAP-Pyramiding concept pages, trailing-exit/trade-plan additions to Capital-Management |
 | [SwingEdge-RELAXO-20260622](sources/SwingEdge-RELAXO-20260622.md) | Web app stock detail page | 2026-06-22 | First clear internal contradiction found on this source: FAQ says above 200DMA/Stage 2, bullish-factors list says below 200DMA — same page, same snapshot |
 | [SwingEdge-IZMO-20260622](sources/SwingEdge-IZMO-20260622.md) | Web app stock detail page | 2026-06-22 | 82/100 score with 0.0 volume sub-score and 4 overlapping risk flags ("why not 100" panel only surfaces 1) — score/grade significantly understates actual risk picture |
@@ -110,7 +111,7 @@ _Last updated: 2026-07-29 | Pages: 197 | Sources ingested: 80_
 | [FPV-Flow-Price-Volume-Ownership](concepts/FPV-Flow-Price-Volume-Ownership.md) | Price+Volume+Ownership timing-confirmation; 4 combos (strong/weak/accumulation/late); **naming-collision flag** — now THREE meanings of "FPV" across the project | 2026-07-22 |
 | [Fair-Value-Breaker-FBG](concepts/Fair-Value-Breaker-FBG.md) | Failed FVG that flips into a reversal/breaker zone (close through opposite boundary); retest entry at Fib 0.618–0.705 with volume spike = strong breaker; trapped-liquidity mechanic | 2026-07-22 |
 | [RSI](concepts/RSI.md) | Momentum oscillator; regime-aware ranges; hidden divergence; swing-failure swings | 2026-06-22 |
-| [EMA](concepts/EMA.md) | 9/20/21/50/200 periods; SMA vs EMA; slope-over-position rule; stretch/mean-reversion | 2026-06-22 |
+| [EMA](concepts/EMA.md) | 9/20/21/50/100/200 periods; SMA vs EMA; slope-over-position rule; stretch/mean-reversion; two-condition gate + **no-trade zone**; MA-as-zone; 45°-slope rule rejected (scale-dependent) | 2026-07-30 |
 | [Darvas-Box](concepts/Darvas-Box.md) | High-Dry-Fry breakout; lollipop low = stop on closing basis; + Chartink scanner #9 | 2026-06-15 |
 | [CANSLIM](concepts/CANSLIM.md) | O'Neil growth method; 21 screener variants | 2026-06-14 |
 | [VCP](concepts/VCP.md) | 3-tier algorithmic detection; Pass1 macro → Pass2 contractions → Pass3 micro stop | 2026-06-14 |
