@@ -218,6 +218,14 @@ def _is_one_year_apart(a: Any, b: Any) -> bool:
     return 300 <= gap <= 430
 
 
+def _is_same_period(a: Any, b: Any, tol_days: int = 20) -> bool:
+    """True when two statement column dates name the same fiscal period."""
+    try:
+        return abs((pd.Timestamp(a) - pd.Timestamp(b)).days) <= tol_days
+    except Exception:
+        return False
+
+
 def _annual_history(stmts: dict[str, Any]) -> list[dict[str, Any]]:
     """Per-year revenue / net income / EBIT / EPS with margins and YoY, newest
     first. YoY is only filled when the adjacent column really is a year older."""
@@ -397,6 +405,27 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
     wc_days = (round(wc / rev0 * 365, 1)
                if (wc is not None and rev0 not in (None, 0) and rev0 > 0) else None)
 
+    # Per-year working-capital efficiency, for FR-4's trend flags. Balance-sheet
+    # and income columns are matched BY DATE rather than by position: the two
+    # frames do not always carry the same number of periods, and pairing a
+    # year's receivables with another year's revenue would invent a trend.
+    inc_cols = list(inc.columns) if inc is not None else []
+    bal_cols = list(bal.columns) if bal is not None else []
+    recv_row, wc_row = _row(bal, _RECV), _row(bal, _WORK_CAP)
+    debtor_hist: list[float | None] = []
+    wc_hist: list[float | None] = []
+    for i, col in enumerate(inc_cols):
+        rev_i = _at(rev, i)
+        j = next((k for k, bc in enumerate(bal_cols)
+                  if _is_same_period(bc, col)), None)
+        if j is None or rev_i in (None, 0) or rev_i <= 0:
+            debtor_hist.append(None)
+            wc_hist.append(None)
+            continue
+        rv, wv = _at(recv_row, j), _at(wc_row, j)
+        debtor_hist.append(None if rv is None else round(rv / rev_i * 365, 1))
+        wc_hist.append(None if wv is None else round(wv / rev_i * 365, 1))
+
     fcf_hist = _fcf_series(stmts)
     fcf = fcf_hist[0] if fcf_hist else None
     neg_streak = 0
@@ -424,6 +453,8 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
         "opm":           annual[0]["opm"] if annual else None,
         "debtor_days":   debtor_days,
         "wc_days":       wc_days,
+        "debtor_days_history": debtor_hist,   # newest first, aligned to `annual`
+        "wc_days_history":     wc_hist,
         "fcf":           fcf,
         "fcf_history":   fcf_hist,
         "fcf_negative_streak": neg_streak,

@@ -53,6 +53,7 @@ import browser_cookie_helper as bch
 import stock_council as council
 import fundamentals_deep as fdeep
 import fundamental_score as fscore
+import red_flags as rflags
 import report_style as rs
 
 try:
@@ -239,6 +240,22 @@ def cached_fundamentals_deep(symbol: str) -> dict:
     """FR-1 statement layer. Four yfinance statement calls, so cache it hard —
     annual/quarterly filings change quarterly at best, never intraday."""
     return fdeep.derive_fundamentals(symbol)
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_red_flags(symbol: str) -> dict:
+    """FR-4 checks. Cached hard: the statement inputs are quarterly at best, and
+    the promoter branch hits screener.in, which rate-limits.
+
+    The session lookup is best-effort — with no cookie the promoter checks come
+    back NOT_CHECKED, which is the honest answer rather than a failure.
+    """
+    try:
+        sid, _browser = bch.get_screener_sessionid()
+    except Exception:
+        sid = None
+    return rflags.evaluate(symbol, cached_fetch_fundamentals(symbol),
+                           cached_fundamentals_deep(symbol), sid)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -577,6 +594,78 @@ def render_fundamental_signals(score: dict) -> None:
         "(profitable years, growth years, margin stability) — consensus "
         "estimates have no free NSE source, so this is not a beat/miss record."
     )
+
+
+_FLAG_TONE = {
+    ("FLAG", "critical"): "risk",
+    ("FLAG", "watch"):    "warn",
+    ("CLEAN", "critical"): "good",
+    ("CLEAN", "watch"):    "good",
+}
+_FLAG_WORD = {"FLAG": "FLAG", "CLEAN": "CHECKED · CLEAN", "NOT_CHECKED": "NOT CHECKED"}
+
+
+def render_red_flags(res: dict) -> None:
+    """FR-4 — the three-state red-flag list.
+
+    Ordered FLAG → NOT CHECKED → CLEAN, which is deliberately not the flattering
+    order. The unchecked items sit second, above the clean ones, because an
+    unexamined governance surface deserves more of the reader's attention than a
+    check that passed.
+    """
+    flags = res.get("flags") or []
+    c = res.get("counts") or {}
+    if not flags:
+        return
+
+    st.markdown(rs.section("Red flags"), unsafe_allow_html=True)
+
+    ran = c.get("flagged", 0) + c.get("clean", 0)
+    total = len(flags)
+    header_chips = (
+        rs.chip("Flagged", "risk" if c.get("flagged") else "neutral", str(c.get("flagged", 0)))
+        + rs.chip("Checked & clean", "good", str(c.get("clean", 0)))
+        + rs.chip("Not checked", "absent", str(c.get("not_checked", 0)))
+    )
+
+    # The source mockup shows a green "No Critical Red Flags" panel. It is only
+    # honest when every critical check actually ran, which — with three
+    # unsourceable governance items — it never does here.
+    if res.get("no_critical_flags"):
+        verdict = rs.callout("No critical red flags.",
+                             "Every critical check ran and came back clean.", tone="good")
+    else:
+        verdict = rs.callout(
+            f"{ran} of {total} checks could run.",
+            "This is not a clean bill of health. Auditor qualifications, "
+            "related-party transactions and revenue concentration live in "
+            "annual-report prose that nothing here parses, so they are shown as "
+            "<b>not checked</b> rather than omitted — an unexamined risk is not "
+            "an absent one.",
+            tone="warn")
+    st.markdown(rs.card(f'<div style="margin-bottom:8px;">{header_chips}</div>{verdict}'),
+                unsafe_allow_html=True)
+
+    order = {"FLAG": 0, "NOT_CHECKED": 1, "CLEAN": 2}
+    rows = []
+    for f in sorted(flags, key=lambda x: (order.get(x["state"], 9),
+                                          0 if x["severity"] == "critical" else 1)):
+        tone = _FLAG_TONE.get((f["state"], f["severity"]), "absent")
+        fg, bg = rs.tone_colors(tone)
+        sev = ("critical" if f["severity"] == "critical" else "watch")
+        rows.append(
+            f'<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 0;'
+            f'border-top:1px solid {rs.TOKENS["border"]};">'
+            f'<span class="tb-chip" style="background:{bg};color:{fg};'
+            f'border:1px solid {fg}33;min-width:118px;text-align:center;flex-shrink:0;">'
+            f'{_FLAG_WORD.get(f["state"], f["state"])}</span>'
+            f'<div style="flex:1;min-width:0;">'
+            f'<b style="font-size:12.5px;color:{rs.TOKENS["text"]};">{f["label"]}</b>'
+            f'<span class="tb-micro" style="margin-left:7px;">{sev} · {f["source"]}</span>'
+            f'<div style="font-size:12px;color:{rs.TOKENS["text_body"]};line-height:1.45;">'
+            f'{f["detail"]}</div></div></div>'
+        )
+    st.markdown("".join(rows), unsafe_allow_html=True)
 
 
 #: |YoY| beyond this on a quarter is annotated rather than left for the reader
@@ -1717,6 +1806,7 @@ if current_page == "Stock Analyzer":
                 render_fundamental_header(symbol, df, _fund, _deep)
                 render_fundamental_signals(fscore.score_all(_fund, _deep))
                 render_fundamental_history(_deep)
+                render_red_flags(cached_red_flags(symbol))
 
                 nifty_df = cached_fetch_nifty50(days=tf_days)
                 mv_score, mv_conds = sp.score_minervini(df, nifty_df=nifty_df)
