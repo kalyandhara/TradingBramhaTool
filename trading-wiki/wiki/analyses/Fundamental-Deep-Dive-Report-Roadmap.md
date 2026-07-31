@@ -314,10 +314,13 @@ Pick before FR-0 — it's the one decision that's expensive to reverse later.
 - ✅ **FR-4 SHIPPED 2026-07-30** (`8ae52f2`) — [red_flags.py](tools/red_flags.py), three-state.
   The predicted thin-history problem was real and is handled: trend flags require ≥3 yearly
   points and degrade to NOT_CHECKED below that.
-- ⏭ **FR-5 next** — bull/base/bear revenue + NOPAT scenarios with the derivation printed
-  inline, labelled *arithmetic extrapolation, not a forecast*, and kept visually distinct
-  from [projection.py](tools/projection.py)'s **price** target (which is a different object
-  entirely — EW/VCP/harmonic measured moves, not fundamentals).
+- ✅ **FR-5 SHIPPED 2026-07-31** (`e027dd0`) — [scenarios.py](tools/scenarios.py); bands built
+  from the company's own filed history, derivation printed under every bar, and the
+  price-vs-business-size distinction stated in the copy.
+- ⏭ **FR-6 is all that remains** — narrative / concall quotes. Still blocked on the same
+  finding as M3: **no LLM is configured in this repo**. Options unchanged — deterministic
+  templates over the facts these five phases now compute, a manual concall-paste box, or
+  leave it unbuilt. Do not let a template pretend to be analysis.
 - ⚠️ If the pixel-exact palette ever matters, **get the screenshot files onto disk** and
   re-sample; the hexes here are eyeballed.
 
@@ -443,6 +446,34 @@ Pick before FR-0 — it's the one decision that's expensive to reverse later.
     **network fetch never ran**. Its decision logic was unit-tested against a synthetic
     company page through the *real* parser — 54.20%→50.90% slide flags, 7.5% pledge flags,
     stable+0% returns CLEAN, and an **absent pledge row returns NOT_CHECKED, not 0%**.
+- **2026-07-31 — FR-5 SHIPPED, verified & deployed** (`e027dd0`).
+  - **[scenarios.py](tools/scenarios.py)** — bull/base/bear on **revenue and net profit**,
+    with the multiplier printed under each bar so the figure is checkable by hand.
+  - **Bands are the company's own history**, not an invented spread: base = 3Y CAGR at the
+    latest margin, bull = best filed year at best filed margin, bear = worst at worst.
+    Three growth observations is a *wide, noisy* band and the caption says so.
+  - **Net profit, not NOPAT** — tax provision isn't exposed and `net_income ÷ EBIT`
+    conflates interest, so the honest analogue is net margin (already post-tax). Deviation
+    from the mockup recorded rather than silently relabelled.
+  - > [!warning] Three flaws that only appeared on real names — worth keeping as classes
+    > 1. **An exceptional year poisons a max/min band.** ITC's best filed margin (46.5%) is
+    >    the FY25 hotels demerger, vs a 30.4% median — projecting it as *sustainable* more
+    >    than doubled the bull profit bar. Now disclosed, naming the year.
+    > 2. **A partial guard is worse than none.** Capping only the bull put SWIGGY's Bull bar
+    >    *below* its Base bar. The cap now applies to every rate and **bull ≥ base ≥ bear is
+    >    enforced by construction**.
+    > 3. **Compounding needs a plausibility cap** — 40%/yr, uncapped figure printed. Same
+    >    guard M3 already applies to price; the lesson transferred across surfaces.
+  - **"1 Thing to Track" is rule-based** — vary each input across its own range with the
+    other at base, name the larger profit spread, print a numeric threshold. ITC →
+    margin-driven (₹17,497 Cr vs ₹9,856 Cr); TITAN → growth-driven.
+  - **Explicitly not [projection.py](tools/projection.py).** That projects *price* from
+    EW/measured-move geometry; this projects *business size* from filed statements. The
+    caption states neither confirms the other — the failure mode to avoid is a reader
+    treating them as two agreeing methods.
+  - **Verified live:** ITC bars at 100% / 81.9% / 65% DOM width, exactly revenue-proportional;
+    outlier guard rendered; emphasis card used once. SWIGGY's capped + negative-profit case
+    coherent. Thin-history inputs return `None` → explicit panel, no extrapolation.
 
 ## Related Pages
 - [[analyses/Dashboard-UI-Roadmap]] — the analyzer this extends (Phase 2 features).
