@@ -173,6 +173,43 @@ Scanner Hub and the Opportunity Hub (21 scanners total).
 - Sequencing rule (as with M1–M4): don't start Phase N until N-1 ships and gets
   one session of live use.
 
+### Phase 1.5 — Automate it + persist the shortlist — ✅ SHIPPED 2026-07-31
+Unplanned, and it came from the user saying **"I am not understanding the
+Opportunity Hub"**. The diagnosis matters more than the feature: the Hub is a
+**five-step** flow that **stores nothing**, so it can't be run the same way twice
+and there is never a yesterday to compare against. Anything that hard to operate
+reads as "I don't understand it".
+
+[opportunity_daily.py](tools/opportunity_daily.py) runs the identical funnel
+headlessly and writes a **top-10 into SQLite** (`daily_opportunities` in
+[portfolio_db.py](tools/portfolio_db.py)), one row per symbol per date, so the
+table is also a **track record**. `market_regime`/`market_verdict` are stored on
+every row — a shortlist built under a sub-200-SMA tape must never later read as
+though conditions were good.
+
+**Ranking = location × confluence × quality**, and *scanners are weighted by
+measured edge* — Falling Wedge / Harmonic Reversal / Order Block count double
+because [[analyses/Backtest-Harness]] found the rest at or below a random-entry
+baseline. **This is the first feature to actually spend the backtest's findings**
+rather than just record them.
+
+Also forced a good refactor: the M1 rating moved out of `dashboard_app.py` into
+[rating.py](tools/rating.py) so the headless job and the interactive Hub cannot
+drift apart — the same one-scorer discipline as `fundamental_score.py`.
+
+> [!warning] The bug this surfaced — a throttled fan-out looks like a market result
+> `build_constituent_table` fans `.info` across 8 threads; Yahoo answers the burst
+> with **HTTP 401 "Invalid Crumb"**, and since failures are swallowed per-symbol
+> the output is a **half-empty table**, not an error — sectors would then be ranked
+> from whichever names happened to survive. First run: **0 of 60 tagged**. Now 4
+> workers, a measured **tag rate**, and a 45s/2-worker retry below 35% (→ 78%).
+> Same shape as the NaN forming-bar bug: *a data fault wearing a market result's
+> clothes.*
+
+**Open:** nothing schedules it yet — the 4:05 PM Task Scheduler job runs
+`screener_pipeline`, not this. Registering a second task is a machine-config
+change, left for the user to approve.
+
 ## Outcome (fill in later)
 - **2026-07-25 — Phase 1 shipped & verified.** Bottom-up sector/industry ranking
   from yfinance tags + reused momentum; drill → existing scanner → Overall-Rating-
