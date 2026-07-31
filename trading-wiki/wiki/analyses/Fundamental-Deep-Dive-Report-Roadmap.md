@@ -311,9 +311,13 @@ Pick before FR-0 — it's the one decision that's expensive to reverse later.
   is now the single band scorer; **RC-1 must consume `score_all()`**, not grow its own bands.
 - ✅ **FR-3 SHIPPED 2026-07-30** (`1ed75ab`) — annual table + quarterly EPS card grid, plus a
   `_drop_unusable_bars` fix for NaN forming bars that was corrupting the whole analyzer.
-- ⏭ **FR-4 next** — three-state red flags. Note the mockup's **8**-quarter grid is really
-  ~5: yfinance returns 5–6 quarterly columns, so FR-4's WC/debtor-day *trend* flag has only
-  4–5 annual points to work with and must degrade to "not checked" rather than assert a trend.
+- ✅ **FR-4 SHIPPED 2026-07-30** (`8ae52f2`) — [red_flags.py](tools/red_flags.py), three-state.
+  The predicted thin-history problem was real and is handled: trend flags require ≥3 yearly
+  points and degrade to NOT_CHECKED below that.
+- ⏭ **FR-5 next** — bull/base/bear revenue + NOPAT scenarios with the derivation printed
+  inline, labelled *arithmetic extrapolation, not a forecast*, and kept visually distinct
+  from [projection.py](tools/projection.py)'s **price** target (which is a different object
+  entirely — EW/VCP/harmonic measured moves, not fundamentals).
 - ⚠️ If the pixel-exact palette ever matters, **get the screenshot files onto disk** and
   re-sample; the hexes here are eyeballed.
 
@@ -416,6 +420,29 @@ Pick before FR-0 — it's the one decision that's expensive to reverse later.
     TechnoFunda 4/6 · RS −24.3% · no NaN on the page. **Caveat:** the annual table's cells
     were verified through the identical data path, not on screen — Streamlit renders
     dataframes to canvas (unreadable from the DOM) and the Browser pane was not compositing.
+- **2026-07-30 — FR-4 SHIPPED, verified & deployed** (`8ae52f2`).
+  - **[red_flags.py](tools/red_flags.py) — eight checks, and the third state is the feature.**
+    Free (negative-FCF streak · debtor-day trend · WC-day trend) · session-gated (promoter
+    stake reduction · pledging, via screener.in) · **permanently unsourceable** (auditor
+    qualification · related-party transactions · revenue concentration).
+  - > [!important] The green "✅ No Critical Red Flags" panel in the mockup cannot be earned.
+    > `no_critical_flags()` returns True only if **every critical check actually ran**. Three
+    > critical items have no machine-readable source, so it returns **False for every symbol**
+    > and the UI shows "3 of 8 checks could run" instead. Omitting the unsourceable checks
+    > would have made the page *look* better and *be* a lie — "we didn't look" and "we looked
+    > and it's clean" must never render the same way.
+  - **Calibration:** trend flags need **≥3 yearly points** (the thin-history problem predicted
+    above); and a % rise only flags once the **absolute level** matters — floors at **45d**
+    debtor / **120d** WC — otherwise 4d→7d would flag at +75%. Sub-floor moves render CLEAN
+    *with the arithmetic shown*, so the reader can disagree.
+  - **Order is FLAG → NOT CHECKED → CLEAN**, deliberately unflattering.
+  - **Verified live:** MAPMYINDIA debtor days **+80% (76d → 136d)** flagged; SWIGGY **4y
+    negative FCF** critical + debtor days +36% watch; ITC clean on all checkable items.
+    Severity distinct in the DOM (critical red / watch amber / not-checked grey).
+  - **Unverified path, stated:** no screener.in cookie exists on this machine, so the promoter
+    **network fetch never ran**. Its decision logic was unit-tested against a synthetic
+    company page through the *real* parser — 54.20%→50.90% slide flags, 7.5% pledge flags,
+    stable+0% returns CLEAN, and an **absent pledge row returns NOT_CHECKED, not 0%**.
 
 ## Related Pages
 - [[analyses/Dashboard-UI-Roadmap]] — the analyzer this extends (Phase 2 features).
