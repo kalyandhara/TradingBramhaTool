@@ -89,6 +89,36 @@ def init_db() -> None:
                 saved_date TEXT NOT NULL,
                 UNIQUE(symbol, scanner_name)
             );
+
+            -- Daily Opportunity Hub shortlist. One row per symbol per run date,
+            -- so the table doubles as a track record: what did the funnel like on
+            -- a given day, and what happened next. `market_regime` and
+            -- `market_verdict` are stored WITH each row on purpose — a top-10
+            -- produced on a STAND DOWN day must never be read later as if the
+            -- tape had been supportive.
+            CREATE TABLE IF NOT EXISTS daily_opportunities (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_date TEXT NOT NULL,
+                rank INTEGER NOT NULL,
+                symbol TEXT NOT NULL,
+                score REAL,
+                overall_rating INTEGER,
+                confluence INTEGER,
+                scanners TEXT,
+                sector TEXT,
+                industry TEXT,
+                momentum REAL,
+                close REAL,
+                entry REAL,
+                stop REAL,
+                target REAL,
+                market_regime TEXT,
+                market_verdict TEXT,
+                universe_size INTEGER,
+                notes TEXT,
+                created_at TEXT NOT NULL,
+                UNIQUE(run_date, symbol)
+            );
             """
         )
         conn.commit()
@@ -320,6 +350,70 @@ def get_saved_scanner_hits(scanner_name: str | None = None) -> pd.DataFrame:
         return pd.read_sql_query(
             "SELECT * FROM scanner_saved ORDER BY saved_date DESC", conn
         )
+    finally:
+        conn.close()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Daily Opportunity Hub shortlist
+# ──────────────────────────────────────────────────────────────────────────────
+def save_daily_opportunities(rows: list[dict], run_date: str | None = None) -> int:
+    """Replace the shortlist for `run_date` and return the number of rows saved.
+
+    Replace, not append: a re-run on the same day supersedes the earlier one
+    rather than leaving two half-lists that later read as twenty picks.
+    """
+    run_date = run_date or date.today().isoformat()
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM daily_opportunities WHERE run_date = ?", (run_date,))
+        for r in rows:
+            conn.execute(
+                """
+                INSERT INTO daily_opportunities
+                    (run_date, rank, symbol, score, overall_rating, confluence,
+                     scanners, sector, industry, momentum, close, entry, stop,
+                     target, market_regime, market_verdict, universe_size, notes,
+                     created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (run_date, r.get("rank"), r.get("symbol"), r.get("score"),
+                 r.get("overall_rating"), r.get("confluence"), r.get("scanners"),
+                 r.get("sector"), r.get("industry"), r.get("momentum"),
+                 r.get("close"), r.get("entry"), r.get("stop"), r.get("target"),
+                 r.get("market_regime"), r.get("market_verdict"),
+                 r.get("universe_size"), r.get("notes"), now),
+            )
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def get_daily_opportunities(run_date: str | None = None) -> pd.DataFrame:
+    """Shortlist for one date, or the whole history when `run_date` is None."""
+    conn = get_connection()
+    try:
+        if run_date:
+            return pd.read_sql_query(
+                "SELECT * FROM daily_opportunities WHERE run_date = ? ORDER BY rank",
+                conn, params=(run_date,),
+            )
+        return pd.read_sql_query(
+            "SELECT * FROM daily_opportunities ORDER BY run_date DESC, rank", conn
+        )
+    finally:
+        conn.close()
+
+
+def get_opportunity_run_dates() -> list[str]:
+    """Dates that have a stored shortlist, newest first."""
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "SELECT DISTINCT run_date FROM daily_opportunities ORDER BY run_date DESC")
+        return [r[0] for r in cur.fetchall()]
     finally:
         conn.close()
 

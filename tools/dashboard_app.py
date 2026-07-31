@@ -55,7 +55,16 @@ import fundamentals_deep as fdeep
 import fundamental_score as fscore
 import red_flags as rflags
 import scenarios as scen
+import rating
+import opportunity_daily as od
 import report_style as rs
+
+# The M1 rating lives in rating.py so the headless daily Opportunity Hub job
+# scores with the SAME code the interactive Hub shows. Aliased to the old
+# private names so every existing call site here is untouched.
+OVERALL_WEIGHTS = rating.OVERALL_WEIGHTS
+_compute_canslim = rating.compute_canslim
+_overall_rating = rating.overall_rating
 
 try:
     from ta.momentum import RSIIndicator
@@ -952,59 +961,6 @@ def render_council(bundle, bull, bear, card) -> None:
             st.caption("No fundamentals available — technical-only verdict.")
 
 
-def _compute_canslim(df: pd.DataFrame, nifty_df: pd.DataFrame | None) -> tuple:
-    """
-    Returns (score, conds, rs_pct, rs_line) where:
-      score    — int, number of CANSLIM conditions that pass (max 4 computable)
-      conds    — dict of condition_label → True/False/None
-      rs_pct   — float, stock 12m return minus Nifty 12m return (outperformance %)
-      rs_line  — pd.Series (normalized to 100 at start) or None
-    """
-    conds: dict = {}
-    rs_pct: float = 0.0
-    rs_line = None
-
-    last = float(df["close"].iloc[-1])
-
-    # N — New High: within 15% of 52-week high
-    high_52 = float(df["high"].tail(252).max()) if len(df) >= 60 else float(df["high"].max())
-    conds["N — Near 52w High (<15% below)"] = (high_52 - last) / high_52 < 0.15
-
-    # S — Supply/Demand: today's volume ≥ 50-day average
-    vol50 = float(df["volume"].tail(50).mean())
-    vol_last = float(df["volume"].iloc[-1])
-    conds["S — Volume ≥ 50d Average"] = vol_last >= vol50
-
-    # M — Market direction: Nifty50 above its SMA200
-    if nifty_df is not None and len(nifty_df) >= 200:
-        nifty_sma200 = float(nifty_df["close"].rolling(200).mean().iloc[-1])
-        conds["M — Market Above SMA200 (Uptrend)"] = float(nifty_df["close"].iloc[-1]) > nifty_sma200
-    else:
-        conds["M — Market Above SMA200 (Uptrend)"] = None
-
-    # L — Leader: stock 12m return > Nifty 12m return (RS outperformance)
-    if nifty_df is not None:
-        nifty_aligned = nifty_df["close"].reindex(df.index, method="ffill")
-        nifty_aligned = nifty_aligned.bfill()
-
-        # RS Line normalized to 100 at first available point
-        rs_raw = df["close"] / nifty_aligned.replace(0, float("nan"))
-        rs_line = (rs_raw / rs_raw.iloc[0]) * 100
-
-        lookback = min(252, len(df) - 1)
-        if lookback >= 21:
-            stock_12m = (float(df["close"].iloc[-1]) / float(df["close"].iloc[-lookback]) - 1) * 100
-            nifty_12m = (float(nifty_aligned.iloc[-1]) / float(nifty_aligned.iloc[-lookback]) - 1) * 100
-            rs_pct = stock_12m - nifty_12m
-
-        conds["L — RS Leader (outperforms Nifty50)"] = rs_pct > 0
-    else:
-        conds["L — RS Leader (outperforms Nifty50)"] = None
-
-    score = sum(1 for v in conds.values() if v is True)
-    return score, conds, rs_pct, rs_line
-
-
 def _volume_profile(df: pd.DataFrame, n_bins: int = 50):
     """Return (bin_centers, volume_at_price) arrays across the full price range."""
     lo_p, hi_p = df["low"].min(), df["high"].max()
@@ -1506,40 +1462,6 @@ def _score_ring_html(score: float, signal: str) -> str:
 # Minervini as the most-referenced framework on the wiki; tune them in the Scanner
 # Hub sidebar (changes apply on the next scan). See
 # wiki/analyses/Dashboard-UI-Roadmap.md Milestone 1.
-OVERALL_WEIGHTS = {"minervini": 0.35, "technofunda": 0.25, "canslim": 0.20, "ew": 0.20}
-
-
-def _overall_rating(df: pd.DataFrame, nifty_df: pd.DataFrame | None,
-                    weights: dict | None = None) -> tuple[int | None, dict]:
-    """Return (rating 0-100, breakdown) fusing Minervini/8 + TechnoFunda/6 +
-    CANSLIM/computable + EW confidence/100. Rating is None if scoring fails
-    (e.g. too few bars). Each sub-score is normalised to 0-1 then weighted."""
-    w = weights or OVERALL_WEIGHTS
-    try:
-        mv, _ = sp.score_minervini(df, nifty_df=nifty_df)          # 0-8
-        tf, _ = sp.score_technofunda(df)                           # 0-6
-        cs, cs_conds, _, _ = _compute_canslim(df, nifty_df)        # 0-4 (some None)
-        ew_conf = int(ew_module.analyze_ew(df).get("confidence", 0) or 0)  # 0-100
-    except Exception:
-        return None, {}
-
-    # Normalise CANSLIM by the count of computable (non-None) conditions so a
-    # missing benchmark doesn't silently deflate the score.
-    computable = sum(1 for v in cs_conds.values() if v is not None)
-    mv_n = mv / 8.0
-    tf_n = tf / 6.0
-    cs_n = (cs / computable) if computable else 0.0
-    ew_n = ew_conf / 100.0
-
-    rating = round(100 * (mv_n * w["minervini"] + tf_n * w["technofunda"]
-                          + cs_n * w["canslim"] + ew_n * w["ew"]))
-    return rating, {
-        "Minervini": f"{mv}/8", "TechnoFunda": f"{tf}/6",
-        "CANSLIM": f"{cs}/{computable}" if computable else "n/a",
-        "EW conf": str(ew_conf),
-    }
-
-
 def _rating_color(r: int | None) -> str:
     """Color scale for the Overall Rating badge (matches Market Terminal source)."""
     if r is None:
@@ -2323,6 +2245,86 @@ if current_page == "Opportunity Hub":
                "ranked bottom-up from their constituents' momentum, then a pattern "
                "scanner runs on just the leaders. The Hub narrows & ranks — you "
                "validate the setup and manage the risk.")
+
+    # ── Daily shortlist (stored) ──────────────────────────────────────────────
+    # The manual funnel below is five steps and keeps nothing. This runs the same
+    # funnel unattended and stores the result, so the daily question is "what did
+    # it like today" rather than "which of 24 scanners should I try".
+    st.markdown(rs.section("Daily shortlist — stored"), unsafe_allow_html=True)
+
+    _dates = db.get_opportunity_run_dates()
+    dl, dr = st.columns([3, 1])
+    with dr:
+        _sel_date = st.selectbox("Run date", _dates, index=0,
+                                 key="od_date") if _dates else None
+        _od_uni = st.number_input("Universe size", 40, 1000, 200, 20, key="od_uni",
+                                  help="Top N by traded value. 200 takes a few minutes.")
+        if st.button("Run daily shortlist now", type="primary", key="od_run"):
+            _prog = st.empty()
+            with st.spinner("Running the funnel headlessly…"):
+                _res = od.run(universe_size=int(_od_uni), top_n=10,
+                              progress_cb=lambda m: _prog.caption(m))
+            _prog.empty()
+            if not _res.get("ok"):
+                st.error(f"Run failed — {_res.get('reason')}")
+            elif not _res.get("rows"):
+                st.warning(f"No shortlist: {_res.get('reason')}")
+            else:
+                st.success(f"Stored {len(_res['rows'])} names for {_res['run_date']}.")
+                st.rerun()
+
+    with dl:
+        _shortlist = db.get_daily_opportunities(_sel_date) if _sel_date else pd.DataFrame()
+        if _shortlist.empty:
+            st.info("No stored shortlist yet. Click **Run daily shortlist now**, or "
+                    "schedule `py -3 tools/opportunity_daily.py` after market close.")
+        else:
+            _r0 = _shortlist.iloc[0]
+            _regime = str(_r0.get("market_regime") or "UNKNOWN")
+            _tone = {"RISK-ON": "good", "MIXED": "warn"}.get(_regime, "risk")
+            st.markdown(
+                rs.callout(f"{_sel_date} · market {_regime}.",
+                           str(_r0.get("market_verdict") or ""), tone=_tone),
+                unsafe_allow_html=True)
+
+            for _, row in _shortlist.iterrows():
+                _rt = int(row["overall_rating"]) if pd.notna(row.get("overall_rating")) else None
+                _plan = ""
+                if pd.notna(row.get("entry")) and pd.notna(row.get("stop")):
+                    _plan = (f'<span class="tb-mono" style="font-size:11px;">Entry '
+                             f'{row["entry"]:.2f} · Stop {row["stop"]:.2f}'
+                             + (f' · Target {row["target"]:.2f}'
+                                if pd.notna(row.get("target")) else "") + '</span>')
+                st.markdown(
+                    rs.card(
+                        f'<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
+                        f'<span class="tb-mono" style="font-size:15px;font-weight:700;'
+                        f'color:{rs.TOKENS["text_muted"]};">#{int(row["rank"])}</span>'
+                        f'<b style="font-size:15px;">{row["symbol"]}</b>'
+                        f'{_rating_badge_html({"overall": _rt, "overall_breakdown": {}})}'
+                        f'<span class="tb-chip" style="background:{rs.TOKENS["surface_alt"]};'
+                        f'color:{rs.TOKENS["text_body"]};">score {row["score"]:.1f}</span>'
+                        f'<span class="tb-chip" style="background:{rs.TOKENS["accent_soft"]};'
+                        f'color:{rs.TOKENS["accent"]};">{int(row["confluence"])} scanners</span>'
+                        f'<span style="margin-left:auto;">{_plan}</span></div>'
+                        f'<div class="tb-micro" style="margin-top:5px;">'
+                        f'{row.get("industry") or "—"} · {row.get("sector") or "—"}</div>'
+                        f'<div style="font-size:11.5px;color:{rs.TOKENS["text_body"]};'
+                        f'margin-top:3px;line-height:1.45;">{row.get("notes") or ""}</div>'
+                    ),
+                    unsafe_allow_html=True)
+
+            st.caption(
+                "Ranked by **0.45 × Overall Rating + 0.30 × best scanner score + "
+                "0.25 × confluence**. Confluence weights scanners by *measured* "
+                "backtest edge — Falling Wedge, Harmonic Reversal and Order Block "
+                "count double, because the harness found the others at or below a "
+                "random-entry baseline. Every name here already sits in a leading "
+                "sector **and** industry; that is a filter, not a bonus. This is a "
+                "shortlist to research, not a buy list.")
+
+    st.divider()
+    st.markdown("**Manual funnel** — drive the same steps yourself")
 
     _pct_cols = {
         "avg_momentum": st.column_config.NumberColumn("Avg Mom %", format="%.1f"),
