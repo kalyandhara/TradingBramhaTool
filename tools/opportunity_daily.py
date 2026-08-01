@@ -153,7 +153,7 @@ def _tag_with_retry(universe: list[str], fetch, max_workers: int, say) -> pd.Dat
 def _market_context(nifty_df) -> dict[str, str]:
     """A plain description of the tape, stored beside every shortlist.
 
-    A top-10 produced on a day the index sits under its 200 SMA is not the same
+    A shortlist produced on a day the index sits under its 200 SMA is not the same
     artifact as one produced in a healthy tape, and six months later nobody will
     remember which was which unless it is written down with the rows.
     """
@@ -180,7 +180,7 @@ def _market_context(nifty_df) -> dict[str, str]:
     return {"regime": regime, "verdict": verdict}
 
 
-def run(universe_size: int = 200, top_n: int = 10,
+def run(universe_size: int = 200, top_n: int = 100,
         scanners: list[str] | None = None,
         max_sectors: int = 3, min_constituents: int = 3,
         save: bool = True, run_date: str | None = None,
@@ -342,7 +342,7 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="Daily Opportunity Hub shortlist")
     ap.add_argument("--universe", type=int, default=200,
                     help="top N symbols by traded value (default 200)")
-    ap.add_argument("--top", type=int, default=10, help="rows to store (default 10)")
+    ap.add_argument("--top", type=int, default=100, help="rows to store (default 100)")
     ap.add_argument("--sectors", type=int, default=3, help="leading sectors to drill")
     ap.add_argument("--no-save", action="store_true", help="print without storing")
     ap.add_argument("--date", default=None, help="run date override (YYYY-MM-DD)")

@@ -1541,6 +1541,33 @@ def _scanner_stats_html(card: dict) -> str:
     return (f'<div style="margin:8px 0 4px 0;">{stats}{risk_html}</div>')
 
 
+def _card_action_links(sym: str) -> str:
+    """Analyze + chart icons as anchors INSIDE a card's HTML.
+
+    st.link_button can only be placed after a card, which costs a full Streamlit
+    row per row rendered — at a hundred rows that is a hundred button rows of
+    vertical space and a hundred column containers. As plain <a> tags they cost
+    no layout at all and ride along in the card header.
+    """
+    def icon(href: str, glyph: str, tip: str) -> str:
+        return (
+            f'<a href="{href}" target="_blank" rel="noopener" title="{tip}" '
+            f'style="display:inline-flex;align-items:center;justify-content:center;'
+            f'width:23px;height:23px;border-radius:6px;text-decoration:none;'
+            f'font-size:12px;line-height:1;background:{rs.TOKENS["surface_alt"]};'
+            f'color:{rs.TOKENS["accent"]};border:1px solid {rs.TOKENS["border"]};'
+            f'">{glyph}</a>')
+
+    parts = []
+    _an = _analyze_url(sym)
+    if _an:
+        parts.append(icon(_an, "↗", "Analyze — open the 3-POV Council in a new tab"))
+    _ch = _chart_url(sym)
+    if _ch:
+        parts.append(icon(_ch, "👁", "Open in Chart Tool"))
+    return "".join(parts)
+
+
 def _scanner_source_chips(scanners: str | None) -> str:
     """One chip per scanner that fired on a daily-shortlist name.
 
@@ -2301,7 +2328,7 @@ if current_page == "Opportunity Hub":
         if st.button("Run daily shortlist now", type="primary", key="od_run"):
             _prog = st.empty()
             with st.spinner("Running the funnel headlessly…"):
-                _res = od.run(universe_size=int(_od_uni), top_n=10,
+                _res = od.run(universe_size=int(_od_uni), top_n=100,
                               progress_cb=lambda m: _prog.caption(m))
             _prog.empty()
             if not _res.get("ok"):
@@ -2360,7 +2387,9 @@ if current_page == "Opportunity Hub":
                         f'<span class="tb-chip" title="Scanners that agreed on this name" '
                         f'style="background:{rs.TOKENS["accent_soft"]};'
                         f'color:{rs.TOKENS["accent"]};">{int(row["confluence"])} scanners</span>'
-                        f'<span style="margin-left:auto;">{_plan}</span></div>'
+                        f'<span style="margin-left:auto;display:inline-flex;'
+                        f'align-items:center;gap:8px;">{_plan}'
+                        f'{_card_action_links(_sym)}</span></div>'
                         f'<div class="tb-micro" style="margin-top:5px;">'
                         f'{row.get("industry") or "—"} · {row.get("sector") or "—"}</div>'
                         f'{_chips}'
@@ -2368,20 +2397,6 @@ if current_page == "Opportunity Hub":
                         f'margin-top:5px;line-height:1.45;">{_notes}</div>'
                     ),
                     unsafe_allow_html=True)
-
-                # Both actions are one click from the row that named the stock —
-                # the shortlist is a place to start research, and re-typing the
-                # symbol into the Analyzer is the friction that stops that.
-                _b1, _b2, _b3 = st.columns([1, 1, 6])
-                with _b1:
-                    _an = _analyze_url(_sym)
-                    if _an:
-                        st.link_button("↗ Analyze", url=_an, use_container_width=True,
-                                       help="Open the 3-POV Council analysis in a new tab")
-                with _b2:
-                    st.link_button("👁 Chart", url=_chart_url(_sym),
-                                   use_container_width=True,
-                                   help="Open in Chart Tool")
 
             st.caption(
                 "Ranked by **0.45 × Overall Rating + 0.30 × best scanner score + "

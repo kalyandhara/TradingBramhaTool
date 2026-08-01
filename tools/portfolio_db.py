@@ -93,7 +93,7 @@ def init_db() -> None:
             -- Daily Opportunity Hub shortlist. One row per symbol per run date,
             -- so the table doubles as a track record: what did the funnel like on
             -- a given day, and what happened next. `market_regime` and
-            -- `market_verdict` are stored WITH each row on purpose — a top-10
+            -- `market_verdict` are stored WITH each row on purpose — a shortlist
             -- produced on a STAND DOWN day must never be read later as if the
             -- tape had been supportive.
             CREATE TABLE IF NOT EXISTS daily_opportunities (
