@@ -57,6 +57,7 @@ import red_flags as rflags
 import scenarios as scen
 import rating
 import opportunity_daily as od
+import market_health as mh
 import report_style as rs
 
 # The M1 rating lives in rating.py so the headless daily Opportunity Hub job
@@ -188,6 +189,31 @@ def _scanner_fetch_fn(scanner_name: str):
 @st.cache_data(ttl=1800, show_spinner=False)
 def cached_fetch_bhavcopy_universe(top_n: int) -> list[str]:
     return sp.fetch_bhavcopy_top_volume(top_n)
+
+
+# ── Market-health gate (Crash-Proof Filter A) caches ──────────────────────────
+#: Basket size for the two stock-level conditions. 60 liquid names is enough for
+#: a breakout sample without another 200-symbol fan-out at Yahoo.
+MH_BASKET_SIZE = 60
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def cached_health_indices():
+    """^NSEI + ^INDIAVIX for conditions 1 and 5. Two fetches per 15 min."""
+    return mh.fetch_indices()
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_health_basket(size: int):
+    """Basket frames for conditions 3 and 4, plus how many were requested.
+
+    Uses sp.fetch_ohlcv directly rather than cached_fetch_ohlcv: the loader fans
+    out across threads, and calling an st.cache_data function off the main
+    thread has no ScriptRunContext. This whole result is cached instead.
+    """
+    symbols = sp.fetch_bhavcopy_top_volume(size)
+    frames = mh.load_basket(symbols, lambda s: sp.fetch_ohlcv(s, days=260))
+    return frames, len(symbols)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -4476,6 +4502,71 @@ if current_page == "Market Sentiment":
                 }
         except Exception:
             reading = None
+
+    # ── Filter A — market-health gate (DS-1) ──────────────────────────────────
+    # The framework's five named conditions with its own 2-of-5 rule. Rendered
+    # ABOVE the composite because it answers the prior question: the index score
+    # says how the tape feels, this says whether you are allowed to trade at all.
+    st.markdown(rs.section("Filter A — market health gate"), unsafe_allow_html=True)
+    _mh_head_l, _mh_head_r = st.columns([3, 1])
+    with _mh_head_r:
+        if st.button("Run basket checks", key="mh_basket_run", use_container_width=True,
+                     help=f"Fetches {MH_BASKET_SIZE} liquid names to measure "
+                          f"'breakouts working' and 'leaders strong'. Takes ~30-60s; "
+                          f"cached 30 min."):
+            st.session_state["mh_basket_on"] = True
+
+    _mh_frames = _mh_requested = None
+    if st.session_state.get("mh_basket_on"):
+        with st.spinner(f"Fetching {MH_BASKET_SIZE} names for the basket conditions…"):
+            try:
+                _mh_frames, _mh_requested = cached_health_basket(MH_BASKET_SIZE)
+            except Exception as _e:
+                st.warning(f"Basket fetch failed — the two stock-level conditions "
+                           f"stay unmeasured. ({_e})")
+    try:
+        _mh_nifty, _mh_vix = cached_health_indices()
+    except Exception:
+        _mh_nifty = _mh_vix = None
+
+    _gate = mh.evaluate(nifty_df=_mh_nifty, vix_df=_mh_vix,
+                        sentiment_reading=reading, basket_frames=_mh_frames,
+                        basket_requested=_mh_requested, fetch_indices=False)
+
+    _lamp = {mh.PASS: rs.TOKENS["good"], mh.FAIL: rs.TOKENS["risk"],
+             mh.NOT_CHECKED: rs.TOKENS["absent"]}
+    for _col, _c in zip(st.columns(5), _gate["conditions"]):
+        with _col:
+            st.markdown(
+                rs.card(
+                    f'<div style="display:flex;align-items:center;gap:7px;">'
+                    f'<span style="width:9px;height:9px;border-radius:50%;flex-shrink:0;'
+                    f'background:{_lamp[_c["state"]]};"></span>'
+                    f'<b style="font-size:11.5px;line-height:1.25;">{_c["label"]}</b></div>'
+                    f'<div style="font-size:10px;color:{rs.TOKENS["text_body"]};'
+                    f'margin-top:6px;line-height:1.45;">{_c["reading"]}</div>'
+                ),
+                unsafe_allow_html=True)
+
+    _gate_tone = ("risk" if _gate["verdict"] == "STAND DOWN" else
+                  "absent" if _gate["verdict"] == "NOT ASSESSED" else
+                  "warn" if (_gate["n_fail"] or _gate["n_unchecked"]) else "good")
+    st.markdown(
+        rs.callout(f'{_gate["verdict"]} — {_gate["n_fail"]} of '
+                   f'{_gate["n_checked"]} checked failed'
+                   + (f', {_gate["n_unchecked"]} not checked.'
+                      if _gate["n_unchecked"] else '.'),
+                   _gate["instruction"], tone=_gate_tone),
+        unsafe_allow_html=True)
+    st.caption(
+        f"Filter A of the **Crash-Proof 3-Filter System** — *{_gate['rule']}*. "
+        "This is a **second opinion beside** the verdict in the header ribbon, not "
+        "folded into it: breadth and regime feed both, so adding these failures to "
+        "that caution count would penalise the same weakness twice. Note the two "
+        "read different levels — this gate uses the **50 EMA** the framework "
+        "specifies, the ribbon uses the 200 SMA. Unmeasured conditions never count "
+        "as passes. None of these thresholds are backtested.")
+    st.divider()
 
     if reading is None:
         st.info("No sentiment reading yet — click **Refresh Sentiment**.")
