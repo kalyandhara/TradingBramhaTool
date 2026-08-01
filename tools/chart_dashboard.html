@@ -500,15 +500,21 @@ html, body {
 
 /* ── Price Projection info overlay (Milestone 3) ──────────────────────────── */
 /* Lives in the top-left .action-stack (order 4 — after the signal and the
-   plan that quotes it). Not collapsible: a projection is rare (only shown
-   when a setup clears the Medium confidence floor) and is the one number
-   worth reading in full when present. */
+   plan that quotes it). Collapses on head-click like .ma-info / .fvg-info /
+   .fib-info: the projection is rare and worth reading in full the first time,
+   but it is the tallest card in the stack (reasoning + invalidation +
+   disclaimer) and hangs over the price action, so it must be dismissable down
+   to its headline number. Collapsed it keeps the band badge and the target —
+   the two things worth a glance — and drops the explanation. */
 .proj-info {
   order: 4;
   background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
   padding: 7px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
   max-width: 260px; display: none;
 }
+.proj-info .proj-head { cursor: pointer; user-select: none; }
+.proj-info.collapsed .proj-body { display: none; }
+.proj-info.collapsed .proj-head { margin-bottom: 0; }
 .proj-badge {
   display: inline-block; border-radius: 99px; padding: 1px 8px;
   font-size: 10px; font-weight: 700; color: #0d1117;
@@ -1311,6 +1317,14 @@ function saveVcpCollapsed(v) { localStorage.setItem(LS_VCP_COLLAPSED, v ? '1' : 
 const LS_PMAX_COLLAPSED = 'tb_pmax_collapsed';
 function loadPmaxCollapsed() { return localStorage.getItem(LS_PMAX_COLLAPSED) === '1'; }
 function savePmaxCollapsed(v) { localStorage.setItem(LS_PMAX_COLLAPSED, v ? '1' : '0'); }
+
+// Price Projection — same model as PMax: defaults EXPANDED (a projection only
+// appears when a setup clears the Medium-confidence floor, so its first showing
+// should be readable), but it is the tallest card in the stack and sits over
+// the price action, so the collapse choice persists per browser.
+const LS_PROJ_COLLAPSED = 'tb_proj_collapsed';
+function loadProjCollapsed() { return localStorage.getItem(LS_PROJ_COLLAPSED) === '1'; }
+function saveProjCollapsed(v) { localStorage.setItem(LS_PROJ_COLLAPSED, v ? '1' : '0'); }
 
 function loadCount()   { return parseInt(localStorage.getItem(LS_COUNT) || '4'); }
 function saveCount(n)  { localStorage.setItem(LS_COUNT, String(n)); }
@@ -4554,7 +4568,8 @@ async function renderHarmonic(pane) {
 // Rounding/Harmonic measured-moves), and the server suppresses anything below
 // Medium confidence — so when this draws nothing, that IS the signal.
 function ensureProjState(pane) {
-  if (!pane.proj) pane.proj = {infoEl: null, data: null, lastFetchKey: null};
+  if (!pane.proj) pane.proj = {infoEl: null, data: null, lastFetchKey: null,
+                               collapsed: loadProjCollapsed()};
   return pane.proj;
 }
 
@@ -4668,6 +4683,15 @@ function renderProjInfo(pane, p) {
     pr.infoEl = document.createElement('div');
     pr.infoEl.className = 'proj-info';
     ensureActionStack(pane).appendChild(pr.infoEl);
+    // Head-click collapses, same as the other action-stack cards. The state is
+    // per-pane (an open pane keeps whatever you set it to) but the choice is
+    // saved, so reloads and newly-added panes open the way you left it.
+    pr.infoEl.addEventListener('click', ev => {
+      if (!ev.target.closest('.proj-head')) return;
+      pr.collapsed = !pr.collapsed;
+      pr.infoEl.classList.toggle('collapsed', pr.collapsed);
+      saveProjCollapsed(pr.collapsed);
+    });
   }
   if (!p) { pr.infoEl.style.display = 'none'; return; }
 
@@ -4680,17 +4704,21 @@ function renderProjInfo(pane, p) {
     ? `<br><span style="color:var(--text-muted)">Invalidation (stop): ₹${p.invalidation.toFixed(2)}</span>` : '';
 
   pr.infoEl.innerHTML =
-    `<div style="margin-bottom:3px;">` +
+    `<div class="proj-head" style="margin-bottom:3px;" title="Click to collapse / expand">` +
       `<span class="proj-badge" style="background:${bandColor}">${p.band} confidence</span> ` +
-      `<b style="color:${moveColor}">₹${p.projected_price.toFixed(2)} (${sign}${p.pct_move.toFixed(1)}%)</b>` +
+      `<b style="color:${moveColor}">₹${p.projected_price.toFixed(2)} (${sign}${p.pct_move.toFixed(1)}%)</b> ` +
+      `<span style="color:var(--text-muted)">▾</span>` +
     `</div>` +
-    `<span style="color:var(--text-muted)">via</span> ${p.source} · conf ${p.confidence}%${confluence}` +
-    `<hr>` +
-    `<div style="color:var(--text-chart)">${p.reasoning}</div>` +
-    inval +
-    `<hr>` +
-    `<div class="proj-disclaimer">Indicative model projection from Elliott Wave + pattern ` +
-    `measured-moves — not investment advice. Verify against your own analysis.</div>`;
+    `<div class="proj-body">` +
+      `<span style="color:var(--text-muted)">via</span> ${p.source} · conf ${p.confidence}%${confluence}` +
+      `<hr>` +
+      `<div style="color:var(--text-chart)">${p.reasoning}</div>` +
+      inval +
+      `<hr>` +
+      `<div class="proj-disclaimer">Indicative model projection from Elliott Wave + pattern ` +
+      `measured-moves — not investment advice. Verify against your own analysis.</div>` +
+    `</div>`;
+  pr.infoEl.classList.toggle('collapsed', pr.collapsed);
   pr.infoEl.style.display = 'block';
 }
 

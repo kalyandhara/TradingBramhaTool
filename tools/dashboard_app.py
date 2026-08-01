@@ -92,6 +92,17 @@ def _analyze_url(sym) -> str | None:
     return f"{DASHBOARD_BASE}/?nav=analyze&symbol={quote(s, safe='')}"
 
 
+def _chart_url(sym) -> str | None:
+    """Deep-link that opens the multi-chart tool (chart_server on :5001) on `sym`.
+    Bare NSE tickers are the norm across this app — add .NS so yfinance resolves;
+    indices (leading ^) and already-suffixed symbols pass through."""
+    s = str(sym).strip().upper()
+    if not s:
+        return None
+    tkr = s if ("." in s or s.startswith("^")) else f"{s}.NS"
+    return f"http://localhost:5001/?symbol={quote(tkr, safe='^')}&tf=1d"
+
+
 def _analyze_colcfg() -> "st.column_config.LinkColumn":
     return st.column_config.LinkColumn(
         "Analyze", help="Open the 3-POV Council analysis in a new tab",
@@ -1530,6 +1541,36 @@ def _scanner_stats_html(card: dict) -> str:
     return (f'<div style="margin:8px 0 4px 0;">{stats}{risk_html}</div>')
 
 
+def _scanner_source_chips(scanners: str | None) -> str:
+    """One chip per scanner that fired on a daily-shortlist name.
+
+    The rank is a single number and the notes are a sentence; neither tells you
+    *which* scanners agreed, which is the actual clue — "Falling Wedge + Order
+    Block" and "52-Week High + Near Pivot" are the same confluence count and
+    completely different reads. The chips also carry the tier the ranking
+    already applies: scanners with measured backtest edge count a full point,
+    the rest half (opportunity_daily.MEASURED_EDGE_SCANNERS), so a list of all
+    grey chips is visibly weaker evidence than one with a green chip in it.
+    """
+    names = [s.strip() for s in str(scanners or "").split(",") if s.strip()]
+    if not names:
+        return ""
+    out = []
+    for n in names:
+        measured = n in od.MEASURED_EDGE_SCANNERS
+        fg, bg = (rs.TOKENS["good"], rs.TOKENS["good_soft"]) if measured else \
+                 (rs.TOKENS["text_body"], rs.TOKENS["surface_alt"])
+        tip = ("measured backtest edge vs a random-entry baseline — full weight"
+               if measured else
+               "not measured to beat a random-entry baseline — half weight")
+        out.append(
+            f'<span class="tb-chip" title="{n} — {tip}" '
+            f'style="background:{bg};color:{fg};border:1px solid {fg}33;'
+            f'margin:0 5px 4px 0;">{"✓ " if measured else ""}{n}</span>')
+    return (f'<div style="margin-top:6px;"><span class="tb-micro" '
+            f'style="margin-right:6px;">FIRED BY</span>{"".join(out)}</div>')
+
+
 def _render_scanner_card(card: dict, scanner_name: str) -> None:
     sym = card["symbol"]
     pattern_type = card.get("pattern_type", scanner_name)
@@ -1594,11 +1635,9 @@ def _render_scanner_card(card: dict, scanner_name: str) -> None:
             st.success(f"Saved {sym}")
     with c3:
         # Eye icon opens the multi-chart tool in a new tab (chart_server on :5001).
-        # Bare NSE tickers are the scanner-hub norm — add .NS so yfinance resolves.
-        chart_sym = sym if ("." in sym or sym.startswith("^")) else f"{sym}.NS"
         st.link_button(
             "👁",
-            url=f"http://localhost:5001/?symbol={chart_sym}&tf=1d",
+            url=_chart_url(sym),
             help="Open in Chart Tool",
             use_container_width=True,
         )
@@ -2288,6 +2327,7 @@ if current_page == "Opportunity Hub":
                 unsafe_allow_html=True)
 
             for _, row in _shortlist.iterrows():
+                _sym = str(row["symbol"])
                 _rt = int(row["overall_rating"]) if pd.notna(row.get("overall_rating")) else None
                 _plan = ""
                 if pd.notna(row.get("entry")) and pd.notna(row.get("stop")):
@@ -2295,24 +2335,53 @@ if current_page == "Opportunity Hub":
                              f'{row["entry"]:.2f} · Stop {row["stop"]:.2f}'
                              + (f' · Target {row["target"]:.2f}'
                                 if pd.notna(row.get("target")) else "") + '</span>')
+
+                _chips = _scanner_source_chips(row.get("scanners"))
+                # The stored note opens with "N scanners fired (A, B, C); …" —
+                # exactly what the chips now show, and in a less usable form.
+                # Drop that clause only when the chips actually rendered, so a
+                # row with no scanner list still reads as a full sentence.
+                _notes = str(row.get("notes") or "")
+                if _chips:
+                    _seg = _notes.split("; ")
+                    if len(_seg) > 1 and "scanner" in _seg[0] and "fired" in _seg[0]:
+                        _notes = "; ".join(_seg[1:])
+                        _notes = _notes[:1].upper() + _notes[1:]
+
                 st.markdown(
                     rs.card(
                         f'<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
                         f'<span class="tb-mono" style="font-size:15px;font-weight:700;'
                         f'color:{rs.TOKENS["text_muted"]};">#{int(row["rank"])}</span>'
-                        f'<b style="font-size:15px;">{row["symbol"]}</b>'
+                        f'<b style="font-size:15px;">{_sym}</b>'
                         f'{_rating_badge_html({"overall": _rt, "overall_breakdown": {}})}'
                         f'<span class="tb-chip" style="background:{rs.TOKENS["surface_alt"]};'
                         f'color:{rs.TOKENS["text_body"]};">score {row["score"]:.1f}</span>'
-                        f'<span class="tb-chip" style="background:{rs.TOKENS["accent_soft"]};'
+                        f'<span class="tb-chip" title="Scanners that agreed on this name" '
+                        f'style="background:{rs.TOKENS["accent_soft"]};'
                         f'color:{rs.TOKENS["accent"]};">{int(row["confluence"])} scanners</span>'
                         f'<span style="margin-left:auto;">{_plan}</span></div>'
                         f'<div class="tb-micro" style="margin-top:5px;">'
                         f'{row.get("industry") or "—"} · {row.get("sector") or "—"}</div>'
+                        f'{_chips}'
                         f'<div style="font-size:11.5px;color:{rs.TOKENS["text_body"]};'
-                        f'margin-top:3px;line-height:1.45;">{row.get("notes") or ""}</div>'
+                        f'margin-top:5px;line-height:1.45;">{_notes}</div>'
                     ),
                     unsafe_allow_html=True)
+
+                # Both actions are one click from the row that named the stock —
+                # the shortlist is a place to start research, and re-typing the
+                # symbol into the Analyzer is the friction that stops that.
+                _b1, _b2, _b3 = st.columns([1, 1, 6])
+                with _b1:
+                    _an = _analyze_url(_sym)
+                    if _an:
+                        st.link_button("↗ Analyze", url=_an, use_container_width=True,
+                                       help="Open the 3-POV Council analysis in a new tab")
+                with _b2:
+                    st.link_button("👁 Chart", url=_chart_url(_sym),
+                                   use_container_width=True,
+                                   help="Open in Chart Tool")
 
             st.caption(
                 "Ranked by **0.45 × Overall Rating + 0.30 × best scanner score + "
