@@ -75,7 +75,32 @@ _TONE = {
     "neutral": (TOKENS["text_body"], TOKENS["surface_alt"]),
 }
 
-MONO = "'Roboto Mono','Courier New',ui-monospace,monospace"
+# ──────────────────────────────────────────────────────────────────────────────
+# Typography (UI-1) — two roles, no webfont
+# ──────────────────────────────────────────────────────────────────────────────
+# Until now nothing in this stack set a base family: every surface inherited
+# Streamlit's stock face and Plotly's stock face, so the page read "classic" by
+# default rather than by decision. These two constants are that decision, and
+# `.streamlit/config.toml` points Streamlit's own widgets at the same pair so
+# the injected HTML and the native chrome agree.
+#
+# Deliberately *not* Inter — this wiki records "purple-to-white gradient + Inter
+# + 4 cards in a grid" as the tell of median AI output, and the cream/brown
+# palette here is a stated aesthetic commitment worth not diluting.
+#
+# Deliberately no webfont link. The dashboard runs on localhost against local
+# data; a Google Fonts request would add a network dependency and a flash of
+# unstyled text on every Streamlit rerun, to install a face nobody asked for.
+# Both stacks resolve to something installed on Windows 11.
+SANS = ("'Segoe UI Variable Text','Segoe UI',system-ui,-apple-system,"
+        "'Helvetica Neue',sans-serif")
+
+# Order matters and it was wrong before: 'Roboto Mono' led, but it is not
+# installed on Windows, so every figure on the dashboard fell through to
+# Courier New — the most dated face in the stack was rendering the numbers the
+# page is built around. Windows-native modern monos now win first.
+MONO = ("ui-monospace,'Cascadia Mono','Segoe UI Mono',Consolas,"
+        "'Roboto Mono','Courier New',monospace")
 
 #: Rendered when a value has no source. Never substitute a neutral number —
 #: a missing axis must render missing (the roadmap's core honesty device).
@@ -101,8 +126,15 @@ def report_css() -> str:
   --tb-accent: {t['accent']};        --tb-good: {t['good']};
   --tb-risk: {t['risk']};            --tb-info: {t['info']};
   --tb-absent: {t['absent']};
+  --tb-font: {SANS};
   --tb-mono: {MONO};
 }}
+/* Named explicitly rather than left to inherit: the docstring promises these
+   helpers work on any surface that can render HTML, so they must not depend on
+   Streamlit's theme cascade being there. Scoped to .tb-* only — a global rule
+   would stomp Streamlit's own chrome, which config.toml already handles. */
+.tb-card, .tb-chip, .tb-stat, .tb-callout, .tb-sec, .tb-micro,
+.tb-bar-fill, .tb-card-title {{ font-family:var(--tb-font); }}
 /* Micro-label: uppercase, letter-spaced, muted — names a figure without
    competing with it. */
 .tb-micro {{

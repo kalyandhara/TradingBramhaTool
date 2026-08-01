@@ -1,2 +1,9 @@
 [theme]
 primaryColor = "#ea580c"
+
+# UI-1 — typography. These mirror report_style.SANS / report_style.MONO so the
+# module's injected HTML and Streamlit's own widgets render in the same faces.
+# Change them in both places or not at all; the rationale (not Inter, no
+# webfont, why the mono order changed) is documented on those constants.
+font = "'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif"
+codeFont = "ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, 'Roboto Mono', 'Courier New', monospace"

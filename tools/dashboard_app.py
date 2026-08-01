@@ -15,6 +15,7 @@ Run:  py -3 -m streamlit run tools/dashboard_app.py
 import sys
 import csv
 import json
+import socket
 from datetime import date, datetime, timedelta, time
 from pathlib import Path
 from urllib.parse import quote
@@ -1113,6 +1114,40 @@ def _volume_profile(df: pd.DataFrame, n_bins: int = 50):
     return bin_centers, vap
 
 
+CHART_TOOL_PORT = 5001
+
+
+def render_chart_tool(symbol: str, height: int = 620, caption: bool = True) -> bool:
+    """Embed the Chart Tool for `symbol`; returns whether it rendered.
+
+    Extracted from the Predictive Analysis page (M4) when the Stock Analyzer
+    became a second caller — two copies of the port probe would have drifted.
+    The probe matters: `components.iframe` against a dead port renders a silent
+    blank rectangle, so the page has to say what's wrong instead.
+    """
+    chart_sym = symbol if ("." in symbol or symbol.startswith("^")) else f"{symbol}.NS"
+    try:
+        socket.create_connection(("127.0.0.1", CHART_TOOL_PORT), timeout=0.4).close()
+    except OSError:
+        st.warning(
+            f"Chart Tool server (port {CHART_TOOL_PORT}) is not running — start it "
+            "with `start.bat` (or `py tools/chart_server.py`) to embed the "
+            "annotated chart here."
+        )
+        return False
+    components.iframe(
+        f"http://localhost:{CHART_TOOL_PORT}/?symbol={chart_sym}&tf=1d",
+        height=height,
+    )
+    if caption:
+        st.caption(
+            "Overlays follow the indicator set saved in the Chart Tool — "
+            "enable Price Projection / VCP / Rounding Bottom there once and "
+            "every load carries them."
+        )
+    return True
+
+
 def build_chart(symbol: str, df: pd.DataFrame, ew: dict,
                 nifty_df: pd.DataFrame | None = None,
                 harmonic: dict | None = None) -> go.Figure:
@@ -2023,28 +2058,54 @@ if current_page == "Stock Analyzer":
                     f"{ew['note']}"
                 )
 
-                show_harmonic = st.checkbox(
-                    "Show Harmonic Pattern (Gartley/Bat/Butterfly/Crab)",
-                    key="sa_harmonic",
-                    help="Detects the most recent completed XABCD harmonic pattern "
-                         "with a valid PRZ within the last ~10 bars. Plots entry, "
-                         "stop (beyond X), and 0.382 / 0.618 / 1.0-of-AD targets.",
+                # UI-2 — the Chart Tool is the default chart here, as it already
+                # is on Predictive Analysis. The classic Plotly chart stays one
+                # click away because it is not strictly a subset: RS Line, TSI
+                # and CPR exist only there. Until those are ported, dropping it
+                # outright would lose three indicators to gain a nicer canvas.
+                classic_chart = st.toggle(
+                    "Classic chart (RS Line · TSI · CPR)",
+                    key="sa_classic_chart",
+                    help="The Chart Tool is richer — live crosshair, volume "
+                         "profile, Elliott/VCP/harmonic overlays, price "
+                         "projection — but it does not yet carry the RS Line, "
+                         "TSI or CPR panes. Flip this when you need those.",
                 )
-                harmonic = hp.detect_last_pattern(df) if show_harmonic else None
-                if show_harmonic:
-                    if harmonic:
-                        t = harmonic["trade"]
-                        st.success(
-                            f"**{harmonic['pattern']} ({harmonic['direction']})** — "
-                            f"Entry {t['entry']} · Stop {t['stop']} · "
-                            f"T1 {t['targets'][0]} / T2 {t['targets'][1]} / T3 {t['targets'][2]} · "
-                            f"R:R to T2 = {t['rr_to_t2']} · D pivot {harmonic['age_bars']} bars ago"
-                        )
-                    else:
-                        st.caption("No active harmonic pattern completing in the last 10 bars.")
 
-                st.plotly_chart(build_chart(symbol, df, ew, nifty_df=nifty_df, harmonic=harmonic),
-                                use_container_width=True)
+                if classic_chart:
+                    show_harmonic = st.checkbox(
+                        "Show Harmonic Pattern (Gartley/Bat/Butterfly/Crab)",
+                        key="sa_harmonic",
+                        help="Detects the most recent completed XABCD harmonic pattern "
+                             "with a valid PRZ within the last ~10 bars. Plots entry, "
+                             "stop (beyond X), and 0.382 / 0.618 / 1.0-of-AD targets.",
+                    )
+                    harmonic = hp.detect_last_pattern(df) if show_harmonic else None
+                    if show_harmonic:
+                        if harmonic:
+                            t = harmonic["trade"]
+                            st.success(
+                                f"**{harmonic['pattern']} ({harmonic['direction']})** — "
+                                f"Entry {t['entry']} · Stop {t['stop']} · "
+                                f"T1 {t['targets'][0]} / T2 {t['targets'][1]} / T3 {t['targets'][2]} · "
+                                f"R:R to T2 = {t['rr_to_t2']} · D pivot {harmonic['age_bars']} bars ago"
+                            )
+                        else:
+                            st.caption("No active harmonic pattern completing in the last 10 bars.")
+
+                    st.plotly_chart(build_chart(symbol, df, ew, nifty_df=nifty_df, harmonic=harmonic),
+                                    use_container_width=True)
+                # Harmonic lives on the Chart Tool's own indicator menu, so the
+                # checkbox above would be a second switch for the same overlay —
+                # it stays with the chart it drives.
+                elif not render_chart_tool(symbol):
+                    # Server down. Fall back to the classic chart rather than
+                    # leaving the page chartless behind a warning — this is the
+                    # analysis surface, and every read below assumes you have
+                    # looked at the price.
+                    st.plotly_chart(build_chart(symbol, df, ew, nifty_df=nifty_df),
+                                    use_container_width=True)
+
                 render_condition_table(mv_conds, tf_conds, cs_conds)
 
                 # ── 3-POV Council: Bull / Bear / Judge ──
@@ -3084,30 +3145,7 @@ if current_page == "Predictive Analysis":
                 # user has enabled there (M2 base zones, harmonic, trendlines, M3
                 # price projection, MA Bias, …). Indicator selection persists in
                 # the Chart Tool's own localStorage, so it survives reloads.
-                _pa_chart_sym = pa_sym if ("." in pa_sym or pa_sym.startswith("^")) \
-                    else f"{pa_sym}.NS"
-                import socket as _socket
-                try:
-                    _socket.create_connection(("127.0.0.1", 5001), timeout=0.4).close()
-                    _chart_up = True
-                except OSError:
-                    _chart_up = False
-                if _chart_up:
-                    components.iframe(
-                        f"http://localhost:5001/?symbol={_pa_chart_sym}&tf=1d",
-                        height=620,
-                    )
-                    st.caption(
-                        "Overlays follow the indicator set saved in the Chart Tool — "
-                        "enable Price Projection / VCP / Rounding Bottom there once and "
-                        "every Predictive Analysis load carries them."
-                    )
-                else:
-                    st.warning(
-                        "Chart Tool server (port 5001) is not running — start it with "
-                        "`start.bat` (or `py tools/chart_server.py`) to embed the "
-                        "annotated chart here."
-                    )
+                render_chart_tool(pa_sym)
 
                 # Setup Intelligence + Council — same engine as the Stock Analyzer.
                 st.divider()
