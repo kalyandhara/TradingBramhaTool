@@ -3,7 +3,7 @@ title: "FPV — Flow of Price, Volume, Ownership"
 category: concept
 tags: [fpv, ownership-flow, volume, price-action, shareholding, confirmation, smart-money]
 created: 2026-07-21
-updated: 2026-07-21
+updated: 2026-08-01
 sources: 1
 related:
   - sources/Crash-Proof-Market-Health-Ownership-Framework.md
@@ -44,7 +44,10 @@ The four combinations that time an entry:
 - **Ownership is quarterly and slow.** Price and volume are daily; the shareholding split updates per filing. FPV therefore blends a fast pair (price+volume) with a slow structural anchor (ownership) — the ownership leg sets *bias*, the price+volume leg sets *timing*.
 
 ## Variants / Parameters
-- **Ownership granularity:** the framework wants the full FII / DII / MF / Retail split. The dashboard's [nse_shareholding_fetch.py](tools/nse_shareholding_fetch.py) currently exposes **FII change only** — the DII/MF/retail legs are a data gap (see [[analyses/Decision-Support-Gating-Roadmap]]).
+- **Ownership granularity:** the framework wants the full FII / DII / MF / Retail split. **Closed 2026-08-01 (DS-2)** — [nse_shareholding_fetch.py](tools/nse_shareholding_fetch.py) now parses the whole SEBI shareholding-pattern XBRL: promoter, FPI Cat I/II, FDI, DII and its sub-legs (mutual funds, insurance, banks, pension, AIF), retail (≤ and > ₹2 lakh), NRI and bodies corporate, quarter over quarter. `fetch_ownership()` / `interpret_rotation()`; rendered as the Filter C card on the Stock Analyzer.
+  - **"FII" here = FPI Category I + II.** Foreign *direct* investment is parsed but excluded from the FII figure — a strategic stake is not the portfolio flow this concept reads.
+  - **Mutual funds are a subset of DII.** The two legs overlap and must never be added together or read as independent confirmations.
+  - **Still quarterly and lagging** — the reading describes the register on the filing date. That is the structural bias leg, exactly as this page's "ownership is slow" note says; it is not current positioning.
 - **Volume reference:** "volume up/down" is relative to a recent average (e.g. 20-day), consistent with the OI Momentum and CEAVET conventions already in the stack.
 
 ## Common Mistakes

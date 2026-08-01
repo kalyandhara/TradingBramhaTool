@@ -3,7 +3,7 @@ title: "bseindia.com — undocumented public API for announcements, corporate ac
 category: source
 tags: [bse, api, corporate-announcements, corporate-actions, shareholding-pattern, pledge, data-source]
 created: 2026-07-02
-updated: 2026-07-02
+updated: 2026-08-01
 sources: 1
 related:
   - strategies/Drop-Recovery-Reversal-Screen.md
@@ -63,3 +63,6 @@ None yet — findings recorded for a future follow-up to `tools/screener_scraper
 ## Follow-Up
 
 [[sources/BSE-NSE-BlockDeal-InsiderTrading-APIs-2026]] (2026-07-02) extends this same reverse-engineering approach to block deals, bulk deals, and insider trading on both BSE and NSE.
+
+> [!note] 2026-08-01 — the scripcode blocker turned out to be avoidable for shareholding data
+> The "Not yet solved" item above (NSE symbol → BSE scripcode) was treated as a prerequisite for using `CorporatesSHPSecuritybeta/w`. For the **shareholding pattern specifically it is not needed**: NSE's own `corporate-share-holdings-master` endpoint lists every quarterly filing **keyed by trading symbol** and links the XBRL, and that XBRL is the same SEBI `in-bse-shp` taxonomy BSE serves. The BSE scrip code is in fact *inside* the file, as the entity identifier (`RELIANCE` → `500325`) — so the file itself is a symbol→scripcode mapping, should one still be wanted for the pledge fields, which NSE's route does not obviously carry. Built out in DS-2, see [[analyses/Decision-Support-Gating-Roadmap]] and [nse_shareholding_fetch.py](tools/nse_shareholding_fetch.py).

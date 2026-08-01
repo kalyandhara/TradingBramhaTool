@@ -26,7 +26,7 @@ This roadmap sequences that as a distinct workstream, feeding [[analyses/Dashboa
 |---|---|---|
 | **A · Market health** ("2 of 5 fail → stand down") | Market Sentiment page + [market_verdict.py](tools/market_verdict.py) already emits **STAND DOWN / SELECTIVE / TRADE / AGGRESSIVE** on a "2+ caution flags → STAND DOWN" ladder | Verdict uses Nifty vs **200 SMA**, PMax trend, sector participation, advance/decline. Framework wants Nifty vs **50 EMA**, "breakouts working", "leaders strong", "volatility low" — partial overlap; three conditions unmodelled |
 | **B · Stock stage** | Scanner Hub Stage-2 scan + **Overall Rating /100** (M1, shipped 2026-07-20); Setup Intelligence panel | Largely built. Stage-2 is a scanner template; rating rollup exists |
-| **C · Ownership flow** | [nse_shareholding_fetch.py](tools/nse_shareholding_fetch.py) fetches **FII holding change only** | **DII / MF / Retail legs missing** — the framework's rotation read (MF↓ supply, retail↓ noise, DII stable) can't be computed yet |
+| **C · Ownership flow** | ✅ **Closed 2026-08-01 (DS-2)** — [nse_shareholding_fetch.py](tools/nse_shareholding_fetch.py) parses the full SEBI shareholding XBRL (promoter · FPI I/II · FDI · DII + MF/insurance/banks/pension/AIF · retail · NRI), q/q, with a Filter C card on the Stock Analyzer | *(as filed 2026-07-21: FII change only — and that fetch never actually worked; see the DS-2 outcome)* |
 | **FPV confirmation** (price+volume+ownership) | **OI Momentum** ([nse_oi_momentum.py](tools/nse_oi_momentum.py), new) reads price vs OI — a price+positioning cousin | The unified price+volume+ownership readout is not built as one panel |
 | **Combination matrix** (market × ownership) | — | **Not built.** This is the novel decision surface the framework is really about |
 
@@ -44,7 +44,7 @@ Sequenced cheapest-and-most-grounded first. Effort in the house style of [[analy
 - **Effort:** 2–3h if VIX/vol is the only new fetch. Mostly wiring existing signals into named lamps.
 - **Ships value:** turns the framework's master rule into a glanceable go/no-go, reusing the verdict engine.
 
-### DS-2 — Full ownership split (close the data gap for Filter C)
+### DS-2 — Full ownership split (close the data gap for Filter C) — ✅ SHIPPED 2026-08-01
 **Goal:** fetch the whole shareholding pattern — **FII / DII / MF / Retail / Promoter** quarter-over-quarter — not just FII change.
 - **Data:** extend [nse_shareholding_fetch.py](tools/nse_shareholding_fetch.py); the BSE/NSE shareholding-pattern XBRL already parsed for FII carries the other categories (see [[sources/BSEIndia-Public-API-Corporate-Data-2026]]).
 - **UI:** an ownership-rotation card on the Stock Analyzer / India Market Intel: four arrows (FII↑ MF↓ Retail↓ DII→) with the smart-money-rotation interpretation from [[concepts/FPV-Flow-Price-Volume-Ownership]].
@@ -81,7 +81,8 @@ Sequenced cheapest-and-most-grounded first. Effort in the house style of [[analy
 ## Action Taken / Plan
 - **Sequencing rule (inherited):** don't start DS-N until DS-(N−1) ships and gets one session of live use. Prevents shipping the FPV chip before the ownership data that makes it honest.
 - ✅ **DS-1 SHIPPED 2026-08-01** — [market_health.py](tools/market_health.py) + a five-lamp panel on the Market Sentiment page. See Outcome.
-- ⏭ **DS-2 is next and is the real work** — the FII/DII/MF/Retail split is the only genuine data gap in this roadmap, and it gates both DS-3 and DS-4.
+- ✅ **DS-2 SHIPPED 2026-08-01** — the full ownership split, read from the SEBI XBRL. **The roadmap's only real data gap is closed**, so DS-3 and DS-4 are now pure composition. See Outcome.
+- ⏭ **DS-3 next** — the market × ownership matrix. Both of its axes now exist: `market_health.evaluate()` and `nse_shareholding_fetch.fetch_ownership()`.
 - **Relationship to the main roadmap:** this is the concrete expansion of [[analyses/Dashboard-UI-Roadmap]] Phase 2's "turn ingested knowledge into features" line, for the market-health/ownership theme specifically.
 
 ## Outcome (fill in later)
@@ -114,6 +115,52 @@ Sequenced cheapest-and-most-grounded first. Effort in the house style of [[analy
   - **Still hand-set.** No threshold here is backtested — the caveat in
     [[strategies/Crash-Proof-3-Filter-System]] stands, and the "prevents 80% of losses"
     claim remains the source author's.
+- **2026-08-01 — DS-2 SHIPPED, verified & deployed.** The full FII / DII / MF / Retail /
+  Promoter split now comes from the SEBI shareholding-pattern XBRL via NSE.
+  [nse_shareholding_fetch.py](tools/nse_shareholding_fetch.py) gained
+  `parse_shareholding` / `fetch_ownership` / `interpret_rotation`, and the Stock
+  Analyzer gained a **Filter C card**.
+  - **The estimate was right about the effort and wrong about the reason.** The plan
+    said "mostly XBRL tag discovery for DII/MF/retail, mirroring the existing FII
+    parser". There was no FII parser to mirror: `parse_fii_pct` tried four regexes that
+    assumed the category name sat inside the fact's own tag, and the module's docstring
+    admitted none of it had ever run against live NSE. **Run against a real filing, all
+    four match nothing.** Since a `None` merely skips the symbol, `build_dataset` had
+    been returning an **empty frame for every symbol, silently** — a latent bug the
+    Other Screeners page depends on, fixed here as a side effect.
+  - **The filing is dimensional, which is the whole discovery.** One repeated fact tag
+    (`ShareholdingAsAPercentageOfTotalNumberOfShares`) whose category lives in the
+    `contextRef` as an `explicitMember` on `CategoryOfShareholdersAxis`. Build
+    contextRef→member first, then read facts through it, and the **entire** split falls
+    out — not just an FII number. Only single-member contexts are read; filings stack a
+    shareholder-name dimension on top for individual holders, which would otherwise
+    double-count into their own category.
+  - **The BSE scripcode blocker was sidestepped, not solved.**
+    [[sources/BSEIndia-Public-API-Corporate-Data-2026]] flagged NSE-symbol→BSE-scripcode
+    mapping as a prerequisite for the shareholding endpoint. NSE serves the **same
+    `in-bse-shp` XBRL** keyed by trading symbol, so nothing needed mapping. (The scrip
+    code is *inside* the file, as the entity identifier — RELIANCE carries 500325.)
+  - **Cross-checks travel with the data.** The filing-master row independently reports
+    promoter and public percentages, so every parse is reconciled against them and the
+    result carries `reconciles`; the card warns loudly when it is false. Verified across
+    RELIANCE / TCS / TITAN / CUPID / SHADOWFAX (large, mid, small, recent listing) —
+    all reconcile to the pp, all total 100.00%.
+  - **Two fixes found while reading the old code:** filings were sorted on a `toDate`
+    key **these records do not have** (so ordering was luck), and a *revised* filing is
+    republished under the same period date and would have read as an extra quarter with
+    zero change. Now sorted on the parsed period and de-duplicated.
+  - **Live rotations, and they differ meaningfully.** CUPID **SMART MONEY IN** (FII
+    +3.16pp, retail −0.72pp — and it sits at #2 on the stored Opportunity Hub
+    shortlist); RELIANCE **DISTRIBUTION** (FII −1.48pp while retail +0.22pp);
+    TITAN **MIXED**.
+  - **Scope held deliberately short of a signal.** `interpret_rotation` reads ownership
+    *only*. The framework's real gate ("FII accumulating into a **weak** market =
+    watchlist, not a buy") needs market health — that is DS-3 — and the FPV
+    combinations need price+volume, which is DS-4. The card says so, because a rotation
+    read alone is exactly the mistake [[concepts/FPV-Flow-Price-Volume-Ownership]]
+    warns about.
+  - **Flat band is 0.10 pp** to keep filing noise from reading as rotation — hand-set,
+    like everything else here, and not backtested.
 
 ## Related Pages
 - [[strategies/Crash-Proof-3-Filter-System]] — the system this roadmap surfaces.
