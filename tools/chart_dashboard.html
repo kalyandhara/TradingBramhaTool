@@ -1079,6 +1079,13 @@ function keltnerSeries(bars, period, mult) {
   return {mid, upper, lower};
 }
 
+// The band the RSI pane treats as neutral. 60/30 rather than the textbook
+// 70/30: the framework reads a hold above 60 as trend strength and a break
+// under 30 as washout, which is the same pair the ROC+RSI zone overlay and
+// the RSI-60-40 setup already use.
+const RSI_OB = 60;
+const RSI_OS = 30;
+
 // Wilder RSI. Previously used an accumulator seed that could produce
 // avgGain=0 even when the price series was monotonically rising in the small
 // (e.g. a liquid ETF where daily diffs frequently round to 0.00). One rare
@@ -1107,6 +1114,22 @@ function rsiSeries(bars, period = 14) {
     out.push({time: bars[i].time, value});
   }
   return out;
+}
+
+// Isolates the excursions where an oscillator sits outside a threshold, so a
+// BaselineSeries anchored at that threshold can shade them. Each excursion
+// keeps its two bracketing in-band points: the baseline then clips both the
+// fill and the colored line at the level itself rather than at the bar that
+// broke it, so the shading starts exactly on the 60/30 line. Everything else
+// is whitespace, which leaves the pane blank there.
+function bandExcursions(data, level, dir) {
+  const isOut = v => dir > 0 ? v > level : v < level;
+  return data.map((p, i) => {
+    const near = isOut(p.value) ||
+                 (i > 0 && isOut(data[i - 1].value)) ||
+                 (i < data.length - 1 && isOut(data[i + 1].value));
+    return near ? p : {time: p.time};
+  });
 }
 
 function macdCalc(bars, fast = 12, slow = 26, signal = 9) {
@@ -2261,11 +2284,43 @@ function applyIndicators(pane) {
         color: '#7b61ff', lineWidth: 1.5,
         priceLineVisible: false, lastValueVisible: true,
       });
-      sub.series.createPriceLine({price:70, color:'rgba(248,81,73,0.45)',  lineWidth:1, lineStyle:1, axisLabelVisible:false});
+      // Guides at the working band. 60/30 are the live thresholds the
+      // shading keys off; 70 stays as a fainter deep-overbought marker.
+      sub.series.createPriceLine({price:70, color:'rgba(248,81,73,0.22)', lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      sub.series.createPriceLine({price:RSI_OB, color:'rgba(248,81,73,0.45)',  lineWidth:1, lineStyle:1, axisLabelVisible:false});
       sub.series.createPriceLine({price:50, color:'rgba(140,140,140,0.25)',lineWidth:1, lineStyle:2, axisLabelVisible:false});
-      sub.series.createPriceLine({price:30, color:'rgba(63,185,80,0.45)',  lineWidth:1, lineStyle:1, axisLabelVisible:false});
+      sub.series.createPriceLine({price:RSI_OS, color:'rgba(63,185,80,0.45)',  lineWidth:1, lineStyle:1, axisLabelVisible:false});
+      // Overbought / oversold shading. Added after the base line so both the
+      // fill and the recolored segment sit on top of the purple RSI. Each is
+      // a baseline anchored on its own threshold with the far half made
+      // transparent, so only the out-of-band excursion paints.
+      sub.obFill = sub.chart.addBaselineSeries({
+        baseValue: {type: 'price', price: RSI_OB},
+        topLineColor:    '#f85149', lineWidth: 2,
+        topFillColor1:   'rgba(248,81,73,0.32)',
+        topFillColor2:   'rgba(248,81,73,0.04)',
+        bottomLineColor: 'rgba(0,0,0,0)',
+        bottomFillColor1:'rgba(0,0,0,0)',
+        bottomFillColor2:'rgba(0,0,0,0)',
+        priceLineVisible: false, lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      sub.osFill = sub.chart.addBaselineSeries({
+        baseValue: {type: 'price', price: RSI_OS},
+        topLineColor:    'rgba(0,0,0,0)', lineWidth: 2,
+        topFillColor1:   'rgba(0,0,0,0)',
+        topFillColor2:   'rgba(0,0,0,0)',
+        bottomLineColor: '#3fb950',
+        bottomFillColor1:'rgba(63,185,80,0.04)',
+        bottomFillColor2:'rgba(63,185,80,0.32)',
+        priceLineVisible: false, lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
     }
-    pane.subCharts.rsi.series.setData(padToBars(rsiSeries(bars, 14), bars));
+    const rsiData = rsiSeries(bars, 14);
+    pane.subCharts.rsi.series.setData(padToBars(rsiData, bars));   // primary → full grid
+    pane.subCharts.rsi.obFill.setData(bandExcursions(rsiData, RSI_OB,  1));
+    pane.subCharts.rsi.osFill.setData(bandExcursions(rsiData, RSI_OS, -1));
   }
 
   if (pane.indicators.has('macd')) {
