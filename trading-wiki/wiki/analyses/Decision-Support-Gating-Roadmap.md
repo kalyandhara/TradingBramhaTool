@@ -4,7 +4,7 @@ category: analysis
 tags: [roadmap, decision-support, market-health, ownership-flow, fpv, gating, shareholding, dashboard]
 timeframe: milestone-plan
 created: 2026-07-21
-updated: 2026-07-21
+updated: 2026-08-01
 sources: 1
 related:
   - sources/Crash-Proof-Market-Health-Ownership-Framework.md
@@ -37,7 +37,7 @@ This roadmap sequences that as a distinct workstream, feeding [[analyses/Dashboa
 
 Sequenced cheapest-and-most-grounded first. Effort in the house style of [[analyses/Dashboard-UI-Roadmap]].
 
-### DS-1 — Align the market-health gate to the framework's five conditions (highest ROI, lowest risk)
+### DS-1 — Align the market-health gate to the framework's five conditions — ✅ SHIPPED 2026-08-01
 **Goal:** the Market Sentiment verdict explicitly reports the framework's five conditions (Nifty>50 EMA · breadth positive · breakouts working · leaders strong · volatility low) and applies the **2-of-5 → STAND DOWN** rule.
 - **Data:** breadth + regime + sector participation already feed `market_verdict`. Add: Nifty-vs-50-EMA (trivial), a volatility read (India VIX or realised vol — VIX fetch may be new), "breakouts working" (share of recent Scanner Hub breakouts still holding — derivable), "leaders strong" (leadership-basket trend — derivable from sector map / RS).
 - **UI:** a 5-lamp checklist on the Market Sentiment page above the existing verdict; the verdict's caution ladder already renders.
@@ -80,11 +80,40 @@ Sequenced cheapest-and-most-grounded first. Effort in the house style of [[analy
 
 ## Action Taken / Plan
 - **Sequencing rule (inherited):** don't start DS-N until DS-(N−1) ships and gets one session of live use. Prevents shipping the FPV chip before the ownership data that makes it honest.
-- **Owner:** user-driven; not started. **DS-1 recommended first** (highest ROI, extends an existing engine).
+- ✅ **DS-1 SHIPPED 2026-08-01** — [market_health.py](tools/market_health.py) + a five-lamp panel on the Market Sentiment page. See Outcome.
+- ⏭ **DS-2 is next and is the real work** — the FII/DII/MF/Retail split is the only genuine data gap in this roadmap, and it gates both DS-3 and DS-4.
 - **Relationship to the main roadmap:** this is the concrete expansion of [[analyses/Dashboard-UI-Roadmap]] Phase 2's "turn ingested knowledge into features" line, for the market-health/ownership theme specifically.
 
 ## Outcome (fill in later)
 - _2026-07-21: filed from the crash-proof framework ingest. Nothing built yet._
+- **2026-08-01 — DS-1 SHIPPED, verified & deployed.** [market_health.py](tools/market_health.py)
+  models all five conditions by name with the framework's 2-of-5 rule. The estimate held
+  (India VIX was the only new fetch, and `^INDIAVIX` resolves on yfinance login-free), but
+  two things were worth more than the wiring:
+  - **The third state.** Every condition returns PASS / FAIL / **NOT_CHECKED**, the last
+    never counting toward the gate, and a gate with **nothing** measured returns
+    **NOT ASSESSED** rather than CLEAR. Two guard rails enforce it: a basket under 50%
+    fetch coverage refuses to judge, and a tape with fewer than 5 breakouts refuses to
+    read its own silence as "breakouts fail". Both are the *data-fault-wearing-a-market-
+    result's-clothes* shape this repo keeps hitting (the throttled fan-out, the NaN
+    forming bar).
+  - **It is NOT folded into the ribbon verdict**, against the letter of the plan above.
+    Breadth and regime feed both engines; adding these failures to `build_verdict`'s
+    caution count double-penalises the same weakness with no lamp to explain it. Fusion
+    is DS-3's job, where the interaction is the actual product. It renders beside the
+    composite as a second opinion.
+  - **The two engines disagreed immediately, and that is the point.** On 2026-08-01 the
+    ribbon read **STAND DOWN** while Filter A read **CLEAR (1 of 5 failed)**: NIFTY was
+    **+1.52% above its 50 EMA** (the framework's level) and **−2.17% below its 200 SMA**
+    (the ribbon's). A single aggregate verdict could not have surfaced that; five named
+    lamps make it arguable per condition.
+  - **Live read** (60-name basket, 56/60 coverage): 50 EMA PASS · breadth **FAIL**
+    (700 adv / 1,682 decl) · breakouts PASS (32/50 holding) · leaders PASS (11/11 above
+    their 21 EMA) · volatility PASS (VIX 11.76 vs 16.41 median). Conditions 1/2/5 are
+    nearly free and render on load; 3/4 sit behind a button, cached 30 min.
+  - **Still hand-set.** No threshold here is backtested — the caveat in
+    [[strategies/Crash-Proof-3-Filter-System]] stands, and the "prevents 80% of losses"
+    claim remains the source author's.
 
 ## Related Pages
 - [[strategies/Crash-Proof-3-Filter-System]] — the system this roadmap surfaces.
