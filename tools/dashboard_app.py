@@ -901,6 +901,105 @@ _TONE_DOT   = {"good": "🟢", "neutral": "🟡", "bad": "🔴"}
 _TONE_COLOR = {"good": "green", "neutral": "orange", "bad": "red"}
 
 
+# ── Filter C — ownership flow (DS-2) ──────────────────────────────────────────
+#: Cached a full day: the underlying filing is QUARTERLY, so anything shorter
+#: re-downloads two ~500 KB XBRLs from NSE to redraw an identical card.
+@st.cache_data(ttl=86400, show_spinner=False)
+def cached_ownership(symbol: str):
+    return nse.fetch_ownership(symbol)
+
+
+def render_ownership_flow(symbol: str) -> None:
+    """Filter C of the Crash-Proof system — the quarter-over-quarter rotation.
+
+    Behind a button because each read pulls two multi-hundred-KB XBRL filings
+    from NSE, and because the data only changes once a quarter — paying that on
+    every analyzer run would be pure waste.
+    """
+    st.markdown(rs.section("Filter C — ownership flow (quarterly)"),
+                unsafe_allow_html=True)
+    _key = f"own_{symbol}"
+    if not st.session_state.get(_key):
+        if st.button("Fetch shareholding pattern", key=f"own_btn_{symbol}",
+                     help="Reads the last two quarterly SEBI shareholding filings "
+                          "from NSE (~10s)."):
+            st.session_state[_key] = True
+            st.rerun()
+        st.caption("Not fetched — the ownership leg is unmeasured until you pull it.")
+        return
+
+    with st.spinner("Reading the last two shareholding filings…"):
+        try:
+            own = cached_ownership(symbol)
+        except Exception as exc:
+            own = None
+            st.warning(f"Shareholding fetch failed — {exc}")
+    if not own:
+        st.info("No readable shareholding filing for this symbol. The ownership "
+                "leg stays unmeasured — that is not the same as 'no institutions'.")
+        return
+
+    rot = nse.interpret_rotation(own["change"])
+    _fg, _bg = rs.tone_colors(rot["tone"])
+
+    # The filing period leads the card. A shareholding read presented without its
+    # quarter invites being taken as current positioning, which it never is.
+    st.markdown(
+        rs.callout(f'{rot["headline"]} — as of {own["as_of"]}'
+                   + (f' (vs {own["prev_as_of"]})' if own["prev_as_of"]
+                      else ' · no prior quarter to compare'),
+                   rot["detail"], tone=rot["tone"]),
+        unsafe_allow_html=True)
+
+    if not own["reconciles"]:
+        st.warning("This filing did **not** reconcile against NSE's own promoter / "
+                   "public figures — treat the split below as unverified.")
+
+    _latest = own["latest"]
+    _labels = {"fii": "FII / FPI", "dii": "DII", "mf": "Mutual funds",
+               "retail": "Retail", "promoter": "Promoter"}
+    for _col, _leg in zip(st.columns(len(nse.HEADLINE_LEGS)), nse.HEADLINE_LEGS):
+        _held, _chg = _latest.get(_leg), own["change"].get(_leg)
+        _dir = nse.direction(_chg)
+        _dc = {"up": rs.TOKENS["good"], "down": rs.TOKENS["risk"],
+               "flat": rs.TOKENS["text_muted"], "unknown": rs.TOKENS["absent"]}[_dir]
+        with _col:
+            st.markdown(
+                rs.card(
+                    f'<div class="tb-micro">{_labels[_leg]}</div>'
+                    f'<div class="tb-mono" style="font-size:17px;font-weight:700;'
+                    f'margin-top:2px;">'
+                    + (rs.NA if _held is None else f'{_held:.2f}%') + '</div>'
+                    f'<div style="font-size:11px;color:{_dc};font-weight:600;'
+                    f'margin-top:2px;">{nse.ARROWS[_dir]} '
+                    + ("no prior quarter" if _chg is None else f'{_chg:+.2f} pp') +
+                    '</div>'),
+                unsafe_allow_html=True)
+
+    _marks = {nse.MET: ("✓", rs.TOKENS["good"]), nse.NOT_MET: ("✗", rs.TOKENS["risk"]),
+              nse.UNKNOWN: ("?", rs.TOKENS["absent"])}
+    _crit = "".join(
+        f'<span class="tb-chip" style="background:{_marks[c["state"]][1]}1a;'
+        f'color:{_marks[c["state"]][1]};border:1px solid {_marks[c["state"]][1]}33;">'
+        f'{_marks[c["state"]][0]} {c["label"]}</span>'
+        for c in rot["criteria"])
+    st.markdown(
+        f'<div style="margin-top:6px;"><span class="tb-micro" '
+        f'style="margin-right:6px;">FILTER C CRITERIA</span>{_crit}</div>',
+        unsafe_allow_html=True)
+
+    st.caption(
+        f"Read straight from the SEBI shareholding-pattern XBRL (the regulatory "
+        f"filing, not an aggregator). **Mutual funds are a subset of DII** — those "
+        f"two bars overlap and do not add. Moves under "
+        f"{rot['flat_band_pp']:.2f} pp read as flat (filing noise). "
+        "**Quarterly and lagging**: this describes the register on the filing date, "
+        "not today's positioning. It is the *structural* leg only — the framework "
+        "reads it against market health (DS-3) and price+volume (DS-4) before it "
+        "means buy or avoid. On its own, FII↑ into a falling price is a watchlist, "
+        "not a signal.")
+
+
 def render_setup_intelligence(intel) -> None:
     """Scannable plain-language setup panel derived from the council's evidence."""
     with st.container(border=True):
@@ -1960,6 +2059,10 @@ if current_page == "Stock Analyzer":
                 render_setup_intelligence(
                     council.setup_intelligence(bundle, bull, bear, card)
                 )
+
+                # Ownership sits directly under the setup read: the structural
+                # leg that says who has been buying the thing the setup likes.
+                render_ownership_flow(symbol)
 
                 st.markdown("### 🧭 Council Verdict — Bull vs Bear vs Judge")
                 render_council(bundle, bull, bear, card)

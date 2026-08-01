@@ -1,35 +1,52 @@
 #!/usr/bin/env python3
 """
 nse_shareholding_fetch.py
-EXPERIMENTAL — free, no-login fallback for sector_rotation.py's input data.
+Shareholding-pattern reader — the ownership leg (Filter C) of the Crash-Proof
+3-Filter System, plus the FII-change input sector_rotation.py expects.
 
-Builds the same input that sector_rotation.py expects from a screener.in
-export (Name, Mar Cap, Change in FII holding %, Industry) but sourced
-directly from NSE's public corporate-filings APIs instead of screener.in.
+Source: NSE's public `corporate-share-holdings-master` endpoint lists every
+quarterly shareholding filing per symbol with a link to its XBRL, and the XBRL
+is the SEBI-mandated `in-bse-shp` taxonomy — the regulatory filing itself, not a
+third-party recomputation. No login, no cookie.
 
-Two data points NSE does not expose as clean JSON, scraped here:
-  1. FII/FPI holding % per company per quarter -> from shareholding-pattern
-     XBRL filings (corporate-share-holdings-master endpoint + XBRL parse).
-  2. Industry classification -> from quote-equity API.
+DS-2 (2026-08-01) — what changed and why it matters
+---------------------------------------------------
+This module used to guess. `parse_fii_pct` tried four regexes that assumed the
+category name sat inside the fact's own tag, and the docstring admitted none of
+it had ever run against live NSE. Run against a real filing, all four match
+NOTHING and return None — which means `build_dataset` returned an EMPTY frame
+for every symbol it was ever pointed at, silently, because a None just skips.
 
-CAVEATS (untested against live NSE — this sandbox's IP is blocked by NSE's
-Akamai CDN with "Access Denied" regardless of headers/session warmup, so
-this can only be validated by running it from a real home/office IP):
-  - XBRL tag names for FII/FPI holding vary slightly by filing software
-    version. parse_fii_pct() tries several known tag patterns; if NSE
-    changes filing format or a filer uses an unrecognized tag, that
-    symbol will silently return None and get skipped — check the log.
-  - NSE rate-limits aggressively; this sleeps between requests but may
-    still need retries/backoff tuning on first real run.
-  - Only the latest two quarterly filings are compared (most recent vs
-    immediately preceding) to compute the FII % change.
+The actual XBRL is **dimensional**: one repeated fact tag,
+`ShareholdingAsAPercentageOfTotalNumberOfShares`, whose category lives in the
+`contextRef` it points at, as an `explicitMember` on `CategoryOfShareholdersAxis`.
+So the parse is: build contextRef -> member from the context definitions, then
+read each fact through it. That yields the WHOLE split — promoter, FPI, DII,
+mutual funds, insurance, banks, pension, retail — not just an FII number.
+
+Verified live 2026-08-01 against RELIANCE, TCS, TITAN, CUPID and SHADOWFAX
+(large / mid / small / recent listing). Every one reconciles: the parsed
+promoter and public percentages equal the `pr_and_prgrp` / `public_val` fields
+the filing-master endpoint reports independently, and the categories total
+100.00%. `parse_shareholding` returns those cross-checks with the data so a
+caller can refuse a filing that does not reconcile rather than trust it.
+
+Values in the XBRL are fractions (0.5048); everything here is percent (50.48).
+
+Caveats that remain
+  - Filers omit zero rows, so a category absent from a filing comes back None,
+    not 0.0 — a category nobody filed is not a measured zero.
+  - Ownership is QUARTERLY and lags the market by weeks. Every reading carries
+    its filing period; never present it as current positioning.
+  - NSE rate-limits aggressively; the fetchers sleep between requests.
 
 Run manually:
+  py -3 tools/nse_shareholding_fetch.py --ownership RELIANCE TCS
   py -3 tools/nse_shareholding_fetch.py SYMBOL1 SYMBOL2 ...
   py -3 tools/nse_shareholding_fetch.py --top200    # use Bhavcopy top-200 list
 
-Output: nse_fii_change_<date>.csv in the same shape sector_rotation.py
-expects (Name, Mar Cap, Change in FII holding %, Industry), so you can run:
+Output (the non-`--ownership` modes): nse_fii_change_<date>.csv in the shape
+sector_rotation.py expects (Name, Mar Cap, Change in FII holding %, Industry):
   py -3 tools/sector_rotation.py nse_fii_change_<date>.csv
 """
 
@@ -83,56 +100,292 @@ def get_shareholding_filings(session: requests.Session, symbol: str) -> list[dic
 
     filings = data if isinstance(data, list) else data.get("data", [])
     filings = [f for f in filings if f.get("symbol", "").upper() == symbol.upper()]
-    filings.sort(key=lambda f: f.get("toDate", ""), reverse=True)
-    return filings
+
+    # These records carry `date` ("30-JUN-2026"), not `toDate` — the old sort key
+    # was absent on every row, so this list was ordered only by luck. Sort on the
+    # parsed period, then drop revisions of a period we already have (a revised
+    # filing is republished under the SAME date and would otherwise read as an
+    # extra quarter with zero change).
+    filings.sort(key=lambda f: (_period_date(f.get("date")) or datetime.min,
+                                str(f.get("broadcastDate") or "")), reverse=True)
+    deduped, seen = [], set()
+    for f in filings:
+        d = f.get("date")
+        if d in seen:
+            continue
+        seen.add(d)
+        deduped.append(f)
+    return deduped
 
 
-# XBRL tag patterns observed across common filing-software vendors for
-# "Total shareholding of FII/FPI as a % of total share capital".
-_FII_TAG_PATTERNS = [
-    r"TotalShareholdingAsAPercentageOfTotalNumberOfShares[^>]*FII[^>]*>([\d.]+)<",
-    r"ForeignPortfolioInvestor[^>]*TotalShareholdingPercentage[^>]*>([\d.]+)<",
-    r"in-bse-fin:PercentageOfShareholdingForeignPortfolioInvestor[^>]*>([\d.]+)<",
-    r"<.*?FIIHolding.*?>([\d.]+)<",
-]
+def _period_date(s: str | None) -> datetime | None:
+    """'30-JUN-2026' -> datetime. Returns None on anything unexpected."""
+    if not s:
+        return None
+    try:
+        return datetime.strptime(str(s).strip(), "%d-%b-%Y")
+    except ValueError:
+        return None
+
+
+# ── XBRL parse ────────────────────────────────────────────────────────────────
+#: Our key -> the `CategoryOfShareholdersAxis` member that carries it, in SEBI's
+#: in-bse-shp taxonomy. Confirmed present across five live filings 2026-08-01.
+CATEGORY_MEMBERS = {
+    "promoter":         "ShareholdingOfPromoterAndPromoterGroupMember",
+    "public":           "PublicShareholdingMember",
+    "total":            "ShareholdingPatternMember",
+    # foreign
+    "fpi_cat1":         "InstitutionsForeignPortfolioInvestorCategoryOneMember",
+    "fpi_cat2":         "InstitutionsForeignPortfolioInvestorCategoryTwoMember",
+    "fdi":              "ForeignDirectInvestmentMember",
+    "foreign_total":    "InstitutionsForeignMember",
+    # domestic institutions
+    "dii":              "InstitutionsDomesticMember",
+    "mf":               "MutualFundsOrUTIMember",
+    "insurance":        "InsuranceCompaniesMember",
+    "banks":            "BanksMember",
+    "pension":          "ProvidentFundsOrPensionFundsMember",
+    "aif":              "AlternativeInvestmentFundsMember",
+    # non-institutional
+    "retail_small":     "ResidentIndividualShareholdersHoldingNominalShareCapitalUpToRsTwoLakhMember",
+    "retail_large":     "ResidentIndividualShareholdersHoldingNominalShareCapitalInExcessOfRsTwoLakhMember",
+    "nri":              "NonResidentIndiansMember",
+    "bodies_corporate": "BodiesCorporateMember",
+    "non_institutions": "NonInstitutionsMember",
+}
+
+#: Headline legs the ownership card reads, in display order.
+HEADLINE_LEGS = ("fii", "dii", "mf", "retail", "promoter")
+
+_PCT_FACT = re.compile(
+    r'<in-bse-shp:ShareholdingAsAPercentageOfTotalNumberOfShares\s+contextRef="([^"]+)"'
+    r'[^>]*>([\d.eE+-]+)<')
+_CONTEXT = re.compile(r'<xbrli:context id="([^"]+)">(.*?)</xbrli:context>', re.S)
+_MEMBER = re.compile(r'<xbrldi:explicitMember[^>]*>([^<]+)</xbrldi:explicitMember>')
+
+
+def parse_shareholding(xbrl_text: str) -> dict | None:
+    """Every shareholding category in one filing, as percentages.
+
+    Only contexts carrying EXACTLY ONE category member are read. Filings also
+    describe individual shareholders (a name dimension stacked on the category
+    one); those multi-dimension contexts are the per-shareholder rows and would
+    otherwise be double-counted into their own category.
+
+    Returns None when the file yields no categories at all — an unparseable
+    filing must not read as a company with no institutional holders.
+    """
+    if not xbrl_text:
+        return None
+    contexts = dict(_CONTEXT.findall(xbrl_text))
+    by_member: dict[str, float] = {}
+    for cid, val in _PCT_FACT.findall(xbrl_text):
+        members = _MEMBER.findall(contexts.get(cid, ""))
+        if len(members) != 1:
+            continue
+        try:
+            by_member[members[0].split(":")[-1]] = float(val) * 100.0
+        except ValueError:
+            continue
+    if not by_member:
+        return None
+
+    out: dict = {k: by_member.get(m) for k, m in CATEGORY_MEMBERS.items()}
+
+    def _sum(*keys):
+        vals = [out[k] for k in keys if out.get(k) is not None]
+        return round(sum(vals), 4) if vals else None
+
+    # "FII" today means SEBI's FPI Category I + II. FDI is deliberately excluded
+    # — a strategic foreign stake is not the portfolio flow the framework reads.
+    out["fii"] = _sum("fpi_cat1", "fpi_cat2")
+    out["retail"] = _sum("retail_small", "retail_large")
+    out = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in out.items()}
+
+    # Cross-checks travel WITH the data so a caller can reject a filing that does
+    # not reconcile instead of quietly trusting a bad parse.
+    total = out.get("total")
+    out["checks"] = {
+        "categories_parsed": len(by_member),
+        "total_pct": total,
+        "totals_to_100": (total is not None and abs(total - 100.0) <= 0.5),
+    }
+    return out
 
 
 def parse_fii_pct(xbrl_text: str) -> float | None:
-    for pattern in _FII_TAG_PATTERNS:
-        m = re.search(pattern, xbrl_text, re.IGNORECASE)
-        if m:
-            try:
-                return float(m.group(1))
-            except ValueError:
-                continue
-    return None
+    """FII/FPI holding % for one filing. Kept for callers of the old API."""
+    parsed = parse_shareholding(xbrl_text)
+    return None if not parsed else parsed.get("fii")
+
+
+def _fetch_filing(session: requests.Session, filing: dict, symbol: str) -> dict | None:
+    """Fetch + parse one filing, and reconcile it against the master record.
+
+    The master row independently reports promoter and public percentages, so a
+    parse that disagrees with them is a parse we should not use — this is the
+    one free correctness check available without a second data source.
+    """
+    url = filing.get("xbrl") or filing.get("xbrlFile")
+    if not url:
+        return None
+    try:
+        r = session.get(url, headers=HEADERS, timeout=30)
+        r.raise_for_status()
+    except Exception as e:
+        log.warning("[%s] XBRL fetch failed (%s): %s", symbol, filing.get("date"), e)
+        return None
+    parsed = parse_shareholding(r.text)
+    if not parsed:
+        log.warning("[%s] XBRL for %s yielded no categories", symbol, filing.get("date"))
+        return None
+
+    def _close(a, b):
+        try:
+            return abs(float(a) - float(b)) <= 0.05
+        except (TypeError, ValueError):
+            return None
+
+    parsed["period"] = filing.get("date")
+    parsed["period_date"] = _period_date(filing.get("date"))
+    parsed["filed_on"] = filing.get("broadcastDate")
+    parsed["checks"]["promoter_matches_master"] = _close(
+        parsed.get("promoter"), filing.get("pr_and_prgrp"))
+    parsed["checks"]["public_matches_master"] = _close(
+        parsed.get("public"), filing.get("public_val"))
+    return parsed
+
+
+def fetch_ownership(symbol: str, session: requests.Session | None = None,
+                    quarters: int = 2) -> dict | None:
+    """The full ownership split for `symbol` over the last `quarters` filings.
+
+    Returns the quarters newest-first plus the quarter-over-quarter change in
+    each headline leg. None when nothing could be read at all.
+    """
+    session = session or _new_session()
+    filings = get_shareholding_filings(session, symbol)
+    if not filings:
+        log.warning("[%s] no shareholding filings found", symbol)
+        return None
+
+    parsed_quarters = []
+    for f in filings[:max(1, quarters)]:
+        p = _fetch_filing(session, f, symbol)
+        if p:
+            parsed_quarters.append(p)
+        time.sleep(1)
+    if not parsed_quarters:
+        return None
+
+    latest = parsed_quarters[0]
+    previous = parsed_quarters[1] if len(parsed_quarters) > 1 else None
+    change = {}
+    if previous:
+        for leg in HEADLINE_LEGS:
+            a, b = latest.get(leg), previous.get(leg)
+            change[leg] = (round(a - b, 4)
+                           if isinstance(a, float) and isinstance(b, float) else None)
+
+    return {
+        "symbol": symbol.upper(),
+        "quarters": parsed_quarters,
+        "latest": latest,
+        "previous": previous,
+        "change": change,
+        "as_of": latest.get("period"),
+        "prev_as_of": previous.get("period") if previous else None,
+        "reconciles": bool(latest["checks"].get("promoter_matches_master")
+                           and latest["checks"].get("totals_to_100")),
+    }
 
 
 def fetch_fii_change(session: requests.Session, symbol: str) -> float | None:
-    filings = get_shareholding_filings(session, symbol)
-    if len(filings) < 2:
-        log.warning("[%s] fewer than 2 filings found — cannot compute change", symbol)
+    own = fetch_ownership(symbol, session=session, quarters=2)
+    if not own or not own.get("previous"):
+        log.warning("[%s] fewer than 2 readable filings — cannot compute change", symbol)
         return None
+    return own["change"].get("fii")
 
-    pcts = []
-    for f in filings[:2]:
-        xbrl_url = f.get("xbrl") or f.get("xbrlFile")
-        if not xbrl_url:
-            return None
-        try:
-            r = session.get(xbrl_url, headers=HEADERS, timeout=20)
-            r.raise_for_status()
-            pct = parse_fii_pct(r.text)
-        except Exception as e:
-            log.warning("[%s] XBRL fetch/parse failed: %s", symbol, e)
-            return None
-        if pct is None:
-            log.warning("[%s] could not find FII tag in XBRL — filing format not recognized", symbol)
-            return None
-        pcts.append(pct)
-        time.sleep(1)
 
-    return round(pcts[0] - pcts[1], 3)
+# ── Filter C — the ownership-rotation read ────────────────────────────────────
+#: Quarterly holdings drift in tenths of a percent; a move smaller than this is
+#: filing noise, not a rotation. A starting point, not a measured threshold.
+FLAT_BAND_PP = 0.10
+
+MET, NOT_MET, UNKNOWN = "MET", "NOT_MET", "UNKNOWN"
+
+#: Filter C as the framework states it: FII increasing · MF stable or increasing
+#: · Retail decreasing · DII stable.
+FILTER_C_CRITERIA = {
+    "fii":    ("FII increasing",          lambda d: d > FLAT_BAND_PP),
+    "mf":     ("MF stable or increasing", lambda d: d >= -FLAT_BAND_PP),
+    "retail": ("Retail decreasing",       lambda d: d < -FLAT_BAND_PP),
+    "dii":    ("DII stable",              lambda d: abs(d) <= FLAT_BAND_PP),
+}
+
+
+def direction(delta: float | None) -> str:
+    """'up' / 'down' / 'flat' / 'unknown' for one leg's quarterly change."""
+    if delta is None:
+        return "unknown"
+    if delta > FLAT_BAND_PP:
+        return "up"
+    if delta < -FLAT_BAND_PP:
+        return "down"
+    return "flat"
+
+
+ARROWS = {"up": "↑", "down": "↓", "flat": "→", "unknown": "?"}
+
+
+def interpret_rotation(change: dict | None) -> dict:
+    """Read the quarter-over-quarter rotation — ownership ONLY.
+
+    This deliberately stops short of the FPV combinations and of the framework's
+    market × ownership gate ("FII accumulating into a WEAK market = watchlist,
+    not a buy"). Both need a second axis this function cannot see: market health
+    is DS-3's job, price+volume is DS-4's. Reading a rotation as a buy signal on
+    its own is the exact mistake the FPV concept page warns about.
+    """
+    change = change or {}
+    criteria, met, unknown = [], 0, 0
+    for leg, (label, test) in FILTER_C_CRITERIA.items():
+        d = change.get(leg)
+        if d is None:
+            state = UNKNOWN
+            unknown += 1
+        else:
+            state = MET if test(d) else NOT_MET
+            met += int(state == MET)
+        criteria.append({"leg": leg, "label": label, "state": state, "delta": d,
+                         "direction": direction(d)})
+
+    fii, retail, mf = (direction(change.get(k)) for k in ("fii", "retail", "mf"))
+    if fii == "up" and retail in ("down", "flat"):
+        headline, tone = "SMART MONEY IN", "good"
+        detail = ("Foreign portfolio money increased while retail did not — the "
+                  "structural leg supports a long, once market health and stage agree.")
+    elif fii == "down" and retail == "up":
+        headline, tone = "DISTRIBUTION", "risk"
+        detail = ("Institutions reduced while retail increased — supply moving from "
+                  "informed to uninformed hands. The framework's avoid case.")
+    elif mf == "down" and fii != "up":
+        headline, tone = "MF SELLING", "risk"
+        detail = ("Mutual funds reduced with no offsetting foreign buying — the "
+                  "framework treats domestic-fund selling as a structural veto.")
+    elif fii == "unknown" and retail == "unknown":
+        headline, tone = "NOT ASSESSED", "absent"
+        detail = "No comparable pair of filings — nothing can be said about rotation."
+    else:
+        headline, tone = "MIXED", "warn"
+        detail = ("No clean rotation this quarter — the ownership leg neither "
+                  "supports nor vetoes.")
+
+    return {"headline": headline, "tone": tone, "detail": detail,
+            "criteria": criteria, "n_met": met, "n_unknown": unknown,
+            "flat_band_pp": FLAT_BAND_PP}
 
 
 def fetch_industry_and_cap(session: requests.Session, symbol: str) -> tuple[str | None, float | None]:
@@ -185,10 +438,45 @@ def _bhav_top200_symbols() -> list[str]:
     return fetch_bhavcopy_top_volume(200)
 
 
+def _print_ownership(symbols: list[str]) -> int:
+    session = _new_session()
+    for sym in symbols:
+        own = fetch_ownership(sym, session=session)
+        if not own:
+            print(f"\n{sym}: no readable shareholding filing.")
+            continue
+        latest, chg = own["latest"], own["change"]
+        rot = interpret_rotation(chg)
+        # ASCII only — the Windows console is cp1252 and dies on the arrows the
+        # dashboard card uses.
+        print(f"\n{own['symbol']} - shareholding as of {own['as_of']}"
+              + (f" (vs {own['prev_as_of']})" if own["prev_as_of"] else " - no prior quarter")
+              + f"   [{'reconciles' if own['reconciles'] else 'DOES NOT RECONCILE'}]")
+        ascii_dir = {"up": "up  ", "down": "down", "flat": "flat", "unknown": "?   "}
+        print(f"  {'leg':<10}{'held %':>9}{'chg q/q':>9}")
+        for leg in HEADLINE_LEGS:
+            v, d = latest.get(leg), chg.get(leg)
+            print(f"  {leg:<10}{('-' if v is None else f'{v:.2f}'):>9}"
+                  f"{('-' if d is None else f'{d:+.2f}'):>9}  {ascii_dir[direction(d)]}")
+        print(f"  => {rot['headline']}: {rot['detail']}")
+        for c in rot["criteria"]:
+            mark = {MET: "yes", NOT_MET: "no ", UNKNOWN: " ? "}[c["state"]]
+            print(f"      [{mark}] {c['label']}")
+        time.sleep(1)
+    return 0
+
+
 if __name__ == "__main__":
     if len(sys.argv) < 2:
         sys.exit("Usage: py -3 tools/nse_shareholding_fetch.py SYMBOL1 SYMBOL2 ...\n"
+                  "       py -3 tools/nse_shareholding_fetch.py --ownership SYM ...\n"
                   "       py -3 tools/nse_shareholding_fetch.py --top200")
+
+    if sys.argv[1] == "--ownership":
+        syms = [s.upper() for s in sys.argv[2:]]
+        if not syms:
+            sys.exit("Give at least one symbol after --ownership.")
+        raise SystemExit(_print_ownership(syms))
 
     if sys.argv[1] == "--top200":
         symbols = _bhav_top200_symbols()
