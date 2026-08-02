@@ -64,13 +64,33 @@ class AstroIndicators:
 
     def get_lunar_phase(self, d: date) -> Dict:
         """
-        Get lunar phase for a given date.
+        Lunar phase for a date, from the reversal-calendar DB.
 
-        Returns:
-            {phase: 'new'|'waxing'|'full'|'waning', illumination: 0-100, days_in_cycle}
+        Returns {phase, illumination, cycle_day, cycle_length, source}. Outside
+        the DB's coverage `phase` is 'unknown' and the numbers are None — see
+        `_lunar_phase_from_calendar` for why that is the only honest answer.
+
+        AW-0 (2026-08-02). This used to fall back to `_lunar_phase_approximate`
+        whenever PyEphem was missing — which is always, on this machine — and
+        that fallback was wrong three ways at once:
+
+          * its epoch, `date(2024, 1, 29)`, is not a new moon (2024-02-09 is),
+            leaving a constant ~10.8-day offset: real new moons landed on
+            cycle_day 11.10 and 10.57 instead of ~0;
+          * its illumination, `100·sin(2πc/L)·0.5 + 50`, is a quarter-cycle out
+            of phase — 50% at new, 100% at FIRST QUARTER, 50% at full — so the
+            new moon and the full moon both read half-lit;
+          * a fixed 29.53-day mean month drifts against real lunations anyway.
+
+        The visible symptom: the 2026-07-29 full moon rendered on the Astro
+        Timing page as "waning, 16.7% illuminated", and 2026-08-08 as "new" at
+        99.3% — a self-contradiction on the face of it. The correct events were
+        already sitting in `reversal_calendar.db`, PyEphem-derived, which is why
+        the approximation is deleted rather than repaired: two lunar sources in
+        one dashboard is how they end up disagreeing.
         """
         if not HAS_EPHEM:
-            return self._lunar_phase_approximate(d)
+            return self._lunar_phase_from_calendar(d)
 
         try:
             observer = Observer()
@@ -78,53 +98,109 @@ class AstroIndicators:
             observer.lat, observer.lon = str(self.lat), str(self.lon)
 
             moon = Moon(observer)
-            next_full = self._next_phase(observer.date, 'full')
-            next_new = self._next_phase(observer.date, 'new')
+            illumination = moon.phase          # ephem: percent illuminated
 
-            # Estimate illumination
-            illumination = moon.phase
-
-            # Determine phase
-            if next_new < next_full:
-                phase = 'waning'
-            else:
-                phase = 'waxing'
-
-            cycle_day = (illumination / 100) * self.LUNAR_CYCLE
+            # cycle_day is measured from the ACTUAL preceding new moon. It used
+            # to be `(illumination / 100) * LUNAR_CYCLE`, which treats a cosine
+            # as a straight line and is symmetric about full — day 7 and day 22
+            # are both ~50% lit and would have collapsed onto the same answer.
+            from ephem import previous_new_moon, next_new_moon
+            prev_new = previous_new_moon(observer.date)
+            nxt_new = next_new_moon(observer.date)
+            cycle_length = float(nxt_new) - float(prev_new)
+            cycle_day = float(observer.date) - float(prev_new)
 
             return {
-                'phase': phase,
+                'phase': self._phase_label(cycle_day, cycle_length),
                 'illumination': round(illumination, 2),
                 'cycle_day': round(cycle_day, 1),
-                'cycle_length': self.LUNAR_CYCLE,
+                'cycle_length': round(cycle_length, 2),
+                'source': 'ephem',
             }
         except Exception as e:
             print(f"Ephem calculation error: {e}")
-            return self._lunar_phase_approximate(d)
+            return self._lunar_phase_from_calendar(d)
 
-    def _lunar_phase_approximate(self, d: date) -> Dict:
-        """Approximate lunar phase using known reference dates."""
-        # New Moon: Jan 29, 2024 (IST)
-        ref_new_moon = date(2024, 1, 29)
-        days_since = (d - ref_new_moon).days
-        cycle_day = days_since % self.LUNAR_CYCLE
+    @staticmethod
+    def _phase_label(cycle_day: float, cycle_length: float) -> str:
+        """Quadrant label, CENTRED on the event each name refers to.
 
-        if cycle_day < 7.4:
-            phase = 'new'
-        elif cycle_day < 14.75:
-            phase = 'waxing'
-        elif cycle_day < 22.1:
-            phase = 'full'
-        else:
-            phase = 'waning'
+        'new' brackets f=0 and 'full' brackets f=0.5, rather than starting
+        there. The distinction is not cosmetic: with start-aligned bands a full
+        moon that lands at f=0.483 — which happens whenever the lunation is 29
+        whole days and the full moon falls on day 14 — gets labelled 'waxing'
+        while its own illumination reads 99.7%. Checked against all 44 lunar
+        events in the reversal calendar; start-aligned bands mislabelled 11.
+        """
+        f = (cycle_day / cycle_length) % 1.0
+        if f < 0.125 or f >= 0.875:
+            return 'new'
+        if f < 0.375:
+            return 'waxing'
+        if f < 0.625:
+            return 'full'
+        return 'waning'
 
-        illumination = round(100 * math.sin(2 * math.pi * cycle_day / self.LUNAR_CYCLE) * 0.5 + 50, 1)
+    def _lunar_phase_from_calendar(self, d: date) -> Dict:
+        """Lunar phase interpolated between the DB's real new-moon timestamps.
 
+        `reversal_calendar.db` stores PyEphem-derived new/full moons with exact
+        instants, so the cycle is measured against the lunation the date is
+        actually in rather than against a mean 29.53-day month drifting from a
+        mis-chosen epoch.
+
+        Outside the DB's coverage this returns `phase: 'unknown'` with None
+        figures. That is deliberate: the previous behaviour extrapolated a mean
+        cycle indefinitely and produced confident numbers for any date you
+        asked about, which is exactly how a full moon came to render as
+        "waning, 16.7%". A date we cannot place must read as unplaced.
+        """
+        try:
+            import sys as _sys
+            from pathlib import Path as _Path
+            _sys.path.insert(0, str(_Path(__file__).resolve().parent))
+            import reversal_calendar as _rc
+
+            # Widen enough to bracket d with a new moon on each side (a lunation
+            # is ~29.5 days; 45 either way is comfortable even at the edges).
+            evs = _rc.events_in_range(d - timedelta(days=45), d + timedelta(days=45))
+            news = sorted(datetime.fromisoformat(e['start_ts']).date()
+                          for e in evs if e['event_type'] == 'new_moon')
+            prev_new = max((n for n in news if n <= d), default=None)
+            next_new = min((n for n in news if n > d), default=None)
+            if prev_new is None or next_new is None:
+                return self._lunar_unknown(d)
+
+            cycle_length = (next_new - prev_new).days
+            cycle_day = (d - prev_new).days
+            if cycle_length <= 0:
+                return self._lunar_unknown(d)
+
+            # 0% at new, 100% at full — the standard relation. The old formula
+            # used sin() instead of (1 - cos()), which peaks a quarter-cycle
+            # early and reports both new and full as half-lit.
+            frac = cycle_day / cycle_length
+            illumination = round(50.0 * (1 - math.cos(2 * math.pi * frac)), 1)
+
+            return {
+                'phase': self._phase_label(cycle_day, cycle_length),
+                'illumination': illumination,
+                'cycle_day': round(float(cycle_day), 1),
+                'cycle_length': round(float(cycle_length), 2),
+                'source': 'reversal_calendar',
+            }
+        except Exception as e:
+            print(f"Lunar calendar lookup failed: {e}")
+            return self._lunar_unknown(d)
+
+    @staticmethod
+    def _lunar_unknown(d: date) -> Dict:
         return {
-            'phase': phase,
-            'illumination': illumination,
-            'cycle_day': round(cycle_day, 1),
-            'cycle_length': self.LUNAR_CYCLE,
+            'phase': 'unknown',
+            'illumination': None,
+            'cycle_day': None,
+            'cycle_length': None,
+            'source': 'unavailable',
         }
 
     def _next_phase(self, obs_date, phase_type):
@@ -160,7 +236,7 @@ class AstroIndicators:
             'city': self.city,
             'lunar_phase': lunar,
             'solar_timing': solar,
-            'market_intensity': round(intensity, 1),
+            'market_intensity': None if intensity is None else round(intensity, 1),
             'recommendations': recommendations,
         }
 
@@ -195,10 +271,17 @@ class AstroIndicators:
             return self._solar_timing_approximate(d)
 
     def _solar_timing_approximate(self, d: date) -> Dict:
-        """Approximate sunrise/sunset (India standard: ~6:00 AM - 6:00 PM)."""
-        # Rough approximation for India
-        sr = datetime.combine(d, time(6, 0)).astimezone(self.market_tz)
-        ss = datetime.combine(d, time(18, 0)).astimezone(self.market_tz)
+        """Approximate sunrise/sunset (India standard: ~6:00 AM - 6:00 PM IST).
+
+        `localize`, not `astimezone`. `datetime.combine` returns a NAIVE
+        datetime, and calling `.astimezone()` on one makes Python assume the
+        HOST machine's zone and convert from it — so on a US-Eastern host this
+        rendered sunrise at 15:30 and sunset at 03:30 IST on the Astro Timing
+        page. The 6am/6pm figures are already meant to be IST; they need
+        attaching, not converting.
+        """
+        sr = self.market_tz.localize(datetime.combine(d, time(6, 0)))
+        ss = self.market_tz.localize(datetime.combine(d, time(18, 0)))
 
         optimal_entry = sr + timedelta(minutes=self.SUNRISE_BUFFER_MINS)
         optimal_exit = ss - timedelta(minutes=self.SUNSET_BUFFER_MINS)
@@ -215,30 +298,48 @@ class AstroIndicators:
         ts = ephem.Date(ephem_date)
         return datetime.utcfromtimestamp(ts.timestamp()).replace(tzinfo=pytz.UTC)
 
-    def _calculate_market_intensity(self, d: date) -> float:
+    def _calculate_market_intensity(self, d: date):
         """
-        Calculate expected market volatility based on lunar cycle.
-        Higher during full/new moon, lower during quarters.
+        Expected volatility from the lunar cycle: higher near new/full, lower
+        near the quarters. Returns None when the phase could not be placed —
+        an intensity number for a date we cannot date would be invented.
         """
         lunar = self.get_lunar_phase(d)
         cycle_day = lunar['cycle_day']
+        cycle_length = lunar['cycle_length'] or self.LUNAR_CYCLE
+        if cycle_day is None:
+            return None
 
-        # Peak volatility at new moon (day 0) and full moon (day ~14.75)
-        if cycle_day < 1 or cycle_day > 28:  # New moon
+        if cycle_day < 1 or cycle_day > 28:            # new moon
             intensity = 80
-        elif 14 < cycle_day < 16:  # Full moon
+        elif 14 < cycle_day < 16:                      # full moon
             intensity = 75
-        elif 7 < cycle_day < 8 or 21 < cycle_day < 22:  # Quarter moons
+        elif 7 < cycle_day < 8 or 21 < cycle_day < 22:  # quarters
             intensity = 40
         else:
-            # Smooth curve between extremes
-            intensity = 50 + 30 * math.sin(2 * math.pi * cycle_day / self.LUNAR_CYCLE)
+            # abs(cos) peaks at BOTH new (0) and full (~half), and troughs at the
+            # quarters — which is what the docstring and the branches above both
+            # say. The previous `50 + 30·sin(…)` did the exact opposite: it
+            # peaked at first quarter and sat at 50 on new and full, so the
+            # interpolation contradicted the endpoints it was interpolating
+            # between. Same sin-for-cos slip as the illumination bug above.
+            intensity = 50 + 30 * abs(math.cos(2 * math.pi * cycle_day / cycle_length))
 
         return max(20, min(100, intensity))
 
-    def _generate_recommendations(self, lunar: Dict, solar: Dict, intensity: float) -> List[str]:
-        """Generate trading recommendations based on astro indicators."""
+    def _generate_recommendations(self, lunar: Dict, solar: Dict, intensity) -> List[str]:
+        """Generate trading recommendations based on astro indicators.
+
+        A date the calendar cannot place gets the solar window and an explicit
+        statement that the lunar read is missing — not lunar advice derived from
+        a phase nobody computed.
+        """
         recs = []
+
+        if lunar.get('phase') == 'unknown':
+            recs.append('Lunar phase unavailable for this date — the reversal '
+                        'calendar does not cover it. Solar timing below still '
+                        'applies; treat the lunar read as absent, not neutral.')
 
         # Lunar phase recommendations
         if lunar['phase'] == 'new':
@@ -250,11 +351,13 @@ class AstroIndicators:
         elif lunar['phase'] == 'waning':
             recs.append('Waning Moon: Declining energy. Favor shorts.')
 
-        # Intensity-based
-        if intensity > 70:
-            recs.append('High market intensity: Reduce position size, focus on quality setups.')
-        elif intensity < 40:
-            recs.append('Low market intensity: Range-bound conditions likely.')
+        # Intensity-based. None means it was not computed, which is not the same
+        # as "not high" — say nothing rather than imply a calm reading.
+        if intensity is not None:
+            if intensity > 70:
+                recs.append('High market intensity: Reduce position size, focus on quality setups.')
+            elif intensity < 40:
+                recs.append('Low market intensity: Range-bound conditions likely.')
 
         # Timing recommendations
         if solar.get('optimal_entry'):
