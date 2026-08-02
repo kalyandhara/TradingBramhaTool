@@ -178,6 +178,29 @@ _AMBER = PatternFill("solid", fgColor="FFEB9C")
 _GREY = PatternFill("solid", fgColor="D9D9D9")
 
 
+def index_for_industry(industry: str | None) -> str | None:
+    """Sector-index ticker for an industry label from *either* vocabulary.
+
+    Two maps, because two upstreams. A screener.in export carries that site's
+    ~130-value Industry field (SECTOR_INDEX_MAP, above); a frame built by
+    `nse_shareholding_fetch.build_dataset` now carries NSE's own 20-value macro
+    sector (nse_universe.NSE_SECTOR_INDEX_MAP). Measured 2026-08-01, the two
+    vocabularies overlap at **0 of 20**, so this has to try both rather than
+    extend either. Unknown in both stays None, and `classify_bias` renders it as
+    "unscored" — the module's existing rule, not a new one.
+    """
+    if not industry:
+        return None
+    hit = SECTOR_INDEX_MAP.get(industry)
+    if hit:
+        return hit
+    try:
+        import nse_universe as nseu
+    except ImportError:
+        return None
+    return nseu.index_for_sector(industry)
+
+
 def load_export(path: Path) -> pd.DataFrame:
     if path.suffix.lower() == ".csv":
         df = pd.read_csv(path)
@@ -300,7 +323,7 @@ def run(export_path: Path) -> None:
     ticker_return_cache: dict[str, float | None] = {}
     index_returns, biases = [], []
     for industry in sector_table["industry"]:
-        ticker = SECTOR_INDEX_MAP.get(industry)
+        ticker = index_for_industry(industry)
         if ticker is None:
             ret = None
         elif ticker in ticker_return_cache:

@@ -2448,14 +2448,24 @@ if current_page == "Other Screeners":
             if not symbols:
                 st.warning("No symbols to process.")
             else:
-                with st.spinner(f"Fetching shareholding data for {len(symbols)} symbols..."):
-                    df = nse.build_dataset(symbols)
-                if df.empty:
-                    st.warning("No data fetched.")
-                else:
-                    st.session_state["other_screener_df"] = df
-                    st.session_state["other_screener_kind"] = choice
-                    st.success(f"Fetched {len(df)} rows.")
+                # build_dataset raises when every symbol failed, and the message
+                # names which lookup died. It used to return an empty frame, so
+                # a dead endpoint rendered as "No data fetched" — indistinguishable
+                # from a quiet market. That is how the quote-equity 403 hid.
+                df = None
+                try:
+                    with st.spinner(f"Fetching shareholding data for {len(symbols)} symbols..."):
+                        df = nse.build_dataset(symbols)
+                except RuntimeError as exc:
+                    st.error(str(exc))
+
+                if df is not None:
+                    if df.empty:
+                        st.warning("No data fetched.")
+                    else:
+                        st.session_state["other_screener_df"] = df
+                        st.session_state["other_screener_kind"] = choice
+                        st.success(f"Fetched {len(df)} rows.")
 
     other_df = st.session_state.get("other_screener_df")
     other_kind = st.session_state.get("other_screener_kind")

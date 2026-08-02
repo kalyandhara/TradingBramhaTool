@@ -52,7 +52,7 @@ except ImportError:
     sys.exit("Run:  py -3 -m pip install openpyxl")
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from sector_rotation import SECTOR_INDEX_MAP
+from sector_rotation import SECTOR_INDEX_MAP, index_for_industry
 
 BASE_DIR = Path(__file__).resolve().parent.parent
 
@@ -124,7 +124,9 @@ def build_index_trail(sectors: list[str], quarter_labels: list[str]) -> dict[str
     result: dict[str, dict[str, float | None]] = {}
 
     for sector in sectors:
-        ticker = SECTOR_INDEX_MAP.get(sector)
+        # Same two-vocabulary lookup the snapshot uses — the orbit chart must
+        # resolve an NSE-sourced frame as readily as a screener.in export.
+        ticker = index_for_industry(sector)
         if ticker is None:
             result[sector] = {q: None for q in quarter_labels}
             continue

@@ -62,6 +62,8 @@ import pandas as pd
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
+import nse_universe as nseu
+
 BASE_DIR = Path(__file__).resolve().parent.parent
 
 HEADERS = {
@@ -389,38 +391,54 @@ def interpret_rotation(change: dict | None) -> dict:
 
 
 def fetch_industry_and_cap(session: requests.Session, symbol: str) -> tuple[str | None, float | None]:
-    try:
-        r = session.get("https://www.nseindia.com/api/quote-equity",
-                         headers=HEADERS, params={"symbol": symbol}, timeout=20)
-        r.raise_for_status()
-        data = r.json()
-    except Exception as e:
-        log.warning("[%s] quote-equity fetch failed: %s", symbol, e)
-        return None, None
+    """(NSE macro-sector, market cap in ₹ crore) for a symbol. Either may be None.
 
-    industry = data.get("industryInfo", {}).get("industry") or data.get("info", {}).get("industry")
-    mar_cap = None
-    try:
-        price = float(data.get("priceInfo", {}).get("lastPrice"))
-        issued = float(data.get("securityInfo", {}).get("issuedSize"))
-        mar_cap = round(price * issued / 1e7, 2)  # rupees crore
-    except (TypeError, ValueError):
-        pass
+    SR-0: this used to read both from `api/quote-equity`, which now returns
+    **403 for every symbol** (verified 2026-08-01, 6 of 6) — and since
+    `build_dataset` skips any symbol missing either field, that one dead endpoint
+    was silently emptying the entire Sector Rotation pipeline. Industry now comes
+    from NSE's index-constituent archive CSV (not behind the API gateway) and the
+    cap from yfinance.
+
+    `session` is kept in the signature for the existing callers; nothing here
+    needs it any more.
+    """
+    industry = nseu.industry_map().get(symbol.upper())
+    if industry is None:
+        log.debug("[%s] not in the Nifty 500 constituent list", symbol)
+
+    cap_rupees = nseu.market_cap(symbol)
+    # Rupees crore, matching the old quote-equity computation and screener.in's
+    # own units — the cap is only ever used as a relative weight, but the column
+    # is written to CSV and read by humans.
+    mar_cap = round(cap_rupees / 1e7, 2) if cap_rupees else None
 
     return industry, mar_cap
 
 
 def build_dataset(symbols: list[str]) -> pd.DataFrame:
+    """The (Name, Mar Cap, Change in FII holding %, Industry) frame
+    `sector_rotation.py` consumes.
+
+    Raises RuntimeError when every symbol failed. Returning an empty frame is
+    what let the 403 hide for as long as it did: the caller printed "No data
+    fetched", which reads like a quiet market rather than a broken endpoint.
+    """
     session = _new_session()
     rows = []
+    missed = {"fii": [], "industry": [], "cap": []}
+
     for i, sym in enumerate(symbols, 1):
         log.info("[%d/%d] %s", i, len(symbols), sym)
         fii_chg = fetch_fii_change(session, sym)
         if fii_chg is None:
+            missed["fii"].append(sym)
             continue
         industry, mar_cap = fetch_industry_and_cap(session, sym)
         if industry is None or mar_cap is None:
-            log.warning("[%s] missing industry/mar_cap — skipping", sym)
+            missed["industry" if industry is None else "cap"].append(sym)
+            log.warning("[%s] missing %s — skipping", sym,
+                        "industry" if industry is None else "market cap")
             continue
         rows.append({
             "Name": sym,
@@ -430,6 +448,21 @@ def build_dataset(symbols: list[str]) -> pd.DataFrame:
         })
         time.sleep(1.5)
 
+    if symbols and not rows:
+        raise RuntimeError(
+            f"No rows built from {len(symbols)} symbol(s). "
+            f"Shareholding unavailable for {len(missed['fii'])}, "
+            f"industry unknown for {len(missed['industry'])}, "
+            f"market cap unavailable for {len(missed['cap'])}. "
+            "If industry is the whole count, the Nifty 500 constituent list did "
+            "not load; if shareholding is, NSE is rate-limiting or blocking."
+        )
+
+    dropped = sum(len(v) for v in missed.values())
+    if dropped:
+        log.warning("built %d row(s); dropped %d (fii=%d, industry=%d, cap=%d)",
+                    len(rows), dropped, len(missed["fii"]),
+                    len(missed["industry"]), len(missed["cap"]))
     return pd.DataFrame(rows)
 
 
