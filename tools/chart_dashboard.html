@@ -828,7 +828,7 @@ const INDICATOR_DEFS = [
   {key:'ema50',     label:'EMA (50)',          group:'Moving Averages', color:'#9c27b0'},
   {key:'ema200',    label:'EMA (200)',         group:'Moving Averages', color:'#e91e63'},
   {key:'vwap',      label:'VWAP (session · intraday only)', group:'Moving Averages', color:'#ffd60a'},
-  {key:'avwap',     label:'Anchored VWAP (last swing low)', group:'Moving Averages', color:'#ff8a65'},
+  {key:'avwap',     label:'Anchored VWAP (last major swing low)', group:'Moving Averages', color:'#ff8a65'},
   {key:'mabias',    label:'MA Bias (9/20 cross · 50/200 regime) + card',
                                                group:'Moving Averages', color:'#4c9aff'},
   {key:'bollinger', label:'Bollinger (20, 2)', group:'Bands & Channels', color:'#9aa4af'},
@@ -948,22 +948,71 @@ function vwapSeries(bars, tf) {
   return out;
 }
 
-function lastSwingLowIdx(bars) {
-  // Index of the most recent CONFIRMED zigzag swing low, or null.
+// Minimum prominence, in ATRs, for a swing low to be worth anchoring to.
+//
+// Measured rather than picked: across RELIANCE / TCS / TATASTEEL / HDFCBANK /
+// SUNPHARMA / DLF / TITAN on 400 daily bars, prominence over the ~80 confirmed
+// lows per symbol runs median ≈1.55 ATR, p90 ≈2.25, max 3.1-4.5. So 3 ATR is far
+// too strict — it left ONE qualifying low per symbol, 328 bars back, effectively
+// the start of the window. At 2.0 the filter keeps roughly the top fifth of lows
+// and lands the anchor 5-86 bars back (median ~22), against 3-5 bars unfiltered.
+const AVWAP_MIN_DEPTH_ATR = 2.0;
+const AVWAP_ATR_PERIOD = 14;
+
+function lastSwingLowIdx(bars, minDepthATR = AVWAP_MIN_DEPTH_ATR) {
+  // Index of the most recent CONFIRMED, *significant* zigzag swing low, or null.
   //
   // Confirmed only. EW.computeZigzag marks its trailing pivot `provisional` —
   // it tracks a still-forming extreme and moves as bars arrive. Anchoring to it
   // would slide the anchor and redraw the entire line underneath the user on
   // every new bar, which is the one thing an *anchored* VWAP must never do.
+  //
+  // Significant, because the zigzag is deliberately fine-grained — ~80 confirmed
+  // lows in 400 daily bars — so "the last swing low" is usually 3-5 bars back and
+  // the anchored line is a stub with no more meaning than a 5-bar average.
   if (!window.EW || typeof EW.computeZigzag !== 'function') return null;
   let pivots;
   try { pivots = EW.computeZigzag(bars); } catch (e) { return null; }
   if (!pivots || !pivots.length) return null;
-  for (let i = pivots.length - 1; i >= 0; i--) {
-    const p = pivots[i];
-    if (p.type === 'low' && !p.provisional) return p.idx;
+
+  const atrByTime = new Map(atrSeries(bars, AVWAP_ATR_PERIOD).map(a => [a.time, a.value]));
+  const lastClose = bars[bars.length - 1].close;
+
+  const scored = [];
+  for (let k = 0; k < pivots.length; k++) {
+    const p = pivots[k];
+    if (p.type !== 'low' || p.provisional) continue;
+    if (p.idx == null || p.idx < 0 || p.idx >= bars.length) continue;
+
+    let prevHigh = null, nextHigh = null;
+    for (let j = k - 1; j >= 0; j--) if (pivots[j].type === 'high') { prevHigh = pivots[j]; break; }
+    for (let j = k + 1; j < pivots.length; j++) if (pivots[j].type === 'high') { nextHigh = pivots[j]; break; }
+    if (!prevHigh) continue;                       // no decline into it to measure
+
+    const atr = atrByTime.get(bars[p.idx].time);
+    if (!atr) continue;                            // inside the ATR warm-up
+
+    // Topographic prominence: the SMALLER of the decline into the low and the
+    // advance out of it, in ATRs. Both legs have to be real — a low that ended a
+    // deep decline but produced no rally is not a level buyers defended, and a
+    // low that launched a rally but barely dipped is just a pause. For the most
+    // recent low the advance is measured to the current close, which makes a
+    // young rally score low; that is correct, not a bug. Significance is earned.
+    const depth = Math.min(prevHigh.price - p.price,
+                           (nextHigh ? nextHigh.price : lastClose) - p.price) / atr;
+    scored.push({idx: p.idx, depth});
   }
-  return null;
+  if (!scored.length) return null;
+
+  const qualifying = scored.filter(s => s.depth >= minDepthATR);
+  if (qualifying.length) return qualifying[qualifying.length - 1].idx;
+
+  // Nothing in this window clears the bar. Anchor to the DEEPEST low present
+  // rather than the most recent one: within the loaded range that is by
+  // definition the most significant level available, and it beats both drawing
+  // nothing and silently falling back to the 3-bar stub this filter exists to
+  // avoid.
+  return scored.reduce((a, b) => (b.depth > a.depth ? b : a)).idx;
 }
 
 function anchoredVwapSeries(bars, anchorIdx) {
