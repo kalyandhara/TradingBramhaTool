@@ -827,7 +827,8 @@ const INDICATOR_DEFS = [
   {key:'ema20',     label:'EMA (20)',          group:'Moving Averages', color:'#00bd6f'},
   {key:'ema50',     label:'EMA (50)',          group:'Moving Averages', color:'#9c27b0'},
   {key:'ema200',    label:'EMA (200)',         group:'Moving Averages', color:'#e91e63'},
-  {key:'vwap',      label:'VWAP',              group:'Moving Averages', color:'#ffd60a'},
+  {key:'vwap',      label:'VWAP (session · intraday only)', group:'Moving Averages', color:'#ffd60a'},
+  {key:'avwap',     label:'Anchored VWAP (last swing low)', group:'Moving Averages', color:'#ff8a65'},
   {key:'mabias',    label:'MA Bias (9/20 cross · 50/200 regime) + card',
                                                group:'Moving Averages', color:'#4c9aff'},
   {key:'bollinger', label:'Bollinger (20, 2)', group:'Bands & Channels', color:'#9aa4af'},
@@ -914,19 +915,72 @@ function emaSeries(bars, period) {
   return out;
 }
 
-function vwapSeries(bars) {
-  // Anchored VWAP, resets at the start of each calendar day (UTC).
+// Timeframes on which a calendar day contains more than one bar. The UTC day
+// boundary is correct for every market we chart: NSE 09:15-15:30 IST is
+// 03:45-10:00 UTC and US 09:30-16:00 ET is 13:30-20:00 UTC, so neither session
+// straddles UTC midnight, and crypto is quoted on UTC days anyway.
+const INTRADAY_TFS = new Set(['1m', '5m', '15m', '30m', '1h', '4h']);
+
+function vwapSeries(bars, tf) {
+  // SESSION VWAP — resets at the start of each calendar day (UTC).
+  //
+  // Only defined when a session holds several bars. On '1d'/'1w' every bar
+  // starts its own session, the accumulator resets on every bar, and the
+  // formula collapses to that bar's own typical price: measured 2026-08-02 on
+  // daily RELIANCE bars it equalled (H+L+C)/3 on 24 of 24. That is a typical-
+  // price line wearing a VWAP label, so draw nothing instead and let the
+  // Anchored VWAP below cover daily charts.
+  if (!INTRADAY_TFS.has(tf)) return [];
+
   const out = [];
   let cumPV = 0, cumVol = 0, curDay = null;
   for (let i = 0; i < bars.length; i++) {
     const b = bars[i];
     const day = new Date(b.time * 1000).toISOString().slice(0, 10);
     if (day !== curDay) { curDay = day; cumPV = 0; cumVol = 0; }
-    const typical = (b.high + b.low + b.close) / 3;
-    const vol = b.volume || 0;
-    cumPV  += typical * vol;
-    cumVol += vol;
-    out.push({time: b.time, value: cumVol > 0 ? cumPV / cumVol : b.close});
+    cumPV  += ((b.high + b.low + b.close) / 3) * (b.volume || 0);
+    cumVol += (b.volume || 0);
+    // No volume yet -> no average yet. This used to fall back to `b.close`,
+    // which silently drew VWAP *as the price line* on any feed missing volume —
+    // the most convincing way possible to be wrong.
+    if (cumVol > 0) out.push({time: b.time, value: cumPV / cumVol});
+  }
+  return out;
+}
+
+function lastSwingLowIdx(bars) {
+  // Index of the most recent CONFIRMED zigzag swing low, or null.
+  //
+  // Confirmed only. EW.computeZigzag marks its trailing pivot `provisional` —
+  // it tracks a still-forming extreme and moves as bars arrive. Anchoring to it
+  // would slide the anchor and redraw the entire line underneath the user on
+  // every new bar, which is the one thing an *anchored* VWAP must never do.
+  if (!window.EW || typeof EW.computeZigzag !== 'function') return null;
+  let pivots;
+  try { pivots = EW.computeZigzag(bars); } catch (e) { return null; }
+  if (!pivots || !pivots.length) return null;
+  for (let i = pivots.length - 1; i >= 0; i--) {
+    const p = pivots[i];
+    if (p.type === 'low' && !p.provisional) return p.idx;
+  }
+  return null;
+}
+
+function anchoredVwapSeries(bars, anchorIdx) {
+  // ANCHORED VWAP — cumulative from a chosen bar, never reset.
+  //
+  // This is the form that means something on a daily chart: "the average price
+  // every share has actually changed hands at since the swing low". Price above
+  // it means buyers since that low are collectively in profit; below, under
+  // water. It is still an execution benchmark, not a valuation.
+  if (anchorIdx == null || anchorIdx < 0 || anchorIdx >= bars.length) return [];
+  const out = [];
+  let cumPV = 0, cumVol = 0;
+  for (let i = anchorIdx; i < bars.length; i++) {
+    const b = bars[i];
+    cumPV  += ((b.high + b.low + b.close) / 3) * (b.volume || 0);
+    cumVol += (b.volume || 0);
+    if (cumVol > 0) out.push({time: b.time, value: cumPV / cumVol});
   }
   return out;
 }
@@ -2199,6 +2253,7 @@ function applyIndicators(pane) {
       case 'ema50':  pane.indSeries[key] = addLine(pane, def.color); break;
       case 'ema200': pane.indSeries[key] = addLine(pane, def.color); break;
       case 'vwap':   pane.indSeries[key] = addLine(pane, def.color); break;
+      case 'avwap':  pane.indSeries[key] = addLine(pane, def.color, 2); break;
       case 'bollinger':
         pane.indSeries[key] = [
           addLine(pane, def.color, 1),
@@ -2246,7 +2301,8 @@ function applyIndicators(pane) {
       case 'ema20':  s.setData(emaSeries(bars, 20));  break;
       case 'ema50':  s.setData(emaSeries(bars, 50));  break;
       case 'ema200': s.setData(emaSeries(bars, 200)); break;
-      case 'vwap':   s.setData(vwapSeries(bars));     break;
+      case 'vwap':   s.setData(vwapSeries(bars, pane.tf)); break;
+      case 'avwap':  s.setData(anchoredVwapSeries(bars, lastSwingLowIdx(bars))); break;
       case 'bollinger': {
         const {mid, upper, lower} = bollingerSeries(bars, 20, 2);
         s[0].setData(mid); s[1].setData(upper); s[2].setData(lower);
