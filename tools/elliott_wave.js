@@ -312,18 +312,116 @@
     }));
   }
 
+  // ── Invalidation ("pattern negation") level ───────────────────────────────────
+  // The price at which the CURRENT label stops being possible under Elliott's
+  // hard rules — the thing an analyst means by "the pattern is negated if X is
+  // touched". Targets alone are only half a forecast: a count with a target and
+  // no invalidation cannot be wrong, which is precisely what makes it useless.
+  //
+  // These are the HARD rules only, never the guidelines. A guideline being
+  // violated makes a count unattractive; a rule being violated makes it invalid,
+  // and only the second belongs on a line labelled "negation".
+
+  function _invalidation(price, side, wave, rule) {
+    return {price, side, wave, rule};
+  }
+
+  function invalidationForImpulse(imp) {
+    const P = imp.points.map(p => p.price);
+    const bull = imp.bullish;
+    // A detected impulse always has all six pivots, so the live leg is wave 5
+    // (its last pivot is provisional until the structure finalises). Wave 5 is
+    // negated by a return beyond the end of wave 4 — at that point the move is
+    // no longer a fifth wave away from wave 4, whatever else it may be.
+    return _invalidation(
+      P[4],
+      bull ? 'below' : 'above',
+      '5',
+      bull ? 'Wave 5 negated if price trades back below the wave-4 low'
+           : 'Wave 5 negated if price trades back above the wave-4 high');
+  }
+
+  function invalidationForCorrective(corr) {
+    const pts = corr.points;          // [5, A, (B), (C)]
+    const P = pts.map(p => p.price);
+    // A correction runs against its parent impulse, so "beyond the origin"
+    // means back through the wave-5 extreme.
+    const downward = P[1] < P[0];     // wave A fell => corrective of an up impulse
+    const beyondOrigin = downward ? 'above' : 'below';
+
+    if (pts.length <= 2) {
+      return _invalidation(
+        P[0], beyondOrigin, 'A',
+        downward ? 'Wave A negated if price trades back above the wave-5 high'
+                 : 'Wave A negated if price trades back below the wave-5 low');
+    }
+    if (pts.length === 3) {
+      // Wave B may not carry beyond the start of wave A in a zigzag. (In a
+      // running/expanded flat it can, which is why patternGuess is reported
+      // beside this rather than hidden.)
+      return _invalidation(
+        P[0], beyondOrigin, 'B',
+        downward ? 'Wave B negated beyond the wave-5 high (zigzag rule; an '
+                   + 'expanded flat may exceed it)'
+                 : 'Wave B negated beyond the wave-5 low (zigzag rule; an '
+                   + 'expanded flat may exceed it)');
+    }
+    // C is forming: it must continue past B, so a return through B's extreme
+    // breaks the label.
+    const cDown = P[3] < P[2];
+    return _invalidation(
+      P[2], cDown ? 'above' : 'below', 'C',
+      cDown ? 'Wave C negated if price trades back above the wave-B high'
+            : 'Wave C negated if price trades back below the wave-B low');
+  }
+
+  /**
+   * Invalidation for a structure, optionally measured against live bars.
+   *
+   * With `bars`, adds `last`, `distance`, `distancePct` and `breached`.
+   * `breached: true` means the level has ALREADY been violated — the count on
+   * screen is stale and should not be traded off, which is worth stating
+   * loudly rather than leaving the reader to compare two numbers.
+   */
+  function invalidation(structure, bars) {
+    if (!structure || !structure.points || !structure.points.length) return null;
+    const inv = structure.type === 'corrective'
+      ? invalidationForCorrective(structure)
+      : invalidationForImpulse(structure);
+    if (!inv || inv.price == null) return null;
+
+    if (bars && bars.length) {
+      const last = bars[bars.length - 1].close;
+      inv.last = last;
+      inv.distance = Math.abs(last - inv.price);
+      inv.distancePct = inv.price ? (inv.distance / inv.price) * 100 : null;
+      inv.breached = inv.side === 'below' ? last < inv.price : last > inv.price;
+    }
+    return inv;
+  }
+
   // ── Convenience full pipeline ──────────────────────────────────────────────────
   function analyze(bars, opts) {
     const pivots = computeZigzag(bars, opts);
     const impulses = detectImpulses(pivots);
     const correctives = detectCorrectives(pivots, impulses);
-    return {pivots, impulses, correctives};
+    // The live count is the latest structure — the corrective if one has begun
+    // since the last impulse, otherwise the impulse itself.
+    const lastImp = impulses[impulses.length - 1] || null;
+    const lastCorr = correctives[correctives.length - 1] || null;
+    const active = lastCorr || lastImp;
+    return {
+      pivots, impulses, correctives,
+      active,
+      invalidation: active ? invalidation(active, bars) : null,
+    };
   }
 
   global.EW = {
-    VERSION: '1.0.0',
+    VERSION: '1.1.0',
     computeZigzag, detectImpulses, detectCorrectives,
     fibLevelsForImpulse, fibLevelsForCorrective,
+    invalidation, invalidationForImpulse, invalidationForCorrective,
     analyze,
   };
 })(typeof window !== 'undefined' ? window : globalThis);

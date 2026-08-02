@@ -3707,6 +3707,31 @@ function renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConf
       html += `<br>C: ${fmtR(lastCorrective.ratios.cVsA)} of A`;
   }
 
+  // ── Pattern negation ────────────────────────────────────────────────────────
+  // The level at which the live count stops being possible. A target without an
+  // invalidation cannot be wrong, and a count that cannot be wrong is not a
+  // forecast — so this is stated as prominently as the targets above it.
+  const _ewActive = lastCorrective || lastImpulse;
+  const _inv = _ewActive && EW.invalidation
+    ? EW.invalidation(_ewActive, pane.bars) : null;
+  if (_inv) {
+    const col = _inv.breached ? '#f85149' : '#d29922';
+    html += `<hr style="border-color:#30363d;margin:4px 0;">` +
+            `<b style="color:${col}">⛔ Pattern negation ` +
+            `${_inv.price.toFixed(2)}</b>` +
+            `<br><span style="color:var(--text-muted)">Wave ${_inv.wave} · ` +
+            `invalid ${_inv.side} this level</span>`;
+    if (_inv.distancePct != null) {
+      html += `<br>${_inv.distance.toFixed(2)} away ` +
+              `(${_inv.distancePct.toFixed(2)}%) from ${_inv.last.toFixed(2)}`;
+    }
+    html += `<br><i style="color:var(--text-muted)">${_inv.rule}</i>`;
+    if (_inv.breached) {
+      html += `<br><b style="color:#f85149">Already breached — this count is ` +
+              `stale, not actionable.</b>`;
+    }
+  }
+
   if ((confluenceList && confluenceList.length) || (fibConfluence && fibConfluence.length)) {
     html += `<hr style="border-color:#30363d;margin:4px 0;">` +
             `<b style="color:#ffd60a">★ Volume Profile confluence</b>`;
