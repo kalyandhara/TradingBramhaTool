@@ -69,23 +69,50 @@ def quarter_label_to_date(label: str) -> pd.Timestamp:
 
 
 def build_sector_fii_trail(df: pd.DataFrame, quarter_cols: list[str]) -> pd.DataFrame:
+    """Cap-weighted FII delta per sector per quarter.
+
+    SR-5: when the input carries `CAP_<quarter>` columns (which
+    `ownership_cache.build_wide_frame` emits from the XBRL's own share counts ×
+    the quarter-end close), each quarter is weighted by the market cap it
+    ACTUALLY had. The old behaviour — this module's documented caveat — weighted
+    every historical quarter by today's cap, and over eight quarters that is not
+    a rounding error: measured on the first eight names backfilled, caps moved
+    -49% (TCS) to +92% (HDFCBANK, which also ran a ~2:1 share increase mid-
+    window). A static weight silently over-weights whatever has since re-rated.
+
+    Falls back to the static `Mar Cap` column per quarter when no CAP_ column is
+    present, so a legacy screener.in export still runs unchanged.
+    """
     rows = []
     for i in range(1, len(quarter_cols)):
         prev_col, cur_col = quarter_cols[i - 1], quarter_cols[i]
-        sub = df[["Industry", "Mar Cap", prev_col, cur_col]].dropna()
+        quarter = cur_col.replace("FII_", "")
+        cap_col = f"CAP_{quarter}"
+        use_hist = cap_col in df.columns
+        weight_col = cap_col if use_hist else "Mar Cap"
+
+        needed = ["Industry", weight_col, prev_col, cur_col]
+        sub = df[needed].dropna()
+        if sub.empty and use_hist:
+            # A quarter whose caps did not resolve must not silently vanish from
+            # the trail — fall back to the static cap for that quarter alone.
+            weight_col = "Mar Cap"
+            sub = df[["Industry", weight_col, prev_col, cur_col]].dropna()
         if sub.empty:
             continue
+
         sub = sub.copy()
         sub["delta"] = sub[cur_col] - sub[prev_col]
-        sub["weighted_delta"] = sub["delta"] * sub["Mar Cap"]
+        sub["weighted_delta"] = sub["delta"] * sub[weight_col]
 
         grouped = sub.groupby("Industry").agg(
             stock_count=("delta", "size"),
-            total_mar_cap=("Mar Cap", "sum"),
+            total_mar_cap=(weight_col, "sum"),
             weighted_delta_sum=("weighted_delta", "sum"),
         )
         grouped["fii_rotation_score"] = grouped["weighted_delta_sum"] / grouped["total_mar_cap"]
-        grouped["quarter"] = cur_col.replace("FII_", "")
+        grouped["quarter"] = quarter
+        grouped["cap_basis"] = "historical" if weight_col != "Mar Cap" else "static"
         rows.append(grouped.reset_index())
 
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()

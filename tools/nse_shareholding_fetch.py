@@ -133,28 +133,37 @@ def _period_date(s: str | None) -> datetime | None:
 # ── XBRL parse ────────────────────────────────────────────────────────────────
 #: Our key -> the `CategoryOfShareholdersAxis` member that carries it, in SEBI's
 #: in-bse-shp taxonomy. Confirmed present across five live filings 2026-08-01.
+#
+# Values are ALIAS TUPLES, first match wins, because the taxonomy is not stable
+# across vintages. The one that cost real debugging time: filings up to about
+# Q4-2024 spell it `...PortfolioInvestorCat**er**goryOneMember` — "Catergory",
+# a typo in SEBI's own schema — and later ones spell it correctly. Matching only
+# the correct spelling returned `fii: None` for every older filing, which the
+# DS-2 verification never saw because it only ever read *latest* filings.
 CATEGORY_MEMBERS = {
-    "promoter":         "ShareholdingOfPromoterAndPromoterGroupMember",
-    "public":           "PublicShareholdingMember",
-    "total":            "ShareholdingPatternMember",
+    "promoter":         ("ShareholdingOfPromoterAndPromoterGroupMember",),
+    "public":           ("PublicShareholdingMember",),
+    "total":            ("ShareholdingPatternMember",),
     # foreign
-    "fpi_cat1":         "InstitutionsForeignPortfolioInvestorCategoryOneMember",
-    "fpi_cat2":         "InstitutionsForeignPortfolioInvestorCategoryTwoMember",
-    "fdi":              "ForeignDirectInvestmentMember",
-    "foreign_total":    "InstitutionsForeignMember",
+    "fpi_cat1":         ("InstitutionsForeignPortfolioInvestorCategoryOneMember",
+                         "InstitutionsForeignPortfolioInvestorCatergoryOneMember"),
+    "fpi_cat2":         ("InstitutionsForeignPortfolioInvestorCategoryTwoMember",
+                         "InstitutionsForeignPortfolioInvestorCatergoryTwoMember"),
+    "fdi":              ("ForeignDirectInvestmentMember",),
+    "foreign_total":    ("InstitutionsForeignMember",),
     # domestic institutions
-    "dii":              "InstitutionsDomesticMember",
-    "mf":               "MutualFundsOrUTIMember",
-    "insurance":        "InsuranceCompaniesMember",
-    "banks":            "BanksMember",
-    "pension":          "ProvidentFundsOrPensionFundsMember",
-    "aif":              "AlternativeInvestmentFundsMember",
+    "dii":              ("InstitutionsDomesticMember",),
+    "mf":               ("MutualFundsOrUTIMember",),
+    "insurance":        ("InsuranceCompaniesMember",),
+    "banks":            ("BanksMember",),
+    "pension":          ("ProvidentFundsOrPensionFundsMember",),
+    "aif":              ("AlternativeInvestmentFundsMember",),
     # non-institutional
-    "retail_small":     "ResidentIndividualShareholdersHoldingNominalShareCapitalUpToRsTwoLakhMember",
-    "retail_large":     "ResidentIndividualShareholdersHoldingNominalShareCapitalInExcessOfRsTwoLakhMember",
-    "nri":              "NonResidentIndiansMember",
-    "bodies_corporate": "BodiesCorporateMember",
-    "non_institutions": "NonInstitutionsMember",
+    "retail_small":     ("ResidentIndividualShareholdersHoldingNominalShareCapitalUpToRsTwoLakhMember",),
+    "retail_large":     ("ResidentIndividualShareholdersHoldingNominalShareCapitalInExcessOfRsTwoLakhMember",),
+    "nri":              ("NonResidentIndiansMember",),
+    "bodies_corporate": ("BodiesCorporateMember",),
+    "non_institutions": ("NonInstitutionsMember",),
 }
 
 #: Headline legs the ownership card reads, in display order.
@@ -162,6 +171,13 @@ HEADLINE_LEGS = ("fii", "dii", "mf", "retail", "promoter")
 
 _PCT_FACT = re.compile(
     r'<in-bse-shp:ShareholdingAsAPercentageOfTotalNumberOfShares\s+contextRef="([^"]+)"'
+    r'[^>]*>([\d.eE+-]+)<')
+# Share COUNT, for SR-5's historical cap weighting. `NumberOfFullyPaidUpEquity
+# Shares` and not `NumberOfShares`: the latter is the wider fully-diluted figure
+# (warrants, ESOPs, depository receipts) and on RELIANCE the category counts sum
+# to only 0.983 of it, where they sum to 1.0000 of the fully-paid-up count.
+_SHARES_FACT = re.compile(
+    r'<in-bse-shp:NumberOfFullyPaidUpEquityShares\s+contextRef="([^"]+)"'
     r'[^>]*>([\d.eE+-]+)<')
 _CONTEXT = re.compile(r'<xbrli:context id="([^"]+)">(.*?)</xbrli:context>', re.S)
 _MEMBER = re.compile(r'<xbrldi:explicitMember[^>]*>([^<]+)</xbrldi:explicitMember>')
@@ -181,19 +197,71 @@ def parse_shareholding(xbrl_text: str) -> dict | None:
     if not xbrl_text:
         return None
     contexts = dict(_CONTEXT.findall(xbrl_text))
-    by_member: dict[str, float] = {}
+    raw: dict[str, float] = {}
     for cid, val in _PCT_FACT.findall(xbrl_text):
         members = _MEMBER.findall(contexts.get(cid, ""))
         if len(members) != 1:
             continue
         try:
-            by_member[members[0].split(":")[-1]] = float(val) * 100.0
+            raw[members[0].split(":")[-1]] = float(val)
         except ValueError:
             continue
-    if not by_member:
+    if not raw:
         return None
 
-    out: dict = {k: by_member.get(m) for k, m in CATEGORY_MEMBERS.items()}
+    # SCALE IS PER FILING, read from the filing itself.
+    #
+    # Recent filings express these as fractions (total = 1.0); filings up to
+    # roughly mid-2025 express them as percentages already (total = 100.0). The
+    # parser used to multiply by 100 unconditionally, which is right for the
+    # newer vintage and off by 100× for the older one — RELIANCE's Jun-2025
+    # promoter stake came out as 5007% against a filed 50.07%. Invisible until a
+    # backfill reached back past the changeover, because DS-2 only ever verified
+    # *latest* filings.
+    #
+    # The filing's own total is the scale marker: ~1 means fractions, ~100 means
+    # percent. Anything else is a file we do not understand, and returning None
+    # is the only safe answer — a guessed scale is a 100× error wearing a
+    # plausible number's clothes.
+    total_raw = raw.get("ShareholdingPatternMember")
+    if total_raw is None:
+        pr, pu = (raw.get("ShareholdingOfPromoterAndPromoterGroupMember"),
+                  raw.get("PublicShareholdingMember"))
+        total_raw = (pr + pu) if (pr is not None and pu is not None) else None
+    if total_raw is None:
+        return None
+    if 0.98 <= total_raw <= 1.02:
+        scale = 100.0
+    elif 98.0 <= total_raw <= 102.0:
+        scale = 1.0
+    else:
+        log.warning("unrecognised shareholding scale (total=%s) — refusing to guess",
+                    total_raw)
+        return None
+
+    by_member = {k: v * scale for k, v in raw.items()}
+
+    # Shares outstanding at this filing period, read through the same
+    # single-member context rule. This is what lets SR-5 weight a historical
+    # quarter by the cap it actually had rather than by today's.
+    shares_total = None
+    for cid, val in _SHARES_FACT.findall(xbrl_text):
+        members = _MEMBER.findall(contexts.get(cid, ""))
+        if len(members) == 1 and members[0].split(":")[-1] == "ShareholdingPatternMember":
+            try:
+                shares_total = float(val)
+            except ValueError:
+                pass
+            break
+
+    def _first(aliases):
+        for a in aliases:
+            if by_member.get(a) is not None:
+                return by_member[a]
+        return None
+
+    out: dict = {k: _first(aliases) for k, aliases in CATEGORY_MEMBERS.items()}
+    out["shares_total"] = shares_total
 
     def _sum(*keys):
         vals = [out[k] for k in keys if out.get(k) is not None]
@@ -244,7 +312,16 @@ def _fetch_filing(session: requests.Session, filing: dict, symbol: str) -> dict 
         return None
 
     def _close(a, b):
+        # An absent category and a master value of 0 AGREE. Filers omit zero
+        # rows, so a company with no promoter — HDFCBANK, and every other widely
+        # held bank — parses `promoter: None` against a master `pr_and_prgrp: 0`.
+        # Treating that as unverifiable marked five perfectly good quarters as
+        # non-reconciling and would have dropped the symbol from the chart. The
+        # stored value stays None (an unfiled category is still not a measured
+        # zero); it is only this cross-check that treats them as equal.
         try:
+            if a is None:
+                return float(b) == 0.0
             return abs(float(a) - float(b)) <= 0.05
         except (TypeError, ValueError):
             return None
