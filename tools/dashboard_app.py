@@ -61,6 +61,7 @@ import opportunity_daily as od
 import market_health as mh
 import report_style as rs
 import sector_card as scard
+import rrg as rrg_mod
 
 # The M1 rating lives in rating.py so the headless daily Opportunity Hub job
 # scores with the SAME code the interactive Hub shows. Aliased to the old
@@ -343,6 +344,28 @@ def cached_fetch_sector_data() -> dict:
         except Exception:
             pass
     return results
+
+
+@st.cache_data(ttl=300, show_spinner=False)
+def cached_fetch_benchmark(ticker: str = "^NSEI") -> pd.DataFrame | None:
+    """NIFTY 50 for the RRG, fetched the same way as the sector frames.
+
+    Deliberately not `cached_fetch_nifty50()`: that returns 300 rows with a
+    lowercase `close`, while the sector frames carry 2y with yfinance's `Close`.
+    The RRG divides one by the other, so they have to be the same shape and the
+    same length — a 300-row benchmark would silently truncate every tail.
+    """
+    import yfinance as yf
+    try:
+        df = yf.download(ticker, period="2y", interval="1d",
+                         progress=False, auto_adjust=True)
+        if df is None or df.empty:
+            return None
+        if isinstance(df.columns, pd.MultiIndex):
+            df.columns = [c[0] for c in df.columns]
+        return df
+    except Exception:
+        return None
 
 
 def _period_return(df: pd.DataFrame, days: int) -> float | None:
@@ -3368,6 +3391,140 @@ if current_page == "Sector Map":
                         margin=dict(t=20, l=60, r=20, b=60),
                     )
                     st.plotly_chart(fig_rq, use_container_width=True)
+
+            # ── SR-6: Relative Rotation Graph ─────────────────────────────────
+            # The quadrant above plots 1Y vs 1M *absolute* return, so in a market
+            # that rises together every sector piles into the top-right and the
+            # picture stops discriminating. This measures each sector against the
+            # benchmark and adds the second derivative, which is what turns four
+            # corners into a cycle. Price-only by design — it needs none of the
+            # ownership data the orbit chart is still blocked on (SR-2).
+            st.divider()
+            st.markdown("#### Relative Rotation Graph (vs NIFTY 50)")
+
+            rg1, rg2, rg3 = st.columns([1, 1, 1])
+            with rg1:
+                rrg_freq = st.radio("Bars", ["Weekly", "Daily"], horizontal=True,
+                                    key="sm_rrg_freq",
+                                    help="RRG is conventionally read weekly; "
+                                         "daily is materially noisier.")
+            with rg2:
+                rrg_tail = st.slider("Tail length", 3, 20, 8, key="sm_rrg_tail")
+            with rg3:
+                rrg_window = st.slider("Z-score window", 8, 30, rrg_mod.DEFAULT_WINDOW,
+                                       key="sm_rrg_window")
+
+            rrg_bench = cached_fetch_benchmark()
+            rrg_res = rrg_mod.compute(
+                sector_data, SECTOR_DISPLAY_NAMES, rrg_bench,
+                freq="W" if rrg_freq == "Weekly" else "D",
+                window=rrg_window, tail=rrg_tail,
+            )
+
+            if not rrg_res["sectors"]:
+                st.warning(
+                    f"Nothing to plot — {rrg_res['reason'] or 'not enough history'}. "
+                    f"Skipped: {', '.join(rrg_res['skipped']) or 'none'}."
+                )
+            else:
+                _QCOL = {"Leading": rs.TOKENS["good"], "Weakening": rs.TOKENS["accent"],
+                         "Lagging": rs.TOKENS["risk"], "Improving": rs.TOKENS["info"]}
+                fig_rrg = go.Figure()
+
+                # Axis span padded around 100 so the quadrant cross always sits
+                # in view even when every sector happens to sit on one side.
+                _vals = [p[k] for s in rrg_res["sectors"] for p in s["points"]
+                         for k in ("rs_ratio", "rs_momentum")]
+                _span = max(1.2, max(abs(v - 100) for v in _vals) * 1.15)
+                _lo, _hi = 100 - _span, 100 + _span
+
+                for _x0, _x1, _y0, _y1, _c in (
+                        (100, _hi, 100, _hi, rs.TOKENS["good"]),      # Leading
+                        (100, _hi, _lo, 100, rs.TOKENS["accent"]),    # Weakening
+                        (_lo, 100, _lo, 100, rs.TOKENS["risk"]),      # Lagging
+                        (_lo, 100, 100, _hi, rs.TOKENS["info"])):     # Improving
+                    fig_rrg.add_shape(type="rect", x0=_x0, x1=_x1, y0=_y0, y1=_y1,
+                                      fillcolor=_c, opacity=0.07, line_width=0,
+                                      layer="below")
+                fig_rrg.add_hline(y=100, line=dict(color="#999", width=1, dash="dot"))
+                fig_rrg.add_vline(x=100, line=dict(color="#999", width=1, dash="dot"))
+
+                for s in rrg_res["sectors"]:
+                    xs = [p["rs_ratio"] for p in s["points"]]
+                    ys = [p["rs_momentum"] for p in s["points"]]
+                    col = _QCOL[s["quadrant"]]
+                    # Tail fades toward the past: the head is the reading, the
+                    # tail is only how it got there.
+                    fig_rrg.add_trace(go.Scatter(
+                        x=xs, y=ys, mode="lines+markers", name=s["name"],
+                        line=dict(color=col, width=1.5),
+                        marker=dict(size=4, color=col, opacity=0.45),
+                        hovertext=[f'{s["name"]} · {p["date"]}' for p in s["points"]],
+                        hovertemplate="%{hovertext}<br>RS-Ratio %{x:.2f}"
+                                      "<br>RS-Mom %{y:.2f}<extra></extra>",
+                        showlegend=False,
+                    ))
+                    fig_rrg.add_trace(go.Scatter(
+                        x=[xs[-1]], y=[ys[-1]], mode="markers+text",
+                        text=[s["name"]], textposition="top center",
+                        textfont=dict(size=10),
+                        marker=dict(size=12, color=col,
+                                    line=dict(color="white", width=1.5)),
+                        hovertemplate=f'<b>{s["name"]}</b><br>{s["quadrant"]}'
+                                      "<br>RS-Ratio %{x:.2f}<br>RS-Mom %{y:.2f}"
+                                      "<extra></extra>",
+                        showlegend=False,
+                    ))
+
+                _ann = [dict(x=_hi, y=_hi, text="<b>Leading</b>", showarrow=False,
+                             xanchor="right", yanchor="top",
+                             font=dict(color=rs.TOKENS["good"], size=11)),
+                        dict(x=_hi, y=_lo, text="<b>Weakening</b>", showarrow=False,
+                             xanchor="right", yanchor="bottom",
+                             font=dict(color=rs.TOKENS["accent"], size=11)),
+                        dict(x=_lo, y=_lo, text="<b>Lagging</b>", showarrow=False,
+                             xanchor="left", yanchor="bottom",
+                             font=dict(color=rs.TOKENS["risk"], size=11)),
+                        dict(x=_lo, y=_hi, text="<b>Improving</b>", showarrow=False,
+                             xanchor="left", yanchor="top",
+                             font=dict(color=rs.TOKENS["info"], size=11))]
+                fig_rrg.update_layout(
+                    height=520, margin=dict(t=20, l=60, r=20, b=60),
+                    xaxis=dict(title="RS-Ratio (relative trend)", range=[_lo, _hi],
+                               zeroline=False),
+                    yaxis=dict(title="RS-Momentum (rate of change)", range=[_lo, _hi],
+                               zeroline=False),
+                    annotations=_ann, showlegend=False,
+                )
+                st.plotly_chart(fig_rrg, use_container_width=True)
+
+                _by_q = {}
+                for s in rrg_res["sectors"]:
+                    _by_q.setdefault(s["quadrant"], []).append(s["name"])
+                st.markdown(rs.strip([
+                    rs.stat_card(q, str(len(_by_q.get(q, []))) if q in _by_q else "0",
+                                 ", ".join(_by_q.get(q, [])) or "—",
+                                 tone=rrg_mod.QUADRANTS[q]["tone"])
+                    for q in ("Leading", "Weakening", "Lagging", "Improving")
+                ], cols=4), unsafe_allow_html=True)
+
+                if rrg_res["skipped"]:
+                    st.caption("Not enough history to place: "
+                               + ", ".join(rrg_res["skipped"]))
+                st.caption(
+                    f"Rotation reads clockwise: Improving → Leading → Weakening → "
+                    f"Lagging. {rrg_freq.lower()} bars · z-score window "
+                    f"{rrg_res['window']} · momentum over {rrg_res['mom_period']} "
+                    f"periods · tail {rrg_res['tail']}"
+                    + (f" · through {rrg_res['as_of']}" if rrg_res["as_of"] else "")
+                    + ". **This is a price-relative measure, not a flow measure** — "
+                    "it says a sector is outperforming, not that money is moving "
+                    "into it. JdK's exact RS-Ratio/RS-Momentum formulas are "
+                    "proprietary; this is the standard public approximation, and "
+                    "each sector is standardised against **its own** history, so "
+                    "read the quadrant and direction of travel rather than "
+                    "comparing coordinates between sectors."
+                )
 
             # ── Shareable card ────────────────────────────────────────────────
             # The three surfaces above are interactive Plotly and never leave
