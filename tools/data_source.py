@@ -25,6 +25,41 @@ TF_SECONDS = {
     "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800,
 }
 
+#: The only timeframes this stack understands. Matches TIMEFRAMES in
+#: chart_dashboard.html — the UI and the server must not disagree about what is
+#: askable.
+TIMEFRAMES = tuple(TF_SECONDS)
+
+
+class UnknownTimeframe(ValueError):
+    """Raised for a timeframe no source can serve."""
+
+
+def validate_timeframe(timeframe: str) -> str:
+    """Return `timeframe` if we can serve it, else raise.
+
+    Every lookup here used to be `.get(tf, <daily>)`, so an unrecognised
+    timeframe came back as **daily data labelled with whatever was asked for**.
+    Measured on 2026-08-02: `/api/ohlcv?timeframe=1wk` returned byte-identical
+    output to `1d` — 158 pivots, 21 impulses, the same Elliott Wave targets —
+    while the response echoed `"timeframe": "1wk"`. `1wk` is yfinance's spelling
+    of this stack's `1w`, so it is exactly the plausible typo a caller makes, and
+    the answer was a confident wrong chart rather than an error.
+
+    Three call sites shared the flaw: the yfinance interval/period lookup, the
+    Hyperliquid interval lookup, and `TF_SECONDS` for its bar arithmetic (an
+    unknown timeframe silently priced bars at one hour). One validator now, so a
+    new source cannot reintroduce it independently.
+    """
+    if timeframe in TF_SECONDS:
+        return timeframe
+    raise UnknownTimeframe(
+        f"unknown timeframe {timeframe!r}; expected one of "
+        f"{', '.join(TIMEFRAMES)}"
+        + ("  (did you mean '1w'? '1wk' is yfinance's spelling, not ours)"
+           if str(timeframe).lower() in ("1wk", "1week", "w", "wk") else "")
+    )
+
 
 # ── Abstract base ─────────────────────────────────────────────────────────────
 
@@ -80,7 +115,7 @@ class YFinanceSource(DataSource):
 
     def get_ohlcv(self, symbol: str, timeframe: str, bars: int = 200) -> list[dict]:
         import yfinance as yf
-        yf_iv, period = self._TF.get(timeframe, ("1d", "5y"))
+        yf_iv, period = self._TF[validate_timeframe(timeframe)]
         # If caller requests more bars than the default period covers, upgrade
         # the yfinance period so we actually fetch enough history.
         # 252 bars ≈ 1y · 1260 ≈ 5y · 2520 ≈ 10y
@@ -287,8 +322,8 @@ class HyperliquidSource(DataSource):
     }
 
     def get_ohlcv(self, symbol: str, timeframe: str, bars: int = 200) -> list[dict]:
-        interval = self._TF.get(timeframe, "1h")
-        secs = TF_SECONDS.get(timeframe, 3600)
+        interval = self._TF[validate_timeframe(timeframe)]
+        secs = TF_SECONDS[timeframe]
         end_ms = int(time.time() * 1000)
         start_ms = end_ms - (bars + 5) * secs * 1000
         try:

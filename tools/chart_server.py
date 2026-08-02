@@ -254,9 +254,16 @@ _HL_TF = ds.HyperliquidSource._TF
 
 
 def _ensure_feed(symbol: str, timeframe: str) -> None:
+    # Same rule as /api/ohlcv: a live feed on the wrong interval is worse than
+    # no feed, because the ticks look right and land on the wrong series.
+    try:
+        timeframe = ds.validate_timeframe(timeframe)
+    except ds.UnknownTimeframe as e:
+        log.warning("refusing feed subscription: %s", e)
+        return
     source = ds.detect_source(symbol)
     if source.name == "hyperliquid":
-        hl_interval = _HL_TF.get(timeframe, "1h")
+        hl_interval = _HL_TF[timeframe]
         _hl_subscribe(symbol, hl_interval)
     else:
         _yf_start(symbol, timeframe)
@@ -301,6 +308,12 @@ def api_ohlcv():
     bars      = min(int(request.args.get("bars", 300)), 3000)  # 3000 covers 10Y+ daily
     if not symbol:
         return jsonify({"error": "symbol required"}), 400
+    # Reject an unservable timeframe instead of quietly serving daily under its
+    # name — `?timeframe=1wk` used to return daily bars labelled "1wk".
+    try:
+        timeframe = ds.validate_timeframe(timeframe)
+    except ds.UnknownTimeframe as e:
+        return jsonify({"error": str(e), "timeframes": list(ds.TIMEFRAMES)}), 400
     symbol = sym_dir.resolve_symbol(symbol)
     requested = symbol          # remember it so a swap below can be reported
     source = ds.detect_source(symbol)
