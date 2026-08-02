@@ -60,6 +60,7 @@ import rating
 import opportunity_daily as od
 import market_health as mh
 import report_style as rs
+import sector_card as scard
 
 # The M1 rating lives in rating.py so the headless daily Opportunity Hub job
 # scores with the SAME code the interactive Hub shows. Aliased to the old
@@ -3357,6 +3358,57 @@ if current_page == "Sector Map":
                         margin=dict(t=20, l=60, r=20, b=60),
                     )
                     st.plotly_chart(fig_rq, use_container_width=True)
+
+            # ── Shareable card ────────────────────────────────────────────────
+            # The three surfaces above are interactive Plotly and never leave
+            # the tab. This renders the same read as a PNG that can be posted.
+            # Its own period selector rather than the heatmap's: the card you
+            # want to share is often not the period you happen to be studying.
+            st.divider()
+            st.markdown("#### Shareable Card")
+            st.caption(
+                "Rendered from the sector frames already loaded above — no extra "
+                "fetch. The market-breadth footer rides the last **persisted** "
+                "sentiment reading; refresh it on Market Sentiment if the card "
+                "flags it as stale."
+            )
+
+            cd_left, cd_right = st.columns([1, 2])
+            with cd_left:
+                card_period = st.radio(
+                    "Period", ["1D", "1W", "1M", "3M", "1Y"],
+                    horizontal=True, key="sm_card_period",
+                )
+                card_2x = st.checkbox(
+                    "2× resolution", value=False, key="sm_card_2x",
+                    help="2160px wide — sharper on retina timelines, ~4× the file size.",
+                )
+
+            card_days = {"1D": 1, "1W": 5, "1M": 21, "3M": 63, "1Y": 252}[card_period]
+            card_model = scard.build_model(
+                sector_data, SECTOR_DISPLAY_NAMES, _period_return,
+                card_days, card_period, cached_latest_sentiment(), date.today(),
+            )
+
+            if not card_model["sectors"]:
+                st.warning(
+                    "No sector index returned enough history for this period — "
+                    "nothing to put on a card."
+                )
+            else:
+                card_png = scard.render_png(card_model, scale=2 if card_2x else 1)
+                with cd_right:
+                    st.download_button(
+                        "⬇ Download PNG", card_png,
+                        file_name=(f"sector-breadth-{date.today().isoformat()}"
+                                   f"-{card_period.lower()}.png"),
+                        mime="image/png", type="primary",
+                    )
+                    st.caption(f"{len(card_png) / 1024:.0f} KB · "
+                               f"{2160 if card_2x else 1080}px wide")
+                st.image(card_png, width=540)
+                with st.expander("Copy as text (WhatsApp / Telegram)"):
+                    st.code(scard.render_text(card_model), language=None)
 
     # ── Row 2: historical orbit chart ─────────────────────────────────────────
     st.divider()
