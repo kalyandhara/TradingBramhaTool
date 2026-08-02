@@ -48,17 +48,26 @@ COMPONENT_LABELS = {
     "pmax_nifty_1h":      "PMax trend (NIFTY 1H)",
 }
 
-# verdict → (colour, position-size %, max trades, one-line instruction)
+# verdict → (tone, position-size %, max trades, one-line instruction)
+#
+# A *tone*, not a hex. This module decides; report_style decides what a decision
+# looks like. The old literals (#c62828, #b8860b, #1b5e20 …) predated that split
+# and were the last place on the screener page still painting from its own
+# palette, so STAND DOWN's red sat next to token-red flags and did not match.
+#
+# TRADE and AGGRESSIVE deliberately share `good`. They used to differ by two
+# greens 8% apart in luminance — a distinction nobody could name on sight, and
+# one the words and the size/trade-cap numbers already state outright.
 VERDICT_SPECS = {
-    "STAND DOWN": ("#c62828", 0,   0,
+    "STAND DOWN": ("risk",   0,   0,
                    "Sit out. The tape is against you — no size, no exceptions."),
-    "SELECTIVE":  ("#b8860b", 50,  2,
+    "SELECTIVE":  ("warn",   50,  2,
                    "Trade only HIGH conviction setups. Reduce position size to 50%."),
-    "TRADE":      ("#2e7d32", 100, 3,
+    "TRADE":      ("good",   100, 3,
                    "Normal conditions. Take your standard setups at full size."),
-    "AGGRESSIVE": ("#1b5e20", 100, 4,
+    "AGGRESSIVE": ("good",   100, 4,
                    "Conditions favour you. Full size, and you may run multiple setups."),
-    "NO EDGE":    ("#616161", 50,  1,
+    "NO EDGE":    ("absent", 50,  1,
                    "Nothing is confirming either way. One A+ setup at half size, or nothing."),
 }
 
@@ -135,10 +144,10 @@ def build_verdict(reading: dict[str, Any] | None,
     else:
         verdict = "NO EDGE"
 
-    color, size_pct, max_trades, instruction = VERDICT_SPECS[verdict]
+    tone, size_pct, max_trades, instruction = VERDICT_SPECS[verdict]
     return {
         "verdict":     verdict,
-        "color":       color,
+        "tone":        tone,
         "size_pct":    size_pct,
         "max_trades":  max_trades,
         "instruction": instruction,
@@ -176,6 +185,17 @@ REGIME_PLAYBOOKS = {
     "VOLATILE":      "Whipsaw risk. Widen stops or halve size — normal targets will not survive.",
 }
 
+# A regime is context, not a verdict, so the tones stay quieter than the ladder's:
+# SIDEWAYS is `info` (a classification, nothing to act on) and VOLATILE is `warn`
+# rather than `risk` — high vol is a sizing instruction, not a stand-down.
+REGIME_TONES = {
+    "TRENDING UP":   "good",
+    "TRENDING DOWN": "risk",
+    "SIDEWAYS":      "info",
+    "VOLATILE":      "warn",
+    "UNKNOWN":       "absent",
+}
+
 
 def classify_regime(nifty_df) -> dict[str, Any]:
     """Classify NIFTY into a regime with a plain-English playbook line.
@@ -185,6 +205,7 @@ def classify_regime(nifty_df) -> dict[str, Any]:
     numeric fields set to None when there is not enough history.
     """
     out: dict[str, Any] = {"label": "UNKNOWN", "playbook": "Not enough history to classify.",
+                           "tone": REGIME_TONES["UNKNOWN"],
                            "dist_pct": None, "vol": None, "vol_baseline": None}
     if nifty_df is None or "close" not in getattr(nifty_df, "columns", []):
         return out
@@ -224,6 +245,7 @@ def classify_regime(nifty_df) -> dict[str, Any]:
         label = "TRENDING DOWN"
 
     out.update({"label": label, "playbook": REGIME_PLAYBOOKS[label],
+                "tone": REGIME_TONES[label],
                 "dist_pct": round(dist_pct, 2),
                 "vol": None if vol is None else round(vol, 2),
                 "vol_baseline": None if vol_baseline is None else round(vol_baseline, 2)})

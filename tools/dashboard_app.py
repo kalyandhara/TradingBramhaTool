@@ -1504,26 +1504,30 @@ ov5.metric("Active Alerts Triggered", f"{triggered_count}/{len(active_alerts)}")
 # flags that produced it, so the ribbon can be argued with rather than obeyed.
 regime_info = mvd.classify_regime(nifty_overview)
 if regime_info["label"] != "UNKNOWN":
+    _rfg, _ = rs.tone_colors(regime_info["tone"])
     vol_txt = ""
     if regime_info["vol"] is not None and regime_info["vol_baseline"] is not None:
-        vol_txt = (f"Vol {regime_info['vol']:.2f}% "
-                   f"(baseline {regime_info['vol_baseline']:.2f}%)")
+        vol_txt = (f'<span class="tb-mono">{regime_info["vol"]:.2f}%</span> vs baseline '
+                   f'<span class="tb-mono">{regime_info["vol_baseline"]:.2f}%</span>')
     dist_txt = ""
     if regime_info["dist_pct"] is not None:
-        dist_txt = f"Price within {abs(regime_info['dist_pct']):.1f}% of 50 SMA"
+        dist_txt = (f'Price within <span class="tb-mono">'
+                    f'{abs(regime_info["dist_pct"]):.1f}%</span> of the 50 SMA')
+    # The regime chip carries the tone; the card border stays a hairline. Two
+    # coloured surfaces stacked (banner tint + verdict) would read as two
+    # verdicts, and only one of these is a decision.
     st.markdown(
-        f"""
-        <div style="padding:10px 14px;border-radius:10px;background:#fff8e1;
-                    border:1px solid #ffe082;margin:6px 0 10px 0;">
-          <span style="font-size:11px;color:#8d6e63;letter-spacing:.5px;">MARKET REGIME</span>
-          <span style="font-size:11px;font-weight:700;background:#ffe082;color:#6d4c41;
-                       padding:2px 8px;border-radius:10px;margin-left:8px;">
-            {regime_info['label']}</span>
-          <span style="font-size:11px;color:#8d6e63;margin-left:10px;">{vol_txt}</span>
-          <div style="font-size:15px;color:#4e342e;margin-top:5px;">{regime_info['playbook']}</div>
-          <div style="font-size:11px;color:#8d6e63;margin-top:2px;">{dist_txt}</div>
-        </div>
-        """,
+        rs.card(
+            f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
+            f'<span class="tb-micro">Market regime</span>'
+            + rs.chip(regime_info["label"], tone=regime_info["tone"])
+            + (f'<span style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
+               f'Vol {vol_txt}</span>' if vol_txt else "")
+            + f'</div>'
+            f'<div style="font-size:14px;color:{rs.TOKENS["text_body"]};'
+            f'margin-top:4px;">{regime_info["playbook"]}</div>'
+            + (f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};'
+               f'margin-top:3px;">{dist_txt}</div>' if dist_txt else "")),
         unsafe_allow_html=True,
     )
 
@@ -1537,49 +1541,64 @@ if _senti_reading and _senti_reading.get("reading_date"):
             f"Sentiment reading is {_age} day(s) old — refresh Market Sentiment")
 verdict = mvd.build_verdict(_senti_reading, portfolio_summary, _stale_flags)
 
-vcol, scol = st.columns([4, 1])
-with vcol:
-    st.markdown(
-        f"""
-        <div style="font-size:11px;color:#777;letter-spacing:.5px;">TODAY'S VERDICT</div>
-        <div style="font-size:30px;font-weight:800;color:{verdict['color']};line-height:1.15;">
-          {verdict['verdict']}
-        </div>
-        <div style="font-size:14px;color:#444;margin-top:4px;">{verdict['instruction']}</div>
-        """,
-        unsafe_allow_html=True,
-    )
-with scol:
-    st.markdown(
-        f"""
-        <div style="text-align:right;">
-          <div style="font-size:11px;color:#777;">Position Size</div>
-          <div style="font-size:30px;font-weight:800;color:{verdict['color']};line-height:1.15;">
-            {verdict['size_pct']}%</div>
-          <div style="font-size:11px;color:#777;">max {verdict['max_trades']} trade(s) today</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
+_vfg, _ = rs.tone_colors(verdict["tone"])
 
-if verdict["caution"]:
-    st.markdown("<div style='font-size:11px;color:#c62828;letter-spacing:.5px;"
-                "margin-top:8px;'>CAUTION</div>", unsafe_allow_html=True)
-    for c in verdict["caution"]:
-        st.markdown(f"<div style='color:#c62828;font-size:13px;'>✖ {c}</div>",
-                    unsafe_allow_html=True)
-if verdict["favorable"]:
-    st.markdown("<div style='font-size:11px;color:#2e7d32;letter-spacing:.5px;"
-                "margin-top:8px;'>FAVORABLE</div>", unsafe_allow_html=True)
-    for f in verdict["favorable"]:
-        st.markdown(f"<div style='color:#2e7d32;font-size:13px;'>✔ {f}</div>",
-                    unsafe_allow_html=True)
+
+def _flag_list(items: list[str], label: str, tone: str, mark: str) -> str:
+    """One flag block — micro header in the tone, then the flags themselves."""
+    if not items:
+        return ""
+    fg, _bg = rs.tone_colors(tone)
+    rows = "".join(
+        f'<div style="font-size:13px;color:{fg};line-height:1.55;">{mark} {i}</div>'
+        for i in items)
+    return (f'<div style="margin-top:10px;">'
+            f'<div class="tb-micro" style="color:{fg};">{label}</div>{rows}</div>')
+
+
+# One bordered card rather than loose columns: the verdict and the flags that
+# produced it are a single object, and the border colour is where the decision
+# is stated (report_style's `tone` rule — a value's colour states its verdict).
+# The size figure is .tb-mono like every other number on this page; it used to
+# be the one headline figure rendering in the proportional face.
+st.markdown(
+    rs.card(
+        '<div style="display:flex;align-items:flex-start;gap:16px;">'
+        '<div style="flex:1;min-width:0;">'
+        '<div class="tb-micro">Today\'s verdict</div>'
+        f'<div style="font-size:30px;font-weight:800;color:{_vfg};'
+        f'line-height:1.15;letter-spacing:-.01em;">{verdict["verdict"]}</div>'
+        f'<div style="font-size:14px;color:{rs.TOKENS["text_body"]};'
+        f'margin-top:4px;">{verdict["instruction"]}</div>'
+        '</div>'
+        '<div style="text-align:right;flex-shrink:0;">'
+        '<div class="tb-micro">Position size</div>'
+        f'<div class="tb-mono" style="font-size:30px;font-weight:800;'
+        f'color:{_vfg};line-height:1.15;">{verdict["size_pct"]}%</div>'
+        f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
+        f'max <span class="tb-mono">{verdict["max_trades"]}</span> trade(s) today</div>'
+        '</div></div>'
+        + _flag_list(verdict["caution"], "Caution", "risk", "✗")
+        + _flag_list(verdict["favorable"], "Favorable", "good", "✓"),
+        tone=verdict["tone"]),
+    unsafe_allow_html=True,
+)
 
 with st.expander("Why this verdict?"):
-    d1, d2, d3 = st.columns(3)
-    d1.metric("Min Conviction Required", verdict["min_conviction"])
-    d2.metric("Caution Flags",   verdict["n_caution"])
-    d3.metric("Favorable Flags", verdict["n_favorable"])
+    # stat_card, not st.metric: the native metric renders its value in the
+    # proportional face with its own grey label, which is the one thing on this
+    # page that never matched the rest of the figures.
+    st.markdown(
+        rs.strip([
+            rs.stat_card("Min conviction required", verdict["min_conviction"],
+                         tone="warn" if verdict["min_conviction"] == "HIGH" else "neutral"),
+            rs.stat_card("Caution flags", str(verdict["n_caution"]),
+                         tone="risk" if verdict["n_caution"] else "neutral"),
+            rs.stat_card("Favorable flags", str(verdict["n_favorable"]),
+                         tone="good" if verdict["n_favorable"] else "neutral"),
+        ], cols=3),
+        unsafe_allow_html=True,
+    )
     if verdict["score"] is not None:
         st.caption(f"Sentiment score {verdict['score']} ({verdict['band']}) "
                    f"· reading dated {verdict['as_of']}")
