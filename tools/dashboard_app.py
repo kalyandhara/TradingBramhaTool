@@ -1508,20 +1508,54 @@ if not active_alerts.empty:
         triggered, _ = check_alert(a, portfolio_summary)
         triggered_count += int(triggered)
 
-ov1, ov2, ov3, ov4, ov5 = st.columns(5)
-ov1.metric("Nifty 50", f"{nifty_last:,.0f}" if nifty_last else "—",
-           f"{nifty_day_chg:+.2f}%" if nifty_day_chg is not None else None)
-# Labelled by its actual basis, not "Regime": the banner below owns that word
-# and answers a different question (50 SMA + vol → trending/ranging). Two
-# adjacent boxes both saying "Regime" with different answers read as a bug.
-ov2.metric("vs 200 SMA", nifty_regime)
-ov3.metric("Portfolio P&L", fmt_money(portfolio_summary["pl"]),
-           fmt_pct(portfolio_summary["pl_pct"]))
-if nifty_day_chg is not None and portfolio_summary["open_count"] > 0:
-    ov3.caption(f"Today: portfolio {gain_loss_badge(portfolio_summary['day_pl_pct'])} "
-                f"vs Nifty {gain_loss_badge(nifty_day_chg)}")
-ov4.metric("Capital at Risk", fmt_pct(portfolio_summary["capital_at_risk_pct"]).replace("+", ""))
-ov5.metric("Active Alerts Triggered", f"{triggered_count}/{len(active_alerts)}")
+# The overview strip was the last native `st.metric` row on the page: cold grey
+# labels, a proportional face on the figures, and no semantic colour, sitting
+# directly above a token-styled verdict card. It now uses the same stat cards as
+# everything else, so the numbers line up in mono and each one states its own
+# verdict through tone rather than being uniformly black.
+def _tone_signed(v, *, good_when_positive=True):
+    """Tone for a signed number; neutral when it is missing or flat."""
+    if v is None or pd.isna(v) or abs(float(v)) < 1e-9:
+        return "neutral"
+    up = float(v) > 0
+    return "good" if up == good_when_positive else "risk"
+
+
+_cap_risk = portfolio_summary["capital_at_risk_pct"]
+_ov_cards = [
+    rs.stat_card(
+        "Nifty 50",
+        f"{nifty_last:,.0f}" if nifty_last else None,
+        (f"{nifty_day_chg:+.2f}% today" if nifty_day_chg is not None else None),
+        tone=_tone_signed(nifty_day_chg)),
+    # Labelled by its actual basis, not "Regime": the banner below owns that word
+    # and answers a different question (50 SMA + vol → trending/ranging). Two
+    # adjacent boxes both saying "Regime" with different answers read as a bug.
+    rs.stat_card(
+        "vs 200 SMA", nifty_regime if nifty_regime != "Unknown" else None,
+        "long-term regime",
+        tone={"RISK-ON": "good", "RISK-OFF": "risk"}.get(nifty_regime, "absent")),
+    rs.stat_card(
+        "Portfolio P&L", fmt_money(portfolio_summary["pl"]),
+        (f"Today {gain_loss_badge(portfolio_summary['day_pl_pct'])} vs Nifty "
+         f"{gain_loss_badge(nifty_day_chg)}"
+         if (nifty_day_chg is not None and portfolio_summary["open_count"] > 0)
+         else fmt_pct(portfolio_summary["pl_pct"])),
+        tone=_tone_signed(portfolio_summary["pl"])),
+    # Capital at risk is caution-only: more of it is never good news, so it
+    # cannot read green. Amber past the same 6% the verdict engine flags.
+    rs.stat_card(
+        "Capital at Risk",
+        fmt_pct(_cap_risk).replace("+", ""),
+        f"caution above {mvd.CAPITAL_AT_RISK_CAUTION_PCT:.0f}%",
+        tone=("risk" if (_cap_risk or 0) > mvd.CAPITAL_AT_RISK_CAUTION_PCT
+              else "neutral")),
+    rs.stat_card(
+        "Alerts Triggered", f"{triggered_count}/{len(active_alerts)}",
+        "active alerts firing",
+        tone="warn" if triggered_count else "neutral"),
+]
+st.markdown(rs.strip(_ov_cards, cols=5), unsafe_allow_html=True)
 
 # ── Regime banner + today's verdict ───────────────────────────────────────────
 # Five true numbers above still do not answer "do I trade today, and how big?".
@@ -1559,11 +1593,16 @@ if regime_info["label"] != "UNKNOWN":
 _senti_reading = cached_latest_sentiment()
 # A reading from three sessions ago must not read as today's green light.
 _stale_flags = []
+_senti_age = None
 if _senti_reading and _senti_reading.get("reading_date"):
-    _age = (date.today() - date.fromisoformat(_senti_reading["reading_date"])).days
-    if _age >= 1:
+    _senti_age = (date.today() - date.fromisoformat(_senti_reading["reading_date"])).days
+    if _senti_age >= 1:
+        # The instruction used to be "refresh Market Sentiment", pointing at
+        # another page. There is a button directly under this card now, so the
+        # flag states the fact and the button owns the fix.
         _stale_flags.append(
-            f"Sentiment reading is {_age} day(s) old — refresh Market Sentiment")
+            f"Sentiment reading is {_senti_age} day(s) old "
+            f"(dated {_senti_reading['reading_date']})")
 verdict = mvd.build_verdict(_senti_reading, portfolio_summary, _stale_flags)
 
 _vfg, _ = rs.tone_colors(verdict["tone"])
@@ -1608,6 +1647,42 @@ st.markdown(
         tone=verdict["tone"]),
     unsafe_allow_html=True,
 )
+
+# ── Inline sentiment refresh ──────────────────────────────────────────────────
+# Shown only when the reading is stale or missing, i.e. exactly when the verdict
+# above is standing on data the user should not trust. Sending them to another
+# page to fix a warning raised here is the friction that let a 5-day-old reading
+# sit under a live verdict.
+if _senti_reading is None or (_senti_age or 0) >= 1:
+    _rf1, _rf2 = st.columns([1, 3])
+    with _rf1:
+        _do_refresh = st.button(
+            "↻ Refresh sentiment", key="ov_senti_refresh",
+            help="Recomputes breadth, sector participation, the 200-SMA regime "
+                 "and NIFTY PMax, then re-reads this verdict. Takes ~25s.")
+    with _rf2:
+        st.caption(
+            "No sentiment reading has been computed yet — the verdict above is "
+            "running on a missing input." if _senti_reading is None else
+            f"Reading is **{_senti_age} day(s) old** (dated "
+            f"{_senti_reading['reading_date']}). The verdict above counts that "
+            "as a caution flag, so refreshing may change it.")
+
+    if _do_refresh:
+        try:
+            with st.spinner("Computing sentiment — bhavcopy, sector indices, PMax…"):
+                senti.compute_sentiment(persist=True)
+            # Same cache bust the Market Sentiment page performs. Without it the
+            # ribbon keeps serving the stale row for up to 5 minutes and the
+            # button looks broken.
+            cached_latest_sentiment.clear()
+            st.session_state["ov_senti_refreshed"] = True
+            st.rerun()
+        except Exception as exc:
+            st.error(f"Sentiment compute failed: {exc}")
+
+if st.session_state.pop("ov_senti_refreshed", False):
+    st.success("Sentiment recomputed — the verdict above reflects the new reading.")
 
 with st.expander("Why this verdict?"):
     # stat_card, not st.metric: the native metric renders its value in the
