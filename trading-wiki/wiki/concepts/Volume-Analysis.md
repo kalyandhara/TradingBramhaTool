@@ -4,8 +4,8 @@ category: concept
 tags: [volume, tick-volume, obv, mfi, vsa, wyckoff, breakout-confirmation, divergence, climax-volume]
 created: 2026-08-02
 updated: 2026-08-02
-sources: 1
-related: [concepts/Volume-Profile, concepts/VWAP, concepts/Anchored-VWAP-Pyramiding, concepts/FPV-Flow-Price-Volume-Ownership, concepts/VCP, concepts/Order-Flow]
+sources: 2
+related: [concepts/Volume-Profile, concepts/VWAP, concepts/Anchored-VWAP-Pyramiding, concepts/FPV-Flow-Price-Volume-Ownership, concepts/VCP, concepts/Order-Flow, concepts/Breakout, sources/ForexTester-Breakout-Guide]
 ---
 
 # Volume Analysis — Confirmation, Divergence and the Tick-Volume Caveat
@@ -56,8 +56,20 @@ Identical volume, opposite implication. What separates them is where the bar clo
 
 This looks like a contradiction and is not. Context — trending vs consolidating — decides which reading applies, and any rule that measures volume contraction has to state which one it is testing. Our own VCP scanner treats `base_vol_ratio ≤ 0.7` as a *positive*; the same contraction on a breakout leg would be a warning.
 
+> [!caution] There is no standard "above average" threshold — it is a tunable
+> Five numbers for one idea, every one presented by its source as a rule:
+> | Threshold | Lookback | Source |
+> |---|---|---|
+> | `≥1.2×` | 20-bar | [[sources/ForexTester-Breakout-Guide]] |
+> | `≥1.5×` | 20-period | [[sources/ForexTester-Volume-Analysis-Guide]] — **same publisher, same month** |
+> | `≥1.5×` | 20-day | our breakout scanners (`scanner_templates.py` ~1191, ~1276) |
+> | `≥1.5×` | 50-period | our VCP (~755) |
+> | `≥1.4×` | 50-DMA | our structural breakout (~1032) |
+>
+> One publisher printed **1.2× and 1.5× weeks apart**, neither citing data. That settles the question of whether any of these is authoritative: none is. Treat the threshold as a parameter to sweep — and note the sweep is not free, because a lower bar admits more trades of lower quality, so the choice trades throughput against precision. Settle it for our universe with [[analyses/Backtest-Harness]] rather than by adopting whichever article was read most recently.
+
 ## Variants / Parameters
-- **"Above average" threshold:** `1.5×` the **20-period** average is the stated standard; `2×` for higher conviction. Climax at `500%+`.
+- **"Above average" threshold:** commonly quoted as `1.5×` the **20-period** average, with `2×` for higher conviction and climax at `500%+` — but see the caution above; the number is not settled.
 - **Relative, never absolute.** A million shares is meaningless without the baseline it is being compared to; always express volume as a multiple of a stated lookback.
 - **Indicators:** **OBV** (cumulative — add volume on up-bars, subtract on down-bars; directional flow) · **MFI** (volume-weighted RSI, 0–100, >80 overbought / <20 oversold) · **Volume Profile** (by price) · **VWAP / AVWAP / rolling VWAP** (volume-weighted cost).
 - **Volume Profile 80% rule:** price entering the value area and holding **two consecutive 30-minute bars** implies ~80% probability of traversing the full VAL→VAH range. A testable claim with an entry, a target and a probability — see [[concepts/Volume-Profile]].
@@ -87,3 +99,4 @@ This looks like a contradiction and is not. Context — trending vs consolidatin
 
 ## Sources
 - [[sources/ForexTester-Volume-Analysis-Guide]] (2026-08-02) — tick-vs-real volume caveat, the price+volume matrix, the 1.5×/2×/500% thresholds, Wyckoff VSA, and the Volume Profile 80% rule.
+- [[sources/ForexTester-Breakout-Guide]] (2026-08-02) — the `≥120% of the 20-bar average` breakout threshold that contradicts the above and established that the number is a tunable, not a constant.

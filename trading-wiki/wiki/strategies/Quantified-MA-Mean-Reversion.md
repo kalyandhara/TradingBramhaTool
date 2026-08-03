@@ -3,9 +3,9 @@ title: "Quantified MA Mean-Reversion Strategy"
 category: strategy
 tags: [mean-reversion, moving-average, connors-rsi, options, swing]
 created: 2026-06-15
-updated: 2026-06-15
+updated: 2026-08-02
 sources: 1
-related: [concepts/ConnorsRSI.md, concepts/EMA.md, concepts/Performance-Metrics.md, concepts/RSI.md]
+related: [concepts/ConnorsRSI.md, concepts/EMA.md, concepts/Performance-Metrics.md, concepts/RSI.md, concepts/Mean-Reversion, sources/ForexTester-Mean-Reversion-Guide]
 timeframe: swing
 ---
 
@@ -54,6 +54,13 @@ Five exit methods were backtested (7a-7e), all assuming a long position:
 - **(e) Close > MA(5)** — exit when the close moves back above its 5-period moving average (loosest of the MA exits, longest average hold)
 
 **No stop loss is used in this system.** See Contradictions section in [[sources/Connors-MA-Quantified-Approach-2013]] — the book's own backtests found that adding a stop-loss reduced or eliminated the strategy's edge in most configurations.
+
+> [!contradiction] Directly contradicted by [[sources/ForexTester-Mean-Reversion-Guide]] (2026-08-02)
+> That source treats stops as mandatory for mean reversion: *"Put the stop beyond the extreme, not at the mean… 1–2 ATR outside the band. If price keeps stretching, you are wrong – exit."* Both describe mean reversion and they disagree on its most consequential rule.
+>
+> The reconciliation neither source states: **a stopless fade is only survivable when something else bounds the loss.** This system carries three such bounds — a hard `Close > MA(200)` regime filter (it only reverts *inside* a primary uptrend), a limit-order ladder that buys progressively deeper rather than all at once, and holds measured in days. An FX intraday fade has none of them, so an unstopped loss there is unbounded.
+>
+> Left open rather than resolved, and testable: run one reversion entry rule through [[analyses/Backtest-Harness]] with and without a 2-ATR stop. See [[concepts/Mean-Reversion]] for the general discipline this strategy instantiates.
 
 ## Worked Examples (from source)
 - **SWHC**: Fast MA (5) dropped >Y% below Slow MA (20) → limit buy X% below prior close filled on a gap-down day → held through a multi-day reversion → exited on ConnorsRSI>50 cross, producing a profitable short hold.
