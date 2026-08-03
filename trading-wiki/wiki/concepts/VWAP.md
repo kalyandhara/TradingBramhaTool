@@ -3,9 +3,9 @@ title: "VWAP — Volume Weighted Average Price"
 category: concept
 tags: [indicator, vwap, intraday, mean-reversion, momentum, session-anchor]
 created: 2026-07-06
-updated: 2026-07-06
-sources: 1
-related: [concepts/Anchored-VWAP-Pyramiding, strategies/TechnoFunda-Swing, strategies/Hyperliquid-Momentum-Screener]
+updated: 2026-08-02
+sources: 2
+related: [concepts/Anchored-VWAP-Pyramiding, strategies/TechnoFunda-Swing, strategies/Hyperliquid-Momentum-Screener, sources/ForexTester-Anchored-VWAP-Guide]
 ---
 
 # VWAP — Volume Weighted Average Price
@@ -40,6 +40,19 @@ Read three signals off VWAP jointly — a single signal in isolation is low-conv
 | Flat | Tight | Either side | Reversal / mean reversion |
 | Flat | Tight + many crossovers | Price faking a breakout | Fade the fakeout |
 
+## Session VWAP vs Anchored VWAP
+Independent confirmation of this page's "don't swing-trade off session VWAP" rule ([[sources/ForexTester-Anchored-VWAP-Guide]]):
+
+| | Session VWAP | Anchored VWAP |
+|---|---|---|
+| Start | Fixed at session open | Any candle you choose |
+| Reset | Daily | Never — cumulative from the anchor |
+| Use case | Intraday mean reversion | Multi-day trend, event-driven |
+| Timeframe | **Intraday only** | Any |
+| Weakness | *"Useless for swing analysis; gaps overnight"* | Requires judgement picking anchors |
+
+This is not a stylistic preference — it is arithmetic. On a daily chart each bar *is* a session, so a session-reset VWAP collapses to that bar's own typical price and stops being volume-weighted at all. Our chart tool therefore draws session VWAP only on `1m`–`4h` and refuses it on `1d`/`1w`; measured on daily RELIANCE bars before that guard, the line equalled `(H+L+C)/3` on **24 of 24** bars. See [[concepts/Anchored-VWAP-Pyramiding]] for what to use instead.
+
 ## Variants / Parameters
 - **Anchor:**
   - *Session* — resets each day (default for intraday).
@@ -67,3 +80,4 @@ Read three signals off VWAP jointly — a single signal in isolation is low-conv
 
 ## Sources
 - [[sources/X-KoroushAK-VWAP-Masterclass-20260506]]
+- [[sources/ForexTester-Anchored-VWAP-Guide]] (2026-08-02) — session-vs-anchored comparison, the explicit AVWAP formula, and Brian Shannon as the originator of the anchored variant

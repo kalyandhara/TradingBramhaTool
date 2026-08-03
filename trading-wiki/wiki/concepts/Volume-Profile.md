@@ -3,9 +3,9 @@ title: "Volume Profile (POC / Value Area / Delta)"
 category: concept
 tags: [volume-profile, poc, value-area, vah, val, hvn, lvn, delta, market-profile, order-flow]
 created: 2026-07-03
-updated: 2026-07-03
-sources: 2
-related: [concepts/Order-Flow, concepts/Multi-Timeframe-Analysis, concepts/Support-Resistance, concepts/Initial-Balance, concepts/Fair-Value-Gap]
+updated: 2026-08-02
+sources: 3
+related: [concepts/Order-Flow, concepts/Multi-Timeframe-Analysis, concepts/Support-Resistance, concepts/Initial-Balance, concepts/Fair-Value-Gap, concepts/Volume-Analysis, sources/ForexTester-Volume-Analysis-Guide]
 ---
 
 # Volume Profile (POC / Value Area / Delta)
@@ -22,6 +22,11 @@ A histogram of traded volume by *price* (not time): the lookback window's price 
 - **Rejection risk**: price below VAL is trading below value — a recovery that hasn't been accepted by volume yet; expect the VAL/POC band to act as overhead resistance ([[concepts/Support-Resistance]] with mechanically-derived levels).
 - **Delta context**: a POC built on positive delta (net buying) marks accumulation; the same node on negative delta marks distribution that must be absorbed. From [[concepts/Order-Flow]]'s footprint logic, applied at daily-screening granularity.
 - **Multi-timeframe confluence** (the TradingIQ contribution): compute profiles per timeframe (30m/1h/4h/1D/1W) and read where the POCs/VAs stack — nested value areas agreeing across timeframes mark the levels that matter; [[concepts/Multi-Timeframe-Analysis]] applied to volume structure instead of trend.
+
+### The 80% rule — a testable claim, not a maxim
+If price **enters the value area and holds there for two consecutive 30-minute bars**, there is a stated ~**80% probability it traverses the entire VAL→VAH range** ([[sources/ForexTester-Volume-Analysis-Guide]]). The logic: acceptance back inside value implies the prior excursion was rejected, and value tends to be explored fully before it is left again.
+
+Recorded as a **claim with a number attached, from a vendor blog with no data behind it**. Unlike most volume maxims it is fully specified — entry condition, target, and probability — so it can be measured rather than believed. [[analyses/Backtest-Harness]] can test it directly on NSE 30-minute data; until then treat the 80% as unverified. The intraday cousin of this rule is already noted under [[concepts/Initial-Balance]].
 
 ## Variants / Parameters
 - Rows/bins (20–30 typical), lookback window, VA percentage (70% standard).
@@ -50,4 +55,5 @@ A histogram of traded volume by *price* (not time): the lookback window's price 
 
 ## Sources
 1. [MTF-Volume-Profiles-TradingIQ-Pine](../sources/MTF-Volume-Profiles-TradingIQ-Pine.md) — Pine v6 by KioseffTrading (MPL-2.0), ingested 2026-07-03; MTF stacking, delta model, LTF volume sourcing, POC/VA labeling.
+3. [[sources/ForexTester-Volume-Analysis-Guide]] (2026-08-02) — the 80% value-area traverse rule, and the tick-vs-real volume caveat that governs what the histogram is counting in the first place (see [[concepts/Volume-Analysis]]).
 2. `tools/volume_profile.js` + VOLUME_PROFILE_MODULE.md (this repo, 2026-06) — reference histogram/POC/VA/HVN/LVN implementation with proportional-overlap allocation and volume-greedy VA expansion (the methods the Python port uses).
