@@ -1,6 +1,16 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-02] plan | Open backlog consolidated — 18 items, and the pattern behind six of them
+- New [[analyses/Open-Backlog-2026-08-02]] gathers everything left open at the end of the session into one index (B-1…B-18). Dedicated roadmaps stay authoritative; the backlog points rather than copies.
+- **B-1 is the one that matters and it is live.** Today's sentiment refresh scored sector participation over **3 sector indices where the reading it replaced used 11** — `_sector_perf` divides by whatever it managed to fetch, so a quarter of the evidence produced a full-confidence factor, and that factor fed an **AGGRESSIVE verdict at 100% position size**. [market_health.py](tools/market_health.py) already solved exactly this (coverage reported, `NOT_CHECKED` below 50%); `sentiment_index` has no equivalent.
+- **The four uncached ownership symbols are probably our bug.** `ABBOTINDIA`, `BAYERCROP` and `MCX` come back *"no filings"* from `corporate-share-holdings-master`, and `BSE` has no cache file at all. All four are large, liquid names that certainly file quarterly — first suspect is the `f["symbol"].upper() == symbol.upper()` filter in `get_shareholding_filings`. 496/500 cached.
+- **Three claims parked as measurable rather than believed:** the five conflicting volume thresholds, the Connors stop-vs-no-stop contradiction, and the Volume-Profile 80% rule. Each is fully specified and can go straight through [[analyses/Backtest-Harness]].
+- ### The thesis worth carrying out of this session
+  **Six bugs found today. Not one threw an exception.** DS-2's regexes matched nothing · `build_dataset` returned an empty frame · a 403 sat behind it · a z-score divided by ~1e-14 · a full moon rendered as *"waning, 16.7%"* · sentiment scored on 3 of 11 indices. **Every one produced a confident-looking number with nothing behind it**, and every one was found by checking coverage rather than by an error surfacing.
+  The defence is cheap and already proven three times in this repo — **carry coverage with the data and refuse to score below a floor**. `market_health` does it, `red_flags` does it via three-state NOT_CHECKED, `rrg` does it by omitting unmeasurable sectors. B-1 is that same fix applied to the last component still missing it.
+- **Suggested order:** B-1 → B-2 (one restart) → B-3 (the advice/tooling contradiction) → B-7 (settles five open numbers at once).
+
 ## [2026-08-02] ingest | ForexTester — Breakout Trading, and the volume threshold that isn't one
 - Source: `raw/Breakout Trading… _ FTO.html` (FTO Editorial, 26.05.2026) → [[sources/ForexTester-Breakout-Guide]]. Fourth ForexTester ingest; published as the explicit complement to [[sources/ForexTester-Mean-Reversion-Guide]].
 - **Created [[concepts/Breakout]]** — the umbrella, mirroring [[concepts/Mean-Reversion]]. The wiki had ten breakout *strategies* and *patterns* (ORB, Darvas, VCP, High-Tight-Flag, Falling-Wedge…) and no page saying what a breakout **is** or how to confirm one.
