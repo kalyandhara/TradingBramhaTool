@@ -2821,74 +2821,152 @@ function removeSubPane(pane, key) {
 // This function is the rendering "plug": draws the histogram, POC line, Value
 // Area band, and HVN/LVN pocket highlights onto the per-pane canvas overlay
 // that already sits on top of the candlestick chart.
-const VP_OPTS = {bins: 30, valueAreaPct: 0.70, hvnMult: 1.5, lvnMult: 0.5,
+// Shape options only — bin COUNT is derived per-draw from the pane height (see
+// vpBinCount), so a row is a readable height instead of a fixed 1/30th of
+// whatever price range happens to be loaded.
+const VP_OPTS = {valueAreaPct: 0.70, hvnMult: 1.5, lvnMult: 0.5,
                  hvnExpandTol: 0.85, lvnExpandTol: 1.30};
+const VP_ROW_PX     = 9;     // target on-screen height of one profile row
+const VP_MIN_BINS   = 24;
+const VP_MAX_BINS   = 80;
+// Widest row, as a fraction of the PLOT width. The profile is painted over the
+// most recent candles, which are the ones you care about — at 0.22 the HVN
+// pocket swallowed the last three months of price action.
+const VP_WIDTH_FRAC = 0.15;
+
+function vpBinCount(H) {
+  return Math.max(VP_MIN_BINS, Math.min(VP_MAX_BINS, Math.round(H / VP_ROW_PX)));
+}
+
+// Bars the profile is built from: the ones actually on screen.
+//
+// It used to profile pane.bars — everything loaded, which on '1d' is 2600 bars
+// / 10+ years. Measured on RELIANCE.NS (2026-08-04) with the default 1Y view:
+// the profile spanned ₹191.55–1604.38 in ₹47 bins, so only 9 of 30 rows had a
+// y-coordinate on the canvas at all (the other 21 were skipped by the
+// off-canvas test) and the POC came back at ₹215.10 — a 2016 price. The POC
+// line, both Value Area edges and the VA shading were all drawn off-screen,
+// which is why the profile read as a handful of loose blocks with no anchor.
+// Profiling the visible window is also what the indicator means everywhere
+// else: "where did volume trade in the range I'm looking at".
+function vpWindowBars(pane) {
+  const bars = pane.bars;
+  let lr = null;
+  try { lr = pane.chart.timeScale().getVisibleLogicalRange(); } catch {}
+  if (!lr) return bars;
+  const from = Math.max(0, Math.ceil(lr.from));
+  const to   = Math.min(bars.length - 1, Math.floor(lr.to));
+  const win  = from <= to ? bars.slice(from, to + 1) : [];
+  // Zoomed in past a handful of candles there is no profile worth binning —
+  // fall back to the full set rather than draw noise.
+  return win.length >= 10 ? win : bars;
+}
 
 function drawVolumeProfile(pane) {
   const canvas = pane.volCanvas;
   if (!canvas || !pane.bars || pane.bars.length < 10) { pane.vp = null; return; }
-  const bars = pane.bars;
   const W = canvas.width  = canvas.offsetWidth;
   const H = canvas.height = canvas.offsetHeight;
   if (W === 0 || H === 0) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
 
-  const profile = VP.computeProfile(bars, VP_OPTS);
+  // Right edge of the PLOT, not of the canvas. The price scale is inside
+  // .chart-main and this overlay sits at z-index 10 over all of it, so a
+  // histogram anchored at W painted its widest rows straight across the axis
+  // labels — half the profile was reading as smudges on the price column.
+  let scaleW = 72;
+  try { scaleW = pane.chart.priceScale('right').width() || scaleW; } catch {}
+  const plotR = Math.max(1, W - scaleW);
+
+  const profile = VP.computeProfile(vpWindowBars(pane),
+                                    Object.assign({}, VP_OPTS, {bins: vpBinCount(H)}));
   pane.vp = profile;
   if (!profile) return;
 
   const {bins, binEdges, poc, valueArea, hvnZones, lvnZones} = profile;
   const maxVol = Math.max(...bins);
   if (maxVol === 0) return;
-  const maxBarW = W * 0.18;
-  const inHvn = i => hvnZones.some(z => i >= z._lo && i <= z._hi);
-  const inLvn = i => lvnZones.some(z => i >= z._lo && i <= z._hi);
+  const maxBarW = plotR * VP_WIDTH_FRAC;
+  const yOf = pr => pane.series.priceToCoordinate(pr);
+  const light = currentTheme === 'light';
+  // Per-theme, not one palette with the neutral row swapped: the same alpha
+  // that reads as a solid block against #131722 washes out to nothing against
+  // white, and gold in particular disappears on the light canvas.
+  const fill = light
+    ? {poc: 'rgba(196,142,0,0.55)',  hvn: 'rgba(34,139,63,0.34)',
+       lvn: 'rgba(206,58,48,0.30)',  normal: 'rgba(70,95,155,0.34)'}
+    : {poc: 'rgba(255,214,10,0.60)', hvn: 'rgba(63,185,80,0.32)',
+       lvn: 'rgba(248,81,73,0.26)',  normal: 'rgba(140,165,225,0.24)'};
+
   // Re-derive bin indices for zones (computeProfile returns price boundaries
-  // only) so the histogram bars can be colored by node classification.
+  // only) so the histogram rows can be colored by node classification.
   hvnZones.forEach(z => { z._lo = Math.round((z.low - profile.lo) / profile.binSize); z._hi = Math.round((z.high - profile.lo) / profile.binSize) - 1; });
   lvnZones.forEach(z => { z._lo = Math.round((z.low - profile.lo) / profile.binSize); z._hi = Math.round((z.high - profile.lo) / profile.binSize) - 1; });
+  const inHvn = i => hvnZones.some(z => i >= z._lo && i <= z._hi);
+  const inLvn = i => lvnZones.some(z => i >= z._lo && i <= z._hi);
 
-  // ── Histogram bars, colored by classification ──
+  // ── Histogram rows, colored by classification ──
+  // Row height comes from the price scale, not from H/bins. Those two agree
+  // only when the visible price range equals the profile's range; when they
+  // didn't, rows were drawn at 22 px where their bin actually spanned 80 px,
+  // leaving 58 px gaps between chunky blocks that lined up with nothing.
   bins.forEach((vol, i) => {
-    if (vol === 0) return;
-    const price = binEdges[i] + profile.binSize / 2;
-    const y = pane.series.priceToCoordinate(price);
-    if (y === null || y < 0 || y > H) return;
-    const barW = (vol / maxVol) * maxBarW;
-    const barH = Math.max(1, (H / bins.length) * 0.75);
-    ctx.fillStyle = i === poc.idx ? 'rgba(255,214,10,0.65)'   // POC bin — gold
-                  : inHvn(i)      ? 'rgba(63,185,80,0.40)'    // HVN — green
-                  : inLvn(i)      ? 'rgba(248,81,73,0.30)'    // LVN — red/orange
-                  :                 'rgba(99,120,180,0.28)';  // normal node
-    ctx.fillRect(W - barW, y - barH / 2, barW, barH);
+    if (vol <= 0) return;
+    const yTop = yOf(binEdges[i + 1]);
+    const yBot = yOf(binEdges[i]);
+    if (yTop === null || yBot === null) return;
+    if (yBot < 0 || yTop > H) return;                  // wholly off-canvas
+    const rowH = Math.max(1, yBot - yTop - 1);         // 1 px gutter between rows
+    const barW = Math.max(1, (vol / maxVol) * maxBarW);
+    ctx.fillStyle = i === poc.idx ? fill.poc
+                  : inHvn(i)      ? fill.hvn
+                  : inLvn(i)      ? fill.lvn
+                  :                 fill.normal;
+    ctx.fillRect(plotR - barW, yTop, barW, rowH);
   });
 
+  // Baseline down the right edge of the plot: gives the rows something to grow
+  // out of, so the shape reads as one profile instead of floating bars.
+  ctx.fillStyle = light ? 'rgba(70,95,155,0.45)' : 'rgba(140,165,225,0.40)';
+  ctx.fillRect(plotR - 1, 0, 1, H);
+
   // ── Value Area band (shaded) + VAH/VAL lines ──
-  const yVAH = pane.series.priceToCoordinate(valueArea.high);
-  const yVAL = pane.series.priceToCoordinate(valueArea.low);
+  const yVAH = yOf(valueArea.high);
+  const yVAL = yOf(valueArea.low);
   if (yVAH !== null && yVAL !== null) {
-    ctx.fillStyle = 'rgba(255,214,10,0.06)';
-    ctx.fillRect(0, yVAH, W, yVAL - yVAH);
+    ctx.fillStyle = 'rgba(255,214,10,0.05)';
+    ctx.fillRect(0, yVAH, plotR, yVAL - yVAH);
     [['VAH', valueArea.high, yVAH], ['VAL', valueArea.low, yVAL]].forEach(([label, price, y]) => {
-      ctx.strokeStyle = 'rgba(255,214,10,0.55)';
+      ctx.strokeStyle = light ? 'rgba(168,121,10,0.6)' : 'rgba(255,214,10,0.5)';
       ctx.setLineDash([4, 3]);
-      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(W, y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(0, y); ctx.lineTo(plotR, y); ctx.stroke();
       ctx.setLineDash([]);
-      ctx.fillStyle = '#ffd60a'; ctx.font = '10px monospace';
-      ctx.fillText(`${label} ${price.toFixed(2)}`, 6, y - 3);
+      vpLabel(ctx, `${label} ${price.toFixed(2)}`, 6, y - 3, '10px monospace', light);
     });
   }
 
-  // ── POC line (full width, solid) ──
-  const yPOC = pane.series.priceToCoordinate(poc.price);
+  // ── POC line (across the plot, solid) ──
+  const yPOC = yOf(poc.price);
   if (yPOC !== null) {
-    ctx.strokeStyle = 'rgba(255,214,10,0.9)';
+    ctx.strokeStyle = light ? 'rgba(168,121,10,0.9)' : 'rgba(255,214,10,0.85)';
     ctx.lineWidth = 1;
-    ctx.beginPath(); ctx.moveTo(0, yPOC); ctx.lineTo(W, yPOC); ctx.stroke();
-    ctx.fillStyle = '#ffd60a'; ctx.font = 'bold 10px monospace';
-    ctx.fillText(`POC ${poc.price.toFixed(2)}`, 6, yPOC - 3);
+    ctx.beginPath(); ctx.moveTo(0, yPOC); ctx.lineTo(plotR, yPOC); ctx.stroke();
+    vpLabel(ctx, `POC ${poc.price.toFixed(2)}`, 6, yPOC - 3, 'bold 10px monospace', light);
   }
+}
+
+// Gold-on-white is unreadable, and these labels sit over candles either way.
+// Paint a matching-color halo behind the text so it survives both themes and
+// whatever is drawn underneath.
+function vpLabel(ctx, text, x, y, font, light) {
+  ctx.font = font;
+  ctx.lineWidth = 3;
+  ctx.strokeStyle = light ? 'rgba(255,255,255,0.85)' : 'rgba(13,17,23,0.85)';
+  ctx.strokeText(text, x, y);
+  ctx.fillStyle = light ? '#a8790a' : '#ffd60a';
+  ctx.fillText(text, x, y);
+  ctx.lineWidth = 1;
 }
 
 // ── Fair Value Gap overlay rendering (integration layer for fvg.js) ───────────
@@ -5048,10 +5126,14 @@ async function renderFibonacci(pane) {
   const stillCurrent = paneFetchKey(pane);
   if (stillCurrent !== key) return;
 
-  // VP_OPTS, not defaults: the confluence must be computed against the SAME
-  // profile the user sees drawn. Passing {} would work identically today but
-  // would silently diverge the moment VP_OPTS is tuned, leaving fib levels
-  // scored against a POC that is not the one on screen.
+  // Shares VP_OPTS (value-area / node thresholds) with the drawn profile, but
+  // deliberately NOT its window or bin count: the drawn profile follows the
+  // viewport, and a trade plan that changes because you zoomed is worse than
+  // one computed over a fixed window. This stays on every loaded bar, binned at
+  // the module default (30) — unchanged from before the profile started
+  // tracking the viewport. Consequence to keep in mind: a fib level flagged
+  // "VP-confluent" is scored against the full-history POC, which is not
+  // necessarily the POC currently on screen.
   const profile = window.VP ? VP.computeProfile(pane.bars, VP_OPTS) : null;
   st.data = FIB.analyze(pane.bars, {
     profile, projection: p, lastClose: lastBar.close,
