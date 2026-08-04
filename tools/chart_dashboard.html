@@ -1793,7 +1793,9 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
     priceEl.className = 'price-el';
     chgEl.textContent  = '';
     chgEl.className    = 'chg-el';
-    series.setData([]);
+    // Same full reset as the tf-change handler — every series and overlay, so
+    // the incoming symbol never shares an axis with the outgoing one's data.
+    resetPaneVisuals(pane);
     const bare = s.replace(/\.(NS|BO|BSE)$/i, '');
     const suffix = (s.match(/\.(NS|BO|BSE)$/i) || [''])[0].toUpperCase();
     const wantExch = suffix === '.NS' ? 'NSE' : (suffix === '.BO' || suffix === '.BSE') ? 'BSE' : null;
@@ -1819,12 +1821,6 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
         exchBadge.textContent = wantExch;
         exchBadge.className = `sym-exch-badge ${wantExch}`;
       }
-    });
-    // Same anti-race guard as the tf-change handler — clear sub-pane data so
-    // the visible-range subscribe callback doesn't align to stale coords.
-    Object.values(pane.subCharts || {}).forEach(sub => {
-      ['series', 'fastLine', 'slowLine', 'macdLine', 'signalLine', 'hist']
-        .forEach(k => { if (sub[k] && sub[k].setData) { try { sub[k].setData([]); } catch {} } });
     });
     savePaneCfg();
     loadData(idx);
@@ -1916,15 +1912,13 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
 
   tfSel.addEventListener('change', () => {
     pane.tf = tfSel.value;
-    series.setData([]);
-    // Also clear every sub-pane's data — otherwise old-tf data lingers
-    // visible during the async loadData(), and the visible-range subscribe
-    // callback fires against stale time coordinates that don't intersect the
-    // incoming new-tf data (see NH.NS %R collapse, 2026-07-03).
-    Object.values(pane.subCharts || {}).forEach(sub => {
-      ['series', 'fastLine', 'slowLine', 'macdLine', 'signalLine', 'hist']
-        .forEach(k => { if (sub[k] && sub[k].setData) { try { sub[k].setData([]); } catch {} } });
-    });
+    // Clear EVERY series and overlay, not just the candles — otherwise old-tf
+    // data lingers visible during the async loadData(), the visible-range
+    // subscribe callback fires against stale time coordinates that don't
+    // intersect the incoming new-tf data (see NH.NS %R collapse, 2026-07-03),
+    // and the leftover daily timestamps crash Lightweight Charts' paint loop
+    // (see resetPaneVisuals).
+    resetPaneVisuals(pane);
     savePaneCfg();
     loadData(idx);
   });
@@ -2697,6 +2691,75 @@ function syncSubPaneRanges(pane) {
   Object.values(pane.subCharts).forEach(({chart: sub}) => {
     try { sub.timeScale().setVisibleLogicalRange(lr); } catch {}
   });
+}
+
+// Identity of what a pane is currently showing: symbol + timeframe + newest bar.
+// Every server-computed overlay grabs this before its fetch and re-checks it
+// after, dropping a response that arrived after the user moved on. Returns null
+// while the pane holds no bars — a reload is in flight, so no in-flight response
+// is still current, and null never equals a key captured earlier.
+function paneFetchKey(pane) {
+  const bars = pane && pane.bars;
+  if (!bars || !bars.length) return null;
+  return `${pane.symbol}:${pane.tf}:${bars[bars.length - 1].time}`;
+}
+
+// Every series-like object hanging off a pane: the candles, the main-chart
+// indicator overlays (some entries are arrays — Bollinger, Donchian, PMax…),
+// and every series on every sub-pane chart. Enumerated rather than listed by
+// name so a newly added series can't silently opt out of the reset below.
+function paneAllSeries(pane) {
+  const out = [];
+  const push = v => {
+    if (!v) return;
+    if (Array.isArray(v)) { v.forEach(push); return; }
+    if (typeof v.setData === 'function' && !out.includes(v)) out.push(v);
+  };
+  push(pane.series);
+  Object.values(pane.indSeries || {}).forEach(push);
+  Object.values(pane.subCharts || {}).forEach(sub => Object.values(sub).forEach(push));
+  return out;
+}
+
+// Wipe every trace of the *previous* timeframe/symbol off a pane, called before
+// the (async) reload starts.
+//
+// This used to be `series.setData([])` plus a hand-written list of sub-pane
+// series keys — 'series', 'fastLine', 'slowLine', 'macdLine', 'signalLine',
+// 'hist'. The list had drifted out of date: RSI's obFill/osFill, ROC's
+// baseline/overlayGreen/overlayRed and Stochastic's dLine were never in it.
+// Measured on RELIANCE.NS (2026-08-04), 300 ms into a 1d→1h switch, roc.baseline
+// still held 2575 DAILY points and stoch.dLine 2583 while every sibling series
+// sat empty. Two things go wrong from there, both of them visible:
+//   • those sub-panes' logical grid is still the daily one, so syncSubPaneRanges
+//     pins them to a window ~2000 bars away from their own data — pane blank;
+//   • Lightweight Charts has to place daily timestamps on the new hourly axis
+//     during paint, can't, and throws "Value is null" out of its own draw loop
+//     (10 in a single switch, ~400 ms apart). Each throw aborts that frame, so
+//     the chart stops redrawing — the "chart disappears until I refresh" report.
+function resetPaneVisuals(pane) {
+  paneAllSeries(pane).forEach(s => { try { s.setData([]); } catch {} });
+  // Server-computed overlays (waves, trendlines, fib grids, pattern boxes) carry
+  // absolute timestamps from the timeframe they were computed on, and each is
+  // refetched asynchronously. Leaving them up means 1-3 s of daily geometry
+  // drawn against an hourly axis — the same unmappable-coordinate throw as
+  // above. Tear them down; applyIndicators() re-renders each against the new
+  // timeframe once the bars land (their fetch keys include pane.tf).
+  [clearElliottWave, clearRoundingBottom, clearVCP, clearTrendlines,
+   clearFallingWedge, clearStructureChain, clearHarmonic, clearProjection,
+   clearFibonacci, clearReversalCalendar, clearMABias, clearPmaxTrade,
+   clearFVGSignals].forEach(fn => { try { fn(pane); } catch {} });
+  // Canvas overlays are redrawn from pane.bars on resize/pan, and pane.bars
+  // still holds the OLD candles until the fetch lands. Blank the canvases and
+  // drop the bars so nothing repaints the old timeframe in the meantime.
+  [pane.volCanvas, pane.fvgCanvas, pane.patternCanvas, pane.projCanvas, pane.fibCanvas]
+    .forEach(c => {
+      if (!c) return;
+      try { c.getContext('2d').clearRect(0, 0, c.width, c.height); } catch {}
+    });
+  pane.vp = null;
+  pane.fvgZones = null;
+  pane.bars = [];
 }
 
 // ── Sub-pane chart lifecycle ───────────────────────────────────────────────────
@@ -3812,7 +3875,7 @@ async function renderRoundingBottom(pane) {
   // If the response came back after the user toggled the indicator off,
   // or after a symbol/tf change (fetchKey has been reset), don't render.
   if (!pane.indicators.has('roundbottom')) return;
-  const stillCurrentKey = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  const stillCurrentKey = paneFetchKey(pane);
   if (stillCurrentKey !== key) return;
 
   if (!saucer) {
@@ -4022,7 +4085,7 @@ async function renderVCP(pane) {
   } catch (e) { console.warn('vcp fetch failed:', e); }
 
   if (!pane.indicators.has('vcp')) return;
-  const stillCurrentKey = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  const stillCurrentKey = paneFetchKey(pane);
   if (stillCurrentKey !== key) return;
 
   if (!g) {
@@ -4223,7 +4286,7 @@ async function renderTrendlines(pane) {
   } catch (e) { console.warn('trendlines fetch failed:', e); }
 
   if (!pane.indicators.has('trendlines')) return;
-  const stillCurrentKey = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  const stillCurrentKey = paneFetchKey(pane);
   if (stillCurrentKey !== key) return;
 
   if (!g) { clearTrendlines(pane); return; }
@@ -4301,7 +4364,7 @@ async function renderFallingWedge(pane) {
 
   // Guard against a stale response landing after the user toggled off / switched.
   if (!pane.indicators.has('falling_wedge')) return;
-  const stillCurrent = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  const stillCurrent = paneFetchKey(pane);
   if (stillCurrent !== key) return;
 
   if (!w || !w.upper || !w.lower || w.upper.t0 == null || w.lower.t0 == null) {
@@ -4408,7 +4471,7 @@ async function renderStructureChain(pane) {
 
   // Guard against a stale response landing after the user toggled off / switched.
   if (!pane.indicators.has('structure_chain')) return;
-  const stillCurrent = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  const stillCurrent = paneFetchKey(pane);
   if (stillCurrent !== key) return;
 
   if (!d || !d.events || !d.events.length) { clearStructureChain(pane); return; }
@@ -4677,7 +4740,7 @@ async function renderHarmonic(pane) {
   } catch (e) { console.warn('harmonic fetch failed:', e); }
 
   if (!pane.indicators.has('harmonic')) return;
-  const stillCurrentKey = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  const stillCurrentKey = paneFetchKey(pane);
   if (stillCurrentKey !== key) return;
 
   // Tear down previous overlay first — otherwise stale price lines pile up on
@@ -4787,7 +4850,7 @@ async function renderProjection(pane) {
   } catch (e) { console.warn('projection fetch failed:', e); }
 
   if (!pane.indicators.has('projection')) return;
-  const stillCurrentKey = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  const stillCurrentKey = paneFetchKey(pane);
   if (stillCurrentKey !== key) return;
 
   pr.data = p;
@@ -4982,7 +5045,7 @@ async function renderFibonacci(pane) {
 
   // Bail if the user switched the indicator off or changed symbol mid-flight.
   if (!pane.indicators.has('fib')) return;
-  const stillCurrent = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  const stillCurrent = paneFetchKey(pane);
   if (stillCurrent !== key) return;
 
   // VP_OPTS, not defaults: the confluence must be computed against the SAME
