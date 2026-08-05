@@ -6,8 +6,12 @@ Each scanner function takes a fetched OHLCV DataFrame and returns a result
 dict (symbol, pattern_type, tags, reasons, score) or None if no match.
 """
 
+import logging
+
 import numpy as np
 import pandas as pd
+
+log = logging.getLogger(__name__)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -413,16 +417,21 @@ def scan_pead(df: pd.DataFrame,
               suv_lookback: int = 30,
               suv_log: bool = False,
               drift_tol: float = 0.98) -> dict | None:
-    """Proxy-PEAD (Post-Earnings Announcement Drift) — Phase 1, price-only.
+    """Proxy-PEAD (Post-Earnings Announcement Drift) — the price-only event engine.
 
-    Our Python data sources have no free analyst-consensus estimate for NSE (see
-    screener_scraper.py; screener.in returns nothing for "surprise"), so a *true*
-    SUE is not computable in this scanner. (TradingView Pine's request.earnings
-    can — a separate platform path; and a time-series SUE needs EPS history the
-    scanner is not wired for, since run_scanner attaches the symbol only AFTER
-    this runs. Both are Phase 3.) Instead we infer the earnings event from price:
-    a large reaction on Standardized-Unexpected-Volume is the market pricing the
-    surprise, and we require the move to be *holding / extending* — the drift.
+    This function stays deliberately price-only and symbol-blind: `run_scanner`
+    attaches the symbol only AFTER it returns, so it cannot look up fundamentals
+    or a result calendar for itself. It infers the earnings event from price — a
+    large reaction on Standardized-Unexpected-Volume is the market pricing the
+    surprise — and requires the move to be *holding / extending*: the drift.
+
+    Phases 2 and 3 no longer live here, they live in the symbol-level join:
+    `earnings_calendar.enrich_pead_hit` reconciles the `event_date` returned
+    below against the real NSE result calendar and computes a TRUE SUE
+    (reported EPS vs analyst consensus). Both arrive free from yfinance — the
+    "no consensus estimate for NSE" constraint this scanner was built under was
+    retired on 2026-08-04; see that module's header for the coverage probe.
+    Un-enriched, the output is still honestly labelled Proxy-PEAD.
 
     Event gate (bullish side only in Phase 1):
       • one bar in the last `lookback` sessions (and ≥1 bar ago, so drift is
@@ -433,9 +442,9 @@ def scan_pead(df: pd.DataFrame,
     Drift gate: current close still ≥ `drift_tol`× the event-bar close — the
     reaction has not been given back.
 
-    HONESTY: labelled "Proxy-PEAD", not SUE. The event is inferred from the price
-    reaction, not a confirmed earnings date — Phase 2 reconciles against a real
-    result calendar (yfinance earnings dates).
+    HONESTY: on its own this is "Proxy-PEAD", not SUE — the event is inferred
+    from the price reaction. Only the enrichment pass may relabel a hit as
+    confirmed, and only when a real result date backs it.
     """
     if len(df) < 60:
         return None
@@ -445,7 +454,13 @@ def scan_pead(df: pd.DataFrame,
     # score 100). Reset the index so the positional iloc logic stays consistent.
     df = df.dropna(
         subset=[c for c in ("open", "high", "low", "close", "volume") if c in df.columns]
-    ).reset_index(drop=True)
+    )
+    # Keep the bar dates before flattening to positions. Phase 2 reconciles the
+    # inferred event bar against the real result calendar, and reset_index(drop=True)
+    # discards precisely the date it needs. The positional iloc logic below is
+    # untouched — bar_dates is only read once, for the winning event bar.
+    bar_dates = df.index
+    df = df.reset_index(drop=True)
     if len(df) < 60:
         return None
     close = df["close"]
@@ -520,7 +535,7 @@ def scan_pead(df: pd.DataFrame,
         f"pre-event baseline ({vol_x:.1f}× median) — institutional footprint",
         f"Drift intact: price {drift_pct:+.1f}% since the event — reaction held, not faded",
         "Proxy-PEAD: event inferred from the price reaction, not a confirmed "
-        "earnings date (Phase 1 — no consensus estimate in our NSE data)",
+        "earnings date (the enrichment pass replaces this line once reconciled)",
     ]
     if gap_at_open is not None:
         reasons.insert(1, f"Gapped +{gap_at_open:.1f}% at the open — classic post-result gap")
@@ -534,13 +549,42 @@ def scan_pead(df: pd.DataFrame,
         f"{bars_since}d drift",
         f"{drift_pct:+.0f}% since",
     ]
+    # The event bar's calendar date, for the Phase 2 join. None when the caller
+    # passed a positionally-indexed frame — the enrichment reports NOT_CHECKED
+    # rather than reconciling against a date it does not have.
+    event_date = None
+    try:
+        ts = bar_dates[e]
+        if hasattr(ts, "date"):
+            event_date = ts.date().isoformat()
+    except Exception:
+        pass
+
     return {
         "pattern_type": "Proxy-PEAD Drift",
         "tags": tags,
         "reasons": reasons,
         "score": round(score, 2),
         "vol_x50d": round(vol_x, 2),   # lights up the Hub 'Vol Confirmed' pill
+        "event_date": event_date,      # Phase 2 reconciliation key
     }
+
+
+def _enrich_pead(results: list[dict]) -> list[dict]:
+    """SCANNERS ``enrich`` hook for the PEAD entries — Phases 2 + 3.
+
+    Reconciles each inferred event against the real NSE result calendar and
+    attaches a true SUE. Imported lazily and failure-tolerant on purpose: if
+    earnings_calendar (or the network behind it) is unavailable the scan still
+    returns, holding its honest Phase-1 'Proxy-PEAD' labelling instead of
+    dropping hits or, worse, presenting unenriched ones as confirmed.
+    """
+    try:
+        import earnings_calendar as ec
+    except Exception as e:
+        log.debug("PEAD earnings enrichment unavailable: %s", e)
+        return results
+    return ec.enrich_pead_results(results)
 
 
 def scan_vcp(df: pd.DataFrame) -> dict | None:
@@ -3599,17 +3643,20 @@ SCANNERS: dict[str, dict] = {
         "description": "Strong uptrends near 20-day highs with intact MA stack",
         "category": "Momentum",
     },
-    "Proxy-PEAD Drift": {
+    "PEAD Drift": {
         "fn": scan_pead,
+        "enrich": _enrich_pead,
         "description": (
-            "Post-Earnings Announcement Drift (Phase 1, price-only). Infers the "
-            "earnings event from a large up-reaction (≥1.5×ATR, ≥4%) on ≥1.5σ "
-            "Standardized Unexpected Volume (a proper volume z-score vs a 30-day "
-            "PRE-event baseline, not a raw ratio) in the last 20 sessions, and "
-            "fires only while the move is still holding/extending — the drift. "
-            "Labelled 'Proxy' because our NSE data has no free consensus estimate, "
-            "so the event is inferred from the reaction, not a confirmed earnings "
-            "date. SUV upgrade absorbed from the TradingView PEAD screener ingest."
+            "Post-Earnings Announcement Drift. Infers the earnings event from a "
+            "large up-reaction (≥1.5×ATR, ≥4%) on ≥1.5σ Standardized Unexpected "
+            "Volume (a volume z-score vs a 30-day PRE-event baseline, not a raw "
+            "ratio) in the last 20 sessions, and fires only while the move is "
+            "still holding/extending — the drift. Every hit is then reconciled "
+            "against the real NSE result calendar and tagged **Confirmed "
+            "earnings** or **Gap-only (unconfirmed)**, and a confirmed hit "
+            "carries a TRUE SUE — reported EPS vs analyst consensus, "
+            "standardized over its own prior surprises. SUV upgrade absorbed "
+            "from the TradingView PEAD screener ingest."
         ),
         "category": "Momentum",
     },
@@ -3625,7 +3672,9 @@ SCANNERS: dict[str, dict] = {
             "the Proxy-PEAD drift edge. A yfinance fundamentals gate (Debt/Equity "
             "≈ 0, ROE & OPM floors, optional market-cap ceiling and optional Max "
             "PE / Max PEG valuation caps — NO login needed) pre-filters the "
-            "universe, then Proxy-PEAD Drift runs over the survivors. Each card "
+            "universe, then PEAD Drift runs over the survivors and each hit is "
+            "reconciled against the real result calendar (confirmed vs gap-only, "
+            "with a true SUE). Each card "
             "shows ROE · OPM · PE · PEG · market cap. Tick the ceiling toggle "
             "below to restrict to small/mid-caps, where the post-earnings "
             "under-reaction edge is theoretically largest. ROCE proper needs "
@@ -3821,6 +3870,15 @@ def run_scanner(scanner_name: str, symbols: list[str], fetch_fn,
         _BENCHMARK_WRET = None      # never leak benchmark state across scans
 
     _finalize_relative_strength(results)
+    # Symbol-level enrichment. A scan fn only ever sees OHLCV, so anything keyed
+    # on the symbol (the PEAD result calendar, its SUE) has to be joined here,
+    # after the symbol is attached. Declared per-scanner so this stays opt-in.
+    enrich = spec.get("enrich")
+    if enrich is not None:
+        try:
+            results = enrich(results)
+        except Exception as e:
+            log.debug("enrichment failed for %s: %s", scanner_name, e)
     return sorted(results, key=lambda x: x.get("score", 0), reverse=True)
 
 
@@ -4062,4 +4120,7 @@ def run_quality_pead(symbols: list[str], fetch_fn,
         _BENCHMARK_WRET = None
 
     _finalize_relative_strength(results)
+    # Same Phase 2+3 join the plain scanner gets via the SCANNERS `enrich` hook —
+    # this path bypasses run_scanner, so it has to ask for it explicitly.
+    results = _enrich_pead(results)
     return sorted(results, key=lambda x: x.get("score", 0), reverse=True)

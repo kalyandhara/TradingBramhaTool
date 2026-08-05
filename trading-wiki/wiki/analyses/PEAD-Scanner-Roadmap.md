@@ -3,7 +3,7 @@ title: "PEAD Scanner Roadmap (M5) — Post-Earnings Announcement Drift"
 category: analysis
 tags: [roadmap, scanner, PEAD, earnings, drift, NSE, dashboard]
 created: 2026-07-23
-updated: 2026-07-24
+updated: 2026-08-04
 sources: 2
 related: [analyses/Dashboard-UI-Roadmap, concepts/PEAD, concepts/Pocket-Pivot, concepts/VCP, concepts/ADX, sources/TV-PEAD-Screener-PineScript]
 ---
@@ -46,6 +46,36 @@ Decision (2026-07-23, user): build **NSE Proxy-PEAD** in our Python pipeline —
 infer the event from price, stay honest about it — and upgrade the surprise from
 "gap only" toward **time-series SUE** as EPS history is wired in.
 
+> [!key-insight] **The constraint above is retired (2026-08-04). Consensus is free after all.**
+> `yfinance.get_earnings_dates()` returns **`EPS Estimate`, `Reported EPS` and
+> `Surprise(%)`** for `.NS` symbols — no login, no scrape, no TradingView. The
+> constraint was real when written; **yfinance 1.2.1 is simply not the library the
+> 2026-07-23 note was describing.**
+>
+> **Coverage probe, 2026-08-04, 15 names across the cap spectrum → 15/15 carried
+> estimates**, small-caps included (MAPMYINDIA 15 quarters, FINEORG 15, ROUTE 20,
+> GRANULES 25). The roadmap's own worry — *"TV's NSE estimate coverage is
+> unverified and often sparse for Indian mid/small-caps"* — did **not** reproduce
+> here; it was checked rather than assumed, per the standing coverage rule.
+>
+> Consequences, and they are large:
+> - A **true SUE** — `(reported − consensus) / σ(prior surprises)` — is computable
+>   today. The estimate-free *time-series* SUE was a workaround for a limit that
+>   no longer binds.
+> - **Phase 3's screener.in dependency is dropped, not deferred.** No
+>   `fetch_quarterly_eps` parser, no `screener_login.py` session, no Playwright
+>   window, no 4:05 PM enrichment batch. That was the most fragile thing on this
+>   roadmap and it is now simply unnecessary.
+> - The "Proxy" label survives only for hits the calendar **cannot** confirm.
+>
+> The lesson generalises past PEAD: **this constraint was carried in three
+> docstrings and two roadmap sections for twelve days, and cost one abandoned
+> screener.in session-capture build — because a vendor limit was recorded once and
+> then never re-probed.** A data-source limit is a measurement with a date on it,
+> not a property of the world. The wiki's own rule for price levels — *"always
+> timestamp key levels; old levels without dates are meaningless"* — applies to
+> capability claims too.
+
 ## What we already had (evidence the build is cheap)
 
 | PEAD ingredient | Status |
@@ -77,29 +107,44 @@ Confirmed" pill. Renders as **cards** (not a table).
   gates (ULTRACEMCO "nan% gap", score 100) → fixed with `dropna` + `np.isnan`
   guards. See [[log]] 2026-07-23.
 
-### Phase 2 — Confirm the event is really earnings
-Pull NSE result dates via `yfinance.get_earnings_dates()` (returns the *date* for
-`.NS` even when the surprise column is empty; **requires `lxml`**). Tag hits
-`confirmed-earnings` vs `gap-only (unconfirmed)` — honest labelling instead of
-silently guessing.
+### Phase 2 — Confirm the event is really earnings — ✅ SHIPPED 2026-08-04
+Result dates via `yfinance.get_earnings_dates()`, in the new
+[earnings_calendar.py](tools/earnings_calendar.py). Every hit is reconciled
+against the real calendar and tagged **`confirmed-earnings`** / **`gap-only`** /
+**`NOT_CHECKED`** — three states, not two, because *"we could not fetch the
+calendar"* is not the same claim as *"there was no announcement"* (the
+`market_health` idiom, one layer along).
 
-### Phase 3 — Real time-series SUE + confirmation filters
-Upgrade the fundamental surprise from a proxy toward a **true time-series SUE**
-(z-score of YoY EPS change). Data path is now unblocked:
-- **Session-gating solved (2026-07-24):** `tools/screener_login.py` + `screener_login.bat`
-  capture a valid screener.in `sessionid` via a Playwright login window and cache
-  it; `get_screener_sessionid()` reads that cache first (Chrome app-bound cookie
-  encryption made the direct browser read fail on Windows). See [[log]].
-- **Depth is sufficient:** screener.in company pages carry ~12–13 quarters of EPS
-  (vs yfinance's ~6) — enough YoY diffs to z-score credibly.
-- **Remaining work:** add `fetch_quarterly_eps(session, slug)` (parser sibling to
-  `_parse_quarterly_holding`); compute SUE (+SURGE/PE/PEG while on the page) in
-  the **daily 4:05 PM batch**, cache per symbol; have `scan_pead` read the cached
-  SUE (the scanner is symbol-blind at scan time, so this must be a pre-enrichment
-  join, not an in-scanner fetch).
+`lxml` was never actually missing — it is present in the project interpreter
+(`pythoncore-3.14`). The blocker was an artefact of checking the wrong Python:
+bare `python` on PATH resolves to an unrelated hermes venv. **The prerequisite
+that held this phase for twelve days was a diagnosis error, not a gap.**
 
-Also add an **ADX** filter (~20 lines; the one real gap vs the source
-recommendations) plus optional ATR/VCP tags and YoY-profit-growth tiering.
+### Phase 3 — Real SUE — ✅ SHIPPED 2026-08-04 (as **true** SUE, not time-series)
+Shipped **better than scoped**. Because consensus turned out to be free (see the
+callout above), `earnings_calendar.compute_sue()` computes the real thing —
+`(reported − consensus) / σ(prior surprises)` — rather than the YoY-growth
+z-score that was only ever a stand-in for it.
+
+- **σ is measured over the surprises strictly BEFORE the quarter being scored**,
+  never including it — the same anti-leak baseline as `_suv_series`' `shift(1)`
+  window, and for the same reason: an outsized event that inflates its own
+  denominator reads as unremarkable.
+- **σ carries a relative floor** (1% of the consensus EPS). A run of near-identical
+  quarters otherwise drives σ→0 and blows SUE to the clamp on pure noise — the
+  *"z-score divided by ~1e-14"* failure already logged once this month.
+- **Below 4 prior quarters it returns `NOT_CHECKED`, not a number.**
+- ~~`fetch_quarterly_eps` parser · screener.in session · 4:05 PM batch~~ —
+  **all dropped as unnecessary.** No login is involved anywhere in this phase.
+
+The pre-enrichment join the roadmap called for was the one part of the design that
+survived intact: `run_scanner` attaches the symbol only *after* the scan fn
+returns, so the scanner stays symbol-blind and enrichment happens at the symbol
+level via a new `SCANNERS["…"]["enrich"]` hook.
+
+**Still open from this phase:** the **ADX** filter (~20 lines; the one genuine
+indicator gap vs the source recommendations), plus optional ATR/VCP tags and
+YoY-profit-growth tiering.
 
 ### Phase 4 — Backtest the drift edge
 Measure whether the drift is real on NSE using existing history +
@@ -240,8 +285,15 @@ until measured, every threshold here is hand-set.
 ## Action Taken / Plan
 - ✅ Phase 1 shipped + live-verified (2026-07-23).
 - ✅ Phase 1.1 (SUV z-score + pre-D0 baseline) shipped 2026-07-24.
-- ⏭ Phase 2 (earnings-date reconcile) when `lxml` is installed.
-- ⏭ Phase 3 (time-series SUE via screener.in EPS + ADX), Phase 4 (backtest).
+- ✅ **Phase 2 + Phase 3 SHIPPED 2026-08-04** — [earnings_calendar.py](tools/earnings_calendar.py).
+  Built together because they are one data layer: the same `get_earnings_dates()`
+  call returns both the date Phase 2 reconciles against and the consensus Phase 3
+  standardizes. Scanner renamed **"Proxy-PEAD Drift" → "PEAD Drift"** (safe:
+  `scanner_saved` and `alerts` were both empty, and routing keys off the
+  `quality_pead` marker, not the name). See Outcome.
+- ⏭ **Phase 4 (backtest)** — now the highest-value item on this roadmap, and it has
+  a sharper question to answer than before: see the divergence finding below.
+- ⏭ **ADX filter** (carried over from Phase 3).
 - **Phase 5 (new, 2026-07-24) — Quality-gated Small-Cap Proxy-PEAD**
   (Zero-Debt + high ROE/ROCE/OPM small caps carrying the drift edge).
   - ✅ **5.1 SHIPPED** — **"Zero-Debt Quality PEAD"** scanner, built on **yfinance**
@@ -264,7 +316,63 @@ until measured, every threshold here is hand-set.
   - ⏭ **5.3** — backtest whether the quality gate lifts PEAD expectancy (rides Phase 4).
 
 ## Outcome (fill in later)
-_TBD — pending one session of live use and a Phase 4 backtest._
+
+### 2026-08-04 — Phases 2 + 3 SHIPPED, verified live
+New [earnings_calendar.py](tools/earnings_calendar.py) (result calendar, true SUE,
+enrichment) + a `SCANNERS[…]["enrich"]` hook in `run_scanner`, wired into both the
+plain scanner and the Phase-5.1 composite. `scan_pead` now returns `event_date`
+(it previously threw the bar dates away at `reset_index(drop=True)` — the one
+thing Phase 2 needed).
+
+**Verified live** over 25 liquid NSE names: 2 hits, both reconciled against real
+result dates, both branches exercised —
+
+| | scan | base → final | SUE | verdict |
+|---|---|---|---|---|
+| **TCS** | reaction +5.4% (1.7×ATR), SUV 2.2σ, +13.4% drift | 79.11 → **88.03** | **+1.17σ** (beat, +2.5% vs consensus, 23 quarters) | confirmed, promoted |
+| **BAJFINANCE** | reaction +8.3% (3.0×ATR), SUV 8.0σ | 79.71 → **79.71** | **−10.0σ** (clamped; EPS 8.57 vs **13.70** consensus, −37%) | **divergence, no bonus** |
+
+### The finding: a confirmed earnings date is not a confirmed *setup*
+BAJFINANCE is why this phase was worth building, and it exposed a real bug in the
+first cut of the enrichment. The scanner found a textbook bullish reaction — +8.3%,
+3×ATR, **8σ** volume, gapped +3.9% at the open — one day after a **confirmed**
+result date. The first implementation awarded it the confirmation bonus and ranked
+it as a high-quality PEAD hit.
+
+**It reported EPS 8.57 against 13.70 consensus — a −37% miss.**
+
+PEAD is the drift that follows a surprise **in the surprise's direction**. A rally
+on a large miss is not a weak PEAD setup, it is *evidence the mechanism is not
+what is driving the price* — guidance, a one-off charge the market looked
+through, a squeeze. Rewarding it would have manufactured exactly the artefact this
+repo keeps catching: a confident-looking score with the wrong thing behind it.
+Adding real data made the scanner **wrong in a new way** until the direction check
+went in — the upgrade that *finds* more also has to *reject* more.
+
+Fixed: the bonus is gated on the surprise agreeing with the reaction. Divergent
+hits earn **nothing**, are relabelled *"(surprise diverges)"*, and carry an
+explicit reason line. They are **not** demoted below Phase 1 — Phase 1 didn't know,
+and inventing a penalty is precisely the unmeasured-weight habit Phase 4 exists to
+end. **Whether divergence deserves a real penalty is now the sharpest question on
+the Phase 4 backtest**, and it is a better question than the one Phase 4 had
+before: *does a confirmed positive SUE actually drift harder than an inferred gap?*
+
+Two data traps handled, both the repo's own recurring shapes — yfinance returns
+**duplicate rows per result date** (HCLTECH's 2026-07-13 appears twice, one row
+all-NaN; keyed naively the empty twin silently overwrites the real one, the same
+overwrite `ownership_cache` hit with event-driven filings), and its timestamps are
+**US/Eastern**, so `2026-07-08 20:00 −04:00` is **9 July** in IST and would
+reconcile against the wrong NSE bar. Verified both: HCLTECH dedupes 25→24 keeping
+the reporting row, TCS resolves to 2026-07-09.
+
+Negative paths verified explicitly — gap-only, missing `event_date`, unknown
+symbol, and a hit with no symbol at all. **None of them changes the score**, so
+enrichment can only ever promote a hit, never silently re-rank what Phase 1
+shipped. `py_compile` clean; dashboard and chart server both HTTP 200.
+
+⚠️ **The running dashboard predates this change** and needs a restart to load the
+new module — the identical situation as backlog **B-2**, noted rather than assumed
+away.
 
 ## Related Pages
 - [[analyses/Dashboard-UI-Roadmap]] — the M1–M4 UI spine this extends
