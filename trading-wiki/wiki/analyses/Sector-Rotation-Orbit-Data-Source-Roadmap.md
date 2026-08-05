@@ -4,7 +4,7 @@ category: analysis
 tags: [roadmap, sector-rotation, orbit-chart, data-source, nse, xbrl, yfinance, trendlyne, fii]
 timeframe: milestone-plan
 created: 2026-08-01
-updated: 2026-08-01
+updated: 2026-08-05
 sources: 0
 related: [analyses/Dashboard-UI-Roadmap, analyses/Decision-Support-Gating-Roadmap, concepts/FPV-Flow-Price-Volume-Ownership, sources/BSEIndia-Public-API-Corporate-Data-2026]
 ---
@@ -75,6 +75,55 @@ All of the following was probed directly, not assumed:
 
 **SR-7 — Trendlyne backfill (optional, only if SR-2 coverage proves short).** Second-class by construction: 1-dp values, flagged in the UI as lower precision, never mixed silently into XBRL-sourced quarters.
 
+> [!key-insight] **SR-7 CLOSED — not needed, and could not have worked anyway (verified 2026-08-04)**
+> The precondition was never tested. It fails twice over.
+>
+> **1 · XBRL coverage is not short — our backfill parameter is.** NSE serves **20
+> quarter-end filings per symbol** (RELIANCE/TATASTEEL/HDFCBANK/INFY/ITC: 20 of 20
+> each, back to 2021–22). The cache holds **8**, because `--quarters` defaults to
+> 8 in `fetch_symbol`, `backfill` and `build_wide_frame`. **448 of 496 cached
+> symbols sit at exactly 8 quarters** — a flat clamp, which is what a parameter
+> looks like and what a source limit never does.
+>
+> **2 · Trendlyne is shallower than what we already have.** SR-7 scoped it as a
+> backfill *"for quarters older than XBRL coverage"* — but Trendlyne carries **12**
+> quarters against XBRL's **20**. There are no quarters it could supply that XBRL
+> does not already reach. The item is self-contradictory as written, independent of
+> the precision objection that already made it second-class. The unread-Terms risk
+> flagged above is therefore moot — nothing needs to be fetched from them.
+>
+> **The real ceiling is a different thing entirely, and it is not depth.** Filings
+> **older than 30-SEP-2022 carry no category breakdown at all** — only
+> `promoter`, `public`, `shares_total`. No `fii`, `dii`, `mf`, `retail`, no
+> `fpi_cat1/2`, not under an alias: the fields are simply absent. So the orbit
+> chart's entire Y axis stops at Sep-2022 no matter which source is used, and
+> **Trendlyne could not have extended it either.**
+>
+> **And those rows report `reconciles: True`** — reconciliation tests
+> promoter + public = 100%, and FII is a sub-category that cannot disturb that
+> total. The repo's signature failure shape, one more time: a row that passes the
+> only correctness signal available while missing the measure the chart is made of.
+> `build_wide_frame` already guards it correctly (`fii is not None and
+> reconciles`), so nothing silently charts — but the guard is load-bearing, and
+> `reconciles` alone must never be read as "this row is usable".
+>
+> **Replacement for SR-7 — SR-8 below.** One parameter, no new source, no scraping.
+
+**SR-8 — Deepen the backfill 8 → 20 quarters (replaces SR-7, ~2.5 h unattended).**
+Re-run `ownership_cache --backfill --quarters 20`. The cache is keyed
+`(symbol, period)` and immutable, so this fetches **only the missing quarters** —
+nothing already held is re-requested. Yield: the orbit trail goes from **8 usable
+FII quarters to 16** (Sep-2022 → Jun-2026), doubling the history behind every
+rotation path. The four pre-Sep-2022 quarters come back promoter-only and are
+dropped by `build_wide_frame`'s existing guard, so 20 fetched ⇒ 16 charted; that
+is the honest ceiling, not a shortfall to route around.
+Verified safe before recommending: RELIANCE and HDFCBANK re-fetched at
+`quarters=20` parse **20/20 reconciling**, so the three DS-2 parser fixes hold
+across every vintage back to 2021 — the 100× scale fix in particular, which is the
+one that would have broken on old filings.
+Also worth passing `--quarters 20` to `build_wide_frame`, which defaults to 8 and
+would otherwise slice the new depth straight back off.
+
 ### Recommended order
 **SR-0 → SR-6 → SR-1 → SR-2 → SR-3 → SR-4 → SR-5.**
 SR-0 because a silently-empty pipeline is a bug shipped. SR-6 second because it is cheap, ungated, and delivers a working rotation view while SR-2's backfill is still being written. Then the ownership spine in dependency order.
@@ -112,6 +161,7 @@ SR-0 because a silently-empty pipeline is a bug shipped. SR-6 second because it 
   - **A silent overwrite, caught before it shipped.** NSE returns event-driven filings alongside quarterly ones (RELIANCE 29-OCT-2024, HDFCBANK 28-AUG-2025, INFY 04-DEC-2025). `quarter_label` maps those onto the *same* label as the true quarter end, so in a dict-keyed wide frame one silently overwrote the other. The cache now keeps quarter-end filings only, filtered before the top-N slice so `--quarters 8` means eight quarters rather than eight filings.
   - **Verified end to end:** 8-symbol frame → 19 columns (8 `FII_`, 8 `CAP_`, no nulls) → `sector_rotation_trail.run` → 7 sectors × 7 points, **every quarter on `historical` cap basis**, every sector resolving a sector index (no `unscored`), orbit PNG/HTML/XLSX written. Dashboard button exercised live: CSV and orbit regenerated, zero exceptions.
   - **Nifty 500 backfill running** at time of writing (~112 min estimated). Progress checked at 17 symbols / 135 quarters with **0 non-reconciling**, so the parser fixes hold well beyond the 8 names they were developed against.
+- **2026-08-05 — SR-7 closed as not-needed; SR-8 opened in its place.** The backfill completed: **496 symbols · 3,832 quarters · 0 non-reconciling** across 9 period labels (Jun-2024 → Jun-2026). Testing SR-7's precondition rather than acting on it found that **XBRL coverage is not short — the `--quarters 8` default is**, that **Trendlyne (12 quarters) is shallower than XBRL (20)** and so could never have supplied the older quarters SR-7 was scoped to fetch, and that the true limit is **no category breakdown at all before 30-SEP-2022** — promoter/public only, which caps the Y axis regardless of source. Those breakdown-less rows still report `reconciles: True`, because reconciliation cannot see a missing sub-category. Full reasoning in the SR-7 callout above; the replacement is **SR-8** (deepen 8 → 20 quarters, 16 usable, ~2.5 h unattended, no new source). Verified safe first: RELIANCE and HDFCBANK re-fetched at `quarters=20` parse **20/20 reconciling**.
 
 ## Related Pages
 - [[analyses/Dashboard-UI-Roadmap]] — the Sector Map surface this feeds.
