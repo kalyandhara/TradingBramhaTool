@@ -62,13 +62,26 @@ def _to_float(x) -> float | None:
 
 
 def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
-                   stop: float, target: float, max_bars: int) -> dict | None:
+                   stop: float, target: float, max_bars: int,
+                   time_stop: float | None = None) -> dict | None:
     """Stop-or-target-first walk forward from ``entry_idx`` (the entry bar).
 
     Conservative tie-break: if a single bar's range spans BOTH the stop and the
     target, assume the stop filled first (the pessimistic assumption — never
-    credit the win we can't prove came first from daily bars). Returns an R
-    result, or None if the plan is degenerate (stop not below entry)."""
+    credit the win we can't prove came first from daily bars).
+
+    ``time_stop`` is the number of bars the SCANNER ITSELF declares a trade may
+    run before being closed regardless of price — the missing time dimension in
+    every structured plan (backlog B-5; [[concepts/Mean-Reversion]] names ~10
+    bars as standard). When absent the trade simply runs to ``max_bars``, which
+    is the measurement horizon rather than a decision, and the two are reported
+    as different outcomes so a deliberate exit is never read as a stalled one.
+
+    Returns None when the plan cannot be simulated long-only — a short-side plan
+    (stop above entry) or a degenerate one. The caller counts these rather than
+    letting them vanish: a scanner whose plans are all unsimulatable must not
+    look like a scanner with no plans.
+    """
     risk = entry - stop
     if risk <= 0:
         return None
@@ -76,7 +89,9 @@ def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
     high = df["high"].to_numpy(dtype=float)
     low = df["low"].to_numpy(dtype=float)
     close = df["close"].to_numpy(dtype=float)
-    end = min(n - 1, entry_idx + max_bars)
+
+    horizon = max_bars if time_stop is None else min(max_bars, int(time_stop))
+    end = min(n - 1, entry_idx + horizon)
     for i in range(entry_idx, end + 1):
         hit_stop = low[i] <= stop
         hit_tgt = high[i] >= target
@@ -84,9 +99,13 @@ def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
             return {"outcome": "stop", "r": (stop - entry) / risk, "bars": i - entry_idx}
         if hit_tgt:
             return {"outcome": "target", "r": (target - entry) / risk, "bars": i - entry_idx}
-    # Neither hit within the window — mark to the last available close (open R).
+    # Neither level hit. If the scanner declared a time stop and we reached it,
+    # that is a planned exit ("time"); otherwise the trade merely ran out of
+    # measurement window ("open") and is still live in reality.
     exit_px = close[end]
-    return {"outcome": "open", "r": (exit_px - entry) / risk, "bars": end - entry_idx}
+    timed_out = time_stop is not None and (end - entry_idx) >= horizon
+    return {"outcome": "time" if timed_out else "open",
+            "r": (exit_px - entry) / risk, "bars": end - entry_idx}
 
 
 def backtest_scanner(scanner_name: str,
@@ -119,6 +138,8 @@ def backtest_scanner(scanner_name: str,
     n_signals = 0
     n_symbols_used = 0
     total_bars = 0
+    n_plans = 0                 # signals that carried a full entry/stop/target
+    n_plans_unsimulated = 0     # …of which the long-only sim could not run
 
     for sym in symbols:
         try:
@@ -180,18 +201,27 @@ def backtest_scanner(scanner_name: str,
                 tgt = hit.get("target")
                 tgt_p = _to_float(tgt[0] if isinstance(tgt, (list, tuple)) and tgt else tgt)
                 if entry_p and stop_p and tgt_p:
-                    r = _simulate_plan(df, entry_idx, entry_p, stop_p, tgt_p, max_h)
+                    n_plans += 1
+                    r = _simulate_plan(df, entry_idx, entry_p, stop_p, tgt_p,
+                                       max_h, _to_float(hit.get("time_stop")))
                     if r:
                         r_results.append(r)
+                    else:
+                        # Long-only simulator: short-side and degenerate plans are
+                        # counted, not dropped, so the report can say how much of
+                        # the plan coverage it could actually measure.
+                        n_plans_unsimulated += 1
 
             t += min_gap        # de-dup: skip ahead after a recorded signal
 
     return _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list,
-                      r_results, n_signals, n_symbols_used, total_bars)
+                      r_results, n_signals, n_symbols_used, total_bars,
+                      n_plans, n_plans_unsimulated)
 
 
 def _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list, r_results,
-               n_signals, n_symbols_used, total_bars) -> dict:
+               n_signals, n_symbols_used, total_bars,
+               n_plans=0, n_plans_unsimulated=0) -> dict:
     per_h = {}
     for h in horizons:
         s = np.array(sig_ret[h], dtype=float)
@@ -212,7 +242,13 @@ def _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list, r_results,
         }
 
     r_block = None
-    if r_results:
+    if not r_results and n_plans:
+        # Every plan was unsimulatable. Report that explicitly — an empty R block
+        # would otherwise be indistinguishable from a scanner emitting no plans.
+        r_block = {"n_with_plan": 0, "plans_seen": int(n_plans),
+                   "plans_unsimulated": int(n_plans_unsimulated),
+                   "note": "no plan could be simulated long-only (short-side or degenerate)"}
+    elif r_results:
         rs = np.array([x["r"] for x in r_results], dtype=float)
         wins = np.array([x["outcome"] == "target" for x in r_results])
         r_block = {
@@ -223,6 +259,12 @@ def _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list, r_results,
             "target_hits": int(np.sum([x["outcome"] == "target" for x in r_results])),
             "stop_hits": int(np.sum([x["outcome"] == "stop" for x in r_results])),
             "open_exits": int(np.sum([x["outcome"] == "open" for x in r_results])),
+            "time_exits": int(np.sum([x["outcome"] == "time" for x in r_results])),
+            # Plan coverage. Without these two a scanner whose plans are all
+            # short-side would report an empty R block indistinguishable from one
+            # that emits no plans at all.
+            "plans_seen": int(n_plans),
+            "plans_unsimulated": int(n_plans_unsimulated),
         }
 
     return {
@@ -258,10 +300,21 @@ def format_report(result: dict) -> str:
     if result["mae_avg"] is not None:
         lines.append(f"avg MAE over longest horizon: {result['mae_avg']}%")
     r = result["r_metrics"]
-    if r:
+    if r and r.get("n_with_plan"):
         lines.append(f"trade-plan R: n={r['n_with_plan']} win%={r['win_rate']} "
                      f"expectancy={r['expectancy_R']}R "
-                     f"(target={r['target_hits']}/stop={r['stop_hits']}/open={r['open_exits']})")
+                     f"(target={r['target_hits']}/stop={r['stop_hits']}"
+                     f"/time={r.get('time_exits', 0)}/open={r['open_exits']})")
+        # Plan coverage. A scanner can emit plans on every signal and still have
+        # half of them unsimulatable (short-side); quoting the expectancy without
+        # saying what fraction it was measured on is the partial-result habit.
+        seen, unsim = r.get("plans_seen", 0), r.get("plans_unsimulated", 0)
+        if unsim:
+            lines.append(f"   plan coverage: {r['n_with_plan']}/{seen} simulated "
+                         f"({unsim} skipped — short-side or degenerate, sim is long-only)")
+    elif r:
+        lines.append(f"trade-plan R: none simulatable — {r.get('note', '')} "
+                     f"({r.get('plans_seen', 0)} plans seen)")
     else:
         lines.append("trade-plan R: (scanner emits no entry/stop/target — forward-return only)")
     lines.append(f"limitations: {', '.join(result['limitations'])}")

@@ -2913,6 +2913,22 @@ def scan_harmonic_reversal(df: pd.DataFrame) -> dict | None:
         "tags": [h["pattern"], h["direction"], f"R:R {t['rr_to_t2']}"],
         "reasons": reasons,
         "score": round(t["rr_to_t2"] * 2, 2),
+        # Structured trade plan (Phase 3). `detect_last_pattern` already computed
+        # all of this; it was only ever rendered into reason-text, which is why
+        # the harness's R path stayed dormant on the scanner that measured the
+        # second-best edge of the six tested.
+        #
+        # `target` is deliberately the SCALAR T2, not the targets list: the
+        # backtest reads `target[0]` when handed a sequence, which would measure
+        # to T1 (0.382) while this scanner gates on and advertises `rr_to_t2`
+        # (0.618). Measuring a different target than the one the card promises is
+        # the sort of quiet mismatch that makes a backtest worse than none.
+        "entry":     t["entry"],
+        "stop":      t["stop"],
+        "target":    t["targets"][1],
+        "targets":   t["targets"],          # full T1/T2/T3 ladder for the card
+        "rr":        t["rr_to_t2"],
+        "direction": h["direction"],
     }
 
 
