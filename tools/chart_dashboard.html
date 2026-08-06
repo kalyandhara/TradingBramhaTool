@@ -2262,9 +2262,13 @@ function applyIndicators(pane) {
     if (!pane.indicators.has(key)) removeIndicatorSeries(pane, key);
   });
   // Remove sub-pane charts for deselected oscillators
-  ['rsi','macd','obv','rs','prte','roc','stoch','volume'].forEach(key => {
+  // 'volume' is deliberately absent — it is a main-chart overlay now, torn down
+  // by removeIndicatorSeries above. A stale volume SUB-pane can still exist from
+  // a session saved before the change, so it is swept once here.
+  ['rsi','macd','obv','rs','prte','roc','stoch'].forEach(key => {
     if (!pane.indicators.has(key) && pane.subCharts[key]) removeSubPane(pane, key);
   });
+  if (pane.subCharts.volume) removeSubPane(pane, 'volume');
   // Clear volume profile canvas if deselected
   if (!pane.indicators.has('volprofile') && pane.volCanvas) {
     const ctx = pane.volCanvas.getContext('2d');
@@ -2318,6 +2322,32 @@ function applyIndicators(pane) {
       case 'ema200': pane.indSeries[key] = addLine(pane, def.color); break;
       case 'vwap':   pane.indSeries[key] = addLine(pane, def.color); break;
       case 'avwap':  pane.indSeries[key] = addLine(pane, def.color, 2); break;
+      case 'volume': {
+        // Volume rides ON the price chart rather than in its own sub-pane, the
+        // way every trading platform draws it — bars sit under the candles they
+        // belong to, so a volume spike reads against its own bar with no eye
+        // movement between panes.
+        //
+        // `priceScaleId: 'volume'` is the mechanism: any id that is not 'right'
+        // or 'left' creates an OVERLAY scale, so these values never enter the
+        // price axis. Without it a 30-million-share bar and a ₹1,325 candle
+        // would share one scale and flatten the candles into a line.
+        //
+        // scaleMargins top 0.80 confines the histogram to the bottom fifth of
+        // the pane; the candles keep the top 80%. lastValueVisible/priceLine are
+        // off so the price axis stays the price axis.
+        const vs = pane.chart.addHistogramSeries({
+          priceScaleId: 'volume',
+          priceFormat: {type: 'volume'},
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        try {
+          vs.priceScale().applyOptions({scaleMargins: {top: 0.80, bottom: 0}});
+        } catch {}
+        pane.indSeries[key] = vs;
+        break;
+      }
       case 'bollinger':
         pane.indSeries[key] = [
           addLine(pane, def.color, 1),
@@ -2366,6 +2396,7 @@ function applyIndicators(pane) {
       case 'ema50':  s.setData(emaSeries(bars, 50));  break;
       case 'ema200': s.setData(emaSeries(bars, 200)); break;
       case 'vwap':   s.setData(vwapSeries(bars, pane.tf)); break;
+      case 'volume': s.setData(volumeBarSeries(bars)); break;
       case 'avwap':  s.setData(anchoredVwapSeries(bars, lastSwingLowIdx(bars))); break;
       case 'bollinger': {
         const {mid, upper, lower} = bollingerSeries(bars, 20, 2);
@@ -2645,16 +2676,10 @@ function applyIndicators(pane) {
     renderMABias(pane);
   }
 
-  if (pane.indicators.has('volume')) {
-    if (!pane.subCharts.volume) {
-      const sub = addSubPane(pane, 'volume', 'Volume');
-      sub.series = sub.chart.addHistogramSeries({
-        priceLineVisible: false, lastValueVisible: true,
-        priceFormat: {type: 'volume'},
-      });
-    }
-    pane.subCharts.volume.series.setData(padToBars(volumeBarSeries(bars), bars));
-  }
+  // Volume is no longer a sub-pane — it is an overlay histogram on the price
+  // chart itself, created in the INDICATOR_DEFS switch above under
+  // `case 'volume'` and fed alongside the other main-chart overlays. Nothing to
+  // do here.
 
   // ── Elliott Wave overlay (plug-in module, see elliott_wave.js) ────────────────
   if (pane.indicators.has('elliott')) {
