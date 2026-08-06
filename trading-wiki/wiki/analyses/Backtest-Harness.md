@@ -104,6 +104,28 @@ walk-forward before any scanner is "validated."
 - ⏭ **Multiple windows / walk-forward** + transaction costs before calling any
   scanner "validated"; then feed measured expectancy back into the M1 Overall
   Rating weights and each scanner's thresholds.
+- ⏭ **Market-model abnormal returns + a significance test** — new 2026-08-05 from
+  [[sources/GitHub-Yash-Bhanushali-PEAD-Tool]]. Two holes in the current
+  edge measure, both closed by a standard event study:
+  - **Edge is not risk-adjusted.** Subtracting the *average* bar implicitly
+    assumes β = 1 for every name, so a scanner that fires on **high-beta** names
+    shows "edge" that is beta being paid — and our sample is a mostly-constructive
+    ~6y tape, exactly when that bias is largest. Estimating `R_i = α + β·R_m + ε`
+    over the ~120 bars **strictly before** each signal and taking
+    `AR = actual − predicted` removes it by construction.
+  - **There is no significance test anywhere in the harness** — verified, zero
+    occurrences of t-stat / p-value / CI in [backtest.py](tools/backtest.py). So
+    *"Harmonic +0.25R on n=122"* and *"Falling Wedge +0.74% @20d"* are point
+    estimates with **no stated probability of being noise**. For the module whose
+    whole purpose is the credibility check, that is the missing half.
+    Standard form: `CAR` over the window, `SE = σ·√n` using the **estimation-period
+    residual σ** (never the in-window σ, which the event itself inflates — the same
+    anti-leak principle as `_suv_series`), two-tailed `t = CAR/SE`.
+  **Cheap:** the look-ahead-safe replay and the benchmark series
+  (`fetch_nifty50`, `_BENCHMARK_WRET`) already exist, and `scipy` 1.17.1 +
+  `statsmodels` 0.14.6 are already installed. Also sharpens Phase 4's PEAD
+  question — *does a confirmed positive SUE drift harder than an inferred gap* —
+  from a comparison of two point estimates into a test with a p-value.
 
 ## Outcome (fill in later)
 - _2026-07-25: engine live; first findings recorded above. No thresholds retuned
