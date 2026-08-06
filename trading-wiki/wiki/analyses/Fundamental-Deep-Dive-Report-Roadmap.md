@@ -4,7 +4,7 @@ category: analysis
 tags: [roadmap, stock-analyzer, fundamentals, presentation-spec, visual-spec, design-system, red-flags, projections, eps, data-honesty, dashboard]
 timeframe: milestone-plan
 created: 2026-07-29
-updated: 2026-07-29
+updated: 2026-08-05
 sources: 1
 related:
   - analyses/Dashboard-UI-Roadmap.md
@@ -267,6 +267,9 @@ amber-bordered inner panel = watch, green-bordered = clean, red-bordered = data 
 - **FR-6 — Narrative & concall layer (last, optional).** Management quotes via concall
   links + manual paste; LLM narration only if an API key ever appears. Deliberately last,
   same discipline that put M3 after M1/M2.
+  **Split confirmed 2026-08-05 — this is two items, and only one of them was ever
+  blocked.** ① concall *links* need no LLM and shipped. ② LLM *narration* remains
+  blocked on a missing API key. See Outcome.
 
 **Tab mapping:** Valuation / Growth & Earnings / Health / Returns & Capital → FR-2 axes ·
 **Ownership** → [[analyses/Decision-Support-Gating-Roadmap]] DS-2 · **Peers** →
@@ -317,14 +320,72 @@ Pick before FR-0 — it's the one decision that's expensive to reverse later.
 - ✅ **FR-5 SHIPPED 2026-07-31** (`e027dd0`) — [scenarios.py](tools/scenarios.py); bands built
   from the company's own filed history, derivation printed under every bar, and the
   price-vs-business-size distinction stated in the copy.
-- ⏭ **FR-6 is all that remains** — narrative / concall quotes. Still blocked on the same
-  finding as M3: **no LLM is configured in this repo**. Options unchanged — deterministic
-  templates over the facts these five phases now compute, a manual concall-paste box, or
-  leave it unbuilt. Do not let a template pretend to be analysis.
+- ✅ **FR-6① SHIPPED 2026-08-05** — concall & investor material as dated links to the
+  primary documents ([concalls.py](tools/concalls.py) + an "Earnings calls & investor
+  material" section on the Stock Analyzer). **No LLM involved, none needed.**
+- ⏭ **FR-6② — LLM narration is still genuinely blocked.** The `anthropic` SDK *is*
+  installed (0.94.0), but **no `ANTHROPIC_API_KEY` is set**, so a call fails at runtime.
+  Configuring a key is the user's action, not something this repo should carry.
+  Deterministic "narrative" templates remain **rejected, not deferred** — see Outcome.
 - ⚠️ If the pixel-exact palette ever matters, **get the screenshot files onto disk** and
   re-sample; the hexes here are eyeballed.
 
 ## Outcome (fill in later)
+
+### 2026-08-05 — FR-6 was two items; the blocked one was blocking the other
+`FR-6 is all that remains — still blocked on… no LLM is configured` was **half
+true and applied to the whole**. FR-6's own scope is *"management quotes via
+concall links **+** LLM narration only if an API key ever appears"* — the link
+half never needed a model.
+
+**The blocker, checked rather than assumed:** the `anthropic` SDK **is** installed
+(0.94.0); **no `ANTHROPIC_API_KEY` is set**, so a call fails at runtime. That is a
+real block, and unlike the PEAD constraint and SR-7's precondition earlier this
+week it did **not** dissolve on contact — recorded plainly rather than forced into
+the pattern. Configuring a key is the user's action; a `claude` CLI on PATH is an
+interactive agent, not a batch API, and shelling out to it from a dashboard would
+be both fragile and unmetered.
+
+**Shipped (FR-6①):** [concalls.py](tools/concalls.py) + an *"Earnings calls &
+investor material"* section on the Stock Analyzer. NSE's
+`api/corporate-announcements` returns **HTTP 200 login-free** — the same surface
+family as the shareholding XBRL, and notably *not* behind the 403 SR-0 had to
+route around. It carries a dedicated subject
+(*"Analysts/Institutional Investor Meet/Con. Call Updates"*) and **direct
+`nsearchives` PDF links to the transcripts and audio recordings themselves**.
+Live: RELIANCE 280 concall rows / 35 transcripts / latest 2026-07-19 · INFY
+134 / 52 / 2026-07-28 · TCS 201 / 20 · HDFCBANK 709 / 19 · MAPMYINDIA 143 / 18.
+
+> [!key-insight] The category is a convention, and large filers ignore it
+> Filtering on NSE's concall **subject** alone put INFY's newest transcript at
+> **2023-04-18**. The true answer is **2026-07-28**. **31 of INFY's 52 transcript
+> filings sit under the generic subject `"Updates"`** — only 16 under the concall
+> category. A three-year-stale date would have rendered with total confidence for
+> a company that files every quarter, and nothing would have errored.
+> Matching now also tests the **document** (`CONCALL_DOC`), deliberately on
+> specific document nouns rather than loose keywords so the wider net does not
+> drag in every "Updates" row. Transcript counts moved 20 → 52 on INFY.
+> **Third time this week that trusting a stated category over the data would have
+> shipped a confident wrong number.**
+
+**What was deliberately NOT built:** a deterministic "narrative" template over the
+facts FR-1…FR-5 compute. The roadmap's own instruction — ***"do not let a template
+pretend to be analysis"*** — is the reason. Generated prose with the cadence of
+judgement and none of the substance is worse than an honest link list, so the
+section renders **dated links to primary documents and stops**. `state` is
+`NOT_CHECKED` when the feed cannot be read, never an empty list standing in for a
+failed fetch.
+
+**Verified:** module self-check on 5 symbols; unknown symbol degrades honestly;
+payload is JSON-serialisable (Streamlit caches it); `py_compile` clean; **app boots
+clean on a throwaway port 8599 → HTTP 200, zero import errors**, run separately so
+the live dashboard on 8501 was never disturbed.
+
+⚠️ **Found in passing, not fixed (outside FR-6):** `render_fundamental_history`
+still renders *"Consensus data unavailable — there is no free NSE analyst-consensus
+feed."* **That is now false** — see [[analyses/PEAD-Scanner-Roadmap]], 2026-08-04.
+It is user-facing copy asserting something this repo disproved.
+
 - _2026-07-29: ingested & scoped. Grounded finding: **~75% composition, one new
   login-free data layer**. FR-1 recommended as the first PR; narrative/LLM sections
   (FR-6) deliberately last given no configured LLM._
@@ -484,5 +545,10 @@ Pick before FR-0 — it's the one decision that's expensive to reverse later.
   **Ownership** tab.
 - [[analyses/PEAD-Scanner-Roadmap]] — the no-free-NSE-consensus constraint this page's
   Earnings-Consistency `DATA N/A` inherits; Phase 5.2 fundamentals gap FR-1 closes.
+  ⚠️ **That constraint was retired 2026-08-04** (yfinance returns `EPS Estimate` /
+  `Reported EPS` / `Surprise(%)` for `.NS`, 15/15 on a cap-spread probe). **The
+  "Consensus data unavailable — there is no free NSE analyst-consensus feed"
+  callout in `render_fundamental_history` is now false and still on screen.**
+  Not fixed here because it is outside FR-6; flagged so it is not re-derived.
 - [[analyses/Setup-Intelligence-Visual-Spec]] — the **technical** counterpart panel; keep
   the two lenses (and their verdicts) labelled distinctly.

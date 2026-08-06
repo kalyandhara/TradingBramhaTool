@@ -63,6 +63,7 @@ import report_style as rs
 import sector_card as scard
 import rrg as rrg_mod
 import ownership_cache as ocache
+import concalls
 
 # The M1 rating lives in rating.py so the headless daily Opportunity Hub job
 # scores with the SAME code the interactive Hub shows. Aliased to the old
@@ -921,6 +922,72 @@ def render_fundamental_history(deep: dict) -> None:
             tone="risk"),
         unsafe_allow_html=True,
     )
+
+
+#: FR-6. Announcements land continuously, so this is cached far shorter than the
+#: statement layer — a results-day transcript appearing is the whole point.
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_concalls(symbol: str) -> dict:
+    return concalls.concall_items(symbol, limit=12)
+
+
+_CONCALL_ICON = {"transcript": "📄", "audio": "🎧", "presentation": "📊",
+                 "press": "📰", "intimation": "🗓", "other": "•"}
+
+
+def render_concalls(data: dict) -> None:
+    """FR-6 — dated links to the company's own concall material.
+
+    Deliberately a **link list, not a summary**. The roadmap's instruction for
+    this phase is "do not let a template pretend to be analysis", and with no LLM
+    configured the honest product is the primary document plus its date. No
+    sentiment, no extracted "management tone", no generated prose.
+    """
+    if not data:
+        return
+    st.markdown(rs.section("Earnings calls & investor material"), unsafe_allow_html=True)
+
+    if data.get("state") != "OK":
+        st.markdown(
+            rs.callout("Concall feed unavailable.",
+                       f"{data.get('note') or 'NSE announcements could not be read'}. "
+                       "This is 'we could not ask', not 'the company has filed nothing'.",
+                       tone="risk"),
+            unsafe_allow_html=True)
+        return
+
+    items = data.get("items") or []
+    if not items:
+        st.caption(f"No concall or investor-meet filings found among "
+                   f"{data.get('n_total', 0)} NSE announcements for this symbol.")
+        return
+
+    latest = data.get("latest_transcript")
+    st.caption(
+        f"**{data.get('n_concall', 0)}** concall / investor-meet filings of "
+        f"{data.get('n_total', 0)} NSE announcements · "
+        f"**{data.get('n_transcripts', 0)}** transcripts · "
+        f"latest transcript **{latest or '—'}**. "
+        "Links go to NSE's own archive. Documents are listed, never summarised — "
+        "there is no LLM configured, and a generated 'narrative' over a concall "
+        "would be invention rather than analysis."
+    )
+
+    for i in items:
+        icon = _CONCALL_ICON.get(i.get("kind"), "•")
+        label = (i.get("text") or i.get("subject") or "").strip() or "(no description)"
+        if len(label) > 150:
+            label = label[:150].rstrip() + "…"
+        date = i.get("date") or "—"
+        size = f" · {i['size']}" if i.get("size") else ""
+        link = (f' — <a href="{i["file"]}" target="_blank">open PDF</a>'
+                if i.get("file") else "")
+        st.markdown(
+            f'<div style="margin:2px 0;line-height:1.45;">{icon} '
+            f'<b>{date}</b> <span style="opacity:.65;">[{i.get("kind","")}]</span>{size}<br>'
+            f'<span style="opacity:.85;">{label}</span>{link}</div>',
+            unsafe_allow_html=True,
+        )
 
 
 _TONE_DOT   = {"good": "🟢", "neutral": "🟡", "bad": "🔴"}
@@ -2154,6 +2221,7 @@ if current_page == "Stock Analyzer":
                 render_fundamental_history(_deep)
                 render_red_flags(cached_red_flags(symbol))
                 render_scenarios(scen.build(_deep), _deep)
+                render_concalls(cached_concalls(symbol))
 
                 nifty_df = cached_fetch_nifty50(days=tf_days)
                 mv_score, mv_conds = sp.score_minervini(df, nifty_df=nifty_df)
