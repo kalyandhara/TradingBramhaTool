@@ -771,11 +771,32 @@ function applyRangeView(pane) {
 // grids, setVisibleLogicalRange aligns main+subs 1:1 — same right edge, same left
 // edge, symmetric shrink. Whitespace points draw nothing.
 function padToBars(series, bars) {
+  // Project `series` onto the main chart's FULL bar grid: one entry per main bar,
+  // in main-bar order, with a whitespace point {time} wherever the series has no
+  // value. Output length === bars.length, and output[i] is always bars[i].
+  //
+  // That invariant is exactly what syncSubPaneRanges relies on — it pins panes by
+  // LOGICAL range (bar index), so a sub-series with a different number of points
+  // makes logical index i mean a different bar in that pane, and it draws visibly
+  // out of step with the price chart.
+  //
+  // This used to pad the LEADING edge only, which was enough for indicators
+  // computed from `bars` themselves (RSI/MACD/OBV/Stoch/ROC/PRTE/volume) — those
+  // can only be short during warmup. It was NOT enough for **RS vs Benchmark**,
+  // the one sub-pane built by joining against a SECOND, independently fetched
+  // series: `fetchRsData` keeps only bars whose timestamp also exists in the
+  // benchmark, so it loses bars in the MIDDLE (and can lose them at the tail when
+  // the benchmark's last bar is older than the symbol's — a live risk now that
+  // Yahoo feeds are known to freeze, cf. backlog B-1).
+  //
+  // Measured 2026-08-05 via the chart server: RELIANCE.NS / TCS.NS / JAYNECOIND.NS
+  // each returned 300 daily bars against ^NSEI's 300, with only **296 timestamps
+  // in common** — so RS was drawn on a 296-point grid inside a 300-bar window and
+  // slipped by four bars, compounding after every gap.
   if (!series || !series.length || !bars || !bars.length) return series || [];
-  const firstT = series[0].time;
-  const pad = [];
-  for (let i = 0; i < bars.length && bars[i].time < firstT; i++) pad.push({time: bars[i].time});
-  return pad.length ? pad.concat(series) : series;
+  const byTime = new Map();
+  for (const p of series) byTime.set(p.time, p);
+  return bars.map(b => byTime.get(b.time) || {time: b.time});
 }
 
 // External research quick links for a symbol. Only NSE/BSE equities get them
@@ -2451,6 +2472,32 @@ function applyIndicators(pane) {
       sub.series = sub.chart.addLineSeries({
         color: '#00bd6f', lineWidth: 1.5,
         priceLineVisible: false, lastValueVisible: true,
+        // Compact labels — and this is an ALIGNMENT fix, not just cosmetics.
+        //
+        // subChartOpts sets rightPriceScale.minimumWidth: 72, which is a MINIMUM.
+        // Raw OBV is a running share count in the billions, so labels rendered as
+        // "2934007946.00" / "2000000000.00" — far wider than the "75.00" / "-48.42"
+        // on every other oscillator. The scale grew past 72px to fit them, which
+        // narrowed OBV's PLOT area, so its right edge stopped short of the other
+        // panes and the series visibly ended early. Same reason its left edge sat
+        // inboard of theirs.
+        //
+        // "2.93B" fits inside the shared 72px, so every sub-pane keeps an
+        // identical plot width and the panes line up. It also makes the axis
+        // readable, which twelve digits of share count never was.
+        priceFormat: {
+          type: 'custom',
+          minMove: 1,
+          formatter: v => {
+            if (v === null || v === undefined || isNaN(v)) return '';
+            const a = Math.abs(v);
+            if (a >= 1e12) return (v / 1e12).toFixed(2) + 'T';
+            if (a >= 1e9)  return (v / 1e9 ).toFixed(2) + 'B';
+            if (a >= 1e6)  return (v / 1e6 ).toFixed(2) + 'M';
+            if (a >= 1e3)  return (v / 1e3 ).toFixed(2) + 'K';
+            return v.toFixed(0);
+          },
+        },
       });
     }
     pane.subCharts.obv.series.setData(padToBars(obvSeries(bars), bars));
@@ -2685,6 +2732,16 @@ function syncSubPaneRanges(pane) {
   // the main and every sub-pane, so this pins the sub-panes to the main's exact
   // visible-bar window — right edge fixed on the latest bar, symmetric shrink
   // from the left — instead of the old time-range sync that let them drift.
+  //
+  // NOTE (2026-08-05): a per-pane "leading offset" variant of this was tried —
+  // translating the range by how far each sub-series starts into the bar array,
+  // to compensate for indicator warmup (RSI short by 14, MACD by 33). It aligned
+  // those panes in measurement but **misaligned %R and ROC**, so it was reverted.
+  // Do not retry it without a browser that actually composites: the diagnosis
+  // session could not drive the time scale faithfully (fitContent no-opped, the
+  // main canvas never resized past 228px, and setVisibleLogicalRange was applied
+  // inconsistently), which made every reading untrustworthy. The RS fix in
+  // fetchRsData is independent of this and stands on its own.
   let lr;
   try { lr = pane.chart.timeScale().getVisibleLogicalRange(); } catch { return; }
   if (!lr) return;
@@ -5428,9 +5485,39 @@ async function fetchRsData(pane, bars) {
     const refBars = d.bars || [];
     if (!refBars.length || !pane.subCharts.rs) return;
     const refMap = new Map(refBars.map(b => [b.time, b.close]));
-    const pairs = bars
-      .filter(b => refMap.has(b.time))
-      .map(b => ({time: b.time, value: b.close / refMap.get(b.time)}));
+    // Build RS on the FULL main-bar grid — one point per main bar, never a subset.
+    //
+    // The old form was `bars.filter(b => refMap.has(b.time))`, which silently
+    // dropped every bar the benchmark did not also print. That is not rare:
+    // measured 2026-08-05, RELIANCE.NS / TCS.NS / JAYNECOIND.NS each returned 300
+    // daily bars against ^NSEI's 300 with only **296 timestamps in common**, so RS
+    // was a 296-point series living inside a 300-bar window.
+    //
+    // That matters because syncSubPaneRanges pins panes by LOGICAL range (bar
+    // index) and relies on "logical index i is the same bar in every pane". A
+    // short series breaks it. Padding with whitespace {time} does NOT repair it —
+    // this build of lightweight-charts DISCARDS whitespace points (verified: 2600
+    // in, 2591 stored), so the grid stays short. Only real values on every bar fix
+    // the index mapping.
+    //
+    // On a bar the benchmark did not print we carry its LAST KNOWN close forward:
+    // the index did not move that day, so the ratio legitimately does not change.
+    // That is a carried value, not an invented one — no direction is fabricated.
+    let lastRef = null;
+    const rows = [];
+    for (const b of bars) {
+      const rv = refMap.get(b.time);
+      if (rv !== undefined && rv > 0) lastRef = rv;
+      rows.push({time: b.time, close: b.close, ref: lastRef});
+    }
+    // Leading bars before the benchmark's first print have nothing to carry
+    // forward, so they borrow its first close — the alternative is a short series,
+    // which is the bug this is fixing.
+    const firstRef = rows.find(r => r.ref !== null)?.ref;
+    if (!firstRef) return;
+    for (const r of rows) if (r.ref === null) r.ref = firstRef;
+
+    const pairs = rows.map(r => ({time: r.time, value: r.close / r.ref}));
     if (!pairs.length) return;
     const base = pairs[0].value;
     const rsData = pairs.map(p => ({time: p.time, value: (p.value / base) * 100}));
