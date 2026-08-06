@@ -75,6 +75,12 @@ BANDS = [
 ]
 
 
+#: Third state, borrowed verbatim from market_health / red_flags: a component we
+#: could not measure is neither bullish nor bearish, and must not be scored as
+#: either.
+NOT_CHECKED = "NOT_CHECKED"
+
+
 def _band_for(score: float) -> str:
     for lo, hi, label in BANDS:
         if lo <= score < hi:
@@ -186,39 +192,129 @@ def _advance_decline() -> dict[str, Any]:
 
 
 # ── Input #2: Sector performance (green vs red count) ────────────────────────
+#: A sector bar older than this is not "today's participation", whatever else it
+#: is. Six calendar days clears a long weekend plus a holiday without letting a
+#: genuinely frozen feed through.
+MAX_STALE_DAYS = 6
+
+#: Coverage floor, matching market_health's 50% rule. Below this the component is
+#: NOT_CHECKED and contributes nothing — it does not degrade to a neutral 0.5,
+#: because a confident-looking 0.5 is exactly the failure this guards against.
+COVERAGE_FLOOR = 0.5
+
+
 def _sector_perf() -> dict[str, Any]:
-    """Fetch 1-day change for every distinct NIFTY sector index in
-    sector_rotation's SECTOR_INDEX_MAP. Factor = (green + 0.5*flat) / total."""
+    """1-day change for every distinct NIFTY sector index in
+    ``sector_rotation.SECTOR_INDEX_MAP``. Factor = (green + 0.5*flat) / scored.
+
+    Carries coverage, and refuses to score below a floor (backlog **B-1**).
+
+    Why this needed more than a coverage counter
+    --------------------------------------------
+    The 2026-08-02 and 08-03 readings both scored sector participation over **3
+    indices where an earlier reading used 11**, and the backlog assumed a flaky
+    partial fetch. It is not flaky and it is not partial — **Yahoo stopped
+    updating 8 of the 11 NSE sector indices on 2026-07-17** while ^CNXIT,
+    ^CNXPHARMA and ^NSEBANK kept going (verified 2026-08-05: the 8 stale feeds
+    all carry an identical last bar of 2026-07-17, 19 days old).
+
+    That makes the survivors a **structurally biased subsample**, not a random
+    one — and on 08-03 all three happened to be green, producing factor 1.0, a
+    full 25/25, feeding the composite's bullish verdict.
+
+    The old code fetched ``period="10d"``, which for a frozen ticker returns a
+    single stub row, so ``len(hist) < 2`` skipped it *silently*. That silence was
+    the bug. Worse, the obvious "fix" — widening the window so more tickers
+    return two bars — would have been actively harmful: it would compute a change
+    between two **July** closes and present it as today's move. So the window is
+    widened AND every bar is age-checked; stale and missing are reported apart,
+    because "the feed froze" and "the fetch failed" call for different responses.
+    """
     tickers = sorted(set(secrot.SECTOR_INDEX_MAP.values()))
+    n_expected = len(tickers)
+    today = datetime.today().date()
+
     greens, reds, flats = 0, 0, 0
     details: list[dict[str, Any]] = []
+    stale: list[dict[str, Any]] = []
+    missing: list[str] = []
+
     for tkr in tickers:
         try:
-            hist = yf.Ticker(tkr).history(period="10d", interval="1d", auto_adjust=False)
+            # 1mo, not 10d: a frozen ticker must return enough history for its
+            # last bar to be VISIBLE and datable, rather than collapsing to one
+            # stub row that looks indistinguishable from a fetch failure.
+            hist = yf.Ticker(tkr).history(period="1mo", interval="1d", auto_adjust=False)
             if hist is None:
+                missing.append(tkr)
                 continue
             # Drop rows with NaN close — yfinance sometimes returns a stub row for
             # today with all-NaN values before session data is finalised.
             hist = hist.dropna(subset=["Close"])
             if len(hist) < 2:
+                missing.append(tkr)
                 continue
+
+            last_date = hist.index[-1].date()
+            age_days = (today - last_date).days
+            if age_days > MAX_STALE_DAYS:
+                stale.append({"ticker": tkr, "last_bar": last_date.isoformat(),
+                              "age_days": age_days})
+                continue
+
             prev, last = float(hist["Close"].iloc[-2]), float(hist["Close"].iloc[-1])
             chg_pct = (last / prev - 1) * 100 if prev > 0 else 0.0
             if chg_pct > 0.05:  flat = False; greens += 1; color = "green"
             elif chg_pct < -0.05: flat = False; reds += 1;  color = "red"
             else:                 flat = True;  flats += 1;  color = "flat"
-            details.append({"ticker": tkr, "chg_pct": round(chg_pct, 2), "color": color})
+            details.append({"ticker": tkr, "chg_pct": round(chg_pct, 2),
+                            "color": color, "last_bar": last_date.isoformat()})
         except Exception as e:
             log.debug("Sector %s fetch failed: %s", tkr, e)
-    total = greens + reds + flats
-    factor = 0.5 if total == 0 else (greens + 0.5 * flats) / total
-    return {
-        "reading": f"{greens} Green / {reds} Red / {flats} Flat  ({total} sector indices)",
-        "factor": round(factor, 4),
-        "score":  round(factor * W_SECTOR, 2),
+            missing.append(tkr)
+
+    scored = greens + reds + flats
+    coverage = scored / n_expected if n_expected else 0.0
+
+    out: dict[str, Any] = {
+        "n_expected": n_expected, "n_scored": scored,
+        "coverage": round(coverage, 3),
+        "n_stale": len(stale), "n_missing": len(missing),
+        "stale": stale, "missing": missing,
         "greens": greens, "reds": reds, "flats": flats,
         "details": details,
     }
+
+    if coverage < COVERAGE_FLOOR:
+        why = []
+        if stale:
+            oldest = max(s["age_days"] for s in stale)
+            why.append(f"{len(stale)} stale (up to {oldest}d old)")
+        if missing:
+            why.append(f"{len(missing)} unavailable")
+        log.warning("sector participation NOT_CHECKED — only %d/%d indices usable (%s)",
+                    scored, n_expected, "; ".join(why) or "no reason recorded")
+        out.update({
+            "state": NOT_CHECKED,
+            "reading": (f"NOT CHECKED — only {scored}/{n_expected} sector indices "
+                        f"usable ({'; '.join(why) or 'no usable data'})"),
+            "factor": None,
+            "score": 0.0,
+        })
+        return out
+
+    factor = (greens + 0.5 * flats) / scored
+    note = f"  ({scored}/{n_expected} indices"
+    if stale or missing:
+        note += f"; {len(stale)} stale, {len(missing)} unavailable"
+    note += ")"
+    out.update({
+        "state": "OK",
+        "reading": f"{greens} Green / {reds} Red / {flats} Flat{note}",
+        "factor": round(factor, 4),
+        "score":  round(factor * W_SECTOR, 2),
+    })
+    return out
 
 
 # ── Input #3: NIFTY vs SMA200 (regime gauge) ─────────────────────────────────
@@ -341,13 +437,46 @@ def compute_sentiment(persist: bool = True) -> dict[str, Any]:
     regime  = _regime_sma200()
     pmax_1h = _pmax_direction_nifty_1h()
 
-    score = round(ad["score"] + sector["score"] + regime["score"] + pmax_1h["score"], 2)
-    band  = _band_for(score)
+    components = (
+        ("advance_decline",    W_ADV_DECL, ad),
+        ("sector_performance", W_SECTOR,   sector),
+        ("regime_sma200",      W_REGIME,   regime),
+        ("pmax_nifty_1h",      W_PMAX_1H,  pmax_1h),
+    )
+
+    # A NOT_CHECKED component is EXCLUDED and the remaining weights are
+    # renormalised, rather than contributing a silent 0. Straight summation would
+    # have dropped a 25-weight component to zero score and read as bearish — an
+    # unmeasured input must not masquerade as a bearish measurement. The reading
+    # then carries what fraction of the weight was actually measurable, so a
+    # 75%-coverage score is never mistaken for a 100% one.
+    measured = [(n, w, c) for n, w, c in components if c.get("state") != NOT_CHECKED]
+    measured_weight = sum(w for _, w, _ in measured)
+    total_weight = sum(w for _, w, _ in components)
+    raw = sum(c["score"] for _, _, c in measured)
+
+    if measured_weight <= 0:
+        score, band = 0.0, NOT_CHECKED
+    else:
+        score = round(raw * total_weight / measured_weight, 2)
+        coverage = measured_weight / total_weight
+        # Same floor the components use. A composite built on under half its
+        # weight is not a sentiment reading, it is a guess with a number on it.
+        band = _band_for(score) if coverage >= COVERAGE_FLOOR else NOT_CHECKED
+
+    excluded = [n for n, _, c in components if c.get("state") == NOT_CHECKED]
+    if excluded:
+        log.warning("sentiment computed on %d/%d weight — excluded: %s",
+                    measured_weight, total_weight, ", ".join(excluded))
 
     reading = {
         "reading_date": date.today().isoformat(),
         "score": score,
         "band":  band,
+        "weight_measured": measured_weight,
+        "weight_total": total_weight,
+        "coverage": round(measured_weight / total_weight, 3) if total_weight else 0.0,
+        "excluded": excluded,
         "inputs": {
             "advance_decline":  {"weight": W_ADV_DECL, **ad},
             "sector_performance": {"weight": W_SECTOR, **sector},

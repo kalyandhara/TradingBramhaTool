@@ -80,13 +80,32 @@ DECISION_RULE = [
 ]
 
 
-def _component_flags(inputs: dict[str, Any]) -> tuple[list[str], list[str]]:
-    """Vote each sentiment component once, by the share of its weight earned."""
+def _component_flags(inputs: dict[str, Any]) -> tuple[list[str], list[str], list[str]]:
+    """Vote each sentiment component once, by the share of its weight earned.
+
+    Returns ``(caution, favorable, not_checked)``. A component that reports
+    NOT_CHECKED **abstains** — it is neither a caution nor a favorable vote.
+
+    This matters more than it looks. `sentiment_index` gives an unmeasurable
+    component `score = 0.0`, and the `score / weight` fallback below would read
+    that as `factor = 0.0` — squarely under CAUTION_AT — so an input we simply
+    could not measure would cast a *bearish* vote and could push the ladder to
+    STAND DOWN. That is the mirror image of backlog B-1, where the same
+    component's silent partial data cast a falsely *bullish* one.
+
+    Abstaining is the precedent this repo already set: `market_health`'s
+    NOT_CHECKED "never counts toward the 2-fail gate". Unknown is not bad news.
+    """
     caution: list[str] = []
     favorable: list[str] = []
+    not_checked: list[str] = []
     for key, label in COMPONENT_LABELS.items():
         comp = inputs.get(key)
         if not isinstance(comp, dict):
+            continue
+        if comp.get("state") == "NOT_CHECKED":
+            reading = comp.get("reading", "")
+            not_checked.append(f"{label}: {reading}" if reading else label)
             continue
         factor = comp.get("factor")
         if factor is None:
@@ -100,7 +119,7 @@ def _component_flags(inputs: dict[str, Any]) -> tuple[list[str], list[str]]:
             caution.append(f"{label}: {reading}" if reading else label)
         elif factor >= FAVORABLE_AT:
             favorable.append(f"{label}: {reading}" if reading else label)
-    return caution, favorable
+    return caution, favorable, not_checked
 
 
 def build_verdict(reading: dict[str, Any] | None,
@@ -115,9 +134,10 @@ def build_verdict(reading: dict[str, Any] | None,
     """
     caution: list[str] = []
     favorable: list[str] = []
+    not_checked: list[str] = []
 
     if reading and isinstance(reading.get("inputs"), dict):
-        caution, favorable = _component_flags(reading["inputs"])
+        caution, favorable, not_checked = _component_flags(reading["inputs"])
     else:
         caution.append("No sentiment reading yet — refresh Market Sentiment")
 
@@ -145,8 +165,12 @@ def build_verdict(reading: dict[str, Any] | None,
         verdict = "NO EDGE"
 
     tone, size_pct, max_trades, instruction = VERDICT_SPECS[verdict]
+    # A verdict formed on fewer inputs than usual is still a verdict, but the
+    # reader is entitled to know it — an AGGRESSIVE built on three components is
+    # not the same claim as one built on four.
     return {
         "verdict":     verdict,
+        "not_checked": not_checked,
         "tone":        tone,
         "size_pct":    size_pct,
         "max_trades":  max_trades,

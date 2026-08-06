@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, roadmap, open-items, technical-debt, data-quality]
 timeframe: milestone-plan
 created: 2026-08-02
-updated: 2026-08-02
+updated: 2026-08-05
 sources: 0
 related: [analyses/Sector-Rotation-Orbit-Data-Source-Roadmap, analyses/Astro-Weekly-Forecast-Card-Fit, analyses/Dashboard-UI-Roadmap, analyses/Backtest-Harness, concepts/Mean-Reversion, concepts/Breakout, concepts/Volume-Analysis]
 ---
@@ -25,6 +25,52 @@ Everything left open at the end of the 2026-08-02 session, in one place. Items t
 [market_health.py](tools/market_health.py) already solved this exact problem: it reports coverage and returns `NOT_CHECKED` below 50% rather than scoring whichever names survived. `sentiment_index` has no equivalent.
 
 **Fix:** carry `n_fetched / n_expected` on every component, surface it on the reading, and refuse to score a component below a coverage floor. *Same silent-partial-result shape logged five times already this session — this is the first instance sitting under a live sizing decision.*
+
+> [!key-insight] **B-1 FIXED 2026-08-05 — and the diagnosis was wrong**
+> It was never a flaky partial fetch. **Yahoo stopped updating 8 of the 11 NSE
+> sector indices on 2026-07-17**; ^CNXIT, ^CNXPHARMA and ^NSEBANK kept going. All
+> eight stale feeds carry an *identical* last bar, 19 days old at time of fix.
+> So the "3 of 11" was never a random sample — it was **the only three feeds
+> still alive**, and on 08-03 all three happened to be green → factor 1.0 → a
+> full 25/25.
+>
+> **The obvious fix would have made it worse.** `period="10d"` returns a single
+> stub row for a frozen ticker, so `len(hist) < 2` skipped it *silently* — and
+> widening the window to "get more coverage" would have computed a change between
+> two **July** closes and presented it as today's move. Coverage counting alone
+> would have reported a confident 11/11. **The missing primitive was freshness,
+> not coverage.** Both are now enforced: bars older than `MAX_STALE_DAYS` are
+> rejected, and stale is reported separately from missing, because a frozen feed
+> and a failed fetch call for different responses.
+>
+> **A second bug was introduced and caught in the same change.** Giving the
+> component `score = 0.0` fed `market_verdict._component_flags`' `score / weight`
+> fallback, which read `factor = 0.0` — under `CAUTION_AT` — so an input we
+> merely could not measure would have cast a *bearish* vote and could have forced
+> STAND DOWN. **The exact mirror of B-1.** NOT_CHECKED components now **abstain**,
+> per the precedent `market_health` already set ("never counts toward the 2-fail
+> gate"), and are surfaced on the verdict card as *Not checked* rather than
+> silently thinning the flag lists.
+>
+> **Measured effect on the live verdict:** old path → sector factor 1.0, a second
+> favorable vote, **AGGRESSIVE / 4 trades**. New path → **TRADE / 3 trades**, with
+> the sector line reading *"NOT CHECKED — only 3/11 sector indices usable (8 stale
+> up to 19d old)"*. Position size stays 100% (TRADE and AGGRESSIVE deliberately
+> share it), so the honest headline is **fewer trades and a stated basis**, not a
+> smaller position.
+>
+> The composite now **renormalises over measurable weight** rather than summing a
+> silent zero — 59.59 on 75/100 weight, not 44.69 — and the whole reading goes
+> `NOT_CHECKED` below the same 50% floor. Verified: 4 renormalisation edge cases
+> incl. zero-measurable (no div-by-zero), live component + composite + verdict,
+> DB round-trip, and a clean app boot on a throwaway port.
+>
+> ⚠️ **Wider blast radius, NOT fixed here.** The **RRG and Sector Map read the
+> same 11 tickers** (`SECTOR_DISPLAY_NAMES`) with `period="2y"`, so all 11 return
+> data and **8 of them are plotted as-of 2026-07-17 against 3 as-of today** — the
+> quadrants compare sectors measured 19 days apart, and the page reports "11/11
+> sectors, 0 skipped". Same root cause, bigger surface. Needs the same freshness
+> check.
 
 ### B-2 · chart_server restart pending
 `8a5144b` makes an unknown timeframe return **400** instead of silently serving daily. The running process on port 5001 predates it, so `?timeframe=1wk` still answers `200` with daily bars. One restart.

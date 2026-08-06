@@ -1710,7 +1710,12 @@ st.markdown(
         f'max <span class="tb-mono">{verdict["max_trades"]}</span> trade(s) today</div>'
         '</div></div>'
         + _flag_list(verdict["caution"], "Caution", "risk", "✗")
-        + _flag_list(verdict["favorable"], "Favorable", "good", "✓"),
+        + _flag_list(verdict["favorable"], "Favorable", "good", "✓")
+        # Components that could not be measured abstain from the vote (B-1), so
+        # the verdict above was formed on LESS than the full weight. Shown
+        # explicitly — otherwise the only visible difference between a complete
+        # verdict and a partial one is that the partial one has fewer flags.
+        + _flag_list(verdict.get("not_checked") or [], "Not checked", "neutral", "—"),
         tone=verdict["tone"]),
     unsafe_allow_html=True,
 )
