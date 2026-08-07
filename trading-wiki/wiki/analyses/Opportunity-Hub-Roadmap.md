@@ -210,6 +210,116 @@ drift apart — the same one-scorer discipline as `fundamental_score.py`.
 `screener_pipeline`, not this. Registering a second task is a machine-config
 change, left for the user to approve.
 
+### Phase 5 — Step 4 becomes a PIPELINE, and confluence stops lying — ✅ SHIPPED 2026-08-07
+Asked for directly: *"run a pipeline of all scanners available, not just one at a
+time; the final result should show the number of scanners that caught the stock."*
+The autopsy found the pipeline **already existed** — inside `opportunity_daily`,
+running 9 of 24 scanners, on a universe it rebuilt itself, unreachable from the
+manual funnel's own sector/industry shortlist. So this was routing plus one
+statistical correction, not a new engine.
+
+**The correction is the substance.** A raw "N scanners caught it" count is a
+count of *correlated votes*. A stock in a clean uptrend near its highs
+mechanically fires 52-Week High Leaders + Momentum Continuation + Stage 2 +
+Near Pivot + ATH Breakout — one fact reported five times. Ranking on that count
+promotes exactly the momentum cohort [[analyses/Backtest-Harness]] measured at or
+below a random-entry baseline. So `opportunity_hub` now carries:
+
+- **`SCANNER_FAMILIES`** — the 23 pipeline scanners in 6 families; each family
+  contributes only its **best member's** weight. Both counts are displayed: the
+  raw count is what was asked for, the family count is what the score spends.
+- **Three weight tiers**, replacing two: measured-positive 1.0 (Falling Wedge,
+  Harmonic Reversal) · unmeasured 0.5 · **measured-at-or-below-baseline 0.25**
+  (Order Block, RSI 60-40, VCP, Structural Breakout). This demotes Order Block
+  Retest off the full point the old `MEASURED_EDGE_SCANNERS` gave it — the
+  harness measured its raw forward edge at **−0.74%**.
+- **`Downside Risk` runs but never votes.** It is bearish; counting it as +1
+  confluence inverted its meaning. It renders as a red warning on the card.
+- **`Zero-Debt Quality PEAD` excluded** — its `fn` **is** `scan_pead`, identical
+  to PEAD Drift, so a generic pipeline turned every PEAD hit into two votes.
+
+Measured effect: 5 correlated trend scanners now score **50%** confluence while
+Falling Wedge + Order Block (2 scanners, 2 families, one measured) scores
+**62%** — the ranking inversion the old count produced, corrected.
+
+> [!warning] The bug this surfaced — the headless job was faking all-time highs
+> `opportunity_daily` built ONE `_FrameCache(days=400)` and fed it to every
+> scanner, including **ATH Breakout**, which carries `needs_full_history`.
+> `scan_ath_breakout` only requires 250 bars, so it fired happily and reported a
+> ~1.6-year high as an **all-time** high. The interactive Hub had always routed
+> those through `days=6000`; the headless job never got the fix. Now
+> `run_scanner_pipeline` takes a `fetch_for(scanner_name)` **factory**, so the
+> rule is structural on every path instead of something each caller remembers.
+> Third instance of the house pattern: *a data fault wearing a market result's
+> clothes* (cf. the NaN forming bar, the throttled fan-out).
+
+**Verified live (2026-08-07):** family map checked against the registry (23/23
+mapped, no typos, no duplicates); confluence math unit-checked on five hand-built
+cases; `_FetchRouter` proven to hand full history to ATH/IPO and the cheap window
+to the rest; pipeline run over 8 real leaders — 7 caught, **16 fetches, not 184**
+(frame cache holds); DB migration additive with 188 existing rows preserved and
+old rows re-deriving their family count from the stored scanner list; funnel
+driven end-to-end in an isolated dashboard boot — engine dump and rendered DOM
+matched symbol-for-symbol, sorted by rank score, with the Downside Risk warning
+excluded from the family count.
+
+**Still open — the honest gap:** no backtest yet shows that **confluence itself**
+predicts anything. `backtest.py` measures scanners individually; whether
+co-firing beats single-firing is unmeasured, so the card says *agreement, not
+evidence*. That is the natural next piece and it is small: replay two scanners
+and compare forward returns on co-firing vs single-firing bars.
+
+### Phase 6 — the day's funnel leaves the machine — ✅ SHIPPED 2026-08-07
+[opportunity_report.py](tools/opportunity_report.py) renders one normalised model
+three ways: a **paste-able text post**, a **1080px PNG share card**, and a
+**multi-page vector PDF**. Wired into both the stored Daily Shortlist and the
+live manual pipeline, so either can be exported for its scan date.
+
+Follows the doctrine [sector_card.py](tools/sector_card.py) already set: no
+Streamlit import (standalone-testable, cron/poster-callable later), palette from
+`report_style` so exports and dashboard agree, Pillow for the card because it is
+a layout and not a plot. The PDF is **matplotlib** — chosen over installing
+reportlab and over a Pillow raster page, because a detailed report is read by
+searching it (Ctrl+F for a symbol has to work) and has to print sharp.
+`Figure`/`PdfPages` are used directly rather than `pyplot`, so no global figure
+state is touched on Streamlit's worker threads.
+
+**The design constraint that shaped it.** This is the first artifact in the repo
+built to *leave the machine*, so the honesty discipline stops depending on the
+reader's context and becomes the file's own job. Every format states, unprompted:
+the market regime it was produced in; that confluence is agreement and not
+measured evidence; which scanners have measured edge and which were measured and
+failed; and that it is an automated research output, not advice and not a buy
+list. The PDF labels every scanner inline with its tier
+(`[measured edge]` / `[measured, no edge]` / `[unmeasured]`) and groups a name's
+hits **by family**, so "four of these six were one family talking to itself" is
+visible rather than inferred.
+
+> [!warning] The bug this surfaced — the card clipped the warning it exists to carry
+> A fixed `BANNER_H` truncated the regime verdict mid-sentence at *"Treat this
+> list as a"* — on the one artifact designed to be shared, cutting the exact
+> sentence that stops it reading as a tip sheet. The banner is now sized from the
+> wrapped text measured on a probe canvas before the real one is allocated, and
+> `BANNER_H` is deliberately **not** a constant. Same class as the footer-height
+> clip `sector_card` hit and fixed for the same reason; row height for a bearish
+> flag had the same fault (the flag drew through the next row's rule) and got the
+> same treatment.
+
+**Verified live (2026-08-07):** all three formats generated from a real 78-name
+stored shortlist (PNG 122 KB, PDF 89 KB / 14 pages, text); PDF text confirmed
+**extractable and searchable** (`ATHERENERG`, `Falling Wedge`, `Downside Risk`,
+the disclaimer); the bearish-flag and empty-day paths — neither reachable from
+stored data — exercised synthetically and confirmed to render the WARNING line
+and a "no name was caught" statement rather than an empty page; both buttons
+driven in an isolated dashboard boot.
+
+**One correctness call worth recording:** the live-funnel export first borrowed
+its regime from the most recent *stored* shortlist. That row can be days old, so
+a fresh export would have carried a stale regime — precisely the misread the
+stored `market_regime` column exists to prevent. It now computes the regime from
+the same benchmark frame the run scanned against, via the same
+`_market_context` the headless job uses.
+
 ## Outcome (fill in later)
 - **2026-07-25 — Phase 1 shipped & verified.** Bottom-up sector/industry ranking
   from yfinance tags + reused momentum; drill → existing scanner → Overall-Rating-

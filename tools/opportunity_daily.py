@@ -31,12 +31,10 @@ Three things have to agree, and the ranking says so explicitly:
 3. **Quality** — the M1 Overall Rating, computed with the SAME code the
    interactive Hub uses (rating.py), not a second implementation.
 
-Scanners are NOT weighted equally. The backtest harness measured most of them,
-and only a few beat a random-entry baseline (see wiki/analyses/Backtest-Harness):
-Falling Wedge and Harmonic Reversal beat it, Order Block showed +0.11R, while
-RSI-60-40, VCP and Structural Breakout came in at or below zero edge. So a hit
-from a measured-edge scanner counts double. Treating all 24 alike would have let
-the ones we *measured as worthless* outvote the ones that worked.
+Scanners are NOT weighted equally, and correlated scanners do not get to vote
+twice. Both rules live in `opportunity_hub` (SCANNER_FAMILIES / scanner_weight /
+run_scanner_pipeline) so this job and the interactive Hub cannot drift apart —
+the same one-scorer discipline that moved the M1 rating into `rating.py`.
 """
 
 from __future__ import annotations
@@ -56,30 +54,10 @@ import opportunity_hub as oh
 import portfolio_db as db
 import rating
 
-#: Scanners with measured forward edge vs a random-entry baseline. A hit here
-#: is worth a full point.
-MEASURED_EDGE_SCANNERS = (
-    "Falling Wedge",
-    "Harmonic Reversal (XABCD)",
-    "Order Block Retest",
-)
-
-#: Unmeasured or weakly-measured scanners, kept for coverage so a quiet day
-#: still surfaces something — but worth half a point, and labelled as such.
-SUPPORTING_SCANNERS = (
-    "Stage 2 Uptrend",
-    "Momentum Continuation",
-    "52-Week High Leaders",
-    "VCP Coiling",
-    "Near Pivot",
-    "ATH Breakout (all-time high)",
-)
-
-EDGE_POINT = 1.0
-SUPPORT_POINT = 0.5
-#: Edge-points that count as full confluence marks. Two measured hits, or one
-#: measured plus two supporting.
-FULL_CONFLUENCE = 2.0
+#: Re-exported so callers (the dashboard's scanner chips) have one import site
+#: for the tiering, and so an older reference to this name still resolves.
+MEASURED_EDGE_SCANNERS = oh.MEASURED_EDGE_SCANNERS
+FULL_CONFLUENCE = oh.FULL_CONFLUENCE
 
 #: Final score weights. Quality leads, but neither quality nor a single strong
 #: pattern can carry a stock on its own.
@@ -113,6 +91,32 @@ class _FrameCache:
                     df = None
             self._cache[symbol] = df
         return self._cache[symbol]
+
+
+class _FetchRouter:
+    """Per-scanner fetch functions, backed by two caches.
+
+    Two scanners carry ``needs_full_history`` (ATH / IPO-base breakout) and are
+    wrong — not merely weaker — on the default window: `scan_ath_breakout` needs
+    only 250 bars, so on a 400-bar frame it fires and calls a ~1.6-year high an
+    ALL-TIME high. The interactive Hub has always routed those through a
+    full-history fetch; this job did not, because it shared one 400-bar cache
+    across every scanner. Routing here fixes that and keeps the ordinary
+    scanners on the cheap window.
+    """
+
+    def __init__(self, days: int = 400, full_days: int = 6000):
+        self.default = _FrameCache(days)
+        self.full = _FrameCache(full_days)
+
+    def __call__(self, scanner_name: str):
+        if sc.SCANNERS.get(scanner_name, {}).get("needs_full_history"):
+            return self.full
+        return self.default
+
+    @property
+    def misses(self) -> int:
+        return self.default.misses + self.full.misses
 
 
 #: Fraction of the universe that must get a sector tag for the run to be
@@ -192,7 +196,7 @@ def run(universe_size: int = 200, top_n: int = 100,
         if progress_cb:
             progress_cb(msg)
 
-    wanted = list(scanners) if scanners else list(MEASURED_EDGE_SCANNERS) + list(SUPPORTING_SCANNERS)
+    wanted = list(scanners) if scanners else oh.pipeline_scanners()
     # Scanner names carry en-dashes and parentheses; drop anything that is not
     # actually registered rather than failing the whole run on a typo.
     use_scanners = [s for s in wanted if s in sc.SCANNERS]
@@ -203,7 +207,8 @@ def run(universe_size: int = 200, top_n: int = 100,
     if not universe:
         return {"ok": False, "reason": "bhavcopy universe empty", "run_date": run_date}
 
-    fetch = _FrameCache()
+    fetches = _FetchRouter()
+    fetch = fetches.default          # tagging + rating always use the cheap window
     try:
         nifty_df = sp.fetch_nifty50(days=400)
         if nifty_df is not None and "close" in nifty_df.columns:
@@ -244,25 +249,11 @@ def run(universe_size: int = 200, top_n: int = 100,
                 "run_date": run_date}
 
     # ── Scanners over the leaders only ────────────────────────────────────────
-    hits: dict[str, dict] = {}
-    for name in use_scanners:
-        _say(f"Scanning: {name}…")
-        try:
-            results = sc.run_scanner(name, stocks, fetch, benchmark_df=nifty_df)
-        except Exception:
-            continue
-        weight = EDGE_POINT if name in MEASURED_EDGE_SCANNERS else SUPPORT_POINT
-        for card in results:
-            sym = card.get("symbol")
-            if not sym:
-                continue
-            h = hits.setdefault(sym, {"symbol": sym, "scanners": [], "edge_points": 0.0,
-                                      "best_score": 0.0, "best_card": None})
-            h["scanners"].append(name)
-            h["edge_points"] += weight
-            if (card.get("score") or 0) >= h["best_score"]:
-                h["best_score"] = float(card.get("score") or 0)
-                h["best_card"] = card
+    # The whole pipeline — every registered scanner, family-capped confluence —
+    # is `opportunity_hub.run_scanner_pipeline`, shared with the interactive Hub.
+    hits = oh.run_scanner_pipeline(
+        stocks, fetches, scanners=use_scanners, benchmark_df=nifty_df,
+        progress_cb=lambda i, n, name: _say(f"Scanning {i}/{n}: {name}…"))
 
     if not hits:
         return {"ok": True, "run_date": run_date, "rows": [], "market": market,
@@ -279,18 +270,22 @@ def run(universe_size: int = 200, top_n: int = 100,
         if df is None or df.empty:
             continue
         rating_val, _breakdown = rating.overall_rating(df, nifty_df)
-        confluence_pct = min(h["edge_points"] / FULL_CONFLUENCE, 1.0) * 100
         score = (W_RATING * (rating_val or 0)
                  + W_SCANNER * min(h["best_score"], 100)
-                 + W_CONFLUENCE * confluence_pct)
+                 + W_CONFLUENCE * oh.confluence_pct(h["edge_points"]))
         card = h["best_card"] or {}
         row = tags.loc[sym] if (tags is not None and sym in tags.index) else None
         rows.append({
             "symbol": sym,
             "score": round(score, 1),
             "overall_rating": rating_val,
+            # `confluence` stays the RAW scanner count (what the card shows);
+            # `families` is what the score above actually spent.
             "confluence": len(h["scanners"]),
+            "families": len(h["families"]),
+            "family_names": ", ".join(h["families"]),
             "edge_points": h["edge_points"],
+            "risk_flags": ", ".join(h["risk_flags"]),
             "scanners": ", ".join(h["scanners"]),
             "sector": (row["sector"] if row is not None else None),
             "industry": (row["industry"] if row is not None else None),
@@ -319,18 +314,31 @@ def run(universe_size: int = 200, top_n: int = 100,
             "universe_size": len(universe), "candidates": len(stocks),
             "lead_sectors": lead_sectors, "lead_industries": lead_inds,
             "scanners_used": use_scanners, "scanners_dropped": dropped,
-            "fetches": fetch.misses}
+            "fetches": fetches.misses}
 
 
 def _explain(hit: dict, rating_val: int | None, row) -> str:
     """One plain sentence saying why this name is on the list."""
     n = len(hit["scanners"])
-    measured = [s for s in hit["scanners"] if s in MEASURED_EDGE_SCANNERS]
+    fams = hit.get("families") or []
+    measured = [s for s in hit["scanners"] if s in oh.MEASURED_EDGE_SCANNERS]
     bits = [f"{n} scanner{'s' if n != 1 else ''} fired ({', '.join(hit['scanners'])})"]
+    # The distinction that matters: five trend scanners are one read, not five.
+    if n > len(fams):
+        bits.append(f"but only {len(fams)} independent famil"
+                    f"{'y' if len(fams) == 1 else 'ies'} "
+                    f"({', '.join(fams)}) — correlated scanners were capped")
+    else:
+        bits.append(f"across {len(fams)} famil{'y' if len(fams) == 1 else 'ies'}")
     if measured:
         bits.append(f"including {len(measured)} with measured backtest edge")
     else:
         bits.append("none of them backtest-measured, so treat as a lead, not a signal")
+    if hit.get("risk_flags"):
+        # Plain ASCII: this string is stored AND printed by the CLI, and a
+        # Windows console on cp1252 raises on the symbol rather than the text.
+        bits.append(f"WARNING - {', '.join(hit['risk_flags'])} also fired, "
+                    f"a bearish read on the same chart")
     if rating_val is not None:
         bits.append(f"Overall Rating {rating_val}/100")
     if row is not None:
@@ -364,10 +372,13 @@ def main() -> int:
     if not res["rows"]:
         print(f"\nNo shortlist: {res.get('reason')}")
         return 0
-    print(f"\n{'#':<3}{'SYMBOL':<14}{'SCORE':>6}{'RATING':>7}{'CONF':>5}  SCANNERS")
+    print(f"\n{'#':<3}{'SYMBOL':<14}{'SCORE':>6}{'RATING':>7}{'SCAN':>5}{'FAM':>4}  SCANNERS")
     for r in res["rows"]:
         print(f"{r['rank']:<3}{r['symbol']:<14}{r['score']:>6.1f}"
-              f"{str(r['overall_rating']):>7}{r['confluence']:>5}  {r['scanners']}")
+              f"{str(r['overall_rating']):>7}{r['confluence']:>5}{r['families']:>4}"
+              f"  {r['scanners']}")
+    print("\nSCAN = scanners that fired · FAM = independent families they span "
+          "(correlated scanners capped; the score spends FAM, not SCAN).")
     return 0
 
 

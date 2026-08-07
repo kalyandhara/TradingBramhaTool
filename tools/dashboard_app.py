@@ -61,6 +61,7 @@ import opportunity_daily as od
 import market_health as mh
 import report_style as rs
 import sector_card as scard
+import opportunity_report as orep
 import rrg as rrg_mod
 import ownership_cache as ocache
 import concalls
@@ -2169,34 +2170,87 @@ def _card_action_links(sym: str) -> str:
     return "".join(parts)
 
 
-def _scanner_source_chips(scanners: str | None) -> str:
-    """One chip per scanner that fired on a daily-shortlist name.
+#: Chip styling per scanner tier (opportunity_hub.scanner_tier). The colour is
+#: the message: a row of grey chips is visibly weaker evidence than one with a
+#: green chip in it, and an amber chip says "we measured this and it did NOT
+#: beat a coin flip" — which a raw count would otherwise hide.
+_TIER_CHIP = {
+    "measured":   ("good",    "✓ ", "measured to BEAT a random-entry baseline — full weight"),
+    "unmeasured": ("neutral", "",   "never backtested — plausible but unproven, half weight"),
+    "weak":       ("warn",    "~ ", "measured AT OR BELOW a random-entry baseline — quarter weight"),
+    "risk":       ("risk",    "⚠ ", "BEARISH read on the same chart — never counts as confluence"),
+}
 
-    The rank is a single number and the notes are a sentence; neither tells you
+
+def _scanner_source_chips(scanners: str | None) -> str:
+    """One chip per scanner that fired on a name.
+
+    The count is a single number and the notes are a sentence; neither tells you
     *which* scanners agreed, which is the actual clue — "Falling Wedge + Order
     Block" and "52-Week High + Near Pivot" are the same confluence count and
-    completely different reads. The chips also carry the tier the ranking
-    already applies: scanners with measured backtest edge count a full point,
-    the rest half (opportunity_daily.MEASURED_EDGE_SCANNERS), so a list of all
-    grey chips is visibly weaker evidence than one with a green chip in it.
+    completely different reads. Chips carry the tier the ranking applies, and
+    the family in the tooltip, so it is visible when five chips are really one
+    read repeated.
     """
     names = [s.strip() for s in str(scanners or "").split(",") if s.strip()]
     if not names:
         return ""
     out = []
     for n in names:
-        measured = n in od.MEASURED_EDGE_SCANNERS
-        fg, bg = (rs.TOKENS["good"], rs.TOKENS["good_soft"]) if measured else \
-                 (rs.TOKENS["text_body"], rs.TOKENS["surface_alt"])
-        tip = ("measured backtest edge vs a random-entry baseline — full weight"
-               if measured else
-               "not measured to beat a random-entry baseline — half weight")
+        tier = oh.scanner_tier(n)
+        tone, mark, tip = _TIER_CHIP[tier]
+        fg, bg = rs.tone_colors(tone)
+        fam = oh.scanner_family(n)
+        title = f"{n}" + (f" · {fam} family" if fam else "") + f" — {tip}"
         out.append(
-            f'<span class="tb-chip" title="{n} — {tip}" '
+            f'<span class="tb-chip" title="{title}" '
             f'style="background:{bg};color:{fg};border:1px solid {fg}33;'
-            f'margin:0 5px 4px 0;">{"✓ " if measured else ""}{n}</span>')
+            f'margin:0 5px 4px 0;">{mark}{n}</span>')
     return (f'<div style="margin-top:6px;"><span class="tb-micro" '
             f'style="margin-right:6px;">FIRED BY</span>{"".join(out)}</div>')
+
+
+def _fam_of(row) -> list[str]:
+    """Family list for a stored shortlist row.
+
+    Rows written before the family columns existed carry NULL there, so the
+    families are re-derived from the stored scanner list rather than rendering
+    a blank — the mapping is deterministic, so an old row and a new one show
+    the same thing.
+    """
+    stored = row.get("family_names") if hasattr(row, "get") else None
+    if stored and pd.notna(stored):
+        return [f.strip() for f in str(stored).split(",") if f.strip()]
+    fired = [s.strip() for s in str(row.get("scanners") or "").split(",") if s.strip()]
+    fams, _pts, _risk = oh.tally_evidence(fired)
+    return fams
+
+
+def _confluence_chips(n_scanners: int, families: list[str] | int | None) -> str:
+    """The headline pair — raw scanner count beside the independent-family count.
+
+    Both are shown on purpose. The raw count is what you asked the pipeline for;
+    the family count is what the ranking actually spends, and the gap between
+    them is the point: "7 scanners · 2 families" says six of those seven were
+    reading the same fact about the chart.
+    """
+    if isinstance(families, int):
+        fam_n, fam_list = families, []
+    else:
+        fam_list = list(families or [])
+        fam_n = len(fam_list)
+    detail = (" — " + ", ".join(fam_list)) if fam_list else ""
+    # One family = no confluence at all, however many scanners fired.
+    fam_tone = "good" if fam_n >= 3 else ("warn" if fam_n == 2 else "neutral")
+    ffg, fbg = rs.tone_colors(fam_tone)
+    return (
+        f'<span class="tb-chip" title="Scanners that fired on this name" '
+        f'style="background:{rs.TOKENS["surface_alt"]};'
+        f'color:{rs.TOKENS["text_body"]};">{n_scanners} scanners</span>'
+        f'<span class="tb-chip" title="Independent scanner families{detail}. '
+        f'Correlated scanners are capped at their best member — this is what '
+        f'the score spends." style="background:{fbg};color:{ffg};'
+        f'font-weight:600;">{fam_n} famil{"y" if fam_n == 1 else "ies"}</span>')
 
 
 def _render_scanner_card(card: dict, scanner_name: str) -> None:
@@ -2269,6 +2323,105 @@ def _render_scanner_card(card: dict, scanner_name: str) -> None:
             help="Open in Chart Tool",
             use_container_width=True,
         )
+
+
+def _render_export_controls(model: dict, key: str) -> None:
+    """Export strip for a day's funnel: detailed PDF, shareable PNG, chat text.
+
+    Rendering is lazy — the PDF and PNG are only built when their button is
+    pressed, because both cost real work and most visits to this page will not
+    export anything. Streamlit's `download_button` needs the bytes up front, so
+    the two sit behind a build toggle rather than being produced on every rerun.
+    """
+    st.markdown(rs.section("Export this day"), unsafe_allow_html=True)
+    st.caption("Every export carries the market regime it was produced in, the "
+               "scanner tiers, and the confluence caveat — a shortlist that "
+               "leaves this machine has to explain itself without you standing "
+               "next to it.")
+
+    c1, c2, c3 = st.columns([1, 1, 2])
+    with c1:
+        want_pdf = st.button("📄 Build detailed PDF", key=f"{key}_pdf_go",
+                             use_container_width=True)
+    with c2:
+        want_png = st.button("🖼 Build share card", key=f"{key}_png_go",
+                             use_container_width=True)
+    with c3:
+        card_top = st.slider("Names on the card", 3, 15, 8, key=f"{key}_top",
+                             help="The PDF always contains every name; this "
+                                  "only caps the shareable image.")
+
+    stamp = model["as_of"].isoformat()
+    if want_pdf:
+        with st.spinner("Rendering the report…"):
+            try:
+                pdf = orep.render_pdf(model)
+            except Exception as exc:
+                st.error(f"PDF render failed: {exc}")
+                pdf = None
+        if pdf:
+            st.download_button(
+                f"⬇ opportunity-funnel-{stamp}.pdf", pdf,
+                file_name=f"opportunity-funnel-{stamp}.pdf",
+                mime="application/pdf", type="primary", key=f"{key}_pdf_dl")
+            st.caption(f"{len(pdf) / 1024:.0f} KB · every name, with the "
+                       f"scanners grouped by family and their measured tier · "
+                       f"text is selectable and searchable.")
+
+    if want_png:
+        with st.spinner("Drawing the card…"):
+            try:
+                png = orep.render_png(model, top=int(card_top))
+            except Exception as exc:
+                st.error(f"Card render failed: {exc}")
+                png = None
+        if png:
+            st.download_button(
+                f"⬇ opportunity-card-{stamp}.png", png,
+                file_name=f"opportunity-card-{stamp}.png",
+                mime="image/png", type="primary", key=f"{key}_png_dl")
+            st.caption(f"{len(png) / 1024:.0f} KB · 1080px wide — the size X, "
+                       f"LinkedIn and WhatsApp accept without downscaling.")
+            st.image(png, width=520)
+
+    with st.expander("Copy as text (WhatsApp / Telegram)"):
+        st.code(orep.render_text(model, top=int(card_top)), language=None)
+
+
+def _render_pipeline_card(hit: dict) -> None:
+    """One Opportunity-Hub pipeline result: the confluence header, then the
+    normal scanner card for the strongest pattern that fired.
+
+    Deliberately still a CARD in the 3-column grid — the confluence data rides
+    on top of the existing card rather than flattening the results into a table,
+    because the reasons/levels under each hit are the part you act on.
+    """
+    sym = hit["symbol"]
+    best = hit["best_scanner"] or ""
+    risk = hit.get("risk_flags") or []
+    warn = ""
+    if risk:
+        _rfg, _rbg = rs.tone_colors("risk")
+        warn = (f'<div style="margin-top:6px;padding:5px 8px;border-radius:6px;'
+                f'background:{_rbg};color:{_rfg};font-size:11.5px;">'
+                f'⚠ <b>{", ".join(risk)}</b> also fired — there is a bearish read '
+                f'on this same chart. Not counted as confluence.</div>')
+    st.markdown(
+        f'<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;'
+        f'margin-bottom:4px;">'
+        f'{_confluence_chips(len(hit["scanners"]), hit["families"])}'
+        f'<span class="tb-chip" title="Rank score — 0.45×Overall Rating + '
+        f'0.30×best scanner score + 0.25×family-capped confluence" '
+        f'style="background:{rs.TOKENS["surface_alt"]};'
+        f'color:{rs.TOKENS["text_body"]};">score '
+        f'{(hit.get("rank_score") or 0):.1f}</span></div>'
+        f'{_scanner_source_chips(", ".join(hit["scanners"]))}{warn}',
+        unsafe_allow_html=True)
+    card = dict(hit["best_card"] or {})
+    card["symbol"] = sym
+    card["overall"] = hit.get("overall")
+    card["overall_breakdown"] = hit.get("overall_breakdown") or {}
+    _render_scanner_card(card, best)
 
 
 with st.expander("Daily Workflow (IST)"):
@@ -3096,9 +3249,7 @@ if current_page == "Opportunity Hub":
                         f'{_rating_badge_html({"overall": _rt, "overall_breakdown": {}})}'
                         f'<span class="tb-chip" style="background:{rs.TOKENS["surface_alt"]};'
                         f'color:{rs.TOKENS["text_body"]};">score {row["score"]:.1f}</span>'
-                        f'<span class="tb-chip" title="Scanners that agreed on this name" '
-                        f'style="background:{rs.TOKENS["accent_soft"]};'
-                        f'color:{rs.TOKENS["accent"]};">{int(row["confluence"])} scanners</span>'
+                        f'{_confluence_chips(int(row["confluence"]), _fam_of(row))}'
                         f'<span style="margin-left:auto;display:inline-flex;'
                         f'align-items:center;gap:8px;">{_plan}'
                         f'{_card_action_links(_sym)}</span></div>'
@@ -3109,6 +3260,9 @@ if current_page == "Opportunity Hub":
                         f'margin-top:5px;line-height:1.45;">{_notes}</div>'
                     ),
                     unsafe_allow_html=True)
+
+            _render_export_controls(orep.model_from_stored(_shortlist),
+                                    key=f"od_{_sel_date}")
 
             st.caption(
                 "Ranked by **0.45 × Overall Rating + 0.30 × best scanner score + "
@@ -3172,15 +3326,28 @@ if current_page == "Opportunity Hub":
                         oh_universe, cached_fetch_ohlcv, progress_cb=_oh_prog)
                 prog.empty()
                 st.session_state["oh_table"] = tbl
-                for _k in ("oh_hits", "oh_hits_scanner"):
+                for _k in ("oh_hits", "oh_hits_scanner", "oh_pipe", "oh_pipe_meta"):
                     st.session_state.pop(_k, None)
 
         st.divider()
-        st.markdown("**Pattern scanner** (step 4)")
-        oh_scanner = st.selectbox(
-            "Scanner", list(sc.SCANNERS.keys()), key="oh_scanner",
-            help="Runs on the leading-industry stocks only.")
-        st.caption(sc.SCANNERS[oh_scanner]["description"])
+        st.markdown("**Step 4 — how to scan**")
+        oh_mode_scan = st.radio(
+            "Mode", ["All scanners (pipeline)", "One scanner"], key="oh_scan_mode",
+            help="The pipeline runs every registered scanner over the leaders in "
+                 "one pass and reports how many independent reads landed on each "
+                 "name. One scanner answers 'does THIS pattern fire' instead.")
+        _pipe_names = oh.pipeline_scanners()
+        if oh_mode_scan.startswith("All"):
+            oh_scanner = None
+            st.caption(f"{len(_pipe_names)} scanners · "
+                       f"{len(oh.SCANNER_FAMILIES)} families. "
+                       f"**{', '.join(oh.RISK_SCANNERS)}** runs too but only as a "
+                       f"warning — a bearish hit is never confluence.")
+        else:
+            oh_scanner = st.selectbox(
+                "Scanner", list(sc.SCANNERS.keys()), key="oh_scanner",
+                help="Runs on the leading-industry stocks only.")
+            st.caption(sc.SCANNERS[oh_scanner]["description"])
 
     with oh_main:
         tbl = st.session_state.get("oh_table")
@@ -3224,7 +3391,109 @@ if current_page == "Opportunity Hub":
                     stocks = oh.stocks_in_groups(sub, "industry", sel_inds)
                     st.markdown(f"#### 4 · Right Stock → Pattern → Entry "
                                 f"· {len(stocks)} candidates in the leaders")
-                    if stocks and st.button(
+
+                    # ---- Pipeline: every scanner in one pass -----------------
+                    if oh_scanner is None:
+                        if stocks and st.button(
+                                f"Run all {len(_pipe_names)} scanners on "
+                                f"{len(stocks)} leading stocks",
+                                type="primary", key="oh_pipe_run"):
+                            try:
+                                _bench = cached_fetch_nifty50()
+                            except Exception:
+                                _bench = None
+                            _pp = st.progress(0.0, text="Starting the pipeline…")
+                            def _pipe_prog(i, total, name):
+                                _pp.progress(min(i / total, 1.0),
+                                             text=f"Scanner {i}/{total} — {name}")
+                            _pipe = oh.run_scanner_pipeline(
+                                stocks, _scanner_fetch_fn, benchmark_df=_bench,
+                                progress_cb=_pipe_prog)
+                            _pp.empty()
+                            _ow = st.session_state.get("hub_overall_weights",
+                                                       OVERALL_WEIGHTS)
+                            for _sym, _h in _pipe.items():
+                                try:
+                                    _r, _bd = _overall_rating(
+                                        cached_fetch_ohlcv(_sym), _bench, _ow)
+                                except Exception:
+                                    _r, _bd = None, {}
+                                _h["overall"] = _r
+                                _h["overall_breakdown"] = _bd
+                                # The score the ranking spends, same formula as the
+                                # stored daily shortlist (opportunity_daily).
+                                _h["rank_score"] = (
+                                    od.W_RATING * (_r or 0)
+                                    + od.W_SCANNER * min(_h["best_score"], 100)
+                                    + od.W_CONFLUENCE * oh.confluence_pct(_h["edge_points"]))
+                            st.session_state["oh_pipe"] = _pipe
+                            st.session_state["oh_pipe_meta"] = {
+                                "n_scanners": len(_pipe_names),
+                                "n_stocks": len(stocks),
+                                # Regime is read from the SAME benchmark frame
+                                # this run scanned against, via the same scorer
+                                # the headless job uses. Never borrowed from the
+                                # last stored shortlist — that could be days old,
+                                # and a stale regime on a fresh export is exactly
+                                # the misread the stored rows exist to prevent.
+                                "market": od._market_context(_bench),
+                            }
+
+                        _pipe = st.session_state.get("oh_pipe")
+                        _meta = st.session_state.get("oh_pipe_meta", {})
+                        if _pipe is not None:
+                            if not _pipe:
+                                st.info(f"None of the {_meta.get('n_scanners', 0)} "
+                                        "scanners fired on any leading-industry "
+                                        "stock. That is a real answer about today's "
+                                        "tape — widen the sectors/industries or "
+                                        "come back tomorrow.")
+                            else:
+                                shown = sorted(_pipe.values(),
+                                               key=lambda h: h.get("rank_score") or 0,
+                                               reverse=True)
+                                _multi = sum(1 for h in shown if len(h["families"]) > 1)
+                                st.caption(
+                                    f"**{len(shown)}** of {_meta.get('n_stocks', 0)} "
+                                    f"leaders were caught by at least one of "
+                                    f"{_meta.get('n_scanners', 0)} scanners · "
+                                    f"**{_multi}** span more than one independent "
+                                    f"family · sorted by the same score the stored "
+                                    f"daily shortlist uses.")
+                                for i in range(0, len(shown), 3):
+                                    cols = st.columns(3)
+                                    for col, h in zip(cols, shown[i:i + 3]):
+                                        with col:
+                                            _render_pipeline_card(h)
+                                # Export the live funnel too, carrying the
+                                # sectors/industries this run actually drilled —
+                                # provenance the stored path cannot know.
+                                _mkt = _meta.get("market") or {}
+                                _render_export_controls(
+                                    orep.model_from_pipeline(
+                                        _pipe,
+                                        regime=_mkt.get("regime"),
+                                        verdict=_mkt.get("verdict"),
+                                        candidates=_meta.get("n_stocks"),
+                                        lead_sectors=sel_sectors,
+                                        lead_industries=sel_inds,
+                                        n_scanners=_meta.get("n_scanners")),
+                                    key="oh_pipe_export")
+
+                                st.caption(
+                                    "**Reading the two counts.** *N scanners* is the "
+                                    "raw catch count. *N families* collapses scanners "
+                                    "that read the same fact — five trend scanners on "
+                                    "one uptrending chart are one read, not five — and "
+                                    "the family count is what the score actually "
+                                    "spends. Green chips were measured to beat a "
+                                    "random-entry baseline; amber chips were measured "
+                                    "and did **not**; grey were never measured. "
+                                    "Agreement is not evidence: no backtest yet shows "
+                                    "that confluence itself predicts anything.")
+
+                    # ---- Single scanner (the original step 4) ----------------
+                    elif stocks and st.button(
                             f"Scan {len(stocks)} leading stocks with {oh_scanner}",
                             type="primary", key="oh_scan"):
                         try:
@@ -3247,25 +3516,26 @@ if current_page == "Opportunity Hub":
                         st.session_state["oh_hits"] = _hits
                         st.session_state["oh_hits_scanner"] = oh_scanner
 
-                    _hits = st.session_state.get("oh_hits")
-                    _ran = st.session_state.get("oh_hits_scanner", "")
-                    if _hits is not None:
-                        if not _hits:
-                            st.info(f"No **{_ran}** matches among the leading stocks. "
-                                    "Try another scanner, or widen the sectors/industries.")
-                        else:
-                            shown = sorted(
-                                _hits,
-                                key=lambda h: (h.get("overall") is not None,
-                                               h.get("overall") or 0),
-                                reverse=True)
-                            st.caption(f"{len(shown)} matches from **{_ran}** on the "
-                                       f"leaders · sorted by Overall Rating")
-                            for i in range(0, len(shown), 3):
-                                cols = st.columns(3)
-                                for col, card in zip(cols, shown[i:i + 3]):
-                                    with col:
-                                        _render_scanner_card(card, _ran)
+                    if oh_scanner is not None:
+                        _hits = st.session_state.get("oh_hits")
+                        _ran = st.session_state.get("oh_hits_scanner", "")
+                        if _hits is not None:
+                            if not _hits:
+                                st.info(f"No **{_ran}** matches among the leading stocks. "
+                                        "Try another scanner, or widen the sectors/industries.")
+                            else:
+                                shown = sorted(
+                                    _hits,
+                                    key=lambda h: (h.get("overall") is not None,
+                                                   h.get("overall") or 0),
+                                    reverse=True)
+                                st.caption(f"{len(shown)} matches from **{_ran}** on the "
+                                           f"leaders · sorted by Overall Rating")
+                                for i in range(0, len(shown), 3):
+                                    cols = st.columns(3)
+                                    for col, card in zip(cols, shown[i:i + 3]):
+                                        with col:
+                                            _render_scanner_card(card, _ran)
 
 
 # Tab 8 — Scanner Hub (SwingEdge-inspired pre-built pattern scanners)

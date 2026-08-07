@@ -121,9 +121,27 @@ def init_db() -> None:
             );
             """
         )
+        # CREATE TABLE IF NOT EXISTS never alters a table that already exists, so
+        # columns added after the first release need an explicit backfill or a
+        # machine that has been running the job just silently keeps the old
+        # schema and the new INSERT fails.
+        _add_missing_columns(conn, "daily_opportunities", {
+            "families": "INTEGER",        # independent scanner families hit
+            "family_names": "TEXT",
+            "edge_points": "REAL",        # family-capped weight the score spent
+            "risk_flags": "TEXT",         # bearish scanners that also fired
+        })
         conn.commit()
     finally:
         conn.close()
+
+
+def _add_missing_columns(conn, table: str, columns: dict[str, str]) -> None:
+    """ALTER TABLE ADD COLUMN for any column not already present."""
+    have = {r[1] for r in conn.execute(f"PRAGMA table_info({table})")}
+    for name, decl in columns.items():
+        if name not in have:
+            conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {decl}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -373,13 +391,16 @@ def save_daily_opportunities(rows: list[dict], run_date: str | None = None) -> i
                 """
                 INSERT INTO daily_opportunities
                     (run_date, rank, symbol, score, overall_rating, confluence,
+                     families, family_names, edge_points, risk_flags,
                      scanners, sector, industry, momentum, close, entry, stop,
                      target, market_regime, market_verdict, universe_size, notes,
                      created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (run_date, r.get("rank"), r.get("symbol"), r.get("score"),
-                 r.get("overall_rating"), r.get("confluence"), r.get("scanners"),
+                 r.get("overall_rating"), r.get("confluence"),
+                 r.get("families"), r.get("family_names"), r.get("edge_points"),
+                 r.get("risk_flags"), r.get("scanners"),
                  r.get("sector"), r.get("industry"), r.get("momentum"),
                  r.get("close"), r.get("entry"), r.get("stop"), r.get("target"),
                  r.get("market_regime"), r.get("market_verdict"),
