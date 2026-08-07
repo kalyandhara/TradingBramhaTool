@@ -79,7 +79,11 @@ except ImportError:
 
 BASE_DIR = sp.BASE_DIR
 
-st.set_page_config(page_title="Trading Bramha Dashboard", layout="wide")
+# Sidebar starts collapsed: navigation moved to a horizontal top bar, so the
+# sidebar now holds nothing. Left expandable rather than hidden outright so
+# Streamlit's own controls stay reachable.
+st.set_page_config(page_title="Trading Bramha Dashboard", layout="wide",
+                   initial_sidebar_state="collapsed")
 
 # Base URL of THIS dashboard, used to build "Analyze" deep-links that open the
 # Stock Analyzer (with the 3-POV Council) in a new browser tab. Mirrors the
@@ -129,19 +133,265 @@ def _with_analyze_col(df, symbol_col: str, after: str | None = "Chart"):
 # Injected once, before anything that calls the rs.* helpers.
 st.markdown(rs.report_css(), unsafe_allow_html=True)
 
+# ── Widget chrome ─────────────────────────────────────────────────────────────
+# Streamlit exposes no Python API for how a button LOOKS — `type=` picks
+# primary/secondary and `use_container_width=` stretches it, and that is the whole
+# surface. Everything else is CSS, and the hook is that Streamlit stamps stable
+# `data-testid` attributes on its widgets: stBaseButton-secondary,
+# stBaseButton-primary, stPopoverButton. Targeting those is the supported-ish way
+# to restyle, and it is why this block exists rather than a config setting.
+#
+# Two caveats worth knowing before leaning on it. The `st-emotion-cache-*` classes
+# beside those testids are BUILD HASHES and change between Streamlit versions —
+# never select on them. And `!important` is needed because Streamlit's own rules
+# are more specific than a plain selector here.
+#
+# The defaults run tall (~40px) with heavy borders; these bring buttons down to a
+# 32px row, 13px label, softer radius, and give secondary buttons a real hover.
 st.markdown(
     """
-    <div style="display:flex;align-items:center;gap:10px;
-                padding:14px 4px 10px 4px;margin-bottom:4px;
-                border-bottom:1px solid #f0e0cc;">
-      <span style="font-size:26px;">📈</span>
-      <span style="font-size:22px;font-weight:800;color:#3a2a1e;">Trading</span>
-      <span style="font-size:22px;font-weight:800;color:#ea580c;">Bramha</span>
-      <span style="font-size:13px;color:#9a8778;margin-left:8px;">Screener &amp; Analysis Dashboard</span>
-    </div>
+    <style>
+      [data-testid="stBaseButton-secondary"],
+      [data-testid="stBaseButton-primary"],
+      [data-testid="stPopoverButton"] {
+        min-height: 32px !important;
+        height: 32px !important;
+        padding: 0 12px !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        border-radius: 8px !important;
+        line-height: 1 !important;
+        transition: background .12s ease, border-color .12s ease;
+      }
+      [data-testid="stBaseButton-secondary"],
+      [data-testid="stPopoverButton"] {
+        border: 1px solid var(--tb-border) !important;
+        background: var(--tb-surface) !important;
+        color: var(--tb-text-body) !important;
+      }
+      [data-testid="stBaseButton-secondary"]:hover,
+      [data-testid="stPopoverButton"]:hover {
+        background: var(--tb-surface-alt) !important;
+        border-color: var(--tb-border-strong) !important;
+        color: var(--tb-text) !important;
+      }
+      [data-testid="stBaseButton-primary"] {
+        border: 1px solid var(--tb-accent) !important;
+        box-shadow: none !important;
+      }
+      /* Nav dropdown panels: tighter rows so a 7-page group is not a long scroll */
+      [data-testid="stPopoverBody"] { padding: 8px !important; }
+      [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"],
+      [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"] {
+        margin-bottom: 2px !important;
+        justify-content: flex-start !important;
+      }
+    </style>
     """,
     unsafe_allow_html=True,
 )
+
+# ── Page chrome — headings, alerts, expanders ─────────────────────────────────
+# Every page title on the dashboard is an `st.subheader`, which renders in
+# Streamlit's own type scale and blue-grey — beside the cream/amber report
+# components it reads as a different application. Same story for `st.info` /
+# `st.warning` / `st.success`, whose default palette is Streamlit blue on a cream
+# page. There are 32 subheaders and ~60 alert calls across the app, so restyling
+# them HERE fixes every page at once instead of touching ~90 call sites and
+# risking a regression in each.
+#
+# Selectors verified live against the running app rather than assumed:
+# stHeading, stAlert / stAlertContainer / stAlertContent{Info,Warning,Success,
+# Error}, stExpander. Interpolated from rs.TOKENS so the palette stays
+# single-sourced — change a token, this follows.
+_T = rs.TOKENS
+st.markdown(
+    f"""
+    <style>
+      /* Page + section titles */
+      [data-testid="stHeading"] h1,
+      [data-testid="stHeading"] h2,
+      [data-testid="stHeading"] h3 {{
+        color: {_T['text']} !important;
+        font-weight: 800 !important;
+        letter-spacing: -0.01em !important;
+        padding: 0 !important;
+        margin: 2px 0 10px !important;
+      }}
+      [data-testid="stHeading"] h3 {{ font-size: 20px !important; }}
+      [data-testid="stHeading"] h2 {{ font-size: 23px !important; }}
+
+      /* Alerts: token palette, flat, tighter than the default pill */
+      [data-testid="stAlertContainer"] {{
+        border-radius: 10px !important;
+        border-left: 3px solid transparent !important;
+        padding: 10px 14px !important;
+        font-size: 13px !important;
+        box-shadow: none !important;
+      }}
+      [data-testid="stAlertContentInfo"] {{
+        background: {_T['info_soft']} !important;
+        border-left-color: {_T['info']} !important;
+        color: {_T['text_body']} !important;
+      }}
+      [data-testid="stAlertContentWarning"] {{
+        background: {_T['surface_warm']} !important;
+        border-left-color: {_T['accent']} !important;
+        color: {_T['text_body']} !important;
+      }}
+      [data-testid="stAlertContentSuccess"] {{
+        background: {_T['good_soft']} !important;
+        border-left-color: {_T['good']} !important;
+        color: {_T['text_body']} !important;
+      }}
+      [data-testid="stAlertContentError"] {{
+        background: {_T['risk_soft']} !important;
+        border-left-color: {_T['risk']} !important;
+        color: {_T['text_body']} !important;
+      }}
+
+      /* Expanders — the side panels on every screener page use these */
+      [data-testid="stExpander"] details {{
+        border: 1px solid {_T['border']} !important;
+        border-radius: 10px !important;
+        background: {_T['surface']} !important;
+      }}
+      [data-testid="stExpander"] summary {{
+        font-size: 13px !important;
+        font-weight: 600 !important;
+        color: {_T['text_body']} !important;
+      }}
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Navigation — left sidebar page router (replaces st.tabs; Streamlit can't
+# switch tabs programmatically, so a real "click sidebar item -> jump to page"
+# flow needs session_state + an if/elif router instead). Each PAGE_GROUPS entry
+# must match a "if current_page == '...':" block below exactly.
+# ──────────────────────────────────────────────────────────────────────────────
+PAGE_GROUPS = {
+    "Screening":        ["Opportunity Hub", "Screener", "Other Screeners", "Scanner Hub",
+                         "Breakout Screener", "High-Growth Screener", "TradingView Screener"],
+    "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
+    "Research":         ["Predictive Analysis", "Stock Analyzer", "Sector Map", "Astro Timing", "Telegram Signals"],
+    "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
+    "Ops":              ["Pipeline Log"],
+}
+
+#: One line per page, shown on the Home cards. Kept factual — each says what the
+#: page DOES, not how good it is. Any page missing from here still routes fine;
+#: it just renders without a subtitle.
+PAGE_BLURBS = {
+    "Opportunity Hub":      "Ranked daily shortlist across every scanner",
+    "Screener":             "The core NSE screen with the saved pipeline",
+    "Other Screeners":      "Ownership pipeline, sector rotation, bulk data",
+    "Scanner Hub":          "24 pattern scanners, run on any universe",
+    "Breakout Screener":    "Breakout candidates with volume confirmation",
+    "High-Growth Screener": "Quality growth names on ROE / ROCE / OPM floors",
+    "TradingView Screener": "Hand-off list formatted for TradingView",
+    "Market Sentiment":     "0–100 composite regime gauge, with coverage",
+    "India Market Intel":   "Bulk & block deals, insider trades, gap scanner",
+    "OI Momentum":          "Open-interest build-up and unwinding",
+    "Predictive Analysis":  "Consolidated rating, chart and intel per stock",
+    "Stock Analyzer":       "Full fundamental + technical deep dive",
+    "Sector Map":           "Relative Rotation Graph and sector orbit",
+    "Astro Timing":         "Reversal calendar — context, never an entry",
+    "Telegram Signals":     "Ingested channel calls, parsed and tabulated",
+    "Portfolio":            "Open positions, capital at risk, heat",
+    "Watchlist":            "Tracked names and their trade plans",
+    "Alerts":               "Price and metric alerts you have armed",
+    "Pipeline Log":         "What the 4:05 PM batch did, and whether it failed",
+}
+
+#: Group → (icon, one-line purpose). The icon is decoration; the line is the
+#: reason the group exists, so Home reads as a map rather than a menu.
+GROUP_BLURBS = {
+    "Screening":        ("🔎", "Find candidates"),
+    "Market Intel":     ("📡", "Read the tape"),
+    "Research":         ("🔬", "Study one name"),
+    "Portfolio & Risk": ("🛡", "Manage what you hold"),
+    "Ops":              ("⚙", "Check the machinery"),
+}
+
+if "current_page" not in st.session_state:
+    st.session_state["current_page"] = "Home"
+
+# Deep-link: a table's "Analyze ↗" link opens ?nav=analyze&symbol=SYM in a new
+# tab. Consume the params once, route to the Stock Analyzer, pre-load the symbol
+# and prime an auto-run, then clear the URL so sidebar navigation isn't pinned.
+if st.query_params.get("nav") == "analyze" and st.query_params.get("symbol"):
+    _dl_sym = st.query_params["symbol"].strip().upper()
+    st.session_state["current_page"] = "Stock Analyzer"
+    st.session_state["selected_symbol"] = _dl_sym
+    st.session_state["last_analyzed"] = _dl_sym   # triggers auto-run in the tab
+    st.query_params.clear()
+
+# ── Horizontal top nav ────────────────────────────────────────────────────────
+# Brand · Home · one dropdown per group · current-page indicator, in a single row
+# across the top — replacing the left sidebar, which spent ~260px of a wide layout
+# listing nineteen buttons that were nearly always collapsed anyway.
+#
+# `st.popover` is what makes this possible: it is a real click-to-open dropdown,
+# so nineteen pages fit behind five labels instead of needing nineteen visible
+# rows. st.tabs was NOT an option — the router exists precisely because Streamlit
+# cannot switch tabs programmatically, which the "Analyze ↗" deep-link depends on.
+#
+# Routing is unchanged: every button still writes session_state["current_page"]
+# and reruns, so the deep-link handler above and the if/elif chain below are
+# untouched by this being horizontal rather than vertical.
+_nav = st.columns([2.5, 1.0, 1.25, 1.35, 1.15, 1.6, 0.85, 2.2],
+                  gap="small", vertical_alignment="center")
+
+with _nav[0]:
+    # The old standalone page header lived here and is folded in — one top row
+    # rather than a brand banner with a nav bar floating below it.
+    st.markdown(
+        '<div style="line-height:1.15;padding-top:1px;">'
+        '<span style="font-size:17px;font-weight:800;color:#3a2a1e;">'
+        '📈 Trading <span style="color:#ea580c;">Bramha</span></span><br>'
+        '<span style="font-size:11px;color:#9a8778;">Screener &amp; Analysis Dashboard</span>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+with _nav[1]:
+    if st.button("🏠 Home", key="nav_Home", use_container_width=True,
+                 type="primary" if st.session_state["current_page"] == "Home" else "secondary"):
+        st.session_state["current_page"] = "Home"
+        st.rerun()
+
+for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
+    with _nav[2 + _i]:
+        # The group holding the current page gets a marker, so the bar still says
+        # where you are once the dropdown closes.
+        _active_here = st.session_state["current_page"] in _gpages
+        with st.popover(f"{'● ' if _active_here else ''}{_gname}",
+                        use_container_width=True):
+            for _p in _gpages:
+                _is_active = st.session_state["current_page"] == _p
+                if st.button(_p, key=f"nav_{_p}", use_container_width=True,
+                             type="primary" if _is_active else "secondary"):
+                    st.session_state["current_page"] = _p
+                    st.rerun()
+
+with _nav[7]:
+    st.markdown(
+        f'<div style="text-align:right;font-size:12px;color:{rs.TOKENS["text_muted"]};'
+        f'padding-top:4px;">Viewing '
+        f'<b style="color:{rs.TOKENS["text_body"]};">{st.session_state["current_page"]}</b>'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
+
+st.markdown(
+    f'<div style="border-bottom:1px solid {rs.TOKENS["border"]};margin:6px 0 14px;"></div>',
+    unsafe_allow_html=True,
+)
+
+current_page = st.session_state["current_page"]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2031,51 +2281,121 @@ with st.expander("Daily Workflow (IST)"):
     )
     st.caption("Screener pipeline auto-runs at 4:05 PM — aligned with the post-market review window.")
 
+
+
 # ──────────────────────────────────────────────────────────────────────────────
-# Navigation — left sidebar page router (replaces st.tabs; Streamlit can't
-# switch tabs programmatically, so a real "click sidebar item -> jump to page"
-# flow needs session_state + an if/elif router instead). Each PAGE_GROUPS entry
-# must match a "if current_page == '...':" block below exactly.
+# Home — the landing page
+# ------------------------------------------------------------------------------
+# The app used to open straight into Screener, which meant the first screen was a
+# working tool with no map of the other seventeen pages. Home is that map.
+#
+# Layout language borrowed from a public SaaS pricing page the user supplied as a
+# reference — gradient hero card, headline + subtitle, a grid of bordered cards
+# with tick-listed contents, quiet disclaimer footer. Only the LAYOUT was taken:
+# colours come from report_style.TOKENS (the cream/amber system the rest of the
+# dashboard already uses), not from the reference's purple, and no branding,
+# wording or pricing was copied.
+#
+# Deliberately cheap to render: no network calls, no scans. The only dynamic
+# figures are a scanner count read from the in-process registry and the last
+# PERSISTED sentiment row (a DB read the ribbon already does). Home must never be
+# the reason the app feels slow to open.
 # ──────────────────────────────────────────────────────────────────────────────
-PAGE_GROUPS = {
-    "Screening":        ["Opportunity Hub", "Screener", "Other Screeners", "Scanner Hub",
-                         "Breakout Screener", "High-Growth Screener", "TradingView Screener"],
-    "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
-    "Research":         ["Predictive Analysis", "Stock Analyzer", "Sector Map", "Astro Timing", "Telegram Signals"],
-    "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
-    "Ops":              ["Pipeline Log"],
-}
+if current_page == "Home":
+    _t = rs.TOKENS
+    _n_pages = sum(len(v) for v in PAGE_GROUPS.values())
 
-if "current_page" not in st.session_state:
-    st.session_state["current_page"] = "Screener"
-
-# Deep-link: a table's "Analyze ↗" link opens ?nav=analyze&symbol=SYM in a new
-# tab. Consume the params once, route to the Stock Analyzer, pre-load the symbol
-# and prime an auto-run, then clear the URL so sidebar navigation isn't pinned.
-if st.query_params.get("nav") == "analyze" and st.query_params.get("symbol"):
-    _dl_sym = st.query_params["symbol"].strip().upper()
-    st.session_state["current_page"] = "Stock Analyzer"
-    st.session_state["selected_symbol"] = _dl_sym
-    st.session_state["last_analyzed"] = _dl_sym   # triggers auto-run in the tab
-    st.query_params.clear()
-
-with st.sidebar:
     st.markdown(
-        '<div style="font-size:15px;font-weight:800;color:#3a2a1e;margin-bottom:12px;">'
-        '📈 Trading <span style="color:#ea580c;">Bramha</span></div>',
+        f'<div style="background:linear-gradient(135deg,{_t["surface_warm"]} 0%,'
+        f'{_t["surface_alt"]} 55%,{_t["surface"]} 100%);'
+        f'border:1px solid {_t["border_strong"]};border-radius:14px;'
+        f'padding:30px 34px;margin:2px 0 20px;">'
+        f'<div class="tb-micro" style="color:{_t["accent"]};">TRADING BRAMHA</div>'
+        f'<div style="font-size:30px;font-weight:800;line-height:1.22;'
+        f'color:{_t["text"]};margin-top:8px;">Screening, research and risk —<br>'
+        f'<span style="color:{_t["accent"]};">in one place.</span></div>'
+        f'<div style="font-size:14px;color:{_t["text_body"]};margin-top:12px;'
+        f'max-width:620px;line-height:1.55;">'
+        f'A personal NSE swing-trading desk. Every number on it is computed from '
+        f'filed data or measured history — where something could not be measured, '
+        f'the page says so rather than guessing.</div>'
+        f'</div>',
         unsafe_allow_html=True,
     )
-    for group_name, pages in PAGE_GROUPS.items():
-        st.caption(group_name.upper())
-        for p in pages:
-            is_active = st.session_state["current_page"] == p
-            if st.button(p, key=f"nav_{p}", use_container_width=True,
-                         type="primary" if is_active else "secondary"):
-                st.session_state["current_page"] = p
-                st.rerun()
+
+    # Three genuinely cheap facts. Nothing here fetches.
+    try:
+        _n_scanners = len(sc.SCANNERS)
+    except Exception:
+        _n_scanners = None
+    _senti = None
+    try:
+        _senti = cached_latest_sentiment()
+    except Exception:
+        _senti = None
+
+    _senti_val = f"{_senti['score']:.0f} · {_senti['band']}" if _senti else None
+    _senti_sub = f"as of {_senti['reading_date']}" if _senti else "never refreshed"
+    _senti_tone = "neutral"
+    if _senti and str(_senti.get("band")) == "NOT_CHECKED":
+        _senti_tone = "absent"
+
+    st.markdown(
+        rs.strip([
+            rs.stat_card("Pattern scanners",
+                         str(_n_scanners) if _n_scanners is not None else None,
+                         "backtest-measured where marked", tone="info"),
+            rs.stat_card("Pages", str(_n_pages), "across five groups", tone="neutral"),
+            rs.stat_card("Last sentiment", _senti_val, _senti_sub, tone=_senti_tone),
+        ], cols=3),
+        unsafe_allow_html=True,
+    )
+    st.write("")
+
+    # One card per sidebar group; the buttons are real navigation, so the card
+    # header is markdown and the routing sits underneath it. Streamlit widgets
+    # cannot live inside an st.markdown HTML block, which is why this is a column
+    # grid rather than one rendered card grid.
+    _groups = list(PAGE_GROUPS.items())
+    for _row_start in range(0, len(_groups), 3):
+        _cols = st.columns(3, gap="medium")
+        for _col, (_gname, _gpages) in zip(_cols, _groups[_row_start:_row_start + 3]):
+            with _col:
+                _icon, _purpose = GROUP_BLURBS.get(_gname, ("", ""))
+                st.markdown(
+                    f'<div style="border:1px solid {_t["border"]};border-radius:12px;'
+                    f'background:{_t["surface"]};padding:14px 16px 10px;margin-bottom:8px;">'
+                    f'<div style="font-size:15px;font-weight:700;color:{_t["text"]};">'
+                    f'{_icon} {_gname}</div>'
+                    f'<div style="font-size:12px;color:{_t["text_muted"]};margin-top:2px;">'
+                    f'{_purpose}</div></div>',
+                    unsafe_allow_html=True,
+                )
+                for _p in _gpages:
+                    if st.button(_p, key=f"home_{_p}", use_container_width=True):
+                        st.session_state["current_page"] = _p
+                        st.rerun()
+                    _blurb = PAGE_BLURBS.get(_p)
+                    if _blurb:
+                        st.markdown(
+                            f'<div style="font-size:11px;color:{_t["text_muted"]};'
+                            f'margin:-6px 0 8px 2px;line-height:1.4;">{_blurb}</div>',
+                            unsafe_allow_html=True,
+                        )
         st.write("")
 
-current_page = st.session_state["current_page"]
+    st.markdown(
+        f'<div style="border-top:1px solid {_t["border"]};margin-top:6px;padding-top:14px;'
+        f'font-size:11.5px;color:{_t["text_muted"]};line-height:1.65;max-width:900px;">'
+        f'<b style="color:{_t["text_body"]};">Research notice.</b> Scores, signals and '
+        f'ratings on this dashboard are automated outputs computed from historical '
+        f'market data and filed disclosures. They are <b>not investment advice</b> and '
+        f'not a recommendation to buy, sell or hold. Scanner edges shown as measured '
+        f'come from a single backtest window and carry no significance test yet — '
+        f'treat them as leads, not signals. Nothing here executes trades.'
+        f'</div>',
+        unsafe_allow_html=True,
+    )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -4427,12 +4747,18 @@ if current_page == "Breakout Screener":
         "Paste your `_chartink_session` cookie once; it lasts for months."
     )
 
+    # Colours come from rs.TOKENS, not literals. These were GitHub's dark-theme
+    # palette (#58a6ff / #3fb950 / #d29922 / #f0883e / #f85149) sitting on a
+    # cream dashboard — the same off-palette hard-coding backlog B-16 records for
+    # OI Momentum. The RAMP is deliberate and is the point: lookback lengthens
+    # 6M → 10Y, so the colour walks info → good → accent → risk, i.e. a longer
+    # base is a rarer, heavier claim. Reading order, not decoration.
     _CK_SCANNERS = {
-        "6M Consolidation Breakout": {"color": "#58a6ff", "lookback": "6 months"},
-        "1Y All-Time Breakout":      {"color": "#3fb950", "lookback": "1 year"},
-        "3Y Breakout":               {"color": "#d29922", "lookback": "3 years"},
-        "5Y Breakout":               {"color": "#f0883e", "lookback": "5 years"},
-        "10Y Breakout":              {"color": "#f85149", "lookback": "10 years"},
+        "6M Consolidation Breakout": {"color": rs.TOKENS["info"],   "lookback": "6 months"},
+        "1Y All-Time Breakout":      {"color": rs.TOKENS["good"],   "lookback": "1 year"},
+        "3Y Breakout":               {"color": rs.TOKENS["accent"], "lookback": "3 years"},
+        "5Y Breakout":               {"color": "#c2410c",           "lookback": "5 years"},
+        "10Y Breakout":              {"color": rs.TOKENS["risk"],   "lookback": "10 years"},
     }
 
     bk_left, bk_main = st.columns([1, 3])
@@ -4484,8 +4810,9 @@ if current_page == "Breakout Screener":
                 <button onclick="navigator.clipboard.writeText(`{safe}`)
                   .then(()=>this.textContent='✓ Copied!')
                   .catch(()=>this.textContent='⚠ Failed')"
-                  style="background:#238636;color:#fff;border:none;border-radius:5px;
-                         padding:5px 12px;cursor:pointer;font-size:12px;width:100%">
+                  style="background:{rs.TOKENS['accent']};color:#fff;border:none;
+                         border-radius:8px;padding:6px 12px;cursor:pointer;
+                         font-size:12px;font-weight:600;width:100%">
                   📋 Copy Scan Clause
                 </button>
                 """,
@@ -4651,7 +4978,7 @@ if current_page == "Breakout Screener":
         elif "ck_results" in st.session_state:
             rows    = st.session_state["ck_results"]
             ran     = st.session_state.get("ck_scanner_ran", selected_ck)
-            color_r = _CK_SCANNERS.get(ran, {}).get("color", "#58a6ff")
+            color_r = _CK_SCANNERS.get(ran, {}).get("color", rs.TOKENS["info"])
             _render_ck_table(rows, ran, color_r)
 
         else:
