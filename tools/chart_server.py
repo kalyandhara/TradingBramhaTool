@@ -301,6 +301,11 @@ def percent_r_trend_exhaustion_js():
     return send_from_directory(HERE, "percent_r_trend_exhaustion.js", mimetype="application/javascript")
 
 
+@app.route("/rsi_divergence.js")
+def rsi_divergence_js():
+    return send_from_directory(HERE, "rsi_divergence.js", mimetype="application/javascript")
+
+
 @app.route("/api/ohlcv")
 def api_ohlcv():
     symbol    = request.args.get("symbol", "").strip().upper()

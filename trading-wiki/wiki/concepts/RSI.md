@@ -47,6 +47,32 @@ Shorter RSI (7 or 9) for active swings; longer (21+) for position/weekly context
 - **RSI 40–60 trend band → a full setup:** the regime-aware ranges above are formalized into two with-trend entries (RSI-40 pullback / RSI-60 breakout) on the 21 & 50 EMA in [[strategies/RSI-60-40-Setup]].
 - **Fibonacci + RSI:** buy a ~61.8% [[concepts/Fibonacci-Retracement]] pullback *only* when RSI is turning up out of oversold — pairing a location edge with a momentum edge.
 
+### Shipped as a chart indicator (2026-08-07)
+The four-variant table above is now executable: `rsi_divergence.js` in the
+charting tool detects all four and draws each one twice — across the price
+swings and across the matching RSI swings, because the whole point is that the
+two disagree and one line alone cannot show a disagreement. Colour carries
+direction (green bullish / red bearish), dash carries kind (solid regular /
+dashed hidden).
+
+Two things worth knowing when reading it:
+- **A faded line with a `?` is provisional.** Its swing has not been confirmed
+  by a reversal yet, so it can move or vanish on the next bar. That is inherent
+  to divergence on a live chart; the indicator shows it rather than letting the
+  line quietly disappear.
+- **It uses a coarser swing filter than the Elliott overlay** (ATR ×2.0 vs ×1.2).
+  Measured: at Elliott's setting a 300-bar daily chart gives ~132 pivots and the
+  resulting "divergences" have a median span of 8 bars and ±0.4% legs — noise
+  with a label on it. At ×2.0 it is ~43 pivots and a 27-bar median span.
+
+Still true, and the reason this is a chart overlay and not a scanner: divergence
+is **a tell, not a clock**, and [[analyses/Backtest-Harness]] has never measured
+it. `detect_bullish_rsi_divergence` in `scanner_templates.py` (which feeds Early
+Reversal's score) is a cruder, older test — rolling-mean RSI rather than Wilder,
+last-bar-vs-prior-10 rather than swing pivots, and only the regular-bullish
+variant — so the chart and that scanner will not always agree. Reconciling it to
+this four-type definition is open.
+
 ## Related
 - [[concepts/EMA]] — Combine RSI timing with EMA trend direction
 - [[concepts/ConnorsRSI]] — composite short-period (3,2,100) variant used for mean-reversion exit timing; uses a much shorter RSI(3) lookback than the classic 14-period RSI documented here

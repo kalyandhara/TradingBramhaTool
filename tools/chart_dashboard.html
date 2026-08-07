@@ -17,6 +17,11 @@
      Loaded AFTER elliott_wave.js and volume_profile.js: it reads EW.computeZigzag for
      swing anchoring and VP.findConfluence for level scoring. -->
 <script src="/fibonacci.js"></script>
+<!-- RSI divergence (regular + hidden, both directions) — pure computation module,
+     see rsi_divergence.js. Loaded AFTER elliott_wave.js for the same reason
+     fibonacci.js is: it reads EW.computeZigzag so every structure tool on the
+     chart agrees about where the swings are. -->
+<script src="/rsi_divergence.js"></script>
 <style>
 /* ── Theme variables ──────────────────────────────────────────────────────── */
 :root {
@@ -864,6 +869,9 @@ const INDICATOR_DEFS = [
   {key:'prte',      label:'%R Trend Exhaustion',    group:'Oscillators',       color:'#2466A7'},
   {key:'roc',       label:'ROC + RSI Zones (21,5,5,14)', group:'Oscillators',    color:'#2962ff'},
   {key:'stoch',     label:'Stochastic (14,3,3)',    group:'Oscillators',       color:'#26c6da'},
+  // Draws on BOTH the price chart and the RSI pane, so selecting it turns RSI
+  // on (see applyIndicators) — half the signal lives in the oscillator.
+  {key:'rsidiv',    label:'RSI Divergence (regular + hidden)', group:'Oscillators', color:'#ffd166'},
   // ── Volume ──────────────────────────────────────────────────────────────────
   {key:'volume',     label:'Volume',                 group:'Volume',            color:'#888888'},
   {key:'volprofile', label:'Volume Profile (POC/VA/HVN/LVN)', group:'Volume',  color:'#9aa4af'},
@@ -2210,7 +2218,7 @@ function addLine(pane, color, lineWidth = 1, lineStyle = 0) {
 // momentum, and remain informative on any series.
 // mabias joins them: a trend-bias card on a monotonic yield line would read
 // "permanent golden cross" — technically true, decisionally meaningless.
-const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'stoch', 'elliott', 'mabias'];
+const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'stoch', 'elliott', 'mabias', 'rsidiv'];
 
 // Detect liquid-ETF / cash-equivalent behaviour from bar statistics rather
 // than symbol lists — new liquid ETFs launch faster than any hardcoded set
@@ -2257,6 +2265,24 @@ function applyIndicators(pane) {
   // ETF-mode gate runs BEFORE anything else so momentum indicators get
   // removed on the same pass they would otherwise be rendered.
   applyEtfMode(pane, isLikelyLiquidETF(bars));
+  // RSI Divergence draws across the RSI pane as well as the price chart, and a
+  // divergence shown on price alone hides the half that makes it a divergence.
+  // So switching it ON also switches RSI on and ticks its box.
+  //
+  // Only on the TRANSITION, though. Re-asserting it every pass meant unticking
+  // RSI while divergence was active silently re-added it — the box bounced back
+  // and the click appeared to do nothing. If you turn RSI off deliberately, that
+  // holds, and divergence keeps drawing its price-side lines alone.
+  //
+  // Runs after the ETF gate so a cash-equivalent (where both keys are stripped)
+  // cannot re-add RSI through the back door.
+  const _divOn = pane.indicators.has('rsidiv');
+  if (_divOn && !pane._rsidivWasOn && !pane.indicators.has('rsi')) {
+    pane.indicators.add('rsi');
+    const rsiChk = pane.el.querySelector('.ind-panel .ind-chk[data-key="rsi"]');
+    if (rsiChk) rsiChk.checked = true;
+  }
+  pane._rsidivWasOn = _divOn;
   // Remove overlay series for indicators no longer selected
   Object.keys(pane.indSeries).forEach(key => {
     if (!pane.indicators.has(key)) removeIndicatorSeries(pane, key);
@@ -2286,6 +2312,10 @@ function applyIndicators(pane) {
   if (!pane.indicators.has('mabias') && pane.maBias) clearMABias(pane);
   // Tear down Elliott Wave overlay if deselected
   if (!pane.indicators.has('elliott') && pane.ew) clearElliottWave(pane);
+  // Tear down RSI divergence if deselected. When only RSI is switched off the
+  // divergence survives on the price pane; clearRsiDivergence skips the RSI-side
+  // removal once subCharts.rsi is gone, since that chart is already destroyed.
+  if (pane.rsidiv && !pane.indicators.has('rsidiv')) clearRsiDivergence(pane);
   // Tear down Rounding Bottom overlay if deselected
   if (!pane.indicators.has('roundbottom') && pane.rb) clearRoundingBottom(pane);
   // Tear down VCP overlay if deselected
@@ -2473,6 +2503,12 @@ function applyIndicators(pane) {
     pane.subCharts.rsi.obFill.setData(bandExcursions(rsiData, RSI_OB,  1));
     pane.subCharts.rsi.osFill.setData(bandExcursions(rsiData, RSI_OS, -1));
   }
+
+  // Divergence renders HERE, immediately after the RSI pane is built and filled,
+  // because it draws into that pane. Anywhere earlier and the sub-chart it needs
+  // does not exist yet on the pass where RSI was just switched on. Not gated on
+  // RSI being present — with the pane off it still draws the price-side lines.
+  if (pane.indicators.has('rsidiv')) renderRsiDivergence(pane);
 
   if (pane.indicators.has('macd')) {
     if (!pane.subCharts.macd) {
@@ -3687,6 +3723,93 @@ function ensureEwState(pane) {
     };
   }
   return pane.ew;
+}
+
+// ── RSI Divergence rendering (integration layer for rsi_divergence.js) ────────
+// rsi_divergence.js (window.RSIDIV) is a pure computation module with zero chart
+// dependency. This function is the rendering plug: it draws each divergence
+// TWICE — once across the price swings, once across the matching RSI swings —
+// because the whole point is that the two disagree, and one line alone cannot
+// show a disagreement.
+//
+// Encoding: colour carries direction (green bullish / red bearish), dash
+// carries kind (solid regular = reversal, dashed hidden = continuation). That
+// is two dimensions in two channels, so the chart stays readable in greyscale
+// and does not need four separate colours the eye has to memorise.
+const RSIDIV_STYLE = {
+  bull: {color: '#3fb950', faded: 'rgba(63,185,80,0.40)'},
+  bear: {color: '#f85149', faded: 'rgba(248,81,73,0.40)'},
+};
+
+function ensureRsiDivState(pane) {
+  if (!pane.rsidiv) pane.rsidiv = {priceLines: [], rsiLines: []};
+  return pane.rsidiv;
+}
+
+function clearRsiDivergence(pane) {
+  if (!pane.rsidiv) return;
+  pane.rsidiv.priceLines.forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
+  const sub = pane.subCharts && pane.subCharts.rsi;
+  if (sub) pane.rsidiv.rsiLines.forEach(s => { try { sub.chart.removeSeries(s); } catch {} });
+  setPaneMarkers(pane, 'rsidiv', null);
+  pane.rsidiv.priceLines = [];
+  pane.rsidiv.rsiLines = [];
+}
+
+function renderRsiDivergence(pane) {
+  const st = ensureRsiDivState(pane);
+  clearRsiDivergence(pane);
+  const bars = pane.bars;
+  if (!bars || !bars.length || !window.RSIDIV) return;
+
+  // Hand the module the SAME RSI series the pane draws, so the line you see and
+  // the values the divergence is measured from cannot drift apart.
+  const rsiData = rsiSeries(bars, 14);
+  let res;
+  try { res = RSIDIV.compute(bars, {rsi: rsiData}); } catch (e) { return; }
+  if (!res.divergences.length) return;
+
+  const sub = pane.subCharts && pane.subCharts.rsi;
+  const markers = [];
+
+  for (const d of res.divergences) {
+    const style = RSIDIV_STYLE[d.dir];
+    // A provisional divergence hangs off a pivot the zigzag has not confirmed:
+    // it can move or vanish on the next bar. Drawn faded and labelled '?' so it
+    // never reads as settled. Repainting is acceptable; silent repainting is not.
+    const color = d.provisional ? style.faded : style.color;
+    const lineStyle = d.kind === 'hidden' ? 2 : 0;      // 2 = dashed, 0 = solid
+
+    const priceLine = pane.chart.addLineSeries({
+      color, lineWidth: 2, lineStyle,
+      priceLineVisible: false, lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    priceLine.setData(RSIDIV.lineOnGrid(bars, d.from.idx, d.from.price,
+                                              d.to.idx,   d.to.price));
+    st.priceLines.push(priceLine);
+
+    if (sub) {
+      const rsiLine = sub.chart.addLineSeries({
+        color, lineWidth: 2, lineStyle,
+        priceLineVisible: false, lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      rsiLine.setData(RSIDIV.lineOnGrid(bars, d.from.idx, d.from.rsi,
+                                              d.to.idx,   d.to.rsi));
+      st.rsiLines.push(rsiLine);
+    }
+
+    markers.push({
+      time: bars[d.to.idx].time,
+      position: d.dir === 'bull' ? 'belowBar' : 'aboveBar',
+      color,
+      shape: d.dir === 'bull' ? 'arrowUp' : 'arrowDown',
+      text: `${d.kind === 'hidden' ? 'Hid' : 'Reg'} ${d.dir === 'bull' ? 'Bull' : 'Bear'}`
+            + (d.provisional ? ' ?' : ''),
+    });
+  }
+  setPaneMarkers(pane, 'rsidiv', markers);
 }
 
 function clearElliottWave(pane) {
