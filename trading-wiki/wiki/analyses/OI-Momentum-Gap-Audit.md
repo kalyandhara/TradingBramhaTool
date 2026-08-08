@@ -161,12 +161,61 @@ to. [[analyses/Backtest-Harness]] has never tested the OI quadrant either.
 
 - ✅ Ingested [[sources/Fingrad-OI-Analysis-Infographic]]; audited the module
   against it and measured relative volume on a 5-session baseline (2026-08-07).
-- ⏭ Gap 1 — relative volume column + downgrade condition.
+- ✅ **Gap 1 SHIPPED 2026-08-07** — `rvol` column + STRONG downgrade. See Outcome.
 - ⏭ Gap 2 — separate index OI table.
 - ⏭ Gap 4 — breakout/level linkage.
 - ⏭ Gap 3 — strike-level option OI quadrant.
 
-## Outcome (fill in later)
+## Outcome
+
+**2026-08-07 — Gap 1 shipped, and it behaves exactly as the measurement said it
+would: quietly.**
+
+`fetch_volume_baseline()` downloads the 5 settled sessions **before the scan
+date** and returns a per-symbol median; `build_oi_table` and `scan` take it as an
+**optional** argument, so every existing caller is unaffected and `rvol` is
+simply absent without it. The dashboard caches it hourly alongside the raw
+bhavcopy.
+
+Three design rules, each of which the tests pin:
+
+- **Volume is a veto, never a vote.** It can hold a would-be STRONG at MODERATE
+  when `rvol < 1.0`; it can never promote MODERATE to STRONG. A large move on a
+  large OI build that nobody turned up for is the source's "weak confirmation",
+  and price/OI magnitude alone cannot see it.
+- **The disqualifiers still win.** Near-expiry and thin-turnover names stay
+  UNRELIABLE regardless of how heavy the volume was — verified with `rvol` 5.0
+  against both.
+- **An absent baseline is absent, not normal.** No baseline, an empty one, or a
+  symbol missing from it all yield `rvol = None` and no downgrade. Filling it
+  with 1.0 would assert normal participation on no evidence, which is the same
+  fault as scoring a missing factor as zero (backlog B-1).
+
+**The baseline must exclude the scan date**, or every symbol is partly compared
+against itself and a genuine spike is diluted by its own presence in the
+denominator. `before=trade_date` enforces it; verified that 2026-08-06 is absent
+from its own baseline.
+
+**Verified:** backward compatibility (no baseline → identical strengths, all
+`rvol` None, zero downgrades); with a baseline, 5 sessions and **100% rvol
+coverage** on 57 readings; the downgrade path — *unreachable from live data this
+session* — exercised synthetically across `rvol` None/3.5/1.0/0.99/0.4, giving
+STRONG / STRONG+caveat / STRONG / MODERATE+held / MODERATE+held; promotion
+immunity and disqualifier ordering both confirmed; partial baseline leaves the
+rest absent rather than 1.0; dashboard rendered clean in an isolated boot with
+the live caveats showing ("Volume ran 2.1x…", "…7.6x…").
+
+**As predicted, it downgraded nothing on 2026-08-06.** The seven STRONG names
+ran 1.07×–13.78×. That is the honest outcome, not a disappointment: the value is
+that the weak-confirmation case is now *detectable and named* rather than
+silently graded STRONG. What it does add every day is the positive caveat — 17
+of 57 readings carry a "volume ran Nx normal" note that previously existed
+nowhere.
+
+**Still open on this gap:** the 1.0× cut and the 5-session window came from one
+session's distribution and want re-measuring; and the whole OI quadrant remains
+untested by [[analyses/Backtest-Harness]], so `rvol` refines a grade that has
+itself never been validated.
 
 ## Related Pages
 

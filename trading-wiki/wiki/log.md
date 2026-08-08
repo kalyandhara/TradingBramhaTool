@@ -1,6 +1,16 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-07] build | Relative volume in OI Momentum — a veto, not a vote
+- **Shipped Gap 1** from [[analyses/OI-Momentum-Gap-Audit]]: `fetch_volume_baseline()` + an `rvol` column + a STRONG downgrade. The column that had been aggregated and never read since the module was written is now the participation axis the source said it should be.
+- **Optional by construction.** `build_oi_table` and `scan` take `volume_baseline` as a keyword; omitted, `rvol` is None everywhere and no name is downgraded for participation nobody measured. Every existing caller is untouched — verified identical strengths with and without.
+- ### Three rules, each pinned by a test
+  **Volume is a veto, never a vote** — it holds a would-be STRONG at MODERATE when rvol < 1.0, and can never promote MODERATE upward. **The disqualifiers still win** — near-expiry and thin-turnover names stay UNRELIABLE against rvol 5.0. **An absent baseline is absent, not normal** — no baseline, an empty one, or a symbol missing from it all give `rvol = None` and no downgrade; filling it with 1.0 would assert normal participation on no evidence, the same fault as scoring a missing factor as zero (backlog B-1).
+- **The baseline excludes the scan date**, or every symbol is partly compared against itself and a real spike is diluted by its own presence in the denominator. `before=trade_date` enforces it; verified 2026-08-06 is absent from its own baseline.
+- ### It downgraded nothing, exactly as the audit predicted
+  The seven STRONG names on 2026-08-06 ran **1.07×–13.78×** normal volume. That is the honest outcome and was forecast before building — the audit measured STRONG at a median 3.98× with none below 1.0×, so the existing price-and-OI gates were already selecting high-participation names implicitly. **The value is that the weak-confirmation case is now detectable and named rather than silently graded STRONG**, plus a positive caveat that fires daily: 17 of 57 readings now carry a "volume ran Nx normal" note that previously existed nowhere. Because the downgrade path is unreachable from live data, it was exercised **synthetically** across rvol None/3.5/1.0/0.99/0.4 rather than left unverified.
+- **Open:** the 1.0× cut and the 5-session window came from a single session's distribution and want re-measuring; and `rvol` refines a grade that [[analyses/Backtest-Harness]] has never validated in the first place.
+
 ## [2026-08-07] ingest | Fingrad OI-analysis infographic — it matches our quadrants, and points at the one column we throw away
 - **Ingested** [[sources/Fingrad-OI-Analysis-Infographic]]; audited `nse_oi_momentum.py` against it in [[analyses/OI-Momentum-Gap-Audit]]. The sheet's four-quadrant price×OI grid **reproduces ours exactly**, sign convention on the down-move pair included — independent corroboration of a framework we derived from NSE's own page, and worth recording as such rather than as news.
 - ### The real hole: we aggregate volume and never read it

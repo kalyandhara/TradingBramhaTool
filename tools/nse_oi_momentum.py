@@ -86,6 +86,29 @@ MIN_TURNOVER = 50_00_00_000.0
 # so every reading is downgraded rather than reported at face value.
 EXPIRY_NOISE_DAYS = 3
 
+# ── Relative volume ───────────────────────────────────────────────────────────
+# OI says whether a move was built or vacated. Volume says how many people
+# turned up to do it, and "high volume" is a RELATIVE claim: the question is
+# whether a stock traded more than IT usually does, not more than its neighbours.
+# That needs a per-symbol baseline, and the bhavcopy is a single session — hence
+# the extra downloads below rather than a cross-sectional shortcut.
+#
+# A trading week of prior sessions. Long enough to absorb one quiet day, short
+# enough that the baseline still describes the current regime.
+VOLUME_BASELINE_SESSIONS = 5
+
+# A symbol seen fewer times than this has a "median" of one or two observations,
+# which is a number without being an average. Those get no rvol at all.
+MIN_BASELINE_SESSIONS = 3
+
+# A STRONG grade claims the move was built with conviction. Requiring the day to
+# at least match the symbol's own median participation is the cheapest possible
+# version of that claim. Measured 2026-08-06: STRONG names ran a median 3.98x
+# and NOT ONE sat below 1.0x, so this fires rarely by construction — it exists to
+# make the "large move, large OI, nobody there" case DETECTABLE, not to re-rank
+# the universe. Volume can only ever downgrade here; it never promotes.
+MIN_STRONG_RVOL = 1.0
+
 
 # ── Fetch ─────────────────────────────────────────────────────────────────────
 
@@ -114,31 +137,94 @@ def fetch_fo_bhavcopy_raw(max_lookback: int = 7) -> tuple[pd.DataFrame, datetime
         day = datetime.today() - timedelta(days=days_back)
         if day.weekday() >= 5:          # NSE does not settle on weekends
             continue
-        url = FO_BHAV_URL.format(ymd=day.strftime("%Y%m%d"))
-        try:
-            r = session.get(url, headers=NSE_HEADERS, timeout=30)
-        except Exception:
-            continue
-        # Trading holidays return an HTML error page, not a zip. The magic-byte
-        # check is what distinguishes them without trusting the status code.
-        if r.status_code != 200 or r.content[:2] != b"PK":
-            continue
-        try:
-            with zipfile.ZipFile(io.BytesIO(r.content)) as z:
-                name = next(n for n in z.namelist() if n.endswith(".csv"))
-                with z.open(name) as fh:
-                    df = pd.read_csv(fh, low_memory=False)
-        except Exception:
-            continue
-        if "FinInstrmTp" not in df.columns:
-            continue
-        return df, day
+        df = _download_bhavcopy(session, day)
+        if df is not None:
+            return df, day
     return pd.DataFrame(), None
+
+
+def _download_bhavcopy(session: requests.Session, day: datetime) -> pd.DataFrame | None:
+    """One session's F&O bhavcopy, or None if that day has no settled file.
+
+    None covers every non-answer identically — network failure, trading holiday,
+    a malformed zip — because the caller's response to all of them is the same:
+    try another day. Trading holidays return an HTML error page rather than a
+    404, so the magic-byte check is what distinguishes them without trusting the
+    status code.
+    """
+    url = FO_BHAV_URL.format(ymd=day.strftime("%Y%m%d"))
+    try:
+        r = session.get(url, headers=NSE_HEADERS, timeout=30)
+    except Exception:
+        return None
+    if r.status_code != 200 or r.content[:2] != b"PK":
+        return None
+    try:
+        with zipfile.ZipFile(io.BytesIO(r.content)) as z:
+            name = next(n for n in z.namelist() if n.endswith(".csv"))
+            with z.open(name) as fh:
+                df = pd.read_csv(fh, low_memory=False)
+    except Exception:
+        return None
+    return df if "FinInstrmTp" in df.columns else None
+
+
+def fetch_volume_baseline(sessions: int = VOLUME_BASELINE_SESSIONS,
+                          max_lookback: int = 20,
+                          before: datetime | None = None) -> dict[str, Any]:
+    """Per-symbol median stock-futures volume over the N sessions BEFORE `before`.
+
+    Costs `sessions` extra downloads (~1.2 MB each), which is why callers are
+    expected to cache it — the underlying files are settled and never change.
+
+    `before` must be the scan's own trade date, not today: the baseline has to
+    EXCLUDE the session being measured, or every symbol is partly compared
+    against itself and a genuine volume spike is diluted by its own presence in
+    the denominator.
+
+    Returns {"median": {symbol: volume}, "sessions": n, "dates": [...]}, with
+    symbols seen fewer than MIN_BASELINE_SESSIONS times omitted entirely. An
+    empty median map means no baseline was reachable, and every caller must then
+    report rvol as ABSENT rather than assume 1.0 — an unmeasured participation
+    level is not an average one.
+    """
+    session = requests.Session()
+    start = before or datetime.today()
+    seen: list[pd.Series] = []
+    dates: list[str] = []
+    days_back = 1
+    while len(seen) < sessions and days_back <= max_lookback:
+        day = start - timedelta(days=days_back)
+        days_back += 1
+        if day.weekday() >= 5:
+            continue
+        df = _download_bhavcopy(session, day)
+        if df is None:
+            continue
+        stf = df[df["FinInstrmTp"] == STOCK_FUTURE]
+        if stf.empty or "TtlTradgVol" not in stf.columns:
+            continue
+        seen.append(stf.groupby("TckrSymb")["TtlTradgVol"].sum())
+        dates.append(day.strftime("%Y-%m-%d"))
+
+    if not seen:
+        return {"median": {}, "sessions": 0, "dates": []}
+
+    wide = pd.concat(seen, axis=1)
+    counts = wide.notna().sum(axis=1)
+    med = wide.median(axis=1, skipna=True)
+    keep = (counts >= min(MIN_BASELINE_SESSIONS, len(seen))) & (med > 0)
+    return {
+        "median": {str(s): float(v) for s, v in med[keep].items()},
+        "sessions": len(seen),
+        "dates": dates,
+    }
 
 
 # ── Aggregation ───────────────────────────────────────────────────────────────
 
-def build_oi_table(stf: pd.DataFrame, trade_date: datetime | None = None) -> pd.DataFrame:
+def build_oi_table(stf: pd.DataFrame, trade_date: datetime | None = None,
+                   volume_baseline: dict[str, Any] | None = None) -> pd.DataFrame:
     """Collapse per-expiry futures rows into one row per underlying.
 
     OI is summed across the whole series (see the module docstring on rollover).
@@ -146,6 +232,10 @@ def build_oi_table(stf: pd.DataFrame, trade_date: datetime | None = None) -> pd.
     turnover and is the contract a trader is actually looking at. Mixing a
     series-wide OI against a near-month price is deliberate: OI needs the series
     to be truthful, price needs the liquid contract to be meaningful.
+
+    `volume_baseline` (from `fetch_volume_baseline`) is optional. Supplied, it
+    adds `avg_volume` and `rvol`; omitted, both are NaN and every downstream
+    consumer treats participation as unmeasured rather than as normal.
     """
     if stf is None or stf.empty:
         return pd.DataFrame()
@@ -188,6 +278,13 @@ def build_oi_table(stf: pd.DataFrame, trade_date: datetime | None = None) -> pd.
 
     ref = trade_date or datetime.today()
     out["days_to_expiry"] = (out["near_expiry"] - pd.Timestamp(ref.date())).dt.days
+
+    # Relative volume against the symbol's OWN prior median. NaN where no
+    # baseline exists for that name — never filled with 1.0, which would assert
+    # normal participation on no evidence.
+    base = (volume_baseline or {}).get("median") or {}
+    out["avg_volume"] = out["TckrSymb"].map(base).astype("float64")
+    out["rvol"] = out["volume"] / out["avg_volume"].replace(0, pd.NA)
 
     return out.dropna(subset=["price_pct", "oi_pct"])
 
@@ -245,6 +342,10 @@ def summarize_symbol(row: pd.Series) -> dict[str, Any]:
     dte = int(row["days_to_expiry"])
     rollover = float(row["rollover_ratio"])
     turnover = float(row["turnover"])
+    rvol = float(row["rvol"]) if "rvol" in row and pd.notna(row.get("rvol")) else None
+
+    # Set when a would-be STRONG grade is held back for want of participation.
+    thin_participation = False
 
     # Strength, ordered so the disqualifying cases win. A thin or
     # rollover-contaminated name is not promoted by a large price move.
@@ -258,6 +359,13 @@ def summarize_symbol(row: pd.Series) -> dict[str, Any]:
         strength = ("STRONG"
                     if abs(px) >= STRONG_PRICE_PCT and abs(oi) >= STRONG_OI_PCT
                     else "MODERATE")
+        # Volume is a veto on STRONG, never a promotion to it. A big move on a
+        # big OI build that nobody showed up for is the textbook weak
+        # confirmation, and price and OI magnitude alone cannot see it.
+        if (strength == "STRONG" and rvol is not None
+                and rvol < MIN_STRONG_RVOL):
+            strength = "MODERATE"
+            thin_participation = True
     else:
         # Covering and unwinding are directionally informative but describe
         # positions leaving, so they never earn the top tier.
@@ -300,6 +408,18 @@ def summarize_symbol(row: pd.Series) -> dict[str, Any]:
         caveats.append(
             f"Series turnover of Rs {turnover/1e7:,.1f} crore is thin; the OI "
             f"percentage swings on very few lots.")
+    if thin_participation:
+        caveats.append(
+            f"Held at MODERATE despite the size of the move: volume was "
+            f"{rvol:.2f}x the symbol's own {VOLUME_BASELINE_SESSIONS}-session "
+            f"median, so the positions were built on below-normal "
+            f"participation. Fresh OI on thin volume is a weaker confirmation "
+            f"than the same OI on a crowd.")
+    elif rvol is not None and rvol >= 2.0 and reading in SUPPORTED:
+        caveats.append(
+            f"Volume ran {rvol:.1f}x the symbol's own "
+            f"{VOLUME_BASELINE_SESSIONS}-session median — the build had "
+            f"unusually broad participation behind it.")
 
     return {
         "symbol": sym,
@@ -309,6 +429,8 @@ def summarize_symbol(row: pd.Series) -> dict[str, Any]:
         "strength": strength,
         "price_pct": px,
         "oi_pct": oi,
+        "rvol": rvol,
+        "thin_participation": thin_participation,
         "oi": float(row["oi"]),
         "oi_chg": float(row["oi_chg"]),
         "turnover": turnover,
@@ -328,14 +450,19 @@ def sort_key(rec: dict[str, Any]) -> tuple:
 
 def scan(stf: pd.DataFrame, trade_date: datetime | None = None,
          min_turnover: float = MIN_TURNOVER,
-         include_no_read: bool = False) -> list[dict[str, Any]]:
+         include_no_read: bool = False,
+         volume_baseline: dict[str, Any] | None = None) -> list[dict[str, Any]]:
     """Full scan of the stock-futures universe, strongest reading first.
 
     `include_no_read` keeps the names that failed the materiality floors. Off by
     default, since on a normal session they are roughly a third of the universe
     and carry nothing.
+
+    `volume_baseline` is optional and costs extra downloads to build, so the
+    scan stays fully usable without it — omitted, `rvol` is None everywhere and
+    no name is downgraded for participation nobody measured.
     """
-    table = build_oi_table(stf, trade_date)
+    table = build_oi_table(stf, trade_date, volume_baseline=volume_baseline)
     if table.empty:
         return []
     out = [summarize_symbol(r) for _, r in table.iterrows()]

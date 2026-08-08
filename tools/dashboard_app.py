@@ -502,7 +502,27 @@ def cached_oi_momentum_scan(include_no_read: bool = False):
     stf = raw[raw["FinInstrmTp"] == oim.STOCK_FUTURE].copy()
     if stf.empty:
         return [], None
-    return oim.scan(stf, trade_date, include_no_read=include_no_read), trade_date
+    return oim.scan(stf, trade_date, include_no_read=include_no_read,
+                    volume_baseline=cached_volume_baseline()), trade_date
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_volume_baseline():
+    """Per-symbol median futures volume over the sessions BEFORE the scan date.
+
+    The expensive one on this page: it downloads five extra settled bhavcopies
+    to build a per-symbol participation baseline, which is the only way to say
+    whether a stock traded more than IT normally does. Cached for an hour like
+    everything else here — the files are settled and never change — so the cost
+    lands on one page load per hour, not every rerun.
+
+    Returns an empty baseline on any failure, which the scan treats as
+    participation UNMEASURED rather than normal.
+    """
+    _raw, trade_date = cached_fo_bhavcopy_raw()
+    if trade_date is None:
+        return {"median": {}, "sessions": 0, "dates": []}
+    return oim.fetch_volume_baseline(before=trade_date)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -6645,6 +6665,7 @@ if current_page == "OI Momentum":
                 "Strength":  r["strength"],
                 "Price %":   round(r["price_pct"], 2),
                 "OI %":      round(r["oi_pct"], 2),
+                "RVol":      (round(r["rvol"], 2) if r.get("rvol") is not None else None),
                 **_pcr_cells(r["symbol"], r["price_pct"]),
                 "OI":        int(r["oi"]),
                 "Turnover (₹cr)": round(r["turnover"] / 1e7, 0),
@@ -6659,6 +6680,13 @@ if current_page == "OI Momentum":
                     "Analyze": _analyze_colcfg(),
                     "Price %": st.column_config.NumberColumn("Price %", format="%.2f%%"),
                     "OI %": st.column_config.NumberColumn("OI %", format="%.2f%%"),
+                    "RVol": st.column_config.NumberColumn(
+                        "RVol", format="%.2fx",
+                        help="Today's futures volume ÷ the symbol's own median "
+                             "over the prior 5 settled sessions. 1.00x means it "
+                             "traded exactly as much as it usually does. Blank "
+                             "means no baseline was available — unmeasured, not "
+                             "normal."),
                     "PCR": st.column_config.NumberColumn(
                         "PCR", format="%.2f",
                         help="Put OI ÷ Call OI, all expiries. Blank where option "
@@ -6680,6 +6708,22 @@ if current_page == "OI Momentum":
                              "the price move. A separate opinion — it does not "
                              "feed the Reading or Strength columns."),
                 },
+            )
+            _vb = cached_volume_baseline()
+            _dg = [r["symbol"] for r in _view if r.get("thin_participation")]
+            st.caption(
+                f"**RVol** is today's volume against the symbol's own median over "
+                f"the prior **{_vb.get('sessions', 0)}** settled session(s) — "
+                f"\"high volume\" only means anything relative to what that name "
+                f"normally trades. It can **downgrade** a STRONG reading to "
+                f"MODERATE when a large move on a large OI build happened without "
+                f"the participation to back it, but it never promotes: volume is "
+                f"a veto, not a vote. "
+                + (f"Today it held back **{', '.join(_dg)}**."
+                   if _dg else
+                   "Today it downgraded nothing — measured across a recent "
+                   "session, STRONG names already ran ~4x their normal volume, "
+                   "so this fires rarely by construction.")
             )
             st.caption(
                 "**PCR columns are a separate, options-side opinion** — they do "
