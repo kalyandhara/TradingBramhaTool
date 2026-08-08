@@ -90,11 +90,24 @@ EXPIRY_NOISE_DAYS = 3
 # ── Fetch ─────────────────────────────────────────────────────────────────────
 
 def fetch_fo_bhavcopy(max_lookback: int = 7) -> tuple[pd.DataFrame, datetime | None]:
-    """Most recent available F&O bhavcopy, walking back from yesterday.
+    """Most recent available F&O bhavcopy, STOCK FUTURES only, + trade date.
 
-    Returns (stock-futures rows only, trade date). An empty frame and None mean
-    nothing was reachable in the window — holidays and long weekends make that a
-    normal outcome, not an error worth raising.
+    Thin filter over `fetch_fo_bhavcopy_raw`. The raw frame also carries the
+    option chains (STO/IDO) this module does not need but `pcr.py` does — one
+    download, two consumers, rather than two implementations of the same fetch.
+    """
+    df, day = fetch_fo_bhavcopy_raw(max_lookback)
+    if df.empty:
+        return df, day
+    return df[df["FinInstrmTp"] == STOCK_FUTURE].copy(), day
+
+
+def fetch_fo_bhavcopy_raw(max_lookback: int = 7) -> tuple[pd.DataFrame, datetime | None]:
+    """Most recent available F&O bhavcopy, ALL instrument types, + trade date.
+
+    Returns every row: STF/IDF futures and STO/IDO option chains. An empty frame
+    and None mean nothing was reachable in the window — holidays and long
+    weekends make that a normal outcome, not an error worth raising.
     """
     session = requests.Session()
     for days_back in range(1, max_lookback + 1):
@@ -119,7 +132,7 @@ def fetch_fo_bhavcopy(max_lookback: int = 7) -> tuple[pd.DataFrame, datetime | N
             continue
         if "FinInstrmTp" not in df.columns:
             continue
-        return df[df["FinInstrmTp"] == STOCK_FUTURE].copy(), day
+        return df, day
     return pd.DataFrame(), None
 
 

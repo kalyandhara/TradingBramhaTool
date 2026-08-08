@@ -62,6 +62,7 @@ import market_health as mh
 import report_style as rs
 import sector_card as scard
 import opportunity_report as orep
+import pcr
 import rrg as rrg_mod
 import ownership_cache as ocache
 import concalls
@@ -495,10 +496,43 @@ def cached_oi_momentum_scan(include_no_read: bool = False):
     ~1.2 MB zip. Returns (records, trade_date); an empty list with a None date
     means nothing was reachable in the lookback window.
     """
-    stf, trade_date = oim.fetch_fo_bhavcopy()
+    raw, trade_date = cached_fo_bhavcopy_raw()
+    if raw.empty:
+        return [], None
+    stf = raw[raw["FinInstrmTp"] == oim.STOCK_FUTURE].copy()
     if stf.empty:
         return [], None
     return oim.scan(stf, trade_date, include_no_read=include_no_read), trade_date
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_fo_bhavcopy_raw():
+    """The whole F&O bhavcopy once per hour, futures AND option chains.
+
+    Both the OI-momentum scan (STF rows) and PCR (STO/IDO rows) read this file.
+    Caching the raw frame rather than each consumer's slice is what makes the
+    "one download, two consumers" claim in pcr.py actually true — otherwise the
+    same ~1.2 MB zip would be pulled twice per page load.
+    """
+    return oim.fetch_fo_bhavcopy_raw()
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_pcr():
+    """Stock and index PCR tables + the stock cross-sectional calibration.
+
+    Returns a dict keyed by symbol for the stock side, since the OI-momentum
+    table joins on symbol. Index readings stay separate and unbanded — see
+    pcr.py on why the two classes cannot share a calibration.
+    """
+    raw, _day = cached_fo_bhavcopy_raw()
+    if raw is None or raw.empty:
+        return {}, None, pd.DataFrame()
+    stock = pcr.build_pcr_table(raw, pcr.CLASS_STOCK)
+    index = pcr.build_pcr_table(raw, pcr.CLASS_INDEX)
+    calib = pcr.calibrate_stock(stock)
+    by_sym = {r["symbol"]: r for r in stock.to_dict("records")}
+    return by_sym, calib, index
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -6580,12 +6614,38 @@ if current_page == "OI Momentum":
                 f"unsupported move sinks below a smaller built one."
             )
 
+            # ── Options-side positioning, as a SEPARATE column ────────────────
+            # PCR sits beside the verdict, never inside it. The quadrant is a
+            # futures-OI statement; PCR is an options-OI one, and merging them
+            # would produce a label that can no longer be traced back to either.
+            # It is also directionally ambiguous (a high PCR reads bullish to a
+            # trend-follower and crowded to a contrarian), so letting it move the
+            # verdict would import that ambiguity into the one number here that
+            # currently has none.
+            _pcr_by_sym, _pcr_calib, _pcr_index = cached_pcr()
+
+            def _pcr_cells(sym: str, price_pct: float) -> dict:
+                p = _pcr_by_sym.get(sym)
+                if not p or not p.get("liquid") or not np.isfinite(p.get("pcr", float("nan"))):
+                    return {"PCR": None, "PCR %ile": None, "ΔPCR": None, "Options": ""}
+                _tag = pcr.price_pcr_tag(price_pct, p.get("pcr_chg"))
+                _pct = pcr.stock_percentile(p["pcr"], _pcr_calib)
+                return {
+                    "PCR": round(float(p["pcr"]), 2),
+                    "PCR %ile": round(_pct) if _pct is not None else None,
+                    "ΔPCR": (round(float(p["pcr_chg"]), 2)
+                             if p.get("pcr_chg") is not None
+                             and np.isfinite(p["pcr_chg"]) else None),
+                    "Options": _tag["tag"] if _tag else "",
+                }
+
             _tbl = pd.DataFrame([{
                 "Symbol":    r["symbol"],
                 "Reading":   r["reading"],
                 "Strength":  r["strength"],
                 "Price %":   round(r["price_pct"], 2),
                 "OI %":      round(r["oi_pct"], 2),
+                **_pcr_cells(r["symbol"], r["price_pct"]),
                 "OI":        int(r["oi"]),
                 "Turnover (₹cr)": round(r["turnover"] / 1e7, 0),
                 "Chart":     _oi_chart_url(r["symbol"]),
@@ -6599,7 +6659,38 @@ if current_page == "OI Momentum":
                     "Analyze": _analyze_colcfg(),
                     "Price %": st.column_config.NumberColumn("Price %", format="%.2f%%"),
                     "OI %": st.column_config.NumberColumn("OI %", format="%.2f%%"),
+                    "PCR": st.column_config.NumberColumn(
+                        "PCR", format="%.2f",
+                        help="Put OI ÷ Call OI, all expiries. Blank where option "
+                             "OI is too thin to read."),
+                    "PCR %ile": st.column_config.NumberColumn(
+                        "PCR %ile", format="%d",
+                        help="Rank within TODAY'S liquid stock cross-section. "
+                             "Stock PCR runs structurally lower than index PCR, so "
+                             "the usual <0.70/>1.30 bands do not apply here — the "
+                             "median NSE stock sits near 0.68."),
+                    "ΔPCR": st.column_config.NumberColumn(
+                        "ΔPCR", format="%.2f",
+                        help="One-day change, reconstructed from ChngInOpnIntrst. "
+                             "More informative than the level, which is largely "
+                             "structural."),
+                    "Options": st.column_config.TextColumn(
+                        "Options", width="small",
+                        help="Whether the options side CONFIRMS or DIVERGES from "
+                             "the price move. A separate opinion — it does not "
+                             "feed the Reading or Strength columns."),
                 },
+            )
+            st.caption(
+                "**PCR columns are a separate, options-side opinion** — they do "
+                "not feed *Reading* or *Strength*, which remain pure futures-OI "
+                "readings. PCR has no fixed sign (a high reading is confirmation "
+                "to a trend-follower and crowding to a contrarian), and it is "
+                "**not backtested here**, so it is shown as context rather than "
+                "allowed to move a verdict. Ranking is against today's liquid "
+                "stock cross-section, never against index PCR — index puts carry "
+                "portfolio-hedging demand single-stock options do not, which "
+                "makes the two scales genuinely different."
             )
 
             # ── Per-name reads ────────────────────────────────────────────────
@@ -6652,6 +6743,24 @@ if current_page == "OI Momentum":
                             f"turnover ₹{r['turnover']/1e7:,.0f} crore · "
                             f"{r['days_to_expiry']} session(s) to expiry."
                         )
+                        # Options side, stated as its own sentence so it can never
+                        # be mistaken for part of the futures reading above.
+                        _p = _pcr_by_sym.get(r["symbol"])
+                        if _p and _p.get("liquid") and np.isfinite(_p.get("pcr", float("nan"))):
+                            _pct = pcr.stock_percentile(_p["pcr"], _pcr_calib)
+                            _tag = pcr.price_pcr_tag(r["price_pct"], _p.get("pcr_chg"))
+                            _line = (f"**Options side (separate read):** PCR "
+                                     f"{_p['pcr']:.2f}")
+                            if _pct is not None:
+                                _line += (f" — p{_pct:.0f} of today's liquid stock "
+                                          f"cross-section, "
+                                          f"{pcr.classify_stock(_p['pcr'], _pcr_calib)}")
+                            if _p.get("pcr_chg") is not None and np.isfinite(_p["pcr_chg"]):
+                                _line += f" · one-day change {_p['pcr_chg']:+.2f}"
+                            st.markdown(_line + ".")
+                            if _tag:
+                                st.caption(f"**{_tag['tag']}** — {_tag['note']} "
+                                           f"This does not change the reading above.")
                         for c in r["caveats"]:
                             st.warning(c)
 
@@ -6661,3 +6770,37 @@ if current_page == "OI Momentum":
             "next one — reading the front month alone turns ordinary rollover into a "
             "confident and entirely fictitious short-covering signal."
         )
+
+        # ── Index PCR, deliberately in its own section ────────────────────────
+        # Kept apart from everything above because index and stock PCR are not
+        # the same measurement: index puts carry portfolio-hedging demand, so
+        # index PCR sits near 1.0 while the median stock sits near 0.68. Showing
+        # them in one table would invite exactly the comparison that is invalid.
+        with st.expander("Index PCR — separate scale, and deliberately unbanded"):
+            _idx_recs = [pcr.index_reading(_pcr_index, s)
+                         for s in _pcr_index["symbol"].tolist()] if not _pcr_index.empty else []
+            _idx_recs = [x for x in _idx_recs if x]
+            if not _idx_recs:
+                st.info("No index option rows in this session's bhavcopy.")
+            else:
+                st.dataframe(
+                    pd.DataFrame([{
+                        "Index": x["symbol"],
+                        "PCR": round(x["pcr"], 3),
+                        "ΔPCR": (round(x["pcr_chg"], 3)
+                                 if x["pcr_chg"] is not None else None),
+                        "Option OI": int(x["total_oi"]),
+                        "Readable": "yes" if x["liquid"] else "too thin",
+                    } for x in _idx_recs]),
+                    use_container_width=True, hide_index=True,
+                )
+                st.caption(
+                    "**No sentiment band is shown here, on purpose.** A stock's "
+                    "PCR can be ranked against 200-odd peers on the same day; "
+                    "an index can only be ranked against its own history, and "
+                    "none is stored yet. Borrowing the stock cross-section would "
+                    "compare instruments whose PCR differs structurally — index "
+                    "puts are the standard portfolio hedge, single-stock options "
+                    "are not. Level and one-day change are honest to report; a "
+                    "label would not be."
+                )
