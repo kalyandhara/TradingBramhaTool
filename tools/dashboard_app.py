@@ -507,6 +507,28 @@ def cached_oi_momentum_scan(include_no_read: bool = False):
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
+def cached_oi_momentum_index():
+    """The same four quadrants over INDEX futures, on index floors.
+
+    A separate cached call, not extra rows on the stock scan: index and stock OI
+    percentages are not comparable (an index 3% build is an ordinary day where a
+    stock's would be strong), and there are five index underlyings against ~210
+    stocks. Kept apart for the same reason pcr.py keeps the two option classes
+    apart.
+    """
+    raw, trade_date = cached_fo_bhavcopy_raw()
+    if raw.empty:
+        return [], None
+    idf = raw[raw["FinInstrmTp"] == oim.INDEX_FUTURE].copy()
+    if idf.empty:
+        return [], None
+    base = oim.fetch_volume_baseline(before=trade_date,
+                                     instrument=oim.INDEX_FUTURE)
+    return oim.scan_index(idf, trade_date, include_no_read=True,
+                          volume_baseline=base), trade_date
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
 def cached_volume_baseline():
     """Per-symbol median futures volume over the sessions BEFORE the scan date.
 
@@ -6815,12 +6837,59 @@ if current_page == "OI Momentum":
             "confident and entirely fictitious short-covering signal."
         )
 
-        # ── Index PCR, deliberately in its own section ────────────────────────
-        # Kept apart from everything above because index and stock PCR are not
-        # the same measurement: index puts carry portfolio-hedging demand, so
-        # index PCR sits near 1.0 while the median stock sits near 0.68. Showing
-        # them in one table would invite exactly the comparison that is invalid.
-        with st.expander("Index PCR — separate scale, and deliberately unbanded"):
+        # ── Index, deliberately in its own section ────────────────────────────
+        # Everything index-level lives here and nowhere else. Index and stock
+        # readings are not comparable on either axis: an index OI build of 3% is
+        # an ordinary day where a stock's would be strong, and index puts carry
+        # portfolio-hedging demand single-stock options do not. Merging either
+        # into the tables above would invite exactly the comparison the separate
+        # floors exist to prevent.
+        with st.expander("Index futures & options — separate scale, own floors"):
+            _idx_recs, _idx_date = cached_oi_momentum_index()
+            st.markdown("**Index futures — price vs OI**")
+            if not _idx_recs:
+                st.info("No index futures in this session's bhavcopy.")
+            else:
+                _f = oim.INDEX_FLOORS
+                st.dataframe(
+                    pd.DataFrame([{
+                        "Index":    r["symbol"],
+                        "Reading":  r["reading"],
+                        "Strength": r["strength"],
+                        "Price %":  round(r["price_pct"], 2),
+                        "OI %":     round(r["oi_pct"], 2),
+                        "RVol":     (round(r["rvol"], 2)
+                                     if r.get("rvol") is not None else None),
+                        "Series OI": int(r["oi"]),
+                    } for r in _idx_recs]),
+                    use_container_width=True, hide_index=True,
+                    column_config={
+                        "Price %": st.column_config.NumberColumn("Price %", format="%.2f%%"),
+                        "OI %": st.column_config.NumberColumn("OI %", format="%.2f%%"),
+                        "RVol": st.column_config.NumberColumn("RVol", format="%.2fx"),
+                    },
+                )
+                st.caption(
+                    f"**Index floors, not stock floors.** A reading needs "
+                    f"|price| ≥ {_f['min_price_pct']}% and |OI| ≥ {_f['min_oi_pct']}%; "
+                    f"STRONG needs {_f['strong_price_pct']}% and "
+                    f"{_f['strong_oi_pct']}%. Measured over 12 sessions, an index "
+                    f"moves about 58% as much as a single stock on price while its "
+                    f"OI swings roughly twice as hard, so the stock floors are wrong "
+                    f"in both directions. Calibrated on the **liquid** indices only "
+                    f"— FINNIFTY and NIFTYNXT50 swing 20%+ on twenty-odd thousand "
+                    f"contracts, and pooling them inflated the cut so far that "
+                    f"STRONG could never be earned. Anything under "
+                    f"{_f['min_oi']:,.0f} contracts is graded UNRELIABLE for that "
+                    f"reason."
+                )
+                _unrel = [r["symbol"] for r in _idx_recs if r["strength"] == "UNRELIABLE"]
+                if _unrel:
+                    st.caption(f"Below the liquidity floor this session: "
+                               f"**{', '.join(_unrel)}**.")
+
+            st.divider()
+            st.markdown("**Index PCR**")
             _idx_recs = [pcr.index_reading(_pcr_index, s)
                          for s in _pcr_index["symbol"].tolist()] if not _pcr_index.empty else []
             _idx_recs = [x for x in _idx_recs if x]

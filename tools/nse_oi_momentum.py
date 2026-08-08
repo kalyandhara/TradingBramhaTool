@@ -62,9 +62,11 @@ NSE_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
 }
 
-# UDiFF instrument type for single-stock futures. IDF is index futures, STO/IDO
-# are the option chains that swamp the web page.
+# UDiFF instrument types. STO/IDO are the option chains that swamp the web page
+# (and feed pcr.py); the two futures types each get their own scan and their own
+# floors — see INDEX_FLOORS.
 STOCK_FUTURE = "STF"
+INDEX_FUTURE = "IDF"
 
 # Materiality floors, set from the cross-section on a normal session (210 stock
 # futures): median |price change| ran ~0.95% and median |OI change| ~1.3%. These
@@ -108,6 +110,70 @@ MIN_BASELINE_SESSIONS = 3
 # make the "large move, large OI, nobody there" case DETECTABLE, not to re-rank
 # the universe. Volume can only ever downgrade here; it never promotes.
 MIN_STRONG_RVOL = 1.0
+
+# ── Floor sets, one per instrument class ─────────────────────────────────────
+# An index is a diversified average, so it does not move like the names inside
+# it, and reusing the stock floors would be wrong in BOTH directions. Measured
+# over 12 sessions (60 index symbol-days, 2,506 stock symbol-days):
+#
+#              median |price %|      median |OI %|
+#   STOCK           0.90                1.43
+#   INDEX           0.52                3.08
+#
+# Indices move about 58% as much on price, and their OI swings roughly twice as
+# hard — index futures carry far fewer contracts, so a single large roll moves
+# the percentage much further. Both floors therefore have to change, and in
+# opposite directions.
+#
+# The rule is the module's existing one: a floor sits near the class median, so
+# "a reading" means the instrument moved more than half its own class did.
+#
+# NOTE on the stock set: the comment above MIN_PRICE_PCT says its floors "sit
+# just above those medians". That is true of MIN_OI_PCT (1.5 vs a 1.43 median)
+# but NOT of MIN_PRICE_PCT (0.5 against a 0.90 median) — the price floor is
+# considerably more permissive than the docstring claims. Left as-is because
+# changing it would silently re-grade the whole stock universe; recorded here so
+# the next reader is not misled by the stated rationale.
+STOCK_FLOORS: dict[str, Any] = {
+    "label":            "stock future",
+    "min_price_pct":    MIN_PRICE_PCT,
+    "min_oi_pct":       MIN_OI_PCT,
+    "strong_price_pct": STRONG_PRICE_PCT,
+    "strong_oi_pct":    STRONG_OI_PCT,
+    "min_turnover":     MIN_TURNOVER,
+    "min_oi":           0.0,          # turnover is the stock liquidity gate
+}
+
+#: Index floors, calibrated on the LIQUID index distribution only (36 symbol-days
+#: over 12 sessions): |price| p50 0.43, p75 0.80, p90 0.93; |OI| p50 2.02,
+#: p75 3.61, p90 4.70.
+#:
+#: Calibrating on liquid names only is the correction that matters here. The
+#: first cut pooled all five indices and got |OI| p75 4.86 / p90 7.83 — badly
+#: inflated, because FINNIFTY and NIFTYNXT50 swing 20%+ on twenty-odd thousand
+#: contracts. A STRONG cut taken from that pool (6.0) sat ABOVE the liquid p90
+#: and fired on 0 of 36 liquid symbol-days: a grade that cannot be earned. Since
+#: an illiquid index is forced to UNRELIABLE by `min_oi` regardless, the only
+#: population a STRONG threshold can ever apply to is the liquid one, so that is
+#: the population it must be measured on.
+#:
+#: The result matches the stock scan's selectivity closely, which is the
+#: cross-check: STRONG lands on 3% of liquid index symbol-days against 3.4% of
+#: stock symbol-days, and a reading on 19% against 27%.
+#:
+#: `min_oi` is the liquidity gate here rather than turnover: NIFTY carried a
+#: median 14.3M contracts, BANKNIFTY 2.35M and MIDCPNIFTY 1.98M, against
+#: FINNIFTY's 32,010 and NIFTYNXT50's 18,962 — two orders of magnitude apart.
+#: 1,000,000 is the same index floor pcr.py uses, kept identical on purpose.
+INDEX_FLOORS: dict[str, Any] = {
+    "label":            "index future",
+    "min_price_pct":    0.5,          # liquid p50 0.43
+    "min_oi_pct":       2.5,          # liquid p50 2.02
+    "strong_price_pct": 0.9,          # liquid p90 0.93
+    "strong_oi_pct":    4.5,          # liquid p90 4.70
+    "min_turnover":     0.0,          # OI is the index liquidity gate
+    "min_oi":           1_000_000.0,
+}
 
 
 # ── Fetch ─────────────────────────────────────────────────────────────────────
@@ -171,8 +237,13 @@ def _download_bhavcopy(session: requests.Session, day: datetime) -> pd.DataFrame
 
 def fetch_volume_baseline(sessions: int = VOLUME_BASELINE_SESSIONS,
                           max_lookback: int = 20,
-                          before: datetime | None = None) -> dict[str, Any]:
-    """Per-symbol median stock-futures volume over the N sessions BEFORE `before`.
+                          before: datetime | None = None,
+                          instrument: str = STOCK_FUTURE) -> dict[str, Any]:
+    """Per-symbol median futures volume over the N sessions BEFORE `before`.
+
+    `instrument` selects the class (STF or IDF). One call per class rather than
+    a combined map: symbol namespaces do not overlap, but keeping them apart
+    means an index can never accidentally be handed a stock's baseline.
 
     Costs `sessions` extra downloads (~1.2 MB each), which is why callers are
     expected to cache it — the underlying files are settled and never change.
@@ -201,10 +272,10 @@ def fetch_volume_baseline(sessions: int = VOLUME_BASELINE_SESSIONS,
         df = _download_bhavcopy(session, day)
         if df is None:
             continue
-        stf = df[df["FinInstrmTp"] == STOCK_FUTURE]
-        if stf.empty or "TtlTradgVol" not in stf.columns:
+        sub = df[df["FinInstrmTp"] == instrument]
+        if sub.empty or "TtlTradgVol" not in sub.columns:
             continue
-        seen.append(stf.groupby("TckrSymb")["TtlTradgVol"].sum())
+        seen.append(sub.groupby("TckrSymb")["TtlTradgVol"].sum())
         dates.append(day.strftime("%Y-%m-%d"))
 
     if not seen:
@@ -313,13 +384,16 @@ BIAS = {
 }
 
 
-def classify(price_pct: float, oi_pct: float) -> str:
+def classify(price_pct: float, oi_pct: float,
+             floors: dict[str, Any] = STOCK_FLOORS) -> str:
     """Quadrant for one name, or NO_READ when either axis is below its floor.
 
     Refusing to classify small moves is the point: at 0.2% price and 0.3% OI the
-    quadrant is real arithmetic and meaningless information.
+    quadrant is real arithmetic and meaningless information. `floors` selects the
+    instrument class — an index clears a different bar from a single stock.
     """
-    if abs(price_pct) < MIN_PRICE_PCT or abs(oi_pct) < MIN_OI_PCT:
+    if (abs(price_pct) < floors["min_price_pct"]
+            or abs(oi_pct) < floors["min_oi_pct"]):
         return NO_READ
     if price_pct > 0:
         return LONG_BUILDUP if oi_pct > 0 else SHORT_COVERING
@@ -334,11 +408,12 @@ STRENGTH_RANK = {"STRONG": 0, "MODERATE": 1, "UNSUPPORTED": 2,
 ACTIONABLE_STRENGTHS = ("STRONG", "MODERATE")
 
 
-def summarize_symbol(row: pd.Series) -> dict[str, Any]:
+def summarize_symbol(row: pd.Series,
+                     floors: dict[str, Any] = STOCK_FLOORS) -> dict[str, Any]:
     """Reading, strength, and a plain-language explanation for one underlying."""
     sym = str(row["TckrSymb"])
     px, oi = float(row["price_pct"]), float(row["oi_pct"])
-    reading = classify(px, oi)
+    reading = classify(px, oi, floors)
     dte = int(row["days_to_expiry"])
     rollover = float(row["rollover_ratio"])
     turnover = float(row["turnover"])
@@ -351,13 +426,16 @@ def summarize_symbol(row: pd.Series) -> dict[str, Any]:
     # rollover-contaminated name is not promoted by a large price move.
     if reading == NO_READ:
         strength = "NONE"
-    elif turnover < MIN_TURNOVER:
+    elif turnover < floors["min_turnover"]:
+        strength = "UNRELIABLE"
+    elif float(row["oi"]) < floors["min_oi"]:
         strength = "UNRELIABLE"
     elif dte <= EXPIRY_NOISE_DAYS:
         strength = "UNRELIABLE"
     elif reading in SUPPORTED:
         strength = ("STRONG"
-                    if abs(px) >= STRONG_PRICE_PCT and abs(oi) >= STRONG_OI_PCT
+                    if abs(px) >= floors["strong_price_pct"]
+                    and abs(oi) >= floors["strong_oi_pct"]
                     else "MODERATE")
         # Volume is a veto on STRONG, never a promotion to it. A big move on a
         # big OI build that nobody showed up for is the textbook weak
@@ -404,10 +482,16 @@ def summarize_symbol(row: pd.Series) -> dict[str, Any]:
             f"{rollover:.0%} of the front-month OI decline was picked up by "
             f"later expiries. Most of what looks like positions closing is "
             f"rollover into the next series.")
-    if turnover < MIN_TURNOVER:
+    if turnover < floors["min_turnover"]:
         caveats.append(
             f"Series turnover of Rs {turnover/1e7:,.1f} crore is thin; the OI "
             f"percentage swings on very few lots.")
+    if float(row["oi"]) < floors["min_oi"]:
+        caveats.append(
+            f"Series open interest of {float(row['oi']):,.0f} contracts is below "
+            f"the {floors['label']} floor of {floors['min_oi']:,.0f}. The OI "
+            f"percentage here moves on a handful of lots and is not comparable "
+            f"to the liquid contracts in this table.")
     if thin_participation:
         caveats.append(
             f"Held at MODERATE despite the size of the move: volume was "
@@ -448,10 +532,27 @@ def sort_key(rec: dict[str, Any]) -> tuple:
             -abs(float(rec.get("oi_pct") or 0.0)))
 
 
+def scan_index(idf: pd.DataFrame, trade_date: datetime | None = None,
+               include_no_read: bool = False,
+               volume_baseline: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+    """The same four quadrants over INDEX futures, on index floors.
+
+    A separate entry point rather than extra rows on the stock scan, and
+    deliberately so. The two classes are not comparable: an index OI percentage
+    of 3% is an ordinary day where a stock's would be a strong build, and there
+    are five index underlyings against ~210 stocks. Appending them to one table
+    would invite exactly the cross-class comparison the floors exist to prevent —
+    the same separation `pcr.py` enforces for the option side.
+    """
+    return scan(idf, trade_date, include_no_read=include_no_read,
+                volume_baseline=volume_baseline, floors=INDEX_FLOORS)
+
+
 def scan(stf: pd.DataFrame, trade_date: datetime | None = None,
-         min_turnover: float = MIN_TURNOVER,
+         min_turnover: float | None = None,
          include_no_read: bool = False,
-         volume_baseline: dict[str, Any] | None = None) -> list[dict[str, Any]]:
+         volume_baseline: dict[str, Any] | None = None,
+         floors: dict[str, Any] = STOCK_FLOORS) -> list[dict[str, Any]]:
     """Full scan of the stock-futures universe, strongest reading first.
 
     `include_no_read` keeps the names that failed the materiality floors. Off by
@@ -462,10 +563,12 @@ def scan(stf: pd.DataFrame, trade_date: datetime | None = None,
     scan stays fully usable without it — omitted, `rvol` is None everywhere and
     no name is downgraded for participation nobody measured.
     """
+    if min_turnover is None:
+        min_turnover = floors["min_turnover"]
     table = build_oi_table(stf, trade_date, volume_baseline=volume_baseline)
     if table.empty:
         return []
-    out = [summarize_symbol(r) for _, r in table.iterrows()]
+    out = [summarize_symbol(r, floors) for _, r in table.iterrows()]
     if not include_no_read:
         out = [r for r in out if r["reading"] != NO_READ]
     out = [r for r in out if r["turnover"] >= min_turnover

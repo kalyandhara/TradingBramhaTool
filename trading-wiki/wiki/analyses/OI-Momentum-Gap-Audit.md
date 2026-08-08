@@ -162,7 +162,7 @@ to. [[analyses/Backtest-Harness]] has never tested the OI quadrant either.
 - ✅ Ingested [[sources/Fingrad-OI-Analysis-Infographic]]; audited the module
   against it and measured relative volume on a 5-session baseline (2026-08-07).
 - ✅ **Gap 1 SHIPPED 2026-08-07** — `rvol` column + STRONG downgrade. See Outcome.
-- ⏭ Gap 2 — separate index OI table.
+- ✅ **Gap 2 SHIPPED 2026-08-07** — `scan_index()` on measured index floors. See Outcome.
 - ⏭ Gap 4 — breakout/level linkage.
 - ⏭ Gap 3 — strike-level option OI quadrant.
 
@@ -216,6 +216,64 @@ nowhere.
 session's distribution and want re-measuring; and the whole OI quadrant remains
 untested by [[analyses/Backtest-Harness]], so `rvol` refines a grade that has
 itself never been validated.
+
+### Gap 2 — index OI table, 2026-08-07
+
+`scan_index()` runs the same four quadrants over `IDF` rows on **`INDEX_FLOORS`**,
+a second floor set threaded through `classify` / `summarize_symbol` / `scan`.
+Everything defaults to `STOCK_FLOORS`, so the stock path is untouched — verified
+byte-identical (57 readings, STRONG 7 / MODERATE 29 / UNSUPPORTED 21).
+
+**The floors had to be measured, because inheriting the stock set is wrong in
+both directions at once.** Over 12 sessions:
+
+| | median \|price %\| | median \|OI %\| |
+|---|---|---|
+| STOCK | 0.90 | 1.43 |
+| INDEX | 0.52 | 3.08 |
+
+An index moves about 58% as much on price — it is a diversified average — while
+its OI swings roughly twice as hard, because index futures carry far fewer
+contracts and one large roll moves the percentage further.
+
+> [!warning] The bug in my own first cut: a threshold that could never be earned
+> I set the STRONG cuts from percentiles pooled across **all five** indices and
+> got |OI| p75 4.86 / p90 7.83. Those are inflated by FINNIFTY and NIFTYNXT50,
+> which swing 20%+ on twenty-odd thousand contracts. The resulting cut (6.0)
+> sat **above the liquid p90 of 4.70** and fired on **0 of 36 liquid
+> symbol-days** across 12 sessions — a grade that is unreachable by
+> construction, and one that a single quiet session would never have exposed.
+>
+> The fix is a rule, not a number: **an illiquid index is forced to UNRELIABLE
+> by `min_oi` regardless, so the only population a STRONG threshold can ever
+> apply to is the liquid one — and that is the population it must be measured
+> on.** Recalibrated on liquid-only (|price| p50 0.43 / p90 0.93, |OI| p50 2.02
+> / p90 4.70): `min` 0.5 / 2.5, `strong` 0.9 / 4.5.
+
+**The cross-check that says the calibration is right:** matched selectivity
+against the stock scan. STRONG lands on **3% of liquid index symbol-days against
+3.4% of stock symbol-days**, and a reading on 19% against 27%. Two independently
+calibrated floor sets landing on the same strictness is the evidence that
+neither was fitted to taste.
+
+Liquidity is gated on **OI, not turnover**, for indices: NIFTY carries a median
+14.3M contracts and BANKNIFTY 2.35M against FINNIFTY's 32,010 — two orders of
+magnitude, and `min_oi` is set to 1,000,000, the same index floor `pcr.py`
+already uses.
+
+**Verified:** stock regression identical; across 12 sessions the index scan
+produced 18 readings spanning **all four quadrants** (8 short build-up, 5 long
+build-up, 4 short covering, 1 long unwinding) with 12 correctly graded
+UNRELIABLE on the liquidity floor and one STRONG (BANKNIFTY 2026-07-23, −0.93%
+on +5.48% OI); rendered in an isolated dashboard boot in its own expander
+alongside index PCR, no exceptions.
+
+**Also recorded while measuring:** the stock floor comment claims its values
+"sit just above those medians". True of `MIN_OI_PCT` (1.5 vs a 1.43 median) but
+**not** of `MIN_PRICE_PCT` (0.5 against a 0.90 median) — the price floor is far
+more permissive than its stated rationale. Left unchanged, since altering it
+would silently re-grade the whole stock universe, but noted in the module so the
+next reader is not misled.
 
 ## Related Pages
 
