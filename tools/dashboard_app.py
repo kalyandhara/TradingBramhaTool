@@ -1568,9 +1568,36 @@ def render_chart_tool(symbol: str, height: int = 620, caption: bool = True) -> b
     return True
 
 
+#: Sizing bounds PER CHART MODE, because the two are not the same object. The
+#: classic chart stacks five or six panes, so 900 is roughly where the
+#: oscillators stop being legible. The Chart Tool is a single pane whose shipped
+#: default is 620 — a floor of 900 there would put the default BELOW the minimum,
+#: which Streamlit silently coerces rather than rejecting, leaving a slider whose
+#: stated range is a lie. Ceiling is a tall portrait monitor's worth for both.
+CHART_H_MAX = 2400
+CHART_H_MIN_CLASSIC, CHART_H_DEFAULT_CLASSIC = 900, 1250
+CHART_H_MIN_TOOL, CHART_H_DEFAULT_TOOL = 400, 620
+#: Upper bound on the price pane's share. Past this the oscillators below it
+#: compress into strips — at 0.65 on a 1250px figure RSI still gets ~100px,
+#: which is about the limit of useful.
+PRICE_SHARE_MAX = 0.65
+
+
 def build_chart(symbol: str, df: pd.DataFrame, ew: dict,
                 nifty_df: pd.DataFrame | None = None,
-                harmonic: dict | None = None) -> go.Figure:
+                harmonic: dict | None = None,
+                height: int | None = None,
+                price_share: float | None = None) -> go.Figure:
+    """The classic multi-pane Plotly chart.
+
+    `height` and `price_share` are both optional and both default to the values
+    this chart has always used, so a caller that passes neither gets a
+    byte-identical figure. They are separate levers on purpose: raising the
+    height scales every pane together, which does not help if the complaint is
+    that the CANDLES are cramped — the price pane is only 38% of the figure, so
+    it stays 38% of whatever height you pick. `price_share` is the one that
+    actually buys candle room, by taking it from the oscillators.
+    """
     rsi9  = RSIIndicator(df["close"], window=9).rsi()
     sma50  = df["close"].rolling(50).mean()
     sma150 = df["close"].rolling(150).mean()
@@ -1618,6 +1645,16 @@ def build_chart(symbol: str, df: pd.DataFrame, ew: dict,
 
     n_rows = 6 if rs_line is not None else 5
     heights = [0.38, 0.10, 0.14, 0.14, 0.12, 0.12] if rs_line is not None else [0.42, 0.10, 0.16, 0.16, 0.16]
+    if price_share is not None:
+        # Give the price pane `price_share` and rescale the rest to fill what is
+        # left, preserving their proportions to each other — Plotly requires
+        # row_heights to sum to 1, and the sub-panes' relative sizing was chosen
+        # deliberately (volume thin, RSI/MACD equal). Clamped at the floor to the
+        # chart's own default, so asking for less than it already had is a no-op
+        # rather than a way to shrink the candles.
+        p = min(max(float(price_share), heights[0]), PRICE_SHARE_MAX)
+        scale = (1.0 - p) / (1.0 - heights[0])
+        heights = [p] + [h * scale for h in heights[1:]]
     titles  = (symbol, "Volume", "RSI(9)", "MACD (12,26,9)", "TSI (25,13,13)", "RS Line vs Nifty50") \
               if rs_line is not None else (symbol, "Volume", "RSI(9)", "MACD (12,26,9)", "TSI (25,13,13)")
 
@@ -1771,7 +1808,7 @@ def build_chart(symbol: str, df: pd.DataFrame, ew: dict,
         ), row=6, col=1)
         fig.add_hline(y=100, row=6, col=1, line_dash="dash", line_color="gray", line_width=1)
 
-    chart_height = 1250 if rs_line is not None else 1150
+    chart_height = int(height) if height else (1250 if rs_line is not None else 1150)
     fig.update_layout(height=chart_height, xaxis_rangeslider_visible=False,
                        legend=dict(orientation="h", yanchor="bottom", y=1.02))
     return fig
@@ -2814,6 +2851,42 @@ if current_page == "Stock Analyzer":
                          "TSI or CPR panes. Flip this when you need those.",
                 )
 
+                # ── Chart sizing ──────────────────────────────────────────────
+                # Applies to whichever chart is showing. Both renderers are
+                # fixed-height by construction — the Chart Tool is an iframe and
+                # Plotly figures carry an explicit height — so vertical size is
+                # the one dimension `use_container_width` cannot solve, and the
+                # right value depends on the monitor rather than on the data.
+                # Defaults are exactly what each chart used before this control
+                # existed, so an untouched page renders identically.
+                with st.expander("Chart size"):
+                    _sz1, _sz2 = st.columns(2)
+                    with _sz1:
+                        _h_min, _h_def = ((CHART_H_MIN_CLASSIC, CHART_H_DEFAULT_CLASSIC)
+                                          if classic_chart
+                                          else (CHART_H_MIN_TOOL, CHART_H_DEFAULT_TOOL))
+                        sa_chart_h = st.slider(
+                            "Chart height (px)", _h_min, CHART_H_MAX, _h_def, 50,
+                            key=f"sa_chart_h_{'classic' if classic_chart else 'tool'}",
+                            help="Vertical size of the chart. The two chart modes "
+                                 "keep separate values — the Chart Tool is one "
+                                 "pane and the classic chart stacks six, so they "
+                                 "do not want the same number.")
+                    with _sz2:
+                        if classic_chart:
+                            sa_price_share = st.slider(
+                                "Price pane share (%)", 38, int(PRICE_SHARE_MAX * 100),
+                                38, 1, key="sa_price_share",
+                                help="How much of the figure the candles get. The "
+                                     "default 38% is why raising height alone can "
+                                     "feel like it did not help — everything grows "
+                                     "together. Raising this takes room from the "
+                                     "oscillators instead.")
+                        else:
+                            sa_price_share = None
+                            st.caption("Pane share applies to the classic chart — "
+                                       "the Chart Tool manages its own sub-panes.")
+
                 if classic_chart:
                     show_harmonic = st.checkbox(
                         "Show Harmonic Pattern (Gartley/Bat/Butterfly/Crab)",
@@ -2835,18 +2908,28 @@ if current_page == "Stock Analyzer":
                         else:
                             st.caption("No active harmonic pattern completing in the last 10 bars.")
 
-                    st.plotly_chart(build_chart(symbol, df, ew, nifty_df=nifty_df, harmonic=harmonic),
-                                    use_container_width=True)
+                    st.plotly_chart(
+                        build_chart(symbol, df, ew, nifty_df=nifty_df,
+                                    harmonic=harmonic, height=sa_chart_h,
+                                    price_share=(sa_price_share / 100.0
+                                                 if sa_price_share else None)),
+                        use_container_width=True)
                 # Harmonic lives on the Chart Tool's own indicator menu, so the
                 # checkbox above would be a second switch for the same overlay —
                 # it stays with the chart it drives.
-                elif not render_chart_tool(symbol):
+                elif not render_chart_tool(symbol, height=sa_chart_h):
                     # Server down. Fall back to the classic chart rather than
                     # leaving the page chartless behind a warning — this is the
                     # analysis surface, and every read below assumes you have
                     # looked at the price.
-                    st.plotly_chart(build_chart(symbol, df, ew, nifty_df=nifty_df),
-                                    use_container_width=True)
+                    #
+                    # The height carries over, but NOT the pane share: this path
+                    # is reached with the Chart Tool selected, so `sa_price_share`
+                    # is None and the classic chart keeps its own default.
+                    st.plotly_chart(
+                        build_chart(symbol, df, ew, nifty_df=nifty_df,
+                                    height=sa_chart_h),
+                        use_container_width=True)
 
                 render_condition_table(mv_conds, tf_conds, cs_conds)
 
