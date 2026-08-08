@@ -63,6 +63,7 @@ import report_style as rs
 import sector_card as scard
 import opportunity_report as orep
 import pcr
+import price_levels as plv
 import rrg as rrg_mod
 import ownership_cache as ocache
 import concalls
@@ -6664,6 +6665,61 @@ if current_page == "OI Momentum":
             # trend-follower and crowded to a contrarian), so letting it move the
             # verdict would import that ambiguity into the one number here that
             # currently has none.
+            # ── Level context, on demand ──────────────────────────────────────
+            # Behind a button because it is the only thing on this page costing a
+            # fetch PER SYMBOL — every other column rides the bhavcopy already
+            # downloaded. Results are held per scan date, so filter changes and
+            # reruns are free once it has been run.
+            _lvl_key = f"oim_levels_{_oi_date}"
+            _levels = st.session_state.get(_lvl_key, {})
+            _lc1, _lc2 = st.columns([1, 3])
+            with _lc1:
+                if st.button(f"📐 Check levels ({len(_view)})", key="oim_lvl_go",
+                             use_container_width=True):
+                    _prog = st.progress(0.0, text="Fetching price history…")
+                    _new = {}
+                    for _i, _r in enumerate(_view, 1):
+                        _prog.progress(_i / len(_view),
+                                       text=f"Levels {_i}/{len(_view)} — {_r['symbol']}")
+                        try:
+                            _d = cached_fetch_ohlcv(_r["symbol"])
+                        except Exception:
+                            _d = None
+                        _new[_r["symbol"]] = plv.locate(_d)
+                    _prog.empty()
+                    st.session_state[_lvl_key] = _new
+                    _levels = _new
+            with _lc2:
+                if _levels:
+                    _got = sum(1 for v in _levels.values() if v)
+                    _at = sum(1 for v in _levels.values() if v and v["at_level"])
+                    st.caption(
+                        f"**{_got}** of {len(_levels)} names located in their "
+                        f"{plv.DEFAULT_WINDOW}-bar range · **{_at}** sitting at an "
+                        f"extreme, the rest mid-range. This answers what an OI print "
+                        f"cannot on its own: fresh longs at a three-month high are a "
+                        f"breakout being bought; the same OI mid-range is the same "
+                        f"money with nothing to push against."
+                    )
+                else:
+                    st.caption(
+                        f"Adds a **Level** column — where each close sits in its "
+                        f"{plv.DEFAULT_WINDOW}-bar range, and whether the OI build "
+                        f"happened at one. Costs one price fetch per symbol, so it "
+                        f"is opt-in."
+                    )
+
+            def _level_cells(sym: str, reading: str) -> dict:
+                loc = _levels.get(sym)
+                if not loc:
+                    return {"Level": None, "Range %": None, "Lvl": ""}
+                tag = plv.tag_against_oi(loc, reading)
+                return {
+                    "Level": loc["state"],
+                    "Range %": loc["range_pos"],
+                    "Lvl": tag["tag"] if tag else "",
+                }
+
             _pcr_by_sym, _pcr_calib, _pcr_index = cached_pcr()
 
             def _pcr_cells(sym: str, price_pct: float) -> dict:
@@ -6688,6 +6744,7 @@ if current_page == "OI Momentum":
                 "Price %":   round(r["price_pct"], 2),
                 "OI %":      round(r["oi_pct"], 2),
                 "RVol":      (round(r["rvol"], 2) if r.get("rvol") is not None else None),
+                **_level_cells(r["symbol"], r["reading"]),
                 **_pcr_cells(r["symbol"], r["price_pct"]),
                 "OI":        int(r["oi"]),
                 "Turnover (₹cr)": round(r["turnover"] / 1e7, 0),
@@ -6709,6 +6766,21 @@ if current_page == "OI Momentum":
                              "traded exactly as much as it usually does. Blank "
                              "means no baseline was available — unmeasured, not "
                              "normal."),
+                    "Level": st.column_config.TextColumn(
+                        "Level", width="small",
+                        help="Where the close sits in its 60-bar range: NEW HIGH / "
+                             "AT RESISTANCE / MID-RANGE / AT SUPPORT / NEW LOW. "
+                             "Position only — it is not a direction."),
+                    "Range %": st.column_config.NumberColumn(
+                        "Range %", format="%d",
+                        help="0 = at the 60-bar low, 100 = at the 60-bar high."),
+                    "Lvl": st.column_config.TextColumn(
+                        "Lvl", width="small",
+                        help="Whether the level CONFIRMS or DIVERGES from the OI "
+                             "reading — longs built at resistance confirm, longs "
+                             "built at support diverge. Blank for mid-range names, "
+                             "which is most of them. A separate opinion: it does "
+                             "not feed Reading or Strength."),
                     "PCR": st.column_config.NumberColumn(
                         "PCR", format="%.2f",
                         help="Put OI ÷ Call OI, all expiries. Blank where option "
@@ -6809,6 +6881,20 @@ if current_page == "OI Momentum":
                             f"turnover ₹{r['turnover']/1e7:,.0f} crore · "
                             f"{r['days_to_expiry']} session(s) to expiry."
                         )
+                        # Level context, its own sentence for the same reason as
+                        # the options line below: it is beside the reading, not in it.
+                        _loc = _levels.get(r["symbol"])
+                        if _loc:
+                            _lt = plv.tag_against_oi(_loc, r["reading"])
+                            st.markdown(
+                                f"**Level (separate read):** {_loc['state']} — "
+                                f"{_loc['range_pos']:.0f}% of the "
+                                f"{_loc['window']}-bar range "
+                                f"({_loc['range_low']:,.2f}–{_loc['range_high']:,.2f}), "
+                                f"{abs(_loc['to_high_pct']):.1f}% below the high.")
+                            if _lt:
+                                st.caption(f"**{_lt['tag']}** — {_lt['note']} "
+                                           f"This does not change the reading above.")
                         # Options side, stated as its own sentence so it can never
                         # be mistaken for part of the futures reading above.
                         _p = _pcr_by_sym.get(r["symbol"])

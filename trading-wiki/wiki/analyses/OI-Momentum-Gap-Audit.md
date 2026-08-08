@@ -163,7 +163,7 @@ to. [[analyses/Backtest-Harness]] has never tested the OI quadrant either.
   against it and measured relative volume on a 5-session baseline (2026-08-07).
 - ✅ **Gap 1 SHIPPED 2026-08-07** — `rvol` column + STRONG downgrade. See Outcome.
 - ✅ **Gap 2 SHIPPED 2026-08-07** — `scan_index()` on measured index floors. See Outcome.
-- ⏭ Gap 4 — breakout/level linkage.
+- ✅ **Gap 4 SHIPPED 2026-08-07** — but NOT as the composition this audit assumed. See Outcome.
 - ⏭ Gap 3 — strike-level option OI quadrant.
 
 ## Outcome
@@ -267,6 +267,65 @@ build-up, 4 short covering, 1 long unwinding) with 12 correctly graded
 UNRELIABLE on the liquidity floor and one STRONG (BANKNIFTY 2026-07-23, −0.93%
 on +5.48% OI); rendered in an isolated dashboard boot in its own expander
 alongside index PCR, no exceptions.
+
+### Gap 4 — level linkage, 2026-08-07 — and this audit's own recommendation was wrong
+
+**The plan above said "composition of shipped scanners". Measured, that plan
+delivers a 7% column.** Composing `scan_structural_breakout` against a live OI
+scan annotates **4 of 57 readings**, for two reasons neither visible until it was
+run:
+
+1. **It is bullish-only.** A resistance cluster, with *no support-breakdown
+   counterpart anywhere in this repo* — verified, zero occurrences. On a session
+   running 35 down-moves against 22 up-moves it can reach at most **39%** of rows
+   before any quality gate applies. The infographic asks for both halves; we own
+   one.
+2. **It is a scanner, not a level reporter.** Gated on score floors (65/72), it
+   answers "is this a good breakout" and returns None otherwise — correct for a
+   scanner, useless as a column, because *"no qualifying breakout"* and
+   *"nowhere near a level"* collapse into the same blank cell.
+
+The per-symbol OHLCV fetch costs the same either way. **So it should buy a
+reading for every row, not 7% of them.**
+
+[price_levels.py](tools/price_levels.py) reports, for every name, where the close
+sits in its 60-bar range — `NEW HIGH / AT RESISTANCE / MID-RANGE / AT SUPPORT /
+NEW LOW`, plus the position 0-100 — and `tag_against_oi()` turns that into the
+infographic's rule: longs built at resistance CONFIRM, longs built at support
+DIVERGE, and the mirror for shorts. Names in mid-range return **no tag at all**;
+"the build happened nowhere near a level" is worth knowing but is neither a
+confirmation nor a contradiction.
+
+Nothing in it is scored, and the state names describe **position, never
+direction** — "at support" is not a buy, and the OI reading beside it is what
+gives either one meaning.
+
+**Measured on the live scan: 55 of 57 located (96%)** — against the 7% the
+planned composition would have reached. States split `MID-RANGE 34 / AT
+RESISTANCE 13 / NEW HIGH 4 / AT SUPPORT 3 / NEW LOW 1`; tags `CONFIRMS 10 /
+DIVERGES 4 / CONTEXT 7 / quiet 36`. The 2% band and 60-bar window were chosen so
+that split is informative — roughly a third at a level. A band flagging 90% or
+5% would be arithmetic.
+
+Behind a button, because this is the only thing on the page costing a fetch **per
+symbol**; every other column rides the bhavcopy already downloaded.
+
+**Verified:** all five states and the full 5×3 tag grid exercised synthetically;
+live run located 55/57 with sensible reads (HAL long build-up at resistance →
+CONFIRMS; TCS, BRITANNIA, JUBLFOOD, RADICO short build-ups *at resistance* →
+DIVERGES, i.e. sellers positioning into strength); dashboard boot clean, button
+reported "21 of 22 located, 10 at an extreme", and the per-name line renders
+beside the PCR and volume lines with all three stating they do not change the
+reading above.
+
+**Left undone, deliberately:** the bullish `scan_structural_breakout` quality tag
+was *not* layered on top. It would add breakout-grade for ~19% of up-moves on top
+of a location column that already covers everything, and it is a second opinion
+about the same fact. Worth revisiting only if base quality turns out to matter
+beyond location. **The real gap this exposed is that the repo has no
+support-breakdown detector at all** — recorded here as its own item, since the
+bearish half of the infographic's rule currently has nothing behind it but range
+position.
 
 **Also recorded while measuring:** the stock floor comment claims its values
 "sit just above those medians". True of `MIN_OI_PCT` (1.5 vs a 1.43 median) but
