@@ -11,6 +11,14 @@ related: [analyses/Sector-Rotation-Orbit-Data-Source-Roadmap, analyses/Astro-Wee
 
 # Analysis: Open Backlog — as of 2026-08-02
 
+> [!warning] SUPERSEDED — this is a historical snapshot, not the live backlog
+> The current index is **[[analyses/Open-Backlog]]**, which is undated on purpose
+> because this page went stale within five days: B-1 and B-14 closed, B-5 turned
+> out worse than recorded here (the harness reads a `time_stop` no scanner
+> emits), and the 2026-08-07 session added B-19…B-27 — all while `index.md` still
+> described this page as "the single index of everything left open".
+> **Read it for what was true on 2026-08-02; act on the live index.**
+
 Everything left open at the end of the 2026-08-02 session, in one place. Items that already live on a dedicated roadmap are **pointers, not copies** — the roadmap stays authoritative.
 
 **Nothing here is pushed.** The entire session sits on local `master`.
