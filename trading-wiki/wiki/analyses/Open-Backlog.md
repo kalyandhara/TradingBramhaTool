@@ -32,7 +32,7 @@ forward from the previous page. Two of them had changed and nobody had noticed.
 
 | | |
 |---|---|
-| **Closed** | B-1 (2026-08-05), B-14 (`ephem` now installed) |
+| **Closed** | B-1 (2026-08-05), B-14 (`ephem` now installed), **B-18 (remote added + pushed 2026-08-07)** |
 | **Worse than recorded** | B-5 — the capability is plumbed and used by nothing |
 | **Still open** | B-2, B-3, B-4, B-6 … B-13, B-15, B-16, B-17, B-18 |
 | **New** | B-19 … B-27, mostly from the 2026-08-07 OI/PCR/divergence session |
@@ -47,11 +47,35 @@ Was cosmetic, is not any more. The **`/rsi_divergence.js` route added
 so the RSI divergence indicator shipped that day cannot load until `start.bat` is
 re-run. One restart, and it unblocks work already paid for.
 
-### B-18 · Nothing pushed, and there is nowhere to push to
-Verified 2026-08-07: `git remote -v` is **empty**. This is not "a push is
-pending" — there is no remote configured at all, so every commit in this repo's
-history exists on one machine, on one branch, with no off-site copy. Six commits
-landed on 2026-08-07 alone.
+### ~~B-18 · Nothing pushed, and there is nowhere to push to~~ — CLOSED 2026-08-07
+`origin` → `github.com/kalyandhara/TradingBramhaTool` (private). All 88 commits
+of history pushed; `master` tracks `origin/master` at 0 ahead / 0 behind. The two
+stale `claude/*` worktree branches were deliberately left local.
+
+**Two corrections to how this item was originally written**, both worth keeping
+because the item overstated its own case:
+
+- *"No off-site copy"* was **wrong**. The working tree lives under
+  `C:\Users\Owner\OneDrive\…`, so OneDrive has been replicating it — including
+  `.git` — all along. The real exposure was never "no copy".
+- **The actual risk was the opposite of the one stated:** a live `.git`
+  directory sitting inside a continuously-syncing OneDrive folder is a known
+  corruption hazard. A proper remote fixes that by giving history a home the
+  sync engine does not touch, which is a better reason than the one first
+  recorded.
+
+**Still to confirm (cannot be verified from here):** that the GitHub repo is set
+to **Private**. No `gh` CLI is installed and no API auth is available in-session,
+so repo visibility was taken on trust. Check it at Settings → General →
+Danger Zone. The wiki carries market views, trading philosophy and research
+notes; none of it is credentials, but none of it is meant to be public either.
+
+**Pre-push audit (2026-08-07), recorded so it is not re-done from scratch:**
+`.gitignore` excludes `*.db`, `*.csv`, `*.xlsx`, `*.json`, `.env`, `raw/` and
+`tools/cache/` (captured screener.in session cookies). A credential scan over all
+345 tracked files returned exactly one hit — `first_token = bare.split()[0]` in
+`chart_server.py`, a variable name, not a secret. No personal positions in the
+vault. 40 MB total.
 
 ### B-16 · OI Momentum off-palette colours
 `_strength_color` at [dashboard_app.py:6648](tools/dashboard_app.py:6648) still
@@ -236,8 +260,8 @@ until it is done every new refinement makes the stack taller rather than better.
 
 **Suggested order:**
 
-1. **B-2** — one restart, unblocks shipped work.
-2. **B-18** — a remote. Six commits a day on one unbacked machine.
+1. **B-2** — one restart, unblocks shipped work. *(now the only P0 left)*
+2. ~~B-18 — a remote.~~ **Done 2026-08-07.**
 3. **B-20a + B-20b** — significance test and market-model edge. Turns the
    harness into something whose answers can be trusted.
 4. **B-25** — measure confluence, the premise the Hub ranks on.

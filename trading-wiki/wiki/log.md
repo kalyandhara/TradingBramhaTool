@@ -1,6 +1,14 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-07] ops | B-18 closed — remote added and pushed, and the item had overstated its own case
+- `origin` → **github.com/kalyandhara/TradingBramhaTool** (private). All **88 commits** pushed; `master` tracks `origin/master` at **0 ahead / 0 behind**; remote carries exactly one branch. The two stale `claude/*` worktree branches were deliberately left local. Auth went through an existing credential helper — no credentials were seen or handled in-session.
+- ### The item was right to fix and wrong about why
+  B-18 said *"no off-site copy exists"*. **That was wrong**: the working tree sits under `C:\Users\Owner\OneDrive\…`, so OneDrive has been replicating everything including `.git` all along. **The real risk was close to the opposite** — a live `.git` directory inside a continuously-syncing folder is a known corruption hazard, and a proper remote fixes that by giving history a home the sync engine never touches. Corrected on [[analyses/Open-Backlog]] rather than quietly closed, because a backlog item that argued from a false premise is worth keeping visible.
+- **Pre-push audit, recorded so it is not repeated:** `.gitignore` excludes `*.db`, `*.csv`, `*.xlsx`, `*.json`, `.env`, `raw/` and `tools/cache/` (captured screener.in session cookies). A credential scan across all **345 tracked files** returned exactly one hit — `first_token = bare.split()[0]` in `chart_server.py`, a variable name. No personal positions in the vault. 40 MB total.
+- **Open and unverifiable from here:** that the repo is actually set to **Private**. No `gh` CLI and no API auth in-session, so visibility was taken on trust and needs a manual check. The vault holds market views and research, not credentials — but it is not meant to be public.
+- **B-2 is now the only P0 left**: the chart server still runs pre-`/rsi_divergence.js` code.
+
 ## [2026-08-07] plan | Backlog rewritten as a living index — and two items had silently changed
 - **New [[analyses/Open-Backlog]] supersedes [[analyses/Open-Backlog-2026-08-02]]**, which is now marked as the historical snapshot it was. **Deliberately undated in the filename:** the dated one went stale within five days while `index.md` still described it as "the single index of everything left open". An index that goes stale by construction is not an index.
 - ### Re-verifying beat carrying forward, twice
