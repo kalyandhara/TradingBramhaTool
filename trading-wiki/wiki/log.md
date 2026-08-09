@@ -1,6 +1,19 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-09] ops | Daily intraday update scheduled — and the machine is not on IST, which decided the run time
+- Registered Windows scheduled task **`TradingBramha-IntradayUpdate`**, daily **07:00 local**, running new wrapper `tools/intraday_update.bat` → `intraday_store.py update`, logging to `tools/intraday_update.log` (gitignored). **Verified end-to-end**: task `Ready`, manual trigger returned **Last Result 0**, log written, coverage unchanged (idempotent). This is what makes the perishable 15m/5m half accumulate — see [[analyses/Intraday-Store]].
+- ### The timezone nearly produced a mid-session run
+  **This machine runs US Eastern time, not IST.** A naive "16:30" schedule — the obvious choice for an hour after the 15:30 IST close — would have fired **during the trading session**. IST is +9h30 (EDT) / +10h30 (EST), so:
+  | Machine regime | 07:00 local = | vs the 15:30 IST close |
+  |---|---|---|
+  | EDT (summer, UTC−4) | 16:30 IST | 1h after ✅ |
+  | EST (winter, UTC−5) | 17:30 IST | 2h after ✅ |
+  **And because India does not observe DST while the US does, the IST time of any fixed local run shifts by an hour twice a year.** 07:00 local was chosen because it lands post-close in *both* regimes, so the seasonal drift is harmless and no DST handling is needed. A time chosen without checking this would have silently broken every March and November.
+- **Two deliberate properties of the wrapper.** It **hard-codes the interpreter path** — a bare `python` here resolves to `hermes-agent\venv` with no pandas and would fail every run ([[analyses/Python-Environments]], the same trap as yesterday's ephem bug). And **every run appends to a log**, because a scheduled task that quietly stops working is exactly the failure mode this repo keeps meeting (frozen NSE sector feeds, the 23-day-stale CSI 300). With a log, `coverage()` disagreeing with expectations is diagnosable rather than mysterious.
+- > [!warning] Runs only while logged on — not fixable without storing a password
+  > Created without `/RU`, so it runs as `Owner` in an interactive session; **if the machine is off or logged out at 07:00 that day is skipped.** No credential was supplied, since handling one is out of scope. **The mitigation is already in the design:** `update()` fetches a **7-day window**, so a missed day is recovered by the next run, and the overlap also self-heals partially-settled bars. **The real exposure is a gap beyond 7 days** — a holiday away from the machine — after which that stretch of 15m/5m is permanently unrecoverable, and beyond ~60 days the fine intervals are simply gone.
+
 ## [2026-08-09] fix | Morning Market Brief crashed on first real use — I verified it in an interpreter the app never runs
 - **User report:** `Brief build failed: ModuleNotFoundError: No module named 'ephem'`. Root cause: **this machine has two Python 3.14.4 installs with different packages, and the app runs the one I did not test with.** Full page: [[analyses/Python-Environments]].
   | | `pythoncore-3.14-64` (runs the app) | `Programs\Python\Python314` (what I tested) |

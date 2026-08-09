@@ -95,9 +95,43 @@ The store also converted a vague blocker into a precise one. "We need intraday d
 - ✅ `intraday_store.py` — backfill / update / coverage / `session_slice`, 21/21 behavioural checks, 65,056 bars stored.
 - ✅ Measured Yahoo's per-interval ceilings and recorded them as a lookup rather than a guess.
 - ✅ Surfaced the Rahu-Kaal-vs-session-hours constraint before any study was designed on top of it.
-- ⏭ **Schedule `update` to run daily** — this is what makes 15m/5m accumulate. Not created here: standing configuration is the user's call. Without it the store's perishable half stops growing and the 80% rule and 4H setup stay blocked forever.
+- ✅ **Daily schedule created 2026-08-09** — see the section below. This is what makes 15m/5m accumulate.
 - ⏭ **FA-2 proper**: Wednesday/Friday, 1h bars inside vs outside Rahu Kaal, against a matched-window baseline with a significance test — the same shape as the [FVG fill study](tools/fvg_fill_study.py), which is the template for "test the claim against a control rather than against nothing".
 - ⏭ Widen the universe if any cross-sectional intraday question appears.
+
+## The daily schedule (created 2026-08-09)
+
+| | |
+|---|---|
+| **Task name** | `TradingBramha-IntradayUpdate` (Windows Task Scheduler) |
+| **Runs** | daily at **07:00 local**, `tools/intraday_update.bat` |
+| **Log** | `tools/intraday_update.log` — timestamped block per run, gitignored |
+| **Verified** | task `Ready`, manual trigger returned **Last Result 0**, log written, coverage unchanged (idempotent) |
+
+Inspect or change it with:
+
+```bash
+schtasks /Query /TN "TradingBramha-IntradayUpdate" /FO LIST /V
+```
+
+> [!key-insight] 07:00 *local* is the right slot because this machine is not on IST
+> The machine runs **US Eastern time**; IST is **+9h30 (EDT) / +10h30 (EST)**. A naive "16:30" schedule would have fired **mid-session**. And because **India does not observe DST while the US does**, the IST time of a fixed local run shifts by an hour twice a year:
+>
+> | Machine regime | 07:00 local is | vs the 15:30 IST close |
+> |---|---|---|
+> | EDT (summer, UTC−4) | 16:30 IST | 1h after ✅ |
+> | EST (winter, UTC−5) | 17:30 IST | 2h after ✅ |
+>
+> Both land after the close, so the seasonal drift is harmless — which is why a single fixed local time works year-round and no DST handling is needed.
+
+Two properties of the wrapper worth knowing, both deliberate:
+- **It hard-codes the interpreter path.** A bare `python` on this machine resolves to `hermes-agent\venv`, which has no pandas and would fail every run — see [[analyses/Python-Environments]]. The path matches `.claude/launch.json`.
+- **Every run appends to a log.** A scheduled task that quietly stops working is precisely the failure mode this repo keeps meeting (frozen Yahoo feeds, the CSI-300 incident). With a log, `coverage()` disagreeing with expectations is diagnosable instead of mysterious.
+
+> [!warning] The task runs only while the user is logged on, and that is not fixable without a stored password
+> Created without `/RU`, so it runs as `Owner` in an interactive session. **If the machine is off or logged out at 07:00, that day's run is skipped** — no credential was supplied because handling a password is out of scope.
+>
+> **Mitigation is already in the design, not a patch:** `update()` fetches a **7-day** window, so a missed day is recovered by the next successful run. The overlap also self-heals partially-settled bars, since a later run rewrites them. **The real risk is a gap longer than 7 days** — a holiday away from the machine — after which that stretch of 15m/5m data is permanently unrecoverable. If that is likely, run `intraday_update.bat` manually on return, and if it has been more than ~60 days, the fine intervals are simply gone.
 
 ## Outcome (fill in later)
 
