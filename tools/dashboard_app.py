@@ -6151,6 +6151,208 @@ if current_page == "Market Sentiment":
         except Exception as e:
             st.error(f"Signal fetch failed: {e}")
 
+    # ──────────────────────────────────────────────────────────────────────
+    # Morning Market Brief — global quote strip + constituent breadth + the
+    # full panchang for the day. Modelled on a published "morning brief" card.
+    #
+    # Two deliberate departures from that card's format:
+    #  * Breadth is computed from Nifty 500 CONSTITUENTS, not sector indices.
+    #    Yahoo froze 8 of 11 NSE sector index feeds on 2026-07-17 and they
+    #    return stale bars rather than erroring, so an index-based count is a
+    #    confident number built on three survivors.
+    #  * The astro block states almanac facts ONLY — no bias, no "avoid fresh
+    #    buying". Rahu Kaal being inauspicious is a traditional assertion with
+    #    no measured backing here; FA-2 has never been run. Printing a
+    #    directional call next to a clock time is the one thing this page must
+    #    not do.
+    # ──────────────────────────────────────────────────────────────────────
+    st.divider()
+    st.markdown("### Morning Market Brief")
+    st.caption(
+        "Global cues, constituent-based sector breadth, and the day's panchang. "
+        "Astro entries are almanac facts — none of them is measured against "
+        "market outcomes in this repo."
+    )
+
+    mb_col1, mb_col2 = st.columns([1, 3])
+    with mb_col1:
+        brief_go = st.button("Build brief", type="primary", key="brief_go")
+    with mb_col2:
+        want_breadth = st.checkbox(
+            "Include sector breadth (500 constituents, ~6s)",
+            value=True, key="brief_breadth",
+        )
+
+    if brief_go:
+        import market_brief as mbrief
+        with st.spinner("Fetching global cues, breadth and panchang…"):
+            try:
+                st.session_state["brief_model"] = mbrief.build_brief(
+                    include_breadth=want_breadth,
+                    sentiment=reading,          # reuse THIS page's reading
+                )
+            except Exception as exc:
+                st.error(f"Brief build failed: {type(exc).__name__}: {exc}")
+
+    model = st.session_state.get("brief_model")
+    if model:
+        import market_brief as mbrief
+        pan = model["panchang"]
+
+        tone_tone = {"WEAK": "🔴", "CAUTIOUS": "🟠",
+                     "STRONG": "🟢"}.get(model["tone"], "⚪")
+        st.markdown(
+            f"#### {tone_tone} {model['tone']} — "
+            f"{model['as_of'].strftime('%d %B %Y, %A')} · "
+            f"snapshot {model['as_of'].strftime('%H:%M')} IST"
+        )
+        qmeta = model["quotes_meta"]
+        if qmeta["error"]:
+            st.warning(f"Quote fetch problem: {qmeta['error']}")
+        if qmeta["missing"] or qmeta["stale"]:
+            st.warning(
+                f"{qmeta['missing']} quote(s) missing, {qmeta['stale']} stale "
+                "(shown struck through). A stale feed returns an old bar rather "
+                "than erroring — it is excluded from the tone, not averaged in."
+            )
+
+        # ── Quote strip, grouped as the source card groups them ──
+        for group in ("india", "asia", "us", "commodity", "fx"):
+            rows = [q for q in model["quotes"] if q["group"] == group]
+            if not rows:
+                continue
+            st.markdown(f"**{mbrief.GROUP_LABELS[group]}**")
+            cols = st.columns(len(rows))
+            for col, q in zip(cols, rows):
+                with col:
+                    if q["missing"]:
+                        st.metric(q["label"], "—", help="no data returned")
+                    elif q["stale"]:
+                        st.metric(f"~~{q['label']}~~", f"{q['last']:,.2f}",
+                                  delta=f"{q['change_pct']:+.2f}% (stale)",
+                                  delta_color="off",
+                                  help=f"last bar {q['bar_age_days']}d old — "
+                                       f"excluded from the tone")
+                    else:
+                        st.metric(q["label"], f"{q['last']:,.2f}",
+                                  delta=f"{q['change_pct']:+.2f}%")
+
+        # ── Breadth ──
+        br = model["breadth"]
+        if br.get("error"):
+            st.warning(f"Breadth unavailable: {br['error']}")
+        elif br.get("total"):
+            cov = br["coverage"]
+            b1, b2 = st.columns([1, 3])
+            with b1:
+                st.metric("Sectors red", f"{br['red']} / {br['total']}",
+                          delta=f"{br['green']} green", delta_color="off")
+            with b2:
+                st.caption(
+                    f"From **{cov['scored']} of {cov['universe_size']}** "
+                    f"{br['universe']} constituents grouped by NSE macro-sector. "
+                    f"A sector is red when its **median** constituent is down — "
+                    f"median, so one collapsing name cannot paint a sector. "
+                    f"Excluded: {cov['stale_excluded']} stale, {cov['missing']} "
+                    f"missing."
+                    + (f" Thin (<5 scored, not counted): "
+                       f"{', '.join(cov['thin_sectors'])}."
+                       if cov.get("thin_sectors") else "")
+                )
+            st.dataframe(
+                pd.DataFrame([{
+                    "Sector": s["sector"],
+                    "Median %": round(s["median_change_pct"], 2),
+                    "Mean %": round(s["mean_change_pct"], 2),
+                    "Constituents": s["constituents"],
+                    "% Green": round(s["pct_green"], 0),
+                } for s in br["sectors"]]),
+                hide_index=True, use_container_width=True,
+            )
+
+        # ── Panchang: the almanac block ──
+        st.markdown("#### Panchang — {} · {}".format(
+            pan["place"], pan["date"].strftime("%d %b %Y")))
+        st.caption(
+            "Computed locally from `ephem` (no vendor, no API). Verified against "
+            "a published card to the minute — run `python tools/panchang.py`. "
+            "**Facts only: no window here carries a measured market effect.**"
+        )
+
+        p1, p2, p3, p4 = st.columns(4)
+        p1.metric("Sunrise", pan["sunrise"].strftime("%H:%M"))
+        p2.metric("Sunset", pan["sunset"].strftime("%H:%M"))
+        p3.metric("Weekday lord", pan["day_lord"])
+        tt = pan["tithi"]
+        p4.metric("Tithi", f"{tt['paksha']} {tt['name']}",
+                  delta=f"{tt['pct_complete']:.0f}% elapsed", delta_color="off")
+
+        nk = pan["nakshatra"]
+        n1, n2, n3 = st.columns(3)
+        n1.metric("Nakshatra", nk["nakshatra"],
+                  delta=f"pada {nk['pada']}", delta_color="off")
+        n2.metric("Nakshatra lord", nk["lord"])
+        n3.metric("Sub-lord (KP)", nk["sub_lord"])
+        st.caption(
+            f"Moon at {nk['longitude']:.2f}° sidereal "
+            f"({nk['pct_through_nakshatra']:.0f}% through {nk['nakshatra']}, "
+            f"ayanamsa {nk['ayanamsa']:.2f}°). "
+            + (f"Pada {nk['pada']} ends {nk['pada_ends'].strftime('%H:%M')}; "
+               if nk["pada_ends"] else "")
+            + (f"{nk['nakshatra']} ends "
+               f"{nk['nakshatra_ends'].strftime('%H:%M on %d %b')}."
+               if nk["nakshatra_ends"] else "")
+        )
+
+        cur, nxt = pan["hora_current"], pan["hora_next"]
+        h1, h2, h3 = st.columns(3)
+        h1.metric("Current hora", cur["lord"] if cur else "—",
+                  delta=(f"{cur['start'].strftime('%H:%M')}–"
+                         f"{cur['end'].strftime('%H:%M')}" if cur else "outside day"),
+                  delta_color="off")
+        h2.metric("Next hora", nxt["lord"] if nxt else "—",
+                  delta=(f"from {nxt['start'].strftime('%H:%M')}" if nxt else ""),
+                  delta_color="off")
+        lp = pan["lunar_phase"]
+        h3.metric("Moon phase", (lp or {}).get("phase", "unknown").title(),
+                  delta=(f"{lp['illumination']:.0f}% lit" if lp else "no data"),
+                  delta_color="off")
+
+        w1, w2, w3 = st.columns(3)
+        for col, key, label in ((w1, "rahu_kaal", "Rahu Kaal"),
+                                (w2, "yamaganda", "Yamaganda"),
+                                (w3, "gulika", "Gulika")):
+            w = pan[key]
+            col.metric(label,
+                       f"{w['start'].strftime('%H:%M')}–{w['end'].strftime('%H:%M')}",
+                       delta=f"part {w['part']} of 8", delta_color="off")
+        st.caption(
+            "These three are the classical inauspicious windows — equal 1/8 "
+            "divisions of sunrise→sunset, assigned by weekday. **This repo has "
+            "never measured whether NIFTY behaves differently inside them** "
+            "(roadmap FA-2). Shown because they are computable and exact, not "
+            "because they are known to matter."
+        )
+
+        retro = [k for k, v in pan["retrogrades"].items() if v]
+        st.markdown(
+            f"**Retrograde now:** {', '.join(retro) if retro else 'none'}  ·  "
+            f"**Hora sequence** below runs sunrise→next sunrise."
+        )
+        with st.expander("Full 24-block hora sequence"):
+            st.dataframe(
+                pd.DataFrame([{
+                    "#": h["index"], "Lord": h["lord"],
+                    "Start": h["start"].strftime("%H:%M"),
+                    "End": h["end"].strftime("%H:%M"),
+                    "Phase": h["phase"],
+                    "Now": "◀" if cur and h["index"] == cur["index"] else "",
+                } for h in pan["hora_sequence"]]),
+                hide_index=True, use_container_width=True, height=320,
+            )
+
+        st.info(model["disclaimer"], icon="⚠️")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Page — India Market Intel (bulk/block deals, insider trading, gap & volume)
