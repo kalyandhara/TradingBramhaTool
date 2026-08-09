@@ -33,7 +33,7 @@ Standard parameters: `(Factor=3, ATR period=10)`. Common variants: `(2, 10)` fas
 
 ## Use With TSI
 
-Price-vs-SuperTrend gives the trend context for reading [[True-Strength-Index-TSI]] crossovers per the 4-quadrant matrix. See [[YT-Kaushik-Akkiwakar-TSI-Momentum]].
+Price-vs-SuperTrend gives the trend context for reading [[concepts/True-Strength-Index-TSI]] crossovers per the 4-quadrant matrix. See [[sources/YT-Kaushik-Akkiwakar-TSI-Momentum]].
 
 ## MAST (MA + SuperTrend)
 
@@ -48,10 +48,10 @@ Two popular multi-indicator entries that use SuperTrend as the trend gate:
 
 ## Sources
 
-- [[YT-Kaushik-Akkiwakar-TSI-Momentum]] — SuperTrend / MAST as trend filter for TSI.
-- [[CPR-GuruprasadMeduri-Pine]] — Supertrend(3,10) in Pine v4.
+- [[sources/YT-Kaushik-Akkiwakar-TSI-Momentum]] — SuperTrend / MAST as trend filter for TSI.
+- [[sources/CPR-GuruprasadMeduri-Pine]] — Supertrend(3,10) in Pine v4.
 - [[sources/Fingrad-Trading-Infographics-Collection]] (2026-07-19) — SuperTrend+5/20-EMA and SuperTrend+RSI+ADX confluence setups.
 
 ## Related
 
-- [[True-Strength-Index-TSI]] · [[PMax]] · [[EMA]] · [[ADX]]
+- [[concepts/True-Strength-Index-TSI]] · [[concepts/PMax]] · [[concepts/EMA]] · [[concepts/ADX]]

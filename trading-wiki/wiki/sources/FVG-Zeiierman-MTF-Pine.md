@@ -11,7 +11,7 @@ related: [entities/Zeiierman, concepts/Fair-Value-Gap, concepts/Multi-Timeframe-
 # TradingView — Multitimeframe Fair Value Gap (FVG) [Zeiierman]
 
 ## Metadata
-- Author: © **Zeiierman** ([[Zeiierman]]), TradingView Wizard
+- Author: © **Zeiierman** ([[entities/Zeiierman]]), TradingView Wizard
 - Source: https://www.tradingview.com/script/5jS51RsP-Multitimeframe-Fair-Value-Gap-FVG-Zeiierman/
 - License: open-source (public TradingView script; verify exact terms on the script page before any port)
 - Format: TradingView Pine Script overlay indicator
@@ -44,4 +44,4 @@ No new contradiction. The midpoint-vs-full mitigation toggle is consistent with 
 
 ## Pages Updated
 - [[concepts/Fair-Value-Gap]] — added Zeiierman variant (bull/bear power, Butterworth trend filter, wick-sensitivity impulse filter, midpoint mitigation toggle).
-- [[Zeiierman]] — new author entity.
+- [[entities/Zeiierman]] — new author entity.

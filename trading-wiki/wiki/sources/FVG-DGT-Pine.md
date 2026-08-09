@@ -11,7 +11,7 @@ related: [entities/DGT, concepts/Fair-Value-Gap, concepts/Multi-Timeframe-Analys
 # TradingView — Fair Value Gaps by DGT
 
 ## Metadata
-- Author: © **dgtrd** ([[DGT]]), TradingView Pine Wizard
+- Author: © **dgtrd** ([[entities/DGT]]), TradingView Pine Wizard
 - Source: https://www.tradingview.com/script/Onab2fvE-Fair-Value-Gaps-by-DGT/
 - License: open-source (public TradingView script; verify exact terms on the script page before any port)
 - Format: TradingView Pine Script overlay indicator
@@ -48,4 +48,4 @@ No new contradiction — instead a **resolution mechanism** for the existing one
 
 ## Pages Updated
 - [[concepts/Fair-Value-Gap]] — added DGT variant (four fill definitions as a mitigation-rule spectrum; LTF/intrabar detection; live fill %).
-- [[DGT]] — new author entity.
+- [[entities/DGT]] — new author entity.

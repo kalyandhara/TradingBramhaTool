@@ -24,12 +24,12 @@ Time-independent chart type. Columns of Xs (rising) and Os (falling) plotted by 
 
 ## Use With TSI
 
-[[True-Strength-Index-TSI]] on P&F charts produces cleaner crossovers than on time-based bars because the underlying series is already de-noised. See [[YT-Kaushik-Akkiwakar-TSI-Momentum]] examples 1, 5, 6.
+[[concepts/True-Strength-Index-TSI]] on P&F charts produces cleaner crossovers than on time-based bars because the underlying series is already de-noised. See [[sources/YT-Kaushik-Akkiwakar-TSI-Momentum]] examples 1, 5, 6.
 
 ## Sources
 
-- [[YT-Kaushik-Akkiwakar-TSI-Momentum]]
+- [[sources/YT-Kaushik-Akkiwakar-TSI-Momentum]]
 
 ## Related
 
-- [[True-Strength-Index-TSI]] · [[Reversal-Chart-Patterns]] · [[Support-Resistance]]
+- [[concepts/True-Strength-Index-TSI]] · [[concepts/Reversal-Chart-Patterns]] · [[concepts/Support-Resistance]]

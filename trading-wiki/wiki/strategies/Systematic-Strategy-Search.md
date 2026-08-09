@@ -12,7 +12,7 @@ related: [concepts/Genetic-Algorithm-Optimization.md, concepts/Capital-Managemen
 # Systematic Strategy Search (Theory → SubTheory → Strategy)
 
 ## Core Idea
-Instead of hunting for a single super-profitable strategy, build a pipeline that automatically generates, filters, optimizes, and runs **hundreds of modestly-profitable strategies (0.5-1%/month each)** in parallel across different financial instruments. Profitability comes from breadth and diversification of small edges, not from one big edge. This is a portfolio-of-strategies philosophy — complements [[analyses/Kalyan-Trading-Philosophy.md]]'s "the market always has opportunity, don't chase one trade" rule at the strategy-construction level.
+Instead of hunting for a single super-profitable strategy, build a pipeline that automatically generates, filters, optimizes, and runs **hundreds of modestly-profitable strategies (0.5-1%/month each)** in parallel across different financial instruments. Profitability comes from breadth and diversification of small edges, not from one big edge. This is a portfolio-of-strategies philosophy — complements [[analyses/Kalyan-Trading-Philosophy]]'s "the market always has opportunity, don't chase one trade" rule at the strategy-construction level.
 
 ## Setup Criteria — The Entity Model
 A strict hierarchy of entities defines a strategy without ambiguity:
@@ -58,7 +58,7 @@ All — the framework is timeframe-agnostic; the book targets average position l
 - [[concepts/Capital-Management-Methods]] — the position-sizing component of a finished Strategy
 - [[concepts/Performance-Metrics]] — objective function + quality-condition metrics used at every step
 - [[concepts/PMax]] — Trailing System Order algorithm (TrailingPrice/ProfitBorderCoeff/StopBorderCoeff/BorderChangeCoeff) documented as part of risk control for a Strategy
-- [[analyses/Kalyan-Trading-Philosophy.md]] — "many small opportunities, not one big bet" philosophy at the portfolio level mirrors this framework's "hundreds of modest strategies" approach
+- [[analyses/Kalyan-Trading-Philosophy]] — "many small opportunities, not one big bet" philosophy at the portfolio level mirrors this framework's "hundreds of modest strategies" approach
 
 ## Sources
 - [[sources/Dolzhenko-Algorithmic-Trading-Systems-2024]] (2026-06-15)

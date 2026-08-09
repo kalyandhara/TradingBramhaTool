@@ -62,7 +62,7 @@ This is also why the astro layer is *more* falsifiable than most of what the rep
 ## Evidence Against / open risks
 
 - **Nothing on this card is measured.** The composite gauge, the breadth cut, and the panchang are all unvalidated against forward returns. The card reports state, not edge, and should not be read as either.
-- **FA-2 still needs an intraday store.** Hora and Rahu Kaal are intraday claims; `chart_server` fetches intraday bars and nothing persists them. That gap is the binding constraint on measuring the astro layer — the same constraint blocking the [[concepts/Volume-Profile]] 80% rule.
+- ~~**FA-2 still needs an intraday store.**~~ **Resolved 2026-08-09** — [intraday_store.py](tools/intraday_store.py) was built and **FA-2 has since been run: both Rahu Kaal and hora came back null** ([[analyses/FA-2-Rahu-Kaal-Measured]]). So the astro layer on this card is now not merely uncited but *measured to have no detectable effect*, which strengthens the facts-only choice made here. Original text: Hora and Rahu Kaal are intraday claims; `chart_server` fetches intraday bars and nothing persists them. That gap is the binding constraint on measuring the astro layer — the same constraint blocking the [[concepts/Volume-Profile]] 80% rule.
 - **Sharing risk.** A brief card is inherently shareable and travels without context. It is currently in-page only; **a PNG export would need the disclaimer rendered into the image**, not placed beside it.
 - **Ayanamsa is an approximation** (~1 arcmin) — fine for nakshatra/pada, not for finer work. Stated in the module docstring.
 

@@ -124,4 +124,4 @@ This trading system already follows several LOOPS.md principles:
 - [[sources/Karpathy-LOOPS-md-Agentic-Field-Notes-2026]] — primary source
 - [[sources/GitHub-AgriciDaniel-claude-obsidian-2026]] — independent production implementation of the same disk-as-state pattern; source of the `hot.md` cache idea
 - [[strategies/Hyperliquid-Momentum-Screener]] — example of a generator-output artifact that needs a contract
-- [[wiki/log]] — this wiki's own disk-state log, consistent with §IV
+- [[log]] — this wiki's own disk-state log, consistent with §IV

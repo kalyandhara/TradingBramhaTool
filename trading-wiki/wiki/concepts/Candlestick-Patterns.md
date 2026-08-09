@@ -3,8 +3,8 @@ title: "Candlestick Patterns"
 category: concept
 tags: [candlestick, reversal, continuation, patterns, price-action, psychology, evening-star, doji]
 created: 2026-06-19
-updated: 2026-08-08
-sources: 3
+updated: 2026-08-09
+sources: 5
 related:
   - concepts/Sakata-Method.md
   - concepts/Support-Resistance.md

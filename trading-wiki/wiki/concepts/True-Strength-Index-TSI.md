@@ -48,7 +48,7 @@ Both are momentum tools. TSI is quieter and better at *when* momentum flips; RSI
 
 ## The Trend × TSI Matrix
 
-TSI in isolation whips. Read it *conditional on trend* (from [[SuperTrend]], [[EMA]] slope, or price-vs-SuperTrend):
+TSI in isolation whips. Read it *conditional on trend* (from [[concepts/SuperTrend]], [[concepts/EMA]] slope, or price-vs-SuperTrend):
 
 | Trend | TSI crossover | Read | Action |
 |---|---|---|---|
@@ -61,9 +61,9 @@ Key nuance: **a negative TSI crossover in an uptrend is not a reversal signal** 
 
 ## Best Pairings
 
-- **Trend filter**: [[SuperTrend]] or MAST (MA + SuperTrend).
-- **Chart type**: [[Point-and-Figure-Charts]] — removes time noise; TSI crossovers on P&F filter more decisively than on time-based bars.
-- **Divergence context**: pair with [[MACD-Divergence]] for confirmation.
+- **Trend filter**: [[concepts/SuperTrend]] or MAST (MA + SuperTrend).
+- **Chart type**: [[concepts/Point-and-Figure-Charts]] — removes time noise; TSI crossovers on P&F filter more decisively than on time-based bars.
+- **Divergence context**: pair with [[concepts/MACD-Divergence]] for confirmation.
 
 ## Common Mistakes
 
@@ -73,10 +73,10 @@ Key nuance: **a negative TSI crossover in an uptrend is not a reversal signal** 
 
 ## Sources
 
-- [[YT-Kaushik-Akkiwakar-TSI-Momentum]] — primary source; 4-quadrant matrix, 6 examples, real-time deployment recipe.
+- [[sources/YT-Kaushik-Akkiwakar-TSI-Momentum]] — primary source; 4-quadrant matrix, 6 examples, real-time deployment recipe.
 
 ## Related
 
-- [[RSI]] · [[KST]] · [[MACD-Divergence]] · [[Percent-R-Trend-Exhaustion]] · [[ConnorsRSI]]
-- Trend filters: [[SuperTrend]] · [[EMA]] · [[PMax]]
-- Chart type: [[Point-and-Figure-Charts]]
+- [[concepts/RSI]] · [[concepts/KST]] · [[concepts/MACD-Divergence]] · [[concepts/Percent-R-Trend-Exhaustion]] · [[concepts/ConnorsRSI]]
+- Trend filters: [[concepts/SuperTrend]] · [[concepts/EMA]] · [[concepts/PMax]]
+- Chart type: [[concepts/Point-and-Figure-Charts]]

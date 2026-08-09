@@ -97,7 +97,7 @@ Distinct from all fixed-sizing methods: **pyramiding is dynamic sizing that scal
 ## Related Concepts
 - [[concepts/Performance-Metrics]] — drawdown/Sharpe/profit-factor metrics used to evaluate the effect of a sizing method on a strategy's equity curve
 - [[strategies/Systematic-Strategy-Search]] — a Strategy = Theory + concrete parameters + capital management method + risk control method
-- [[analyses/Kalyan-Trading-Philosophy.md]] — Kalyan's existing rules (single stock <10%, SME <20% of portfolio) are a simple fixed-percentage-cap approach; could be formalized via Fixed Proportional sizing as the portfolio scales
+- [[analyses/Kalyan-Trading-Philosophy]] — Kalyan's existing rules (single stock <10%, SME <20% of portfolio) are a simple fixed-percentage-cap approach; could be formalized via Fixed Proportional sizing as the portfolio scales
 
 ## Gap-Risk Simulation (new, 2026-06-22)
 

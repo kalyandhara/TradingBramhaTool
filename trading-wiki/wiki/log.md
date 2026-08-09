@@ -1,6 +1,26 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-09] lint | 235 pages checked — 115 dead links repaired, and the biggest defect was our own linking convention
+- Full scripted health check against the LINT spec in `CLAUDE.md`: **238 files (235 content + index/log/overview)** — 92 sources, 61 concepts, 33 analyses, 26 strategies, 17 entities. Index header verified accurate (`pages: 235`, `sources_ingested: 93` both match reality).
+- ### Fixed: 115 dead wikilinks across 27 files (90 dead refs → 10)
+  Almost all were **our own convention being broken**, not missing pages. `CLAUDE.md` says *"always use wiki-relative links"* (`[[concepts/RSI]]`), but 100 links used **bare names** — `[[LuxAlgo]]` ×13, `[[True-Strength-Index-TSI]]` ×10, `[[SuperTrend]]` ×9, `[[DGT]]` ×7 — which resolve to nothing. Plus 11 with a stray `.md` inside the brackets and 4 using a `wiki/` prefix. Repaired mechanically, **only where exactly one page matched the basename**; ambiguous or genuinely-absent targets were left alone, because guessing a target is worse than a dead link. Every resolution was printed and eyeballed before applying.
+- **Side effect worth noting:** fixing bare-name links also cleared **2 orphans** (13 → 11). `entities/DGT` and `entities/Zeiierman` were never really orphaned — they were linked, just unresolvably.
+- **10 dead refs remain, all needing a human decision** (not mechanical): `[[entities/TRENT]]`, `[[entities/NIFTY]]` (entity pages that don't exist — create or delink?), `[[strategies/Sector-Momentum-Map]]`, `[[raw/TV-PEAD-Screener-pine-2026-07-23]]`, three `[[tools/*.py]]` links that should probably be markdown links not wikilinks, and `[[wiki-relative-link]]` which is documentation prose rather than a real link.
+- ### Fixed: two stale claims this week's work made false
+  **[[analyses/Setup-Intelligence-Panel-2026-07-16]]** said *"volume profile is JS-only, no Python port, `stock_council.py` has no POC/VAH access"* — false since `volume_profile.py` shipped **2026-07-25, nine days after that page was written**, and HVN/LVN was wired 2026-08-09. **[[analyses/Market-Brief-Card]]** said *"FA-2 still needs an intraday store"* — the store was built and FA-2 has since run (null). Both annotated rather than silently rewritten, so the correction and its date travel with the claim.
+- ### Fixed: a genuinely missing source entry
+  [[concepts/Fair-Value-Gap]] frontmatter said `sources: 7` while listing 6 — the discrepancy was real: **[[sources/FVG-FBG-Fibonacci-Retail-Framework]] is cited in the body but was missing from the Sources list.** Added as entry 7. [[concepts/Candlestick-Patterns]] said 3 while listing 5 (my own omission from this week's Bulkowski and infographic additions) — corrected to 5.
+- > [!warning] I deliberately did NOT bulk-fix the other 16 `sources: N` mismatches
+  > My automated counter over-counts: on [[concepts/Kelly-Criterion]] it read 4 where the page has 2 sources plus indented sub-references. Spot-checking three pages found the counter wrong on one, so a bulk edit would have introduced errors into metadata that is currently merely inconsistent. **Left for per-page review — a wrong count written confidently is worse than a known-inconsistent one.**
+- ### Reported, not fixed — these need judgement, not a script
+  **12 pages exist on disk but are absent from `index.md`** (incl. `concepts/Market-Sentiment-Index`, `concepts/SuperTrend`, `concepts/Stochastic-Oscillator`, `strategies/Minervini-SEPA`, `entities/LuxAlgo`) — the index is the master catalog, so these are effectively invisible. Each needs a real summary row, not a stub.
+  **25 pages with frontmatter gaps**, clustered: 3 pages have **no `category` at all** (`entities/Kaushik-Akkiwakar`, `entities/MarkUp-Platform`, `sources/YT-Kaushik-Akkiwakar-TSI-Momentum` — all from one ingest, all also missing `updated`/`sources`/`related`); 3 entity pages lack the required `bias:`; 11 strategy/analysis pages lack the required `timeframe:`.
+  **76 pages missing ≥1 schema-required section** — mostly `Conclusion` on analyses (roadmaps legitimately use *Action Taken / Plan* instead, so the schema may be what's wrong) and `Examples in This Wiki` on concepts. Needs a decision about whether the schema or the pages should move.
+  **145 pages ≥30 days old, oldest 56d** — but the wiki is only ~56 days old, so this is mostly "written once, still true". Age alone is not staleness; the *claims* check below is the one that matters.
+  **19 pages carry phrases that go false when code ships** (*"no Python port"*, *"not implemented"*, *"zero occurrences"*, *"blocked on"*, *"no live-ticker example"*). Two were false and are fixed; the rest were spot-checked as still true. **This class is the wiki's main decay risk** — it is what made both fixed claims wrong — and it is worth re-running this grep after every shipping session rather than at lint time.
+- **Suggested next questions**, per the LINT spec: should `entities/TRENT` and `entities/NIFTY` exist (they are referenced but absent)? Is the analysis schema's `Conclusion` requirement right for roadmap-style pages? And the 12 unindexed pages are the highest-value cleanup remaining.
+
 ## [2026-08-09] measure | Hora tested — also null, not identified at 1h, and weekday beats it in every configuration
 - The second pre-registered astro claim from the roadmap: *"do Mercury/Jupiter hora blocks differ from Saturn/Mars?"* Run as [hora_study.py](tools/hora_study.py) on the same 5,050 `^NSEI` 1h bars. Folded into [[analyses/FA-2-Rahu-Kaal-Measured]].
 - ### Hora looked genuinely more promising than Rahu Kaal, and for a good reason
@@ -808,7 +828,7 @@
 
 ## [2026-07-22] ingest | Multitimeframe FVG [Zeiierman] — volume-effort + DSP trend filter
 - Source: TradingView URL (https://www.tradingview.com/script/5jS51RsP-Multitimeframe-Fair-Value-Gap-FVG-Zeiierman/) → [[sources/FVG-Zeiierman-MTF-Pine]]. Fourth FVG indicator this session.
-- Pages created: [[sources/FVG-Zeiierman-MTF-Pine]], [[Zeiierman]] (new author entity — TradingView Wizard).
+- Pages created: [[sources/FVG-Zeiierman-MTF-Pine]], [[entities/Zeiierman]] (new author entity — TradingView Wizard).
 - Pages updated: [[concepts/Fair-Value-Gap]] (new "Zeiierman variant" subsection; sources 6→7; added [[concepts/FPV-Flow-Price-Volume-Ownership]] to related), [[index]], [[log]].
 - **Key insight (new):** first FVG source to put a **volume/effort read *inside* the gap** — "Bull/Bear Power" sub-bars (Buy≈low→close, Sell≈high→close) give each imbalance a conviction tint. This operationalizes the price+volume half of FPV at the single-gap level and is the highest-value port idea for `tools/fvg.js` (FF-5 price+volume gate) — we already draw zones and compute volume.
 - **Second distinctive element:** a two-pole **Butterworth low-pass filter** classifies FVGs trend-aligned vs countertrend (genuine DSP, unusual in retail scripts). Noted as adopt-the-concept-not-the-filter — reuse an existing EMA/structure trend gate.
@@ -816,7 +836,7 @@
 
 ## [2026-07-22] ingest | Fair Value Gaps by DGT — fill logic as a setting
 - Source: TradingView URL (https://www.tradingview.com/script/Onab2fvE-Fair-Value-Gaps-by-DGT/) → [[sources/FVG-DGT-Pine]]. Third FVG indicator this session (after the two LuxAlgo scripts).
-- Pages created: [[sources/FVG-DGT-Pine]], [[DGT]] (new author entity — dgtrd, TradingView Pine Wizard).
+- Pages created: [[sources/FVG-DGT-Pine]], [[entities/DGT]] (new author entity — dgtrd, TradingView Pine Wizard).
 - Pages updated: [[concepts/Fair-Value-Gap]] (new "DGT variant" subsection + **resolution note added to the standing mitigation contradiction callout**; sources 5→6), [[index]], [[log]].
 - **Key insight (resolves a standing contradiction):** DGT exposes **fill logic as a user setting with 4 definitions** — Any Touch / Midpoint / Wick Sweep / Body Beyond. "Any Touch" = LuxAlgo's wick-through retire, "Body Beyond" = the Quant script's close-through invalidation. The wiki's long-running wick-vs-close mitigation contradiction is just the two ends of one `fill_mode` dial → port it to `tools/fvg.js` as a parameter, not a hard-coded rule.
 - **Second new capability:** three-source detection = current TF + HTF + **LTF/intrabar** (Auto-selected lower timeframe). LuxAlgo only projects HTF *down*; DGT also reads gaps hidden *inside* the current bar.
@@ -824,7 +844,7 @@
 ## [2026-07-22] ingest | Fair Value Gap [LuxAlgo] — standalone FVG indicator
 - Source: TradingView URL (https://www.tradingview.com/script/jWY4Uiez-Fair-Value-Gap-LuxAlgo/) → [[sources/FVG-LuxAlgo-Pine]]. LuxAlgo's **dedicated FVG-only** indicator, distinct from the already-ingested [[sources/LuxAlgo-Smart-Money-Concepts-Pine|SMC superset]].
 - Pages created: [[sources/FVG-LuxAlgo-Pine]].
-- Pages updated: [[concepts/Fair-Value-Gap]] (new "standalone LuxAlgo FVG indicator" subsection: dashboard fill%/avg-bars-to-mitigation, "Dynamic" mitigation mode, `close[1] > high[2]` directional gate; sources 4→5), [[LuxAlgo]] (2nd contribution; sources 1→2), [[index]], [[log]].
+- Pages updated: [[concepts/Fair-Value-Gap]] (new "standalone LuxAlgo FVG indicator" subsection: dashboard fill%/avg-bars-to-mitigation, "Dynamic" mitigation mode, `close[1] > high[2]` directional gate; sources 4→5), [[entities/LuxAlgo]] (2nd contribution; sources 1→2), [[index]], [[log]].
 - **Key insight (new):** the indicator's **dashboard reports fill % + average bars-to-mitigation** per gap — turns FVG mitigation from binary into a measurable expectancy. Flagged as a cheap port target for [fvg.js](tools/fvg.js) (fits FF-2 in [[analyses/FVG-FBG-Fibonacci-Chart-Roadmap]]).
 - No new contradiction: the existing wick-through vs close-through mitigation conflict stands; this tool's optional "Dynamic" mode *softens* LuxAlgo's retire-on-touch stance toward the Quant script's partial-fill-is-the-entry lifecycle.
 
@@ -898,7 +918,7 @@
 - Wired: added **Stochastic (14,3,3)** as a sub-pane oscillator in [`tools/chart_dashboard.html`](../../tools/chart_dashboard.html) — `stochSeries()` compute helper + render block with cyan %K, dashed orange %D, 80/50/20 guide lines. Follows the same pattern as RSI/MACD/ROC.
 
 ## [2026-07-14] ingest | Madhur Raut — Market Sentiment Index Infographic (5-indicator composite)
-- Source: Social-media infographic by [[Madhur-Raut]] — 0-100 composite gauge for NIFTY sentiment. Weights: PCR Trend (30) + Advance/Decline (20) + Sector Performance (20) + Hourly Technical Trend (15) + 3-Min Technical Trend (15). Sample reading 14 Jul 2026 = 34/100 SELL.
+- Source: Social-media infographic by [[entities/Madhur-Raut]] — 0-100 composite gauge for NIFTY sentiment. Weights: PCR Trend (30) + Advance/Decline (20) + Sector Performance (20) + Hourly Technical Trend (15) + 3-Min Technical Trend (15). Sample reading 14 Jul 2026 = 34/100 SELL.
 - Filed:
   - [[sources/Madhur-Raut-Market-Sentiment-Index-Infographic]] — source summary with breakdown table and cross-references.
   - [[concepts/Market-Sentiment-Index]] — concept page with composition, use as regime gate, common mistakes, Trading Bramha variant.
@@ -907,7 +927,7 @@
 - Key insight: **Medium-value, low-effort addition** — three of five inputs (A/D, Sector, Technical Trend on NIFTY) are already home data via bhavcopy + `sector_rotation.py` + PMax. PCR is the only new fetch. Recommended v1 substitutes NIFTY-vs-SMA200 + PMax-on-NIFTY-1H for the vague "Technical Trend" rows.
 
 ## [2026-07-12] ingest | YT — Kaushik Akkiwakar: True Strength Index (TSI) for Momentum
-- Source: YouTube transcript by [[Kaushik-Akkiwakar]] (SEBI RA) covering TSI from first principles — formula (double-smoothed ΔClose over 25 then 13, ×100), 13/7-EMA signal line, 4-quadrant trend×momentum matrix using [[SuperTrend]] (or MAST = MA+SuperTrend) as trend filter, TSI vs [[RSI]] comparison, six worked examples on [[Point-and-Figure-Charts]], zero-line confirmation, and the author's live deployment at [[MarkUp-Platform]] on daily + 5-min timeframes.
+- Source: YouTube transcript by [[entities/Kaushik-Akkiwakar]] (SEBI RA) covering TSI from first principles — formula (double-smoothed ΔClose over 25 then 13, ×100), 13/7-EMA signal line, 4-quadrant trend×momentum matrix using [[concepts/SuperTrend]] (or MAST = MA+SuperTrend) as trend filter, TSI vs [[concepts/RSI]] comparison, six worked examples on [[concepts/Point-and-Figure-Charts]], zero-line confirmation, and the author's live deployment at [[entities/MarkUp-Platform]] on daily + 5-min timeframes.
 - Filed:
   - [[sources/YT-Kaushik-Akkiwakar-TSI-Momentum]] — source summary with 4-quadrant matrix and 6 examples.
   - [[concepts/True-Strength-Index-TSI]] — first-class concept page with formula derivation, RSI contrast table, signal taxonomy, best pairings, common mistakes.
@@ -916,7 +936,7 @@
   - [[entities/Kaushik-Akkiwakar]] — SEBI RA entity page.
   - [[entities/MarkUp-Platform]] — signals platform entity page.
 - **Key insight**: TSI is a *trend-momentum confluence* tool, not a standalone oscillator. Reading TSI crossovers conditional on trend (via SuperTrend) is the entire edge — a bullish trend + negative TSI crossover is a pause/profit-book signal, not a reversal.
-- **Local fit / actionable**: TSI slots naturally as a 5th chart pane alongside [[MACD-Divergence]] and [[RSI]] (same "oscillator below price" convention established after `87a49c6` RS Line and `fcb3faa` MACD). Scanner rule "negative TSI crossover in bullish trend" fits the SwingEdge Momentum Buildup family. Check redundancy against [[KST]] before adding both.
+- **Local fit / actionable**: TSI slots naturally as a 5th chart pane alongside [[concepts/MACD-Divergence]] and [[concepts/RSI]] (same "oscillator below price" convention established after `87a49c6` RS Line and `fcb3faa` MACD). Scanner rule "negative TSI crossover in bullish trend" fits the SwingEdge Momentum Buildup family. Check redundancy against [[concepts/KST]] before adding both.
 - **Contradictions**: none with existing wiki. Author's "95% of traders don't know TSI" is rhetorical; no backtest stats given for the 4-quadrant matrix.
 - Index updated (161→167 pages, 68→69 sources).
 
@@ -972,7 +992,7 @@
 - **New concept surfaced: Out of Bounds (OOB)** — planet declination beyond ±23°26′. Cafe Astrology exposes this as a dedicated "Out of Bounds: Dates Table" that Astro-Seek doesn't. OOB Mercury (news windows), OOB Mars (volatility extremes), OOB Venus (consumer/inflation moves) are financial-astrology filters worth capturing.
 - **Cross-check plan upgrade:** Three-way triangulation for local astro engine calibration — our engine × Cafe Astrology PDF × Astro-Seek iCal feed. Diff targets: Rx/D stations (should match to the minute), lunations (same), ingresses (should match exactly), VoC (differs by definition — use Astro-Seek's three variants to identify which our engine implements).
 - **Historical archive value:** 2005-2030 clean ephemerides + 2012-2027 asteroid ephemerides gives ~20 years of backtesting substrate for reversal-calendar signals vs price.
-- Created [[sources/CafeAstrology-Ephemeris.md]]. Updated index (153→154 pages, 65→66 sources) and log. Cross-link added to [[sources/AstroSeek-iCal-Planner]] comparison table.
+- Created [[sources/CafeAstrology-Ephemeris]]. Updated index (153→154 pages, 65→66 sources) and log. Cross-link added to [[sources/AstroSeek-iCal-Planner]] comparison table.
 - **Flagged for future ingest:** `concepts/Out-of-Bounds-Planets.md` (new concept, includes OOB Mercury/Mars/Venus interpretations); extension of the previously-flagged `analyses/Astro-Engine-Cross-Check.md` to include Cafe Astrology as second oracle.
 - No contradictions except timezone convention (Cafe Astrology = midnight ET; recommend converting both external sources to UTC before diffing our engine).
 

@@ -90,5 +90,5 @@ Polycab India, Persistent Systems, Berger Paints, Blue Star
 | Zen Technologies | 1000–1050 |
 
 ## Related
-- [[wiki/overview.md]] — Update current bias/regime based on these sectors
+- [[overview]] — Update current bias/regime based on these sectors
 - [[strategies/TechnoFunda-Swing]] — Apply system to names from this list
