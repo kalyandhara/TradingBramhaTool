@@ -3,8 +3,8 @@ title: "Supply and Demand Zone Trading"
 category: strategy
 tags: [supply-demand, S&D, zones, smart-money, price-action, RBR, RBD, DBD, DBR, flip-zone, intraday, swing]
 created: 2026-06-18
-updated: 2026-06-18
-sources: 1
+updated: 2026-08-09
+sources: 2
 related:
   - concepts/Support-Resistance.md
   - concepts/Order-Flow.md
@@ -120,6 +120,26 @@ Kalyan's sweep-reverse scalp is a **DBR flip zone** entry at intraday scale:
 
 The sweep itself is a **spring** (false breakdown below support) — a classic S&D signal that confirms the zone is holding and orders are still there.
 
+## Implementation Coverage in This Repo (2026-08-09)
+
+Drawn while ingesting [[sources/Demand-Supply-Four-Formations-Infographic]]. The four formations have been documented here since 2026-06-18; **this is the first time they were checked against `tools/`.**
+
+| Formation | Type | Detected? | Where |
+|---|---|---|---|
+| **RBR** Rally-Base-Rally | Continuation (demand) | ⚠️ **partially** | [`scan_base_formation`](tools/scanner_templates.py:863) — but see the contradiction below |
+| **DBD** Drop-Base-Drop | Continuation (supply) | ❌ | — |
+| **RBD** Rally-Base-Drop | Reversal (supply) | ❌ | — |
+| **DBR** Drop-Base-Rally | Reversal (demand) | ❌ | — |
+
+> [!contradiction] The one formation we detect, we trade backwards
+> This page says the base **is the zone**: price leaves, returns, and the trade is the **retest**. `scan_base_formation` is Minervini-framed — it requires the full Stage-2 trend template (price > SMA50 > SMA150 > SMA200, within 25% of the 52-week high, ≥25% above the 52-week low), reuses `detect_vcp_geometry` for a contracting base, and buys the **breakout above the pivot**, explicitly *excluding* names that have already broken out. The base is a launchpad there, not a zone to come back to.
+>
+> **Same shape, opposite trade, different bar.** A Base Formation hit is therefore **not** an RBR demand-zone setup, and wiring one to the other's output would buy the wrong event. Same class of error as treating a wick zone as an order block.
+
+**The gap worth naming: two of the three missing formations are supply-side**, which makes this the fourth instance of a long-only bias found this week — after candlesticks (no bearish patterns until 2026-08-09), [[concepts/Order-Blocks]] (`scan_order_block` long-only) and the same in the FVG scanner.
+
+**DBR is the most interesting absence.** The repo has several reversal-from-decline detectors — Early Reversal Detector, [[concepts/Rounding-Bottom]], [[concepts/Falling-Wedge]], the Drop-Recovery screen — which are the DBR *shape*. But none of them is framed as a base with a tradeable zone, so none emits the zone a retest would be measured against. Turning one into a DBR detector is mostly a matter of marking the base and its retest, not new geometry.
+
 ## Backtest / Track Record
 
 - Framework widely used across retail and professional S&D communities
@@ -143,3 +163,4 @@ The sweep itself is a **spring** (false breakdown below support) — a classic S
 ## Sources
 
 1. [SR-SMC-Supply-Demand-Dhruv-Emily-2022](../sources/SR-SMC-Supply-Demand-Dhruv-Emily-2022.md) — all four formations; zone strength factors; entry process; Smart Money signatures; psychology of S&R; breakout conditions
+2. [[sources/Demand-Supply-Four-Formations-Infographic]] (2026-08-09) — unattributed retail graphic; **independent corroboration of all four formations and the zone-at-the-base construction, contributing no mechanics this page lacked.** Its value was prompting the implementation-coverage audit above. Useful mnemonic from it: *the middle leg names the zone, the two outer legs name the trade* — same-direction outer legs mean continuation, opposite mean reversal.
