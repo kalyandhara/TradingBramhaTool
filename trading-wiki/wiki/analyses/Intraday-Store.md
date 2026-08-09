@@ -96,7 +96,7 @@ The store also converted a vague blocker into a precise one. "We need intraday d
 - ✅ Measured Yahoo's per-interval ceilings and recorded them as a lookup rather than a guess.
 - ✅ Surfaced the Rahu-Kaal-vs-session-hours constraint before any study was designed on top of it.
 - ✅ **Daily schedule created 2026-08-09** — see the section below. This is what makes 15m/5m accumulate.
-- ⏭ **FA-2 proper**: Wednesday/Friday, 1h bars inside vs outside Rahu Kaal, against a matched-window baseline with a significance test — the same shape as the [FVG fill study](tools/fvg_fill_study.py), which is the template for "test the claim against a control rather than against nothing".
+- ✅ **FA-2 run 2026-08-09 — and it came back null.** No effect on `^NSEI` hourly returns (+0.66 bp, p=0.39); the apparent volatility effect (p=0.021) is carried entirely by the 15:15 **15-minute stub bar** and collapses to p=0.51 without it. The store did its job: the question got answered rather than deferred. [[analyses/FA-2-Rahu-Kaal-Measured]].
 - ⏭ Widen the universe if any cross-sectional intraday question appears.
 
 ## The daily schedule (created 2026-08-09)

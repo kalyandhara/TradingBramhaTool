@@ -82,6 +82,13 @@ Discovered on joining the windows to the new [intraday store](tools/intraday_sto
 | Thursday | 6th | 13:47–16:01 | 52/52, tail **past the close** |
 | Friday | 4th | 10:55–12:52 | 52/52, **fully inside** |
 
+> [!key-insight] FA-2 has now been run, and Rahu Kaal shows no detectable effect
+> **Measured 2026-08-09** on `^NSEI` 1h, 723 sessions: no effect on returns (+0.66 bp, p=0.39) and **no surviving effect on volatility** — the apparent +1.41 bp / p=0.021 is carried entirely by the 15:15 bar, which is a **15-minute stub** (NSE closes 15:30), and drops to p=0.51 when excluded.
+>
+> Worse for the claim: **within a clock hour, Rahu-Kaal status is determined entirely by weekday**, so the design cannot separate "Rahu Kaal" from "that weekday at that hour" — and the stub-bar signal is best read as a Thursday-at-the-close effect. That limit is structural, not a sample-size problem. Full write-up and the one identification strategy that could fix it: [[analyses/FA-2-Rahu-Kaal-Measured]].
+>
+> **Nothing on this page's windows should be presented as carrying a market effect.** It never was; now that is measured rather than merely uncited.
+
 **Consequence for FA-2: only Wednesday and Friday are cleanly testable on Indian equities.** Monday is truncated at the open, Thursday at the close, and **Tuesday's Rahu Kaal is a post-market phenomenon** here. Pooling all five weekdays would dilute any effect toward zero for a purely mechanical reason and read as a null. See [[analyses/Intraday-Store]].
 
 ### `tools/market_brief.py` + the Morning Market Brief section
