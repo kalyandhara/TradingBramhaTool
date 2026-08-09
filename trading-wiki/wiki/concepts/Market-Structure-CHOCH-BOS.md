@@ -99,6 +99,7 @@ A BOS/CHoCH doesn't just label the trend — in SMC it *creates a zone*. The las
 - [[concepts/Order-Flow]] — liquidity grabs/stop hunts (LIQ in the reference image) are the same iceberg/stop-cluster mechanic already documented for VWAP algo behavior.
 - [[concepts/Trend-Lines]] — the diagonal counterpart (added 2026-07-03): a body close above the falling supply line joining lower pivot highs breaks the descent *rate* rather than a horizontal swing point, so it usually fires earlier than the CHOCH that breaks the last LH; the Early Reversal validation layer runs both as separate checks.
 - [[concepts/Order-Blocks]] — the zone *created by* a BOS/CHoCH break; structure → order block → return-to-zone entry is the core SMC loop.
+- [[strategies/4H-Wick-Zone-FVG-Setup]] — a worked composition where the BOS is the *confirmation* leg between a liquidity sweep and an FVG-retest entry (parked, intraday reference). Note the break there is counter to the sweep that preceded it, so it reads as the CHoCH flavour.
 - [[concepts/Premium-Discount-Zones]] — the swing high/low that defines premium/discount comes from this page's trailing swing extremes; grade break-derived entries by range location.
 - [[concepts/Equal-Highs-Lows]] — a liquidity sweep of equal highs/lows is the classic precursor to a CHoCH; weak highs/lows are often the equal-level liquidity target.
 - [[concepts/Multi-Timeframe-Analysis]] — internal (5-bar) vs swing (50-bar) structure is the same regime/setup/trigger nesting expressed as two pivot lengths on one chart.
