@@ -3178,10 +3178,16 @@ def scan_bearish_reversal_candle(df: pd.DataFrame,
        timing trigger inside a pre-identified structural setup, never the setup.
 
     Base scores are ordered by **geometric strictness** (how many independent
-    conditions the pattern must satisfy), NOT by claimed accuracy. The wiki's
-    Bulkowski percentages come from an infographic crediting him rather than
-    from the Encyclopedia, carry no pattern definitions, and therefore cannot be
-    attached to any particular implementation — see the provenance warning on
+    conditions the pattern must satisfy), NOT by claimed accuracy.
+
+    **Provenance update (2026-08-09):** Bulkowski's own pattern pages were
+    checked and they confirm the gap requirement *body-to-body, shadows ignored*
+    — i.e. `require_gap=True` with the body-gap test is his definition, not a
+    guess. They also show **Evening Star and Evening Doji Star are separate
+    patterns**: 72% / perf rank 4th vs **71% / perf rank 30th**. So the doji
+    variant is the *weaker* one, and an accuracy-based ordering would invert the
+    two scores below. Left on the strictness basis deliberately: the figures that
+    would justify re-basing rest on 28-199-sample cells. See
     ``concepts/Candlestick-Patterns``.
 
     **Measured base rate** (2026-08-09, 17 NSE large-caps, 3y daily, 11,628

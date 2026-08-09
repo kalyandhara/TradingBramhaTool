@@ -176,13 +176,40 @@ A ranked list attributed to Thomas Bulkowski, where % is how often the pattern r
 > These figures did **not** come from Bulkowski's book. The wiki's actual source is a **screenshot of a FINGRAD infographic that credits Bulkowski** ([[sources/Fingrad-Trading-Infographics-Collection]], image 16). The Encyclopedia itself has never been ingested here. Consequences, which matter for anything built on these numbers:
 > - **No pattern definitions accompany the percentages.** We cannot tell whether the 72% Evening Star was measured on the gapped (strict) or gapless (loose) definition — so that figure **cannot be transferred to a detector** until the primary source is checked. Quoting it against a loose implementation would be measuring one pattern and citing another.
 > - No sample size, universe, date range, holding period, or definition of "resolves" is recorded.
-> - **Open item:** ingest the primary source (or another with published methodology) before these numbers are used to justify or weight an implementation.
+> - **Open item:** ingest the primary source (or another with published methodology) before these numbers are used to justify or weight an implementation. ✅ **Closed 2026-08-09 — see below.**
+
+> [!key-insight] RESOLVED 2026-08-09 — primary source checked, and it hands back more than was asked
+> The open item was *"we cannot tell whether the 72% was measured on the gapped or gapless definition."* Bulkowski's own pattern pages settle it.
+>
+> **1. The gap IS required — body-to-body, exactly as implemented.** Evening Star identification guidelines, verbatim: *"a small bodied candle of any color should **gap above the bodies of the two adjacent candles** (ignore the shadows)."* The Evening Doji Star page mirrors it: *"a doji whose body **gaps above the two surrounding days**. Ignore the shadows."*
+>
+> So the **sourced strict reading is Bulkowski's reading**, and specifically the **body-vs-body** test — not `pmax.pine`'s stricter wick-clear (`low[1] > high[2]`). `scan_bearish_reversal_candle`'s default (`require_gap=True`, body-gap) matches the primary source on both counts, which was a guess when it was written and is now a citation. The retail infographic that omits the gap is simply describing a looser, different pattern.
+>
+> **2. Evening Star and Evening Doji Star are SEPARATE patterns — and the doji variant is the worse one.**
+>
+> | | Bearish reversal | Reversal rank | Overall performance rank | Frequency rank |
+> |---|---|---|---|---|
+> | **Evening Star** | **72%** | 10th | **4th of 103** | 71st |
+> | **Evening Doji Star** | **71%** | 12th | **30th of 103** | 81st |
+>
+> The 72% in the table below belongs to **Evening Star**. Attaching it to the doji variant — the pattern the infographic and the deep-dive above are about — is wrong: that one is 71%, and **30th vs 4th** on overall performance.
+>
+> **3. Our own rarity measurement is independently corroborated.** We measured Evening Doji Star firing **twice in 11,628 bar-observations** under the strict rule; Bulkowski ranks it **81st of 103 on frequency**. Two unrelated methods agreeing it is too rare to build a routine around.
+>
+> **Still unresolved:** no total sample or date range is published for the headline rates on the free pages, and the per-cell performance figures rest on very small samples — one cell is explicitly *"just 28 patterns"*, another 199. Treat the ranks as directional and the cell-level averages as anecdote.
+
+> [!contradiction] "The doji star is stronger than the regular star" — this page says it, Bulkowski's data says the opposite
+> The Three-Bar table above records *"Doji Star (Morning/Evening) | Star bar is a doji | **Stronger than regular star**"*, from the Litchfield/Morris side, reasoning that a doji makes the indecision unambiguous. **Bulkowski's figures invert it**: 71% vs 72% on reversal, and 30th vs 4th on overall performance.
+>
+> Both can be internally consistent — "cleaner signal" and "better subsequent move" are different claims, and the doji filter cuts the sample to a rarer subset whose average move is measured on fewer, noisier cases. But the plain-language claim **"stronger" is not supported by the only per-pattern performance data this wiki holds**, and should not be repeated as if it were.
+>
+> **Consequence for the code, deliberately not acted on:** `scan_bearish_reversal_candle` scores Evening Doji Star (68) *above* Evening Star (62). That ordering is explicitly **geometric strictness, not claimed accuracy**, so it is not wrong by its own stated basis — but an accuracy-based ordering would invert the two. Not re-based, because the figures that would justify it rest on 28–199-sample cells, and re-tuning a detector on that is exactly the over-fitting to a third-party statistic this section keeps warning about.
 
 | Pattern | Behaves as | Accuracy |
 |---------|-----------|----------|
 | **Bearish** Three-Line Strike | Bullish **Reversal** | 84% |
 | Three Black Crows | Bearish Reversal | 78% |
-| Evening Star | Bearish Reversal | 72% |
+| Evening Star *(not the doji variant — that is 71%, perf rank 30th)* | Bearish Reversal | 72% |
 | Abandoned Baby | Bullish Reversal | 70% |
 | Two Black Gapping | Bearish Continuation | 68% |
 | **Bullish** Three-Line Strike | Bearish **Reversal** | 65% |
@@ -286,4 +313,5 @@ Its `is_morning_star()` still checks **no gap** and does not require the middle 
 - [Litchfield-Morris-Candlestick-Charting-Explained-2006](../sources/Litchfield-Morris-Candlestick-Charting-Explained-2006.md)
 - [[sources/Forthius-Reversal-Scanner-Pine]] (2026-07-02) — working Pine implementation detecting ~15 of these patterns with per-pattern geometry-based quality scores
 - [[sources/Fingrad-Trading-Infographics-Collection]] (2026-07-19) — Bulkowski top-10 accuracy percentages (name-vs-behavior mismatch). **Screenshot of an infographic crediting Bulkowski, not the Encyclopedia itself** — no definitions or methodology; see the provenance warning above.
+- **Bulkowski, thepatternsite.com** — [Evening Star](https://thepatternsite.com/EveningStar.html) and [Evening Doji Star](https://thepatternsite.com/EveningDojiStar.html), fetched 2026-08-09. **The primary-source check that closed the provenance open item**: source of the verbatim gap requirement (body-to-body, shadows ignored), the separate 72% / 71% reversal rates, the 4th vs 30th overall-performance split, and the 71st / 81st frequency ranks. Note these are the author's free pattern pages, not the Encyclopedia itself — they publish ranks and selected cells but no total sample or date range.
 - User-supplied **"The Evening Doji Star Pattern"** infographic (in-conversation image, 2026-08-08) — source for the Deep-Dive section's 3-step framing, the sniper-entry location gate, and the entry/stop mechanics. **Provenance: unattributed retail educational graphic**, and it **omits the gap requirement** our book source specifies — credited for the framing, not as authority on the geometry.
