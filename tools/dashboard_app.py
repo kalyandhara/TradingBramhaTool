@@ -6197,7 +6197,7 @@ if current_page == "Market Sentiment":
     model = st.session_state.get("brief_model")
     if model:
         import market_brief as mbrief
-        pan = model["panchang"]
+        pan = model.get("panchang")
 
         tone_tone = {"WEAK": "🔴", "CAUTIOUS": "🟠",
                      "STRONG": "🟢"}.get(model["tone"], "⚪")
@@ -6270,7 +6270,15 @@ if current_page == "Market Sentiment":
                 hide_index=True, use_container_width=True,
             )
 
-        # ── Panchang: the almanac block ──
+    # ── Panchang: the almanac block. Optional — the market half above renders
+    # without it, because `ephem` is not installed in every interpreter that can
+    # run this app and an optional dependency must not erase the whole card.
+    if model and not pan:
+        st.warning(
+            f"Astro block unavailable — {model.get('panchang_error') or 'unknown reason'}",
+            icon="🌘")
+
+    if model and pan:
         st.markdown("#### Panchang — {} · {}".format(
             pan["place"], pan["date"].strftime("%d %b %Y")))
         st.caption(
@@ -6351,6 +6359,9 @@ if current_page == "Market Sentiment":
                 hide_index=True, use_container_width=True, height=320,
             )
 
+    # Disclaimer belongs to the whole card, so it sits outside the astro block —
+    # it must still show when the panchang half is unavailable.
+    if model:
         st.info(model["disclaimer"], icon="⚠️")
 
 

@@ -41,6 +41,8 @@ Three separate claims got recorded as untestable in three days, all for the same
 >
 > Asking for more than the ceiling returns an **empty frame with an error**, not a truncated one — over-asking loses everything, which is why `MAX_PERIOD` is a measured lookup table rather than an optimistic guess.
 >
+> **Confirmed on both installed yfinance versions** (1.4.1 and the app interpreter's 1.2.1, re-measured 2026-08-09): identical bar counts and identical date ranges for 1h/15m/5m on `^NSEI`. So these ceilings are Yahoo-side, not client-side, and the version skew documented in [[analyses/Python-Environments]] does not affect them.
+>
 > **The consequence: every day the store does not run is a day of 15m data that can never be recovered.** Daily bars will still be there in five years; 15m bars from last quarter will not. That asymmetry — not any single study — is the argument for a schedule.
 
 ## What is stored now

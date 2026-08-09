@@ -1,6 +1,21 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-09] fix | Morning Market Brief crashed on first real use — I verified it in an interpreter the app never runs
+- **User report:** `Brief build failed: ModuleNotFoundError: No module named 'ephem'`. Root cause: **this machine has two Python 3.14.4 installs with different packages, and the app runs the one I did not test with.** Full page: [[analyses/Python-Environments]].
+  | | `pythoncore-3.14-64` (runs the app) | `Programs\Python\Python314` (what I tested) |
+  |---|---|---|
+  | streamlit | ✅ 1.57.0 | ❌ broken (starlette ImportError) |
+  | ephem | ❌ **missing** | ✅ 4.2.1 |
+  | yfinance | 1.2.1 | 1.4.1 |
+  A bare `python` resolves to a *third* (`hermes-agent\venv`) with no pandas at all. `streamlit` worked only in one and `ephem` only in the other, so no single interpreter could run both the app and the astro verification — exactly the configuration that invites testing in the wrong place.
+- ### Two defects, and only one of them was the missing package
+  **(1) Undeclared dependency.** `ephem` was pip-installed ad-hoc on 2026-08-07 and **B-14 was closed on that basis** — but it was never added to `tools/requirements_pipeline.txt`. So "ephem is installed" described a machine state, not the project; **any fresh environment would have failed identically.** Now installed into the dashboard's interpreter *and* declared, with a comment recording why.
+  **(2) An optional dependency could erase the whole card.** `build_brief` hard-imported `panchang` at function top, so a missing `ephem` took down the **global quote strip and the sector breadth too** — neither of which touches astronomy. That is a design flaw independent of whether ephem is present: any future panchang problem would have done the same. Astro layer is now wrapped; the market half renders and the astro block shows a warning that names the fix. Note `astro_trading.py` **already modelled this correctly** with its `HAS_EPHEM` flag — the convention existed and the new consumer did not follow it.
+- **Side finding, caught only because I tested the degradation rather than the happy path:** `overall_tone()` returned **UNKNOWN whenever breadth was absent** — including when the user simply unticks the "Include sector breadth" checkbox — while holding a perfectly usable Nifty change. It now degrades to a price-only read, with the caveat documented that price-only STRONG is the more generous call since breadth cannot veto it. **11/11 checks**, including a simulated missing `ephem` proving quotes, tone and disclaimer all survive.
+- **The working rule now recorded:** verify anything dashboard-facing with the interpreter from `.claude/launch.json` (`pythoncore-3.14-64`), and **declare any new third-party import in the same change** — an ad-hoc `pip install` records machine state, not project state, which is precisely the mistake B-14 made.
+- **Open:** reconcile or retire one of the two 3.14.4 installs — two environments each holding something the other lacks is the actual root cause and will keep generating this class of bug. Also consider pinning `yfinance`: the 1.2.1-vs-1.4.1 skew is harmless today and won't stay that way, and [[analyses/Intraday-Store]]'s measured `period` ceilings were measured on the *other* version.
+
 ## [2026-08-09] build | Intraday store — and it immediately proved Rahu Kaal barely overlaps NSE hours
 - Built [intraday_store.py](tools/intraday_store.py) — the blocker recorded three times in three days (FA-2, the [[concepts/Volume-Profile]] 80% rule, the [[strategies/4H-Wick-Zone-FVG-Setup]]). SQLite in the house pattern (`tools/*.db`, gitignored like `reversal_calendar.db`). Backfill / update / coverage / `session_slice`, **21/21 behavioural checks** (idempotency, timezone round-trip, naive-input handling, failure capture, MultiIndex flattening). Full page: [[analyses/Intraday-Store]].
 - ### The finding that justifies building it *before* it was needed: intraday data is perishable

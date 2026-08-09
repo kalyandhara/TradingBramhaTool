@@ -235,12 +235,16 @@ def overall_tone(nifty_change: float | None, red: int, total: int) -> str:
     on this card states almanac facts and makes no directional claim, because
     FA-2 (measuring those windows) has never been run.
     """
-    if nifty_change is None or not total:
+    if nifty_change is None:
         return "UNKNOWN"
-    breadth_red = red / total
-    if nifty_change <= -0.5 or breadth_red >= 0.70:
+    # Breadth is optional (the page has a checkbox, and a failed constituent
+    # fetch also lands here). Degrade to a price-only read rather than reporting
+    # UNKNOWN while holding a perfectly good Nifty change — but note the
+    # price-only STRONG is the more generous call, since breadth cannot veto it.
+    breadth_red = (red / total) if total else None
+    if nifty_change <= -0.5 or (breadth_red is not None and breadth_red >= 0.70):
         return "WEAK"
-    if nifty_change >= 0.5 and breadth_red <= 0.30:
+    if nifty_change >= 0.5 and (breadth_red is None or breadth_red <= 0.30):
         return "STRONG"
     return "CAUTIOUS"
 
@@ -255,12 +259,29 @@ def build_brief(*, when: dt.datetime | None = None,
     reading it already owns — a second sentiment source would be the same
     two-surfaces-disagreeing mistake the moon phase avoids.
     """
-    import panchang as pn
-
     when = when or dt.datetime.now(IST)
     snap = global_snapshot(download=download)
     breadth = (sector_breadth(download=download) if include_breadth
                else {"sectors": [], "red": 0, "total": 0, "coverage": {}, "error": None})
+
+    # The astro layer is OPTIONAL and must not be able to take down the market
+    # half. `panchang` needs `ephem`, and this repo runs two separate Python 3.14
+    # installs — the dashboard's `pythoncore-3.14-64` and a second
+    # `Programs\Python\Python314` — which do not have the same packages. A hard
+    # import here meant a missing `ephem` produced "Brief build failed" and no
+    # quotes, no breadth, nothing: an optional dependency erasing the whole card.
+    # `astro_trading` already models this correctly with its HAS_EPHEM flag.
+    pan: dict[str, Any] | None = None
+    pan_error: str | None = None
+    try:
+        import panchang as pn
+        pan = pn.panchang(when.date(), now=when)
+    except ImportError as exc:
+        pan_error = (f"panchang unavailable — {exc}. Install into the interpreter "
+                     f"running this app (see analyses/Intraday-Store for the "
+                     f"two-interpreter hazard).")
+    except Exception as exc:
+        pan_error = f"panchang failed — {type(exc).__name__}: {exc}"
 
     nifty = next((q for q in snap["quotes"] if q["ticker"] == "^NSEI"), None)
     tone = overall_tone(nifty["change_pct"] if nifty else None,
@@ -272,7 +293,8 @@ def build_brief(*, when: dt.datetime | None = None,
         "quotes": snap["quotes"],
         "quotes_meta": {k: snap[k] for k in ("fetched_at", "missing", "stale", "error")},
         "breadth": breadth,
-        "panchang": pn.panchang(when.date(), now=when),
+        "panchang": pan,
+        "panchang_error": pan_error,
         "sentiment": sentiment,
         "tone": tone,
         "disclaimer": ("Educational snapshot. Not investment advice. The astro "
