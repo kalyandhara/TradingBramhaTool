@@ -3,7 +3,7 @@ title: "Fair Value Gap (FVG)"
 category: concept
 tags: [fvg, fair-value-gap, imbalance, smc, ict, pullback-entry, rejection-wick, demand-zone, mtf, auto-threshold, luxalgo]
 created: 2026-07-03
-updated: 2026-07-22
+updated: 2026-08-09
 sources: 7
 related: [concepts/Market-Structure-CHOCH-BOS, strategies/Supply-Demand-Zone-Trading, concepts/Support-Resistance, concepts/Trend-Lines, concepts/Order-Blocks, concepts/Multi-Timeframe-Analysis, concepts/Fair-Value-Breaker-FBG, concepts/Fibonacci-Retracement, concepts/FPV-Flow-Price-Volume-Ownership, analyses/FVG-FBG-Fibonacci-Chart-Roadmap, sources/FVG-LuxAlgo-Pine, sources/FVG-DGT-Pine, sources/FVG-Zeiierman-MTF-Pine]
 ---
@@ -59,6 +59,32 @@ LuxAlgo also ships a **dedicated FVG-only** indicator ([[sources/FVG-LuxAlgo-Pin
 >
 > **Resolution (2026-07-22):** the [[sources/FVG-DGT-Pine|DGT indicator]] treats fill logic as a *setting* with four definitions — **Any Touch** (= LuxAlgo wick-through) at one end, **Body Beyond** (= Quant close-through) at the other, with Midpoint and Wick Sweep in between. Both rules are valid endpoints of one configurable spectrum; model it as a `fill_mode` parameter rather than choosing a side.
 
+### MEASURED (2026-08-09): the "price magnet" is almost entirely width and distance
+
+The claim every FVG explainer makes — *"the market seeks balance and will eventually pull back to fill the gap"* — is now tested. [fvg_fill_study.py](tools/fvg_fill_study.py), 20 NSE large-caps, 5y daily, **2,014 size-gated gaps**, each paired with a **matched placebo**: a zone of identical width at an identical distance from price, anchored at a random unrelated bar.
+
+The control is the whole point. A bare "89% of gaps get filled" is not evidence, because whether price returns to a band is driven mostly by **how wide the band is and how far it sits from price** — facts that have nothing to do with imbalance.
+
+| Fill definition | Real | Placebo | Δ | p | Median bars (real vs placebo) |
+|---|---|---|---|---|---|
+| Any Touch | 89.2% | 87.0% | **+2.1pp** | 0.036 | 2 vs 2 |
+| Midpoint | 79.8% | 78.0% | +1.9pp | 0.142 | 4 vs 4 |
+| Wick Sweep | 71.7% | 69.6% | +2.2pp | 0.128 | 7 vs **6** |
+| Body Beyond | 65.8% | 63.3% | +2.6pp | 0.087 | 9 vs 9 |
+
+> [!key-insight] The fill statistic is real; the *gap's* contribution to it is ~2 percentage points and does not survive scrutiny
+> Three findings, and each one weakens the claim further:
+>
+> **1. Extending the horizon — which is what "eventually" asks for — kills the effect.** At 120 bars the deltas collapse to **+0.3 to +1.4pp, every p ≥ 0.32**. Wait long enough and almost everything gets touched, so the gap's marginal contribution tends to zero. The claim is *weakest* on exactly the timescale it invokes.
+>
+> **2. There is no speed effect at all.** Median bars-to-fill is identical in every cell, and for Wick Sweep the **placebo is faster** (6 vs 7). "Magnet" implies pull. Nothing here pulls.
+>
+> **3. Wider gaps are not more magnetic.** Stratified by width (n≈665 each), no class is significant (p 0.20–0.50). Wide gaps fill *less* often in absolute terms (56.9% vs 72.6% for narrow) — pure geometry, the far edge is further away — and the delta over placebo does not grow with width. "Bigger imbalance, stronger magnet" gets no support.
+>
+> The lone p=0.036 (Any Touch, 40 bars) is the loosest definition, fails a multiple-comparison correction (4 tests → Bonferroni 0.0125), and does not replicate at 120 bars (p=0.65). Read it as noise.
+
+**What this does and does not invalidate.** It tests the *mechanism* claim — gaps as magnets — and finds essentially nothing beyond location. It does **not** test whether a *pullback-rejection entry* at a gap makes money: a zone can be a useful place to look for a rejection even if its fill rate is unremarkable. That is a forward-return question for [[analyses/Backtest-Harness]] and has not been run. Keep the two apart; conflating them is how a null result gets over-read in either direction.
+
 ### Retail-friendly actionable rules (2026-07-22 framework)
 A condensed rule set from [[sources/FVG-FBG-Fibonacci-Retail-Framework]], consistent with the lifecycle above:
 - **Trade only when:** market structure supports the direction · a **liquidity sweep** happened before the FVG · price returns to the zone · **volume confirms** the displacement.
@@ -98,6 +124,9 @@ A returning price that **closes through the opposite boundary** invalidates the 
 ## Examples in This Wiki
 - **Python port (2026-07-03)**: `detect_fvg_pullback()` in `tools/scanner_templates.py`, wired into the Early Reversal Detector validation layer and the High-Growth Screener Validations column.
 - Chart rendering: `tools/fvg.js` + `drawFVG()` in `tools/chart_dashboard.html`.
+- **Screenable since 2026-08-09**: [`scan_fvg_pullback`](tools/scanner_templates.py:2660) — registered **"FVG Pullback"** (category Entry, Entry Trigger family). Until then `detect_fvg_pullback` existed only as one boolean inside the Early Reversal layer (`checks["FVG"]`), so a gap setup could be *confirmed* on a name you were already looking at but never *found* — the recurring orphaned-detector pattern. The wrapper emits entry/stop/target with the stop referenced to the gap the signal fired from, which required `detect_fvg_pullback` to stop discarding that zone on the signal (additive keys `buy_signal_zone` / `sell_signal_zone`; the existing consumer reads only `*_bars_ago`). Fired on 8/12 large-caps over 2y. **Unmeasured** — no harness run.
+- **The entry is deliberately not the popular one.** Retail instruction is to rest a limit order *inside* the zone; that fills you on the way through in exactly the cases where the gap fails, so the fill is guaranteed precisely when it is unwanted. This requires price to close back **above** the zone with a dominant lower wick — fewer trades, worse average price, only gaps that held.
+- **Fill-rate study**: [`fvg_fill_study.py`](tools/fvg_fill_study.py) — the measurement behind the callout above. `python tools/fvg_fill_study.py`.
 - No live-ticker example yet — annotate an entity page when an FVG rejection fires on a tracked stock.
 
 ## Sources

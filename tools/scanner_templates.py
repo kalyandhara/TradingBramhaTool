@@ -2589,6 +2589,12 @@ def detect_fvg_pullback(df: pd.DataFrame, atr_mult: float = 0.5,
 
     bull_top = bull_bot = bear_top = bear_bot = None
     last_buy = last_sell = None
+    # The zone a signal fired FROM. The state machine consumes the zone on the
+    # signal, so without capturing it here a caller can know a rejection
+    # happened but not where its stop belongs — which is why `scan_fvg_pullback`
+    # could not emit a trade plan. Additive: existing callers read only the
+    # *_bars_ago / recent keys.
+    last_buy_zone = last_sell_zone = None
 
     for i in range(2, n):
         a = float(atr.iloc[i])
@@ -2613,12 +2619,14 @@ def detect_fvg_pullback(df: pd.DataFrame, atr_mult: float = 0.5,
             reject = c0 > bull_top and (c0 - l0) > (h0 - c0)
             if touch and reject and o0 > bull_top:
                 last_buy = i
+                last_buy_zone = (bull_bot, bull_top)
                 bull_top = bull_bot = None
         if bear_top is not None:
             touch = bear_bot <= h0 <= bear_top
             reject = c0 < bear_bot and (h0 - c0) > (c0 - l0)
             if touch and reject and o0 < bear_bot:
                 last_sell = i
+                last_sell_zone = (bear_bot, bear_top)
                 bear_top = bear_bot = None
 
     if last_buy is None and last_sell is None and bull_top is None and bear_top is None:
@@ -2628,7 +2636,100 @@ def detect_fvg_pullback(df: pd.DataFrame, atr_mult: float = 0.5,
         "sell_bars_ago": (n - 1 - last_sell) if last_sell is not None else None,
         "active_bull_zone": (round(bull_bot, 2), round(bull_top, 2)) if bull_top is not None else None,
         "active_bear_zone": (round(bear_bot, 2), round(bear_top, 2)) if bear_top is not None else None,
+        "buy_signal_zone": last_buy_zone,     # zone the buy fired from (stop reference)
+        "sell_signal_zone": last_sell_zone,
         "recent": recent,
+    }
+
+
+def scan_fvg_pullback(df: pd.DataFrame, max_bars_ago: int = 3) -> dict | None:
+    """Bullish Fair-Value-Gap pullback rejection — registered entry scanner.
+
+    Wraps `detect_fvg_pullback` (a faithful port of the "BOS & FVG Pullback
+    Signals" Pine) so an FVG setup is **screenable across a universe**. Until
+    now the detector existed only as one boolean inside the Early Reversal
+    validation layer (`checks["FVG"]`), so a gap setup could be confirmed on a
+    name you were already looking at but never *found* — the recurring orphaned
+    detector pattern in this repo.
+
+    Fires when a bullish FVG rejection printed within `max_bars_ago` bars: price
+    dipped into the demand gap and closed back **above** its top with a dominant
+    lower wick. Emits entry/stop/target, with the stop referenced to the gap the
+    signal actually fired from.
+
+    Why the rejection requirement matters (see ``concepts/Fair-Value-Gap``): the
+    popular instruction is to rest a limit order *inside* the zone. That fills
+    you on the way through in exactly the cases where the gap fails — the fill is
+    guaranteed precisely when it is unwanted. Requiring the close back above the
+    zone trades only gaps that held, at the cost of a worse average price.
+
+    Unmeasured: this scanner has never been through ``analyses/Backtest-Harness``.
+    The separate question of whether gaps fill at all — the "market magnet"
+    claim — is measured by ``fvg_fill_study.py``, which is a different question
+    from whether this entry makes money.
+    """
+    if df is None or len(df) < 40:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < 40:
+        return None
+
+    fvg = detect_fvg_pullback(df)
+    if not fvg:
+        return None
+    ago = fvg["buy_bars_ago"]
+    zone = fvg["buy_signal_zone"]
+    if ago is None or ago > max_bars_ago or zone is None:
+        return None
+
+    bot, top = float(zone[0]), float(zone[1])
+    if not top > bot:
+        return None
+
+    c = df["close"]
+    last = float(c.iloc[-1])
+    atr = float(_atr_series(df, 14).iloc[-1])
+    if np.isnan(atr) or atr <= 0:
+        return None
+
+    stop = round(bot * 0.995, 2)
+    risk = last - stop
+    if risk <= 0:
+        return None
+    swing_high = float(df["high"].tail(40).max())
+    target = round(max(swing_high, last + 2.0 * risk), 2)
+
+    vol20 = float(df["volume"].tail(20).mean())
+    vol_x = float(df["volume"].iloc[-1]) / vol20 if vol20 > 0 else 0.0
+    vc = detect_volume_confirmation(df)
+    vol_ok = bool(vc and vc["pass"])
+
+    # Score: gap width in ATR (displacement strength) · volume · freshness.
+    width_atr = min((top - bot) / atr, 3.0) / 3.0
+    fresh = 1.0 if ago <= 1 else (0.7 if ago == 2 else 0.5)
+    base = 12.0 + 38.0 * width_atr + (20.0 if vol_ok else 0.0) + 20.0 * fresh
+
+    reasons = [
+        f"Bullish FVG rejection {ago} bar(s) ago — dipped into the demand gap "
+        f"₹{bot:.0f}–₹{top:.0f} and closed back above it",
+        f"Gap width {(top - bot) / atr:.1f}× ATR "
+        f"(size-gated: the port requires > 0.5× ATR, so trivial gaps are skipped)",
+        (f"Displacement backed by volume ({vc['best_up_rvol']:.1f}× avg)" if vol_ok
+         else "⚠ Displacement volume unconfirmed — weaker gap"),
+        f"Trade plan — entry {last:.0f} · stop {stop:.0f} · target {target:.0f} "
+        f"(R:R {(target - last) / risk:.1f})",
+        "⚠ Unmeasured — this scanner has not been through the backtest harness",
+    ]
+    return {
+        "pattern_type": "Bullish FVG Pullback",
+        "tags": ["FVG", f"Zone {bot:.0f}-{top:.0f}", f"{ago}d ago"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, base), 1),
+        "rs_raw": _rs_raw(df),
+        "entry": round(last, 2),
+        "stop": stop,
+        "target": target,
+        "vol_x50d": round(vol_x, 2),
     }
 
 
@@ -3940,6 +4041,20 @@ SCANNERS: dict[str, dict] = {
     "Near Pivot": {
         "fn": scan_near_pivot,
         "description": "Within 3% of a recent swing-high pivot — tight stop opportunity",
+        "category": "Entry",
+    },
+    "FVG Pullback": {
+        "fn": scan_fvg_pullback,
+        "description": (
+            "Bullish Fair-Value-Gap pullback rejection — price dipped into a "
+            "size-gated 3-candle demand gap (> 0.5x ATR, directional middle "
+            "candle) and closed back ABOVE its top with a dominant lower wick. "
+            "Emits entry/stop/target referenced to the gap. Deliberately not a "
+            "resting limit order inside the zone: that fills on the way through "
+            "exactly when the gap fails. Wraps detect_fvg_pullback, which "
+            "previously existed only as one boolean inside the Early Reversal "
+            "layer and so was never screenable. Unmeasured."
+        ),
         "category": "Entry",
     },
     "Downside Risk": {
