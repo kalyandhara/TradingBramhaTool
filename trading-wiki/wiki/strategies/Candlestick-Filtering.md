@@ -74,6 +74,9 @@ The most actionable version for this wiki:
    - Bearish: price at supply zone + RSI 55–65 + Shooting Star / Dark Cloud / Evening Star → short entry
 3. Stop below zone base; target next S/R level
 
+> [!note] Worked example of step 2's bearish branch
+> [[concepts/Candlestick-Patterns]] carries a full **Evening Doji Star deep-dive** (2026-08-08) — strict geometry, the gap contradiction across our sources and code, the location gate, and entry/stop mechanics. It is the concrete instance of this page's bearish recipe, and a reminder that none of these bearish triggers are implemented in Python yet.
+
 This is the Ryan Litchfield framework (Ch. 10): *Candlesticks are not the setup; they are the timing trigger within a pre-identified structural setup.*
 
 ---
