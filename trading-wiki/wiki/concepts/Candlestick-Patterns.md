@@ -88,7 +88,7 @@ Japanese candlestick patterns are short-term price formations (1–6 bars) that 
 |---------|-----------|--------|
 | **Morning Star** | Large black → small body gap lower → large white > 50% into black | Strong bullish reversal |
 | **Evening Star** | Large white → small body gap higher → large black > 50% into white | Strong bearish reversal — **see deep-dive below** |
-| **Doji Star (Morning/Evening)** | Star bar is a doji | Stronger than regular star — **see deep-dive below** |
+| **Doji Star (Morning/Evening)** | Star bar is a doji | **Clearer indecision, not better performance** — 71% vs 72% reversal but perf rank **30th vs 4th**, and rarer (freq 81st vs 71st). **See deep-dive below** |
 | **Abandoned Baby** | Large body → doji gaps completely away from both sides → large reversal body | Rare; very strong reversal |
 | **Three White Soldiers** | 3 consecutive long white bodies; each opens inside prior body; closes near high | Strong bullish reversal (after downtrend) or trend exhaustion (in uptrend) |
 | **Three Black Crows** | 3 consecutive long black bodies | Strong bearish reversal |
@@ -198,10 +198,10 @@ A ranked list attributed to Thomas Bulkowski, where % is how often the pattern r
 >
 > **Still unresolved:** no total sample or date range is published for the headline rates on the free pages, and the per-cell performance figures rest on very small samples — one cell is explicitly *"just 28 patterns"*, another 199. Treat the ranks as directional and the cell-level averages as anecdote.
 
-> [!contradiction] "The doji star is stronger than the regular star" — this page says it, Bulkowski's data says the opposite
-> The Three-Bar table above records *"Doji Star (Morning/Evening) | Star bar is a doji | **Stronger than regular star**"*, from the Litchfield/Morris side, reasoning that a doji makes the indecision unambiguous. **Bulkowski's figures invert it**: 71% vs 72% on reversal, and 30th vs 4th on overall performance.
+> [!info] Corrected 2026-08-09 — the Three-Bar table used to claim the doji star was "stronger"
+> From 2026-06-19 until 2026-08-09 the Doji Star row read simply **"Stronger than regular star"**, sourced from the Litchfield/Morris side on the reasoning that a doji makes the indecision unambiguous. **Bulkowski's per-pattern figures invert it** on both measures that matter: 71% vs 72% on reversal (a wash) and **30th vs 4th on overall performance** (not a wash). The row now states the distinction instead of the conclusion.
 >
-> Both can be internally consistent — "cleaner signal" and "better subsequent move" are different claims, and the doji filter cuts the sample to a rarer subset whose average move is measured on fewer, noisier cases. But the plain-language claim **"stronger" is not supported by the only per-pattern performance data this wiki holds**, and should not be repeated as if it were.
+> **The old reasoning was not wrong, it was answering a different question.** "Cleaner signal" and "better subsequent move" are separate claims: a doji genuinely is less ambiguous to read, *and* the doji filter cuts the sample to a rarer subset whose average move is measured on fewer, noisier cases. Keep the first, drop the second. **What must not be repeated is the bare word "stronger"**, which silently promotes a readability claim into a performance claim — the same slippage as the FVG "magnet" language before it was measured.
 >
 > **Consequence for the code, deliberately not acted on:** `scan_bearish_reversal_candle` scores Evening Doji Star (68) *above* Evening Star (62). That ordering is explicitly **geometric strictness, not claimed accuracy**, so it is not wrong by its own stated basis — but an accuracy-based ordering would invert the two. Not re-based, because the figures that would justify it rest on 28–199-sample cells, and re-tuning a detector on that is exactly the over-fitting to a third-party statistic this section keeps warning about.
 

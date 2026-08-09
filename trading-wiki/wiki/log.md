@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-09] fix | The "doji star is stronger" line corrected — a readability claim had been promoted to a performance claim
+- Acted on the contradiction logged earlier today. From **2026-06-19 to 2026-08-09** the Three-Bar table on [[concepts/Candlestick-Patterns]] read simply **"Doji Star — stronger than regular star"**. Bulkowski's per-pattern figures invert that on both measures: **71% vs 72%** reversal (a wash) and **30th vs 4th** overall performance (not a wash), plus rarer (freq 81st vs 71st). Row now reads *"clearer indecision, not better performance"* with the numbers inline.
+- **The old reasoning was not wrong — it was answering a different question.** Litchfield/Morris argued a doji makes the indecision unambiguous, which is true and worth keeping. What is not supported is the leap from *easier to read* to *performs better*: the doji filter cuts to a rarer subset whose average move is measured on fewer, noisier cases. **The bare word "stronger" collapsed those two claims into one** — the same slippage as FVG "magnet" language before it was measured, and as "simple & powerful" on the 4H card.
+- **Left alone deliberately:** the Two-Bar row *"Harami Cross — stronger indecision signal"*. That one is scoped to *indecision*, i.e. signal clarity, which is exactly the defensible half. Fixed what was wrong, not everything adjacent.
+- The earlier contradiction callout quoted the line it was about, so it would have gone stale on the fix; rewritten as a dated correction note that records what the page used to say and why. **Log entries above are left as authored** — the log is history, not a page to retro-edit.
+
 ## [2026-08-09] research | Bulkowski primary source checked — the gap requirement is confirmed, and the 72% belongs to the other pattern
 - **Closes the open item logged 2026-08-08.** The provenance warning on [[concepts/Candlestick-Patterns]] said we could not tell whether Bulkowski's 72% Evening Star was measured on the **gapped** or **gapless** definition, so the figure could not be attached to a detector. Went to the author's own pattern pages ([Evening Star](https://thepatternsite.com/EveningStar.html), [Evening Doji Star](https://thepatternsite.com/EveningDojiStar.html)). Three findings, and only the first was the question asked.
 - ### 1. The gap IS required — body-to-body, which is exactly what we shipped
