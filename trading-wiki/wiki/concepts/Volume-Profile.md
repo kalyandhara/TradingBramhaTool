@@ -26,7 +26,10 @@ A histogram of traded volume by *price* (not time): the lookback window's price 
 ### The 80% rule — a testable claim, not a maxim
 If price **enters the value area and holds there for two consecutive 30-minute bars**, there is a stated ~**80% probability it traverses the entire VAL→VAH range** ([[sources/ForexTester-Volume-Analysis-Guide]]). The logic: acceptance back inside value implies the prior excursion was rejected, and value tends to be explored fully before it is left again.
 
-Recorded as a **claim with a number attached, from a vendor blog with no data behind it**. Unlike most volume maxims it is fully specified — entry condition, target, and probability — so it can be measured rather than believed. [[analyses/Backtest-Harness]] can test it directly on NSE 30-minute data; until then treat the 80% as unverified. The intraday cousin of this rule is already noted under [[concepts/Initial-Balance]].
+Recorded as a **claim with a number attached, from a vendor blog with no data behind it**. Unlike most volume maxims it is fully specified — entry condition, target, and probability — so it can be measured rather than believed. [[analyses/Backtest-Harness]] can test it directly on NSE 30-minute data; until then treat the 80% as unverified.
+
+> [!note] Status 2026-08-09: unblocked in principle, still gated on accumulation
+> An [intraday store](tools/intraday_store.py) now exists, so the "nothing persists intraday bars" blocker is gone. But this rule is specified on **two consecutive 30-minute bars**, and Yahoo only serves ~60 days of 30m/15m history — currently **58 sessions**. That is too few, and 1h is too coarse for a rule whose entry condition is a 30-minute hold. **The store accumulates forward, so this becomes testable with time rather than with work** — provided the daily update actually runs. See [[analyses/Intraday-Store]]. The intraday cousin of this rule is already noted under [[concepts/Initial-Balance]].
 
 ## Variants / Parameters
 - Rows/bins (20–30 typical), lookback window, VA percentage (70% standard).

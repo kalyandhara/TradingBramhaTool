@@ -91,7 +91,7 @@ Each leg removes a different failure mode: the zone gives location, the sweep pr
 **None. Nothing here is measured, by the source or by us.**
 
 - The source claims "simple & powerful" with no sample, win rate, or period.
-- **Untestable as specified**: intraday, and `chart_server` fetches intraday bars while nothing persists them. This is the **third claim blocked on that same gap** — after FA-2 (Rahu Kaal/hora) and the [[concepts/Volume-Profile]] 80% value-area rule. One intraday store unblocks all three.
+- **Untestable as specified**: intraday, and `chart_server` fetched intraday bars while nothing persisted them. This was the **third claim blocked on that same gap** — after FA-2 (Rahu Kaal/hora) and the [[concepts/Volume-Profile]] 80% value-area rule. **An [intraday store](tools/intraday_store.py) was built 2026-08-09**, which removes the blocker in principle; this strategy's 15m trigger leg still needs depth beyond the current **58 sessions**, so it becomes testable through forward accumulation rather than more work. The **Weekly→Daily translation above needs none of that and is testable today.** See [[analyses/Intraday-Store]].
 - The **FVG leg has a measured null on its own mechanism**: the 2026-08-09 fill study found ~2pp of "magnet" effect over a width-and-distance-matched placebo, collapsing to nothing at longer horizons. That does *not* refute this use of the gap — here it is an entry location after a confirmed BOS, not a prediction of return — but it does mean the FVG contributes no independent edge.
 - The Weekly→Daily translation above **is** testable and has not been tested either.
 

@@ -71,6 +71,19 @@ Pure offline module: **no API, no login, no rate limit, no vendor.** `panchang(d
 > [!warning] The roadmap's FA-0 blocker is stale — it was already fixed
 > [[analyses/Financial-Astrology-Sector-Week-Roadmap]] lists FA-0 (`get_lunar_phase` broken three ways, live on the Astro Timing page) as a **non-negotiable prerequisite**. It was fixed on **2026-08-02**, five days before that roadmap was written: `_lunar_phase_approximate` is gone and both paths route through `_lunar_phase_from_calendar`. Verified 2026-08-09 — it returns `{'phase': 'new', 'illumination': 14.41, 'source': 'ephem'}` for 2026-08-09 and `full`/99.95% for the 2026-07-29 full moon. **FA-1 was therefore not blocked.** That roadmap should be corrected when it is next touched.
 
+### Rahu Kaal barely overlaps NSE trading hours (2026-08-09)
+Discovered on joining the windows to the new [intraday store](tools/intraday_store.py) — a fact about the panchang, not about the data:
+
+| Weekday | RK part | Window range (seasonal drift) | Overlaps the 09:15–15:30 session |
+|---|---|---|---|
+| Monday | 2nd | 07:39–10:02 | 52/52, but starts **before the open** |
+| **Tuesday** | 7th | 15:11–17:41 | **14/52 — almost entirely after the close** |
+| Wednesday | 5th | 12:21–14:23 | 53/53, **fully inside** |
+| Thursday | 6th | 13:47–16:01 | 52/52, tail **past the close** |
+| Friday | 4th | 10:55–12:52 | 52/52, **fully inside** |
+
+**Consequence for FA-2: only Wednesday and Friday are cleanly testable on Indian equities.** Monday is truncated at the open, Thursday at the close, and **Tuesday's Rahu Kaal is a post-market phenomenon** here. Pooling all five weekdays would dilute any effect toward zero for a purely mechanical reason and read as a null. See [[analyses/Intraday-Store]].
+
 ### `tools/market_brief.py` + the Morning Market Brief section
 Renders on the **Market Sentiment** page: global quote strip, constituent-based sector breadth, the full panchang, and the existing composite reading. Modelled on a published morning-brief card, with two deliberate departures documented in [[analyses/Market-Brief-Card]].
 
