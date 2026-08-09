@@ -1,6 +1,7 @@
 ---
 title: "DGT (dgtrd)"
 category: entity
+bias: n/a
 entity_type: person
 tags: [dgt, dgtrd, tradingview, pine-script, pine-wizard, fvg, ict, indicator-author]
 created: 2026-07-22

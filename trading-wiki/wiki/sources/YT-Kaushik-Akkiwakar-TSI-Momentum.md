@@ -1,5 +1,6 @@
 ---
 title: "YT — Kaushik Akkiwakar: True Strength Index (TSI) for Momentum"
+category: source
 type: source
 source_type: youtube-transcript
 author: "[[entities/Kaushik-Akkiwakar]]"

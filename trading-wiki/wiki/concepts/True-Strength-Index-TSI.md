@@ -1,10 +1,12 @@
 ---
 title: "True Strength Index (TSI)"
-type: concept
-category: indicator
+category: concept
 family: momentum-oscillator
+tags: [momentum, oscillator, double-smoothed, tsi, indicator]
 created: 2026-07-12
-tags: [momentum, oscillator, double-smoothed, tsi]
+updated: 2026-08-09
+sources: 1
+related: [concepts/SuperTrend, concepts/Point-and-Figure-Charts, concepts/RSI, concepts/MACD-Divergence, concepts/KST, concepts/ConnorsRSI, concepts/Percent-R-Trend-Exhaustion, entities/Kaushik-Akkiwakar, sources/YT-Kaushik-Akkiwakar-TSI-Momentum]
 ---
 
 # True Strength Index (TSI)

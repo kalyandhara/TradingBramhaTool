@@ -1,10 +1,12 @@
 ---
 title: "SuperTrend"
-type: concept
-category: indicator
+category: concept
 family: trend-following
+tags: [trend, atr, trailing-stop, supertrend, indicator]
 created: 2026-07-12
-tags: [trend, atr, trailing-stop, supertrend]
+updated: 2026-08-09
+sources: 3
+related: [concepts/True-Strength-Index-TSI, concepts/ADX, concepts/EMA, concepts/PMax, concepts/Point-and-Figure-Charts, entities/Kaushik-Akkiwakar, sources/YT-Kaushik-Akkiwakar-TSI-Momentum]
 ---
 
 # SuperTrend

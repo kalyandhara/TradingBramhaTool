@@ -1,9 +1,13 @@
 ---
 title: "MarkUp Platform"
-type: entity
+category: entity
 entity_type: platform
-created: 2026-07-12
+bias: n/a
 tags: [platform, alerts, momentum, signals]
+created: 2026-07-12
+updated: 2026-08-09
+sources: 1
+related: [entities/Kaushik-Akkiwakar, concepts/True-Strength-Index-TSI, concepts/SuperTrend, sources/YT-Kaushik-Akkiwakar-TSI-Momentum]
 ---
 
 # MarkUp Platform

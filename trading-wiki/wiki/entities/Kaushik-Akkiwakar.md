@@ -1,10 +1,14 @@
 ---
 title: "Kaushik Akkiwakar"
-type: entity
+category: entity
 entity_type: person
 role: SEBI-Registered Research Analyst
-created: 2026-07-12
+bias: n/a
 tags: [person, sebi-ra, educator, momentum, tsi]
+created: 2026-07-12
+updated: 2026-08-09
+sources: 1
+related: [entities/MarkUp-Platform, concepts/True-Strength-Index-TSI, concepts/SuperTrend, concepts/Point-and-Figure-Charts, sources/YT-Kaushik-Akkiwakar-TSI-Momentum]
 ---
 
 # Kaushik Akkiwakar

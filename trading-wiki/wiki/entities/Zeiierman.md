@@ -1,6 +1,7 @@
 ---
 title: "Zeiierman"
 category: entity
+bias: n/a
 entity_type: person
 tags: [zeiierman, tradingview, pine-script, pine-wizard, fvg, mtf, indicator-author]
 created: 2026-07-22

@@ -1,9 +1,11 @@
 ---
 title: "Point-and-Figure Charts"
-type: concept
-category: chart-type
+category: concept
+tags: [chart, point-and-figure, price-action, chart-type, time-independent, box-size, reversal-amount]
 created: 2026-07-12
-tags: [chart, point-and-figure, price-action]
+updated: 2026-08-09
+sources: 1
+related: [concepts/True-Strength-Index-TSI, concepts/SuperTrend, concepts/Support-Resistance, entities/Kaushik-Akkiwakar, sources/YT-Kaushik-Akkiwakar-TSI-Momentum]
 ---
 
 # Point-and-Figure Charts (P&F)

@@ -1,6 +1,7 @@
 ---
 title: "LuxAlgo"
 category: entity
+bias: n/a
 entity_type: organization
 tags: [luxalgo, tradingview, pine-script, smc, indicator-vendor]
 created: 2026-07-16
