@@ -72,13 +72,37 @@ Other limits:
 - **One instrument.** `^NSEI` only. A per-stock version would multiply the multiple-comparison burden without addressing the identification problem.
 - **Tuesday is effectively unmeasurable** — its window is 15:11–17:41, almost entirely after the close, giving 17 usable sessions against ~143 for other weekdays (see [[analyses/Intraday-Store]]).
 
+## The hora half of FA-2 (added 2026-08-09)
+
+The roadmap's second pre-registered astro claim: *"do Mercury/Jupiter hora blocks show different mean returns than Saturn/Mars blocks?"* Run as [hora_study.py](tools/hora_study.py) on the same 5,050 bars.
+
+**Hora looked more promising than Rahu Kaal, for a real reason.** Horas are *seasonal* — 12 equal divisions of a sunrise-to-sunset day — so their boundaries drift through the year. A fixed clock hour on a fixed weekday could therefore fall under different lords in summer and winter, which would allow weekday **and** time-of-day to be held fixed at once. That is precisely what Rahu Kaal could not support.
+
+> [!warning] Measured, the hope dies: of 35 (weekday, clock-hour) cells, only 5 contain more than one hora lord — and all five are the 15:15 stub
+> A ~10-minute seasonal boundary drift cannot reclassify a 60-minute bar; it only bites at the session edge, on the same 15-minute stub that manufactured the volatility artifact above. So within a clock hour the five weekdays map **one-to-one** onto five lords, making **hora lord a deterministic function of (weekday, clock hour)**. It carries no information beyond those 35 cells, so a hora effect cannot be told apart from a weekday×hour pattern. Not a sample-size problem.
+>
+> Note the two partitions are *not* globally identical — 7 lords against 5 weekdays, since a weekday maps to a different lord at each hour. So the right question is not "is hora significant" but **"which grouping explains more?"**
+
+| Grouping (stub excluded, 4,328 bars) | Return F | ANOVA p | Perm p | Range F | Perm p |
+|---|---|---|---|---|---|
+| **Hora lord** (7 groups) | 2.002 | 0.062 | 0.042 | 0.513 | 0.784 |
+| **Weekday** (5 groups) | **3.725** | **0.0050** | **0.0065** | 1.428 | 0.228 |
+
+**Three conclusions:**
+
+1. **Hora fails on its own terms.** 8 tests were run (2 metrics × 2 groupings × 2 samples), so Bonferroni is p<0.00625. Hora clears nothing, and on volatility it is nowhere near (p≈0.78–0.88).
+2. **Weekday explains more than hora in every configuration.** Since hora is a deterministic function of weekday×hour, and plain weekday accounts for more, the astrological relabelling is doing no work. Day-of-week effects in equity returns are a long-documented phenomenon requiring no astrology — and at p=0.005–0.0065 that weekday effect is the one real signal here, sitting right at the corrected threshold.
+3. **The per-lord ordering contradicts the tradition.** Mean residual return by lord runs **Mars −1.48 bp · Venus −1.38 · Moon −0.27 · Sun +0.01 · Mercury +0.25 · Jupiter +1.18 · Saturn +1.67 bp.** **Saturn — classically the most malefic hora — is the best**, and Venus, a benefic, is second worst. Insignificant, so this is not a counter-finding; but it means even the *sign pattern* offers the tradition no support.
+
+**What would fix the identification: 15-minute bars.** At 15m a ~10-minute boundary drift *does* reclassify bars, breaking the collinearity and allowing weekday and hour to be controlled simultaneously. Another reason the store accumulates fine intervals forward.
+
 ## Action Taken / Plan
 
 - ✅ FA-2 run and reproducible: `python tools/fa2_rahu_kaal_study.py` prints both designs, the per-stratum table, and the robustness pass. **The robustness pass is in the script deliberately** — a reader who saw only the p=0.021 headline would draw the wrong conclusion.
 - ✅ **Recorded as a null.** No detectable effect of Rahu Kaal on NIFTY hourly returns or volatility.
 - ⏭ **The roadmap's ordering is now vindicated and should be honoured.** FA-2 was specified to precede FA-3 (the planet→sector map) precisely so that mapping planets to named stocks would not be built on untested windows. **FA-2 found nothing, so FA-3 should not be built** — and per FA-6, if a card is ever produced, this null belongs on its face.
 - ⏭ The within-weekday seasonal-drift design, once 15m depth allows it. It is the only way to separate Rahu Kaal from day-of-week.
-- ⏭ Hora blocks are the other pre-registered astro claim and are testable on the same data with the same method — and carry the **same identification limit**, since hora sequence is also weekday-determined.
+- ✅ **Hora run 2026-08-09** — see the section above. Also null, also unidentified at 1h, and **weekday explains more than hora in every configuration**. Its per-lord ordering puts Saturn best and Venus second-worst, contradicting the tradition's own polarity.
 
 ## Outcome
 
