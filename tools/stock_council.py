@@ -307,6 +307,16 @@ def gather_evidence(
         F["vp_above_poc"] = pos["above_poc"]
         F["vp_poc_distance_pct"] = pos["poc_distance_pct"]
         F["vp_pct_volume_above_poc"] = pos["pct_volume_above_poc"]
+        # HVN/LVN node position. These were computed by volume_profile.py and
+        # drawn on the chart from the start, but describe_position's node fields
+        # were dropped here — so the panel could say "above value" but not "on an
+        # HVN" or "air pocket overhead", which is the actionable half.
+        F["vp_at_hvn"] = pos["at_hvn"]
+        F["vp_hvn_above_pct"] = pos["hvn_above_pct"]
+        F["vp_hvn_below_pct"] = pos["hvn_below_pct"]
+        F["vp_at_lvn"] = pos["at_lvn"]
+        F["vp_lvn_above_pct"] = pos["lvn_above_pct"]
+        F["vp_lvn_below_pct"] = pos["lvn_below_pct"]
 
     # ── RSI 60-40 with-trend setup (reuses the scanner, so the panel and the
     # Scanner Hub can never disagree about whether the setup is live) ──
@@ -843,6 +853,40 @@ def setup_intelligence(b: EvidenceBundle, bull: Thesis, bear: Thesis,
             bulls.append(
                 f"Price sitting on the POC (within {abs(poc_dist):.1f}%) — "
                 f"high-volume fair-value pivot, tight-stop decision point.")
+
+        # ── HVN / LVN node structure (wired 2026-08-09) ──
+        # HVN = heavy prior business, acts as a magnet and S/R; LVN = air pocket
+        # price traverses quickly. Structural context, not a signal: unmeasured,
+        # like the value-area reads above.
+        NEAR = 4.0            # % — a node this close is in play for a swing move
+        hvn_above = F.get("vp_hvn_above_pct")
+        hvn_below = F.get("vp_hvn_below_pct")
+        lvn_above = F.get("vp_lvn_above_pct")
+
+        if F.get("vp_at_hvn"):
+            risks.append(
+                "Price inside a high-volume node — heaviest prior business at this "
+                "price; HVNs act as magnets, so expect rotation/chop here rather "
+                "than a clean directional move.")
+        elif F.get("vp_at_lvn"):
+            risks.append(
+                "Price inside a low-volume node — an air pocket with little prior "
+                "business; poor support underfoot, so stops here are unreliable "
+                "and moves through it tend to be fast in both directions.")
+
+        if hvn_below is not None and hvn_below <= NEAR:
+            bulls.append(
+                f"High-volume node {hvn_below:.1f}% below — a volume shelf to fall "
+                f"back on; the natural stop reference beneath price.")
+        if hvn_above is not None and hvn_above <= NEAR:
+            risks.append(
+                f"High-volume node {hvn_above:.1f}% overhead — heavy prior business "
+                f"to absorb before price can travel; the first real ceiling.")
+        if lvn_above is not None and lvn_above <= NEAR and not (
+                hvn_above is not None and hvn_above < lvn_above):
+            bulls.append(
+                f"Low-volume node {lvn_above:.1f}% overhead with no HVN in front of "
+                f"it — thin air above; breakouts traverse an LVN quickly.")
 
     # ── Fundamentals (only when yfinance actually returned them) ──
     if b.has_fundamentals:
