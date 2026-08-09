@@ -9,7 +9,7 @@ related:
   - sources/Obsidian-Falling-Wedge-Screener-Prompt.md
   - analyses/Falling-Wedge-Scanner-Fit.md
   - concepts/VCP.md
-  - concepts/Order-Block.md
+  - concepts/Order-Blocks.md
 ---
 
 # Falling Wedge
@@ -76,7 +76,7 @@ TATACONSUM.NS: confidence 93, containment 98%, convergence 93%, pivots 5/6, vol�
 - [[concepts/VCP]] — a contraction cousin (volatility drying into a pivot); shares the
   volume dry-up→expansion breakout tell. (The two converging wedge lines are trendlines
   fitted by linear regression through the swing highs/lows.)
-- [[concepts/Order-Block]] · other SMC pieces — different structural entries on the same charts.
+- [[concepts/Order-Blocks]] · other SMC pieces — different structural entries on the same charts.
 
 ## Examples in This Wiki
 - **`scan_falling_wedge(df)`** ✅ *shipped 2026-07-25* ([scanner_templates.py](tools/scanner_templates.py),

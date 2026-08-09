@@ -3307,7 +3307,7 @@ def scan_order_block(df: pd.DataFrame) -> dict | None:
     its low. Reuses the repo's `detect_bos_choch` structure walk and
     `detect_volume_confirmation`. Emits a structured entry/stop/target (stop
     below the zone, target at the displacement extension or 2R). See
-    ``concepts/Order-Block``.
+    ``concepts/Order-Blocks``.
     """
     if df is None or len(df) < 60:
         return None
