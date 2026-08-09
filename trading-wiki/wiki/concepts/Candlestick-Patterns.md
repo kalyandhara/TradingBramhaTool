@@ -222,17 +222,47 @@ A ranked list attributed to Thomas Bulkowski, where % is how often the pattern r
 
 ---
 
-## Examples in This Wiki (2026-08-08)
+## Examples in This Wiki (2026-08-08, updated 2026-08-09)
 
-### Python — bullish only
+### Python — the bearish mirror, shipped 2026-08-09
+[`scan_bearish_reversal_candle`](tools/scanner_templates.py:3043) ("Bearish Reversal Candle", category **Risk**) closes the asymmetry below. Detects **Evening Doji Star · Evening Star · Three Black Crows · Dark Cloud Cover · Bearish Engulfing · Shooting Star**, reporting the strictest that fires. Three properties, each tracing to a decision on this page:
+
+- **`require_gap` is a parameter** (default = the sourced strict reading), not a hard-coded rule — the resolution recorded in the contradiction callout above.
+- **Trend context is evaluated at the bar the pattern started forming**, never at the current bar (the Forthius anti-lookback rule).
+- **The resistance location gate is mandatory** — near a *prior* swing-high pivot or the 60-bar high. (First implementation had a real bug here: a star is itself a local high, so scanning the full window let every pattern qualify as "near a pivot" and the gate rejected nothing. The pivot search now excludes the pattern's own bars.)
+
+Base scores are ordered by **geometric strictness**, deliberately *not* by the accuracy percentages above — those carry no definitions and cannot be attached to an implementation.
+
+> [!key-insight] Measured base rate: the gap switch is near-irrelevant in aggregate and decisive for the stars
+> 2026-08-09, 17 NSE large-caps, 3y daily, **11,628 bar-observations**:
+>
+> | Pattern | Strict (gap required) | Loose (no gap) |
+> |---|---|---|
+> | **All** | **303 — 2.61% of bars** | **320 — 2.75%** |
+> | Shooting Star | 158 | 157 |
+> | Bearish Engulfing | 99 | 93 |
+> | Dark Cloud Cover | 30 | 30 |
+> | Three Black Crows | 9 | 9 |
+> | Evening Star | 5 | **23** |
+> | Evening Doji Star | **2** | **8** |
+>
+> The gap requirement changes the total by 5.6% but **quadruples both star counts** — the aggregate hides it because Shooting Star and Bearish Engulfing dominate either way. (The small dips in those two under the loose rule are the scanner correctly preferring the higher-strictness star on the same bar.)
+>
+> **Operational consequence: Evening Doji Star is too rare to matter on its own** — 2 hits in 11,628 bar-observations strict, roughly one per 8.5 stock-years. The infographic presents it as a workhorse setup; on this universe it is a curiosity, and the risk flag earns its keep through the commoner shapes. Anyone waiting specifically for this pattern will wait years.
+>
+> **This is frequency, not edge.** Whether a hit predicts anything is unmeasured until it goes through [[analyses/Backtest-Harness]].
+
+### Python — the bullish side (unchanged)
 [`scan_candlestick`](tools/scanner_templates.py:2948) ("Candlestick Patterns", category Entry) fires on the latest bar for **Morning Star (70) · Bullish Engulfing (62) · Piercing Line (55) · Hammer (52)**, preferring formations at/below EMA20 with volume confirmation. Its own docstring holds the right principle: *"a candlestick is a trigger, not a system: score stays modest."*
 
-**There is no bearish candlestick detection anywhere in `tools/`.** No Evening Star, no Evening Doji Star, no Shooting Star, no Dark Cloud Cover, no Three Black Crows.
+Its `is_morning_star()` still checks **no gap** and does not require the middle bar to be a doji — the loose reading, and now inconsistent with the bearish mirror's strict default. Worth reconciling, but it changes a shipped detector's hit rate, so it should be measured rather than simply flipped.
 
-> [!key-insight] The repo implements the patterns this page has the *least* evidence for
-> By the Bulkowski table above, the best-rated candle patterns are **bearish** — Three Black Crows 78%, **Evening Star 72%**. None are implemented. Of the four that *are* implemented, **not one appears in that top-10 at all**. Whatever those percentages are worth (see the provenance warning), the selection is inverted relative to our own recorded evidence.
+> [!key-insight] Until 2026-08-09 the repo implemented the patterns this page had the *least* evidence for
+> By the Bulkowski table above, the best-rated candle patterns are **bearish** — Three Black Crows 78%, **Evening Star 72%** — and **none were implemented**, while not one of the four bullish patterns that *were* implemented appears in that top-10 at all. The selection was inverted relative to our own recorded evidence. `scan_bearish_reversal_candle` closes that gap.
 >
-> The natural home for the bearish ones is **not** a short signal. `RISK_SCANNERS` in [opportunity_hub.py](tools/opportunity_hub.py:228) already treats a bearish hit as evidence *against* a shortlisted long, surfaced as a risk flag and barred from adding confluence. An Evening Doji Star at resistance on a name about to be bought is exactly that shape, and it fits without touching the confluence maths.
+> It is deliberately **not** a short signal. `RISK_SCANNERS` in [opportunity_hub.py](tools/opportunity_hub.py:228) treats a bearish hit as evidence *against* a shortlisted long, barred from adding confluence — so an Evening Doji Star at resistance on a name about to be bought lands as a risk flag without touching the confluence maths.
+>
+> Note the asymmetry this leaves standing: the bearish detector is gated on trend-at-formation and a mandatory resistance location; the older bullish one is not. That is a defensible difference (a risk flag should be conservative) but it is a difference, not a design.
 
 ### Pine
 - [`pmax.pine:282`](tools/pmax.pine:282) — an `eveningStarPattern` used inside `bearPatternConfirm`, diverging from this page three ways (see the contradiction callout above).

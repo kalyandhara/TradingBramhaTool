@@ -3040,6 +3040,218 @@ def scan_candlestick(df: pd.DataFrame, min_vol_x: float = 1.0) -> dict | None:
     }
 
 
+def scan_bearish_reversal_candle(df: pd.DataFrame,
+                                 require_gap: bool = True,
+                                 resistance_pct: float = 3.0,
+                                 min_vol_x: float = 1.0) -> dict | None:
+    """Bearish reversal candle at resistance — a RISK FLAG, not a short signal.
+
+    The bearish mirror of `scan_candlestick`, which had covered only the four
+    bullish patterns. Detects **Evening Doji Star · Evening Star · Three Black
+    Crows · Dark Cloud Cover · Bearish Engulfing · Shooting Star** on the latest
+    bar and reports the strictest one that fires.
+
+    Registered under category ``Risk``, so per `opportunity_hub.RISK_SCANNERS` a
+    hit is evidence *against* a shortlisted long and can never add to a
+    confluence count. An Evening Doji Star at resistance on a name about to be
+    bought is exactly that read. See ``concepts/Candlestick-Patterns`` (Evening
+    Doji Star deep-dive).
+
+    Three design choices, each tracing to a decision recorded on that page:
+
+    1. **Trend context is evaluated as of the bar the pattern STARTED forming**,
+       not the current bar (`downCtx[N]` idiom from
+       ``sources/Forthius-Reversal-Scanner-Pine``). Checking "was this an
+       uptrend?" *after* the reversal has printed is lookback bias, and it is
+       what makes reversal detectors look better than they are.
+    2. **`require_gap` is a parameter, not a hard-coded rule.** Our book source
+       (Morris) requires the star to gap above candle 1's body; the widely
+       circulated retail version drops the gap and fires far more often. Both
+       are documented endpoints of one dial, exactly as the FVG page treats its
+       fill-mode spectrum. Default is the sourced (strict) reading. The gap test
+       is **body-vs-body** (`min(o2,c2) > max(o1,c1)`) — the textbook "small body
+       gaps higher" — not `pmax.pine`'s stricter wick-clear `low[1] > high[2]`.
+    3. **The location gate is mandatory.** A reversal candle mid-range is noise;
+       it earns attention only at resistance (near a swing-high pivot or the
+       60-bar high). This is the page's Litchfield rule — the candle is the
+       timing trigger inside a pre-identified structural setup, never the setup.
+
+    Base scores are ordered by **geometric strictness** (how many independent
+    conditions the pattern must satisfy), NOT by claimed accuracy. The wiki's
+    Bulkowski percentages come from an infographic crediting him rather than
+    from the Encyclopedia, carry no pattern definitions, and therefore cannot be
+    attached to any particular implementation — see the provenance warning on
+    ``concepts/Candlestick-Patterns``.
+
+    **Measured base rate** (2026-08-09, 17 NSE large-caps, 3y daily, 11,628
+    bar-observations): fires on **2.61%** of bars strict / 2.75% loose. The gap
+    switch barely moves the total but **quadruples the stars** — Evening Star
+    5→23, Evening Doji Star 2→8 — because Shooting Star (158) and Bearish
+    Engulfing (99) dominate the count either way. **Evening Doji Star is rare
+    enough to be operationally irrelevant on its own** (~1 per 8.5 stock-years
+    strict); the flag earns its keep through the commoner shapes.
+
+    That is a *frequency* measurement, not an edge measurement. Whether a hit
+    predicts anything is unmeasured until this goes through
+    ``analyses/Backtest-Harness``.
+    """
+    if df is None or len(df) < 60:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < 60:
+        return None
+    o, h, l, c, v = df["open"], df["high"], df["low"], df["close"], df["volume"]
+    n = len(df)
+    i = n - 1
+    avg_vol = float(v.tail(20).mean())
+    if not (avg_vol > 0):
+        return None
+    vol_x = float(v.iloc[i]) / avg_vol
+    ema20 = _ema_series(c, 20)
+    ema50 = _ema_series(c, 50)
+    rng = float(h.iloc[i] - l.iloc[i])
+    if rng <= 0:
+        return None
+    body = abs(float(c.iloc[i] - o.iloc[i]))
+
+    def _body(k: int) -> float:
+        return abs(float(c.iloc[k] - o.iloc[k]))
+
+    def _range(k: int) -> float:
+        return float(h.iloc[k] - l.iloc[k])
+
+    def _is_doji(k: int) -> bool:
+        r = _range(k)
+        return r > 0 and _body(k) <= 0.10 * r
+
+    def uptrend_at(k: int) -> bool:
+        """Was bar k in an uptrend? Evaluated at k, never at the current bar."""
+        if k < 50 or np.isnan(ema50.iloc[k]) or ema50.iloc[k] <= 0:
+            return False
+        return bool(c.iloc[k] > ema20.iloc[k] and ema20.iloc[k] > ema50.iloc[k])
+
+    def is_evening_star() -> tuple[bool, bool]:
+        """(fired, is_doji_variant) — candle 1 white, small star, candle 3 < 50%."""
+        if i < 2:
+            return (False, False)
+        b1 = float(c.iloc[i - 2] - o.iloc[i - 2])           # >0 if white
+        big_white = b1 > 0 and b1 > 0.5 * max(_range(i - 2), 1e-9)
+        small_star = _body(i - 1) < 0.4 * max(b1, 1e-9)
+        gap_ok = True
+        if require_gap:
+            star_body_low = min(float(o.iloc[i - 1]), float(c.iloc[i - 1]))
+            c1_body_high = max(float(o.iloc[i - 2]), float(c.iloc[i - 2]))
+            gap_ok = star_body_low > c1_body_high
+        mid1 = (float(o.iloc[i - 2]) + float(c.iloc[i - 2])) / 2.0
+        big_black = bool(c.iloc[i] < o.iloc[i] and c.iloc[i] < mid1)
+        fired = bool(big_white and small_star and gap_ok and big_black)
+        return (fired, fired and _is_doji(i - 1))
+
+    def is_shooting_star() -> bool:
+        upper = float(h.iloc[i]) - max(float(o.iloc[i]), float(c.iloc[i]))
+        lower = min(float(o.iloc[i]), float(c.iloc[i])) - float(l.iloc[i])
+        return bool(body > 0 and upper >= 2 * body and lower <= body
+                    and body <= 0.4 * rng)
+
+    def is_bear_engulf() -> bool:
+        return bool(c.iloc[i - 1] > o.iloc[i - 1] and c.iloc[i] < o.iloc[i]
+                    and o.iloc[i] >= c.iloc[i - 1] and c.iloc[i] <= o.iloc[i - 1])
+
+    def is_dark_cloud() -> bool:
+        mid = (float(o.iloc[i - 1]) + float(c.iloc[i - 1])) / 2.0
+        return bool(c.iloc[i - 1] > o.iloc[i - 1] and o.iloc[i] > h.iloc[i - 1]
+                    and o.iloc[i - 1] < c.iloc[i] < mid)
+
+    def is_three_black_crows() -> bool:
+        if i < 2:
+            return False
+        for k in (i - 2, i - 1, i):
+            if not (c.iloc[k] < o.iloc[k] and _body(k) > 0.5 * max(_range(k), 1e-9)):
+                return False
+        for k in (i - 1, i):
+            # each opens inside the prior body and closes lower
+            if not (o.iloc[k] < o.iloc[k - 1] and o.iloc[k] > c.iloc[k - 1]
+                    and c.iloc[k] < c.iloc[k - 1]):
+                return False
+        return True
+
+    # ── Detect. (name, base strictness score, bars the pattern spans) ──────────
+    found: list[tuple[str, float, int]] = []
+    star_fired, star_doji = is_evening_star()
+    if star_fired:
+        found.append(("Evening Doji Star" if star_doji else "Evening Star",
+                      68.0 if star_doji else 62.0, 3))
+    if is_three_black_crows():
+        found.append(("Three Black Crows", 60.0, 3))
+    if is_dark_cloud():
+        found.append(("Dark Cloud Cover", 55.0, 2))
+    if is_bear_engulf():
+        found.append(("Bearish Engulfing", 52.0, 2))
+    if is_shooting_star():
+        found.append(("Shooting Star", 48.0, 1))
+    if not found:
+        return None
+
+    name, base, span = max(found, key=lambda x: x[1])
+
+    # ── Context gate 1: uptrend as of when the pattern started forming ─────────
+    start = i - (span - 1)
+    if not uptrend_at(start):
+        return None
+
+    # ── Context gate 2: at resistance (swing-high pivot, or the 60-bar high) ───
+    win = df.tail(60)
+    hi60 = float(win["high"].max())
+    # Pivot search must EXCLUDE the pattern's own bars. A star is itself a local
+    # high (candle 3 is lower, candle 1 is lower), so scanning the full window
+    # lets every pattern be "near a pivot" — the gate would never reject anything.
+    highs = win["high"].values[:max(0, len(win) - span)]
+    pivot = None
+    for k in range(len(highs) - 2, 1, -1):
+        if highs[k] > highs[k - 1] and highs[k] > highs[k + 1]:
+            pivot = float(highs[k])
+            break
+    patt_high = float(h.iloc[start:].max())
+    near_pivot = pivot is not None and abs(patt_high - pivot) / pivot * 100 <= resistance_pct
+    near_hi60 = (hi60 - patt_high) / hi60 * 100 <= resistance_pct if hi60 > 0 else False
+    if not (near_pivot or near_hi60):
+        return None
+    where = (f"swing-high pivot {pivot:.0f}" if near_pivot else f"60-bar high {hi60:.0f}")
+
+    # ── Score: strictness prior + volume conviction + how extended the run was ─
+    if name in ("Evening Star", "Evening Doji Star", "Bearish Engulfing") and vol_x < min_vol_x:
+        return None
+    score = base + min(max(vol_x - 1.0, 0.0), 2.0) * 6.0
+    ext = ((float(c.iloc[start]) / float(ema20.iloc[start]) - 1.0) * 100.0
+           if ema20.iloc[start] > 0 else 0.0)
+    if ext > 8:                     # reversing out of an extended run — more meaningful
+        score += 6.0
+    score = float(max(0.0, min(100.0, score)))
+
+    reasons = [
+        f"{name} on the latest bar — bearish reversal candle"
+        + (" (star gapped above candle 1's body)" if name.startswith("Evening") and require_gap else ""),
+        f"Uptrend confirmed as of the bar the pattern started ({span}-bar pattern) — "
+        "context checked at formation, not after the reversal printed",
+        f"Formed at resistance — {where} (within {resistance_pct:.0f}%)",
+        f"Volume {vol_x:.1f}× the 20-day average" + (" — conviction" if vol_x >= 1.5 else ""),
+        (f"Reversing {ext:+.1f}% above EMA20 — extended run" if ext > 8
+         else f"{ext:+.1f}% vs EMA20 at pattern start"),
+        "⚠ RISK FLAG on a long thesis, not a short signal — and unmeasured: "
+        "not yet run through the backtest harness",
+    ]
+    tags = [name, f"Vol {vol_x:.1f}×", "At Resistance"]
+    if name == "Evening Doji Star":
+        tags.append("Doji Star")
+    return {
+        "pattern_type": f"Bearish Reversal: {name}",
+        "tags": tags,
+        "reasons": reasons,
+        "score": round(score, 2),
+        "vol_x50d": round(vol_x, 2),
+    }
+
+
 def scan_ipo_breakout(df: pd.DataFrame,
                       max_history_bars: int = 500,
                       min_history_bars: int = 40,
@@ -3733,6 +3945,21 @@ SCANNERS: dict[str, dict] = {
     "Downside Risk": {
         "fn": scan_downside_risk,
         "description": "Below key MAs with distribution volume — stocks to avoid or short",
+        "category": "Risk",
+    },
+    "Bearish Reversal Candle": {
+        "fn": scan_bearish_reversal_candle,
+        "description": (
+            "Bearish reversal candle AT RESISTANCE — Evening Doji Star, Evening "
+            "Star, Three Black Crows, Dark Cloud Cover, Bearish Engulfing, "
+            "Shooting Star. The bearish mirror of 'Candlestick Patterns', which "
+            "covered only bullish shapes. Trend context is checked as of the bar "
+            "the pattern started forming (not after the reversal printed), the "
+            "resistance location gate is mandatory, and the star's gap "
+            "requirement is a parameter (default: the sourced strict reading). "
+            "A hit is evidence AGAINST a long, never a confluence vote. "
+            "Unmeasured — not yet through the backtest harness."
+        ),
         "category": "Risk",
     },
     # One combined entry replaced the four separate 6M/1Y/5Y/10Y buttons
