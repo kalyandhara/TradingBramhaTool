@@ -91,6 +91,11 @@ Discovered on joining the windows to the new [intraday store](tools/intraday_sto
 
 **Consequence for FA-2: only Wednesday and Friday are cleanly testable on Indian equities.** Monday is truncated at the open, Thursday at the close, and **Tuesday's Rahu Kaal is a post-market phenomenon** here. Pooling all five weekdays would dilute any effect toward zero for a purely mechanical reason and read as a null. See [[analyses/Intraday-Store]].
 
+### Companion module — planetary positions (2026-08-09)
+[planet_positions.py](tools/planet_positions.py) covers what this module deliberately does not: **geocentric and heliocentric longitude, declination, and out-of-bounds** for all ten bodies including Uranus/Neptune/Pluto, with **per-planet selection**. Built from [[sources/BlueprintResearch-Path-of-the-Planets-Pine]].
+
+It **reuses this module's `_lahiri_ayanamsa` and `_to_ephem`** rather than re-deriving them, so the two cannot drift apart on ayanamsa — verified: its Moon sidereal longitude matches `moon_nakshatra()` to 1e-9, and its retrogrades match `retrogrades()` exactly on the five classical planets. Note the source Pine is **tropical** while everything here is **sidereal** (Lahiri); the two differ by ~24°, about a whole sign, by definition rather than by error.
+
 ### `tools/market_brief.py` + the Morning Market Brief section
 Renders on the **Market Sentiment** page: global quote strip, constituent-based sector breadth, the full panchang, and the existing composite reading. Modelled on a published morning-brief card, with two deliberate departures documented in [[analyses/Market-Brief-Card]].
 

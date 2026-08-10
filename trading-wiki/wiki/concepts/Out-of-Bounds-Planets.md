@@ -3,9 +3,9 @@ title: "Out of Bounds Planets (OOB)"
 category: concept
 tags: [astrology, declination, out-of-bounds, oob, financial-astrology, volatility]
 created: 2026-07-08
-updated: 2026-07-08
-sources: 1
-related: [sources/CafeAstrology-Ephemeris, sources/AstroSeek-iCal-Planner]
+updated: 2026-08-09
+sources: 2
+related: [sources/CafeAstrology-Ephemeris, sources/AstroSeek-iCal-Planner, sources/BlueprintResearch-Path-of-the-Planets-Pine, concepts/Panchang, analyses/FA-2-Rahu-Kaal-Measured]
 ---
 
 # Out of Bounds Planets (OOB)
@@ -52,13 +52,21 @@ Financial-astrology traders treat OOB windows as **regime modifiers** — not en
 - Lunations and eclipses — OOB near a lunation/eclipse is a heightened-conviction context.
 
 ## Examples in This Wiki
+
+> [!key-insight] Declination is computable here as of 2026-08-09 — this page waited a month for it
+> [planet_positions.py](tools/planet_positions.py) ships `out_of_bounds(when, bodies)` for all ten bodies. Before that, **declination had zero occurrences repo-wide** — this page had existed since 2026-07-08 describing a concept nothing could calculate, and its own "Examples" section said *"worth checking once the local engine can compute declination."*
+>
+> Live at 2026-08-09: **Moon +26.84° and Mars +23.65° are both out of bounds.** Mars only marginally, which is itself instructive — a body sitting within ~0.2° of the limit will flicker in and out, so any event study needs a **minimum-duration or hysteresis rule** rather than a bare threshold test.
+>
+> Note the threshold: this page used **23.4344°**, the module uses **23.4392911°** (the J2000 mean obliquity, and the Sun's own maximum declination — which is what makes the limit meaningful). The ~0.005° difference cannot change a verdict except for a body sitting exactly on the boundary, but the two should be reconciled to one constant.
+
 - No historical OOB event studies yet — the wiki has no back-tested OOB × Nifty statistics. First candidate for study: an event-study of Nifty realised volatility on OOB-Mars vs non-OOB baseline over 2015-2025, using [[sources/CafeAstrology-Ephemeris]]'s Out of Bounds Dates Table as the input.
 - The current NIFTY tape (2026-07-07/08) is a candidate qualitative test: [[analyses/Nifty-Options-EOD-20260707]] flagged a downgrade to "range-with-downside-tilt" with high confidence. If that period coincides with an OOB Mercury or Mars window, that's a data point supporting OOB-as-volatility-amplifier — worth checking once the local engine can compute declination.
 
 ## Data Sources
 - [[sources/CafeAstrology-Ephemeris]] — has a dedicated **"Out of Bounds: Dates Table"** ready-made for import. First-choice source for the OOB filter.
 - [[sources/AstroSeek-iCal-Planner]] — does *not* expose OOB as a feed. Use for cross-checking longitudes/stations/lunations, not for OOB.
-- **Internal engine (planned):** PyEphem (already a dep in `tools/lunar_phases.py` and `tools/astro_trading.py`) exposes body declination via `ephem.Body.dec` in radians. Adding OOB computation to `tools/reversal_calendar.py` is a small extension — for each day, check whether abs(dec) > 23.4344° for each of Mercury/Venus/Mars/Moon and emit an "OOB start"/"OOB end" event on the transition days.
+- **Internal engine — SHIPPED 2026-08-09** as [planet_positions.py](tools/planet_positions.py), not in `reversal_calendar.py` as planned: `out_of_bounds(when, bodies)` over all ten bodies, with per-planet selection. The transition-day event emission described below is still **not** built — the module answers "is it OOB now", not "when did it start". Original plan text: PyEphem exposes body declination via `ephem.Body.dec` in radians; adding OOB computation to `tools/reversal_calendar.py` is a small extension — for each day, check whether abs(dec) > 23.4344° for each of Mercury/Venus/Mars/Moon and emit an "OOB start"/"OOB end" event on the transition days.
 
 ## Sources
 - [[sources/CafeAstrology-Ephemeris]] — primary reference; ready-made OOB Dates Table.
