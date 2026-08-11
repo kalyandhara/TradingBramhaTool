@@ -269,6 +269,32 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ── Content-width constraint ───────────────────────────────────────────────────
+# layout="wide" is kept so the 5-column metric strip and scanner card grid have
+# room to breathe on large monitors, but raw "wide" fills every pixel edge-to-edge
+# on a 4K/ultrawide display — uncomfortable to read and scan. Clamping the main
+# block container to 1 440 px and centering it gives the best of both: wide-mode
+# Streamlit widgets stay proportional at their natural widths, while the whole
+# column sits comfortably in the viewport center at any resolution above that.
+#
+# The selector [data-testid="stMainBlockContainer"] wraps the entire main-content
+# column that Streamlit renders inside the wide layout. The sidebar is a sibling
+# element, so constraining this testid leaves sidebar behaviour unchanged.
+st.markdown(
+    """
+    <style>
+      [data-testid="stMainBlockContainer"] {
+        max-width: 1440px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Navigation — left sidebar page router (replaces st.tabs; Streamlit can't
 # switch tabs programmatically, so a real "click sidebar item -> jump to page"
