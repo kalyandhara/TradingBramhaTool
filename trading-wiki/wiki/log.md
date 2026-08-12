@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-12] ingest | MarketAstroScience — 27 Nakshatras in the Stock Market
+- **Source:** [[sources/MarketAstroScience-Nakshatras-Stock-Market-2026-08-12]] — full 27-nakshatra profiles, 12 Aug 2026
+- **Raw file:** `.raw/articles/nakshatras-stock-market-2026-08-12.md`
+- **Pages created:** [[sources/MarketAstroScience-Nakshatras-Stock-Market-2026-08-12]]
+- **Pages updated:** [[concepts/Nakshatra-Sector-Map]] — added Guna column, trading timeframe grid, Tamas/Rajas/Sattva market-condition key, EV sector for Purva Ashadha, Gandanta notes, new-age sector links
+- **Key insight:** This source frames nakshatras via trading *psychology and timeframe* (intraday vs swing vs long-term) rather than commodity affinity — a complementary layer. Guna (Sattva/Rajas/Tamas) acts as a daily market-condition proxy: 9 Sattva = analytical conditions, 9 Rajas = momentum/active, 9 Tamas = contrarian or avoid. Purva Ashadha is the first nakshatra explicitly linked to EV/Green Energy themes.
+
 ## [2026-08-11] ingest | StockEdge Company Filings — intraday exchange-filing feed, 30 of ~50+ categories captured
 - **Source:** [[sources/StockEdge-Company-Filings-2026-08-11]] — category catalog, 11 Aug 2026
 - **Summary:** Exchange filing aggregator covering all NSE/BSE corporate announcements, categorised by StockEdge's in-house algorithm. 30 of ~50+ categories captured (A–E alphabetically; virtual scrolling prevented full extraction). Key categories: Bonus, Buyback, Stock Split, Annual Report, Board Meeting, Demerger/Merger, Default/Delay, Delisting, Credit Rating, Dividend. **Update cadence: intraday** — unlike all other StockEdge features ingested (EOD). The only real-time event feed on the platform.
