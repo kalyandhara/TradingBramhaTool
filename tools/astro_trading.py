@@ -402,6 +402,112 @@ class AstroIndicators:
             })
         return data
 
+    # ── Nakshatra sector map ───────────────────────────────────────────────────
+    # 27 lunar mansions, each 13°20' of the sidereal zodiac.
+    # Lahiri ayanamsa for 2026: ~23.85°.  Tuple: (name, ruling_planet, [NSE sectors], commodity_theme)
+    NAKSHATRA_DATA: List[Tuple] = [
+        ("Ashwini",          "Ketu",    ["Pharma", "Auto", "Metal"],          "Medical, transport, mining, railways"),
+        ("Bharani",          "Venus",   ["FMCG", "Agri"],                     "Wheat, edible oils, food, medicines, tea"),
+        ("Krittika",         "Sun",     ["Metal", "Energy", "Defence"],       "Gold, diamonds, steel, international trade"),
+        ("Rohini",           "Moon",    ["Auto", "Banking", "Energy", "FMCG"],"Silver, crude oil, cotton, auto, shipping"),
+        ("Mrigashira",       "Mars",    ["IT", "Pharma", "Media"],            "Tech, cinema, jewelry, food grains, pulses"),
+        ("Ardra",            "Rahu",    ["IT", "Pharma", "Energy"],           "Edible oils, air transport, communication, IT"),
+        ("Punarvasu",        "Jupiter", ["Banking", "Realty"],                "Gold, silver, insurance, banking, real estate"),
+        ("Pushya",           "Saturn",  ["FMCG", "Energy", "Agri"],          "Dairy, agriculture, petroleum, govt securities"),
+        ("Ashlesha",         "Mercury", ["Pharma", "Energy"],                 "Pharma, chemicals, petroleum, international trade"),
+        ("Magha",            "Ketu",    ["Banking", "Defence"],               "Stock markets, administration, politics, judiciary"),
+        ("Purva Phalguni",   "Venus",   ["Media", "FMCG", "Realty"],         "Entertainment, beauty, gems, media, hospitality"),
+        ("Uttara Phalguni",  "Sun",     ["Banking", "Media"],                 "Banking, media, public service, social sectors"),
+        ("Hasta",            "Moon",    ["Banking", "Metal"],                 "Silver, textiles, hospitals, marketing, brokerage"),
+        ("Chitra",           "Mars",    ["Auto", "Realty", "Metal"],          "Luxury goods, automobiles, petroleum, real estate"),
+        ("Swati",            "Rahu",    ["Banking", "IT", "FMCG"],           "Stock exchanges, cosmetics, silk, financial mgmt"),
+        ("Vishakha",         "Jupiter", ["Banking", "FMCG", "Agri"],         "Gold, insurance, banking, agriculture, books"),
+        ("Anuradha",         "Saturn",  ["IT", "Pharma", "Defence"],         "Science, foreign trade, exploration, music"),
+        ("Jyeshtha",         "Mercury", ["Defence", "Media"],                 "Military, government, administration, journalism"),
+        ("Mula",             "Ketu",    ["Energy", "Pharma", "Metal"],        "Petroleum, mining, atomic energy, medicine"),
+        ("Purva Ashadha",    "Venus",   ["Energy", "Media", "FMCG"],         "Maritime, water industries, aviation, entertainment"),
+        ("Uttara Ashadha",   "Sun",     ["Defence", "Infra", "Realty"],      "Government, law, military, construction, athletics"),
+        ("Shravana",         "Moon",    ["Energy", "Media", "FMCG"],         "Milk products, marine, mining, coal, broadcasting"),
+        ("Dhanishtha",       "Mars",    ["Metal", "Energy", "Realty"],        "Metals, iron, steel, atomic energy, stock markets"),
+        ("Shatabhisha",      "Rahu",    ["Pharma", "IT", "Energy"],           "Healthcare, electrical, pharma, aviation, film"),
+        ("Purva Bhadrapada", "Jupiter", ["Pharma", "Metal", "Energy"],        "Medicine, metallurgy, leather, pharma, environment"),
+        ("Uttara Bhadrapada","Saturn",  ["FMCG", "Agri"],                    "Jaggery, sugar, sesame, oils, agriculture, research"),
+        ("Revati",           "Mercury", ["IT", "Realty", "Media"],            "Gemstones, pearls, shipping, maritime, hospitality"),
+    ]
+
+    # Lahiri ayanamsa — updated periodically; ~23.85° for 2026
+    _AYANAMSA = 23.85
+
+    def get_nakshatra(self, d: date) -> Dict:
+        """
+        Return the Moon's nakshatra for date d (noon IST).
+
+        Uses PyEphem to get the geocentric ecliptic longitude, then applies the
+        Lahiri ayanamsa to convert tropical → sidereal before dividing into the
+        27-nakshatra grid (each 13°20').  Returns a dict with nakshatra metadata
+        and the sectors to watch; falls back to a note when ephem is absent.
+        """
+        if not HAS_EPHEM:
+            return {"error": "ephem not installed — run: pip install ephem"}
+
+        import ephem as _ephem
+
+        observer = _ephem.Observer()
+        observer.date = datetime.combine(d, time(5, 30))  # noon IST = 06:30 UTC
+        observer.lat = str(self.lat)
+        observer.lon = str(self.lon)
+        observer.elevation = 0
+        observer.pressure = 0  # no refraction
+
+        moon = _ephem.Moon(observer)
+        moon.compute(observer)
+
+        # Tropical ecliptic longitude (radians → degrees)
+        ec = _ephem.Ecliptic(moon, epoch=observer.date)
+        tropical_lon = math.degrees(ec.lon) % 360
+
+        # Sidereal longitude (Lahiri)
+        sidereal_lon = (tropical_lon - self._AYANAMSA) % 360
+
+        # Nakshatra index 0-26 and degree within the nakshatra (0-13.33)
+        each = 360 / 27
+        idx = int(sidereal_lon / each)
+        deg_in = sidereal_lon - idx * each
+        pct = deg_in / each  # 0.0 → 1.0 progress through nakshatra
+
+        name, planet, sectors, theme = self.NAKSHATRA_DATA[idx]
+        return {
+            "nakshatra":    name,
+            "index":        idx + 1,          # 1-27 for display
+            "planet":       planet,
+            "sectors":      sectors,
+            "theme":        theme,
+            "sidereal_lon": round(sidereal_lon, 2),
+            "deg_in":       round(deg_in, 2),
+            "pct":          round(pct * 100, 1),   # % through nakshatra
+        }
+
+    def get_nakshatra_forecast(self, start_date: date, days: int = 7) -> "pd.DataFrame":
+        """Return a DataFrame of nakshatra + sector forecasts for `days` ahead."""
+        rows = []
+        for i in range(days):
+            d = start_date + timedelta(days=i)
+            nk = self.get_nakshatra(d)
+            if "error" in nk:
+                break
+            rows.append({
+                "Date":         d.strftime("%a %d %b"),
+                "Nakshatra":    nk["nakshatra"],
+                "Ruling Planet":nk["planet"],
+                "Watch Sectors":  " / ".join(nk["sectors"]),
+                "Commodity Theme": nk["theme"],
+                "Progress %":   nk["pct"],
+            })
+        if HAS_PANDAS:
+            import pandas as pd
+            return pd.DataFrame(rows)
+        return rows
+
 
 if __name__ == '__main__':
     from datetime import date

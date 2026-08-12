@@ -372,7 +372,7 @@ st.markdown(
         padding: 0 !important;
       }
 
-      /* Nav buttons: transparent, light text, no border */
+      /* Nav buttons: transparent, bold green text */
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
         [data-testid="stBaseButton-secondary"],
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
@@ -382,9 +382,9 @@ st.markdown(
         background: transparent !important;
         border: none !important;
         border-bottom: 2px solid transparent !important;
-        color: rgba(255,245,235,0.70) !important;
+        color: #4ade80 !important;
         font-size: 13px !important;
-        font-weight: 500 !important;
+        font-weight: 700 !important;
         min-height: 62px !important;
         height: 62px !important;
         border-radius: 0 !important;
@@ -394,22 +394,22 @@ st.markdown(
         transition: background .12s ease, color .12s ease, border-color .12s ease !important;
       }
 
-      /* Hover: subtle warm tint + orange underline */
+      /* Hover: lighter green + green underline */
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
         [data-testid="stBaseButton-secondary"]:hover,
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
         [data-testid="stPopoverButton"]:hover {
-        background: rgba(234,88,12,0.10) !important;
-        color: #fff5eb !important;
-        border-bottom-color: rgba(234,88,12,0.45) !important;
+        background: rgba(74,222,128,0.08) !important;
+        color: #86efac !important;
+        border-bottom-color: rgba(74,222,128,0.5) !important;
       }
 
-      /* Active group/home: orange underline, brighter text */
+      /* Active group/home: white text + green underline */
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
         [data-testid="stBaseButton-primary"] {
-        color: #ea580c !important;
-        border-bottom: 2px solid #ea580c !important;
-        font-weight: 600 !important;
+        color: #ffffff !important;
+        border-bottom: 2px solid #4ade80 !important;
+        font-weight: 800 !important;
       }
     </style>
     """,
@@ -5191,6 +5191,76 @@ if current_page == "Astro Timing":
     display_df.columns = ['Date', 'Lunar Phase', 'Illumination %', 'Market Intensity', 'Sunrise', 'Sunset']
 
     st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    # ── Nakshatra Sector Forecast ──────────────────────────────────────────────
+    st.subheader("Nakshatra Sector Forecast — 7-Day Forward")
+    st.caption(
+        "Moon's nakshatra (lunar mansion) for each trading day ahead. "
+        "Each nakshatra rules specific commodities and NSE sectors — use as a "
+        "directional bias, not an entry signal."
+    )
+
+    _nk_today = ai.get_nakshatra(analysis_date)
+
+    if "error" in _nk_today:
+        st.warning(f"Nakshatra engine: {_nk_today['error']}")
+    else:
+        # Today's nakshatra at a glance
+        nk_c1, nk_c2, nk_c3, nk_c4 = st.columns(4)
+        with nk_c1:
+            st.metric("Today's Nakshatra", _nk_today["nakshatra"],
+                      f"#{_nk_today['index']} of 27")
+        with nk_c2:
+            st.metric("Ruling Planet", _nk_today["planet"],
+                      f"{_nk_today['pct']}% through")
+        with nk_c3:
+            st.metric("Sectors to Watch", " · ".join(_nk_today["sectors"][:2]),
+                      _nk_today["sectors"][2] if len(_nk_today["sectors"]) > 2 else "")
+        with nk_c4:
+            st.metric("Moon Longitude (sid.)", f"{_nk_today['sidereal_lon']}°",
+                      f"{_nk_today['deg_in']}° in nakshatra")
+
+        st.info(f"**Commodity theme today:** {_nk_today['theme']}")
+
+        # 7-day table
+        _nk_df = ai.get_nakshatra_forecast(analysis_date, days=7)
+        if isinstance(_nk_df, list):
+            import pandas as _pd_nk
+            _nk_df = _pd_nk.DataFrame(_nk_df)
+
+        # Highlight today (first row)
+        def _nk_row_style(row):
+            if row.name == 0:
+                return [f"background:rgba(74,222,128,0.12)" for _ in row]
+            return ["" for _ in row]
+
+        st.dataframe(
+            _nk_df.style.apply(_nk_row_style, axis=1),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # Sector heatmap — count how many days each sector appears
+        from collections import Counter as _Counter
+        _sector_days: _Counter = _Counter()
+        for _, row in _nk_df.iterrows():
+            for _s in row["Watch Sectors"].split(" / "):
+                _sector_days[_s] += 1
+
+        st.markdown("**Sector appearance frequency (next 7 days)**")
+        _hm_cols = st.columns(min(len(_sector_days), 6))
+        for _ci, (_sec, _cnt) in enumerate(sorted(_sector_days.items(), key=lambda x: -x[1])):
+            with _hm_cols[_ci % len(_hm_cols)]:
+                _pct_bar = int(_cnt / 7 * 100)
+                st.markdown(
+                    f'<div style="background:rgba(74,222,128,{_cnt/7:.2f});'
+                    f'border-radius:8px;padding:8px 12px;margin:2px 0;'
+                    f'font-size:13px;font-weight:600;">'
+                    f'{_sec}<br>'
+                    f'<span style="font-size:11px;font-weight:400;">{_cnt}/7 days</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
 
     # Lunar phase chart
     st.subheader("Lunar Phase Progression")
