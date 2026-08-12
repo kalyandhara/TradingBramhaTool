@@ -2334,6 +2334,142 @@ def detect_bos_choch(df: pd.DataFrame, pivot_len: int = 5,
     return {"signal": label, "level": round(level, 2), "bars_ago": n - 1 - idx}
 
 
+def detect_support_breakdown(df: pd.DataFrame, pivot_len: int = 5,
+                             lookback: int = 120) -> dict | None:
+    """Bearish market-structure event (B-19b): a close BELOW the most recent
+    confirmed swing LOW while structure is bullish = bearish CHOCH (first
+    counter-trend break); while already bearish = bearish BOS (continuation).
+    The mirror-image of ``detect_bos_choch`` — same walk, opposite direction.
+
+    Returns the surviving bearish event or None (no bearish break in the window,
+    or a later bullish break invalidated it).
+    """
+    if len(df) < pivot_len * 4 + 20:
+        return None
+    high, low, close = df["high"], df["low"], df["close"]
+    n = len(df)
+
+    swing_high: float | None = None
+    swing_low: float | None = None
+    trend = 0           # 1 up / -1 down / 0 unknown
+    last_event: tuple[str, int, float] | None = None
+
+    for i in range(max(pivot_len * 2, n - lookback), n):
+        j = i - pivot_len
+        if j >= pivot_len:
+            if high.iloc[j] == high.iloc[j - pivot_len: j + pivot_len + 1].max():
+                swing_high = float(high.iloc[j])
+            if low.iloc[j] == low.iloc[j - pivot_len: j + pivot_len + 1].min():
+                swing_low = float(low.iloc[j])
+        c = float(close.iloc[i])
+        if swing_low is not None and c < swing_low:
+            last_event = ("bearish BOS" if trend == -1 else "bearish CHOCH", i, swing_low)
+            trend = -1
+            swing_low = None   # consumed
+        elif swing_high is not None and c > swing_high:
+            trend = 1
+            swing_high = None
+            last_event = None  # bullish break invalidates the bearish event
+
+    if last_event is None:
+        return None
+    label, idx, level = last_event
+    return {"signal": label, "level": round(level, 2), "bars_ago": n - 1 - idx}
+
+
+def scan_support_breakdown(df: pd.DataFrame) -> dict | None:
+    """Bearish support breakdown — the structural bearish mirror of Order Block
+    Retest (B-19b).
+
+    Fires when:
+      1. ``detect_support_breakdown`` confirms a bearish BOS or CHOCH in the
+         last ~10 bars (structure is cracking, not just a random down-day).
+      2. Price has since pulled back into the broken support (now resistance) —
+         the "retest of the breakdown level from below" entry confirmation.
+      3. Price closed back below that level on the current bar (failed retest),
+         adding the bearish volume/OI confirmation the completeness audit wanted.
+      4. Volume expansion is present (down-day on > 1× 20-day average volume).
+
+    This scanner is a **Risk** entry — it is evidence AGAINST a long and a
+    potential short-side setup, not a buy signal. Carries entry/stop/target
+    for the short side (stop above the breakdown level, target = measured move
+    down from the structure break).
+    """
+    if df is None or len(df) < 60:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < 60:
+        return None
+
+    ev = detect_support_breakdown(df)
+    if ev is None:
+        return None
+
+    n = len(df)
+    o, h, l, c = df["open"], df["high"], df["low"], df["close"]
+    atr = float(_atr_series(df, 14).iloc[-1])
+    if np.isnan(atr) or atr <= 0:
+        return None
+
+    bk_level = ev["level"]      # the broken swing low (now resistance)
+    last = float(c.iloc[-1])
+    last_high = float(h.iloc[-1])
+
+    # Require price to be AT or below the broken level (not already far extended)
+    if last > bk_level * 1.02:  # allow 2% tolerance for wicks
+        return None
+
+    # "Retest from below" — the bar touched the level and closed back under it
+    retest = bool(last_high >= bk_level * 0.98 and last < bk_level)
+    if not retest:
+        return None
+
+    vol20 = float(df["volume"].tail(20).mean())
+    vol_last = float(df["volume"].iloc[-1])
+    vol_x = vol_last / vol20 if vol20 > 0 else 0.0
+    vol_ok = vol_x >= 1.0
+
+    entry = last
+    stop = round(bk_level * 1.005, 2)   # just above the breakdown level
+    risk = stop - entry
+    if risk <= 0:
+        return None
+
+    # Measured-move target: distance of the most recent swing-high above the
+    # breakdown level projected down.
+    swing_high_val = float(h.iloc[max(0, n - 60): n].max())
+    measured_dist = max(swing_high_val - bk_level, atr * 2)
+    target = round(entry - measured_dist, 2)
+
+    reasons = [
+        f"Bearish {ev['signal']} — structure cracked below ₹{bk_level:.0f}, "
+        f"{ev['bars_ago']} bars ago",
+        f"Retest of the breakdown level (now resistance) from below — failed to reclaim ₹{bk_level:.0f}",
+        (f"Volume {vol_x:.1f}× 20-day average — distribution on the retest"
+         if vol_ok else
+         "⚠ Volume weak on the retest — conviction limited"),
+        f"Short plan — entry {entry:.0f} · stop {stop:.0f} · target {target:.0f} "
+        f"(R:R {(entry - target) / risk:.1f})",
+    ]
+    score = 30.0 + (25.0 if vol_ok else 0.0) + (20.0 if retest else 0.0)
+    score += min(15.0, vol_x * 5.0)
+
+    return {
+        "pattern_type": f"Support Breakdown · {ev['signal']}",
+        "tags": ["Breakdown", ev["signal"], f"Level {bk_level:.0f}",
+                 "Vol ✓" if vol_ok else "Vol ✗"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, score), 1),
+        "rs_raw": _rs_raw(df),
+        "entry": round(entry, 2),
+        "stop": stop,
+        "target": target,
+        "vol_x50d": round(vol_x, 2),
+        # B-5: breakdown retests resolve quickly — 8 bars is the expected window
+        "time_stop": 8,
+    }
+
+
 def detect_volume_confirmation(df: pd.DataFrame, avg_len: int = 20,
                                surge_mult: float = 1.5,
                                window: int = 5) -> dict | None:
@@ -3030,6 +3166,9 @@ def scan_harmonic_reversal(df: pd.DataFrame) -> dict | None:
         "targets":   t["targets"],          # full T1/T2/T3 ladder for the card
         "rr":        t["rr_to_t2"],
         "direction": h["direction"],
+        # B-5: time stop — harmonic D-point PRZ typically resolves in ≤10 bars;
+        # beyond that the pattern has failed (the PRZ wasn't respected).
+        "time_stop": 10,
     }
 
 
@@ -3359,6 +3498,127 @@ def scan_bearish_reversal_candle(df: pd.DataFrame,
     }
 
 
+def scan_mean_reversion(df: pd.DataFrame,
+                        rsi2_oversold: float = 10.0,
+                        stretch_pct: float = 5.0,
+                        lookback: int = 3) -> dict | None:
+    """Connors-style mean-reversion setup (B-3 — fills the SIDEWAYS regime gap).
+
+    Fires when:
+      1. **Stretch**: close is ≥ stretch_pct % below the 20-bar SMA (rubber-band
+         pulled down far enough to snap back).
+      2. **RSI(2) oversold**: the ultra-short RSI is below rsi2_oversold (default 10),
+         confirming short-term exhaustion.
+      3. **First up day**: today's close is higher than yesterday's — the pullback
+         is beginning to curl up, not still in free-fall.
+      4. **Regime gate**: the 200-bar SMA is flat or rising (slope over 20 bars
+         ≥ -0.1%), so we are buying the dip in an intact long-term uptrend, not
+         catching a falling knife in a bear market.
+
+    This is a *mean-reversion entry*, not a breakout: the stop is tight (below the
+    session low) and the target is a partial reversion to the 20-day SMA (T1) or
+    full reversion plus a buffer (T2 = 20-SMA × 1.01).
+
+    Unlike the trend-following scanners, ``vol_x50d`` is intentionally ignored:
+    mean-reversion entries often happen on low volume (exhaustion, not expansion).
+    """
+    if df is None or len(df) < 210:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < 210:
+        return None
+
+    close = df["close"]
+    high = df["high"]
+    low = df["low"]
+
+    sma20 = float(close.rolling(20).mean().iloc[-1])
+    sma200 = close.rolling(200).mean()
+    if np.isnan(sma20) or np.isnan(sma200.iloc[-1]):
+        return None
+
+    last = float(close.iloc[-1])
+    prev = float(close.iloc[-2])
+
+    # --- Gate 4: regime (200-SMA slope must not be sharply down) ---
+    sma200_now = float(sma200.iloc[-1])
+    sma200_20ago = float(sma200.iloc[-21])
+    slope_pct = (sma200_now - sma200_20ago) / max(sma200_20ago, 1.0) * 100.0
+    if slope_pct < -0.1:
+        return None   # 200-SMA falling — not a dip, might be a new downtrend
+
+    # --- Gate 1: stretched below 20-SMA ---
+    dist_pct = (sma20 - last) / sma20 * 100.0
+    if dist_pct < stretch_pct:
+        return None
+
+    # --- Gate 2: RSI(2) oversold ---
+    rsi2 = _rsi_series(close, 2)
+    rsi2_now = float(rsi2.iloc[-1])
+    if np.isnan(rsi2_now) or rsi2_now >= rsi2_oversold:
+        return None
+
+    # --- Gate 3: first up day (close > prior close) ---
+    if last <= prev:
+        return None
+
+    # --- Consecutive down days before today (depth of the pull) ---
+    down_days = 0
+    for i in range(2, min(lookback + 2, len(close))):
+        if float(close.iloc[-i]) >= float(close.iloc[-i - 1]):
+            break
+        down_days += 1
+
+    # Score: deeper stretch and more extreme RSI(2) = higher confidence
+    stretch_score = min(dist_pct / 15.0, 1.0) * 35.0   # full at 15% below SMA
+    rsi_score = max(0.0, (rsi2_oversold - rsi2_now) / rsi2_oversold) * 35.0
+    down_score = min(down_days / 3.0, 1.0) * 20.0
+    slope_bonus = 10.0 if slope_pct > 0.2 else 0.0     # actively rising 200-SMA
+    score = stretch_score + rsi_score + down_score + slope_bonus
+
+    entry = last
+    stop = round(float(low.iloc[-1]) * 0.995, 2)     # below session low
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    target1 = round(sma20, 2)                              # T1 = revert to SMA20
+    target2 = round(sma20 * 1.01, 2)                       # T2 = SMA20 + 1% buffer
+    rr1 = round((target1 - entry) / risk, 1) if risk > 0 else 0
+
+    vol20 = float(df["volume"].tail(20).mean())
+    vol_x = float(df["volume"].iloc[-1]) / vol20 if vol20 > 0 else 0.0
+
+    reasons = [
+        f"Stretched {dist_pct:.1f}% below 20-SMA (₹{sma20:.0f}) — rubber-band tension",
+        f"RSI(2) = {rsi2_now:.1f} — ultra-short-term exhaustion (gate < {rsi2_oversold})",
+        f"First up close after {down_days} down days — early curl from the low",
+        f"200-SMA slope {slope_pct:+.2f}% over 20 bars — long-term trend intact"
+        if slope_pct >= 0 else
+        f"⚠ 200-SMA slope {slope_pct:+.2f}% — marginal regime; watch for trend change",
+        f"Trade plan — entry {entry:.0f} · stop {stop:.0f} · T1 {target1:.0f} (SMA20) "
+        f"· T2 {target2:.0f} · R:R to T1 = {rr1}",
+    ]
+
+    return {
+        "pattern_type": "Mean Reversion (Connors RSI2)",
+        "tags": [f"RSI2 {rsi2_now:.0f}", f"Stretch {dist_pct:.1f}%",
+                 f"{down_days}d down", "SIDEWAYS regime"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, score), 1),
+        "rs_raw": _rs_raw(df),
+        "vol_x50d": round(vol_x, 2),
+        "entry": round(entry, 2),
+        "stop": stop,
+        "target": target1,
+        "target2": target2,
+        # B-5: Connors RSI(2) mean-reversion typically resolves in 3-5 days;
+        # 10 bars is a generous outer limit — still in the position after that
+        # means the rubber band is not snapping back (thesis failed).
+        "time_stop": 10,
+    }
+
+
 def scan_ipo_breakout(df: pd.DataFrame,
                       max_history_bars: int = 500,
                       min_history_bars: int = 40,
@@ -3601,11 +3861,12 @@ def scan_rsi_60_40(df: pd.DataFrame) -> dict | None:
         return None
 
     # 2R target (conservative end of the strategy's 2R-3R band).
+    target = None
     if entry and stop and entry > stop:
         target = round(entry + 2.0 * (entry - stop), 2)
         reasons.append(f"Trade plan — entry {entry:.0f} · stop {stop:.0f} · target {target:.0f} (2R)")
 
-    return {
+    out: dict = {
         "pattern_type": f"RSI 60-40 · {setup}",
         "tags": tags,
         "reasons": reasons,
@@ -3613,6 +3874,12 @@ def scan_rsi_60_40(df: pd.DataFrame) -> dict | None:
         "rs_raw": _rs_raw(df),
         "vol_x50d": round(vol_x, 2),
     }
+    if entry and stop and target:
+        out.update({"entry": entry, "stop": stop, "target": target,
+                    # B-5: time stop — RSI 60-40 is a momentum continuation trade;
+                    # 15 bars (3 weeks) without follow-through signals the thesis failed.
+                    "time_stop": 15})
+    return out
 
 
 def scan_order_block(df: pd.DataFrame) -> dict | None:
@@ -3716,6 +3983,9 @@ def scan_order_block(df: pd.DataFrame) -> dict | None:
         "stop": stop,
         "target": target,
         "vol_x50d": round(vol_x, 2),
+        # B-5: SMC order-block trades should resolve promptly; 10 bars without
+        # follow-through means the zone is not acting as support.
+        "time_stop": 10,
     }
 
 
@@ -3921,6 +4191,9 @@ def scan_falling_wedge(df: pd.DataFrame, window: int = 60,
         "touches_l": tl,
         "vol_trend": round(vol_trend, 2),
         "vol_dry": vol_dry,
+        # B-5: wedge breakouts extend fast or fail; 20 bars (4 weeks) captures
+        # the initial impulse — beyond that the measured-move premise is stale.
+        "time_stop": 20,
     }
 
 
@@ -4066,6 +4339,32 @@ SCANNERS: dict[str, dict] = {
     "Downside Risk": {
         "fn": scan_downside_risk,
         "description": "Below key MAs with distribution volume — stocks to avoid or short",
+        "category": "Risk",
+    },
+    "Mean Reversion (Connors RSI2)": {
+        "fn": scan_mean_reversion,
+        "description": (
+            "Connors-style mean-reversion — the SIDEWAYS-regime scanner the playbook "
+            "prescribes but nothing previously implemented (B-3). Fires when: price is "
+            "≥5% below the 20-SMA (stretched), RSI(2) < 10 (ultra-short exhaustion), "
+            "today's close > yesterday (first curl up), and the 200-SMA slope is ≥-0.1% "
+            "(not a new downtrend). Stop below the session low; T1 = 20-SMA reversion; "
+            "T2 = 20-SMA + 1% buffer. Time stop 10 bars. Low-volume entries are expected "
+            "— do NOT require vol expansion for this setup."
+        ),
+        "category": "Entry",
+    },
+    "Support Breakdown": {
+        "fn": scan_support_breakdown,
+        "description": (
+            "Bearish structural support breakdown — the mirror of Order Block Retest "
+            "(B-19b). Fires when: (1) a bearish BOS or CHOCH confirms structure cracked "
+            "below a swing low in the last ~10 bars; (2) price has since retested the "
+            "broken level (now resistance) from below; (3) the retest failed (close back "
+            "under); (4) down-day on ≥1× 20-day average volume. Emits a short-side trade "
+            "plan (stop above the breakdown level, target = measured move). Evidence "
+            "AGAINST a long, not a buy signal. Unmeasured."
+        ),
         "category": "Risk",
     },
     "Bearish Reversal Candle": {

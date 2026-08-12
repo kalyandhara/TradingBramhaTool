@@ -1,6 +1,36 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-11] ingest | StockEdge Company Filings — intraday exchange-filing feed, 30 of ~50+ categories captured
+- **Source:** [[sources/StockEdge-Company-Filings-2026-08-11]] — category catalog, 11 Aug 2026
+- **Summary:** Exchange filing aggregator covering all NSE/BSE corporate announcements, categorised by StockEdge's in-house algorithm. 30 of ~50+ categories captured (A–E alphabetically; virtual scrolling prevented full extraction). Key categories: Bonus, Buyback, Stock Split, Annual Report, Board Meeting, Demerger/Merger, Default/Delay, Delisting, Credit Rating, Dividend. **Update cadence: intraday** — unlike all other StockEdge features ingested (EOD). The only real-time event feed on the platform.
+- **Pages created:** [[sources/StockEdge-Company-Filings-2026-08-11]]
+- **Key insight:** "Clarification Sought" category = exchange querying the company before any news story breaks. Disproportionate signal value for outsized moves. Company Filings is the filing trigger layer; Markets Dashboard is the price outcome layer — these two are complementary.
+
+## [2026-08-11] ingest | StockEdge Investment Themes — 20 structural thematic watchlists, energy transition dominates 2026 additions
+- **Source:** [[sources/StockEdge-Investment-Themes-2026-08-11]] — full catalog, 11 Aug 2026
+- **Summary:** 20 curated thematic watchlists (IDs 140–169). Newest: Nuclear India (9 stocks, Jul 2026), Bengal Rise (18, Jun 2026). 2026 additions are energy/infra-heavy: Nuclear, Renewable Energy, Defence & Aerospace, Data Centers (largest at 20 stocks), Semiconductors. Older evergreen themes: MOATS, China+1, Market Leaders, Cash Cow, Unorganised→Organised shift. Platform: editorial watchlists, not screens or combination scans — static baskets, not EOD-updated.
+- **Pages created:** [[sources/StockEdge-Investment-Themes-2026-08-11]]
+- **Key insight:** No oil/energy trading themes exist on the platform despite crude being the day's dominant catalyst (CPCL +15%). Investment Themes are structural long-term narratives, not reactive to daily macro. The Nuclear + Renewable basket (9+11 = 20 names) is the platform's answer to India's energy transition thesis.
+
+## [2026-08-11] ingest | StockEdge Trading Strategies — net 10:1 bullish on same day chart patterns showed 10:3 bearish
+- **Source:** [[sources/StockEdge-Trading-Strategies-2026-08-11]] — Major Stocks, EOD 11 Aug 2026
+- **Summary:** 6 strategy categories (one-day/swing/positional × bullish/bearish). Counts: One Day Bullish 7 · Swing Bullish 10 · Positional Bullish 3 · One Day Bearish 0 · Swing Bearish 2 · Positional Bearish 0. Net 20:2 = ~10:1 bullish on a day when Nifty breadth was only 13/50 (26% advancing). Platform: "predefined Combination scans" — rule-based, not AI. Updated EOD by 7 PM. Individual stock names not retrieved (auth dropped on sub-page navigation).
+- **Pages created:** [[sources/StockEdge-Trading-Strategies-2026-08-11]]
+- **Key insight:** Strategies are forward-looking EOD scans; Chart Patterns are backward-looking historical formations. The apparent contradiction (bullish strategies vs bearish patterns on the same day) resolves cleanly: pattern counts include stale entries from weeks ago (e.g., Hero MotoCorp Falling Channel from 20 Jul while stock is +18.7%); strategy counts are re-run fresh each day.
+
+## [2026-08-11] ingest | StockEdge Chart Patterns — 10:3 bearish:bullish pattern skew matches Nifty breadth collapse
+- **Source:** [[sources/StockEdge-Chart-Patterns-2026-08-11]] — Major Stocks, Past, activeness-status=200
+- **Summary:** 20 past patterns on Major Stocks: **10 bearish** (Double Top ×4, Bearish Flag, Falling Channel ×3, Rising Wedge, Falling Wedge) vs **3 bullish** (Double Bottom ×1, Ascending Triangle ×2) vs **7 neutral** Symmetrical Triangles. Bearish label hit rate ~60% (6 of 10 resolved down); 5 of 7 sym-triangles resolved upward. Pattern category universe: Triangles 2,179 > Multiple Top/Bottom 1,483 > Channels 1,304. Trading Strategies live (same day): 10 swing bullish vs 2 swing bearish — contradicts pattern bearish skew (strategies are forward-looking, patterns backward-looking).
+- **Pages created:** [[concepts/Chart-Patterns]]
+- **Key insight:** Pattern presence ≠ signal. ~50% of "confirmed" bearish patterns failed (Hero MotoCorp +18.7%, Mahindra +9.1% despite Falling Channel labels). Quality gate (see [[sources/AGPro-Reversal-Pattern-Quality-Scanner-Pine]]) is required to lift the hit rate.
+
+## [2026-08-11] ingest | StockEdge Markets Dashboard — Strait of Hormuz crude spike, Nifty breadth collapse
+- **Source:** [[sources/StockEdge-Markets-Dashboard-2026-08-11]] — live web snapshot, StockEdge Markets page
+- **Summary:** Nifty 50 closed at 24,471.70 (-0.46%), breadth 13/50 (only 26% advancing). Crude oil sector dominated with CPCL +15% (ATH) and MRPL +11.2% (17.99× volume) on Strait of Hormuz uncertainty. Finolex Cables hit a 52W high on 25.4× volume — strongest volume event of the session. FII Cash mildly positive (+₹258.55 Cr). India VIX fell -3.1% on a down day (orderly, not panic).
+- **Pages created:** [[entities/CPCL]], [[entities/MRPL]], [[entities/FINOLEXCAB]], [[entities/GLAND]]
+- **Key insight:** VIX declining on a falling market signals distribution (not panic) — bears are in control without triggering hedging flows. The crude-oil trade is a geopolitical catalyst play, not a structural setup.
+
 ## [2026-08-09] ingest | Path of the Planets Pine — declination had zero occurrences repo-wide, so the module got built with the ingest
 - **Source:** [[sources/BlueprintResearch-Path-of-the-Planets-Pine]] — Pine v6, CC BY-NC-SA 4.0. Geo **and** heliocentric longitudes plus **declinations for all ten bodies**, with **per-planet, per-series toggles as the entire UI** (~30 booleans across three groups) and **future projection to 500 bars**. The user's note — *"we should have option for selection of planet"* — is exactly that toggle grid.
 - **Notable and worth crediting: it makes no market claim at all.** It plots positions and stops. That is the line this repo holds, and it is rare enough in astro material that the usual caveat did not need adding on ingest.

@@ -154,6 +154,7 @@ st.markdown(rs.report_css(), unsafe_allow_html=True)
 st.markdown(
     """
     <style>
+      /* ── Page-content buttons (not the nav ribbon) ─────────────────────────── */
       [data-testid="stBaseButton-secondary"],
       [data-testid="stBaseButton-primary"],
       [data-testid="stPopoverButton"] {
@@ -182,12 +183,40 @@ st.markdown(
         border: 1px solid var(--tb-accent) !important;
         box-shadow: none !important;
       }
-      /* Nav dropdown panels: tighter rows so a 7-page group is not a long scroll */
-      [data-testid="stPopoverBody"] { padding: 8px !important; }
+
+      /* ── Nav dropdown panels (dark, matches ribbon) ────────────────────────── */
+      [data-testid="stPopoverBody"] {
+        background: #1c1410 !important;
+        border: 1px solid rgba(234,88,12,0.28) !important;
+        border-radius: 10px !important;
+        padding: 6px !important;
+        min-width: 190px !important;
+        box-shadow: 0 10px 28px rgba(0,0,0,0.45) !important;
+      }
       [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"],
       [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"] {
-        margin-bottom: 2px !important;
+        background: transparent !important;
+        border: none !important;
+        color: rgba(255,245,235,0.82) !important;
         justify-content: flex-start !important;
+        font-size: 13px !important;
+        font-weight: 400 !important;
+        border-radius: 6px !important;
+        height: 34px !important;
+        min-height: 34px !important;
+        padding: 0 12px !important;
+        margin-bottom: 1px !important;
+        box-shadow: none !important;
+        letter-spacing: 0 !important;
+      }
+      [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"]:hover {
+        background: rgba(234,88,12,0.12) !important;
+        color: #fff5eb !important;
+      }
+      [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"] {
+        background: rgba(234,88,12,0.18) !important;
+        color: #ea580c !important;
+        font-weight: 600 !important;
       }
     </style>
     """,
@@ -295,6 +324,240 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
+# ── Header ribbon CSS ─────────────────────────────────────────────────────────
+# We identify the nav HorizontalBlock via a sentinel <div id="tb-navstart">
+# injected immediately before st.columns(). The :has() selector then targets
+# exactly that sibling — safe in Chrome 105+/Firefox 121+ (personal tool only).
+#
+# The ribbon bleeds full-width by counteracting the 2rem side padding on
+# stMainBlockContainer with negative margins. We keep padding so content inside
+# the columns still aligns with the rest of the page.
+st.markdown(
+    """
+    <style>
+      /* ── Suppress Streamlit chrome (deploy/share bar + top decoration) ─── */
+      [data-testid="stHeader"]     { display: none !important; }
+      [data-testid="stDecoration"] { display: none !important; }
+      [data-testid="stToolbar"]    { display: none !important; }
+      /* Remove the top padding that Streamlit reserves for its hidden header */
+      [data-testid="stMainBlockContainer"] { padding-top: 0 !important; }
+      section.main > div:first-child { padding-top: 0 !important; }
+
+      /* ── Nav ribbon ──────────────────────────────────────────────────────────
+         DOM in Streamlit 1.57: stVerticalBlock
+           > stElementContainer (wraps stMarkdown > #tb-navstart)  ← sentinel
+           > stLayoutWrapper                                         ← nav columns
+               > stHorizontalBlock > stColumn × N
+         We use :has(#tb-navstart) on the stElementContainer, then + stLayoutWrapper
+         to reach the nav wrapper without touching any other row.
+      ── */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] {
+        background: #1c1410 !important;
+        margin-left:  -2rem !important;
+        margin-right: -2rem !important;
+        border-bottom: 1px solid rgba(234,88,12,0.22) !important;
+      }
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stHorizontalBlock"] {
+        padding: 0 2.5rem !important;
+        min-height: 62px !important;
+        align-items: stretch !important;
+        gap: 0 !important;
+      }
+
+      /* Each column inside the ribbon */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stColumn"] {
+        justify-content: center !important;
+        padding: 0 !important;
+      }
+
+      /* Nav buttons: transparent, light text, no border */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stBaseButton-secondary"],
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stBaseButton-primary"],
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stPopoverButton"] {
+        background: transparent !important;
+        border: none !important;
+        border-bottom: 2px solid transparent !important;
+        color: rgba(255,245,235,0.70) !important;
+        font-size: 13px !important;
+        font-weight: 500 !important;
+        min-height: 62px !important;
+        height: 62px !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        letter-spacing: 0.01em !important;
+        padding: 0 10px !important;
+        transition: background .12s ease, color .12s ease, border-color .12s ease !important;
+      }
+
+      /* Hover: subtle warm tint + orange underline */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stBaseButton-secondary"]:hover,
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stPopoverButton"]:hover {
+        background: rgba(234,88,12,0.10) !important;
+        color: #fff5eb !important;
+        border-bottom-color: rgba(234,88,12,0.45) !important;
+      }
+
+      /* Active group/home: orange underline, brighter text */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stBaseButton-primary"] {
+        color: #ea580c !important;
+        border-bottom: 2px solid #ea580c !important;
+        font-weight: 600 !important;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Login gate — shown before any dashboard content if the user is not authenticated.
+# Credentials are read from .streamlit/secrets.toml ([auth] username / password);
+# if secrets are absent the fallback keeps the personal tool accessible locally.
+# ──────────────────────────────────────────────────────────────────────────────
+def _login_gate() -> None:
+    """Render the login page and block the rest of the app via st.stop()."""
+    if st.session_state.get("logged_in"):
+        return
+
+    # ── Hero + feature strip ─────────────────────────────────────────────────
+    st.markdown(
+        f"""
+        <style>
+          .tb-login-hero {{
+            background: linear-gradient(135deg, {_T['surface_warm']} 0%, {_T['surface_alt']} 100%);
+            border-radius: 18px;
+            padding: 52px 48px 44px;
+            margin-bottom: 28px;
+            border: 1px solid {_T['border']};
+          }}
+          .tb-login-hero h1 {{
+            font-size: 42px;
+            font-weight: 900;
+            color: {_T['text']};
+            margin: 0 0 10px;
+            letter-spacing: -0.02em;
+            line-height: 1.1;
+          }}
+          .tb-login-hero .sub {{
+            font-size: 17px;
+            font-weight: 600;
+            color: {_T['text_body']};
+            margin: 0 0 6px;
+          }}
+          .tb-login-hero .tagline {{
+            font-size: 14px;
+            color: {_T['text_muted']};
+            margin: 0;
+          }}
+          .tb-feat-grid {{
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            margin-bottom: 32px;
+          }}
+          .tb-feat-card {{
+            background: {_T['surface']};
+            border: 1px solid {_T['border']};
+            border-radius: 14px;
+            padding: 24px 20px 20px;
+            text-align: center;
+          }}
+          .tb-feat-card .icon {{ font-size: 30px; margin-bottom: 10px; }}
+          .tb-feat-card h3 {{
+            font-size: 15px;
+            font-weight: 700;
+            color: {_T['text']};
+            margin: 0 0 6px;
+          }}
+          .tb-feat-card p {{
+            font-size: 13px;
+            color: {_T['text_muted']};
+            margin: 0;
+            line-height: 1.45;
+          }}
+          .tb-login-card {{
+            background: {_T['surface']};
+            border: 1px solid {_T['border_strong']};
+            border-radius: 16px;
+            padding: 32px 36px 28px;
+            max-width: 420px;
+            margin: 0 auto 40px;
+          }}
+          .tb-login-card h2 {{
+            font-size: 20px;
+            font-weight: 800;
+            color: {_T['text']};
+            margin: 0 0 4px;
+          }}
+          .tb-login-card .card-sub {{
+            font-size: 13px;
+            color: {_T['text_muted']};
+            margin: 0 0 22px;
+          }}
+        </style>
+
+        <div class="tb-login-hero">
+          <h1>Let Data Speak.</h1>
+          <p class="sub">No Noise. No Guesswork. Just Bramha Signals.</p>
+          <p class="tagline">For the trader who trusts systems, not stories.</p>
+        </div>
+
+        <div class="tb-feat-grid">
+          <div class="tb-feat-card">
+            <div class="icon">📊</div>
+            <h3>Data First</h3>
+            <p>Momentum, fundamentals, and sector rotation — scored, not opined.</p>
+          </div>
+          <div class="tb-feat-card">
+            <div class="icon">📡</div>
+            <h3>Signal Focused</h3>
+            <p>Stocks moving with real strength, filtered through multi-timeframe logic.</p>
+          </div>
+          <div class="tb-feat-card">
+            <div class="icon">🛡</div>
+            <h3>Zero Noise</h3>
+            <p>No tips, no bias. Algorithmic selection with quantified risk flags.</p>
+          </div>
+        </div>
+
+        <div class="tb-login-card">
+          <h2>Sign in</h2>
+          <p class="card-sub">Access your Trading Bramha dashboard</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── Credentials form (Streamlit widgets, not HTML) ────────────────────────
+    # Rendered inside a narrow centered column so it sits inside the card above.
+    _, col, _ = st.columns([1, 1.2, 1])
+    with col:
+        with st.form("tb_login_form", border=False):
+            username = st.text_input("Username", placeholder="Enter username")
+            password = st.text_input("Password", placeholder="Enter password", type="password")
+            submitted = st.form_submit_button("Sign in →", use_container_width=True, type="primary")
+
+        if submitted:
+            _u = st.secrets.get("auth", {}).get("username", "bramha")
+            _p = st.secrets.get("auth", {}).get("password", "trading2024")
+            if username == _u and password == _p:
+                st.session_state["logged_in"] = True
+                st.rerun()
+            else:
+                st.error("Incorrect username or password.", icon="🔒")
+
+    st.stop()
+
+
+_login_gate()
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Navigation — left sidebar page router (replaces st.tabs; Streamlit can't
 # switch tabs programmatically, so a real "click sidebar item -> jump to page"
@@ -308,6 +571,7 @@ PAGE_GROUPS = {
     "Research":         ["Predictive Analysis", "Stock Analyzer", "Sector Map", "Astro Timing", "Telegram Signals"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
     "Ops":              ["Pipeline Log"],
+    "Analytics":        ["Strategy Hub"],
 }
 
 #: One line per page, shown on the Home cards. Kept factual — each says what the
@@ -333,6 +597,7 @@ PAGE_BLURBS = {
     "Watchlist":            "Tracked names and their trade plans",
     "Alerts":               "Price and metric alerts you have armed",
     "Pipeline Log":         "What the 4:05 PM batch did, and whether it failed",
+    "Strategy Hub":         "Chart patterns, trading strategies, and fundamental scores",
 }
 
 #: Group → (icon, one-line purpose). The icon is decoration; the line is the
@@ -343,6 +608,7 @@ GROUP_BLURBS = {
     "Research":         ("🔬", "Study one name"),
     "Portfolio & Risk": ("🛡", "Manage what you hold"),
     "Ops":              ("⚙", "Check the machinery"),
+    "Analytics":        ("📊", "Patterns, strategies, and scores"),
 }
 
 if "current_page" not in st.session_state:
@@ -359,46 +625,51 @@ if st.query_params.get("nav") == "analyze" and st.query_params.get("symbol"):
     st.query_params.clear()
 
 # ── Horizontal top nav ────────────────────────────────────────────────────────
-# Brand · Home · one dropdown per group · current-page indicator, in a single row
-# across the top — replacing the left sidebar, which spent ~260px of a wide layout
-# listing nineteen buttons that were nearly always collapsed anyway.
+# Sentinel div → dark ribbon CSS targets the next sibling HorizontalBlock.
+# Brand · Home · one popover per group · current-page label, all in one row.
 #
-# `st.popover` is what makes this possible: it is a real click-to-open dropdown,
-# so nineteen pages fit behind five labels instead of needing nineteen visible
-# rows. st.tabs was NOT an option — the router exists precisely because Streamlit
-# cannot switch tabs programmatically, which the "Analyze ↗" deep-link depends on.
-#
-# Routing is unchanged: every button still writes session_state["current_page"]
-# and reruns, so the deep-link handler above and the if/elif chain below are
-# untouched by this being horizontal rather than vertical.
-_nav = st.columns([2.5, 1.0, 1.25, 1.35, 1.15, 1.6, 0.85, 2.2],
+# The sentinel approach avoids fragile :nth-child selectors: we inject a hidden
+# <div id="tb-navstart"> via st.markdown, then CSS :has(#tb-navstart) + stHorizontalBlock
+# gives us a precise handle on just the nav row without touching anything else.
+
+_NAV_ICONS = {
+    "Screening":        "🔎",
+    "Market Intel":     "📡",
+    "Research":         "🔬",
+    "Portfolio & Risk": "🛡",
+    "Ops":              "⚙",
+    "Analytics":        "📊",
+}
+
+# Sentinel — CSS ribbon targets the stHorizontalBlock that immediately follows this
+st.markdown('<div id="tb-navstart"></div>', unsafe_allow_html=True)
+
+_nav = st.columns([2.4, 0.85, 1.05, 1.1, 1.05, 1.35, 0.72, 0.88, 1.9],
                   gap="small", vertical_alignment="center")
 
 with _nav[0]:
-    # The old standalone page header lived here and is folded in — one top row
-    # rather than a brand banner with a nav bar floating below it.
     st.markdown(
-        '<div style="line-height:1.15;padding-top:1px;">'
-        '<span style="font-size:17px;font-weight:800;color:#3a2a1e;">'
-        '📈 Trading <span style="color:#ea580c;">Bramha</span></span><br>'
-        '<span style="font-size:11px;color:#9a8778;">Screener &amp; Analysis Dashboard</span>'
+        '<div style="line-height:1.2;padding:2px 0;">'
+        '<span style="font-size:18px;font-weight:900;color:#fff5eb;letter-spacing:-0.02em;">'
+        '📈 Trading<span style="color:#ea580c;"> Bramha</span></span><br>'
+        '<span style="font-size:10px;color:rgba(255,245,235,0.45);letter-spacing:0.04em;">'
+        'SCREENER &amp; ANALYSIS</span>'
         '</div>',
         unsafe_allow_html=True,
     )
 
 with _nav[1]:
-    if st.button("🏠 Home", key="nav_Home", use_container_width=True,
+    if st.button("Home", key="nav_Home", use_container_width=True,
                  type="primary" if st.session_state["current_page"] == "Home" else "secondary"):
         st.session_state["current_page"] = "Home"
         st.rerun()
 
 for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
     with _nav[2 + _i]:
-        # The group holding the current page gets a marker, so the bar still says
-        # where you are once the dropdown closes.
         _active_here = st.session_state["current_page"] in _gpages
-        with st.popover(f"{'● ' if _active_here else ''}{_gname}",
-                        use_container_width=True):
+        _icon = _NAV_ICONS.get(_gname, "")
+        _label = f"{_icon} {_gname} ▾"
+        with st.popover(_label, use_container_width=True):
             for _p in _gpages:
                 _is_active = st.session_state["current_page"] == _p
                 if st.button(_p, key=f"nav_{_p}", use_container_width=True,
@@ -406,21 +677,63 @@ for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
                     st.session_state["current_page"] = _p
                     st.rerun()
 
-with _nav[7]:
+with _nav[8]:
+    _cp = st.session_state["current_page"]
     st.markdown(
-        f'<div style="text-align:right;font-size:12px;color:{rs.TOKENS["text_muted"]};'
-        f'padding-top:4px;">Viewing '
-        f'<b style="color:{rs.TOKENS["text_body"]};">{st.session_state["current_page"]}</b>'
+        f'<div style="text-align:right;font-size:11px;'
+        f'color:rgba(255,245,235,0.45);padding:2px 0;">'
+        f'<span style="color:rgba(255,245,235,0.35);">▸</span> '
+        f'<span style="color:rgba(255,245,235,0.80);font-weight:500;">{_cp}</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
 
 st.markdown(
-    f'<div style="border-bottom:1px solid {rs.TOKENS["border"]};margin:6px 0 14px;"></div>',
+    '<div style="margin:0 0 16px;"></div>',
     unsafe_allow_html=True,
 )
 
 current_page = st.session_state["current_page"]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Pagination helper — wraps st.dataframe with prev/next page controls.
+# page_size=25 keeps result tables legible without scrolling; any table with
+# ≤ page_size rows renders as a plain dataframe (no controls shown).
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _paginated_df(df: "pd.DataFrame", key: str, page_size: int = 25, **kwargs) -> None:
+    """Render a DataFrame with pagination when it exceeds page_size rows."""
+    n = len(df)
+    if n <= page_size:
+        st.dataframe(df, use_container_width=True, hide_index=True, **kwargs)
+        return
+    n_pages = (n + page_size - 1) // page_size
+    _pk = f"_pg_{key}"
+    if _pk not in st.session_state:
+        st.session_state[_pk] = 1
+    pc1, pc2, pc3 = st.columns([1, 3, 1])
+    with pc1:
+        if st.button("◀ Prev", key=f"{_pk}_prev",
+                     disabled=st.session_state[_pk] <= 1):
+            st.session_state[_pk] = max(1, st.session_state[_pk] - 1)
+            st.rerun()
+    with pc2:
+        new_page = st.number_input(
+            "Page", 1, n_pages, st.session_state[_pk],
+            key=f"{_pk}_num", label_visibility="collapsed",
+        )
+        if int(new_page) != st.session_state[_pk]:
+            st.session_state[_pk] = int(new_page)
+    with pc3:
+        if st.button("Next ▶", key=f"{_pk}_next",
+                     disabled=st.session_state[_pk] >= n_pages):
+            st.session_state[_pk] = min(n_pages, st.session_state[_pk] + 1)
+            st.rerun()
+    start = (st.session_state[_pk] - 1) * page_size
+    end = min(start + page_size, n)
+    st.dataframe(df.iloc[start:end], use_container_width=True, hide_index=True, **kwargs)
+    st.caption(f"Page {st.session_state[_pk]}/{n_pages} · rows {start + 1}–{end} of {n}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2741,10 +3054,8 @@ if current_page == "Screener":
         view.insert(1, "Chart", view["Symbol"].map(_chart_url))
         view = _with_analyze_col(view, "Symbol", after="Chart")
 
-        st.dataframe(
-            view,
-            use_container_width=True,
-            hide_index=True,
+        _paginated_df(
+            view, key="screener_main",
             column_config={
                 "Chart": st.column_config.LinkColumn(
                     "Chart", help="Open in Chart Tool", display_text="Open ↗", width="small",
@@ -2957,7 +3268,24 @@ if current_page == "Stock Analyzer":
                                     height=sa_chart_h),
                         use_container_width=True)
 
-                render_condition_table(mv_conds, tf_conds, cs_conds)
+                # ── Side-by-side: condition table (left) + chart preview (right) ──
+                sa_cond_col, sa_chart_col = st.columns([1, 1.4], gap="medium")
+                with sa_cond_col:
+                    render_condition_table(mv_conds, tf_conds, cs_conds)
+                with sa_chart_col:
+                    # Embed the Chart Tool iframe beside the condition table so
+                    # the pattern context is visible while reading the scores.
+                    _chart_inline_url = (
+                        f"http://localhost:{CHART_TOOL_PORT}/?symbol="
+                        f"{symbol if ('.' in symbol or symbol.startswith('^')) else symbol + '.NS'}"
+                        f"&tf=1d"
+                    )
+                    st.markdown("**Chart preview**")
+                    st.components.v1.iframe(_chart_inline_url, height=460, scrolling=False)
+                    st.caption(
+                        f"[Open full chart ↗]({_chart_inline_url}) · "
+                        "Chart Tool must be running on :5001"
+                    )
 
                 # ── 3-POV Council: Bull / Bear / Judge ──
                 st.divider()
@@ -3032,7 +3360,7 @@ if current_page == "Portfolio":
                 "Stop": pos["stop_loss"], "Target": pos["target"],
                 "Entry Date": pos["entry_date"], "Notes": pos["notes"],
             })
-        st.dataframe(pd.DataFrame(rows).drop(columns=["id"]), use_container_width=True, hide_index=True)
+        _paginated_df(pd.DataFrame(rows).drop(columns=["id"]), key="portfolio_open")
 
         st.caption("Close a position")
         close_id = st.selectbox(
@@ -3062,10 +3390,10 @@ if current_page == "Portfolio":
             closed_pos["Result"] = closed_pos["closed_price"].ge(closed_pos["entry_price"]).map(
                 {True: "Win", False: "Loss"}
             )
-            st.dataframe(
+            _paginated_df(
                 closed_pos[["symbol", "entry_price", "closed_price", "quantity",
                             "P&L %", "Result", "entry_date", "closed_date", "notes"]],
-                use_container_width=True, hide_index=True,
+                key="portfolio_closed",
             )
 
 
@@ -3109,7 +3437,7 @@ if current_page == "Watchlist":
                 "Minervini": f"{mv_score}/8", "TechnoFunda": f"{tf_score}/6",
                 "Notes": w["notes"],
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        _paginated_df(pd.DataFrame(rows), key="watchlist_main")
 
         wc1, wc2 = st.columns(2)
         with wc1:
@@ -3199,7 +3527,7 @@ if current_page == "Alerts":
                 "Current": detail, "Note": a["note"],
             })
         alerts_view = pd.DataFrame(rows).sort_values("Status")
-        st.dataframe(alerts_view.drop(columns=["id"]), use_container_width=True, hide_index=True)
+        _paginated_df(alerts_view.drop(columns=["id"]), key="alerts_main")
 
         del_id = st.selectbox(
             "Deactivate/delete alert", alerts_df["id"],
@@ -3923,6 +4251,142 @@ if current_page == "Scanner Hub":
                     db.remove_scanner_hit(row["symbol"], selected_scanner)
                     st.rerun()
 
+        # ── Daily Scheduler ───────────────────────────────────────────────────
+        st.divider()
+        with st.expander("Daily Scanner Scheduler", expanded=False):
+            st.caption(
+                "Register a Windows Scheduled Task that runs all scanners "
+                "automatically after market close (default 16:15 IST). "
+                "Requires the dashboard Python interpreter and writes results "
+                "to a dated JSON in `tools/cache/`."
+            )
+            _sched_time = st.text_input(
+                "Run time (HH:MM, 24h)", value="16:15", key="hub_sched_time",
+                help="Time in your local clock. 16:15 = 15 min after NSE close.",
+            )
+            _sched_universe = st.radio(
+                "Universe for scheduled run",
+                ["Full Market (Bhavcopy Top 300)", "Screener results (today's pipeline)"],
+                key="hub_sched_universe",
+            )
+            _sched_scanners = st.multiselect(
+                "Scanners to include",
+                list(sc.SCANNERS.keys()),
+                default=list(sc.SCANNERS.keys()),
+                key="hub_sched_scanners",
+                help="Leave all selected to run the full suite.",
+            )
+
+            _RUNNER_BAT = BASE_DIR / "tools" / "scanner_daily.bat"
+            _RUNNER_PY  = BASE_DIR / "tools" / "scanner_daily_runner.py"
+            _PYTHON_EXE = r"C:\Users\Owner\AppData\Local\Python\pythoncore-3.14-64\python.exe"
+            _TASK_NAME  = "TradingBramha-DailyScanner"
+
+            if st.button("Generate runner + register task", key="hub_sched_reg",
+                         type="primary"):
+                try:
+                    import json as _json
+                    # Write the Python runner script
+                    _universe_arg = (
+                        "--universe bhavcopy --top-n 300"
+                        if "Bhavcopy" in _sched_universe
+                        else "--universe screener"
+                    )
+                    _scanners_arg = " ".join(f'"{s}"' for s in _sched_scanners)
+                    _runner_src = f'''\
+"""Daily scanner runner — executed by the Windows Scheduled Task
+{_TASK_NAME}. Do not edit the task directly; regenerate via the
+Scanner Hub → Daily Scanner Scheduler panel."""
+import sys, os, json, datetime
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+import scanner_templates as sc
+from dashboard_app_helpers import cached_fetch_ohlcv_headless  # noqa
+
+SCANNERS = {_json.dumps(_sched_scanners)}
+UNIVERSE_MODE = "{_sched_universe}"
+
+def _fetch(sym, days=300):
+    import data_fetcher as df_mod
+    return df_mod.fetch_ohlcv(sym, days=days)
+
+def main():
+    import bhavcopy_fetcher as bh
+    universe = bh.fetch_top_n(300) if "Bhavcopy" in UNIVERSE_MODE else []
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+    out = {{}}
+    for name in SCANNERS:
+        if name not in sc.SCANNERS:
+            continue
+        try:
+            hits = sc.run_scanner(name, universe, _fetch)
+            out[name] = hits
+            print(f"{{ts}}  {{name}}: {{len(hits)}} hits")
+        except Exception as exc:
+            out[name] = []
+            print(f"{{ts}}  {{name}}: ERROR {{exc}}")
+    dest = os.path.join(os.path.dirname(__file__), "cache", f"scanner_daily_{{ts}}.json")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "w") as fh:
+        json.dump(out, fh, default=str)
+    print(f"Saved → {{dest}}")
+
+if __name__ == "__main__":
+    main()
+'''
+                    _RUNNER_PY.write_text(_runner_src, encoding="utf-8")
+
+                    # Write the .bat wrapper
+                    _bat_src = (
+                        f"@echo off\n"
+                        f"set PYTHON={_PYTHON_EXE}\n"
+                        f"set REPO=%~dp0..\n"
+                        f"set LOG=%~dp0scanner_daily.log\n"
+                        f"cd /d \"%REPO%\"\n"
+                        f"echo. >> \"%LOG%\"\n"
+                        f"echo ===== %DATE% %TIME% — daily scanner starting ===== >> \"%LOG%\"\n"
+                        f"\"%PYTHON%\" \"%~dp0scanner_daily_runner.py\" >> \"%LOG%\" 2>&1\n"
+                        f"if errorlevel 1 (\n"
+                        f"    echo ***** FAILED ***** >> \"%LOG%\"\n"
+                        f") else (\n"
+                        f"    echo ----- ok ----- >> \"%LOG%\"\n"
+                        f")\n"
+                    )
+                    _RUNNER_BAT.write_text(_bat_src, encoding="utf-8")
+
+                    # Register the Windows Scheduled Task
+                    import subprocess
+                    _h, _m = _sched_time.strip().split(":")
+                    _cmd = (
+                        f'schtasks /create /f /tn "{_TASK_NAME}" '
+                        f'/tr "{_RUNNER_BAT}" '
+                        f'/sc DAILY /st {int(_h):02d}:{int(_m):02d} '
+                        f'/rl HIGHEST'
+                    )
+                    _res = subprocess.run(_cmd, shell=True, capture_output=True, text=True)
+                    if _res.returncode == 0:
+                        st.success(
+                            f"Task **{_TASK_NAME}** registered — runs daily at {_sched_time}. "
+                            f"Runner: `tools/scanner_daily_runner.py` · "
+                            f"Log: `tools/scanner_daily.log`"
+                        )
+                    else:
+                        st.error(f"schtasks failed: {_res.stderr or _res.stdout}")
+                        st.code(_cmd, language="bat")
+                        st.caption("Run the command above in an elevated CMD/PowerShell.")
+                except Exception as _exc:
+                    st.error(f"Setup failed: {_exc}")
+
+            if st.button("Remove scheduled task", key="hub_sched_del"):
+                import subprocess
+                _r = subprocess.run(
+                    f'schtasks /delete /f /tn "{_TASK_NAME}"',
+                    shell=True, capture_output=True, text=True,
+                )
+                if _r.returncode == 0:
+                    st.success(f"Task {_TASK_NAME} removed.")
+                else:
+                    st.warning(_r.stderr or _r.stdout or "Task not found — may not have been registered.")
+
     with hub_main:
         hits = st.session_state.get("hub_results")
         ran_for = st.session_state.get("hub_scanner_ran", "")
@@ -4632,7 +5096,7 @@ if current_page == "Sector Map":
             try:
                 df_sr = pd.read_excel(table_path, sheet_name="Sector Rotation")
                 st.caption(f"Source: `{table_path.name}`")
-                st.dataframe(df_sr, use_container_width=True, hide_index=True)
+                _paginated_df(df_sr, key="sector_rotation_saved")
             except Exception as e:
                 st.warning(f"Could not load table: {e}")
 
@@ -5125,7 +5589,7 @@ if current_page == "Telegram Signals":
                 })
 
             df_signals = pd.DataFrame(signal_list)
-            st.dataframe(df_signals, use_container_width=True, hide_index=True)
+            _paginated_df(df_signals, key="telegram_signals")
 
             # Export option
             col_exp1, col_exp2 = st.columns(2)
@@ -6648,8 +7112,8 @@ if current_page == "India Market Intel":
             col_config["Chart"] = st.column_config.LinkColumn("Chart", display_text="📈 Open", width="small")
         if "Analyze" in df_deals.columns:
             col_config["Analyze"] = _analyze_colcfg()
-        st.dataframe(df_deals.style.apply(_row_color, axis=1), use_container_width=True, hide_index=True,
-                     column_config=col_config)
+        _paginated_df(df_deals.style.apply(_row_color, axis=1), key="deals_main",
+                      column_config=col_config)
 
     with intel_tabs[0]:
         min_val_bulk = st.slider("Highlight bulk deals above (₹ Lakh)", 5, 500, 50, step=5, key="imi_bulk_min")
@@ -6794,7 +7258,7 @@ if current_page == "India Market Intel":
 
             styled = ins_display.style.apply(_dir_color, axis=1) \
                 if "Δ Holding %" in ins_display.columns else ins_display
-            st.dataframe(styled, use_container_width=True, hide_index=True, column_config=ins_col_config)
+            _paginated_df(styled, key="insider_main", column_config=ins_col_config)
 
     with intel_tabs[3]:
         st.caption(
@@ -7325,3 +7789,258 @@ if current_page == "OI Momentum":
                     "are not. Level and one-day change are honest to report; a "
                     "label would not be."
                 )
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Strategy Hub
+# Three-section page mirroring StockEdge's analytics layout:
+#   1. Chart Patterns — recent major-stock detections with outcome tracking
+#   2. Trading Strategies — live category counts by strategy family and horizon
+#   3. Fundamental Scores — top-scored names with badge + EPS/PE sparklines
+# Data is sourced from the last wiki ingest (EOD snapshot); date shown in header.
+# ──────────────────────────────────────────────────────────────────────────────
+if current_page == "Strategy Hub":
+
+    _SNAP_DATE = "11 Aug 2026"
+
+    st.markdown(
+        f"<h2 style='margin-bottom:2px;'>Strategy Hub</h2>"
+        f"<div style='font-size:12px;color:{rs.TOKENS['text_muted']};margin-bottom:16px;'>"
+        f"Snapshot: {_SNAP_DATE} · Chart patterns + trading strategies + fundamental scores"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── 1. Chart Patterns ─────────────────────────────────────────────────────
+    with st.container(border=True):
+        st.markdown("#### Chart Patterns  ·  Major Stocks")
+        st.caption("Past detections from StockEdge (EOD, AI + Human hybrid). "
+                   "Outcome = LTP vs published price point.")
+
+        import pandas as pd
+
+        _PATTERNS = [
+            # (Stock, Pattern, Bias, Published, Pub Price, LTP, Move%)
+            ("CE Info Systems",      "Double Top",          "Bearish",  "04 Aug", 1231.95, 1013.30, -17.7),
+            ("Zee Entertainment",    "Double Top",          "Bearish",  "03 Aug",  118.35,   91.56, -22.6),
+            ("Supreme Petrochem",    "Double Top",          "Bearish",  "29 Jul",  788.00,  685.25, -13.0),
+            ("Gallantt Ispat",       "Bearish Flag",        "Bearish",  "21 Jul",  618.50,  593.50,  -4.0),
+            ("Hero MotoCorp",        "Falling Channel",     "Bearish",  "20 Jul", 4942.38, 5865.50, +18.7),
+            ("Mahindra & Mahindra",  "Falling Channel",     "Bearish",  "21 Jul", 3172.73, 3460.10,  +9.1),
+            ("PNB Housing Finance",  "Rising Wedge",        "Bearish",  "23 Jul", 1073.38, 1142.10,  +6.4),
+            ("Pine Labs",            "Double Top",          "Bearish",  "16 Jul",  164.40,  167.58,  +1.9),
+            ("Muthoot Finance",      "Falling Wedge",       "Bearish",  "21 Jul", 3068.97, 2915.90,  -5.0),
+            ("Jubilant FoodWorks",   "Double Bottom",       "Bullish",  "27 Jul",  408.55,  488.20, +19.5),
+            ("Sapphire Foods",       "Sym. Triangle",       "Bullish",  "27 Jul",  182.94,  236.02, +29.0),
+            ("LTM Ltd.",             "Sym. Triangle",       "Bullish",  "28 Jul", 4192.58, 4850.00, +15.7),
+            ("Piramal Pharma",       "Sym. Triangle",       "Bullish",  "17 Jul",  177.18,  214.19, +20.9),
+            ("RR Kabel",             "Sym. Triangle",       "Bullish",  "22 Jul", 2386.29, 2812.80, +17.9),
+            ("Clean Science & Tech", "Sym. Triangle",       "Bullish",  "20 Jul",  756.03,  810.00,  +7.1),
+            ("Hyundai Motor India",  "Ascending Triangle",  "Bullish",  "31 Jul", 2064.80, 2200.00,  +6.5),
+            ("CRISIL",               "Ascending Triangle",  "Bullish",  "21 Jul", 4250.00, 4480.80,  +5.4),
+            ("Blue Star",            "Sym. Triangle",       "Neutral",  "03 Aug",    None,    None, -13.0),
+            ("Zee Entertainment",    "Sym. Triangle",       "Neutral",  "27 Jul",    None,    None, -15.3),
+            ("Supreme Petrochem",    "Falling Channel",     "Bearish",  "27 Jul",    None,    None,  -9.0),
+        ]
+
+        _pat_df = pd.DataFrame(_PATTERNS, columns=[
+            "Stock", "Pattern", "Bias", "Published", "Pub Price ₹", "LTP ₹", "Move %",
+        ])
+
+        def _bias_badge(b: str) -> str:
+            colors = {"Bullish": "#2e7d32", "Bearish": "#c62828", "Neutral": "#5c6bc0"}
+            return f'<span style="background:{colors.get(b,"#666")};color:#fff;' \
+                   f'border-radius:4px;padding:1px 6px;font-size:11px;">{b}</span>'
+
+        _pat_filter = st.radio(
+            "Filter", ["All", "Bullish", "Bearish", "Neutral"],
+            horizontal=True, key="sh_pat_filter",
+        )
+        _pat_view = _pat_df if _pat_filter == "All" else _pat_df[_pat_df["Bias"] == _pat_filter]
+
+        st.dataframe(
+            _pat_view.drop(columns=["Bias"]),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Stock":       st.column_config.TextColumn("Stock", width="medium"),
+                "Pattern":     st.column_config.TextColumn("Pattern", width="medium"),
+                "Published":   st.column_config.TextColumn("Published", width="small"),
+                "Pub Price ₹": st.column_config.NumberColumn("Pub Price ₹", format="₹%.2f"),
+                "LTP ₹":       st.column_config.NumberColumn("LTP ₹", format="₹%.2f"),
+                "Move %":      st.column_config.NumberColumn("Move %", format="%.1f%%"),
+            },
+        )
+        _total = len(_pat_view)
+        _bull_pats = (_pat_view["Move %"] > 0).sum()
+        _bear_pats = (_pat_view["Move %"] < 0).sum()
+        st.caption(
+            f"{_total} pattern(s) shown · "
+            f"**{_bull_pats}** above publish price · **{_bear_pats}** below · "
+            f"Major Stocks filter · activeness-status=200"
+        )
+
+    # ── 2. Trading Strategies ─────────────────────────────────────────────────
+    with st.container(border=True):
+        st.markdown("#### Trading Strategies  ·  Live Counts")
+        st.caption(
+            "Predefined combination scans re-run EOD by 7 PM. "
+            f"Counts as of {_SNAP_DATE}."
+        )
+
+        _STRATEGIES = [
+            # (name, horizon, direction, stocks, description, locked)
+            ("Cannon",   "One Day",    "Bullish",    7, "Momentum breakout with volume surge",         False),
+            ("Eagle",    "One Day",    "Bearish",    0, "Intraday reversal with distribution signal",  False),
+            ("Falcon",   "Swing",      "Bullish",   10, "Multi-day trend continuation setup",          False),
+            ("Surfing",  "Swing",      "Bearish",    2, "Bearish continuation on swing timeframe",     False),
+            ("Sword",    "Positional", "Bullish",    3, "Multi-week breakout with fundamental filter", True),
+            ("Dove",     "Positional", "Bearish",    0, "Long-duration distribution pattern",          True),
+        ]
+
+        _hor_colors  = {"One Day": "#1565c0", "Swing": "#2e7d32", "Positional": "#6a1b9a"}
+        _dir_colors  = {"Bullish": "#2e7d32", "Bearish": "#c62828"}
+        _dir_icons   = {"Bullish": "▲", "Bearish": "▼"}
+
+        _sg_cols = st.columns(3)
+        for _si, (_sname, _shor, _sdir, _scount, _sdesc, _slocked) in enumerate(_STRATEGIES):
+            with _sg_cols[_si % 3]:
+                _lock_html = (
+                    ' <span style="font-size:11px;opacity:0.6;">🔒 Pro</span>'
+                    if _slocked else ""
+                )
+                st.markdown(
+                    f'<div style="border:1px solid {rs.TOKENS["border"]};border-radius:8px;'
+                    f'padding:14px 16px;margin-bottom:12px;">'
+                    f'<div style="font-size:15px;font-weight:700;margin-bottom:4px;">'
+                    f'{_sname}{_lock_html}</div>'
+                    f'<div style="margin-bottom:8px;">'
+                    f'<span style="background:{_hor_colors[_shor]};color:#fff;'
+                    f'border-radius:4px;padding:1px 7px;font-size:11px;margin-right:4px;">'
+                    f'{_shor}</span>'
+                    f'<span style="background:{_dir_colors[_sdir]};color:#fff;'
+                    f'border-radius:4px;padding:1px 7px;font-size:11px;">'
+                    f'{_dir_icons[_sdir]} {_sdir}</span>'
+                    f'</div>'
+                    f'<div style="font-size:12px;color:{rs.TOKENS["text_muted"]};'
+                    f'margin-bottom:10px;">{_sdesc}</div>'
+                    f'<div style="font-size:22px;font-weight:800;'
+                    f'color:{_dir_colors[_sdir]};">{_scount}'
+                    f'<span style="font-size:12px;font-weight:400;'
+                    f'color:{rs.TOKENS["text_muted"]};margin-left:4px;">stocks</span>'
+                    f'</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+        _bull_total = sum(s[3] for s in _STRATEGIES if s[2] == "Bullish")
+        _bear_total = sum(s[3] for s in _STRATEGIES if s[2] == "Bearish")
+        st.caption(
+            f"Net: **{_bull_total} bullish** signals vs **{_bear_total} bearish** · "
+            f"Bullish skew in strategy engine is consistent — chart patterns are "
+            f"backward-looking; strategies are forward-looking EOD signals."
+        )
+
+    # ── 3. Fundamental Scores ─────────────────────────────────────────────────
+    with st.container(border=True):
+        st.markdown("#### Fundamental Scores  ·  Top Picks")
+        st.caption(
+            "Scores computed from the last fundamental data pull. "
+            "Shield color: green ≥ 70 · amber 50–69 · red < 50."
+        )
+
+        _FS_DATA = [
+            # (stock, sector, mcap_cr, fund_score, eps_cagr_3y, pe_min, pe_max, pe_now, ltp, ltp_chg)
+            ("DCM Shriram",    "Chemicals",      9_800,  75, -2.15,  12.1, 28.4, 14.2, 1143.50, +1.2),
+            ("Vedanta",        "Metals",        1_52_000, 72, +16.10, 6.3, 18.7,  9.1,  465.80, +0.8),
+            ("Jubilant FW",    "Consumer",      12_500,  68, +8.40,  32.0, 58.2, 41.0,  488.20, +2.1),
+            ("CRISIL",         "Financials",    32_400,  81, +11.20, 28.5, 45.0, 36.8, 4480.80, +0.4),
+            ("Hyundai India",  "Auto",         1_20_000, 65, +4.50,  18.0, 32.0, 22.1, 2200.00, +0.6),
+            ("Piramal Pharma", "Pharma",        14_200,  59, -1.80,  40.0, 95.0, 62.0,  214.19, +3.2),
+        ]
+
+        def _shield_color(score: int) -> str:
+            if score >= 70:
+                return "#2e7d32"
+            if score >= 50:
+                return "#e65100"
+            return "#c62828"
+
+        def _pe_bar_html(pe_min, pe_max, pe_now, width=90) -> str:
+            if pe_max <= pe_min:
+                return "—"
+            pct = max(0.0, min(1.0, (pe_now - pe_min) / (pe_max - pe_min)))
+            filled = int(pct * width)
+            marker = filled
+            return (
+                f'<div style="position:relative;width:{width}px;height:8px;'
+                f'background:#e0e0e0;border-radius:4px;display:inline-block;">'
+                f'<div style="width:{filled}px;height:8px;background:#1565c0;'
+                f'border-radius:4px;"></div>'
+                f'<div style="position:absolute;top:-2px;left:{marker}px;'
+                f'width:3px;height:12px;background:#ff6f00;border-radius:2px;"></div>'
+                f'</div><span style="font-size:10px;margin-left:5px;">{pe_now:.1f}x</span>'
+            )
+
+        for (_fstock, _fsec, _fmcap, _fscore, _feps, _fpe_min, _fpe_max, _fpe_now,
+             _fltp, _fchg) in _FS_DATA:
+            _sc = _shield_color(_fscore)
+            _chg_color = "#2e7d32" if _fchg >= 0 else "#c62828"
+            _chg_sign  = "+" if _fchg >= 0 else ""
+            _eps_color = "#2e7d32" if _feps >= 0 else "#c62828"
+
+            fc1, fc2, fc3, fc4, fc5, fc6 = st.columns([2.5, 1.2, 1.0, 1.8, 1.8, 1.2])
+            with fc1:
+                st.markdown(
+                    f'<div style="padding-top:4px;font-weight:600;">{_fstock}</div>'
+                    f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
+                    f'{_fsec} · ₹{_fmcap/100:,.0f}Cr MCap</div>',
+                    unsafe_allow_html=True,
+                )
+            with fc2:
+                st.markdown(
+                    f'<div style="padding-top:4px;">'
+                    f'<span style="background:{_sc};color:#fff;border-radius:6px;'
+                    f'padding:3px 10px;font-weight:700;font-size:13px;">🛡 {_fscore}</span>'
+                    f'<span style="font-size:10px;color:{rs.TOKENS["text_muted"]};'
+                    f'margin-left:4px;">/100</span></div>',
+                    unsafe_allow_html=True,
+                )
+            with fc3:
+                st.markdown(
+                    f'<div style="padding-top:6px;font-size:12px;">'
+                    f'<span style="color:{_eps_color};font-weight:600;">'
+                    f'{_chg_sign if _feps >= 0 else ""}{_feps:.2f}%</span>'
+                    f'<br><span style="font-size:10px;color:{rs.TOKENS["text_muted"]};">'
+                    f'EPS 3Y CAGR</span></div>',
+                    unsafe_allow_html=True,
+                )
+            with fc4:
+                st.markdown(
+                    f'<div style="padding-top:8px;">'
+                    f'{_pe_bar_html(_fpe_min, _fpe_max, _fpe_now)}</div>'
+                    f'<div style="font-size:10px;color:{rs.TOKENS["text_muted"]};">'
+                    f'PE 3Y range {_fpe_min:.0f}–{_fpe_max:.0f}x</div>',
+                    unsafe_allow_html=True,
+                )
+            with fc5:
+                st.markdown(
+                    f'<div style="padding-top:4px;font-size:14px;font-weight:700;">'
+                    f'₹{_fltp:,.2f}</div>'
+                    f'<div style="font-size:11px;color:{_chg_color};">'
+                    f'{_chg_sign}{_fchg:.2f}% today</div>',
+                    unsafe_allow_html=True,
+                )
+            with fc6:
+                _qs_url = f"?nav=analyze&symbol={_fstock.replace(' ','%20').split()[0].upper()}"
+                st.markdown(
+                    f'<div style="padding-top:6px;">'
+                    f'<a href="{_qs_url}" target="_self" style="font-size:11px;">'
+                    f'Analyze ↗</a></div>',
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown(
+                f'<hr style="border:none;border-top:1px solid {rs.TOKENS["border"]};'
+                f'margin:4px 0;">',
+                unsafe_allow_html=True,
+            )

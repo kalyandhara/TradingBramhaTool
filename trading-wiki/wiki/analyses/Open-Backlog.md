@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-08-07
+updated: 2026-08-12
 sources: 0
 related:
   - analyses/Open-Backlog-2026-08-02.md
@@ -32,20 +32,16 @@ forward from the previous page. Two of them had changed and nobody had noticed.
 
 | | |
 |---|---|
-| **Closed** | B-1 (2026-08-05), B-14 (`ephem` now installed), **B-18 (remote added + pushed 2026-08-07)** |
-| **Worse than recorded** | B-5 — the capability is plumbed and used by nothing |
-| **Still open** | B-2, B-3, B-4, B-6 … B-13, B-15, B-16, B-17, B-18 |
-| **New** | B-19 … B-27, mostly from the 2026-08-07 OI/PCR/divergence session |
+| **Closed** | B-1 (2026-08-05), B-14 (`ephem` now installed), B-18 (remote pushed 2026-08-07), **B-2 (chart_server restarted 2026-08-12, /rsi_divergence.js HTTP 200)** |
+| **Closed 2026-08-12** | **B-3** (mean-reversion scanner — `scan_mean_reversion` Connors RSI2, registered), **B-5** (time_stop emitted by 6 scanners: Harmonic/RSI60-40/OrderBlock/FallingWedge/SupportBreakdown/MeanReversion), **B-19b** (support-breakdown detector — `scan_support_breakdown` + `detect_support_breakdown`), **B-20a** (t-test + 95% CI on edge in `_aggregate`), **B-20b** (market-model beta/alpha when benchmark_df supplied to `backtest_scanner`), **B-25** (`backtest_confluence` + `format_confluence_report` measure co-fire vs single-fire), **B-7** (`sweep_volume_threshold` sweeps 1.0/1.2/1.5/2.0× vol floors and ranks by edge) |
+| **Still open** | B-4, B-6 … B-13, B-15, B-16, B-17, B-19 (all 2026-08-07 features unmeasured), B-21, B-21b, B-22, B-23, B-24, B-26, B-27 |
 
 ---
 
 ## P0 — Live right now
 
-### B-2 · chart_server restart pending — now blocking
-Was cosmetic, is not any more. The **`/rsi_divergence.js` route added
-2026-08-07 does not exist on the running server**, and Flask does not hot-reload,
-so the RSI divergence indicator shipped that day cannot load until `start.bat` is
-re-run. One restart, and it unblocks work already paid for.
+### ~~B-2 · chart_server restart pending~~ — CLOSED 2026-08-12
+Restarted via the preview_start tool. `/rsi_divergence.js` confirmed HTTP 200 in the server log.
 
 ### ~~B-18 · Nothing pushed, and there is nowhere to push to~~ — CLOSED 2026-08-07
 `origin` → `github.com/kalyandhara/TradingBramhaTool` (private). All 88 commits
@@ -258,15 +254,17 @@ until it is done every new refinement makes the stack taller rather than better.
 
 ## Action Taken / Plan
 
-**Suggested order:**
+**Suggested order (updated 2026-08-12):**
 
-1. **B-2** — one restart, unblocks shipped work. *(now the only P0 left)*
-2. ~~B-18 — a remote.~~ **Done 2026-08-07.**
-3. **B-20a + B-20b** — significance test and market-model edge. Turns the
-   harness into something whose answers can be trusted.
-4. **B-25** — measure confluence, the premise the Hub ranks on.
-5. **B-7** — settles five open numbers at once.
-6. Then the capability gaps: **B-5**, **B-19b**, **B-3**.
+1. ~~**B-2** — one restart.~~ Done 2026-08-12.
+2. ~~**B-20a + B-20b** — significance test and market-model edge.~~ Done 2026-08-12.
+3. ~~**B-25** — measure confluence.~~ Done 2026-08-12 (`backtest_confluence`).
+4. ~~**B-7** — volume threshold sweep.~~ Done 2026-08-12 (`sweep_volume_threshold`).
+5. ~~**B-5** — time stops.~~ Done 2026-08-12 (6 scanners now emit `time_stop`).
+6. ~~**B-19b** — support-breakdown detector.~~ Done 2026-08-12 (`scan_support_breakdown`).
+7. ~~**B-3** — mean-reversion scanner.~~ Done 2026-08-12 (`scan_mean_reversion` Connors RSI2).
+
+**Next:** B-16 (OI momentum palette), B-24 (RSI-divergence Python/JS disagreement), B-21 (walk-forward + costs).
 
 ## Outcome (fill in later)
 
