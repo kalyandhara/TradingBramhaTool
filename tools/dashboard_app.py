@@ -5262,6 +5262,92 @@ if current_page == "Astro Timing":
                     unsafe_allow_html=True,
                 )
 
+    # ── Jupiter Crash Signal ───────────────────────────────────────────────────
+    st.subheader("Jupiter Crash Signal Monitor")
+    st.caption(
+        "Three-factor model: Jupiter in Ketu's nakshatra + Shashtashtak Yoga "
+        "(6/8 axis) with malefics + Rahu-Ketu nodal influence. "
+        "All 4 major Indian crashes (1992/2000/2008/2020) had all three active. "
+        "No single factor alone predicts a crash."
+    )
+
+    _jp = ai.get_jupiter_position(analysis_date)
+
+    if "error" in _jp:
+        st.warning(f"Jupiter engine: {_jp['error']}")
+    else:
+        # ── Signal banner ──────────────────────────────────────────────────────
+        _sig_colors = {
+            "CRASH SIGNAL":  ("rgba(220,38,38,0.18)",  "#fca5a5", "🔴"),
+            "ELEVATED RISK": ("rgba(234,88,12,0.18)",  "#fdba74", "🟠"),
+            "WATCH":         ("rgba(234,179,8,0.15)",  "#fde047", "🟡"),
+            "CLEAR":         ("rgba(74,222,128,0.12)", "#86efac", "🟢"),
+        }
+        _bg, _border_col, _icon = _sig_colors[_jp["signal"]]
+        _factors_desc = []
+        if _jp["is_ketu_nakshatra"]:
+            _factors_desc.append(f"Jupiter in Ketu's nakshatra ({_jp['nakshatra']})")
+        if _jp["shashtashtak_with"]:
+            _factors_desc.append(f"Shashtashtak with {', '.join(_jp['shashtashtak_with'])}")
+        if _jp["nodal_influence"]:
+            _factors_desc.append(
+                f"Rahu-Ketu nodal influence "
+                f"(Rahu {_jp['rahu_arc']}° / Ketu {_jp['ketu_arc']}°)"
+            )
+        _factors_text = " · ".join(_factors_desc) if _factors_desc else "No active factors"
+
+        st.markdown(
+            f'<div style="background:{_bg};border:1px solid {_border_col};'
+            f'border-radius:10px;padding:14px 18px;margin:8px 0;">'
+            f'<span style="font-size:20px;">{_icon}</span> '
+            f'<strong style="font-size:16px;">{_jp["signal"]}</strong> — '
+            f'{_jp["factors_active"]}/3 factors active<br>'
+            f'<span style="font-size:13px;opacity:0.85;">{_factors_text}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Jupiter position metrics ───────────────────────────────────────────
+        jp_c1, jp_c2, jp_c3, jp_c4 = st.columns(4)
+        with jp_c1:
+            st.metric("Jupiter Sign", _jp["sign"].split("(")[0].strip(),
+                      f"Sign #{_jp['sign_index']}")
+        with jp_c2:
+            _ketu_tag = " ⚠ Ketu's star" if _jp["is_ketu_nakshatra"] else ""
+            st.metric("Jupiter Nakshatra", _jp["nakshatra"] + _ketu_tag,
+                      f"Ruled by {_jp['nakshatra_planet']}")
+        with jp_c3:
+            _s6_8 = ", ".join(_jp["shashtashtak_with"]) if _jp["shashtashtak_with"] else "None"
+            st.metric("Shashtashtak With", _s6_8, "6th/8th axis malefic")
+        with jp_c4:
+            st.metric("Jupiter Longitude", f"{_jp['sidereal_lon']}°",
+                      "sidereal (Lahiri)")
+
+        # ── Factor checklist ───────────────────────────────────────────────────
+        _check = lambda ok: "✅" if ok else "⬜"
+        st.markdown(
+            f"**Crash signal factors:**  "
+            f"{_check(_jp['is_ketu_nakshatra'])} Ketu nakshatra &nbsp;&nbsp;"
+            f"{_check(_jp['shashtashtak_with'])} Shashtashtak w/ malefic &nbsp;&nbsp;"
+            f"{_check(_jp['nodal_influence'])} Rahu-Ketu nodal influence"
+        )
+
+        # ── Historical context note ────────────────────────────────────────────
+        with st.expander("Historical crash setups (reference)"):
+            st.markdown(
+                "| Year | Event | Jupiter Nakshatra | Key Combo | Outcome |\n"
+                "|------|-------|-------------------|-----------|--------|\n"
+                "| 1992 | Harshad Mehta crash | Magha (Ketu) | Shashtashtak Saturn+Sun; Rahu+Mars | Sensex −57%, 20m recovery |\n"
+                "| 2000 | Dot-com bust | Ashwini (Ketu) | Conjunction Saturn; Rahu-Ketu axis | Nifty −53%, 34m recovery |\n"
+                "| 2008 | Global financial crisis | Mula (Ketu) | Sun+Mars+Ketu aspect; 8th from Saturn | Nifty −64%, 71m recovery |\n"
+                "| 2020 | Covid crash | Mula (Ketu) | Saturn+Sun+Mercury; eclipse; Ketu | Nifty −39%, fast recovery |\n"
+                "| **Nov 2026** | **Prediction** | **Magha (Ketu)** | **Rahu-Ketu axis; 8th from Saturn** | **Major crash predicted** |\n"
+                "\n"
+                "*Exception rule:* Ketu nakshatra alone is NOT sufficient. "
+                "1995 (+7%), 2003 (+20%), 2023 (+12%) were all bullish despite "
+                "Jupiter in Ketu's star — because Shashtashtak and/or nodal influence was absent."
+            )
+
     # Lunar phase chart
     st.subheader("Lunar Phase Progression")
 

@@ -487,6 +487,126 @@ class AstroIndicators:
             "pct":          round(pct * 100, 1),   # % through nakshatra
         }
 
+    # Zodiac sign names (sidereal / Vedic)
+    _SIGNS = [
+        "Aries (Mesha)", "Taurus (Vrishabha)", "Gemini (Mithuna)",
+        "Cancer (Karka)", "Leo (Simha)", "Virgo (Kanya)",
+        "Libra (Tula)", "Scorpio (Vrishchika)", "Sagittarius (Dhanu)",
+        "Capricorn (Makara)", "Aquarius (Kumbha)", "Pisces (Meena)",
+    ]
+
+    # Nakshatras ruled by Ketu (index 0-based: Ashwini=0, Magha=9, Mula=18)
+    _KETU_NAKSHATRA_IDX = {0, 9, 18}
+
+    def get_jupiter_position(self, d: date) -> Dict:
+        """
+        Return Jupiter's sidereal position for date d (noon IST) and evaluate
+        the Jupiter Market Crash Signal (three-factor model).
+
+        Factor 1 — Ketu nakshatra: Jupiter in Ashwini, Magha, or Mula.
+        Factor 2 — Shashtashtak Yoga: Saturn, Sun, or Mars is 5 or 7 signs
+                   away from Jupiter (6th/8th house axis in Vedic astrology).
+        Factor 3 — Rahu-Ketu nodal influence: Rahu or Ketu is within ±30°
+                   of Jupiter's ecliptic longitude (1-sign orb).
+
+        All three active simultaneously = historical crash signal (1992/2000/2008/2020).
+        """
+        if not HAS_EPHEM:
+            return {"error": "ephem not installed — run: pip install ephem"}
+
+        import ephem as _ephem
+
+        observer = _ephem.Observer()
+        observer.date = datetime.combine(d, time(5, 30))  # noon IST = 06:30 UTC
+        observer.lat = str(self.lat)
+        observer.lon = str(self.lon)
+        observer.elevation = 0
+        observer.pressure = 0
+
+        def _sidereal(body_class):
+            body = body_class()
+            body.compute(observer)
+            ec = _ephem.Ecliptic(body, epoch=observer.date)
+            return (math.degrees(ec.lon) - self._AYANAMSA) % 360
+
+        jup_lon = _sidereal(_ephem.Jupiter)
+        sat_lon = _sidereal(_ephem.Saturn)
+        sun_lon = _sidereal(_ephem.Sun)
+        mar_lon = _sidereal(_ephem.Mars)
+        # Rahu (mean north node); Ketu is always 180° opposite
+        # Mean lunar ascending node (Rahu) — J2000.0 epoch formula
+        # J2000.0 = 2000-Jan-1.5 TT; node was 125.04455501° tropical, retrograde
+        _j2000 = datetime(2000, 1, 1, 12, 0, 0)
+        _days_j2000 = (datetime.combine(d, time(5, 30)) - _j2000).total_seconds() / 86400
+        rahu_tropical = (125.04455501 - 0.05295392 * _days_j2000) % 360
+        rahu_lon = (rahu_tropical - self._AYANAMSA) % 360
+        ketu_lon = (rahu_lon + 180) % 360
+
+        each_sign = 30.0
+        each_nak  = 360 / 27
+
+        jup_sign_idx = int(jup_lon / each_sign)
+        jup_nak_idx  = int(jup_lon / each_nak)
+
+        name, nk_planet, sectors, theme = self.NAKSHATRA_DATA[jup_nak_idx]
+
+        # Factor 1: Ketu nakshatra
+        f1_ketu_nak = jup_nak_idx in self._KETU_NAKSHATRA_IDX
+
+        # Factor 2: Shashtashtak — malefic is 5 or 7 signs from Jupiter
+        def _sign_sep(a_lon, b_lon):
+            """Signs from a to b (forward)."""
+            return int(((b_lon - a_lon) % 360) / 30)
+
+        f2_malefics = []
+        for planet_name, mal_lon in [("Saturn", sat_lon), ("Sun", sun_lon), ("Mars", mar_lon)]:
+            sep = _sign_sep(jup_lon, mal_lon)
+            if sep in (5, 7):
+                f2_malefics.append(planet_name)
+
+        f2_shashtashtak = len(f2_malefics) > 0
+
+        # Factor 3: Rahu-Ketu within 30° of Jupiter
+        def _arc(a, b):
+            return min(abs(a - b) % 360, 360 - abs(a - b) % 360)
+
+        rahu_arc = _arc(jup_lon, rahu_lon)
+        ketu_arc = _arc(jup_lon, ketu_lon)
+        f3_nodal = rahu_arc <= 30 or ketu_arc <= 30
+
+        factors_active = sum([f1_ketu_nak, f2_shashtashtak, f3_nodal])
+
+        if factors_active == 3:
+            signal = "CRASH SIGNAL"
+            signal_color = "red"
+        elif factors_active == 2:
+            signal = "ELEVATED RISK"
+            signal_color = "orange"
+        elif factors_active == 1:
+            signal = "WATCH"
+            signal_color = "yellow"
+        else:
+            signal = "CLEAR"
+            signal_color = "green"
+
+        return {
+            "date":             d,
+            "nakshatra":        name,
+            "nakshatra_index":  jup_nak_idx + 1,
+            "nakshatra_planet": nk_planet,
+            "sign":             self._SIGNS[jup_sign_idx],
+            "sign_index":       jup_sign_idx + 1,
+            "sidereal_lon":     round(jup_lon, 2),
+            "is_ketu_nakshatra": f1_ketu_nak,
+            "shashtashtak_with": f2_malefics,        # list of planet names
+            "nodal_influence":  f3_nodal,
+            "rahu_arc":         round(rahu_arc, 1),
+            "ketu_arc":         round(ketu_arc, 1),
+            "factors_active":   factors_active,
+            "signal":           signal,
+            "signal_color":     signal_color,
+        }
+
     def get_nakshatra_forecast(self, start_date: date, days: int = 7) -> "pd.DataFrame":
         """Return a DataFrame of nakshatra + sector forecasts for `days` ahead."""
         rows = []
