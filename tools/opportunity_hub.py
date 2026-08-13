@@ -214,6 +214,7 @@ SCANNER_FAMILIES: dict[str, tuple[str, ...]] = {
         "RSI 60-40 Setup",
         "Candlestick Patterns",
         "FVG Pullback",
+        "ICT Setup",
     ),
     "Event": (
         "PEAD Drift",

@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-13] ingest | ICT Quick Reference Guide — Liquidity Pools, MSS, FVG, OTE, Execution Blueprint
+- **Source:** User-provided screenshot — ICT (Inner Circle Trader) Quick Reference Guide infographic
+- **Raw file:** `.raw/images/ict-quick-reference-guide-2026-08-13.md`
+- **Pages created:** [[sources/ICT-Quick-Reference-Guide-2026-08-13]], [[concepts/ICT-Methodology]]
+- **Pages updated:** [[wiki/index.md]], [[wiki/log.md]]
+- **Key insight:** ICT adds three net-new primitives to what already exists in the chart tool: (1) BSL/SSL liquidity pool identification (currently zero implementation), (2) displacement qualifier on BOS/CHoCH (our `detect_bos_choch` uses close-above-pivot with no displacement gate — a known ICT objection), (3) OTE Fibonacci zone 61.8–79% (pure Fibonacci, 5 lines). Inducement detection is complex and deprioritized. Recommended build order: displacement gate → OTE zone → BSL/SSL → composite `scan_ict_setup()`.
+
 ## [2026-08-12] ingest | Vedic Planet Trading Aspects + India Independence Chart framework
 - **Source:** User-provided Financial Astrology Course notes — planet aspects, trading bias, degree-matching technique, Reliance Oct 2021 case study
 - **Pages created:** [[concepts/Vedic-Planet-Trading-Aspects]], [[concepts/India-Independence-Chart-Trading]]

@@ -2293,23 +2293,60 @@ def detect_structure_chain(df: pd.DataFrame, pivot_len: int = 15,
     }
 
 
+def _displacement_body_ratio(o: float, h: float, l: float, c: float) -> float:
+    """Body as a fraction of total range. Used by the ICT displacement gate."""
+    rng = h - l
+    return abs(c - o) / rng if rng > 0 else 0.0
+
+
+def _ote_zone(leg_start: float, leg_end: float, direction: str) -> tuple[float, float]:
+    """ICT Optimal Trade Entry zone: 61.8%–79% retracement of a displacement leg.
+
+    direction='bullish': leg went UP (leg_start < leg_end); OTE is below leg_end.
+    direction='bearish': leg went DOWN (leg_start > leg_end); OTE is above leg_end.
+
+    Returns (ote_lo, ote_hi) where ote_lo < ote_hi always, ready to compare
+    against current price.
+    """
+    span = abs(leg_end - leg_start)
+    if direction == "bullish":
+        return (round(leg_end - 0.786 * span, 2), round(leg_end - 0.618 * span, 2))
+    else:
+        return (round(leg_end + 0.618 * span, 2), round(leg_end + 0.786 * span, 2))
+
+
 def detect_bos_choch(df: pd.DataFrame, pivot_len: int = 5,
-                     lookback: int = 120) -> dict | None:
+                     lookback: int = 120,
+                     require_displacement: bool = False,
+                     min_body_ratio: float = 0.5) -> dict | None:
     """Bullish market-structure event (SMC swing-labeling walk): a close above
     the most recent confirmed swing high while structure is bearish = CHOCH
     (first counter-trend break); while already bullish = BOS (continuation).
     A later close below a confirmed swing low re-flips structure bearish and
     invalidates the bullish event. Returns the surviving bullish event or None.
+
+    When require_displacement=True (ICT mode), the break candle must have a
+    body that is at least min_body_ratio of its full high-low range, filtering
+    out soft, low-conviction closes that just edge past the pivot.
+
+    Extra keys when displacement was measured:
+      displacement (bool) — whether the break candle met the body-ratio gate
+      body_ratio  (float) — actual body/range of the break candle
+      leg_start   (float) — swing low before the break (OTE calculation anchor)
+      leg_end     (float) — the swing-high level that was broken (OTE top anchor)
+      ote_zone    (float, float) — (ote_lo, ote_hi) = 61.8–79% retracement band
     """
     if len(df) < pivot_len * 4 + 20:
         return None
     high, low, close = df["high"], df["low"], df["close"]
+    opens = df["open"]
     n = len(df)
 
     swing_high: float | None = None
     swing_low: float | None = None
     trend = 0            # 1 up / -1 down / 0 unknown
-    last_event: tuple[str, int, float] | None = None
+    last_event: tuple[str, int, float, float | None, float | None] | None = None
+    # last_event = (label, bar_idx, level, leg_start_swing_low, body_ratio)
 
     for i in range(max(pivot_len * 2, n - lookback), n):
         j = i - pivot_len          # pivot confirmed pivot_len bars later
@@ -2320,9 +2357,18 @@ def detect_bos_choch(df: pd.DataFrame, pivot_len: int = 5,
                 swing_low = float(low.iloc[j])
         c = float(close.iloc[i])
         if swing_high is not None and c > swing_high:
-            last_event = ("BOS" if trend == 1 else "CHOCH", i, swing_high)
-            trend = 1
-            swing_high = None      # consumed — wait for a fresh pivot
+            br = _displacement_body_ratio(
+                float(opens.iloc[i]), float(high.iloc[i]),
+                float(low.iloc[i]), c,
+            )
+            if require_displacement and br < min_body_ratio:
+                # Soft close — skip but do NOT consume the swing_high; a later
+                # stronger bar on the same level can still qualify.
+                pass
+            else:
+                last_event = ("BOS" if trend == 1 else "CHOCH", i, swing_high, swing_low, br)
+                trend = 1
+                swing_high = None      # consumed — wait for a fresh pivot
         elif swing_low is not None and c < swing_low:
             trend = -1
             swing_low = None
@@ -2330,12 +2376,24 @@ def detect_bos_choch(df: pd.DataFrame, pivot_len: int = 5,
 
     if last_event is None:
         return None
-    label, idx, level = last_event
-    return {"signal": label, "level": round(level, 2), "bars_ago": n - 1 - idx}
+    label, idx, level, leg_start, body_ratio = last_event
+    ote = _ote_zone(leg_start, level, "bullish") if leg_start is not None else None
+    return {
+        "signal": label,
+        "level": round(level, 2),
+        "bars_ago": n - 1 - idx,
+        "displacement": (body_ratio or 0.0) >= min_body_ratio,
+        "body_ratio": round(body_ratio, 3) if body_ratio is not None else None,
+        "leg_start": round(leg_start, 2) if leg_start is not None else None,
+        "leg_end": round(level, 2),
+        "ote_zone": ote,
+    }
 
 
 def detect_support_breakdown(df: pd.DataFrame, pivot_len: int = 5,
-                             lookback: int = 120) -> dict | None:
+                             lookback: int = 120,
+                             require_displacement: bool = False,
+                             min_body_ratio: float = 0.5) -> dict | None:
     """Bearish market-structure event (B-19b): a close BELOW the most recent
     confirmed swing LOW while structure is bullish = bearish CHOCH (first
     counter-trend break); while already bearish = bearish BOS (continuation).
@@ -2343,16 +2401,23 @@ def detect_support_breakdown(df: pd.DataFrame, pivot_len: int = 5,
 
     Returns the surviving bearish event or None (no bearish break in the window,
     or a later bullish break invalidated it).
+
+    When require_displacement=True (ICT mode), the break candle must have a
+    body of at least min_body_ratio of its range (same gate as detect_bos_choch).
+
+    Extra keys: displacement, body_ratio, leg_start (swing high before break),
+    leg_end (swing low broken), ote_zone (61.8–79% retracement back up).
     """
     if len(df) < pivot_len * 4 + 20:
         return None
     high, low, close = df["high"], df["low"], df["close"]
+    opens = df["open"]
     n = len(df)
 
     swing_high: float | None = None
     swing_low: float | None = None
     trend = 0           # 1 up / -1 down / 0 unknown
-    last_event: tuple[str, int, float] | None = None
+    last_event: tuple[str, int, float, float | None, float | None] | None = None
 
     for i in range(max(pivot_len * 2, n - lookback), n):
         j = i - pivot_len
@@ -2363,9 +2428,16 @@ def detect_support_breakdown(df: pd.DataFrame, pivot_len: int = 5,
                 swing_low = float(low.iloc[j])
         c = float(close.iloc[i])
         if swing_low is not None and c < swing_low:
-            last_event = ("bearish BOS" if trend == -1 else "bearish CHOCH", i, swing_low)
-            trend = -1
-            swing_low = None   # consumed
+            br = _displacement_body_ratio(
+                float(opens.iloc[i]), float(high.iloc[i]),
+                float(low.iloc[i]), c,
+            )
+            if require_displacement and br < min_body_ratio:
+                pass  # soft close — wait for a stronger candle on this level
+            else:
+                last_event = ("bearish BOS" if trend == -1 else "bearish CHOCH", i, swing_low, swing_high, br)
+                trend = -1
+                swing_low = None   # consumed
         elif swing_high is not None and c > swing_high:
             trend = 1
             swing_high = None
@@ -2373,8 +2445,18 @@ def detect_support_breakdown(df: pd.DataFrame, pivot_len: int = 5,
 
     if last_event is None:
         return None
-    label, idx, level = last_event
-    return {"signal": label, "level": round(level, 2), "bars_ago": n - 1 - idx}
+    label, idx, level, leg_start, body_ratio = last_event
+    ote = _ote_zone(leg_start, level, "bearish") if leg_start is not None else None
+    return {
+        "signal": label,
+        "level": round(level, 2),
+        "bars_ago": n - 1 - idx,
+        "displacement": (body_ratio or 0.0) >= min_body_ratio,
+        "body_ratio": round(body_ratio, 3) if body_ratio is not None else None,
+        "leg_start": round(leg_start, 2) if leg_start is not None else None,
+        "leg_end": round(level, 2),
+        "ote_zone": ote,
+    }
 
 
 def scan_support_breakdown(df: pd.DataFrame) -> dict | None:
@@ -2866,6 +2948,101 @@ def scan_fvg_pullback(df: pd.DataFrame, max_bars_ago: int = 3) -> dict | None:
         "stop": stop,
         "target": target,
         "vol_x50d": round(vol_x, 2),
+    }
+
+
+def scan_ict_setup(df: pd.DataFrame, pivot_len: int = 5,
+                   lookback: int = 120,
+                   min_body_ratio: float = 0.5) -> dict | None:
+    """ICT Execution Blueprint composite scanner — chains the four ICT primitives:
+
+    1. MSS with displacement: detect_bos_choch(require_displacement=True) must
+       fire, confirming institutional participation on the structure break.
+    2. OTE zone: 61.8–79% Fibonacci retracement of the displacement leg is
+       computed from the returned leg_start / leg_end pair.
+    3. Price location: current close must be inside or below the OTE zone
+       (pullback is in progress or has dipped through). Only fires when
+       price is in the zone — not a post-OTE entry.
+    4. FVG overlap: an active bull FVG or a recent FVG rejection must overlap
+       the OTE zone, confirming the zone from two independent methods.
+
+    Stop: below the OTE zone low (same side as the FVG stop).
+    Target: the next BSL pool, proxied by the rolling 40-bar swing high.
+
+    Unmeasured — has not been through the backtest harness.
+    """
+    if df is None or len(df) < pivot_len * 4 + 40:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < pivot_len * 4 + 40:
+        return None
+
+    ev = detect_bos_choch(df, pivot_len=pivot_len, lookback=lookback,
+                          require_displacement=True,
+                          min_body_ratio=min_body_ratio)
+    if ev is None or not ev.get("displacement"):
+        return None
+    ote = ev.get("ote_zone")
+    if ote is None:
+        return None
+    ote_lo, ote_hi = ote
+
+    last = float(df["close"].iloc[-1])
+    if not (ote_lo <= last <= ote_hi * 1.005):  # 0.5% above ote_hi = still eligible
+        return None
+
+    fvg = detect_fvg_pullback(df)
+    fvg_overlap = False
+    fvg_zone_label = ""
+    if fvg:
+        az = fvg.get("active_bull_zone")
+        rz = fvg.get("buy_signal_zone")
+        for zone in (az, rz):
+            if zone:
+                zbot, ztop = zone
+                if zbot <= ote_hi and ztop >= ote_lo:
+                    fvg_overlap = True
+                    fvg_zone_label = f"₹{zbot:.0f}–₹{ztop:.0f}"
+                    break
+    if not fvg_overlap:
+        return None
+
+    atr = float(_atr_series(df, 14).iloc[-1])
+    stop = round(ote_lo - 0.5 * atr, 2)
+    risk = last - stop
+    if risk <= 0:
+        return None
+    bsl_target = round(float(df["high"].tail(40).max()), 2)
+    target = round(max(bsl_target, last + 2.0 * risk), 2)
+    rr = round((target - last) / risk, 1)
+
+    bos_label = ev["signal"]
+    br = ev.get("body_ratio", 0.0) or 0.0
+    bars_ago = ev.get("bars_ago", "?")
+
+    reasons = [
+        f"ICT MSS: {bos_label} with displacement (body {br:.0%} of range) "
+        f"{bars_ago} bar(s) ago at ₹{ev['level']:.0f}",
+        f"OTE zone: ₹{ote_lo:.0f}–₹{ote_hi:.0f} "
+        f"(61.8–79% retracement of leg ₹{ev['leg_start']:.0f}→₹{ev['leg_end']:.0f})",
+        f"FVG overlap confirmed inside OTE: {fvg_zone_label}",
+        f"Trade plan — entry ₹{last:.0f} · stop ₹{stop:.0f} · target ₹{target:.0f} "
+        f"(R:R {rr}×) · BSL proxy = 40-bar high",
+        "⚠ Unmeasured — this scanner has not been through the backtest harness",
+    ]
+    score = 55.0 + 20.0 * min(br / 0.8, 1.0) + (15.0 if fvg_overlap else 0.0)
+
+    return {
+        "pattern_type": "ICT Setup",
+        "tags": ["ICT", bos_label, f"OTE ₹{ote_lo:.0f}-{ote_hi:.0f}", "FVG+OTE"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, score), 1),
+        "rs_raw": _rs_raw(df),
+        "entry": round(last, 2),
+        "stop": stop,
+        "target": target,
+        "ote_zone": ote,
+        "displacement_body_ratio": round(br, 3),
     }
 
 
@@ -4333,6 +4510,22 @@ SCANNERS: dict[str, dict] = {
             "exactly when the gap fails. Wraps detect_fvg_pullback, which "
             "previously existed only as one boolean inside the Early Reversal "
             "layer and so was never screenable. Unmeasured."
+        ),
+        "category": "Entry",
+    },
+    "ICT Setup": {
+        "fn": scan_ict_setup,
+        "description": (
+            "ICT Execution Blueprint composite scanner — chains four ICT primitives: "
+            "(1) MSS with displacement: BOS/CHoCH where the break candle body is "
+            ">50% of its range, proving institutional participation; "
+            "(2) OTE zone: 61.8–79% Fibonacci retracement of the displacement leg — "
+            "where institutional orders were left unfilled; "
+            "(3) price currently inside the OTE zone (pullback in progress); "
+            "(4) FVG (active zone or recent rejection) overlapping the OTE zone — "
+            "two independent methods pointing to the same price area. "
+            "Stop below OTE zone low; target = 40-bar swing high (BSL proxy). "
+            "Requires all four conditions simultaneously. Unmeasured."
         ),
         "category": "Entry",
     },
