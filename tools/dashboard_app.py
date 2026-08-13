@@ -184,39 +184,88 @@ st.markdown(
         box-shadow: none !important;
       }
 
-      /* ── Nav dropdown panels (dark, matches ribbon) ────────────────────────── */
+      /* ── Nav dropdown mega-panel ─────────────────────────────────────────────
+         Board-style, 2-column grid, readable type. No single-column scroll.
+         stPopoverBody is the container Streamlit mounts for every popover.
+      ── */
       [data-testid="stPopoverBody"] {
-        background: #1c1410 !important;
-        border: 1px solid rgba(234,88,12,0.28) !important;
-        border-radius: 10px !important;
-        padding: 6px !important;
-        min-width: 190px !important;
-        box-shadow: 0 10px 28px rgba(0,0,0,0.45) !important;
+        background: #12100a !important;
+        border: 1px solid rgba(234,88,12,0.35) !important;
+        border-radius: 16px !important;
+        padding: 16px 12px 12px !important;
+        min-width: 380px !important;
+        max-width: 460px !important;
+        box-shadow:
+          0 2px 4px rgba(0,0,0,0.25),
+          0 12px 36px rgba(0,0,0,0.60),
+          inset 0 1px 0 rgba(255,255,255,0.04) !important;
+        overflow: visible !important;
       }
+
+      /* ── Popover header strip — group name ───────────────────── */
+      [data-testid="stPopoverBody"]::before {
+        content: "Pages";
+        display: block;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        color: #ea580c;
+        text-transform: uppercase;
+        padding: 0 6px 10px;
+        border-bottom: 1px solid rgba(234,88,12,0.18);
+        margin-bottom: 10px;
+      }
+
+      /* ── 2-column grid for the button list ───────────────────── */
+      [data-testid="stPopoverBody"] [data-testid="stVerticalBlock"] {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 3px 8px !important;
+      }
+
+      /* Each cell: full width inside its grid column */
+      [data-testid="stPopoverBody"] [data-testid="stElementContainer"] {
+        min-width: 0 !important;
+      }
+
+      /* ── Menu item buttons ───────────────────────────────────── */
       [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"],
       [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"] {
         background: transparent !important;
-        border: none !important;
+        border: 1px solid transparent !important;
+        border-radius: 9px !important;
         color: rgba(255,245,235,0.82) !important;
-        justify-content: flex-start !important;
-        font-size: 13px !important;
-        font-weight: 400 !important;
-        border-radius: 6px !important;
-        height: 34px !important;
-        min-height: 34px !important;
+        font-size: 13.5px !important;
+        font-weight: 500 !important;
+        letter-spacing: 0.005em !important;
+        min-height: 38px !important;
+        height: 38px !important;
         padding: 0 12px !important;
-        margin-bottom: 1px !important;
+        justify-content: flex-start !important;
+        text-align: left !important;
         box-shadow: none !important;
-        letter-spacing: 0 !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        width: 100% !important;
+        transition: background 0.1s, border-color 0.1s, color 0.1s !important;
       }
+
+      /* Hover */
       [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"]:hover {
-        background: rgba(234,88,12,0.12) !important;
+        background: rgba(234,88,12,0.13) !important;
+        border-color: rgba(234,88,12,0.25) !important;
         color: #fff5eb !important;
       }
+
+      /* Active / current page — amber left-bar pill */
       [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"] {
         background: rgba(234,88,12,0.18) !important;
-        color: #ea580c !important;
-        font-weight: 600 !important;
+        border-color: rgba(234,88,12,0.40) !important;
+        border-left: 3px solid #ea580c !important;
+        color: #fb923c !important;
+        font-weight: 700 !important;
+        padding-left: 10px !important;
       }
     </style>
     """,
