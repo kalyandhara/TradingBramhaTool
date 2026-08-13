@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-12] ingest | Jupiter Market Crash Thesis — user-provided historical analysis
+- **Source:** User-provided table: Jupiter position + Shashtashtak Yoga across 10 historical market events (1992–2023) + 4 forward predictions (Jun 2026, Nov 2026, 2027–2032, post-2033)
+- **Pages created:** [[concepts/Jupiter-Market-Crash-Thesis]]
+- **Pages updated:** [[wiki/index.md]]
+- **Key insight:** Full crash signal = ALL THREE: (1) Jupiter in Ketu's nakshatra (Ashwini/Magha/Mula) + (2) Shashtashtak with Saturn/Sun/Mars + (3) Rahu-Ketu nodal influence. Ketu nakshatra alone is insufficient — 1995, 2003, 2023 were all bullish despite Jupiter being in Ketu's star. **⚠️ RED FLAG: Nov 2026 prediction is a FULL three-factor signal — Jupiter in Leo/Magha (Ketu's star), Rahu-Ketu axis, 8th from Saturn. Identical setup to 1992 (−57%) and 2008 (−64%). ~90 days away from today.**
+
 ## [2026-08-12] ingest | MarketAstroScience — 27 Nakshatras in the Stock Market
 - **Source:** [[sources/MarketAstroScience-Nakshatras-Stock-Market-2026-08-12]] — full 27-nakshatra profiles, 12 Aug 2026
 - **Raw file:** `.raw/articles/nakshatras-stock-market-2026-08-12.md`
