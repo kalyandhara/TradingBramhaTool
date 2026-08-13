@@ -4059,6 +4059,132 @@ def scan_rsi_60_40(df: pd.DataFrame) -> dict | None:
     return out
 
 
+def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 5,
+                             lookback: int = 80) -> dict | None:
+    """Bullish RSI divergence on the last closed daily bar.
+
+    Fires when the most recent swing low made a LOWER price low but a HIGHER
+    RSI(14) low than the preceding swing low — classic hidden institutional
+    accumulation. The second swing low must be within the last 10 bars so the
+    signal is still actionable on the last closed daily bar.
+
+    Conditions (all must hold):
+      1. Two pivot lows within ``lookback`` bars, detected by pivot_len symmetry.
+      2. Price: low2 < low1  (lower low).
+      3. RSI: rsi_at_low2 > rsi_at_low1  (higher RSI low — the divergence).
+      4. Divergence gap ≥ 3 RSI points (avoids noise from near-equal readings).
+      5. The second low is within the last 10 bars (recent / last daily bar).
+      6. RSI(14) at the second low ≤ 60 (divergence in overbought territory is noise).
+      7. RSI on bar[-1] > RSI at bar of the second low (bounce already starting).
+
+    Score  (0-100):
+      Base 55 + oversold bonus (≤35 → +15, ≤45 → +8) + magnitude bonus
+      (RSI gap > 10 pts → +10) + recency bonus (≤3 bars ago → +5).
+    """
+    if df is None or len(df) < pivot_len * 2 + 40:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < pivot_len * 2 + 40:
+        return None
+
+    close = df["close"]
+    low = df["low"]
+    high = df["high"]
+    n = len(df)
+    rsi = _rsi_series(close, 14)
+    atr = float(_atr_series(df, 14).iloc[-1])
+    if np.isnan(atr) or atr <= 0:
+        return None
+
+    # ── Collect all swing lows in the lookback window ────────────────────────
+    search_start = max(pivot_len, n - lookback)
+    pivot_lows: list[tuple[int, float, float]] = []   # (bar_idx, price_low, rsi_at_low)
+    for i in range(search_start, n - pivot_len):
+        window = low.iloc[i - pivot_len: i + pivot_len + 1]
+        if float(low.iloc[i]) == float(window.min()):
+            rsi_val = float(rsi.iloc[i])
+            if not np.isnan(rsi_val):
+                pivot_lows.append((i, float(low.iloc[i]), rsi_val))
+
+    if len(pivot_lows) < 2:
+        return None
+
+    # ── Check most recent pivot pair for divergence ───────────────────────────
+    idx1, price1, rsi1 = pivot_lows[-2]
+    idx2, price2, rsi2 = pivot_lows[-1]
+
+    bars_ago = n - 1 - idx2          # how many bars since the second pivot low
+
+    if bars_ago > 10:                # too stale
+        return None
+    if price2 >= price1:             # no lower low in price
+        return None
+    if rsi2 <= rsi1:                 # no higher low in RSI
+        return None
+    rsi_gap = rsi2 - rsi1
+    if rsi_gap < 3.0:                # gap too small to trust
+        return None
+    if rsi2 > 60.0:                  # divergence in overbought is meaningless
+        return None
+
+    # Bounce confirmation: RSI on the last bar must be rising above the second low
+    rsi_now = float(rsi.iloc[-1])
+    if np.isnan(rsi_now) or rsi_now <= rsi2:
+        return None
+
+    # ── Score ─────────────────────────────────────────────────────────────────
+    score = 55.0
+    if rsi2 <= 35.0:
+        score += 15.0
+    elif rsi2 <= 45.0:
+        score += 8.0
+    if rsi_gap >= 10.0:
+        score += 10.0
+    if bars_ago <= 3:
+        score += 5.0
+    score = min(round(score, 1), 95.0)
+
+    # ── Trade plan ────────────────────────────────────────────────────────────
+    stop = round(price2 - 0.5 * atr, 2)
+    risk = float(close.iloc[-1]) - stop
+    target = round(float(close.iloc[-1]) + 2.0 * risk, 2) if risk > 0 else None
+
+    # Highest high between the two lows = measured-move reference
+    swing_high_between = float(high.iloc[idx1:idx2 + 1].max())
+
+    tags = [
+        f"RSI div gap +{rsi_gap:.1f}pt",
+        f"RSI at low {rsi2:.0f}",
+        f"{bars_ago}d ago",
+        f"2nd low ₹{price2:.2f}",
+    ]
+    reasons = [
+        f"Price lower low: ₹{price1:.2f} → ₹{price2:.2f}",
+        f"RSI(14) higher low: {rsi1:.1f} → {rsi2:.1f} (+{rsi_gap:.1f} pts divergence)",
+        f"RSI now {rsi_now:.1f} — bouncing off the divergence low",
+        f"Second swing low {bars_ago} bar(s) ago — signal still fresh",
+    ]
+    if rsi2 <= 45.0:
+        reasons.append(f"RSI oversold at the low ({rsi2:.0f}) — strengthens the read")
+
+    return {
+        "symbol": df.index[-1] if hasattr(df.index[-1], "__str__") else "?",
+        "pattern_type": "RSI Divergence Bull",
+        "score": score,
+        "tags": tags,
+        "reasons": reasons,
+        "entry": round(float(close.iloc[-1]), 2),
+        "stop": stop,
+        "target": target,
+        "time_stop": 10,
+        "key_level": round(swing_high_between, 2),
+        "rsi_now": round(rsi_now, 1),
+        "rsi_at_low": round(rsi2, 1),
+        "rsi_gap": round(rsi_gap, 1),
+        "bars_since_low": bars_ago,
+    }
+
+
 def scan_order_block(df: pd.DataFrame) -> dict | None:
     """Bullish order block (SMC demand zone) retest entry.
 
@@ -4411,6 +4537,20 @@ SCANNERS: dict[str, dict] = {
             "RSI-40 PULLBACK turning up at EMA support (stop < EMA50), or an RSI-60 "
             "BREAKOUT clearing the 20-day high on ≥1.5× volume (stop < EMA21). Each "
             "hit carries a 2R trade plan. A continuation system, not a reversal one."
+        ),
+        "category": "Entry",
+    },
+    "RSI Divergence Bull": {
+        "fn": scan_rsi_divergence_bull,
+        "description": (
+            "Bullish RSI divergence on the last closed daily bar — price made a "
+            "lower pivot low within the last 10 bars while RSI(14) made a higher "
+            "low (divergence ≥3 RSI points), with RSI now already rising above the "
+            "divergence low. RSI at the low must be ≤60 (overbought divergence is "
+            "noise). Score rises with depth of oversold (≤35 → +15, ≤45 → +8), "
+            "divergence magnitude (gap ≥10 pts → +10), and recency (≤3 bars → +5). "
+            "Emits entry at current close, stop 0.5×ATR below the second pivot low, "
+            "2R target, and a 10-bar time stop. Unmeasured."
         ),
         "category": "Entry",
     },

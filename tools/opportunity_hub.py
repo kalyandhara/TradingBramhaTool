@@ -212,6 +212,7 @@ SCANNER_FAMILIES: dict[str, tuple[str, ...]] = {
         "Near Pivot",
         "Order Block Retest",
         "RSI 60-40 Setup",
+        "RSI Divergence Bull",
         "Candlestick Patterns",
         "FVG Pullback",
         "ICT Setup",
