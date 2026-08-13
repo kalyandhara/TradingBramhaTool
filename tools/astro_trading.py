@@ -487,6 +487,135 @@ class AstroIndicators:
             "pct":          round(pct * 100, 1),   # % through nakshatra
         }
 
+    # India Independence Chart sensitive degrees (degree within sign, 0–29°)
+    # Source: Aug 15, 1947, 12:00 AM, New Delhi — D1 (Rashi) and D9 (Navamsa)
+    INDIA_CHART_DEGREES: Dict[str, float] = {
+        "Lagna D1":  8.0,
+        "Lagna D9":  12.0,
+        "Sun":       27.18,
+        "Moon":      3.08,
+        "Mars":      7.0,
+        "Mercury":   13.0,
+        "Jupiter":   25.0,
+        "Venus":     22.0,
+        "Saturn":    20.0,
+        "Rahu/Ketu": 5.0,
+    }
+
+    # Trading bias per transiting planet (financial astrology convention:
+    # malefics = bullish, benefics = bearish)
+    _PLANET_BIAS: Dict[str, str] = {
+        "Sun":     "bullish",
+        "Moon":    "bearish",
+        "Mars":    "bullish",
+        "Mercury": "bearish",
+        "Jupiter": "bearish",
+        "Venus":   "bearish",
+        "Saturn":  "bullish",
+        "Rahu":    "bullish",
+        "Ketu":    "ambiguous",
+    }
+
+    # NSE karaka sectors per planet
+    _PLANET_KARAKA: Dict[str, str] = {
+        "Sun":     "Govt / PSU / Defence / Energy",
+        "Moon":    "Petroleum / Retail / FMCG / Agri",
+        "Mars":    "Auto / Defence / Steel / Realty",
+        "Mercury": "IT / Telecom / Media / Banking",
+        "Jupiter": "Banking / Finance / Gold / FMCG",
+        "Venus":   "Textiles / Luxury / Vehicles / Finance",
+        "Saturn":  "Oil & Gas / Infra / Mining / IT Services",
+        "Rahu":    "IT / Pharma / Aviation / Derivatives",
+        "Ketu":    "Pharma / Defence / Niche",
+    }
+
+    def get_india_chart_alerts(self, d: date, orb: float = 2.0) -> List[Dict]:
+        """
+        Return degree-matching alerts for date d (9:15 AM IST — NSE open).
+
+        For each transiting planet, extracts the degree within its current sign
+        (lon % 30) and checks against every sensitive degree in India's Independence
+        Chart (D1 + D9). An alert fires when |transiting_deg - india_deg| <= orb.
+
+        Returns a list of alert dicts sorted by orb (tightest first):
+          planet, transiting_deg, india_point, india_deg, orb_actual,
+          bias, karaka, sign, sidereal_lon
+        """
+        if not HAS_EPHEM:
+            return [{"error": "ephem not installed"}]
+
+        import ephem as _ephem
+
+        # 9:15 AM IST = 03:45 UTC
+        observer = _ephem.Observer()
+        observer.date = datetime.combine(d, time(3, 45))
+        observer.lat = str(self.lat)
+        observer.lon = str(self.lon)
+        observer.elevation = 0
+        observer.pressure = 0
+
+        def _planet_data(body_class, name):
+            body = body_class()
+            body.compute(observer)
+            ec = _ephem.Ecliptic(body, epoch=observer.date)
+            sid_lon = (math.degrees(ec.lon) - self._AYANAMSA) % 360
+            sign_idx = int(sid_lon / 30)
+            deg_in_sign = sid_lon % 30
+            return {
+                "planet":       name,
+                "sidereal_lon": round(sid_lon, 2),
+                "sign":         self._SIGNS[sign_idx],
+                "deg_in_sign":  round(deg_in_sign, 2),
+                "bias":         self._PLANET_BIAS.get(name, "unknown"),
+                "karaka":       self._PLANET_KARAKA.get(name, ""),
+            }
+
+        planets = [
+            _planet_data(_ephem.Sun,     "Sun"),
+            _planet_data(_ephem.Moon,    "Moon"),
+            _planet_data(_ephem.Mars,    "Mars"),
+            _planet_data(_ephem.Mercury, "Mercury"),
+            _planet_data(_ephem.Jupiter, "Jupiter"),
+            _planet_data(_ephem.Venus,   "Venus"),
+            _planet_data(_ephem.Saturn,  "Saturn"),
+        ]
+
+        # Rahu (mean lunar node) — same J2000 formula used in get_jupiter_position
+        _j2000 = datetime(2000, 1, 1, 12, 0, 0)
+        _days = (datetime.combine(d, time(3, 45)) - _j2000).total_seconds() / 86400
+        rahu_tropical = (125.04455501 - 0.05295392 * _days) % 360
+        rahu_sid = (rahu_tropical - self._AYANAMSA) % 360
+        ketu_sid = (rahu_sid + 180) % 360
+
+        for name, sid_lon in [("Rahu", rahu_sid), ("Ketu", ketu_sid)]:
+            sign_idx = int(sid_lon / 30)
+            planets.append({
+                "planet":       name,
+                "sidereal_lon": round(sid_lon, 2),
+                "sign":         self._SIGNS[sign_idx],
+                "deg_in_sign":  round(sid_lon % 30, 2),
+                "bias":         self._PLANET_BIAS.get(name, "ambiguous"),
+                "karaka":       self._PLANET_KARAKA.get(name, ""),
+            })
+
+        alerts = []
+        for p in planets:
+            for india_point, india_deg in self.INDIA_CHART_DEGREES.items():
+                diff = abs(p["deg_in_sign"] - india_deg)
+                # wrap at 30° boundary (e.g. 29° vs 1° of next sign)
+                if diff > 15:
+                    diff = 30 - diff
+                if diff <= orb:
+                    alerts.append({
+                        **p,
+                        "india_point":  india_point,
+                        "india_deg":    india_deg,
+                        "orb_actual":   round(diff, 2),
+                        "exact":        diff <= 0.5,
+                    })
+
+        return sorted(alerts, key=lambda x: x["orb_actual"])
+
     # Zodiac sign names (sidereal / Vedic)
     _SIGNS = [
         "Aries (Mesha)", "Taurus (Vrishabha)", "Gemini (Mithuna)",

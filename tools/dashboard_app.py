@@ -5348,6 +5348,115 @@ if current_page == "Astro Timing":
                 "Jupiter in Ketu's star — because Shashtashtak and/or nodal influence was absent."
             )
 
+    # ── India Degree-Matching Alerts ──────────────────────────────────────────
+    st.subheader("India Chart — Degree-Matching Alerts (9:15 AM IST)")
+    st.caption(
+        "Transiting planets within ±2° of India's Independence Chart sensitive degrees "
+        "(Aug 15, 1947). When a karaka planet hits these degrees it historically "
+        "marks trend acceleration or reversal. Malefics (Saturn/Sun/Rahu/Mars) = bullish "
+        "signal; Benefics (Jupiter/Moon/Mercury/Venus) = correction risk."
+    )
+
+    _orb_input = st.slider("Orb (degrees)", min_value=0.5, max_value=3.0,
+                           value=2.0, step=0.5, key="india_orb")
+    _alerts = ai.get_india_chart_alerts(analysis_date, orb=_orb_input)
+
+    if _alerts and "error" in _alerts[0]:
+        st.warning(f"India chart engine: {_alerts[0]['error']}")
+    elif not _alerts:
+        st.success(f"No planets within ±{_orb_input}° of any India chart sensitive degree today.")
+    else:
+        # Summary count strip
+        _bull_alerts = [a for a in _alerts if a["bias"] == "bullish"]
+        _bear_alerts = [a for a in _alerts if a["bias"] == "bearish"]
+        _amb_alerts  = [a for a in _alerts if a["bias"] == "ambiguous"]
+
+        ia_c1, ia_c2, ia_c3, ia_c4 = st.columns(4)
+        with ia_c1:
+            st.metric("Active Alerts", len(_alerts), f"within ±{_orb_input}°")
+        with ia_c2:
+            st.metric("Bullish Signals", len(_bull_alerts),
+                      "Saturn/Sun/Rahu/Mars hitting India degrees")
+        with ia_c3:
+            st.metric("Bearish Signals", len(_bear_alerts),
+                      "Jupiter/Moon/Mercury/Venus hitting India degrees")
+        with ia_c4:
+            st.metric("Ambiguous", len(_amb_alerts), "Ketu")
+
+        # Net bias
+        _net = len(_bull_alerts) - len(_bear_alerts)
+        if _net > 0:
+            _net_label = f"Net BULLISH (+{_net})"
+            _net_color = "rgba(74,222,128,0.15)"
+            _net_border = "#4ade80"
+        elif _net < 0:
+            _net_label = f"Net BEARISH ({_net})"
+            _net_color = "rgba(220,38,38,0.15)"
+            _net_border = "#f87171"
+        else:
+            _net_label = "Balanced (no edge)"
+            _net_color = "rgba(234,179,8,0.12)"
+            _net_border = "#fde047"
+
+        st.markdown(
+            f'<div style="background:{_net_color};border:1px solid {_net_border};'
+            f'border-radius:8px;padding:10px 16px;margin:6px 0;">'
+            f'<strong>{_net_label}</strong> — {len(_alerts)} degree matches active'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # Alert cards
+        _bias_icon = {"bullish": "🟢", "bearish": "🔴", "ambiguous": "🟡"}
+        _bias_bg   = {
+            "bullish":   "rgba(74,222,128,0.10)",
+            "bearish":   "rgba(220,38,38,0.10)",
+            "ambiguous": "rgba(234,179,8,0.10)",
+        }
+        _bias_border = {
+            "bullish":   "rgba(74,222,128,0.4)",
+            "bearish":   "rgba(220,38,38,0.4)",
+            "ambiguous": "rgba(234,179,8,0.4)",
+        }
+
+        for _a in _alerts:
+            _icon  = _bias_icon.get(_a["bias"], "⬜")
+            _bg    = _bias_bg.get(_a["bias"], "transparent")
+            _brd   = _bias_border.get(_a["bias"], "rgba(255,255,255,0.1)")
+            _exact = " ✦ EXACT" if _a["exact"] else ""
+            st.markdown(
+                f'<div style="background:{_bg};border:1px solid {_brd};'
+                f'border-radius:8px;padding:10px 16px;margin:4px 0;">'
+                f'{_icon} <strong>{_a["planet"]}</strong> at '
+                f'<strong>{_a["deg_in_sign"]:.1f}°</strong> {_a["sign"]} '
+                f'→ matches India <strong>{_a["india_point"]} ({_a["india_deg"]}°)</strong> '
+                f'<span style="opacity:0.7;">orb {_a["orb_actual"]}°{_exact}</span><br>'
+                f'<span style="font-size:12px;opacity:0.75;">'
+                f'Bias: {_a["bias"].upper()} &nbsp;|&nbsp; '
+                f'Karaka: {_a["karaka"]}'
+                f'</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        # India chart degree reference (collapsed)
+        with st.expander("India Independence Chart — sensitive degrees reference"):
+            _ref_rows = [
+                f"| {pt} | {deg}° | ±{_orb_input}° orb = {max(0,deg-_orb_input):.1f}°–{min(30,deg+_orb_input):.1f}° |"
+                for pt, deg in ai.INDIA_CHART_DEGREES.items()
+            ]
+            st.markdown(
+                "| Chart Point | Degree | Active Window |\n"
+                "|-------------|--------|---------------|\n" +
+                "\n".join(_ref_rows)
+            )
+            st.caption(
+                "India Independence Chart: Aug 15, 1947, 12:00 AM, New Delhi. "
+                "D1 = Rashi chart. D9 = Navamsa chart. "
+                "Degree matching checks the transiting planet's position within its current "
+                "sign (lon mod 30°) against these fixed reference degrees."
+            )
+
     # Lunar phase chart
     st.subheader("Lunar Phase Progression")
 
