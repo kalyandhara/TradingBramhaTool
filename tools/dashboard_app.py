@@ -3751,8 +3751,8 @@ if current_page == "Opportunity Hub":
     with dr:
         _sel_date = st.selectbox("Run date", _dates, index=0,
                                  key="od_date") if _dates else None
-        _od_uni = st.number_input("Universe size", 40, 1000, 200, 20, key="od_uni",
-                                  help="Top N by traded value. 200 takes a few minutes.")
+        _od_uni = st.number_input("Universe size", 40, 5000, 500, 50, key="od_uni",
+                                  help="Top N by traded value. 500 takes a few minutes.")
         if st.button("Run daily shortlist now", type="primary", key="od_run"):
             _prog = st.empty()
             with st.spinner("Running the funnel headlessly…"):
@@ -3858,7 +3858,7 @@ if current_page == "Opportunity Hub":
         oh_universe: list[str] = []
         oh_top_n = 200
         if oh_mode == "Full Market (Bhavcopy)":
-            oh_top_n = st.slider("Top N by traded value", 50, 1000, 200, 50, key="oh_bhav_n")
+            oh_top_n = st.slider("Top N by traded value", 50, 5000, 500, 50, key="oh_bhav_n")
         elif oh_mode == "Screener results":
             _sr = st.session_state.get("screener_results")
             if _sr is not None and not _sr.empty:
@@ -4205,7 +4205,7 @@ if current_page == "Scanner Hub":
         universe: list[str] = []
         if universe_mode == "Full Market (Bhavcopy)":
             bhav_top_n = st.slider(
-                "Top N by traded value", min_value=50, max_value=1000, value=300, step=50,
+                "Top N by traded value", min_value=50, max_value=5000, value=500, step=50,
                 key="hub_bhav_top_n",
                 help="Higher = broader market coverage but slower (one OHLCV fetch per symbol).",
             )
@@ -7780,7 +7780,7 @@ if current_page == "India Market Intel":
             "Full-Market source as Scanner Hub)."
         )
         gv_col1, gv_col2, gv_col3 = st.columns(3)
-        gv_top_n = gv_col1.slider("Universe size (top N by traded value)", 50, 500, 150, step=50, key="imi_gv_topn")
+        gv_top_n = gv_col1.slider("Universe size (top N by traded value)", 50, 5000, 500, step=50, key="imi_gv_topn")
         gv_gap_pct = gv_col2.slider("Min gap %", 1.0, 15.0, 3.0, step=0.5, key="imi_gv_gap")
         gv_vol_mult = gv_col3.slider("Min volume × 20d avg", 1.0, 10.0, 2.0, step=0.5, key="imi_gv_vol")
 

@@ -81,7 +81,7 @@ NSE_HEADERS = {
 }
 
 # Bhavcopy: top N stocks by traded value to include as candidates
-BHAV_TOP_N = 200
+BHAV_TOP_N = 5000
 
 # Minimum data requirements
 MIN_BARS   = 60
