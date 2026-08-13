@@ -165,7 +165,7 @@ st.markdown(
         font-weight: 500 !important;
         border-radius: 8px !important;
         line-height: 1 !important;
-        transition: background .12s ease, border-color .12s ease;
+        transition: background .12s ease-out, border-color .12s ease-out;
       }
       [data-testid="stBaseButton-secondary"],
       [data-testid="stPopoverButton"] {
@@ -178,6 +178,12 @@ st.markdown(
         background: var(--tb-surface-alt) !important;
         border-color: var(--tb-border-strong) !important;
         color: var(--tb-text) !important;
+      }
+      [data-testid="stBaseButton-secondary"]:active,
+      [data-testid="stPopoverButton"]:active {
+        transform: scale(0.97) !important;
+        opacity: 0.8 !important;
+        transition: transform 60ms ease-out, opacity 60ms ease-out !important;
       }
       [data-testid="stBaseButton-primary"] {
         border: 1px solid var(--tb-accent) !important;
@@ -233,7 +239,7 @@ st.markdown(
       [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"] {
         background: transparent !important;
         border: 1px solid transparent !important;
-        border-radius: 9px !important;
+        border-radius: 8px !important;
         color: rgba(255,245,235,0.82) !important;
         font-size: 13.5px !important;
         font-weight: 500 !important;
@@ -248,7 +254,7 @@ st.markdown(
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         width: 100% !important;
-        transition: background 0.1s, border-color 0.1s, color 0.1s !important;
+        transition: background 0.1s ease-out, border-color 0.1s ease-out, color 0.1s ease-out !important;
       }
 
       /* Hover */
@@ -256,6 +262,11 @@ st.markdown(
         background: rgba(234,88,12,0.13) !important;
         border-color: rgba(234,88,12,0.25) !important;
         color: #fff5eb !important;
+      }
+      [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"]:active {
+        transform: scale(0.97) !important;
+        opacity: 0.8 !important;
+        transition: transform 60ms ease-out, opacity 60ms ease-out !important;
       }
 
       /* Active / current page — amber left-bar pill */
@@ -295,16 +306,29 @@ st.markdown(
       [data-testid="stHeading"] h3 {{
         color: {_T['text']} !important;
         font-weight: 800 !important;
-        letter-spacing: -0.01em !important;
+        font-optical-sizing: auto !important;
         padding: 0 !important;
         margin: 2px 0 10px !important;
       }}
-      [data-testid="stHeading"] h3 {{ font-size: 20px !important; }}
-      [data-testid="stHeading"] h2 {{ font-size: 23px !important; }}
+      [data-testid="stHeading"] h1 {{
+        letter-spacing: -0.022em !important;
+        line-height: 1.06 !important;
+      }}
+      [data-testid="stHeading"] h2 {{
+        font-size: 25px !important;
+        letter-spacing: -0.014em !important;
+        line-height: 1.12 !important;
+      }}
+      [data-testid="stHeading"] h3 {{
+        font-size: 19px !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.006em !important;
+        line-height: 1.18 !important;
+      }}
 
       /* Alerts: token palette, flat, tighter than the default pill */
       [data-testid="stAlertContainer"] {{
-        border-radius: 10px !important;
+        border-radius: 12px !important;
         border-left: 3px solid transparent !important;
         padding: 10px 14px !important;
         font-size: 13px !important;
@@ -334,7 +358,7 @@ st.markdown(
       /* Expanders — the side panels on every screener page use these */
       [data-testid="stExpander"] details {{
         border: 1px solid {_T['border']} !important;
-        border-radius: 10px !important;
+        border-radius: 12px !important;
         background: {_T['surface']} !important;
       }}
       [data-testid="stExpander"] summary {{
@@ -401,7 +425,9 @@ st.markdown(
          to reach the nav wrapper without touching any other row.
       ── */
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] {
-        background: #1c1410 !important;
+        background: rgba(28,20,16,0.82) !important;
+        backdrop-filter: blur(16px) saturate(150%) !important;
+        -webkit-backdrop-filter: blur(16px) saturate(150%) !important;
         margin-left:  -2rem !important;
         margin-right: -2rem !important;
         border-bottom: 1px solid rgba(234,88,12,0.22) !important;
@@ -431,7 +457,7 @@ st.markdown(
         background: transparent !important;
         border: none !important;
         border-bottom: 2px solid transparent !important;
-        color: #4ade80 !important;
+        color: rgba(74,222,128,0.65) !important;
         font-size: 13px !important;
         font-weight: 700 !important;
         min-height: 62px !important;
@@ -440,7 +466,7 @@ st.markdown(
         box-shadow: none !important;
         letter-spacing: 0.01em !important;
         padding: 0 10px !important;
-        transition: background .12s ease, color .12s ease, border-color .12s ease !important;
+        transition: background .12s ease-out, color .12s ease-out, border-color .12s ease-out !important;
       }
 
       /* Hover: lighter green + green underline */
@@ -459,6 +485,29 @@ st.markdown(
         color: #ffffff !important;
         border-bottom: 2px solid #4ade80 !important;
         font-weight: 800 !important;
+      }
+
+      /* Nav button press feedback */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stBaseButton-secondary"]:active,
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stPopoverButton"]:active {
+        transform: scale(0.97) !important;
+        opacity: 0.75 !important;
+        transition: transform 60ms ease-out, opacity 60ms ease-out !important;
+      }
+
+      /* Respect OS reduced-motion preference */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          transition-duration: 50ms !important;
+          animation-duration:  50ms !important;
+          animation-iteration-count: 1 !important;
+        }
+        [data-testid^="stBaseButton"],
+        [data-testid="stPopoverButton"] {
+          transform: none !important;
+        }
       }
     </style>
     """,
@@ -480,8 +529,8 @@ def _login_gate() -> None:
         f"""
         <style>
           .tb-login-hero {{
-            background: linear-gradient(135deg, {_T['surface_warm']} 0%, {_T['surface_alt']} 100%);
-            border-radius: 18px;
+            background: linear-gradient(180deg, {_T['surface_warm']} 0%, {_T['surface_alt']} 100%);
+            border-radius: 16px;
             padding: 52px 48px 44px;
             margin-bottom: 28px;
             border: 1px solid {_T['border']};
@@ -1216,7 +1265,7 @@ def render_fundamental_header(symbol: str, df: pd.DataFrame,
     st.markdown(
         f"""
         <div style="position:sticky;top:0;z-index:99;background:{rs.TOKENS['surface_warm']};
-                    border:1px solid {rs.TOKENS['border']};border-radius:11px;
+                    border:1px solid {rs.TOKENS['border']};border-radius:12px;
                     padding:11px 15px;margin:4px 0 10px 0;">
           <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">
             <span style="font-family:Georgia,'Times New Roman',serif;font-size:23px;
@@ -2556,7 +2605,7 @@ _SIGNAL_COLORS = {
 
 def _score_ring_html(score: float, signal: str) -> str:
     """Circular score badge (0-100) coloured by signal band — the 'card ring'."""
-    color = _SIGNAL_COLORS.get(signal, "#9a8778")
+    color = _SIGNAL_COLORS.get(signal, "#7a6858")
     deg = max(0.0, min(float(score), 100.0)) / 100 * 360
     return (
         f'<div style="flex-shrink:0;text-align:center;">'
@@ -2580,7 +2629,7 @@ def _score_ring_html(score: float, signal: str) -> str:
 def _rating_color(r: int | None) -> str:
     """Color scale for the Overall Rating badge (matches Market Terminal source)."""
     if r is None:
-        return "#9a8778"
+        return "#7a6858"
     if r >= 85:
         return "#16a34a"   # green
     if r >= 70:
@@ -2614,7 +2663,7 @@ def _scanner_stats_html(card: dict) -> str:
         return (
             f'<span style="display:inline-block;background:#f7efe3;border-radius:6px;'
             f'padding:2px 8px;margin:0 6px 4px 0;font-size:11px;color:{color};">'
-            f'<b style="color:#9a8778;font-weight:600;">{label}</b> {value}</span>'
+            f'<b style="color:#7a6858;font-weight:600;">{label}</b> {value}</span>'
         )
 
     parts = []
@@ -2759,7 +2808,7 @@ def _render_scanner_card(card: dict, scanner_name: str) -> None:
     sym = card["symbol"]
     pattern_type = card.get("pattern_type", scanner_name)
     metrics_html = "  ·  ".join(
-        f'<span style="font-size:12px;color:#9a8778;">{t}</span>'
+        f'<span style="font-size:12px;color:#7a6858;">{t}</span>'
         for t in card.get("tags", [])
     )
     reasons_html = "".join(
@@ -2778,7 +2827,7 @@ def _render_scanner_card(card: dict, scanner_name: str) -> None:
     stats_html = _scanner_stats_html(card)
     st.markdown(
         f"""
-        <div style="border:1px solid #f0e0cc;border-radius:10px;padding:16px;
+        <div style="border:1px solid #f0e0cc;border-radius:12px;padding:16px;
                     margin-bottom:4px;background:#fffdfa;
                     box-shadow:0 1px 3px rgba(120,80,40,0.06);">
           <div style="display:flex;align-items:center;margin-bottom:2px;">
@@ -2963,7 +3012,7 @@ if current_page == "Home":
     st.markdown(
         f'<div style="background:linear-gradient(135deg,{_t["surface_warm"]} 0%,'
         f'{_t["surface_alt"]} 55%,{_t["surface"]} 100%);'
-        f'border:1px solid {_t["border_strong"]};border-radius:14px;'
+        f'border:1px solid {_t["border_strong"]};border-radius:16px;'
         f'padding:30px 34px;margin:2px 0 20px;">'
         f'<div class="tb-micro" style="color:{_t["accent"]};">TRADING BRAMHA</div>'
         f'<div style="font-size:30px;font-weight:800;line-height:1.22;'
@@ -4620,7 +4669,7 @@ if current_page == "Predictive Analysis":
                 pa_chips = "".join(
                     f'<span style="background:#f7efe3;border-radius:6px;padding:2px 8px;'
                     f'margin-right:6px;font-size:11px;color:#5c4a3a;">'
-                    f'<b style="color:#9a8778;font-weight:600;">{k}</b> {v}</span>'
+                    f'<b style="color:#7a6858;font-weight:600;">{k}</b> {v}</span>'
                     for k, v in (pa_bd or {}).items()
                 )
                 st.markdown(
@@ -5351,7 +5400,7 @@ if current_page == "Astro Timing":
 
         st.markdown(
             f'<div style="background:{_bg};border:1px solid {_border_col};'
-            f'border-radius:10px;padding:14px 18px;margin:8px 0;">'
+            f'border-radius:12px;padding:14px 18px;margin:8px 0;">'
             f'<span style="font-size:20px;">{_icon}</span> '
             f'<strong style="font-size:16px;">{_jp["signal"]}</strong> — '
             f'{_jp["factors_active"]}/3 factors active<br>'

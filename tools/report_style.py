@@ -51,7 +51,7 @@ TOKENS = {
     # text
     "text":        "#3a2a1e",
     "text_body":   "#5c4a3a",
-    "text_muted":  "#9a8778",
+    "text_muted":  "#7a6858",
     # semantic roles
     "accent":      "#d97706",   # caution / watch / primary accent
     "accent_soft": "#fde0c0",
@@ -156,7 +156,8 @@ def report_css() -> str:
 }}
 .tb-card {{
   background:var(--tb-surface); border:1px solid var(--tb-border);
-  border-radius:11px; padding:14px 16px; margin:0 0 10px 0;
+  border-radius:12px; padding:14px 16px; margin:0 0 10px 0;
+  box-shadow:0 1px 2px rgba(58,42,30,.05),0 3px 10px rgba(58,42,30,.04);
 }}
 .tb-card.tb-emph {{ border-width:2px; border-color:var(--tb-accent); }}
 .tb-card-title {{ font-size:12px; font-weight:700; color:var(--tb-text); margin-bottom:6px; }}
@@ -167,7 +168,8 @@ def report_css() -> str:
 /* Stat card: micro-label above, big mono value below, optional delta line. */
 .tb-stat {{
   background:var(--tb-surface); border:1px solid var(--tb-border);
-  border-radius:9px; padding:9px 11px; min-width:0;
+  border-radius:8px; padding:9px 11px; min-width:0;
+  box-shadow:0 1px 2px rgba(58,42,30,.04),0 2px 6px rgba(58,42,30,.03);
 }}
 .tb-stat-val {{ font-family:var(--tb-mono); font-size:17px; font-weight:700; line-height:1.25; }}
 .tb-stat-sub {{ font-size:10.5px; margin-top:2px; }}
