@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-12] ingest | Vedic Planet Trading Aspects + India Independence Chart framework
+- **Source:** User-provided Financial Astrology Course notes — planet aspects, trading bias, degree-matching technique, Reliance Oct 2021 case study
+- **Pages created:** [[concepts/Vedic-Planet-Trading-Aspects]], [[concepts/India-Independence-Chart-Trading]]
+- **Pages updated:** [[wiki/index.md]], [[wiki/log.md]]
+- **Key insight:** Malefics (Saturn/Sun/Rahu/Mars) = bullish; Benefics (Jupiter/Moon/Mercury/Venus) = bearish — the opposite of intuitive. Signal fires when karaka planet hits India D1/D9 sensitive degree AND aspects stock's Rashi AND nakshatra/rashi lords are activated. D9 Lagna at 12° is the single strongest trigger degree. Degree-matching requires 9:15 AM IST chart (not noon); current dashboard uses noon — gap flagged.
+
 ## [2026-08-12] ingest | Jupiter Market Crash Thesis — user-provided historical analysis
 - **Source:** User-provided table: Jupiter position + Shashtashtak Yoga across 10 historical market events (1992–2023) + 4 forward predictions (Jun 2026, Nov 2026, 2027–2032, post-2033)
 - **Pages created:** [[concepts/Jupiter-Market-Crash-Thesis]]
