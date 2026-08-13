@@ -5111,12 +5111,16 @@ if current_page == "Astro Timing":
         "Based on Vedic astrology principles for optimal entry/exit timing."
     )
 
-    # City selector
-    col_city, col_date = st.columns(2)
+    # City selector + share button
+    col_city, col_date, col_share = st.columns([2, 2, 1])
     with col_city:
         city = st.selectbox("Select Location", list(at.AstroIndicators.CITIES.keys()), index=0)
     with col_date:
         analysis_date = st.date_input("Analysis Date", value=date.today())
+    with col_share:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        _gen_card = st.button("📷 Share Card", use_container_width=True,
+                              help="Generate a weekly astro infographic and copy PNG to clipboard")
 
     ai = at.AstroIndicators(city=city)
     timing = ai.get_trading_timing(analysis_date)
@@ -5456,6 +5460,243 @@ if current_page == "Astro Timing":
                 "Degree matching checks the transiting planet's position within its current "
                 "sign (lon mod 30°) against these fixed reference degrees."
             )
+
+    # ── Weekly Astro Infographic Card ─────────────────────────────────────────
+    if _gen_card:
+        import io as _io
+        from PIL import Image as _PILImage, ImageDraw as _PILDraw, ImageFont as _PILFont
+        import base64 as _b64
+
+        # ── palette ──────────────────────────────────────────────────────────
+        _C = {
+            "bg":       (15,  10,  6),
+            "panel":    (28,  20,  16),
+            "amber":    (234, 88,  12),
+            "amber_d":  (180, 60,  8),
+            "green":    (74,  222, 128),
+            "red":      (239, 68,  68),
+            "yellow":   (253, 224, 71),
+            "text":     (255, 245, 235),
+            "muted":    (168, 133, 106),
+            "white":    (255, 255, 255),
+            "card_b":   (38,  28,  20),
+        }
+
+        # ── fonts ─────────────────────────────────────────────────────────────
+        def _font(size, bold=False):
+            try:
+                _name = "arialbd.ttf" if bold else "arial.ttf"
+                return _PILFont.truetype(_name, size)
+            except OSError:
+                return _PILFont.load_default()
+
+        W, H = 1080, 1350          # 4:5 portrait — best for Instagram/LinkedIn
+        img = _PILImage.new("RGB", (W, H), _C["bg"])
+        d   = _PILDraw.Draw(img)
+
+        def _rect(x0, y0, x1, y1, fill, radius=12):
+            d.rounded_rectangle([x0, y0, x1, y1], radius=radius, fill=fill)
+
+        def _txt(x, y, text, font, fill, anchor="la"):
+            d.text((x, y), text, font=font, fill=fill, anchor=anchor)
+
+        # ── header bar ───────────────────────────────────────────────────────
+        _rect(0, 0, W, 120, _C["amber"])
+        _txt(40, 30, "Trading Bramha", _font(38, bold=True), _C["white"])
+        _txt(40, 76, "ASTRO WEEKLY SNAPSHOT", _font(18), _C["white"])
+        _txt(W - 40, 30, analysis_date.strftime("%d %b %Y"), _font(28, bold=True),
+             _C["white"], anchor="ra")
+        _txt(W - 40, 76, analysis_date.strftime("Week of %a %d %b"), _font(16),
+             _C["white"], anchor="ra")
+
+        # ── section helper ───────────────────────────────────────────────────
+        _y = 140
+
+        def _section(title, h=None):
+            nonlocal _y
+            _txt(40, _y, title.upper(), _font(13), _C["muted"])
+            _y += 28
+            return _y
+
+        def _panel(content_fn, est_h, pad=20):
+            """Draw a rounded panel, call content_fn(draw, x0, y0), advance _y."""
+            nonlocal _y
+            x0, y0, x1, y1 = 30, _y, W - 30, _y + est_h
+            _rect(x0, y0, x1, y1, _C["panel"])
+            content_fn(x0 + pad, y0 + pad, x1 - pad, y1 - pad)
+            _y = y1 + 16
+
+        # ── Moon Nakshatra ────────────────────────────────────────────────────
+        _section("Moon Nakshatra Today")
+        if "error" not in _nk_today:
+            def _moon_panel(x0, y0, x1, y1):
+                _txt(x0, y0, _nk_today["nakshatra"], _font(36, bold=True), _C["text"])
+                _txt(x0, y0 + 44, f"Ruled by {_nk_today['planet']}  •  #{_nk_today['index']} of 27",
+                     _font(18), _C["muted"])
+                _sectors = " / ".join(_nk_today["sectors"])
+                _txt(x0, y0 + 72, f"Sectors: {_sectors}", _font(16), _C["green"])
+                _txt(x0, y0 + 96, _nk_today["theme"][:70], _font(14), _C["muted"])
+                # progress bar
+                _bw = x1 - x0
+                _rect(x0, y0 + 122, x0 + _bw, y0 + 132, _C["card_b"], radius=4)
+                _rect(x0, y0 + 122, x0 + int(_bw * _nk_today["pct"] / 100),
+                      y0 + 132, _C["amber"], radius=4)
+                _txt(x0 + _bw + 4, y0 + 122,
+                     f"{_nk_today['pct']}%", _font(12), _C["muted"], anchor="la")
+            _panel(_moon_panel, 160)
+        else:
+            _y += 60
+
+        # ── Jupiter Signal ────────────────────────────────────────────────────
+        _section("Jupiter Crash Signal")
+        _jp_colors = {
+            "CRASH SIGNAL":  _C["red"],
+            "ELEVATED RISK": _C["amber"],
+            "WATCH":         _C["yellow"],
+            "CLEAR":         _C["green"],
+        }
+        _jp_icons  = {"CRASH SIGNAL": "⚠", "ELEVATED RISK": "!", "WATCH": "~", "CLEAR": "✓"}
+        if "error" not in _jp:
+            _sig_col = _jp_colors.get(_jp["signal"], _C["muted"])
+            def _jup_panel(x0, y0, x1, y1):
+                _txt(x0, y0,
+                     f"{_jp['signal']}  —  {_jp['factors_active']}/3 factors",
+                     _font(30, bold=True), _sig_col)
+                _txt(x0, y0 + 44,
+                     f"Jupiter in {_jp['nakshatra']} ({_jp['sign'].split('(')[0].strip()})",
+                     _font(18), _C["text"])
+                _active = []
+                if _jp["is_ketu_nakshatra"]:  _active.append("Ketu nakshatra")
+                if _jp["shashtashtak_with"]:
+                    _active.append(f"Shashtashtak w/ {', '.join(_jp['shashtashtak_with'])}")
+                if _jp["nodal_influence"]:     _active.append("Rahu-Ketu nodal influence")
+                _txt(x0, y0 + 70,
+                     "  ".join(_active) if _active else "No factors active",
+                     _font(14), _C["muted"])
+                _txt(x0, y0 + 96,
+                     f"Red flag: Nov 2026 full crash signal — mirrors 1992 & 2008",
+                     _font(13), _C["red"])
+            _panel(_jup_panel, 130)
+
+        # ── India Chart Alerts ─────────────────────────────────────────────────
+        _section("India Chart — Top Degree Alerts (9:15 AM IST)")
+        _top_alerts = [a for a in _alerts if "error" not in a][:5]
+        if _top_alerts:
+            _bull_cnt = sum(1 for a in _top_alerts if a["bias"] == "bullish")
+            _bear_cnt = sum(1 for a in _top_alerts if a["bias"] == "bearish")
+            _net_txt  = (f"Net BULLISH +{_bull_cnt - _bear_cnt}"
+                         if _bull_cnt > _bear_cnt else
+                         f"Net BEARISH {_bull_cnt - _bear_cnt}"
+                         if _bear_cnt > _bull_cnt else "Balanced")
+            _net_col  = (_C["green"] if _bull_cnt > _bear_cnt
+                         else _C["red"] if _bear_cnt > _bull_cnt else _C["yellow"])
+
+            def _alerts_panel(x0, y0, x1, y1):
+                _txt(x0, y0, _net_txt, _font(22, bold=True), _net_col)
+                _ay = y0 + 36
+                for _a in _top_alerts:
+                    _ac = (_C["green"] if _a["bias"] == "bullish"
+                           else _C["red"] if _a["bias"] == "bearish" else _C["yellow"])
+                    _line = (f"{_a['planet']:8s}  {_a['deg_in_sign']:4.1f}°  "
+                             f"→ {_a['india_point']:12s} ({_a['india_deg']}°)  "
+                             f"orb {_a['orb_actual']}°")
+                    _txt(x0, _ay, _line, _font(15), _ac)
+                    _ay += 24
+            _panel(_alerts_panel, 40 + len(_top_alerts) * 24 + 36)
+        else:
+            _y += 40
+
+        # ── 7-Day Nakshatra Table ──────────────────────────────────────────────
+        _section("7-Day Nakshatra Forecast")
+        if isinstance(_nk_df, list):
+            import pandas as _pd_c
+            _nk_df_c = _pd_c.DataFrame(_nk_df)
+        else:
+            _nk_df_c = _nk_df
+
+        _row_h = 38
+        def _nk_table(x0, y0, x1, y1):
+            _hdr_cols = ["Date", "Nakshatra", "Planet", "Sectors"]
+            _col_w = [(x1 - x0) * r for r in [0.18, 0.28, 0.16, 0.38]]
+            _cx = x0
+            for _h, _cw in zip(_hdr_cols, _col_w):
+                _txt(_cx, y0, _h, _font(13), _C["muted"])
+                _cx += _cw
+            for _ri, (_, _row) in enumerate(_nk_df_c.iterrows()):
+                _ry = y0 + 26 + _ri * _row_h
+                if _ri == 0:
+                    _rect(x0 - 8, _ry - 4, x1 + 8, _ry + _row_h - 6,
+                          (38, 55, 38), radius=6)
+                _cx2 = x0
+                _cells = [
+                    _row["Date"],
+                    _row["Nakshatra"],
+                    _row["Ruling Planet"],
+                    _row["Watch Sectors"][:35],
+                ]
+                for _cell, _cw in zip(_cells, _col_w):
+                    _fc = _C["green"] if _ri == 0 else _C["text"]
+                    _txt(_cx2, _ry, str(_cell), _font(14, bold=(_ri == 0)), _fc)
+                    _cx2 += _cw
+
+        _table_h = 26 + len(_nk_df_c) * _row_h + 20
+        _panel(_nk_table, _table_h)
+
+        # ── footer ────────────────────────────────────────────────────────────
+        _rect(0, H - 60, W, H, _C["panel"])
+        _txt(W // 2, H - 38, "Trading Bramha  •  Astro Timing Dashboard  •  For reference only",
+             _font(14), _C["muted"], anchor="mm")
+        _txt(W // 2, H - 18,
+             "Context, not signal. Always verify with price action.",
+             _font(12), _C["muted"], anchor="mm")
+
+        # ── encode + display + clipboard ──────────────────────────────────────
+        _buf = _io.BytesIO()
+        img.save(_buf, format="PNG", optimize=True)
+        _png_bytes = _buf.getvalue()
+        _b64_str   = _b64.b64encode(_png_bytes).decode()
+
+        st.image(img, caption="Weekly Astro Card — click below to copy or download",
+                 use_container_width=False, width=540)
+
+        # Download button (always works)
+        st.download_button(
+            label="⬇ Download PNG",
+            data=_png_bytes,
+            file_name=f"trading_bramha_astro_{analysis_date.strftime('%Y%m%d')}.png",
+            mime="image/png",
+            use_container_width=False,
+        )
+
+        # Clipboard copy via JS (works on localhost / HTTPS in Chrome/Edge)
+        _clip_html = f"""
+        <button onclick="copyCard()" style="
+            background:#ea580c;color:#fff;border:none;border-radius:8px;
+            padding:8px 20px;font-size:14px;font-weight:700;cursor:pointer;
+            margin-top:4px;">
+            📋 Copy PNG to Clipboard
+        </button>
+        <span id="clip-status" style="margin-left:12px;font-size:13px;color:#4ade80;"></span>
+        <script>
+        async function copyCard() {{
+            const b64 = "{_b64_str}";
+            try {{
+                const res  = await fetch("data:image/png;base64," + b64);
+                const blob = await res.blob();
+                await navigator.clipboard.write([
+                    new ClipboardItem({{ "image/png": blob }})
+                ]);
+                document.getElementById("clip-status").textContent = "Copied!";
+                setTimeout(() => document.getElementById("clip-status").textContent = "", 3000);
+            }} catch(e) {{
+                document.getElementById("clip-status").style.color = "#ef4444";
+                document.getElementById("clip-status").textContent = "Copy failed — use Download instead (" + e.message + ")";
+            }}
+        }}
+        </script>
+        """
+        import streamlit.components.v1 as _components
+        _components.html(_clip_html, height=60)
 
     # Lunar phase chart
     st.subheader("Lunar Phase Progression")
