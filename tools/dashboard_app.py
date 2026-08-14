@@ -194,21 +194,33 @@ st.markdown(
       }
 
       /* ── Nav dropdown mega-panel ─────────────────────────────────────────────
-         Board-style, 2-column grid, readable type. No single-column scroll.
-         stPopoverBody is the container Streamlit mounts for every popover.
+         Dark glass panel. stPopoverBody and ALL its Streamlit-generated inner
+         containers must be transparent so the panel's own background shows.
       ── */
       [data-testid="stPopoverBody"] {
-        background: #12100a !important;
-        border: 1px solid rgba(234,88,12,0.35) !important;
+        background: rgba(14,10,6,0.93) !important;
+        backdrop-filter: blur(20px) saturate(140%) !important;
+        -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
+        border: 1px solid rgba(234,88,12,0.28) !important;
         border-radius: 16px !important;
-        padding: 16px 12px 12px !important;
-        min-width: 380px !important;
-        max-width: 460px !important;
+        padding: 14px 10px 10px !important;
+        min-width: 360px !important;
+        max-width: 440px !important;
         box-shadow:
-          0 2px 4px rgba(0,0,0,0.25),
-          0 12px 36px rgba(0,0,0,0.60),
-          inset 0 1px 0 rgba(255,255,255,0.04) !important;
+          0 2px 4px rgba(0,0,0,0.30),
+          0 16px 40px rgba(0,0,0,0.65),
+          inset 0 1px 0 rgba(255,255,255,0.05) !important;
         overflow: visible !important;
+      }
+      /* Kill every Streamlit inner wrapper's white background */
+      [data-testid="stPopoverBody"] > div,
+      [data-testid="stPopoverBody"] [data-testid="stVerticalBlock"],
+      [data-testid="stPopoverBody"] [data-testid="stHorizontalBlock"],
+      [data-testid="stPopoverBody"] [data-testid="stElementContainer"],
+      [data-testid="stPopoverBody"] [class*="block-container"],
+      [data-testid="stPopoverBody"] [class*="element-container"] {
+        background: transparent !important;
+        background-color: transparent !important;
       }
 
       /* ── Popover header strip — group name ───────────────────── */
@@ -218,18 +230,18 @@ st.markdown(
         font-size: 10px;
         font-weight: 700;
         letter-spacing: 0.12em;
-        color: #ea580c;
+        color: rgba(234,88,12,0.75);
         text-transform: uppercase;
         padding: 0 6px 10px;
-        border-bottom: 1px solid rgba(234,88,12,0.18);
-        margin-bottom: 10px;
+        border-bottom: 1px solid rgba(234,88,12,0.14);
+        margin-bottom: 8px;
       }
 
-      /* ── 2-column grid for the button list ───────────────────── */
+      /* ── 2-column grid for the link list ────────────────────── */
       [data-testid="stPopoverBody"] [data-testid="stVerticalBlock"] {
         display: grid !important;
         grid-template-columns: 1fr 1fr !important;
-        gap: 3px 8px !important;
+        gap: 1px 4px !important;
       }
 
       /* Each cell: full width inside its grid column */
@@ -237,19 +249,20 @@ st.markdown(
         min-width: 0 !important;
       }
 
-      /* ── Menu item buttons ───────────────────────────────────── */
+      /* ── Menu items as text links (no button chrome) ─────────── */
       [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"],
       [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"] {
         background: transparent !important;
-        border: 1px solid transparent !important;
-        border-radius: 8px !important;
-        color: rgba(255,245,235,0.82) !important;
-        font-size: 13.5px !important;
-        font-weight: 500 !important;
-        letter-spacing: 0.005em !important;
-        min-height: 38px !important;
-        height: 38px !important;
-        padding: 0 12px !important;
+        border: none !important;
+        border-bottom: 1px solid transparent !important;
+        border-radius: 4px !important;
+        color: rgba(255,240,220,0.72) !important;
+        font-size: 13px !important;
+        font-weight: 450 !important;
+        letter-spacing: 0em !important;
+        min-height: unset !important;
+        height: auto !important;
+        padding: 5px 8px !important;
         justify-content: flex-start !important;
         text-align: left !important;
         box-shadow: none !important;
@@ -257,29 +270,39 @@ st.markdown(
         overflow: hidden !important;
         text-overflow: ellipsis !important;
         width: 100% !important;
-        transition: background 0.1s ease-out, border-color 0.1s ease-out, color 0.1s ease-out !important;
+        line-height: 1.4 !important;
+        transition: color 0.1s ease-out, border-bottom-color 0.1s ease-out !important;
       }
 
-      /* Hover */
+      /* Hover — just brightens the text + faint underline */
       [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"]:hover {
-        background: rgba(234,88,12,0.13) !important;
-        border-color: rgba(234,88,12,0.25) !important;
+        background: transparent !important;
         color: #fff5eb !important;
+        border-bottom-color: rgba(234,88,12,0.45) !important;
       }
       [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"]:active {
-        transform: scale(0.97) !important;
-        opacity: 0.8 !important;
-        transition: transform 60ms ease-out, opacity 60ms ease-out !important;
+        opacity: 0.65 !important;
+        transition: opacity 60ms ease-out !important;
       }
 
-      /* Active / current page — amber left-bar pill */
+      /* Active / current page — amber text + left dot */
       [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"] {
-        background: rgba(234,88,12,0.18) !important;
-        border-color: rgba(234,88,12,0.40) !important;
-        border-left: 3px solid #ea580c !important;
+        background: transparent !important;
         color: #fb923c !important;
-        font-weight: 700 !important;
-        padding-left: 10px !important;
+        font-weight: 650 !important;
+        border-bottom-color: transparent !important;
+        padding-left: 14px !important;
+        position: relative !important;
+      }
+      [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"]::before {
+        content: "·";
+        position: absolute;
+        left: 4px;
+        color: #ea580c;
+        font-size: 16px;
+        line-height: 1;
+        top: 50%;
+        transform: translateY(-50%);
       }
     </style>
     """,
@@ -428,12 +451,12 @@ st.markdown(
          to reach the nav wrapper without touching any other row.
       ── */
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] {
-        background: rgba(28,20,16,0.82) !important;
-        backdrop-filter: blur(16px) saturate(150%) !important;
-        -webkit-backdrop-filter: blur(16px) saturate(150%) !important;
+        background: rgba(20,14,8,0.52) !important;
+        backdrop-filter: blur(24px) saturate(160%) !important;
+        -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
         margin-left:  -2rem !important;
         margin-right: -2rem !important;
-        border-bottom: 1px solid rgba(234,88,12,0.22) !important;
+        border-bottom: 1px solid rgba(234,88,12,0.18) !important;
       }
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
         [data-testid="stHorizontalBlock"] {
@@ -460,7 +483,7 @@ st.markdown(
         background: transparent !important;
         border: none !important;
         border-bottom: 2px solid transparent !important;
-        color: rgba(74,222,128,0.65) !important;
+        color: rgba(74,222,128,0.80) !important;
         font-size: 13px !important;
         font-weight: 700 !important;
         min-height: 62px !important;
@@ -2807,76 +2830,151 @@ def _confluence_chips(n_scanners: int, families: list[str] | int | None) -> str:
         f'font-weight:600;">{fam_n} famil{"y" if fam_n == 1 else "ies"}</span>')
 
 
+def _card_trade_fundamentals_html(sym: str, card: dict) -> str:
+    """CMP · PMax T1/T2/T3 (derived from trade plan) · PE — compact info strip."""
+    def _cell(label: str, value: str, color: str = "#5c4a3a") -> str:
+        return (
+            f'<div style="display:inline-block;background:#f7efe3;border-radius:6px;'
+            f'padding:3px 9px;margin:0 5px 4px 0;font-size:11px;">'
+            f'<span style="color:#7a6858;font-weight:600;">{label}</span>'
+            f'<span style="color:{color};font-weight:700;margin-left:4px;">{value}</span></div>'
+        )
+
+    parts: list[str] = []
+
+    # CMP — last close (entry ≈ last close for all scanners)
+    cmp = card.get("entry") or card.get("close")
+    if cmp is not None:
+        parts.append(_cell("CMP", f"₹{cmp:,.1f}"))
+
+    # PMax targets derived from the trade plan emitted by the scanner.
+    # T1 = primary target, T2 = 2R extension, T3 = 3R extension.
+    entry = card.get("entry") or cmp
+    stop  = card.get("stop")
+    t1    = card.get("target")
+    t2    = card.get("target2")
+    if entry is not None and stop is not None and t1 is not None:
+        risk = entry - stop
+        if risk > 0:
+            t2 = t2 or round(entry + 2 * risk, 1)
+            t3 = round(entry + 3 * risk, 1)
+            parts.append(_cell("T1", f"₹{t1:,.1f}", "#16a34a"))
+            parts.append(_cell("T2", f"₹{t2:,.1f}", "#16a34a"))
+            parts.append(_cell("T3", f"₹{t3:,.1f}", "#16a34a"))
+
+    # PE — from cached fundamentals (yfinance .info; hits disk cache, not network)
+    try:
+        fund = sc.fetch_fundamentals_yf(sym) or {}
+        pe = fund.get("pe")
+    except Exception:
+        pe = None
+    if pe is not None:
+        pe_color = "#b45309" if pe > 40 else ("#16a34a" if pe < 20 else "#5c4a3a")
+        parts.append(_cell("PE", f"{pe:.1f}×", pe_color))
+
+    if not parts:
+        return ""
+    return f'<div style="margin:6px 0 2px 0;">{"".join(parts)}</div>'
+
+
 def _render_scanner_card(card: dict, scanner_name: str) -> None:
     sym = card["symbol"]
     pattern_type = card.get("pattern_type", scanner_name)
+
+    # ── Inline action icons (↗ Analyze, 👁 Chart) ──────────────────────────
+    def _icon_link(href: str, glyph: str, tip: str) -> str:
+        return (
+            f'<a href="{href}" target="_blank" rel="noopener" title="{tip}"'
+            f' style="display:inline-flex;align-items:center;justify-content:center;'
+            f'width:24px;height:24px;border-radius:6px;text-decoration:none;'
+            f'font-size:13px;line-height:1;background:#f7efe3;'
+            f'color:#d97706;border:1px solid #f0e0cc;margin-left:5px;">'
+            f'{glyph}</a>'
+        )
+
+    action_icons = ""
+    _an = _analyze_url(sym)
+    if _an:
+        action_icons += _icon_link(_an, "↗", "Analyze — open the 3-POV Council")
+    _ch = _chart_url(sym)
+    if _ch:
+        action_icons += _icon_link(_ch, "👁", "Open in Chart Tool")
+
+    # Tags shown as a compact row of muted spans
     metrics_html = "  ·  ".join(
-        f'<span style="font-size:12px;color:#7a6858;">{t}</span>'
+        f'<span style="font-size:11px;color:#7a6858;">{t}</span>'
         for t in card.get("tags", [])
     )
+
+    # Reasons: warning lines in amber, confirmation lines in green — each on its
+    # own row inside the card body.
     reasons_html = "".join(
-        (f'<div style="display:flex;margin-bottom:6px;font-size:13px;color:#b45309;">'
-         f'<span style="font-weight:bold;margin-right:6px;">⚠</span>{r.lstrip("⚠").strip()}</div>')
+        (f'<div style="display:flex;align-items:baseline;margin-bottom:4px;'
+         f'font-size:12px;color:#b45309;">'
+         f'<span style="font-weight:700;margin-right:5px;flex-shrink:0;">⚠</span>'
+         f'{r.lstrip("⚠").strip()}</div>')
         if r.startswith("⚠") else
-        (f'<div style="display:flex;margin-bottom:6px;font-size:13px;color:#5c4a3a;">'
-         f'<span style="color:#16a34a;font-weight:bold;margin-right:6px;">✓</span>{r}</div>')
+        (f'<div style="display:flex;align-items:baseline;margin-bottom:4px;'
+         f'font-size:12px;color:#5c4a3a;">'
+         f'<span style="color:#16a34a;font-weight:700;margin-right:5px;flex-shrink:0;">✓</span>'
+         f'{r}</div>')
         for r in card.get("reasons", [])
     )
-    # Score ring shows only when the scanner emits a graded 0-100 score + signal.
+
+    # Score ring only when the card carries a graded score + signal.
     ring_html = (
         _score_ring_html(card["score"], card["signal"])
         if "signal" in card and "score" in card else ""
     )
-    stats_html = _scanner_stats_html(card)
+
+    stats_html  = _scanner_stats_html(card)
+    trade_html  = _card_trade_fundamentals_html(sym, card)
+
+    # ── Horizontal card layout ──────────────────────────────────────────────
+    #  ┌─────────────────────────────────────────────────────────────────────┐
+    #  │ [avatar] [Symbol  badge  tags]             [score ring] [↗] [👁]   │
+    #  │ [stats chips row]                                                   │
+    #  │ [CMP · T1 · T2 · T3 · PE strip]                                    │
+    #  │ [reasons]                                                           │
+    #  └─────────────────────────────────────────────────────────────────────┘
     st.markdown(
-        f"""
-        <div style="border:1px solid #f0e0cc;border-radius:12px;padding:16px;
-                    margin-bottom:4px;background:#fffdfa;
-                    box-shadow:0 1px 3px rgba(120,80,40,0.06);">
-          <div style="display:flex;align-items:center;margin-bottom:2px;">
-            <div style="width:36px;height:36px;border-radius:8px;
-                        background:linear-gradient(135deg,#fbbf24,#ea580c);
-                        color:white;display:flex;align-items:center;
-                        justify-content:center;font-weight:bold;
-                        margin-right:10px;flex-shrink:0;">{sym[0]}</div>
-            <div style="flex-grow:1;">
-              <div style="display:flex;align-items:center;font-size:16px;font-weight:700;color:#3a2a1e;">
-                {_rating_badge_html(card)}<span>{sym}</span>
-              </div>
-              <div style="margin-top:2px;">
-                <span style="background:#fff1e0;color:#c2410c;padding:2px 9px;
-                            border-radius:99px;font-size:11px;font-weight:600;
-                            margin-right:8px;">{pattern_type}</span>{metrics_html}
-              </div>
-            </div>
-            {ring_html}
-          </div>
-          {stats_html}
-          {reasons_html}
-        </div>
-        """,
+        f'<div style="border:1px solid #f0e0cc;border-radius:12px;padding:14px 16px;'
+        f'margin-bottom:4px;background:#fffdfa;'
+        f'box-shadow:0 1px 3px rgba(120,80,40,0.06);">'
+        # Header row: avatar · identity · right cluster
+        f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">'
+        # Avatar
+        f'<div style="width:34px;height:34px;border-radius:8px;flex-shrink:0;'
+        f'background:linear-gradient(135deg,#fbbf24,#ea580c);color:#fff;'
+        f'display:flex;align-items:center;justify-content:center;'
+        f'font-weight:700;font-size:15px;">{sym[0]}</div>'
+        # Identity column
+        f'<div style="flex:1;min-width:0;">'
+        f'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">'
+        f'{_rating_badge_html(card)}'
+        f'<span style="font-size:15px;font-weight:700;color:#3a2a1e;">{sym}</span>'
+        f'<span style="background:#fff1e0;color:#c2410c;padding:1px 8px;'
+        f'border-radius:99px;font-size:11px;font-weight:600;">{pattern_type}</span>'
+        f'</div>'
+        f'<div style="margin-top:3px;">{metrics_html}</div>'
+        f'</div>'
+        # Right cluster: score ring + action icons
+        f'<div style="display:flex;align-items:center;flex-shrink:0;gap:2px;">'
+        f'{ring_html}{action_icons}'
+        f'</div>'
+        f'</div>'
+        # Stats + trade plan + reasons
+        f'{stats_html}'
+        f'{trade_html}'
+        f'{reasons_html}'
+        f'</div>',
         unsafe_allow_html=True,
     )
-    c1, c2, c3 = st.columns([5, 1, 1])
-    with c1:
-        analyze_href = _analyze_url(sym)
-        if analyze_href:
-            st.link_button("↗ Analyze Setup", url=analyze_href, type="primary",
-                           use_container_width=True,
-                           help="Open the 3-POV Council analysis in a new tab")
-    with c2:
-        if st.button("★", key=f"sc_s_{sym}_{scanner_name}", help="Save",
-                     use_container_width=True):
-            db.save_scanner_hit(sym, scanner_name, card.get("pattern_type", ""))
-            st.success(f"Saved {sym}")
-    with c3:
-        # Eye icon opens the multi-chart tool in a new tab (chart_server on :5001).
-        st.link_button(
-            "👁",
-            url=_chart_url(sym),
-            help="Open in Chart Tool",
-            use_container_width=True,
-        )
+    # Save button — must remain a Streamlit widget (triggers server callback).
+    if st.button("★ Save", key=f"sc_s_{sym}_{scanner_name}",
+                 help=f"Save {sym} to the saved hits list"):
+        db.save_scanner_hit(sym, scanner_name, card.get("pattern_type", ""))
+        st.success(f"Saved {sym}")
 
 
 def _render_export_controls(model: dict, key: str) -> None:
@@ -3833,6 +3931,32 @@ if current_page == "Opportunity Hub":
                            str(_r0.get("market_verdict") or ""), tone=_tone),
                 unsafe_allow_html=True)
 
+            # ── Sort control ───────────────────────────────────────────────────
+            _sort_by = st.radio(
+                "Sort by",
+                ["Score (default)", "Quality — green first (Overall Rating ↑)",
+                 "Confluence (edge points)", "Momentum"],
+                horizontal=True, key="od_sort",
+                help="'Green first' surfaces stocks whose cross-system Overall Rating "
+                     "is ≥85 (the green band) before amber and grey rated names.",
+            )
+            if _sort_by == "Quality — green first (Overall Rating ↑)":
+                _shortlist = _shortlist.copy()
+                _shortlist["_rt_sort"] = pd.to_numeric(
+                    _shortlist["overall_rating"], errors="coerce").fillna(0)
+                _shortlist = _shortlist.sort_values("_rt_sort", ascending=False)
+            elif _sort_by == "Confluence (edge points)":
+                _shortlist = _shortlist.copy()
+                _shortlist["_ep_sort"] = pd.to_numeric(
+                    _shortlist["edge_points"], errors="coerce").fillna(0)
+                _shortlist = _shortlist.sort_values("_ep_sort", ascending=False)
+            elif _sort_by == "Momentum":
+                _shortlist = _shortlist.copy()
+                _shortlist["_mom_sort"] = pd.to_numeric(
+                    _shortlist["momentum"], errors="coerce").fillna(0)
+                _shortlist = _shortlist.sort_values("_mom_sort", ascending=False)
+            # else: keep original rank order (score)
+
             for _, row in _shortlist.iterrows():
                 _sym = str(row["symbol"])
                 _rt = int(row["overall_rating"]) if pd.notna(row.get("overall_rating")) else None
@@ -3855,6 +3979,62 @@ if current_page == "Opportunity Hub":
                         _notes = "; ".join(_seg[1:])
                         _notes = _notes[:1].upper() + _notes[1:]
 
+                # ── Fundamentals strip — PEG · OPM% · Cash Flow ───────────────
+                _fund = None
+                try:
+                    _fund = sc.fetch_fundamentals_yf(_sym) or {}
+                except Exception:
+                    _fund = {}
+
+                def _fchip(label: str, val, fmt: str, lo_good: bool = True,
+                            green_thr=None, amber_thr=None) -> str:
+                    """Compact fundamentals chip with traffic-light color."""
+                    if val is None:
+                        return ""
+                    try:
+                        v = float(val)
+                    except (TypeError, ValueError):
+                        return ""
+                    txt = fmt.format(v)
+                    if green_thr is not None and amber_thr is not None:
+                        if lo_good:
+                            col = ("#16a34a" if v <= green_thr
+                                   else "#d97706" if v <= amber_thr else "#dc2626")
+                        else:
+                            col = ("#16a34a" if v >= green_thr
+                                   else "#d97706" if v >= amber_thr else "#dc2626")
+                    else:
+                        col = "#5c4a3a"
+                    return (f'<span style="display:inline-block;background:#f7efe3;'
+                            f'border-radius:6px;padding:2px 8px;margin:0 5px 3px 0;'
+                            f'font-size:11px;">'
+                            f'<b style="color:#7a6858;font-weight:600;">{label}</b>'
+                            f'<span style="color:{col};font-weight:700;margin-left:3px;">'
+                            f'{txt}</span></span>')
+
+                _peg_v = _fund.get("peg")
+                _peg_lbl = "PEG~" if _fund.get("peg_src") == "calc" else "PEG"
+                _opm_v  = _fund.get("opm_pct")
+                _fcf_v  = _fund.get("fcf_cr")
+                _ocf_v  = _fund.get("ocf_cr")
+
+                _fund_parts = "".join(filter(None, [
+                    _fchip(_peg_lbl, _peg_v, "{:.2f}×",
+                           lo_good=True, green_thr=1.0, amber_thr=2.0),
+                    _fchip("OPM%", _opm_v, "{:.1f}%",
+                           lo_good=False, green_thr=20.0, amber_thr=10.0),
+                    # Cash flow: positive FCF = green; use OCF as fallback label
+                    (_fchip("FCF ₹cr", _fcf_v, "{:+,.0f}",
+                            lo_good=False, green_thr=0.0, amber_thr=-500.0)
+                     if _fcf_v is not None else
+                     _fchip("OCF ₹cr", _ocf_v, "{:+,.0f}",
+                            lo_good=False, green_thr=0.0, amber_thr=-500.0)),
+                ]))
+                _fund_html = (
+                    f'<div style="margin:5px 0 3px;">{_fund_parts}</div>'
+                    if _fund_parts else ""
+                )
+
                 st.markdown(
                     rs.card(
                         f'<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
@@ -3871,6 +4051,7 @@ if current_page == "Opportunity Hub":
                         f'<div class="tb-micro" style="margin-top:5px;">'
                         f'{row.get("industry") or "—"} · {row.get("sector") or "—"}</div>'
                         f'{_chips}'
+                        f'{_fund_html}'
                         f'<div style="font-size:11.5px;color:{rs.TOKENS["text_body"]};'
                         f'margin-top:5px;line-height:1.45;">{_notes}</div>'
                     ),
@@ -4284,6 +4465,31 @@ if current_page == "Scanner Hub":
             raw = st.text_area("Symbols (comma / newline)", key="hub_manual", height=80)
             universe = [s.strip().upper() for s in raw.replace(",", "\n").splitlines() if s.strip()]
 
+        # ── Cached results ────────────────────────────────────────────────────
+        _cached_dates = db.get_scanner_run_dates(selected_scanner)
+        if _cached_dates:
+            with st.expander(f"Cached results — {len(_cached_dates)} run(s) stored", expanded=False):
+                _load_date = st.selectbox(
+                    "Load results from", _cached_dates,
+                    key="hub_cache_date",
+                    help="Pick a past run to restore its results without re-fetching data.",
+                )
+                _col_load, _col_del = st.columns(2)
+                if _col_load.button("Load from cache", key="hub_cache_load", type="primary",
+                                    use_container_width=True):
+                    _cached = db.get_scanner_run(selected_scanner, _load_date)
+                    if _cached:
+                        st.session_state["hub_results"] = _cached
+                        st.session_state["hub_scanner_ran"] = selected_scanner
+                        st.session_state["hub_cache_loaded_date"] = _load_date
+                        st.rerun()
+                    else:
+                        st.warning("Cache entry is empty — run the scanner to populate it.")
+                if _col_del.button("Delete this cache entry", key="hub_cache_del",
+                                   use_container_width=True):
+                    db.delete_scanner_run(selected_scanner, _load_date)
+                    st.rerun()
+
         if st.button("Run Scanner", type="primary", key="hub_run"):
             # Full Market mode used to require a separate "Load Market Universe"
             # click first and just refused to run otherwise — auto-load here
@@ -4340,6 +4546,12 @@ if current_page == "Scanner Hub":
                             _h["overall_breakdown"] = _bd
                 st.session_state["hub_results"] = hits
                 st.session_state["hub_scanner_ran"] = selected_scanner
+                st.session_state.pop("hub_cache_loaded_date", None)
+                # Auto-save to DB so results survive a browser refresh or restart.
+                try:
+                    db.save_scanner_run(selected_scanner, hits)
+                except Exception:
+                    pass
 
         saved_df = db.get_saved_scanner_hits(selected_scanner)
         if not saved_df.empty:
@@ -4499,6 +4711,9 @@ if __name__ == "__main__":
         elif not hits:
             st.info(f"No stocks matched **{selected_scanner}** in this universe.")
         else:
+            _cache_date = st.session_state.get("hub_cache_loaded_date")
+            if _cache_date:
+                st.caption(f"Showing cached results from **{_cache_date}** — run the scanner again to refresh.")
             # Filter pills only narrow what's on screen — they don't re-run the
             # scan. Shown only for scanners that emit the richer score/RS metadata.
             has_meta = any("signal" in h for h in hits)
@@ -5306,6 +5521,7 @@ if current_page == "Astro Timing":
     )
 
     _nk_today = ai.get_nakshatra(analysis_date)
+    _nk_df = pd.DataFrame()   # always defined; populated below if nakshatra succeeds
 
     if "error" in _nk_today:
         st.warning(f"Nakshatra engine: {_nk_today['error']}")
@@ -5564,199 +5780,215 @@ if current_page == "Astro Timing":
 
     # ── Weekly Astro Infographic Card ─────────────────────────────────────────
     if _gen_card:
+        try:
+            from PIL import Image as _PILImage, ImageDraw as _PILDraw, ImageFont as _PILFont
+        except ImportError:
+            st.error("Pillow is not installed. Run `pip install Pillow` and restart the app.")
+            _PILImage = None
         import io as _io
-        from PIL import Image as _PILImage, ImageDraw as _PILDraw, ImageFont as _PILFont
         import base64 as _b64
         import streamlit.components.v1 as _components
-
-        # ── palette ───────────────────────────────────────────────────────────
-        _C = {
-            "bg":    (15,  10,  6),
-            "panel": (28,  20,  16),
-            "amber": (234, 88,  12),
-            "green": (74,  222, 128),
-            "red":   (239, 68,  68),
-            "yellow":(253, 224, 71),
-            "text":  (255, 245, 235),
-            "muted": (168, 133, 106),
-            "white": (255, 255, 255),
-            "card_b":(38,  28,  20),
-        }
-
-        def _font(size, bold=False):
-            try:
-                return _PILFont.truetype("arialbd.ttf" if bold else "arial.ttf", size)
-            except OSError:
-                return _PILFont.load_default()
-
-        W, H = 1080, 1350
-        img = _PILImage.new("RGB", (W, H), _C["bg"])
-        dr  = _PILDraw.Draw(img)
-
-        def _rect(x0, y0, x1, y1, fill, r=12):
-            dr.rounded_rectangle([x0, y0, x1, y1], radius=r, fill=fill)
-
-        def _txt(x, y, text, fnt, fill, anchor="la"):
-            dr.text((x, y), str(text), font=fnt, fill=fill, anchor=anchor)
-
-        # ── header ────────────────────────────────────────────────────────────
-        _rect(0, 0, W, 120, _C["amber"], r=0)
-        _txt(40,      30, "Trading Bramha",          _font(38, True), _C["white"])
-        _txt(40,      76, "ASTRO WEEKLY SNAPSHOT",   _font(18),       _C["white"])
-        _txt(W - 40,  30, analysis_date.strftime("%d %b %Y"),
-             _font(28, True), _C["white"], anchor="ra")
-        _txt(W - 40,  76, analysis_date.strftime("Week of %a %d %b"),
-             _font(16), _C["white"], anchor="ra")
-
-        # ── running y cursor (list so inner functions can mutate it) ──────────
-        _cy = [140]
-
-        def _section_lbl(title):
-            _txt(40, _cy[0], title.upper(), _font(13), _C["muted"])
-            _cy[0] += 28
-
-        def _open_panel(h):
-            y0 = _cy[0]
-            _rect(30, y0, W - 30, y0 + h, _C["panel"])
-            return 30 + 20, y0 + 20          # (px, py) — content origin
-
-        def _close_panel(h):
-            _cy[0] += h + 16
-
-        # ── Moon Nakshatra ────────────────────────────────────────────────────
-        _section_lbl("Moon Nakshatra Today")
-        if "error" not in _nk_today:
-            _ph = 160
-            _px, _py = _open_panel(_ph)
-            _txt(_px, _py,      _nk_today["nakshatra"],          _font(36, True), _C["text"])
-            _txt(_px, _py + 44, f"Ruled by {_nk_today['planet']}  •  #{_nk_today['index']} of 27",
-                 _font(18), _C["muted"])
-            _txt(_px, _py + 72, "Sectors: " + " / ".join(_nk_today["sectors"]),
-                 _font(16), _C["green"])
-            _txt(_px, _py + 96, _nk_today["theme"][:70], _font(14), _C["muted"])
-            _bw = W - 30 - 20 - _px
-            _rect(_px, _py + 122, _px + _bw, _py + 132, _C["card_b"], r=4)
-            _filled = max(4, int(_bw * _nk_today["pct"] / 100))
-            _rect(_px, _py + 122, _px + _filled, _py + 132, _C["amber"], r=4)
-            _txt(_px + _bw + 6, _py + 122, f"{_nk_today['pct']}%", _font(12), _C["muted"])
-            _close_panel(_ph)
+        if _PILImage is None:
+            pass
         else:
-            _cy[0] += 60
+            # ── palette ───────────────────────────────────────────────────────
+            _C = {
+                "bg":    (15,  10,  6),
+                "panel": (28,  20,  16),
+                "amber": (234, 88,  12),
+                "green": (74,  222, 128),
+                "red":   (239, 68,  68),
+                "yellow":(253, 224, 71),
+                "text":  (255, 245, 235),
+                "muted": (168, 133, 106),
+                "white": (255, 255, 255),
+                "card_b":(38,  28,  20),
+            }
 
-        # ── Jupiter Crash Signal ──────────────────────────────────────────────
-        _section_lbl("Jupiter Crash Signal")
-        if "error" not in _jp:
-            _sig_col = {"CRASH SIGNAL": _C["red"], "ELEVATED RISK": _C["amber"],
-                        "WATCH": _C["yellow"], "CLEAR": _C["green"]}.get(_jp["signal"], _C["muted"])
-            _ph = 130
-            _px, _py = _open_panel(_ph)
-            _txt(_px, _py,      f"{_jp['signal']}  —  {_jp['factors_active']}/3 factors",
-                 _font(30, True), _sig_col)
-            _txt(_px, _py + 44, f"Jupiter in {_jp['nakshatra']} ({_jp['sign'].split('(')[0].strip()})",
-                 _font(18), _C["text"])
-            _active_parts = []
-            if _jp["is_ketu_nakshatra"]:  _active_parts.append("Ketu nakshatra")
-            if _jp["shashtashtak_with"]:  _active_parts.append(f"Shashtashtak w/ {', '.join(_jp['shashtashtak_with'])}")
-            if _jp["nodal_influence"]:    _active_parts.append("Rahu-Ketu nodal")
-            _txt(_px, _py + 70, "  ".join(_active_parts) or "No factors active",
-                 _font(14), _C["muted"])
-            _txt(_px, _py + 96, "Red flag: Nov 2026 full crash signal — mirrors 1992 & 2008",
-                 _font(13), _C["red"])
-            _close_panel(_ph)
+            def _font(size, bold=False):
+                try:
+                    return _PILFont.truetype("arialbd.ttf" if bold else "arial.ttf", size)
+                except OSError:
+                    return _PILFont.load_default()
 
-        # ── India Chart Alerts ────────────────────────────────────────────────
-        _section_lbl("India Chart — Top Degree Alerts (9:15 AM IST)")
-        _top_al = [a for a in _alerts if "error" not in a][:5]
-        if _top_al:
-            _bull_n = sum(1 for a in _top_al if a["bias"] == "bullish")
-            _bear_n = sum(1 for a in _top_al if a["bias"] == "bearish")
-            _net_t  = (f"Net BULLISH +{_bull_n - _bear_n}" if _bull_n > _bear_n else
-                       f"Net BEARISH {_bull_n - _bear_n}"  if _bear_n > _bull_n else "Balanced")
-            _net_c  = _C["green"] if _bull_n > _bear_n else _C["red"] if _bear_n > _bull_n else _C["yellow"]
-            _ph = 36 + len(_top_al) * 24 + 20
-            _px, _py = _open_panel(_ph)
-            _txt(_px, _py, _net_t, _font(22, True), _net_c)
-            for _i, _a in enumerate(_top_al):
-                _ac = _C["green"] if _a["bias"] == "bullish" else _C["red"] if _a["bias"] == "bearish" else _C["yellow"]
-                _line = f"{_a['planet']:8s}  {_a['deg_in_sign']:4.1f}°  → {_a['india_point']:12s} ({_a['india_deg']}°)  orb {_a['orb_actual']}°"
-                _txt(_px, _py + 36 + _i * 24, _line, _font(15), _ac)
-            _close_panel(_ph)
-        else:
-            _cy[0] += 40
+            W, H = 1080, 1350
+            img = _PILImage.new("RGB", (W, H), _C["bg"])
+            dr  = _PILDraw.Draw(img)
 
-        # ── 7-Day Nakshatra Forecast ──────────────────────────────────────────
-        _section_lbl("7-Day Nakshatra Forecast")
-        _nk_df_c = _nk_df if not isinstance(_nk_df, list) else __import__("pandas").DataFrame(_nk_df)
-        _row_h = 38
-        _col_ratios = [0.18, 0.28, 0.16, 0.38]
-        _ph = 26 + len(_nk_df_c) * _row_h + 10
-        _px, _py = _open_panel(_ph)
-        _col_w = [(W - 30 - 20 - _px) * r for r in _col_ratios]
-        _hdrs  = ["Date", "Nakshatra", "Planet", "Sectors"]
-        _hx = _px
-        for _h, _cw in zip(_hdrs, _col_w):
-            _txt(_hx, _py, _h, _font(13), _C["muted"])
-            _hx += _cw
-        for _ri, (_, _row) in enumerate(_nk_df_c.iterrows()):
-            _ry = _py + 26 + _ri * _row_h
-            if _ri == 0:
-                _rect(_px - 8, _ry - 4, W - 30 - 20 + 8, _ry + _row_h - 6, (38, 55, 38), r=6)
-            _cx2 = _px
-            _cells = [_row["Date"], _row["Nakshatra"], _row["Ruling Planet"], _row["Watch Sectors"][:35]]
-            for _cell, _cw in zip(_cells, _col_w):
-                _txt(_cx2, _ry, str(_cell), _font(14, bold=(_ri == 0)),
-                     _C["green"] if _ri == 0 else _C["text"])
-                _cx2 += _cw
-        _close_panel(_ph)
+            def _rect(x0, y0, x1, y1, fill, r=12):
+                dr.rounded_rectangle([x0, y0, x1, y1], radius=r, fill=fill)
 
-        # ── footer ────────────────────────────────────────────────────────────
-        _rect(0, H - 60, W, H, _C["panel"], r=0)
-        _txt(W // 2, H - 38, "Trading Bramha  •  Astro Timing Dashboard  •  For reference only",
-             _font(14), _C["muted"], anchor="mm")
-        _txt(W // 2, H - 18, "Context, not signal. Always verify with price action.",
-             _font(12), _C["muted"], anchor="mm")
+            def _txt(x, y, text, fnt, fill, anchor="la"):
+                dr.text((x, y), str(text), font=fnt, fill=fill, anchor=anchor)
 
-        # ── export ────────────────────────────────────────────────────────────
-        _buf = _io.BytesIO()
-        img.save(_buf, format="PNG", optimize=True)
-        _png_bytes = _buf.getvalue()
-        _b64_str   = _b64.b64encode(_png_bytes).decode()
+            # ── header ────────────────────────────────────────────────────────
+            _rect(0, 0, W, 120, _C["amber"], r=0)
+            _txt(40,      30, "Trading Bramha",          _font(38, True), _C["white"])
+            _txt(40,      76, "ASTRO WEEKLY SNAPSHOT",   _font(18),       _C["white"])
+            _txt(W - 40,  30, analysis_date.strftime("%d %b %Y"),
+                 _font(28, True), _C["white"], anchor="ra")
+            _txt(W - 40,  76, analysis_date.strftime("Week of %a %d %b"),
+                 _font(16), _C["white"], anchor="ra")
 
-        st.image(img, caption="Weekly Astro Card — copy or download below",
-                 use_container_width=False, width=540)
+            # ── running y cursor ───────────────────────────────────────────────
+            _cy = [140]
 
-        st.download_button(
-            label="⬇ Download PNG",
-            data=_png_bytes,
-            file_name=f"trading_bramha_astro_{analysis_date.strftime('%Y%m%d')}.png",
-            mime="image/png",
-            use_container_width=False,
-        )
+            def _section_lbl(title):
+                _txt(40, _cy[0], title.upper(), _font(13), _C["muted"])
+                _cy[0] += 28
 
-        _components.html(f"""
-        <button onclick="copyCard()" style="
-            background:#ea580c;color:#fff;border:none;border-radius:8px;
-            padding:8px 20px;font-size:14px;font-weight:700;cursor:pointer;">
-            \U0001f4cb Copy PNG to Clipboard
-        </button>
-        <span id="cs" style="margin-left:12px;font-size:13px;"></span>
-        <script>
-        async function copyCard() {{
-            try {{
-                const res  = await fetch("data:image/png;base64,{_b64_str}");
-                const blob = await res.blob();
-                await navigator.clipboard.write([new ClipboardItem({{"image/png": blob}})]);
-                const s = document.getElementById("cs");
-                s.style.color = "#4ade80"; s.textContent = "Copied!";
-                setTimeout(() => s.textContent = "", 3000);
-            }} catch(e) {{
-                const s = document.getElementById("cs");
-                s.style.color = "#ef4444";
-                s.textContent = "Copy failed — use Download (" + e.message + ")";
+            def _open_panel(h):
+                y0 = _cy[0]
+                _rect(30, y0, W - 30, y0 + h, _C["panel"])
+                return 30 + 20, y0 + 20
+
+            def _close_panel(h):
+                _cy[0] += h + 16
+
+            # ── Moon Nakshatra ─────────────────────────────────────────────────
+            _section_lbl("Moon Nakshatra Today")
+            if "error" not in _nk_today:
+                _ph = 160
+                _px, _py = _open_panel(_ph)
+                _txt(_px, _py,      _nk_today["nakshatra"],          _font(36, True), _C["text"])
+                _txt(_px, _py + 44, f"Ruled by {_nk_today['planet']}  •  #{_nk_today['index']} of 27",
+                     _font(18), _C["muted"])
+                _txt(_px, _py + 72, "Sectors: " + " / ".join(_nk_today["sectors"]),
+                     _font(16), _C["green"])
+                _txt(_px, _py + 96, _nk_today["theme"][:70], _font(14), _C["muted"])
+                _bw = W - 30 - 20 - _px
+                _rect(_px, _py + 122, _px + _bw, _py + 132, _C["card_b"], r=4)
+                _filled = max(4, int(_bw * _nk_today["pct"] / 100))
+                _rect(_px, _py + 122, _px + _filled, _py + 132, _C["amber"], r=4)
+                _txt(_px + _bw + 6, _py + 122, f"{_nk_today['pct']}%", _font(12), _C["muted"])
+                _close_panel(_ph)
+            else:
+                _cy[0] += 60
+
+            # ── Jupiter Crash Signal ───────────────────────────────────────────
+            _section_lbl("Jupiter Crash Signal")
+            if "error" not in _jp:
+                _sig_col = {"CRASH SIGNAL": _C["red"], "ELEVATED RISK": _C["amber"],
+                            "WATCH": _C["yellow"], "CLEAR": _C["green"]}.get(_jp["signal"], _C["muted"])
+                _ph = 130
+                _px, _py = _open_panel(_ph)
+                _txt(_px, _py,      f"{_jp['signal']}  —  {_jp['factors_active']}/3 factors",
+                     _font(30, True), _sig_col)
+                _txt(_px, _py + 44, f"Jupiter in {_jp['nakshatra']} ({_jp['sign'].split('(')[0].strip()})",
+                     _font(18), _C["text"])
+                _active_parts = []
+                if _jp["is_ketu_nakshatra"]:  _active_parts.append("Ketu nakshatra")
+                if _jp["shashtashtak_with"]:  _active_parts.append(f"Shashtashtak w/ {', '.join(_jp['shashtashtak_with'])}")
+                if _jp["nodal_influence"]:    _active_parts.append("Rahu-Ketu nodal")
+                _txt(_px, _py + 70, "  ".join(_active_parts) or "No factors active",
+                     _font(14), _C["muted"])
+                _txt(_px, _py + 96, "Red flag: Nov 2026 full crash signal — mirrors 1992 & 2008",
+                     _font(13), _C["red"])
+                _close_panel(_ph)
+            else:
+                _cy[0] += 40
+
+            # ── India Chart Alerts ─────────────────────────────────────────────
+            _section_lbl("India Chart — Top Degree Alerts (9:15 AM IST)")
+            _top_al = [a for a in _alerts if "error" not in a][:5]
+            if _top_al:
+                _bull_n = sum(1 for a in _top_al if a["bias"] == "bullish")
+                _bear_n = sum(1 for a in _top_al if a["bias"] == "bearish")
+                _net_t  = (f"Net BULLISH +{_bull_n - _bear_n}" if _bull_n > _bear_n else
+                           f"Net BEARISH {_bull_n - _bear_n}"  if _bear_n > _bull_n else "Balanced")
+                _net_c  = _C["green"] if _bull_n > _bear_n else _C["red"] if _bear_n > _bull_n else _C["yellow"]
+                _ph = 36 + len(_top_al) * 24 + 20
+                _px, _py = _open_panel(_ph)
+                _txt(_px, _py, _net_t, _font(22, True), _net_c)
+                for _i, _a in enumerate(_top_al):
+                    _ac = (_C["green"] if _a["bias"] == "bullish"
+                           else _C["red"] if _a["bias"] == "bearish" else _C["yellow"])
+                    _line = (f"{_a['planet']:8s}  {_a['deg_in_sign']:4.1f}°  "
+                             f"→ {_a['india_point']:12s} ({_a['india_deg']}°)  orb {_a['orb_actual']}°")
+                    _txt(_px, _py + 36 + _i * 24, _line, _font(15), _ac)
+                _close_panel(_ph)
+            else:
+                _cy[0] += 40
+
+            # ── 7-Day Nakshatra Forecast ───────────────────────────────────────
+            _section_lbl("7-Day Nakshatra Forecast")
+            _nk_df_c = (_nk_df if not isinstance(_nk_df, list)
+                        else pd.DataFrame(_nk_df))
+            if not _nk_df_c.empty:
+                _row_h = 38
+                _col_ratios = [0.18, 0.28, 0.16, 0.38]
+                _ph = 26 + len(_nk_df_c) * _row_h + 10
+                _px, _py = _open_panel(_ph)
+                _col_w = [(W - 30 - 20 - _px) * r for r in _col_ratios]
+                _hdrs  = ["Date", "Nakshatra", "Planet", "Sectors"]
+                _hx = _px
+                for _h, _cw in zip(_hdrs, _col_w):
+                    _txt(_hx, _py, _h, _font(13), _C["muted"])
+                    _hx += _cw
+                for _ri, (_, _row) in enumerate(_nk_df_c.iterrows()):
+                    _ry = _py + 26 + _ri * _row_h
+                    if _ri == 0:
+                        _rect(_px - 8, _ry - 4, W - 30 - 20 + 8, _ry + _row_h - 6, (38, 55, 38), r=6)
+                    _cx2 = _px
+                    _cells = [_row.get("Date", ""), _row.get("Nakshatra", ""),
+                              _row.get("Ruling Planet", ""), str(_row.get("Watch Sectors", ""))[:35]]
+                    for _cell, _cw in zip(_cells, _col_w):
+                        _txt(_cx2, _ry, str(_cell), _font(14, bold=(_ri == 0)),
+                             _C["green"] if _ri == 0 else _C["text"])
+                        _cx2 += _cw
+                _close_panel(_ph)
+            else:
+                _cy[0] += 40
+
+            # ── footer ────────────────────────────────────────────────────────
+            _rect(0, H - 60, W, H, _C["panel"], r=0)
+            _txt(W // 2, H - 38,
+                 "Trading Bramha  •  Astro Timing Dashboard  •  For reference only",
+                 _font(14), _C["muted"], anchor="mm")
+            _txt(W // 2, H - 18, "Context, not signal. Always verify with price action.",
+                 _font(12), _C["muted"], anchor="mm")
+
+            # ── export ────────────────────────────────────────────────────────
+            _buf = _io.BytesIO()
+            img.save(_buf, format="PNG", optimize=True)
+            _png_bytes = _buf.getvalue()
+            _b64_str   = _b64.b64encode(_png_bytes).decode()
+
+            st.image(img, caption="Weekly Astro Card — copy or download below",
+                     use_container_width=False, width=540)
+
+            st.download_button(
+                label="⬇ Download PNG",
+                data=_png_bytes,
+                file_name=f"trading_bramha_astro_{analysis_date.strftime('%Y%m%d')}.png",
+                mime="image/png",
+                use_container_width=False,
+            )
+
+            _components.html(f"""
+            <button onclick="copyCard()" style="
+                background:#ea580c;color:#fff;border:none;border-radius:8px;
+                padding:8px 20px;font-size:14px;font-weight:700;cursor:pointer;">
+                \U0001f4cb Copy PNG to Clipboard
+            </button>
+            <span id="cs" style="margin-left:12px;font-size:13px;"></span>
+            <script>
+            async function copyCard() {{
+                try {{
+                    const res  = await fetch("data:image/png;base64,{_b64_str}");
+                    const blob = await res.blob();
+                    await navigator.clipboard.write([new ClipboardItem({{"image/png": blob}})]);
+                    const s = document.getElementById("cs");
+                    s.style.color = "#4ade80"; s.textContent = "Copied!";
+                    setTimeout(() => s.textContent = "", 3000);
+                }} catch(e) {{
+                    const s = document.getElementById("cs");
+                    s.style.color = "#ef4444";
+                    s.textContent = "Copy failed — use Download (" + e.message + ")";
+                }}
             }}
-        }}
-        </script>
-        """, height=56)
+            </script>
+            """, height=56)
 
     # Lunar phase chart
     st.subheader("Lunar Phase Progression")
@@ -7207,6 +7439,67 @@ if current_page == "Market Sentiment":
         except Exception as e:
             st.error(f"Signal fetch failed: {e}")
 
+    # ── NSE Index Futures Basis ───────────────────────────────────────────
+    # Basis = (near-month futures close − spot) / spot × 100.  Positive basis
+    # (contango) = cost-of-carry; a sustained negative basis (backwardation)
+    # signals hedging pressure or bearish positioning.
+    # Data source: NSE F&O EOD bhavcopy (same file used by OI Momentum).
+    # UndrlygPric in the IDF rows IS the spot close — no second yfinance fetch.
+    st.divider()
+    st.markdown("### NSE Index Futures Basis")
+    st.caption(
+        "Near-month futures close vs spot (UndrlygPric from NSE EOD bhavcopy). "
+        "Positive = contango (cost-of-carry expected); negative = backwardation "
+        "(hedging pressure or bearish bias). OI is summed across all expiries."
+    )
+    try:
+        _idf_raw, _idf_date = oim.fetch_fo_bhavcopy_raw()
+        if _idf_raw.empty or _idf_date is None:
+            st.info("Index futures basis: no recent bhavcopy available.")
+        else:
+            _idf = _idf_raw[_idf_raw["FinInstrmTp"] == "IDF"].copy()
+            if _idf.empty:
+                st.info("No index futures rows in this session's bhavcopy.")
+            else:
+                _idf["XpryDt"] = pd.to_datetime(_idf["XpryDt"], errors="coerce")
+                _idf = _idf.dropna(subset=["XpryDt"])
+                # Near-month contract = earliest expiry per symbol
+                _near = (
+                    _idf.sort_values("XpryDt")
+                    .groupby("TckrSytm", as_index=False)
+                    .first()
+                )
+                # OI sum across all expiries
+                _oi_total = (
+                    _idf.groupby("TckrSytm", as_index=False)
+                    .agg(oi_total=("OpnIntrst", "sum"),
+                         oi_chg_total=("ChngInOpnIntrst", "sum"))
+                )
+                _basis_df = _near.merge(_oi_total, on="TckrSytm", how="left")
+                _basis_df["basis_pct"] = (
+                    (_basis_df["ClsPric"] - _basis_df["UndrlygPric"])
+                    / _basis_df["UndrlygPric"].replace(0, float("nan")) * 100
+                )
+                _basis_display = pd.DataFrame({
+                    "Index":      _basis_df["TckrSytm"],
+                    "Spot":       _basis_df["UndrlygPric"].round(2),
+                    "Futures":    _basis_df["ClsPric"].round(2),
+                    "Basis %":    _basis_df["basis_pct"].round(3),
+                    "Expiry":     _basis_df["XpryDt"].dt.strftime("%d-%b-%Y"),
+                    "OI (total)": _basis_df["oi_total"].astype(int),
+                    "OI Chg":     _basis_df["oi_chg_total"].astype(int),
+                }).sort_values("OI (total)", ascending=False).reset_index(drop=True)
+                st.dataframe(
+                    _basis_display,
+                    hide_index=True, use_container_width=True,
+                    column_config={
+                        "Basis %": st.column_config.NumberColumn("Basis %", format="%.3f%%"),
+                    },
+                )
+                st.caption(f"Bhavcopy date: {_idf_date.strftime('%d-%b-%Y')}")
+    except Exception as _basis_exc:
+        st.warning(f"Index futures basis unavailable: {_basis_exc}")
+
     # ──────────────────────────────────────────────────────────────────────
     # Morning Market Brief — global quote strip + constituent breadth + the
     # full panchang for the day. Modelled on a published "morning brief" card.
@@ -7273,7 +7566,7 @@ if current_page == "Market Sentiment":
             )
 
         # ── Quote strip, grouped as the source card groups them ──
-        for group in ("india", "asia", "us", "commodity", "fx"):
+        for group in ("india", "asia", "us", "us_futures", "commodity", "fx"):
             rows = [q for q in model["quotes"] if q["group"] == group]
             if not rows:
                 continue

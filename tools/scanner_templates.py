@@ -2131,6 +2131,24 @@ def _atr_series(df: pd.DataFrame, n: int = 14) -> pd.Series:
     return tr.ewm(alpha=1 / n, adjust=False).mean()   # Wilder smoothing
 
 
+def _mfi_series(df: pd.DataFrame, n: int = 14) -> pd.Series:
+    """Money Flow Index — volume-weighted RSI on typical price (H+L+C)/3.
+
+    Returns a 0-100 Series aligned to df's index.  Needs 'high', 'low',
+    'close', 'volume' columns.
+    """
+    tp = (df["high"].astype(float) + df["low"].astype(float) + df["close"].astype(float)) / 3.0
+    vol = df["volume"].astype(float)
+    rmf = tp * vol                                  # raw money flow
+    direction = tp.diff()                           # positive when TP rose
+    pos_mf = rmf.where(direction > 0, 0.0)
+    neg_mf = rmf.where(direction < 0, 0.0)
+    pos_sum = pos_mf.rolling(n).sum()
+    neg_sum = neg_mf.rolling(n).sum()
+    mfr = pos_sum / neg_sum.replace(0.0, np.nan)   # money flow ratio
+    return 100.0 - 100.0 / (1.0 + mfr)
+
+
 def _adx_di_series(df: pd.DataFrame, n: int = 14) -> tuple[pd.Series, pd.Series, pd.Series]:
     """Wilder's ADX with +DI / -DI directional lines.
 
@@ -4753,6 +4771,69 @@ def scan_ema50_coil(df: pd.DataFrame) -> dict | None:
     }
 
 
+def scan_mfi_oversold(df: pd.DataFrame,
+                      n: int = 14,
+                      oversold: float = 20.0) -> dict | None:
+    """Money Flow Index (MFI) oversold-recovery scanner.
+
+    Fires when MFI crosses UP from below `oversold` (default 20) with a
+    positive close vs prior day.  MFI = volume-weighted RSI on typical
+    price — it catches exhaustion exits where price dips coincide with
+    heavy selling volume that then dries up (reversal signal).
+
+    Gates:
+      1. MFI(n) crossed above `oversold` (was below, now above)
+      2. Close > prior close (up day confirmation)
+      3. Volume at least average (no low-conviction recovery)
+
+    Returns None when gates don't fire.
+    """
+    if len(df) < n + 5:
+        return None
+
+    mfi = _mfi_series(df, n)
+    if mfi.isna().all():
+        return None
+
+    mfi_now  = float(mfi.iloc[-1])
+    mfi_prev = float(mfi.iloc[-2]) if len(mfi) >= 2 else mfi_now
+    close    = df["close"].astype(float)
+    vol      = df["volume"].astype(float)
+
+    c_now   = float(close.iloc[-1])
+    c_prev  = float(close.iloc[-2])
+    vol_now = float(vol.iloc[-1])
+    vol_avg = float(vol.rolling(20).mean().iloc[-1]) if len(vol) >= 20 else float(vol.mean())
+
+    # Gate 1 — MFI crossover above oversold
+    if not (mfi_prev < oversold <= mfi_now):
+        return None
+    # Gate 2 — up-day confirmation
+    if c_now <= c_prev:
+        return None
+    # Gate 3 — at least average volume
+    vol_x = vol_now / vol_avg if vol_avg > 0 else 0.0
+    if vol_x < 1.0:
+        return None
+
+    headroom = 80.0 - mfi_now        # distance to overbought
+    score = min(100, int(50 + (oversold - mfi_prev) * 2 + headroom * 0.5))
+
+    return {
+        "pattern_type": "MFI Oversold Recovery",
+        "tags": ["MFI-cross", f"MFI {mfi_now:.0f}"],
+        "reasons": [
+            f"MFI crossed {oversold:.0f} from below ({mfi_prev:.1f} → {mfi_now:.1f}); "
+            f"up-day +{(c_now/c_prev - 1)*100:.1f}%; vol {vol_x:.1f}×20d-avg"
+        ],
+        "score_base": score,
+        "score": score,
+        "mfi_now": round(mfi_now, 1),
+        "mfi_prev": round(mfi_prev, 1),
+        "vol_x20d": round(vol_x, 2),
+    }
+
+
 def scan_rsi_band_momentum(df: pd.DataFrame,
                             rsi_lo: float = 50.0,
                             rsi_hi: float = 68.0) -> dict | None:
@@ -5285,6 +5366,18 @@ SCANNERS: dict[str, dict] = {
         ),
         "category": "Pattern",
     },
+    "MFI Oversold Recovery": {
+        "fn": scan_mfi_oversold,
+        "description": (
+            "Money Flow Index (MFI) oversold-recovery scanner. Fires when MFI(14) "
+            "crosses UP from below 20 with an up-day and at least average volume. "
+            "MFI is volume-weighted RSI on typical price (H+L+C)/3 — it catches "
+            "exhaustion exits where heavy selling volume reverses before price "
+            "fully recovers. Three gates: MFI crosses 20 from below + up-day "
+            "confirmation + volume ≥ 20-day average."
+        ),
+        "category": "Entry",
+    },
     "EMA-50 Coil": {
         "fn": scan_ema50_coil,
         "description": (
@@ -5473,6 +5566,9 @@ def fetch_fundamentals_yf(symbol: str, use_cache: bool = True) -> dict | None:
     except Exception:
         pass
 
+    rev_g  = info.get("revenueGrowth")     # annual revenue growth (0-based fraction)
+    earn_g = info.get("earningsGrowth")    # annual earnings growth (0-based fraction)
+
     out = {
         "market_cap_cr": round(mc / 1e7) if mc else None,
         "de_ratio": round(de / 100.0, 3) if de is not None else None,
@@ -5484,6 +5580,10 @@ def fetch_fundamentals_yf(symbol: str, use_cache: bool = True) -> dict | None:
         "peg_src": peg_src,
         "fcf_cr": fcf_cr,    # free cash flow (OCF − CapEx) in ₹ crore, most recent FY
         "ocf_cr": ocf_cr,    # operating cash flow in ₹ crore
+        # Growth metrics for PEAD pre-filter (annual; yfinance earningsGrowth /
+        # revenueGrowth are annual fractions — *100 to match screener.in % convention).
+        "revenue_growth_pct":  round(rev_g  * 100.0, 1) if rev_g  is not None else None,
+        "earnings_growth_pct": round(earn_g * 100.0, 1) if earn_g is not None else None,
         # Sector / industry classification (login-free) — used by the Opportunity
         # Hub funnel to rank sector & industry leadership bottom-up.
         "sector": info.get("sector"),
@@ -5495,33 +5595,38 @@ def fetch_fundamentals_yf(symbol: str, use_cache: bool = True) -> dict | None:
 
 
 def passes_quality_gate(f: dict | None, *,
+                        min_market_cap_cr: float | None = None,
                         max_market_cap_cr: float | None = None,
                         max_de_ratio: float | None = 0.10,
                         min_roe_pct: float | None = 15.0,
                         min_opm_pct: float | None = 10.0,
                         max_pe: float | None = None,
                         max_peg: float | None = None,
+                        min_revenue_growth_pct: float | None = None,
+                        min_earnings_growth_pct: float | None = None,
                         require_complete: bool = True) -> bool:
     """True iff the fundamentals clear the zero-debt + quality (+ valuation) gate.
 
-    Cap-agnostic by default (`max_market_cap_cr=None` → all caps); pass a ceiling
-    to restrict to small/mid-caps. Valuation caps (`max_pe`, `max_peg`) are off by
-    default; when set they screen out expensive names (PEG may be the computed
-    `~` proxy — see fetch_fundamentals_yf). A gate whose data is missing fails
-    when `require_complete` (the honest default — we can't call a name 'zero-debt'
-    if we can't see its debt); with `require_complete=False` a missing field is
-    skipped rather than failing.
+    Cap-agnostic by default (both market-cap bounds None → all caps). Valuation
+    caps (`max_pe`, `max_peg`) are off by default. Growth floors (`min_revenue_growth_pct`,
+    `min_earnings_growth_pct`) map to screener.in's Sales > X% / PAT > X% filters
+    and use yfinance annual growth (quarterly data requires heavier fetches). A gate
+    whose data is missing fails when `require_complete` (the honest default); with
+    `require_complete=False` a missing field is skipped rather than failing.
     """
     if f is None:
         return False
 
     checks = (
-        (max_market_cap_cr, f.get("market_cap_cr"), lambda v: v <= max_market_cap_cr),
-        (max_de_ratio,      f.get("de_ratio"),      lambda v: v <= max_de_ratio),
-        (min_roe_pct,       f.get("roe_pct"),       lambda v: v >= min_roe_pct),
-        (min_opm_pct,       f.get("opm_pct"),       lambda v: v >= min_opm_pct),
-        (max_pe,            f.get("pe"),            lambda v: v <= max_pe),
-        (max_peg,           f.get("peg"),           lambda v: v <= max_peg),
+        (min_market_cap_cr,      f.get("market_cap_cr"),      lambda v: v >= min_market_cap_cr),
+        (max_market_cap_cr,      f.get("market_cap_cr"),      lambda v: v <= max_market_cap_cr),
+        (max_de_ratio,           f.get("de_ratio"),           lambda v: v <= max_de_ratio),
+        (min_roe_pct,            f.get("roe_pct"),            lambda v: v >= min_roe_pct),
+        (min_opm_pct,            f.get("opm_pct"),            lambda v: v >= min_opm_pct),
+        (max_pe,                 f.get("pe"),                 lambda v: v <= max_pe),
+        (max_peg,                f.get("peg"),                lambda v: v <= max_peg),
+        (min_revenue_growth_pct, f.get("revenue_growth_pct"), lambda v: v >= min_revenue_growth_pct),
+        (min_earnings_growth_pct,f.get("earnings_growth_pct"),lambda v: v >= min_earnings_growth_pct),
     )
     for threshold, value, ok in checks:
         if threshold is None:
@@ -5541,6 +5646,8 @@ def _attach_quality(hit: dict, f: dict, max_de_ratio: float) -> None:
     de, roe, opm = f.get("de_ratio"), f.get("roe_pct"), f.get("opm_pct")
     mc, roa = f.get("market_cap_cr"), f.get("roa_pct")
     pe, peg, peg_src = f.get("pe"), f.get("peg"), f.get("peg_src")
+    rev_g  = f.get("revenue_growth_pct")
+    earn_g = f.get("earnings_growth_pct")
     peg_pfx = "~" if peg_src == "calc" else ""     # ~ marks a computed (not vendor) PEG
 
     qtags: list[str] = []
@@ -5550,6 +5657,10 @@ def _attach_quality(hit: dict, f: dict, max_de_ratio: float) -> None:
         qtags.append(f"ROE {roe:.0f}%")
     if opm is not None:
         qtags.append(f"OPM {opm:.0f}%")
+    if earn_g is not None:
+        qtags.append(f"PAT {earn_g:+.0f}%")
+    if rev_g is not None:
+        qtags.append(f"Sales {rev_g:+.0f}%")
     if pe is not None:
         qtags.append(f"PE {pe:.0f}")
     if peg is not None:
@@ -5569,6 +5680,8 @@ def _attach_quality(hit: dict, f: dict, max_de_ratio: float) -> None:
         _fmt("D/E", f"{de:.2f}" if de is not None else None),
         _fmt("ROE", f"{roe:.0f}" if roe is not None else None, "%"),
         _fmt("OPM", f"{opm:.0f}" if opm is not None else None, "%"),
+        _fmt("PAT YoY", f"{earn_g:+.0f}" if earn_g is not None else None, "%"),
+        _fmt("Sales YoY", f"{rev_g:+.0f}" if rev_g is not None else None, "%"),
         _fmt("PE", f"{pe:.1f}" if pe is not None else None),
         _fmt("PEG", f"{peg_pfx}{peg:.2f}" if peg is not None else None),
         _fmt("mcap", f"₹{mc:,}Cr" if mc is not None else None),
@@ -5576,23 +5689,28 @@ def _attach_quality(hit: dict, f: dict, max_de_ratio: float) -> None:
     if roa is not None:
         quality_line += f" · ROA {roa:.0f}%"
     quality_line += (
-        " (yfinance; ~PEG = PE÷growth when vendor PEG absent; true ROCE via "
-        "screener.in is Phase 5.2)")
+        " (yfinance annual growth; ~PEG = PE÷growth when vendor PEG absent)")
     hit.setdefault("reasons", []).insert(0, quality_line)
 
 
 def run_quality_pead(symbols: list[str], fetch_fn,
                      benchmark_df: pd.DataFrame | None = None, *,
-                     max_market_cap_cr: float | None = None,
+                     min_market_cap_cr: float | None = 500.0,
+                     max_market_cap_cr: float | None = 15_000.0,
                      max_de_ratio: float | None = 0.10,
                      min_roe_pct: float | None = 15.0,
                      min_opm_pct: float | None = 10.0,
                      max_pe: float | None = None,
                      max_peg: float | None = None,
+                     min_revenue_growth_pct: float | None = 20.0,
+                     min_earnings_growth_pct: float | None = 20.0,
                      require_complete: bool = True,
                      pead_kwargs: dict | None = None,
                      progress_cb=None) -> list[dict]:
     """Phase 5.1 composite: quality small-cap gate ∩ Proxy-PEAD drift.
+
+    Defaults match the vault's PEAD pre-filter (2026-08-05):
+      MCap 500–15,000 Cr · Sales YoY > 20% · PAT YoY > 20% · ROE > 15%
 
     For each symbol: confirm the fundamentals gate (cheap, login-free) FIRST, and
     only then fetch OHLCV + run scan_pead — so the expensive price fetch runs only
@@ -5621,9 +5739,14 @@ def run_quality_pead(symbols: list[str], fetch_fn,
                     pass
             f = fetch_fundamentals_yf(sym)
             if not passes_quality_gate(
-                    f, max_market_cap_cr=max_market_cap_cr, max_de_ratio=max_de_ratio,
+                    f,
+                    min_market_cap_cr=min_market_cap_cr,
+                    max_market_cap_cr=max_market_cap_cr,
+                    max_de_ratio=max_de_ratio,
                     min_roe_pct=min_roe_pct, min_opm_pct=min_opm_pct,
                     max_pe=max_pe, max_peg=max_peg,
+                    min_revenue_growth_pct=min_revenue_growth_pct,
+                    min_earnings_growth_pct=min_earnings_growth_pct,
                     require_complete=require_complete):
                 continue
             try:

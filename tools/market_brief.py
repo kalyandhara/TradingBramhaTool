@@ -63,19 +63,31 @@ QUOTE_ROWS: tuple[tuple[str, str, str], ...] = (
     ("Sensex",              "^BSESN",     "india"),
     ("Nikkei 225",          "^N225",      "asia"),
     ("KOSPI",               "^KS11",      "asia"),
+    ("Hang Seng",           "^HSI",       "asia"),
     ("China CSI 300*",      "510300.SS",  "asia"),
     ("MSCI AP ex-Japan*",   "AAXJ",       "asia"),
     ("Dow Jones",           "^DJI",       "us"),
     ("S&P 500",             "^GSPC",      "us"),
     ("Nasdaq",              "^IXIC",      "us"),
+    # US futures — trade ~23h/day and are the live global-cue signal during
+    # Indian trading hours (09:15–15:30 IST) when US cash markets are closed.
+    ("Dow Futures",         "YM=F",       "us_futures"),
+    ("S&P Futures",         "ES=F",       "us_futures"),
+    ("Nasdaq Futures",      "NQ=F",       "us_futures"),
     ("Brent Crude",         "BZ=F",       "commodity"),
     ("Gold",                "GC=F",       "commodity"),
     ("US Dollar Index",     "DX-Y.NYB",   "fx"),
     ("USD/INR",             "USDINR=X",   "fx"),
 )
 
-GROUP_LABELS = {"india": "India", "asia": "Asian Markets", "us": "Wall Street",
-                "commodity": "Commodities", "fx": "Currencies"}
+GROUP_LABELS = {
+    "india":      "India",
+    "asia":       "Asian Markets",
+    "us":         "Wall Street (close)",
+    "us_futures": "US Futures (pre-market)",
+    "commodity":  "Commodities",
+    "fx":         "Currencies",
+}
 
 
 def _default_download(tickers: list[str], period: str) -> pd.DataFrame:
