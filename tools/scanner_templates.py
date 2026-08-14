@@ -2131,6 +2131,33 @@ def _atr_series(df: pd.DataFrame, n: int = 14) -> pd.Series:
     return tr.ewm(alpha=1 / n, adjust=False).mean()   # Wilder smoothing
 
 
+def _adx_di_series(df: pd.DataFrame, n: int = 14) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Wilder's ADX with +DI / -DI directional lines.
+
+    Returns (+DI, -DI, ADX) as three Series aligned to df's index, with NaN
+    through the warm-up period (first 2n bars).  All three are 0-100 scaled.
+    """
+    h, l, c = df["high"].astype(float), df["low"].astype(float), df["close"].astype(float)
+    ph, pl = h.shift(1), l.shift(1)
+    up_move   = h - ph
+    down_move = pl - l
+    plus_dm  = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+    plus_dm_s  = pd.Series(plus_dm,  index=df.index, dtype=float)
+    minus_dm_s = pd.Series(minus_dm, index=df.index, dtype=float)
+    alpha = 1.0 / n
+    atr14      = _atr_series(df, n)
+    sdm_plus   = plus_dm_s.ewm(alpha=alpha, adjust=False).mean()
+    sdm_minus  = minus_dm_s.ewm(alpha=alpha, adjust=False).mean()
+    denom = atr14.replace(0.0, np.nan)
+    plus_di  = 100.0 * sdm_plus  / denom
+    minus_di = 100.0 * sdm_minus / denom
+    di_sum  = (plus_di + minus_di).replace(0.0, np.nan)
+    dx      = 100.0 * (plus_di - minus_di).abs() / di_sum
+    adx     = dx.ewm(alpha=alpha, adjust=False).mean()
+    return plus_di, minus_di, adx
+
+
 def detect_structure_chain(df: pd.DataFrame, pivot_len: int = 15,
                            confirm: str = "close", fail_win: int = 3,
                            max_swings: int = 15) -> dict | None:
@@ -4066,27 +4093,29 @@ def scan_rsi_60_40(df: pd.DataFrame) -> dict | None:
     return out
 
 
-def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 5,
+def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 3,
                              lookback: int = 80) -> dict | None:
     """Bullish RSI divergence on the last closed daily bar.
 
     Fires when the most recent swing low made a LOWER price low but a HIGHER
     RSI(14) low than the preceding swing low — classic hidden institutional
-    accumulation. The second swing low must be within the last 10 bars so the
-    signal is still actionable on the last closed daily bar.
+    accumulation. The second swing low must be within the last 3 bars so the
+    signal is actionable on the last closed daily bar (pivot_len=3 keeps the
+    symmetry requirement tight so only near-term pivots qualify).
 
     Conditions (all must hold):
       1. Two pivot lows within ``lookback`` bars, detected by pivot_len symmetry.
       2. Price: low2 < low1  (lower low).
       3. RSI: rsi_at_low2 > rsi_at_low1  (higher RSI low — the divergence).
       4. Divergence gap ≥ 3 RSI points (avoids noise from near-equal readings).
-      5. The second low is within the last 10 bars (recent / last daily bar).
+      5. The second low is within the last 3 bars (tight recency window).
       6. RSI(14) at the second low ≤ 60 (divergence in overbought territory is noise).
       7. RSI on bar[-1] > RSI at bar of the second low (bounce already starting).
 
     Score  (0-100):
       Base 55 + oversold bonus (≤35 → +15, ≤45 → +8) + magnitude bonus
-      (RSI gap > 10 pts → +10) + recency bonus (≤3 bars ago → +5).
+      (RSI gap > 10 pts → +10) + recency bonus (≤3 bars ago → +5, automatic
+      given the 3-bar gate).
     """
     if df is None or len(df) < pivot_len * 2 + 40:
         return None
@@ -4122,7 +4151,7 @@ def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 5,
 
     bars_ago = n - 1 - idx2          # how many bars since the second pivot low
 
-    if bars_ago > 10:                # too stale
+    if bars_ago > 3:                 # outside the 3-bar detection window
         return None
     if price2 >= price1:             # no lower low in price
         return None
@@ -4189,6 +4218,121 @@ def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 5,
         "rsi_at_low": round(rsi2, 1),
         "rsi_gap": round(rsi_gap, 1),
         "bars_since_low": bars_ago,
+    }
+
+
+def scan_rsi_divergence_bear(df: pd.DataFrame, pivot_len: int = 3,
+                             lookback: int = 80) -> dict | None:
+    """Bearish RSI divergence on the last closed daily bar.
+
+    Fires when the most recent swing high made a HIGHER price high but a LOWER
+    RSI(14) high than the preceding swing high — classic institutional distribution.
+    The second swing high must be within the last 3 bars.
+
+    Conditions (all must hold):
+      1. Two pivot highs within ``lookback`` bars, detected by pivot_len symmetry.
+      2. Price: high2 > high1  (higher high).
+      3. RSI: rsi_at_high2 < rsi_at_high1  (lower RSI high — the divergence).
+      4. Divergence gap ≥ 3 RSI points.
+      5. The second high is within the last 3 bars.
+      6. RSI(14) at the second high ≥ 40 (divergence in oversold territory is noise).
+      7. RSI on bar[-1] < RSI at bar of the second high (rollover already starting).
+    """
+    if df is None or len(df) < pivot_len * 2 + 40:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < pivot_len * 2 + 40:
+        return None
+
+    close = df["close"]
+    low   = df["low"]
+    high  = df["high"]
+    n = len(df)
+    rsi = _rsi_series(close, 14)
+    atr = float(_atr_series(df, 14).iloc[-1])
+    if np.isnan(atr) or atr <= 0:
+        return None
+
+    search_start = max(pivot_len, n - lookback)
+    pivot_highs: list[tuple[int, float, float]] = []
+    for i in range(search_start, n - pivot_len):
+        window = high.iloc[i - pivot_len: i + pivot_len + 1]
+        if float(high.iloc[i]) == float(window.max()):
+            rsi_val = float(rsi.iloc[i])
+            if not np.isnan(rsi_val):
+                pivot_highs.append((i, float(high.iloc[i]), rsi_val))
+
+    if len(pivot_highs) < 2:
+        return None
+
+    idx1, price1, rsi1 = pivot_highs[-2]
+    idx2, price2, rsi2 = pivot_highs[-1]
+
+    bars_ago = n - 1 - idx2
+
+    if bars_ago > 3:
+        return None
+    if price2 <= price1:             # no higher high in price
+        return None
+    if rsi2 >= rsi1:                 # no lower high in RSI
+        return None
+    rsi_gap = rsi1 - rsi2            # positive gap = magnitude of divergence
+    if rsi_gap < 3.0:
+        return None
+    if rsi2 < 40.0:                  # divergence in oversold is meaningless
+        return None
+
+    rsi_now = float(rsi.iloc[-1])
+    if np.isnan(rsi_now) or rsi_now >= rsi2:
+        return None
+
+    score = 55.0
+    if rsi2 >= 65.0:
+        score += 15.0
+    elif rsi2 >= 55.0:
+        score += 8.0
+    if rsi_gap >= 10.0:
+        score += 10.0
+    score += 5.0                     # recency always satisfied (≤3 bar gate)
+    score = min(round(score, 1), 95.0)
+
+    entry = round(float(close.iloc[-1]), 2)
+    stop  = round(price2 + 0.5 * atr, 2)
+    risk  = stop - entry
+    target = round(entry - 2.0 * risk, 2) if risk > 0 else None
+
+    swing_low_between = float(low.iloc[idx1:idx2 + 1].min())
+
+    tags = [
+        f"RSI div gap -{rsi_gap:.1f}pt",
+        f"RSI at high {rsi2:.0f}",
+        f"{bars_ago}d ago",
+        f"2nd high ₹{price2:.2f}",
+    ]
+    reasons = [
+        f"Price higher high: ₹{price1:.2f} → ₹{price2:.2f}",
+        f"RSI(14) lower high: {rsi1:.1f} → {rsi2:.1f} (-{rsi_gap:.1f} pts divergence)",
+        f"RSI now {rsi_now:.1f} — rolling over from the divergence high",
+        f"Second swing high {bars_ago} bar(s) ago — signal still fresh",
+    ]
+    if rsi2 >= 65.0:
+        reasons.append(f"RSI overbought at the high ({rsi2:.0f}) — strengthens the read")
+
+    return {
+        "symbol": df.index[-1] if hasattr(df.index[-1], "__str__") else "?",
+        "pattern_type": "RSI Divergence Bear",
+        "score": score,
+        "tags": tags,
+        "reasons": reasons,
+        "entry": entry,
+        "stop": stop,
+        "target": target,
+        "time_stop": 10,
+        "key_level": round(swing_low_between, 2),
+        "rsi_now": round(rsi_now, 1),
+        "rsi_at_high": round(rsi2, 1),
+        "rsi_gap": round(rsi_gap, 1),
+        "bars_since_high": bars_ago,
     }
 
 
@@ -4508,6 +4652,303 @@ def scan_falling_wedge(df: pd.DataFrame, window: int = 60,
     }
 
 
+def scan_ema50_coil(df: pd.DataFrame) -> dict | None:
+    """EMA-50 coiled-spring breakout — Ashok Daniel StockEdge scanner.
+
+    Captures quality stocks resting near their 50-EMA floor that break out on
+    institutional volume before the trend becomes obvious.  The key gate is
+    ``Close within 2% of EMA-50`` — it is NOT a chase scanner; it fires on the
+    rest-before-thrust zone, not after extension.
+
+    Gates:
+      1. Close > EMA200 — broad uptrend context
+      2. ADX(14) > 25 AND ADX rising vs prior bar — trend has strength AND momentum
+      3. +DI > -DI — directional bias is bullish (buyers outpacing sellers)
+      4. Close within 2% above OR below EMA-50 (the coil zone)
+      5. Close > 1.03× prior close AND volume > 20-day avg — breakout thrust
+         confirmed by price AND participation simultaneously
+    """
+    if len(df) < 60 or "volume" not in df.columns:
+        return None
+    close = df["close"].astype(float)
+    last  = float(close.iloc[-1])
+
+    ema50  = float(_ema_series(close, 50).iloc[-1])
+    ema200 = float(_ema_series(close, 200).iloc[-1])
+    if np.isnan(ema50) or np.isnan(ema200):
+        return None
+
+    # Gate 1 — broad uptrend
+    if last < ema200:
+        return None
+
+    # Gate 2 & 3 — ADX > 25 rising AND +DI > -DI
+    if len(df) < 50:
+        return None
+    plus_di, minus_di, adx = _adx_di_series(df)
+    adx_now  = float(adx.iloc[-1])
+    adx_prev = float(adx.iloc[-2])
+    pdi_now  = float(plus_di.iloc[-1])
+    mdi_now  = float(minus_di.iloc[-1])
+    if np.isnan(adx_now) or np.isnan(pdi_now):
+        return None
+    if adx_now < 25 or adx_now <= adx_prev:
+        return None
+    if pdi_now <= mdi_now:
+        return None
+
+    # Gate 4 — close within 2% of EMA-50 (above OR below — the coil can form
+    # just under or just at the EMA; the volume thrust is the confirmation)
+    dist_pct = (last - ema50) / ema50 * 100      # + above, - below
+    if abs(dist_pct) > 2.0:
+        return None
+
+    # Gate 5 — breakout thrust: >3% from prior close on above-average volume
+    prior_close = float(close.iloc[-2])
+    if prior_close <= 0:
+        return None
+    move_pct = (last - prior_close) / prior_close * 100
+    if move_pct < 3.0:
+        return None
+    vol_avg_20 = float(df["volume"].tail(20).mean())
+    vol_last   = float(df["volume"].iloc[-1])
+    if vol_avg_20 <= 0 or vol_last < vol_avg_20:
+        return None
+    vol_x = vol_last / vol_avg_20
+
+    zone = "at" if abs(dist_pct) <= 0.5 else ("above" if dist_pct > 0 else "below")
+    reasons = [
+        f"Price ({last:.1f}) {zone} EMA50 ({ema50:.1f}) — resting in the coil zone "
+        f"({dist_pct:+.1f}%)",
+        f"ADX {adx_now:.0f} rising (was {adx_prev:.0f}), +DI {pdi_now:.0f} > "
+        f"-DI {mdi_now:.0f} — trend strengthening with directional bias",
+        f"Thrust: +{move_pct:.1f}% vs prior close on {vol_x:.1f}× 20-day volume — "
+        "institutional breakout signal",
+        f"Above EMA200 ({ema200:.1f}) — long-term uptrend intact",
+    ]
+    # Base score: combine ADX strength, DI spread and volume quality
+    di_spread = pdi_now - mdi_now
+    score_base = round(
+        min(adx_now - 25, 30) * 0.8       # ADX premium above 25, capped at 30 pts
+        + min(di_spread, 20) * 0.5         # DI spread quality
+        + min(move_pct, 10) * 1.0          # thrust magnitude, cap 10 pts
+        + min(vol_x, 3.0) * 5.0,           # volume conviction, cap 3× → 15 pts
+        1,
+    )
+    score_base = float(max(0.0, min(score_base, 100.0)))
+    return {
+        "pattern_type": "EMA-50 Coil",
+        "tags": [f"ADX {adx_now:.0f}", f"+DI>{mdi_now:.0f}", f"{dist_pct:+.1f}% of EMA50",
+                 f"{move_pct:.1f}% thrust", f"{vol_x:.1f}× vol"],
+        "reasons": reasons,
+        "score_base": score_base,
+        "score": score_base,
+        "rs_raw": round(_rs_raw(df), 3),
+        "adx": round(adx_now, 1),
+        "plus_di": round(pdi_now, 1),
+        "minus_di": round(mdi_now, 1),
+        "dist_to_ema50_pct": round(dist_pct, 2),
+        "thrust_pct": round(move_pct, 2),
+        "vol_x20d": round(vol_x, 2),
+    }
+
+
+def scan_rsi_band_momentum(df: pd.DataFrame,
+                            rsi_lo: float = 50.0,
+                            rsi_hi: float = 68.0) -> dict | None:
+    """RSI mid-band momentum — Patel Yash Ashokbhai StockEdge scanner.
+
+    Targets momentum stocks with strong price structure that are NOT yet
+    overbought — within 10% of their 52-week high but RSI still in the
+    [50, 68] band.  The upper cap is the key new mechanic: stocks above RSI 68
+    are deliberately excluded (they are already extended).  This creates an
+    "approaching new high" setup zone rather than a "chasing new high" one.
+
+    Gates:
+      1. Close within 10% of 52-week high — price strength already there
+      2. RSI(14) in [rsi_lo, rsi_hi] (default 50–68) — momentum, not overextended
+      3. SMA20 > SMA50 — short-term trend aligned above medium-term (golden-cross zone)
+      4. Close > SMA50 — confirming trend direction
+      5. RSI rising vs prior day — momentum confirming, not stalling
+    """
+    if len(df) < 60:
+        return None
+    close = df["close"].astype(float)
+    last  = float(close.iloc[-1])
+
+    # Gate 1 — within 10% of 52-week high
+    hi_52 = float(df["high"].tail(252).max())
+    if hi_52 <= 0:
+        return None
+    below_high_pct = (hi_52 - last) / hi_52 * 100
+    if below_high_pct > 10.0:
+        return None
+
+    # Gate 2 — RSI in mid-band
+    rsi = _rsi_series(close, 14)
+    rsi_now  = float(rsi.iloc[-1])
+    rsi_prev = float(rsi.iloc[-2])
+    if np.isnan(rsi_now):
+        return None
+    if not (rsi_lo <= rsi_now <= rsi_hi):
+        return None
+
+    # Gate 3 & 4 — MA alignment
+    sma20 = _sma(close, 20)
+    sma50 = _sma(close, 50)
+    if np.isnan(sma20) or np.isnan(sma50):
+        return None
+    if not (last > sma50 > 0 and sma20 > sma50):
+        return None
+
+    # Gate 5 — RSI rising
+    if not np.isnan(rsi_prev) and rsi_now <= rsi_prev:
+        return None
+
+    rsi_headroom = rsi_hi - rsi_now    # room left before the overbought ceiling
+    reasons = [
+        f"RSI {rsi_now:.0f} in the mid-band [{rsi_lo:.0f}–{rsi_hi:.0f}] — "
+        f"momentum active, {rsi_headroom:.0f} pts of headroom before the "
+        f"overbought ceiling",
+        f"Within {below_high_pct:.1f}% of 52-week high ({hi_52:.0f}) — "
+        "approaching highs, not chasing an extended move",
+        f"SMA20 ({sma20:.0f}) > SMA50 ({sma50:.0f}) — golden-cross zone; "
+        f"price ({last:.0f}) above SMA50",
+        "RSI rising vs prior session — momentum confirming",
+    ]
+    # Score: combination of RSI headroom (more room = better entry) and proximity
+    # to 52W high (closer = stronger but still within gate)
+    score = round(
+        (rsi_headroom / (rsi_hi - rsi_lo)) * 40    # RSI headroom (0-40)
+        + (10.0 - below_high_pct) / 10.0 * 30      # near-high quality (0-30)
+        + (rsi_now - rsi_lo) / (rsi_hi - rsi_lo) * 30,  # RSI above midpoint (0-30)
+        1,
+    )
+    score = float(max(0.0, min(score, 100.0)))
+    return {
+        "pattern_type": "RSI Mid-Band Momentum",
+        "tags": [f"RSI {rsi_now:.0f}", f"{below_high_pct:.1f}% from 52W high",
+                 f"SMA20>{sma50:.0f}"],
+        "reasons": reasons,
+        "score": score,
+        "rsi_now": round(rsi_now, 1),
+        "rsi_headroom": round(rsi_headroom, 1),
+        "below_52w_high_pct": round(below_high_pct, 1),
+    }
+
+
+def scan_triple_rs_52w(df: pd.DataFrame) -> dict | None:
+    """Triple-RS + 52-week high crossover — Ashok Taneja StockEdge scanner.
+
+    Requires ALL three relative-strength measures to be positive at once, then
+    fires only when price simultaneously crosses/hugs the 52-week high with
+    dual-timeframe RSI momentum confirming.  The triple-RS gate is the key new
+    mechanic: a stock must outperform in absolute terms, over 55 days, AND have
+    a rising weekly RSI — one dimension of RS alone is insufficient.
+
+    Price-only equivalents of StockEdge's RSMkt55Days / ARS / weekly-RSI gate:
+      1. 55-day absolute return > 0 (ARS proxy — stock is up over 55 trading days)
+      2. 55-day excess return > 0 vs benchmark if supplied (RSMkt55Days proxy)
+      3. Daily RSI(14) > prior-day RSI (RSI rising intraday-to-day)
+      4. Weekly RSI (sampled every 5 bars) rising vs prior week
+      5. Close crossed above 52-week high in last 5 sessions (52W cross trigger)
+      6. RSI < 80 — anti-chase gate (Taneja uses MCap > 10000 Cr as a universe
+         filter; this gate keeps us out of exhausted, already-extended breakouts)
+    """
+    if len(df) < 260:
+        return None
+    close = df["close"].astype(float)
+    last  = float(close.iloc[-1])
+
+    # Gate 1 — 55-day absolute return positive (ARS proxy)
+    if len(df) < 56:
+        return None
+    ret_55d = last / float(close.iloc[-56]) - 1.0 if float(close.iloc[-56]) > 0 else -1.0
+    if ret_55d <= 0:
+        return None
+
+    # Gate 2 — 55-day excess return positive (RSMkt55Days proxy, benchmark-optional)
+    bmk_wret = getattr(_tls, "benchmark_wret", None)
+    if bmk_wret is not None:
+        # Convert benchmark's IBD-weighted return to an approximate 55d return
+        # (the weighted return is already excess when _rs_raw uses it, but for a
+        # pure 55-day comparison we use the raw stock 55d minus what the benchmark
+        # would have done in the same window — a simple approximation)
+        bench_55d_approx = bmk_wret / 100.0  # wret is in %, normalise
+        if ret_55d <= bench_55d_approx:
+            return None
+
+    # Gate 3 — daily RSI rising
+    rsi = _rsi_series(close, 14)
+    rsi_now  = float(rsi.iloc[-1])
+    rsi_prev = float(rsi.iloc[-2])
+    if np.isnan(rsi_now) or np.isnan(rsi_prev):
+        return None
+    if rsi_now <= rsi_prev:
+        return None
+    if rsi_now >= 80.0:   # anti-chase
+        return None
+
+    # Gate 4 — weekly RSI rising (sample close every 5 bars as a weekly proxy)
+    weekly_close = close.iloc[::5]
+    if len(weekly_close) < 16:
+        return None
+    wrsi = _rsi_series(weekly_close, 14)
+    wrsi_now  = float(wrsi.iloc[-1])
+    wrsi_prev = float(wrsi.iloc[-2])
+    if np.isnan(wrsi_now) or np.isnan(wrsi_prev):
+        return None
+    if wrsi_now <= wrsi_prev:
+        return None
+
+    # Gate 5 — 52-week high crossover within the last 5 sessions
+    hi_52 = float(df["high"].iloc[-252:-1].max()) if len(df) >= 253 else float(
+        df["high"].iloc[:-1].max())
+    if hi_52 <= 0:
+        return None
+    # Did any session in the last 5 close above the prior 52W high?
+    recent_closes = close.iloc[-5:]
+    cross_occurred = bool((recent_closes > hi_52).any())
+    pct_from_52w = (last - hi_52) / hi_52 * 100
+    if not cross_occurred and pct_from_52w < -1.0:
+        return None   # neither crossed nor hugging the high
+
+    reasons = [
+        f"55-day return {ret_55d * 100:.1f}% — absolute RS positive (ARS proxy: stock "
+        "is stronger than it was 55 days ago)",
+        f"Daily RSI {rsi_now:.0f} rising from {rsi_prev:.0f}; "
+        f"Weekly RSI {wrsi_now:.0f} rising from {wrsi_prev:.0f} — "
+        "dual-timeframe momentum aligned",
+        ("52-week high crossover in the last 5 sessions"
+         if cross_occurred else
+         f"Hugging 52-week high ({hi_52:.0f}), {pct_from_52w:+.1f}%)"),
+        f"RSI {rsi_now:.0f} < 80 — momentum active, not exhausted",
+    ]
+    if bmk_wret is not None:
+        reasons.insert(1, "Benchmark-relative 55-day return positive (RSMkt55Days proxy)")
+
+    # Score: weight the triple-RS quality + proximity to the 52W high
+    rs_strength = min(ret_55d * 100, 30.0) / 30.0 * 40   # 55d return up to 30% → 40 pts
+    di_score    = min(max(rsi_now - 50.0, 0.0), 18.0) / 18.0 * 30  # RSI 50-68 → up to 30 pts
+    hi_score    = max(0.0, 5.0 - abs(pct_from_52w)) / 5.0 * 30     # within 5% of high → 30 pts
+    score = round(float(max(0.0, min(rs_strength + di_score + hi_score, 100.0))), 1)
+
+    return {
+        "pattern_type": "Triple-RS 52W Cross",
+        "tags": [f"ARS {ret_55d * 100:.0f}%", f"RSI {rsi_now:.0f}↑",
+                 f"wRSI {wrsi_now:.0f}↑",
+                 "52W cross" if cross_occurred else f"{pct_from_52w:+.1f}% from 52W"],
+        "reasons": reasons,
+        "score": score,
+        "rs_raw": round(_rs_raw(df), 3),
+        "ret_55d_pct": round(ret_55d * 100, 1),
+        "rsi_now": round(rsi_now, 1),
+        "wrsi_now": round(wrsi_now, 1),
+        "pct_from_52w_high": round(pct_from_52w, 2),
+        "cross_occurred": cross_occurred,
+    }
+
+
 SCANNERS: dict[str, dict] = {
     "52-Week High Leaders": {
         "fn": scan_52w_high_leaders,
@@ -4552,15 +4993,25 @@ SCANNERS: dict[str, dict] = {
         "fn": scan_rsi_divergence_bull,
         "description": (
             "Bullish RSI divergence on the last closed daily bar — price made a "
-            "lower pivot low within the last 10 bars while RSI(14) made a higher "
-            "low (divergence ≥3 RSI points), with RSI now already rising above the "
-            "divergence low. RSI at the low must be ≤60 (overbought divergence is "
-            "noise). Score rises with depth of oversold (≤35 → +15, ≤45 → +8), "
-            "divergence magnitude (gap ≥10 pts → +10), and recency (≤3 bars → +5). "
-            "Emits entry at current close, stop 0.5×ATR below the second pivot low, "
-            "2R target, and a 10-bar time stop. Unmeasured."
+            "lower pivot low within the last 3 bars (pivot_len=3 symmetry) while "
+            "RSI(14) made a higher low (divergence ≥3 RSI points), with RSI now "
+            "already rising above the divergence low. RSI at the low must be ≤60. "
+            "Score rises with depth of oversold (≤35 → +15, ≤45 → +8) and "
+            "divergence magnitude (gap ≥10 pts → +10). Unmeasured."
         ),
         "category": "Entry",
+    },
+    "RSI Divergence Bear": {
+        "fn": scan_rsi_divergence_bear,
+        "description": (
+            "Bearish RSI divergence on the last closed daily bar — price made a "
+            "higher pivot high within the last 3 bars (pivot_len=3 symmetry) while "
+            "RSI(14) made a lower high (divergence ≥3 RSI points), with RSI now "
+            "already rolling over below the divergence high. RSI at the high must "
+            "be ≥40. Score rises with overbought depth (≥65 → +15, ≥55 → +8) and "
+            "divergence magnitude (gap ≥10 pts → +10). Emits short/exit entry. Unmeasured."
+        ),
+        "category": "Risk",
     },
     "Darvas Box": {
         "fn": scan_darvas_box,
@@ -4834,6 +5285,44 @@ SCANNERS: dict[str, dict] = {
         ),
         "category": "Pattern",
     },
+    "EMA-50 Coil": {
+        "fn": scan_ema50_coil,
+        "description": (
+            "EMA-50 coiled-spring breakout (Ashok Daniel StockEdge scanner). "
+            "Captures quality stocks resting within 2% of their 50-EMA floor that "
+            "break out on institutional volume before the trend becomes obvious. "
+            "Five gates: Close > EMA200 (uptrend) + ADX(14) > 25 & rising + "
+            "+DI > -DI + Close within ±2% of EMA-50 + Close > 1.03× prior close "
+            "on volume > 20-day avg. The ±2% proximity gate is the key new mechanic "
+            "from the StockEdge Epic Scanner compilation — rest-before-thrust, not chase."
+        ),
+        "category": "Entry",
+    },
+    "RSI Mid-Band Momentum": {
+        "fn": scan_rsi_band_momentum,
+        "description": (
+            "RSI 50–68 mid-band momentum (Patel Yash Ashokbhai StockEdge scanner). "
+            "Targets momentum stocks approaching new highs without being overbought. "
+            "The RSI UPPER cap (68) is the key new mechanic — it explicitly excludes "
+            "extended stocks, creating a setup-zone scan rather than a chase scan. "
+            "Gates: within 10% of 52-week high + RSI(14) in [50, 68] + SMA20 > SMA50 "
+            "+ Close > SMA50 + RSI rising vs prior day."
+        ),
+        "category": "Momentum",
+    },
+    "Triple-RS 52W Cross": {
+        "fn": scan_triple_rs_52w,
+        "description": (
+            "Triple relative-strength + 52-week high crossover (Ashok Taneja StockEdge "
+            "scanner). Requires ALL three RS measures positive simultaneously before "
+            "firing — the triple-gate is the key new mechanic. Price-only equivalents: "
+            "(1) 55-day absolute return > 0 (ARS proxy); (2) 55-day excess return > 0 "
+            "vs benchmark if supplied (RSMkt55Days proxy); (3) daily RSI rising; "
+            "(4) weekly RSI (5-bar sample) rising; (5) 52-week high crossover in last "
+            "5 sessions; (6) RSI < 80 anti-chase gate. One RS failure disqualifies."
+        ),
+        "category": "Momentum",
+    },
 }
 
 
@@ -4955,6 +5444,35 @@ def fetch_fundamentals_yf(symbol: str, use_cache: bool = True) -> dict | None:
             peg = pe / (eg * 100.0)
             peg_src = "calc"
 
+    # Cash flow — try the .cashflow statement (annual, column 0 = most recent FY).
+    # freeCashflow in .info is rarely populated for NSE; the statement is more
+    # reliable.  We accept None gracefully so a missing statement never crashes.
+    fcf_cr = ocf_cr = None
+    try:
+        tk = yf.Ticker(_yf_symbol(symbol))
+        cf = tk.cashflow          # columns = period dates, rows = line items
+        if cf is not None and not cf.empty:
+            # yfinance row labels vary by version — try both casing forms.
+            _ocf_row = next(
+                (r for r in cf.index
+                 if "Operating" in r and "Cash" in r and "Activities" in r), None)
+            _capex_row = next(
+                (r for r in cf.index
+                 if "Capital" in r and ("Expenditure" in r or "Expenditures" in r)), None)
+            if _ocf_row is not None:
+                _ocf_val = cf.loc[_ocf_row].iloc[0]
+                if _ocf_val is not None and not (hasattr(_ocf_val, "__float__") and
+                                                  __import__("math").isnan(float(_ocf_val))):
+                    ocf_cr = round(float(_ocf_val) / 1e7, 1)
+                    if _capex_row is not None:
+                        _capex_val = cf.loc[_capex_row].iloc[0]
+                        if _capex_val is not None:
+                            fcf_cr = round((float(_ocf_val) + float(_capex_val)) / 1e7, 1)
+                        else:
+                            fcf_cr = ocf_cr
+    except Exception:
+        pass
+
     out = {
         "market_cap_cr": round(mc / 1e7) if mc else None,
         "de_ratio": round(de / 100.0, 3) if de is not None else None,
@@ -4964,6 +5482,8 @@ def fetch_fundamentals_yf(symbol: str, use_cache: bool = True) -> dict | None:
         "pe": round(pe, 1) if pe else None,
         "peg": round(peg, 2) if peg is not None else None,
         "peg_src": peg_src,
+        "fcf_cr": fcf_cr,    # free cash flow (OCF − CapEx) in ₹ crore, most recent FY
+        "ocf_cr": ocf_cr,    # operating cash flow in ₹ crore
         # Sector / industry classification (login-free) — used by the Opportunity
         # Hub funnel to rank sector & industry leadership bottom-up.
         "sector": info.get("sector"),

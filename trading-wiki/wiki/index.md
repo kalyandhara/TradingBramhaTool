@@ -1,8 +1,8 @@
 ---
 title: "Wiki Index"
 updated: 2026-08-09
-pages: 238
-sources_ingested: 95
+pages: 239
+sources_ingested: 96
 ---
 
 # Trading Wiki — Index
@@ -21,6 +21,7 @@ _Last updated: 2026-08-07 | Pages: 228 | Sources ingested: 91_
 ## Sources
 | Page | Type | Date | Key Topics |
 |------|------|------|------------|
+| [StockEdge-Epic-Scanner-Compilation-2026-08-14](sources/StockEdge-Epic-Scanner-Compilation-2026-08-14.md) | Screenshot compilation (StockEdge community scanners) | 2026-08-14 | **6 community-built StockEdge scanners.** Common recipe: FIPA quality + EMA stack + multi-TF RS + ATH zone. Scanner 1 (Cheap Fundamental, 10 conditions): **Lupin = sole Perfect Match** (12 Aug 2026, Major Stocks); Anand Rathi Wealth / Castrol / Cummins at 9/10 (missing Low PEG). Scanner 2 (Trend Momentum+, 14 conditions, Abhishek Keskar): EMA200 rising + Close > EMA20 > EMA200 + RSI > 40 + MCap > 1000 + MS1M/3M/6M > 60 + 8 readymade RS/ATH scans. Scanner 3 (Ashok Daniel): coiled-spring — Midcap 150, Beta 0.90–1.25, ADX > 25, **Close within 2% of EMA-50**, Close > 1.03× prior on above-avg volume. Scanner 4 (Ashok Taneja): ROE/ROCE > 15 + triple-RS (RSMkt55D+SRS+ARS > 0) + D/E < 1 + 52W high cross. Scanner 5 (Patel Yash): **RSI 50–68 band** (excludes overbought) + within 10% 52W high + SMA20 > SMA50 + ROE > 15% + Sales growth > 12%. Scanner 6 (Nikhil Mahindre ATH): full EMA10>20>50>200 stack + MS1M/3M/6M ≥ 70 + ADX ≥ 25 + FundamentalScore ≥ 70 + ATH zone + Strong Fundamentals. |
 | [ICT-Quick-Reference-Guide-2026-08-13](sources/ICT-Quick-Reference-Guide-2026-08-13.md) | Infographic (ICT / Inner Circle Trader) | 2026-08-13 | **4-primitive framework: BSL/SSL liquidity pools → MSS with displacement → FVG/OTE entry → target opposite pool.** Displacement is the critical qualifier missing from our current `detect_bos_choch` — a close-above-pivot is not enough for ICT; the break candle must be wide-body institutional quality. OTE = 61.8–79% Fibonacci of the displacement leg (5-line implementation). BSL/SSL are swing high/low clusters where retail stops rest — LuxAlgo's EQH/EQL are the closest proxy we have. Inducement = false breakout into a pool, reversed before the real move. 3 of 4 primitives are implementable with low-medium effort. See [[concepts/ICT-Methodology]] for build-order assessment. |
 | [StockEdge-Company-Filings-2026-08-11](sources/StockEdge-Company-Filings-2026-08-11.md) | Live web snapshot (StockEdge Company Filings) | 2026-08-11 | **Exchange filing aggregator** — NSE/BSE corporate announcements auto-classified into ~50 categories. **Intraday update cadence** (only real-time feed on the platform; all other StockEdge tools are EOD). 30 of ~50+ categories captured (A–E; virtual scroll prevented full extraction). High-signal categories: Bonus · Buyback · Stock Split · Default/Delay · Credit Rating · Clarification Sought · Demerger/Merger · Delisting. "Clarification Sought" = exchange query before news breaks — outsized move precursor. Categorisation: in-house algorithm (automated, not editorial) |
 | [StockEdge-Investment-Themes-2026-08-11](sources/StockEdge-Investment-Themes-2026-08-11.md) | Live web snapshot (StockEdge Investment Themes) | 2026-08-11 | **20 curated thematic watchlists** (IDs 140–169). Newest: Nuclear India (9 stocks, Jul 2026) · Bengal Rise (18, Jun 2026). 2026 additions energy/infra-heavy: Nuclear · Renewable Energy · Defence & Aerospace · Data Centers (20 stocks, largest) · Semiconductors · India-EU FTA · Asset & Wealth Mgmt · Market Infrastructure. Evergreen: MOATS · China+1 · Market Leaders · Cash Cow · Unorganised→Organised. Platform: **editorial watchlists** (not scans, not EOD-updated). No oil/trading themes despite crude being day's catalyst — these are structural long-term baskets |

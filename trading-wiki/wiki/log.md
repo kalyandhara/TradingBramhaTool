@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-14] ingest | StockEdge Epic Scanner Compilation — 6 community scanners
+- **Source:** Obsidian note `epic stock scanner.md` (Trading_Bramha vault) — screenshot compilation from StockEdge community scanner builder
+- **Pages created:** [[sources/StockEdge-Epic-Scanner-Compilation-2026-08-14]]
+- **Pages updated:** [[wiki/index.md]], [[wiki/log.md]]
+- **Key insight:** Six community-built StockEdge scanners ranging from pure fundamental (10-condition FIPA quality screen) to composite momentum+fundamentals. Common pattern: FIPA quality filter + EMA trend structure + multi-timeframe RS gate + ATH zone. **Lupin Ltd. is the sole Major Stock hitting all 10 conditions of the Cheap Fundamental scanner as of 12 Aug 2026.** Three net-new mechanics worth adopting: (1) `Close within 2% of EMA-50` rest-before-thrust gate (Ashok Daniel), (2) RSI 50–68 band to exclude overbought (Patel Yash), (3) MS1M/MS3M/MS6M ≥ 60–70 momentum score triple-gate.
+
 ## [2026-08-13] ingest | ICT Quick Reference Guide — Liquidity Pools, MSS, FVG, OTE, Execution Blueprint
 - **Source:** User-provided screenshot — ICT (Inner Circle Trader) Quick Reference Guide infographic
 - **Raw file:** `.raw/images/ict-quick-reference-guide-2026-08-13.md`
