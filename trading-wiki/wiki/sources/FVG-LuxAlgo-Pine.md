@@ -11,7 +11,7 @@ related: [entities/LuxAlgo, concepts/Fair-Value-Gap, sources/LuxAlgo-Smart-Money
 # TradingView — Fair Value Gap [LuxAlgo]
 
 ## Metadata
-- Author: © [[LuxAlgo]]
+- Author: © [[entities/LuxAlgo]]
 - Source: https://www.tradingview.com/script/jWY4Uiez-Fair-Value-Gap-LuxAlgo/
 - License: open-source (LuxAlgo's standard release terms are CC BY-NC-SA 4.0 — attribution / non-commercial / share-alike; any port must credit LuxAlgo and stay non-commercial)
 - Format: TradingView Pine Script overlay indicator
@@ -56,4 +56,4 @@ No new contradiction. The existing FVG-page contradiction (LuxAlgo's **wick-thro
 
 ## Pages Updated
 - [[concepts/Fair-Value-Gap]] — added the standalone indicator's variant (dashboard fill%/avg-duration, Dynamic mitigation, `close[1]` directional gate).
-- [[LuxAlgo]] — added this as a second ingested contribution.
+- [[entities/LuxAlgo]] — added this as a second ingested contribution.

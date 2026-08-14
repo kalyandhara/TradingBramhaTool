@@ -11,7 +11,7 @@ related: [entities/LuxAlgo, concepts/Market-Structure-CHOCH-BOS, concepts/Order-
 # Pine Script — Smart Money Concepts [LuxAlgo]
 
 ## Metadata
-- Author: © [[LuxAlgo]]
+- Author: © [[entities/LuxAlgo]]
 - License: CC BY-NC-SA 4.0 (Attribution-NonCommercial-ShareAlike) — **non-commercial**; a port must credit LuxAlgo and stay non-commercial + share-alike
 - Format: Pine Script **v5** indicator, `overlay = true`, `max_labels_count = 500`, `max_lines_count = 500`, `max_boxes_count = 500`
 - Ingested: 2026-07-16 (pasted source code)

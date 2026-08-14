@@ -48,4 +48,4 @@ related: [concepts/Market-Structure-CHOCH-BOS, concepts/Order-Flow, concepts/Rev
 - No live-ticker example yet.
 
 ## Sources
-1. [LuxAlgo-Smart-Money-Concepts-Pine](../sources/LuxAlgo-Smart-Money-Concepts-Pine.md) — Pine v5 indicator by [[LuxAlgo]] (CC BY-NC-SA 4.0), ingested 2026-07-16; the ATR-threshold equality test, dotted-line join, and bars-confirmation parameter are from this script.
+1. [LuxAlgo-Smart-Money-Concepts-Pine](../sources/LuxAlgo-Smart-Money-Concepts-Pine.md) — Pine v5 indicator by [[entities/LuxAlgo]] (CC BY-NC-SA 4.0), ingested 2026-07-16; the ATR-threshold equality test, dotted-line join, and bars-confirmation parameter are from this script.

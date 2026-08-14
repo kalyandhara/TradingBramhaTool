@@ -32,7 +32,7 @@ related: [strategies/Systematic-Strategy-Search.md, concepts/Capital-Management-
 The book opens with the standard trading-system composition: Theory formation → Testing → Capital management → Risk control → Performance evaluation → Optimization. It covers backtest vs. forward test vs. multicurrency/multiperiod testing (recommended 5yr backtest for daily charts, ≥1yr for intraday), and the 8-step optimization workflow (describe strategy → preliminary test → choose data period → test → identify params → set param boundaries → choose optimization algorithm + criteria → select best params and iteratively narrow).
 
 ### Risk control (Ch. 2)
-Maximum Loss Amount sizing (per-position % risk × max open positions ≤ max account drawdown tolerance, with worked "survival days" examples for a $10k account at various daily drawdown limits). Stop types: initial, trailing, take profit, breakeven, timed. Portfolio diversification guidelines: ≤10% capital per asset, ≤20% per sector — directly comparable to [[analyses/Kalyan-Trading-Philosophy.md]]'s existing single-stock <10% / SME <20% rules (same numbers, independently arrived at).
+Maximum Loss Amount sizing (per-position % risk × max open positions ≤ max account drawdown tolerance, with worked "survival days" examples for a $10k account at various daily drawdown limits). Stop types: initial, trailing, take profit, breakeven, timed. Portfolio diversification guidelines: ≤10% capital per asset, ≤20% per sector — directly comparable to [[analyses/Kalyan-Trading-Philosophy]]'s existing single-stock <10% / SME <20% rules (same numbers, independently arrived at).
 
 ### Indicator normalization (Ch. 3)
 Min-max scaling of any indicator to a common 0-100 range via `(current - min) / (max - min) * 100` using rolling historical min/max — allows combining indicators of very different native scales (e.g. ADX vs. raw price) in a single signal condition. Minor technique, not given its own page; relevant if building multi-indicator confluence scores like [[strategies/PMax-Confluence-Strategy]].
@@ -47,7 +47,7 @@ Large portions of the book (microservices vs. monolith, Kubernetes pod-per-strat
 - The min-max indicator normalization technique (Ch.3) could simplify combining oscillators of different scales in confluence scores.
 
 ## Contradictions with Existing Wiki
-- None directly contradictory. [[analyses/Kalyan-Trading-Philosophy.md]]'s portfolio % limits (single stock <10%, SME <20%) independently match this book's diversification guidelines (≤10% per asset, ≤20% per sector) — mutually reinforcing, not contradictory.
+- None directly contradictory. [[analyses/Kalyan-Trading-Philosophy]]'s portfolio % limits (single stock <10%, SME <20%) independently match this book's diversification guidelines (≤10% per asset, ≤20% per sector) — mutually reinforcing, not contradictory.
 
 ## Pages Updated
 - Created: wiki/sources/Dolzhenko-Algorithmic-Trading-Systems-2024.md (this page)

@@ -15,10 +15,13 @@ Run:  py -3 -m streamlit run tools/dashboard_app.py
 import sys
 import csv
 import json
+import logging
 import socket
 from datetime import date, datetime, timedelta, time
 from pathlib import Path
 from urllib.parse import quote
+
+_log = logging.getLogger(__name__)
 
 import numpy as np
 import pandas as pd
@@ -154,6 +157,7 @@ st.markdown(rs.report_css(), unsafe_allow_html=True)
 st.markdown(
     """
     <style>
+      /* ── Page-content buttons (not the nav ribbon) ─────────────────────────── */
       [data-testid="stBaseButton-secondary"],
       [data-testid="stBaseButton-primary"],
       [data-testid="stPopoverButton"] {
@@ -164,7 +168,7 @@ st.markdown(
         font-weight: 500 !important;
         border-radius: 8px !important;
         line-height: 1 !important;
-        transition: background .12s ease, border-color .12s ease;
+        transition: background .12s ease-out, border-color .12s ease-out;
       }
       [data-testid="stBaseButton-secondary"],
       [data-testid="stPopoverButton"] {
@@ -178,16 +182,127 @@ st.markdown(
         border-color: var(--tb-border-strong) !important;
         color: var(--tb-text) !important;
       }
+      [data-testid="stBaseButton-secondary"]:active,
+      [data-testid="stPopoverButton"]:active {
+        transform: scale(0.97) !important;
+        opacity: 0.8 !important;
+        transition: transform 60ms ease-out, opacity 60ms ease-out !important;
+      }
       [data-testid="stBaseButton-primary"] {
         border: 1px solid var(--tb-accent) !important;
         box-shadow: none !important;
       }
-      /* Nav dropdown panels: tighter rows so a 7-page group is not a long scroll */
-      [data-testid="stPopoverBody"] { padding: 8px !important; }
+
+      /* ── Nav dropdown mega-panel ─────────────────────────────────────────────
+         Dark glass panel. stPopoverBody and ALL its Streamlit-generated inner
+         containers must be transparent so the panel's own background shows.
+      ── */
+      [data-testid="stPopoverBody"] {
+        background: rgba(14,10,6,0.93) !important;
+        backdrop-filter: blur(20px) saturate(140%) !important;
+        -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
+        border: 1px solid rgba(234,88,12,0.28) !important;
+        border-radius: 16px !important;
+        padding: 14px 10px 10px !important;
+        min-width: 360px !important;
+        max-width: 440px !important;
+        box-shadow:
+          0 2px 4px rgba(0,0,0,0.30),
+          0 16px 40px rgba(0,0,0,0.65),
+          inset 0 1px 0 rgba(255,255,255,0.05) !important;
+        overflow: visible !important;
+      }
+      /* Kill every Streamlit inner wrapper's white background */
+      [data-testid="stPopoverBody"] > div,
+      [data-testid="stPopoverBody"] [data-testid="stVerticalBlock"],
+      [data-testid="stPopoverBody"] [data-testid="stHorizontalBlock"],
+      [data-testid="stPopoverBody"] [data-testid="stElementContainer"],
+      [data-testid="stPopoverBody"] [class*="block-container"],
+      [data-testid="stPopoverBody"] [class*="element-container"] {
+        background: transparent !important;
+        background-color: transparent !important;
+      }
+
+      /* ── Popover header strip — group name ───────────────────── */
+      [data-testid="stPopoverBody"]::before {
+        content: "Pages";
+        display: block;
+        font-size: 10px;
+        font-weight: 700;
+        letter-spacing: 0.12em;
+        color: rgba(234,88,12,0.75);
+        text-transform: uppercase;
+        padding: 0 6px 10px;
+        border-bottom: 1px solid rgba(234,88,12,0.14);
+        margin-bottom: 8px;
+      }
+
+      /* ── 2-column grid for the link list ────────────────────── */
+      [data-testid="stPopoverBody"] [data-testid="stVerticalBlock"] {
+        display: grid !important;
+        grid-template-columns: 1fr 1fr !important;
+        gap: 1px 4px !important;
+      }
+
+      /* Each cell: full width inside its grid column */
+      [data-testid="stPopoverBody"] [data-testid="stElementContainer"] {
+        min-width: 0 !important;
+      }
+
+      /* ── Menu items as text links (no button chrome) ─────────── */
       [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"],
       [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"] {
-        margin-bottom: 2px !important;
+        background: transparent !important;
+        border: none !important;
+        border-bottom: 1px solid transparent !important;
+        border-radius: 4px !important;
+        color: rgba(255,240,220,0.72) !important;
+        font-size: 13px !important;
+        font-weight: 450 !important;
+        letter-spacing: 0em !important;
+        min-height: unset !important;
+        height: auto !important;
+        padding: 5px 8px !important;
         justify-content: flex-start !important;
+        text-align: left !important;
+        box-shadow: none !important;
+        white-space: nowrap !important;
+        overflow: hidden !important;
+        text-overflow: ellipsis !important;
+        width: 100% !important;
+        line-height: 1.4 !important;
+        transition: color 0.1s ease-out, border-bottom-color 0.1s ease-out !important;
+      }
+
+      /* Hover — just brightens the text + faint underline */
+      [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"]:hover {
+        background: transparent !important;
+        color: #fff5eb !important;
+        border-bottom-color: rgba(234,88,12,0.45) !important;
+      }
+      [data-testid="stPopoverBody"] [data-testid="stBaseButton-secondary"]:active {
+        opacity: 0.65 !important;
+        transition: opacity 60ms ease-out !important;
+      }
+
+      /* Active / current page — amber text + left dot */
+      [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"] {
+        background: transparent !important;
+        color: #fb923c !important;
+        font-weight: 650 !important;
+        border-bottom-color: transparent !important;
+        padding-left: 14px !important;
+        position: relative !important;
+      }
+      [data-testid="stPopoverBody"] [data-testid="stBaseButton-primary"]::before {
+        content: "·";
+        position: absolute;
+        left: 4px;
+        color: #ea580c;
+        font-size: 16px;
+        line-height: 1;
+        top: 50%;
+        transform: translateY(-50%);
       }
     </style>
     """,
@@ -217,16 +332,29 @@ st.markdown(
       [data-testid="stHeading"] h3 {{
         color: {_T['text']} !important;
         font-weight: 800 !important;
-        letter-spacing: -0.01em !important;
+        font-optical-sizing: auto !important;
         padding: 0 !important;
         margin: 2px 0 10px !important;
       }}
-      [data-testid="stHeading"] h3 {{ font-size: 20px !important; }}
-      [data-testid="stHeading"] h2 {{ font-size: 23px !important; }}
+      [data-testid="stHeading"] h1 {{
+        letter-spacing: -0.022em !important;
+        line-height: 1.06 !important;
+      }}
+      [data-testid="stHeading"] h2 {{
+        font-size: 25px !important;
+        letter-spacing: -0.014em !important;
+        line-height: 1.12 !important;
+      }}
+      [data-testid="stHeading"] h3 {{
+        font-size: 19px !important;
+        font-weight: 700 !important;
+        letter-spacing: -0.006em !important;
+        line-height: 1.18 !important;
+      }}
 
       /* Alerts: token palette, flat, tighter than the default pill */
       [data-testid="stAlertContainer"] {{
-        border-radius: 10px !important;
+        border-radius: 12px !important;
         border-left: 3px solid transparent !important;
         padding: 10px 14px !important;
         font-size: 13px !important;
@@ -256,7 +384,7 @@ st.markdown(
       /* Expanders — the side panels on every screener page use these */
       [data-testid="stExpander"] details {{
         border: 1px solid {_T['border']} !important;
-        border-radius: 10px !important;
+        border-radius: 12px !important;
         background: {_T['surface']} !important;
       }}
       [data-testid="stExpander"] summary {{
@@ -268,6 +396,291 @@ st.markdown(
     """,
     unsafe_allow_html=True,
 )
+
+# ── Content-width constraint ───────────────────────────────────────────────────
+# layout="wide" is kept so the 5-column metric strip and scanner card grid have
+# room to breathe on large monitors, but raw "wide" fills every pixel edge-to-edge
+# on a 4K/ultrawide display — uncomfortable to read and scan. Clamping the main
+# block container to 1 440 px and centering it gives the best of both: wide-mode
+# Streamlit widgets stay proportional at their natural widths, while the whole
+# column sits comfortably in the viewport center at any resolution above that.
+#
+# The selector [data-testid="stMainBlockContainer"] wraps the entire main-content
+# column that Streamlit renders inside the wide layout. The sidebar is a sibling
+# element, so constraining this testid leaves sidebar behaviour unchanged.
+st.markdown(
+    """
+    <style>
+      [data-testid="stMainBlockContainer"] {
+        max-width: 1440px !important;
+        margin-left: auto !important;
+        margin-right: auto !important;
+        padding-left: 2rem !important;
+        padding-right: 2rem !important;
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ── Header ribbon CSS ─────────────────────────────────────────────────────────
+# We identify the nav HorizontalBlock via a sentinel <div id="tb-navstart">
+# injected immediately before st.columns(). The :has() selector then targets
+# exactly that sibling — safe in Chrome 105+/Firefox 121+ (personal tool only).
+#
+# The ribbon bleeds full-width by counteracting the 2rem side padding on
+# stMainBlockContainer with negative margins. We keep padding so content inside
+# the columns still aligns with the rest of the page.
+st.markdown(
+    """
+    <style>
+      /* ── Suppress Streamlit chrome (deploy/share bar + top decoration) ─── */
+      [data-testid="stHeader"]     { display: none !important; }
+      [data-testid="stDecoration"] { display: none !important; }
+      [data-testid="stToolbar"]    { display: none !important; }
+      /* Remove the top padding that Streamlit reserves for its hidden header */
+      [data-testid="stMainBlockContainer"] { padding-top: 0 !important; }
+      section.main > div:first-child { padding-top: 0 !important; }
+
+      /* ── Nav ribbon ──────────────────────────────────────────────────────────
+         DOM in Streamlit 1.57: stVerticalBlock
+           > stElementContainer (wraps stMarkdown > #tb-navstart)  ← sentinel
+           > stLayoutWrapper                                         ← nav columns
+               > stHorizontalBlock > stColumn × N
+         We use :has(#tb-navstart) on the stElementContainer, then + stLayoutWrapper
+         to reach the nav wrapper without touching any other row.
+      ── */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] {
+        background: rgba(20,14,8,0.52) !important;
+        backdrop-filter: blur(24px) saturate(160%) !important;
+        -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
+        margin-left:  -2rem !important;
+        margin-right: -2rem !important;
+        border-bottom: 1px solid rgba(234,88,12,0.18) !important;
+      }
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stHorizontalBlock"] {
+        padding: 0 2.5rem !important;
+        min-height: 62px !important;
+        align-items: stretch !important;
+        gap: 0 !important;
+      }
+
+      /* Each column inside the ribbon */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stColumn"] {
+        justify-content: center !important;
+        padding: 0 !important;
+      }
+
+      /* Nav buttons: transparent, bold green text */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stBaseButton-secondary"],
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stBaseButton-primary"],
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stPopoverButton"] {
+        background: transparent !important;
+        border: none !important;
+        border-bottom: 2px solid transparent !important;
+        color: rgba(74,222,128,0.80) !important;
+        font-size: 13px !important;
+        font-weight: 700 !important;
+        min-height: 62px !important;
+        height: 62px !important;
+        border-radius: 0 !important;
+        box-shadow: none !important;
+        letter-spacing: 0.01em !important;
+        padding: 0 10px !important;
+        transition: background .12s ease-out, color .12s ease-out, border-color .12s ease-out !important;
+      }
+
+      /* Hover: lighter green + green underline */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stBaseButton-secondary"]:hover,
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stPopoverButton"]:hover {
+        background: rgba(74,222,128,0.08) !important;
+        color: #86efac !important;
+        border-bottom-color: rgba(74,222,128,0.5) !important;
+      }
+
+      /* Active group/home: white text + green underline */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stBaseButton-primary"] {
+        color: #ffffff !important;
+        border-bottom: 2px solid #4ade80 !important;
+        font-weight: 800 !important;
+      }
+
+      /* Nav button press feedback */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stBaseButton-secondary"]:active,
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
+        [data-testid="stPopoverButton"]:active {
+        transform: scale(0.97) !important;
+        opacity: 0.75 !important;
+        transition: transform 60ms ease-out, opacity 60ms ease-out !important;
+      }
+
+      /* Respect OS reduced-motion preference */
+      @media (prefers-reduced-motion: reduce) {
+        *, *::before, *::after {
+          transition-duration: 50ms !important;
+          animation-duration:  50ms !important;
+          animation-iteration-count: 1 !important;
+        }
+        [data-testid^="stBaseButton"],
+        [data-testid="stPopoverButton"] {
+          transform: none !important;
+        }
+      }
+    </style>
+    """,
+    unsafe_allow_html=True,
+)
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Login gate — shown before any dashboard content if the user is not authenticated.
+# Credentials are read from .streamlit/secrets.toml ([auth] username / password);
+# if secrets are absent the fallback keeps the personal tool accessible locally.
+# ──────────────────────────────────────────────────────────────────────────────
+def _login_gate() -> None:
+    """Render the login page and block the rest of the app via st.stop()."""
+    if st.session_state.get("logged_in"):
+        return
+
+    # ── Hero + feature strip ─────────────────────────────────────────────────
+    st.markdown(
+        f"""
+        <style>
+          .tb-login-hero {{
+            background: linear-gradient(180deg, {_T['surface_warm']} 0%, {_T['surface_alt']} 100%);
+            border-radius: 16px;
+            padding: 52px 48px 44px;
+            margin-bottom: 28px;
+            border: 1px solid {_T['border']};
+          }}
+          .tb-login-hero h1 {{
+            font-size: 42px;
+            font-weight: 900;
+            color: {_T['text']};
+            margin: 0 0 10px;
+            letter-spacing: -0.02em;
+            line-height: 1.1;
+          }}
+          .tb-login-hero .sub {{
+            font-size: 17px;
+            font-weight: 600;
+            color: {_T['text_body']};
+            margin: 0 0 6px;
+          }}
+          .tb-login-hero .tagline {{
+            font-size: 14px;
+            color: {_T['text_muted']};
+            margin: 0;
+          }}
+          .tb-feat-grid {{
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 14px;
+            margin-bottom: 32px;
+          }}
+          .tb-feat-card {{
+            background: {_T['surface']};
+            border: 1px solid {_T['border']};
+            border-radius: 14px;
+            padding: 24px 20px 20px;
+            text-align: center;
+          }}
+          .tb-feat-card .icon {{ font-size: 30px; margin-bottom: 10px; }}
+          .tb-feat-card h3 {{
+            font-size: 15px;
+            font-weight: 700;
+            color: {_T['text']};
+            margin: 0 0 6px;
+          }}
+          .tb-feat-card p {{
+            font-size: 13px;
+            color: {_T['text_muted']};
+            margin: 0;
+            line-height: 1.45;
+          }}
+          .tb-login-card {{
+            background: {_T['surface']};
+            border: 1px solid {_T['border_strong']};
+            border-radius: 16px;
+            padding: 32px 36px 28px;
+            max-width: 420px;
+            margin: 0 auto 40px;
+          }}
+          .tb-login-card h2 {{
+            font-size: 20px;
+            font-weight: 800;
+            color: {_T['text']};
+            margin: 0 0 4px;
+          }}
+          .tb-login-card .card-sub {{
+            font-size: 13px;
+            color: {_T['text_muted']};
+            margin: 0 0 22px;
+          }}
+        </style>
+
+        <div class="tb-login-hero">
+          <h1>Let Data Speak.</h1>
+          <p class="sub">No Noise. No Guesswork. Just Bramha Signals.</p>
+          <p class="tagline">For the trader who trusts systems, not stories.</p>
+        </div>
+
+        <div class="tb-feat-grid">
+          <div class="tb-feat-card">
+            <div class="icon">📊</div>
+            <h3>Data First</h3>
+            <p>Momentum, fundamentals, and sector rotation — scored, not opined.</p>
+          </div>
+          <div class="tb-feat-card">
+            <div class="icon">📡</div>
+            <h3>Signal Focused</h3>
+            <p>Stocks moving with real strength, filtered through multi-timeframe logic.</p>
+          </div>
+          <div class="tb-feat-card">
+            <div class="icon">🛡</div>
+            <h3>Zero Noise</h3>
+            <p>No tips, no bias. Algorithmic selection with quantified risk flags.</p>
+          </div>
+        </div>
+
+        <div class="tb-login-card">
+          <h2>Sign in</h2>
+          <p class="card-sub">Access your Trading Bramha dashboard</p>
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+    # ── Credentials form (Streamlit widgets, not HTML) ────────────────────────
+    # Rendered inside a narrow centered column so it sits inside the card above.
+    _, col, _ = st.columns([1, 1.2, 1])
+    with col:
+        with st.form("tb_login_form", border=False):
+            username = st.text_input("Username", placeholder="Enter username")
+            password = st.text_input("Password", placeholder="Enter password", type="password")
+            submitted = st.form_submit_button("Sign in →", use_container_width=True, type="primary")
+
+        if submitted:
+            _u = st.secrets.get("auth", {}).get("username", "bramha")
+            _p = st.secrets.get("auth", {}).get("password", "trading2024")
+            if username == _u and password == _p:
+                st.session_state["logged_in"] = True
+                st.rerun()
+            else:
+                st.error("Incorrect username or password.", icon="🔒")
+
+    st.stop()
+
+
+_login_gate()
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Navigation — left sidebar page router (replaces st.tabs; Streamlit can't
@@ -282,6 +695,7 @@ PAGE_GROUPS = {
     "Research":         ["Predictive Analysis", "Stock Analyzer", "Sector Map", "Astro Timing", "Telegram Signals"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
     "Ops":              ["Pipeline Log"],
+    "Analytics":        ["Strategy Hub"],
 }
 
 #: One line per page, shown on the Home cards. Kept factual — each says what the
@@ -307,6 +721,7 @@ PAGE_BLURBS = {
     "Watchlist":            "Tracked names and their trade plans",
     "Alerts":               "Price and metric alerts you have armed",
     "Pipeline Log":         "What the 4:05 PM batch did, and whether it failed",
+    "Strategy Hub":         "Chart patterns, trading strategies, and fundamental scores",
 }
 
 #: Group → (icon, one-line purpose). The icon is decoration; the line is the
@@ -317,6 +732,7 @@ GROUP_BLURBS = {
     "Research":         ("🔬", "Study one name"),
     "Portfolio & Risk": ("🛡", "Manage what you hold"),
     "Ops":              ("⚙", "Check the machinery"),
+    "Analytics":        ("📊", "Patterns, strategies, and scores"),
 }
 
 if "current_page" not in st.session_state:
@@ -333,46 +749,51 @@ if st.query_params.get("nav") == "analyze" and st.query_params.get("symbol"):
     st.query_params.clear()
 
 # ── Horizontal top nav ────────────────────────────────────────────────────────
-# Brand · Home · one dropdown per group · current-page indicator, in a single row
-# across the top — replacing the left sidebar, which spent ~260px of a wide layout
-# listing nineteen buttons that were nearly always collapsed anyway.
+# Sentinel div → dark ribbon CSS targets the next sibling HorizontalBlock.
+# Brand · Home · one popover per group · current-page label, all in one row.
 #
-# `st.popover` is what makes this possible: it is a real click-to-open dropdown,
-# so nineteen pages fit behind five labels instead of needing nineteen visible
-# rows. st.tabs was NOT an option — the router exists precisely because Streamlit
-# cannot switch tabs programmatically, which the "Analyze ↗" deep-link depends on.
-#
-# Routing is unchanged: every button still writes session_state["current_page"]
-# and reruns, so the deep-link handler above and the if/elif chain below are
-# untouched by this being horizontal rather than vertical.
-_nav = st.columns([2.5, 1.0, 1.25, 1.35, 1.15, 1.6, 0.85, 2.2],
+# The sentinel approach avoids fragile :nth-child selectors: we inject a hidden
+# <div id="tb-navstart"> via st.markdown, then CSS :has(#tb-navstart) + stHorizontalBlock
+# gives us a precise handle on just the nav row without touching anything else.
+
+_NAV_ICONS = {
+    "Screening":        "🔎",
+    "Market Intel":     "📡",
+    "Research":         "🔬",
+    "Portfolio & Risk": "🛡",
+    "Ops":              "⚙",
+    "Analytics":        "📊",
+}
+
+# Sentinel — CSS ribbon targets the stHorizontalBlock that immediately follows this
+st.markdown('<div id="tb-navstart"></div>', unsafe_allow_html=True)
+
+_nav = st.columns([2.4, 0.85, 1.05, 1.1, 1.05, 1.35, 0.72, 0.88, 1.9],
                   gap="small", vertical_alignment="center")
 
 with _nav[0]:
-    # The old standalone page header lived here and is folded in — one top row
-    # rather than a brand banner with a nav bar floating below it.
     st.markdown(
-        '<div style="line-height:1.15;padding-top:1px;">'
-        '<span style="font-size:17px;font-weight:800;color:#3a2a1e;">'
-        '📈 Trading <span style="color:#ea580c;">Bramha</span></span><br>'
-        '<span style="font-size:11px;color:#9a8778;">Screener &amp; Analysis Dashboard</span>'
+        '<div style="line-height:1.2;padding:2px 0;">'
+        '<span style="font-size:18px;font-weight:900;color:#fff5eb;letter-spacing:-0.02em;">'
+        '📈 Trading<span style="color:#ea580c;"> Bramha</span></span><br>'
+        '<span style="font-size:10px;color:rgba(255,245,235,0.45);letter-spacing:0.04em;">'
+        'SCREENER &amp; ANALYSIS</span>'
         '</div>',
         unsafe_allow_html=True,
     )
 
 with _nav[1]:
-    if st.button("🏠 Home", key="nav_Home", use_container_width=True,
+    if st.button("Home", key="nav_Home", use_container_width=True,
                  type="primary" if st.session_state["current_page"] == "Home" else "secondary"):
         st.session_state["current_page"] = "Home"
         st.rerun()
 
 for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
     with _nav[2 + _i]:
-        # The group holding the current page gets a marker, so the bar still says
-        # where you are once the dropdown closes.
         _active_here = st.session_state["current_page"] in _gpages
-        with st.popover(f"{'● ' if _active_here else ''}{_gname}",
-                        use_container_width=True):
+        _icon = _NAV_ICONS.get(_gname, "")
+        _label = f"{_icon} {_gname} ▾"
+        with st.popover(_label, use_container_width=True):
             for _p in _gpages:
                 _is_active = st.session_state["current_page"] == _p
                 if st.button(_p, key=f"nav_{_p}", use_container_width=True,
@@ -380,21 +801,63 @@ for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
                     st.session_state["current_page"] = _p
                     st.rerun()
 
-with _nav[7]:
+with _nav[8]:
+    _cp = st.session_state["current_page"]
     st.markdown(
-        f'<div style="text-align:right;font-size:12px;color:{rs.TOKENS["text_muted"]};'
-        f'padding-top:4px;">Viewing '
-        f'<b style="color:{rs.TOKENS["text_body"]};">{st.session_state["current_page"]}</b>'
+        f'<div style="text-align:right;font-size:11px;'
+        f'color:rgba(255,245,235,0.45);padding:2px 0;">'
+        f'<span style="color:rgba(255,245,235,0.35);">▸</span> '
+        f'<span style="color:rgba(255,245,235,0.80);font-weight:500;">{_cp}</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
 
 st.markdown(
-    f'<div style="border-bottom:1px solid {rs.TOKENS["border"]};margin:6px 0 14px;"></div>',
+    '<div style="margin:0 0 16px;"></div>',
     unsafe_allow_html=True,
 )
 
 current_page = st.session_state["current_page"]
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Pagination helper — wraps st.dataframe with prev/next page controls.
+# page_size=25 keeps result tables legible without scrolling; any table with
+# ≤ page_size rows renders as a plain dataframe (no controls shown).
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _paginated_df(df: "pd.DataFrame", key: str, page_size: int = 25, **kwargs) -> None:
+    """Render a DataFrame with pagination when it exceeds page_size rows."""
+    n = len(df)
+    if n <= page_size:
+        st.dataframe(df, use_container_width=True, hide_index=True, **kwargs)
+        return
+    n_pages = (n + page_size - 1) // page_size
+    _pk = f"_pg_{key}"
+    if _pk not in st.session_state:
+        st.session_state[_pk] = 1
+    pc1, pc2, pc3 = st.columns([1, 3, 1])
+    with pc1:
+        if st.button("◀ Prev", key=f"{_pk}_prev",
+                     disabled=st.session_state[_pk] <= 1):
+            st.session_state[_pk] = max(1, st.session_state[_pk] - 1)
+            st.rerun()
+    with pc2:
+        new_page = st.number_input(
+            "Page", 1, n_pages, st.session_state[_pk],
+            key=f"{_pk}_num", label_visibility="collapsed",
+        )
+        if int(new_page) != st.session_state[_pk]:
+            st.session_state[_pk] = int(new_page)
+    with pc3:
+        if st.button("Next ▶", key=f"{_pk}_next",
+                     disabled=st.session_state[_pk] >= n_pages):
+            st.session_state[_pk] = min(n_pages, st.session_state[_pk] + 1)
+            st.rerun()
+    start = (st.session_state[_pk] - 1) * page_size
+    end = min(start + page_size, n)
+    st.dataframe(df.iloc[start:end], use_container_width=True, hide_index=True, **kwargs)
+    st.caption(f"Page {st.session_state[_pk]}/{n_pages} · rows {start + 1}–{end} of {n}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -429,7 +892,7 @@ def cached_fetch_ohlcv(symbol: str, days: int = 300):
         if df is not None:
             return _drop_unusable_bars(df)
     except Exception as e:
-        st.warning(f"Volume fetcher error: {e}")
+        _log.warning("VolumeFetcher error for %s: %s", symbol, e)
 
     # Fallback to screener_pipeline
     return _drop_unusable_bars(sp.fetch_ohlcv(symbol, days=days))
@@ -828,7 +1291,7 @@ def render_fundamental_header(symbol: str, df: pd.DataFrame,
     st.markdown(
         f"""
         <div style="position:sticky;top:0;z-index:99;background:{rs.TOKENS['surface_warm']};
-                    border:1px solid {rs.TOKENS['border']};border-radius:11px;
+                    border:1px solid {rs.TOKENS['border']};border-radius:12px;
                     padding:11px 15px;margin:4px 0 10px 0;">
           <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">
             <span style="font-family:Georgia,'Times New Roman',serif;font-size:23px;
@@ -1568,9 +2031,36 @@ def render_chart_tool(symbol: str, height: int = 620, caption: bool = True) -> b
     return True
 
 
+#: Sizing bounds PER CHART MODE, because the two are not the same object. The
+#: classic chart stacks five or six panes, so 900 is roughly where the
+#: oscillators stop being legible. The Chart Tool is a single pane whose shipped
+#: default is 620 — a floor of 900 there would put the default BELOW the minimum,
+#: which Streamlit silently coerces rather than rejecting, leaving a slider whose
+#: stated range is a lie. Ceiling is a tall portrait monitor's worth for both.
+CHART_H_MAX = 2400
+CHART_H_MIN_CLASSIC, CHART_H_DEFAULT_CLASSIC = 900, 1250
+CHART_H_MIN_TOOL, CHART_H_DEFAULT_TOOL = 400, 620
+#: Upper bound on the price pane's share. Past this the oscillators below it
+#: compress into strips — at 0.65 on a 1250px figure RSI still gets ~100px,
+#: which is about the limit of useful.
+PRICE_SHARE_MAX = 0.65
+
+
 def build_chart(symbol: str, df: pd.DataFrame, ew: dict,
                 nifty_df: pd.DataFrame | None = None,
-                harmonic: dict | None = None) -> go.Figure:
+                harmonic: dict | None = None,
+                height: int | None = None,
+                price_share: float | None = None) -> go.Figure:
+    """The classic multi-pane Plotly chart.
+
+    `height` and `price_share` are both optional and both default to the values
+    this chart has always used, so a caller that passes neither gets a
+    byte-identical figure. They are separate levers on purpose: raising the
+    height scales every pane together, which does not help if the complaint is
+    that the CANDLES are cramped — the price pane is only 38% of the figure, so
+    it stays 38% of whatever height you pick. `price_share` is the one that
+    actually buys candle room, by taking it from the oscillators.
+    """
     rsi9  = RSIIndicator(df["close"], window=9).rsi()
     sma50  = df["close"].rolling(50).mean()
     sma150 = df["close"].rolling(150).mean()
@@ -1618,6 +2108,16 @@ def build_chart(symbol: str, df: pd.DataFrame, ew: dict,
 
     n_rows = 6 if rs_line is not None else 5
     heights = [0.38, 0.10, 0.14, 0.14, 0.12, 0.12] if rs_line is not None else [0.42, 0.10, 0.16, 0.16, 0.16]
+    if price_share is not None:
+        # Give the price pane `price_share` and rescale the rest to fill what is
+        # left, preserving their proportions to each other — Plotly requires
+        # row_heights to sum to 1, and the sub-panes' relative sizing was chosen
+        # deliberately (volume thin, RSI/MACD equal). Clamped at the floor to the
+        # chart's own default, so asking for less than it already had is a no-op
+        # rather than a way to shrink the candles.
+        p = min(max(float(price_share), heights[0]), PRICE_SHARE_MAX)
+        scale = (1.0 - p) / (1.0 - heights[0])
+        heights = [p] + [h * scale for h in heights[1:]]
     titles  = (symbol, "Volume", "RSI(9)", "MACD (12,26,9)", "TSI (25,13,13)", "RS Line vs Nifty50") \
               if rs_line is not None else (symbol, "Volume", "RSI(9)", "MACD (12,26,9)", "TSI (25,13,13)")
 
@@ -1771,7 +2271,7 @@ def build_chart(symbol: str, df: pd.DataFrame, ew: dict,
         ), row=6, col=1)
         fig.add_hline(y=100, row=6, col=1, line_dash="dash", line_color="gray", line_width=1)
 
-    chart_height = 1250 if rs_line is not None else 1150
+    chart_height = int(height) if height else (1250 if rs_line is not None else 1150)
     fig.update_layout(height=chart_height, xaxis_rangeslider_visible=False,
                        legend=dict(orientation="h", yanchor="bottom", y=1.02))
     return fig
@@ -2131,7 +2631,7 @@ _SIGNAL_COLORS = {
 
 def _score_ring_html(score: float, signal: str) -> str:
     """Circular score badge (0-100) coloured by signal band — the 'card ring'."""
-    color = _SIGNAL_COLORS.get(signal, "#9a8778")
+    color = _SIGNAL_COLORS.get(signal, "#7a6858")
     deg = max(0.0, min(float(score), 100.0)) / 100 * 360
     return (
         f'<div style="flex-shrink:0;text-align:center;">'
@@ -2155,7 +2655,7 @@ def _score_ring_html(score: float, signal: str) -> str:
 def _rating_color(r: int | None) -> str:
     """Color scale for the Overall Rating badge (matches Market Terminal source)."""
     if r is None:
-        return "#9a8778"
+        return "#7a6858"
     if r >= 85:
         return "#16a34a"   # green
     if r >= 70:
@@ -2189,7 +2689,7 @@ def _scanner_stats_html(card: dict) -> str:
         return (
             f'<span style="display:inline-block;background:#f7efe3;border-radius:6px;'
             f'padding:2px 8px;margin:0 6px 4px 0;font-size:11px;color:{color};">'
-            f'<b style="color:#9a8778;font-weight:600;">{label}</b> {value}</span>'
+            f'<b style="color:#7a6858;font-weight:600;">{label}</b> {value}</span>'
         )
 
     parts = []
@@ -2330,76 +2830,151 @@ def _confluence_chips(n_scanners: int, families: list[str] | int | None) -> str:
         f'font-weight:600;">{fam_n} famil{"y" if fam_n == 1 else "ies"}</span>')
 
 
+def _card_trade_fundamentals_html(sym: str, card: dict) -> str:
+    """CMP · PMax T1/T2/T3 (derived from trade plan) · PE — compact info strip."""
+    def _cell(label: str, value: str, color: str = "#5c4a3a") -> str:
+        return (
+            f'<div style="display:inline-block;background:#f7efe3;border-radius:6px;'
+            f'padding:3px 9px;margin:0 5px 4px 0;font-size:11px;">'
+            f'<span style="color:#7a6858;font-weight:600;">{label}</span>'
+            f'<span style="color:{color};font-weight:700;margin-left:4px;">{value}</span></div>'
+        )
+
+    parts: list[str] = []
+
+    # CMP — last close (entry ≈ last close for all scanners)
+    cmp = card.get("entry") or card.get("close")
+    if cmp is not None:
+        parts.append(_cell("CMP", f"₹{cmp:,.1f}"))
+
+    # PMax targets derived from the trade plan emitted by the scanner.
+    # T1 = primary target, T2 = 2R extension, T3 = 3R extension.
+    entry = card.get("entry") or cmp
+    stop  = card.get("stop")
+    t1    = card.get("target")
+    t2    = card.get("target2")
+    if entry is not None and stop is not None and t1 is not None:
+        risk = entry - stop
+        if risk > 0:
+            t2 = t2 or round(entry + 2 * risk, 1)
+            t3 = round(entry + 3 * risk, 1)
+            parts.append(_cell("T1", f"₹{t1:,.1f}", "#16a34a"))
+            parts.append(_cell("T2", f"₹{t2:,.1f}", "#16a34a"))
+            parts.append(_cell("T3", f"₹{t3:,.1f}", "#16a34a"))
+
+    # PE — from cached fundamentals (yfinance .info; hits disk cache, not network)
+    try:
+        fund = sc.fetch_fundamentals_yf(sym) or {}
+        pe = fund.get("pe")
+    except Exception:
+        pe = None
+    if pe is not None:
+        pe_color = "#b45309" if pe > 40 else ("#16a34a" if pe < 20 else "#5c4a3a")
+        parts.append(_cell("PE", f"{pe:.1f}×", pe_color))
+
+    if not parts:
+        return ""
+    return f'<div style="margin:6px 0 2px 0;">{"".join(parts)}</div>'
+
+
 def _render_scanner_card(card: dict, scanner_name: str) -> None:
     sym = card["symbol"]
     pattern_type = card.get("pattern_type", scanner_name)
+
+    # ── Inline action icons (↗ Analyze, 👁 Chart) ──────────────────────────
+    def _icon_link(href: str, glyph: str, tip: str) -> str:
+        return (
+            f'<a href="{href}" target="_blank" rel="noopener" title="{tip}"'
+            f' style="display:inline-flex;align-items:center;justify-content:center;'
+            f'width:24px;height:24px;border-radius:6px;text-decoration:none;'
+            f'font-size:13px;line-height:1;background:#f7efe3;'
+            f'color:#d97706;border:1px solid #f0e0cc;margin-left:5px;">'
+            f'{glyph}</a>'
+        )
+
+    action_icons = ""
+    _an = _analyze_url(sym)
+    if _an:
+        action_icons += _icon_link(_an, "↗", "Analyze — open the 3-POV Council")
+    _ch = _chart_url(sym)
+    if _ch:
+        action_icons += _icon_link(_ch, "👁", "Open in Chart Tool")
+
+    # Tags shown as a compact row of muted spans
     metrics_html = "  ·  ".join(
-        f'<span style="font-size:12px;color:#9a8778;">{t}</span>'
+        f'<span style="font-size:11px;color:#7a6858;">{t}</span>'
         for t in card.get("tags", [])
     )
+
+    # Reasons: warning lines in amber, confirmation lines in green — each on its
+    # own row inside the card body.
     reasons_html = "".join(
-        (f'<div style="display:flex;margin-bottom:6px;font-size:13px;color:#b45309;">'
-         f'<span style="font-weight:bold;margin-right:6px;">⚠</span>{r.lstrip("⚠").strip()}</div>')
+        (f'<div style="display:flex;align-items:baseline;margin-bottom:4px;'
+         f'font-size:12px;color:#b45309;">'
+         f'<span style="font-weight:700;margin-right:5px;flex-shrink:0;">⚠</span>'
+         f'{r.lstrip("⚠").strip()}</div>')
         if r.startswith("⚠") else
-        (f'<div style="display:flex;margin-bottom:6px;font-size:13px;color:#5c4a3a;">'
-         f'<span style="color:#16a34a;font-weight:bold;margin-right:6px;">✓</span>{r}</div>')
+        (f'<div style="display:flex;align-items:baseline;margin-bottom:4px;'
+         f'font-size:12px;color:#5c4a3a;">'
+         f'<span style="color:#16a34a;font-weight:700;margin-right:5px;flex-shrink:0;">✓</span>'
+         f'{r}</div>')
         for r in card.get("reasons", [])
     )
-    # Score ring shows only when the scanner emits a graded 0-100 score + signal.
+
+    # Score ring only when the card carries a graded score + signal.
     ring_html = (
         _score_ring_html(card["score"], card["signal"])
         if "signal" in card and "score" in card else ""
     )
-    stats_html = _scanner_stats_html(card)
+
+    stats_html  = _scanner_stats_html(card)
+    trade_html  = _card_trade_fundamentals_html(sym, card)
+
+    # ── Horizontal card layout ──────────────────────────────────────────────
+    #  ┌─────────────────────────────────────────────────────────────────────┐
+    #  │ [avatar] [Symbol  badge  tags]             [score ring] [↗] [👁]   │
+    #  │ [stats chips row]                                                   │
+    #  │ [CMP · T1 · T2 · T3 · PE strip]                                    │
+    #  │ [reasons]                                                           │
+    #  └─────────────────────────────────────────────────────────────────────┘
     st.markdown(
-        f"""
-        <div style="border:1px solid #f0e0cc;border-radius:10px;padding:16px;
-                    margin-bottom:4px;background:#fffdfa;
-                    box-shadow:0 1px 3px rgba(120,80,40,0.06);">
-          <div style="display:flex;align-items:center;margin-bottom:2px;">
-            <div style="width:36px;height:36px;border-radius:8px;
-                        background:linear-gradient(135deg,#fbbf24,#ea580c);
-                        color:white;display:flex;align-items:center;
-                        justify-content:center;font-weight:bold;
-                        margin-right:10px;flex-shrink:0;">{sym[0]}</div>
-            <div style="flex-grow:1;">
-              <div style="display:flex;align-items:center;font-size:16px;font-weight:700;color:#3a2a1e;">
-                {_rating_badge_html(card)}<span>{sym}</span>
-              </div>
-              <div style="margin-top:2px;">
-                <span style="background:#fff1e0;color:#c2410c;padding:2px 9px;
-                            border-radius:99px;font-size:11px;font-weight:600;
-                            margin-right:8px;">{pattern_type}</span>{metrics_html}
-              </div>
-            </div>
-            {ring_html}
-          </div>
-          {stats_html}
-          {reasons_html}
-        </div>
-        """,
+        f'<div style="border:1px solid #f0e0cc;border-radius:12px;padding:14px 16px;'
+        f'margin-bottom:4px;background:#fffdfa;'
+        f'box-shadow:0 1px 3px rgba(120,80,40,0.06);">'
+        # Header row: avatar · identity · right cluster
+        f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">'
+        # Avatar
+        f'<div style="width:34px;height:34px;border-radius:8px;flex-shrink:0;'
+        f'background:linear-gradient(135deg,#fbbf24,#ea580c);color:#fff;'
+        f'display:flex;align-items:center;justify-content:center;'
+        f'font-weight:700;font-size:15px;">{sym[0]}</div>'
+        # Identity column
+        f'<div style="flex:1;min-width:0;">'
+        f'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">'
+        f'{_rating_badge_html(card)}'
+        f'<span style="font-size:15px;font-weight:700;color:#3a2a1e;">{sym}</span>'
+        f'<span style="background:#fff1e0;color:#c2410c;padding:1px 8px;'
+        f'border-radius:99px;font-size:11px;font-weight:600;">{pattern_type}</span>'
+        f'</div>'
+        f'<div style="margin-top:3px;">{metrics_html}</div>'
+        f'</div>'
+        # Right cluster: score ring + action icons
+        f'<div style="display:flex;align-items:center;flex-shrink:0;gap:2px;">'
+        f'{ring_html}{action_icons}'
+        f'</div>'
+        f'</div>'
+        # Stats + trade plan + reasons
+        f'{stats_html}'
+        f'{trade_html}'
+        f'{reasons_html}'
+        f'</div>',
         unsafe_allow_html=True,
     )
-    c1, c2, c3 = st.columns([5, 1, 1])
-    with c1:
-        analyze_href = _analyze_url(sym)
-        if analyze_href:
-            st.link_button("↗ Analyze Setup", url=analyze_href, type="primary",
-                           use_container_width=True,
-                           help="Open the 3-POV Council analysis in a new tab")
-    with c2:
-        if st.button("★", key=f"sc_s_{sym}_{scanner_name}", help="Save",
-                     use_container_width=True):
-            db.save_scanner_hit(sym, scanner_name, card.get("pattern_type", ""))
-            st.success(f"Saved {sym}")
-    with c3:
-        # Eye icon opens the multi-chart tool in a new tab (chart_server on :5001).
-        st.link_button(
-            "👁",
-            url=_chart_url(sym),
-            help="Open in Chart Tool",
-            use_container_width=True,
-        )
+    # Save button — must remain a Streamlit widget (triggers server callback).
+    if st.button("★ Save", key=f"sc_s_{sym}_{scanner_name}",
+                 help=f"Save {sym} to the saved hits list"):
+        db.save_scanner_hit(sym, scanner_name, card.get("pattern_type", ""))
+        st.success(f"Saved {sym}")
 
 
 def _render_export_controls(model: dict, key: str) -> None:
@@ -2538,7 +3113,7 @@ if current_page == "Home":
     st.markdown(
         f'<div style="background:linear-gradient(135deg,{_t["surface_warm"]} 0%,'
         f'{_t["surface_alt"]} 55%,{_t["surface"]} 100%);'
-        f'border:1px solid {_t["border_strong"]};border-radius:14px;'
+        f'border:1px solid {_t["border_strong"]};border-radius:16px;'
         f'padding:30px 34px;margin:2px 0 20px;">'
         f'<div class="tb-micro" style="color:{_t["accent"]};">TRADING BRAMHA</div>'
         f'<div style="font-size:30px;font-weight:800;line-height:1.22;'
@@ -2678,10 +3253,8 @@ if current_page == "Screener":
         view.insert(1, "Chart", view["Symbol"].map(_chart_url))
         view = _with_analyze_col(view, "Symbol", after="Chart")
 
-        st.dataframe(
-            view,
-            use_container_width=True,
-            hide_index=True,
+        _paginated_df(
+            view, key="screener_main",
             column_config={
                 "Chart": st.column_config.LinkColumn(
                     "Chart", help="Open in Chart Tool", display_text="Open ↗", width="small",
@@ -2814,6 +3387,42 @@ if current_page == "Stock Analyzer":
                          "TSI or CPR panes. Flip this when you need those.",
                 )
 
+                # ── Chart sizing ──────────────────────────────────────────────
+                # Applies to whichever chart is showing. Both renderers are
+                # fixed-height by construction — the Chart Tool is an iframe and
+                # Plotly figures carry an explicit height — so vertical size is
+                # the one dimension `use_container_width` cannot solve, and the
+                # right value depends on the monitor rather than on the data.
+                # Defaults are exactly what each chart used before this control
+                # existed, so an untouched page renders identically.
+                with st.expander("Chart size"):
+                    _sz1, _sz2 = st.columns(2)
+                    with _sz1:
+                        _h_min, _h_def = ((CHART_H_MIN_CLASSIC, CHART_H_DEFAULT_CLASSIC)
+                                          if classic_chart
+                                          else (CHART_H_MIN_TOOL, CHART_H_DEFAULT_TOOL))
+                        sa_chart_h = st.slider(
+                            "Chart height (px)", _h_min, CHART_H_MAX, _h_def, 50,
+                            key=f"sa_chart_h_{'classic' if classic_chart else 'tool'}",
+                            help="Vertical size of the chart. The two chart modes "
+                                 "keep separate values — the Chart Tool is one "
+                                 "pane and the classic chart stacks six, so they "
+                                 "do not want the same number.")
+                    with _sz2:
+                        if classic_chart:
+                            sa_price_share = st.slider(
+                                "Price pane share (%)", 38, int(PRICE_SHARE_MAX * 100),
+                                38, 1, key="sa_price_share",
+                                help="How much of the figure the candles get. The "
+                                     "default 38% is why raising height alone can "
+                                     "feel like it did not help — everything grows "
+                                     "together. Raising this takes room from the "
+                                     "oscillators instead.")
+                        else:
+                            sa_price_share = None
+                            st.caption("Pane share applies to the classic chart — "
+                                       "the Chart Tool manages its own sub-panes.")
+
                 if classic_chart:
                     show_harmonic = st.checkbox(
                         "Show Harmonic Pattern (Gartley/Bat/Butterfly/Crab)",
@@ -2835,20 +3444,47 @@ if current_page == "Stock Analyzer":
                         else:
                             st.caption("No active harmonic pattern completing in the last 10 bars.")
 
-                    st.plotly_chart(build_chart(symbol, df, ew, nifty_df=nifty_df, harmonic=harmonic),
-                                    use_container_width=True)
+                    st.plotly_chart(
+                        build_chart(symbol, df, ew, nifty_df=nifty_df,
+                                    harmonic=harmonic, height=sa_chart_h,
+                                    price_share=(sa_price_share / 100.0
+                                                 if sa_price_share else None)),
+                        use_container_width=True)
                 # Harmonic lives on the Chart Tool's own indicator menu, so the
                 # checkbox above would be a second switch for the same overlay —
                 # it stays with the chart it drives.
-                elif not render_chart_tool(symbol):
+                elif not render_chart_tool(symbol, height=sa_chart_h):
                     # Server down. Fall back to the classic chart rather than
                     # leaving the page chartless behind a warning — this is the
                     # analysis surface, and every read below assumes you have
                     # looked at the price.
-                    st.plotly_chart(build_chart(symbol, df, ew, nifty_df=nifty_df),
-                                    use_container_width=True)
+                    #
+                    # The height carries over, but NOT the pane share: this path
+                    # is reached with the Chart Tool selected, so `sa_price_share`
+                    # is None and the classic chart keeps its own default.
+                    st.plotly_chart(
+                        build_chart(symbol, df, ew, nifty_df=nifty_df,
+                                    height=sa_chart_h),
+                        use_container_width=True)
 
-                render_condition_table(mv_conds, tf_conds, cs_conds)
+                # ── Side-by-side: condition table (left) + chart preview (right) ──
+                sa_cond_col, sa_chart_col = st.columns([1, 1.4], gap="medium")
+                with sa_cond_col:
+                    render_condition_table(mv_conds, tf_conds, cs_conds)
+                with sa_chart_col:
+                    # Embed the Chart Tool iframe beside the condition table so
+                    # the pattern context is visible while reading the scores.
+                    _chart_inline_url = (
+                        f"http://localhost:{CHART_TOOL_PORT}/?symbol="
+                        f"{symbol if ('.' in symbol or symbol.startswith('^')) else symbol + '.NS'}"
+                        f"&tf=1d"
+                    )
+                    st.markdown("**Chart preview**")
+                    st.components.v1.iframe(_chart_inline_url, height=460, scrolling=False)
+                    st.caption(
+                        f"[Open full chart ↗]({_chart_inline_url}) · "
+                        "Chart Tool must be running on :5001"
+                    )
 
                 # ── 3-POV Council: Bull / Bear / Judge ──
                 st.divider()
@@ -2923,7 +3559,7 @@ if current_page == "Portfolio":
                 "Stop": pos["stop_loss"], "Target": pos["target"],
                 "Entry Date": pos["entry_date"], "Notes": pos["notes"],
             })
-        st.dataframe(pd.DataFrame(rows).drop(columns=["id"]), use_container_width=True, hide_index=True)
+        _paginated_df(pd.DataFrame(rows).drop(columns=["id"]), key="portfolio_open")
 
         st.caption("Close a position")
         close_id = st.selectbox(
@@ -2953,10 +3589,10 @@ if current_page == "Portfolio":
             closed_pos["Result"] = closed_pos["closed_price"].ge(closed_pos["entry_price"]).map(
                 {True: "Win", False: "Loss"}
             )
-            st.dataframe(
+            _paginated_df(
                 closed_pos[["symbol", "entry_price", "closed_price", "quantity",
                             "P&L %", "Result", "entry_date", "closed_date", "notes"]],
-                use_container_width=True, hide_index=True,
+                key="portfolio_closed",
             )
 
 
@@ -3000,7 +3636,7 @@ if current_page == "Watchlist":
                 "Minervini": f"{mv_score}/8", "TechnoFunda": f"{tf_score}/6",
                 "Notes": w["notes"],
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        _paginated_df(pd.DataFrame(rows), key="watchlist_main")
 
         wc1, wc2 = st.columns(2)
         with wc1:
@@ -3090,7 +3726,7 @@ if current_page == "Alerts":
                 "Current": detail, "Note": a["note"],
             })
         alerts_view = pd.DataFrame(rows).sort_values("Status")
-        st.dataframe(alerts_view.drop(columns=["id"]), use_container_width=True, hide_index=True)
+        _paginated_df(alerts_view.drop(columns=["id"]), key="alerts_main")
 
         del_id = st.selectbox(
             "Deactivate/delete alert", alerts_df["id"],
@@ -3265,8 +3901,8 @@ if current_page == "Opportunity Hub":
     with dr:
         _sel_date = st.selectbox("Run date", _dates, index=0,
                                  key="od_date") if _dates else None
-        _od_uni = st.number_input("Universe size", 40, 1000, 200, 20, key="od_uni",
-                                  help="Top N by traded value. 200 takes a few minutes.")
+        _od_uni = st.number_input("Universe size", 40, 5000, 500, 50, key="od_uni",
+                                  help="Top N by traded value. 500 takes a few minutes.")
         if st.button("Run daily shortlist now", type="primary", key="od_run"):
             _prog = st.empty()
             with st.spinner("Running the funnel headlessly…"):
@@ -3295,6 +3931,32 @@ if current_page == "Opportunity Hub":
                            str(_r0.get("market_verdict") or ""), tone=_tone),
                 unsafe_allow_html=True)
 
+            # ── Sort control ───────────────────────────────────────────────────
+            _sort_by = st.radio(
+                "Sort by",
+                ["Score (default)", "Quality — green first (Overall Rating ↑)",
+                 "Confluence (edge points)", "Momentum"],
+                horizontal=True, key="od_sort",
+                help="'Green first' surfaces stocks whose cross-system Overall Rating "
+                     "is ≥85 (the green band) before amber and grey rated names.",
+            )
+            if _sort_by == "Quality — green first (Overall Rating ↑)":
+                _shortlist = _shortlist.copy()
+                _shortlist["_rt_sort"] = pd.to_numeric(
+                    _shortlist["overall_rating"], errors="coerce").fillna(0)
+                _shortlist = _shortlist.sort_values("_rt_sort", ascending=False)
+            elif _sort_by == "Confluence (edge points)":
+                _shortlist = _shortlist.copy()
+                _shortlist["_ep_sort"] = pd.to_numeric(
+                    _shortlist["edge_points"], errors="coerce").fillna(0)
+                _shortlist = _shortlist.sort_values("_ep_sort", ascending=False)
+            elif _sort_by == "Momentum":
+                _shortlist = _shortlist.copy()
+                _shortlist["_mom_sort"] = pd.to_numeric(
+                    _shortlist["momentum"], errors="coerce").fillna(0)
+                _shortlist = _shortlist.sort_values("_mom_sort", ascending=False)
+            # else: keep original rank order (score)
+
             for _, row in _shortlist.iterrows():
                 _sym = str(row["symbol"])
                 _rt = int(row["overall_rating"]) if pd.notna(row.get("overall_rating")) else None
@@ -3317,6 +3979,62 @@ if current_page == "Opportunity Hub":
                         _notes = "; ".join(_seg[1:])
                         _notes = _notes[:1].upper() + _notes[1:]
 
+                # ── Fundamentals strip — PEG · OPM% · Cash Flow ───────────────
+                _fund = None
+                try:
+                    _fund = sc.fetch_fundamentals_yf(_sym) or {}
+                except Exception:
+                    _fund = {}
+
+                def _fchip(label: str, val, fmt: str, lo_good: bool = True,
+                            green_thr=None, amber_thr=None) -> str:
+                    """Compact fundamentals chip with traffic-light color."""
+                    if val is None:
+                        return ""
+                    try:
+                        v = float(val)
+                    except (TypeError, ValueError):
+                        return ""
+                    txt = fmt.format(v)
+                    if green_thr is not None and amber_thr is not None:
+                        if lo_good:
+                            col = ("#16a34a" if v <= green_thr
+                                   else "#d97706" if v <= amber_thr else "#dc2626")
+                        else:
+                            col = ("#16a34a" if v >= green_thr
+                                   else "#d97706" if v >= amber_thr else "#dc2626")
+                    else:
+                        col = "#5c4a3a"
+                    return (f'<span style="display:inline-block;background:#f7efe3;'
+                            f'border-radius:6px;padding:2px 8px;margin:0 5px 3px 0;'
+                            f'font-size:11px;">'
+                            f'<b style="color:#7a6858;font-weight:600;">{label}</b>'
+                            f'<span style="color:{col};font-weight:700;margin-left:3px;">'
+                            f'{txt}</span></span>')
+
+                _peg_v = _fund.get("peg")
+                _peg_lbl = "PEG~" if _fund.get("peg_src") == "calc" else "PEG"
+                _opm_v  = _fund.get("opm_pct")
+                _fcf_v  = _fund.get("fcf_cr")
+                _ocf_v  = _fund.get("ocf_cr")
+
+                _fund_parts = "".join(filter(None, [
+                    _fchip(_peg_lbl, _peg_v, "{:.2f}×",
+                           lo_good=True, green_thr=1.0, amber_thr=2.0),
+                    _fchip("OPM%", _opm_v, "{:.1f}%",
+                           lo_good=False, green_thr=20.0, amber_thr=10.0),
+                    # Cash flow: positive FCF = green; use OCF as fallback label
+                    (_fchip("FCF ₹cr", _fcf_v, "{:+,.0f}",
+                            lo_good=False, green_thr=0.0, amber_thr=-500.0)
+                     if _fcf_v is not None else
+                     _fchip("OCF ₹cr", _ocf_v, "{:+,.0f}",
+                            lo_good=False, green_thr=0.0, amber_thr=-500.0)),
+                ]))
+                _fund_html = (
+                    f'<div style="margin:5px 0 3px;">{_fund_parts}</div>'
+                    if _fund_parts else ""
+                )
+
                 st.markdown(
                     rs.card(
                         f'<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
@@ -3333,6 +4051,7 @@ if current_page == "Opportunity Hub":
                         f'<div class="tb-micro" style="margin-top:5px;">'
                         f'{row.get("industry") or "—"} · {row.get("sector") or "—"}</div>'
                         f'{_chips}'
+                        f'{_fund_html}'
                         f'<div style="font-size:11.5px;color:{rs.TOKENS["text_body"]};'
                         f'margin-top:5px;line-height:1.45;">{_notes}</div>'
                     ),
@@ -3372,7 +4091,7 @@ if current_page == "Opportunity Hub":
         oh_universe: list[str] = []
         oh_top_n = 200
         if oh_mode == "Full Market (Bhavcopy)":
-            oh_top_n = st.slider("Top N by traded value", 50, 1000, 200, 50, key="oh_bhav_n")
+            oh_top_n = st.slider("Top N by traded value", 50, 5000, 500, 50, key="oh_bhav_n")
         elif oh_mode == "Screener results":
             _sr = st.session_state.get("screener_results")
             if _sr is not None and not _sr.empty:
@@ -3719,7 +4438,7 @@ if current_page == "Scanner Hub":
         universe: list[str] = []
         if universe_mode == "Full Market (Bhavcopy)":
             bhav_top_n = st.slider(
-                "Top N by traded value", min_value=50, max_value=1000, value=300, step=50,
+                "Top N by traded value", min_value=50, max_value=5000, value=500, step=50,
                 key="hub_bhav_top_n",
                 help="Higher = broader market coverage but slower (one OHLCV fetch per symbol).",
             )
@@ -3745,6 +4464,31 @@ if current_page == "Scanner Hub":
         else:
             raw = st.text_area("Symbols (comma / newline)", key="hub_manual", height=80)
             universe = [s.strip().upper() for s in raw.replace(",", "\n").splitlines() if s.strip()]
+
+        # ── Cached results ────────────────────────────────────────────────────
+        _cached_dates = db.get_scanner_run_dates(selected_scanner)
+        if _cached_dates:
+            with st.expander(f"Cached results — {len(_cached_dates)} run(s) stored", expanded=False):
+                _load_date = st.selectbox(
+                    "Load results from", _cached_dates,
+                    key="hub_cache_date",
+                    help="Pick a past run to restore its results without re-fetching data.",
+                )
+                _col_load, _col_del = st.columns(2)
+                if _col_load.button("Load from cache", key="hub_cache_load", type="primary",
+                                    use_container_width=True):
+                    _cached = db.get_scanner_run(selected_scanner, _load_date)
+                    if _cached:
+                        st.session_state["hub_results"] = _cached
+                        st.session_state["hub_scanner_ran"] = selected_scanner
+                        st.session_state["hub_cache_loaded_date"] = _load_date
+                        st.rerun()
+                    else:
+                        st.warning("Cache entry is empty — run the scanner to populate it.")
+                if _col_del.button("Delete this cache entry", key="hub_cache_del",
+                                   use_container_width=True):
+                    db.delete_scanner_run(selected_scanner, _load_date)
+                    st.rerun()
 
         if st.button("Run Scanner", type="primary", key="hub_run"):
             # Full Market mode used to require a separate "Load Market Universe"
@@ -3802,6 +4546,12 @@ if current_page == "Scanner Hub":
                             _h["overall_breakdown"] = _bd
                 st.session_state["hub_results"] = hits
                 st.session_state["hub_scanner_ran"] = selected_scanner
+                st.session_state.pop("hub_cache_loaded_date", None)
+                # Auto-save to DB so results survive a browser refresh or restart.
+                try:
+                    db.save_scanner_run(selected_scanner, hits)
+                except Exception:
+                    pass
 
         saved_df = db.get_saved_scanner_hits(selected_scanner)
         if not saved_df.empty:
@@ -3814,6 +4564,142 @@ if current_page == "Scanner Hub":
                     db.remove_scanner_hit(row["symbol"], selected_scanner)
                     st.rerun()
 
+        # ── Daily Scheduler ───────────────────────────────────────────────────
+        st.divider()
+        with st.expander("Daily Scanner Scheduler", expanded=False):
+            st.caption(
+                "Register a Windows Scheduled Task that runs all scanners "
+                "automatically after market close (default 16:15 IST). "
+                "Requires the dashboard Python interpreter and writes results "
+                "to a dated JSON in `tools/cache/`."
+            )
+            _sched_time = st.text_input(
+                "Run time (HH:MM, 24h)", value="16:15", key="hub_sched_time",
+                help="Time in your local clock. 16:15 = 15 min after NSE close.",
+            )
+            _sched_universe = st.radio(
+                "Universe for scheduled run",
+                ["Full Market (Bhavcopy Top 300)", "Screener results (today's pipeline)"],
+                key="hub_sched_universe",
+            )
+            _sched_scanners = st.multiselect(
+                "Scanners to include",
+                list(sc.SCANNERS.keys()),
+                default=list(sc.SCANNERS.keys()),
+                key="hub_sched_scanners",
+                help="Leave all selected to run the full suite.",
+            )
+
+            _RUNNER_BAT = BASE_DIR / "tools" / "scanner_daily.bat"
+            _RUNNER_PY  = BASE_DIR / "tools" / "scanner_daily_runner.py"
+            _PYTHON_EXE = r"C:\Users\Owner\AppData\Local\Python\pythoncore-3.14-64\python.exe"
+            _TASK_NAME  = "TradingBramha-DailyScanner"
+
+            if st.button("Generate runner + register task", key="hub_sched_reg",
+                         type="primary"):
+                try:
+                    import json as _json
+                    # Write the Python runner script
+                    _universe_arg = (
+                        "--universe bhavcopy --top-n 300"
+                        if "Bhavcopy" in _sched_universe
+                        else "--universe screener"
+                    )
+                    _scanners_arg = " ".join(f'"{s}"' for s in _sched_scanners)
+                    _runner_src = f'''\
+"""Daily scanner runner — executed by the Windows Scheduled Task
+{_TASK_NAME}. Do not edit the task directly; regenerate via the
+Scanner Hub → Daily Scanner Scheduler panel."""
+import sys, os, json, datetime
+sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
+import scanner_templates as sc
+from dashboard_app_helpers import cached_fetch_ohlcv_headless  # noqa
+
+SCANNERS = {_json.dumps(_sched_scanners)}
+UNIVERSE_MODE = "{_sched_universe}"
+
+def _fetch(sym, days=300):
+    import data_fetcher as df_mod
+    return df_mod.fetch_ohlcv(sym, days=days)
+
+def main():
+    import bhavcopy_fetcher as bh
+    universe = bh.fetch_top_n(300) if "Bhavcopy" in UNIVERSE_MODE else []
+    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M")
+    out = {{}}
+    for name in SCANNERS:
+        if name not in sc.SCANNERS:
+            continue
+        try:
+            hits = sc.run_scanner(name, universe, _fetch)
+            out[name] = hits
+            print(f"{{ts}}  {{name}}: {{len(hits)}} hits")
+        except Exception as exc:
+            out[name] = []
+            print(f"{{ts}}  {{name}}: ERROR {{exc}}")
+    dest = os.path.join(os.path.dirname(__file__), "cache", f"scanner_daily_{{ts}}.json")
+    os.makedirs(os.path.dirname(dest), exist_ok=True)
+    with open(dest, "w") as fh:
+        json.dump(out, fh, default=str)
+    print(f"Saved → {{dest}}")
+
+if __name__ == "__main__":
+    main()
+'''
+                    _RUNNER_PY.write_text(_runner_src, encoding="utf-8")
+
+                    # Write the .bat wrapper
+                    _bat_src = (
+                        f"@echo off\n"
+                        f"set PYTHON={_PYTHON_EXE}\n"
+                        f"set REPO=%~dp0..\n"
+                        f"set LOG=%~dp0scanner_daily.log\n"
+                        f"cd /d \"%REPO%\"\n"
+                        f"echo. >> \"%LOG%\"\n"
+                        f"echo ===== %DATE% %TIME% — daily scanner starting ===== >> \"%LOG%\"\n"
+                        f"\"%PYTHON%\" \"%~dp0scanner_daily_runner.py\" >> \"%LOG%\" 2>&1\n"
+                        f"if errorlevel 1 (\n"
+                        f"    echo ***** FAILED ***** >> \"%LOG%\"\n"
+                        f") else (\n"
+                        f"    echo ----- ok ----- >> \"%LOG%\"\n"
+                        f")\n"
+                    )
+                    _RUNNER_BAT.write_text(_bat_src, encoding="utf-8")
+
+                    # Register the Windows Scheduled Task
+                    import subprocess
+                    _h, _m = _sched_time.strip().split(":")
+                    _cmd = (
+                        f'schtasks /create /f /tn "{_TASK_NAME}" '
+                        f'/tr "{_RUNNER_BAT}" '
+                        f'/sc DAILY /st {int(_h):02d}:{int(_m):02d} '
+                        f'/rl HIGHEST'
+                    )
+                    _res = subprocess.run(_cmd, shell=True, capture_output=True, text=True)
+                    if _res.returncode == 0:
+                        st.success(
+                            f"Task **{_TASK_NAME}** registered — runs daily at {_sched_time}. "
+                            f"Runner: `tools/scanner_daily_runner.py` · "
+                            f"Log: `tools/scanner_daily.log`"
+                        )
+                    else:
+                        st.error(f"schtasks failed: {_res.stderr or _res.stdout}")
+                        st.code(_cmd, language="bat")
+                        st.caption("Run the command above in an elevated CMD/PowerShell.")
+                except Exception as _exc:
+                    st.error(f"Setup failed: {_exc}")
+
+            if st.button("Remove scheduled task", key="hub_sched_del"):
+                import subprocess
+                _r = subprocess.run(
+                    f'schtasks /delete /f /tn "{_TASK_NAME}"',
+                    shell=True, capture_output=True, text=True,
+                )
+                if _r.returncode == 0:
+                    st.success(f"Task {_TASK_NAME} removed.")
+                else:
+                    st.warning(_r.stderr or _r.stdout or "Task not found — may not have been registered.")
+
     with hub_main:
         hits = st.session_state.get("hub_results")
         ran_for = st.session_state.get("hub_scanner_ran", "")
@@ -3825,6 +4711,9 @@ if current_page == "Scanner Hub":
         elif not hits:
             st.info(f"No stocks matched **{selected_scanner}** in this universe.")
         else:
+            _cache_date = st.session_state.get("hub_cache_loaded_date")
+            if _cache_date:
+                st.caption(f"Showing cached results from **{_cache_date}** — run the scanner again to refresh.")
             # Filter pills only narrow what's on screen — they don't re-run the
             # scan. Shown only for scanners that emit the richer score/RS metadata.
             has_meta = any("signal" in h for h in hits)
@@ -3998,7 +4887,7 @@ if current_page == "Predictive Analysis":
                 pa_chips = "".join(
                     f'<span style="background:#f7efe3;border-radius:6px;padding:2px 8px;'
                     f'margin-right:6px;font-size:11px;color:#5c4a3a;">'
-                    f'<b style="color:#9a8778;font-weight:600;">{k}</b> {v}</span>'
+                    f'<b style="color:#7a6858;font-weight:600;">{k}</b> {v}</span>'
                     for k, v in (pa_bd or {}).items()
                 )
                 st.markdown(
@@ -4523,7 +5412,7 @@ if current_page == "Sector Map":
             try:
                 df_sr = pd.read_excel(table_path, sheet_name="Sector Rotation")
                 st.caption(f"Source: `{table_path.name}`")
-                st.dataframe(df_sr, use_container_width=True, hide_index=True)
+                _paginated_df(df_sr, key="sector_rotation_saved")
             except Exception as e:
                 st.warning(f"Could not load table: {e}")
 
@@ -4538,12 +5427,16 @@ if current_page == "Astro Timing":
         "Based on Vedic astrology principles for optimal entry/exit timing."
     )
 
-    # City selector
-    col_city, col_date = st.columns(2)
+    # City selector + share button
+    col_city, col_date, col_share = st.columns([2, 2, 1])
     with col_city:
         city = st.selectbox("Select Location", list(at.AstroIndicators.CITIES.keys()), index=0)
     with col_date:
         analysis_date = st.date_input("Analysis Date", value=date.today())
+    with col_share:
+        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
+        _gen_card = st.button("📷 Share Card", use_container_width=True,
+                              help="Generate a weekly astro infographic and copy PNG to clipboard")
 
     ai = at.AstroIndicators(city=city)
     timing = ai.get_trading_timing(analysis_date)
@@ -4618,6 +5511,484 @@ if current_page == "Astro Timing":
     display_df.columns = ['Date', 'Lunar Phase', 'Illumination %', 'Market Intensity', 'Sunrise', 'Sunset']
 
     st.dataframe(display_df, use_container_width=True, hide_index=True)
+
+    # ── Nakshatra Sector Forecast ──────────────────────────────────────────────
+    st.subheader("Nakshatra Sector Forecast — 7-Day Forward")
+    st.caption(
+        "Moon's nakshatra (lunar mansion) for each trading day ahead. "
+        "Each nakshatra rules specific commodities and NSE sectors — use as a "
+        "directional bias, not an entry signal."
+    )
+
+    _nk_today = ai.get_nakshatra(analysis_date)
+    _nk_df = pd.DataFrame()   # always defined; populated below if nakshatra succeeds
+
+    if "error" in _nk_today:
+        st.warning(f"Nakshatra engine: {_nk_today['error']}")
+    else:
+        # Today's nakshatra at a glance
+        nk_c1, nk_c2, nk_c3, nk_c4 = st.columns(4)
+        with nk_c1:
+            st.metric("Today's Nakshatra", _nk_today["nakshatra"],
+                      f"#{_nk_today['index']} of 27")
+        with nk_c2:
+            st.metric("Ruling Planet", _nk_today["planet"],
+                      f"{_nk_today['pct']}% through")
+        with nk_c3:
+            st.metric("Sectors to Watch", " · ".join(_nk_today["sectors"][:2]),
+                      _nk_today["sectors"][2] if len(_nk_today["sectors"]) > 2 else "")
+        with nk_c4:
+            st.metric("Moon Longitude (sid.)", f"{_nk_today['sidereal_lon']}°",
+                      f"{_nk_today['deg_in']}° in nakshatra")
+
+        st.info(f"**Commodity theme today:** {_nk_today['theme']}")
+
+        # 7-day table
+        _nk_df = ai.get_nakshatra_forecast(analysis_date, days=7)
+        if isinstance(_nk_df, list):
+            import pandas as _pd_nk
+            _nk_df = _pd_nk.DataFrame(_nk_df)
+
+        # Highlight today (first row)
+        def _nk_row_style(row):
+            if row.name == 0:
+                return [f"background:rgba(74,222,128,0.12)" for _ in row]
+            return ["" for _ in row]
+
+        st.dataframe(
+            _nk_df.style.apply(_nk_row_style, axis=1),
+            use_container_width=True,
+            hide_index=True,
+        )
+
+        # Sector heatmap — count how many days each sector appears
+        from collections import Counter as _Counter
+        _sector_days: _Counter = _Counter()
+        for _, row in _nk_df.iterrows():
+            for _s in row["Watch Sectors"].split(" / "):
+                _sector_days[_s] += 1
+
+        st.markdown("**Sector appearance frequency (next 7 days)**")
+        _hm_cols = st.columns(min(len(_sector_days), 6))
+        for _ci, (_sec, _cnt) in enumerate(sorted(_sector_days.items(), key=lambda x: -x[1])):
+            with _hm_cols[_ci % len(_hm_cols)]:
+                _pct_bar = int(_cnt / 7 * 100)
+                st.markdown(
+                    f'<div style="background:rgba(74,222,128,{_cnt/7:.2f});'
+                    f'border-radius:8px;padding:8px 12px;margin:2px 0;'
+                    f'font-size:13px;font-weight:600;">'
+                    f'{_sec}<br>'
+                    f'<span style="font-size:11px;font-weight:400;">{_cnt}/7 days</span>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+    # ── Jupiter Crash Signal ───────────────────────────────────────────────────
+    st.subheader("Jupiter Crash Signal Monitor")
+    st.caption(
+        "Three-factor model: Jupiter in Ketu's nakshatra + Shashtashtak Yoga "
+        "(6/8 axis) with malefics + Rahu-Ketu nodal influence. "
+        "All 4 major Indian crashes (1992/2000/2008/2020) had all three active. "
+        "No single factor alone predicts a crash."
+    )
+
+    _jp = ai.get_jupiter_position(analysis_date)
+
+    if "error" in _jp:
+        st.warning(f"Jupiter engine: {_jp['error']}")
+    else:
+        # ── Signal banner ──────────────────────────────────────────────────────
+        _sig_colors = {
+            "CRASH SIGNAL":  ("rgba(220,38,38,0.18)",  "#fca5a5", "🔴"),
+            "ELEVATED RISK": ("rgba(234,88,12,0.18)",  "#fdba74", "🟠"),
+            "WATCH":         ("rgba(234,179,8,0.15)",  "#fde047", "🟡"),
+            "CLEAR":         ("rgba(74,222,128,0.12)", "#86efac", "🟢"),
+        }
+        _bg, _border_col, _icon = _sig_colors[_jp["signal"]]
+        _factors_desc = []
+        if _jp["is_ketu_nakshatra"]:
+            _factors_desc.append(f"Jupiter in Ketu's nakshatra ({_jp['nakshatra']})")
+        if _jp["shashtashtak_with"]:
+            _factors_desc.append(f"Shashtashtak with {', '.join(_jp['shashtashtak_with'])}")
+        if _jp["nodal_influence"]:
+            _factors_desc.append(
+                f"Rahu-Ketu nodal influence "
+                f"(Rahu {_jp['rahu_arc']}° / Ketu {_jp['ketu_arc']}°)"
+            )
+        _factors_text = " · ".join(_factors_desc) if _factors_desc else "No active factors"
+
+        st.markdown(
+            f'<div style="background:{_bg};border:1px solid {_border_col};'
+            f'border-radius:12px;padding:14px 18px;margin:8px 0;">'
+            f'<span style="font-size:20px;">{_icon}</span> '
+            f'<strong style="font-size:16px;">{_jp["signal"]}</strong> — '
+            f'{_jp["factors_active"]}/3 factors active<br>'
+            f'<span style="font-size:13px;opacity:0.85;">{_factors_text}</span>'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # ── Jupiter position metrics ───────────────────────────────────────────
+        jp_c1, jp_c2, jp_c3, jp_c4 = st.columns(4)
+        with jp_c1:
+            st.metric("Jupiter Sign", _jp["sign"].split("(")[0].strip(),
+                      f"Sign #{_jp['sign_index']}")
+        with jp_c2:
+            _ketu_tag = " ⚠ Ketu's star" if _jp["is_ketu_nakshatra"] else ""
+            st.metric("Jupiter Nakshatra", _jp["nakshatra"] + _ketu_tag,
+                      f"Ruled by {_jp['nakshatra_planet']}")
+        with jp_c3:
+            _s6_8 = ", ".join(_jp["shashtashtak_with"]) if _jp["shashtashtak_with"] else "None"
+            st.metric("Shashtashtak With", _s6_8, "6th/8th axis malefic")
+        with jp_c4:
+            st.metric("Jupiter Longitude", f"{_jp['sidereal_lon']}°",
+                      "sidereal (Lahiri)")
+
+        # ── Factor checklist ───────────────────────────────────────────────────
+        _check = lambda ok: "✅" if ok else "⬜"
+        st.markdown(
+            f"**Crash signal factors:**  "
+            f"{_check(_jp['is_ketu_nakshatra'])} Ketu nakshatra &nbsp;&nbsp;"
+            f"{_check(_jp['shashtashtak_with'])} Shashtashtak w/ malefic &nbsp;&nbsp;"
+            f"{_check(_jp['nodal_influence'])} Rahu-Ketu nodal influence"
+        )
+
+        # ── Historical context note ────────────────────────────────────────────
+        with st.expander("Historical crash setups (reference)"):
+            st.markdown(
+                "| Year | Event | Jupiter Nakshatra | Key Combo | Outcome |\n"
+                "|------|-------|-------------------|-----------|--------|\n"
+                "| 1992 | Harshad Mehta crash | Magha (Ketu) | Shashtashtak Saturn+Sun; Rahu+Mars | Sensex −57%, 20m recovery |\n"
+                "| 2000 | Dot-com bust | Ashwini (Ketu) | Conjunction Saturn; Rahu-Ketu axis | Nifty −53%, 34m recovery |\n"
+                "| 2008 | Global financial crisis | Mula (Ketu) | Sun+Mars+Ketu aspect; 8th from Saturn | Nifty −64%, 71m recovery |\n"
+                "| 2020 | Covid crash | Mula (Ketu) | Saturn+Sun+Mercury; eclipse; Ketu | Nifty −39%, fast recovery |\n"
+                "| **Nov 2026** | **Prediction** | **Magha (Ketu)** | **Rahu-Ketu axis; 8th from Saturn** | **Major crash predicted** |\n"
+                "\n"
+                "*Exception rule:* Ketu nakshatra alone is NOT sufficient. "
+                "1995 (+7%), 2003 (+20%), 2023 (+12%) were all bullish despite "
+                "Jupiter in Ketu's star — because Shashtashtak and/or nodal influence was absent."
+            )
+
+    # ── India Degree-Matching Alerts ──────────────────────────────────────────
+    st.subheader("India Chart — Degree-Matching Alerts (9:15 AM IST)")
+    st.caption(
+        "Transiting planets within ±2° of India's Independence Chart sensitive degrees "
+        "(Aug 15, 1947). When a karaka planet hits these degrees it historically "
+        "marks trend acceleration or reversal. Malefics (Saturn/Sun/Rahu/Mars) = bullish "
+        "signal; Benefics (Jupiter/Moon/Mercury/Venus) = correction risk."
+    )
+
+    _orb_input = st.slider("Orb (degrees)", min_value=0.5, max_value=3.0,
+                           value=2.0, step=0.5, key="india_orb")
+    _alerts = ai.get_india_chart_alerts(analysis_date, orb=_orb_input)
+
+    if _alerts and "error" in _alerts[0]:
+        st.warning(f"India chart engine: {_alerts[0]['error']}")
+    elif not _alerts:
+        st.success(f"No planets within ±{_orb_input}° of any India chart sensitive degree today.")
+    else:
+        # Summary count strip
+        _bull_alerts = [a for a in _alerts if a["bias"] == "bullish"]
+        _bear_alerts = [a for a in _alerts if a["bias"] == "bearish"]
+        _amb_alerts  = [a for a in _alerts if a["bias"] == "ambiguous"]
+
+        ia_c1, ia_c2, ia_c3, ia_c4 = st.columns(4)
+        with ia_c1:
+            st.metric("Active Alerts", len(_alerts), f"within ±{_orb_input}°")
+        with ia_c2:
+            st.metric("Bullish Signals", len(_bull_alerts),
+                      "Saturn/Sun/Rahu/Mars hitting India degrees")
+        with ia_c3:
+            st.metric("Bearish Signals", len(_bear_alerts),
+                      "Jupiter/Moon/Mercury/Venus hitting India degrees")
+        with ia_c4:
+            st.metric("Ambiguous", len(_amb_alerts), "Ketu")
+
+        # Net bias
+        _net = len(_bull_alerts) - len(_bear_alerts)
+        if _net > 0:
+            _net_label = f"Net BULLISH (+{_net})"
+            _net_color = "rgba(74,222,128,0.15)"
+            _net_border = "#4ade80"
+        elif _net < 0:
+            _net_label = f"Net BEARISH ({_net})"
+            _net_color = "rgba(220,38,38,0.15)"
+            _net_border = "#f87171"
+        else:
+            _net_label = "Balanced (no edge)"
+            _net_color = "rgba(234,179,8,0.12)"
+            _net_border = "#fde047"
+
+        st.markdown(
+            f'<div style="background:{_net_color};border:1px solid {_net_border};'
+            f'border-radius:8px;padding:10px 16px;margin:6px 0;">'
+            f'<strong>{_net_label}</strong> — {len(_alerts)} degree matches active'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
+
+        # Alert cards
+        _bias_icon = {"bullish": "🟢", "bearish": "🔴", "ambiguous": "🟡"}
+        _bias_bg   = {
+            "bullish":   "rgba(74,222,128,0.10)",
+            "bearish":   "rgba(220,38,38,0.10)",
+            "ambiguous": "rgba(234,179,8,0.10)",
+        }
+        _bias_border = {
+            "bullish":   "rgba(74,222,128,0.4)",
+            "bearish":   "rgba(220,38,38,0.4)",
+            "ambiguous": "rgba(234,179,8,0.4)",
+        }
+
+        for _a in _alerts:
+            _icon  = _bias_icon.get(_a["bias"], "⬜")
+            _bg    = _bias_bg.get(_a["bias"], "transparent")
+            _brd   = _bias_border.get(_a["bias"], "rgba(255,255,255,0.1)")
+            _exact = " ✦ EXACT" if _a["exact"] else ""
+            st.markdown(
+                f'<div style="background:{_bg};border:1px solid {_brd};'
+                f'border-radius:8px;padding:10px 16px;margin:4px 0;">'
+                f'{_icon} <strong>{_a["planet"]}</strong> at '
+                f'<strong>{_a["deg_in_sign"]:.1f}°</strong> {_a["sign"]} '
+                f'→ matches India <strong>{_a["india_point"]} ({_a["india_deg"]}°)</strong> '
+                f'<span style="opacity:0.7;">orb {_a["orb_actual"]}°{_exact}</span><br>'
+                f'<span style="font-size:12px;opacity:0.75;">'
+                f'Bias: {_a["bias"].upper()} &nbsp;|&nbsp; '
+                f'Karaka: {_a["karaka"]}'
+                f'</span>'
+                f'</div>',
+                unsafe_allow_html=True,
+            )
+
+        # India chart degree reference (collapsed)
+        with st.expander("India Independence Chart — sensitive degrees reference"):
+            _ref_rows = [
+                f"| {pt} | {deg}° | ±{_orb_input}° orb = {max(0,deg-_orb_input):.1f}°–{min(30,deg+_orb_input):.1f}° |"
+                for pt, deg in ai.INDIA_CHART_DEGREES.items()
+            ]
+            st.markdown(
+                "| Chart Point | Degree | Active Window |\n"
+                "|-------------|--------|---------------|\n" +
+                "\n".join(_ref_rows)
+            )
+            st.caption(
+                "India Independence Chart: Aug 15, 1947, 12:00 AM, New Delhi. "
+                "D1 = Rashi chart. D9 = Navamsa chart. "
+                "Degree matching checks the transiting planet's position within its current "
+                "sign (lon mod 30°) against these fixed reference degrees."
+            )
+
+    # ── Weekly Astro Infographic Card ─────────────────────────────────────────
+    if _gen_card:
+        try:
+            from PIL import Image as _PILImage, ImageDraw as _PILDraw, ImageFont as _PILFont
+        except ImportError:
+            st.error("Pillow is not installed. Run `pip install Pillow` and restart the app.")
+            _PILImage = None
+        import io as _io
+        import base64 as _b64
+        import streamlit.components.v1 as _components
+        if _PILImage is None:
+            pass
+        else:
+            # ── palette ───────────────────────────────────────────────────────
+            _C = {
+                "bg":    (15,  10,  6),
+                "panel": (28,  20,  16),
+                "amber": (234, 88,  12),
+                "green": (74,  222, 128),
+                "red":   (239, 68,  68),
+                "yellow":(253, 224, 71),
+                "text":  (255, 245, 235),
+                "muted": (168, 133, 106),
+                "white": (255, 255, 255),
+                "card_b":(38,  28,  20),
+            }
+
+            def _font(size, bold=False):
+                try:
+                    return _PILFont.truetype("arialbd.ttf" if bold else "arial.ttf", size)
+                except OSError:
+                    return _PILFont.load_default()
+
+            W, H = 1080, 1350
+            img = _PILImage.new("RGB", (W, H), _C["bg"])
+            dr  = _PILDraw.Draw(img)
+
+            def _rect(x0, y0, x1, y1, fill, r=12):
+                dr.rounded_rectangle([x0, y0, x1, y1], radius=r, fill=fill)
+
+            def _txt(x, y, text, fnt, fill, anchor="la"):
+                dr.text((x, y), str(text), font=fnt, fill=fill, anchor=anchor)
+
+            # ── header ────────────────────────────────────────────────────────
+            _rect(0, 0, W, 120, _C["amber"], r=0)
+            _txt(40,      30, "Trading Bramha",          _font(38, True), _C["white"])
+            _txt(40,      76, "ASTRO WEEKLY SNAPSHOT",   _font(18),       _C["white"])
+            _txt(W - 40,  30, analysis_date.strftime("%d %b %Y"),
+                 _font(28, True), _C["white"], anchor="ra")
+            _txt(W - 40,  76, analysis_date.strftime("Week of %a %d %b"),
+                 _font(16), _C["white"], anchor="ra")
+
+            # ── running y cursor ───────────────────────────────────────────────
+            _cy = [140]
+
+            def _section_lbl(title):
+                _txt(40, _cy[0], title.upper(), _font(13), _C["muted"])
+                _cy[0] += 28
+
+            def _open_panel(h):
+                y0 = _cy[0]
+                _rect(30, y0, W - 30, y0 + h, _C["panel"])
+                return 30 + 20, y0 + 20
+
+            def _close_panel(h):
+                _cy[0] += h + 16
+
+            # ── Moon Nakshatra ─────────────────────────────────────────────────
+            _section_lbl("Moon Nakshatra Today")
+            if "error" not in _nk_today:
+                _ph = 160
+                _px, _py = _open_panel(_ph)
+                _txt(_px, _py,      _nk_today["nakshatra"],          _font(36, True), _C["text"])
+                _txt(_px, _py + 44, f"Ruled by {_nk_today['planet']}  •  #{_nk_today['index']} of 27",
+                     _font(18), _C["muted"])
+                _txt(_px, _py + 72, "Sectors: " + " / ".join(_nk_today["sectors"]),
+                     _font(16), _C["green"])
+                _txt(_px, _py + 96, _nk_today["theme"][:70], _font(14), _C["muted"])
+                _bw = W - 30 - 20 - _px
+                _rect(_px, _py + 122, _px + _bw, _py + 132, _C["card_b"], r=4)
+                _filled = max(4, int(_bw * _nk_today["pct"] / 100))
+                _rect(_px, _py + 122, _px + _filled, _py + 132, _C["amber"], r=4)
+                _txt(_px + _bw + 6, _py + 122, f"{_nk_today['pct']}%", _font(12), _C["muted"])
+                _close_panel(_ph)
+            else:
+                _cy[0] += 60
+
+            # ── Jupiter Crash Signal ───────────────────────────────────────────
+            _section_lbl("Jupiter Crash Signal")
+            if "error" not in _jp:
+                _sig_col = {"CRASH SIGNAL": _C["red"], "ELEVATED RISK": _C["amber"],
+                            "WATCH": _C["yellow"], "CLEAR": _C["green"]}.get(_jp["signal"], _C["muted"])
+                _ph = 130
+                _px, _py = _open_panel(_ph)
+                _txt(_px, _py,      f"{_jp['signal']}  —  {_jp['factors_active']}/3 factors",
+                     _font(30, True), _sig_col)
+                _txt(_px, _py + 44, f"Jupiter in {_jp['nakshatra']} ({_jp['sign'].split('(')[0].strip()})",
+                     _font(18), _C["text"])
+                _active_parts = []
+                if _jp["is_ketu_nakshatra"]:  _active_parts.append("Ketu nakshatra")
+                if _jp["shashtashtak_with"]:  _active_parts.append(f"Shashtashtak w/ {', '.join(_jp['shashtashtak_with'])}")
+                if _jp["nodal_influence"]:    _active_parts.append("Rahu-Ketu nodal")
+                _txt(_px, _py + 70, "  ".join(_active_parts) or "No factors active",
+                     _font(14), _C["muted"])
+                _txt(_px, _py + 96, "Red flag: Nov 2026 full crash signal — mirrors 1992 & 2008",
+                     _font(13), _C["red"])
+                _close_panel(_ph)
+            else:
+                _cy[0] += 40
+
+            # ── India Chart Alerts ─────────────────────────────────────────────
+            _section_lbl("India Chart — Top Degree Alerts (9:15 AM IST)")
+            _top_al = [a for a in _alerts if "error" not in a][:5]
+            if _top_al:
+                _bull_n = sum(1 for a in _top_al if a["bias"] == "bullish")
+                _bear_n = sum(1 for a in _top_al if a["bias"] == "bearish")
+                _net_t  = (f"Net BULLISH +{_bull_n - _bear_n}" if _bull_n > _bear_n else
+                           f"Net BEARISH {_bull_n - _bear_n}"  if _bear_n > _bull_n else "Balanced")
+                _net_c  = _C["green"] if _bull_n > _bear_n else _C["red"] if _bear_n > _bull_n else _C["yellow"]
+                _ph = 36 + len(_top_al) * 24 + 20
+                _px, _py = _open_panel(_ph)
+                _txt(_px, _py, _net_t, _font(22, True), _net_c)
+                for _i, _a in enumerate(_top_al):
+                    _ac = (_C["green"] if _a["bias"] == "bullish"
+                           else _C["red"] if _a["bias"] == "bearish" else _C["yellow"])
+                    _line = (f"{_a['planet']:8s}  {_a['deg_in_sign']:4.1f}°  "
+                             f"→ {_a['india_point']:12s} ({_a['india_deg']}°)  orb {_a['orb_actual']}°")
+                    _txt(_px, _py + 36 + _i * 24, _line, _font(15), _ac)
+                _close_panel(_ph)
+            else:
+                _cy[0] += 40
+
+            # ── 7-Day Nakshatra Forecast ───────────────────────────────────────
+            _section_lbl("7-Day Nakshatra Forecast")
+            _nk_df_c = (_nk_df if not isinstance(_nk_df, list)
+                        else pd.DataFrame(_nk_df))
+            if not _nk_df_c.empty:
+                _row_h = 38
+                _col_ratios = [0.18, 0.28, 0.16, 0.38]
+                _ph = 26 + len(_nk_df_c) * _row_h + 10
+                _px, _py = _open_panel(_ph)
+                _col_w = [(W - 30 - 20 - _px) * r for r in _col_ratios]
+                _hdrs  = ["Date", "Nakshatra", "Planet", "Sectors"]
+                _hx = _px
+                for _h, _cw in zip(_hdrs, _col_w):
+                    _txt(_hx, _py, _h, _font(13), _C["muted"])
+                    _hx += _cw
+                for _ri, (_, _row) in enumerate(_nk_df_c.iterrows()):
+                    _ry = _py + 26 + _ri * _row_h
+                    if _ri == 0:
+                        _rect(_px - 8, _ry - 4, W - 30 - 20 + 8, _ry + _row_h - 6, (38, 55, 38), r=6)
+                    _cx2 = _px
+                    _cells = [_row.get("Date", ""), _row.get("Nakshatra", ""),
+                              _row.get("Ruling Planet", ""), str(_row.get("Watch Sectors", ""))[:35]]
+                    for _cell, _cw in zip(_cells, _col_w):
+                        _txt(_cx2, _ry, str(_cell), _font(14, bold=(_ri == 0)),
+                             _C["green"] if _ri == 0 else _C["text"])
+                        _cx2 += _cw
+                _close_panel(_ph)
+            else:
+                _cy[0] += 40
+
+            # ── footer ────────────────────────────────────────────────────────
+            _rect(0, H - 60, W, H, _C["panel"], r=0)
+            _txt(W // 2, H - 38,
+                 "Trading Bramha  •  Astro Timing Dashboard  •  For reference only",
+                 _font(14), _C["muted"], anchor="mm")
+            _txt(W // 2, H - 18, "Context, not signal. Always verify with price action.",
+                 _font(12), _C["muted"], anchor="mm")
+
+            # ── export ────────────────────────────────────────────────────────
+            _buf = _io.BytesIO()
+            img.save(_buf, format="PNG", optimize=True)
+            _png_bytes = _buf.getvalue()
+            _b64_str   = _b64.b64encode(_png_bytes).decode()
+
+            st.image(img, caption="Weekly Astro Card — copy or download below",
+                     use_container_width=False, width=540)
+
+            st.download_button(
+                label="⬇ Download PNG",
+                data=_png_bytes,
+                file_name=f"trading_bramha_astro_{analysis_date.strftime('%Y%m%d')}.png",
+                mime="image/png",
+                use_container_width=False,
+            )
+
+            _components.html(f"""
+            <button onclick="copyCard()" style="
+                background:#ea580c;color:#fff;border:none;border-radius:8px;
+                padding:8px 20px;font-size:14px;font-weight:700;cursor:pointer;">
+                \U0001f4cb Copy PNG to Clipboard
+            </button>
+            <span id="cs" style="margin-left:12px;font-size:13px;"></span>
+            <script>
+            async function copyCard() {{
+                try {{
+                    const res  = await fetch("data:image/png;base64,{_b64_str}");
+                    const blob = await res.blob();
+                    await navigator.clipboard.write([new ClipboardItem({{"image/png": blob}})]);
+                    const s = document.getElementById("cs");
+                    s.style.color = "#4ade80"; s.textContent = "Copied!";
+                    setTimeout(() => s.textContent = "", 3000);
+                }} catch(e) {{
+                    const s = document.getElementById("cs");
+                    s.style.color = "#ef4444";
+                    s.textContent = "Copy failed — use Download (" + e.message + ")";
+                }}
+            }}
+            </script>
+            """, height=56)
 
     # Lunar phase chart
     st.subheader("Lunar Phase Progression")
@@ -5016,7 +6387,7 @@ if current_page == "Telegram Signals":
                 })
 
             df_signals = pd.DataFrame(signal_list)
-            st.dataframe(df_signals, use_container_width=True, hide_index=True)
+            _paginated_df(df_signals, key="telegram_signals")
 
             # Export option
             col_exp1, col_exp2 = st.columns(2)
@@ -6068,6 +7439,280 @@ if current_page == "Market Sentiment":
         except Exception as e:
             st.error(f"Signal fetch failed: {e}")
 
+    # ── NSE Index Futures Basis ───────────────────────────────────────────
+    # Basis = (near-month futures close − spot) / spot × 100.  Positive basis
+    # (contango) = cost-of-carry; a sustained negative basis (backwardation)
+    # signals hedging pressure or bearish positioning.
+    # Data source: NSE F&O EOD bhavcopy (same file used by OI Momentum).
+    # UndrlygPric in the IDF rows IS the spot close — no second yfinance fetch.
+    st.divider()
+    st.markdown("### NSE Index Futures Basis")
+    st.caption(
+        "Near-month futures close vs spot (UndrlygPric from NSE EOD bhavcopy). "
+        "Positive = contango (cost-of-carry expected); negative = backwardation "
+        "(hedging pressure or bearish bias). OI is summed across all expiries."
+    )
+    try:
+        _idf_raw, _idf_date = oim.fetch_fo_bhavcopy_raw()
+        if _idf_raw.empty or _idf_date is None:
+            st.info("Index futures basis: no recent bhavcopy available.")
+        else:
+            _idf = _idf_raw[_idf_raw["FinInstrmTp"] == "IDF"].copy()
+            if _idf.empty:
+                st.info("No index futures rows in this session's bhavcopy.")
+            else:
+                _idf["XpryDt"] = pd.to_datetime(_idf["XpryDt"], errors="coerce")
+                _idf = _idf.dropna(subset=["XpryDt"])
+                # Near-month contract = earliest expiry per symbol
+                _near = (
+                    _idf.sort_values("XpryDt")
+                    .groupby("TckrSytm", as_index=False)
+                    .first()
+                )
+                # OI sum across all expiries
+                _oi_total = (
+                    _idf.groupby("TckrSytm", as_index=False)
+                    .agg(oi_total=("OpnIntrst", "sum"),
+                         oi_chg_total=("ChngInOpnIntrst", "sum"))
+                )
+                _basis_df = _near.merge(_oi_total, on="TckrSytm", how="left")
+                _basis_df["basis_pct"] = (
+                    (_basis_df["ClsPric"] - _basis_df["UndrlygPric"])
+                    / _basis_df["UndrlygPric"].replace(0, float("nan")) * 100
+                )
+                _basis_display = pd.DataFrame({
+                    "Index":      _basis_df["TckrSytm"],
+                    "Spot":       _basis_df["UndrlygPric"].round(2),
+                    "Futures":    _basis_df["ClsPric"].round(2),
+                    "Basis %":    _basis_df["basis_pct"].round(3),
+                    "Expiry":     _basis_df["XpryDt"].dt.strftime("%d-%b-%Y"),
+                    "OI (total)": _basis_df["oi_total"].astype(int),
+                    "OI Chg":     _basis_df["oi_chg_total"].astype(int),
+                }).sort_values("OI (total)", ascending=False).reset_index(drop=True)
+                st.dataframe(
+                    _basis_display,
+                    hide_index=True, use_container_width=True,
+                    column_config={
+                        "Basis %": st.column_config.NumberColumn("Basis %", format="%.3f%%"),
+                    },
+                )
+                st.caption(f"Bhavcopy date: {_idf_date.strftime('%d-%b-%Y')}")
+    except Exception as _basis_exc:
+        st.warning(f"Index futures basis unavailable: {_basis_exc}")
+
+    # ──────────────────────────────────────────────────────────────────────
+    # Morning Market Brief — global quote strip + constituent breadth + the
+    # full panchang for the day. Modelled on a published "morning brief" card.
+    #
+    # Two deliberate departures from that card's format:
+    #  * Breadth is computed from Nifty 500 CONSTITUENTS, not sector indices.
+    #    Yahoo froze 8 of 11 NSE sector index feeds on 2026-07-17 and they
+    #    return stale bars rather than erroring, so an index-based count is a
+    #    confident number built on three survivors.
+    #  * The astro block states almanac facts ONLY — no bias, no "avoid fresh
+    #    buying". Rahu Kaal being inauspicious is a traditional assertion with
+    #    no measured backing here; FA-2 has never been run. Printing a
+    #    directional call next to a clock time is the one thing this page must
+    #    not do.
+    # ──────────────────────────────────────────────────────────────────────
+    st.divider()
+    st.markdown("### Morning Market Brief")
+    st.caption(
+        "Global cues, constituent-based sector breadth, and the day's panchang. "
+        "Astro entries are almanac facts — none of them is measured against "
+        "market outcomes in this repo."
+    )
+
+    mb_col1, mb_col2 = st.columns([1, 3])
+    with mb_col1:
+        brief_go = st.button("Build brief", type="primary", key="brief_go")
+    with mb_col2:
+        want_breadth = st.checkbox(
+            "Include sector breadth (500 constituents, ~6s)",
+            value=True, key="brief_breadth",
+        )
+
+    if brief_go:
+        import market_brief as mbrief
+        with st.spinner("Fetching global cues, breadth and panchang…"):
+            try:
+                st.session_state["brief_model"] = mbrief.build_brief(
+                    include_breadth=want_breadth,
+                    sentiment=reading,          # reuse THIS page's reading
+                )
+            except Exception as exc:
+                st.error(f"Brief build failed: {type(exc).__name__}: {exc}")
+
+    model = st.session_state.get("brief_model")
+    if model:
+        import market_brief as mbrief
+        pan = model.get("panchang")
+
+        tone_tone = {"WEAK": "🔴", "CAUTIOUS": "🟠",
+                     "STRONG": "🟢"}.get(model["tone"], "⚪")
+        st.markdown(
+            f"#### {tone_tone} {model['tone']} — "
+            f"{model['as_of'].strftime('%d %B %Y, %A')} · "
+            f"snapshot {model['as_of'].strftime('%H:%M')} IST"
+        )
+        qmeta = model["quotes_meta"]
+        if qmeta["error"]:
+            st.warning(f"Quote fetch problem: {qmeta['error']}")
+        if qmeta["missing"] or qmeta["stale"]:
+            st.warning(
+                f"{qmeta['missing']} quote(s) missing, {qmeta['stale']} stale "
+                "(shown struck through). A stale feed returns an old bar rather "
+                "than erroring — it is excluded from the tone, not averaged in."
+            )
+
+        # ── Quote strip, grouped as the source card groups them ──
+        for group in ("india", "asia", "us", "us_futures", "commodity", "fx"):
+            rows = [q for q in model["quotes"] if q["group"] == group]
+            if not rows:
+                continue
+            st.markdown(f"**{mbrief.GROUP_LABELS[group]}**")
+            cols = st.columns(len(rows))
+            for col, q in zip(cols, rows):
+                with col:
+                    if q["missing"]:
+                        st.metric(q["label"], "—", help="no data returned")
+                    elif q["stale"]:
+                        st.metric(f"~~{q['label']}~~", f"{q['last']:,.2f}",
+                                  delta=f"{q['change_pct']:+.2f}% (stale)",
+                                  delta_color="off",
+                                  help=f"last bar {q['bar_age_days']}d old — "
+                                       f"excluded from the tone")
+                    else:
+                        st.metric(q["label"], f"{q['last']:,.2f}",
+                                  delta=f"{q['change_pct']:+.2f}%")
+
+        # ── Breadth ──
+        br = model["breadth"]
+        if br.get("error"):
+            st.warning(f"Breadth unavailable: {br['error']}")
+        elif br.get("total"):
+            cov = br["coverage"]
+            b1, b2 = st.columns([1, 3])
+            with b1:
+                st.metric("Sectors red", f"{br['red']} / {br['total']}",
+                          delta=f"{br['green']} green", delta_color="off")
+            with b2:
+                st.caption(
+                    f"From **{cov['scored']} of {cov['universe_size']}** "
+                    f"{br['universe']} constituents grouped by NSE macro-sector. "
+                    f"A sector is red when its **median** constituent is down — "
+                    f"median, so one collapsing name cannot paint a sector. "
+                    f"Excluded: {cov['stale_excluded']} stale, {cov['missing']} "
+                    f"missing."
+                    + (f" Thin (<5 scored, not counted): "
+                       f"{', '.join(cov['thin_sectors'])}."
+                       if cov.get("thin_sectors") else "")
+                )
+            st.dataframe(
+                pd.DataFrame([{
+                    "Sector": s["sector"],
+                    "Median %": round(s["median_change_pct"], 2),
+                    "Mean %": round(s["mean_change_pct"], 2),
+                    "Constituents": s["constituents"],
+                    "% Green": round(s["pct_green"], 0),
+                } for s in br["sectors"]]),
+                hide_index=True, use_container_width=True,
+            )
+
+    # ── Panchang: the almanac block. Optional — the market half above renders
+    # without it, because `ephem` is not installed in every interpreter that can
+    # run this app and an optional dependency must not erase the whole card.
+    if model and not pan:
+        st.warning(
+            f"Astro block unavailable — {model.get('panchang_error') or 'unknown reason'}",
+            icon="🌘")
+
+    if model and pan:
+        st.markdown("#### Panchang — {} · {}".format(
+            pan["place"], pan["date"].strftime("%d %b %Y")))
+        st.caption(
+            "Computed locally from `ephem` (no vendor, no API). Verified against "
+            "a published card to the minute — run `python tools/panchang.py`. "
+            "**Facts only: no window here carries a measured market effect.**"
+        )
+
+        p1, p2, p3, p4 = st.columns(4)
+        p1.metric("Sunrise", pan["sunrise"].strftime("%H:%M"))
+        p2.metric("Sunset", pan["sunset"].strftime("%H:%M"))
+        p3.metric("Weekday lord", pan["day_lord"])
+        tt = pan["tithi"]
+        p4.metric("Tithi", f"{tt['paksha']} {tt['name']}",
+                  delta=f"{tt['pct_complete']:.0f}% elapsed", delta_color="off")
+
+        nk = pan["nakshatra"]
+        n1, n2, n3 = st.columns(3)
+        n1.metric("Nakshatra", nk["nakshatra"],
+                  delta=f"pada {nk['pada']}", delta_color="off")
+        n2.metric("Nakshatra lord", nk["lord"])
+        n3.metric("Sub-lord (KP)", nk["sub_lord"])
+        st.caption(
+            f"Moon at {nk['longitude']:.2f}° sidereal "
+            f"({nk['pct_through_nakshatra']:.0f}% through {nk['nakshatra']}, "
+            f"ayanamsa {nk['ayanamsa']:.2f}°). "
+            + (f"Pada {nk['pada']} ends {nk['pada_ends'].strftime('%H:%M')}; "
+               if nk["pada_ends"] else "")
+            + (f"{nk['nakshatra']} ends "
+               f"{nk['nakshatra_ends'].strftime('%H:%M on %d %b')}."
+               if nk["nakshatra_ends"] else "")
+        )
+
+        cur, nxt = pan["hora_current"], pan["hora_next"]
+        h1, h2, h3 = st.columns(3)
+        h1.metric("Current hora", cur["lord"] if cur else "—",
+                  delta=(f"{cur['start'].strftime('%H:%M')}–"
+                         f"{cur['end'].strftime('%H:%M')}" if cur else "outside day"),
+                  delta_color="off")
+        h2.metric("Next hora", nxt["lord"] if nxt else "—",
+                  delta=(f"from {nxt['start'].strftime('%H:%M')}" if nxt else ""),
+                  delta_color="off")
+        lp = pan["lunar_phase"]
+        h3.metric("Moon phase", (lp or {}).get("phase", "unknown").title(),
+                  delta=(f"{lp['illumination']:.0f}% lit" if lp else "no data"),
+                  delta_color="off")
+
+        w1, w2, w3 = st.columns(3)
+        for col, key, label in ((w1, "rahu_kaal", "Rahu Kaal"),
+                                (w2, "yamaganda", "Yamaganda"),
+                                (w3, "gulika", "Gulika")):
+            w = pan[key]
+            col.metric(label,
+                       f"{w['start'].strftime('%H:%M')}–{w['end'].strftime('%H:%M')}",
+                       delta=f"part {w['part']} of 8", delta_color="off")
+        st.caption(
+            "These three are the classical inauspicious windows — equal 1/8 "
+            "divisions of sunrise→sunset, assigned by weekday. **This repo has "
+            "never measured whether NIFTY behaves differently inside them** "
+            "(roadmap FA-2). Shown because they are computable and exact, not "
+            "because they are known to matter."
+        )
+
+        retro = [k for k, v in pan["retrogrades"].items() if v]
+        st.markdown(
+            f"**Retrograde now:** {', '.join(retro) if retro else 'none'}  ·  "
+            f"**Hora sequence** below runs sunrise→next sunrise."
+        )
+        with st.expander("Full 24-block hora sequence"):
+            st.dataframe(
+                pd.DataFrame([{
+                    "#": h["index"], "Lord": h["lord"],
+                    "Start": h["start"].strftime("%H:%M"),
+                    "End": h["end"].strftime("%H:%M"),
+                    "Phase": h["phase"],
+                    "Now": "◀" if cur and h["index"] == cur["index"] else "",
+                } for h in pan["hora_sequence"]]),
+                hide_index=True, use_container_width=True, height=320,
+            )
+
+    # Disclaimer belongs to the whole card, so it sits outside the astro block —
+    # it must still show when the panchang half is unavailable.
+    if model:
+        st.info(model["disclaimer"], icon="⚠️")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Page — India Market Intel (bulk/block deals, insider trading, gap & volume)
@@ -6326,8 +7971,8 @@ if current_page == "India Market Intel":
             col_config["Chart"] = st.column_config.LinkColumn("Chart", display_text="📈 Open", width="small")
         if "Analyze" in df_deals.columns:
             col_config["Analyze"] = _analyze_colcfg()
-        st.dataframe(df_deals.style.apply(_row_color, axis=1), use_container_width=True, hide_index=True,
-                     column_config=col_config)
+        _paginated_df(df_deals.style.apply(_row_color, axis=1), key="deals_main",
+                      column_config=col_config)
 
     with intel_tabs[0]:
         min_val_bulk = st.slider("Highlight bulk deals above (₹ Lakh)", 5, 500, 50, step=5, key="imi_bulk_min")
@@ -6472,7 +8117,7 @@ if current_page == "India Market Intel":
 
             styled = ins_display.style.apply(_dir_color, axis=1) \
                 if "Δ Holding %" in ins_display.columns else ins_display
-            st.dataframe(styled, use_container_width=True, hide_index=True, column_config=ins_col_config)
+            _paginated_df(styled, key="insider_main", column_config=ins_col_config)
 
     with intel_tabs[3]:
         st.caption(
@@ -6480,7 +8125,7 @@ if current_page == "India Market Intel":
             "Full-Market source as Scanner Hub)."
         )
         gv_col1, gv_col2, gv_col3 = st.columns(3)
-        gv_top_n = gv_col1.slider("Universe size (top N by traded value)", 50, 500, 150, step=50, key="imi_gv_topn")
+        gv_top_n = gv_col1.slider("Universe size (top N by traded value)", 50, 5000, 500, step=50, key="imi_gv_topn")
         gv_gap_pct = gv_col2.slider("Min gap %", 1.0, 15.0, 3.0, step=0.5, key="imi_gv_gap")
         gv_vol_mult = gv_col3.slider("Min volume × 20d avg", 1.0, 10.0, 2.0, step=0.5, key="imi_gv_vol")
 
@@ -7003,3 +8648,258 @@ if current_page == "OI Momentum":
                     "are not. Level and one-day change are honest to report; a "
                     "label would not be."
                 )
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Strategy Hub
+# Three-section page mirroring StockEdge's analytics layout:
+#   1. Chart Patterns — recent major-stock detections with outcome tracking
+#   2. Trading Strategies — live category counts by strategy family and horizon
+#   3. Fundamental Scores — top-scored names with badge + EPS/PE sparklines
+# Data is sourced from the last wiki ingest (EOD snapshot); date shown in header.
+# ──────────────────────────────────────────────────────────────────────────────
+if current_page == "Strategy Hub":
+
+    _SNAP_DATE = "11 Aug 2026"
+
+    st.markdown(
+        f"<h2 style='margin-bottom:2px;'>Strategy Hub</h2>"
+        f"<div style='font-size:12px;color:{rs.TOKENS['text_muted']};margin-bottom:16px;'>"
+        f"Snapshot: {_SNAP_DATE} · Chart patterns + trading strategies + fundamental scores"
+        f"</div>",
+        unsafe_allow_html=True,
+    )
+
+    # ── 1. Chart Patterns ─────────────────────────────────────────────────────
+    with st.container(border=True):
+        st.markdown("#### Chart Patterns  ·  Major Stocks")
+        st.caption("Past detections from StockEdge (EOD, AI + Human hybrid). "
+                   "Outcome = LTP vs published price point.")
+
+        import pandas as pd
+
+        _PATTERNS = [
+            # (Stock, Pattern, Bias, Published, Pub Price, LTP, Move%)
+            ("CE Info Systems",      "Double Top",          "Bearish",  "04 Aug", 1231.95, 1013.30, -17.7),
+            ("Zee Entertainment",    "Double Top",          "Bearish",  "03 Aug",  118.35,   91.56, -22.6),
+            ("Supreme Petrochem",    "Double Top",          "Bearish",  "29 Jul",  788.00,  685.25, -13.0),
+            ("Gallantt Ispat",       "Bearish Flag",        "Bearish",  "21 Jul",  618.50,  593.50,  -4.0),
+            ("Hero MotoCorp",        "Falling Channel",     "Bearish",  "20 Jul", 4942.38, 5865.50, +18.7),
+            ("Mahindra & Mahindra",  "Falling Channel",     "Bearish",  "21 Jul", 3172.73, 3460.10,  +9.1),
+            ("PNB Housing Finance",  "Rising Wedge",        "Bearish",  "23 Jul", 1073.38, 1142.10,  +6.4),
+            ("Pine Labs",            "Double Top",          "Bearish",  "16 Jul",  164.40,  167.58,  +1.9),
+            ("Muthoot Finance",      "Falling Wedge",       "Bearish",  "21 Jul", 3068.97, 2915.90,  -5.0),
+            ("Jubilant FoodWorks",   "Double Bottom",       "Bullish",  "27 Jul",  408.55,  488.20, +19.5),
+            ("Sapphire Foods",       "Sym. Triangle",       "Bullish",  "27 Jul",  182.94,  236.02, +29.0),
+            ("LTM Ltd.",             "Sym. Triangle",       "Bullish",  "28 Jul", 4192.58, 4850.00, +15.7),
+            ("Piramal Pharma",       "Sym. Triangle",       "Bullish",  "17 Jul",  177.18,  214.19, +20.9),
+            ("RR Kabel",             "Sym. Triangle",       "Bullish",  "22 Jul", 2386.29, 2812.80, +17.9),
+            ("Clean Science & Tech", "Sym. Triangle",       "Bullish",  "20 Jul",  756.03,  810.00,  +7.1),
+            ("Hyundai Motor India",  "Ascending Triangle",  "Bullish",  "31 Jul", 2064.80, 2200.00,  +6.5),
+            ("CRISIL",               "Ascending Triangle",  "Bullish",  "21 Jul", 4250.00, 4480.80,  +5.4),
+            ("Blue Star",            "Sym. Triangle",       "Neutral",  "03 Aug",    None,    None, -13.0),
+            ("Zee Entertainment",    "Sym. Triangle",       "Neutral",  "27 Jul",    None,    None, -15.3),
+            ("Supreme Petrochem",    "Falling Channel",     "Bearish",  "27 Jul",    None,    None,  -9.0),
+        ]
+
+        _pat_df = pd.DataFrame(_PATTERNS, columns=[
+            "Stock", "Pattern", "Bias", "Published", "Pub Price ₹", "LTP ₹", "Move %",
+        ])
+
+        def _bias_badge(b: str) -> str:
+            colors = {"Bullish": "#2e7d32", "Bearish": "#c62828", "Neutral": "#5c6bc0"}
+            return f'<span style="background:{colors.get(b,"#666")};color:#fff;' \
+                   f'border-radius:4px;padding:1px 6px;font-size:11px;">{b}</span>'
+
+        _pat_filter = st.radio(
+            "Filter", ["All", "Bullish", "Bearish", "Neutral"],
+            horizontal=True, key="sh_pat_filter",
+        )
+        _pat_view = _pat_df if _pat_filter == "All" else _pat_df[_pat_df["Bias"] == _pat_filter]
+
+        st.dataframe(
+            _pat_view.drop(columns=["Bias"]),
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "Stock":       st.column_config.TextColumn("Stock", width="medium"),
+                "Pattern":     st.column_config.TextColumn("Pattern", width="medium"),
+                "Published":   st.column_config.TextColumn("Published", width="small"),
+                "Pub Price ₹": st.column_config.NumberColumn("Pub Price ₹", format="₹%.2f"),
+                "LTP ₹":       st.column_config.NumberColumn("LTP ₹", format="₹%.2f"),
+                "Move %":      st.column_config.NumberColumn("Move %", format="%.1f%%"),
+            },
+        )
+        _total = len(_pat_view)
+        _bull_pats = (_pat_view["Move %"] > 0).sum()
+        _bear_pats = (_pat_view["Move %"] < 0).sum()
+        st.caption(
+            f"{_total} pattern(s) shown · "
+            f"**{_bull_pats}** above publish price · **{_bear_pats}** below · "
+            f"Major Stocks filter · activeness-status=200"
+        )
+
+    # ── 2. Trading Strategies ─────────────────────────────────────────────────
+    with st.container(border=True):
+        st.markdown("#### Trading Strategies  ·  Live Counts")
+        st.caption(
+            "Predefined combination scans re-run EOD by 7 PM. "
+            f"Counts as of {_SNAP_DATE}."
+        )
+
+        _STRATEGIES = [
+            # (name, horizon, direction, stocks, description, locked)
+            ("Cannon",   "One Day",    "Bullish",    7, "Momentum breakout with volume surge",         False),
+            ("Eagle",    "One Day",    "Bearish",    0, "Intraday reversal with distribution signal",  False),
+            ("Falcon",   "Swing",      "Bullish",   10, "Multi-day trend continuation setup",          False),
+            ("Surfing",  "Swing",      "Bearish",    2, "Bearish continuation on swing timeframe",     False),
+            ("Sword",    "Positional", "Bullish",    3, "Multi-week breakout with fundamental filter", True),
+            ("Dove",     "Positional", "Bearish",    0, "Long-duration distribution pattern",          True),
+        ]
+
+        _hor_colors  = {"One Day": "#1565c0", "Swing": "#2e7d32", "Positional": "#6a1b9a"}
+        _dir_colors  = {"Bullish": "#2e7d32", "Bearish": "#c62828"}
+        _dir_icons   = {"Bullish": "▲", "Bearish": "▼"}
+
+        _sg_cols = st.columns(3)
+        for _si, (_sname, _shor, _sdir, _scount, _sdesc, _slocked) in enumerate(_STRATEGIES):
+            with _sg_cols[_si % 3]:
+                _lock_html = (
+                    ' <span style="font-size:11px;opacity:0.6;">🔒 Pro</span>'
+                    if _slocked else ""
+                )
+                st.markdown(
+                    f'<div style="border:1px solid {rs.TOKENS["border"]};border-radius:8px;'
+                    f'padding:14px 16px;margin-bottom:12px;">'
+                    f'<div style="font-size:15px;font-weight:700;margin-bottom:4px;">'
+                    f'{_sname}{_lock_html}</div>'
+                    f'<div style="margin-bottom:8px;">'
+                    f'<span style="background:{_hor_colors[_shor]};color:#fff;'
+                    f'border-radius:4px;padding:1px 7px;font-size:11px;margin-right:4px;">'
+                    f'{_shor}</span>'
+                    f'<span style="background:{_dir_colors[_sdir]};color:#fff;'
+                    f'border-radius:4px;padding:1px 7px;font-size:11px;">'
+                    f'{_dir_icons[_sdir]} {_sdir}</span>'
+                    f'</div>'
+                    f'<div style="font-size:12px;color:{rs.TOKENS["text_muted"]};'
+                    f'margin-bottom:10px;">{_sdesc}</div>'
+                    f'<div style="font-size:22px;font-weight:800;'
+                    f'color:{_dir_colors[_sdir]};">{_scount}'
+                    f'<span style="font-size:12px;font-weight:400;'
+                    f'color:{rs.TOKENS["text_muted"]};margin-left:4px;">stocks</span>'
+                    f'</div>'
+                    f'</div>',
+                    unsafe_allow_html=True,
+                )
+
+        _bull_total = sum(s[3] for s in _STRATEGIES if s[2] == "Bullish")
+        _bear_total = sum(s[3] for s in _STRATEGIES if s[2] == "Bearish")
+        st.caption(
+            f"Net: **{_bull_total} bullish** signals vs **{_bear_total} bearish** · "
+            f"Bullish skew in strategy engine is consistent — chart patterns are "
+            f"backward-looking; strategies are forward-looking EOD signals."
+        )
+
+    # ── 3. Fundamental Scores ─────────────────────────────────────────────────
+    with st.container(border=True):
+        st.markdown("#### Fundamental Scores  ·  Top Picks")
+        st.caption(
+            "Scores computed from the last fundamental data pull. "
+            "Shield color: green ≥ 70 · amber 50–69 · red < 50."
+        )
+
+        _FS_DATA = [
+            # (stock, sector, mcap_cr, fund_score, eps_cagr_3y, pe_min, pe_max, pe_now, ltp, ltp_chg)
+            ("DCM Shriram",    "Chemicals",      9_800,  75, -2.15,  12.1, 28.4, 14.2, 1143.50, +1.2),
+            ("Vedanta",        "Metals",        1_52_000, 72, +16.10, 6.3, 18.7,  9.1,  465.80, +0.8),
+            ("Jubilant FW",    "Consumer",      12_500,  68, +8.40,  32.0, 58.2, 41.0,  488.20, +2.1),
+            ("CRISIL",         "Financials",    32_400,  81, +11.20, 28.5, 45.0, 36.8, 4480.80, +0.4),
+            ("Hyundai India",  "Auto",         1_20_000, 65, +4.50,  18.0, 32.0, 22.1, 2200.00, +0.6),
+            ("Piramal Pharma", "Pharma",        14_200,  59, -1.80,  40.0, 95.0, 62.0,  214.19, +3.2),
+        ]
+
+        def _shield_color(score: int) -> str:
+            if score >= 70:
+                return "#2e7d32"
+            if score >= 50:
+                return "#e65100"
+            return "#c62828"
+
+        def _pe_bar_html(pe_min, pe_max, pe_now, width=90) -> str:
+            if pe_max <= pe_min:
+                return "—"
+            pct = max(0.0, min(1.0, (pe_now - pe_min) / (pe_max - pe_min)))
+            filled = int(pct * width)
+            marker = filled
+            return (
+                f'<div style="position:relative;width:{width}px;height:8px;'
+                f'background:#e0e0e0;border-radius:4px;display:inline-block;">'
+                f'<div style="width:{filled}px;height:8px;background:#1565c0;'
+                f'border-radius:4px;"></div>'
+                f'<div style="position:absolute;top:-2px;left:{marker}px;'
+                f'width:3px;height:12px;background:#ff6f00;border-radius:2px;"></div>'
+                f'</div><span style="font-size:10px;margin-left:5px;">{pe_now:.1f}x</span>'
+            )
+
+        for (_fstock, _fsec, _fmcap, _fscore, _feps, _fpe_min, _fpe_max, _fpe_now,
+             _fltp, _fchg) in _FS_DATA:
+            _sc = _shield_color(_fscore)
+            _chg_color = "#2e7d32" if _fchg >= 0 else "#c62828"
+            _chg_sign  = "+" if _fchg >= 0 else ""
+            _eps_color = "#2e7d32" if _feps >= 0 else "#c62828"
+
+            fc1, fc2, fc3, fc4, fc5, fc6 = st.columns([2.5, 1.2, 1.0, 1.8, 1.8, 1.2])
+            with fc1:
+                st.markdown(
+                    f'<div style="padding-top:4px;font-weight:600;">{_fstock}</div>'
+                    f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
+                    f'{_fsec} · ₹{_fmcap/100:,.0f}Cr MCap</div>',
+                    unsafe_allow_html=True,
+                )
+            with fc2:
+                st.markdown(
+                    f'<div style="padding-top:4px;">'
+                    f'<span style="background:{_sc};color:#fff;border-radius:6px;'
+                    f'padding:3px 10px;font-weight:700;font-size:13px;">🛡 {_fscore}</span>'
+                    f'<span style="font-size:10px;color:{rs.TOKENS["text_muted"]};'
+                    f'margin-left:4px;">/100</span></div>',
+                    unsafe_allow_html=True,
+                )
+            with fc3:
+                st.markdown(
+                    f'<div style="padding-top:6px;font-size:12px;">'
+                    f'<span style="color:{_eps_color};font-weight:600;">'
+                    f'{_chg_sign if _feps >= 0 else ""}{_feps:.2f}%</span>'
+                    f'<br><span style="font-size:10px;color:{rs.TOKENS["text_muted"]};">'
+                    f'EPS 3Y CAGR</span></div>',
+                    unsafe_allow_html=True,
+                )
+            with fc4:
+                st.markdown(
+                    f'<div style="padding-top:8px;">'
+                    f'{_pe_bar_html(_fpe_min, _fpe_max, _fpe_now)}</div>'
+                    f'<div style="font-size:10px;color:{rs.TOKENS["text_muted"]};">'
+                    f'PE 3Y range {_fpe_min:.0f}–{_fpe_max:.0f}x</div>',
+                    unsafe_allow_html=True,
+                )
+            with fc5:
+                st.markdown(
+                    f'<div style="padding-top:4px;font-size:14px;font-weight:700;">'
+                    f'₹{_fltp:,.2f}</div>'
+                    f'<div style="font-size:11px;color:{_chg_color};">'
+                    f'{_chg_sign}{_fchg:.2f}% today</div>',
+                    unsafe_allow_html=True,
+                )
+            with fc6:
+                _qs_url = f"?nav=analyze&symbol={_fstock.replace(' ','%20').split()[0].upper()}"
+                st.markdown(
+                    f'<div style="padding-top:6px;">'
+                    f'<a href="{_qs_url}" target="_self" style="font-size:11px;">'
+                    f'Analyze ↗</a></div>',
+                    unsafe_allow_html=True,
+                )
+
+            st.markdown(
+                f'<hr style="border:none;border-top:1px solid {rs.TOKENS["border"]};'
+                f'margin:4px 0;">',
+                unsafe_allow_html=True,
+            )

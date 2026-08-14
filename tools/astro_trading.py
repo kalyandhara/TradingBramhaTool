@@ -402,6 +402,361 @@ class AstroIndicators:
             })
         return data
 
+    # ── Nakshatra sector map ───────────────────────────────────────────────────
+    # 27 lunar mansions, each 13°20' of the sidereal zodiac.
+    # Lahiri ayanamsa for 2026: ~23.85°.  Tuple: (name, ruling_planet, [NSE sectors], commodity_theme)
+    NAKSHATRA_DATA: List[Tuple] = [
+        ("Ashwini",          "Ketu",    ["Pharma", "Auto", "Metal"],          "Medical, transport, mining, railways"),
+        ("Bharani",          "Venus",   ["FMCG", "Agri"],                     "Wheat, edible oils, food, medicines, tea"),
+        ("Krittika",         "Sun",     ["Metal", "Energy", "Defence"],       "Gold, diamonds, steel, international trade"),
+        ("Rohini",           "Moon",    ["Auto", "Banking", "Energy", "FMCG"],"Silver, crude oil, cotton, auto, shipping"),
+        ("Mrigashira",       "Mars",    ["IT", "Pharma", "Media"],            "Tech, cinema, jewelry, food grains, pulses"),
+        ("Ardra",            "Rahu",    ["IT", "Pharma", "Energy"],           "Edible oils, air transport, communication, IT"),
+        ("Punarvasu",        "Jupiter", ["Banking", "Realty"],                "Gold, silver, insurance, banking, real estate"),
+        ("Pushya",           "Saturn",  ["FMCG", "Energy", "Agri"],          "Dairy, agriculture, petroleum, govt securities"),
+        ("Ashlesha",         "Mercury", ["Pharma", "Energy"],                 "Pharma, chemicals, petroleum, international trade"),
+        ("Magha",            "Ketu",    ["Banking", "Defence"],               "Stock markets, administration, politics, judiciary"),
+        ("Purva Phalguni",   "Venus",   ["Media", "FMCG", "Realty"],         "Entertainment, beauty, gems, media, hospitality"),
+        ("Uttara Phalguni",  "Sun",     ["Banking", "Media"],                 "Banking, media, public service, social sectors"),
+        ("Hasta",            "Moon",    ["Banking", "Metal"],                 "Silver, textiles, hospitals, marketing, brokerage"),
+        ("Chitra",           "Mars",    ["Auto", "Realty", "Metal"],          "Luxury goods, automobiles, petroleum, real estate"),
+        ("Swati",            "Rahu",    ["Banking", "IT", "FMCG"],           "Stock exchanges, cosmetics, silk, financial mgmt"),
+        ("Vishakha",         "Jupiter", ["Banking", "FMCG", "Agri"],         "Gold, insurance, banking, agriculture, books"),
+        ("Anuradha",         "Saturn",  ["IT", "Pharma", "Defence"],         "Science, foreign trade, exploration, music"),
+        ("Jyeshtha",         "Mercury", ["Defence", "Media"],                 "Military, government, administration, journalism"),
+        ("Mula",             "Ketu",    ["Energy", "Pharma", "Metal"],        "Petroleum, mining, atomic energy, medicine"),
+        ("Purva Ashadha",    "Venus",   ["Energy", "Media", "FMCG"],         "Maritime, water industries, aviation, entertainment"),
+        ("Uttara Ashadha",   "Sun",     ["Defence", "Infra", "Realty"],      "Government, law, military, construction, athletics"),
+        ("Shravana",         "Moon",    ["Energy", "Media", "FMCG"],         "Milk products, marine, mining, coal, broadcasting"),
+        ("Dhanishtha",       "Mars",    ["Metal", "Energy", "Realty"],        "Metals, iron, steel, atomic energy, stock markets"),
+        ("Shatabhisha",      "Rahu",    ["Pharma", "IT", "Energy"],           "Healthcare, electrical, pharma, aviation, film"),
+        ("Purva Bhadrapada", "Jupiter", ["Pharma", "Metal", "Energy"],        "Medicine, metallurgy, leather, pharma, environment"),
+        ("Uttara Bhadrapada","Saturn",  ["FMCG", "Agri"],                    "Jaggery, sugar, sesame, oils, agriculture, research"),
+        ("Revati",           "Mercury", ["IT", "Realty", "Media"],            "Gemstones, pearls, shipping, maritime, hospitality"),
+    ]
+
+    # Lahiri ayanamsa — updated periodically; ~23.85° for 2026
+    _AYANAMSA = 23.85
+
+    def get_nakshatra(self, d: date) -> Dict:
+        """
+        Return the Moon's nakshatra for date d (noon IST).
+
+        Uses PyEphem to get the geocentric ecliptic longitude, then applies the
+        Lahiri ayanamsa to convert tropical → sidereal before dividing into the
+        27-nakshatra grid (each 13°20').  Returns a dict with nakshatra metadata
+        and the sectors to watch; falls back to a note when ephem is absent.
+        """
+        if not HAS_EPHEM:
+            return {"error": "ephem not installed — run: pip install ephem"}
+
+        import ephem as _ephem
+
+        observer = _ephem.Observer()
+        observer.date = datetime.combine(d, time(5, 30))  # noon IST = 06:30 UTC
+        observer.lat = str(self.lat)
+        observer.lon = str(self.lon)
+        observer.elevation = 0
+        observer.pressure = 0  # no refraction
+
+        moon = _ephem.Moon(observer)
+        moon.compute(observer)
+
+        # Tropical ecliptic longitude (radians → degrees)
+        ec = _ephem.Ecliptic(moon, epoch=observer.date)
+        tropical_lon = math.degrees(ec.lon) % 360
+
+        # Sidereal longitude (Lahiri)
+        sidereal_lon = (tropical_lon - self._AYANAMSA) % 360
+
+        # Nakshatra index 0-26 and degree within the nakshatra (0-13.33)
+        each = 360 / 27
+        idx = int(sidereal_lon / each)
+        deg_in = sidereal_lon - idx * each
+        pct = deg_in / each  # 0.0 → 1.0 progress through nakshatra
+
+        name, planet, sectors, theme = self.NAKSHATRA_DATA[idx]
+        return {
+            "nakshatra":    name,
+            "index":        idx + 1,          # 1-27 for display
+            "planet":       planet,
+            "sectors":      sectors,
+            "theme":        theme,
+            "sidereal_lon": round(sidereal_lon, 2),
+            "deg_in":       round(deg_in, 2),
+            "pct":          round(pct * 100, 1),   # % through nakshatra
+        }
+
+    # India Independence Chart sensitive degrees (degree within sign, 0–29°)
+    # Source: Aug 15, 1947, 12:00 AM, New Delhi — D1 (Rashi) and D9 (Navamsa)
+    INDIA_CHART_DEGREES: Dict[str, float] = {
+        "Lagna D1":  8.0,
+        "Lagna D9":  12.0,
+        "Sun":       27.18,
+        "Moon":      3.08,
+        "Mars":      7.0,
+        "Mercury":   13.0,
+        "Jupiter":   25.0,
+        "Venus":     22.0,
+        "Saturn":    20.0,
+        "Rahu/Ketu": 5.0,
+    }
+
+    # Trading bias per transiting planet (financial astrology convention:
+    # malefics = bullish, benefics = bearish)
+    _PLANET_BIAS: Dict[str, str] = {
+        "Sun":     "bullish",
+        "Moon":    "bearish",
+        "Mars":    "bullish",
+        "Mercury": "bearish",
+        "Jupiter": "bearish",
+        "Venus":   "bearish",
+        "Saturn":  "bullish",
+        "Rahu":    "bullish",
+        "Ketu":    "ambiguous",
+    }
+
+    # NSE karaka sectors per planet
+    _PLANET_KARAKA: Dict[str, str] = {
+        "Sun":     "Govt / PSU / Defence / Energy",
+        "Moon":    "Petroleum / Retail / FMCG / Agri",
+        "Mars":    "Auto / Defence / Steel / Realty",
+        "Mercury": "IT / Telecom / Media / Banking",
+        "Jupiter": "Banking / Finance / Gold / FMCG",
+        "Venus":   "Textiles / Luxury / Vehicles / Finance",
+        "Saturn":  "Oil & Gas / Infra / Mining / IT Services",
+        "Rahu":    "IT / Pharma / Aviation / Derivatives",
+        "Ketu":    "Pharma / Defence / Niche",
+    }
+
+    def get_india_chart_alerts(self, d: date, orb: float = 2.0) -> List[Dict]:
+        """
+        Return degree-matching alerts for date d (9:15 AM IST — NSE open).
+
+        For each transiting planet, extracts the degree within its current sign
+        (lon % 30) and checks against every sensitive degree in India's Independence
+        Chart (D1 + D9). An alert fires when |transiting_deg - india_deg| <= orb.
+
+        Returns a list of alert dicts sorted by orb (tightest first):
+          planet, transiting_deg, india_point, india_deg, orb_actual,
+          bias, karaka, sign, sidereal_lon
+        """
+        if not HAS_EPHEM:
+            return [{"error": "ephem not installed"}]
+
+        import ephem as _ephem
+
+        # 9:15 AM IST = 03:45 UTC
+        observer = _ephem.Observer()
+        observer.date = datetime.combine(d, time(3, 45))
+        observer.lat = str(self.lat)
+        observer.lon = str(self.lon)
+        observer.elevation = 0
+        observer.pressure = 0
+
+        def _planet_data(body_class, name):
+            body = body_class()
+            body.compute(observer)
+            ec = _ephem.Ecliptic(body, epoch=observer.date)
+            sid_lon = (math.degrees(ec.lon) - self._AYANAMSA) % 360
+            sign_idx = int(sid_lon / 30)
+            deg_in_sign = sid_lon % 30
+            return {
+                "planet":       name,
+                "sidereal_lon": round(sid_lon, 2),
+                "sign":         self._SIGNS[sign_idx],
+                "deg_in_sign":  round(deg_in_sign, 2),
+                "bias":         self._PLANET_BIAS.get(name, "unknown"),
+                "karaka":       self._PLANET_KARAKA.get(name, ""),
+            }
+
+        planets = [
+            _planet_data(_ephem.Sun,     "Sun"),
+            _planet_data(_ephem.Moon,    "Moon"),
+            _planet_data(_ephem.Mars,    "Mars"),
+            _planet_data(_ephem.Mercury, "Mercury"),
+            _planet_data(_ephem.Jupiter, "Jupiter"),
+            _planet_data(_ephem.Venus,   "Venus"),
+            _planet_data(_ephem.Saturn,  "Saturn"),
+        ]
+
+        # Rahu (mean lunar node) — same J2000 formula used in get_jupiter_position
+        _j2000 = datetime(2000, 1, 1, 12, 0, 0)
+        _days = (datetime.combine(d, time(3, 45)) - _j2000).total_seconds() / 86400
+        rahu_tropical = (125.04455501 - 0.05295392 * _days) % 360
+        rahu_sid = (rahu_tropical - self._AYANAMSA) % 360
+        ketu_sid = (rahu_sid + 180) % 360
+
+        for name, sid_lon in [("Rahu", rahu_sid), ("Ketu", ketu_sid)]:
+            sign_idx = int(sid_lon / 30)
+            planets.append({
+                "planet":       name,
+                "sidereal_lon": round(sid_lon, 2),
+                "sign":         self._SIGNS[sign_idx],
+                "deg_in_sign":  round(sid_lon % 30, 2),
+                "bias":         self._PLANET_BIAS.get(name, "ambiguous"),
+                "karaka":       self._PLANET_KARAKA.get(name, ""),
+            })
+
+        alerts = []
+        for p in planets:
+            for india_point, india_deg in self.INDIA_CHART_DEGREES.items():
+                diff = abs(p["deg_in_sign"] - india_deg)
+                # wrap at 30° boundary (e.g. 29° vs 1° of next sign)
+                if diff > 15:
+                    diff = 30 - diff
+                if diff <= orb:
+                    alerts.append({
+                        **p,
+                        "india_point":  india_point,
+                        "india_deg":    india_deg,
+                        "orb_actual":   round(diff, 2),
+                        "exact":        diff <= 0.5,
+                    })
+
+        return sorted(alerts, key=lambda x: x["orb_actual"])
+
+    # Zodiac sign names (sidereal / Vedic)
+    _SIGNS = [
+        "Aries (Mesha)", "Taurus (Vrishabha)", "Gemini (Mithuna)",
+        "Cancer (Karka)", "Leo (Simha)", "Virgo (Kanya)",
+        "Libra (Tula)", "Scorpio (Vrishchika)", "Sagittarius (Dhanu)",
+        "Capricorn (Makara)", "Aquarius (Kumbha)", "Pisces (Meena)",
+    ]
+
+    # Nakshatras ruled by Ketu (index 0-based: Ashwini=0, Magha=9, Mula=18)
+    _KETU_NAKSHATRA_IDX = {0, 9, 18}
+
+    def get_jupiter_position(self, d: date) -> Dict:
+        """
+        Return Jupiter's sidereal position for date d (noon IST) and evaluate
+        the Jupiter Market Crash Signal (three-factor model).
+
+        Factor 1 — Ketu nakshatra: Jupiter in Ashwini, Magha, or Mula.
+        Factor 2 — Shashtashtak Yoga: Saturn, Sun, or Mars is 5 or 7 signs
+                   away from Jupiter (6th/8th house axis in Vedic astrology).
+        Factor 3 — Rahu-Ketu nodal influence: Rahu or Ketu is within ±30°
+                   of Jupiter's ecliptic longitude (1-sign orb).
+
+        All three active simultaneously = historical crash signal (1992/2000/2008/2020).
+        """
+        if not HAS_EPHEM:
+            return {"error": "ephem not installed — run: pip install ephem"}
+
+        import ephem as _ephem
+
+        observer = _ephem.Observer()
+        observer.date = datetime.combine(d, time(5, 30))  # noon IST = 06:30 UTC
+        observer.lat = str(self.lat)
+        observer.lon = str(self.lon)
+        observer.elevation = 0
+        observer.pressure = 0
+
+        def _sidereal(body_class):
+            body = body_class()
+            body.compute(observer)
+            ec = _ephem.Ecliptic(body, epoch=observer.date)
+            return (math.degrees(ec.lon) - self._AYANAMSA) % 360
+
+        jup_lon = _sidereal(_ephem.Jupiter)
+        sat_lon = _sidereal(_ephem.Saturn)
+        sun_lon = _sidereal(_ephem.Sun)
+        mar_lon = _sidereal(_ephem.Mars)
+        # Rahu (mean north node); Ketu is always 180° opposite
+        # Mean lunar ascending node (Rahu) — J2000.0 epoch formula
+        # J2000.0 = 2000-Jan-1.5 TT; node was 125.04455501° tropical, retrograde
+        _j2000 = datetime(2000, 1, 1, 12, 0, 0)
+        _days_j2000 = (datetime.combine(d, time(5, 30)) - _j2000).total_seconds() / 86400
+        rahu_tropical = (125.04455501 - 0.05295392 * _days_j2000) % 360
+        rahu_lon = (rahu_tropical - self._AYANAMSA) % 360
+        ketu_lon = (rahu_lon + 180) % 360
+
+        each_sign = 30.0
+        each_nak  = 360 / 27
+
+        jup_sign_idx = int(jup_lon / each_sign)
+        jup_nak_idx  = int(jup_lon / each_nak)
+
+        name, nk_planet, sectors, theme = self.NAKSHATRA_DATA[jup_nak_idx]
+
+        # Factor 1: Ketu nakshatra
+        f1_ketu_nak = jup_nak_idx in self._KETU_NAKSHATRA_IDX
+
+        # Factor 2: Shashtashtak — malefic is 5 or 7 signs from Jupiter
+        def _sign_sep(a_lon, b_lon):
+            """Signs from a to b (forward)."""
+            return int(((b_lon - a_lon) % 360) / 30)
+
+        f2_malefics = []
+        for planet_name, mal_lon in [("Saturn", sat_lon), ("Sun", sun_lon), ("Mars", mar_lon)]:
+            sep = _sign_sep(jup_lon, mal_lon)
+            if sep in (5, 7):
+                f2_malefics.append(planet_name)
+
+        f2_shashtashtak = len(f2_malefics) > 0
+
+        # Factor 3: Rahu-Ketu within 30° of Jupiter
+        def _arc(a, b):
+            return min(abs(a - b) % 360, 360 - abs(a - b) % 360)
+
+        rahu_arc = _arc(jup_lon, rahu_lon)
+        ketu_arc = _arc(jup_lon, ketu_lon)
+        f3_nodal = rahu_arc <= 30 or ketu_arc <= 30
+
+        factors_active = sum([f1_ketu_nak, f2_shashtashtak, f3_nodal])
+
+        if factors_active == 3:
+            signal = "CRASH SIGNAL"
+            signal_color = "red"
+        elif factors_active == 2:
+            signal = "ELEVATED RISK"
+            signal_color = "orange"
+        elif factors_active == 1:
+            signal = "WATCH"
+            signal_color = "yellow"
+        else:
+            signal = "CLEAR"
+            signal_color = "green"
+
+        return {
+            "date":             d,
+            "nakshatra":        name,
+            "nakshatra_index":  jup_nak_idx + 1,
+            "nakshatra_planet": nk_planet,
+            "sign":             self._SIGNS[jup_sign_idx],
+            "sign_index":       jup_sign_idx + 1,
+            "sidereal_lon":     round(jup_lon, 2),
+            "is_ketu_nakshatra": f1_ketu_nak,
+            "shashtashtak_with": f2_malefics,        # list of planet names
+            "nodal_influence":  f3_nodal,
+            "rahu_arc":         round(rahu_arc, 1),
+            "ketu_arc":         round(ketu_arc, 1),
+            "factors_active":   factors_active,
+            "signal":           signal,
+            "signal_color":     signal_color,
+        }
+
+    def get_nakshatra_forecast(self, start_date: date, days: int = 7) -> "pd.DataFrame":
+        """Return a DataFrame of nakshatra + sector forecasts for `days` ahead."""
+        rows = []
+        for i in range(days):
+            d = start_date + timedelta(days=i)
+            nk = self.get_nakshatra(d)
+            if "error" in nk:
+                break
+            rows.append({
+                "Date":         d.strftime("%a %d %b"),
+                "Nakshatra":    nk["nakshatra"],
+                "Ruling Planet":nk["planet"],
+                "Watch Sectors":  " / ".join(nk["sectors"]),
+                "Commodity Theme": nk["theme"],
+                "Progress %":   nk["pct"],
+            })
+        if HAS_PANDAS:
+            import pandas as pd
+            return pd.DataFrame(rows)
+        return rows
+
 
 if __name__ == '__main__':
     from datetime import date

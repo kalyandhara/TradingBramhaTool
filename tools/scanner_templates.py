@@ -7,6 +7,7 @@ dict (symbol, pattern_type, tags, reasons, score) or None if no match.
 """
 
 import logging
+import threading
 
 import numpy as np
 import pandas as pd
@@ -45,7 +46,9 @@ def _rsi_series(close: pd.Series, n: int = 14) -> pd.Series:
 # when a benchmark DataFrame is supplied). When set, _rs_raw returns the
 # stock's EXCESS return over the benchmark — a true relative-strength line —
 # instead of an absolute trailing return.
-_BENCHMARK_WRET: float | None = None
+# threading.local() prevents concurrent scanner runs in different threads from
+# leaking benchmark state into each other.
+_tls = threading.local()
 
 
 def _weighted_trailing_return(close: pd.Series) -> float:
@@ -76,7 +79,7 @@ def _rs_raw(df: pd.DataFrame) -> float:
     stock's excess return over that benchmark (e.g. vs Nifty); otherwise it
     falls back to the absolute weighted trailing return."""
     stock = _weighted_trailing_return(df["close"])
-    return stock - (_BENCHMARK_WRET or 0.0)
+    return stock - (getattr(_tls, "benchmark_wret", None) or 0.0)
 
 
 _SIGNAL_BANDS = [(85, "Very Strong"), (70, "Strong"),
@@ -135,11 +138,14 @@ def scan_52w_high_leaders(df: pd.DataFrame) -> dict | None:
     vol_last = float(df["volume"].iloc[-1])
     if vol_last > vol_avg * 1.5:
         reasons.append(f"Volume {vol_last / vol_avg:.1f}× average — institutional activity")
+    score_base = round(50.0 + (5.0 - pct) * 10.0, 1)
     return {
         "pattern_type": "52-Week High Leader",
         "tags": [f"{pct:.1f}% from 52w high", "Near highs"],
         "reasons": reasons,
-        "score": round(10 - pct, 2),
+        "score": score_base,
+        "score_base": score_base,
+        "rs_raw": round(_rs_raw(df), 3),
     }
 
 
@@ -157,7 +163,7 @@ def scan_stage2_uptrend(df: pd.DataFrame) -> dict | None:
         return None
     if not (last > sma50 > sma150 > sma200):
         return None
-    if not np.isnan(sma200_1m) and sma200 <= sma200_1m:
+    if not np.isnan(sma200_1m) and sma200 < sma200_1m:
         return None
     pct_ext = (last - sma50) / sma50 * 100
     reasons = [
@@ -2125,6 +2131,51 @@ def _atr_series(df: pd.DataFrame, n: int = 14) -> pd.Series:
     return tr.ewm(alpha=1 / n, adjust=False).mean()   # Wilder smoothing
 
 
+def _mfi_series(df: pd.DataFrame, n: int = 14) -> pd.Series:
+    """Money Flow Index — volume-weighted RSI on typical price (H+L+C)/3.
+
+    Returns a 0-100 Series aligned to df's index.  Needs 'high', 'low',
+    'close', 'volume' columns.
+    """
+    tp = (df["high"].astype(float) + df["low"].astype(float) + df["close"].astype(float)) / 3.0
+    vol = df["volume"].astype(float)
+    rmf = tp * vol                                  # raw money flow
+    direction = tp.diff()                           # positive when TP rose
+    pos_mf = rmf.where(direction > 0, 0.0)
+    neg_mf = rmf.where(direction < 0, 0.0)
+    pos_sum = pos_mf.rolling(n).sum()
+    neg_sum = neg_mf.rolling(n).sum()
+    mfr = pos_sum / neg_sum.replace(0.0, np.nan)   # money flow ratio
+    return 100.0 - 100.0 / (1.0 + mfr)
+
+
+def _adx_di_series(df: pd.DataFrame, n: int = 14) -> tuple[pd.Series, pd.Series, pd.Series]:
+    """Wilder's ADX with +DI / -DI directional lines.
+
+    Returns (+DI, -DI, ADX) as three Series aligned to df's index, with NaN
+    through the warm-up period (first 2n bars).  All three are 0-100 scaled.
+    """
+    h, l, c = df["high"].astype(float), df["low"].astype(float), df["close"].astype(float)
+    ph, pl = h.shift(1), l.shift(1)
+    up_move   = h - ph
+    down_move = pl - l
+    plus_dm  = np.where((up_move > down_move) & (up_move > 0), up_move, 0.0)
+    minus_dm = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+    plus_dm_s  = pd.Series(plus_dm,  index=df.index, dtype=float)
+    minus_dm_s = pd.Series(minus_dm, index=df.index, dtype=float)
+    alpha = 1.0 / n
+    atr14      = _atr_series(df, n)
+    sdm_plus   = plus_dm_s.ewm(alpha=alpha, adjust=False).mean()
+    sdm_minus  = minus_dm_s.ewm(alpha=alpha, adjust=False).mean()
+    denom = atr14.replace(0.0, np.nan)
+    plus_di  = 100.0 * sdm_plus  / denom
+    minus_di = 100.0 * sdm_minus / denom
+    di_sum  = (plus_di + minus_di).replace(0.0, np.nan)
+    dx      = 100.0 * (plus_di - minus_di).abs() / di_sum
+    adx     = dx.ewm(alpha=alpha, adjust=False).mean()
+    return plus_di, minus_di, adx
+
+
 def detect_structure_chain(df: pd.DataFrame, pivot_len: int = 15,
                            confirm: str = "close", fail_win: int = 3,
                            max_swings: int = 15) -> dict | None:
@@ -2293,23 +2344,60 @@ def detect_structure_chain(df: pd.DataFrame, pivot_len: int = 15,
     }
 
 
+def _displacement_body_ratio(o: float, h: float, l: float, c: float) -> float:
+    """Body as a fraction of total range. Used by the ICT displacement gate."""
+    rng = h - l
+    return abs(c - o) / rng if rng > 0 else 0.0
+
+
+def _ote_zone(leg_start: float, leg_end: float, direction: str) -> tuple[float, float]:
+    """ICT Optimal Trade Entry zone: 61.8%–79% retracement of a displacement leg.
+
+    direction='bullish': leg went UP (leg_start < leg_end); OTE is below leg_end.
+    direction='bearish': leg went DOWN (leg_start > leg_end); OTE is above leg_end.
+
+    Returns (ote_lo, ote_hi) where ote_lo < ote_hi always, ready to compare
+    against current price.
+    """
+    span = abs(leg_end - leg_start)
+    if direction == "bullish":
+        return (round(leg_end - 0.786 * span, 2), round(leg_end - 0.618 * span, 2))
+    else:
+        return (round(leg_end + 0.618 * span, 2), round(leg_end + 0.786 * span, 2))
+
+
 def detect_bos_choch(df: pd.DataFrame, pivot_len: int = 5,
-                     lookback: int = 120) -> dict | None:
+                     lookback: int = 120,
+                     require_displacement: bool = False,
+                     min_body_ratio: float = 0.5) -> dict | None:
     """Bullish market-structure event (SMC swing-labeling walk): a close above
     the most recent confirmed swing high while structure is bearish = CHOCH
     (first counter-trend break); while already bullish = BOS (continuation).
     A later close below a confirmed swing low re-flips structure bearish and
     invalidates the bullish event. Returns the surviving bullish event or None.
+
+    When require_displacement=True (ICT mode), the break candle must have a
+    body that is at least min_body_ratio of its full high-low range, filtering
+    out soft, low-conviction closes that just edge past the pivot.
+
+    Extra keys when displacement was measured:
+      displacement (bool) — whether the break candle met the body-ratio gate
+      body_ratio  (float) — actual body/range of the break candle
+      leg_start   (float) — swing low before the break (OTE calculation anchor)
+      leg_end     (float) — the swing-high level that was broken (OTE top anchor)
+      ote_zone    (float, float) — (ote_lo, ote_hi) = 61.8–79% retracement band
     """
     if len(df) < pivot_len * 4 + 20:
         return None
     high, low, close = df["high"], df["low"], df["close"]
+    opens = df["open"]
     n = len(df)
 
     swing_high: float | None = None
     swing_low: float | None = None
     trend = 0            # 1 up / -1 down / 0 unknown
-    last_event: tuple[str, int, float] | None = None
+    last_event: tuple[str, int, float, float | None, float | None] | None = None
+    # last_event = (label, bar_idx, level, leg_start_swing_low, body_ratio)
 
     for i in range(max(pivot_len * 2, n - lookback), n):
         j = i - pivot_len          # pivot confirmed pivot_len bars later
@@ -2320,9 +2408,18 @@ def detect_bos_choch(df: pd.DataFrame, pivot_len: int = 5,
                 swing_low = float(low.iloc[j])
         c = float(close.iloc[i])
         if swing_high is not None and c > swing_high:
-            last_event = ("BOS" if trend == 1 else "CHOCH", i, swing_high)
-            trend = 1
-            swing_high = None      # consumed — wait for a fresh pivot
+            br = _displacement_body_ratio(
+                float(opens.iloc[i]), float(high.iloc[i]),
+                float(low.iloc[i]), c,
+            )
+            if require_displacement and br < min_body_ratio:
+                # Soft close — skip but do NOT consume the swing_high; a later
+                # stronger bar on the same level can still qualify.
+                pass
+            else:
+                last_event = ("BOS" if trend == 1 else "CHOCH", i, swing_high, swing_low, br)
+                trend = 1
+                swing_high = None      # consumed — wait for a fresh pivot
         elif swing_low is not None and c < swing_low:
             trend = -1
             swing_low = None
@@ -2330,8 +2427,180 @@ def detect_bos_choch(df: pd.DataFrame, pivot_len: int = 5,
 
     if last_event is None:
         return None
-    label, idx, level = last_event
-    return {"signal": label, "level": round(level, 2), "bars_ago": n - 1 - idx}
+    label, idx, level, leg_start, body_ratio = last_event
+    ote = _ote_zone(leg_start, level, "bullish") if leg_start is not None else None
+    return {
+        "signal": label,
+        "level": round(level, 2),
+        "bars_ago": n - 1 - idx,
+        "displacement": (body_ratio or 0.0) >= min_body_ratio,
+        "body_ratio": round(body_ratio, 3) if body_ratio is not None else None,
+        "leg_start": round(leg_start, 2) if leg_start is not None else None,
+        "leg_end": round(level, 2),
+        "ote_zone": ote,
+    }
+
+
+def detect_support_breakdown(df: pd.DataFrame, pivot_len: int = 5,
+                             lookback: int = 120,
+                             require_displacement: bool = False,
+                             min_body_ratio: float = 0.5) -> dict | None:
+    """Bearish market-structure event (B-19b): a close BELOW the most recent
+    confirmed swing LOW while structure is bullish = bearish CHOCH (first
+    counter-trend break); while already bearish = bearish BOS (continuation).
+    The mirror-image of ``detect_bos_choch`` — same walk, opposite direction.
+
+    Returns the surviving bearish event or None (no bearish break in the window,
+    or a later bullish break invalidated it).
+
+    When require_displacement=True (ICT mode), the break candle must have a
+    body of at least min_body_ratio of its range (same gate as detect_bos_choch).
+
+    Extra keys: displacement, body_ratio, leg_start (swing high before break),
+    leg_end (swing low broken), ote_zone (61.8–79% retracement back up).
+    """
+    if len(df) < pivot_len * 4 + 20:
+        return None
+    high, low, close = df["high"], df["low"], df["close"]
+    opens = df["open"]
+    n = len(df)
+
+    swing_high: float | None = None
+    swing_low: float | None = None
+    trend = 0           # 1 up / -1 down / 0 unknown
+    last_event: tuple[str, int, float, float | None, float | None] | None = None
+
+    for i in range(max(pivot_len * 2, n - lookback), n):
+        j = i - pivot_len
+        if j >= pivot_len:
+            if high.iloc[j] == high.iloc[j - pivot_len: j + pivot_len + 1].max():
+                swing_high = float(high.iloc[j])
+            if low.iloc[j] == low.iloc[j - pivot_len: j + pivot_len + 1].min():
+                swing_low = float(low.iloc[j])
+        c = float(close.iloc[i])
+        if swing_low is not None and c < swing_low:
+            br = _displacement_body_ratio(
+                float(opens.iloc[i]), float(high.iloc[i]),
+                float(low.iloc[i]), c,
+            )
+            if require_displacement and br < min_body_ratio:
+                pass  # soft close — wait for a stronger candle on this level
+            else:
+                last_event = ("bearish BOS" if trend == -1 else "bearish CHOCH", i, swing_low, swing_high, br)
+                trend = -1
+                swing_low = None   # consumed
+        elif swing_high is not None and c > swing_high:
+            trend = 1
+            swing_high = None
+            last_event = None  # bullish break invalidates the bearish event
+
+    if last_event is None:
+        return None
+    label, idx, level, leg_start, body_ratio = last_event
+    ote = _ote_zone(leg_start, level, "bearish") if leg_start is not None else None
+    return {
+        "signal": label,
+        "level": round(level, 2),
+        "bars_ago": n - 1 - idx,
+        "displacement": (body_ratio or 0.0) >= min_body_ratio,
+        "body_ratio": round(body_ratio, 3) if body_ratio is not None else None,
+        "leg_start": round(leg_start, 2) if leg_start is not None else None,
+        "leg_end": round(level, 2),
+        "ote_zone": ote,
+    }
+
+
+def scan_support_breakdown(df: pd.DataFrame) -> dict | None:
+    """Bearish support breakdown — the structural bearish mirror of Order Block
+    Retest (B-19b).
+
+    Fires when:
+      1. ``detect_support_breakdown`` confirms a bearish BOS or CHOCH in the
+         last ~10 bars (structure is cracking, not just a random down-day).
+      2. Price has since pulled back into the broken support (now resistance) —
+         the "retest of the breakdown level from below" entry confirmation.
+      3. Price closed back below that level on the current bar (failed retest),
+         adding the bearish volume/OI confirmation the completeness audit wanted.
+      4. Volume expansion is present (down-day on > 1× 20-day average volume).
+
+    This scanner is a **Risk** entry — it is evidence AGAINST a long and a
+    potential short-side setup, not a buy signal. Carries entry/stop/target
+    for the short side (stop above the breakdown level, target = measured move
+    down from the structure break).
+    """
+    if df is None or len(df) < 60:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < 60:
+        return None
+
+    ev = detect_support_breakdown(df)
+    if ev is None:
+        return None
+
+    n = len(df)
+    o, h, l, c = df["open"], df["high"], df["low"], df["close"]
+    atr = float(_atr_series(df, 14).iloc[-1])
+    if np.isnan(atr) or atr <= 0:
+        return None
+
+    bk_level = ev["level"]      # the broken swing low (now resistance)
+    last = float(c.iloc[-1])
+    last_high = float(h.iloc[-1])
+
+    # Require price to be AT or below the broken level (not already far extended)
+    if last > bk_level * 1.02:  # allow 2% tolerance for wicks
+        return None
+
+    # "Retest from below" — the bar touched the level and closed back under it
+    retest = bool(last_high >= bk_level * 0.98 and last < bk_level)
+    if not retest:
+        return None
+
+    vol20 = float(df["volume"].tail(20).mean())
+    vol_last = float(df["volume"].iloc[-1])
+    vol_x = vol_last / vol20 if vol20 > 0 else 0.0
+    vol_ok = vol_x >= 1.0
+
+    entry = last
+    stop = round(bk_level * 1.005, 2)   # just above the breakdown level
+    risk = stop - entry
+    if risk <= 0:
+        return None
+
+    # Measured-move target: distance of the most recent swing-high above the
+    # breakdown level projected down.
+    swing_high_val = float(h.iloc[max(0, n - 60): n].max())
+    measured_dist = max(swing_high_val - bk_level, atr * 2)
+    target = round(entry - measured_dist, 2)
+
+    reasons = [
+        f"Bearish {ev['signal']} — structure cracked below ₹{bk_level:.0f}, "
+        f"{ev['bars_ago']} bars ago",
+        f"Retest of the breakdown level (now resistance) from below — failed to reclaim ₹{bk_level:.0f}",
+        (f"Volume {vol_x:.1f}× 20-day average — distribution on the retest"
+         if vol_ok else
+         "⚠ Volume weak on the retest — conviction limited"),
+        f"Short plan — entry {entry:.0f} · stop {stop:.0f} · target {target:.0f} "
+        f"(R:R {(entry - target) / risk:.1f})",
+    ]
+    score = 30.0 + (25.0 if vol_ok else 0.0) + (20.0 if retest else 0.0)
+    score += min(15.0, vol_x * 5.0)
+
+    return {
+        "pattern_type": f"Support Breakdown · {ev['signal']}",
+        "tags": ["Breakdown", ev["signal"], f"Level {bk_level:.0f}",
+                 "Vol ✓" if vol_ok else "Vol ✗"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, score), 1),
+        "rs_raw": _rs_raw(df),
+        "entry": round(entry, 2),
+        "stop": stop,
+        "target": target,
+        "vol_x50d": round(vol_x, 2),
+        # B-5: breakdown retests resolve quickly — 8 bars is the expected window
+        "time_stop": 8,
+    }
 
 
 def detect_volume_confirmation(df: pd.DataFrame, avg_len: int = 20,
@@ -2589,6 +2858,12 @@ def detect_fvg_pullback(df: pd.DataFrame, atr_mult: float = 0.5,
 
     bull_top = bull_bot = bear_top = bear_bot = None
     last_buy = last_sell = None
+    # The zone a signal fired FROM. The state machine consumes the zone on the
+    # signal, so without capturing it here a caller can know a rejection
+    # happened but not where its stop belongs — which is why `scan_fvg_pullback`
+    # could not emit a trade plan. Additive: existing callers read only the
+    # *_bars_ago / recent keys.
+    last_buy_zone = last_sell_zone = None
 
     for i in range(2, n):
         a = float(atr.iloc[i])
@@ -2613,12 +2888,14 @@ def detect_fvg_pullback(df: pd.DataFrame, atr_mult: float = 0.5,
             reject = c0 > bull_top and (c0 - l0) > (h0 - c0)
             if touch and reject and o0 > bull_top:
                 last_buy = i
+                last_buy_zone = (bull_bot, bull_top)
                 bull_top = bull_bot = None
         if bear_top is not None:
             touch = bear_bot <= h0 <= bear_top
             reject = c0 < bear_bot and (h0 - c0) > (c0 - l0)
             if touch and reject and o0 < bear_bot:
                 last_sell = i
+                last_sell_zone = (bear_bot, bear_top)
                 bear_top = bear_bot = None
 
     if last_buy is None and last_sell is None and bull_top is None and bear_top is None:
@@ -2628,7 +2905,195 @@ def detect_fvg_pullback(df: pd.DataFrame, atr_mult: float = 0.5,
         "sell_bars_ago": (n - 1 - last_sell) if last_sell is not None else None,
         "active_bull_zone": (round(bull_bot, 2), round(bull_top, 2)) if bull_top is not None else None,
         "active_bear_zone": (round(bear_bot, 2), round(bear_top, 2)) if bear_top is not None else None,
+        "buy_signal_zone": last_buy_zone,     # zone the buy fired from (stop reference)
+        "sell_signal_zone": last_sell_zone,
         "recent": recent,
+    }
+
+
+def scan_fvg_pullback(df: pd.DataFrame, max_bars_ago: int = 3) -> dict | None:
+    """Bullish Fair-Value-Gap pullback rejection — registered entry scanner.
+
+    Wraps `detect_fvg_pullback` (a faithful port of the "BOS & FVG Pullback
+    Signals" Pine) so an FVG setup is **screenable across a universe**. Until
+    now the detector existed only as one boolean inside the Early Reversal
+    validation layer (`checks["FVG"]`), so a gap setup could be confirmed on a
+    name you were already looking at but never *found* — the recurring orphaned
+    detector pattern in this repo.
+
+    Fires when a bullish FVG rejection printed within `max_bars_ago` bars: price
+    dipped into the demand gap and closed back **above** its top with a dominant
+    lower wick. Emits entry/stop/target, with the stop referenced to the gap the
+    signal actually fired from.
+
+    Why the rejection requirement matters (see ``concepts/Fair-Value-Gap``): the
+    popular instruction is to rest a limit order *inside* the zone. That fills
+    you on the way through in exactly the cases where the gap fails — the fill is
+    guaranteed precisely when it is unwanted. Requiring the close back above the
+    zone trades only gaps that held, at the cost of a worse average price.
+
+    Unmeasured: this scanner has never been through ``analyses/Backtest-Harness``.
+    The separate question of whether gaps fill at all — the "market magnet"
+    claim — is measured by ``fvg_fill_study.py``, which is a different question
+    from whether this entry makes money.
+    """
+    if df is None or len(df) < 40:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < 40:
+        return None
+
+    fvg = detect_fvg_pullback(df)
+    if not fvg:
+        return None
+    ago = fvg["buy_bars_ago"]
+    zone = fvg["buy_signal_zone"]
+    if ago is None or ago > max_bars_ago or zone is None:
+        return None
+
+    bot, top = float(zone[0]), float(zone[1])
+    if not top > bot:
+        return None
+
+    c = df["close"]
+    last = float(c.iloc[-1])
+    atr = float(_atr_series(df, 14).iloc[-1])
+    if np.isnan(atr) or atr <= 0:
+        return None
+
+    stop = round(bot * 0.995, 2)
+    risk = last - stop
+    if risk <= 0:
+        return None
+    swing_high = float(df["high"].tail(40).max())
+    target = round(max(swing_high, last + 2.0 * risk), 2)
+
+    vol20 = float(df["volume"].tail(20).mean())
+    vol_x = float(df["volume"].iloc[-1]) / vol20 if vol20 > 0 else 0.0
+    vc = detect_volume_confirmation(df)
+    vol_ok = bool(vc and vc["pass"])
+
+    # Score: gap width in ATR (displacement strength) · volume · freshness.
+    width_atr = min((top - bot) / atr, 3.0) / 3.0
+    fresh = 1.0 if ago <= 1 else (0.7 if ago == 2 else 0.5)
+    base = 12.0 + 38.0 * width_atr + (20.0 if vol_ok else 0.0) + 20.0 * fresh
+
+    reasons = [
+        f"Bullish FVG rejection {ago} bar(s) ago — dipped into the demand gap "
+        f"₹{bot:.0f}–₹{top:.0f} and closed back above it",
+        f"Gap width {(top - bot) / atr:.1f}× ATR "
+        f"(size-gated: the port requires > 0.5× ATR, so trivial gaps are skipped)",
+        (f"Displacement backed by volume ({vc['best_up_rvol']:.1f}× avg)" if vol_ok
+         else "⚠ Displacement volume unconfirmed — weaker gap"),
+        f"Trade plan — entry {last:.0f} · stop {stop:.0f} · target {target:.0f} "
+        f"(R:R {(target - last) / risk:.1f})",
+        "⚠ Unmeasured — this scanner has not been through the backtest harness",
+    ]
+    return {
+        "pattern_type": "Bullish FVG Pullback",
+        "tags": ["FVG", f"Zone {bot:.0f}-{top:.0f}", f"{ago}d ago"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, base), 1),
+        "rs_raw": _rs_raw(df),
+        "entry": round(last, 2),
+        "stop": stop,
+        "target": target,
+        "vol_x50d": round(vol_x, 2),
+    }
+
+
+def scan_ict_setup(df: pd.DataFrame, pivot_len: int = 5,
+                   lookback: int = 120,
+                   min_body_ratio: float = 0.5) -> dict | None:
+    """ICT Execution Blueprint composite scanner — chains the four ICT primitives:
+
+    1. MSS with displacement: detect_bos_choch(require_displacement=True) must
+       fire, confirming institutional participation on the structure break.
+    2. OTE zone: 61.8–79% Fibonacci retracement of the displacement leg is
+       computed from the returned leg_start / leg_end pair.
+    3. Price location: current close must be inside or below the OTE zone
+       (pullback is in progress or has dipped through). Only fires when
+       price is in the zone — not a post-OTE entry.
+    4. FVG overlap: an active bull FVG or a recent FVG rejection must overlap
+       the OTE zone, confirming the zone from two independent methods.
+
+    Stop: below the OTE zone low (same side as the FVG stop).
+    Target: the next BSL pool, proxied by the rolling 40-bar swing high.
+
+    Unmeasured — has not been through the backtest harness.
+    """
+    if df is None or len(df) < pivot_len * 4 + 40:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < pivot_len * 4 + 40:
+        return None
+
+    ev = detect_bos_choch(df, pivot_len=pivot_len, lookback=lookback,
+                          require_displacement=True,
+                          min_body_ratio=min_body_ratio)
+    if ev is None or not ev.get("displacement"):
+        return None
+    ote = ev.get("ote_zone")
+    if ote is None:
+        return None
+    ote_lo, ote_hi = ote
+
+    last = float(df["close"].iloc[-1])
+    if not (ote_lo <= last <= ote_hi * 1.005):  # 0.5% above ote_hi = still eligible
+        return None
+
+    fvg = detect_fvg_pullback(df)
+    fvg_overlap = False
+    fvg_zone_label = ""
+    if fvg:
+        az = fvg.get("active_bull_zone")
+        rz = fvg.get("buy_signal_zone")
+        for zone in (az, rz):
+            if zone:
+                zbot, ztop = zone
+                if zbot <= ote_hi and ztop >= ote_lo:
+                    fvg_overlap = True
+                    fvg_zone_label = f"₹{zbot:.0f}–₹{ztop:.0f}"
+                    break
+    if not fvg_overlap:
+        return None
+
+    atr = float(_atr_series(df, 14).iloc[-1])
+    stop = round(ote_lo - 0.5 * atr, 2)
+    risk = last - stop
+    if risk <= 0:
+        return None
+    bsl_target = round(float(df["high"].tail(40).max()), 2)
+    target = round(max(bsl_target, last + 2.0 * risk), 2)
+    rr = round((target - last) / risk, 1)
+
+    bos_label = ev["signal"]
+    br = ev.get("body_ratio", 0.0) or 0.0
+    bars_ago = ev.get("bars_ago", "?")
+
+    reasons = [
+        f"ICT MSS: {bos_label} with displacement (body {br:.0%} of range) "
+        f"{bars_ago} bar(s) ago at ₹{ev['level']:.0f}",
+        f"OTE zone: ₹{ote_lo:.0f}–₹{ote_hi:.0f} "
+        f"(61.8–79% retracement of leg ₹{ev['leg_start']:.0f}→₹{ev['leg_end']:.0f})",
+        f"FVG overlap confirmed inside OTE: {fvg_zone_label}",
+        f"Trade plan — entry ₹{last:.0f} · stop ₹{stop:.0f} · target ₹{target:.0f} "
+        f"(R:R {rr}×) · BSL proxy = 40-bar high",
+        "⚠ Unmeasured — this scanner has not been through the backtest harness",
+    ]
+    score = 55.0 + 20.0 * min(br / 0.8, 1.0) + (15.0 if fvg_overlap else 0.0)
+
+    return {
+        "pattern_type": "ICT Setup",
+        "tags": ["ICT", bos_label, f"OTE ₹{ote_lo:.0f}-{ote_hi:.0f}", "FVG+OTE"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, score), 1),
+        "rs_raw": _rs_raw(df),
+        "entry": round(last, 2),
+        "stop": stop,
+        "target": target,
+        "ote_zone": ote,
+        "displacement_body_ratio": round(br, 3),
     }
 
 
@@ -2912,7 +3377,7 @@ def scan_harmonic_reversal(df: pd.DataFrame) -> dict | None:
         "pattern_type": f"Harmonic {h['pattern']}",
         "tags": [h["pattern"], h["direction"], f"R:R {t['rr_to_t2']}"],
         "reasons": reasons,
-        "score": round(t["rr_to_t2"] * 2, 2),
+        "score": round(50.0 + min(max(t["rr_to_t2"] - 1.5, 0.0) / 3.5, 1.0) * 45.0, 1),
         # Structured trade plan (Phase 3). `detect_last_pattern` already computed
         # all of this; it was only ever rendered into reason-text, which is why
         # the harness's R path stayed dormant on the scanner that measured the
@@ -2929,6 +3394,9 @@ def scan_harmonic_reversal(df: pd.DataFrame) -> dict | None:
         "targets":   t["targets"],          # full T1/T2/T3 ladder for the card
         "rr":        t["rr_to_t2"],
         "direction": h["direction"],
+        # B-5: time stop — harmonic D-point PRZ typically resolves in ≤10 bars;
+        # beyond that the pattern has failed (the PRZ wasn't respected).
+        "time_stop": 10,
     }
 
 
@@ -3037,6 +3505,345 @@ def scan_candlestick(df: pd.DataFrame, min_vol_x: float = 1.0) -> dict | None:
         "reasons": reasons,
         "score": round(score, 2),
         "vol_x50d": round(vol_x, 2),          # lights the Hub 'Vol Confirmed' pill
+    }
+
+
+def scan_bearish_reversal_candle(df: pd.DataFrame,
+                                 require_gap: bool = True,
+                                 resistance_pct: float = 3.0,
+                                 min_vol_x: float = 1.0) -> dict | None:
+    """Bearish reversal candle at resistance — a RISK FLAG, not a short signal.
+
+    The bearish mirror of `scan_candlestick`, which had covered only the four
+    bullish patterns. Detects **Evening Doji Star · Evening Star · Three Black
+    Crows · Dark Cloud Cover · Bearish Engulfing · Shooting Star** on the latest
+    bar and reports the strictest one that fires.
+
+    Registered under category ``Risk``, so per `opportunity_hub.RISK_SCANNERS` a
+    hit is evidence *against* a shortlisted long and can never add to a
+    confluence count. An Evening Doji Star at resistance on a name about to be
+    bought is exactly that read. See ``concepts/Candlestick-Patterns`` (Evening
+    Doji Star deep-dive).
+
+    Three design choices, each tracing to a decision recorded on that page:
+
+    1. **Trend context is evaluated as of the bar the pattern STARTED forming**,
+       not the current bar (`downCtx[N]` idiom from
+       ``sources/Forthius-Reversal-Scanner-Pine``). Checking "was this an
+       uptrend?" *after* the reversal has printed is lookback bias, and it is
+       what makes reversal detectors look better than they are.
+    2. **`require_gap` is a parameter, not a hard-coded rule.** Our book source
+       (Morris) requires the star to gap above candle 1's body; the widely
+       circulated retail version drops the gap and fires far more often. Both
+       are documented endpoints of one dial, exactly as the FVG page treats its
+       fill-mode spectrum. Default is the sourced (strict) reading. The gap test
+       is **body-vs-body** (`min(o2,c2) > max(o1,c1)`) — the textbook "small body
+       gaps higher" — not `pmax.pine`'s stricter wick-clear `low[1] > high[2]`.
+    3. **The location gate is mandatory.** A reversal candle mid-range is noise;
+       it earns attention only at resistance (near a swing-high pivot or the
+       60-bar high). This is the page's Litchfield rule — the candle is the
+       timing trigger inside a pre-identified structural setup, never the setup.
+
+    Base scores are ordered by **geometric strictness** (how many independent
+    conditions the pattern must satisfy), NOT by claimed accuracy.
+
+    **Provenance update (2026-08-09):** Bulkowski's own pattern pages were
+    checked and they confirm the gap requirement *body-to-body, shadows ignored*
+    — i.e. `require_gap=True` with the body-gap test is his definition, not a
+    guess. They also show **Evening Star and Evening Doji Star are separate
+    patterns**: 72% / perf rank 4th vs **71% / perf rank 30th**. So the doji
+    variant is the *weaker* one, and an accuracy-based ordering would invert the
+    two scores below. Left on the strictness basis deliberately: the figures that
+    would justify re-basing rest on 28-199-sample cells. See
+    ``concepts/Candlestick-Patterns``.
+
+    **Measured base rate** (2026-08-09, 17 NSE large-caps, 3y daily, 11,628
+    bar-observations): fires on **2.61%** of bars strict / 2.75% loose. The gap
+    switch barely moves the total but **quadruples the stars** — Evening Star
+    5→23, Evening Doji Star 2→8 — because Shooting Star (158) and Bearish
+    Engulfing (99) dominate the count either way. **Evening Doji Star is rare
+    enough to be operationally irrelevant on its own** (~1 per 8.5 stock-years
+    strict); the flag earns its keep through the commoner shapes.
+
+    That is a *frequency* measurement, not an edge measurement. Whether a hit
+    predicts anything is unmeasured until this goes through
+    ``analyses/Backtest-Harness``.
+    """
+    if df is None or len(df) < 60:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < 60:
+        return None
+    o, h, l, c, v = df["open"], df["high"], df["low"], df["close"], df["volume"]
+    n = len(df)
+    i = n - 1
+    avg_vol = float(v.tail(20).mean())
+    if not (avg_vol > 0):
+        return None
+    vol_x = float(v.iloc[i]) / avg_vol
+    ema20 = _ema_series(c, 20)
+    ema50 = _ema_series(c, 50)
+    rng = float(h.iloc[i] - l.iloc[i])
+    if rng <= 0:
+        return None
+    body = abs(float(c.iloc[i] - o.iloc[i]))
+
+    def _body(k: int) -> float:
+        return abs(float(c.iloc[k] - o.iloc[k]))
+
+    def _range(k: int) -> float:
+        return float(h.iloc[k] - l.iloc[k])
+
+    def _is_doji(k: int) -> bool:
+        r = _range(k)
+        return r > 0 and _body(k) <= 0.10 * r
+
+    def uptrend_at(k: int) -> bool:
+        """Was bar k in an uptrend? Evaluated at k, never at the current bar."""
+        if k < 50 or np.isnan(ema50.iloc[k]) or ema50.iloc[k] <= 0:
+            return False
+        return bool(c.iloc[k] > ema20.iloc[k] and ema20.iloc[k] > ema50.iloc[k])
+
+    def is_evening_star() -> tuple[bool, bool]:
+        """(fired, is_doji_variant) — candle 1 white, small star, candle 3 < 50%."""
+        if i < 2:
+            return (False, False)
+        b1 = float(c.iloc[i - 2] - o.iloc[i - 2])           # >0 if white
+        big_white = b1 > 0 and b1 > 0.5 * max(_range(i - 2), 1e-9)
+        small_star = _body(i - 1) < 0.4 * max(b1, 1e-9)
+        gap_ok = True
+        if require_gap:
+            star_body_low = min(float(o.iloc[i - 1]), float(c.iloc[i - 1]))
+            c1_body_high = max(float(o.iloc[i - 2]), float(c.iloc[i - 2]))
+            gap_ok = star_body_low > c1_body_high
+        mid1 = (float(o.iloc[i - 2]) + float(c.iloc[i - 2])) / 2.0
+        big_black = bool(c.iloc[i] < o.iloc[i] and c.iloc[i] < mid1)
+        fired = bool(big_white and small_star and gap_ok and big_black)
+        return (fired, fired and _is_doji(i - 1))
+
+    def is_shooting_star() -> bool:
+        upper = float(h.iloc[i]) - max(float(o.iloc[i]), float(c.iloc[i]))
+        lower = min(float(o.iloc[i]), float(c.iloc[i])) - float(l.iloc[i])
+        return bool(body > 0 and upper >= 2 * body and lower <= body
+                    and body <= 0.4 * rng)
+
+    def is_bear_engulf() -> bool:
+        return bool(c.iloc[i - 1] > o.iloc[i - 1] and c.iloc[i] < o.iloc[i]
+                    and o.iloc[i] >= c.iloc[i - 1] and c.iloc[i] <= o.iloc[i - 1])
+
+    def is_dark_cloud() -> bool:
+        mid = (float(o.iloc[i - 1]) + float(c.iloc[i - 1])) / 2.0
+        return bool(c.iloc[i - 1] > o.iloc[i - 1] and o.iloc[i] > h.iloc[i - 1]
+                    and o.iloc[i - 1] < c.iloc[i] < mid)
+
+    def is_three_black_crows() -> bool:
+        if i < 2:
+            return False
+        for k in (i - 2, i - 1, i):
+            if not (c.iloc[k] < o.iloc[k] and _body(k) > 0.5 * max(_range(k), 1e-9)):
+                return False
+        for k in (i - 1, i):
+            # each opens inside the prior body and closes lower
+            if not (o.iloc[k] < o.iloc[k - 1] and o.iloc[k] > c.iloc[k - 1]
+                    and c.iloc[k] < c.iloc[k - 1]):
+                return False
+        return True
+
+    # ── Detect. (name, base strictness score, bars the pattern spans) ──────────
+    found: list[tuple[str, float, int]] = []
+    star_fired, star_doji = is_evening_star()
+    if star_fired:
+        found.append(("Evening Doji Star" if star_doji else "Evening Star",
+                      68.0 if star_doji else 62.0, 3))
+    if is_three_black_crows():
+        found.append(("Three Black Crows", 60.0, 3))
+    if is_dark_cloud():
+        found.append(("Dark Cloud Cover", 55.0, 2))
+    if is_bear_engulf():
+        found.append(("Bearish Engulfing", 52.0, 2))
+    if is_shooting_star():
+        found.append(("Shooting Star", 48.0, 1))
+    if not found:
+        return None
+
+    name, base, span = max(found, key=lambda x: x[1])
+
+    # ── Context gate 1: uptrend as of when the pattern started forming ─────────
+    start = i - (span - 1)
+    if not uptrend_at(start):
+        return None
+
+    # ── Context gate 2: at resistance (swing-high pivot, or the 60-bar high) ───
+    win = df.tail(60)
+    hi60 = float(win["high"].max())
+    # Pivot search must EXCLUDE the pattern's own bars. A star is itself a local
+    # high (candle 3 is lower, candle 1 is lower), so scanning the full window
+    # lets every pattern be "near a pivot" — the gate would never reject anything.
+    highs = win["high"].values[:max(0, len(win) - span)]
+    pivot = None
+    for k in range(len(highs) - 2, 1, -1):
+        if highs[k] > highs[k - 1] and highs[k] > highs[k + 1]:
+            pivot = float(highs[k])
+            break
+    patt_high = float(h.iloc[start:].max())
+    near_pivot = pivot is not None and abs(patt_high - pivot) / pivot * 100 <= resistance_pct
+    near_hi60 = (hi60 - patt_high) / hi60 * 100 <= resistance_pct if hi60 > 0 else False
+    if not (near_pivot or near_hi60):
+        return None
+    where = (f"swing-high pivot {pivot:.0f}" if near_pivot else f"60-bar high {hi60:.0f}")
+
+    # ── Score: strictness prior + volume conviction + how extended the run was ─
+    if name in ("Evening Star", "Evening Doji Star", "Bearish Engulfing") and vol_x < min_vol_x:
+        return None
+    score = base + min(max(vol_x - 1.0, 0.0), 2.0) * 6.0
+    ext = ((float(c.iloc[start]) / float(ema20.iloc[start]) - 1.0) * 100.0
+           if ema20.iloc[start] > 0 else 0.0)
+    if ext > 8:                     # reversing out of an extended run — more meaningful
+        score += 6.0
+    score = float(max(0.0, min(100.0, score)))
+
+    reasons = [
+        f"{name} on the latest bar — bearish reversal candle"
+        + (" (star gapped above candle 1's body)" if name.startswith("Evening") and require_gap else ""),
+        f"Uptrend confirmed as of the bar the pattern started ({span}-bar pattern) — "
+        "context checked at formation, not after the reversal printed",
+        f"Formed at resistance — {where} (within {resistance_pct:.0f}%)",
+        f"Volume {vol_x:.1f}× the 20-day average" + (" — conviction" if vol_x >= 1.5 else ""),
+        (f"Reversing {ext:+.1f}% above EMA20 — extended run" if ext > 8
+         else f"{ext:+.1f}% vs EMA20 at pattern start"),
+        "⚠ RISK FLAG on a long thesis, not a short signal — and unmeasured: "
+        "not yet run through the backtest harness",
+    ]
+    tags = [name, f"Vol {vol_x:.1f}×", "At Resistance"]
+    if name == "Evening Doji Star":
+        tags.append("Doji Star")
+    return {
+        "pattern_type": f"Bearish Reversal: {name}",
+        "tags": tags,
+        "reasons": reasons,
+        "score": round(score, 2),
+        "vol_x50d": round(vol_x, 2),
+    }
+
+
+def scan_mean_reversion(df: pd.DataFrame,
+                        rsi2_oversold: float = 10.0,
+                        stretch_pct: float = 5.0,
+                        lookback: int = 3) -> dict | None:
+    """Connors-style mean-reversion setup (B-3 — fills the SIDEWAYS regime gap).
+
+    Fires when:
+      1. **Stretch**: close is ≥ stretch_pct % below the 20-bar SMA (rubber-band
+         pulled down far enough to snap back).
+      2. **RSI(2) oversold**: the ultra-short RSI is below rsi2_oversold (default 10),
+         confirming short-term exhaustion.
+      3. **First up day**: today's close is higher than yesterday's — the pullback
+         is beginning to curl up, not still in free-fall.
+      4. **Regime gate**: the 200-bar SMA is flat or rising (slope over 20 bars
+         ≥ -0.1%), so we are buying the dip in an intact long-term uptrend, not
+         catching a falling knife in a bear market.
+
+    This is a *mean-reversion entry*, not a breakout: the stop is tight (below the
+    session low) and the target is a partial reversion to the 20-day SMA (T1) or
+    full reversion plus a buffer (T2 = 20-SMA × 1.01).
+
+    Unlike the trend-following scanners, ``vol_x50d`` is intentionally ignored:
+    mean-reversion entries often happen on low volume (exhaustion, not expansion).
+    """
+    if df is None or len(df) < 210:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < 210:
+        return None
+
+    close = df["close"]
+    high = df["high"]
+    low = df["low"]
+
+    sma20 = float(close.rolling(20).mean().iloc[-1])
+    sma200 = close.rolling(200).mean()
+    if np.isnan(sma20) or np.isnan(sma200.iloc[-1]):
+        return None
+
+    last = float(close.iloc[-1])
+    prev = float(close.iloc[-2])
+
+    # --- Gate 4: regime (200-SMA slope must not be sharply down) ---
+    sma200_now = float(sma200.iloc[-1])
+    sma200_20ago = float(sma200.iloc[-21])
+    slope_pct = (sma200_now - sma200_20ago) / max(sma200_20ago, 1.0) * 100.0
+    if slope_pct < -0.1:
+        return None   # 200-SMA falling — not a dip, might be a new downtrend
+
+    # --- Gate 1: stretched below 20-SMA ---
+    dist_pct = (sma20 - last) / sma20 * 100.0
+    if dist_pct < stretch_pct:
+        return None
+
+    # --- Gate 2: RSI(2) oversold ---
+    rsi2 = _rsi_series(close, 2)
+    rsi2_now = float(rsi2.iloc[-1])
+    if np.isnan(rsi2_now) or rsi2_now >= rsi2_oversold:
+        return None
+
+    # --- Gate 3: first up day (close > prior close) ---
+    if last <= prev:
+        return None
+
+    # --- Consecutive down days before today (depth of the pull) ---
+    down_days = 0
+    for i in range(2, min(lookback + 2, len(close))):
+        if float(close.iloc[-i]) >= float(close.iloc[-i - 1]):
+            break
+        down_days += 1
+
+    # Score: deeper stretch and more extreme RSI(2) = higher confidence
+    stretch_score = min(dist_pct / 15.0, 1.0) * 35.0   # full at 15% below SMA
+    rsi_score = max(0.0, (rsi2_oversold - rsi2_now) / rsi2_oversold) * 35.0
+    down_score = min(down_days / 3.0, 1.0) * 20.0
+    slope_bonus = 10.0 if slope_pct > 0.2 else 0.0     # actively rising 200-SMA
+    score = stretch_score + rsi_score + down_score + slope_bonus
+
+    entry = last
+    stop = round(float(low.iloc[-1]) * 0.995, 2)     # below session low
+    risk = entry - stop
+    if risk <= 0:
+        return None
+
+    target1 = round(sma20, 2)                              # T1 = revert to SMA20
+    target2 = round(sma20 * 1.01, 2)                       # T2 = SMA20 + 1% buffer
+    rr1 = round((target1 - entry) / risk, 1) if risk > 0 else 0
+
+    vol20 = float(df["volume"].tail(20).mean())
+    vol_x = float(df["volume"].iloc[-1]) / vol20 if vol20 > 0 else 0.0
+
+    reasons = [
+        f"Stretched {dist_pct:.1f}% below 20-SMA (₹{sma20:.0f}) — rubber-band tension",
+        f"RSI(2) = {rsi2_now:.1f} — ultra-short-term exhaustion (gate < {rsi2_oversold})",
+        f"First up close after {down_days} down days — early curl from the low",
+        f"200-SMA slope {slope_pct:+.2f}% over 20 bars — long-term trend intact"
+        if slope_pct >= 0 else
+        f"⚠ 200-SMA slope {slope_pct:+.2f}% — marginal regime; watch for trend change",
+        f"Trade plan — entry {entry:.0f} · stop {stop:.0f} · T1 {target1:.0f} (SMA20) "
+        f"· T2 {target2:.0f} · R:R to T1 = {rr1}",
+    ]
+
+    return {
+        "pattern_type": "Mean Reversion (Connors RSI2)",
+        "tags": [f"RSI2 {rsi2_now:.0f}", f"Stretch {dist_pct:.1f}%",
+                 f"{down_days}d down", "SIDEWAYS regime"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, score), 1),
+        "rs_raw": _rs_raw(df),
+        "vol_x50d": round(vol_x, 2),
+        "entry": round(entry, 2),
+        "stop": stop,
+        "target": target1,
+        "target2": target2,
+        # B-5: Connors RSI(2) mean-reversion typically resolves in 3-5 days;
+        # 10 bars is a generous outer limit — still in the position after that
+        # means the rubber band is not snapping back (thesis failed).
+        "time_stop": 10,
     }
 
 
@@ -3282,17 +4089,268 @@ def scan_rsi_60_40(df: pd.DataFrame) -> dict | None:
         return None
 
     # 2R target (conservative end of the strategy's 2R-3R band).
+    target = None
     if entry and stop and entry > stop:
         target = round(entry + 2.0 * (entry - stop), 2)
         reasons.append(f"Trade plan — entry {entry:.0f} · stop {stop:.0f} · target {target:.0f} (2R)")
 
-    return {
+    out: dict = {
         "pattern_type": f"RSI 60-40 · {setup}",
         "tags": tags,
         "reasons": reasons,
         "score_base": round(min(100.0, base), 1),
+        "score": round(min(100.0, base), 1),    # provisional — run_scanner blends in RS
         "rs_raw": _rs_raw(df),
         "vol_x50d": round(vol_x, 2),
+    }
+    if entry and stop and target:
+        out.update({"entry": entry, "stop": stop, "target": target,
+                    # B-5: time stop — RSI 60-40 is a momentum continuation trade;
+                    # 15 bars (3 weeks) without follow-through signals the thesis failed.
+                    "time_stop": 15})
+    return out
+
+
+def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 3,
+                             lookback: int = 80) -> dict | None:
+    """Bullish RSI divergence on the last closed daily bar.
+
+    Fires when the most recent swing low made a LOWER price low but a HIGHER
+    RSI(14) low than the preceding swing low — classic hidden institutional
+    accumulation. The second swing low must be within the last 3 bars so the
+    signal is actionable on the last closed daily bar (pivot_len=3 keeps the
+    symmetry requirement tight so only near-term pivots qualify).
+
+    Conditions (all must hold):
+      1. Two pivot lows within ``lookback`` bars, detected by pivot_len symmetry.
+      2. Price: low2 < low1  (lower low).
+      3. RSI: rsi_at_low2 > rsi_at_low1  (higher RSI low — the divergence).
+      4. Divergence gap ≥ 3 RSI points (avoids noise from near-equal readings).
+      5. The second low is within the last 3 bars (tight recency window).
+      6. RSI(14) at the second low ≤ 60 (divergence in overbought territory is noise).
+      7. RSI on bar[-1] > RSI at bar of the second low (bounce already starting).
+
+    Score  (0-100):
+      Base 55 + oversold bonus (≤35 → +15, ≤45 → +8) + magnitude bonus
+      (RSI gap > 10 pts → +10) + recency bonus (≤3 bars ago → +5, automatic
+      given the 3-bar gate).
+    """
+    if df is None or len(df) < pivot_len * 2 + 40:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < pivot_len * 2 + 40:
+        return None
+
+    close = df["close"]
+    low = df["low"]
+    high = df["high"]
+    n = len(df)
+    rsi = _rsi_series(close, 14)
+    atr = float(_atr_series(df, 14).iloc[-1])
+    if np.isnan(atr) or atr <= 0:
+        return None
+
+    # ── Collect all swing lows in the lookback window ────────────────────────
+    search_start = max(pivot_len, n - lookback)
+    pivot_lows: list[tuple[int, float, float]] = []   # (bar_idx, price_low, rsi_at_low)
+    for i in range(search_start, n - pivot_len):
+        window = low.iloc[i - pivot_len: i + pivot_len + 1]
+        if float(low.iloc[i]) == float(window.min()):
+            rsi_val = float(rsi.iloc[i])
+            if not np.isnan(rsi_val):
+                pivot_lows.append((i, float(low.iloc[i]), rsi_val))
+
+    if len(pivot_lows) < 2:
+        return None
+
+    # ── Check most recent pivot pair for divergence ───────────────────────────
+    idx1, price1, rsi1 = pivot_lows[-2]
+    idx2, price2, rsi2 = pivot_lows[-1]
+
+    bars_ago = n - 1 - idx2          # how many bars since the second pivot low
+
+    if bars_ago > 3:                 # outside the 3-bar detection window
+        return None
+    if price2 >= price1:             # no lower low in price
+        return None
+    if rsi2 <= rsi1:                 # no higher low in RSI
+        return None
+    rsi_gap = rsi2 - rsi1
+    if rsi_gap < 3.0:                # gap too small to trust
+        return None
+    if rsi2 > 60.0:                  # divergence in overbought is meaningless
+        return None
+
+    # Bounce confirmation: RSI on the last bar must be rising above the second low
+    rsi_now = float(rsi.iloc[-1])
+    if np.isnan(rsi_now) or rsi_now <= rsi2:
+        return None
+
+    # ── Score ─────────────────────────────────────────────────────────────────
+    score = 55.0
+    if rsi2 <= 35.0:
+        score += 15.0
+    elif rsi2 <= 45.0:
+        score += 8.0
+    if rsi_gap >= 10.0:
+        score += 10.0
+    if bars_ago <= 3:
+        score += 5.0
+    score = min(round(score, 1), 95.0)
+
+    # ── Trade plan ────────────────────────────────────────────────────────────
+    stop = round(price2 - 0.5 * atr, 2)
+    risk = float(close.iloc[-1]) - stop
+    target = round(float(close.iloc[-1]) + 2.0 * risk, 2) if risk > 0 else None
+
+    # Highest high between the two lows = measured-move reference
+    swing_high_between = float(high.iloc[idx1:idx2 + 1].max())
+
+    tags = [
+        f"RSI div gap +{rsi_gap:.1f}pt",
+        f"RSI at low {rsi2:.0f}",
+        f"{bars_ago}d ago",
+        f"2nd low ₹{price2:.2f}",
+    ]
+    reasons = [
+        f"Price lower low: ₹{price1:.2f} → ₹{price2:.2f}",
+        f"RSI(14) higher low: {rsi1:.1f} → {rsi2:.1f} (+{rsi_gap:.1f} pts divergence)",
+        f"RSI now {rsi_now:.1f} — bouncing off the divergence low",
+        f"Second swing low {bars_ago} bar(s) ago — signal still fresh",
+    ]
+    if rsi2 <= 45.0:
+        reasons.append(f"RSI oversold at the low ({rsi2:.0f}) — strengthens the read")
+
+    return {
+        "symbol": df.index[-1] if hasattr(df.index[-1], "__str__") else "?",
+        "pattern_type": "RSI Divergence Bull",
+        "score": score,
+        "tags": tags,
+        "reasons": reasons,
+        "entry": round(float(close.iloc[-1]), 2),
+        "stop": stop,
+        "target": target,
+        "time_stop": 10,
+        "key_level": round(swing_high_between, 2),
+        "rsi_now": round(rsi_now, 1),
+        "rsi_at_low": round(rsi2, 1),
+        "rsi_gap": round(rsi_gap, 1),
+        "bars_since_low": bars_ago,
+    }
+
+
+def scan_rsi_divergence_bear(df: pd.DataFrame, pivot_len: int = 3,
+                             lookback: int = 80) -> dict | None:
+    """Bearish RSI divergence on the last closed daily bar.
+
+    Fires when the most recent swing high made a HIGHER price high but a LOWER
+    RSI(14) high than the preceding swing high — classic institutional distribution.
+    The second swing high must be within the last 3 bars.
+
+    Conditions (all must hold):
+      1. Two pivot highs within ``lookback`` bars, detected by pivot_len symmetry.
+      2. Price: high2 > high1  (higher high).
+      3. RSI: rsi_at_high2 < rsi_at_high1  (lower RSI high — the divergence).
+      4. Divergence gap ≥ 3 RSI points.
+      5. The second high is within the last 3 bars.
+      6. RSI(14) at the second high ≥ 40 (divergence in oversold territory is noise).
+      7. RSI on bar[-1] < RSI at bar of the second high (rollover already starting).
+    """
+    if df is None or len(df) < pivot_len * 2 + 40:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < pivot_len * 2 + 40:
+        return None
+
+    close = df["close"]
+    low   = df["low"]
+    high  = df["high"]
+    n = len(df)
+    rsi = _rsi_series(close, 14)
+    atr = float(_atr_series(df, 14).iloc[-1])
+    if np.isnan(atr) or atr <= 0:
+        return None
+
+    search_start = max(pivot_len, n - lookback)
+    pivot_highs: list[tuple[int, float, float]] = []
+    for i in range(search_start, n - pivot_len):
+        window = high.iloc[i - pivot_len: i + pivot_len + 1]
+        if float(high.iloc[i]) == float(window.max()):
+            rsi_val = float(rsi.iloc[i])
+            if not np.isnan(rsi_val):
+                pivot_highs.append((i, float(high.iloc[i]), rsi_val))
+
+    if len(pivot_highs) < 2:
+        return None
+
+    idx1, price1, rsi1 = pivot_highs[-2]
+    idx2, price2, rsi2 = pivot_highs[-1]
+
+    bars_ago = n - 1 - idx2
+
+    if bars_ago > 3:
+        return None
+    if price2 <= price1:             # no higher high in price
+        return None
+    if rsi2 >= rsi1:                 # no lower high in RSI
+        return None
+    rsi_gap = rsi1 - rsi2            # positive gap = magnitude of divergence
+    if rsi_gap < 3.0:
+        return None
+    if rsi2 < 40.0:                  # divergence in oversold is meaningless
+        return None
+
+    rsi_now = float(rsi.iloc[-1])
+    if np.isnan(rsi_now) or rsi_now >= rsi2:
+        return None
+
+    score = 55.0
+    if rsi2 >= 65.0:
+        score += 15.0
+    elif rsi2 >= 55.0:
+        score += 8.0
+    if rsi_gap >= 10.0:
+        score += 10.0
+    score += 5.0                     # recency always satisfied (≤3 bar gate)
+    score = min(round(score, 1), 95.0)
+
+    entry = round(float(close.iloc[-1]), 2)
+    stop  = round(price2 + 0.5 * atr, 2)
+    risk  = stop - entry
+    target = round(entry - 2.0 * risk, 2) if risk > 0 else None
+
+    swing_low_between = float(low.iloc[idx1:idx2 + 1].min())
+
+    tags = [
+        f"RSI div gap -{rsi_gap:.1f}pt",
+        f"RSI at high {rsi2:.0f}",
+        f"{bars_ago}d ago",
+        f"2nd high ₹{price2:.2f}",
+    ]
+    reasons = [
+        f"Price higher high: ₹{price1:.2f} → ₹{price2:.2f}",
+        f"RSI(14) lower high: {rsi1:.1f} → {rsi2:.1f} (-{rsi_gap:.1f} pts divergence)",
+        f"RSI now {rsi_now:.1f} — rolling over from the divergence high",
+        f"Second swing high {bars_ago} bar(s) ago — signal still fresh",
+    ]
+    if rsi2 >= 65.0:
+        reasons.append(f"RSI overbought at the high ({rsi2:.0f}) — strengthens the read")
+
+    return {
+        "symbol": df.index[-1] if hasattr(df.index[-1], "__str__") else "?",
+        "pattern_type": "RSI Divergence Bear",
+        "score": score,
+        "tags": tags,
+        "reasons": reasons,
+        "entry": entry,
+        "stop": stop,
+        "target": target,
+        "time_stop": 10,
+        "key_level": round(swing_low_between, 2),
+        "rsi_now": round(rsi_now, 1),
+        "rsi_at_high": round(rsi2, 1),
+        "rsi_gap": round(rsi_gap, 1),
+        "bars_since_high": bars_ago,
     }
 
 
@@ -3307,7 +4365,7 @@ def scan_order_block(df: pd.DataFrame) -> dict | None:
     its low. Reuses the repo's `detect_bos_choch` structure walk and
     `detect_volume_confirmation`. Emits a structured entry/stop/target (stop
     below the zone, target at the displacement extension or 2R). See
-    ``concepts/Order-Block``.
+    ``concepts/Order-Blocks``.
     """
     if df is None or len(df) < 60:
         return None
@@ -3392,11 +4450,15 @@ def scan_order_block(df: pd.DataFrame) -> dict | None:
         "tags": ["Order Block", ev["signal"], f"Zone {ob_low:.0f}-{ob_high:.0f}"],
         "reasons": reasons,
         "score_base": round(min(100.0, base), 1),
+        "score": round(min(100.0, base), 1),   # provisional — run_scanner blends in RS
         "rs_raw": _rs_raw(df),
         "entry": round(entry, 2),
         "stop": stop,
         "target": target,
         "vol_x50d": round(vol_x, 2),
+        # B-5: SMC order-block trades should resolve promptly; 10 bars without
+        # follow-through means the zone is not acting as support.
+        "time_stop": 10,
     }
 
 
@@ -3602,6 +4664,369 @@ def scan_falling_wedge(df: pd.DataFrame, window: int = 60,
         "touches_l": tl,
         "vol_trend": round(vol_trend, 2),
         "vol_dry": vol_dry,
+        # B-5: wedge breakouts extend fast or fail; 20 bars (4 weeks) captures
+        # the initial impulse — beyond that the measured-move premise is stale.
+        "time_stop": 20,
+    }
+
+
+def scan_ema50_coil(df: pd.DataFrame) -> dict | None:
+    """EMA-50 coiled-spring breakout — Ashok Daniel StockEdge scanner.
+
+    Captures quality stocks resting near their 50-EMA floor that break out on
+    institutional volume before the trend becomes obvious.  The key gate is
+    ``Close within 2% of EMA-50`` — it is NOT a chase scanner; it fires on the
+    rest-before-thrust zone, not after extension.
+
+    Gates:
+      1. Close > EMA200 — broad uptrend context
+      2. ADX(14) > 25 AND ADX rising vs prior bar — trend has strength AND momentum
+      3. +DI > -DI — directional bias is bullish (buyers outpacing sellers)
+      4. Close within 2% above OR below EMA-50 (the coil zone)
+      5. Close > 1.03× prior close AND volume > 20-day avg — breakout thrust
+         confirmed by price AND participation simultaneously
+    """
+    if len(df) < 60 or "volume" not in df.columns:
+        return None
+    close = df["close"].astype(float)
+    last  = float(close.iloc[-1])
+
+    ema50  = float(_ema_series(close, 50).iloc[-1])
+    ema200 = float(_ema_series(close, 200).iloc[-1])
+    if np.isnan(ema50) or np.isnan(ema200):
+        return None
+
+    # Gate 1 — broad uptrend
+    if last < ema200:
+        return None
+
+    # Gate 2 & 3 — ADX > 25 rising AND +DI > -DI
+    if len(df) < 50:
+        return None
+    plus_di, minus_di, adx = _adx_di_series(df)
+    adx_now  = float(adx.iloc[-1])
+    adx_prev = float(adx.iloc[-2])
+    pdi_now  = float(plus_di.iloc[-1])
+    mdi_now  = float(minus_di.iloc[-1])
+    if np.isnan(adx_now) or np.isnan(pdi_now):
+        return None
+    if adx_now < 25 or adx_now <= adx_prev:
+        return None
+    if pdi_now <= mdi_now:
+        return None
+
+    # Gate 4 — close within 2% of EMA-50 (above OR below — the coil can form
+    # just under or just at the EMA; the volume thrust is the confirmation)
+    dist_pct = (last - ema50) / ema50 * 100      # + above, - below
+    if abs(dist_pct) > 2.0:
+        return None
+
+    # Gate 5 — breakout thrust: >3% from prior close on above-average volume
+    prior_close = float(close.iloc[-2])
+    if prior_close <= 0:
+        return None
+    move_pct = (last - prior_close) / prior_close * 100
+    if move_pct < 3.0:
+        return None
+    vol_avg_20 = float(df["volume"].tail(20).mean())
+    vol_last   = float(df["volume"].iloc[-1])
+    if vol_avg_20 <= 0 or vol_last < vol_avg_20:
+        return None
+    vol_x = vol_last / vol_avg_20
+
+    zone = "at" if abs(dist_pct) <= 0.5 else ("above" if dist_pct > 0 else "below")
+    reasons = [
+        f"Price ({last:.1f}) {zone} EMA50 ({ema50:.1f}) — resting in the coil zone "
+        f"({dist_pct:+.1f}%)",
+        f"ADX {adx_now:.0f} rising (was {adx_prev:.0f}), +DI {pdi_now:.0f} > "
+        f"-DI {mdi_now:.0f} — trend strengthening with directional bias",
+        f"Thrust: +{move_pct:.1f}% vs prior close on {vol_x:.1f}× 20-day volume — "
+        "institutional breakout signal",
+        f"Above EMA200 ({ema200:.1f}) — long-term uptrend intact",
+    ]
+    # Base score: combine ADX strength, DI spread and volume quality
+    di_spread = pdi_now - mdi_now
+    score_base = round(
+        min(adx_now - 25, 30) * 0.8       # ADX premium above 25, capped at 30 pts
+        + min(di_spread, 20) * 0.5         # DI spread quality
+        + min(move_pct, 10) * 1.0          # thrust magnitude, cap 10 pts
+        + min(vol_x, 3.0) * 5.0,           # volume conviction, cap 3× → 15 pts
+        1,
+    )
+    score_base = float(max(0.0, min(score_base, 100.0)))
+    return {
+        "pattern_type": "EMA-50 Coil",
+        "tags": [f"ADX {adx_now:.0f}", f"+DI>{mdi_now:.0f}", f"{dist_pct:+.1f}% of EMA50",
+                 f"{move_pct:.1f}% thrust", f"{vol_x:.1f}× vol"],
+        "reasons": reasons,
+        "score_base": score_base,
+        "score": score_base,
+        "rs_raw": round(_rs_raw(df), 3),
+        "adx": round(adx_now, 1),
+        "plus_di": round(pdi_now, 1),
+        "minus_di": round(mdi_now, 1),
+        "dist_to_ema50_pct": round(dist_pct, 2),
+        "thrust_pct": round(move_pct, 2),
+        "vol_x20d": round(vol_x, 2),
+    }
+
+
+def scan_mfi_oversold(df: pd.DataFrame,
+                      n: int = 14,
+                      oversold: float = 20.0) -> dict | None:
+    """Money Flow Index (MFI) oversold-recovery scanner.
+
+    Fires when MFI crosses UP from below `oversold` (default 20) with a
+    positive close vs prior day.  MFI = volume-weighted RSI on typical
+    price — it catches exhaustion exits where price dips coincide with
+    heavy selling volume that then dries up (reversal signal).
+
+    Gates:
+      1. MFI(n) crossed above `oversold` (was below, now above)
+      2. Close > prior close (up day confirmation)
+      3. Volume at least average (no low-conviction recovery)
+
+    Returns None when gates don't fire.
+    """
+    if len(df) < n + 5:
+        return None
+
+    mfi = _mfi_series(df, n)
+    if mfi.isna().all():
+        return None
+
+    mfi_now  = float(mfi.iloc[-1])
+    mfi_prev = float(mfi.iloc[-2]) if len(mfi) >= 2 else mfi_now
+    close    = df["close"].astype(float)
+    vol      = df["volume"].astype(float)
+
+    c_now   = float(close.iloc[-1])
+    c_prev  = float(close.iloc[-2])
+    vol_now = float(vol.iloc[-1])
+    vol_avg = float(vol.rolling(20).mean().iloc[-1]) if len(vol) >= 20 else float(vol.mean())
+
+    # Gate 1 — MFI crossover above oversold
+    if not (mfi_prev < oversold <= mfi_now):
+        return None
+    # Gate 2 — up-day confirmation
+    if c_now <= c_prev:
+        return None
+    # Gate 3 — at least average volume
+    vol_x = vol_now / vol_avg if vol_avg > 0 else 0.0
+    if vol_x < 1.0:
+        return None
+
+    headroom = 80.0 - mfi_now        # distance to overbought
+    score = min(100, int(50 + (oversold - mfi_prev) * 2 + headroom * 0.5))
+
+    return {
+        "pattern_type": "MFI Oversold Recovery",
+        "tags": ["MFI-cross", f"MFI {mfi_now:.0f}"],
+        "reasons": [
+            f"MFI crossed {oversold:.0f} from below ({mfi_prev:.1f} → {mfi_now:.1f}); "
+            f"up-day +{(c_now/c_prev - 1)*100:.1f}%; vol {vol_x:.1f}×20d-avg"
+        ],
+        "score_base": score,
+        "score": score,
+        "mfi_now": round(mfi_now, 1),
+        "mfi_prev": round(mfi_prev, 1),
+        "vol_x20d": round(vol_x, 2),
+    }
+
+
+def scan_rsi_band_momentum(df: pd.DataFrame,
+                            rsi_lo: float = 50.0,
+                            rsi_hi: float = 68.0) -> dict | None:
+    """RSI mid-band momentum — Patel Yash Ashokbhai StockEdge scanner.
+
+    Targets momentum stocks with strong price structure that are NOT yet
+    overbought — within 10% of their 52-week high but RSI still in the
+    [50, 68] band.  The upper cap is the key new mechanic: stocks above RSI 68
+    are deliberately excluded (they are already extended).  This creates an
+    "approaching new high" setup zone rather than a "chasing new high" one.
+
+    Gates:
+      1. Close within 10% of 52-week high — price strength already there
+      2. RSI(14) in [rsi_lo, rsi_hi] (default 50–68) — momentum, not overextended
+      3. SMA20 > SMA50 — short-term trend aligned above medium-term (golden-cross zone)
+      4. Close > SMA50 — confirming trend direction
+      5. RSI rising vs prior day — momentum confirming, not stalling
+    """
+    if len(df) < 60:
+        return None
+    close = df["close"].astype(float)
+    last  = float(close.iloc[-1])
+
+    # Gate 1 — within 10% of 52-week high
+    hi_52 = float(df["high"].tail(252).max())
+    if hi_52 <= 0:
+        return None
+    below_high_pct = (hi_52 - last) / hi_52 * 100
+    if below_high_pct > 10.0:
+        return None
+
+    # Gate 2 — RSI in mid-band
+    rsi = _rsi_series(close, 14)
+    rsi_now  = float(rsi.iloc[-1])
+    rsi_prev = float(rsi.iloc[-2])
+    if np.isnan(rsi_now):
+        return None
+    if not (rsi_lo <= rsi_now <= rsi_hi):
+        return None
+
+    # Gate 3 & 4 — MA alignment
+    sma20 = _sma(close, 20)
+    sma50 = _sma(close, 50)
+    if np.isnan(sma20) or np.isnan(sma50):
+        return None
+    if not (last > sma50 > 0 and sma20 > sma50):
+        return None
+
+    # Gate 5 — RSI rising
+    if not np.isnan(rsi_prev) and rsi_now <= rsi_prev:
+        return None
+
+    rsi_headroom = rsi_hi - rsi_now    # room left before the overbought ceiling
+    reasons = [
+        f"RSI {rsi_now:.0f} in the mid-band [{rsi_lo:.0f}–{rsi_hi:.0f}] — "
+        f"momentum active, {rsi_headroom:.0f} pts of headroom before the "
+        f"overbought ceiling",
+        f"Within {below_high_pct:.1f}% of 52-week high ({hi_52:.0f}) — "
+        "approaching highs, not chasing an extended move",
+        f"SMA20 ({sma20:.0f}) > SMA50 ({sma50:.0f}) — golden-cross zone; "
+        f"price ({last:.0f}) above SMA50",
+        "RSI rising vs prior session — momentum confirming",
+    ]
+    # Score: combination of RSI headroom (more room = better entry) and proximity
+    # to 52W high (closer = stronger but still within gate)
+    score = round(
+        (rsi_headroom / (rsi_hi - rsi_lo)) * 40    # RSI headroom (0-40)
+        + (10.0 - below_high_pct) / 10.0 * 30      # near-high quality (0-30)
+        + (rsi_now - rsi_lo) / (rsi_hi - rsi_lo) * 30,  # RSI above midpoint (0-30)
+        1,
+    )
+    score = float(max(0.0, min(score, 100.0)))
+    return {
+        "pattern_type": "RSI Mid-Band Momentum",
+        "tags": [f"RSI {rsi_now:.0f}", f"{below_high_pct:.1f}% from 52W high",
+                 f"SMA20>{sma50:.0f}"],
+        "reasons": reasons,
+        "score": score,
+        "rsi_now": round(rsi_now, 1),
+        "rsi_headroom": round(rsi_headroom, 1),
+        "below_52w_high_pct": round(below_high_pct, 1),
+    }
+
+
+def scan_triple_rs_52w(df: pd.DataFrame) -> dict | None:
+    """Triple-RS + 52-week high crossover — Ashok Taneja StockEdge scanner.
+
+    Requires ALL three relative-strength measures to be positive at once, then
+    fires only when price simultaneously crosses/hugs the 52-week high with
+    dual-timeframe RSI momentum confirming.  The triple-RS gate is the key new
+    mechanic: a stock must outperform in absolute terms, over 55 days, AND have
+    a rising weekly RSI — one dimension of RS alone is insufficient.
+
+    Price-only equivalents of StockEdge's RSMkt55Days / ARS / weekly-RSI gate:
+      1. 55-day absolute return > 0 (ARS proxy — stock is up over 55 trading days)
+      2. 55-day excess return > 0 vs benchmark if supplied (RSMkt55Days proxy)
+      3. Daily RSI(14) > prior-day RSI (RSI rising intraday-to-day)
+      4. Weekly RSI (sampled every 5 bars) rising vs prior week
+      5. Close crossed above 52-week high in last 5 sessions (52W cross trigger)
+      6. RSI < 80 — anti-chase gate (Taneja uses MCap > 10000 Cr as a universe
+         filter; this gate keeps us out of exhausted, already-extended breakouts)
+    """
+    if len(df) < 260:
+        return None
+    close = df["close"].astype(float)
+    last  = float(close.iloc[-1])
+
+    # Gate 1 — 55-day absolute return positive (ARS proxy)
+    if len(df) < 56:
+        return None
+    ret_55d = last / float(close.iloc[-56]) - 1.0 if float(close.iloc[-56]) > 0 else -1.0
+    if ret_55d <= 0:
+        return None
+
+    # Gate 2 — 55-day excess return positive (RSMkt55Days proxy, benchmark-optional)
+    bmk_wret = getattr(_tls, "benchmark_wret", None)
+    if bmk_wret is not None:
+        # Convert benchmark's IBD-weighted return to an approximate 55d return
+        # (the weighted return is already excess when _rs_raw uses it, but for a
+        # pure 55-day comparison we use the raw stock 55d minus what the benchmark
+        # would have done in the same window — a simple approximation)
+        bench_55d_approx = bmk_wret / 100.0  # wret is in %, normalise
+        if ret_55d <= bench_55d_approx:
+            return None
+
+    # Gate 3 — daily RSI rising
+    rsi = _rsi_series(close, 14)
+    rsi_now  = float(rsi.iloc[-1])
+    rsi_prev = float(rsi.iloc[-2])
+    if np.isnan(rsi_now) or np.isnan(rsi_prev):
+        return None
+    if rsi_now <= rsi_prev:
+        return None
+    if rsi_now >= 80.0:   # anti-chase
+        return None
+
+    # Gate 4 — weekly RSI rising (sample close every 5 bars as a weekly proxy)
+    weekly_close = close.iloc[::5]
+    if len(weekly_close) < 16:
+        return None
+    wrsi = _rsi_series(weekly_close, 14)
+    wrsi_now  = float(wrsi.iloc[-1])
+    wrsi_prev = float(wrsi.iloc[-2])
+    if np.isnan(wrsi_now) or np.isnan(wrsi_prev):
+        return None
+    if wrsi_now <= wrsi_prev:
+        return None
+
+    # Gate 5 — 52-week high crossover within the last 5 sessions
+    hi_52 = float(df["high"].iloc[-252:-1].max()) if len(df) >= 253 else float(
+        df["high"].iloc[:-1].max())
+    if hi_52 <= 0:
+        return None
+    # Did any session in the last 5 close above the prior 52W high?
+    recent_closes = close.iloc[-5:]
+    cross_occurred = bool((recent_closes > hi_52).any())
+    pct_from_52w = (last - hi_52) / hi_52 * 100
+    if not cross_occurred and pct_from_52w < -1.0:
+        return None   # neither crossed nor hugging the high
+
+    reasons = [
+        f"55-day return {ret_55d * 100:.1f}% — absolute RS positive (ARS proxy: stock "
+        "is stronger than it was 55 days ago)",
+        f"Daily RSI {rsi_now:.0f} rising from {rsi_prev:.0f}; "
+        f"Weekly RSI {wrsi_now:.0f} rising from {wrsi_prev:.0f} — "
+        "dual-timeframe momentum aligned",
+        ("52-week high crossover in the last 5 sessions"
+         if cross_occurred else
+         f"Hugging 52-week high ({hi_52:.0f}), {pct_from_52w:+.1f}%)"),
+        f"RSI {rsi_now:.0f} < 80 — momentum active, not exhausted",
+    ]
+    if bmk_wret is not None:
+        reasons.insert(1, "Benchmark-relative 55-day return positive (RSMkt55Days proxy)")
+
+    # Score: weight the triple-RS quality + proximity to the 52W high
+    rs_strength = min(ret_55d * 100, 30.0) / 30.0 * 40   # 55d return up to 30% → 40 pts
+    di_score    = min(max(rsi_now - 50.0, 0.0), 18.0) / 18.0 * 30  # RSI 50-68 → up to 30 pts
+    hi_score    = max(0.0, 5.0 - abs(pct_from_52w)) / 5.0 * 30     # within 5% of high → 30 pts
+    score = round(float(max(0.0, min(rs_strength + di_score + hi_score, 100.0))), 1)
+
+    return {
+        "pattern_type": "Triple-RS 52W Cross",
+        "tags": [f"ARS {ret_55d * 100:.0f}%", f"RSI {rsi_now:.0f}↑",
+                 f"wRSI {wrsi_now:.0f}↑",
+                 "52W cross" if cross_occurred else f"{pct_from_52w:+.1f}% from 52W"],
+        "reasons": reasons,
+        "score": score,
+        "rs_raw": round(_rs_raw(df), 3),
+        "ret_55d_pct": round(ret_55d * 100, 1),
+        "rsi_now": round(rsi_now, 1),
+        "wrsi_now": round(wrsi_now, 1),
+        "pct_from_52w_high": round(pct_from_52w, 2),
+        "cross_occurred": cross_occurred,
     }
 
 
@@ -3644,6 +5069,30 @@ SCANNERS: dict[str, dict] = {
             "hit carries a 2R trade plan. A continuation system, not a reversal one."
         ),
         "category": "Entry",
+    },
+    "RSI Divergence Bull": {
+        "fn": scan_rsi_divergence_bull,
+        "description": (
+            "Bullish RSI divergence on the last closed daily bar — price made a "
+            "lower pivot low within the last 3 bars (pivot_len=3 symmetry) while "
+            "RSI(14) made a higher low (divergence ≥3 RSI points), with RSI now "
+            "already rising above the divergence low. RSI at the low must be ≤60. "
+            "Score rises with depth of oversold (≤35 → +15, ≤45 → +8) and "
+            "divergence magnitude (gap ≥10 pts → +10). Unmeasured."
+        ),
+        "category": "Entry",
+    },
+    "RSI Divergence Bear": {
+        "fn": scan_rsi_divergence_bear,
+        "description": (
+            "Bearish RSI divergence on the last closed daily bar — price made a "
+            "higher pivot high within the last 3 bars (pivot_len=3 symmetry) while "
+            "RSI(14) made a lower high (divergence ≥3 RSI points), with RSI now "
+            "already rolling over below the divergence high. RSI at the high must "
+            "be ≥40. Score rises with overbought depth (≥65 → +15, ≥55 → +8) and "
+            "divergence magnitude (gap ≥10 pts → +10). Emits short/exit entry. Unmeasured."
+        ),
+        "category": "Risk",
     },
     "Darvas Box": {
         "fn": scan_darvas_box,
@@ -3730,9 +5179,80 @@ SCANNERS: dict[str, dict] = {
         "description": "Within 3% of a recent swing-high pivot — tight stop opportunity",
         "category": "Entry",
     },
+    "FVG Pullback": {
+        "fn": scan_fvg_pullback,
+        "description": (
+            "Bullish Fair-Value-Gap pullback rejection — price dipped into a "
+            "size-gated 3-candle demand gap (> 0.5x ATR, directional middle "
+            "candle) and closed back ABOVE its top with a dominant lower wick. "
+            "Emits entry/stop/target referenced to the gap. Deliberately not a "
+            "resting limit order inside the zone: that fills on the way through "
+            "exactly when the gap fails. Wraps detect_fvg_pullback, which "
+            "previously existed only as one boolean inside the Early Reversal "
+            "layer and so was never screenable. Unmeasured."
+        ),
+        "category": "Entry",
+    },
+    "ICT Setup": {
+        "fn": scan_ict_setup,
+        "description": (
+            "ICT Execution Blueprint composite scanner — chains four ICT primitives: "
+            "(1) MSS with displacement: BOS/CHoCH where the break candle body is "
+            ">50% of its range, proving institutional participation; "
+            "(2) OTE zone: 61.8–79% Fibonacci retracement of the displacement leg — "
+            "where institutional orders were left unfilled; "
+            "(3) price currently inside the OTE zone (pullback in progress); "
+            "(4) FVG (active zone or recent rejection) overlapping the OTE zone — "
+            "two independent methods pointing to the same price area. "
+            "Stop below OTE zone low; target = 40-bar swing high (BSL proxy). "
+            "Requires all four conditions simultaneously. Unmeasured."
+        ),
+        "category": "Entry",
+    },
     "Downside Risk": {
         "fn": scan_downside_risk,
         "description": "Below key MAs with distribution volume — stocks to avoid or short",
+        "category": "Risk",
+    },
+    "Mean Reversion (Connors RSI2)": {
+        "fn": scan_mean_reversion,
+        "description": (
+            "Connors-style mean-reversion — the SIDEWAYS-regime scanner the playbook "
+            "prescribes but nothing previously implemented (B-3). Fires when: price is "
+            "≥5% below the 20-SMA (stretched), RSI(2) < 10 (ultra-short exhaustion), "
+            "today's close > yesterday (first curl up), and the 200-SMA slope is ≥-0.1% "
+            "(not a new downtrend). Stop below the session low; T1 = 20-SMA reversion; "
+            "T2 = 20-SMA + 1% buffer. Time stop 10 bars. Low-volume entries are expected "
+            "— do NOT require vol expansion for this setup."
+        ),
+        "category": "Entry",
+    },
+    "Support Breakdown": {
+        "fn": scan_support_breakdown,
+        "description": (
+            "Bearish structural support breakdown — the mirror of Order Block Retest "
+            "(B-19b). Fires when: (1) a bearish BOS or CHOCH confirms structure cracked "
+            "below a swing low in the last ~10 bars; (2) price has since retested the "
+            "broken level (now resistance) from below; (3) the retest failed (close back "
+            "under); (4) down-day on ≥1× 20-day average volume. Emits a short-side trade "
+            "plan (stop above the breakdown level, target = measured move). Evidence "
+            "AGAINST a long, not a buy signal. Unmeasured."
+        ),
+        "category": "Risk",
+    },
+    "Bearish Reversal Candle": {
+        "fn": scan_bearish_reversal_candle,
+        "description": (
+            "Bearish reversal candle AT RESISTANCE — Evening Doji Star, Evening "
+            "Star, Three Black Crows, Dark Cloud Cover, Bearish Engulfing, "
+            "Shooting Star. The bearish mirror of 'Candlestick Patterns', which "
+            "covered only bullish shapes. Trend context is checked as of the bar "
+            "the pattern started forming (not after the reversal printed), the "
+            "resistance location gate is mandatory, and the star's gap "
+            "requirement is a parameter (default: the sourced strict reading). "
+            "A hit is evidence AGAINST a long, never a confluence vote. "
+            "Unmeasured — not yet through the backtest harness."
+        ),
         "category": "Risk",
     },
     # One combined entry replaced the four separate 6M/1Y/5Y/10Y buttons
@@ -3846,6 +5366,56 @@ SCANNERS: dict[str, dict] = {
         ),
         "category": "Pattern",
     },
+    "MFI Oversold Recovery": {
+        "fn": scan_mfi_oversold,
+        "description": (
+            "Money Flow Index (MFI) oversold-recovery scanner. Fires when MFI(14) "
+            "crosses UP from below 20 with an up-day and at least average volume. "
+            "MFI is volume-weighted RSI on typical price (H+L+C)/3 — it catches "
+            "exhaustion exits where heavy selling volume reverses before price "
+            "fully recovers. Three gates: MFI crosses 20 from below + up-day "
+            "confirmation + volume ≥ 20-day average."
+        ),
+        "category": "Entry",
+    },
+    "EMA-50 Coil": {
+        "fn": scan_ema50_coil,
+        "description": (
+            "EMA-50 coiled-spring breakout (Ashok Daniel StockEdge scanner). "
+            "Captures quality stocks resting within 2% of their 50-EMA floor that "
+            "break out on institutional volume before the trend becomes obvious. "
+            "Five gates: Close > EMA200 (uptrend) + ADX(14) > 25 & rising + "
+            "+DI > -DI + Close within ±2% of EMA-50 + Close > 1.03× prior close "
+            "on volume > 20-day avg. The ±2% proximity gate is the key new mechanic "
+            "from the StockEdge Epic Scanner compilation — rest-before-thrust, not chase."
+        ),
+        "category": "Entry",
+    },
+    "RSI Mid-Band Momentum": {
+        "fn": scan_rsi_band_momentum,
+        "description": (
+            "RSI 50–68 mid-band momentum (Patel Yash Ashokbhai StockEdge scanner). "
+            "Targets momentum stocks approaching new highs without being overbought. "
+            "The RSI UPPER cap (68) is the key new mechanic — it explicitly excludes "
+            "extended stocks, creating a setup-zone scan rather than a chase scan. "
+            "Gates: within 10% of 52-week high + RSI(14) in [50, 68] + SMA20 > SMA50 "
+            "+ Close > SMA50 + RSI rising vs prior day."
+        ),
+        "category": "Momentum",
+    },
+    "Triple-RS 52W Cross": {
+        "fn": scan_triple_rs_52w,
+        "description": (
+            "Triple relative-strength + 52-week high crossover (Ashok Taneja StockEdge "
+            "scanner). Requires ALL three RS measures positive simultaneously before "
+            "firing — the triple-gate is the key new mechanic. Price-only equivalents: "
+            "(1) 55-day absolute return > 0 (ARS proxy); (2) 55-day excess return > 0 "
+            "vs benchmark if supplied (RSMkt55Days proxy); (3) daily RSI rising; "
+            "(4) weekly RSI (5-bar sample) rising; (5) 52-week high crossover in last "
+            "5 sessions; (6) RSI < 80 anti-chase gate. One RS failure disqualifies."
+        ),
+        "category": "Momentum",
+    },
 }
 
 
@@ -3860,14 +5430,13 @@ def run_scanner(scanner_name: str, symbols: list[str], fetch_fn,
     if spec is None:
         return []
 
-    global _BENCHMARK_WRET
-    _BENCHMARK_WRET = None
+    _tls.benchmark_wret = None
     if benchmark_df is not None and not benchmark_df.empty:
         try:
             col = "close" if "close" in benchmark_df.columns else "Close"
-            _BENCHMARK_WRET = _weighted_trailing_return(benchmark_df[col])
+            _tls.benchmark_wret = _weighted_trailing_return(benchmark_df[col])
         except Exception:
-            _BENCHMARK_WRET = None
+            _tls.benchmark_wret = None
 
     try:
         results = []
@@ -3883,7 +5452,7 @@ def run_scanner(scanner_name: str, symbols: list[str], fetch_fn,
             except Exception:
                 continue
     finally:
-        _BENCHMARK_WRET = None      # never leak benchmark state across scans
+        _tls.benchmark_wret = None  # never leak benchmark state across scans
 
     _finalize_relative_strength(results)
     # Symbol-level enrichment. A scan fn only ever sees OHLCV, so anything keyed
@@ -3968,6 +5537,38 @@ def fetch_fundamentals_yf(symbol: str, use_cache: bool = True) -> dict | None:
             peg = pe / (eg * 100.0)
             peg_src = "calc"
 
+    # Cash flow — try the .cashflow statement (annual, column 0 = most recent FY).
+    # freeCashflow in .info is rarely populated for NSE; the statement is more
+    # reliable.  We accept None gracefully so a missing statement never crashes.
+    fcf_cr = ocf_cr = None
+    try:
+        tk = yf.Ticker(_yf_symbol(symbol))
+        cf = tk.cashflow          # columns = period dates, rows = line items
+        if cf is not None and not cf.empty:
+            # yfinance row labels vary by version — try both casing forms.
+            _ocf_row = next(
+                (r for r in cf.index
+                 if "Operating" in r and "Cash" in r and "Activities" in r), None)
+            _capex_row = next(
+                (r for r in cf.index
+                 if "Capital" in r and ("Expenditure" in r or "Expenditures" in r)), None)
+            if _ocf_row is not None:
+                _ocf_val = cf.loc[_ocf_row].iloc[0]
+                if _ocf_val is not None and not (hasattr(_ocf_val, "__float__") and
+                                                  __import__("math").isnan(float(_ocf_val))):
+                    ocf_cr = round(float(_ocf_val) / 1e7, 1)
+                    if _capex_row is not None:
+                        _capex_val = cf.loc[_capex_row].iloc[0]
+                        if _capex_val is not None:
+                            fcf_cr = round((float(_ocf_val) + float(_capex_val)) / 1e7, 1)
+                        else:
+                            fcf_cr = ocf_cr
+    except Exception:
+        pass
+
+    rev_g  = info.get("revenueGrowth")     # annual revenue growth (0-based fraction)
+    earn_g = info.get("earningsGrowth")    # annual earnings growth (0-based fraction)
+
     out = {
         "market_cap_cr": round(mc / 1e7) if mc else None,
         "de_ratio": round(de / 100.0, 3) if de is not None else None,
@@ -3977,6 +5578,12 @@ def fetch_fundamentals_yf(symbol: str, use_cache: bool = True) -> dict | None:
         "pe": round(pe, 1) if pe else None,
         "peg": round(peg, 2) if peg is not None else None,
         "peg_src": peg_src,
+        "fcf_cr": fcf_cr,    # free cash flow (OCF − CapEx) in ₹ crore, most recent FY
+        "ocf_cr": ocf_cr,    # operating cash flow in ₹ crore
+        # Growth metrics for PEAD pre-filter (annual; yfinance earningsGrowth /
+        # revenueGrowth are annual fractions — *100 to match screener.in % convention).
+        "revenue_growth_pct":  round(rev_g  * 100.0, 1) if rev_g  is not None else None,
+        "earnings_growth_pct": round(earn_g * 100.0, 1) if earn_g is not None else None,
         # Sector / industry classification (login-free) — used by the Opportunity
         # Hub funnel to rank sector & industry leadership bottom-up.
         "sector": info.get("sector"),
@@ -3988,33 +5595,38 @@ def fetch_fundamentals_yf(symbol: str, use_cache: bool = True) -> dict | None:
 
 
 def passes_quality_gate(f: dict | None, *,
+                        min_market_cap_cr: float | None = None,
                         max_market_cap_cr: float | None = None,
                         max_de_ratio: float | None = 0.10,
                         min_roe_pct: float | None = 15.0,
                         min_opm_pct: float | None = 10.0,
                         max_pe: float | None = None,
                         max_peg: float | None = None,
+                        min_revenue_growth_pct: float | None = None,
+                        min_earnings_growth_pct: float | None = None,
                         require_complete: bool = True) -> bool:
     """True iff the fundamentals clear the zero-debt + quality (+ valuation) gate.
 
-    Cap-agnostic by default (`max_market_cap_cr=None` → all caps); pass a ceiling
-    to restrict to small/mid-caps. Valuation caps (`max_pe`, `max_peg`) are off by
-    default; when set they screen out expensive names (PEG may be the computed
-    `~` proxy — see fetch_fundamentals_yf). A gate whose data is missing fails
-    when `require_complete` (the honest default — we can't call a name 'zero-debt'
-    if we can't see its debt); with `require_complete=False` a missing field is
-    skipped rather than failing.
+    Cap-agnostic by default (both market-cap bounds None → all caps). Valuation
+    caps (`max_pe`, `max_peg`) are off by default. Growth floors (`min_revenue_growth_pct`,
+    `min_earnings_growth_pct`) map to screener.in's Sales > X% / PAT > X% filters
+    and use yfinance annual growth (quarterly data requires heavier fetches). A gate
+    whose data is missing fails when `require_complete` (the honest default); with
+    `require_complete=False` a missing field is skipped rather than failing.
     """
     if f is None:
         return False
 
     checks = (
-        (max_market_cap_cr, f.get("market_cap_cr"), lambda v: v <= max_market_cap_cr),
-        (max_de_ratio,      f.get("de_ratio"),      lambda v: v <= max_de_ratio),
-        (min_roe_pct,       f.get("roe_pct"),       lambda v: v >= min_roe_pct),
-        (min_opm_pct,       f.get("opm_pct"),       lambda v: v >= min_opm_pct),
-        (max_pe,            f.get("pe"),            lambda v: v <= max_pe),
-        (max_peg,           f.get("peg"),           lambda v: v <= max_peg),
+        (min_market_cap_cr,      f.get("market_cap_cr"),      lambda v: v >= min_market_cap_cr),
+        (max_market_cap_cr,      f.get("market_cap_cr"),      lambda v: v <= max_market_cap_cr),
+        (max_de_ratio,           f.get("de_ratio"),           lambda v: v <= max_de_ratio),
+        (min_roe_pct,            f.get("roe_pct"),            lambda v: v >= min_roe_pct),
+        (min_opm_pct,            f.get("opm_pct"),            lambda v: v >= min_opm_pct),
+        (max_pe,                 f.get("pe"),                 lambda v: v <= max_pe),
+        (max_peg,                f.get("peg"),                lambda v: v <= max_peg),
+        (min_revenue_growth_pct, f.get("revenue_growth_pct"), lambda v: v >= min_revenue_growth_pct),
+        (min_earnings_growth_pct,f.get("earnings_growth_pct"),lambda v: v >= min_earnings_growth_pct),
     )
     for threshold, value, ok in checks:
         if threshold is None:
@@ -4034,6 +5646,8 @@ def _attach_quality(hit: dict, f: dict, max_de_ratio: float) -> None:
     de, roe, opm = f.get("de_ratio"), f.get("roe_pct"), f.get("opm_pct")
     mc, roa = f.get("market_cap_cr"), f.get("roa_pct")
     pe, peg, peg_src = f.get("pe"), f.get("peg"), f.get("peg_src")
+    rev_g  = f.get("revenue_growth_pct")
+    earn_g = f.get("earnings_growth_pct")
     peg_pfx = "~" if peg_src == "calc" else ""     # ~ marks a computed (not vendor) PEG
 
     qtags: list[str] = []
@@ -4043,6 +5657,10 @@ def _attach_quality(hit: dict, f: dict, max_de_ratio: float) -> None:
         qtags.append(f"ROE {roe:.0f}%")
     if opm is not None:
         qtags.append(f"OPM {opm:.0f}%")
+    if earn_g is not None:
+        qtags.append(f"PAT {earn_g:+.0f}%")
+    if rev_g is not None:
+        qtags.append(f"Sales {rev_g:+.0f}%")
     if pe is not None:
         qtags.append(f"PE {pe:.0f}")
     if peg is not None:
@@ -4062,6 +5680,8 @@ def _attach_quality(hit: dict, f: dict, max_de_ratio: float) -> None:
         _fmt("D/E", f"{de:.2f}" if de is not None else None),
         _fmt("ROE", f"{roe:.0f}" if roe is not None else None, "%"),
         _fmt("OPM", f"{opm:.0f}" if opm is not None else None, "%"),
+        _fmt("PAT YoY", f"{earn_g:+.0f}" if earn_g is not None else None, "%"),
+        _fmt("Sales YoY", f"{rev_g:+.0f}" if rev_g is not None else None, "%"),
         _fmt("PE", f"{pe:.1f}" if pe is not None else None),
         _fmt("PEG", f"{peg_pfx}{peg:.2f}" if peg is not None else None),
         _fmt("mcap", f"₹{mc:,}Cr" if mc is not None else None),
@@ -4069,23 +5689,28 @@ def _attach_quality(hit: dict, f: dict, max_de_ratio: float) -> None:
     if roa is not None:
         quality_line += f" · ROA {roa:.0f}%"
     quality_line += (
-        " (yfinance; ~PEG = PE÷growth when vendor PEG absent; true ROCE via "
-        "screener.in is Phase 5.2)")
+        " (yfinance annual growth; ~PEG = PE÷growth when vendor PEG absent)")
     hit.setdefault("reasons", []).insert(0, quality_line)
 
 
 def run_quality_pead(symbols: list[str], fetch_fn,
                      benchmark_df: pd.DataFrame | None = None, *,
-                     max_market_cap_cr: float | None = None,
+                     min_market_cap_cr: float | None = 500.0,
+                     max_market_cap_cr: float | None = 15_000.0,
                      max_de_ratio: float | None = 0.10,
                      min_roe_pct: float | None = 15.0,
                      min_opm_pct: float | None = 10.0,
                      max_pe: float | None = None,
                      max_peg: float | None = None,
+                     min_revenue_growth_pct: float | None = 20.0,
+                     min_earnings_growth_pct: float | None = 20.0,
                      require_complete: bool = True,
                      pead_kwargs: dict | None = None,
                      progress_cb=None) -> list[dict]:
     """Phase 5.1 composite: quality small-cap gate ∩ Proxy-PEAD drift.
+
+    Defaults match the vault's PEAD pre-filter (2026-08-05):
+      MCap 500–15,000 Cr · Sales YoY > 20% · PAT YoY > 20% · ROE > 15%
 
     For each symbol: confirm the fundamentals gate (cheap, login-free) FIRST, and
     only then fetch OHLCV + run scan_pead — so the expensive price fetch runs only
@@ -4095,14 +5720,13 @@ def run_quality_pead(symbols: list[str], fetch_fn,
     """
     pead_kwargs = pead_kwargs or {}
 
-    global _BENCHMARK_WRET
-    _BENCHMARK_WRET = None
+    _tls.benchmark_wret = None
     if benchmark_df is not None and not benchmark_df.empty:
         try:
             col = "close" if "close" in benchmark_df.columns else "Close"
-            _BENCHMARK_WRET = _weighted_trailing_return(benchmark_df[col])
+            _tls.benchmark_wret = _weighted_trailing_return(benchmark_df[col])
         except Exception:
-            _BENCHMARK_WRET = None
+            _tls.benchmark_wret = None
 
     results: list[dict] = []
     total = len(symbols)
@@ -4115,9 +5739,14 @@ def run_quality_pead(symbols: list[str], fetch_fn,
                     pass
             f = fetch_fundamentals_yf(sym)
             if not passes_quality_gate(
-                    f, max_market_cap_cr=max_market_cap_cr, max_de_ratio=max_de_ratio,
+                    f,
+                    min_market_cap_cr=min_market_cap_cr,
+                    max_market_cap_cr=max_market_cap_cr,
+                    max_de_ratio=max_de_ratio,
                     min_roe_pct=min_roe_pct, min_opm_pct=min_opm_pct,
                     max_pe=max_pe, max_peg=max_peg,
+                    min_revenue_growth_pct=min_revenue_growth_pct,
+                    min_earnings_growth_pct=min_earnings_growth_pct,
                     require_complete=require_complete):
                 continue
             try:
@@ -4133,7 +5762,7 @@ def run_quality_pead(symbols: list[str], fetch_fn,
             _attach_quality(hit, f, max_de_ratio if max_de_ratio is not None else 0.10)
             results.append(hit)
     finally:
-        _BENCHMARK_WRET = None
+        _tls.benchmark_wret = None  # never leak benchmark state across scans
 
     _finalize_relative_strength(results)
     # Same Phase 2+3 join the plain scanner gets via the SCANNERS `enrich` hook —

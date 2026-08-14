@@ -70,8 +70,8 @@ Unlike Elliott Wave, every input here is a mechanical calculation (pivot detecti
 
 ## Examples in This Wiki
 
-- [[sources/AGPro-Reversal-Pattern-Quality-Scanner-Pine.md]] — the Pine v6 script this page documents
+- [[sources/AGPro-Reversal-Pattern-Quality-Scanner-Pine]] — the Pine v6 script this page documents
 
 ## Sources
 
-- [[sources/AGPro-Reversal-Pattern-Quality-Scanner-Pine.md]] (2026-07-02)
+- [[sources/AGPro-Reversal-Pattern-Quality-Scanner-Pine]] (2026-07-02)

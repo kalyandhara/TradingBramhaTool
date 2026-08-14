@@ -1,15 +1,19 @@
 ---
 title: "Candlestick Patterns"
 category: concept
-tags: [candlestick, reversal, continuation, patterns, price-action, psychology]
+tags: [candlestick, reversal, continuation, patterns, price-action, psychology, evening-star, doji]
 created: 2026-06-19
-updated: 2026-06-19
-sources: 1
+updated: 2026-08-09
+sources: 5
 related:
   - concepts/Sakata-Method.md
   - concepts/Support-Resistance.md
   - strategies/Candlestick-Filtering.md
+  - strategies/Supply-Demand-Zone-Trading.md
+  - concepts/Order-Blocks.md
   - sources/Litchfield-Morris-Candlestick-Charting-Explained-2006.md
+  - sources/Forthius-Reversal-Scanner-Pine.md
+  - sources/Fingrad-Trading-Infographics-Collection.md
 ---
 
 # Candlestick Patterns
@@ -83,13 +87,46 @@ Japanese candlestick patterns are short-term price formations (1–6 bars) that 
 | Pattern | Structure | Signal |
 |---------|-----------|--------|
 | **Morning Star** | Large black → small body gap lower → large white > 50% into black | Strong bullish reversal |
-| **Evening Star** | Large white → small body gap higher → large black > 50% into white | Strong bearish reversal |
-| **Doji Star (Morning/Evening)** | Star bar is a doji | Stronger than regular star |
+| **Evening Star** | Large white → small body gap higher → large black > 50% into white | Strong bearish reversal — **see deep-dive below** |
+| **Doji Star (Morning/Evening)** | Star bar is a doji | **Clearer indecision, not better performance** — 71% vs 72% reversal but perf rank **30th vs 4th**, and rarer (freq 81st vs 71st). **See deep-dive below** |
 | **Abandoned Baby** | Large body → doji gaps completely away from both sides → large reversal body | Rare; very strong reversal |
 | **Three White Soldiers** | 3 consecutive long white bodies; each opens inside prior body; closes near high | Strong bullish reversal (after downtrend) or trend exhaustion (in uptrend) |
 | **Three Black Crows** | 3 consecutive long black bodies | Strong bearish reversal |
 | **Upside Gap Two Crows** | White body → gap-up small black → larger black that closes gap | Bearish reversal |
 | **Unique Three River Bottom** | Three-bar bullish reversal; third closes black but above second low | Bullish reversal |
+
+---
+
+## Deep-Dive: Evening Doji Star (2026-08-08)
+
+Expanded because this is the highest-rated *bearish* three-bar pattern in the data below, and because the repo contains **three mutually inconsistent implementations of it**. Mirror-image of the Morning Doji Star throughout.
+
+### Geometry (strict / sourced definition)
+1. **Candle 1** — a long white body in an established uptrend. Trend context is mandatory (Rule #1); the same three shapes mid-range are noise.
+2. **Candle 2 (the star)** — a small body **that gaps above candle 1's body**. When that small body is a *doji* (open ≈ close), it is an Evening **Doji** Star — rated stronger than the plain Evening Star because the indecision is unambiguous.
+3. **Candle 3** — a long black body closing **below the 50% midpoint of candle 1's body**. This is the confirmation; without it there is no pattern, only a stalled advance.
+
+Psychology: buyer dominance (1) → sudden loss of momentum at a new high (2) → sellers taking back more than half the advance (3).
+
+### Location gate — the pattern is a trigger, not a setup
+Per Litchfield via [[strategies/Candlestick-Filtering]], the pattern only earns a trade **inside a pre-identified structural zone**: a supply zone ([[strategies/Supply-Demand-Zone-Trading]]), a bearish [[concepts/Order-Blocks|order block]], or established resistance ([[concepts/Support-Resistance]]) — ideally with RSI 55–65 as the presignal. That page's bearish recipe already names this pattern explicitly.
+
+### Trade mechanics
+- **Entry**: short on the break below the pattern's low (or at the close of candle 3).
+- **Stop**: above the star's high — the tightest invalidation the structure offers.
+- **Target**: next support / S&D level, or the measured move; assess at the **2-day horizon**, the statistically strongest window per Morris.
+
+> [!contradiction] Does the star have to gap? Our sources say yes; the retail version says no; our code says three different things
+> **Gap required (sourced):** [[sources/Litchfield-Morris-Candlestick-Charting-Explained-2006]] defines the pattern as "3-bar; **middle bar gaps away** (small body/doji), third bar confirms" — and the classic Abandoned Baby is precisely the extreme case where the doji gaps clear of *both* neighbours. The three-bar table above has always said "gap higher".
+>
+> **Gap not required (retail):** a widely-circulated infographic (user-supplied, 2026-08-08) specifies only "a tiny Doji at the top" and shows no gap in its diagram. Dropping the gap requirement materially loosens the pattern — far more signals, each weaker. This is the same strict-vs-loose split as the [[concepts/Fair-Value-Gap]] mitigation spectrum, and it should be a **parameter, not a hard-coded choice**.
+>
+> **What the repo actually does — three ways, none matching the page:**
+> - [`pmax.pine:282`](tools/pmax.pine:282) requires the gap (`low[1] > high[2]`) ✓, but also requires the star to be **green** (`close[1] > open[1]`), which can reject the doji variant outright; applies **no small-body test at all**, so a large candle passes as the "star"; and demands `close < open[2]`, far stricter than the documented 50%-midpoint rule.
+> - [`scan_candlestick`](tools/scanner_templates.py:2948) does not detect it — **bullish patterns only** (see Examples below).
+> - [`is_morning_star()`](tools/scanner_templates.py:2988), the bullish mirror that *is* implemented, checks **no gap** and does **not** require the middle bar to be a doji — so the repo's one shipped star detector silently uses the loose definition.
+>
+> **Unresolved:** which definition produced the 72% figure below. See the provenance note in Statistical Reliability — it cannot be settled from any source currently in this wiki.
 
 ---
 
@@ -131,15 +168,48 @@ Japanese candlestick patterns are short-term price formations (1–6 bars) that 
 - At 1-day horizon: ranked 5th
 - **Key implication:** Candle patterns alone provide a modest edge; filtering with a second indicator is required for consistent outperformance
 
-### Bulkowski's Top-10 (Encyclopedia of Candlestick Charts) — a second dataset (2026-07-19)
+### Bulkowski's Top-10 — a second dataset (2026-07-19)
 
-Thomas Bulkowski's ranked list, where % is how often the pattern resolves in the listed direction. **The direction is frequently the opposite of the name** — the single biggest lesson here.
+A ranked list attributed to Thomas Bulkowski, where % is how often the pattern resolves in the listed direction. **The direction is frequently the opposite of the name** — the single biggest lesson here.
+
+> [!warning] Provenance is one step weaker than "Encyclopedia of Candlestick Charts" implies (corrected 2026-08-08)
+> These figures did **not** come from Bulkowski's book. The wiki's actual source is a **screenshot of a FINGRAD infographic that credits Bulkowski** ([[sources/Fingrad-Trading-Infographics-Collection]], image 16). The Encyclopedia itself has never been ingested here. Consequences, which matter for anything built on these numbers:
+> - **No pattern definitions accompany the percentages.** We cannot tell whether the 72% Evening Star was measured on the gapped (strict) or gapless (loose) definition — so that figure **cannot be transferred to a detector** until the primary source is checked. Quoting it against a loose implementation would be measuring one pattern and citing another.
+> - No sample size, universe, date range, holding period, or definition of "resolves" is recorded.
+> - **Open item:** ingest the primary source (or another with published methodology) before these numbers are used to justify or weight an implementation. ✅ **Closed 2026-08-09 — see below.**
+
+> [!key-insight] RESOLVED 2026-08-09 — primary source checked, and it hands back more than was asked
+> The open item was *"we cannot tell whether the 72% was measured on the gapped or gapless definition."* Bulkowski's own pattern pages settle it.
+>
+> **1. The gap IS required — body-to-body, exactly as implemented.** Evening Star identification guidelines, verbatim: *"a small bodied candle of any color should **gap above the bodies of the two adjacent candles** (ignore the shadows)."* The Evening Doji Star page mirrors it: *"a doji whose body **gaps above the two surrounding days**. Ignore the shadows."*
+>
+> So the **sourced strict reading is Bulkowski's reading**, and specifically the **body-vs-body** test — not `pmax.pine`'s stricter wick-clear (`low[1] > high[2]`). `scan_bearish_reversal_candle`'s default (`require_gap=True`, body-gap) matches the primary source on both counts, which was a guess when it was written and is now a citation. The retail infographic that omits the gap is simply describing a looser, different pattern.
+>
+> **2. Evening Star and Evening Doji Star are SEPARATE patterns — and the doji variant is the worse one.**
+>
+> | | Bearish reversal | Reversal rank | Overall performance rank | Frequency rank |
+> |---|---|---|---|---|
+> | **Evening Star** | **72%** | 10th | **4th of 103** | 71st |
+> | **Evening Doji Star** | **71%** | 12th | **30th of 103** | 81st |
+>
+> The 72% in the table below belongs to **Evening Star**. Attaching it to the doji variant — the pattern the infographic and the deep-dive above are about — is wrong: that one is 71%, and **30th vs 4th** on overall performance.
+>
+> **3. Our own rarity measurement is independently corroborated.** We measured Evening Doji Star firing **twice in 11,628 bar-observations** under the strict rule; Bulkowski ranks it **81st of 103 on frequency**. Two unrelated methods agreeing it is too rare to build a routine around.
+>
+> **Still unresolved:** no total sample or date range is published for the headline rates on the free pages, and the per-cell performance figures rest on very small samples — one cell is explicitly *"just 28 patterns"*, another 199. Treat the ranks as directional and the cell-level averages as anecdote.
+
+> [!info] Corrected 2026-08-09 — the Three-Bar table used to claim the doji star was "stronger"
+> From 2026-06-19 until 2026-08-09 the Doji Star row read simply **"Stronger than regular star"**, sourced from the Litchfield/Morris side on the reasoning that a doji makes the indecision unambiguous. **Bulkowski's per-pattern figures invert it** on both measures that matter: 71% vs 72% on reversal (a wash) and **30th vs 4th on overall performance** (not a wash). The row now states the distinction instead of the conclusion.
+>
+> **The old reasoning was not wrong, it was answering a different question.** "Cleaner signal" and "better subsequent move" are separate claims: a doji genuinely is less ambiguous to read, *and* the doji filter cuts the sample to a rarer subset whose average move is measured on fewer, noisier cases. Keep the first, drop the second. **What must not be repeated is the bare word "stronger"**, which silently promotes a readability claim into a performance claim — the same slippage as the FVG "magnet" language before it was measured.
+>
+> **Consequence for the code, deliberately not acted on:** `scan_bearish_reversal_candle` scores Evening Doji Star (68) *above* Evening Star (62). That ordering is explicitly **geometric strictness, not claimed accuracy**, so it is not wrong by its own stated basis — but an accuracy-based ordering would invert the two. Not re-based, because the figures that would justify it rest on 28–199-sample cells, and re-tuning a detector on that is exactly the over-fitting to a third-party statistic this section keeps warning about.
 
 | Pattern | Behaves as | Accuracy |
 |---------|-----------|----------|
 | **Bearish** Three-Line Strike | Bullish **Reversal** | 84% |
 | Three Black Crows | Bearish Reversal | 78% |
-| Evening Star | Bearish Reversal | 72% |
+| Evening Star *(not the doji variant — that is 71%, perf rank 30th)* | Bearish Reversal | 72% |
 | Abandoned Baby | Bullish Reversal | 70% |
 | Two Black Gapping | Bearish Continuation | 68% |
 | **Bullish** Three-Line Strike | Bearish **Reversal** | 65% |
@@ -179,6 +249,59 @@ Thomas Bulkowski's ranked list, where % is how often the pattern resolves in the
 
 ---
 
+## Examples in This Wiki (2026-08-08, updated 2026-08-09)
+
+### Python — the bearish mirror, shipped 2026-08-09
+[`scan_bearish_reversal_candle`](tools/scanner_templates.py:3043) ("Bearish Reversal Candle", category **Risk**) closes the asymmetry below. Detects **Evening Doji Star · Evening Star · Three Black Crows · Dark Cloud Cover · Bearish Engulfing · Shooting Star**, reporting the strictest that fires. Three properties, each tracing to a decision on this page:
+
+- **`require_gap` is a parameter** (default = the sourced strict reading), not a hard-coded rule — the resolution recorded in the contradiction callout above.
+- **Trend context is evaluated at the bar the pattern started forming**, never at the current bar (the Forthius anti-lookback rule).
+- **The resistance location gate is mandatory** — near a *prior* swing-high pivot or the 60-bar high. (First implementation had a real bug here: a star is itself a local high, so scanning the full window let every pattern qualify as "near a pivot" and the gate rejected nothing. The pivot search now excludes the pattern's own bars.)
+
+Base scores are ordered by **geometric strictness**, deliberately *not* by the accuracy percentages above — those carry no definitions and cannot be attached to an implementation.
+
+> [!key-insight] Measured base rate: the gap switch is near-irrelevant in aggregate and decisive for the stars
+> 2026-08-09, 17 NSE large-caps, 3y daily, **11,628 bar-observations**:
+>
+> | Pattern | Strict (gap required) | Loose (no gap) |
+> |---|---|---|
+> | **All** | **303 — 2.61% of bars** | **320 — 2.75%** |
+> | Shooting Star | 158 | 157 |
+> | Bearish Engulfing | 99 | 93 |
+> | Dark Cloud Cover | 30 | 30 |
+> | Three Black Crows | 9 | 9 |
+> | Evening Star | 5 | **23** |
+> | Evening Doji Star | **2** | **8** |
+>
+> The gap requirement changes the total by 5.6% but **quadruples both star counts** — the aggregate hides it because Shooting Star and Bearish Engulfing dominate either way. (The small dips in those two under the loose rule are the scanner correctly preferring the higher-strictness star on the same bar.)
+>
+> **Operational consequence: Evening Doji Star is too rare to matter on its own** — 2 hits in 11,628 bar-observations strict, roughly one per 8.5 stock-years. The infographic presents it as a workhorse setup; on this universe it is a curiosity, and the risk flag earns its keep through the commoner shapes. Anyone waiting specifically for this pattern will wait years.
+>
+> **This is frequency, not edge.** Whether a hit predicts anything is unmeasured until it goes through [[analyses/Backtest-Harness]].
+
+### Python — the bullish side (unchanged)
+[`scan_candlestick`](tools/scanner_templates.py:2948) ("Candlestick Patterns", category Entry) fires on the latest bar for **Morning Star (70) · Bullish Engulfing (62) · Piercing Line (55) · Hammer (52)**, preferring formations at/below EMA20 with volume confirmation. Its own docstring holds the right principle: *"a candlestick is a trigger, not a system: score stays modest."*
+
+Its `is_morning_star()` still checks **no gap** and does not require the middle bar to be a doji — the loose reading, and now inconsistent with the bearish mirror's strict default. Worth reconciling, but it changes a shipped detector's hit rate, so it should be measured rather than simply flipped.
+
+> [!key-insight] Until 2026-08-09 the repo implemented the patterns this page had the *least* evidence for
+> By the Bulkowski table above, the best-rated candle patterns are **bearish** — Three Black Crows 78%, **Evening Star 72%** — and **none were implemented**, while not one of the four bullish patterns that *were* implemented appears in that top-10 at all. The selection was inverted relative to our own recorded evidence. `scan_bearish_reversal_candle` closes that gap.
+>
+> It is deliberately **not** a short signal. `RISK_SCANNERS` in [opportunity_hub.py](tools/opportunity_hub.py:228) treats a bearish hit as evidence *against* a shortlisted long, barred from adding confluence — so an Evening Doji Star at resistance on a name about to be bought lands as a risk flag without touching the confluence maths.
+>
+> Note the asymmetry this leaves standing: the bearish detector is gated on trend-at-formation and a mandatory resistance location; the older bullish one is not. That is a defensible difference (a risk flag should be conservative) but it is a difference, not a design.
+
+### Pine
+- [`pmax.pine:282`](tools/pmax.pine:282) — an `eveningStarPattern` used inside `bearPatternConfirm`, diverging from this page three ways (see the contradiction callout above).
+
+### Port target
+[[sources/Forthius-Reversal-Scanner-Pine]] detects ~15 patterns **including Morning/Evening Star**, each with a geometry-based quality score rather than a boolean, composited 0–10 and graded A/B/C. Two details worth taking outright:
+- **Trend context is evaluated as of when the pattern started forming** (`downCtx[N]`/`upCtx[N]`), not at the current bar — avoiding the lookback bias of confirming the trend *after* the reversal already happened.
+- **Same geometry, context flips the label** — one wick/body measurement, then directional gating (Hammer in a downtrend = Hanging Man in an uptrend). Halves the detection code for mirrored patterns.
+- Its **RSI divergence** check is ~2 lines of pandas and is still absent from `scanner_templates.py`.
+
+---
+
 ## Related Concepts
 - [[concepts/Sakata-Method]] — the historical 5-formation system underlying continuation patterns
 - [[concepts/Support-Resistance]] — the most effective filter for candle signals (Litchfield's framework)
@@ -189,4 +312,6 @@ Thomas Bulkowski's ranked list, where % is how often the pattern resolves in the
 ## Sources
 - [Litchfield-Morris-Candlestick-Charting-Explained-2006](../sources/Litchfield-Morris-Candlestick-Charting-Explained-2006.md)
 - [[sources/Forthius-Reversal-Scanner-Pine]] (2026-07-02) — working Pine implementation detecting ~15 of these patterns with per-pattern geometry-based quality scores
-- [[sources/Fingrad-Trading-Infographics-Collection]] (2026-07-19) — Bulkowski top-10 accuracy percentages (name-vs-behavior mismatch)
+- [[sources/Fingrad-Trading-Infographics-Collection]] (2026-07-19) — Bulkowski top-10 accuracy percentages (name-vs-behavior mismatch). **Screenshot of an infographic crediting Bulkowski, not the Encyclopedia itself** — no definitions or methodology; see the provenance warning above.
+- **Bulkowski, thepatternsite.com** — [Evening Star](https://thepatternsite.com/EveningStar.html) and [Evening Doji Star](https://thepatternsite.com/EveningDojiStar.html), fetched 2026-08-09. **The primary-source check that closed the provenance open item**: source of the verbatim gap requirement (body-to-body, shadows ignored), the separate 72% / 71% reversal rates, the 4th vs 30th overall-performance split, and the 71st / 81st frequency ranks. Note these are the author's free pattern pages, not the Encyclopedia itself — they publish ranks and selected cells but no total sample or date range.
+- User-supplied **"The Evening Doji Star Pattern"** infographic (in-conversation image, 2026-08-08) — source for the Deep-Dive section's 3-step framing, the sniper-entry location gate, and the entry/stop mechanics. **Provenance: unattributed retail educational graphic**, and it **omits the gap requirement** our book source specifies — credited for the framing, not as authority on the geometry.

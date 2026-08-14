@@ -19,9 +19,12 @@ See wiki/analyses/Opportunity-Hub-Roadmap.md.
 """
 from __future__ import annotations
 
+import logging
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 import pandas as pd
+
+_log = logging.getLogger(__name__)
 
 import scanner_templates as sc
 
@@ -212,7 +215,10 @@ SCANNER_FAMILIES: dict[str, tuple[str, ...]] = {
         "Near Pivot",
         "Order Block Retest",
         "RSI 60-40 Setup",
+        "RSI Divergence Bull",
         "Candlestick Patterns",
+        "FVG Pullback",
+        "ICT Setup",
     ),
     "Event": (
         "PEAD Drift",
@@ -225,7 +231,7 @@ FAMILY_ORDER: tuple[str, ...] = tuple(SCANNER_FAMILIES.keys())
 #: Bearish scanners. These RUN — a distribution warning on a shortlisted name is
 #: worth seeing — but a hit is evidence AGAINST the name, so it can never add to
 #: a confluence count. It is surfaced as a risk flag instead.
-RISK_SCANNERS: tuple[str, ...] = ("Downside Risk",)
+RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "Support Breakdown")
 
 #: Registry entries the pipeline must not run.
 #: "Zero-Debt Quality PEAD" declares ``fn = scan_pead`` — the IDENTICAL function
@@ -363,7 +369,8 @@ def run_scanner_pipeline(symbols: list[str], fetch_for, *,
         try:
             results = sc.run_scanner(name, symbols, fetch_for(name),
                                      benchmark_df=benchmark_df)
-        except Exception:
+        except Exception as _exc:
+            _log.warning("Scanner %r failed: %s", name, _exc, exc_info=True)
             continue                      # one broken scanner must not kill the run
         for card in results:
             sym = card.get("symbol")

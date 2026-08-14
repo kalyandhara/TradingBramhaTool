@@ -1,6 +1,7 @@
 ---
 title: "Analysis: Market Sentiment Index — Roadmap Fit for Trading Bramha"
 category: analysis
+timeframe: milestone-plan
 tags: [roadmap, sentiment, breadth, feature-planning]
 created: 2026-07-14
 updated: 2026-07-14

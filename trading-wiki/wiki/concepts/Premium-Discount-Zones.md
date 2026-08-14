@@ -57,4 +57,4 @@ Premium/discount is a **grader**, most useful stacked on a concrete signal:
 - No live-ticker example yet.
 
 ## Sources
-1. [LuxAlgo-Smart-Money-Concepts-Pine](../sources/LuxAlgo-Smart-Money-Concepts-Pine.md) — Pine v5 indicator by [[LuxAlgo]] (CC BY-NC-SA 4.0), ingested 2026-07-16; the 5%-band premium/equilibrium/discount construction on trailing swing extremes is from this script.
+1. [LuxAlgo-Smart-Money-Concepts-Pine](../sources/LuxAlgo-Smart-Money-Concepts-Pine.md) — Pine v5 indicator by [[entities/LuxAlgo]] (CC BY-NC-SA 4.0), ingested 2026-07-16; the 5%-band premium/equilibrium/discount construction on trailing swing extremes is from this script.

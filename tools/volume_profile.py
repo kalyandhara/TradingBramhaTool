@@ -15,6 +15,13 @@ Public API:
     find_confluence(points, profile, tol_pct=0.004) -> list[dict]
     describe_position(df, profile) -> dict | None
 
+`describe_position` reports value-area location *and* (since 2026-08-09) where
+price sits relative to the HVN/LVN pockets — `at_hvn` / `at_lvn` plus distances
+to the nearest pocket above and below. Those pockets were computed and drawn on
+the chart from the start but never read back into the screening path, so the
+magnet/air-pocket read — the actionable half of the profile — was unavailable to
+Setup Intelligence. See ``concepts/Volume-Profile``.
+
 Expected frame: pandas DataFrame with lowercase `high`, `low`, `close`,
 `volume` columns (the shape used across this repo's Python tools).
 """
@@ -185,6 +192,29 @@ def _find_nodes(hist: dict, mult: float, expand_tol: float, mode: str) -> list[d
     } for p in merged]
 
 
+# ── Node position relative to a price ───────────────────────────────────────
+# HVN/LVN pockets were computed and drawn on the chart but never read back into
+# the screening path, so "price is above value" was sayable while "price is
+# sitting on an HVN" / "there is an LVN air pocket overhead" was not — which is
+# the actionable half (HVN = magnet/S-R, LVN = fast traverse).
+def _nearest_nodes(price: float, zones: list[dict]) -> dict:
+    """Where `price` sits relative to a set of pockets.
+
+    Returns `inside` plus signed distances (in %) to the nearest pocket edge
+    above and below. "Above" measures to the nearest pocket whose *low* is above
+    price; "below" to the nearest pocket whose *high* is below it. Both are None
+    when there is no pocket on that side.
+    """
+    inside = any(z["low"] <= price <= z["high"] for z in zones)
+    above = [z["low"] for z in zones if z["low"] > price]
+    below = [z["high"] for z in zones if z["high"] < price]
+    return {
+        "inside": inside,
+        "above_pct": ((min(above) - price) / price * 100) if above and price else None,
+        "below_pct": ((price - max(below)) / price * 100) if below and price else None,
+    }
+
+
 # ── Convenience full pipeline ───────────────────────────────────────────────
 def compute_profile(df: pd.DataFrame, **opts: Any) -> dict | None:
     """Build the full volume profile for `df`. Returns None if unusable."""
@@ -272,6 +302,9 @@ def describe_position(df: pd.DataFrame, profile: dict | None) -> dict | None:
     vol_above_poc = sum(bins[poc_idx + 1:])
     pct_above_poc = (vol_above_poc / total * 100) if total > 0 else None
 
+    hvn = _nearest_nodes(price, profile["hvn_zones"])
+    lvn = _nearest_nodes(price, profile["lvn_zones"])
+
     if price > va["high"]:
         zone = "above_value"
     elif price < va["low"]:
@@ -291,4 +324,11 @@ def describe_position(df: pd.DataFrame, profile: dict | None) -> dict | None:
         "value_area_pct": va["pct"] * 100,
         "hvn_count": len(profile["hvn_zones"]),
         "lvn_count": len(profile["lvn_zones"]),
+        # Node position — the HVN-magnet / LVN-air-pocket read (see _nearest_nodes).
+        "at_hvn": hvn["inside"],
+        "hvn_above_pct": hvn["above_pct"],
+        "hvn_below_pct": hvn["below_pct"],
+        "at_lvn": lvn["inside"],
+        "lvn_above_pct": lvn["above_pct"],
+        "lvn_below_pct": lvn["below_pct"],
     }

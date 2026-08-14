@@ -3,8 +3,8 @@ title: "Elliott Wave Theory"
 category: concept
 tags: [elliott-wave, wave-count, impulse, corrective, price-action, extension, valuation, stage-analysis, fibonacci, mcdowell-probability-matrix]
 created: 2026-06-14
-updated: 2026-06-15
-sources: 3
+updated: 2026-08-09
+sources: 4
 related: [concepts/RSI.md, concepts/MACD-Divergence.md, concepts/PMax, strategies/PMax-Confluence-Strategy, concepts/McDowell-Probability-Matrix, strategies/EW-Flat-Bottom-Breakout, strategies/EW-Wave5-Catch]
 ---
 
@@ -114,6 +114,29 @@ Additional "modern constraint" checks (informational): **alternation** (|W2/W1 �
 - [[concepts/McDowell-Probability-Matrix]] — 6-factor wave-count confidence score
 - [[strategies/EW-Flat-Bottom-Breakout]] — grounded Wave 3 entry setup
 - [[strategies/EW-Wave5-Catch]] — grounded Wave 5 entry setup
+
+## Examples in This Wiki — and a capability gap measured 2026-08-09
+
+Two engines implement this page, and **they disagree with each other on live NIFTY**:
+
+| Engine | Where | Method | NIFTY read (2026-08-07) |
+|---|---|---|---|
+| `ew_module.py` | Stock Analyzer "EW" chip | McDowell probabilistic — pivots → W1 structure → W3/W5 target *distributions*, plus OWL histogram + PTF RSI(9) | **W2**, W1 21,744→26,373, W3 primary **31,097** (45%) |
+| [elliott_wave.js](tools/elliott_wave.js) | chart tool overlay | ATR-adaptive ZigZag → greedy 6-point impulse windows → A-B-C off each impulse | **C of an expanded-flat, complete**, invalidation 23,606 |
+
+> [!contradiction] Same doctrine, two engines, incompatible answers — and one engine contradicts itself
+> The dashboard can show the Python "W2" chip beside the JS overlay's completed correction. Separately, `ew_module.py` returns `wave_pos: W2` alongside `owl_signal: "W3-past"` — the pivot structure says Wave 3 has not begun while the OWL histogram says its peak has passed, and `ew_summary_row` prints both unreconciled. Full workings: [[analyses/EW-Engine-vs-SweeGlu-NIFTY]].
+>
+> Also worth heeding: on 3D NIFTY the JS engine found 18 impulses with **median score 40, max 59** and **14 of 18 flagged diagonal**. Our own tool is reporting that it has no strong count on this instrument.
+
+**Capability gap — corrective COMBINATIONS (WXY), not corrective labels as such.** `ew_module.py` and `elliott_wave.js` are impulse-first and single-degree: `detectCorrectives` only labels A-B-C hanging off an already-detected impulse. The third engine, [pmax.pine](tools/pmax.pine), does alternate impulse and corrective cycles with prime marks for repeats — but its corrective branch emits **`(a)(ax)(ay)(b)(c)(az)(ax)(d)(e)`, an ABCDE triangle**, not a WXY combination (`f_waveLabel`, line 196). A triangle is one pattern; WXY is two or three joined by X waves. So a discretionary label like *(y) of (b) of (x) of (B or X) of (iv) of Major (3)* ([[sources/SweeGlu-EW-NIFTY-Chart3-2026-08-05]]) is **not something this repo can express** — complex corrections, the WXY combinations that dominate sideways markets, are outside all three models.
+
+> [!contradiction] This page has documented WXY support for pmax that the code does not have
+> Line 72 above (and [[sources/PMax-Optimization-Pine]]) state pmax's corrective cycles are `W, w1, x1, X, Y, y1, z1, XX, Z`. **`tools/pmax.pine` emits `(a)(ax)(ay)(b)(c)(az)(ax)(d)(e)` instead**, and the WXY string exists nowhere in any source file — only in those two markdown pages. Presumably the upstream TradingView script had it and our port simplified to a triangle. **Fourth documented-but-not-coded gap found this week**, after the order-block selection rule, volume-profile HVN/LVN, and the evening-star gap.
+
+That gap is real but **should not be filled first**: no EW output here has ever been scored against outcomes ([[analyses/Backtest-Harness]] has never run on it). Building deeper labelling on unmeasured labelling repeats the FA-3-before-FA-2 mistake.
+
+**Known bug:** `ew_module.analyze_ew` raises `TypeError` on **weekly** bars — the timeframe a position-degree count would most naturally use.
 
 ## Sources
 - [[sources/trading-learning-raw]] (2026-06-14) — core theory

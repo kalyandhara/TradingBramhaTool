@@ -123,4 +123,4 @@ The script is invite-only — we cannot pull the actual Pine source. We have the
 - Created: [[sources/TV-VCP-Scanner-Minervini-valchak]] (this page)
 - Updated: [[concepts/VCP]] — added valchak numeric preset table
 - Updated: [[strategies/Minervini-SEPA]] — cross-referenced as Pine-scanner implementation
-- Updated: [[wiki/index]], [[wiki/log]]
+- Updated: [[index]], [[log]]

@@ -34,6 +34,7 @@ from __future__ import annotations
 
 import numpy as np
 import pandas as pd
+from scipy import stats
 
 import scanner_templates as sc
 
@@ -114,7 +115,8 @@ def backtest_scanner(scanner_name: str,
                      horizons: tuple[int, ...] = DEFAULT_HORIZONS,
                      min_gap: int = DEFAULT_MIN_GAP,
                      warmup: int = WARMUP_BARS,
-                     stride: int = 1) -> dict:
+                     stride: int = 1,
+                     benchmark_df: "pd.DataFrame | None" = None) -> dict:
     """Replay ``scanner_name`` over ``symbols`` and return aggregate metrics.
 
     ``fetch_fn(symbol) -> OHLCV DataFrame`` (lowercase o/h/l/c/v columns). Use a
@@ -122,6 +124,15 @@ def backtest_scanner(scanner_name: str,
     history for a meaningful sample. ``stride`` evaluates every k-th bar to trade
     resolution for speed (default 1 = every bar); signals are still de-duplicated
     by ``min_gap``.
+
+    ``benchmark_df`` (optional) — a Nifty50 / index OHLCV frame with a DatetimeIndex
+    and a ``close`` column. When supplied, each signal's forward return is also
+    computed against the benchmark over the same window, enabling:
+      * market-model alpha  = signal_ret - β_symbol × benchmark_ret  (B-20b)
+      * OLS β estimated from the 60-bar pre-signal window               (B-20b)
+    The t-stat / p-value / 95% CI for the raw edge and for the alpha are both
+    reported so the numbers can no longer be quoted without a noise-probability
+    caveat (B-20a).
     """
     spec = sc.SCANNERS.get(scanner_name)
     if spec is None:
@@ -133,6 +144,10 @@ def backtest_scanner(scanner_name: str,
     # returns over the same replay window; plus R results where a plan existed.
     sig_ret: dict[int, list[float]] = {h: [] for h in horizons}
     base_ret: dict[int, list[float]] = {h: [] for h in horizons}
+    # Market-model: parallel lists for the benchmark return and estimated alpha
+    # at each signal, per horizon.  Only populated when benchmark_df is supplied.
+    mkt_ret: dict[int, list[float]] = {h: [] for h in horizons}
+    alpha_ret: dict[int, list[float]] = {h: [] for h in horizons}
     mae_list: list[float] = []           # max adverse excursion per signal (%)
     r_results: list[dict] = []
     n_signals = 0
@@ -140,6 +155,11 @@ def backtest_scanner(scanner_name: str,
     total_bars = 0
     n_plans = 0                 # signals that carried a full entry/stop/target
     n_plans_unsimulated = 0     # …of which the long-only sim could not run
+
+    # Pre-process benchmark into a date→close map for fast lookups.
+    bench_close: pd.Series | None = None
+    if benchmark_df is not None and "close" in benchmark_df.columns:
+        bench_close = benchmark_df["close"].dropna()
 
     for sym in symbols:
         try:
@@ -188,9 +208,45 @@ def backtest_scanner(scanner_name: str,
             entry_idx = t + 1
             entry_b = openp[entry_idx]
             if entry_b > 0:
+                # ── market-model beta from the 60-bar pre-signal window ──────
+                _beta: float | None = None
+                if bench_close is not None and hasattr(df.index, "date"):
+                    try:
+                        _sym_px = df["close"].iloc[max(0, t - 60): t + 1]
+                        _sym_r = _sym_px.pct_change().dropna()
+                        # Align benchmark returns to the same dates
+                        _b_px = bench_close.reindex(_sym_r.index, method="nearest",
+                                                     tolerance=pd.Timedelta("2d"))
+                        _b_r = _b_px.pct_change().dropna()
+                        _both = pd.concat([_sym_r, _b_r], axis=1).dropna()
+                        if len(_both) >= 20:
+                            _beta = float(
+                                np.cov(_both.iloc[:, 0], _both.iloc[:, 1])[0, 1]
+                                / max(np.var(_both.iloc[:, 1]), 1e-12)
+                            )
+                    except Exception:
+                        _beta = None
+
                 for h in horizons:
                     fwd = close[entry_idx + h]
-                    sig_ret[h].append((fwd / entry_b - 1.0) * 100.0)
+                    sr = (fwd / entry_b - 1.0) * 100.0
+                    sig_ret[h].append(sr)
+
+                    # Market return for the same forward window (by date index)
+                    if bench_close is not None and hasattr(df.index, "date"):
+                        try:
+                            _entry_date = df.index[entry_idx]
+                            _exit_date = df.index[min(entry_idx + h, len(df) - 1)]
+                            _b_entry = float(bench_close.asof(_entry_date))
+                            _b_exit = float(bench_close.asof(_exit_date))
+                            _mr = (_b_exit / _b_entry - 1.0) * 100.0
+                            mkt_ret[h].append(_mr)
+                            # alpha = raw_ret - β × mkt_ret; fall back to β=1 if unknown
+                            _b = _beta if _beta is not None else 1.0
+                            alpha_ret[h].append(sr - _b * _mr)
+                        except Exception:
+                            pass
+
                 # Max adverse excursion over the longest horizon.
                 window_low = float(np.min(low[entry_idx:entry_idx + max_h + 1]))
                 mae_list.append((window_low / entry_b - 1.0) * 100.0)
@@ -216,12 +272,30 @@ def backtest_scanner(scanner_name: str,
 
     return _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list,
                       r_results, n_signals, n_symbols_used, total_bars,
-                      n_plans, n_plans_unsimulated)
+                      n_plans, n_plans_unsimulated,
+                      mkt_ret=mkt_ret, alpha_ret=alpha_ret)
+
+
+def _ttest_edge(arr: np.ndarray, null: float = 0.0) -> dict:
+    """One-sample t-test: H0 = mean equals null.  Returns t, p, 95% CI."""
+    n = len(arr)
+    if n < 4:
+        return {"t": None, "p": None, "ci95": None, "reliable": False}
+    t, p = stats.ttest_1samp(arr, null)
+    ci = stats.t.interval(0.95, df=n - 1, loc=float(np.mean(arr)),
+                          scale=stats.sem(arr))
+    return {
+        "t": round(float(t), 3),
+        "p": round(float(p), 4),
+        "ci95": [round(float(ci[0]), 3), round(float(ci[1]), 3)],
+        "reliable": bool(p < 0.05),   # two-tailed α=0.05
+    }
 
 
 def _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list, r_results,
                n_signals, n_symbols_used, total_bars,
-               n_plans=0, n_plans_unsimulated=0) -> dict:
+               n_plans=0, n_plans_unsimulated=0,
+               mkt_ret=None, alpha_ret=None) -> dict:
     per_h = {}
     for h in horizons:
         s = np.array(sig_ret[h], dtype=float)
@@ -231,7 +305,9 @@ def _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list, r_results,
             continue
         sig_avg = float(np.mean(s))
         base_avg = float(np.mean(b)) if len(b) else 0.0
-        per_h[h] = {
+        edge_arr = s - base_avg          # each signal's excess over the random-entry mean
+
+        m: dict = {
             "n": int(len(s)),
             "hit_rate": round(float(np.mean(s > 0) * 100), 1),
             "avg_ret": round(sig_avg, 2),
@@ -239,7 +315,20 @@ def _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list, r_results,
             "baseline_avg": round(base_avg, 2),
             "edge": round(sig_avg - base_avg, 2),      # signal minus random-entry
             "baseline_hit_rate": round(float(np.mean(b > 0) * 100), 1) if len(b) else None,
+            # B-20a — significance: is the edge distinguishable from noise?
+            "edge_ttest": _ttest_edge(edge_arr),
         }
+
+        # B-20b — market-model alpha when benchmark data was supplied.
+        a_arr = np.array((alpha_ret or {}).get(h, []), dtype=float)
+        if len(a_arr) >= 4:
+            m["alpha_avg"] = round(float(np.mean(a_arr)), 2)
+            m["alpha_ttest"] = _ttest_edge(a_arr)
+        else:
+            m["alpha_avg"] = None
+            m["alpha_ttest"] = None
+
+        per_h[h] = m
 
     r_block = None
     if not r_results and n_plans:
@@ -289,14 +378,32 @@ def format_report(result: dict) -> str:
     lines.append(f"=== {result['scanner']} ===")
     lines.append(f"signals={result['n_signals']}  symbols={result['n_symbols_used']}  "
                  f"baseline-bars={result['baseline_bars']}{warn}")
-    lines.append(f"{'horizon':>8} {'n':>5} {'hit%':>6} {'avg%':>7} "
-                 f"{'base%':>7} {'edge%':>7} {'med%':>7}")
+    has_alpha = any(m.get("alpha_avg") is not None
+                    for m in result["horizons"].values() if m.get("n", 0) > 0)
+    hdr = (f"{'horizon':>8} {'n':>5} {'hit%':>6} {'avg%':>7} "
+           f"{'base%':>7} {'edge%':>7} {'p(edge)':>9} {'med%':>7}")
+    if has_alpha:
+        hdr += f"  {'alpha%':>7} {'p(α)':>7}"
+    lines.append(hdr)
     for h, m in result["horizons"].items():
         if m.get("n", 0) == 0:
             lines.append(f"{h:>7}d {'0':>5}  (no signals)")
             continue
-        lines.append(f"{h:>7}d {m['n']:>5} {m['hit_rate']:>6} {m['avg_ret']:>7} "
-                     f"{m['baseline_avg']:>7} {m['edge']:>+7} {m['median_ret']:>7}")
+        tt = m.get("edge_ttest") or {}
+        p_str = f"{tt['p']:.4f}" if tt.get("p") is not None else "   n/a"
+        sig_mark = "*" if tt.get("reliable") else " "
+        row = (f"{h:>7}d {m['n']:>5} {m['hit_rate']:>6} {m['avg_ret']:>7} "
+               f"{m['baseline_avg']:>7} {m['edge']:>+7} {p_str:>9}{sig_mark}"
+               f" {m['median_ret']:>7}")
+        if has_alpha:
+            at = m.get("alpha_ttest") or {}
+            ap_str = f"{at['p']:.4f}" if at.get("p") is not None else "    n/a"
+            a_sig = "*" if at.get("reliable") else " "
+            a_avg = m.get("alpha_avg")
+            row += f"  {(f'{a_avg:+.2f}' if a_avg is not None else '    n/a'):>7} {ap_str:>7}{a_sig}"
+        lines.append(row)
+    if has_alpha:
+        lines.append("  (* = p<0.05 two-tailed; alpha = market-model excess return)")
     if result["mae_avg"] is not None:
         lines.append(f"avg MAE over longest horizon: {result['mae_avg']}%")
     r = result["r_metrics"]
@@ -318,6 +425,247 @@ def format_report(result: dict) -> str:
     else:
         lines.append("trade-plan R: (scanner emits no entry/stop/target — forward-return only)")
     lines.append(f"limitations: {', '.join(result['limitations'])}")
+    return "\n".join(lines)
+
+
+def backtest_confluence(scanner_names: list[str],
+                        symbols: list[str],
+                        fetch_fn,
+                        horizons: tuple[int, ...] = DEFAULT_HORIZONS,
+                        min_gap: int = DEFAULT_MIN_GAP,
+                        warmup: int = WARMUP_BARS,
+                        min_cofiring: int = 2) -> dict:
+    """Measure whether co-firing (≥ min_cofiring scanners agreeing on the same
+    bar) beats any single-scanner fire over the same symbols and tape.
+
+    This tests the Opportunity Hub's core premise: that confluence is additive.
+    If it is, co-firing bars should show materially higher forward returns than
+    single-fire bars, and the difference should be statistically significant.
+
+    Returns a dict with keys:
+      ``single``  — aggregate metrics for bars where exactly 1 scanner fired
+      ``cofired`` — aggregate metrics for bars where ≥ min_cofiring fired
+      ``lift``    — cofired.avg_ret - single.avg_ret per horizon
+      ``lift_ttest`` — t-test on whether lift differs from zero (B-20a applied
+                       to the confluence question)
+    """
+    # Build a function map: scanner_name → scan_fn
+    fns: dict[str, object] = {}
+    for name in scanner_names:
+        spec = sc.SCANNERS.get(name)
+        if spec:
+            fns[name] = spec["fn"]
+    if len(fns) < 2:
+        return {"error": "need at least 2 valid scanner names"}
+
+    max_h = max(horizons)
+    single_ret: dict[int, list[float]] = {h: [] for h in horizons}
+    co_ret:     dict[int, list[float]] = {h: [] for h in horizons}
+
+    for sym in symbols:
+        try:
+            df = fetch_fn(sym)
+        except Exception:
+            continue
+        if df is None or df.empty:
+            continue
+        df = df.dropna(subset=["high", "low", "close"]).reset_index(drop=True)
+        n = len(df)
+        if n < warmup + max_h + 2:
+            continue
+
+        has_open = "open" in df.columns
+        close = df["close"].to_numpy(dtype=float)
+        openp = df["open"].to_numpy(dtype=float) if has_open else close
+
+        last_signal_bar: dict[str, int] = {}   # de-dup per scanner
+        last_co_bar = -min_gap                  # de-dup for co-fire events
+
+        t = warmup
+        last_eval = n - max_h - 2
+        while t <= last_eval:
+            fired = []
+            for name, fn in fns.items():
+                # enforce min_gap per-scanner
+                if t - last_signal_bar.get(name, -min_gap) < min_gap:
+                    continue
+                try:
+                    hit = fn(df.iloc[:t + 1])
+                except Exception:
+                    hit = None
+                if hit:
+                    fired.append(name)
+
+            entry_idx = t + 1
+            entry_b = openp[entry_idx]
+            if entry_b > 0 and fired:
+                is_co = len(fired) >= min_cofiring
+                # co-fire: de-dup so we don't count the same burst multiple times
+                if is_co and (t - last_co_bar) < min_gap:
+                    is_co = False
+                for name in fired:
+                    last_signal_bar[name] = t
+                if is_co:
+                    last_co_bar = t
+                bucket = co_ret if is_co else single_ret
+                for h in horizons:
+                    fwd = close[entry_idx + h]
+                    bucket[h].append((fwd / entry_b - 1.0) * 100.0)
+
+            t += 1
+
+    # Aggregate and compare
+    result_single = {}
+    result_co = {}
+    lift = {}
+    lift_ttest = {}
+    for h in horizons:
+        s = np.array(single_ret[h], dtype=float)
+        c = np.array(co_ret[h], dtype=float)
+        result_single[h] = {
+            "n": len(s),
+            "avg_ret": round(float(np.mean(s)), 2) if len(s) else None,
+            "hit_rate": round(float(np.mean(s > 0) * 100), 1) if len(s) else None,
+        }
+        result_co[h] = {
+            "n": len(c),
+            "avg_ret": round(float(np.mean(c)), 2) if len(c) else None,
+            "hit_rate": round(float(np.mean(c > 0) * 100), 1) if len(c) else None,
+        }
+        if len(s) >= 4 and len(c) >= 4:
+            _lift = float(np.mean(c)) - float(np.mean(s))
+            lift[h] = round(_lift, 2)
+            # Two-sample t-test: is the co-fired mean significantly higher?
+            t2, p2 = stats.ttest_ind(c, s, equal_var=False, alternative="greater")
+            lift_ttest[h] = {
+                "lift": round(_lift, 2),
+                "t": round(float(t2), 3),
+                "p_one_tail": round(float(p2), 4),
+                "reliable": bool(p2 < 0.05),
+            }
+        else:
+            lift[h] = None
+            lift_ttest[h] = {"lift": None, "reliable": False,
+                             "note": "thin sample — need ≥4 events in each bucket"}
+
+    return {
+        "scanners": list(fns.keys()),
+        "min_cofiring": min_cofiring,
+        "single": result_single,
+        "cofired": result_co,
+        "lift_per_horizon": lift,
+        "lift_ttest": lift_ttest,
+        "premise_supported": any(v.get("reliable") for v in lift_ttest.values()),
+    }
+
+
+def format_confluence_report(result: dict) -> str:
+    """Human-readable report for backtest_confluence."""
+    if "error" in result:
+        return f"ERROR: {result['error']}"
+    lines = [
+        f"=== Confluence Backtest ===",
+        f"scanners: {', '.join(result['scanners'])}",
+        f"co-fire threshold: ≥{result['min_cofiring']}",
+        f"",
+        f"{'horizon':>8}  {'single n':>9} {'single%':>8}  {'cofired n':>9} "
+        f"{'cofired%':>8}  {'lift%':>7} {'p(lift)':>8}",
+    ]
+    for h in result["single"]:
+        s = result["single"][h]
+        c = result["cofired"][h]
+        lt = result["lift_ttest"].get(h, {})
+        s_avg = f"{s['avg_ret']:+.2f}" if s.get("avg_ret") is not None else "  n/a"
+        c_avg = f"{c['avg_ret']:+.2f}" if c.get("avg_ret") is not None else "  n/a"
+        lift_s = f"{lt['lift']:+.2f}" if lt.get("lift") is not None else "   n/a"
+        p_s = f"{lt['p_one_tail']:.4f}" if lt.get("p_one_tail") is not None else "    n/a"
+        sig = "*" if lt.get("reliable") else " "
+        lines.append(
+            f"{h:>7}d  {s['n']:>9} {s_avg:>8}  {c['n']:>9} {c_avg:>8}"
+            f"  {lift_s:>7} {p_s:>8}{sig}"
+        )
+    verdict = ("SUPPORTED — co-firing beats single-firing (p<0.05, one-tail)"
+               if result.get("premise_supported")
+               else "NOT SUPPORTED — co-firing lift not statistically significant")
+    lines += ["", f"Confluence premise: {verdict}",
+              "  (* = one-tailed p<0.05: co-fired mean > single mean)"]
+    return "\n".join(lines)
+
+
+def sweep_volume_threshold(scanner_name: str,
+                           symbols: list[str],
+                           fetch_fn,
+                           thresholds: tuple[float, ...] = (1.0, 1.2, 1.5, 2.0),
+                           horizons: tuple[int, ...] = (10, 20),
+                           **backtest_kwargs) -> dict:
+    """Sweep volume confirmation multipliers to find the best edge cutoff (B-7).
+
+    For each ``threshold`` in ``thresholds``, wraps the target scanner so that
+    its ``vol_x50d`` field must meet the threshold before the signal is counted.
+    This is a post-hoc filter on the scanner output — it is NOT the same as
+    re-parameterising the scanner's internal logic (some scanners gate on volume
+    internally, some score it as a bonus). The sweep tells you: "given this
+    scanner's universe of hits, what vol_x multiplier floor maximises edge?"
+
+    Returns a dict keyed by threshold, each containing the backtest result for
+    that vol floor, plus a ``best_threshold`` key pointing to whichever threshold
+    produced the highest mean edge across all horizons.
+    """
+    spec = sc.SCANNERS.get(scanner_name)
+    if spec is None:
+        return {"error": f"unknown scanner '{scanner_name}'"}
+    base_fn = spec["fn"]
+    results = {}
+
+    for thresh in thresholds:
+        # Wrap: only pass through hits that meet the vol threshold
+        def _gated(df, _t=thresh, _fn=base_fn):
+            hit = _fn(df)
+            if hit is None:
+                return None
+            vx = hit.get("vol_x50d", hit.get("vol_x", None))
+            if vx is not None and vx < _t:
+                return None
+            return hit
+
+        # Temporarily register the gated scanner so backtest_scanner can find it
+        _tmp_name = f"__sweep_{scanner_name}_{thresh}"
+        sc.SCANNERS[_tmp_name] = {"fn": _gated, "category": "sweep", "description": ""}
+        r = backtest_scanner(_tmp_name, symbols, fetch_fn,
+                             horizons=horizons, **backtest_kwargs)
+        del sc.SCANNERS[_tmp_name]
+        r["vol_threshold"] = thresh
+        results[thresh] = r
+
+    # Find the threshold with the best average edge across all horizons
+    def _avg_edge(r):
+        edges = [m.get("edge", 0) or 0 for m in r.get("horizons", {}).values()
+                 if m.get("n", 0) > 0]
+        return float(np.mean(edges)) if edges else float("-inf")
+
+    best = max(thresholds, key=lambda t: _avg_edge(results[t]))
+    return {"results": results, "best_threshold": best,
+            "scanner": scanner_name, "thresholds_tested": list(thresholds)}
+
+
+def format_volume_sweep(sweep: dict) -> str:
+    """Human-readable report for sweep_volume_threshold."""
+    if "error" in sweep:
+        return f"ERROR: {sweep['error']}"
+    lines = [
+        f"=== Volume Threshold Sweep — {sweep['scanner']} ===",
+        f"best threshold: {sweep['best_threshold']}×",
+        f"",
+        f"{'vol≥':>6}  {'signals':>8}  " +
+        "  ".join(f"{'edge@' + str(h) + 'd':>10}" for h in
+                  (list(next(iter(sweep['results'].values()))
+                        .get('horizons', {}).keys()))),
+    ]
+    for thresh, r in sweep["results"].items():
+        n = r.get("n_signals", 0)
+        edges = [f"{m.get('edge', 0):>+9.2f}"
+                 for m in r.get("horizons", {}).values()]
+        lines.append(f"{thresh:>5}×  {n:>8}  " + "  ".join(edges))
     return "\n".join(lines)
 
 
