@@ -15,10 +15,13 @@ Run:  py -3 -m streamlit run tools/dashboard_app.py
 import sys
 import csv
 import json
+import logging
 import socket
 from datetime import date, datetime, timedelta, time
 from pathlib import Path
 from urllib.parse import quote
+
+_log = logging.getLogger(__name__)
 
 import numpy as np
 import pandas as pd
@@ -866,7 +869,7 @@ def cached_fetch_ohlcv(symbol: str, days: int = 300):
         if df is not None:
             return _drop_unusable_bars(df)
     except Exception as e:
-        st.warning(f"Volume fetcher error: {e}")
+        _log.warning("VolumeFetcher error for %s: %s", symbol, e)
 
     # Fallback to screener_pipeline
     return _drop_unusable_bars(sp.fetch_ohlcv(symbol, days=days))

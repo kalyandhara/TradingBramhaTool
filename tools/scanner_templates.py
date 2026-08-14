@@ -7,6 +7,7 @@ dict (symbol, pattern_type, tags, reasons, score) or None if no match.
 """
 
 import logging
+import threading
 
 import numpy as np
 import pandas as pd
@@ -45,7 +46,9 @@ def _rsi_series(close: pd.Series, n: int = 14) -> pd.Series:
 # when a benchmark DataFrame is supplied). When set, _rs_raw returns the
 # stock's EXCESS return over the benchmark — a true relative-strength line —
 # instead of an absolute trailing return.
-_BENCHMARK_WRET: float | None = None
+# threading.local() prevents concurrent scanner runs in different threads from
+# leaking benchmark state into each other.
+_tls = threading.local()
 
 
 def _weighted_trailing_return(close: pd.Series) -> float:
@@ -76,7 +79,7 @@ def _rs_raw(df: pd.DataFrame) -> float:
     stock's excess return over that benchmark (e.g. vs Nifty); otherwise it
     falls back to the absolute weighted trailing return."""
     stock = _weighted_trailing_return(df["close"])
-    return stock - (_BENCHMARK_WRET or 0.0)
+    return stock - (getattr(_tls, "benchmark_wret", None) or 0.0)
 
 
 _SIGNAL_BANDS = [(85, "Very Strong"), (70, "Strong"),
@@ -135,11 +138,14 @@ def scan_52w_high_leaders(df: pd.DataFrame) -> dict | None:
     vol_last = float(df["volume"].iloc[-1])
     if vol_last > vol_avg * 1.5:
         reasons.append(f"Volume {vol_last / vol_avg:.1f}× average — institutional activity")
+    score_base = round(50.0 + (5.0 - pct) * 10.0, 1)
     return {
         "pattern_type": "52-Week High Leader",
         "tags": [f"{pct:.1f}% from 52w high", "Near highs"],
         "reasons": reasons,
-        "score": round(10 - pct, 2),
+        "score": score_base,
+        "score_base": score_base,
+        "rs_raw": round(_rs_raw(df), 3),
     }
 
 
@@ -157,7 +163,7 @@ def scan_stage2_uptrend(df: pd.DataFrame) -> dict | None:
         return None
     if not (last > sma50 > sma150 > sma200):
         return None
-    if not np.isnan(sma200_1m) and sma200 <= sma200_1m:
+    if not np.isnan(sma200_1m) and sma200 < sma200_1m:
         return None
     pct_ext = (last - sma50) / sma50 * 100
     reasons = [
@@ -3326,7 +3332,7 @@ def scan_harmonic_reversal(df: pd.DataFrame) -> dict | None:
         "pattern_type": f"Harmonic {h['pattern']}",
         "tags": [h["pattern"], h["direction"], f"R:R {t['rr_to_t2']}"],
         "reasons": reasons,
-        "score": round(t["rr_to_t2"] * 2, 2),
+        "score": round(50.0 + min(max(t["rr_to_t2"] - 1.5, 0.0) / 3.5, 1.0) * 45.0, 1),
         # Structured trade plan (Phase 3). `detect_last_pattern` already computed
         # all of this; it was only ever rendered into reason-text, which is why
         # the harness's R path stayed dormant on the scanner that measured the
@@ -4048,6 +4054,7 @@ def scan_rsi_60_40(df: pd.DataFrame) -> dict | None:
         "tags": tags,
         "reasons": reasons,
         "score_base": round(min(100.0, base), 1),
+        "score": round(min(100.0, base), 1),    # provisional — run_scanner blends in RS
         "rs_raw": _rs_raw(df),
         "vol_x50d": round(vol_x, 2),
     }
@@ -4281,6 +4288,7 @@ def scan_order_block(df: pd.DataFrame) -> dict | None:
         "tags": ["Order Block", ev["signal"], f"Zone {ob_low:.0f}-{ob_high:.0f}"],
         "reasons": reasons,
         "score_base": round(min(100.0, base), 1),
+        "score": round(min(100.0, base), 1),   # provisional — run_scanner blends in RS
         "rs_raw": _rs_raw(df),
         "entry": round(entry, 2),
         "stop": stop,
@@ -4840,14 +4848,13 @@ def run_scanner(scanner_name: str, symbols: list[str], fetch_fn,
     if spec is None:
         return []
 
-    global _BENCHMARK_WRET
-    _BENCHMARK_WRET = None
+    _tls.benchmark_wret = None
     if benchmark_df is not None and not benchmark_df.empty:
         try:
             col = "close" if "close" in benchmark_df.columns else "Close"
-            _BENCHMARK_WRET = _weighted_trailing_return(benchmark_df[col])
+            _tls.benchmark_wret = _weighted_trailing_return(benchmark_df[col])
         except Exception:
-            _BENCHMARK_WRET = None
+            _tls.benchmark_wret = None
 
     try:
         results = []
@@ -4863,7 +4870,7 @@ def run_scanner(scanner_name: str, symbols: list[str], fetch_fn,
             except Exception:
                 continue
     finally:
-        _BENCHMARK_WRET = None      # never leak benchmark state across scans
+        _tls.benchmark_wret = None  # never leak benchmark state across scans
 
     _finalize_relative_strength(results)
     # Symbol-level enrichment. A scan fn only ever sees OHLCV, so anything keyed
@@ -5075,14 +5082,13 @@ def run_quality_pead(symbols: list[str], fetch_fn,
     """
     pead_kwargs = pead_kwargs or {}
 
-    global _BENCHMARK_WRET
-    _BENCHMARK_WRET = None
+    _tls.benchmark_wret = None
     if benchmark_df is not None and not benchmark_df.empty:
         try:
             col = "close" if "close" in benchmark_df.columns else "Close"
-            _BENCHMARK_WRET = _weighted_trailing_return(benchmark_df[col])
+            _tls.benchmark_wret = _weighted_trailing_return(benchmark_df[col])
         except Exception:
-            _BENCHMARK_WRET = None
+            _tls.benchmark_wret = None
 
     results: list[dict] = []
     total = len(symbols)
@@ -5113,7 +5119,7 @@ def run_quality_pead(symbols: list[str], fetch_fn,
             _attach_quality(hit, f, max_de_ratio if max_de_ratio is not None else 0.10)
             results.append(hit)
     finally:
-        _BENCHMARK_WRET = None
+        _tls.benchmark_wret = None  # never leak benchmark state across scans
 
     _finalize_relative_strength(results)
     # Same Phase 2+3 join the plain scanner gets via the SCANNERS `enrich` hook —
