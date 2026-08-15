@@ -4415,7 +4415,6 @@ if current_page == "Scanner Hub":
                     ):
                         st.session_state["hub_scanner"] = name
                         st.session_state.pop("hub_results", None)
-                        st.session_state["hub_mode"] = "Single scanner"
                         st.rerun()
                 with _run_col:
                     if st.button(
@@ -4425,7 +4424,6 @@ if current_page == "Scanner Hub":
                         type="primary" if _is_sel else "secondary",
                     ):
                         st.session_state["hub_scanner"] = name
-                        st.session_state["hub_mode"] = "Single scanner"
                         _hub_run_immediately = name
 
         st.divider()
