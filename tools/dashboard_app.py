@@ -4885,13 +4885,18 @@ if __name__ == "__main__":
                     # Register the Windows Scheduled Task
                     import subprocess
                     _h, _m = _sched_time.strip().split(":")
-                    _cmd = (
-                        f'schtasks /create /f /tn "{_TASK_NAME}" '
-                        f'/tr "{_RUNNER_BAT}" '
-                        f'/sc DAILY /st {int(_h):02d}:{int(_m):02d} '
-                        f'/rl HIGHEST'
+                    _schtasks_create = [
+                        "schtasks", "/create", "/f",
+                        "/tn", _TASK_NAME,
+                        "/tr", str(_RUNNER_BAT),
+                        "/sc", "DAILY",
+                        "/st", f"{int(_h):02d}:{int(_m):02d}",
+                        "/rl", "HIGHEST",
+                    ]
+                    _res = subprocess.run(
+                        _schtasks_create, shell=False,
+                        capture_output=True, text=True,
                     )
-                    _res = subprocess.run(_cmd, shell=True, capture_output=True, text=True)
                     if _res.returncode == 0:
                         st.success(
                             f"Task **{_TASK_NAME}** registered — runs daily at {_sched_time}. "
@@ -4900,7 +4905,7 @@ if __name__ == "__main__":
                         )
                     else:
                         st.error(f"schtasks failed: {_res.stderr or _res.stdout}")
-                        st.code(_cmd, language="bat")
+                        st.code(" ".join(_schtasks_create), language="bat")
                         st.caption("Run the command above in an elevated CMD/PowerShell.")
                 except Exception as _exc:
                     st.error(f"Setup failed: {_exc}")
@@ -4908,8 +4913,8 @@ if __name__ == "__main__":
             if st.button("Remove scheduled task", key="hub_sched_del"):
                 import subprocess
                 _r = subprocess.run(
-                    f'schtasks /delete /f /tn "{_TASK_NAME}"',
-                    shell=True, capture_output=True, text=True,
+                    ["schtasks", "/delete", "/f", "/tn", _TASK_NAME],
+                    shell=False, capture_output=True, text=True,
                 )
                 if _r.returncode == 0:
                     st.success(f"Task {_TASK_NAME} removed.")
