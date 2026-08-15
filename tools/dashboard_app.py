@@ -3321,6 +3321,42 @@ if current_page == "Stock Analyzer":
 
     symbol = (manual_symbol or from_screener or "").strip().upper()
 
+    # ── Prev / Next navigation ────────────────────────────────────────────────
+    if screener_symbols:
+        _cur_idx = screener_symbols.index(symbol) if symbol in screener_symbols else -1
+        _nav_c1, _nav_c2, _nav_c3 = st.columns([1, 6, 1])
+        with _nav_c1:
+            _at_start = _cur_idx <= 0
+            if st.button(
+                "◀ Prev",
+                key="sa_prev",
+                disabled=_at_start,
+                use_container_width=True,
+                help=(screener_symbols[_cur_idx - 1] if _cur_idx > 0 else ""),
+            ):
+                _prev = screener_symbols[_cur_idx - 1]
+                st.session_state["selected_symbol"] = _prev
+                st.session_state["last_analyzed"] = _prev
+                st.rerun()
+        with _nav_c2:
+            if _cur_idx >= 0:
+                st.caption(
+                    f"{_cur_idx + 1} / {len(screener_symbols)} — **{symbol}**",
+                )
+        with _nav_c3:
+            _at_end = _cur_idx >= len(screener_symbols) - 1 or _cur_idx < 0
+            if st.button(
+                "Next ▶",
+                key="sa_next",
+                disabled=_at_end,
+                use_container_width=True,
+                help=(screener_symbols[_cur_idx + 1] if not _at_end else ""),
+            ):
+                _next = screener_symbols[_cur_idx + 1]
+                st.session_state["selected_symbol"] = _next
+                st.session_state["last_analyzed"] = _next
+                st.rerun()
+
     tf_choice = st.select_slider(
         "Chart lookback",
         options=["3M", "6M", "1Y", "2Y", "5Y", "10Y", "Max"],
