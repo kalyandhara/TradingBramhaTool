@@ -4343,6 +4343,16 @@ if current_page == "Scanner Hub":
     hub_left, hub_main = st.columns([1, 3])
 
     with hub_left:
+        hub_mode = st.radio(
+            "Run mode",
+            ["Single scanner", "Pipeline — all scanners"],
+            key="hub_mode",
+            horizontal=True,
+            help="Single: run one scanner and see its cards. "
+                 "Pipeline: run every scanner in sequence, save all hits to the DB "
+                 "fact table, and see a consolidated view.",
+        )
+        st.divider()
         st.markdown("**Pre-Built Scanners**")
         by_cat: dict[str, list[str]] = {}
         for name, spec in sc.SCANNERS.items():
@@ -4490,7 +4500,65 @@ if current_page == "Scanner Hub":
                     db.delete_scanner_run(selected_scanner, _load_date)
                     st.rerun()
 
-        if st.button("Run Scanner", type="primary", key="hub_run"):
+        _run_single = hub_mode == "Single scanner" and st.button(
+            "Run Scanner", type="primary", key="hub_run", use_container_width=True)
+        _run_pipeline = hub_mode == "Pipeline — all scanners" and st.button(
+            "Run All Scanners", type="primary", key="hub_run_pipeline",
+            use_container_width=True,
+            help="Runs every pipeline scanner in sequence and saves hits to the "
+                 "scanner_run_cache fact table in the database.",
+        )
+
+        # ── Pipeline run ──────────────────────────────────────────────────────
+        if _run_pipeline:
+            if not universe and universe_mode == "Full Market (Bhavcopy)":
+                with st.spinner("Loading market universe…"):
+                    try:
+                        universe = cached_fetch_bhavcopy_universe(bhav_top_n)
+                        st.session_state["hub_bhav_universe"] = universe
+                    except Exception as exc:
+                        st.error(f"Bhavcopy fetch failed: {exc}")
+
+            if not universe:
+                st.warning("No universe loaded — pick a source above.")
+            else:
+                try:
+                    bench_df = cached_fetch_nifty50()
+                except Exception:
+                    bench_df = None
+
+                _pl_names = oh.pipeline_scanners()
+                _pl_prog = st.progress(0.0, text="Starting pipeline…")
+                _pl_hits: dict[str, list] = {}
+                for _pi, _pname in enumerate(_pl_names, 1):
+                    _pl_prog.progress(
+                        _pi / len(_pl_names),
+                        text=f"[{_pi}/{len(_pl_names)}] {_pname}…",
+                    )
+                    try:
+                        _pcards = sc.run_scanner(
+                            _pname, universe,
+                            _scanner_fetch_fn(_pname),
+                            benchmark_df=bench_df,
+                        )
+                    except Exception:
+                        _pcards = []
+                    _pl_hits[_pname] = _pcards
+                    if _pcards:
+                        try:
+                            db.save_scanner_run(_pname, _pcards)
+                        except Exception:
+                            pass
+                _pl_prog.empty()
+                st.session_state["hub_pipeline_results"] = _pl_hits
+                st.session_state.pop("hub_pipeline_cache_date", None)
+                total_hits = sum(len(v) for v in _pl_hits.values())
+                st.success(
+                    f"Pipeline complete — {len(_pl_names)} scanners · "
+                    f"{total_hits} hits · saved to DB"
+                )
+
+        if _run_single:
             # Full Market mode used to require a separate "Load Market Universe"
             # click first and just refused to run otherwise — auto-load here
             # instead, so "Run Scanner" always does something sensible in one click.
@@ -4701,116 +4769,218 @@ if __name__ == "__main__":
                     st.warning(_r.stderr or _r.stdout or "Task not found — may not have been registered.")
 
     with hub_main:
-        hits = st.session_state.get("hub_results")
-        ran_for = st.session_state.get("hub_scanner_ran", "")
+        # ── Pipeline mode results ─────────────────────────────────────────────
+        if hub_mode == "Pipeline — all scanners":
+            _pl_res = st.session_state.get("hub_pipeline_results")
+            _pl_cache_date = st.session_state.get("hub_pipeline_cache_date")
 
-        if hits is None:
-            st.info("Choose a scanner on the left and click **Run Scanner**.")
-        elif ran_for != selected_scanner:
-            st.info(f"Last run was for **{ran_for}**. Click **Run Scanner** to scan with **{selected_scanner}**.")
-        elif not hits:
-            st.info(f"No stocks matched **{selected_scanner}** in this universe.")
+            # Pipeline cached-run loader — shows dates stored in DB for any scanner
+            _pl_dates = db.get_scanner_run_dates(oh.pipeline_scanners()[0]) if oh.pipeline_scanners() else []
+            if _pl_dates:
+                with st.expander(f"Load past pipeline run ({len(_pl_dates)} stored)", expanded=False):
+                    _pl_load_date = st.selectbox(
+                        "Run date", _pl_dates, key="hub_pl_cache_date_pick",
+                    )
+                    if st.button("Load pipeline run from cache", key="hub_pl_cache_load"):
+                        _loaded: dict[str, list] = {}
+                        for _pn in oh.pipeline_scanners():
+                            _cached = db.get_scanner_run(_pn, _pl_load_date)
+                            if _cached:
+                                _loaded[_pn] = _cached
+                        if _loaded:
+                            st.session_state["hub_pipeline_results"] = _loaded
+                            st.session_state["hub_pipeline_cache_date"] = _pl_load_date
+                            st.rerun()
+                        else:
+                            st.warning("No pipeline cache found for that date — run the pipeline first.")
+
+            if not _pl_res:
+                st.info("Select a universe on the left and click **Run All Scanners**.")
+            else:
+                if _pl_cache_date:
+                    st.caption(f"Showing cached pipeline run from **{_pl_cache_date}**.")
+
+                # ── Summary table ─────────────────────────────────────────────
+                _pl_summary = [
+                    {"Scanner": name, "Hits": len(cards),
+                     "Top Symbol": (cards[0]["symbol"] if cards else "—"),
+                     "Top Score": (cards[0].get("score", 0) if cards else 0)}
+                    for name, cards in _pl_res.items()
+                    if cards
+                ]
+                _pl_empty = [name for name, cards in _pl_res.items() if not cards]
+
+                total_pl_hits = sum(r["Hits"] for r in _pl_summary)
+                st.markdown(
+                    f"**{len(_pl_summary)} scanners fired** · "
+                    f"{total_pl_hits} total hits · "
+                    f"{len(_pl_empty)} scanners empty"
+                )
+
+                if _pl_summary:
+                    import pandas as _pd_pl
+                    _sum_df = _pd_pl.DataFrame(_pl_summary).sort_values("Hits", ascending=False)
+                    st.dataframe(_sum_df, hide_index=True, use_container_width=True)
+
+                # ── Confluence view: symbols in 2+ scanners ───────────────────
+                from collections import Counter as _Counter
+                _sym_counts = _Counter(
+                    card["symbol"]
+                    for cards in _pl_res.values()
+                    for card in cards
+                )
+                _confluence = {sym for sym, cnt in _sym_counts.items() if cnt >= 2}
+                if _confluence:
+                    st.divider()
+                    st.markdown(
+                        f"**Confluence signals** — {len(_confluence)} symbol(s) "
+                        f"fired in 2+ scanners"
+                    )
+                    _conf_rows = []
+                    for sym in sorted(_confluence):
+                        scanners_fired = [
+                            name for name, cards in _pl_res.items()
+                            if any(c["symbol"] == sym for c in cards)
+                        ]
+                        _conf_rows.append({
+                            "Symbol": sym,
+                            "Scanners": ", ".join(scanners_fired),
+                            "Count": len(scanners_fired),
+                        })
+                    _conf_rows.sort(key=lambda r: r["Count"], reverse=True)
+                    import pandas as _pd_conf
+                    st.dataframe(
+                        _pd_conf.DataFrame(_conf_rows), hide_index=True,
+                        use_container_width=True,
+                    )
+
+                # ── Per-scanner card groups ───────────────────────────────────
+                st.divider()
+                st.markdown("**Results by scanner**")
+                for _pname, _pcards in _pl_res.items():
+                    if not _pcards:
+                        continue
+                    with st.expander(f"{_pname} — {len(_pcards)} hit(s)", expanded=False):
+                        cols_n = 3
+                        for _pi in range(0, len(_pcards), cols_n):
+                            _batch = _pcards[_pi:_pi + cols_n]
+                            _cols = st.columns(cols_n)
+                            for _col, _card in zip(_cols, _batch):
+                                with _col:
+                                    _render_scanner_card(_card, _pname)
+
         else:
-            _cache_date = st.session_state.get("hub_cache_loaded_date")
-            if _cache_date:
-                st.caption(f"Showing cached results from **{_cache_date}** — run the scanner again to refresh.")
-            # Filter pills only narrow what's on screen — they don't re-run the
-            # scan. Shown only for scanners that emit the richer score/RS metadata.
-            has_meta = any("signal" in h for h in hits)
-            shown = hits
-            if has_meta:
-                # Tag pill options come from the cards themselves (filter_tags):
-                # Breakout/Near breakout/Active for Darvas, VCP/Vol Dry/HTF for
-                # Base Formation — so one control adapts to whatever scanner ran.
-                tag_opts = sorted({
-                    t for h in hits for t in h.get("filter_tags", [])
-                })
-                fc1, fc2 = st.columns(2)
-                with fc1:
-                    strength = st.pills(
-                        "Strength", ["All", "Strongest", "Moderate", "Vol Confirmed", "Leading RS"],
-                        default="All", key="hub_strength",
-                        help="Strongest = score ≥ 65 · Moderate = 45–65 · "
-                             "Vol Confirmed = vol ≥ 1× 50-day · Leading RS = RS rank ≥ 80",
-                    ) or "All"
-                with fc2:
-                    tag_pick = (st.pills(
-                        "Tag", ["Any", *tag_opts], default="Any", key="hub_tag",
-                    ) or "Any") if tag_opts else "Any"
+            # ── Single scanner mode results ───────────────────────────────────
+            hits = st.session_state.get("hub_results")
+            ran_for = st.session_state.get("hub_scanner_ran", "")
 
-                # F&O toggle — only shown when a symbol master is present.
-                fno_set = cached_fno_symbols()
-                fno_only = st.toggle(
-                    "F&O only", key="hub_fno",
-                    help="Limit to NSE F&O (derivative-eligible) names "
-                         f"({len(fno_set)} in tools/cache/fno_symbols.json)",
-                ) if fno_set else False
+            if hits is None:
+                st.info("Choose a scanner on the left and click **Run Scanner**.")
+            elif ran_for != selected_scanner:
+                st.info(f"Last run was for **{ran_for}**. Click **Run Scanner** to scan with **{selected_scanner}**.")
+            elif not hits:
+                st.info(f"No stocks matched **{selected_scanner}** in this universe.")
+            else:
+                _cache_date = st.session_state.get("hub_cache_loaded_date")
+                if _cache_date:
+                    st.caption(f"Showing cached results from **{_cache_date}** — run the scanner again to refresh.")
+                # Filter pills only narrow what's on screen — they don't re-run the
+                # scan. Shown only for scanners that emit the richer score/RS metadata.
+                has_meta = any("signal" in h for h in hits)
+                shown = hits
+                if has_meta:
+                    # Tag pill options come from the cards themselves (filter_tags):
+                    # Breakout/Near breakout/Active for Darvas, VCP/Vol Dry/HTF for
+                    # Base Formation — so one control adapts to whatever scanner ran.
+                    tag_opts = sorted({
+                        t for h in hits for t in h.get("filter_tags", [])
+                    })
+                    fc1, fc2 = st.columns(2)
+                    with fc1:
+                        strength = st.pills(
+                            "Strength", ["All", "Strongest", "Moderate", "Vol Confirmed", "Leading RS"],
+                            default="All", key="hub_strength",
+                            help="Strongest = score ≥ 65 · Moderate = 45–65 · "
+                                 "Vol Confirmed = vol ≥ 1× 50-day · Leading RS = RS rank ≥ 80",
+                        ) or "All"
+                    with fc2:
+                        tag_pick = (st.pills(
+                            "Tag", ["Any", *tag_opts], default="Any", key="hub_tag",
+                        ) or "Any") if tag_opts else "Any"
 
-                def _keep(h: dict) -> bool:
-                    sc_ = h.get("score", 0)
-                    if strength == "Strongest" and sc_ < 65:
-                        return False
-                    if strength == "Moderate" and not (45 <= sc_ < 65):
-                        return False
-                    if strength == "Vol Confirmed" and h.get("vol_x50d", 0) < 1.0:
-                        return False
-                    if strength == "Leading RS" and h.get("rs_rank", 0) < 80:
-                        return False
-                    if tag_pick != "Any" and tag_pick not in h.get("filter_tags", []):
-                        return False
-                    if fno_only and h.get("symbol", "").upper().replace(".NS", "") not in fno_set:
-                        return False
-                    return True
+                    # F&O toggle — only shown when a symbol master is present.
+                    fno_set = cached_fno_symbols()
+                    fno_only = st.toggle(
+                        "F&O only", key="hub_fno",
+                        help="Limit to NSE F&O (derivative-eligible) names "
+                             f"({len(fno_set)} in tools/cache/fno_symbols.json)",
+                    ) if fno_set else False
 
-                shown = [h for h in hits if _keep(h)]
+                    def _keep(h: dict) -> bool:
+                        sc_ = h.get("score", 0)
+                        if strength == "Strongest" and sc_ < 65:
+                            return False
+                        if strength == "Moderate" and not (45 <= sc_ < 65):
+                            return False
+                        if strength == "Vol Confirmed" and h.get("vol_x50d", 0) < 1.0:
+                            return False
+                        if strength == "Leading RS" and h.get("rs_rank", 0) < 80:
+                            return False
+                        if tag_pick != "Any" and tag_pick not in h.get("filter_tags", []):
+                            return False
+                        if fno_only and h.get("symbol", "").upper().replace(".NS", "") not in fno_set:
+                            return False
+                        return True
 
-            # M1 — Overall Rating floor + sort (scored names first, highest first).
-            has_overall = any(h.get("overall") is not None for h in shown)
-            sort_label = "scanner score"
-            if has_overall:
-                min_overall = st.slider(
-                    "Min Overall Rating", 0, 100, 0, 5, key="hub_min_overall",
-                    help="Cross-system /100 rollup (Minervini + TechnoFunda + CANSLIM + EW). "
-                         "0 = show all.",
-                )
-                if min_overall > 0:
-                    shown = [h for h in shown if (h.get("overall") or 0) >= min_overall]
-                shown = sorted(
-                    shown,
-                    key=lambda h: (h.get("overall") is not None, h.get("overall") or 0),
-                    reverse=True,
-                )
-                sort_label = "Overall Rating"
+                    shown = [h for h in hits if _keep(h)]
 
-            # Combined consolidation-breakout scan: longest duration outranks
-            # any score — a 10-year breakout is a rarer, bigger statement than
-            # a high-scoring 6-month one. Re-sort AFTER the Overall Rating
-            # block above so duration stays the primary key. Presentation
-            # stays the standard 3-column card grid (user decision, see memory
-            # scanner-results-card-presentation): duration is tags[0] on each
-            # card, so the ordering + label carry the duration story.
-            has_duration = any("duration_days" in h for h in shown)
-            if has_duration:
-                shown = sorted(
-                    shown,
-                    key=lambda h: (h.get("duration_days", 0),
-                                   h.get("overall") or 0,
-                                   h.get("score", 0)),
-                    reverse=True,
-                )
-                sort_label = "breakout duration (longest first)"
+                # M1 — Overall Rating floor + sort (scored names first, highest first).
+                has_overall = any(h.get("overall") is not None for h in shown)
+                sort_label = "scanner score"
+                if has_overall:
+                    min_overall = st.slider(
+                        "Min Overall Rating", 0, 100, 0, 5, key="hub_min_overall",
+                        help="Cross-system /100 rollup (Minervini + TechnoFunda + CANSLIM + EW). "
+                             "0 = show all.",
+                    )
+                    if min_overall > 0:
+                        shown = [h for h in shown if (h.get("overall") or 0) >= min_overall]
+                    shown = sorted(
+                        shown,
+                        key=lambda h: (h.get("overall") is not None, h.get("overall") or 0),
+                        reverse=True,
+                    )
+                    sort_label = "Overall Rating"
 
-            filt_note = "" if len(shown) == len(hits) else f" ({len(hits)} matched)"
-            st.caption(f"Showing {len(shown)} stocks{filt_note} · sorted by {sort_label}")
-            if not shown:
-                st.info("No stocks match the current filter pills — widen the filter above.")
-            cols_n = 3
-            for i in range(0, len(shown), cols_n):
-                batch = shown[i:i + cols_n]
-                cols = st.columns(cols_n)
-                for col, card in zip(cols, batch):
-                    with col:
-                        _render_scanner_card(card, selected_scanner)
+                # Combined consolidation-breakout scan: longest duration outranks
+                # any score — a 10-year breakout is a rarer, bigger statement than
+                # a high-scoring 6-month one. Re-sort AFTER the Overall Rating
+                # block above so duration stays the primary key. Presentation
+                # stays the standard 3-column card grid (user decision, see memory
+                # scanner-results-card-presentation): duration is tags[0] on each
+                # card, so the ordering + label carry the duration story.
+                has_duration = any("duration_days" in h for h in shown)
+                if has_duration:
+                    shown = sorted(
+                        shown,
+                        key=lambda h: (h.get("duration_days", 0),
+                                       h.get("overall") or 0,
+                                       h.get("score", 0)),
+                        reverse=True,
+                    )
+                    sort_label = "breakout duration (longest first)"
+
+                filt_note = "" if len(shown) == len(hits) else f" ({len(hits)} matched)"
+                st.caption(f"Showing {len(shown)} stocks{filt_note} · sorted by {sort_label}")
+                if not shown:
+                    st.info("No stocks match the current filter pills — widen the filter above.")
+                cols_n = 3
+                for i in range(0, len(shown), cols_n):
+                    batch = shown[i:i + cols_n]
+                    cols = st.columns(cols_n)
+                    for col, card in zip(cols, batch):
+                        with col:
+                            _render_scanner_card(card, selected_scanner)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
