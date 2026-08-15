@@ -4357,24 +4357,78 @@ if current_page == "Scanner Hub":
         by_cat: dict[str, list[str]] = {}
         for name, spec in sc.SCANNERS.items():
             by_cat.setdefault(spec["category"], []).append(name)
-        for cat in ["Pattern", "Momentum", "Trend", "Entry", "Risk"]:
-            if cat not in by_cat:
-                continue
-            st.markdown(f"<span style='font-size:11px;color:#888;font-weight:600;text-transform:uppercase;'>{cat}</span>", unsafe_allow_html=True)
-            for name in by_cat[cat]:
-                if st.button(name, key=f"hub_sel_{name}", use_container_width=True):
-                    st.session_state["hub_scanner"] = name
-                    st.session_state.pop("hub_results", None)
 
         selected_scanner = st.session_state.get("hub_scanner", list(sc.SCANNERS.keys())[0])
-        # A session can hold a scanner name that no longer exists (the four
-        # per-duration breakout buttons became one combined entry) — fall back
-        # rather than KeyError on the description lookup below.
+        # A session can hold a scanner name that no longer exists — fall back.
         if selected_scanner not in sc.SCANNERS:
             selected_scanner = list(sc.SCANNERS.keys())[0]
             st.session_state["hub_scanner"] = selected_scanner
+
+        # Scanner list — text link to select, ▶ to run immediately.
+        # We inject CSS once to strip Streamlit's default button chrome and make
+        # the select buttons look like plain hyperlinks.
+        st.markdown("""
+<style>
+/* Strip button chrome for scanner "select" links */
+[data-testid="stSidebar"] button[kind="secondary"][data-hub-link="1"],
+[data-testid="stSidebar"] div[class*="stButton"] button[title^="Select "] {
+    background: none !important;
+    border: none !important;
+    box-shadow: none !important;
+    padding: 0 !important;
+    text-align: left !important;
+    font-weight: 400 !important;
+    color: #3b82f6 !important;
+    font-size: 13px !important;
+    line-height: 1.4 !important;
+    min-height: unset !important;
+    height: auto !important;
+}
+</style>
+""", unsafe_allow_html=True)
+
+        _hub_run_immediately = None  # set to scanner name when ▶ clicked
+        for cat in ["Pattern", "Momentum", "Trend", "Entry", "Risk"]:
+            if cat not in by_cat:
+                continue
+            st.markdown(
+                f"<span style='font-size:11px;color:#888;font-weight:600;"
+                f"text-transform:uppercase;letter-spacing:.04em;display:block;"
+                f"margin-top:6px;'>{cat}</span>",
+                unsafe_allow_html=True,
+            )
+            for name in by_cat[cat]:
+                _is_sel = name == selected_scanner
+                _lbl_col, _run_col = st.columns([5, 1])
+                with _lbl_col:
+                    # Use a small unstyled button as the click target.
+                    # Label is bold+orange when selected, blue link otherwise.
+                    _btn_label = (
+                        f"**{name}**" if _is_sel else name
+                    )
+                    if st.button(
+                        _btn_label,
+                        key=f"hub_sel_{name}",
+                        help=f"Select · {sc.SCANNERS[name]['description'][:80]}…",
+                        use_container_width=True,
+                        type="secondary",
+                    ):
+                        st.session_state["hub_scanner"] = name
+                        st.session_state.pop("hub_results", None)
+                        st.session_state["hub_mode"] = "Single scanner"
+                        st.rerun()
+                with _run_col:
+                    if st.button(
+                        "▶",
+                        key=f"hub_run_now_{name}",
+                        help=f"Run {name} now",
+                        type="primary" if _is_sel else "secondary",
+                    ):
+                        st.session_state["hub_scanner"] = name
+                        st.session_state["hub_mode"] = "Single scanner"
+                        _hub_run_immediately = name
+
         st.divider()
-        st.markdown(f"**Selected:** {selected_scanner}")
         st.caption(sc.SCANNERS[selected_scanner]["description"])
 
         # Quality Small-Cap PEAD (Phase 5.1) carries its own fundamentals gate,
@@ -4500,8 +4554,13 @@ if current_page == "Scanner Hub":
                     db.delete_scanner_run(selected_scanner, _load_date)
                     st.rerun()
 
-        _run_single = hub_mode == "Single scanner" and st.button(
-            "Run Scanner", type="primary", key="hub_run", use_container_width=True)
+        _run_single = (
+            (hub_mode == "Single scanner" and st.button(
+                "Run Scanner", type="primary", key="hub_run", use_container_width=True))
+            or (_hub_run_immediately is not None)
+        )
+        if _hub_run_immediately:
+            selected_scanner = _hub_run_immediately
         _run_pipeline = hub_mode == "Pipeline — all scanners" and st.button(
             "Run All Scanners", type="primary", key="hub_run_pipeline",
             use_container_width=True,
