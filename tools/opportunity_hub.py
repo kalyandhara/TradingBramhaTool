@@ -231,7 +231,7 @@ FAMILY_ORDER: tuple[str, ...] = tuple(SCANNER_FAMILIES.keys())
 #: Bearish scanners. These RUN — a distribution warning on a shortlisted name is
 #: worth seeing — but a hit is evidence AGAINST the name, so it can never add to
 #: a confluence count. It is surfaced as a risk flag instead.
-RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "Support Breakdown")
+RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "Support Breakdown", "RSI Divergence Bear")
 
 #: Registry entries the pipeline must not run.
 #: "Zero-Debt Quality PEAD" declares ``fn = scan_pead`` — the IDENTICAL function

@@ -439,4 +439,102 @@ def get_opportunity_run_dates() -> list[str]:
         conn.close()
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Scanner run cache
+# ──────────────────────────────────────────────────────────────────────────────
+# Stores the full card list from every scanner run so the user can reload
+# yesterday's (or today's) results without re-fetching OHLCV data. One row per
+# symbol per (scanner_name, run_date); the complete card dict is serialised as
+# JSON so no schema migration is needed when scanner fields evolve.
+
+def _ensure_scanner_cache_table(conn: sqlite3.Connection) -> None:
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS scanner_run_cache (
+            id            INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_date      TEXT    NOT NULL,
+            scanner_name  TEXT    NOT NULL,
+            symbol        TEXT    NOT NULL,
+            card_json     TEXT    NOT NULL,
+            created_at    TEXT    NOT NULL,
+            UNIQUE(run_date, scanner_name, symbol)
+        );
+        CREATE INDEX IF NOT EXISTS idx_src_scanner_date
+            ON scanner_run_cache(scanner_name, run_date);
+    """)
+
+
+def save_scanner_run(scanner_name: str, cards: list[dict],
+                     run_date: str | None = None) -> int:
+    """Persist a complete scanner result list.  Replaces any prior run for the
+    same (scanner_name, run_date) pair so a re-run always reflects the latest
+    data rather than appending stale rows."""
+    import json as _json
+    run_date = run_date or date.today().isoformat()
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_connection()
+    try:
+        _ensure_scanner_cache_table(conn)
+        conn.execute(
+            "DELETE FROM scanner_run_cache WHERE run_date = ? AND scanner_name = ?",
+            (run_date, scanner_name),
+        )
+        for card in cards:
+            sym = card.get("symbol", "")
+            conn.execute(
+                "INSERT OR REPLACE INTO scanner_run_cache "
+                "(run_date, scanner_name, symbol, card_json, created_at) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (run_date, scanner_name, sym.upper(), _json.dumps(card), now),
+            )
+        conn.commit()
+        return len(cards)
+    finally:
+        conn.close()
+
+
+def get_scanner_run(scanner_name: str, run_date: str) -> list[dict]:
+    """Restore a cached scanner run.  Returns [] if nothing is stored."""
+    import json as _json
+    conn = get_connection()
+    try:
+        _ensure_scanner_cache_table(conn)
+        rows = conn.execute(
+            "SELECT card_json FROM scanner_run_cache "
+            "WHERE scanner_name = ? AND run_date = ? ORDER BY id",
+            (scanner_name, run_date),
+        ).fetchall()
+        return [_json.loads(r[0]) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_scanner_run_dates(scanner_name: str) -> list[str]:
+    """Dates (newest first) that have a stored run for this scanner."""
+    conn = get_connection()
+    try:
+        _ensure_scanner_cache_table(conn)
+        rows = conn.execute(
+            "SELECT DISTINCT run_date FROM scanner_run_cache "
+            "WHERE scanner_name = ? ORDER BY run_date DESC",
+            (scanner_name,),
+        ).fetchall()
+        return [r[0] for r in rows]
+    finally:
+        conn.close()
+
+
+def delete_scanner_run(scanner_name: str, run_date: str) -> None:
+    """Remove a single cached run (e.g. to force a fresh fetch)."""
+    conn = get_connection()
+    try:
+        _ensure_scanner_cache_table(conn)
+        conn.execute(
+            "DELETE FROM scanner_run_cache WHERE scanner_name = ? AND run_date = ?",
+            (scanner_name, run_date),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+
+
 init_db()
