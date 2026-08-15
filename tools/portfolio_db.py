@@ -164,9 +164,18 @@ def add_position(symbol: str, entry_price: float, quantity: float, entry_date: s
         conn.close()
 
 
+_POSITION_COLUMNS = frozenset({
+    "symbol", "entry_price", "quantity", "entry_date",
+    "stop_loss", "target", "status", "closed_price", "closed_date", "notes",
+})
+
+
 def update_position(position_id: int, **fields) -> None:
     if not fields:
         return
+    bad = set(fields) - _POSITION_COLUMNS
+    if bad:
+        raise ValueError(f"update_position: unknown column(s): {bad}")
     cols = ", ".join(f"{k} = ?" for k in fields)
     conn = get_connection()
     try:
