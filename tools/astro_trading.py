@@ -773,13 +773,13 @@ if __name__ == '__main__':
     print(f"Illumination: {timing['lunar_phase']['illumination']}%")
     print(f"Cycle Day: {timing['lunar_phase']['cycle_day']}/{timing['lunar_phase']['cycle_length']}")
 
-    print(f"\nSolar Timing:")
+    print("\nSolar Timing:")
     for key, val in timing['solar_timing'].items():
         print(f"  {key.replace('_', ' ').title()}: {val}")
 
     print(f"\nMarket Intensity: {timing['market_intensity']}/100")
 
-    print(f"\nRecommendations:")
+    print("\nRecommendations:")
     for rec in timing['recommendations']:
         print(f"  • {rec}")
 

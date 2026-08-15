@@ -1096,7 +1096,7 @@ def scan_vcp_minervini_valchak(df: pd.DataFrame, strict: bool = False) -> dict |
         "Strict" if strict else "Practical",
     ]
     reasons = [
-        f"All 8 Trend Template criteria passed (above/below levels, MA stack, 52w low/high bands, SMA200 rising)",
+        "All 8 Trend Template criteria passed (above/below levels, MA stack, 52w low/high bands, SMA200 rising)",
         f"VCP: {len(depths)} contractions, footprint {footprint}%, base {base_bars} bars",
         f"First {first_d:.1f}% → Final {final_d:.1f}% (tightening ≤{tight_ratio_cap:.1f}× each step)",
         f"Breakout: close {last:.2f} > pivot {pivot:.2f} on {vol_mult:.1f}× 50-DMA volume",

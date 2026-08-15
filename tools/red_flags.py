@@ -90,7 +90,7 @@ def _check_fcf(deep: dict) -> dict[str, Any]:
                    "Most recent year had negative FCF; one year alone can be a "
                    "capex cycle rather than a problem.", "yfinance")
     return _mk("negative_fcf", "Negative free cash flow", CLEAN, CRITICAL,
-               f"Latest FCF positive"
+               "Latest FCF positive"
                + (f" (₹{latest/1e7:,.0f} Cr)" if latest is not None else "") + ".",
                "yfinance")
 

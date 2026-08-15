@@ -368,11 +368,11 @@ if __name__ == '__main__':
     print(f"Channel: {signal.channel}")
     print(f"\nNotes:\n{signal.notes}")
 
-    print(f"\nMetadata:")
+    print("\nMetadata:")
     for key, val in signal.metadata.items():
         print(f"  {key}: {val}")
 
-    print(f"\n=== Statistics ===")
+    print("\n=== Statistics ===")
     stats = ts.get_signal_statistics()
     for key, val in stats.items():
         print(f"{key}: {val}")

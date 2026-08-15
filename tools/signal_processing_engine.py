@@ -487,7 +487,7 @@ def main():
 
     # Statistics
     stats = processor.get_signal_statistics()
-    print(f"\nStatistics:")
+    print("\nStatistics:")
     print(f"  Total Signals: {stats['total_signals']}")
     print(f"  Accepted: {stats['accepted']}")
     print(f"  Accept Rate: {stats['accept_rate']}%")

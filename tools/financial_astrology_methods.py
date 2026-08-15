@@ -487,7 +487,7 @@ def main():
 
     # Dewey
     dewey = fae.dewey_cycle_position(today, 18.6)
-    print(f"Dewey 18.6-Year Cycle:")
+    print("Dewey 18.6-Year Cycle:")
     print(f"  Position: {dewey['position_in_cycle']*100:.1f}% | Phase: {dewey['phase']}\n")
 
     # Unified signal

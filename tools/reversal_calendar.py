@@ -324,7 +324,7 @@ def _cli() -> int:
         s = db_stats()
         print(f"Total events:   {s['total']}")
         print(f"Date range:     {s['date_range'][0]} - {s['date_range'][1]}")
-        print(f"By category:")
+        print("By category:")
         for cat, n in s["by_category"].items():
             print(f"  {cat:<18} {n}")
         print(f"DB:             {DB_PATH}")

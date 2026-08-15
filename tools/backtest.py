@@ -564,10 +564,10 @@ def format_confluence_report(result: dict) -> str:
     if "error" in result:
         return f"ERROR: {result['error']}"
     lines = [
-        f"=== Confluence Backtest ===",
+        "=== Confluence Backtest ===",
         f"scanners: {', '.join(result['scanners'])}",
         f"co-fire threshold: ≥{result['min_cofiring']}",
-        f"",
+        "",
         f"{'horizon':>8}  {'single n':>9} {'single%':>8}  {'cofired n':>9} "
         f"{'cofired%':>8}  {'lift%':>7} {'p(lift)':>8}",
     ]
@@ -655,7 +655,7 @@ def format_volume_sweep(sweep: dict) -> str:
     lines = [
         f"=== Volume Threshold Sweep — {sweep['scanner']} ===",
         f"best threshold: {sweep['best_threshold']}×",
-        f"",
+        "",
         f"{'vol≥':>6}  {'signals':>8}  " +
         "  ".join(f"{'edge@' + str(h) + 'd':>10}" for h in
                   (list(next(iter(sweep['results'].values()))
