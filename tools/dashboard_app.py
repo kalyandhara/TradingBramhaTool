@@ -4527,18 +4527,66 @@ if current_page == "Scanner Hub":
                 except Exception:
                     bench_df = None
 
+                # ── Batch pre-fetch (the key speed fix) ───────────────────────
+                # Individual per-symbol fetches (500 × ~1-2 s each) make every
+                # scanner slow and the st.cache_data ttl=300 expires mid-run so
+                # each scanner re-downloads the same universe. Instead: one batched
+                # yfinance download for all symbols, then every scanner reads from
+                # an in-memory dict (µs lookup, no network calls).
+                _pl_prog = st.progress(0.0, text="Pre-fetching universe data (batch download)…")
+                import yfinance as _yf
+                import pandas as _pd_pipe
+                _tickers_yf = [
+                    (s if s.endswith(".NS") else s + ".NS") for s in universe
+                ]
+                _prefetch_cache: dict[str, _pd_pipe.DataFrame | None] = {}
+                try:
+                    _raw = _yf.download(
+                        _tickers_yf,
+                        period="2y",
+                        interval="1d",
+                        group_by="ticker",
+                        auto_adjust=False,
+                        progress=False,
+                        threads=True,
+                    )
+                    for _sym, _ticker in zip(universe, _tickers_yf):
+                        try:
+                            _frame = _raw[_ticker] if _ticker in _raw.columns.get_level_values(0) else None
+                            if _frame is not None and not _frame.empty:
+                                _frame = _frame.rename(columns=str.lower).dropna(subset=["close"])
+                                _prefetch_cache[_sym] = _frame
+                            else:
+                                _prefetch_cache[_sym] = None
+                        except Exception:
+                            _prefetch_cache[_sym] = None
+                except Exception as _exc:
+                    st.warning(f"Batch download failed ({_exc}) — falling back to per-symbol fetch (slower).")
+
+                # Full-history scanners (ATH, IPO breakout) need 6000-bar history.
+                # Batch pre-fetch uses 2y which is enough for most; those scanners
+                # fall back to the cached per-symbol fetch.
+                def _pl_fetch(scanner_name: str):
+                    if sc.SCANNERS.get(scanner_name, {}).get("needs_full_history"):
+                        return _scanner_fetch_fn(scanner_name)  # per-symbol (cached)
+                    def _lookup(sym):
+                        if sym in _prefetch_cache:
+                            return _prefetch_cache[sym]
+                        # Symbol not in batch (illiquid / missing) — fall back to cache
+                        return cached_fetch_ohlcv(sym)
+                    return _lookup
+
                 _pl_names = oh.pipeline_scanners()
-                _pl_prog = st.progress(0.0, text="Starting pipeline…")
                 _pl_hits: dict[str, list] = {}
                 for _pi, _pname in enumerate(_pl_names, 1):
                     _pl_prog.progress(
-                        _pi / len(_pl_names),
+                        _pi / (len(_pl_names) + 1),
                         text=f"[{_pi}/{len(_pl_names)}] {_pname}…",
                     )
                     try:
                         _pcards = sc.run_scanner(
                             _pname, universe,
-                            _scanner_fetch_fn(_pname),
+                            _pl_fetch(_pname),
                             benchmark_df=bench_df,
                         )
                     except Exception:
