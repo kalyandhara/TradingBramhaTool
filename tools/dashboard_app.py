@@ -4585,11 +4585,9 @@ if current_page == "Scanner Hub":
                     bench_df = None
 
                 # ── Batch pre-fetch (the key speed fix) ───────────────────────
-                # Individual per-symbol fetches (500 × ~1-2 s each) make every
-                # scanner slow and the st.cache_data ttl=300 expires mid-run so
-                # each scanner re-downloads the same universe. Instead: one batched
-                # yfinance download for all symbols, then every scanner reads from
-                # an in-memory dict (µs lookup, no network calls).
+                # One yf.download for all symbols → in-memory dict → scanners do
+                # µs dict lookups instead of 500 × individual network calls.
+                # auto_adjust=True matches VolumeFetcher (the single-scan path).
                 _pl_prog = st.progress(0.0, text="Pre-fetching universe data (batch download)…")
                 import yfinance as _yf
                 import pandas as _pd_pipe
@@ -4597,26 +4595,35 @@ if current_page == "Scanner Hub":
                     (s if s.endswith(".NS") else s + ".NS") for s in universe
                 ]
                 _prefetch_cache: dict[str, _pd_pipe.DataFrame | None] = {}
+                _batch_ok = False
                 try:
                     _raw = _yf.download(
                         _tickers_yf,
                         period="2y",
                         interval="1d",
                         group_by="ticker",
-                        auto_adjust=False,
+                        auto_adjust=True,
                         progress=False,
                         threads=True,
                     )
+                    _raw_mb = _raw.memory_usage(deep=True).sum() / 1_048_576
+                    _pl_prog.progress(
+                        0.05,
+                        text=f"Downloaded {_raw_mb:.1f} MB — slicing {len(_tickers_yf)} symbols…",
+                    )
+                    _avail = set(_raw.columns.get_level_values(0))
                     for _sym, _ticker in zip(universe, _tickers_yf):
                         try:
-                            _frame = _raw[_ticker] if _ticker in _raw.columns.get_level_values(0) else None
-                            if _frame is not None and not _frame.empty:
-                                _frame = _frame.rename(columns=str.lower).dropna(subset=["close"])
-                                _prefetch_cache[_sym] = _frame
-                            else:
+                            if _ticker not in _avail:
                                 _prefetch_cache[_sym] = None
+                                continue
+                            _frame = _raw[_ticker].copy()
+                            _frame.columns = [c.lower() for c in _frame.columns]
+                            _frame = _frame.dropna(subset=["close"])
+                            _prefetch_cache[_sym] = _frame if not _frame.empty else None
                         except Exception:
                             _prefetch_cache[_sym] = None
+                    _batch_ok = True
                 except Exception as _exc:
                     st.warning(f"Batch download failed ({_exc}) — falling back to per-symbol fetch (slower).")
 
