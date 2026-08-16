@@ -2453,11 +2453,12 @@ _ov_cards = [
 st.markdown(rs.strip(_ov_cards, cols=5), unsafe_allow_html=True)
 
 # ── Regime banner + today's verdict ───────────────────────────────────────────
+_show_regime = current_page != "Scanner Hub"  # hidden on Scanner Hub
 # Five true numbers above still do not answer "do I trade today, and how big?".
 # market_verdict collapses the same sentiment inputs into one decision plus the
 # flags that produced it, so the ribbon can be argued with rather than obeyed.
 regime_info = mvd.classify_regime(nifty_overview)
-if regime_info["label"] != "UNKNOWN":
+if _show_regime and regime_info["label"] != "UNKNOWN":
     _rfg, _ = rs.tone_colors(regime_info["tone"])
     vol_txt = ""
     if regime_info["vol"] is not None and regime_info["vol_baseline"] is not None:
@@ -2520,7 +2521,7 @@ def _flag_list(items: list[str], label: str, tone: str, mark: str) -> str:
 # is stated (report_style's `tone` rule — a value's colour states its verdict).
 # The size figure is .tb-mono like every other number on this page; it used to
 # be the one headline figure rendering in the proportional face.
-st.markdown(
+if _show_regime: st.markdown(
     rs.card(
         '<div style="display:flex;align-items:flex-start;gap:16px;">'
         '<div style="flex:1;min-width:0;">'
@@ -2548,12 +2549,8 @@ st.markdown(
     unsafe_allow_html=True,
 )
 
-# ── Inline sentiment refresh ──────────────────────────────────────────────────
-# Shown only when the reading is stale or missing, i.e. exactly when the verdict
-# above is standing on data the user should not trust. Sending them to another
-# page to fix a warning raised here is the friction that let a 5-day-old reading
-# sit under a live verdict.
-if _senti_reading is None or (_senti_age or 0) >= 1:
+# ── Inline sentiment refresh ────────────────────────────────────────────
+if _show_regime and (_senti_reading is None or (_senti_age or 0) >= 1):
     _rf1, _rf2 = st.columns([1, 3])
     with _rf1:
         _do_refresh = st.button(
@@ -2581,47 +2578,50 @@ if _senti_reading is None or (_senti_age or 0) >= 1:
         except Exception as exc:
             st.error(f"Sentiment compute failed: {exc}")
 
-if st.session_state.pop("ov_senti_refreshed", False):
+if _show_regime and st.session_state.pop("ov_senti_refreshed", False):
     st.success("Sentiment recomputed — the verdict above reflects the new reading.")
 
-with st.expander("Why this verdict?"):
-    # stat_card, not st.metric: the native metric renders its value in the
-    # proportional face with its own grey label, which is the one thing on this
-    # page that never matched the rest of the figures.
-    st.markdown(
-        rs.strip([
-            rs.stat_card("Min conviction required", verdict["min_conviction"],
-                         tone="warn" if verdict["min_conviction"] == "HIGH" else "neutral"),
-            rs.stat_card("Caution flags", str(verdict["n_caution"]),
-                         tone="risk" if verdict["n_caution"] else "neutral"),
-            rs.stat_card("Favorable flags", str(verdict["n_favorable"]),
-                         tone="good" if verdict["n_favorable"] else "neutral"),
-        ], cols=3),
-        unsafe_allow_html=True,
-    )
-    if verdict["score"] is not None:
-        st.caption(f"Sentiment score {verdict['score']} ({verdict['band']}) "
-                   f"· reading dated {verdict['as_of']}")
-    st.markdown("**Decision rule**")
-    for line in verdict["rule"]:
-        st.markdown(f"- {line}")
-    st.caption(
-        "Each sentiment component votes once, by the share of its own weight it "
-        "earned. Portfolio heat and stale data can only add caution, never "
-        "conviction. Thresholds are defaults — tune them against Verdict "
-        "Calibration before trusting the ladder with size."
-    )
+if _show_regime:
+    with st.expander("Why this verdict?"):
+        # stat_card, not st.metric: the native metric renders its value in the
+        # proportional face with its own grey label, which is the one thing on this
+        # page that never matched the rest of the figures.
+        st.markdown(
+            rs.strip([
+                rs.stat_card("Min conviction required", verdict["min_conviction"],
+                             tone="warn" if verdict["min_conviction"] == "HIGH" else "neutral"),
+                rs.stat_card("Caution flags", str(verdict["n_caution"]),
+                             tone="risk" if verdict["n_caution"] else "neutral"),
+                rs.stat_card("Favorable flags", str(verdict["n_favorable"]),
+                             tone="good" if verdict["n_favorable"] else "neutral"),
+            ], cols=3),
+            unsafe_allow_html=True,
+        )
+        if verdict["score"] is not None:
+            st.caption(f"Sentiment score {verdict['score']} ({verdict['band']}) "
+                       f"· reading dated {verdict['as_of']}")
+        st.markdown("**Decision rule**")
+        for line in verdict["rule"]:
+            st.markdown(f"- {line}")
+        st.caption(
+            "Each sentiment component votes once, by the share of its own weight it "
+            "earned. Portfolio heat and stale data can only add caution, never "
+            "conviction. Thresholds are defaults — tune them against Verdict "
+            "Calibration before trusting the ladder with size."
+        )
 
-with st.expander("Set total capital (used for % capital-at-risk)"):
-    new_cap = st.number_input(
-        "Total capital (₹)", min_value=0.0,
-        value=portfolio_summary["total_capital"], step=10000.0,
-    )
-    if st.button("Save total capital"):
-        db.set_setting("total_capital", str(new_cap))
-        st.success("Saved — refresh metrics above.")
+if _show_regime:
+    with st.expander("Set total capital (used for % capital-at-risk)"):
+        new_cap = st.number_input(
+            "Total capital (₹)", min_value=0.0,
+            value=portfolio_summary["total_capital"], step=10000.0,
+        )
+        if st.button("Save total capital"):
+            db.set_setting("total_capital", str(new_cap))
+            st.success("Saved — refresh metrics above.")
 
-st.divider()
+if _show_regime:
+    st.divider()
 
 _SIGNAL_COLORS = {
     "Very Strong": "#16a34a", "Strong": "#65a30d", "Moderate": "#ca8a04",
@@ -4376,453 +4376,446 @@ if current_page == "Scanner Hub":
     st.subheader("Scanner Hub")
     st.caption("Pre-built pattern scanners — choose a scanner, select a universe, run.")
 
-    hub_left, hub_main = st.columns([1, 3])
 
-    with hub_left:
-        hub_mode = st.radio(
-            "Run mode",
-            ["Single scanner", "Pipeline — all scanners"],
-            key="hub_mode",
-            horizontal=True,
-            help="Single: run one scanner and see its cards. "
-                 "Pipeline: run every scanner in sequence, save all hits to the DB "
-                 "fact table, and see a consolidated view.",
-        )
-        st.divider()
-        st.markdown("**Pre-Built Scanners**")
-        by_cat: dict[str, list[str]] = {}
-        for name, spec in sc.SCANNERS.items():
-            by_cat.setdefault(spec["category"], []).append(name)
+    # ── Scanner card grid (full-width, replaces left panel) ──────────────────
+    hub_mode = st.radio(
+        "Run mode",
+        ["Single scanner", "Pipeline — all scanners"],
+        key="hub_mode",
+        horizontal=True,
+        help="Single: run one scanner and see its cards. "
+             "Pipeline: run every scanner in sequence, save all hits to the DB "
+             "fact table, and see a consolidated view.",
+    )
 
-        selected_scanner = st.session_state.get("hub_scanner", list(sc.SCANNERS.keys())[0])
-        # A session can hold a scanner name that no longer exists — fall back.
-        if selected_scanner not in sc.SCANNERS:
-            selected_scanner = list(sc.SCANNERS.keys())[0]
-            st.session_state["hub_scanner"] = selected_scanner
+    by_cat: dict[str, list[str]] = {}
+    for name, spec in sc.SCANNERS.items():
+        by_cat.setdefault(spec["category"], []).append(name)
 
-        # Scanner list — text link to select, ▶ to run immediately.
-        # We inject CSS once to strip Streamlit's default button chrome and make
-        # the select buttons look like plain hyperlinks.
-        st.markdown("""
-<style>
-/* Strip button chrome for scanner "select" links */
-[data-testid="stSidebar"] button[kind="secondary"][data-hub-link="1"],
-[data-testid="stSidebar"] div[class*="stButton"] button[title^="Select "] {
-    background: none !important;
-    border: none !important;
-    box-shadow: none !important;
-    padding: 0 !important;
-    text-align: left !important;
-    font-weight: 400 !important;
-    color: #3b82f6 !important;
-    font-size: 13px !important;
-    line-height: 1.4 !important;
-    min-height: unset !important;
-    height: auto !important;
+    selected_scanner = st.session_state.get("hub_scanner", list(sc.SCANNERS.keys())[0])
+    if selected_scanner not in sc.SCANNERS:
+        selected_scanner = list(sc.SCANNERS.keys())[0]
+        st.session_state["hub_scanner"] = selected_scanner
+
+    _hub_run_immediately = None  # set to scanner name when ▶ clicked
+
+    if hub_mode == "Single scanner":
+        st.markdown("""<style>
+.hub-cat-label {
+    font-size: 11px; font-weight: 700; text-transform: uppercase;
+    letter-spacing: .06em; color: #7a6858; margin: 14px 0 6px;
+    padding-bottom: 4px; border-bottom: 1px solid #f0e0cc;
 }
-</style>
-""", unsafe_allow_html=True)
-
-        _hub_run_immediately = None  # set to scanner name when ▶ clicked
+</style>""", unsafe_allow_html=True)
         for cat in ["Pattern", "Momentum", "Trend", "Entry", "Risk"]:
             if cat not in by_cat:
                 continue
-            st.markdown(
-                f"<span style='font-size:11px;color:#888;font-weight:600;"
-                f"text-transform:uppercase;letter-spacing:.04em;display:block;"
-                f"margin-top:6px;'>{cat}</span>",
-                unsafe_allow_html=True,
-            )
-            for name in by_cat[cat]:
-                _is_sel = name == selected_scanner
-                _lbl_col, _run_col = st.columns([5, 1])
-                with _lbl_col:
-                    # Use a small unstyled button as the click target.
-                    # Label is bold+orange when selected, blue link otherwise.
-                    _btn_label = (
-                        f"**{name}**" if _is_sel else name
+            st.markdown(f'<div class="hub-cat-label">{cat}</div>', unsafe_allow_html=True)
+            _names = by_cat[cat]
+            _card_cols = st.columns(3)
+            for _ci, _cname in enumerate(_names):
+                with _card_cols[_ci % 3]:
+                    _is_sel = _cname == selected_scanner
+                    _desc = sc.SCANNERS[_cname]["description"]
+                    _short = (_desc[:72] + "…") if len(_desc) > 72 else _desc
+                    _border = (f"2px solid {rs.TOKENS['accent']}" if _is_sel
+                               else f"1px solid {rs.TOKENS['border']}")
+                    _bg = rs.TOKENS["accent_soft"] if _is_sel else rs.TOKENS["surface"]
+                    st.markdown(
+                        f'<div style="border:{_border};border-radius:8px;'
+                        f'padding:10px 12px 6px;background:{_bg};'
+                        f'margin-bottom:4px;min-height:80px;">'
+                        f'<div style="font-size:13px;'
+                        f'font-weight:{"700" if _is_sel else "600"};'
+                        f'color:{rs.TOKENS["accent"] if _is_sel else rs.TOKENS["text"]};'
+                        f'margin-bottom:4px;line-height:1.3;">{_cname}</div>'
+                        f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};'
+                        f'line-height:1.4;">{_short}</div></div>',
+                        unsafe_allow_html=True,
                     )
-                    if st.button(
-                        _btn_label,
-                        key=f"hub_sel_{name}",
-                        help=f"Select · {sc.SCANNERS[name]['description'][:80]}…",
-                        use_container_width=True,
-                        type="secondary",
-                    ):
-                        st.session_state["hub_scanner"] = name
-                        st.session_state.pop("hub_results", None)
-                        st.rerun()
-                with _run_col:
-                    if st.button(
-                        "▶",
-                        key=f"hub_run_now_{name}",
-                        help=f"Run {name} now",
-                        type="primary" if _is_sel else "secondary",
-                    ):
-                        st.session_state["hub_scanner"] = name
-                        _hub_run_immediately = name
+                    _btn_a, _btn_b = st.columns([3, 1])
+                    with _btn_a:
+                        if st.button(
+                            "Selected" if _is_sel else "Select",
+                            key=f"hub_sel_{_cname}",
+                            use_container_width=True,
+                            type="primary" if _is_sel else "secondary",
+                        ):
+                            st.session_state["hub_scanner"] = _cname
+                            st.session_state.pop("hub_results", None)
+                            st.rerun()
+                    with _btn_b:
+                        if st.button(
+                            "▶",
+                            key=f"hub_run_now_{_cname}",
+                            help=f"Run {_cname} now",
+                            type="primary" if _is_sel else "secondary",
+                            use_container_width=True,
+                        ):
+                            st.session_state["hub_scanner"] = _cname
+                            _hub_run_immediately = _cname
 
-        st.divider()
-        st.caption(sc.SCANNERS[selected_scanner]["description"])
+    st.divider()
+    st.caption(sc.SCANNERS[selected_scanner]["description"])
 
-        # Quality Small-Cap PEAD (Phase 5.1) carries its own fundamentals gate,
-        # tuned here. Stored in session_state and read by the Run handler.
-        is_quality_pead = sc.SCANNERS[selected_scanner].get("quality_pead", False)
-        if is_quality_pead:
-            with st.expander("Quality gate (fundamentals)", expanded=True):
-                st.caption("yfinance fundamentals — no login. Applied to the "
-                           "universe BEFORE the drift scan. Cards show "
-                           "ROE · OPM · PE · PEG · market cap.")
-                q_allcaps = st.toggle(
-                    "All market caps", value=True, key="qp_allcaps",
-                    help="On: no market-cap limit (all caps). Off: restrict to a "
-                         "small/mid-cap ceiling set below.")
-                q_mcap = None
-                if not q_allcaps:
-                    q_mcap = st.slider("Max market cap (₹ Cr) — cap ceiling",
-                                       500, 50000, 20000, step=500, key="qp_mcap")
-                q_de = st.slider("Max Debt/Equity (0.10 ≈ zero debt)",
-                                 0.0, 2.0, 0.10, step=0.05, key="qp_de")
-                q_roe = st.slider("Min ROE %", 0, 40, 15, step=1, key="qp_roe")
-                q_opm = st.slider("Min OPM %", 0, 50, 10, step=1, key="qp_opm")
-                st.caption("Valuation caps (0 = no limit):")
-                q_max_pe = st.slider("Max PE (0 = off)", 0, 150, 0, step=1, key="qp_max_pe")
-                q_max_peg = st.slider("Max PEG (0 = off)", 0.0, 5.0, 0.0, step=0.1,
-                                      key="qp_max_peg",
-                                      help="Includes the computed ~PEG (PE÷growth) "
-                                           "when yfinance's vendor PEG is absent.")
-                q_complete = st.toggle(
-                    "Require complete fundamentals", value=True, key="qp_complete",
-                    help="On: drop names whose debt/ROE/OPM/PE/PEG yfinance can't "
-                         "confirm (honest — can't call a name 'zero-debt' unseen). "
-                         "Off: keep them, skipping only the missing checks.")
-                st.session_state["qp_params"] = {
-                    "max_market_cap_cr": q_mcap, "max_de_ratio": q_de,
-                    "min_roe_pct": float(q_roe), "min_opm_pct": float(q_opm),
-                    "max_pe": (float(q_max_pe) if q_max_pe > 0 else None),
-                    "max_peg": (float(q_max_peg) if q_max_peg > 0 else None),
-                    "require_complete": q_complete,
-                }
-                st.caption("⚠ Fetches fundamentals per symbol — prefer the "
-                           "**Screener results** universe or a smaller Top-N; a "
-                           "full 300+ market scan is slow on the first run "
-                           "(results cache after).")
+    # Quality Small-Cap PEAD (Phase 5.1) carries its own fundamentals gate,
+    # tuned here. Stored in session_state and read by the Run handler.
+    is_quality_pead = sc.SCANNERS[selected_scanner].get("quality_pead", False)
+    if is_quality_pead:
+        with st.expander("Quality gate (fundamentals)", expanded=True):
+            st.caption("yfinance fundamentals — no login. Applied to the "
+                       "universe BEFORE the drift scan. Cards show "
+                       "ROE · OPM · PE · PEG · market cap.")
+            q_allcaps = st.toggle(
+                "All market caps", value=True, key="qp_allcaps",
+                help="On: no market-cap limit (all caps). Off: restrict to a "
+                     "small/mid-cap ceiling set below.")
+            q_mcap = None
+            if not q_allcaps:
+                q_mcap = st.slider("Max market cap (₹ Cr) — cap ceiling",
+                                   500, 50000, 20000, step=500, key="qp_mcap")
+            q_de = st.slider("Max Debt/Equity (0.10 ≈ zero debt)",
+                             0.0, 2.0, 0.10, step=0.05, key="qp_de")
+            q_roe = st.slider("Min ROE %", 0, 40, 15, step=1, key="qp_roe")
+            q_opm = st.slider("Min OPM %", 0, 50, 10, step=1, key="qp_opm")
+            st.caption("Valuation caps (0 = no limit):")
+            q_max_pe = st.slider("Max PE (0 = off)", 0, 150, 0, step=1, key="qp_max_pe")
+            q_max_peg = st.slider("Max PEG (0 = off)", 0.0, 5.0, 0.0, step=0.1,
+                                  key="qp_max_peg",
+                                  help="Includes the computed ~PEG (PE÷growth) "
+                                       "when yfinance's vendor PEG is absent.")
+            q_complete = st.toggle(
+                "Require complete fundamentals", value=True, key="qp_complete",
+                help="On: drop names whose debt/ROE/OPM/PE/PEG yfinance can't "
+                     "confirm (honest — can't call a name 'zero-debt' unseen). "
+                     "Off: keep them, skipping only the missing checks.")
+            st.session_state["qp_params"] = {
+                "max_market_cap_cr": q_mcap, "max_de_ratio": q_de,
+                "min_roe_pct": float(q_roe), "min_opm_pct": float(q_opm),
+                "max_pe": (float(q_max_pe) if q_max_pe > 0 else None),
+                "max_peg": (float(q_max_peg) if q_max_peg > 0 else None),
+                "require_complete": q_complete,
+            }
+            st.caption("⚠ Fetches fundamentals per symbol — prefer the "
+                       "**Screener results** universe or a smaller Top-N; a "
+                       "full 300+ market scan is slow on the first run "
+                       "(results cache after).")
 
-        with st.expander("Overall Rating weights"):
-            st.caption("Tune the /100 cross-system rollup. Applies on the next scan.")
-            _wm = st.slider("Minervini", 0.0, 1.0, OVERALL_WEIGHTS["minervini"], 0.05, key="ow_m")
-            _wt = st.slider("TechnoFunda", 0.0, 1.0, OVERALL_WEIGHTS["technofunda"], 0.05, key="ow_tf")
-            _wc = st.slider("CANSLIM", 0.0, 1.0, OVERALL_WEIGHTS["canslim"], 0.05, key="ow_c")
-            _we = st.slider("Elliott Wave", 0.0, 1.0, OVERALL_WEIGHTS["ew"], 0.05, key="ow_ew")
-            _wtot = _wm + _wt + _wc + _we
-            if _wtot > 0:
-                st.session_state["hub_overall_weights"] = {
-                    "minervini": _wm / _wtot, "technofunda": _wt / _wtot,
-                    "canslim": _wc / _wtot, "ew": _we / _wtot,
-                }
-                st.caption(f"Normalised (raw sum {_wtot:.2f} → 1.00)")
+    with st.expander("Overall Rating weights"):
+        st.caption("Tune the /100 cross-system rollup. Applies on the next scan.")
+        _wm = st.slider("Minervini", 0.0, 1.0, OVERALL_WEIGHTS["minervini"], 0.05, key="ow_m")
+        _wt = st.slider("TechnoFunda", 0.0, 1.0, OVERALL_WEIGHTS["technofunda"], 0.05, key="ow_tf")
+        _wc = st.slider("CANSLIM", 0.0, 1.0, OVERALL_WEIGHTS["canslim"], 0.05, key="ow_c")
+        _we = st.slider("Elliott Wave", 0.0, 1.0, OVERALL_WEIGHTS["ew"], 0.05, key="ow_ew")
+        _wtot = _wm + _wt + _wc + _we
+        if _wtot > 0:
+            st.session_state["hub_overall_weights"] = {
+                "minervini": _wm / _wtot, "technofunda": _wt / _wtot,
+                "canslim": _wc / _wtot, "ew": _we / _wtot,
+            }
+            st.caption(f"Normalised (raw sum {_wtot:.2f} → 1.00)")
 
-        st.divider()
-        screener_res = st.session_state.get("screener_results")
-        universe_mode = st.radio(
-            "Universe",
-            ["Full Market (Bhavcopy)", "Screener results", "Manual symbols"],
-            key="hub_universe_mode",
-            help="Full Market pulls NSE's daily bhavcopy (whole exchange) and takes "
-                 "the top-N most-traded symbols — not limited to the ~250-stock daily "
-                 "pipeline list.",
+    st.divider()
+    screener_res = st.session_state.get("screener_results")
+    universe_mode = st.radio(
+        "Universe",
+        ["Full Market (Bhavcopy)", "Screener results", "Manual symbols"],
+        key="hub_universe_mode",
+        help="Full Market pulls NSE's daily bhavcopy (whole exchange) and takes "
+             "the top-N most-traded symbols — not limited to the ~250-stock daily "
+             "pipeline list.",
+    )
+
+    universe: list[str] = []
+    if universe_mode == "Full Market (Bhavcopy)":
+        bhav_top_n = st.slider(
+            "Top N by traded value", min_value=50, max_value=5000, value=500, step=50,
+            key="hub_bhav_top_n",
+            help="Higher = broader market coverage but slower (one OHLCV fetch per symbol).",
         )
-
-        universe: list[str] = []
-        if universe_mode == "Full Market (Bhavcopy)":
-            bhav_top_n = st.slider(
-                "Top N by traded value", min_value=50, max_value=5000, value=500, step=50,
-                key="hub_bhav_top_n",
-                help="Higher = broader market coverage but slower (one OHLCV fetch per symbol).",
-            )
-            universe = st.session_state.get("hub_bhav_universe", [])
-            st.caption(
-                f"{len(universe)} symbols loaded" if universe
-                else "Click **Load Market Universe** below, then Run Scanner."
-            )
-            if st.button("Load Market Universe", key="hub_load_bhav"):
-                with st.spinner("Fetching NSE bhavcopy…"):
-                    try:
-                        universe = cached_fetch_bhavcopy_universe(bhav_top_n)
-                        st.session_state["hub_bhav_universe"] = universe
-                    except Exception as exc:
-                        st.error(f"Bhavcopy fetch failed: {exc}")
-                st.rerun()
-        elif universe_mode == "Screener results":
-            if screener_res is not None and not screener_res.empty:
-                universe = sorted(screener_res["Symbol"].unique())
-                st.caption(f"Universe: {len(universe)} stocks from screener")
-            else:
-                st.caption("No screener results yet — run the Daily Screener Pipeline first.")
+        universe = st.session_state.get("hub_bhav_universe", [])
+        st.caption(
+            f"{len(universe)} symbols loaded" if universe
+            else "Click **Load Market Universe** below, then Run Scanner."
+        )
+        if st.button("Load Market Universe", key="hub_load_bhav"):
+            with st.spinner("Fetching NSE bhavcopy…"):
+                try:
+                    universe = cached_fetch_bhavcopy_universe(bhav_top_n)
+                    st.session_state["hub_bhav_universe"] = universe
+                except Exception as exc:
+                    st.error(f"Bhavcopy fetch failed: {exc}")
+            st.rerun()
+    elif universe_mode == "Screener results":
+        if screener_res is not None and not screener_res.empty:
+            universe = sorted(screener_res["Symbol"].unique())
+            st.caption(f"Universe: {len(universe)} stocks from screener")
         else:
-            raw = st.text_area("Symbols (comma / newline)", key="hub_manual", height=80)
-            universe = [s.strip().upper() for s in raw.replace(",", "\n").splitlines() if s.strip()]
+            st.caption("No screener results yet — run the Daily Screener Pipeline first.")
+    else:
+        raw = st.text_area("Symbols (comma / newline)", key="hub_manual", height=80)
+        universe = [s.strip().upper() for s in raw.replace(",", "\n").splitlines() if s.strip()]
 
-        # ── Cached results ────────────────────────────────────────────────────
-        _cached_dates = db.get_scanner_run_dates(selected_scanner)
-        if _cached_dates:
-            with st.expander(f"Cached results — {len(_cached_dates)} run(s) stored", expanded=False):
-                _load_date = st.selectbox(
-                    "Load results from", _cached_dates,
-                    key="hub_cache_date",
-                    help="Pick a past run to restore its results without re-fetching data.",
-                )
-                _col_load, _col_del = st.columns(2)
-                if _col_load.button("Load from cache", key="hub_cache_load", type="primary",
-                                    use_container_width=True):
-                    _cached = db.get_scanner_run(selected_scanner, _load_date)
-                    if _cached:
-                        st.session_state["hub_results"] = _cached
-                        st.session_state["hub_scanner_ran"] = selected_scanner
-                        st.session_state["hub_cache_loaded_date"] = _load_date
-                        st.rerun()
-                    else:
-                        st.warning("Cache entry is empty — run the scanner to populate it.")
-                if _col_del.button("Delete this cache entry", key="hub_cache_del",
-                                   use_container_width=True):
-                    db.delete_scanner_run(selected_scanner, _load_date)
+    # ── Cached results ────────────────────────────────────────────────────
+    _cached_dates = db.get_scanner_run_dates(selected_scanner)
+    if _cached_dates:
+        with st.expander(f"Cached results — {len(_cached_dates)} run(s) stored", expanded=False):
+            _load_date = st.selectbox(
+                "Load results from", _cached_dates,
+                key="hub_cache_date",
+                help="Pick a past run to restore its results without re-fetching data.",
+            )
+            _col_load, _col_del = st.columns(2)
+            if _col_load.button("Load from cache", key="hub_cache_load", type="primary",
+                                use_container_width=True):
+                _cached = db.get_scanner_run(selected_scanner, _load_date)
+                if _cached:
+                    st.session_state["hub_results"] = _cached
+                    st.session_state["hub_scanner_ran"] = selected_scanner
+                    st.session_state["hub_cache_loaded_date"] = _load_date
                     st.rerun()
-
-        _run_single = (
-            (hub_mode == "Single scanner" and st.button(
-                "Run Scanner", type="primary", key="hub_run", use_container_width=True))
-            or (_hub_run_immediately is not None)
-        )
-        if _hub_run_immediately:
-            selected_scanner = _hub_run_immediately
-        _run_pipeline = hub_mode == "Pipeline — all scanners" and st.button(
-            "Run All Scanners", type="primary", key="hub_run_pipeline",
-            use_container_width=True,
-            help="Runs every pipeline scanner in sequence and saves hits to the "
-                 "scanner_run_cache fact table in the database.",
-        )
-
-        # ── Pipeline run ──────────────────────────────────────────────────────
-        if _run_pipeline:
-            if not universe and universe_mode == "Full Market (Bhavcopy)":
-                with st.spinner("Loading market universe…"):
-                    try:
-                        universe = cached_fetch_bhavcopy_universe(bhav_top_n)
-                        st.session_state["hub_bhav_universe"] = universe
-                    except Exception as exc:
-                        st.error(f"Bhavcopy fetch failed: {exc}")
-
-            if not universe:
-                st.warning("No universe loaded — pick a source above.")
-            else:
-                try:
-                    bench_df = cached_fetch_nifty50()
-                except Exception:
-                    bench_df = None
-
-                # ── Batch pre-fetch (the key speed fix) ───────────────────────
-                # One yf.download for all symbols → in-memory dict → scanners do
-                # µs dict lookups instead of 500 × individual network calls.
-                # auto_adjust=True matches VolumeFetcher (the single-scan path).
-                _pl_prog = st.progress(0.0, text="Pre-fetching universe data (batch download)…")
-                import yfinance as _yf
-                import pandas as _pd_pipe
-                _tickers_yf = [
-                    (s if s.endswith(".NS") else s + ".NS") for s in universe
-                ]
-                _prefetch_cache: dict[str, _pd_pipe.DataFrame | None] = {}
-                _batch_ok = False
-                try:
-                    _raw = _yf.download(
-                        _tickers_yf,
-                        period="2y",
-                        interval="1d",
-                        group_by="ticker",
-                        auto_adjust=True,
-                        progress=False,
-                        threads=True,
-                    )
-                    _raw_mb = _raw.memory_usage(deep=True).sum() / 1_048_576
-                    _pl_prog.progress(
-                        0.05,
-                        text=f"Downloaded {_raw_mb:.1f} MB — slicing {len(_tickers_yf)} symbols…",
-                    )
-                    _avail = set(_raw.columns.get_level_values(0))
-                    for _sym, _ticker in zip(universe, _tickers_yf):
-                        try:
-                            if _ticker not in _avail:
-                                _prefetch_cache[_sym] = None
-                                continue
-                            _frame = _raw[_ticker].copy()
-                            _frame.columns = [c.lower() for c in _frame.columns]
-                            _frame = _frame.dropna(subset=["close"])
-                            _prefetch_cache[_sym] = _frame if not _frame.empty else None
-                        except Exception:
-                            _prefetch_cache[_sym] = None
-                    _batch_ok = True
-                except Exception as _exc:
-                    st.warning(f"Batch download failed ({_exc}) — falling back to per-symbol fetch (slower).")
-
-                # Full-history scanners (ATH, IPO breakout) need 6000-bar history.
-                # Batch pre-fetch uses 2y which is enough for most; those scanners
-                # fall back to the cached per-symbol fetch.
-                def _pl_fetch(scanner_name: str):
-                    if sc.SCANNERS.get(scanner_name, {}).get("needs_full_history"):
-                        return _scanner_fetch_fn(scanner_name)  # per-symbol (cached)
-                    def _lookup(sym):
-                        if sym in _prefetch_cache:
-                            return _prefetch_cache[sym]
-                        # Symbol not in batch (illiquid / missing) — fall back to cache
-                        return cached_fetch_ohlcv(sym)
-                    return _lookup
-
-                _pl_names = oh.pipeline_scanners()
-                _pl_hits: dict[str, list] = {}
-                for _pi, _pname in enumerate(_pl_names, 1):
-                    _pl_prog.progress(
-                        _pi / (len(_pl_names) + 1),
-                        text=f"[{_pi}/{len(_pl_names)}] {_pname}…",
-                    )
-                    try:
-                        _pcards = sc.run_scanner(
-                            _pname, universe,
-                            _pl_fetch(_pname),
-                            benchmark_df=bench_df,
-                        )
-                    except Exception:
-                        _pcards = []
-                    _pl_hits[_pname] = _pcards
-                    if _pcards:
-                        try:
-                            db.save_scanner_run(_pname, _pcards)
-                        except Exception:
-                            pass
-                _pl_prog.empty()
-                st.session_state["hub_pipeline_results"] = _pl_hits
-                st.session_state.pop("hub_pipeline_cache_date", None)
-                total_hits = sum(len(v) for v in _pl_hits.values())
-                st.success(
-                    f"Pipeline complete — {len(_pl_names)} scanners · "
-                    f"{total_hits} hits · saved to DB"
-                )
-
-        if _run_single:
-            # Full Market mode used to require a separate "Load Market Universe"
-            # click first and just refused to run otherwise — auto-load here
-            # instead, so "Run Scanner" always does something sensible in one click.
-            if not universe and universe_mode == "Full Market (Bhavcopy)":
-                with st.spinner("Loading market universe…"):
-                    try:
-                        universe = cached_fetch_bhavcopy_universe(bhav_top_n)
-                        st.session_state["hub_bhav_universe"] = universe
-                    except Exception as exc:
-                        st.error(f"Bhavcopy fetch failed: {exc}")
-
-            if not universe:
-                st.warning("No universe loaded — pick a source above "
-                           "(Screener results needs the pipeline run first; "
-                           "Manual symbols needs at least one symbol typed in).")
-            else:
-                # Nifty50 benchmark → scanners that grade RS (Darvas, Base
-                # Formation) rank on excess return vs the index, not absolute.
-                try:
-                    bench_df = cached_fetch_nifty50()
-                except Exception:
-                    bench_df = None
-                if sc.SCANNERS[selected_scanner].get("quality_pead", False):
-                    # Phase 5.1 composite — quality fundamentals gate ∩ Proxy-PEAD.
-                    qp = st.session_state.get("qp_params", {})
-                    prog = st.progress(0.0, text="Screening fundamentals…")
-                    def _qp_progress(i, total):
-                        prog.progress(min(i / total, 1.0),
-                                      text=f"Screening fundamentals… {i}/{total}")
-                    with st.spinner(f"Running {selected_scanner} on {len(universe)} symbols…"):
-                        hits = sc.run_quality_pead(
-                            universe, cached_fetch_ohlcv, benchmark_df=bench_df,
-                            progress_cb=_qp_progress, **qp)
-                    prog.empty()
                 else:
-                    with st.spinner(f"Running {selected_scanner} on {len(universe)} symbols…"):
-                        hits = sc.run_scanner(selected_scanner, universe,
-                                              _scanner_fetch_fn(selected_scanner),
-                                              benchmark_df=bench_df)
-                # M1 — attach a cross-system Overall Rating to each hit once, here
-                # at scan time (reuses the OHLCV the scanner just fetched — cached).
-                # bench_df is the Nifty50 benchmark used for RS-based sub-scores.
-                _ow = st.session_state.get("hub_overall_weights", OVERALL_WEIGHTS)
-                if hits:
-                    with st.spinner(f"Scoring {len(hits)} matches…"):
-                        for _h in hits:
-                            try:
-                                _r, _bd = _overall_rating(
-                                    cached_fetch_ohlcv(_h["symbol"]), bench_df, _ow)
-                            except Exception:
-                                _r, _bd = None, {}
-                            _h["overall"] = _r
-                            _h["overall_breakdown"] = _bd
-                st.session_state["hub_results"] = hits
-                st.session_state["hub_scanner_ran"] = selected_scanner
-                st.session_state.pop("hub_cache_loaded_date", None)
-                # Auto-save to DB so results survive a browser refresh or restart.
+                    st.warning("Cache entry is empty — run the scanner to populate it.")
+            if _col_del.button("Delete this cache entry", key="hub_cache_del",
+                               use_container_width=True):
+                db.delete_scanner_run(selected_scanner, _load_date)
+                st.rerun()
+
+    _run_single = (
+        (hub_mode == "Single scanner" and st.button(
+            "Run Scanner", type="primary", key="hub_run", use_container_width=True))
+        or (_hub_run_immediately is not None)
+    )
+    if _hub_run_immediately:
+        selected_scanner = _hub_run_immediately
+    _run_pipeline = hub_mode == "Pipeline — all scanners" and st.button(
+        "Run All Scanners", type="primary", key="hub_run_pipeline",
+        use_container_width=True,
+        help="Runs every pipeline scanner in sequence and saves hits to the "
+             "scanner_run_cache fact table in the database.",
+    )
+
+    # ── Pipeline run ──────────────────────────────────────────────────────
+    if _run_pipeline:
+        if not universe and universe_mode == "Full Market (Bhavcopy)":
+            with st.spinner("Loading market universe…"):
                 try:
-                    db.save_scanner_run(selected_scanner, hits)
-                except Exception:
-                    pass
+                    universe = cached_fetch_bhavcopy_universe(bhav_top_n)
+                    st.session_state["hub_bhav_universe"] = universe
+                except Exception as exc:
+                    st.error(f"Bhavcopy fetch failed: {exc}")
 
-        saved_df = db.get_saved_scanner_hits(selected_scanner)
-        if not saved_df.empty:
-            st.divider()
-            st.markdown(f"**Saved ({len(saved_df)})**")
-            for _, row in saved_df.iterrows():
-                c1, c2 = st.columns([3, 1])
-                c1.write(row["symbol"])
-                if c2.button("✕", key=f"hub_del_{row['symbol']}"):
-                    db.remove_scanner_hit(row["symbol"], selected_scanner)
-                    st.rerun()
+        if not universe:
+            st.warning("No universe loaded — pick a source above.")
+        else:
+            try:
+                bench_df = cached_fetch_nifty50()
+            except Exception:
+                bench_df = None
 
-        # ── Daily Scheduler ───────────────────────────────────────────────────
-        st.divider()
-        with st.expander("Daily Scanner Scheduler", expanded=False):
-            st.caption(
-                "Register a Windows Scheduled Task that runs all scanners "
-                "automatically after market close (default 16:15 IST). "
-                "Requires the dashboard Python interpreter and writes results "
-                "to a dated JSON in `tools/cache/`."
-            )
-            _sched_time = st.text_input(
-                "Run time (HH:MM, 24h)", value="16:15", key="hub_sched_time",
-                help="Time in your local clock. 16:15 = 15 min after NSE close.",
-            )
-            _sched_universe = st.radio(
-                "Universe for scheduled run",
-                ["Full Market (Bhavcopy Top 300)", "Screener results (today's pipeline)"],
-                key="hub_sched_universe",
-            )
-            _sched_scanners = st.multiselect(
-                "Scanners to include",
-                list(sc.SCANNERS.keys()),
-                default=list(sc.SCANNERS.keys()),
-                key="hub_sched_scanners",
-                help="Leave all selected to run the full suite.",
-            )
+            # ── Batch pre-fetch (the key speed fix) ───────────────────────
+            # One yf.download for all symbols → in-memory dict → scanners do
+            # µs dict lookups instead of 500 × individual network calls.
+            # auto_adjust=True matches VolumeFetcher (the single-scan path).
+            _pl_prog = st.progress(0.0, text="Pre-fetching universe data (batch download)…")
+            import yfinance as _yf
+            import pandas as _pd_pipe
+            _tickers_yf = [
+                (s if s.endswith(".NS") else s + ".NS") for s in universe
+            ]
+            _prefetch_cache: dict[str, _pd_pipe.DataFrame | None] = {}
+            _batch_ok = False
+            try:
+                _raw = _yf.download(
+                    _tickers_yf,
+                    period="2y",
+                    interval="1d",
+                    group_by="ticker",
+                    auto_adjust=True,
+                    progress=False,
+                    threads=True,
+                )
+                _raw_mb = _raw.memory_usage(deep=True).sum() / 1_048_576
+                _pl_prog.progress(
+                    0.05,
+                    text=f"Downloaded {_raw_mb:.1f} MB — slicing {len(_tickers_yf)} symbols…",
+                )
+                _avail = set(_raw.columns.get_level_values(0))
+                for _sym, _ticker in zip(universe, _tickers_yf):
+                    try:
+                        if _ticker not in _avail:
+                            _prefetch_cache[_sym] = None
+                            continue
+                        _frame = _raw[_ticker].copy()
+                        _frame.columns = [c.lower() for c in _frame.columns]
+                        _frame = _frame.dropna(subset=["close"])
+                        _prefetch_cache[_sym] = _frame if not _frame.empty else None
+                    except Exception:
+                        _prefetch_cache[_sym] = None
+                _batch_ok = True
+            except Exception as _exc:
+                st.warning(f"Batch download failed ({_exc}) — falling back to per-symbol fetch (slower).")
 
-            _RUNNER_BAT = BASE_DIR / "tools" / "scanner_daily.bat"
-            _RUNNER_PY  = BASE_DIR / "tools" / "scanner_daily_runner.py"
-            _PYTHON_EXE = r"C:\Users\Owner\AppData\Local\Python\pythoncore-3.14-64\python.exe"
-            _TASK_NAME  = "TradingBramha-DailyScanner"
+            # Full-history scanners (ATH, IPO breakout) need 6000-bar history.
+            # Batch pre-fetch uses 2y which is enough for most; those scanners
+            # fall back to the cached per-symbol fetch.
+            def _pl_fetch(scanner_name: str):
+                if sc.SCANNERS.get(scanner_name, {}).get("needs_full_history"):
+                    return _scanner_fetch_fn(scanner_name)  # per-symbol (cached)
+                def _lookup(sym):
+                    if sym in _prefetch_cache:
+                        return _prefetch_cache[sym]
+                    # Symbol not in batch (illiquid / missing) — fall back to cache
+                    return cached_fetch_ohlcv(sym)
+                return _lookup
 
-            if st.button("Generate runner + register task", key="hub_sched_reg",
-                         type="primary"):
+            _pl_names = oh.pipeline_scanners()
+            _pl_hits: dict[str, list] = {}
+            for _pi, _pname in enumerate(_pl_names, 1):
+                _pl_prog.progress(
+                    _pi / (len(_pl_names) + 1),
+                    text=f"[{_pi}/{len(_pl_names)}] {_pname}…",
+                )
                 try:
-                    import json as _json
-                    # Write the Python runner script
-                    _universe_arg = (
-                        "--universe bhavcopy --top-n 300"
-                        if "Bhavcopy" in _sched_universe
-                        else "--universe screener"
+                    _pcards = sc.run_scanner(
+                        _pname, universe,
+                        _pl_fetch(_pname),
+                        benchmark_df=bench_df,
                     )
-                    _scanners_arg = " ".join(f'"{s}"' for s in _sched_scanners)
-                    _runner_src = f'''\
+                except Exception:
+                    _pcards = []
+                _pl_hits[_pname] = _pcards
+                if _pcards:
+                    try:
+                        db.save_scanner_run(_pname, _pcards)
+                    except Exception:
+                        pass
+            _pl_prog.empty()
+            st.session_state["hub_pipeline_results"] = _pl_hits
+            st.session_state.pop("hub_pipeline_cache_date", None)
+            total_hits = sum(len(v) for v in _pl_hits.values())
+            st.success(
+                f"Pipeline complete — {len(_pl_names)} scanners · "
+                f"{total_hits} hits · saved to DB"
+            )
+
+    if _run_single:
+        # Full Market mode used to require a separate "Load Market Universe"
+        # click first and just refused to run otherwise — auto-load here
+        # instead, so "Run Scanner" always does something sensible in one click.
+        if not universe and universe_mode == "Full Market (Bhavcopy)":
+            with st.spinner("Loading market universe…"):
+                try:
+                    universe = cached_fetch_bhavcopy_universe(bhav_top_n)
+                    st.session_state["hub_bhav_universe"] = universe
+                except Exception as exc:
+                    st.error(f"Bhavcopy fetch failed: {exc}")
+
+        if not universe:
+            st.warning("No universe loaded — pick a source above "
+                       "(Screener results needs the pipeline run first; "
+                       "Manual symbols needs at least one symbol typed in).")
+        else:
+            # Nifty50 benchmark → scanners that grade RS (Darvas, Base
+            # Formation) rank on excess return vs the index, not absolute.
+            try:
+                bench_df = cached_fetch_nifty50()
+            except Exception:
+                bench_df = None
+            if sc.SCANNERS[selected_scanner].get("quality_pead", False):
+                # Phase 5.1 composite — quality fundamentals gate ∩ Proxy-PEAD.
+                qp = st.session_state.get("qp_params", {})
+                prog = st.progress(0.0, text="Screening fundamentals…")
+                def _qp_progress(i, total):
+                    prog.progress(min(i / total, 1.0),
+                                  text=f"Screening fundamentals… {i}/{total}")
+                with st.spinner(f"Running {selected_scanner} on {len(universe)} symbols…"):
+                    hits = sc.run_quality_pead(
+                        universe, cached_fetch_ohlcv, benchmark_df=bench_df,
+                        progress_cb=_qp_progress, **qp)
+                prog.empty()
+            else:
+                with st.spinner(f"Running {selected_scanner} on {len(universe)} symbols…"):
+                    hits = sc.run_scanner(selected_scanner, universe,
+                                          _scanner_fetch_fn(selected_scanner),
+                                          benchmark_df=bench_df)
+            # M1 — attach a cross-system Overall Rating to each hit once, here
+            # at scan time (reuses the OHLCV the scanner just fetched — cached).
+            # bench_df is the Nifty50 benchmark used for RS-based sub-scores.
+            _ow = st.session_state.get("hub_overall_weights", OVERALL_WEIGHTS)
+            if hits:
+                with st.spinner(f"Scoring {len(hits)} matches…"):
+                    for _h in hits:
+                        try:
+                            _r, _bd = _overall_rating(
+                                cached_fetch_ohlcv(_h["symbol"]), bench_df, _ow)
+                        except Exception:
+                            _r, _bd = None, {}
+                        _h["overall"] = _r
+                        _h["overall_breakdown"] = _bd
+            st.session_state["hub_results"] = hits
+            st.session_state["hub_scanner_ran"] = selected_scanner
+            st.session_state.pop("hub_cache_loaded_date", None)
+            # Auto-save to DB so results survive a browser refresh or restart.
+            try:
+                db.save_scanner_run(selected_scanner, hits)
+            except Exception:
+                pass
+
+    saved_df = db.get_saved_scanner_hits(selected_scanner)
+    if not saved_df.empty:
+        st.divider()
+        st.markdown(f"**Saved ({len(saved_df)})**")
+        for _, row in saved_df.iterrows():
+            c1, c2 = st.columns([3, 1])
+            c1.write(row["symbol"])
+            if c2.button("✕", key=f"hub_del_{row['symbol']}"):
+                db.remove_scanner_hit(row["symbol"], selected_scanner)
+                st.rerun()
+
+    # ── Daily Scheduler ───────────────────────────────────────────────────
+    st.divider()
+    with st.expander("Daily Scanner Scheduler", expanded=False):
+        st.caption(
+            "Register a Windows Scheduled Task that runs all scanners "
+            "automatically after market close (default 16:15 IST). "
+            "Requires the dashboard Python interpreter and writes results "
+            "to a dated JSON in `tools/cache/`."
+        )
+        _sched_time = st.text_input(
+            "Run time (HH:MM, 24h)", value="16:15", key="hub_sched_time",
+            help="Time in your local clock. 16:15 = 15 min after NSE close.",
+        )
+        _sched_universe = st.radio(
+            "Universe for scheduled run",
+            ["Full Market (Bhavcopy Top 300)", "Screener results (today's pipeline)"],
+            key="hub_sched_universe",
+        )
+        _sched_scanners = st.multiselect(
+            "Scanners to include",
+            list(sc.SCANNERS.keys()),
+            default=list(sc.SCANNERS.keys()),
+            key="hub_sched_scanners",
+            help="Leave all selected to run the full suite.",
+        )
+
+        _RUNNER_BAT = BASE_DIR / "tools" / "scanner_daily.bat"
+        _RUNNER_PY  = BASE_DIR / "tools" / "scanner_daily_runner.py"
+        _PYTHON_EXE = r"C:\Users\Owner\AppData\Local\Python\pythoncore-3.14-64\python.exe"
+        _TASK_NAME  = "TradingBramha-DailyScanner"
+
+        if st.button("Generate runner + register task", key="hub_sched_reg",
+                     type="primary"):
+            try:
+                import json as _json
+                # Write the Python runner script
+                _universe_arg = (
+                    "--universe bhavcopy --top-n 300"
+                    if "Bhavcopy" in _sched_universe
+                    else "--universe screener"
+                )
+                _scanners_arg = " ".join(f'"{s}"' for s in _sched_scanners)
+                _runner_src = f'''\
 """Daily scanner runner — executed by the Windows Scheduled Task
 {_TASK_NAME}. Do not edit the task directly; regenerate via the
 Scanner Hub → Daily Scanner Scheduler panel."""
@@ -4844,296 +4837,296 @@ def main():
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M")
     out = {{}}
     for name in SCANNERS:
-        if name not in sc.SCANNERS:
-            continue
-        try:
-            hits = sc.run_scanner(name, universe, _fetch)
-            out[name] = hits
-            print(f"{{ts}}  {{name}}: {{len(hits)}} hits")
-        except Exception as exc:
-            out[name] = []
-            print(f"{{ts}}  {{name}}: ERROR {{exc}}")
+    if name not in sc.SCANNERS:
+        continue
+    try:
+        hits = sc.run_scanner(name, universe, _fetch)
+        out[name] = hits
+        print(f"{{ts}}  {{name}}: {{len(hits)}} hits")
+    except Exception as exc:
+        out[name] = []
+        print(f"{{ts}}  {{name}}: ERROR {{exc}}")
     dest = os.path.join(os.path.dirname(__file__), "cache", f"scanner_daily_{{ts}}.json")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     with open(dest, "w") as fh:
-        json.dump(out, fh, default=str)
+    json.dump(out, fh, default=str)
     print(f"Saved → {{dest}}")
 
 if __name__ == "__main__":
     main()
 '''
-                    _RUNNER_PY.write_text(_runner_src, encoding="utf-8")
+                _RUNNER_PY.write_text(_runner_src, encoding="utf-8")
 
-                    # Write the .bat wrapper
-                    _bat_src = (
-                        f"@echo off\n"
-                        f"set PYTHON={_PYTHON_EXE}\n"
-                        f"set REPO=%~dp0..\n"
-                        f"set LOG=%~dp0scanner_daily.log\n"
-                        f"cd /d \"%REPO%\"\n"
-                        f"echo. >> \"%LOG%\"\n"
-                        f"echo ===== %DATE% %TIME% — daily scanner starting ===== >> \"%LOG%\"\n"
-                        f"\"%PYTHON%\" \"%~dp0scanner_daily_runner.py\" >> \"%LOG%\" 2>&1\n"
-                        f"if errorlevel 1 (\n"
-                        f"    echo ***** FAILED ***** >> \"%LOG%\"\n"
-                        f") else (\n"
-                        f"    echo ----- ok ----- >> \"%LOG%\"\n"
-                        f")\n"
-                    )
-                    _RUNNER_BAT.write_text(_bat_src, encoding="utf-8")
+                # Write the .bat wrapper
+                _bat_src = (
+                    f"@echo off\n"
+                    f"set PYTHON={_PYTHON_EXE}\n"
+                    f"set REPO=%~dp0..\n"
+                    f"set LOG=%~dp0scanner_daily.log\n"
+                    f"cd /d \"%REPO%\"\n"
+                    f"echo. >> \"%LOG%\"\n"
+                    f"echo ===== %DATE% %TIME% — daily scanner starting ===== >> \"%LOG%\"\n"
+                    f"\"%PYTHON%\" \"%~dp0scanner_daily_runner.py\" >> \"%LOG%\" 2>&1\n"
+                    f"if errorlevel 1 (\n"
+                    f"    echo ***** FAILED ***** >> \"%LOG%\"\n"
+                    f") else (\n"
+                    f"    echo ----- ok ----- >> \"%LOG%\"\n"
+                    f")\n"
+                )
+                _RUNNER_BAT.write_text(_bat_src, encoding="utf-8")
 
-                    # Register the Windows Scheduled Task
-                    import subprocess
-                    _h, _m = _sched_time.strip().split(":")
-                    _schtasks_create = [
-                        "schtasks", "/create", "/f",
-                        "/tn", _TASK_NAME,
-                        "/tr", str(_RUNNER_BAT),
-                        "/sc", "DAILY",
-                        "/st", f"{int(_h):02d}:{int(_m):02d}",
-                        "/rl", "HIGHEST",
-                    ]
-                    _res = subprocess.run(
-                        _schtasks_create, shell=False,
-                        capture_output=True, text=True,
-                    )
-                    if _res.returncode == 0:
-                        st.success(
-                            f"Task **{_TASK_NAME}** registered — runs daily at {_sched_time}. "
-                            f"Runner: `tools/scanner_daily_runner.py` · "
-                            f"Log: `tools/scanner_daily.log`"
-                        )
-                    else:
-                        st.error(f"schtasks failed: {_res.stderr or _res.stdout}")
-                        st.code(" ".join(_schtasks_create), language="bat")
-                        st.caption("Run the command above in an elevated CMD/PowerShell.")
-                except Exception as _exc:
-                    st.error(f"Setup failed: {_exc}")
-
-            if st.button("Remove scheduled task", key="hub_sched_del"):
+                # Register the Windows Scheduled Task
                 import subprocess
-                _r = subprocess.run(
-                    ["schtasks", "/delete", "/f", "/tn", _TASK_NAME],
-                    shell=False, capture_output=True, text=True,
-                )
-                if _r.returncode == 0:
-                    st.success(f"Task {_TASK_NAME} removed.")
-                else:
-                    st.warning(_r.stderr or _r.stdout or "Task not found — may not have been registered.")
-
-    with hub_main:
-        # ── Pipeline mode results ─────────────────────────────────────────────
-        if hub_mode == "Pipeline — all scanners":
-            _pl_res = st.session_state.get("hub_pipeline_results")
-            _pl_cache_date = st.session_state.get("hub_pipeline_cache_date")
-
-            # Pipeline cached-run loader — shows dates stored in DB for any scanner
-            _pl_dates = db.get_scanner_run_dates(oh.pipeline_scanners()[0]) if oh.pipeline_scanners() else []
-            if _pl_dates:
-                with st.expander(f"Load past pipeline run ({len(_pl_dates)} stored)", expanded=False):
-                    _pl_load_date = st.selectbox(
-                        "Run date", _pl_dates, key="hub_pl_cache_date_pick",
-                    )
-                    if st.button("Load pipeline run from cache", key="hub_pl_cache_load"):
-                        _loaded: dict[str, list] = {}
-                        for _pn in oh.pipeline_scanners():
-                            _cached = db.get_scanner_run(_pn, _pl_load_date)
-                            if _cached:
-                                _loaded[_pn] = _cached
-                        if _loaded:
-                            st.session_state["hub_pipeline_results"] = _loaded
-                            st.session_state["hub_pipeline_cache_date"] = _pl_load_date
-                            st.rerun()
-                        else:
-                            st.warning("No pipeline cache found for that date — run the pipeline first.")
-
-            if not _pl_res:
-                st.info("Select a universe on the left and click **Run All Scanners**.")
-            else:
-                if _pl_cache_date:
-                    st.caption(f"Showing cached pipeline run from **{_pl_cache_date}**.")
-
-                # ── Summary table ─────────────────────────────────────────────
-                _pl_summary = [
-                    {"Scanner": name, "Hits": len(cards),
-                     "Top Symbol": (cards[0]["symbol"] if cards else "—"),
-                     "Top Score": (cards[0].get("score", 0) if cards else 0)}
-                    for name, cards in _pl_res.items()
-                    if cards
+                _h, _m = _sched_time.strip().split(":")
+                _schtasks_create = [
+                    "schtasks", "/create", "/f",
+                    "/tn", _TASK_NAME,
+                    "/tr", str(_RUNNER_BAT),
+                    "/sc", "DAILY",
+                    "/st", f"{int(_h):02d}:{int(_m):02d}",
+                    "/rl", "HIGHEST",
                 ]
-                _pl_empty = [name for name, cards in _pl_res.items() if not cards]
-
-                total_pl_hits = sum(r["Hits"] for r in _pl_summary)
-                st.markdown(
-                    f"**{len(_pl_summary)} scanners fired** · "
-                    f"{total_pl_hits} total hits · "
-                    f"{len(_pl_empty)} scanners empty"
+                _res = subprocess.run(
+                    _schtasks_create, shell=False,
+                    capture_output=True, text=True,
                 )
-
-                if _pl_summary:
-                    import pandas as _pd_pl
-                    _sum_df = _pd_pl.DataFrame(_pl_summary).sort_values("Hits", ascending=False)
-                    st.dataframe(_sum_df, hide_index=True, use_container_width=True)
-
-                # ── Confluence view: symbols in 2+ scanners ───────────────────
-                from collections import Counter as _Counter
-                _sym_counts = _Counter(
-                    card["symbol"]
-                    for cards in _pl_res.values()
-                    for card in cards
-                )
-                _confluence = {sym for sym, cnt in _sym_counts.items() if cnt >= 2}
-                if _confluence:
-                    st.divider()
-                    st.markdown(
-                        f"**Confluence signals** — {len(_confluence)} symbol(s) "
-                        f"fired in 2+ scanners"
+                if _res.returncode == 0:
+                    st.success(
+                        f"Task **{_TASK_NAME}** registered — runs daily at {_sched_time}. "
+                        f"Runner: `tools/scanner_daily_runner.py` · "
+                        f"Log: `tools/scanner_daily.log`"
                     )
-                    _conf_rows = []
-                    for sym in sorted(_confluence):
-                        scanners_fired = [
-                            name for name, cards in _pl_res.items()
-                            if any(c["symbol"] == sym for c in cards)
-                        ]
-                        _conf_rows.append({
-                            "Symbol": sym,
-                            "Scanners": ", ".join(scanners_fired),
-                            "Count": len(scanners_fired),
-                        })
-                    _conf_rows.sort(key=lambda r: r["Count"], reverse=True)
-                    import pandas as _pd_conf
-                    st.dataframe(
-                        _pd_conf.DataFrame(_conf_rows), hide_index=True,
-                        use_container_width=True,
-                    )
+                else:
+                    st.error(f"schtasks failed: {_res.stderr or _res.stdout}")
+                    st.code(" ".join(_schtasks_create), language="bat")
+                    st.caption("Run the command above in an elevated CMD/PowerShell.")
+            except Exception as _exc:
+                st.error(f"Setup failed: {_exc}")
 
-                # ── Per-scanner card groups ───────────────────────────────────
-                st.divider()
-                st.markdown("**Results by scanner**")
-                for _pname, _pcards in _pl_res.items():
-                    if not _pcards:
-                        continue
-                    with st.expander(f"{_pname} — {len(_pcards)} hit(s)", expanded=False):
-                        cols_n = 3
-                        for _pi in range(0, len(_pcards), cols_n):
-                            _batch = _pcards[_pi:_pi + cols_n]
-                            _cols = st.columns(cols_n)
-                            for _col, _card in zip(_cols, _batch):
-                                with _col:
-                                    _render_scanner_card(_card, _pname)
-
-        else:
-            # ── Single scanner mode results ───────────────────────────────────
-            hits = st.session_state.get("hub_results")
-            ran_for = st.session_state.get("hub_scanner_ran", "")
-
-            if hits is None:
-                st.info("Choose a scanner on the left and click **Run Scanner**.")
-            elif ran_for != selected_scanner:
-                st.info(f"Last run was for **{ran_for}**. Click **Run Scanner** to scan with **{selected_scanner}**.")
-            elif not hits:
-                st.info(f"No stocks matched **{selected_scanner}** in this universe.")
+        if st.button("Remove scheduled task", key="hub_sched_del"):
+            import subprocess
+            _r = subprocess.run(
+                ["schtasks", "/delete", "/f", "/tn", _TASK_NAME],
+                shell=False, capture_output=True, text=True,
+            )
+            if _r.returncode == 0:
+                st.success(f"Task {_TASK_NAME} removed.")
             else:
-                _cache_date = st.session_state.get("hub_cache_loaded_date")
-                if _cache_date:
-                    st.caption(f"Showing cached results from **{_cache_date}** — run the scanner again to refresh.")
-                # Filter pills only narrow what's on screen — they don't re-run the
-                # scan. Shown only for scanners that emit the richer score/RS metadata.
-                has_meta = any("signal" in h for h in hits)
-                shown = hits
-                if has_meta:
-                    # Tag pill options come from the cards themselves (filter_tags):
-                    # Breakout/Near breakout/Active for Darvas, VCP/Vol Dry/HTF for
-                    # Base Formation — so one control adapts to whatever scanner ran.
-                    tag_opts = sorted({
-                        t for h in hits for t in h.get("filter_tags", [])
+                st.warning(_r.stderr or _r.stdout or "Task not found — may not have been registered.")
+
+    # ── Results (full-width) ───────────────────────────────────────────────
+    # ── Pipeline mode results ─────────────────────────────────────────────
+    if hub_mode == "Pipeline — all scanners":
+        _pl_res = st.session_state.get("hub_pipeline_results")
+        _pl_cache_date = st.session_state.get("hub_pipeline_cache_date")
+
+        # Pipeline cached-run loader — shows dates stored in DB for any scanner
+        _pl_dates = db.get_scanner_run_dates(oh.pipeline_scanners()[0]) if oh.pipeline_scanners() else []
+        if _pl_dates:
+            with st.expander(f"Load past pipeline run ({len(_pl_dates)} stored)", expanded=False):
+                _pl_load_date = st.selectbox(
+                    "Run date", _pl_dates, key="hub_pl_cache_date_pick",
+                )
+                if st.button("Load pipeline run from cache", key="hub_pl_cache_load"):
+                    _loaded: dict[str, list] = {}
+                    for _pn in oh.pipeline_scanners():
+                        _cached = db.get_scanner_run(_pn, _pl_load_date)
+                        if _cached:
+                            _loaded[_pn] = _cached
+                    if _loaded:
+                        st.session_state["hub_pipeline_results"] = _loaded
+                        st.session_state["hub_pipeline_cache_date"] = _pl_load_date
+                        st.rerun()
+                    else:
+                        st.warning("No pipeline cache found for that date — run the pipeline first.")
+
+        if not _pl_res:
+            st.info("Select a universe on the left and click **Run All Scanners**.")
+        else:
+            if _pl_cache_date:
+                st.caption(f"Showing cached pipeline run from **{_pl_cache_date}**.")
+
+            # ── Summary table ─────────────────────────────────────────────
+            _pl_summary = [
+                {"Scanner": name, "Hits": len(cards),
+                 "Top Symbol": (cards[0]["symbol"] if cards else "—"),
+                 "Top Score": (cards[0].get("score", 0) if cards else 0)}
+                for name, cards in _pl_res.items()
+                if cards
+            ]
+            _pl_empty = [name for name, cards in _pl_res.items() if not cards]
+
+            total_pl_hits = sum(r["Hits"] for r in _pl_summary)
+            st.markdown(
+                f"**{len(_pl_summary)} scanners fired** · "
+                f"{total_pl_hits} total hits · "
+                f"{len(_pl_empty)} scanners empty"
+            )
+
+            if _pl_summary:
+                import pandas as _pd_pl
+                _sum_df = _pd_pl.DataFrame(_pl_summary).sort_values("Hits", ascending=False)
+                st.dataframe(_sum_df, hide_index=True, use_container_width=True)
+
+            # ── Confluence view: symbols in 2+ scanners ───────────────────
+            from collections import Counter as _Counter
+            _sym_counts = _Counter(
+                card["symbol"]
+                for cards in _pl_res.values()
+                for card in cards
+            )
+            _confluence = {sym for sym, cnt in _sym_counts.items() if cnt >= 2}
+            if _confluence:
+                st.divider()
+                st.markdown(
+                    f"**Confluence signals** — {len(_confluence)} symbol(s) "
+                    f"fired in 2+ scanners"
+                )
+                _conf_rows = []
+                for sym in sorted(_confluence):
+                    scanners_fired = [
+                        name for name, cards in _pl_res.items()
+                        if any(c["symbol"] == sym for c in cards)
+                    ]
+                    _conf_rows.append({
+                        "Symbol": sym,
+                        "Scanners": ", ".join(scanners_fired),
+                        "Count": len(scanners_fired),
                     })
-                    fc1, fc2 = st.columns(2)
-                    with fc1:
-                        strength = st.pills(
-                            "Strength", ["All", "Strongest", "Moderate", "Vol Confirmed", "Leading RS"],
-                            default="All", key="hub_strength",
-                            help="Strongest = score ≥ 65 · Moderate = 45–65 · "
-                                 "Vol Confirmed = vol ≥ 1× 50-day · Leading RS = RS rank ≥ 80",
-                        ) or "All"
-                    with fc2:
-                        tag_pick = (st.pills(
-                            "Tag", ["Any", *tag_opts], default="Any", key="hub_tag",
-                        ) or "Any") if tag_opts else "Any"
+                _conf_rows.sort(key=lambda r: r["Count"], reverse=True)
+                import pandas as _pd_conf
+                st.dataframe(
+                    _pd_conf.DataFrame(_conf_rows), hide_index=True,
+                    use_container_width=True,
+                )
 
-                    # F&O toggle — only shown when a symbol master is present.
-                    fno_set = cached_fno_symbols()
-                    fno_only = st.toggle(
-                        "F&O only", key="hub_fno",
-                        help="Limit to NSE F&O (derivative-eligible) names "
-                             f"({len(fno_set)} in tools/cache/fno_symbols.json)",
-                    ) if fno_set else False
+            # ── Per-scanner card groups ───────────────────────────────────
+            st.divider()
+            st.markdown("**Results by scanner**")
+            for _pname, _pcards in _pl_res.items():
+                if not _pcards:
+                    continue
+                with st.expander(f"{_pname} — {len(_pcards)} hit(s)", expanded=False):
+                    cols_n = 3
+                    for _pi in range(0, len(_pcards), cols_n):
+                        _batch = _pcards[_pi:_pi + cols_n]
+                        _cols = st.columns(cols_n)
+                        for _col, _card in zip(_cols, _batch):
+                            with _col:
+                                _render_scanner_card(_card, _pname)
 
-                    def _keep(h: dict) -> bool:
-                        sc_ = h.get("score", 0)
-                        if strength == "Strongest" and sc_ < 65:
-                            return False
-                        if strength == "Moderate" and not (45 <= sc_ < 65):
-                            return False
-                        if strength == "Vol Confirmed" and h.get("vol_x50d", 0) < 1.0:
-                            return False
-                        if strength == "Leading RS" and h.get("rs_rank", 0) < 80:
-                            return False
-                        if tag_pick != "Any" and tag_pick not in h.get("filter_tags", []):
-                            return False
-                        if fno_only and h.get("symbol", "").upper().replace(".NS", "") not in fno_set:
-                            return False
-                        return True
+    else:
+        # ── Single scanner mode results ───────────────────────────────────
+        hits = st.session_state.get("hub_results")
+        ran_for = st.session_state.get("hub_scanner_ran", "")
 
-                    shown = [h for h in hits if _keep(h)]
+        if hits is None:
+            st.info("Choose a scanner on the left and click **Run Scanner**.")
+        elif ran_for != selected_scanner:
+            st.info(f"Last run was for **{ran_for}**. Click **Run Scanner** to scan with **{selected_scanner}**.")
+        elif not hits:
+            st.info(f"No stocks matched **{selected_scanner}** in this universe.")
+        else:
+            _cache_date = st.session_state.get("hub_cache_loaded_date")
+            if _cache_date:
+                st.caption(f"Showing cached results from **{_cache_date}** — run the scanner again to refresh.")
+            # Filter pills only narrow what's on screen — they don't re-run the
+            # scan. Shown only for scanners that emit the richer score/RS metadata.
+            has_meta = any("signal" in h for h in hits)
+            shown = hits
+            if has_meta:
+                # Tag pill options come from the cards themselves (filter_tags):
+                # Breakout/Near breakout/Active for Darvas, VCP/Vol Dry/HTF for
+                # Base Formation — so one control adapts to whatever scanner ran.
+                tag_opts = sorted({
+                    t for h in hits for t in h.get("filter_tags", [])
+                })
+                fc1, fc2 = st.columns(2)
+                with fc1:
+                    strength = st.pills(
+                        "Strength", ["All", "Strongest", "Moderate", "Vol Confirmed", "Leading RS"],
+                        default="All", key="hub_strength",
+                        help="Strongest = score ≥ 65 · Moderate = 45–65 · "
+                             "Vol Confirmed = vol ≥ 1× 50-day · Leading RS = RS rank ≥ 80",
+                    ) or "All"
+                with fc2:
+                    tag_pick = (st.pills(
+                        "Tag", ["Any", *tag_opts], default="Any", key="hub_tag",
+                    ) or "Any") if tag_opts else "Any"
 
-                # M1 — Overall Rating floor + sort (scored names first, highest first).
-                has_overall = any(h.get("overall") is not None for h in shown)
-                sort_label = "scanner score"
-                if has_overall:
-                    min_overall = st.slider(
-                        "Min Overall Rating", 0, 100, 0, 5, key="hub_min_overall",
-                        help="Cross-system /100 rollup (Minervini + TechnoFunda + CANSLIM + EW). "
-                             "0 = show all.",
-                    )
-                    if min_overall > 0:
-                        shown = [h for h in shown if (h.get("overall") or 0) >= min_overall]
-                    shown = sorted(
-                        shown,
-                        key=lambda h: (h.get("overall") is not None, h.get("overall") or 0),
-                        reverse=True,
-                    )
-                    sort_label = "Overall Rating"
+                # F&O toggle — only shown when a symbol master is present.
+                fno_set = cached_fno_symbols()
+                fno_only = st.toggle(
+                    "F&O only", key="hub_fno",
+                    help="Limit to NSE F&O (derivative-eligible) names "
+                         f"({len(fno_set)} in tools/cache/fno_symbols.json)",
+                ) if fno_set else False
 
-                # Combined consolidation-breakout scan: longest duration outranks
-                # any score — a 10-year breakout is a rarer, bigger statement than
-                # a high-scoring 6-month one. Re-sort AFTER the Overall Rating
-                # block above so duration stays the primary key. Presentation
-                # stays the standard 3-column card grid (user decision, see memory
-                # scanner-results-card-presentation): duration is tags[0] on each
-                # card, so the ordering + label carry the duration story.
-                has_duration = any("duration_days" in h for h in shown)
-                if has_duration:
-                    shown = sorted(
-                        shown,
-                        key=lambda h: (h.get("duration_days", 0),
-                                       h.get("overall") or 0,
-                                       h.get("score", 0)),
-                        reverse=True,
-                    )
-                    sort_label = "breakout duration (longest first)"
+                def _keep(h: dict) -> bool:
+                    sc_ = h.get("score", 0)
+                    if strength == "Strongest" and sc_ < 65:
+                        return False
+                    if strength == "Moderate" and not (45 <= sc_ < 65):
+                        return False
+                    if strength == "Vol Confirmed" and h.get("vol_x50d", 0) < 1.0:
+                        return False
+                    if strength == "Leading RS" and h.get("rs_rank", 0) < 80:
+                        return False
+                    if tag_pick != "Any" and tag_pick not in h.get("filter_tags", []):
+                        return False
+                    if fno_only and h.get("symbol", "").upper().replace(".NS", "") not in fno_set:
+                        return False
+                    return True
 
-                filt_note = "" if len(shown) == len(hits) else f" ({len(hits)} matched)"
-                st.caption(f"Showing {len(shown)} stocks{filt_note} · sorted by {sort_label}")
-                if not shown:
-                    st.info("No stocks match the current filter pills — widen the filter above.")
-                cols_n = 3
-                for i in range(0, len(shown), cols_n):
-                    batch = shown[i:i + cols_n]
-                    cols = st.columns(cols_n)
-                    for col, card in zip(cols, batch):
-                        with col:
-                            _render_scanner_card(card, selected_scanner)
+                shown = [h for h in hits if _keep(h)]
+
+            # M1 — Overall Rating floor + sort (scored names first, highest first).
+            has_overall = any(h.get("overall") is not None for h in shown)
+            sort_label = "scanner score"
+            if has_overall:
+                min_overall = st.slider(
+                    "Min Overall Rating", 0, 100, 0, 5, key="hub_min_overall",
+                    help="Cross-system /100 rollup (Minervini + TechnoFunda + CANSLIM + EW). "
+                         "0 = show all.",
+                )
+                if min_overall > 0:
+                    shown = [h for h in shown if (h.get("overall") or 0) >= min_overall]
+                shown = sorted(
+                    shown,
+                    key=lambda h: (h.get("overall") is not None, h.get("overall") or 0),
+                    reverse=True,
+                )
+                sort_label = "Overall Rating"
+
+            # Combined consolidation-breakout scan: longest duration outranks
+            # any score — a 10-year breakout is a rarer, bigger statement than
+            # a high-scoring 6-month one. Re-sort AFTER the Overall Rating
+            # block above so duration stays the primary key. Presentation
+            # stays the standard 3-column card grid (user decision, see memory
+            # scanner-results-card-presentation): duration is tags[0] on each
+            # card, so the ordering + label carry the duration story.
+            has_duration = any("duration_days" in h for h in shown)
+            if has_duration:
+                shown = sorted(
+                    shown,
+                    key=lambda h: (h.get("duration_days", 0),
+                                   h.get("overall") or 0,
+                                   h.get("score", 0)),
+                    reverse=True,
+                )
+                sort_label = "breakout duration (longest first)"
+
+            filt_note = "" if len(shown) == len(hits) else f" ({len(hits)} matched)"
+            st.caption(f"Showing {len(shown)} stocks{filt_note} · sorted by {sort_label}")
+            if not shown:
+                st.info("No stocks match the current filter pills — widen the filter above.")
+            cols_n = 3
+            for i in range(0, len(shown), cols_n):
+                batch = shown[i:i + cols_n]
+                cols = st.columns(cols_n)
+                for col, card in zip(cols, batch):
+                    with col:
+                        _render_scanner_card(card, selected_scanner)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
