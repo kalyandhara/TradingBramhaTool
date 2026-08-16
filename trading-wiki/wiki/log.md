@@ -1,6 +1,15 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-15] ingest | Sarvatobhadra Chakra: The Hidden Astrology Tool for Market Prediction
+- **Source:** YouTube — Naveen Saroha, WD Gann & Market Mathematics channel, 34 min, Hindi
+- **URL:** https://youtu.be/7QuHl2OJagM
+- **Raw file:** `.raw/articles/sarvatobhadra-chakra-market-prediction-2026-08-15.md`
+- **Summary:** [[sources/Sarvatobhadra-Chakra-Market-Prediction-2026-08-15]]
+- **Pages created:** [[concepts/Sarvatobhadra-Chakra]], [[sources/Sarvatobhadra-Chakra-Market-Prediction-2026-08-15]]
+- **Pages updated:** [[wiki/index.md]], [[wiki/log.md]]
+- **Key insight:** SBC's **Reversal Window** concept — specific 10–20 minute intraday windows tied to planetary nakshatra transit switches — is a concrete, testable timing tool. Day of recording: Gold top at 6:58–7:18, Silver reversal at 8:32–8:45, BTC 1,000-point crash at 22:58–23:18 all matched predictions to within tolerance. The **Nama Nakshatra** phonetic mapping makes SBC language-agnostic ("Chandi" = "Silver" same nakshatra). **Resolved contradiction**: the malefic=bearish rule in SBC applies to the macro market day grid; [[concepts/Vedic-Planet-Trading-Aspects]]'s malefic=bullish rule applies to individual stock natal karaka aspects — different frames, not a contradiction.
+
 ## [2026-08-14] ingest | StockEdge Epic Scanner Compilation — 6 community scanners
 - **Source:** Obsidian note `epic stock scanner.md` (Trading_Bramha vault) — screenshot compilation from StockEdge community scanner builder
 - **Pages created:** [[sources/StockEdge-Epic-Scanner-Compilation-2026-08-14]]
@@ -1715,3 +1724,12 @@
 - Pages created: VCPBot-github (source), VCPBot-Architecture (analysis), VCPBot-Risk-System (analysis), VCPBot-Trend-Template (strategy)
 - Pages updated: VCP concept (major update — algorithmic 3-tier detection logic added)
 - Key extractions: 3-tier hierarchical VCP algorithm, Minervini 7-condition trend template, RS rank dual-gate formula, regime-aware risk sizing, RVOL/gap confirmation filters, full tech stack
+
+## 2026-08-15 — Live Movers EOD
+- Symbols scanned: **40**  ·  Snapshot: `2026-08-15.png`
+- Top 5 by AI-Score:
+  - **INDSWFTLAB** · AI 57.8 · Δ +2.55% · Vol× 0.5 · [[INDSWFTLAB]] (Potential)
+  - **IOLCP** · AI 50.9 · Δ -0.27% · Vol× 0.9 · [[IOLCP]] (Potential)
+  - **AEGISLOG** · AI 48.6 · Δ +1.39% · Vol× 0.4 · [[AEGISLOG]] (Growth)
+  - **GLAND** · AI 46.4 · Δ +0.09% · Vol× 0.9 · [[GLAND]] (Growth)
+  - **NRBBEARING** · AI 43.7 · Δ -1.78% · Vol× 0.5 · [[NRBBEARING]] (Growth)

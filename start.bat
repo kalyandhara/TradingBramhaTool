@@ -1,47 +1,46 @@
 @echo off
-title Trading Bramha — Start
-cd /d "%~dp0"
+setlocal
+title Trading Bramha - SBC Dashboard launcher
+set "REPO=%~dp0"
+set "PORT=8050"
+set "PYTHON=C:\Users\Owner\AppData\Local\Programs\Python\Python314\python.exe"
+set "PYTHONIOENCODING=utf-8"
 
-set PYTHON=C:\Users\Owner\AppData\Local\Python\pythoncore-3.14-64\python.exe
-set CHART_PORT=5001
-set DASH_PORT=8501
+echo ==================================================
+echo   Trading Bramha - SBC Dashboard
+echo   http://localhost:%PORT%
+echo ==================================================
+echo.
 
-:: ── Kill any existing instance on our ports ─────────────────────────────────
-echo Stopping existing chart server (port %CHART_PORT%)...
-for /f "tokens=5" %%p in ('netstat -aon 2^>nul ^| findstr ":%CHART_PORT% "') do (
-    taskkill /PID %%p /F >nul 2>&1
+if not exist "%PYTHON%" (
+    echo [!] Python not found at:
+    echo     %PYTHON%
+    echo     Falling back to the 'py -3' launcher.
+    set "PYTHON=py -3"
 )
 
-echo Stopping existing dashboard (port %DASH_PORT%)...
-for /f "tokens=5" %%p in ('netstat -aon 2^>nul ^| findstr ":%DASH_PORT% "') do (
-    taskkill /PID %%p /F >nul 2>&1
+echo [1/3] Stopping any running dashboard (clean restart) ...
+REM kill only PYTHON processes running this dashboard (name-restricted so we
+REM never touch shells/editors that merely reference the path).
+powershell -NoProfile -Command ^
+  "Get-CimInstance Win32_Process | Where-Object { $_.Name -eq 'python.exe' -and $_.CommandLine -like '*dash_trading_dashboard*' } | ForEach-Object { Stop-Process -Id $_.ProcessId -Force -ErrorAction SilentlyContinue }" >nul 2>&1
+REM fallback: free whatever is still LISTENING on the port
+for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":%PORT% " ^| findstr LISTENING') do (
+    taskkill /F /PID %%p >nul 2>&1
 )
 
-timeout /t 2 /nobreak >nul
+echo [2/3] Launching dashboard in its own window ...
+cd /d "%REPO%"
+start "SBC Dashboard :%PORT%" %PYTHON% "%REPO%tools\dash_trading_dashboard.py"
 
-:: ── Launch chart server ──────────────────────────────────────────────────────
-echo Starting chart server on port %CHART_PORT%...
-start "Chart Server" /B "%PYTHON%" "%~dp0tools\chart_server.py"
-
-:: ── Launch Streamlit dashboard ──────────────────────────────────────────────
-echo Starting Streamlit dashboard on port %DASH_PORT%...
-start "Trading Bramha Dashboard" /B "%PYTHON%" -m streamlit run ^
-    "%~dp0tools\dashboard_app.py" ^
-    --server.headless true ^
-    --server.port %DASH_PORT%
-
-:: ── Wait for services to come up, then open both in browser ────────────────
-timeout /t 4 /nobreak >nul
-echo Opening http://localhost:%CHART_PORT% (chart) ...
-start "" "http://localhost:%CHART_PORT%"
-echo Opening http://localhost:%DASH_PORT% (dashboard) ...
-start "" "http://localhost:%DASH_PORT%"
+echo [3/3] Waiting for the server to come up, then opening the browser ...
+timeout /t 12 /nobreak >nul
+start "" "http://localhost:%PORT%"
 
 echo.
-echo  Chart server  : http://localhost:%CHART_PORT%
-echo  Dashboard     : http://localhost:%DASH_PORT%
+echo Dashboard is running in the "SBC Dashboard :%PORT%" window.
+echo   - Re-run this file any time to RESTART it.
+echo   - Close that window (or run stop.bat) to STOP it.
+echo   - If the browser shows an error, wait a few seconds and refresh.
 echo.
-echo  Close this window to keep services running in the background.
-echo  Re-run start.bat any time to restart both.
-echo.
-pause
+endlocal

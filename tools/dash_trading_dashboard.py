@@ -23,8 +23,7 @@ from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import dash
-import dash_html_components as html
-import dash_core_components as dcc
+from dash import html, dcc
 from dash.dependencies import Input, Output
 import plotly.graph_objects as go
 import pandas as pd
@@ -44,6 +43,19 @@ try:
 except ImportError as e:
     print(f"Warning: Could not import modules: {e}")
     HAS_MODULES = False
+
+# Sarvatobhadra Chakra engine (independent of HAS_MODULES; only needs ephem)
+try:
+    import sarvatobhadra_chakra as sbc
+    import sbc_scoring as sbcs
+    import sbc_panchang as sbcp
+    import sbc_aspects as sbca
+    import sbc_confluence as sbccf
+    import sbc_hora as sbch
+    HAS_SBC = True
+except ImportError as e:
+    print(f"Warning: Could not import SBC modules: {e}")
+    HAS_SBC = False
 
 
 class TradingDashboard:
@@ -114,6 +126,11 @@ class TradingDashboard:
                 # Tab 6: Live Movers (AI-Score × Growth quadrant)
                 dcc.Tab(label='Live Movers', value='tab-6', children=[
                     self._build_movers_tab()
+                ]),
+
+                # Tab 7: Sarvatobhadra Chakra (Vedic nakshatra grid)
+                dcc.Tab(label='Sarvatobhadra Chakra', value='tab-7', children=[
+                    self._build_sbc_tab()
                 ]),
             ])
         ], style={'fontFamily': 'Segoe UI, sans-serif', 'margin': '20px'})
@@ -312,6 +329,112 @@ class TradingDashboard:
             dcc.Interval(id='movers-interval', interval=5 * 60 * 1000, n_intervals=0),
             dcc.Graph(id='movers-quadrant'),
             html.Div(id='movers-table', style={'marginTop': '15px'}),
+        ])
+
+    def _build_sbc_tab(self):
+        """Sarvatobhadra Chakra — Vedic nakshatra grid + veda bias."""
+        return html.Div([
+            html.H3('Sarvatobhadra Chakra — Veda Bias & Reversal Windows'),
+            html.P('Live 9x9 nakshatra grid. Malefic vs benefic veda scoring '
+                   'drives the daily market bias, sector scores, and Moon '
+                   'reversal windows. Positions: PyEphem + Lahiri ayanamsa.',
+                   style={'color': '#7f8c8d'}),
+            html.Div([
+                html.Label('Session date:', style={'marginRight': '8px'}),
+                dcc.DatePickerSingle(id='sbc-date-select', date=date.today()),
+                html.Label('Reversal granularity:',
+                           style={'marginLeft': '25px', 'marginRight': '8px'}),
+                dcc.Dropdown(
+                    id='sbc-granularity',
+                    options=[{'label': 'Pada (~4/day)', 'value': 'pada'},
+                             {'label': 'Nakshatra (~1/day)', 'value': 'nakshatra'}],
+                    value='pada',
+                    style={'width': '200px', 'display': 'inline-block',
+                           'verticalAlign': 'middle'}),
+                html.Label('Centre view:',
+                           style={'marginLeft': '25px', 'marginRight': '8px'}),
+                dcc.RadioItems(
+                    id='sbc-view',
+                    options=[{'label': ' SBC Chakra', 'value': 'chakra'},
+                             {'label': ' Aspect Map', 'value': 'aspects'}],
+                    value='chakra', inline=True,
+                    style={'display': 'inline-block'}),
+                dcc.Checklist(
+                    id='sbc-vedha-blocks',
+                    options=[{'label': ' Vedha Blocks', 'value': 'on'}],
+                    value=[], inline=True,
+                    style={'marginLeft': '20px', 'display': 'inline-block'}),
+                html.Label('Vedha of:',
+                           style={'marginLeft': '25px', 'marginRight': '8px'}),
+                dcc.Dropdown(
+                    id='sbc-planet-filter',
+                    options=[{'label': lbl, 'value': val} for lbl, val in [
+                        ('All planets', 'All'), ('☉ Sun', 'Sun'),
+                        ('☽ Moon', 'Moon'), ('♂ Mars', 'Mars'),
+                        ('☿ Mercury', 'Mercury'), ('♃ Jupiter', 'Jupiter'),
+                        ('♀ Venus', 'Venus'), ('♄ Saturn', 'Saturn'),
+                        ('☊ Rahu', 'Rahu'), ('☋ Ketu', 'Ketu')]],
+                    value='All', clearable=False,
+                    style={'width': '160px', 'display': 'inline-block',
+                           'verticalAlign': 'middle'}),
+                html.Button('Refresh', id='sbc-refresh-btn', n_clicks=0,
+                            style={'marginLeft': '20px', 'padding': '8px 16px',
+                                   'backgroundColor': '#d9b45b', 'color': '#0d0b1f',
+                                   'border': 'none', 'borderRadius': '6px',
+                                   'fontWeight': '600'}),
+            ], style={'marginBottom': '14px', 'display': 'flex',
+                      'alignItems': 'center'}),
+            # Instrument confluence selector (Steps 1-4 -> actionable verdict)
+            html.Div([
+                html.Span('Instrument confluence:',
+                          style={'color': '#d9b45b', 'fontWeight': '600',
+                                 'marginRight': '10px'}),
+                dcc.Dropdown(
+                    id='sbc-instrument',
+                    options=[{'label': s, 'value': s} for s in sbcs.SECTORS]
+                    if HAS_SBC else [],
+                    value='Gold',
+                    style={'width': '220px', 'display': 'inline-block',
+                           'verticalAlign': 'middle'}),
+                html.Span('Runs Steps 1–4 for the pick → PROCEED / CAUTION / '
+                          'STAND ASIDE with sizing.',
+                          style={'color': '#7f8c8d', 'fontSize': '12px',
+                                 'marginLeft': '10px'}),
+                html.Label('Signals timeframe:',
+                           style={'marginLeft': '25px', 'marginRight': '8px',
+                                  'color': '#d9b45b', 'fontWeight': '600'}),
+                dcc.RadioItems(
+                    id='sbc-timeframe',
+                    options=[{'label': f' {t}', 'value': t.lower()}
+                             for t in ['Intraday', 'Swing', 'Positional']],
+                    value='intraday', inline=True,
+                    style={'display': 'inline-block'}),
+            ], style={'marginBottom': '14px', 'display': 'flex',
+                      'alignItems': 'center'}),
+            # Birth Kundli inputs (optional natal overlay + Tara Bala)
+            html.Div([
+                html.Span('Birth Kundli (optional):',
+                          style={'color': '#d9b45b', 'fontWeight': '600',
+                                 'marginRight': '12px'}),
+                dcc.Input(id='sbc-birth-date', type='text',
+                          placeholder='Birth date YYYY-MM-DD',
+                          style={'marginRight': '8px', 'padding': '6px',
+                                 'width': '160px'}),
+                dcc.Input(id='sbc-birth-time', type='text',
+                          placeholder='Time HH:MM (IST)',
+                          style={'marginRight': '8px', 'padding': '6px',
+                                 'width': '130px'}),
+                dcc.Input(id='sbc-birth-lat', type='number', placeholder='Lat',
+                          style={'marginRight': '8px', 'padding': '6px',
+                                 'width': '90px'}),
+                dcc.Input(id='sbc-birth-lon', type='number', placeholder='Lon',
+                          style={'marginRight': '8px', 'padding': '6px',
+                                 'width': '90px'}),
+                html.Span('Defaults to Delhi (28.61, 77.21) if lat/lon blank.',
+                          style={'color': '#7f8c8d', 'fontSize': '12px'}),
+            ], style={'marginBottom': '20px', 'display': 'flex',
+                      'alignItems': 'center', 'flexWrap': 'wrap'}),
+            html.Div(id='sbc-output'),
         ])
 
     def _setup_callbacks(self):
@@ -599,12 +722,1080 @@ class TradingDashboard:
             status = f"Refreshed {datetime.now().strftime('%H:%M:%S')} · {len(df)} symbols"
             return fig, table, status, crossings_msg
 
+        @self.app.callback(
+            Output('sbc-output', 'children'),
+            [Input('sbc-date-select', 'date'),
+             Input('sbc-granularity', 'value'),
+             Input('sbc-refresh-btn', 'n_clicks'),
+             Input('sbc-birth-date', 'value'),
+             Input('sbc-birth-time', 'value'),
+             Input('sbc-birth-lat', 'value'),
+             Input('sbc-birth-lon', 'value'),
+             Input('sbc-view', 'value'),
+             Input('sbc-instrument', 'value'),
+             Input('sbc-planet-filter', 'value'),
+             Input('sbc-vedha-blocks', 'value'),
+             Input('sbc-timeframe', 'value')]
+        )
+        def update_sbc(selected_date, granularity, _n,
+                       birth_date, birth_time, birth_lat, birth_lon, view,
+                       instrument, planet_filter, vedha_blocks, timeframe):
+            if not HAS_SBC:
+                return html.Div('SBC engine unavailable (PyEphem not installed).',
+                                style={'color': '#c0392b'})
+            try:
+                return self._render_sbc(selected_date, granularity or 'pada',
+                                        birth_date, birth_time,
+                                        birth_lat, birth_lon, view or 'chakra',
+                                        instrument or 'Gold',
+                                        planet_filter or 'All',
+                                        bool(vedha_blocks),
+                                        timeframe or 'intraday')
+            except Exception as e:  # pragma: no cover
+                return html.Div(f'SBC error: {e}', style={'color': '#c0392b'})
+
+    # ----- Sarvatobhadra Chakra rendering helpers -------------------------
+
+    _SBC_GOLD = '#d9b45b'
+    _SBC_RED = '#e0524f'
+    _SBC_GREEN = '#3fb57a'
+    _SBC_DIM = '#6c6790'
+    _SBC_PANEL = '#171334'
+    _SBC_BG = '#0d0b1f'
+
+    def _sbc_cell_color(self, p):
+        if p >= 1.0:
+            return '#123d29'
+        if p > 0:
+            return '#16261f'
+        if p <= -1.0:
+            return '#3d1717'
+        if p < 0:
+            return '#261414'
+        return self._SBC_PANEL
+
+    def _sbc_chakra_figure(self, board, planets, pressure,
+                           planet_filter='All'):
+        """Draw the classical square chakra as an interactive Plotly figure.
+
+        Every cell, glyph, and vedha line is placed from the real sbc_grid
+        coordinates + geometric rays — nothing is hand-positioned. When
+        `planet_filter` names a single graha, only that planet's vedha rays are
+        drawn (highlighted), and the nakshatras it pierces are outlined.
+        """
+        import sbc_grid as grid
+        gold, red, green, dim = (self._SBC_GOLD, self._SBC_RED,
+                                 self._SBC_GREEN, self._SBC_DIM)
+        fig = go.Figure()
+        one = planet_filter if planet_filter and planet_filter != 'All' else None
+
+        def xy(coord):                       # grid (row,col) -> plot (x,y)
+            return coord[1], (grid.GRID_N - 1 - coord[0])
+
+        occ = {}
+        for n, ps in planets.items():
+            occ.setdefault(ps.nakshatra, []).append(sbc.PLANET_GLYPH.get(n, n[0]))
+
+        ring_bg = {0: None, 1: '#141031', 2: '#191634', 3: '#1d1940', 4: '#241f4a'}
+        # cells
+        for coord, cell in board.cells.items():
+            x, y = xy(coord)
+            fill = ring_bg.get(cell.ring, '#141031')
+            line_c = '#2a2550'
+            if cell.ctype == grid.CellType.NAKSHATRA:
+                p = pressure.get(sbc.NAKSHATRAS.index(cell.label), 0.0) \
+                    if cell.label in sbc.NAKSHATRAS else 0.0
+                fill = self._sbc_cell_color(p)
+                if occ.get(cell.label):
+                    line_c = gold
+            elif cell.ctype == grid.CellType.RASHI:
+                fill = '#1a2440'
+            elif cell.ctype == grid.CellType.VOWEL:
+                fill = '#20183a'
+            fig.add_shape(type='rect', x0=x - 0.5, y0=y - 0.5,
+                          x1=x + 0.5, y1=y + 0.5, fillcolor=fill,
+                          line=dict(color=line_c, width=1), layer='below')
+            # label
+            if cell.ctype == grid.CellType.NAKSHATRA:
+                glyphs = ''.join(occ.get(cell.label, []))
+                txt = (f"<b>{glyphs}</b><br>" if glyphs else "") + cell.label[:4]
+                tcolor = gold if glyphs else '#cfc9f0'
+            elif cell.ctype == grid.CellType.RASHI:
+                txt, tcolor = cell.label[:3], '#8fb0e8'
+            elif cell.ctype in (grid.CellType.VOWEL,):
+                txt, tcolor = cell.label, dim
+            elif cell.ctype == grid.CellType.CENTER:
+                txt, tcolor = 'Poorna<br>Sat', gold
+            else:
+                txt, tcolor = '', dim
+            if txt:
+                fig.add_annotation(x=x, y=y, text=txt, showarrow=False,
+                                   font=dict(size=9, color=tcolor),
+                                   align='center')
+
+        # vedha rays (filtered to one planet if requested) + pierced-cell marks
+        ray_dash = {'sammukha': 'solid', 'vama': 'dot', 'dakshina': 'dash'}
+        pierced = set()                      # coords pierced by the selected planet
+        for n, ps in planets.items():
+            if one and n != one:
+                continue
+            casts_all = n in sbcs.CASTS_ALL
+            fast = abs(ps.speed_deg_per_day) > sbcs.FAST_THRESHOLD.get(n, 0.05)
+            dirs = grid.active_directions(ps.retrograde, fast, casts_all)
+            src = board.coord_of(ps.nakshatra)
+            if src is None:
+                continue
+            col = red if ps.nature == 'malefic' else green
+            width = 2.6 if one else 1.4
+            op = 0.9 if one else 0.55
+            for d in dirs:
+                a, b = grid.ray_segment(src, d)
+                (x0, y0), (x1, y1) = xy(a), xy(b)
+                fig.add_shape(type='line', x0=x0, y0=y0, x1=x1, y1=y1,
+                              line=dict(color=col, width=width,
+                                        dash=ray_dash[d]), opacity=op,
+                              layer='below')
+                if one:
+                    for c in grid.vedha_targets(board, src, d):
+                        if board.nakshatra_at_coord(c):
+                            pierced.add(c)
+        # outline nakshatras the selected planet pierces
+        for c in pierced:
+            x, y = xy(c)
+            fig.add_shape(type='rect', x0=x - 0.5, y0=y - 0.5, x1=x + 0.5,
+                          y1=y + 0.5, fillcolor='rgba(0,0,0,0)',
+                          line=dict(color=gold, width=2), layer='above')
+
+        # planet markers (hover shows detail)
+        px, py, ptext = [], [], []
+        for n, ps in planets.items():
+            src = board.coord_of(ps.nakshatra)
+            if src is None:
+                continue
+            x, y = xy(src)
+            px.append(x)
+            py.append(y)
+            mot = 'Rx' if ps.retrograde else 'Direct'
+            ptext.append(f"{sbc.PLANET_GLYPH.get(n,'')} {n} · {ps.nakshatra} "
+                         f"p{ps.pada} · {mot} · {ps.nature}")
+        fig.add_trace(go.Scatter(
+            x=px, y=py, mode='markers',
+            marker=dict(size=6, color=gold, line=dict(color='#0d0b1f', width=1)),
+            text=ptext, hoverinfo='text', name='planets'))
+
+        n = grid.GRID_N
+        fig.update_xaxes(visible=False, range=[-0.7, n - 0.3],
+                         constrain='domain')
+        fig.update_yaxes(visible=False, range=[-0.7, n - 0.3],
+                         scaleanchor='x', scaleratio=1)
+        fig.update_layout(
+            height=620, margin=dict(l=10, r=10, t=30, b=10),
+            paper_bgcolor=self._SBC_BG, plot_bgcolor=self._SBC_BG,
+            showlegend=False,
+            annotations=list(fig.layout.annotations) + [
+                dict(x=(n - 1) / 2, y=n - 0.15, text='EAST', showarrow=False,
+                     font=dict(size=11, color=dim)),
+                dict(x=(n - 1) / 2, y=-0.55, text='WEST', showarrow=False,
+                     font=dict(size=11, color=dim)),
+                dict(x=-0.55, y=(n - 1) / 2, text='NORTH', showarrow=False,
+                     textangle=-90, font=dict(size=11, color=dim)),
+                dict(x=n - 0.45, y=(n - 1) / 2, text='SOUTH', showarrow=False,
+                     textangle=90, font=dict(size=11, color=dim)),
+            ])
+        return fig
+
+    def _aspect_map_figure(self, planets):
+        """Zodiac wheel with planets + graha-drishti aspect lines."""
+        import math
+        gold, red, green, dim = (self._SBC_GOLD, self._SBC_RED,
+                                 self._SBC_GREEN, self._SBC_DIM)
+        fig = go.Figure()
+
+        def ang(lon):                        # sidereal lon -> radians (Aries=right)
+            return math.radians(lon)
+
+        def pt(lon, r):
+            a = ang(lon)
+            return r * math.cos(a), r * math.sin(a)
+
+        # rashi ring: 12 spokes + labels
+        for k in range(12):
+            x0, y0 = pt(k * 30, 0.98)
+            x1, y1 = pt(k * 30, 1.12)
+            fig.add_shape(type='line', x0=x0, y0=y0, x1=x1, y1=y1,
+                          line=dict(color='#2a2550', width=1))
+            lx, ly = pt(k * 30 + 15, 1.05)
+            fig.add_annotation(x=lx, y=ly, text=sbca.RASHIS[k][:3],
+                               showarrow=False, font=dict(size=9, color=dim))
+        # outer + inner circle
+        circle = [pt(d, 0.98) for d in range(0, 361, 4)]
+        fig.add_trace(go.Scatter(
+            x=[c[0] for c in circle], y=[c[1] for c in circle], mode='lines',
+            line=dict(color='#2a2550', width=1), hoverinfo='skip',
+            showlegend=False))
+
+        # planet screen positions (at r=0.8)
+        ppos = {n: pt(ps.sidereal_lon, 0.8) for n, ps in planets.items()}
+
+        # aspect lines
+        for a in sbca.compute_aspects(planets):
+            x0, y0 = ppos[a.source]
+            x1, y1 = ppos[a.target]
+            col = red if a.nature == 'malefic' else green
+            fig.add_shape(type='line', x0=x0, y0=y0, x1=x1, y1=y1,
+                          line=dict(color=col, width=1.2,
+                                    dash='dot' if a.special else 'solid'),
+                          opacity=0.5, layer='below')
+
+        # planet markers
+        px, py, ptext, pmark = [], [], [], []
+        for n, ps in planets.items():
+            x, y = ppos[n]
+            px.append(x)
+            py.append(y)
+            mot = 'Rx' if ps.retrograde else 'D'
+            asp = ', '.join(t for t in sbca.aspect_summary(planets)[n]) or 'none'
+            ptext.append(f"{sbc.PLANET_GLYPH.get(n,'')} {n} · "
+                         f"{ps.nakshatra} · {mot}<br>aspects: {asp}")
+            pmark.append(sbc.PLANET_GLYPH.get(n, n[0]))
+        fig.add_trace(go.Scatter(
+            x=px, y=py, mode='markers+text', text=pmark,
+            textposition='middle center', textfont=dict(size=13, color=gold),
+            marker=dict(size=20, color='#120f2b',
+                        line=dict(color=gold, width=1)),
+            hovertext=ptext, hoverinfo='text', showlegend=False))
+
+        fig.update_xaxes(visible=False, range=[-1.25, 1.25])
+        fig.update_yaxes(visible=False, range=[-1.25, 1.25],
+                         scaleanchor='x', scaleratio=1)
+        fig.update_layout(height=560, margin=dict(l=10, r=10, t=10, b=10),
+                          paper_bgcolor=self._SBC_BG, plot_bgcolor=self._SBC_BG,
+                          showlegend=False)
+        return fig
+
+    # North-Indian kundli house anchor points in a unit square (0..1).
+    _KUNDLI_HOUSE_XY = {
+        1: (0.50, 0.75), 2: (0.25, 0.90), 3: (0.10, 0.75), 4: (0.25, 0.50),
+        5: (0.10, 0.25), 6: (0.25, 0.10), 7: (0.50, 0.25), 8: (0.75, 0.10),
+        9: (0.90, 0.25), 10: (0.75, 0.50), 11: (0.90, 0.75), 12: (0.75, 0.90),
+    }
+
+    def _kundli_figure(self, natal):
+        """North-Indian birth chart (fixed houses, whole-sign from Lagna)."""
+        import sbc_natal as _natal
+        gold, dim = self._SBC_GOLD, self._SBC_DIM
+        fig = go.Figure()
+        # frame: outer square, both diagonals, midpoint diamond
+        seg = [((0, 0), (1, 0)), ((1, 0), (1, 1)), ((1, 1), (0, 1)),
+               ((0, 1), (0, 0)), ((0, 0), (1, 1)), ((0, 1), (1, 0)),
+               ((0.5, 0), (1, 0.5)), ((1, 0.5), (0.5, 1)),
+               ((0.5, 1), (0, 0.5)), ((0, 0.5), (0.5, 0))]
+        for (x0, y0), (x1, y1) in seg:
+            fig.add_shape(type='line', x0=x0, y0=y0, x1=x1, y1=y1,
+                          line=dict(color='#2a2550', width=1))
+        # planets grouped by house
+        by_house = {}
+        for name, h in natal.house_of.items():
+            by_house.setdefault(h, []).append(sbc.PLANET_GLYPH.get(name, name[0]))
+        for h, (x, y) in self._KUNDLI_HOUSE_XY.items():
+            rashi_idx = (natal.lagna_rashi_index + h - 1) % 12
+            fig.add_annotation(x=x, y=y + 0.06, text=str(rashi_idx + 1),
+                               showarrow=False,
+                               font=dict(size=9, color=dim))
+            glyphs = ' '.join(by_house.get(h, []))
+            if glyphs:
+                fig.add_annotation(x=x, y=y - 0.02, text=glyphs, showarrow=False,
+                                   font=dict(size=13, color=gold))
+        fig.add_annotation(x=0.5, y=0.5, text='Lagna',
+                           showarrow=False, font=dict(size=8, color=dim))
+        fig.update_xaxes(visible=False, range=[-0.05, 1.05])
+        fig.update_yaxes(visible=False, range=[-0.05, 1.05],
+                         scaleanchor='x', scaleratio=1)
+        fig.update_layout(height=360, margin=dict(l=5, r=5, t=5, b=5),
+                          paper_bgcolor=self._SBC_BG, plot_bgcolor=self._SBC_BG,
+                          showlegend=False)
+        return fig
+
+    def _sbc_natal_panel(self, birth_date, birth_time, birth_lat, birth_lon,
+                         today_moon_nak):
+        """Birth Kundli + Tara Bala personal overlay (or a prompt if no birth)."""
+        import sbc_natal as _natal
+        gold, red, green, dim = (self._SBC_GOLD, self._SBC_RED,
+                                 self._SBC_GREEN, self._SBC_DIM)
+        panel_style = {'backgroundColor': self._SBC_PANEL,
+                       'border': '1px solid #2a2550', 'borderRadius': '12px',
+                       'padding': '14px 18px', 'marginBottom': '14px'}
+        h_style = {'color': gold, 'letterSpacing': '.1em', 'fontSize': '13px',
+                   'textTransform': 'uppercase', 'marginBottom': '8px'}
+        if not birth_date:
+            return html.Div([
+                html.Div('Birth Kundli — Personal Overlay', style=h_style),
+                html.P('Enter a birth date (and optionally time + place) above '
+                       'to compute the natal chart, Lagna, and today’s '
+                       'Tara Bala trade-timing filter for that native.',
+                       style={'color': dim, 'fontSize': '13px'}),
+            ], style=panel_style)
+        # parse inputs
+        try:
+            bd = datetime.strptime(birth_date.strip(), '%Y-%m-%d')
+        except Exception:
+            return html.Div([html.Div('Birth Kundli', style=h_style),
+                             html.P(f'Bad birth date "{birth_date}" — use '
+                                    'YYYY-MM-DD.', style={'color': red})],
+                            style=panel_style)
+        hh, mm = 12, 0
+        if birth_time:
+            try:
+                hh, mm = [int(x) for x in birth_time.strip().split(':')[:2]]
+            except Exception:
+                pass
+        lat = float(birth_lat) if birth_lat not in (None, '') else 28.61
+        lon = float(birth_lon) if birth_lon not in (None, '') else 77.21
+        birth_ist = bd.replace(hour=hh, minute=mm)
+        birth_utc = birth_ist - sbc.IST_OFFSET
+        natal = _natal.compute_natal(birth_utc, lat, lon)
+        tb = _natal.tara_bala(natal.moon_nakshatra, today_moon_nak)
+
+        tcolor = {'green': green, 'yellow': gold, 'red': red}[tb.color]
+        tara_card = html.Div([
+            html.Div('Tara Bala — Today for this Native', style=h_style),
+            html.Span(tb.verdict, style={'fontSize': '24px', 'fontWeight': '700',
+                                         'color': tcolor}),
+            html.Span(f'  {tb.tara_name} (tara {tb.tara})',
+                      style={'color': '#cfc9f0'}),
+            html.Br(),
+            html.Span(f'{tb.meaning}. Count {tb.count} from birth star '
+                      f'{natal.moon_nakshatra} → today’s Moon '
+                      f'{today_moon_nak}.',
+                      style={'color': dim, 'fontSize': '13px'}),
+            html.Br(),
+            html.Span('▲ FAVOURABLE = trade · CAUTION = trade light · '
+                      'AVOID = sit out / defensive only.',
+                      style={'color': dim, 'fontSize': '12px'}),
+        ], style={'border': f'1px solid {tcolor}', 'borderRadius': '10px',
+                  'padding': '12px 14px', 'backgroundColor': '#120f2b',
+                  'marginBottom': '12px'})
+
+        info = html.Div([
+            html.Span(f'Lagna: {natal.lagna_rashi} ',
+                      style={'color': gold, 'fontWeight': '600'}),
+            html.Span(f'({natal.lagna_sidereal:.1f}° · {natal.lagna_nakshatra})   ',
+                      style={'color': dim}),
+            html.Span(f'Birth Moon: {natal.moon_nakshatra}',
+                      style={'color': '#cfc9f0'}),
+        ], style={'marginBottom': '10px', 'fontSize': '13px'})
+
+        kundli = dcc.Graph(figure=self._kundli_figure(natal),
+                           config={'displayModeBar': False})
+
+        return html.Div([
+            html.Div('Birth Kundli — Personal Overlay', style=h_style),
+            tara_card, info,
+            html.Div([
+                html.Div(kundli, style={'width': '48%', 'display': 'inline-block',
+                                        'verticalAlign': 'top'}),
+                html.Div(html.P('North-Indian chart · fixed houses, sign '
+                                'numbers rotate from the Lagna (house 1). '
+                                'Glyphs show natal planet placements. '
+                                'Numbers = rashi (1=Aries).',
+                                style={'color': dim, 'fontSize': '12px'}),
+                         style={'width': '50%', 'display': 'inline-block',
+                                'verticalAlign': 'top', 'paddingLeft': '2%'}),
+            ]),
+        ], style=panel_style)
+
+    # grouped sector map (label -> representative instrument for nama score)
+    _GROUPED_SECTORS = [
+        ('NIFTY 50 & BANKNIFTY', 'NIFTY 50'),
+        ('Banking & Financials', 'Bank NIFTY'),
+        ('IT & Technology', 'NIFTY IT'),
+        ('FMCG, Luxury & Auto', 'NIFTY FMCG'),
+        ('Defense, Metals & Energy', 'NIFTY Metal'),
+        ('Pharma & Healthcare', 'NIFTY Pharma'),
+        ('Realty & Construction', 'NIFTY Auto'),
+        ('PSU & Energy (India)', 'NIFTY Energy'),
+        ('XAUUSD — Gold', 'Gold'),
+        ('XAGUSD — Silver', 'Silver'),
+        ('BTC & Crypto', 'Bitcoin'),
+        ('Currencies (INR/DXY/FX)', 'USD/INR'),
+    ]
+
+    def _astro_factors(self, planets, panchang):
+        """The astro signal cards: (label, detail, sentiment green/red/neutral)."""
+        import sbc_confluence as _cf
+        out = []
+        # Jupiter dignity (own Sag/Pis, exalt Cancer, debil Capricorn)
+        jr = int(planets['Jupiter'].sidereal_lon // 30) % 12
+        if jr in (8, 11) or jr == 3:
+            out.append(('Jupiter in own/exalted sign',
+                        'Bullish undercurrent', 'green'))
+        elif jr == 9:
+            out.append(('Jupiter debilitated (Capricorn)',
+                        'Bearish drag on breadth', 'red'))
+        else:
+            out.append(('Jupiter neutral dignity',
+                        'No strong Guru bias', 'neutral'))
+        # weekday (benefic-lord day favourable)
+        vlord = sbch.WEEKDAY_LORD[panchang.when_ist.weekday()]
+        if vlord in sbch.BENEFIC:
+            out.append((f'{panchang.vara} — {vlord} day',
+                        'Favourable market day', 'green'))
+        else:
+            out.append((f'{panchang.vara} — {vlord} day',
+                        'Malefic-lord day, stay nimble', 'red'))
+        # tithi
+        if panchang.tithi_name.endswith('Ashtami') and panchang.paksha == 'Krishna':
+            out.append(('Krishna Ashtami',
+                        'Inauspicious tithi, exercise caution', 'red'))
+        else:
+            out.append((panchang.tithi_name, 'Tithi within normal band',
+                        'neutral'))
+        # current nakshatra nature
+        nat = _cf.NAKSHATRA_NATURE.get(panchang.nakshatra, 'Chara')
+        tend = _cf.NATURE_TENDENCY[nat]
+        senti = 'green' if tend > 0.1 else 'red' if tend < 0 else 'neutral'
+        out.append((f'{panchang.nakshatra} ({_cf.NATURE_LABEL[nat]})',
+                    'Volatile / caution nakshatra' if tend < 0
+                    else 'Supportive nakshatra' if tend > 0.1
+                    else 'Neutral nakshatra', senti))
+        # bhadra
+        if panchang.bhadra_active:
+            out.append(('Bhadra active',
+                        'Avoid major positions, high-risk period', 'red'))
+        else:
+            out.append(('No Bhadra', 'Panchang clear', 'green'))
+        return out
+
+    def _sbc_trading_signals_panel(self, planets, vedas, bias, panchang,
+                                   windows, now_ist, timeframe, day):
+        """Trading Signals — astro score, factor cards, reversal zone,
+        sector map (/10) and best-time hora windows, per timeframe."""
+        gold, red, green, dim = (self._SBC_GOLD, self._SBC_RED,
+                                 self._SBC_GREEN, self._SBC_DIM)
+        panel_style = {'backgroundColor': self._SBC_PANEL,
+                       'border': '1px solid #2a2550', 'borderRadius': '12px',
+                       'padding': '14px 18px', 'marginBottom': '14px'}
+        h_style = {'color': gold, 'letterSpacing': '.1em', 'fontSize': '13px',
+                   'textTransform': 'uppercase', 'marginBottom': '8px'}
+        sc = {'green': green, 'red': red, 'neutral': dim}
+
+        factors = self._astro_factors(planets, panchang)
+        score = sum(1 if f[2] == 'green' else -1 if f[2] == 'red' else 0
+                    for f in factors)
+        verdict = ('BULLISH' if score >= 2 else 'BEARISH' if score <= -2
+                   else 'NEUTRAL')
+        vcolor = {'BULLISH': green, 'BEARISH': red, 'NEUTRAL': gold}[verdict]
+
+        header = html.Div([
+            html.Div(verdict, style={'textAlign': 'center', 'color': vcolor,
+                                     'fontWeight': '700', 'fontSize': '22px'}),
+            html.Div(f'Astro Score: {score:+d} · {panchang.vara} · '
+                     f'{panchang.tithi_name} · {panchang.nakshatra} Nak · '
+                     f'{timeframe.title()}',
+                     style={'textAlign': 'center', 'color': dim,
+                            'fontSize': '12px', 'marginBottom': '10px'}),
+        ])
+
+        factor_cards = [html.Div([
+            html.Span('●', style={'color': sc[f[2]], 'marginRight': '8px'}),
+            html.Span(f[0], style={'color': '#cfc9f0', 'fontWeight': '600',
+                                   'fontSize': '13px'}),
+            html.Br(),
+            html.Span(f[1], style={'color': dim, 'fontSize': '12px',
+                                   'marginLeft': '18px'}),
+        ], style={'border': '1px solid #2a2550', 'borderRadius': '8px',
+                  'padding': '8px 11px', 'marginBottom': '6px',
+                  'backgroundColor': '#120f2b'}) for f in factors]
+
+        # reversal zone
+        nxt = next((w for w in windows if w.end_ist >= now_ist), None)
+        rev = None
+        if nxt is not None:
+            rev = html.Div([
+                html.Span('⚡ REVERSAL ZONE — possible bias shift approaching',
+                          style={'color': gold, 'fontWeight': '700'}),
+                html.Br(),
+                html.Span(f'Next window {nxt.start_ist:%H:%M}–{nxt.end_ist:%H:%M} '
+                          f'· {nxt.from_nakshatra} → {nxt.to_nakshatra}',
+                          style={'color': '#e8d9a0', 'fontSize': '13px'}),
+                html.Br(),
+                html.Span(f'{bias.malefic_count} malefic vedhas active · '
+                          'markets pivot ±10 min around hora/nak changes — '
+                          'use as entry-timing filter, not standalone signal',
+                          style={'color': dim, 'fontSize': '11px'}),
+            ], style={'border': f'1px solid {red}', 'borderRadius': '10px',
+                      'padding': '10px 14px', 'margin': '10px 0',
+                      'backgroundColor': '#1f1420'})
+
+        # best-time hora windows (intraday)
+        best = sbch.best_windows(day if isinstance(day, datetime)
+                                 else datetime(day.year, day.month, day.day))
+        hora_row = None
+        if timeframe == 'intraday' and best:
+            chips = [html.Span(
+                f'{h.start_ist:%H:%M}–{h.end_ist:%H:%M} '
+                f'{sbch.GLYPH[h.lord]}{h.lord}',
+                style={'border': f'1px solid {green}', 'borderRadius': '10px',
+                       'padding': '3px 9px', 'margin': '3px', 'color': green,
+                       'fontSize': '12px', 'display': 'inline-block'})
+                for h in best]
+            hora_row = html.Div([
+                html.Div('Best entry windows (benefic hora)', style=h_style),
+                html.Div(chips)], style={'marginTop': '10px'})
+
+        # today's sector map (/10)
+        sscores = {s.sector: s for s in sbcs.sector_scores(
+            vedas, [i for _, i in self._GROUPED_SECTORS])}
+        chips = []
+        for label, inst in self._GROUPED_SECTORS:
+            s = sscores.get(inst)
+            score10 = round(((s.score if s else 0) + 1) / 2 * 10)
+            arrow, acol = (('▲', green) if score10 > 5 else
+                           ('▼', red) if score10 < 5 else ('—', dim))
+            chips.append(html.Span([
+                html.Span(arrow, style={'color': acol, 'fontWeight': '700'}),
+                html.Span(f' {label} ', style={'color': '#cfc9f0'}),
+                html.Span(f'{score10}/10', style={'color': acol,
+                                                  'fontWeight': '600'}),
+            ], style={'border': f'1px solid {acol}', 'borderRadius': '10px',
+                      'padding': '3px 9px', 'margin': '3px',
+                      'fontSize': '12px', 'display': 'inline-block',
+                      'backgroundColor': '#120f2b'}))
+        sector_map = html.Div([
+            html.Div('Today’s Sector Map', style=h_style),
+            html.Div(chips)], style={'marginTop': '10px'})
+
+        return html.Div([
+            html.Div('Trading Signals', style=h_style),
+            header,
+            html.Div(factor_cards),
+            rev if rev else '',
+            hora_row if hora_row else '',
+            sector_map,
+            html.P('Astro-technical read — planetary dignities, panchang and '
+                   'vedha projections. Timing filter, not standalone advice.',
+                   style={'color': dim, 'fontSize': '11px', 'marginTop': '8px'}),
+        ], style=panel_style)
+
+    def _sbc_badra_grid_panel(self, planets, vedas, bias, panchang,
+                              vedha_blocks):
+        """108 Badra Grid — 27 nakshatra chip-cards + final confluence call.
+
+        Each card: the nakshatra, the planets pressing vedha on it (glyphs,
+        coloured by nature), a net malefic/benefic marker (▲/▼) and ★ if a
+        planet occupies it. With Vedha Blocks OFF (default) the malefic/benefic
+        projection is shown per card; ON annotates cards where obstruction
+        (malefic) dominates as 'blocked'.
+        """
+        gold, red, green, dim = (self._SBC_GOLD, self._SBC_RED,
+                                 self._SBC_GREEN, self._SBC_DIM)
+        panel_style = {'backgroundColor': self._SBC_PANEL,
+                       'border': '1px solid #2a2550', 'borderRadius': '12px',
+                       'padding': '14px 18px', 'marginBottom': '14px'}
+        h_style = {'color': gold, 'letterSpacing': '.1em', 'fontSize': '13px',
+                   'textTransform': 'uppercase', 'marginBottom': '8px'}
+
+        # per-nakshatra: casters (planet,nature,weight), net, occupant
+        casters = {n: [] for n in sbc.NAKSHATRAS}
+        net = {n: 0.0 for n in sbc.NAKSHATRAS}
+        support = {n: 0 for n in sbc.NAKSHATRAS}
+        obstruct = {n: 0 for n in sbc.NAKSHATRAS}
+        for v in vedas:
+            if v.target_nakshatra not in casters:
+                continue
+            casters[v.target_nakshatra].append((v.planet, v.nature))
+            net[v.target_nakshatra] += (v.weight if v.nature == 'benefic'
+                                        else -v.weight)
+            if v.nature == 'benefic':
+                support[v.target_nakshatra] += 1
+            else:
+                obstruct[v.target_nakshatra] += 1
+        occ = {n: [] for n in sbc.NAKSHATRAS}
+        for name, ps in planets.items():
+            occ[ps.nakshatra].append(name)
+
+        cards = []
+        for nak in sbc.NAKSHATRAS:
+            p = net[nak]
+            if p > 0:
+                cc, marker = green, '▲'
+            elif p < 0:
+                cc, marker = red, '▼'
+            else:
+                cc, marker = dim, '·'
+            occupied = bool(occ[nak])
+            star = '★' if occupied else ''
+            blocked = vedha_blocks and obstruct[nak] > support[nak]
+            # pressing-planet glyphs coloured by nature
+            seen = {}
+            for pl, nat in casters[nak]:
+                seen[pl] = nat
+            glyph_row = [
+                html.Span(sbc.PLANET_GLYPH.get(pl, pl[0]),
+                          style={'color': red if nat == 'malefic' else green,
+                                 'fontSize': '13px', 'marginRight': '2px'})
+                for pl, nat in seen.items()]
+            occ_glyphs = ''.join(sbc.PLANET_GLYPH.get(o, o[0]) for o in occ[nak])
+            cards.append(html.Div([
+                html.Div([
+                    html.Span(nak[:3], style={'color': '#cfc9f0',
+                                              'fontWeight': '600',
+                                              'fontSize': '12px'}),
+                    html.Span(occ_glyphs, style={'float': 'right',
+                                                 'color': gold}),
+                ]),
+                html.Div(glyph_row or [html.Span('·', style={'color': dim})],
+                         style={'margin': '3px 0', 'minHeight': '16px'}),
+                html.Div([
+                    html.Span(f'{marker}{star}',
+                              style={'color': cc, 'fontWeight': '700'}),
+                    html.Span(f' {p:+.1f}',
+                              style={'color': dim, 'fontSize': '10px'}),
+                    (html.Span(' ⓧ blocked',
+                               style={'color': red, 'fontSize': '9px',
+                                      'marginLeft': '4px'})
+                     if blocked else ''),
+                ]),
+            ], style={
+                'border': f'1px solid #2a2550', 'borderLeft': f'4px solid {cc}',
+                'borderRadius': '8px', 'padding': '7px 9px',
+                'backgroundColor': ('#241016' if p < 0 else
+                                    '#0f2418' if p > 0 else '#141031')}))
+
+        grid = html.Div(cards, style={
+            'display': 'grid',
+            'gridTemplateColumns': 'repeat(auto-fill, minmax(96px, 1fr))',
+            'gap': '8px'})
+
+        # info cards: current nakshatra, lord, day status, incoming vedha
+        cur = panchang.nakshatra
+        lord = sbc.nakshatra_lord(cur)
+        day_status = ('Badra Active' if panchang.bhadra_active else 'Clear')
+        info = html.Div([
+            self._sbc_info_card('Current Nakshatra', cur, '#cfc9f0'),
+            self._sbc_info_card('Nakshatra Lord',
+                                f'{sbc.PLANET_GLYPH.get(lord,"")} {lord}',
+                                '#cfc9f0'),
+            self._sbc_info_card('Current Day Status', day_status,
+                                red if panchang.bhadra_active else green),
+            self._sbc_info_card(
+                'Incoming Vedha',
+                f'Support {support[cur]} · Obstruction {obstruct[cur]}',
+                red if obstruct[cur] > support[cur] else green),
+        ], style={'display': 'grid',
+                  'gridTemplateColumns': 'repeat(auto-fit, minmax(160px, 1fr))',
+                  'gap': '8px', 'marginTop': '12px'})
+
+        # final confluence call (rolled up from the grid = market bias)
+        vcolor = {'BEARISH': red, 'BULLISH': green, 'MIXED': gold}[bias.label]
+        final = html.Div([
+            html.Span('FINAL CONFLUENCE CALL  ', style={'color': dim,
+                                                        'fontSize': '11px'}),
+            html.Span(bias.label, style={'color': vcolor, 'fontWeight': '700',
+                                         'fontSize': '18px'}),
+            html.Span(f'  {bias.malefic_count} malefic vs {bias.benefic_count} '
+                      f'benefic projections · net {bias.net:+.2f}'
+                      + ('  · Badra blocks new positions'
+                         if panchang.bhadra_active else ''),
+                      style={'color': dim, 'fontSize': '12px'}),
+        ], style={'border': f'2px solid {vcolor}', 'borderRadius': '10px',
+                  'padding': '10px 14px', 'marginTop': '12px',
+                  'backgroundColor': '#120f2b'})
+
+        return html.Div([
+            html.Div([
+                html.Span('108 Badra Grid', style=h_style),
+                html.Span(f'Vedha Blocks: {"ON" if vedha_blocks else "OFF"}',
+                          style={'float': 'right', 'color': gold,
+                                 'fontSize': '11px',
+                                 'border': f'1px solid {gold}',
+                                 'borderRadius': '10px', 'padding': '2px 8px'}),
+            ]),
+            grid, info, final,
+            html.P('Each cell: planet glyphs = grahas casting vedha on that '
+                   'nakshatra (red malefic / green benefic) · ▲ net benefic · '
+                   '▼ net malefic · ★ planet-occupied. Final call rolls the '
+                   'whole grid into the day bias.',
+                   style={'color': dim, 'fontSize': '11px', 'marginTop': '8px'}),
+        ], style=panel_style)
+
+    def _sbc_info_card(self, label, value, vcolor):
+        return html.Div([
+            html.Div(label, style={'color': self._SBC_DIM, 'fontSize': '10px',
+                                   'textTransform': 'uppercase',
+                                   'letterSpacing': '.06em'}),
+            html.Div(value, style={'color': vcolor, 'fontWeight': '600',
+                                   'fontSize': '14px', 'marginTop': '2px'}),
+        ], style={'border': '1px solid #2a2550', 'borderRadius': '8px',
+                  'padding': '8px 11px', 'backgroundColor': '#120f2b'})
+
+    def _sbc_confluence_panel(self, instrument, planets, vedas, bias,
+                              panchang, windows, now_ist):
+        """Per-instrument Steps 1-4 confluence -> actionable verdict card."""
+        gold, red, green, dim = (self._SBC_GOLD, self._SBC_RED,
+                                 self._SBC_GREEN, self._SBC_DIM)
+        panel_style = {'backgroundColor': self._SBC_PANEL,
+                       'border': '1px solid #2a2550', 'borderRadius': '12px',
+                       'padding': '14px 18px', 'marginBottom': '14px'}
+        h_style = {'color': gold, 'letterSpacing': '.1em', 'fontSize': '13px',
+                   'textTransform': 'uppercase', 'marginBottom': '8px'}
+        c = sbccf.evaluate(instrument, planets, vedas, bias, panchang)
+
+        vcolor = {'PROCEED': green, 'PROCEED (guarded)': green,
+                  'CAUTION': gold, 'STAND ASIDE': red}.get(c.verdict, gold)
+        dcolor = {'BULLISH': green, 'BEARISH': red}.get(c.direction, dim)
+        # next reversal window (timing gate) + REV WIN tag
+        nxt = next((w for w in windows if w.end_ist >= now_ist), None)
+        rev_tag = None
+        if nxt is not None:
+            live = nxt.start_ist <= now_ist <= nxt.end_ist
+            mins = int((nxt.center_ist - now_ist).total_seconds() // 60)
+            rev_tag = html.Span(
+                ('● REV WIN LIVE' if live else f'REV WIN in {mins}m'),
+                style={'color': gold, 'border': f'1px solid {gold}',
+                       'borderRadius': '10px', 'padding': '2px 8px',
+                       'fontSize': '12px', 'marginLeft': '10px'})
+
+        verdict_row = html.Div([
+            html.Span(f'{instrument} ({c.nakshatra})',
+                      style={'color': '#cfc9f0', 'fontWeight': '600',
+                             'marginRight': '12px'}),
+            html.Span(c.verdict, style={'fontSize': '22px', 'fontWeight': '700',
+                                        'color': vcolor}),
+            html.Span(f'  {c.green}/4 GREEN · {c.size_band}',
+                      style={'color': dim, 'marginLeft': '8px'}),
+            html.Span(f'  ▸ {c.direction}',
+                      style={'color': dcolor, 'fontWeight': '600',
+                             'marginLeft': '8px'}),
+            rev_tag if rev_tag else '',
+        ], style={'marginBottom': '4px'})
+
+        sub = html.Div(
+            (f'Safe-haven inversion applies · ' if c.safe_haven else '') +
+            f'{c.green} pass · {c.caution} caution · {c.fail} fail'
+            + (f' · reversal window {nxt.start_ist:%H:%M}–{nxt.end_ist:%H:%M} '
+               '(markets pivot ±10 min)' if nxt else ''),
+            style={'color': dim, 'fontSize': '12px', 'marginBottom': '10px'})
+
+        badge = {sbccf.PASS: green, sbccf.CAUTION: gold, sbccf.FAIL: red}
+        step_cards = []
+        for i, s in enumerate(c.steps, 1):
+            bc = badge[s.status]
+            step_cards.append(html.Div([
+                html.Div([
+                    html.Span(f'Step {i} — {s.name}',
+                              style={'color': '#cfc9f0', 'fontWeight': '600'}),
+                    html.Span(s.status, style={
+                        'float': 'right', 'color': bc, 'fontWeight': '700',
+                        'border': f'1px solid {bc}', 'borderRadius': '8px',
+                        'padding': '1px 8px', 'fontSize': '11px'}),
+                ]),
+                html.Div(s.headline, style={'color': '#e8e4ff',
+                                            'fontSize': '13px',
+                                            'margin': '4px 0'}),
+                html.Div(s.detail, style={'color': dim, 'fontSize': '11px'}),
+            ], style={'border': f'1px solid #2a2550', 'borderLeft': f'4px solid {bc}',
+                      'borderRadius': '8px', 'padding': '9px 12px',
+                      'marginBottom': '7px', 'backgroundColor': '#120f2b'}))
+
+        return html.Div([
+            html.Div('Confluence — 6-Condition Analysis (Steps 1–4)',
+                     style=h_style),
+            verdict_row, sub,
+            html.Div(step_cards),
+            html.P('Verdict is the confluence of the four steps for the chosen '
+                   'instrument. Not advice — timing/sizing aid only; combine '
+                   'with your own risk management.',
+                   style={'color': dim, 'fontSize': '11px', 'marginTop': '4px'}),
+        ], style={**panel_style, 'border': f'2px solid {vcolor}'})
+
+    def _render_sbc(self, selected_date, granularity,
+                    birth_date=None, birth_time=None,
+                    birth_lat=None, birth_lon=None, view='chakra',
+                    instrument='Gold', planet_filter='All',
+                    vedha_blocks=False, timeframe='intraday'):
+        d = datetime.strptime(selected_date, '%Y-%m-%d').date()
+        now_utc = datetime.utcnow()
+        planets = sbc.compute_planets(now_utc)
+        vedas = sbcs.cast_vedas(planets)
+        bias = sbcs.market_bias(vedas)
+        scores = sbcs.sector_scores(vedas)
+        windows = sbcs.moon_reversal_windows(d, granularity=granularity)
+        now_ist = now_utc + sbc.IST_OFFSET
+        panchang = sbcp.compute_panchang(now_ist)
+        natal_panel = self._sbc_natal_panel(
+            birth_date, birth_time, birth_lat, birth_lon,
+            planets['Moon'].nakshatra)
+        confluence_panel = self._sbc_confluence_panel(
+            instrument, planets, vedas, bias, panchang, windows, now_ist)
+        signals_panel = self._sbc_trading_signals_panel(
+            planets, vedas, bias, panchang, windows, now_ist, timeframe, d)
+
+        gold, red, green, dim = (self._SBC_GOLD, self._SBC_RED,
+                                 self._SBC_GREEN, self._SBC_DIM)
+        panel_style = {'backgroundColor': self._SBC_PANEL,
+                       'border': '1px solid #2a2550', 'borderRadius': '12px',
+                       'padding': '14px 18px', 'marginBottom': '14px'}
+        h_style = {'color': gold, 'letterSpacing': '.1em', 'fontSize': '13px',
+                   'textTransform': 'uppercase', 'marginBottom': '8px'}
+
+        # bias banner
+        bias_color = {'BEARISH': red, 'BULLISH': green, 'MIXED': gold}[bias.label]
+        banner = html.Div([
+            html.Div('Market Bias', style=h_style),
+            html.Span(bias.label, style={'fontSize': '28px', 'fontWeight': '700',
+                                         'color': bias_color}),
+            html.Span(f'  net {bias.net:+.3f}', style={'color': dim}),
+            html.Br(),
+            html.Span(f'malefic {bias.malefic_score}', style={'color': red}),
+            html.Span('   |   ', style={'color': dim}),
+            html.Span(f'benefic {bias.benefic_score}', style={'color': green}),
+        ], style={**panel_style, 'textAlign': 'center'})
+
+        # panchang header (tithi / vara / nakshatra / karana / moon / sun)
+        def _pchip(label, value, vcolor=None):
+            return html.Div([
+                html.Div(label, style={'color': dim, 'fontSize': '10px',
+                                       'letterSpacing': '.08em',
+                                       'textTransform': 'uppercase'}),
+                html.Div(value, style={'color': vcolor or '#cfc9f0',
+                                       'fontWeight': '600', 'fontSize': '14px'}),
+            ], style={'textAlign': 'center', 'flex': '1', 'padding': '4px 8px'})
+        panchang_bar = html.Div([
+            _pchip('Nakshatra', panchang.nakshatra),
+            _pchip('Tithi', panchang.tithi_name),
+            _pchip('Vara', panchang.vara),
+            _pchip('Karana', panchang.karana,
+                   red if panchang.bhadra_active else '#cfc9f0'),
+            _pchip('Moon°', f'{panchang.moon_lon:.1f}°'),
+            _pchip('Sun°', f'{panchang.sun_lon:.1f}°'),
+        ], style={**panel_style, 'display': 'flex', 'justifyContent': 'space-between'})
+
+        # bhadra banner (only when active)
+        bhadra_banner = None
+        if panchang.bhadra_active:
+            bhadra_banner = html.Div([
+                html.Span('⚠ BHADRA ACTIVE NOW  ',
+                          style={'color': red, 'fontWeight': '700',
+                                 'fontSize': '15px'}),
+                html.Span(sbcp.trading_note(panchang),
+                          style={'color': '#e8d9a0', 'fontSize': '13px'}),
+            ], style={**panel_style, 'border': f'1px solid {red}',
+                      'backgroundColor': '#2a1414'})
+
+        # planet table
+        prows = [html.Tr([
+            html.Td(f"{sbc.PLANET_GLYPH.get(n,'')} {n}",
+                    style={'color': '#cfc9f0', 'padding': '4px 10px'}),
+            html.Td(ps.nakshatra, style={'color': '#cfc9f0', 'padding': '4px 10px'}),
+            html.Td(ps.pada, style={'color': dim, 'padding': '4px 10px'}),
+            html.Td(f'{ps.sidereal_lon:.2f}°', style={'color': dim, 'padding': '4px 10px'}),
+            html.Td('Rx' if ps.retrograde else 'D',
+                    style={'color': red if ps.retrograde else green, 'padding': '4px 10px'}),
+            html.Td(ps.nature, style={'color': red if ps.nature == 'malefic' else green,
+                                      'padding': '4px 10px'}),
+        ]) for n, ps in planets.items()]
+        ptable = html.Div([
+            html.Div('Planetary Placement', style=h_style),
+            html.Table(
+                [html.Tr([html.Th(c, style={'color': gold, 'textAlign': 'left',
+                                            'padding': '4px 10px'})
+                          for c in ['Planet', 'Nakshatra', 'Pada', 'Sidereal',
+                                    'Motion', 'Nature']])] + prows,
+                style={'width': '100%', 'borderCollapse': 'collapse',
+                       'fontSize': '13px'}),
+        ], style=panel_style)
+
+        # reversal windows
+        wcards = []
+        for w in windows:
+            live = w.start_ist <= now_ist <= w.end_ist
+            edge = gold if live else '#2a2550'
+            children = [html.B(f'{w.start_ist:%H:%M}–{w.end_ist:%H:%M}',
+                               style={'color': gold})]
+            if live:
+                children.append(html.Span('  ● LIVE',
+                                          style={'color': gold, 'fontWeight': '700'}))
+            children += [html.Br(),
+                         html.Span(f'{w.from_nakshatra} → {w.to_nakshatra}',
+                                   style={'color': dim, 'fontSize': '12px'})]
+            wcards.append(html.Div(children, style={
+                'border': f'1px solid {edge}', 'borderRadius': '8px',
+                'padding': '8px 11px', 'marginBottom': '6px',
+                'backgroundColor': '#120f2b'}))
+        wpanel = html.Div([
+            html.Div('Reversal Windows (IST)', style=h_style),
+            html.Div(wcards or [html.Span('No crossings in range.',
+                                          style={'color': dim})]),
+        ], style=panel_style)
+
+        # grid
+        pressure = {i: 0.0 for i in range(27)}
+        occupant = {i: [] for i in range(27)}
+        for v in vedas:
+            if v.target_index < 0:      # Abhijit — not one of the 27 cells
+                continue
+            pressure[v.target_index] += (v.weight if v.nature == 'benefic'
+                                         else -v.weight)
+        for n, ps in planets.items():
+            occupant[ps.nakshatra_index].append(sbc.PLANET_GLYPH.get(n, n[0]))
+        gpanel = self._sbc_badra_grid_panel(
+            planets, vedas, bias, panchang, vedha_blocks)
+
+        # centre view — drawn square chakra OR zodiac aspect map (toggle)
+        import sbc_grid as _grid
+        board = _grid.build_board()
+        if view == 'aspects':
+            centre_fig = self._aspect_map_figure(planets)
+            centre_title = 'Aspect Map — Graha Drishti'
+            centre_note = ('Zodiac wheel · planets at sidereal longitude. '
+                           'Lines = full aspects (drishti) — green benefic / '
+                           'red malefic; solid = 7th (opposition), dotted = '
+                           'special aspect (Mars 4/8, Jupiter 5/9, Saturn 3/10, '
+                           'nodes 5/9). Hover a planet for its aspect list.')
+        else:
+            centre_fig = self._sbc_chakra_figure(board, planets, pressure,
+                                                 planet_filter)
+            who = (f' — {planet_filter} only'
+                   if planet_filter and planet_filter != 'All' else '')
+            centre_title = f'SBC Chakra — Vedha Lines{who}'
+            centre_note = ('Concentric rings: nakshatras (outer) · consonants · '
+                           'rashis · tithis+weekdays (centre). Lines = live '
+                           'vedha rays — green benefic / red malefic; solid = '
+                           'Sammukha (front, strong/Prathyak), dotted = Vaama '
+                           '(left, fast planets), dashed = Dakshina (right, '
+                           'retrograde).'
+                           + (f' Showing only {planet_filter}’s projections; '
+                              'gold-outlined cells are the nakshatras it pierces.'
+                              if planet_filter and planet_filter != 'All'
+                              else ' Hover a planet dot for detail.'))
+        chakra_panel = html.Div([
+            html.Div(centre_title, style=h_style),
+            dcc.Graph(figure=centre_fig, config={'displayModeBar': False}),
+            html.P(centre_note,
+                   style={'color': dim, 'fontSize': '12px', 'marginTop': '4px'}),
+        ], style=panel_style)
+
+        # sector scoreboard
+        scards = []
+        for s in scores:
+            scolor = {'BULLISH': green, 'BEARISH': red, 'NEUTRAL': gold}[s.label]
+            pstr = ' '.join(sbc.PLANET_GLYPH.get(pl, pl) for pl in s.hitting_planets)
+            scards.append(html.Div([
+                html.B(s.sector, style={'color': '#cfc9f0'}),
+                html.Span(f'{s.label} {s.score:+.2f}',
+                          style={'float': 'right', 'color': scolor,
+                                 'fontWeight': '600', 'fontSize': '13px'}),
+                html.Br(),
+                html.Span(f'{s.nakshatra}  {pstr}',
+                          style={'color': dim, 'fontSize': '12px'}),
+            ], style={'border': '1px solid #2a2550',
+                      'borderLeft': f'4px solid {scolor}', 'borderRadius': '8px',
+                      'padding': '8px 11px', 'backgroundColor': '#120f2b',
+                      'width': '31%', 'display': 'inline-block',
+                      'marginRight': '2%', 'marginBottom': '8px',
+                      'verticalAlign': 'top'}))
+        spanel = html.Div([
+            html.Div('Sector Scoreboard (Nama-Nakshatra)', style=h_style),
+            html.Div(scards),
+        ], style=panel_style)
+
+        disclaimer = html.Div([
+            html.Span('EDUCATIONAL MODEL ONLY. ',
+                      style={'color': red, 'fontWeight': '600'}),
+            html.Span('Veda scoring is a deterministic model of the documented '
+                      'mechanic, not classical-exact and not a certainty engine. '
+                      'Reported accuracy for astro timing is ~40–60% on major '
+                      'trends and lower on specific date/price calls — treat as '
+                      'a supplementary input, not primary. Never trade solely on '
+                      'astrological signals; use stops and position sizing. '
+                      f'Computed {now_ist:%Y-%m-%d %H:%M} IST.',
+                      style={'color': dim, 'fontSize': '12px'}),
+        ], style={**panel_style, 'border': f'1px solid {red}'})
+
+        # nama name-analysis panel (categorised instrument chips -> nakshatra)
+        import sbc_nama as _nama
+        # per-nakshatra net veda pressure -> chip colour
+        nak_net = {}
+        for v in vedas:
+            if v.target_index < 0:
+                continue
+            nk = sbc.NAKSHATRAS[v.target_index]
+            nak_net[nk] = nak_net.get(nk, 0.0) + (
+                v.weight if v.nature == 'benefic' else -v.weight)
+
+        def _nama_chip(name):
+            res = _nama.resolve_nakshatra(name)
+            nk = res[0] if res else '?'
+            net = nak_net.get(nk, 0.0)
+            if net > 0:
+                cc, arrow = green, '▲'
+            elif net < 0:
+                cc, arrow = red, '▼'
+            else:
+                cc, arrow = dim, '·'
+            return html.Span([
+                html.Span(f'{name} ', style={'color': '#cfc9f0'}),
+                html.Span(arrow, style={'color': cc, 'fontWeight': '700'}),
+                html.Span(f' {nk[:4]}', style={'color': dim, 'fontSize': '10px'}),
+            ], style={'display': 'inline-block', 'border': f'1px solid {cc}',
+                      'borderRadius': '12px', 'padding': '3px 9px',
+                      'margin': '3px', 'fontSize': '12px',
+                      'backgroundColor': '#120f2b'})
+
+        nama_cats = []
+        for cat, items in _nama.NAMA_CATALOG.items():
+            nama_cats.append(html.Div([
+                html.Div(cat, style={'color': gold, 'fontSize': '11px',
+                                     'textTransform': 'uppercase',
+                                     'letterSpacing': '.08em',
+                                     'margin': '8px 0 2px'}),
+                html.Div([_nama_chip(i) for i in items]),
+            ]))
+        nama_panel = html.Div([
+            html.Div('Nama Nakshatra — Name Analysis', style=h_style),
+            html.P("Each instrument's first sound (akshara) places it on a "
+                   "nakshatra; today's vedhas on that nakshatra set its lean. "
+                   "▲ benefic-led · ▼ malefic-led · · untouched.",
+                   style={'color': dim, 'fontSize': '12px', 'marginBottom': '4px'}),
+            html.Div(nama_cats),
+        ], style=panel_style)
+
+        top_children = [panchang_bar]
+        if bhadra_banner is not None:
+            top_children.append(bhadra_banner)
+        top_children.append(banner)
+        top_children.append(confluence_panel)
+        top_children.append(signals_panel)
+
+        return html.Div(top_children + [
+            html.Div([
+                html.Div(ptable, style={'width': '60%', 'display': 'inline-block',
+                                        'verticalAlign': 'top', 'paddingRight': '1%'}),
+                html.Div(wpanel, style={'width': '38%', 'display': 'inline-block',
+                                        'verticalAlign': 'top'}),
+            ]),
+            chakra_panel, natal_panel, gpanel, spanel, nama_panel, disclaimer,
+        ], style={'backgroundColor': self._SBC_BG, 'padding': '16px',
+                  'borderRadius': '12px', 'fontFamily': 'Segoe UI, sans-serif'})
+
     def run(self):
         """Run the dashboard server."""
         print(f"Starting Trading Bramha Dash Dashboard on http://localhost:{self.port}")
-        self.app.run_server(debug=self.debug, port=self.port)
+        # Dash >=3 renamed run_server() -> run(); support both. Newer Dash
+        # raises when run_server is even accessed, so guard the lookup.
+        try:
+            runner = self.app.run_server
+        except Exception:
+            runner = self.app.run
+        runner(debug=self.debug, port=self.port)
 
 
 if __name__ == '__main__':
-    dashboard = TradingDashboard(port=8050, debug=True)
+    import os
+    # Default to NO debug/reloader so start.bat runs a single, cleanly-killable
+    # process. Set SBC_DEBUG=1 for the live-reload dev server.
+    debug = os.environ.get('SBC_DEBUG', '0') == '1'
+    port = int(os.environ.get('SBC_PORT', '8050'))
+    dashboard = TradingDashboard(port=port, debug=debug)
     dashboard.run()
