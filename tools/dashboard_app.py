@@ -57,6 +57,7 @@ import browser_cookie_helper as bch
 import stock_council as council
 import fundamentals_deep as fdeep
 import fundamental_score as fscore
+import smart_money as smm
 import red_flags as rflags
 import scenarios as scen
 import rating
@@ -1271,6 +1272,17 @@ def cached_pcr():
     calib = pcr.calibrate_stock(stock)
     by_sym = {r["symbol"]: r for r in stock.to_dict("records")}
     return by_sym, calib, index
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def cached_normalized_deals():
+    """Today's NSE+BSE bulk & block deals, flattened to one frame. Cached 30 min
+    because the feeds update through the day. Feeds the Smart-Money Layer-4 panel
+    (per-symbol slice → block_deal_intel.summarize_company)."""
+    return bdi.normalize_deals(
+        imi.fetch_nse_bulk_deals(), imi.fetch_nse_block_deals(),
+        imi.fetch_bse_bulk_deals(), imi.fetch_bse_block_deals(),
+    )
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -9495,6 +9507,155 @@ if current_page == "OI Momentum":
                 )
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Smart-Money Confluence — the Layer-4 panel (institutional-flow assembly point).
+# smart_money.smart_money() is pure/offline; this is the impure caller that feeds
+# it the live tape (deals + OI) and renders the drivers. Never a bare number.
+# ──────────────────────────────────────────────────────────────────────────────
+_L4_POS = {"confirmed_accumulation", "slow_accumulation", "fast_accumulation",
+           "fresh_buying", "accumulated_quiet", "early_reversal"}
+_L4_NEG = {"confirmed_distribution", "slow_distribution", "fast_distribution",
+           "fresh_selling", "distributed_quiet"}
+
+
+def _l4_color(agreement: str) -> str:
+    if agreement in _L4_POS:
+        return "#16a34a"
+    if agreement in _L4_NEG:
+        return "#dc2626"
+    if agreement == "bought_now_selling":
+        return "#d97706"                     # amber — the warning divergence
+    return "#6b7280"                         # neutral / no data
+
+
+def _l4_signed_bar(label: str, v: float) -> str:
+    """A signed −1…+1 driver as a bar diverging from a centre line."""
+    v = max(-1.0, min(1.0, float(v)))
+    half = abs(v) * 50.0
+    left = 50.0 if v >= 0 else 50.0 - half
+    color = "#16a34a" if v >= 0 else "#dc2626"
+    return (
+        '<div style="display:flex;align-items:center;gap:8px;font-size:11px;margin:3px 0;">'
+        f'<span style="width:112px;color:#7a6858;">{label}</span>'
+        '<div style="flex:1;height:8px;background:#efe7db;border-radius:4px;position:relative;">'
+        '<div style="position:absolute;left:50%;top:-1px;bottom:-1px;width:1px;background:#c9b9a4;"></div>'
+        f'<div style="position:absolute;left:{left}%;width:{half}%;top:0;bottom:0;'
+        f'background:{color};border-radius:4px;"></div></div>'
+        f'<span style="width:40px;text-align:right;color:{color};font-weight:600;">{v:+.2f}</span></div>'
+    )
+
+
+def _render_smart_money_result(res: dict, include_fast: bool) -> None:
+    ag = res["agreement"]
+    color = _l4_color(ag)
+    st.markdown(
+        f'<div style="border-left:5px solid {color};background:#fbf7f0;'
+        f'padding:10px 14px;border-radius:8px;margin:6px 0 10px 0;">'
+        f'<span style="font-size:15px;font-weight:700;color:{color};">{res["headline"]}</span>'
+        f'<span style="float:right;font-size:11px;color:#7a6858;">confidence: '
+        f'{res["confidence"]}</span></div>',
+        unsafe_allow_html=True,
+    )
+
+    col_s, col_f = st.columns(2)
+    with col_s:
+        slow = res["slow"]
+        if slow:
+            st.metric("Slow-Flow · ownership", slow["score"], slow["trajectory"])
+            st.caption(f"as of {slow['as_of']} · {slow['coverage']} · lagging")
+            for leg, lbl in (("fii", "FII"), ("dii", "DII"), ("promoter", "Promoter")):
+                v = slow["legs"].get(leg)
+                if v is not None:
+                    st.markdown(_l4_signed_bar(lbl, v), unsafe_allow_html=True)
+        else:
+            st.metric("Slow-Flow · ownership", "—")
+            st.caption("no cached ownership quarters — run "
+                       "`ownership_cache.py --backfill`")
+
+    with col_f:
+        fast = res["fast"]
+        if fast:
+            st.metric("Fast-Flow · live tape", fast["score"])
+            st.caption(f"{fast['window']} · {fast['coverage']} families")
+            for fam, lbl in (("deals", "Block/bulk deals"), ("derivs", "OI regime")):
+                v = fast["families"].get(fam)
+                if v is not None:
+                    st.markdown(_l4_signed_bar(lbl, v), unsafe_allow_html=True)
+        else:
+            st.metric("Fast-Flow · live tape", "—")
+            st.caption("no deals/OI for this name today"
+                       if include_fast else
+                       "toggle **Include live tape** to load deals + OI")
+
+    veto = res["veto"]
+    if veto["status"] == "pledged":
+        st.markdown(
+            f"<span style='color:#dc2626;font-weight:600;'>⚠ Promoter pledge "
+            f"{veto['pledge_pct']:.1f}% — governance risk</span>",
+            unsafe_allow_html=True,
+        )
+    elif veto["status"] == "clean":
+        st.caption("✓ Promoter pledge: clean (0%)")
+    elif veto["status"] == "low":
+        st.caption(f"Promoter pledge: {veto['pledge_pct']:.1f}%")
+    else:
+        st.caption("Promoter pledge: not fetched (Scanner Hub → Fetch pledge %)")
+
+    for f in res["flags"]:
+        if "governance" not in f:                # already surfaced above
+            st.caption(f"• {f}")
+
+
+def _render_layer4_panel() -> None:
+    st.markdown("#### Smart-Money Confluence  ·  Layer 4")
+    st.caption(
+        "Is institutional money behind this name? Slow-flow (ownership trend) + "
+        "live tape (block/bulk deals + OI regime), with promoter pledge as a "
+        "governance veto. Confirmation-only — never a standalone entry."
+    )
+    c1, c2 = st.columns([3, 2])
+    with c1:
+        sym = st.text_input(
+            "Symbol", value=st.session_state.get("selected_symbol", ""),
+            key="l4_symbol", placeholder="e.g. RELIANCE",
+        ).strip().upper().replace(".NS", "")
+    with c2:
+        include_fast = st.toggle(
+            "Include live tape", value=False, key="l4_fast",
+            help="Fetches today's bulk/block deals + F&O OI (cached ~1h). "
+                 "Slower on first load; needed for a two-sided verdict.",
+        )
+    if not sym:
+        st.info("Enter a symbol to read its institutional footprint.")
+        return
+
+    ohlcv = None
+    try:
+        ohlcv = cached_fetch_ohlcv(sym, days=90)
+    except Exception:
+        ohlcv = None
+
+    deals_summary = oi_rec = None
+    if include_fast:
+        with st.spinner("Loading live tape (deals + OI)…"):
+            try:
+                _oi_recs, _ = cached_oi_momentum_scan(include_no_read=True)
+                oi_rec = next((r for r in _oi_recs if r.get("symbol") == sym), None)
+            except Exception:
+                oi_rec = None
+            try:
+                _deals = cached_normalized_deals()
+                if _deals is not None and not _deals.empty:
+                    _slice = _deals[_deals["symbol"] == sym]
+                    if not _slice.empty:
+                        deals_summary = bdi.summarize_company(sym, _slice)
+            except Exception:
+                deals_summary = None
+
+    res = smm.smart_money(sym, deals_summary=deals_summary, oi=oi_rec, ohlcv=ohlcv)
+    _render_smart_money_result(res, include_fast)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Strategy Hub
 # Three-section page mirroring StockEdge's analytics layout:
 #   1. Chart Patterns — recent major-stock detections with outcome tracking
@@ -9513,6 +9674,10 @@ if current_page == "Strategy Hub":
         f"</div>",
         unsafe_allow_html=True,
     )
+
+    # ── Smart-Money Confluence (Layer 4) — live, per-symbol ───────────────────
+    with st.container(border=True):
+        _render_layer4_panel()
 
     # ── 1. Chart Patterns ─────────────────────────────────────────────────────
     with st.container(border=True):
