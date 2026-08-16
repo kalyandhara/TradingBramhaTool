@@ -4406,6 +4406,18 @@ if current_page == "Scanner Hub":
     letter-spacing: .06em; color: #7a6858; margin: 14px 0 6px;
     padding-bottom: 4px; border-bottom: 1px solid #f0e0cc;
 }
+/* Tighten gap between card div and the ▶ button beneath it */
+div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
+    > div[data-testid="stMarkdownContainer"] + div[data-testid="stButton"] {
+    margin-top: -8px;
+}
+div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
+    > div[data-testid="stButton"] > button {
+    border-radius: 0 0 8px 8px !important;
+    border-top: none !important;
+    font-size: 12px !important;
+    padding: 3px 8px !important;
+}
 </style>""", unsafe_allow_html=True)
         for cat in ["Pattern", "Momentum", "Trend", "Entry", "Risk"]:
             if cat not in by_cat:
@@ -4421,39 +4433,30 @@ if current_page == "Scanner Hub":
                     _border = (f"2px solid {rs.TOKENS['accent']}" if _is_sel
                                else f"1px solid {rs.TOKENS['border']}")
                     _bg = rs.TOKENS["accent_soft"] if _is_sel else rs.TOKENS["surface"]
+                    # Card: name + description. Flat bottom edge merges with ▶ button below.
                     st.markdown(
-                        f'<div style="border:{_border};border-radius:8px;'
-                        f'padding:10px 12px 6px;background:{_bg};'
-                        f'margin-bottom:4px;min-height:80px;">'
+                        f'<div style="border:{_border};border-bottom:none;'
+                        f'border-radius:8px 8px 0 0;'
+                        f'padding:10px 12px 10px;background:{_bg};min-height:80px;">'
                         f'<div style="font-size:13px;'
                         f'font-weight:{"700" if _is_sel else "600"};'
                         f'color:{rs.TOKENS["accent"] if _is_sel else rs.TOKENS["text"]};'
-                        f'margin-bottom:4px;line-height:1.3;">{_cname}</div>'
+                        f'margin-bottom:5px;line-height:1.3;">{_cname}</div>'
                         f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};'
-                        f'line-height:1.4;">{_short}</div></div>',
+                        f'line-height:1.4;">{_short}</div>'
+                        f'</div>',
                         unsafe_allow_html=True,
                     )
-                    _btn_a, _btn_b = st.columns([3, 1])
-                    with _btn_a:
-                        if st.button(
-                            "Selected" if _is_sel else "Select",
-                            key=f"hub_sel_{_cname}",
-                            use_container_width=True,
-                            type="primary" if _is_sel else "secondary",
-                        ):
-                            st.session_state["hub_scanner"] = _cname
-                            st.session_state.pop("hub_results", None)
-                            st.rerun()
-                    with _btn_b:
-                        if st.button(
-                            "▶",
-                            key=f"hub_run_now_{_cname}",
-                            help=f"Run {_cname} now",
-                            type="primary" if _is_sel else "secondary",
-                            use_container_width=True,
-                        ):
-                            st.session_state["hub_scanner"] = _cname
-                            _hub_run_immediately = _cname
+                    # ▶ Run button fused to card bottom — no Select button
+                    if st.button(
+                        "▶  Run" if _is_sel else "▶",
+                        key=f"hub_run_now_{_cname}",
+                        help=f"Select and run {_cname}",
+                        type="primary" if _is_sel else "secondary",
+                        use_container_width=True,
+                    ):
+                        st.session_state["hub_scanner"] = _cname
+                        _hub_run_immediately = _cname
 
     st.divider()
     st.caption(sc.SCANNERS[selected_scanner]["description"])
