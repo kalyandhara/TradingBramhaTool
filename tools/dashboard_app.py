@@ -2879,26 +2879,39 @@ def _card_trade_fundamentals_html(sym: str, card: dict) -> str:
 
 def _render_scanner_card(card: dict, scanner_name: str) -> None:
     sym = card["symbol"]
+    sym_clean = sym.upper().replace(".NS", "")
     pattern_type = card.get("pattern_type", scanner_name)
 
-    # ── Inline action icons (↗ Analyze, 👁 Chart) ──────────────────────────
-    def _icon_link(href: str, glyph: str, tip: str) -> str:
+    # ── Inline action icons (header row, all open in new tab) ─────────────
+    def _icon_link(href: str, glyph: str, tip: str, small: bool = False) -> str:
+        sz = "11px" if small else "13px"
+        w = "22px" if small else "24px"
         return (
             f'<a href="{href}" target="_blank" rel="noopener" title="{tip}"'
             f' style="display:inline-flex;align-items:center;justify-content:center;'
-            f'width:24px;height:24px;border-radius:6px;text-decoration:none;'
-            f'font-size:13px;line-height:1;background:#f7efe3;'
-            f'color:#d97706;border:1px solid #f0e0cc;margin-left:5px;">'
+            f'width:{w};height:{w};border-radius:6px;text-decoration:none;'
+            f'font-size:{sz};line-height:1;background:#f7efe3;'
+            f'color:#d97706;border:1px solid #f0e0cc;margin-left:4px;">'
             f'{glyph}</a>'
         )
 
     action_icons = ""
-    _an = _analyze_url(sym)
-    if _an:
-        action_icons += _icon_link(_an, "↗", "Analyze — open the 3-POV Council")
     _ch = _chart_url(sym)
     if _ch:
-        action_icons += _icon_link(_ch, "👁", "Open in Chart Tool")
+        action_icons += _icon_link(_ch, "👁", "Chart Tool (in-app)")
+    _an = _analyze_url(sym)
+    if _an:
+        action_icons += _icon_link(_an, "↗", "Stock Analyzer (in-app)")
+    # External links
+    _tv_url = f"https://www.tradingview.com/chart/?symbol=NSE%3A{sym_clean}"
+    action_icons += _icon_link(_tv_url, "📈", "Open on TradingView")
+    _sc_url = f"https://www.screener.in/company/{sym_clean}/consolidated/"
+    action_icons += _icon_link(_sc_url, "S", "Open on Screener.in", small=True)
+    _gf_url = f"https://www.google.com/finance/quote/{sym_clean}:NSE"
+    action_icons += _icon_link(_gf_url, "G", "Open on Google Finance", small=True)
+    _tweet = (f"https://twitter.com/intent/tweet?text=%23{sym_clean}+%23NSE+"
+              f"{pattern_type.replace(' ', '+')}+scanner+hit+via+%23TradingBramha")
+    action_icons += _icon_link(_tweet, "𝕏", "Share on X / Twitter", small=True)
 
     # Tags shown as a compact row of muted spans
     metrics_html = "  ·  ".join(
@@ -2970,11 +2983,35 @@ def _render_scanner_card(card: dict, scanner_name: str) -> None:
         f'</div>',
         unsafe_allow_html=True,
     )
-    # Save button — must remain a Streamlit widget (triggers server callback).
-    if st.button("★ Save", key=f"sc_s_{sym}_{scanner_name}",
-                 help=f"Save {sym} to the saved hits list"):
-        db.save_scanner_hit(sym, scanner_name, card.get("pattern_type", ""))
-        st.success(f"Saved {sym}")
+    # Action buttons row — Streamlit widgets (server callbacks)
+    _b1, _b2, _b3, _b4 = st.columns(4)
+    with _b1:
+        if st.button("★", key=f"sc_s_{sym}_{scanner_name}",
+                     help=f"Save {sym} to scanner hits",
+                     use_container_width=True):
+            db.save_scanner_hit(sym, scanner_name, card.get("pattern_type", ""))
+            st.toast(f"★ Saved {sym_clean}")
+    with _b2:
+        if st.button("♥", key=f"sc_wl_{sym}_{scanner_name}",
+                     help=f"Add {sym_clean} to Watchlist",
+                     use_container_width=True):
+            db.add_watchlist_symbol(sym_clean, f"Scanner Hub — {scanner_name}")
+            st.toast(f"♥ {sym_clean} → Watchlist")
+    with _b3:
+        if st.button("↗", key=f"sc_an_{sym}_{scanner_name}",
+                     help=f"Open {sym_clean} in Stock Analyzer",
+                     use_container_width=True):
+            st.session_state["current_page"] = "Stock Analyzer"
+            st.session_state["sa_symbol_override"] = sym_clean
+            st.rerun()
+    with _b4:
+        if st.button("⊕", key=f"sc_ro_{sym}_{scanner_name}",
+                     help=f"Add {sym_clean} to Analyzer Roster (batch queue)",
+                     use_container_width=True):
+            roster = st.session_state.setdefault("sa_roster", [])
+            if sym_clean not in roster:
+                roster.append(sym_clean)
+            st.toast(f"⊕ {sym_clean} → Roster ({len(roster)})")
 
 
 def _render_export_controls(model: dict, key: str) -> None:
@@ -3296,6 +3333,29 @@ if current_page == "Screener":
 # ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Stock Analyzer":
     st.subheader("Individual Stock Analyzer")
+
+    # Consume symbol pushed from Scanner Hub card "↗ Analyze" button
+    _sa_override = st.session_state.pop("sa_symbol_override", None)
+    if _sa_override:
+        st.session_state["selected_symbol"] = _sa_override
+        st.session_state["last_analyzed"] = _sa_override
+
+    # Show Analyzer Roster if any symbols queued from Scanner Hub cards
+    _sa_roster = st.session_state.get("sa_roster", [])
+    if _sa_roster:
+        with st.expander(f"Analyzer Roster — {len(_sa_roster)} symbol(s)", expanded=True):
+            _rc = st.columns(min(len(_sa_roster), 6))
+            for _ri, _rsym in enumerate(_sa_roster):
+                with _rc[_ri % 6]:
+                    if st.button(_rsym, key=f"roster_pick_{_rsym}",
+                                 use_container_width=True,
+                                 help=f"Analyze {_rsym}"):
+                        st.session_state["selected_symbol"] = _rsym
+                        st.session_state["last_analyzed"] = _rsym
+                        st.rerun()
+            if st.button("✕ Clear roster", key="roster_clear"):
+                st.session_state["sa_roster"] = []
+                st.rerun()
 
     screener_symbols = sorted(st.session_state["screener_results"]["Symbol"].unique()) \
         if st.session_state.get("screener_results") is not None else []
@@ -5120,16 +5180,79 @@ if __name__ == "__main__":
                 sort_label = "breakout duration (longest first)"
 
             filt_note = "" if len(shown) == len(hits) else f" ({len(hits)} matched)"
-            st.caption(f"Showing {len(shown)} stocks{filt_note} · sorted by {sort_label}")
             if not shown:
                 st.info("No stocks match the current filter pills — widen the filter above.")
-            cols_n = 3
-            for i in range(0, len(shown), cols_n):
-                batch = shown[i:i + cols_n]
-                cols = st.columns(cols_n)
-                for col, card in zip(cols, batch):
-                    with col:
-                        _render_scanner_card(card, selected_scanner)
+            else:
+                # ── Pagination ────────────────────────────────────────────────
+                _PAGE_SZ = 30
+                _total_cards = len(shown)
+                _total_pages = max(1, (_total_cards + _PAGE_SZ - 1) // _PAGE_SZ)
+                # Reset page when scanner or filter changes
+                _pg_key = f"hub_page_{selected_scanner}"
+                _page = st.session_state.get(_pg_key, 0)
+                if _page >= _total_pages:
+                    _page = 0
+                    st.session_state[_pg_key] = 0
+                _page_start = _page * _PAGE_SZ
+                _page_shown = shown[_page_start: _page_start + _PAGE_SZ]
+
+                # Caption + roster badge
+                _roster = st.session_state.get("sa_roster", [])
+                _roster_badge = (f" · **{len(_roster)} in roster**" if _roster else "")
+                st.caption(
+                    f"Showing {_total_cards} stocks{filt_note} · sorted by {sort_label}"
+                    f" · page {_page + 1}/{_total_pages}{_roster_badge}"
+                )
+
+                # Card grid
+                cols_n = 3
+                for i in range(0, len(_page_shown), cols_n):
+                    batch = _page_shown[i:i + cols_n]
+                    cols = st.columns(cols_n)
+                    for col, card in zip(cols, batch):
+                        with col:
+                            _render_scanner_card(card, selected_scanner)
+
+                # Pagination controls
+                if _total_pages > 1:
+                    _pc1, _pc2, _pc3, _pc4, _pc5 = st.columns([1, 1, 2, 1, 1])
+                    with _pc1:
+                        if st.button("⏮", key="hub_pg_first",
+                                     disabled=_page == 0,
+                                     help="First page",
+                                     use_container_width=True):
+                            st.session_state[_pg_key] = 0
+                            st.rerun()
+                    with _pc2:
+                        if st.button("◀", key="hub_pg_prev",
+                                     disabled=_page == 0,
+                                     help="Previous page",
+                                     use_container_width=True):
+                            st.session_state[_pg_key] = _page - 1
+                            st.rerun()
+                    with _pc3:
+                        _jump = st.number_input(
+                            "Go to page", min_value=1, max_value=_total_pages,
+                            value=_page + 1, step=1, key="hub_pg_jump",
+                            label_visibility="collapsed",
+                        )
+                        if int(_jump) - 1 != _page:
+                            st.session_state[_pg_key] = int(_jump) - 1
+                            st.rerun()
+                    with _pc4:
+                        if st.button("▶", key="hub_pg_next",
+                                     disabled=_page >= _total_pages - 1,
+                                     help="Next page",
+                                     use_container_width=True):
+                            st.session_state[_pg_key] = _page + 1
+                            st.rerun()
+                    with _pc5:
+                        if st.button("⏭", key="hub_pg_last",
+                                     disabled=_page >= _total_pages - 1,
+                                     help="Last page",
+                                     use_container_width=True):
+                            st.session_state[_pg_key] = _total_pages - 1
+                            st.rerun()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
