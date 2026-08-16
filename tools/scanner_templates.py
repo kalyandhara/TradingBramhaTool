@@ -5569,6 +5569,19 @@ def fetch_fundamentals_yf(symbol: str, use_cache: bool = True) -> dict | None:
     rev_g  = info.get("revenueGrowth")     # annual revenue growth (0-based fraction)
     earn_g = info.get("earningsGrowth")    # annual earnings growth (0-based fraction)
 
+    # EPS / EBITDA / revenue (login-free, from .info). EBITDA + revenue come in
+    # absolute rupees → crore; EPS is already per-share. Cash-flow margin = OCF as
+    # a % of revenue (both to ₹cr first so the ratio is unit-consistent).
+    eps      = info.get("trailingEps")
+    ebitda   = info.get("ebitda")
+    revenue  = info.get("totalRevenue")
+    ebitda_cr  = round(ebitda / 1e7) if ebitda else None
+    revenue_cr = round(revenue / 1e7) if revenue else None
+    cf_margin_pct = (
+        round(ocf_cr / revenue_cr * 100.0, 1)
+        if (ocf_cr is not None and revenue_cr) else None
+    )
+
     out = {
         "market_cap_cr": round(mc / 1e7) if mc else None,
         "de_ratio": round(de / 100.0, 3) if de is not None else None,
@@ -5580,6 +5593,11 @@ def fetch_fundamentals_yf(symbol: str, use_cache: bool = True) -> dict | None:
         "peg_src": peg_src,
         "fcf_cr": fcf_cr,    # free cash flow (OCF − CapEx) in ₹ crore, most recent FY
         "ocf_cr": ocf_cr,    # operating cash flow in ₹ crore
+        "eps": round(eps, 2) if eps is not None else None,          # trailing EPS (₹/share)
+        "ebitda_cr": ebitda_cr,          # EBITDA in ₹ crore
+        "revenue_cr": revenue_cr,        # total revenue in ₹ crore
+        "cf_margin_pct": cf_margin_pct,  # operating cash-flow margin = OCF ÷ revenue %
+        "pledge_pct": None,  # promoter pledge % — not in yfinance; set by a Screener source if wired
         # Growth metrics for PEAD pre-filter (annual; yfinance earningsGrowth /
         # revenueGrowth are annual fractions — *100 to match screener.in % convention).
         "revenue_growth_pct":  round(rev_g  * 100.0, 1) if rev_g  is not None else None,

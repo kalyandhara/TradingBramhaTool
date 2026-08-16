@@ -22,6 +22,7 @@ Output: screener_export_<date>.csv in the shape sector_rotation.py expects
 """
 
 import sys
+import json
 import time
 import logging
 from datetime import datetime
@@ -228,6 +229,97 @@ def fetch_fundamental_safe_symbols(
     session = _session(sessionid)
     rows = fetch_all_results(session, query)
     return {row["_slug"].upper() for row in rows if row.get("_slug")}
+
+
+# ── Per-symbol promoter pledge % (value, not just a pass/fail set) ────────────
+# fetch_fundamental_safe_symbols above returns a SET of symbols under a pledge
+# threshold — enough for a gate, but the scanner cards want the actual number.
+# These read the "Pledged Percentage" sub-row of the company page's shareholding
+# table (present in the server-rendered #quarterly-shp DOM even when collapsed)
+# and cache it on disk, since pledge is quarterly data that changes rarely.
+PLEDGE_CACHE_DIR = Path(__file__).resolve().parent / "cache" / "pledge"
+
+
+def _pledge_cache_path(symbol: str) -> Path:
+    return PLEDGE_CACHE_DIR / f"{symbol.upper().replace('.NS', '')}.json"
+
+
+def read_pledge_cache(symbol: str, max_age_days: int = 45) -> dict | None:
+    """Pure disk read (NO network) of a symbol's cached pledge record, or None if
+    absent/stale. Record shape: {pledge_pct, as_of, fetched_at}. Safe to call on
+    every card render — it never touches screener.in."""
+    p = _pledge_cache_path(symbol)
+    if not p.exists():
+        return None
+    try:
+        rec = json.loads(p.read_text(encoding="utf-8"))
+    except Exception:
+        return None
+    fetched = rec.get("fetched_at")
+    if fetched:
+        try:
+            if (datetime.now() - datetime.fromisoformat(fetched)).days > max_age_days:
+                return None
+        except Exception:
+            pass
+    return rec
+
+
+def _write_pledge_cache(symbol: str, pledge_pct, as_of) -> dict:
+    PLEDGE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+    rec = {"pledge_pct": pledge_pct, "as_of": as_of,
+           "fetched_at": datetime.now().isoformat(timespec="seconds")}
+    _pledge_cache_path(symbol).write_text(json.dumps(rec), encoding="utf-8")
+    return rec
+
+
+def fetch_pledge_pct(session: requests.Session, slug: str) -> tuple[float | None, str | None]:
+    """Latest promoter-pledge % for a company from its screener.in page, and the
+    quarter it is as-of. Raises on a page-fetch failure so the caller can skip
+    caching; returns (0.0, None) when the page loads but has no pledge row —
+    screener omits that row when promoters have no pledge, so absent = unpledged.
+    """
+    soup = fetch_company_page(session, slug)
+    if soup is None:
+        raise RuntimeError(f"company page fetch failed for {slug}")
+    pdict = _parse_quarterly_holding(soup, "Pledge")
+    if not pdict:
+        return 0.0, None
+    last_q = list(pdict.keys())[-1]     # dict preserves left→right column order
+    return pdict[last_q], last_q
+
+
+def refresh_pledge(symbols, sessionid: str, max_age_days: int = 45,
+                   throttle: float = 1.5, limit: int | None = None) -> dict[str, dict]:
+    """Ensure each symbol has a fresh pledge record on disk, fetching ONLY the
+    stale/missing ones (cached hits cost no network). Returns {symbol: record}
+    for every symbol resolved from cache or a live fetch. `limit` caps how many
+    live fetches happen this call, so a huge universe fills the cache over
+    several runs rather than hammering screener.in in one go."""
+    session = _session(sessionid)
+    out: dict[str, dict] = {}
+    seen: set[str] = set()
+    fetched = 0
+    for raw in symbols:
+        sym = str(raw).upper().replace(".NS", "").strip()
+        if not sym or sym in seen:
+            continue
+        seen.add(sym)
+        cached = read_pledge_cache(sym, max_age_days=max_age_days)
+        if cached is not None:
+            out[sym] = cached
+            continue
+        if limit is not None and fetched >= limit:
+            continue
+        try:
+            pct, as_of = fetch_pledge_pct(session, sym)
+        except Exception as e:
+            log.warning("[%s] pledge fetch skipped: %s", sym, e)
+            continue
+        out[sym] = _write_pledge_cache(sym, pct, as_of)
+        fetched += 1
+        time.sleep(throttle)
+    return out
 
 
 def fetch_high_growth_stocks(

@@ -135,6 +135,238 @@ def _with_analyze_col(df, symbol_col: str, after: str | None = "Chart"):
     out.insert(pos, "Analyze", urls)
     return out
 
+
+# ── Chart-icon family for dataframes ──────────────────────────────────────────
+# st.dataframe cells can't render the card's HTML action-icon row, so the same
+# family (in-app Chart 👁 / Analyze ↗ + TradingView / Screener / Google Finance)
+# is surfaced as a set of LinkColumns. display_text keeps a word alongside the
+# emoji — emoji-ONLY display_text triggers Streamlit's spurious edit-pencil bug.
+_CHART_FAMILY_COLS = ["Chart", "Analyze", "TView", "Screener", "GFin"]
+
+
+def _chart_family_urls(sym) -> dict[str, "str | None"]:
+    s = str(sym).strip().upper().replace(".NS", "")
+    if not s or s.startswith("^"):
+        return {c: None for c in _CHART_FAMILY_COLS}
+    return {
+        "Chart":    _chart_url(sym),
+        "Analyze":  _analyze_url(sym),
+        "TView":    f"https://www.tradingview.com/chart/?symbol=NSE%3A{s}",
+        "Screener": f"https://www.screener.in/company/{s}/consolidated/",
+        "GFin":     f"https://www.google.com/finance/quote/{s}:NSE",
+    }
+
+
+def _with_chart_family(df, symbol_col: str):
+    """Return a copy of df with the card's chart-icon family appended as
+    LinkColumns, keyed off the symbols in `symbol_col`."""
+    out = df.copy()
+    fam = [_chart_family_urls(s) for s in out[symbol_col]]
+    for c in _CHART_FAMILY_COLS:
+        out[c] = [f[c] for f in fam]
+    return out
+
+
+def _chart_family_colcfg() -> dict:
+    return {
+        "Chart":    st.column_config.LinkColumn(
+            "Chart", help="Chart Tool (in-app, :5001)",
+            display_text="👁 Chart", width="small"),
+        "Analyze":  st.column_config.LinkColumn(
+            "Analyze", help="Stock Analyzer (in-app)",
+            display_text="↗ Analyze", width="small"),
+        "TView":    st.column_config.LinkColumn(
+            "TView", help="Open on TradingView",
+            display_text="📈 TV", width="small"),
+        "Screener": st.column_config.LinkColumn(
+            "Screener", help="Open on Screener.in",
+            display_text="📊 Screener", width="small"),
+        "GFin":     st.column_config.LinkColumn(
+            "GFin", help="Open on Google Finance",
+            display_text="G Finance", width="small"),
+    }
+
+
+# ── Shareable "copy as card" for Telegram / social ────────────────────────────
+# st.dataframe can't be copied with links intact, so we build a self-contained
+# HTML card (inline styles + <a> links → survive a rich-text paste into Telegram,
+# email, etc.) and a plain-text twin (URLs spelled out → survives platforms that
+# strip HTML, e.g. WhatsApp/X). Symbol links point at PUBLIC destinations only
+# (TradingView / Screener) — never the localhost :5001 chart, which is useless to
+# a recipient.
+def _share_card_html(title: str, subtitle: str, items: list[dict]) -> tuple[str, str]:
+    """Build (card_html, plain_text) from row items.
+    Each item: {label, sym, score, meta} — any field optional."""
+    rows_html: list[str] = []
+    rows_txt: list[str] = []
+    for it in items:
+        label = it.get("label") or ""
+        sym = it.get("sym") or ""
+        score = it.get("score")
+        meta = it.get("meta") or ""
+        tv = _chart_family_urls(sym).get("TView") if sym else None
+
+        parts = []
+        if label:
+            parts.append(f'<span style="font-weight:700;">{label}</span>')
+        if sym:
+            link = (f'<a href="{tv}" style="color:#ea580c;text-decoration:none;'
+                    f'font-weight:600;">{sym}</a>') if tv else f'<b>{sym}</b>'
+            parts.append(("— " if label else "") + link)
+        if score is not None and score != "":
+            parts.append(f'<span style="color:#16a34a;font-weight:600;">{score}</span>')
+        if meta:
+            parts.append(f'<span style="color:#8a7a68;">· {meta}</span>')
+        rows_html.append(
+            '<div style="padding:5px 0;border-top:1px solid #f1e9dd;font-size:13px;'
+            f'color:#3a2a1e;">{" ".join(parts)}</div>'
+        )
+
+        tparts = [p for p in (label, sym, ("" if score in (None, "") else str(score)),
+                              (f"({meta})" if meta else "")) if p]
+        line = " ".join(tparts)
+        rows_txt.append(line + (f"\n{tv}" if tv else ""))
+
+    card_html = (
+        '<div style="font-family:\'Segoe UI\',system-ui,sans-serif;'
+        'border:1px solid #f0e0cc;border-radius:12px;padding:14px 16px;'
+        'max-width:560px;background:#fffdfa;">'
+        f'<div style="font-weight:700;font-size:15px;color:#ea580c;">{title}</div>'
+        f'<div style="font-size:11px;color:#8a7a68;margin-bottom:4px;">{subtitle}</div>'
+        + "".join(rows_html)
+        + '<div style="margin-top:8px;font-size:10px;color:#b0a290;">'
+          'via Trading Bramha</div>'
+        '</div>'
+    )
+    plain_text = f"{title}\n{subtitle}\n" + "\n".join(rows_txt) + "\n— via Trading Bramha"
+    return card_html, plain_text
+
+
+def _render_copy_card(card_html: str, plain_text: str, key: str) -> None:
+    """Render the card as a live preview + a Copy button. Copy uses an
+    execCommand selection first (reliable inside Streamlit's iframe), then falls
+    back to the async Clipboard API with an explicit text/html + text/plain item."""
+    import json as _json
+    plain_js = _json.dumps(plain_text)
+    n_rows = card_html.count('border-top:1px solid')
+    height = 150 + min(n_rows, 60) * 24
+    components.html(
+        f"""
+        <div id="tbcard-{key}">{card_html}</div>
+        <div style="margin-top:10px;">
+          <button id="tbbtn-{key}" onclick="tbCopy_{key}()"
+            style="background:#ea580c;color:#fff;border:none;border-radius:8px;
+                   padding:7px 14px;cursor:pointer;font-size:13px;font-weight:600;">
+            📋 Copy card
+          </button>
+          <span id="tbmsg-{key}" style="margin-left:10px;font-size:12px;color:#16a34a;"></span>
+        </div>
+        <script>
+        function tbCopy_{key}() {{
+          var card = document.getElementById('tbcard-{key}');
+          var msg  = document.getElementById('tbmsg-{key}');
+          var plain = {plain_js};
+          var html = card.innerHTML;
+          function ok()  {{ msg.style.color='#16a34a';
+                            msg.textContent='✓ Copied — paste into Telegram / email'; }}
+          function bad() {{ msg.style.color='#b45309';
+                            msg.textContent='⚠ Blocked — select the card and press Ctrl+C'; }}
+          try {{
+            var range = document.createRange();
+            range.selectNode(card);
+            var sel = window.getSelection();
+            sel.removeAllRanges(); sel.addRange(range);
+            var done = document.execCommand('copy');
+            sel.removeAllRanges();
+            if (done) {{ ok(); return; }}
+          }} catch (e) {{}}
+          if (navigator.clipboard && window.ClipboardItem) {{
+            var item = new ClipboardItem({{
+              'text/html':  new Blob([html],  {{type:'text/html'}}),
+              'text/plain': new Blob([plain], {{type:'text/plain'}})
+            }});
+            navigator.clipboard.write([item]).then(ok, bad);
+          }} else {{ bad(); }}
+        }}
+        </script>
+        """,
+        height=height,
+        scrolling=True,
+    )
+
+
+def _share_card_plain(title: str, subtitle: str, items: list[dict],
+                      bullet: str = "•") -> str:
+    """Emoji-bulleted plain text — no HTML at all — for WhatsApp / Telegram,
+    which strip rich cards. URLs go on their own line so every client makes
+    them tappable."""
+    lines = [title, subtitle, ""]
+    for it in items:
+        label = it.get("label") or ""
+        sym = it.get("sym") or ""
+        score = it.get("score")
+        meta = it.get("meta") or ""
+        tv = _chart_family_urls(sym).get("TView") if sym else None
+        head = f"{label} — {sym}" if (label and sym) else (label or sym)
+        tail = " · ".join(
+            p for p in (("" if score in (None, "") else str(score)), meta) if p
+        )
+        lines.append(f"{bullet} {head}" + (f" · {tail}" if tail else ""))
+        if tv:
+            lines.append(f"   {tv}")
+    lines.append("— via Trading Bramha")
+    return "\n".join(lines)
+
+
+def _render_copy_plain(text: str, key: str) -> None:
+    """Read-only preview box + a Copy button for the plain-text share format."""
+    import json as _json
+    txt_js = _json.dumps(text)
+    esc = text.replace("&", "&amp;").replace("<", "&lt;").replace(">", "&gt;")
+    n_lines = text.count("\n") + 1
+    ta_h = min(n_lines, 40) * 18 + 20
+    height = ta_h + 70
+    components.html(
+        f"""
+        <textarea id="tbpl-{key}" readonly
+          style="width:100%;box-sizing:border-box;height:{ta_h}px;
+                 font-family:ui-monospace,Consolas,monospace;font-size:12px;
+                 line-height:1.5;border:1px solid #f0e0cc;border-radius:10px;
+                 padding:10px;background:#fffdfa;color:#3a2a1e;resize:vertical;"
+          >{esc}</textarea>
+        <div style="margin-top:8px;">
+          <button id="tbplbtn-{key}" onclick="tbPlain_{key}()"
+            style="background:#0ea5e9;color:#fff;border:none;border-radius:8px;
+                   padding:7px 14px;cursor:pointer;font-size:13px;font-weight:600;">
+            💬 Copy plain text
+          </button>
+          <span id="tbplmsg-{key}" style="margin-left:10px;font-size:12px;color:#16a34a;"></span>
+        </div>
+        <script>
+        function tbPlain_{key}() {{
+          var ta  = document.getElementById('tbpl-{key}');
+          var msg = document.getElementById('tbplmsg-{key}');
+          var txt = {txt_js};
+          function ok()  {{ msg.style.color='#16a34a';
+                            msg.textContent='✓ Copied — paste into WhatsApp / Telegram'; }}
+          function bad() {{ msg.style.color='#b45309';
+                            msg.textContent='⚠ Blocked — tap the box and press Ctrl+C'; }}
+          try {{
+            ta.focus(); ta.select();
+            var done = document.execCommand('copy');
+            ta.setSelectionRange(0, 0); ta.blur();
+            if (done) {{ ok(); return; }}
+          }} catch (e) {{}}
+          if (navigator.clipboard) {{ navigator.clipboard.writeText(txt).then(ok, bad); }}
+          else {{ bad(); }}
+        }}
+        </script>
+        """,
+        height=height,
+        scrolling=True,
+    )
+
+
 # FR-0 style primitive — one token block for every HTML surface on the page.
 # Injected once, before anything that calls the rs.* helpers.
 st.markdown(rs.report_css(), unsafe_allow_html=True)
@@ -2862,15 +3094,57 @@ def _card_trade_fundamentals_html(sym: str, card: dict) -> str:
             parts.append(_cell("T2", f"₹{t2:,.1f}", "#16a34a"))
             parts.append(_cell("T3", f"₹{t3:,.1f}", "#16a34a"))
 
-    # PE — from cached fundamentals (yfinance .info; hits disk cache, not network)
+    # Fundamentals — from cached yfinance .info (disk cache, not network).
     try:
         fund = sc.fetch_fundamentals_yf(sym) or {}
-        pe = fund.get("pe")
     except Exception:
-        pe = None
+        fund = {}
+
+    pe = fund.get("pe")
     if pe is not None:
         pe_color = "#b45309" if pe > 40 else ("#16a34a" if pe < 20 else "#5c4a3a")
         parts.append(_cell("PE", f"{pe:.1f}×", pe_color))
+
+    # PEG — <1 cheap-for-growth (green), >2 pricey (amber). 'calc' = derived from
+    # PE/earnings-growth rather than the vendor's own ratio (marked with ~).
+    peg = fund.get("peg")
+    if peg is not None:
+        peg_color = "#16a34a" if peg < 1 else ("#b45309" if peg > 2 else "#5c4a3a")
+        peg_txt = f"{'~' if fund.get('peg_src') == 'calc' else ''}{peg:.2f}"
+        parts.append(_cell("PEG", peg_txt, peg_color))
+
+    eps = fund.get("eps")
+    if eps is not None:
+        parts.append(_cell("EPS", f"₹{eps:,.2f}", "#16a34a" if eps > 0 else "#b45309"))
+
+    ebitda_cr = fund.get("ebitda_cr")
+    if ebitda_cr is not None:
+        # ≥1 lakh-crore → abbreviate to "L Cr", else plain "₹N Cr".
+        _eb = (f"₹{ebitda_cr / 1e5:,.2f}L Cr" if abs(ebitda_cr) >= 1e5
+               else f"₹{ebitda_cr:,.0f} Cr")
+        parts.append(_cell("EBITDA", _eb, "#16a34a" if ebitda_cr > 0 else "#b45309"))
+
+    # Cash-flow margin (OCF ÷ revenue). Positive & fat = cash-generative (green);
+    # negative = burning operating cash (amber).
+    cfm = fund.get("cf_margin_pct")
+    if cfm is not None:
+        parts.append(_cell("CF%", f"{cfm:.1f}%",
+                           "#16a34a" if cfm > 0 else "#b45309"))
+
+    # Promoter pledge — not in yfinance. Read the screener.in disk cache (pure
+    # local read, no network); populated by the Scanner Hub "Fetch pledge %"
+    # button. High pledge is a risk flag → red above 5%.
+    pledge = fund.get("pledge_pct")
+    if pledge is None:
+        try:
+            _plrec = ss.read_pledge_cache(sym)
+            if _plrec is not None:
+                pledge = _plrec.get("pledge_pct")
+        except Exception:
+            pledge = None
+    if pledge is not None:
+        parts.append(_cell("Pledge", f"{pledge:.1f}%",
+                           "#dc2626" if pledge > 5 else "#16a34a"))
 
     if not parts:
         return ""
@@ -5026,10 +5300,98 @@ if __name__ == "__main__":
                 f"{len(_pl_empty)} scanners empty"
             )
 
+            # ── Promoter pledge % enrichment (screener.in) ────────────────
+            # yfinance has no pledge field; this fetches it per symbol from
+            # screener.in (quarterly, disk-cached ~45 days) so the cards can
+            # show a Pledge cell. Prioritises confluence symbols and caps live
+            # fetches per click so a big universe fills the cache over runs
+            # instead of hammering screener in one go.
+            with st.expander("🔒 Promoter pledge % (screener.in)", expanded=False):
+                from collections import Counter as _PCounter
+                _pl_all_counts = _PCounter(
+                    c["symbol"] for cards in _pl_res.values() for c in cards
+                )
+                # confluence symbols first (most scanners → most interesting)
+                _pl_syms_ranked = [s for s, _ in _pl_all_counts.most_common()]
+                _cached_n = sum(
+                    1 for s in _pl_syms_ranked if ss.read_pledge_cache(s) is not None
+                )
+                st.caption(
+                    f"{len(_pl_syms_ranked)} unique symbols · "
+                    f"{_cached_n} already cached. Absent pledge row on "
+                    f"screener.in = treated as 0% (unpledged)."
+                )
+                _pl_cap = st.slider(
+                    "Max new fetches this click", 10, 200, 40,
+                    key="hub_pledge_cap",
+                    help="Cached symbols are free; this caps only fresh "
+                         "screener.in fetches (~1.5s each) to stay under rate limits.",
+                )
+                if st.button("Fetch pledge %", key="hub_fetch_pledge"):
+                    _sid, _br = bch.get_screener_sessionid()
+                    if not _sid:
+                        st.warning(
+                            "No screener.in `sessionid` cookie found in your local "
+                            "browsers — log into screener.in in Chrome/Edge/Firefox "
+                            "and click again."
+                        )
+                    else:
+                        with st.spinner(
+                            f"Fetching pledge % from screener.in "
+                            f"(≤{_pl_cap} new, {_br})…"
+                        ):
+                            try:
+                                _recs = ss.refresh_pledge(
+                                    _pl_syms_ranked, _sid, limit=_pl_cap,
+                                )
+                                st.session_state["hub_pledge_fetched"] = len(_recs)
+                                st.success(
+                                    f"Pledge % ready for {len(_recs)} symbols "
+                                    f"(cached). Reopen a scanner group to see the "
+                                    f"Pledge cell on cards."
+                                )
+                            except Exception as _pexc:
+                                st.error(f"screener.in pledge fetch failed: {_pexc}")
+                        st.rerun()
+
             if _pl_summary:
                 import pandas as _pd_pl
                 _sum_df = _pd_pl.DataFrame(_pl_summary).sort_values("Hits", ascending=False)
-                st.dataframe(_sum_df, hide_index=True, use_container_width=True)
+                _sum_df = _with_chart_family(_sum_df, "Top Symbol")
+                st.dataframe(
+                    _sum_df, hide_index=True, use_container_width=True,
+                    column_config=_chart_family_colcfg(),
+                )
+
+                # Shareable card — top scanners, symbol linked to TradingView
+                with st.expander("📋 Copy as shareable card (Telegram / social)",
+                                 expanded=False):
+                    _sum_n = st.slider(
+                        "Rows to include", 5, min(50, len(_pl_summary)),
+                        min(15, len(_pl_summary)), key="hub_sum_card_n",
+                    )
+                    _sum_sorted = _pd_pl.DataFrame(_pl_summary).sort_values(
+                        "Top Score", ascending=False
+                    ).head(_sum_n)
+                    _sub = (f"{_pl_cache_date or date.today().isoformat()} · "
+                            f"{len(_pl_summary)} scanners fired · {total_pl_hits} hits")
+                    _items = [
+                        {"label": r["Scanner"], "sym": r["Top Symbol"],
+                         "score": r["Top Score"], "meta": f"{r['Hits']} hits"}
+                        for r in _sum_sorted.to_dict("records")
+                    ]
+                    _sum_tabs = st.tabs(["🃏 Rich card", "💬 Plain text"])
+                    with _sum_tabs[0]:
+                        _ch, _tx = _share_card_html(
+                            "📊 Trading Bramha — Scanner Hub", _sub, _items,
+                        )
+                        _render_copy_card(_ch, _tx, key="sumcard")
+                    with _sum_tabs[1]:
+                        _pl = _share_card_plain(
+                            "📊 Trading Bramha — Scanner Hub",
+                            f"🗓 {_sub}", _items, bullet="📈",
+                        )
+                        _render_copy_plain(_pl, key="sumplain")
 
             # ── Confluence view: symbols in 2+ scanners ───────────────────
             from collections import Counter as _Counter
@@ -5051,17 +5413,58 @@ if __name__ == "__main__":
                         name for name, cards in _pl_res.items()
                         if any(c["symbol"] == sym for c in cards)
                     ]
+                    # Pledge % from the screener.in disk cache (no network) —
+                    # blank until fetched via the pledge expander above.
+                    _plrec = ss.read_pledge_cache(sym)
                     _conf_rows.append({
                         "Symbol": sym,
                         "Scanners": ", ".join(scanners_fired),
                         "Count": len(scanners_fired),
+                        "Pledge %": (_plrec.get("pledge_pct") if _plrec else None),
                     })
                 _conf_rows.sort(key=lambda r: r["Count"], reverse=True)
                 import pandas as _pd_conf
-                st.dataframe(
-                    _pd_conf.DataFrame(_conf_rows), hide_index=True,
-                    use_container_width=True,
+                _conf_df = _with_chart_family(
+                    _pd_conf.DataFrame(_conf_rows), "Symbol",
                 )
+                _conf_colcfg = {
+                    **_chart_family_colcfg(),
+                    "Pledge %": st.column_config.NumberColumn(
+                        "Pledge %", format="%.1f%%",
+                        help="Promoter pledge (screener.in). Blank = not fetched "
+                             "yet — use the pledge expander above.",
+                    ),
+                }
+                st.dataframe(
+                    _conf_df, hide_index=True, use_container_width=True,
+                    column_config=_conf_colcfg,
+                )
+
+                # Shareable card — top confluence symbols by scanner count
+                with st.expander("📋 Copy as shareable card (Telegram / social)",
+                                 expanded=False):
+                    _cf_n = st.slider(
+                        "Symbols to include", 5, min(50, len(_conf_rows)),
+                        min(15, len(_conf_rows)), key="hub_conf_card_n",
+                    )
+                    _cf_sub = (f"{_pl_cache_date or date.today().isoformat()} · "
+                               f"{len(_confluence)} symbols in 2+ scanners")
+                    _cf_items = [
+                        {"sym": r["Symbol"], "meta": f"{r['Count']} scanners"}
+                        for r in _conf_rows[:_cf_n]
+                    ]
+                    _cf_tabs = st.tabs(["🃏 Rich card", "💬 Plain text"])
+                    with _cf_tabs[0]:
+                        _cf_ch, _cf_tx = _share_card_html(
+                            "🎯 Trading Bramha — Confluence", _cf_sub, _cf_items,
+                        )
+                        _render_copy_card(_cf_ch, _cf_tx, key="confcard")
+                    with _cf_tabs[1]:
+                        _cf_pl = _share_card_plain(
+                            "🎯 Trading Bramha — Confluence",
+                            f"🗓 {_cf_sub}", _cf_items, bullet="🔸",
+                        )
+                        _render_copy_plain(_cf_pl, key="confplain")
 
             # ── Per-scanner card groups ───────────────────────────────────
             st.divider()
