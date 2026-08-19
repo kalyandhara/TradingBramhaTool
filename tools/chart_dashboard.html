@@ -17,6 +17,11 @@
      Loaded AFTER elliott_wave.js and volume_profile.js: it reads EW.computeZigzag for
      swing anchoring and VP.findConfluence for level scoring. -->
 <script src="/fibonacci.js"></script>
+<!-- Gann Square-of-9 S/R levels + honest break-odds card — pure computation, see gann.js.
+     Draws only the deterministic horizontal levels (not the scale-dependent fan); the
+     card's probability is this symbol's own historical breakout follow-through, not a
+     Gann confidence number. -->
+<script src="/gann.js"></script>
 <!-- RSI divergence (regular + hidden, both directions) — pure computation module,
      see rsi_divergence.js. Loaded AFTER elliott_wave.js for the same reason
      fibonacci.js is: it reads EW.computeZigzag so every structure tool on the
@@ -500,6 +505,20 @@ html, body {
   white-space: nowrap; display: none;
   box-shadow: 0 2px 10px rgba(0,0,0,0.22);
 }
+/* ── Gann S/R + Break Odds card ───────────────────────────────────────────── */
+/* Bottom-center so it does not collide with the top-center PMax card. Mirrors
+   the pmax-info house style. The header (S/R + the conditional break odds) is
+   the click target and survives collapse; the body holds the levels + caveat. */
+.gann-info {
+  position: absolute; bottom: 8px; left: 50%; transform: translateX(-50%); z-index: 9;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 7px;
+  padding: 7px 10px; font-size: 10.5px; line-height: 1.55; color: var(--text-chart);
+  max-width: 92%; display: none; box-shadow: 0 2px 10px rgba(0,0,0,0.22);
+}
+.gann-info .gann-head { cursor: pointer; font-weight: 700; user-select: none; }
+.gann-info.collapsed .gann-body { display: none; }
+.gann-info .gann-cav { color: var(--text-muted); font-size: 9px; margin-top: 4px; }
+.gann-info b { font-variant-numeric: tabular-nums; }
 .pmax-info .pmax-head { cursor: pointer; font-weight: 700; user-select: none; }
 .pmax-info.collapsed .pmax-body { display: none; }
 
@@ -887,6 +906,8 @@ const INDICATOR_DEFS = [
   {key:'projection',   label:'Price Projection (EW + patterns)', group:'Pattern Recognition', color:'#4c9aff'},
   {key:'fib',          label:'Fibonacci + Trade Plan (VP + Projection confluence)',
                                                      group:'Pattern Recognition', color:'#c9a227'},
+  {key:'gann',         label:'Gann S/R + Break Odds (Square-of-9 + historical follow-through)',
+                                                     group:'Pattern Recognition', color:'#d9b45b'},
   // ── Calendar ────────────────────────────────────────────────────────────────
   {key:'reversal_calendar', label:'Reversal Calendar (Yogas + Lunar)',
                                                      group:'Calendar',           color:'#ffd60a'},
@@ -2333,6 +2354,8 @@ function applyIndicators(pane) {
   if (!pane.indicators.has('projection') && pane.proj) clearProjection(pane);
   // Tear down Fibonacci grid + trade plan if deselected
   if (!pane.indicators.has('fib') && pane.fib) clearFibonacci(pane);
+  // Tear down Gann S/R levels + card if deselected
+  if (!pane.indicators.has('gann') && pane.gann) clearGann(pane);
   // Tear down Reversal Calendar markers if deselected
   if (!pane.indicators.has('reversal_calendar') && pane.rev) clearReversalCalendar(pane);
   if (!bars || bars.length < 2) return;
@@ -2762,6 +2785,11 @@ function applyIndicators(pane) {
   // when the projection indicator is off, and re-runs when it lands.
   if (pane.indicators.has('fib')) {
     renderFibonacci(pane);
+  }
+
+  // ── Gann Square-of-9 S/R levels + break-odds card (client-side, see gann.js) ─
+  if (pane.indicators.has('gann')) {
+    renderGann(pane);
   }
 
   // ── Reversal Calendar overlay (yogas + lunar phases, see reversal_calendar.py)
@@ -4968,6 +4996,127 @@ function renderPmaxInfo(pane, sig, trail, last, long, col) {
       `<div style="margin-top:4px;font-size:9.5px;opacity:.85;">` +
         `Exit when the band flips — a ${long ? 'SELL' : 'BUY'} arrow closes this position.` +
       `</div>` +
+    `</div>`;
+  st.infoEl.classList.toggle('collapsed', st.collapsed);
+  st.infoEl.style.display = 'block';
+}
+
+// ── Gann Square-of-9 S/R levels + honest break-odds card (see gann.js) ────────
+// Draws ONLY the deterministic horizontal SO9 levels (not the scale-dependent
+// fan). The card states the conditional break heuristic — "if R breaks up, this
+// is the follow-through probability" — where the probability is THIS symbol's
+// own historical breakout base rate, so the Gann framing cannot smuggle in
+// confidence it has not earned.
+const GANN_SUP = '#26a69a';
+const GANN_RES = '#f23645';
+const GANN_GOLD = '#d9b45b';
+
+function ensureGannState(pane) {
+  if (!pane.gann) pane.gann = {priceLines: [], infoEl: null, collapsed: false, lastKey: null};
+  return pane.gann;
+}
+
+function clearGann(pane) {
+  const st = pane.gann;
+  if (!st) return;
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+  if (st.infoEl) { try { st.infoEl.remove(); } catch {} st.infoEl = null; }
+  pane.gann = null;
+}
+
+function renderGann(pane) {
+  if (typeof GANN === 'undefined') { console.warn('gann.js not loaded'); return; }
+  if (!pane.bars || pane.bars.length < 40) return;
+  const st = ensureGannState(pane);
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  if (st.lastKey === key && st.infoEl) return;      // no recompute thrash
+  st.lastKey = key;
+
+  const r = GANN.analyze(pane.bars);
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+  if (!r) return;
+
+  const mk = (lv, color, style, title) => {
+    if (!lv || !Number.isFinite(lv.price)) return;
+    try {
+      st.priceLines.push(pane.series.createPriceLine({
+        price: lv.price, color, lineWidth: 1, lineStyle: style,
+        axisLabelVisible: true, title,
+      }));
+    } catch {}
+  };
+  // Nearest S/R solid; the next levels beyond them dashed/faint context.
+  mk(r.resistance, GANN_RES, 0, `R ${r.resistance ? r.resistance.deg + '°' : ''}`);
+  mk(r.secondUp,   GANN_RES, 2, 'R2');
+  mk(r.support,    GANN_SUP, 0, `S ${r.support ? r.support.deg + '°' : ''}`);
+  mk(r.secondDown, GANN_SUP, 2, 'S2');
+
+  renderGannInfo(pane, r);
+}
+
+function renderGannInfo(pane, r) {
+  const st = ensureGannState(pane);
+  if (!st.infoEl) {
+    st.infoEl = document.createElement('div');
+    st.infoEl.className = 'gann-info';
+    pane.el.querySelector('.chart-main').appendChild(st.infoEl);
+    st.infoEl.addEventListener('click', ev => {
+      if (!ev.target.closest('.gann-head')) return;
+      st.collapsed = !st.collapsed;
+      st.infoEl.classList.toggle('collapsed', st.collapsed);
+    });
+  }
+  const f = v => Number.isFinite(v) ? v.toFixed(2) : '—';
+  const pct = v => (v * 100).toFixed(0) + '%';
+  const c = r.card;
+  const basePct = pct(c.base);
+
+  // Honest edge tag: only call a branch an "edge" if follow-through clears the
+  // unconditional base rate by a margin; otherwise it is ordinary S/R.
+  const edgeTag = (edge) => edge >= 0.05
+    ? `<span style="color:${GANN_SUP}">+${(edge * 100).toFixed(0)}% vs base</span>`
+    : `<span style="color:var(--text-muted)">≈ base (no edge)</span>`;
+
+  // Plain-English "if X → then Y" scenarios with the level numbers inline.
+  // The break branches carry the honest follow-through % + no-edge flag; the
+  // bounce branches are the complementary path (no invented probability).
+  const R = c.up, S = c.down;
+  const lvl = v => `<b>${f(v)}</b>`;
+  const sc = txt => `<div style="padding-left:12px;color:var(--text-chart);">↳ ${txt}</div>`;
+  const contTag = b =>
+    `<span style="color:var(--text-muted)">${pct(b.prob)} of past breaks continued ` +
+    `(n=${b.n})</span> · ${edgeTag(b.edge)}`;
+
+  const resBlock = R ? (
+    `<div><span style="color:${GANN_RES}">▲ Resistance ${lvl(R.level)}</span> ` +
+      `<span style="color:var(--text-muted)">(${R.deg}°)</span></div>` +
+    sc(`If price is rejected here → pull back toward support ${S ? f(S.level) : '—'}.`) +
+    sc(`If price breaks above ${f(R.level)} → upside continuation likely to next line ` +
+       `${R.target ? lvl(R.target) : '(beyond range)'}. ${contTag(R)}`)
+  ) : '';
+  const supBlock = S ? (
+    `<div><span style="color:${GANN_SUP}">▼ Support ${lvl(S.level)}</span> ` +
+      `<span style="color:var(--text-muted)">(${S.deg}°)</span></div>` +
+    sc(`If price bounces from ${f(S.level)} → trend resumes upward toward ` +
+       `${R ? f(R.level) : '—'}.`) +
+    sc(`If price breaks below ${f(S.level)} → deeper correction likely to next line ` +
+       `${S.target ? lvl(S.target) : '(beyond range)'}. ${contTag(S)}`)
+  ) : '';
+
+  st.infoEl.innerHTML =
+    `<div class="gann-head">` +
+      `<span style="color:${GANN_GOLD}">Gann S/R · Break Odds</span> ` +
+      `<span style="color:var(--text-muted);font-weight:400;">P ${f(c.price)} · base up ${basePct}</span> ` +
+      `<span style="color:var(--text-muted);font-weight:400;">▾</span>` +
+    `</div>` +
+    `<div class="gann-body" style="margin-top:5px;line-height:1.7;">` +
+      resBlock + supBlock +
+      `<div class="gann-cav">Lines are deterministic Square-of-9 levels; the % is THIS ` +
+        `symbol's historical breakout follow-through (n past breaks), not a Gann ` +
+        `forecast. “No edge” = the break behaves like ordinary S/R. Not advice.</div>` +
     `</div>`;
   st.infoEl.classList.toggle('collapsed', st.collapsed);
   st.infoEl.style.display = 'block';

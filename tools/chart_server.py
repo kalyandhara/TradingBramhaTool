@@ -296,6 +296,11 @@ def fibonacci_js():
     return send_from_directory(HERE, "fibonacci.js", mimetype="application/javascript")
 
 
+@app.route("/gann.js")
+def gann_js():
+    return send_from_directory(HERE, "gann.js", mimetype="application/javascript")
+
+
 @app.route("/percent_r_trend_exhaustion.js")
 def percent_r_trend_exhaustion_js():
     return send_from_directory(HERE, "percent_r_trend_exhaustion.js", mimetype="application/javascript")

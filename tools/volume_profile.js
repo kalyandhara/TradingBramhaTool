@@ -237,8 +237,94 @@
     return out;
   }
 
+  // ── Shape classification: D / P / b / I ──────────────────────────────────────
+  // Auction-theory silhouettes of the volume-by-price histogram:
+  //   D — balanced normal, fat middle           (rotational / value)
+  //   P — bulge at the TOP  = buying then balance (long covering / bullish)
+  //   b — bulge at the BOTTOM = selling then bal. (short covering / bearish)
+  //   I — thin, one-sided, volume spread evenly  (trend / initiative move)
+  // Heuristic, not gospel: split the range into thirds by price, find the
+  // dominant third + where the POC sits, and how concentrated the peak is.
+  function classifyShape(profile) {
+    const { bins, poc, lo, hi } = profile;
+    const total = bins.reduce((a, v) => a + v, 0);
+    if (total <= 0) return { shape: 'I', pocPos: 0.5, domFrac: 0 };
+    const n = bins.length, t = Math.max(1, Math.floor(n / 3));
+    let botV = 0, midV = 0, topV = 0;
+    for (let i = 0; i < n; i++) {
+      if (i < t) botV += bins[i];
+      else if (i < 2 * t) midV += bins[i];
+      else topV += bins[i];
+    }
+    const dom = Math.max(botV, midV, topV);
+    const domFrac = dom / total;                       // how lopsided the mass is
+    const pocPos = (hi > lo) ? (poc.price - lo) / (hi - lo) : 0.5;  // 0 bottom..1 top
+    const active = bins.filter(v => v > (total / n) * 0.5).length / n;
+    let shape;
+    if (domFrac < 0.42 && active > 0.55) shape = 'I';  // spread ~ evenly => trend/balance
+    else if (topV === dom && pocPos >= 0.58) shape = 'P';
+    else if (botV === dom && pocPos <= 0.42) shape = 'b';
+    else shape = 'D';
+    return { shape, pocPos: +pocPos.toFixed(2), domFrac: +domFrac.toFixed(2) };
+  }
+
+  // ── Periodic profiles: one profile per fixed-length window, not one composite.
+  // This is the "multiple occurrence instead of one projection" view: each
+  // period gets its own POC / value area / shape, so the sequence of shapes is
+  // readable across the chart and the trap rule can scan it.
+  function periodicProfiles(bars, opts) {
+    opts = opts || {};
+    const per = Math.max(6, opts.periodBars || 21);
+    const bins = opts.bins || 24;
+    const vaPct = opts.valueAreaPct || 0.70;
+    const out = [];
+    for (let start = 0; start < bars.length; start += per) {
+      const seg = bars.slice(start, Math.min(start + per, bars.length));
+      if (seg.length < Math.max(5, per * 0.4)) break;  // drop a stubby trailing chunk
+      const prof = computeProfile(seg, Object.assign({}, DEFAULT_OPTS, { bins, valueAreaPct: vaPct }));
+      if (!prof) continue;
+      const cls = classifyShape(prof);
+      out.push({
+        index: out.length,
+        t0: seg[0].time, t1: seg[seg.length - 1].time,
+        poc: prof.poc.price, vah: prof.valueArea.high, val: prof.valueArea.low,
+        shape: cls.shape, pocPos: cls.pocPos, lo: prof.lo, hi: prof.hi,
+      });
+    }
+    return out;
+  }
+
+  // ── Trap rule, ALL occurrences: a run of >= minRun P-profiles at consecutively
+  // RISING POCs = buyers exhausting => reversal-down risk (buyer trap). The
+  // mirror for b-profiles at falling POCs = seller trap => reversal-up.
+  function detectTraps(profiles, opts) {
+    opts = opts || {};
+    const minRun = opts.minRun || 3;
+    const out = [];
+    const scan = (isShape, rising, type) => {
+      let i = 0;
+      while (i < profiles.length) {
+        if (!isShape(profiles[i])) { i++; continue; }
+        let j = i, cnt = 1;
+        while (j + 1 < profiles.length && isShape(profiles[j + 1]) &&
+               (rising ? profiles[j + 1].poc > profiles[j].poc
+                       : profiles[j + 1].poc < profiles[j].poc)) { j++; cnt++; }
+        if (cnt >= minRun) {
+          out.push({ type, run: cnt, startIndex: i, endIndex: j,
+                     t: profiles[j].t1, poc: profiles[j].poc, fromPoc: profiles[i].poc });
+        }
+        i = j + 1;
+      }
+    };
+    scan(p => p.shape === 'P', true, 'buyer_trap');
+    scan(p => p.shape === 'b', false, 'seller_trap');
+    out.sort((a, b) => a.t - b.t);
+    return out;
+  }
+
   global.VP = {
-    VERSION: '1.0.0',
+    VERSION: '1.1.0',
     computeProfile, findConfluence,
+    classifyShape, periodicProfiles, detectTraps,
   };
 })(typeof window !== 'undefined' ? window : globalThis);
