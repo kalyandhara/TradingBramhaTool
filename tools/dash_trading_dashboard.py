@@ -57,6 +57,15 @@ except ImportError as e:
     print(f"Warning: Could not import SBC modules: {e}")
     HAS_SBC = False
 
+# Vedic reversal calendar (structured spine of the 2026-2027 PDF; stdlib-only so it
+# loads even without ephem). Powers the forward-week hypothetical reversal card.
+try:
+    import vedic_reversal_calendar as vrc
+    HAS_VRC = True
+except ImportError as e:
+    print(f"Warning: Could not import vedic_reversal_calendar: {e}")
+    HAS_VRC = False
+
 
 class TradingDashboard:
     """Interactive Dash-based trading dashboard."""
@@ -1509,6 +1518,365 @@ class TradingDashboard:
                    style={'color': dim, 'fontSize': '11px', 'marginTop': '4px'}),
         ], style={**panel_style, 'border': f'2px solid {vcolor}'})
 
+    def _sbc_reversal_card(self, today):
+        """Forward-week HYPOTHETICAL reversal watch from the Vedic calendar spine.
+
+        Reads `vedic_reversal_calendar.forward_window_view` so the card is
+        forward-looking from `today`, not a static paste. Honest by construction:
+        labelled hypothetical, references the null vedha backtest, shows when the
+        calendar's sharp dates bracket vs land in the window.
+        """
+        if not HAS_VRC:
+            return None
+        gold, red, green, dim = (self._SBC_GOLD, self._SBC_RED,
+                                 self._SBC_GREEN, self._SBC_DIM)
+        panel_style = {'backgroundColor': self._SBC_PANEL,
+                       'border': '1px solid #2a2550', 'borderRadius': '12px',
+                       'padding': '14px 18px', 'marginBottom': '14px'}
+        h_style = {'color': gold, 'letterSpacing': '.1em', 'fontSize': '13px',
+                   'textTransform': 'uppercase', 'marginBottom': '8px'}
+        v = vrc.forward_window_view(today, 7)
+        w0, w1 = v['window']
+
+        label = v['bias_label']
+        bcol = red if 'BEARISH' in label else green if 'BULLISH' in label else gold
+
+        def _marker(tag, tag_col, ev, delta_txt):
+            if ev is None:
+                body = [html.Span('—', style={'color': dim})]
+            else:
+                body = [
+                    html.Div(f'{ev.day:%d %b}', style={
+                        'color': '#cfc9f0', 'fontWeight': '700', 'fontSize': '14px'}),
+                    html.Div(ev.title, style={'color': '#cfc9f0', 'fontSize': '12px'}),
+                    html.Div(ev.place, style={'color': dim, 'fontSize': '10.5px'}),
+                    html.Div(delta_txt, style={'color': tag_col, 'fontSize': '10.5px',
+                                               'marginTop': '2px'}),
+                ]
+            return html.Div([
+                html.Div(tag, style={'color': tag_col, 'fontSize': '10px',
+                                     'letterSpacing': '.08em',
+                                     'textTransform': 'uppercase',
+                                     'marginBottom': '4px'}),
+                *body,
+            ], style={'flex': '1', 'border': f'1px solid {tag_col}',
+                      'borderRadius': '8px', 'padding': '9px 11px',
+                      'backgroundColor': '#120f2b', 'minWidth': '0'})
+
+        prev_ev, next_ev = v['prev_catalyst'], v['next_catalyst']
+        prev_delta = (f'{(today - prev_ev.day).days}d ago' if prev_ev else '')
+        next_delta = (f'in {(next_ev.day - today).days}d' if next_ev else '')
+
+        if v['in_window']:
+            names = '; '.join(f'{e.day:%d %b} {e.title}' for e in v['in_window'])
+            mid = _marker('This week', gold,
+                          type('E', (), {'day': w0, 'title': names,
+                                         'place': 'pinpoint event in-window'})(),
+                          f'{w0:%d %b}–{w1:%d %b}')
+            mid_flag = None
+        else:
+            mid = html.Div([
+                html.Div('This week', style={'color': gold, 'fontSize': '10px',
+                                             'letterSpacing': '.08em',
+                                             'textTransform': 'uppercase',
+                                             'marginBottom': '4px'}),
+                html.Div(f'{w0:%d %b} – {w1:%d %b}', style={
+                    'color': gold, 'fontWeight': '700', 'fontSize': '14px'}),
+                html.Div('No pinpoint reversal date', style={
+                    'color': '#cfc9f0', 'fontSize': '12px'}),
+                html.Div('backdrop pressure only — watch, don’t act', style={
+                    'color': dim, 'fontSize': '10.5px', 'marginTop': '2px'}),
+            ], style={'flex': '1.3', 'border': f'1px solid {gold}',
+                      'borderRadius': '8px', 'padding': '9px 11px',
+                      'backgroundColor': '#1a1330', 'minWidth': '0'})
+            mid_flag = None
+
+        arrow = html.Span('→', style={'color': dim, 'alignSelf': 'center',
+                                      'padding': '0 6px', 'fontSize': '16px'})
+        timeline = html.Div([
+            _marker('Passed', red, prev_ev, prev_delta), arrow,
+            mid, arrow,
+            _marker('Ahead', red, next_ev, next_delta),
+        ], style={'display': 'flex', 'alignItems': 'stretch', 'gap': '0',
+                  'flexWrap': 'wrap'})
+
+        cluster_line = None
+        if v['clusters']:
+            c = v['clusters'][0]
+            cluster_line = html.Div([
+                html.Span('◆ ', style={'color': gold}),
+                html.Span(f'{c.title} ', style={'color': '#cfc9f0',
+                                                'fontWeight': '600'}),
+                html.Span(f'({c.window[0]:%d %b}–{c.window[1]:%d %b}) — {c.note}',
+                          style={'color': dim, 'fontSize': '12px'}),
+            ], style={'marginTop': '10px', 'fontSize': '13px'})
+
+        backdrop_chips = html.Div([
+            html.Span(f'{s.title}', style={
+                'display': 'inline-block', 'border': f'1px solid {self._SBC_GREEN}',
+                'color': '#bfe6cf', 'borderRadius': '12px', 'padding': '2px 9px',
+                'margin': '3px', 'fontSize': '11px', 'backgroundColor': '#101f18'})
+            for s in v['states']
+        ]) if v['states'] else None
+
+        sector_chips = html.Div([
+            html.Span(sec, style={
+                'display': 'inline-block', 'border': '1px solid #2a2550',
+                'color': '#cfc9f0', 'borderRadius': '8px', 'padding': '3px 10px',
+                'margin': '3px', 'fontSize': '12px', 'backgroundColor': '#120f2b'})
+            for sec in v['sectors']
+        ])
+
+        return html.Div([
+            html.Div([
+                html.Span('Forward-Week Reversal Watch', style=h_style),
+            ]),
+            html.Div([
+                html.Span('HYPOTHETICAL', style={
+                    'color': gold, 'border': f'1px solid {gold}',
+                    'borderRadius': '999px', 'padding': '1px 8px',
+                    'fontSize': '10px', 'letterSpacing': '.1em',
+                    'fontWeight': '700', 'marginRight': '10px'}),
+                html.Span(f'{w0:%d %b} – {w1:%d %b %Y}',
+                          style={'color': '#cfc9f0', 'fontSize': '12px'}),
+                html.Span(' · next 7 days from today',
+                          style={'color': dim, 'fontSize': '11px',
+                                 'fontStyle': 'italic'}),
+                html.Span('   Bias: ', style={'color': dim, 'fontSize': '12px'}),
+                html.Span(label, style={'color': bcol, 'fontWeight': '700'}),
+            ], style={'marginBottom': '10px'}),
+            (html.Div(v['bias_note'], style={'color': dim, 'fontSize': '12px',
+                                             'marginBottom': '10px'})
+             if v['bias_note'] else html.Span()),
+            timeline,
+            cluster_line or html.Span(),
+            (html.Div([html.Div('Standing backdrop', style={
+                'color': dim, 'fontSize': '10px', 'letterSpacing': '.08em',
+                'textTransform': 'uppercase', 'margin': '10px 0 2px'}),
+                backdrop_chips]) if backdrop_chips else html.Span()),
+            html.Div('Sectors the calendar names', style={
+                'color': dim, 'fontSize': '10px', 'letterSpacing': '.08em',
+                'textTransform': 'uppercase', 'margin': '10px 0 2px'}),
+            sector_chips,
+            html.Div([
+                html.Span('⚠ Watch-flag, not a signal. ',
+                          style={'color': red, 'fontWeight': '600',
+                                 'fontSize': '11.5px'}),
+                html.Span("Restates a third-party speculative calendar. Our own "
+                          "18-yr NIFTY backtest found SBC daily vedha has no timing "
+                          "edge (lift ≈ 1.0, p n.s.) — treat every date as a reason "
+                          "to watch harder, never to position. Price confirmation + "
+                          "risk rules decide. Direction not implied.",
+                          style={'color': dim, 'fontSize': '11.5px'}),
+            ], style={'marginTop': '12px', 'borderTop': '1px solid #2a2550',
+                      'paddingTop': '10px'}),
+        ], style={**panel_style, 'borderLeft': f'3px solid {gold}'})
+
+    # Per-planet crash weights (heavier malefics weigh more). Moon carried as a
+    # mild baseline contributor. Max = 3+3+3+2+1+1 = 13.
+    _CRASH_WEIGHT = {'Saturn': 3, 'Rahu': 3, 'Mars': 3, 'Ketu': 2,
+                     'Sun': 1, 'Moon': 1}
+
+    def _sbc_crash_monitor(self, planets, vedas):
+        """Malefic-pressure gauge (0-13), banded like the reference SS.
+
+        Score is geometry-driven so it VARIES: each planet contributes its weight
+        scaled by how many currently-OCCUPIED nakshatras its vedha pierces
+        (0 hits -> 0 · 1 hit -> 0.6 · 2+ hits -> 1.0 · concentrated confrontation).
+        Not a validated crash predictor — see caveat + our null vedha backtest.
+        """
+        gold, red, green, dim = (self._SBC_GOLD, self._SBC_RED,
+                                 self._SBC_GREEN, self._SBC_DIM)
+        orange = '#e08a3c'
+        panel_style = {'backgroundColor': self._SBC_PANEL,
+                       'border': '1px solid #2a2550', 'borderRadius': '12px',
+                       'padding': '14px 18px', 'marginBottom': '14px'}
+        h_style = {'color': gold, 'letterSpacing': '.1em', 'fontSize': '13px',
+                   'textTransform': 'uppercase', 'marginBottom': '8px'}
+
+        occ = {ps.nakshatra for ps in planets.values()}
+        contribs = []          # (planet, weight, hits, contribution)
+        score = 0.0
+        for pl, w in self._CRASH_WEIGHT.items():
+            hit_naks = {v.target_nakshatra for v in vedas
+                        if v.planet == pl and v.target_nakshatra in occ}
+            n = len(hit_naks)
+            inten = 0.0 if n == 0 else (1.0 if n >= 2 else 0.6)
+            c = w * inten
+            score += c
+            contribs.append((pl, w, n, c))
+        score = round(score)
+
+        if score >= 11:
+            band, bcol, act = ('CRASH RISK', red,
+                               'Extreme malefic confluence — reduce risk / hedge, '
+                               'avoid new entries.')
+        elif score >= 8:
+            band, bcol, act = ('STRONG REVERSAL', orange,
+                               'Heavy pressure — trade lighter, expect volatility.')
+        elif score >= 5:
+            band, bcol, act = ('VOLATILITY', gold,
+                               'Choppy — moderate pressure, nimble sizing.')
+        else:
+            band, bcol, act = ('NORMAL', green,
+                               'Low malefic confluence flagged.')
+
+        # meter (0..13) with band thresholds at 5 / 8 / 11
+        fill = html.Div(style={'width': f'{score / 13 * 100:.0f}%',
+                               'height': '100%', 'backgroundColor': bcol,
+                               'borderRadius': '5px'})
+        ticks = [html.Div(style={
+            'position': 'absolute', 'left': f'{t / 13 * 100:.0f}%', 'top': '0',
+            'bottom': '0', 'width': '1px', 'backgroundColor': '#3a3560'})
+            for t in (5, 8, 11)]
+        meter = html.Div([fill, *ticks], style={
+            'position': 'relative', 'height': '12px', 'backgroundColor': '#120f2b',
+            'border': '1px solid #2a2550', 'borderRadius': '6px',
+            'overflow': 'hidden', 'margin': '4px 0 2px'})
+        scale = html.Div([
+            html.Span('0–4 Normal', style={'color': green}),
+            html.Span('5–7 Volatility', style={'color': gold}),
+            html.Span('8–10 Strong', style={'color': orange}),
+            html.Span('11+ Crash', style={'color': red}),
+        ], style={'display': 'flex', 'justifyContent': 'space-between',
+                  'fontSize': '10px', 'marginBottom': '10px'})
+
+        chips = []
+        for pl, w, n, c in contribs:
+            live = c > 0
+            cc = red if live else dim
+            chips.append(html.Span([
+                html.Span(sbc.PLANET_GLYPH.get(pl, ''), style={'color': cc}),
+                html.Span(f' {pl} +{w}', style={'color': '#cfc9f0' if live else dim}),
+                html.Span(f' · {n} hit{"s" if n != 1 else ""}',
+                          style={'color': dim, 'fontSize': '10px'}),
+            ], style={'display': 'inline-block',
+                      'border': f'1px solid {cc if live else "#2a2550"}',
+                      'borderRadius': '10px', 'padding': '2px 9px', 'margin': '3px',
+                      'fontSize': '12px', 'backgroundColor': '#120f2b',
+                      'opacity': '1' if live else '0.5'}))
+
+        return html.Div([
+            html.Div('Crash Risk Monitor', style=h_style),
+            html.Div([
+                html.Span(str(score), style={'fontSize': '34px', 'fontWeight': '800',
+                                             'color': bcol, 'lineHeight': '1'}),
+                html.Span(' / 13', style={'color': dim, 'fontSize': '14px'}),
+                html.Span(f'   {band}', style={'color': bcol, 'fontWeight': '700',
+                                               'fontSize': '16px',
+                                               'marginLeft': '10px'}),
+            ], style={'marginBottom': '6px'}),
+            meter, scale,
+            html.Div(chips),
+            html.Div(act, style={'color': '#e8d9a0', 'fontSize': '12px',
+                                 'marginTop': '8px'}),
+            html.Div([
+                html.Span('⚠ Hypothetical gauge, not a prediction. ',
+                          style={'color': red, 'fontWeight': '600',
+                                 'fontSize': '11px'}),
+                html.Span('Malefic vedha pressure is structurally common, so high '
+                          'readings are frequent and — per our 18-yr NIFTY backtest '
+                          '(no timing edge) — do NOT forecast crashes. A stress '
+                          'thermometer, not a signal.',
+                          style={'color': dim, 'fontSize': '11px'}),
+            ], style={'marginTop': '10px', 'borderTop': '1px solid #2a2550',
+                      'paddingTop': '8px'}),
+        ], style={**panel_style, 'borderLeft': f'3px solid {bcol}'})
+
+    def _sbc_sector_stress(self, vedas):
+        """Broad Vedha Pressure — sectors ranked by net vedha on their nama-nak.
+
+        For each sector's nakshatra: benefic planets (support) vs malefic planets
+        (stress). net = benefic_weight - malefic_weight, clamped to +/-6 (the
+        display scale). Ranked LEAST-STRESSED first — where to hide when the index
+        is heavy. Modelled on the reference screenshot's 'BROAD VEDHA PRESSURE'.
+        """
+        import sbc_nama as _nama
+        gold, red, green, dim = (self._SBC_GOLD, self._SBC_RED,
+                                 self._SBC_GREEN, self._SBC_DIM)
+        panel_style = {'backgroundColor': self._SBC_PANEL,
+                       'border': '1px solid #2a2550', 'borderRadius': '12px',
+                       'padding': '14px 18px', 'marginBottom': '14px'}
+        h_style = {'color': gold, 'letterSpacing': '.1em', 'fontSize': '13px',
+                   'textTransform': 'uppercase', 'marginBottom': '8px'}
+
+        by_nak = {}
+        for v in vedas:
+            by_nak.setdefault(v.target_nakshatra, []).append(v)
+
+        rows_data = []
+        for sector in sbcs.SECTORS:
+            r = _nama.resolve_nakshatra(sector)
+            nak = r[0] if r else ''
+            hits = by_nak.get(nak, [])
+            ben_pl, mal_pl, seen = [], [], set()
+            for v in hits:                        # preserve first-seen order
+                key = (v.planet, v.nature)
+                if key in seen:
+                    continue
+                seen.add(key)
+                (ben_pl if v.nature == 'benefic' else mal_pl).append(v.planet)
+            ben_w = sum(v.weight for v in hits if v.nature == 'benefic')
+            mal_w = sum(v.weight for v in hits if v.nature == 'malefic')
+            net = max(-6.0, min(6.0, ben_w - mal_w))
+            rows_data.append((sector, nak, net, ben_pl, mal_pl))
+        rows_data.sort(key=lambda x: x[2], reverse=True)   # least-stressed first
+
+        def _glyphs(pls, col):
+            return html.Span(' '.join(sbc.PLANET_GLYPH.get(p, p[:2]) for p in pls)
+                             or '—', style={'color': col})
+
+        rows = []
+        for sector, nak, net, ben_pl, mal_pl in rows_data:
+            if net <= -0.3:
+                bcol, tag = red, 'BEARISH'
+            elif net >= 0.3:
+                bcol, tag = green, 'BULLISH'
+            else:
+                bcol, tag = gold, 'NEUTRAL'
+            bar = html.Div(html.Div(style={
+                'width': f'{abs(net) / 6 * 100:.0f}%', 'height': '100%',
+                'backgroundColor': bcol, 'borderRadius': '4px'}),
+                style={'flex': '1', 'height': '10px', 'backgroundColor': '#120f2b',
+                       'border': '1px solid #2a2550', 'borderRadius': '5px',
+                       'overflow': 'hidden', 'margin': '0 10px'})
+            rows.append(html.Div([
+                html.Span(sector, style={'width': '92px', 'color': '#cfc9f0',
+                                         'fontSize': '13px', 'flexShrink': '0'}),
+                bar,
+                html.Span(f'{net:+.1f}/6.0', style={
+                    'width': '62px', 'textAlign': 'right', 'color': bcol,
+                    'fontSize': '12px', 'fontVariantNumeric': 'tabular-nums',
+                    'flexShrink': '0'}),
+                html.Span([_glyphs(ben_pl, green),
+                           html.Span(' vs ', style={'color': dim,
+                                                    'fontSize': '10px'}),
+                           _glyphs(mal_pl, red)],
+                          style={'width': '150px', 'textAlign': 'right',
+                                 'fontSize': '12px', 'flexShrink': '0',
+                                 'marginLeft': '10px'}),
+                html.Span(tag, style={
+                    'width': '62px', 'textAlign': 'center', 'color': bcol,
+                    'fontSize': '9px', 'fontWeight': '700', 'letterSpacing': '.06em',
+                    'border': f'1px solid {bcol}', 'borderRadius': '999px',
+                    'padding': '2px 0', 'marginLeft': '10px', 'flexShrink': '0'}),
+            ], style={'display': 'flex', 'alignItems': 'center',
+                      'padding': '5px 0', 'borderBottom': '1px solid #1c1840'}))
+
+        return html.Div([
+            html.Div('Broad Vedha Pressure', style=h_style),
+            html.P('Sectors ranked by net vedha on their nama-nakshatra — '
+                   'benefic support (green) vs malefic stress (red). '
+                   'Least-stressed first: where pressure is lightest right now.',
+                   style={'color': dim, 'fontSize': '12px', 'marginBottom': '8px'}),
+            html.Div(rows),
+            html.Div('Hypothetical stress map, not a signal — vedha pressure has no '
+                     'validated timing edge (see backtest). Use to compare relative '
+                     'stress, not to predict direction.',
+                     style={'color': dim, 'fontSize': '11px', 'marginTop': '8px',
+                            'fontStyle': 'italic'}),
+        ], style=panel_style)
+
     def _render_sbc(self, selected_date, granularity,
                     birth_date=None, birth_time=None,
                     birth_lat=None, birth_lon=None, view='chakra',
@@ -1765,6 +2133,13 @@ class TradingDashboard:
         if bhadra_banner is not None:
             top_children.append(bhadra_banner)
         top_children.append(banner)
+        top_children.append(self._sbc_crash_monitor(planets, vedas))
+        # Forward-week card is locked to the REAL current date (IST), not the
+        # DatePicker session date — it answers "what's ahead from now", so the
+        # session date must not move it.
+        reversal_card = self._sbc_reversal_card(now_ist.date())
+        if reversal_card is not None:
+            top_children.append(reversal_card)
         top_children.append(confluence_panel)
         top_children.append(signals_panel)
 
@@ -1775,7 +2150,8 @@ class TradingDashboard:
                 html.Div(wpanel, style={'width': '38%', 'display': 'inline-block',
                                         'verticalAlign': 'top'}),
             ]),
-            chakra_panel, natal_panel, gpanel, spanel, nama_panel, disclaimer,
+            chakra_panel, natal_panel, gpanel,
+            self._sbc_sector_stress(vedas), spanel, nama_panel, disclaimer,
         ], style={'backgroundColor': self._SBC_BG, 'padding': '16px',
                   'borderRadius': '12px', 'fontFamily': 'Segoe UI, sans-serif'})
 
