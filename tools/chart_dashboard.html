@@ -9,6 +9,9 @@
 <script src="/elliott_wave.js"></script>
 <!-- Volume Profile (POC/Value Area/HVN/LVN) plug-in — pure computation module, see volume_profile.js -->
 <script src="/volume_profile.js"></script>
+<!-- Session Volume Profile HD — one profile per session, D/P/B/I classification +
+     accumulation/distribution + trap-stack sensing. Depends on window.VP above. -->
+<script src="/session_volume_profile.js"></script>
 <!-- Fair Value Gap detection plug-in — pure computation module, see fvg.js -->
 <script src="/fvg.js"></script>
 <!-- %R Trend Exhaustion oscillator plug-in — pure computation module, see percent_r_trend_exhaustion.js -->
@@ -519,6 +522,24 @@ html, body {
 .gann-info.collapsed .gann-body { display: none; }
 .gann-info .gann-cav { color: var(--text-muted); font-size: 9px; margin-top: 4px; }
 .gann-info b { font-variant-numeric: tabular-nums; }
+/* ── Session Volume Profile HD card ───────────────────────────────────────── */
+/* Top-left of the chart-main, below the toolbar. Header (current session shape +
+   accum/distrib) is the click target; body holds the session-shape sequence,
+   trap flag, and the POC "critical levels". */
+.svp-info {
+  position: absolute; bottom: 8px; right: 78px; z-index: 9;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 7px;
+  padding: 7px 10px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
+  max-width: 55%; display: none; box-shadow: 0 2px 10px rgba(0,0,0,0.22);
+  /* right:78px clears the ~72px right price axis so the card never covers the
+     price labels; bottom-right keeps it out of the top-left toolbar/action-stack. */
+}
+.svp-info .svp-head { cursor: pointer; font-weight: 700; user-select: none; }
+.svp-info.collapsed .svp-body { display: none; }
+.svp-info .svp-seq { font-family: 'Courier New', monospace; letter-spacing: 2px; }
+.svp-info .svp-cav { color: var(--text-muted); font-size: 9px; margin-top: 4px; }
+.svp-P { color: #26a69a; } .svp-B { color: #f23645; }
+.svp-D { color: #4c9aff; } .svp-I { color: #b0b7c3; }
 .pmax-info .pmax-head { cursor: pointer; font-weight: 700; user-select: none; }
 .pmax-info.collapsed .pmax-body { display: none; }
 
@@ -894,6 +915,7 @@ const INDICATOR_DEFS = [
   // ── Volume ──────────────────────────────────────────────────────────────────
   {key:'volume',     label:'Volume',                 group:'Volume',            color:'#888888'},
   {key:'volprofile', label:'Volume Profile (POC/VA/HVN/LVN)', group:'Volume',  color:'#9aa4af'},
+  {key:'svp',        label:'Session Volume Profile HD (D/P/B/I + Accum/Distrib)', group:'Volume', color:'#26c6da'},
   // ── Pattern Recognition ──────────────────────────────────────────────────────
   {key:'elliott',      label:'Elliott Wave (1-5, A-B-C)', group:'Pattern Recognition', color:'#00e5ff'},
   {key:'fvg',          label:'Fair Value Gap + Buy/Sell signal (FPV)', group:'Pattern Recognition', color:'#26a69a'},
@@ -1812,6 +1834,8 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
     // is time-anchored; VP is price-scale-anchored. Both stale on zoom
     // for the same reason (mapping changed) — now both redraw.
     if (pane.indicators && pane.indicators.has('volprofile')) drawVolumeProfile(pane);
+    // Session VP is both price- AND time-anchored, so it stales on any pan/zoom.
+    if (pane.indicators && pane.indicators.has('svp')) drawSessionVP(pane);
   });
 
   // ── Crosshair sync to sub-pane charts ─────────────────────────────────────
@@ -2053,9 +2077,9 @@ function showToast(msg, ms = 2200) {
    flex children, so cloning them individually would lose their stacked
    positions — and cloning the stack also picks up the FVG and Fib cards,
    which the old per-panel list never included. */
-const SNAP_PANEL_SEL = '.ew-info, .vcp-info, .pmax-info, .rev-info, .action-stack';
+const SNAP_PANEL_SEL = '.ew-info, .vcp-info, .pmax-info, .gann-info, .svp-info, .rev-info, .action-stack';
 
-async function renderOverlayPanels(chartMain) {
+async function renderOverlayPanels(chartMain, scale = 1) {
   const panels = Array.from(chartMain.querySelectorAll(SNAP_PANEL_SEL))
     .filter(el => el.offsetParent !== null && getComputedStyle(el).display !== 'none')
     // An action stack with no visible card contributes nothing — drop it so
@@ -2089,8 +2113,13 @@ async function renderOverlayPanels(chartMain) {
   panels.forEach(el => wrap.appendChild(el.cloneNode(true)));
 
   const xml = new XMLSerializer().serializeToString(wrap);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${w}" height="${h}">` +
-              `<foreignObject x="0" y="0" width="100%" height="100%">${xml}</foreignObject></svg>`;
+  // Rasterize at device resolution. The layout stays in CSS pixels via viewBox,
+  // but the SVG's pixel size is w*scale, so the info cards land at the same
+  // crispness as the candle screenshot instead of being rendered 1x and then
+  // upscaled to the device-pixel canvas (the "hazy card" bug).
+  const pw = Math.round(w * scale), ph = Math.round(h * scale);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}" viewBox="0 0 ${w} ${h}">` +
+              `<foreignObject x="0" y="0" width="${w}" height="${h}">${xml}</foreignObject></svg>`;
   const img = new Image();
   img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
   await img.decode();
@@ -2098,65 +2127,148 @@ async function renderOverlayPanels(chartMain) {
 }
 
 async function copyChartSnapshot(pane) {
-  try {
-    const chartMain = pane.el.querySelector('.chart-main');
-    const mainShot = pane.chart.takeScreenshot();
-    const dpr = mainShot.width / (chartMain.clientWidth || mainShot.width) || 1;
+  const chartMain = pane.el.querySelector('.chart-main');
+  // Re-render Lightweight Charts at a higher pixel ratio for the capture so the
+  // candles are NATIVELY sharp — not a low-res screenshot stretched up (which is
+  // what read as "degraded"). LWC v4 reads window.devicePixelRatio when it sizes
+  // its canvases, so override it, force a resize to rebuild the backing store,
+  // screenshot, then restore in finally. Guarded end-to-end: if the hi-DPI path
+  // is a no-op on some engine, we fall back to the native screenshot (sharp, just
+  // smaller) and never a stretched one. App overlay canvases (volume profile,
+  // fib, FVG) keep their own ratio and are scaled by drawImage — fine for
+  // line/bar overlays.
+  const dpr0    = window.devicePixelRatio || 1;
+  const S       = Math.max(2, dpr0);   // target export ratio (>= 2x CSS pixels)
+  const dprDesc = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio');
+  const subEls  = Array.from(pane.el.querySelectorAll('.sub-pane'));
+  const reflow  = [{chart: pane.chart, el: chartMain}];
+  subEls.forEach(subEl => {
+    const sub = pane.subCharts[subEl.dataset.key];
+    if (sub) reflow.push({chart: sub.chart, el: subEl});
+  });
+  const relayout = (ratioVal) => {
+    try { Object.defineProperty(window, 'devicePixelRatio', {configurable: true, get: () => ratioVal}); } catch {}
+    reflow.forEach(({chart, el}) => {
+      const w = el.clientWidth, h = el.clientHeight;
+      // Jiggle the width so LWC actually recomputes its bitmap at the new ratio
+      // (a same-size resize is a no-op).
+      if (w > 0 && h > 0) { try { chart.resize(w - 1, h, true); chart.resize(w, h, true); } catch {} }
+    });
+  };
 
+  try {
+    if (S > dpr0) relayout(S);   // engage hi-DPI only when it would help
+
+    const mainShot = pane.chart.takeScreenshot();
     // Stack sub-panes in the order they appear on screen.
-    const subShots = Array.from(pane.el.querySelectorAll('.sub-pane')).map(subEl => {
+    const subShots = subEls.map(subEl => {
       const sub = pane.subCharts[subEl.dataset.key];
       if (!sub) return null;
       return {shot: sub.chart.takeScreenshot(), label: sub.label ? sub.label.textContent : subEl.dataset.key};
     }).filter(Boolean);
 
-    const headerH = Math.round(26 * dpr);
+    // The ratio actually captured: S if the hi-DPI re-render engaged, else native.
+    // All vector drawing uses it; the rasters are drawn at their own native size.
+    const ratio   = mainShot.width / (chartMain.clientWidth || mainShot.width) || 1;
+    const headerH = Math.round(46 * ratio);   // two rows (symbol+company, then price/change)
+    const footerH = Math.round(22 * ratio);   // brand + timestamp caption strip
     const totalW  = mainShot.width;
-    const totalH  = headerH + mainShot.height + subShots.reduce((s, x) => s + x.shot.height, 0);
+    const totalH  = headerH + mainShot.height
+                  + subShots.reduce((s, x) => s + x.shot.height, 0) + footerH;
 
     const out = document.createElement('canvas');
     out.width = totalW;
     out.height = totalH;
     const ctx = out.getContext('2d');
+    ctx.imageSmoothingEnabled = true;
+    ctx.imageSmoothingQuality = 'high';   // app overlay canvases are scaled to fit — smooth them
 
     const rootStyle = getComputedStyle(document.documentElement);
     ctx.fillStyle = rootStyle.getPropertyValue('--bg-pane-header').trim() || '#161b22';
     ctx.fillRect(0, 0, totalW, totalH);
 
-    // Header: symbol · timeframe · price · change (mirrors the on-screen ticker
-    // bar, including its theme-aware text color and up/down price coloring).
-    const symVal  = pane.el.querySelector('.sym-in').value;
-    const tfVal   = pane.el.querySelector('.tf-sel').value;
-    const priceEl = pane.el.querySelector('.price-el');
-    const chgEl   = pane.el.querySelector('.chg-el');
-    const textPrimary = rootStyle.getPropertyValue('--text-primary').trim() || '#e6edf3';
-    ctx.font = `${Math.round(13 * dpr)}px -apple-system, "Segoe UI", sans-serif`;
+    // Header, two rows for prominence:
+    //  Row 1 — SYMBOL (bold) · exchange chip · full company name · brand (right)
+    //  Row 2 — price (colored) · change (colored) · timeframe
+    const symVal    = pane.el.querySelector('.sym-in').value;
+    const tfVal     = pane.el.querySelector('.tf-sel').value;
+    const priceEl   = pane.el.querySelector('.price-el');
+    const chgEl     = pane.el.querySelector('.chg-el');
+    const companyEl = pane.el.querySelector('.sym-company');
+    const exchEl    = pane.el.querySelector('.sym-exch-badge');
+    const company   = companyEl ? companyEl.textContent.trim() : '';
+    const exch      = exchEl ? exchEl.textContent.trim() : '';
+    const textPrimary   = rootStyle.getPropertyValue('--text-primary').trim()   || '#e6edf3';
+    const textSecondary = rootStyle.getPropertyValue('--text-secondary').trim() || '#8b949e';
     ctx.textBaseline = 'middle';
-    let hx = 10 * dpr;
-    [[`${symVal}   ${tfVal}`, textPrimary],
-     [priceEl.textContent,    getComputedStyle(priceEl).color || textPrimary],
-     [chgEl.textContent,      getComputedStyle(chgEl).color   || textPrimary],
+    const row1Y = Math.round(16 * ratio), row2Y = Math.round(34 * ratio);
+
+    // Row 1 — bold symbol
+    let hx = 12 * ratio;
+    ctx.font = `700 ${Math.round(16 * ratio)}px -apple-system, "Segoe UI", sans-serif`;
+    ctx.fillStyle = textPrimary;
+    ctx.fillText(symVal, hx, row1Y);
+    hx += ctx.measureText(symVal).width + 10 * ratio;
+    // exchange chip
+    if (exch) {
+      ctx.font = `600 ${Math.round(10 * ratio)}px -apple-system, "Segoe UI", sans-serif`;
+      const ew = ctx.measureText(exch).width, epx = 5 * ratio, ech = 16 * ratio;
+      ctx.fillStyle = 'rgba(88,166,255,0.18)';
+      ctx.fillRect(hx, row1Y - ech / 2, ew + epx * 2, ech);
+      ctx.fillStyle = '#58a6ff';
+      ctx.fillText(exch, hx + epx, row1Y);
+      hx += ew + epx * 2 + 10 * ratio;
+    }
+    // full company name (the part the ticker alone doesn't tell you)
+    if (company) {
+      ctx.font = `${Math.round(13 * ratio)}px -apple-system, "Segoe UI", sans-serif`;
+      ctx.fillStyle = textSecondary;
+      ctx.fillText(company, hx, row1Y);
+    }
+    // brand, right-aligned
+    ctx.textAlign = 'right';
+    ctx.font = `700 ${Math.round(12 * ratio)}px -apple-system, "Segoe UI", sans-serif`;
+    ctx.fillStyle = textSecondary;
+    ctx.fillText('Trading Bramha', totalW - 12 * ratio, row1Y);
+    ctx.textAlign = 'left';
+
+    // Row 2 — price · change · timeframe (theme-aware up/down coloring preserved)
+    let px = 12 * ratio;
+    ctx.font = `600 ${Math.round(13 * ratio)}px -apple-system, "Segoe UI", sans-serif`;
+    [[priceEl.textContent, getComputedStyle(priceEl).color || textPrimary],
+     [chgEl.textContent,   getComputedStyle(chgEl).color   || textPrimary],
+     [tfVal,               textSecondary],
     ].forEach(([txt, color]) => {
+      if (!txt) return;
       ctx.fillStyle = color;
-      ctx.fillText(txt, hx, headerH / 2);
-      hx += ctx.measureText(txt + '   ').width;
+      ctx.fillText(txt, px, row2Y);
+      px += ctx.measureText(txt + '   ').width;
     });
 
-    // Overlay canvases (volume profile / FVG) draw on top of the candle chart —
-    // same z-order as on screen.
+    // Hairline divider under the header
+    const hair = Math.max(1, Math.round(ratio / 2));
+    ctx.fillStyle = 'rgba(139,148,158,0.25)';
+    ctx.fillRect(0, headerH - hair, totalW, hair);
+
+    // Candle chart + its overlay canvases, drawn at the captured (native) size.
+    // The candles are now sharp at `ratio`; the app overlay canvases keep their
+    // own ratio and are scaled to fit (fine for line/bar overlays).
     let y = headerH;
+    const OW = mainShot.width, OH = mainShot.height;
     ctx.drawImage(mainShot, 0, y);
-    if (pane.fibCanvas) ctx.drawImage(pane.fibCanvas, 0, y, mainShot.width, mainShot.height);
-    if (pane.patternCanvas) ctx.drawImage(pane.patternCanvas, 0, y, mainShot.width, mainShot.height);
-    if (pane.projCanvas) ctx.drawImage(pane.projCanvas, 0, y, mainShot.width, mainShot.height);
-    if (pane.volCanvas) ctx.drawImage(pane.volCanvas, 0, y, mainShot.width, mainShot.height);
-    if (pane.fvgCanvas) ctx.drawImage(pane.fvgCanvas, 0, y, mainShot.width, mainShot.height);
+    if (pane.fibCanvas)     ctx.drawImage(pane.fibCanvas,     0, y, OW, OH);
+    if (pane.patternCanvas) ctx.drawImage(pane.patternCanvas, 0, y, OW, OH);
+    if (pane.projCanvas)    ctx.drawImage(pane.projCanvas,    0, y, OW, OH);
+    // Session Volume Profile HD (z-index 8, below volCanvas) — draw before it.
+    if (pane.svpCanvas)     ctx.drawImage(pane.svpCanvas,     0, y, OW, OH);
+    if (pane.volCanvas)     ctx.drawImage(pane.volCanvas,     0, y, OW, OH);
+    if (pane.fvgCanvas)     ctx.drawImage(pane.fvgCanvas,     0, y, OW, OH);
     // Info panels go last so they sit on top, matching their on-screen z-index.
-    // A failure here must not cost you the whole snapshot — the chart itself is
-    // still worth copying, so this degrades to the old canvas-only behaviour.
+    // Rendered at the capture ratio so the cards stay crisp. A failure here must
+    // not cost the whole snapshot — the chart itself is still worth copying.
     try {
-      const panelImg = await renderOverlayPanels(chartMain);
-      if (panelImg) ctx.drawImage(panelImg, 0, y, mainShot.width, mainShot.height);
+      const panelImg = await renderOverlayPanels(chartMain, ratio);
+      if (panelImg) ctx.drawImage(panelImg, 0, y, OW, OH);
     } catch (panelErr) {
       console.warn('Snapshot: overlay panels skipped —', panelErr);
     }
@@ -2164,16 +2276,32 @@ async function copyChartSnapshot(pane) {
 
     subShots.forEach(({shot, label}) => {
       ctx.drawImage(shot, 0, y);
-      const fontSize = Math.round(10 * dpr), padX = 6 * dpr, padY = 3 * dpr;
+      const fontSize = Math.round(10 * ratio), padX = 6 * ratio, padY = 3 * ratio;
       ctx.font = `${fontSize}px -apple-system, "Segoe UI", sans-serif`;
       const tw = ctx.measureText(label).width;
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillRect(4 * dpr, y + 4 * dpr, tw + padX * 2, fontSize + padY * 2);
+      ctx.fillRect(4 * ratio, y + 4 * ratio, tw + padX * 2, fontSize + padY * 2);
       ctx.fillStyle = '#c9d1d9';
       ctx.textBaseline = 'top';
-      ctx.fillText(label, 4 * dpr + padX, y + 4 * dpr + padY);
+      ctx.fillText(label, 4 * ratio + padX, y + 4 * ratio + padY);
+      ctx.textBaseline = 'middle';
       y += shot.height;
     });
+
+    // Footer caption strip — brand, symbol/company, timestamp and a quiet
+    // disclaimer, so a shared image explains itself away from the app.
+    const fy = totalH - footerH;
+    ctx.fillStyle = 'rgba(139,148,158,0.25)';
+    ctx.fillRect(0, fy, totalW, Math.max(1, Math.round(ratio / 2)));
+    ctx.textBaseline = 'middle';
+    ctx.textAlign = 'left';
+    ctx.font = `${Math.round(11 * ratio)}px -apple-system, "Segoe UI", sans-serif`;
+    ctx.fillStyle = textSecondary;
+    ctx.fillText(`${symVal}${company ? '  ·  ' + company : ''}`, 12 * ratio, fy + footerH / 2);
+    ctx.textAlign = 'right';
+    ctx.fillText(`Trading Bramha · ${new Date().toLocaleString()} · not investment advice`,
+                 totalW - 12 * ratio, fy + footerH / 2);
+    ctx.textAlign = 'left';
 
     out.toBlob(async blob => {
       if (!blob) { showToast('Snapshot failed — could not render image'); return; }
@@ -2195,6 +2323,20 @@ async function copyChartSnapshot(pane) {
   } catch (err) {
     console.error('Chart snapshot error:', err);
     showToast('Snapshot failed: ' + err.message);
+  } finally {
+    // Always put devicePixelRatio and the on-screen charts back, even if capture
+    // threw. The composited `out` canvas already holds its pixels by now, so this
+    // never affects the image — it only restores the live view.
+    if (S > dpr0) {
+      try {
+        if (dprDesc) Object.defineProperty(window, 'devicePixelRatio', dprDesc);
+        else Object.defineProperty(window, 'devicePixelRatio', {configurable: true, get: () => dpr0});
+      } catch {}
+      reflow.forEach(({chart, el}) => {
+        const w = el.clientWidth, h = el.clientHeight;
+        if (w > 0 && h > 0) { try { chart.resize(w, h, true); } catch {} }
+      });
+    }
   }
 }
 
@@ -2322,6 +2464,8 @@ function applyIndicators(pane) {
     ctx.clearRect(0, 0, pane.volCanvas.width, pane.volCanvas.height);
     pane.vp = null;
   }
+  // Clear Session Volume Profile HD (canvas + card) if deselected
+  if (!pane.indicators.has('svp') && pane.svp) clearSessionVP(pane);
   // Clear FVG canvas + buy/sell signal markers/panel if deselected
   if (!pane.indicators.has('fvg') && pane.fvgCanvas) {
     const ctx = pane.fvgCanvas.getContext('2d');
@@ -2722,6 +2866,14 @@ function applyIndicators(pane) {
     // case 2026-07-04). One RAF is enough for LWC to settle its layout.
     requestAnimationFrame(() => {
       if (pane.indicators.has('volprofile')) drawVolumeProfile(pane);
+    });
+  }
+
+  if (pane.indicators.has('svp')) {
+    // Same RAF deferral as volprofile: priceToCoordinate/timeToCoordinate are
+    // null until LWC settles its scales after setData.
+    requestAnimationFrame(() => {
+      if (pane.indicators.has('svp')) drawSessionVP(pane);
     });
   }
 
@@ -5001,6 +5153,140 @@ function renderPmaxInfo(pane, sig, trail, last, long, col) {
   st.infoEl.style.display = 'block';
 }
 
+// ── Session Volume Profile HD — per-session profiles + D/P/B/I + A/D card ─────
+// One volume profile per session (day / week / month by timeframe), each drawn as
+// a horizontal histogram anchored to its time span, classified D/P/B/I, with a
+// card that reads accumulation vs distribution and flags the P-profile trap stack.
+// Compute lives in session_volume_profile.js (window.SVP).
+const SVP_COL = {P: '#26a69a', B: '#f23645', D: '#4c9aff', I: '#8b93a3'};
+function svpRgba(hex, a) {
+  const n = parseInt(hex.slice(1), 16);
+  return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
+}
+
+function ensureSvpCanvas(pane) {
+  if (!pane.svpCanvas) {
+    const c = document.createElement('canvas');
+    c.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:8;width:100%;height:100%;';
+    pane.el.querySelector('.chart-main').appendChild(c);
+    pane.svpCanvas = c;
+  }
+  return pane.svpCanvas;
+}
+
+function clearSessionVP(pane) {
+  if (pane.svpCanvas) {
+    const ctx = pane.svpCanvas.getContext('2d');
+    ctx.clearRect(0, 0, pane.svpCanvas.width, pane.svpCanvas.height);
+  }
+  if (pane.svp && pane.svp.infoEl) { try { pane.svp.infoEl.remove(); } catch {} }
+  pane.svp = null;
+}
+
+function drawSessionVP(pane) {
+  if (typeof SVP === 'undefined') { console.warn('session_volume_profile.js not loaded'); return; }
+  if (!pane.bars || pane.bars.length < 20) return;
+  const canvas = ensureSvpCanvas(pane);
+  const W = canvas.width = canvas.offsetWidth;
+  const H = canvas.height = canvas.offsetHeight;
+  if (!W || !H) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  const r = SVP.analyze(pane.bars, pane.tf);
+  if (!r) return;
+  if (!pane.svp) pane.svp = {infoEl: null, collapsed: false};
+  pane.svp.data = r;
+
+  const ts = pane.chart.timeScale();
+  const yOf = pr => pane.series.priceToCoordinate(pr);
+  const xOf = t => { try { return ts.timeToCoordinate(t); } catch { return null; } };
+  const light = (typeof currentTheme !== 'undefined') && currentTheme === 'light';
+  const lastSess = r.sessions[r.sessions.length - 1];
+
+  r.sessions.forEach(s => {
+    let x0 = xOf(s.startTime), x1 = xOf(s.endTime);
+    if (x0 == null && x1 == null) return;               // wholly off-screen
+    if (x0 == null) x0 = 0;
+    if (x1 == null) x1 = W;
+    if (x1 <= x0) x1 = x0 + 2;
+    const segW = x1 - x0;
+    const maxBarW = Math.max(2, Math.min(segW * 0.92, segW - 1));
+    const maxVol = Math.max.apply(null, s.bins) || 1;
+    const col = SVP_COL[s.shape] || SVP_COL.D;
+    const trapOn = r.trap && s === lastSess;
+
+    s.bins.forEach((vol, i) => {
+      if (vol <= 0) return;
+      const yTop = yOf(s.binEdges[i + 1]), yBot = yOf(s.binEdges[i]);
+      if (yTop == null || yBot == null) return;
+      const rowH = Math.max(1, yBot - yTop - 1);
+      const barW = Math.max(1, (vol / maxVol) * maxBarW);
+      ctx.fillStyle = svpRgba(col, i === s.pocIdx ? 0.55 : 0.22);
+      ctx.fillRect(x0, yTop, barW, rowH);
+    });
+
+    const yp = yOf(s.poc);                                // POC line across session
+    if (yp != null) {
+      ctx.strokeStyle = svpRgba(col, 0.9);
+      ctx.lineWidth = 1.2;
+      ctx.beginPath(); ctx.moveTo(x0, yp); ctx.lineTo(x1, yp); ctx.stroke();
+    }
+    const yLbl = yOf(s.hi);                               // shape tag at session top
+    if (yLbl != null) {
+      ctx.fillStyle = col;
+      ctx.font = 'bold 10px system-ui, sans-serif';
+      ctx.fillText(s.shape + (trapOn ? ' ⚠' : ''), x0 + 2, Math.max(10, yLbl - 2));
+    }
+    ctx.strokeStyle = light ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(x0, H); ctx.stroke();
+  });
+
+  renderSVPInfo(pane, r);
+}
+
+function renderSVPInfo(pane, r) {
+  const st = pane.svp;
+  if (!st.infoEl) {
+    st.infoEl = document.createElement('div');
+    st.infoEl.className = 'svp-info';
+    pane.el.querySelector('.chart-main').appendChild(st.infoEl);
+    st.infoEl.addEventListener('click', ev => {
+      if (!ev.target.closest('.svp-head')) return;
+      st.collapsed = !st.collapsed;
+      st.infoEl.classList.toggle('collapsed', st.collapsed);
+    });
+  }
+  const c = r.card;
+  const f = v => Number.isFinite(v) ? v.toFixed(2) : '—';
+  const shp = sh => `<span class="svp-${sh}">${sh}</span>`;
+  const seq = (c.sequence || '').split(' ').filter(Boolean).map(shp).join(' ');
+  const cur = c.current;
+  const adCol = /DISTRIB/.test(c.ad.state) ? '#f23645'
+              : /ACCUM/.test(c.ad.state) ? '#26a69a' : 'var(--text-muted)';
+  const trapLine = c.trap
+    ? `<div style="color:#f23645;margin-top:3px;">⚠ ${c.trap.note}</div>` : '';
+  const levels = (c.levels || []).map(l => `${shp(l.shape)} ${f(l.poc)}`).join(' · ');
+
+  st.infoEl.innerHTML =
+    `<div class="svp-head">Session VP · ` +
+      (cur ? `now ${shp(cur.shape)} <span style="color:var(--text-muted);font-weight:400;">(${cur.label})</span>` : '') +
+      ` · <span style="color:${adCol};font-weight:700;">${c.ad.state}</span> ` +
+      `<span style="color:var(--text-muted);font-weight:400;">▾</span></div>` +
+    `<div class="svp-body" style="margin-top:5px;">` +
+      `<div>Sessions: <span class="svp-seq">${seq}</span></div>` +
+      (cur ? `<div>POC <b>${f(cur.poc)}</b> · VA ${f(cur.val)}–${f(cur.vah)}</div>` : '') +
+      trapLine +
+      (levels ? `<div style="margin-top:3px;">Critical POCs: ${levels}</div>` : '') +
+      `<div class="svp-cav">D=direction · P=buying · B=selling · I=balance. POCs are ` +
+        `observed volume levels; shapes + the 3-4× trap rule are interpretive claims to ` +
+        `backtest, not signals. Not advice.</div>` +
+    `</div>`;
+  st.infoEl.classList.toggle('collapsed', st.collapsed);
+  st.infoEl.style.display = 'block';
+}
+
 // ── Gann Square-of-9 S/R levels + honest break-odds card (see gann.js) ────────
 // Draws ONLY the deterministic horizontal SO9 levels (not the scale-dependent
 // fan). The card states the conditional break heuristic — "if R breaks up, this
@@ -5914,6 +6200,7 @@ async function loadData(idx) {
       });
       applyIndicators(p);
       if (p.indicators.has('volprofile')) drawVolumeProfile(p);
+      if (p.indicators.has('svp')) drawSessionVP(p);
       if (p.indicators.has('fvg')) drawFVG(p);
       const last = bars[bars.length - 1];
       p.openPrice = bars[0].open;
