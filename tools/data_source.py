@@ -61,6 +61,25 @@ def validate_timeframe(timeframe: str) -> str:
     )
 
 
+def _venue_today(symbol: str):
+    """Today's calendar date in the symbol's exchange timezone, or None if it
+    can't be determined. Used to decide whether an intraday "today" session
+    should exist, independent of whatever (mis)shaped daily frame yfinance
+    returned. Deliberately holiday-unaware — the caller only rebuilds a candle
+    when intraday data actually confirms a session on this date."""
+    from datetime import datetime as _dt
+    from zoneinfo import ZoneInfo
+    s = symbol.upper()
+    try:
+        if s.endswith(".NS") or s.endswith(".BO") or s.endswith(".BSE"):
+            tz = ZoneInfo("Asia/Kolkata")
+        else:
+            tz = ZoneInfo("America/New_York")
+        return _dt.now(tz).date()
+    except Exception:
+        return None
+
+
 # ── Abstract base ─────────────────────────────────────────────────────────────
 
 class DataSource(abc.ABC):
@@ -187,8 +206,30 @@ class YFinanceSource(DataSource):
         # the timestamp, which avoids inventing one in the wrong timezone.
         live_ts = None
         if timeframe == "1d" and len(df):
-            if bool(df[["Open", "High", "Low", "Close"]].iloc[-1].isna().all()):
+            ohlc = df[["Open", "High", "Low", "Close"]]
+            if bool(ohlc.iloc[-1].isna().all()):
+                # yfinance published its NaN placeholder for today's not-yet-
+                # aggregated candle. Its index is the authoritative timestamp.
                 live_ts = df.index[-1]
+            else:
+                # No placeholder — yfinance sometimes simply OMITS today's row
+                # mid-session instead of emitting the NaN stub, so the last real
+                # bar is the previous session. Relying only on the placeholder
+                # meant the "today's candle" rebuild silently disengaged whenever
+                # Yahoo's response shape drifted, and the chart + the header's
+                # %-change fell back a session (the recurring "showing yesterday's
+                # candle and price" bug). Anchor a rebuild on today's venue date
+                # whenever the last completed bar predates it. This never
+                # fabricates: _session_bar_from_intraday only returns a candle if
+                # intraday data actually carries a session on this date, so
+                # holidays and weekends resolve to None and stay honest.
+                completed = ohlc.dropna()
+                venue_today = _venue_today(symbol)
+                if len(completed) and venue_today is not None and \
+                        completed.index[-1].date() < venue_today:
+                    tz = df.index.tz
+                    live_ts = (pd.Timestamp(venue_today, tz=tz) if tz is not None
+                               else pd.Timestamp(venue_today))
         df = df.dropna(subset=["Open", "High", "Low", "Close"])
         df = df.tail(bars)
         import math
