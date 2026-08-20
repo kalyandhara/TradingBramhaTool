@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-20] roadmap | Open-Backlog refined with ingested-research items (B-28…B-31)
+- **Source:** concepts ingested this session into the separate claude-obsidian research vault (option seller/buyer talks, a "Pushya Nakshatra" astro video, an AI-driven systematic-trading talk).
+- **Pages updated:** [[analyses/Open-Backlog]]
+- **Promoted 4 items** (each survives the backlog's test — names a build AND the claim is measurable): **B-28** strike-level OI support/resistance + max pain (first deliverable of B-23; verified no `max_pain`/per-strike OI in `tools/`), **B-29** realistic slippage/costs via order-placement-logic replay (backtest.py states its own `no-costs-slippage` limitation; rides with B-21), **B-30** general Moon-in-Pushya reversal event-study (reuse `newmoon_levels_backtest.py`; base-rate trap → expect null like newmoon/sbc-vedha), **B-31** learned/regime-adaptive confluence weights (explicitly GATED behind B-25 — refinement on an unvalidated base).
+- **Deliberately not added:** the conceptual-only findings (option buyer-vs-seller economics, LLM-assisted-dev workflow, intraday wave theory) — they change how you think, not what the tool does. Promotional win-rate claims from the sources given zero weight, per the page's measurement-first ethos.
+
 ## [2026-08-15] ingest | Sarvatobhadra Chakra: The Hidden Astrology Tool for Market Prediction
 - **Source:** YouTube — Naveen Saroha, WD Gann & Market Mathematics channel, 34 min, Hindi
 - **URL:** https://youtu.be/7QuHl2OJagM
