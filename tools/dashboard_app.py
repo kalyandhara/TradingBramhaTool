@@ -3163,7 +3163,7 @@ def _card_trade_fundamentals_html(sym: str, card: dict) -> str:
     return f'<div style="margin:6px 0 2px 0;">{"".join(parts)}</div>'
 
 
-def _render_scanner_card(card: dict, scanner_name: str) -> None:
+def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -> None:
     sym = card["symbol"]
     sym_clean = sym.upper().replace(".NS", "")
     pattern_type = card.get("pattern_type", scanner_name)
@@ -3240,6 +3240,12 @@ def _render_scanner_card(card: dict, scanner_name: str) -> None:
         f'<div style="border:1px solid #f0e0cc;border-radius:12px;padding:14px 16px;'
         f'margin-bottom:4px;background:#fffdfa;'
         f'box-shadow:0 1px 3px rgba(120,80,40,0.06);">'
+        # Optional confluence header (Opportunity-Hub pipeline) rides INSIDE the
+        # card so it sits flush on top. Passing it here instead of a separate
+        # st.markdown avoids Streamlit's inter-element gap, which otherwise reads
+        # as an extra blank line between the chips and the card. Empty for every
+        # other caller, so their cards are unchanged.
+        f'{header_html}'
         # Header row: avatar · identity · right cluster
         f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">'
         # Avatar
@@ -3381,7 +3387,12 @@ def _render_pipeline_card(hit: dict) -> None:
                 f'background:{_rbg};color:{_rfg};font-size:11.5px;">'
                 f'⚠ <b>{", ".join(risk)}</b> also fired — there is a bearish read '
                 f'on this same chart. Not counted as confluence.</div>')
-    st.markdown(
+    # The confluence header rides on top of the card. It is handed to
+    # _render_scanner_card as header_html so it renders inside the SAME markdown
+    # block as the card — one element, no Streamlit inter-element gap. Rendering
+    # it as its own st.markdown (as before) left an extra blank line between the
+    # chips and the card in the Opportunity-Hub pipeline output.
+    header_html = (
         f'<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;'
         f'margin-bottom:4px;">'
         f'{_confluence_chips(len(hit["scanners"]), hit["families"])}'
@@ -3390,13 +3401,12 @@ def _render_pipeline_card(hit: dict) -> None:
         f'style="background:{rs.TOKENS["surface_alt"]};'
         f'color:{rs.TOKENS["text_body"]};">score '
         f'{(hit.get("rank_score") or 0):.1f}</span></div>'
-        f'{_scanner_source_chips(", ".join(hit["scanners"]))}{warn}',
-        unsafe_allow_html=True)
+        f'{_scanner_source_chips(", ".join(hit["scanners"]))}{warn}')
     card = dict(hit["best_card"] or {})
     card["symbol"] = sym
     card["overall"] = hit.get("overall")
     card["overall_breakdown"] = hit.get("overall_breakdown") or {}
-    _render_scanner_card(card, best)
+    _render_scanner_card(card, best, header_html=header_html)
 
 
 with st.expander("Daily Workflow (IST)"):
