@@ -48,3 +48,6 @@ tools/indian-trading-agent-main/
 # Local data cache — regenerable equity lists + captured screener.in session
 # cookies + persistent Playwright browser profile. Never commit (session data).
 tools/cache/
+
+# Regenerable daily movers cache (dated parquet + png snapshots).
+data/

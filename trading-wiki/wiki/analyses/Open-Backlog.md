@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-08-12
+updated: 2026-08-20
 sources: 0
 related:
   - analyses/Open-Backlog-2026-08-02.md
@@ -35,6 +35,20 @@ forward from the previous page. Two of them had changed and nobody had noticed.
 | **Closed** | B-1 (2026-08-05), B-14 (`ephem` now installed), B-18 (remote pushed 2026-08-07), **B-2 (chart_server restarted 2026-08-12, /rsi_divergence.js HTTP 200)** |
 | **Closed 2026-08-12** | **B-3** (mean-reversion scanner — `scan_mean_reversion` Connors RSI2, registered), **B-5** (time_stop emitted by 6 scanners: Harmonic/RSI60-40/OrderBlock/FallingWedge/SupportBreakdown/MeanReversion), **B-19b** (support-breakdown detector — `scan_support_breakdown` + `detect_support_breakdown`), **B-20a** (t-test + 95% CI on edge in `_aggregate`), **B-20b** (market-model beta/alpha when benchmark_df supplied to `backtest_scanner`), **B-25** (`backtest_confluence` + `format_confluence_report` measure co-fire vs single-fire), **B-7** (`sweep_volume_threshold` sweeps 1.0/1.2/1.5/2.0× vol floors and ranks by edge) |
 | **Still open** | B-4, B-6 … B-13, B-15, B-16, B-17, B-19 (all 2026-08-07 features unmeasured), B-21, B-21b, B-22, B-23, B-24, B-26, B-27 |
+| **New 2026-08-20** | **B-28** (strike-level OI S/R + max pain), **B-29** (realistic slippage/costs), **B-30** (Moon-in-Pushya event-study), **B-31** (learned confluence weights — gated, not next) |
+
+## Ingested-research additions (2026-08-20)
+
+Four items below (B-28…B-31) come from a batch of trading videos ingested into the
+separate research vault this session (option seller/buyer talks, an astro "Pushya"
+video, and an AI-systematic-trading talk). Only the concepts that survive this
+backlog's own test — *does it name a build, and can the claim be measured?* — were
+promoted. The conceptual-only ones (option buyer-vs-seller economics, LLM-assisted
+dev workflow, intraday "wave theory") were **deliberately not added**: they change how
+you think, not what the tool does. Every promoted item carries the same
+measurement-first caveat as the rest of this page — a new signal is a hypothesis
+until the harness says otherwise, and the ingested sources are promotional, so their
+own win-rate claims earn zero weight here.
 
 ---
 
@@ -116,6 +130,20 @@ installed. See [[analyses/Backtest-Harness]].
 One ~6y window, survivorship-biased, gross returns. Needs walk-forward and
 transaction costs before any scanner is called validated.
 
+### B-29 · No slippage/cost model — the realistic-fill technique *(ingested 2026-08-20)*
+`backtest.py` states its own limitation out loud: gross returns, `no-costs-slippage`
+([backtest.py:30](tools/backtest.py:30), and in the `limitations` list at
+[backtest.py:368](tools/backtest.py:368)). The systematic-trading talk's concrete fix
+is **not a fixed haircut** — it replays the *actual order-placement logic* the live
+path uses (market vs limit, price offset, re-quotes) and reads the fill off that, then
+budgets **~70-80% of backtest returns** after costs/STT/latency. This is the
+execution-realism half of B-21; do it *with* the walk-forward, not instead of it. The
+same talk's other lesson is a warning, not a task: sweeping "crores of parameter
+variations" on a millisecond engine makes overfitting **cheaper**, and realistic
+slippage does not rescue an over-fit signal — only the out-of-sample split and
+pre-registered rule (B-20a/B-21) do. So B-29 raises the bar for *realism*; it does
+nothing for *significance*, and must not be mistaken for it.
+
 ### B-7 · Volume-confirmation threshold sweep
 **Five conflicting values** across the repo, including one publisher printing
 1.2× and 1.5× weeks apart. Fully specified and directly runnable through the
@@ -161,6 +189,21 @@ Recorded repo asymmetry: **we detect breaks well and retests poorly.**
 
 ### B-11 · MFI absent
 Verified absent 2026-08-07. Wilder `_rsi_series` already exists, so it is cheap.
+
+### B-28 · No strike-level OI support/resistance or max pain *(ingested 2026-08-20)*
+We read OI at the *underlying* level (momentum quadrant, PCR) but nothing reads the
+**strike-by-strike** OI distribution as levels. Verified 2026-08-20: no `max_pain` /
+per-strike OI anywhere in `tools/`. The ingested option-trader talks describe the
+concrete read: **put-writer strikes act as support, call-writer strikes as
+resistance**, with **max pain** as the magnet, and the actionable event is a heavy
+**short-straddle breaking → short-cover rally** (a defended wall that, once pierced,
+fuels the move it was capping). This is the first concrete deliverable of **B-23**
+("strike-level option OI — the largest remaining OI item, needs its own design pass"):
+a max-pain + OI-wall S/R overlay, fed by a per-strike chain. Prerequisite is the
+per-strike feed B-23 scopes. Measurement caveat, same as everything here: "the wall
+rejects the first touch" is a testable, unproven claim — ship it as
+**levels-with-context**, label it unmeasured, and event-study it (first-touch
+rejection vs a matched non-wall strike) before it grades anything.
 
 ---
 
@@ -209,6 +252,8 @@ large, liquid and certainly file. First suspect remains the
 | B-17 | OBV has no wiki page | Verified absent; ships as a chart indicator, undocumented. |
 | B-27 | **Wiki hygiene** | Index counters had drifted to two *different* wrong numbers (frontmatter 204/78, body 198/81, actual 226/91) — corrected 2026-08-07, but a lint should **compute** these rather than trust them. Also an empty brace-expansion artifact directory `{entities,concepts,strategies,sources,analyses}` in the vault, untracked and harmless. |
 | B-14 | ~~`ephem` not installed~~ | **CLOSED** — verified `ephem 4.2.1` present 2026-08-07. The reversal calendar can now be rebuilt; that rebuild has not been run, and coverage still ends **2027-12-28**. |
+| B-30 | **Moon-in-Pushya reversal event-study** *(ingested 2026-08-20)* | Astro video claims Moon-in-Pushya days (~13-14/yr) mark major Nifty reversals. We already cache `gurupushya`/`ravipushya` muhurat dates and run muhurat/vedha/newmoon backtests; this adds the *general* Pushya-transit claim as one more event-study, reusing `newmoon_levels_backtest.py` (first-touch reversal vs a **matched non-Pushya control**, permutation null, eclipse strip). Textbook base-rate trap — ~13-14 dates/yr against typical 300-600pt 2-day ranges — so **expect a null**, consistent with the newmoon and sbc-vedha nulls. Worth running only to retire it with evidence. |
+| B-31 | **Learned / regime-adaptive confluence weights — NOT NEXT** *(ingested 2026-08-20)* | The "signal-fusion" talk suggests *learning* confluence weights from historical performance and adapting them by volatility regime (IV<HV → defensive). We already cap correlated families (`scanner_weight`) and carry a RISK-ON/OFF flag, but weights are hand-set. Deliberately parked: learning weights is refinement on the base **B-25/B-19** already flag as unvalidated. Gate: close B-25 (does co-firing beat single-firing at all?) and B-21/B-29 (costs, walk-forward) first. Recorded so the idea is not lost — not so it is built next. |
 
 ---
 
@@ -264,7 +309,7 @@ until it is done every new refinement makes the stack taller rather than better.
 6. ~~**B-19b** — support-breakdown detector.~~ Done 2026-08-12 (`scan_support_breakdown`).
 7. ~~**B-3** — mean-reversion scanner.~~ Done 2026-08-12 (`scan_mean_reversion` Connors RSI2).
 
-**Next:** B-16 (OI momentum palette), B-24 (RSI-divergence Python/JS disagreement), B-21 (walk-forward + costs).
+**Next:** B-16 (OI momentum palette), B-24 (RSI-divergence Python/JS disagreement), B-21 (walk-forward + costs) — and fold **B-29** (realistic slippage) into that same costs pass. The new B-28/B-30 are capability/research items that can wait behind the measurement work; **B-31 is explicitly gated behind B-25.**
 
 ## Outcome (fill in later)
 
