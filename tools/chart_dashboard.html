@@ -16,6 +16,8 @@
 <script src="/fvg.js"></script>
 <!-- %R Trend Exhaustion oscillator plug-in — pure computation module, see percent_r_trend_exhaustion.js -->
 <script src="/percent_r_trend_exhaustion.js"></script>
+<!-- HM Bottoms & Tops (Hilega Milega, reworked) oscillator plug-in — pure computation, see hm_indicator.js -->
+<script src="/hm_indicator.js"></script>
 <!-- Fibonacci levels + confluence trade plan — pure computation module, see fibonacci.js.
      Loaded AFTER elliott_wave.js and volume_profile.js: it reads EW.computeZigzag for
      swing anchoring and VP.findConfluence for level scoring. -->
@@ -252,6 +254,25 @@ html, body {
 }
 .range-btn:hover { border-color: var(--border); color: var(--text-primary); }
 .range-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* ── Go-to-date (TradingView-style jump), sits after the range presets ─────── */
+.range-sep { width: 1px; align-self: stretch; margin: 1px 4px; background: var(--border-soft); }
+.goto-date {
+  background: transparent; border: 1px solid var(--border-soft); color: var(--text-secondary);
+  padding: 0 4px; border-radius: 4px; font-size: 10px; font-weight: 600;
+  height: 18px; cursor: pointer; outline: none; color-scheme: dark light;
+}
+.goto-date:hover { border-color: var(--border); color: var(--text-primary); }
+.goto-btn { border-color: var(--border-soft); }
+/* Vertical focus line + date pill drawn over the candles at the jumped-to date. */
+.goto-vline {
+  position: absolute; top: 0; bottom: 0; width: 0;
+  border-left: 1px dashed var(--accent); pointer-events: none; z-index: 4; display: none;
+}
+.goto-vline-label {
+  position: absolute; top: 3px; left: 0; transform: translateX(-50%);
+  font-size: 9px; font-weight: 700; line-height: 1; white-space: nowrap;
+  padding: 2px 5px; border-radius: 3px; background: var(--accent); color: #fff;
+}
 .ind-panel {
   display: none; position: absolute; top: 100%; left: 0; margin-top: 4px;
   width: 220px; max-height: 360px; overflow-y: auto; z-index: 50;
@@ -710,6 +731,10 @@ const CHART_THEMES = {
 };
 let currentTheme = localStorage.getItem('tb-theme') || 'dark';
 
+// HM "strength" (RSI) line: bold near-black on light, near-white on dark, so it
+// stays the most prominent line over the red/cyan regime fill in either theme.
+function hmStrengthColor() { return currentTheme === 'light' ? '#101521' : '#eaeff7'; }
+
 function applyTheme(mode) {
   currentTheme = mode;
   localStorage.setItem('tb-theme', mode);
@@ -734,6 +759,11 @@ function applyTheme(mode) {
           timeScale: {borderColor:t.borderSoft},
         });
       });
+      // Series colours aren't touched by the generic loop above; the HM strength
+      // line is theme-dependent, so refresh it explicitly on toggle.
+      if (p.subCharts.hm && p.subCharts.hm.rsiLine) {
+        p.subCharts.hm.rsiLine.applyOptions({color: hmStrengthColor()});
+      }
     });
   }
 }
@@ -805,6 +835,110 @@ function applyRangeView(pane) {
   } else {
     pane.chart.timeScale().setVisibleLogicalRange({ from: n - preset.bars, to: n - 1 });
   }
+}
+
+// ── Go to date ────────────────────────────────────────────────────────────────
+// Jump the chart (and its synced sub-panes) to a specific calendar date, TV-style,
+// and drop a dashed vertical focus line on that bar. Bars carry UTC-second
+// timestamps, so a picked 'YYYY-MM-DD' maps to that UTC day. If the date falls
+// OUTSIDE the loaded bar range we do nothing but tell the user the data isn't
+// available; a weekend/holiday inside the range snaps to the nearest trading bar.
+function gotoDate(pane, dateStr) {
+  const bars = pane.bars;
+  if (!bars || !bars.length) { showToast('No chart data loaded yet'); return; }
+  const dayStart = Date.parse(dateStr + 'T00:00:00Z') / 1000;
+  if (isNaN(dayStart)) { showToast('Invalid date'); return; }
+  const dayEnd = dayStart + 86400;
+
+  // Loaded window bounds, compared at day granularity so the last day counts.
+  const firstDay = Math.floor(bars[0].time / 86400) * 86400;
+  const lastDay  = Math.floor(bars[bars.length - 1].time / 86400) * 86400;
+  if (dayStart < firstDay || dayStart > lastDay) {
+    showToast(`Historical data not available for ${dateStr}`, 3400);
+    return;
+  }
+
+  // Prefer a bar inside the selected UTC day; else snap to the nearest bar.
+  let idx = -1;
+  for (let i = 0; i < bars.length; i++) {
+    if (bars[i].time >= dayStart && bars[i].time < dayEnd) { idx = i; break; }
+  }
+  const exact = idx >= 0;
+  if (!exact) {
+    const mid = dayStart + 43200;
+    let best = Infinity;
+    for (let i = 0; i < bars.length; i++) {
+      const d = Math.abs(bars[i].time - mid);
+      if (d < best) { best = d; idx = i; }
+    }
+  }
+  if (idx < 0) { showToast(`Historical data not available for ${dateStr}`, 3400); return; }
+
+  // Centre the view on idx, keeping roughly the current window width.
+  const ts = pane.chart.timeScale();
+  let span = 60;
+  try { const lr = ts.getVisibleLogicalRange(); if (lr) span = Math.max(20, Math.round(lr.to - lr.from)); } catch {}
+  const half = Math.round(span / 2), n = bars.length;
+  let from = idx - half, to = idx + half;
+  if (from < 0) { to -= from; from = 0; }
+  if (to > n - 1) { from -= (to - (n - 1)); to = n - 1; }
+  if (from < 0) from = 0;
+  ts.setVisibleLogicalRange({ from, to });
+  syncSubPaneRanges(pane);
+
+  // Focused date is a custom view — drop the preset highlight.
+  pane.el.querySelectorAll('.range-btn[data-range]').forEach(b => b.classList.remove('active'));
+  pane.gotoTime = bars[idx].time;
+  drawGotoLine(pane);
+  showToast(exact ? `Jumped to ${dateStr}`
+                  : `${dateStr} had no bar (weekend/holiday) — snapped to nearest trading day`, 2800);
+}
+
+function drawGotoLine(pane) {
+  const host = pane.el.querySelector('.chart-main');
+  if (!host || pane.gotoTime == null) return;
+  if (!pane.gotoLineEl) {
+    const line = document.createElement('div');
+    line.className = 'goto-vline';
+    const lab = document.createElement('div');
+    lab.className = 'goto-vline-label';
+    line.appendChild(lab);
+    host.appendChild(line);
+    pane.gotoLineEl = line;
+    pane.gotoLineLabel = lab;
+    // Reposition the line on every pan/zoom so it stays pinned to its date.
+    if (!pane._gotoSub) {
+      pane._gotoSub = true;
+      try { pane.chart.timeScale().subscribeVisibleLogicalRangeChange(() => repositionGotoLine(pane)); } catch {}
+    }
+  }
+  pane.gotoLineLabel.textContent = new Date(pane.gotoTime * 1000).toISOString().slice(0, 10);
+  // Just after a jump the new range hasn't painted yet, so timeToCoordinate can
+  // return null for a frame or two. Retry across a few frames until it resolves.
+  let tries = 0;
+  const tick = () => {
+    if (pane.gotoTime == null || !pane.gotoLineEl) return;
+    let x = null;
+    try { x = pane.chart.timeScale().timeToCoordinate(pane.gotoTime); } catch {}
+    if (x != null) { pane.gotoLineEl.style.left = x + 'px'; pane.gotoLineEl.style.display = 'block'; return; }
+    if (++tries < 15) requestAnimationFrame(tick);
+    else pane.gotoLineEl.style.display = 'none';
+  };
+  requestAnimationFrame(tick);
+}
+
+function repositionGotoLine(pane) {
+  if (!pane.gotoLineEl || pane.gotoTime == null) return;
+  let x = null;
+  try { x = pane.chart.timeScale().timeToCoordinate(pane.gotoTime); } catch {}
+  if (x == null) { pane.gotoLineEl.style.display = 'none'; return; }   // scrolled off-screen
+  pane.gotoLineEl.style.left = x + 'px';
+  pane.gotoLineEl.style.display = 'block';
+}
+
+function clearGotoLine(pane) {
+  pane.gotoTime = null;
+  if (pane.gotoLineEl) pane.gotoLineEl.style.display = 'none';
 }
 
 // Pad an indicator series to the FULL bar grid with leading whitespace points
@@ -909,6 +1043,7 @@ const INDICATOR_DEFS = [
   {key:'prte',      label:'%R Trend Exhaustion',    group:'Oscillators',       color:'#2466A7'},
   {key:'roc',       label:'ROC + RSI Zones (21,5,5,14)', group:'Oscillators',    color:'#2962ff'},
   {key:'stoch',     label:'Stochastic (14,3,3)',    group:'Oscillators',       color:'#26c6da'},
+  {key:'hm',        label:'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', group:'Oscillators', color:'#26a69a'},
   // Draws on BOTH the price chart and the RSI pane, so selecting it turns RSI
   // on (see applyIndicators) — half the signal lives in the oscillator.
   {key:'rsidiv',    label:'RSI Divergence (regular + hidden)', group:'Oscillators', color:'#ffd166'},
@@ -1697,7 +1832,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
     </div>
     <div class="range-row">${RANGE_PRESETS.map(p =>
       `<button type="button" class="range-btn" data-range="${p.label}">${p.label}</button>`
-    ).join('')}</div>
+    ).join('')}<span class="range-sep"></span><input type="date" class="goto-date" title="Go to date — jump the chart to a specific date"><button type="button" class="range-btn goto-btn" title="Jump the chart to the selected date">Go&nbsp;to</button></div>
     <div class="chart-body">
       <div class="chart-main">
         <div class="loading-msg">Loading…</div>
@@ -2007,16 +2142,24 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
 
   snapBtn.addEventListener('click', () => copyChartSnapshot(pane));
 
-  const rangeBtns = el.querySelectorAll('.range-btn');
+  const rangeBtns = el.querySelectorAll('.range-btn[data-range]');
   rangeBtns.forEach(btn => {
     btn.classList.toggle('active', btn.dataset.range === pane.rangePreset);
     btn.addEventListener('click', () => {
       pane.rangePreset = btn.dataset.range;
       rangeBtns.forEach(b => b.classList.toggle('active', b === btn));
+      clearGotoLine(pane);          // leaving the focused date for a preset window
       applyRangeView(pane);
       savePaneCfg();
     });
   });
+
+  // ── Go to date (TradingView-style) ──────────────────────────────────────────
+  const gotoInput = el.querySelector('.goto-date');
+  const gotoBtn   = el.querySelector('.goto-btn');
+  const runGoto = () => { if (gotoInput.value) gotoDate(pane, gotoInput.value); };
+  gotoBtn.addEventListener('click', runGoto);
+  gotoInput.addEventListener('change', runGoto);   // picking a date jumps immediately
 
   indPanel.querySelectorAll('.ind-chk').forEach(chk => {
     const key = chk.dataset.key;
@@ -2381,7 +2524,7 @@ function addLine(pane, color, lineWidth = 1, lineStyle = 0) {
 // momentum, and remain informative on any series.
 // mabias joins them: a trend-bias card on a monotonic yield line would read
 // "permanent golden cross" — technically true, decisionally meaningless.
-const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'stoch', 'elliott', 'mabias', 'rsidiv'];
+const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'stoch', 'elliott', 'mabias', 'rsidiv', 'hm'];
 
 // Detect liquid-ETF / cash-equivalent behaviour from bar statistics rather
 // than symbol lists — new liquid ETFs launch faster than any hardcoded set
@@ -2454,7 +2597,7 @@ function applyIndicators(pane) {
   // 'volume' is deliberately absent — it is a main-chart overlay now, torn down
   // by removeIndicatorSeries above. A stale volume SUB-pane can still exist from
   // a session saved before the change, so it is swept once here.
-  ['rsi','macd','obv','rs','prte','roc','stoch'].forEach(key => {
+  ['rsi','macd','obv','rs','prte','roc','stoch','hm'].forEach(key => {
     if (!pane.indicators.has(key) && pane.subCharts[key]) removeSubPane(pane, key);
   });
   if (pane.subCharts.volume) removeSubPane(pane, 'volume');
@@ -2793,6 +2936,69 @@ function applyIndicators(pane) {
     pane.subCharts.prte.fastLine.setMarkers(markers);
   }
 
+  if (pane.indicators.has('hm')) {
+    if (!pane.subCharts.hm) {
+      // Taller pane (160px): three lines + regime shading + entry/exit markers
+      // need vertical room to separate in the 0..100 band (cf. %R's 150px).
+      const sub = addSubPane(pane, 'hm', 'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', 160);
+      // Regime "colour profile": a baseline fill anchored on the 50 midline —
+      // the classic HM look: warm (red) above 50, cool (cyan) below. Added FIRST
+      // so the three lines + markers always sit prominently on top of the shading.
+      sub.regime = sub.chart.addBaselineSeries({
+        baseValue: {type: 'price', price: 50},
+        topLineColor:    'rgba(0,0,0,0)',
+        topFillColor1:   'rgba(239,83,80,0.26)',    // above 50 → red
+        topFillColor2:   'rgba(239,83,80,0.05)',
+        bottomLineColor: 'rgba(0,0,0,0)',
+        bottomFillColor1:'rgba(38,198,218,0.05)',
+        bottomFillColor2:'rgba(38,198,218,0.30)',   // below 50 → cyan
+        priceLineVisible: false, lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      // Lines drawn back-to-front so the primary strength line ends up on top:
+      // VWMA (salmon) → EMA (green) → RSI (bold, theme-aware). Widths bumped so
+      // all three read clearly over the fill.
+      sub.vwmaLine = sub.chart.addLineSeries({
+        color: '#e5544a', lineWidth: 2,            // salmon-red = VWMA(RSI), opaque over the red fill
+        priceLineVisible: false, lastValueVisible: false,
+      });
+      sub.emaLine = sub.chart.addLineSeries({
+        color: '#1f9d57', lineWidth: 2,            // green = EMA(RSI) momentum
+        priceLineVisible: false, lastValueVisible: false,
+      });
+      sub.rsiLine = sub.chart.addLineSeries({
+        color: hmStrengthColor(), lineWidth: 2.5,  // RSI "strength": near-black on light / near-white on dark
+        priceLineVisible: false, lastValueVisible: true,
+      });
+      sub.series = sub.rsiLine;                     // used for crosshair sync + markers
+      sub.chart.priceScale('right').applyOptions({scaleMargins: {top: 0.06, bottom: 0.06}});
+      // Guides: the 50 midline is the whole game (OB/OS collapse onto it); 70/30
+      // echo the fill colours as faint context; 0/100 are the bounds.
+      sub.rsiLine.createPriceLine({price:100, color:'rgba(150,150,150,0.30)', lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      sub.rsiLine.createPriceLine({price:70,  color:'rgba(239,83,80,0.28)',   lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      sub.rsiLine.createPriceLine({price:50,  color:'rgba(140,140,140,0.55)', lineWidth:1, lineStyle:0, axisLabelVisible:false});
+      sub.rsiLine.createPriceLine({price:30,  color:'rgba(38,198,218,0.30)',  lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      sub.rsiLine.createPriceLine({price:0,   color:'rgba(150,150,150,0.30)', lineWidth:1, lineStyle:2, axisLabelVisible:false});
+    }
+    const hm = HM.compute(bars);
+    pane.subCharts.hm.rsiLine.setData(padToBars(hm.rsi, bars));   // primary → full grid
+    pane.subCharts.hm.regime.setData(padToBars(hm.rsi, bars));    // same data → red/cyan 50-band fill
+    pane.subCharts.hm.emaLine.setData(hm.emaRsi);
+    pane.subCharts.hm.vwmaLine.setData(hm.vwmaRsi);
+    // Markers: filled arrows = confirmed reversal (VWMA leaves the 50 band);
+    // hollow circles = early setup (the 50-cross, still awaiting confirmation);
+    // small grey squares = momentum-fade exit (RSI crosses back through 50).
+    const hmMarkers = [
+      ...hm.bullConfirm.map(p => ({time: p.time, position: 'belowBar', color: '#1f9d57', shape: 'arrowUp',   text: '▲'})),
+      ...hm.bearConfirm.map(p => ({time: p.time, position: 'aboveBar', color: '#c62828', shape: 'arrowDown', text: '▼'})),
+      ...hm.bullEarly.map(p   => ({time: p.time, position: 'belowBar', color: '#1f9d57', shape: 'circle'})),
+      ...hm.bearEarly.map(p   => ({time: p.time, position: 'aboveBar', color: '#c62828', shape: 'circle'})),
+      ...hm.exitLong.map(p    => ({time: p.time, position: 'aboveBar', color: '#9aa4af', shape: 'square'})),
+      ...hm.exitShort.map(p   => ({time: p.time, position: 'belowBar', color: '#9aa4af', shape: 'square'})),
+    ].sort((a, b) => (a.time > b.time ? 1 : a.time < b.time ? -1 : 0));
+    pane.subCharts.hm.rsiLine.setMarkers(hmMarkers);
+  }
+
   if (pane.indicators.has('roc')) {
     if (!pane.subCharts.roc) {
       const sub = addSubPane(pane, 'roc', 'ROC + RSI Zones (21,5,5,14)');
@@ -3058,6 +3264,7 @@ function resetPaneVisuals(pane) {
   pane.vp = null;
   pane.fvgZones = null;
   pane.bars = [];
+  clearGotoLine(pane);   // the focused date belongs to the old symbol/timeframe
 }
 
 // ── Sub-pane chart lifecycle ───────────────────────────────────────────────────
