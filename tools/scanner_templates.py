@@ -4462,6 +4462,132 @@ def scan_order_block(df: pd.DataFrame) -> dict | None:
     }
 
 
+def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
+                        min_disp_atr: float = 1.0, max_ob_search: int = 8,
+                        max_blocks: int = 14) -> list[dict]:
+    """All order blocks (bullish demand + bearish supply) in the window, for the
+    chart overlay — the multi-zone sibling of ``scan_order_block`` (which returns
+    only the single 'retest now' bullish signal).
+
+    Walks the same SMC swing structure as ``detect_bos_choch``: whenever a close
+    breaks the most recent confirmed swing (up = bullish break, down = bearish),
+    the **last opposing-close candle before the break** is the order block — the
+    candle where institutions absorbed the other side before the displacement.
+    Each block keeps its full high-low zone, the BOS/CHOCH label, an ATR-measured
+    displacement gate (≥ ``min_disp_atr`` ATR out of the zone), and its mitigation
+    state: ``mitigated`` once price trades back INTO the zone after the break
+    (``mit_idx`` = first such bar). Blocks fully violated (a close beyond the far
+    side of the zone) are dropped — they are no longer valid order blocks.
+
+    Returns a list of dicts (bar indices, mapped to timestamps by the caller),
+    most-recent last, capped at ``max_blocks``. Bearish is the exact mirror of
+    bullish. See ``concepts/Order-Blocks``.
+    """
+    if df is None or len(df) < pivot_len * 4 + 20:
+        return []
+    df = _clean_ohlc(df)
+    n = len(df)
+    if n < pivot_len * 4 + 20:
+        return []
+    o, h, l, c = df["open"], df["high"], df["low"], df["close"]
+    vol = df["volume"] if "volume" in df.columns else pd.Series([0.0] * n, index=df.index)
+    atr = _atr_series(df, 14)
+
+    swing_high: float | None = None
+    swing_low: float | None = None
+    trend = 0
+    raw: list[dict] = []
+
+    for i in range(pivot_len * 2, n):
+        j = i - pivot_len          # a pivot is confirmed pivot_len bars later
+        if j >= pivot_len:
+            if h.iloc[j] == h.iloc[j - pivot_len: j + pivot_len + 1].max():
+                swing_high = float(h.iloc[j])
+            if l.iloc[j] == l.iloc[j - pivot_len: j + pivot_len + 1].min():
+                swing_low = float(l.iloc[j])
+        a = float(atr.iloc[i]) if not np.isnan(atr.iloc[i]) else 0.0
+        close_i = float(c.iloc[i])
+
+        # ── Bullish break → look back for the last DOWN candle = demand block ──
+        if swing_high is not None and close_i > swing_high and a > 0:
+            ob_idx = None
+            for k in range(i - 1, max(0, i - max_ob_search) - 1, -1):
+                if c.iloc[k] < o.iloc[k]:
+                    ob_idx = k
+                    break
+            if ob_idx is not None:
+                ob_lo, ob_hi = float(l.iloc[ob_idx]), float(h.iloc[ob_idx])
+                disp = float(h.iloc[ob_idx:i + 1].max()) - ob_hi
+                if ob_hi > ob_lo and disp >= min_disp_atr * a:
+                    raw.append({"dir": "bull", "ob_idx": ob_idx, "break_idx": i,
+                                "low": ob_lo, "high": ob_hi,
+                                "signal": "BOS" if trend == 1 else "CHOCH",
+                                "disp_atr": round(disp / a, 2),
+                                "vol_x": _vol_x(vol, i)})
+            trend = 1
+            swing_high = None
+        # ── Bearish break → look back for the last UP candle = supply block ──
+        elif swing_low is not None and close_i < swing_low and a > 0:
+            ob_idx = None
+            for k in range(i - 1, max(0, i - max_ob_search) - 1, -1):
+                if c.iloc[k] > o.iloc[k]:
+                    ob_idx = k
+                    break
+            if ob_idx is not None:
+                ob_lo, ob_hi = float(l.iloc[ob_idx]), float(h.iloc[ob_idx])
+                disp = ob_lo - float(l.iloc[ob_idx:i + 1].min())
+                if ob_hi > ob_lo and disp >= min_disp_atr * a:
+                    raw.append({"dir": "bear", "ob_idx": ob_idx, "break_idx": i,
+                                "low": ob_lo, "high": ob_hi,
+                                "signal": "BOS" if trend == -1 else "CHOCH",
+                                "disp_atr": round(disp / a, 2),
+                                "vol_x": _vol_x(vol, i)})
+            trend = -1
+            swing_low = None
+
+    # ── Mitigation + violation pass ──────────────────────────────────────────
+    # State (not a drop): fresh = never returned to; mitigated = price tapped the
+    # zone but hasn't closed through; violated = price closed beyond the far side
+    # (the zone failed). All three are kept so the overlay shows the full history;
+    # the caller fades mitigated and greys violated.
+    out: list[dict] = []
+    seen: set[tuple[str, int]] = set()
+    for ob in raw:
+        dedup = (ob["dir"], ob["ob_idx"])
+        if dedup in seen:
+            continue
+        seen.add(dedup)
+        mit_idx = None
+        vio_idx = None
+        for m in range(ob["break_idx"] + 1, n):
+            if ob["dir"] == "bull":
+                if mit_idx is None and float(l.iloc[m]) <= ob["high"]:
+                    mit_idx = m                       # tapped the zone
+                if float(c.iloc[m]) < ob["low"]:
+                    vio_idx = m                       # closed through → failed
+                    break
+            else:
+                if mit_idx is None and float(h.iloc[m]) >= ob["low"]:
+                    mit_idx = m
+                if float(c.iloc[m]) > ob["high"]:
+                    vio_idx = m
+                    break
+        ob["state"] = ("violated" if vio_idx is not None
+                       else "mitigated" if mit_idx is not None else "fresh")
+        ob["mit_idx"] = mit_idx
+        ob["vio_idx"] = vio_idx
+        out.append(ob)
+
+    return out[-max_blocks:]
+
+
+def _vol_x(vol: pd.Series, i: int, avg_len: int = 20) -> float:
+    """Break-bar volume as a multiple of the trailing average (0 if unavailable)."""
+    lo = max(0, i - avg_len)
+    avg = float(vol.iloc[lo:i].mean()) if i > lo else 0.0
+    return round(float(vol.iloc[i]) / avg, 2) if avg > 0 else 0.0
+
+
 def detect_falling_wedge_geometry(df: pd.DataFrame, window: int = 60,
                                   touch_tol: float = 0.015) -> dict | None:
     """Falling-wedge detection core → geometry dict, or None.

@@ -292,6 +292,20 @@ html, body {
 .ind-row input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
 .ind-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
 .ind-divider { height: 1px; background: var(--border-soft); margin: 6px 0; }
+/* ── Indicator search (filter the long list quickly) ─────────────────────── */
+.ind-search-wrap {
+  position: sticky; top: 0; z-index: 3; background: var(--bg-dropdown);
+  padding: 0 10px 6px; margin-bottom: 2px; border-bottom: 1px solid var(--border-soft);
+}
+.ind-search {
+  width: 100%; box-sizing: border-box; padding: 5px 8px; font-size: 12px;
+  background: var(--bg-pane); color: var(--text-chart);
+  border: 1px solid var(--border-soft); border-radius: 5px; outline: none;
+}
+.ind-search::placeholder { color: var(--text-secondary); }
+.ind-search:focus { border-color: var(--accent); }
+.ind-group + .ind-group { border-top: 1px solid var(--border-soft); margin-top: 6px; padding-top: 2px; }
+.ind-empty { padding: 12px; font-size: 11px; color: var(--text-secondary); text-align: center; }
 
 /* ── Ticker bar ───────────────────────────────────────────────────────────── */
 .ticker-wrap {
@@ -1043,7 +1057,7 @@ const INDICATOR_DEFS = [
   {key:'prte',      label:'%R Trend Exhaustion',    group:'Oscillators',       color:'#2466A7'},
   {key:'roc',       label:'ROC + RSI Zones (21,5,5,14)', group:'Oscillators',    color:'#2962ff'},
   {key:'stoch',     label:'Stochastic (14,3,3)',    group:'Oscillators',       color:'#26c6da'},
-  {key:'hm',        label:'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', group:'Oscillators', color:'#26a69a'},
+  {key:'hm',        label:'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', group:'Oscillators', color:'#26a69a', alias:'hilega milega bottom top reversal strength momentum'},
   // Draws on BOTH the price chart and the RSI pane, so selecting it turns RSI
   // on (see applyIndicators) — half the signal lives in the oscillator.
   {key:'rsidiv',    label:'RSI Divergence (regular + hidden)', group:'Oscillators', color:'#ffd166'},
@@ -1059,6 +1073,7 @@ const INDICATOR_DEFS = [
   {key:'trendlines',   label:'Trendlines (supply/demand)', group:'Pattern Recognition', color:'#ff9800'},
   {key:'falling_wedge', label:'Falling Wedge (converging → breakout)', group:'Pattern Recognition', color:'#26a69a'},
   {key:'structure_chain', label:'Structure Break Chain (BOS/CHoCH + quality)', group:'Pattern Recognition', color:'#00e676'},
+  {key:'orderblock',   label:'Order Blocks (SMC demand / supply zones)', group:'Pattern Recognition', color:'#4c9aff', alias:'order block ob smart money smc demand supply zone mitigation institutional'},
   {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab)', group:'Pattern Recognition', color:'#ba68c8'},
   {key:'projection',   label:'Price Projection (EW + patterns)', group:'Pattern Recognition', color:'#4c9aff'},
   {key:'fib',          label:'Fibonacci + Trade Plan (VP + Projection confluence)',
@@ -1072,19 +1087,25 @@ const INDICATOR_DEFS = [
 const INDICATOR_GROUPS = ['Moving Averages', 'Bands & Channels', 'Oscillators', 'Volume', 'Pattern Recognition', 'Calendar'];
 
 function renderIndicatorPanel() {
-  let html = '';
-  INDICATOR_GROUPS.forEach((g, gi) => {
-    if (gi > 0) html += '<div class="ind-divider"></div>';
-    html += `<div class="ind-group-title">${g}</div>`;
+  let html = '<div class="ind-search-wrap">'
+           + '<input type="text" class="ind-search" placeholder="Search indicators…" spellcheck="false" autocomplete="off">'
+           + '</div>';
+  INDICATOR_GROUPS.forEach((g) => {
+    let rows = '';
     INDICATOR_DEFS.filter(d => d.group === g).forEach(d => {
-      html += `
-        <label class="ind-row">
+      // data-search: lowercased label + key + group + optional aliases, so the
+      // filter matches a synonym (e.g. "hilega") even when it isn't in the label.
+      const hay = (d.label + ' ' + d.key + ' ' + g + ' ' + (d.alias || '')).toLowerCase().replace(/"/g, '');
+      rows += `
+        <label class="ind-row" data-search="${hay}">
           <input type="checkbox" class="ind-chk" data-key="${d.key}">
           <span class="ind-swatch" style="background:${d.color}"></span>
           ${d.label}
         </label>`;
     });
+    html += `<div class="ind-group" data-group="${g}"><div class="ind-group-title">${g}</div>${rows}</div>`;
   });
+  html += '<div class="ind-empty" style="display:none">No indicators match</div>';
   return html;
 }
 
@@ -1887,6 +1908,13 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
   patternCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:8;width:100%;height:100%;';
   chartMain.appendChild(patternCanvas);
 
+  // ── Order Block canvas overlay (SMC demand/supply zones) ───────────────────
+  // Broad backdrop zones — z-index below FVG/pattern so the sharper imbalance
+  // boxes stay legible on top. Drawn on demand by drawOrderBlocks().
+  const obCanvas = document.createElement('canvas');
+  obCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:7;width:100%;height:100%;';
+  chartMain.appendChild(obCanvas);
+
   // ── Price-projection canvas overlay (Milestone 3 forward line + label) ─────
   const projCanvas = document.createElement('canvas');
   projCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:7;width:100%;height:100%;';
@@ -1946,7 +1974,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
                  bars: [], indicators: new Set(savedIndicators),
                  rangePreset: savedRangePreset || DEFAULT_RANGE_PRESET,
                  indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas, projCanvas,
-                 fibCanvas };
+                 fibCanvas, obCanvas };
 
   // ── Time-scale sync: main chart drives all sub-pane charts ─────────────────
   chart.timeScale().subscribeVisibleTimeRangeChange(range => {
@@ -1971,6 +1999,8 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
     if (pane.indicators && pane.indicators.has('volprofile')) drawVolumeProfile(pane);
     // Session VP is both price- AND time-anchored, so it stales on any pan/zoom.
     if (pane.indicators && pane.indicators.has('svp')) drawSessionVP(pane);
+    // Order-block zones are time+price anchored — same staleness as FVG boxes.
+    if (pane.indicators && pane.indicators.has('orderblock')) drawOrderBlocks(pane);
   });
 
   // ── Crosshair sync to sub-pane charts ─────────────────────────────────────
@@ -2137,7 +2167,11 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
     e.stopPropagation();
     const willOpen = !indPanel.classList.contains('open');
     closeAllIndicatorPanels();
-    if (willOpen) { indPanel.classList.add('open'); indBtn.classList.add('active'); }
+    if (willOpen) {
+      indPanel.classList.add('open'); indBtn.classList.add('active');
+      const s = indPanel.querySelector('.ind-search');
+      if (s) setTimeout(() => { s.focus(); s.select(); }, 0);   // ready to type immediately
+    }
   });
 
   snapBtn.addEventListener('click', () => copyChartSnapshot(pane));
@@ -2179,6 +2213,42 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
       savePaneCfg();
     });
   });
+
+  // ── Indicator search / filter ───────────────────────────────────────────────
+  const indSearch = indPanel.querySelector('.ind-search');
+  const indEmpty  = indPanel.querySelector('.ind-empty');
+  function filterIndicators() {
+    const q = indSearch.value.trim().toLowerCase();
+    let anyVisible = false;
+    indPanel.querySelectorAll('.ind-group').forEach(group => {
+      let groupVisible = false;
+      group.querySelectorAll('.ind-row').forEach(row => {
+        const match = !q || (row.dataset.search || '').includes(q);
+        row.style.display = match ? '' : 'none';
+        if (match) groupVisible = true;
+      });
+      group.style.display = groupVisible ? '' : 'none';   // hide whole group when empty
+      if (groupVisible) anyVisible = true;
+    });
+    if (indEmpty) indEmpty.style.display = anyVisible ? 'none' : '';
+  }
+  if (indSearch) {
+    indSearch.addEventListener('input', filterIndicators);
+    indSearch.addEventListener('click', e => e.stopPropagation());   // don't close the panel
+    indSearch.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { indSearch.value = ''; filterIndicators(); indSearch.blur(); }
+      else if (e.key === 'Enter') {
+        // If exactly one match is visible and enabled, toggle it — fast path.
+        const vis = [...indPanel.querySelectorAll('.ind-row')]
+          .filter(r => r.style.display !== 'none' && !r.classList.contains('ind-disabled'));
+        if (vis.length === 1) {
+          const c = vis[0].querySelector('.ind-chk');
+          c.checked = !c.checked;
+          c.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+    });
+  }
 
   return pane;
 }
@@ -2402,6 +2472,7 @@ async function copyChartSnapshot(pane) {
     if (pane.fibCanvas)     ctx.drawImage(pane.fibCanvas,     0, y, OW, OH);
     if (pane.patternCanvas) ctx.drawImage(pane.patternCanvas, 0, y, OW, OH);
     if (pane.projCanvas)    ctx.drawImage(pane.projCanvas,    0, y, OW, OH);
+    if (pane.obCanvas)      ctx.drawImage(pane.obCanvas,      0, y, OW, OH);   // Order Blocks (z-index 7)
     // Session Volume Profile HD (z-index 8, below volCanvas) — draw before it.
     if (pane.svpCanvas)     ctx.drawImage(pane.svpCanvas,     0, y, OW, OH);
     if (pane.volCanvas)     ctx.drawImage(pane.volCanvas,     0, y, OW, OH);
@@ -2616,6 +2687,8 @@ function applyIndicators(pane) {
     pane.fvgZones = null;
     clearFVGSignals(pane);
   }
+  // Clear Order Block zones if deselected
+  if (!pane.indicators.has('orderblock') && pane.ob) clearOrderBlocks(pane);
   // Tear down MA Bias card + cross markers if deselected
   if (!pane.indicators.has('mabias') && pane.maBias) clearMABias(pane);
   // Tear down Elliott Wave overlay if deselected
@@ -3088,6 +3161,14 @@ function applyIndicators(pane) {
     renderFVGSignals(pane);
   }
 
+  // Order Blocks: server-fetched (async), then drawn from cache. Deferred a frame
+  // like SVP so priceToCoordinate/timeToCoordinate are settled after setData.
+  if (pane.indicators.has('orderblock')) {
+    requestAnimationFrame(() => {
+      if (pane.indicators.has('orderblock')) renderOrderBlocks(pane);
+    });
+  }
+
   // ── MA Bias overlay (regime / stack / trigger / distrust card + crosses) ────
   if (pane.indicators.has('mabias')) {
     renderMABias(pane);
@@ -3252,11 +3333,11 @@ function resetPaneVisuals(pane) {
   [clearElliottWave, clearRoundingBottom, clearVCP, clearTrendlines,
    clearFallingWedge, clearStructureChain, clearHarmonic, clearProjection,
    clearFibonacci, clearReversalCalendar, clearMABias, clearPmaxTrade,
-   clearFVGSignals].forEach(fn => { try { fn(pane); } catch {} });
+   clearFVGSignals, clearOrderBlocks].forEach(fn => { try { fn(pane); } catch {} });
   // Canvas overlays are redrawn from pane.bars on resize/pan, and pane.bars
   // still holds the OLD candles until the fetch lands. Blank the canvases and
   // drop the bars so nothing repaints the old timeframe in the meantime.
-  [pane.volCanvas, pane.fvgCanvas, pane.patternCanvas, pane.projCanvas, pane.fibCanvas]
+  [pane.volCanvas, pane.fvgCanvas, pane.patternCanvas, pane.projCanvas, pane.fibCanvas, pane.obCanvas]
     .forEach(c => {
       if (!c) return;
       try { c.getContext('2d').clearRect(0, 0, c.width, c.height); } catch {}
@@ -3534,6 +3615,104 @@ function drawFVG(pane) {
     ctx.setLineDash(filled ? [3, 3] : []);
     ctx.strokeRect(x, y, w, h);
     ctx.setLineDash([]);
+  });
+}
+
+// ── Order Block overlay (SMC demand / supply zones) ───────────────────────────
+// Server-computed (scanner_templates.detect_order_blocks via /api/order_blocks),
+// cached per (symbol,tf,lastBar); zones drawn as boxes on obCanvas. Unmitigated
+// (fresh) zones are bold; mitigated ones fade to a dashed faint box (kept for
+// context). Green = bullish demand, red = bearish supply. Redrawn from the cached
+// zones on pan/zoom (drawOrderBlocks) so it doesn't re-fetch on every frame.
+function ensureObState(pane) {
+  if (!pane.ob) pane.ob = {zones: null, lastFetchKey: null};
+  return pane.ob;
+}
+
+function clearOrderBlocks(pane) {
+  const st = pane.ob;
+  if (st) { st.zones = null; st.lastFetchKey = null; }
+  if (pane.obCanvas) {
+    const ctx = pane.obCanvas.getContext('2d');
+    ctx.clearRect(0, 0, pane.obCanvas.width, pane.obCanvas.height);
+  }
+}
+
+async function renderOrderBlocks(pane) {
+  const st = ensureObState(pane);
+  if (!pane.bars || !pane.bars.length) return;
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  if (st.lastFetchKey !== key) {
+    st.lastFetchKey = key;
+    try {
+      const barCount = TF_BARS[pane.tf] || 300;
+      const url = `${SERVER}/api/order_blocks?symbol=${encodeURIComponent(pane.symbol)}` +
+                  `&timeframe=${pane.tf}&bars=${barCount}`;
+      const res = await fetch(url);
+      st.zones = res.ok ? ((await res.json()).order_blocks || []) : [];
+    } catch (e) { console.warn('order_blocks fetch failed:', e); st.zones = []; }
+  }
+  // Guard against a stale response landing after toggle-off / symbol switch.
+  if (!pane.indicators.has('orderblock')) return;
+  if (paneFetchKey(pane) !== key) return;
+  drawOrderBlocks(pane);
+}
+
+function drawOrderBlocks(pane) {
+  const canvas = pane.obCanvas;
+  const st = pane.ob;
+  if (!canvas || !st || !st.zones) return;
+  const W = canvas.width  = canvas.offsetWidth;
+  const H = canvas.height = canvas.offsetHeight;
+  if (!W || !H) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  if (!st.zones.length) return;
+
+  const ts = pane.chart.timeScale();
+  const lastBarTime = pane.bars[pane.bars.length - 1].time;
+
+  st.zones.forEach(z => {
+    const xL = ts.timeToCoordinate(z.start_time);
+    if (xL === null) return;                                   // scrolled off-screen left
+    let xR = ts.timeToCoordinate(z.end_time);
+    if (xR === null) xR = ts.timeToCoordinate(lastBarTime);
+    const yTop = pane.series.priceToCoordinate(z.high);
+    const yBot = pane.series.priceToCoordinate(z.low);
+    if (xR === null || yTop === null || yBot === null) return;
+
+    const x = Math.max(0, xL);
+    const w = Math.min(W, xR) - x;
+    if (w <= 0) return;
+    const y = Math.min(yTop, yBot);
+    const h = Math.max(1, Math.abs(yBot - yTop));
+
+    const bull = z.dir === 'bull';
+    // Green = demand (bullish), red = supply (bearish). Three states:
+    //   fresh     → bold, solid   (untested zone to watch)
+    //   mitigated → faded, solid  (tapped but holding)
+    //   violated  → faint, dashed (closed through — historical, failed)
+    const rgb = bull ? '38,166,154' : '239,83,80';
+    const fillA   = {fresh: 0.17, mitigated: 0.08, violated: 0.045}[z.state] ?? 0.12;
+    const strokeA = {fresh: 0.85, mitigated: 0.42, violated: 0.22}[z.state] ?? 0.5;
+    ctx.fillStyle = `rgba(${rgb},${fillA})`;
+    ctx.fillRect(x, y, w, h);
+    ctx.strokeStyle = `rgba(${rgb},${strokeA})`;
+    ctx.lineWidth = 1;
+    ctx.setLineDash(z.state === 'violated' ? [2, 3] : []);
+    ctx.strokeRect(x, y, w, h);
+    ctx.setLineDash([]);
+
+    // Label only when the box is big enough to carry it, and not for faint
+    // violated zones (they'd just add noise).
+    if (h >= 11 && w >= 30 && z.state !== 'violated') {
+      const fresh = z.state === 'fresh';
+      const label = (bull ? 'Demand' : 'Supply') + ' ' + z.signal + (fresh ? ' ●' : '');
+      ctx.font = 'bold 9px system-ui, sans-serif';
+      ctx.fillStyle = `rgba(${rgb},${fresh ? 0.95 : 0.6})`;
+      ctx.fillText(label, x + 3, y + 9);
+    }
   });
 }
 

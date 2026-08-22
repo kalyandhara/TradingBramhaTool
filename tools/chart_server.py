@@ -671,6 +671,67 @@ def api_structure_chain():
     }})
 
 
+@app.route("/api/order_blocks")
+def api_order_blocks():
+    """SMC order blocks (bullish demand + bearish supply) for the chart overlay.
+    See scanner_templates.detect_order_blocks (multi-zone sibling of
+    scan_order_block) + concepts/Order-Blocks.
+
+    Each block carries its zone (low/high), BOS/CHOCH label, ATR displacement,
+    break-bar volume multiple, and mitigation state — bar indices mapped to
+    timestamps, with the box spanning the OB candle to its mitigation bar (or the
+    right edge while still unmitigated). {"order_blocks": []} when none exist."""
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    # Order blocks are more LOCAL than major structure swings, so a tighter pivot
+    # than /api/structure_chain — otherwise a daily chart surfaces almost none.
+    piv_default = {
+        "1m": 3, "5m": 4, "15m": 5, "30m": 5,
+        "1h": 6, "4h": 6, "1d": 6, "1w": 6,
+    }.get(timeframe, 6)
+    pivot_len = max(2, min(int(request.args.get("pivot_len", piv_default)), 100))
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < pivot_len * 4 + 20:
+        return jsonify({"symbol": symbol, "order_blocks": []})
+
+    blocks = sc.detect_order_blocks(df, pivot_len=pivot_len)
+
+    def _t(idx):
+        if idx is None or idx < 0 or idx >= len(bars):
+            return None
+        return int(bars[idx]["time"])
+
+    last_t = _t(len(bars) - 1)
+    out = []
+    for b in blocks:
+        t0 = _t(b["ob_idx"])
+        if t0 is None:
+            continue
+        # Violated zones end where price closed through; fresh/mitigated run to
+        # the right edge (still-relevant levels).
+        end_idx = b["vio_idx"] if b["state"] == "violated" else None
+        out.append({
+            "dir":        b["dir"],
+            "signal":     b["signal"],
+            "state":      b["state"],          # fresh | mitigated | violated
+            "low":        round(b["low"], 2),
+            "high":       round(b["high"], 2),
+            "start_time": t0,
+            "break_time": _t(b["break_idx"]),
+            "end_time":   _t(end_idx) if end_idx is not None else last_t,
+            "disp_atr":   b["disp_atr"],
+            "vol_x":      b["vol_x"],
+        })
+
+    return jsonify({"symbol": symbol, "order_blocks": out})
+
+
 @app.route("/api/trendlines")
 def api_trendlines():
     """Supply / demand trendlines via scanner_templates.detect_trendline_break
