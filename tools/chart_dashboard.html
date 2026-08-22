@@ -1054,7 +1054,7 @@ const INDICATOR_DEFS = [
   {key:'macd',      label:'MACD (12, 26, 9)',       group:'Oscillators',       color:'#2962ff'},
   {key:'obv',       label:'OBV',                    group:'Oscillators',       color:'#00bd6f'},
   {key:'rs',        label:'RS vs Benchmark',        group:'Oscillators',       color:'#ffd60a'},
-  {key:'prte',      label:'%R Trend Exhaustion',    group:'Oscillators',       color:'#2466A7'},
+  {key:'prte',      label:'%R Trend Exhaustion (+ chart arrows / OB confluence)', group:'Oscillators', color:'#2466A7', alias:'williams percent r exhaustion reversal confluence order block up down arrow'},
   {key:'roc',       label:'ROC + RSI Zones (21,5,5,14)', group:'Oscillators',    color:'#2962ff'},
   {key:'stoch',     label:'Stochastic (14,3,3)',    group:'Oscillators',       color:'#26c6da'},
   {key:'hm',        label:'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', group:'Oscillators', color:'#26a69a', alias:'hilega milega bottom top reversal strength momentum'},
@@ -1915,6 +1915,14 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
   obCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:7;width:100%;height:100%;';
   chartMain.appendChild(obCanvas);
 
+  // ── %R exhaustion background tint (lowest overlay — a faint context wash) ───
+  // Full-height red/green bands where %R Trend Exhaustion sits in its OB/OS zone,
+  // so the pressure is visible on the price chart before the flip. Drawn by
+  // drawPrteBackground(); the ▲/▼ flip arrows go on the candles via markers.
+  const prteCanvas = document.createElement('canvas');
+  prteCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:5;width:100%;height:100%;';
+  chartMain.appendChild(prteCanvas);
+
   // ── Price-projection canvas overlay (Milestone 3 forward line + label) ─────
   const projCanvas = document.createElement('canvas');
   projCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:7;width:100%;height:100%;';
@@ -1974,7 +1982,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
                  bars: [], indicators: new Set(savedIndicators),
                  rangePreset: savedRangePreset || DEFAULT_RANGE_PRESET,
                  indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas, projCanvas,
-                 fibCanvas, obCanvas };
+                 fibCanvas, obCanvas, prteCanvas };
 
   // ── Time-scale sync: main chart drives all sub-pane charts ─────────────────
   chart.timeScale().subscribeVisibleTimeRangeChange(range => {
@@ -2001,6 +2009,8 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
     if (pane.indicators && pane.indicators.has('svp')) drawSessionVP(pane);
     // Order-block zones are time+price anchored — same staleness as FVG boxes.
     if (pane.indicators && pane.indicators.has('orderblock')) drawOrderBlocks(pane);
+    // %R exhaustion background is time-anchored (x-runs) — redraw on pan/zoom.
+    if (pane.indicators && pane.indicators.has('prte')) drawPrteBackground(pane);
   });
 
   // ── Crosshair sync to sub-pane charts ─────────────────────────────────────
@@ -2469,6 +2479,7 @@ async function copyChartSnapshot(pane) {
     let y = headerH;
     const OW = mainShot.width, OH = mainShot.height;
     ctx.drawImage(mainShot, 0, y);
+    if (pane.prteCanvas)    ctx.drawImage(pane.prteCanvas,    0, y, OW, OH);   // %R exhaustion tint (z-index 5)
     if (pane.fibCanvas)     ctx.drawImage(pane.fibCanvas,     0, y, OW, OH);
     if (pane.patternCanvas) ctx.drawImage(pane.patternCanvas, 0, y, OW, OH);
     if (pane.projCanvas)    ctx.drawImage(pane.projCanvas,    0, y, OW, OH);
@@ -2687,8 +2698,14 @@ function applyIndicators(pane) {
     pane.fvgZones = null;
     clearFVGSignals(pane);
   }
-  // Clear Order Block zones if deselected
-  if (!pane.indicators.has('orderblock') && pane.ob) clearOrderBlocks(pane);
+  // Clear Order Block zones if deselected; if %R is still on, downgrade its
+  // confluence arrows back to plain (no zones to confluence with anymore).
+  if (!pane.indicators.has('orderblock') && pane.ob) {
+    clearOrderBlocks(pane);
+    if (pane.indicators.has('prte')) renderPrteOverlay(pane);
+  }
+  // Clear the %R exhaustion main-chart overlay (arrows + tint) if deselected.
+  if (!pane.indicators.has('prte') && (pane.prteData || pane._markerSrcs?.prte)) clearPrteOverlay(pane);
   // Tear down MA Bias card + cross markers if deselected
   if (!pane.indicators.has('mabias') && pane.maBias) clearMABias(pane);
   // Tear down Elliott Wave overlay if deselected
@@ -3007,6 +3024,9 @@ function applyIndicators(pane) {
       ...prte.osStart.map(p    => ({time: p.time, position: 'belowBar', color: '#2466A7', shape: 'circle'})),
     ].sort((a, b) => a.time - b.time);
     pane.subCharts.prte.fastLine.setMarkers(markers);
+    // Mirror the exhaustion flips onto the MAIN candles (+ confluence with order
+    // blocks) and paint the exhaustion background tint. Reuse the computed prte.
+    renderPrteOverlay(pane, prte);
   }
 
   if (pane.indicators.has('hm')) {
@@ -3333,11 +3353,11 @@ function resetPaneVisuals(pane) {
   [clearElliottWave, clearRoundingBottom, clearVCP, clearTrendlines,
    clearFallingWedge, clearStructureChain, clearHarmonic, clearProjection,
    clearFibonacci, clearReversalCalendar, clearMABias, clearPmaxTrade,
-   clearFVGSignals, clearOrderBlocks].forEach(fn => { try { fn(pane); } catch {} });
+   clearFVGSignals, clearOrderBlocks, clearPrteOverlay].forEach(fn => { try { fn(pane); } catch {} });
   // Canvas overlays are redrawn from pane.bars on resize/pan, and pane.bars
   // still holds the OLD candles until the fetch lands. Blank the canvases and
   // drop the bars so nothing repaints the old timeframe in the meantime.
-  [pane.volCanvas, pane.fvgCanvas, pane.patternCanvas, pane.projCanvas, pane.fibCanvas, pane.obCanvas]
+  [pane.volCanvas, pane.fvgCanvas, pane.patternCanvas, pane.projCanvas, pane.fibCanvas, pane.obCanvas, pane.prteCanvas]
     .forEach(c => {
       if (!c) return;
       try { c.getContext('2d').clearRect(0, 0, c.width, c.height); } catch {}
@@ -3657,6 +3677,9 @@ async function renderOrderBlocks(pane) {
   if (!pane.indicators.has('orderblock')) return;
   if (paneFetchKey(pane) !== key) return;
   drawOrderBlocks(pane);
+  // Zones just landed — refresh %R confluence so exhaustion arrows sitting in a
+  // zone upgrade to their ▲ OB / ▼ OB confluence marker.
+  if (pane.indicators.has('prte')) renderPrteOverlay(pane);
 }
 
 function drawOrderBlocks(pane) {
@@ -3714,6 +3737,120 @@ function drawOrderBlocks(pane) {
       ctx.fillText(label, x + 3, y + 9);
     }
   });
+}
+
+// ── %R exhaustion main-chart overlay (candle arrows + confluence + tint) ──────
+// Extends the %R Trend Exhaustion indicator onto the price chart: the ▲/▼ flips
+// as candle markers — upgraded to a bold ▲ OB / ▼ OB "confluence" marker when a
+// flip lands inside a matching, non-violated order block — plus a faint red/green
+// background wash while %R sits in its OB/OS exhaustion zone. The confluence
+// upgrade needs the Order Blocks overlay on too; without it the arrows are plain.
+function clearPrteOverlay(pane) {
+  setPaneMarkers(pane, 'prte', null);
+  pane.prteData = null;
+  if (pane.prteCanvas) {
+    const ctx = pane.prteCanvas.getContext('2d');
+    ctx.clearRect(0, 0, pane.prteCanvas.width, pane.prteCanvas.height);
+  }
+}
+
+function renderPrteOverlay(pane, prte) {
+  if (typeof PRTE === 'undefined' || !pane.bars || !pane.bars.length) { clearPrteOverlay(pane); return; }
+  prte = prte || PRTE.compute(pane.bars);
+  pane.prteData = prte;
+
+  // Order-block zones for the confluence test (only when that overlay is on).
+  const zones = (pane.indicators.has('orderblock') && pane.ob && pane.ob.zones) ? pane.ob.zones : null;
+  const barByTime = new Map(pane.bars.map(b => [b.time, b]));
+  // Confluent = the flip candle reaches (within a small buffer of) a live,
+  // same-direction order block active at that time. The buffer catches an
+  // exhaustion right at a zone's edge, not only a dead-centre tag.
+  const confluent = (dir, t) => {
+    if (!zones) return false;
+    const bar = barByTime.get(t);
+    if (!bar) return false;
+    return zones.some(z => {
+      if (z.dir !== dir) return false;
+      // Zone must be LIVE at the flip's time. end_time already ends a violated
+      // zone at its violation bar, so a flip before that still counts (a zone
+      // that failed later was valid when the exhaustion tagged it).
+      if (!(z.start_time <= t && t <= z.end_time)) return false;
+      // Proximity buffer: an exhaustion right at a zone's edge still counts, not
+      // only a dead-centre tag. ~0.6% of price or 0.75× the zone height.
+      const buf = Math.max((z.high - z.low) * 0.75, bar.close * 0.006);
+      return bar.low <= z.high + buf && bar.high >= z.low - buf;
+    });
+  };
+
+  // Every flip, tagged with confluence. On the MAIN chart we don't want all of
+  // them (the sub-pane already shows the full set) — keep every confluent flip
+  // plus only the most recent MAIN_MAX non-confluent ones, so the price chart
+  // stays readable and the A+ setups stand out.
+  const MAIN_MAX = 12;
+  const flips = [];
+  prte.osReversal.forEach(p => flips.push({t: p.time, dir: 'bull', conf: confluent('bull', p.time)}));
+  prte.obReversal.forEach(p => flips.push({t: p.time, dir: 'bear', conf: confluent('bear', p.time)}));
+  flips.sort((a, b) => a.t - b.t);
+  const recentPlain = new Set(flips.filter(f => !f.conf).slice(-MAIN_MAX).map(f => f.t + ':' + f.dir));
+  const markers = flips
+    .filter(f => f.conf || recentPlain.has(f.t + ':' + f.dir))
+    .map(f => f.dir === 'bull'
+      ? (f.conf ? {time: f.t, position: 'belowBar', color: '#00e676', shape: 'arrowUp',   text: '▲ OB', size: 2}
+                : {time: f.t, position: 'belowBar', color: '#2466A7', shape: 'arrowUp',   text: '▲'})
+      : (f.conf ? {time: f.t, position: 'aboveBar', color: '#ff1744', shape: 'arrowDown', text: '▼ OB', size: 2}
+                : {time: f.t, position: 'aboveBar', color: '#CA0017', shape: 'arrowDown', text: '▼'}));
+  setPaneMarkers(pane, 'prte', markers.length ? markers : null);
+
+  drawPrteBackground(pane, prte);
+}
+
+function drawPrteBackground(pane, prte) {
+  const canvas = pane.prteCanvas;
+  if (!canvas) return;
+  const W = canvas.width  = canvas.offsetWidth;
+  const H = canvas.height = canvas.offsetHeight;
+  if (!W || !H) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  prte = prte || pane.prteData;
+  if (!prte || !pane.bars || !pane.bars.length) return;
+
+  const th = prte.threshold;
+  const fastMap = new Map(prte.fast.map(p => [p.time, p.value]));
+  const slowMap = new Map(prte.slow.map(p => [p.time, p.value]));
+  const ts = pane.chart.timeScale();
+  const bars = pane.bars;
+
+  // Estimate bar spacing so the last bar of a shaded run still gets width.
+  let sp = 6;
+  for (let i = 1; i < bars.length; i++) {
+    const a = ts.timeToCoordinate(bars[i - 1].time), b = ts.timeToCoordinate(bars[i].time);
+    if (a != null && b != null) { sp = Math.max(1, Math.abs(b - a)); break; }
+  }
+
+  // Shade contiguous runs where BOTH fast & slow %R sit in the same zone (the
+  // real OB/OS condition), red for overbought, green for oversold.
+  let run = null;   // {type:'ob'|'os', x0, x1}
+  const flush = () => {
+    if (!run) return;
+    ctx.fillStyle = run.type === 'ob' ? 'rgba(202,0,23,0.06)' : 'rgba(38,166,154,0.06)';
+    ctx.fillRect(Math.min(run.x0, run.x1) - sp / 2, 0, Math.abs(run.x1 - run.x0) + sp, H);
+    run = null;
+  };
+  for (const bar of bars) {
+    const f = fastMap.get(bar.time), s = slowMap.get(bar.time);
+    let type = null;
+    if (f !== undefined && s !== undefined) {
+      if (f >= -th && s >= -th) type = 'ob';
+      else if (f <= (-100 + th) && s <= (-100 + th)) type = 'os';
+    }
+    if (!type) { flush(); continue; }
+    const x = ts.timeToCoordinate(bar.time);
+    if (x == null) { flush(); continue; }
+    if (run && run.type === type) run.x1 = x;
+    else { flush(); run = {type, x0: x, x1: x}; }
+  }
+  flush();
 }
 
 // ── FVG actionable buy/sell signal (integration layer for FVG.signals) ────────
