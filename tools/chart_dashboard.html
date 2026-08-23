@@ -18,6 +18,8 @@
 <script src="/percent_r_trend_exhaustion.js"></script>
 <!-- HM Bottoms & Tops (Hilega Milega, reworked) oscillator plug-in — pure computation, see hm_indicator.js -->
 <script src="/hm_indicator.js"></script>
+<!-- SuperTrend AI (adaptive factor via K-means) overlay — original impl of the LuxAlgo technique, see supertrend_ai.js -->
+<script src="/supertrend_ai.js"></script>
 <!-- Fibonacci levels + confluence trade plan — pure computation module, see fibonacci.js.
      Loaded AFTER elliott_wave.js and volume_profile.js: it reads EW.computeZigzag for
      swing anchoring and VP.findConfluence for level scoring. -->
@@ -1049,6 +1051,7 @@ const INDICATOR_DEFS = [
   {key:'donchian',  label:'Donchian (20)',     group:'Bands & Channels', color:'#26c6da'},
   {key:'keltner',   label:'Keltner (20, 1.5)',     group:'Bands & Channels', color:'#f48fb1'},
   {key:'pmax',      label:'PMax (EMA10, ATR10 × 3) + signals', group:'Bands & Channels', color:'#26a69a'},
+  {key:'stai',      label:'SuperTrend AI (adaptive factor via K-means) + signals', group:'Bands & Channels', color:'#00bcd4', alias:'supertrend ai luxalgo adaptive clustering kmeans trend trailing stop'},
   // ── Sub-pane oscillators ────────────────────────────────────────────────────
   {key:'rsi',       label:'RSI (14)',               group:'Oscillators',       color:'#7b61ff'},
   {key:'macd',      label:'MACD (12, 26, 9)',       group:'Oscillators',       color:'#2962ff'},
@@ -1721,9 +1724,11 @@ async function fetchSymbolMatches(query) {
 const EXCH_ICON_COLOR = {
   NSE: '#3fb950', BSE: '#3fb950', NASDAQ: '#58a6ff', NYSE: '#58a6ff',
   CRYPTO: '#bc8cff', INDEX: '#d29922',
+  FX: '#39c5cf', COMEX: '#c9873a', NYMEX: '#c9873a', ICE: '#c9873a',
 };
 const TYPE_LABEL = {
   stock: 'stock', index: 'index', crypto: 'spot crypto',
+  forex: 'forex', futures: 'futures',
 };
 
 function renderSymResults(container, results, query) {
@@ -1771,8 +1776,9 @@ function currencyPrefix(symbol, source) {
   const s = symbol.toUpperCase();
   if (s.endsWith('.NS') || s.endsWith('.BO') || s.endsWith('.BSE')) return '₹';
   if (s.startsWith('^')) return '';
+  if (s.endsWith('=X') || s.endsWith('.NYB')) return '';  // forex rate / USD index — unitless
   if (source === 'hyperliquid') return '';   // crypto — no fixed prefix
-  return '$';                                 // yfinance + no suffix = US equity
+  return '$';                                 // yfinance + no suffix = US equity / =F future (USD)
 }
 function fmtAbsChange(diff, symbol, source) {
   if (diff === null || isNaN(diff)) return '';
@@ -2725,6 +2731,9 @@ function applyIndicators(pane) {
   if (!pane.indicators.has('structure_chain') && pane.sbc) clearStructureChain(pane);
   // Tear down PMax flip markers + trade levels if deselected
   if (!pane.indicators.has('pmax') && pane.pmaxTrade) clearPmaxTrade(pane);
+  // Clear SuperTrend AI flip markers if deselected (its lines are torn down by
+  // removeIndicatorSeries, but the merged markers must be cleared explicitly).
+  if (!pane.indicators.has('stai')) setPaneMarkers(pane, 'stai', null);
   // Tear down Harmonic overlay if deselected
   if (!pane.indicators.has('harmonic') && pane.hm) clearHarmonic(pane);
   // Tear down Price Projection overlay if deselected
@@ -2800,12 +2809,23 @@ function applyIndicators(pane) {
         ];
         break;
       case 'pmax':
-        // Two colored line series: green for up-trend segments, red for down.
-        // Each series holds the PMax value only during its direction — LWC
-        // draws a gap on flip, which is visually accurate for a trend break.
+        // One switching PMax trendline drawn as two colour segments: green while
+        // up-trend, red while down-trend. Each series is whitespace-padded to the
+        // full grid (see the data block) so it draws only during its own trend and
+        // breaks cleanly at the flip — reading as a single line that swaps side and
+        // colour, not two crossing lines.
         pane.indSeries[key] = [
-          addLine(pane, '#26a69a', 2),  // up-trend PMax
-          addLine(pane, '#f23645', 2),  // down-trend PMax
+          addLine(pane, '#26a69a', 2),  // up-trend (below price)
+          addLine(pane, '#f23645', 2),  // down-trend (above price)
+        ];
+        break;
+      case 'stai':
+        // SuperTrend AI: one adaptive trailing line, colour-switched like PMax —
+        // teal up-trend (below price), red down-trend (above). Whitespace-padded
+        // in the data block so each colour draws only during its own trend.
+        pane.indSeries[key] = [
+          addLine(pane, '#00bcd4', 2),  // up-trend (below price)
+          addLine(pane, '#f23645', 2),  // down-trend (above price)
         ];
         break;
       // sub-pane indicators — created in the computation section below
@@ -2844,14 +2864,33 @@ function applyIndicators(pane) {
         break;
       }
       case 'pmax': {
+        // One trailing PMax line that switches SIDE and COLOUR at each reversal:
+        // green while below price (up-trend), red while above price (down-trend).
+        // Rendered as two series that each carry the value ONLY during their own
+        // trend and whitespace elsewhere — padToBars inserts the whitespace so a
+        // series never connects across the other's stretch (that gap-jumping was
+        // the old "two crossing lines" bug). The result reads as a single line.
         const rows = pmaxSeries(bars, 10, 3.0, 10);
         const up = [], dn = [];
         rows.forEach(r => {
           if (r.dir === 1) up.push({time: r.time, value: r.pmax});
           else             dn.push({time: r.time, value: r.pmax});
         });
-        s[0].setData(up); s[1].setData(dn);
+        s[0].setData(padToBars(up, bars)); s[1].setData(padToBars(dn, bars));
         renderPmaxTrade(pane, rows, bars);
+        break;
+      }
+      case 'stai': {
+        // SuperTrend AI (adaptive factor) — one switching line + flip signals.
+        const r = STAI.compute(bars);
+        s[0].setData(padToBars(r.up, bars));   // up-trend segments (teal)
+        s[1].setData(padToBars(r.dn, bars));   // down-trend segments (red)
+        // Flip signals as BUY/SELL markers carrying the 0-10 performance strength.
+        setPaneMarkers(pane, 'stai', r.signals.map(sig => sig.dir === 1
+          ? {time: sig.time, position: 'belowBar', color: '#00bcd4', shape: 'arrowUp',
+             text: 'BUY ' + sig.strength}
+          : {time: sig.time, position: 'aboveBar', color: '#f23645', shape: 'arrowDown',
+             text: 'SELL ' + sig.strength}));
         break;
       }
     }
@@ -3095,16 +3134,17 @@ function applyIndicators(pane) {
     pane.subCharts.hm.vwmaLine.setData(hm.vwmaRsi);
     // BUY/SELL = the actionable entry (early setup: RSI reclaims 50, EMA-of-RSI
     // rising, VWMA still inside the band). BUY✓/SELL✓ = confirmed (VWMA then leaves
-    // the 50 band) — a strength upgrade. Small grey "exit" squares = momentum-fade
-    // (RSI crosses back through 50). This matches the "HM Buy (Hilega Milega)"
+    // the 50 band) — a strength upgrade. This matches the "HM Buy (Hilega Milega)"
     // day-scanner, which fires on the same setup (and flags confirmed ones).
+    // The momentum-fade "exit" markers (RSI recrossing 50) are intentionally NOT
+    // drawn — they fire on every midline cross, duplicate the opposite SELL/BUY,
+    // and just clutter the pane. The exit points still live in HM.signals for
+    // backtests; a SELL✓/BUY✓ or the opposite signal is the visual exit cue.
     const hmMarkers = [
       ...hm.bullEarly.map(p   => ({time: p.time, position: 'belowBar', color: '#1f9d57', shape: 'arrowUp',   text: 'BUY'})),
       ...hm.bullConfirm.map(p => ({time: p.time, position: 'belowBar', color: '#00e676', shape: 'arrowUp',   text: 'BUY✓'})),
       ...hm.bearEarly.map(p   => ({time: p.time, position: 'aboveBar', color: '#c62828', shape: 'arrowDown', text: 'SELL'})),
       ...hm.bearConfirm.map(p => ({time: p.time, position: 'aboveBar', color: '#ff1744', shape: 'arrowDown', text: 'SELL✓'})),
-      ...hm.exitLong.map(p    => ({time: p.time, position: 'aboveBar', color: '#9aa4af', shape: 'square', text: 'exit'})),
-      ...hm.exitShort.map(p   => ({time: p.time, position: 'belowBar', color: '#9aa4af', shape: 'square', text: 'exit'})),
     ].sort((a, b) => (a.time > b.time ? 1 : a.time < b.time ? -1 : 0));
     pane.subCharts.hm.rsiLine.setMarkers(hmMarkers);
   }
@@ -5809,19 +5849,47 @@ function renderSVPInfo(pane, r) {
     ? `<div style="color:#f23645;margin-top:3px;">⚠ ${c.trap.note}</div>` : '';
   const levels = (c.levels || []).map(l => `${shp(l.shape)} ${f(l.poc)}`).join(' · ');
 
+  // ── Confluence signal block ──────────────────────────────────────────────────
+  const sig = c.signal;
+  let sigBadge = '', sigBody = '';
+  if (sig && sig.dir) {
+    const sc2 = sig.dir === 'BUY' ? '#26a69a' : sig.dir === 'SELL' ? '#f23645' : 'var(--text-muted)';
+    const kindTxt = sig.kind ? ` · ${sig.kind}` : '';
+    const conf = sig.confidence ? ` <span style="color:var(--text-muted);font-weight:400;">(${sig.confidence} conf)</span>` : '';
+    sigBadge = `<span style="color:${sc2};font-weight:800;">${sig.dir}${kindTxt}</span>${conf}`;
+    if (sig.dir !== 'NEUTRAL') {
+      const bar = `<span style="color:#26a69a;">▲${f(sig.bullW)}</span> / <span style="color:#f23645;">▼${f(sig.bearW)}</span> · net ${sig.score>0?'+':''}${sig.score} · agree ${(sig.agreement*100).toFixed(0)}%`;
+      const tgtParts = [];
+      if (sig.target != null) tgtParts.push(`Target ${f(sig.target)}`);
+      else tgtParts.push(`Target open (broke ${sig.dir === 'SELL' ? 'underfoot' : 'overhead'})`);
+      if (sig.invalidation != null) tgtParts.push(`invalidate ${f(sig.invalidation)}`);
+      const tgt = `<div>${tgtParts.join(' · ')}</div>`;
+      const facs = (sig.factors || []).filter(x => x.dir)
+        .map(x => `<div style="margin-left:8px;color:${x.dir>0?'#26a69a':'#f23645'};">${x.dir>0?'▲':'▼'} <b>${x.name}</b> <span style="color:var(--text-muted);font-weight:400;">— ${x.detail}</span></div>`)
+        .join('');
+      sigBody = `<div style="margin-top:4px;border-top:1px solid var(--border,rgba(255,255,255,.08));padding-top:4px;">` +
+        `<div style="color:var(--text-muted);">Confluence: ${bar}</div>` + tgt + facs + `</div>`;
+    }
+  }
+  const compLine = c.composite
+    ? `<div>Composite POC <b>${f(c.composite.poc)}</b> · VA ${f(c.composite.val)}–${f(c.composite.vah)}</div>` : '';
+
   st.infoEl.innerHTML =
     `<div class="svp-head">Session VP · ` +
+      (sig && sig.dir ? sigBadge + ` · ` : '') +
       (cur ? `now ${shp(cur.shape)} <span style="color:var(--text-muted);font-weight:400;">(${cur.label})</span>` : '') +
       ` · <span style="color:${adCol};font-weight:700;">${c.ad.state}</span> ` +
       `<span style="color:var(--text-muted);font-weight:400;">▾</span></div>` +
     `<div class="svp-body" style="margin-top:5px;">` +
       `<div>Sessions: <span class="svp-seq">${seq}</span></div>` +
       (cur ? `<div>POC <b>${f(cur.poc)}</b> · VA ${f(cur.val)}–${f(cur.vah)}</div>` : '') +
+      compLine +
       trapLine +
       (levels ? `<div style="margin-top:3px;">Critical POCs: ${levels}</div>` : '') +
-      `<div class="svp-cav">D=direction · P=buying · B=selling · I=balance. POCs are ` +
-        `observed volume levels; shapes + the 3-4× trap rule are interpretive claims to ` +
-        `backtest, not signals. Not advice.</div>` +
+      sigBody +
+      `<div class="svp-cav">D=direction · P=buying · B=selling · I=balance. The BUY/SELL ` +
+        `read is a confluence of interpretive priors (D-anchor, VA accept/reject, 3-4× trap, ` +
+        `exhaustion, sequence, sweep, cluster) — every weight is unbacktested. Not advice.</div>` +
     `</div>`;
   st.infoEl.classList.toggle('collapsed', st.collapsed);
   st.infoEl.style.display = 'block';

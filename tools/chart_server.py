@@ -313,6 +313,12 @@ def hm_indicator_js():
                                mimetype="application/javascript")
 
 
+@app.route("/supertrend_ai.js")
+def supertrend_ai_js():
+    return send_from_directory(HERE, "supertrend_ai.js",
+                               mimetype="application/javascript")
+
+
 @app.route("/percent_r_trend_exhaustion.js")
 def percent_r_trend_exhaustion_js():
     return send_from_directory(HERE, "percent_r_trend_exhaustion.js", mimetype="application/javascript")
