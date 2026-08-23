@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-23] ingest | Murshid Ali: 3-6-9 "Time-Machine" market-timing indicator (YouTube, promotional)
+- **Source:** interview promoting a paid intraday-timing indicator (Tesla 3/6/9 framing); instruments Nifty/Bank Nifty/Sensex/BTC.
+- **Pages created:** [[sources/Murshid-Ali-369-Timing-Indicator-2026-08-23]]. Updated [[index]].
+- **Falsifiable core extracted (numerology stripped):** fixed intraday clock schedule (demo ~11:30 & 14:15 IST) → break-of-candle entry, stop beyond opposite extreme, 1:3–1:5 R, per-session reset. Testable as an event study (fixed slots vs random-slot null — same shape as `sbc_vedha_backtest`); **blocked on intraday-bar persistence**. Prior = ~1.0× lift, mirroring the SBC daily-vedha **clean negative**.
+- **Given zero weight (per measurement-first ethos):** the "3+6+0=9" digit-sum "proof" (just divisibility-by-9), the manifestation aside, and the uncorroborated **pre-cost** performance claims (587 trades/yr, 30%/70%-win, self-refuting 2008/2018/2026 "cycle"). **No concept page created** — promote only if a 5m study shows non-null lift.
+
 ## [2026-08-20] roadmap | Open-Backlog refined with ingested-research items (B-28…B-31)
 - **Source:** concepts ingested this session into the separate claude-obsidian research vault (option seller/buyer talks, a "Pushya Nakshatra" astro video, an AI-driven systematic-trading talk).
 - **Pages updated:** [[analyses/Open-Backlog]]
