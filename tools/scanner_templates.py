@@ -5156,6 +5156,130 @@ def scan_triple_rs_52w(df: pd.DataFrame) -> dict | None:
     }
 
 
+def scan_hm_buy(df: pd.DataFrame) -> dict | None:
+    """HM (Hilega Milega) fresh BUY on the last closed daily bar.
+
+    Python port of the chart dashboard's HM indicator (tools/hm_indicator.js,
+    window.HM). Reads three views of a short RSI:
+      - RSI(9)                — "strength" (OB/OS collapse to the 50 midline)
+      - EMA(3) of RSI         — momentum (rising = strength turning up)
+      - VWMA(21) of RSI       — volume-adjusted strength (a true volume weighting,
+                                the fix over the source's plain-WMA "volume" line)
+
+    The actionable BUY is the *early setup* — RSI(9) crosses above 50 with
+    EMA(3)-of-RSI rising while the slower VWMA(21)-of-RSI is still below 50
+    (momentum turning up, not yet exhausted) — which is exactly where the method
+    says to enter. If the VWMA(RSI) later crosses above 50 within a 10-bar prime
+    window, the signal is marked *confirmed* (a strength upgrade). Closed-bar
+    only; fires when the setup (or its confirm) landed within the last 5 bars
+    (~a trading week), so the pick is still fresh but the window is wide enough to
+    catch a signal from earlier in the week. Emits a swing-low-stop / 2R plan. See
+    concepts/HM-(Hilega-Milega)-Indicator. Accuracy is UNMEASURED.
+    """
+    if df is None or len(df) < 40:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < 40:
+        return None
+    close = df["close"]
+    vol = df["volume"] if "volume" in df.columns else pd.Series(0.0, index=df.index)
+    mid = 50.0
+    prime_window = 10
+    recency = 5                      # signal within the last 5 closed bars (~a trading week)
+
+    rsi = _rsi_series(close, 9)
+    ema = _ema_series(rsi, 3)
+    # VWMA of RSI over 21 bars (volume-weighted; plain-mean fallback on no volume).
+    wv = (rsi * vol).rolling(21).sum()
+    wsum = vol.rolling(21).sum()
+    vwma = (wv / wsum.replace(0.0, np.nan)).fillna(rsi.rolling(21).mean())
+
+    r = rsi.to_numpy(); e = ema.to_numpy(); v = vwma.to_numpy()
+    n = len(df)
+    prime = 0
+    last_early = None
+    last_confirm = None
+    for i in range(1, n):
+        vals = (r[i - 1], r[i], e[i - 1], e[i], v[i - 1], v[i])
+        if any(np.isnan(x) for x in vals):
+            continue
+        rsi_cross_up = r[i - 1] <= mid and r[i] > mid
+        ema_rising = e[i] > e[i - 1]
+        vwma_cross_up = v[i - 1] < mid and v[i] >= mid
+        if prime > 0:
+            prime -= 1
+        if rsi_cross_up and ema_rising and v[i] < mid:     # early setup = the entry
+            last_early = i
+            prime = prime_window
+        if prime > 0 and vwma_cross_up:                    # VWMA leaves band = confirmed
+            last_confirm = i
+            prime = 0
+
+    # Fire on whichever is fresh, preferring the stronger confirmed reading.
+    signal = None
+    if last_confirm is not None and (n - 1 - last_confirm) <= recency:
+        signal, sig_idx = "confirmed", last_confirm
+    elif last_early is not None and (n - 1 - last_early) <= recency:
+        signal, sig_idx = "setup", last_early
+    if signal is None:
+        return None
+    bars_since = n - 1 - sig_idx
+
+    entry = float(close.iloc[-1])
+    swing_low = float(df["low"].iloc[-5:].min())           # stop below recent swing low
+    stop = round(swing_low * 0.995, 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+    target = round(entry + 2.0 * risk, 2)
+
+    rsi_now = float(rsi.iloc[-1])
+    vwma_now = float(vwma.iloc[-1])
+    vol20 = float(vol.tail(20).mean())
+    vol_x = float(vol.iloc[-1]) / vol20 if vol20 > 0 else 0.0
+
+    # Score (0-100): a confirmed reading + freshness + RSI strength + VWMA lift + volume.
+    confirmed = signal == "confirmed"
+    fresh = max(0.15, 1.0 - bars_since / (recency + 1.0))   # decays across the 5-bar window
+    strength = min(max((rsi_now - mid) / 20.0, 0.0), 1.0)   # 50→0, 70→1
+    vwma_lift = min(max((vwma_now - mid) / 15.0, 0.0), 1.0)
+    vol_ok = vol_x >= 1.5
+    base = (10.0 + (20.0 if confirmed else 0.0) + 25.0 * fresh
+            + 20.0 * strength + 10.0 * vwma_lift + (15.0 if vol_ok else 0.0))
+
+    kind = "confirmed" if confirmed else "setup"
+    reasons = [
+        (f"HM BUY {kind} {bars_since}b ago — "
+         + ("VWMA(RSI) crossed above 50 (strength confirmed) after "
+            "RSI reclaimed 50 with EMA(RSI) rising" if confirmed
+            else "RSI(9) crossed above the 50 pivot with EMA(RSI) rising while "
+                 "VWMA(RSI) is still below 50 (early, not yet exhausted)")),
+        f"RSI(9) {rsi_now:.0f}; VWMA(RSI) {vwma_now:.0f} "
+        + ("(above the 50 band)" if vwma_now >= mid else "(still inside the sub-50 band)"),
+        (f"Volume {vol_x:.1f}× the 20-day average"
+         if vol_ok else f"⚠ Volume only {vol_x:.1f}× avg — weaker signal"),
+        f"Trade plan — entry {entry:.0f} · stop {stop:.0f} (swing low) · "
+        f"target {target:.0f} (2R, R:R {(target - entry) / risk:.1f})",
+        "HM is a momentum-reversal read; accuracy is unmeasured — size per Risk Per Trade.",
+    ]
+    return {
+        "pattern_type": f"HM BUY · {kind} (Hilega Milega)",
+        "tags": ["HM Buy", kind, "RSI-9", f"{bars_since}b fresh"]
+                + (["Vol 1.5x+"] if vol_ok else []),
+        "reasons": reasons,
+        "score_base": round(min(100.0, base), 1),
+        "score": round(min(100.0, base), 1),   # provisional — run_scanner blends in RS
+        "rs_raw": _rs_raw(df),
+        "entry": round(entry, 2),
+        "stop": stop,
+        "target": target,
+        "vol_x50d": round(vol_x, 2),
+        "rsi_now": round(rsi_now, 1),
+        # HM reversal trades should resolve promptly; give it a fortnight.
+        "time_stop": 15,
+    }
+
+
 SCANNERS: dict[str, dict] = {
     "52-Week High Leaders": {
         "fn": scan_52w_high_leaders,
@@ -5181,6 +5305,20 @@ SCANNERS: dict[str, dict] = {
             "closed below since), and fires when price is retesting it now and "
             "holding above the zone low. Carries a structured entry/stop/target "
             "(stop below the zone, target at the displacement extension or 2R)."
+        ),
+        "category": "Entry",
+    },
+    "HM Buy (Hilega Milega)": {
+        "fn": scan_hm_buy,
+        "description": (
+            "Fresh HM (Hilega Milega) BUY on the last closed daily bar — the "
+            "Python port of the chart dashboard's HM sub-plot. RSI(9) crosses "
+            "above the 50 pivot with EMA(3)-of-RSI rising while VWMA(21)-of-RSI is "
+            "still below 50, then the VWMA(RSI) itself crosses above 50 within 10 "
+            "bars = confirmed BUY. Fires when the setup (or confirm) is within the "
+            "last 5 bars (~a trading week), so it catches signals from earlier in "
+            "the week. Carries a swing-low-stop / 2R trade plan "
+            "and a volume-confirmation check. Momentum-reversal read; unmeasured."
         ),
         "category": "Entry",
     },

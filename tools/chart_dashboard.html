@@ -2992,6 +2992,19 @@ function applyIndicators(pane) {
       // each other, and the grey vanished entirely on the light theme.
       // Deep blue (fast) vs orange (slow) separate cleanly on BOTH themes;
       // fast carries the weight since it holds the markers + value label.
+      // Trend-pivot regime fill anchored on the −50 centerline: green while %R is
+      // in the upper half (up-bias), red in the lower half. Added FIRST so the
+      // fast/slow lines and markers sit on top. Read WITH the slow line for trend.
+      sub.regime = sub.chart.addBaselineSeries({
+        baseValue: {type: 'price', price: -50},
+        topLineColor:    'rgba(0,0,0,0)',
+        topFillColor1:   'rgba(38,166,154,0.16)',   // upper half → up-bias green
+        topFillColor2:   'rgba(38,166,154,0.02)',
+        bottomLineColor: 'rgba(0,0,0,0)',
+        bottomFillColor1:'rgba(239,83,80,0.02)',
+        bottomFillColor2:'rgba(239,83,80,0.16)',    // lower half → down-bias red
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
       sub.slowLine = sub.chart.addLineSeries({
         color: '#f0883e', lineWidth: 1,
         priceLineVisible: false, lastValueVisible: false,
@@ -3007,13 +3020,15 @@ function applyIndicators(pane) {
       const th = 20;
       sub.fastLine.createPriceLine({price:0,          color:'rgba(202,0,23,0.4)',   lineWidth:1, lineStyle:1, axisLabelVisible:false});
       sub.fastLine.createPriceLine({price:-th,         color:'rgba(202,0,23,0.4)',   lineWidth:1, lineStyle:2, axisLabelVisible:false});
-      sub.fastLine.createPriceLine({price:-50,         color:'rgba(140,140,140,0.25)', lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      // −50 = the trend pivot: a clear solid centerline (labelled), not a faint dash.
+      sub.fastLine.createPriceLine({price:-50,         color:'rgba(150,150,150,0.7)',  lineWidth:1, lineStyle:0, axisLabelVisible:true});
       sub.fastLine.createPriceLine({price:-(100-th),   color:'rgba(36,102,167,0.4)', lineWidth:1, lineStyle:2, axisLabelVisible:false});
       sub.fastLine.createPriceLine({price:-100,        color:'rgba(36,102,167,0.4)', lineWidth:1, lineStyle:1, axisLabelVisible:false});
     }
     const prte = PRTE.compute(bars);
     pane.subCharts.prte.fastLine.setData(padToBars(prte.fast, bars));   // primary → full grid
     pane.subCharts.prte.slowLine.setData(prte.slow);
+    pane.subCharts.prte.regime.setData(padToBars(prte.fast, bars));     // −50 pivot green/red fill
     // Headline signal: reversal arrows the bar a trend exhausts (▼ bearish
     // as OB is left, ▲ bullish as OS is left). Trend-start points (just
     // entered a zone) get a smaller warning circle.
@@ -3078,16 +3093,18 @@ function applyIndicators(pane) {
     pane.subCharts.hm.regime.setData(padToBars(hm.rsi, bars));    // same data → red/cyan 50-band fill
     pane.subCharts.hm.emaLine.setData(hm.emaRsi);
     pane.subCharts.hm.vwmaLine.setData(hm.vwmaRsi);
-    // Markers: filled arrows = confirmed reversal (VWMA leaves the 50 band);
-    // hollow circles = early setup (the 50-cross, still awaiting confirmation);
-    // small grey squares = momentum-fade exit (RSI crosses back through 50).
+    // BUY/SELL = the actionable entry (early setup: RSI reclaims 50, EMA-of-RSI
+    // rising, VWMA still inside the band). BUY✓/SELL✓ = confirmed (VWMA then leaves
+    // the 50 band) — a strength upgrade. Small grey "exit" squares = momentum-fade
+    // (RSI crosses back through 50). This matches the "HM Buy (Hilega Milega)"
+    // day-scanner, which fires on the same setup (and flags confirmed ones).
     const hmMarkers = [
-      ...hm.bullConfirm.map(p => ({time: p.time, position: 'belowBar', color: '#1f9d57', shape: 'arrowUp',   text: '▲'})),
-      ...hm.bearConfirm.map(p => ({time: p.time, position: 'aboveBar', color: '#c62828', shape: 'arrowDown', text: '▼'})),
-      ...hm.bullEarly.map(p   => ({time: p.time, position: 'belowBar', color: '#1f9d57', shape: 'circle'})),
-      ...hm.bearEarly.map(p   => ({time: p.time, position: 'aboveBar', color: '#c62828', shape: 'circle'})),
-      ...hm.exitLong.map(p    => ({time: p.time, position: 'aboveBar', color: '#9aa4af', shape: 'square'})),
-      ...hm.exitShort.map(p   => ({time: p.time, position: 'belowBar', color: '#9aa4af', shape: 'square'})),
+      ...hm.bullEarly.map(p   => ({time: p.time, position: 'belowBar', color: '#1f9d57', shape: 'arrowUp',   text: 'BUY'})),
+      ...hm.bullConfirm.map(p => ({time: p.time, position: 'belowBar', color: '#00e676', shape: 'arrowUp',   text: 'BUY✓'})),
+      ...hm.bearEarly.map(p   => ({time: p.time, position: 'aboveBar', color: '#c62828', shape: 'arrowDown', text: 'SELL'})),
+      ...hm.bearConfirm.map(p => ({time: p.time, position: 'aboveBar', color: '#ff1744', shape: 'arrowDown', text: 'SELL✓'})),
+      ...hm.exitLong.map(p    => ({time: p.time, position: 'aboveBar', color: '#9aa4af', shape: 'square', text: 'exit'})),
+      ...hm.exitShort.map(p   => ({time: p.time, position: 'belowBar', color: '#9aa4af', shape: 'square', text: 'exit'})),
     ].sort((a, b) => (a.time > b.time ? 1 : a.time < b.time ? -1 : 0));
     pane.subCharts.hm.rsiLine.setMarkers(hmMarkers);
   }
