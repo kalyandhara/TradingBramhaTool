@@ -4,13 +4,14 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-08-20
+updated: 2026-08-23
 sources: 0
 related:
   - analyses/Open-Backlog-2026-08-02.md
   - analyses/Backtest-Harness.md
   - analyses/OI-Momentum-Gap-Audit.md
   - analyses/Dashboard-UI-Roadmap.md
+  - analyses/Noise-Regime-Coverage-Postmortem.md
 ---
 
 # Analysis: Open Backlog — the living index
@@ -36,6 +37,7 @@ forward from the previous page. Two of them had changed and nobody had noticed.
 | **Closed 2026-08-12** | **B-3** (mean-reversion scanner — `scan_mean_reversion` Connors RSI2, registered), **B-5** (time_stop emitted by 6 scanners: Harmonic/RSI60-40/OrderBlock/FallingWedge/SupportBreakdown/MeanReversion), **B-19b** (support-breakdown detector — `scan_support_breakdown` + `detect_support_breakdown`), **B-20a** (t-test + 95% CI on edge in `_aggregate`), **B-20b** (market-model beta/alpha when benchmark_df supplied to `backtest_scanner`), **B-25** (`backtest_confluence` + `format_confluence_report` measure co-fire vs single-fire), **B-7** (`sweep_volume_threshold` sweeps 1.0/1.2/1.5/2.0× vol floors and ranks by edge) |
 | **Still open** | B-4, B-6 … B-13, B-15, B-16, B-17, B-19 (all 2026-08-07 features unmeasured), B-21, B-21b, B-22, B-23, B-24, B-26, B-27 |
 | **New 2026-08-20** | **B-28** (strike-level OI S/R + max pain), **B-29** (realistic slippage/costs), **B-30** (Moon-in-Pushya event-study), **B-31** (learned confluence weights — gated, not next) |
+| **New 2026-08-23** | **B-32** (regime-PRESCRIPTIVE output throttle), **B-33** (conviction-sized shortlist), **B-34** (small/micro-cap "hidden treasures" lane), **B-35** (family-lens scanner UI), **B-36** (regime posture header + nav consolidation) — from [[analyses/Noise-Regime-Coverage-Postmortem]] |
 
 ## Ingested-research additions (2026-08-20)
 
@@ -254,6 +256,11 @@ large, liquid and certainly file. First suspect remains the
 | B-14 | ~~`ephem` not installed~~ | **CLOSED** — verified `ephem 4.2.1` present 2026-08-07. The reversal calendar can now be rebuilt; that rebuild has not been run, and coverage still ends **2027-12-28**. |
 | B-30 | **Moon-in-Pushya reversal event-study** *(ingested 2026-08-20)* | Astro video claims Moon-in-Pushya days (~13-14/yr) mark major Nifty reversals. We already cache `gurupushya`/`ravipushya` muhurat dates and run muhurat/vedha/newmoon backtests; this adds the *general* Pushya-transit claim as one more event-study, reusing `newmoon_levels_backtest.py` (first-touch reversal vs a **matched non-Pushya control**, permutation null, eclipse strip). Textbook base-rate trap — ~13-14 dates/yr against typical 300-600pt 2-day ranges — so **expect a null**, consistent with the newmoon and sbc-vedha nulls. Worth running only to retire it with evidence. |
 | B-31 | **Learned / regime-adaptive confluence weights — NOT NEXT** *(ingested 2026-08-20)* | The "signal-fusion" talk suggests *learning* confluence weights from historical performance and adapting them by volatility regime (IV<HV → defensive). We already cap correlated families (`scanner_weight`) and carry a RISK-ON/OFF flag, but weights are hand-set. Deliberately parked: learning weights is refinement on the base **B-25/B-19** already flag as unvalidated. Gate: close B-25 (does co-firing beat single-firing at all?) and B-21/B-29 (costs, walk-forward) first. Recorded so the idea is not lost — not so it is built next. |
+| B-32 | **Regime-PRESCRIPTIVE output throttle** *([[analyses/Noise-Regime-Coverage-Postmortem]], 2026-08-23)* | Today `_market_context` computes RISK-ON/MIXED/RISK-OFF (Nifty vs 50/200 SMA) but only writes a *string* — output volume is regime-invariant while signal edge is not. Build: RISK-OFF caps the shortlist hard (or → 0 longs) and elevates `RISK_SCANNERS`; MIXED raises the confluence/rating bar; RISK-ON runs full. **Measurable claim to test FIRST (via [[analyses/Backtest-Harness]]):** does following the shortlist in RISK-OFF underperform RISK-ON out-of-sample? If the premise fails to measure, the throttle is not earned. Highest-leverage item — and simpler/testable-now, unlike the parked B-31 (which throttles *weights*, not *volume*). |
+| B-33 | **Conviction-sized shortlist (kill fixed top_n=100)** *(2026-08-23)* | Replace the fixed `top_n=100` in `opportunity_daily.run` with a confluence+rating **quality gate**, so the list shrinks by itself when breadth is thin instead of always padding to 100. **Measurable:** forward return of the gated top-quality subset vs the dropped tail — if the tail carries no edge, cutting it is free noise reduction; if it does, the gate threshold is wrong. Depends on nothing; pairs naturally with B-32. |
+| B-34 | **Small/micro-cap "hidden treasures" lane** *(2026-08-23)* | The funnel universe is `fetch_bhavcopy_top_volume` = top-by-traded-value = **large-cap only**; small/micro-cap multibaggers never enter. `multibagger_candidates.py` exists but is a standalone screener.in-gated screen. Build: a **FREE** small-cap universe (NSE Smallcap-250 / Microcap-250 constituents — no cookie) run through the multibagger criteria **plus the now-free NSE promoter% + pledge% checks** (its header's "pledge not scrapable" caveat is obsolete), surfaced as a deliberately SMALL high-conviction lane. **Measurable:** coverage (names outside the top-value set) + forward hit-rate of the criteria vs a Smallcap-250 benchmark. Closes the owner's core coverage gap. |
+| B-35 | **Collapse 38 scanners into family "lenses" (UI)** *(2026-08-23)* | 38 scanners (13 Entry + 12 Pattern overlap on the same facts); the confluence **family** de-dup already fixes scoring but the UI still lists all 38 as independent choices. Build: default the Scanner Hub to a curated core, group the rest under their `SCANNER_FAMILIES` lens behind "advanced". **Verifiable invariant (not taste):** no unique hit is lost — every family stays reachable and the union of hits is unchanged. Behavioral noise reduction with a checkable guarantee. |
+| B-36 | **Regime posture header + nav consolidation** *(2026-08-23)* | ~21 pages / 6 nav groups = too many doors under stress. Build: a one-line **posture banner** on the Opportunity Hub ("Bear regime — capital preservation; N high-conviction names only") driven by the same regime B-32 validates, plus merging/demoting low-use pages so "what do I do today?" has one front door. Lowest-risk; lands in parallel with B-32/B-34. The anti-over-trading nudge that makes the behavioral thesis felt. |
 
 ---
 
@@ -310,6 +317,8 @@ until it is done every new refinement makes the stack taller rather than better.
 7. ~~**B-3** — mean-reversion scanner.~~ Done 2026-08-12 (`scan_mean_reversion` Connors RSI2).
 
 **Next:** B-16 (OI momentum palette), B-24 (RSI-divergence Python/JS disagreement), B-21 (walk-forward + costs) — and fold **B-29** (realistic slippage) into that same costs pass. The new B-28/B-30 are capability/research items that can wait behind the measurement work; **B-31 is explicitly gated behind B-25.**
+
+**Strategic thrust (2026-08-23, [[analyses/Noise-Regime-Coverage-Postmortem]]):** the two behaviour-changing items are **B-32** (regime throttles output volume — measure the RISK-OFF-underperforms premise first, then cap) and **B-34** (free small/micro-cap lane — closes the top-layer-only coverage gap, now unblocked by the free NSE pledge work). **B-33** (conviction-sized list) pairs with B-32; **B-35/B-36** (family-lens UI + posture header) are low-risk noise-reduction that can land in parallel. Do B-32 and B-34 first, each gated on its own measurement.
 
 ## Outcome (fill in later)
 

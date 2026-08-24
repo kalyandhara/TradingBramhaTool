@@ -1,6 +1,11 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-23] analysis | Post-mortem: noise, regime blindness & the small-cap coverage gap
+- **Trigger:** owner's behavioural read — too many stocks/pages in a bear tape (where analytics work least) → worse decisions; scanners cover the top layer, small/micro-cap multibaggers uncovered.
+- **Verified against code (all three hold):** (1) Opportunity universe = `fetch_bhavcopy_top_volume` = top-by-traded-value = **large-cap only**; `multibagger_candidates.py` exists but is a standalone screener.in-gated screen. (2) Regime (RISK-ON/OFF/MIXED) is **computed but only described** — output volume is regime-invariant. (3) 38 scanners (13 Entry+12 Pattern overlap) + ~21 pages = decision paralysis.
+- **Pages:** created [[analyses/Noise-Regime-Coverage-Postmortem]]; added **B-32…B-36** to [[analyses/Open-Backlog]] (regime-prescriptive throttle · conviction-sized list · free small/micro-cap lane · family-lens UI · posture header). Each framed as a build + a measurable claim; **B-32 + B-34 first**, each gated on its own measurement.
+
 ## [2026-08-23] ingest | Murshid Ali: 3-6-9 "Time-Machine" market-timing indicator (YouTube, promotional)
 - **Source:** interview promoting a paid intraday-timing indicator (Tesla 3/6/9 framing); instruments Nifty/Bank Nifty/Sensex/BTC.
 - **Pages created:** [[sources/Murshid-Ali-369-Timing-Indicator-2026-08-23]]. Updated [[index]].

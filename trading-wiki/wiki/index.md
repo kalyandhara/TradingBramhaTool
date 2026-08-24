@@ -1,12 +1,12 @@
 ---
 title: "Wiki Index"
 updated: 2026-08-23
-pages: 260
+pages: 261
 sources_ingested: 105
 ---
 
 # Trading Wiki — Index
-_Last updated: 2026-08-23 | Pages: 260 | Sources ingested: 105_
+_Last updated: 2026-08-23 | Pages: 261 | Sources ingested: 105_
 <!-- Counting convention, stated because these two counters silently drifted to
      TWO DIFFERENT wrong numbers before 2026-08-07 (see B-27 in
      analyses/Open-Backlog.md): "Pages" = every .md under wiki/ EXCLUDING the
@@ -233,6 +233,7 @@ _Last updated: 2026-08-23 | Pages: 260 | Sources ingested: 105_
 ## Analyses
 | Page | Date | Topic |
 |------|------|-------|
+| [Noise-Regime-Coverage-Postmortem](analyses/Noise-Regime-Coverage-Postmortem.md) | 2026-08-23 | **End-to-end post-mortem on decision noise, regime blindness & the small-cap coverage gap.** Three theses, all verified in code: (1) the Opportunity funnel universe is `fetch_bhavcopy_top_volume` = **top-by-traded-value = large-cap only** — small/micro-cap multibaggers never enter; `multibagger_candidates.py` exists but is a standalone screener.in-gated screen; (2) the regime (RISK-ON/OFF/MIXED) is **computed but only described** — output volume stays ~100 longs regardless of tape, while signal edge does not; (3) 38 scanners (13 Entry + 12 Pattern overlap) + ~21 pages = paralysis that converts to over-trading under stress. Fixes → [[analyses/Open-Backlog]] **B-32** (regime throttles output — measure the premise first), **B-33** (conviction-sized list), **B-34** (free NSE small/micro-cap lane, unblocked by the free pledge work), **B-35** (family-lens scanner UI), **B-36** (posture header). Do B-32 + B-34 first, each gated on measurement |
 | [Market-Sentiment-Index-Roadmap-Fit-2026-07-14](analyses/Market-Sentiment-Index-Roadmap-Fit-2026-07-14.md) | 2026-07-14 | **Build assessment for the Raut-style composite** — judged medium-value / low-effort: three of five inputs (A/D, sector performance, price-vs-SMA200) were already computable from data then being ingested, two needed an options pull. Estimated 2–3 sessions; highest leverage as a **top-of-dashboard regime gauge that also gates position sizing**. **Largely executed** — the Sentiment page shipped with a 4-input composite, and PCR remains factor 5 (see [[analyses/PCR-in-OI-Momentum]] for why it is computed but deliberately kept out of the verdict) |
 | [Open-Backlog-2026-08-02](analyses/Open-Backlog-2026-08-02.md) | 2026-08-02 | **SUPERSEDED historical snapshot** — kept deliberately, not live. The current index is the undated [[analyses/Open-Backlog]]. Retained because *how* it went stale is the lesson: **within five days** B-1 and B-14 closed, B-5 turned out worse than recorded (the harness reads a `time_stop` no scanner emits), and a single 2026-08-07 session added B-19…B-27 — all while `index.md` still described this page as "the single index of everything left open". A worked example of why dated snapshots must not be linked as live state |
 | [Python-Environments](analyses/Python-Environments.md) | 2026-08-09 | **Two Python 3.14.4 installs with different packages, and the one that runs the app is not the convenient one to test with.** `pythoncore-3.14-64` runs the dashboard (streamlit 1.57, yfinance 1.2.1) and **had no ephem**; `Programs\Python\Python314` has ephem 4.2.1 and yfinance 1.4.1 but **broken streamlit**. A bare `python` resolves to a third (`hermes-agentenv`) with no pandas at all. **Consequence: `panchang.py` + the Morning Market Brief were verified in the wrong interpreter and failed on first real use** with `ModuleNotFoundError: No module named ephem`. **Two defects, only one of them the missing package:** (1) ephem was pip-installed ad-hoc on 2026-08-07 and B-14 closed, but **never declared in `requirements_pipeline.txt`** — "installed" described machine state, not the project; (2) `build_brief` hard-imported panchang, so an optional dependency **erased the quotes and breadth too**, neither of which touches astronomy. Both fixed; astro layer now degrades with a warning naming the fix. **Working rule: verify anything dashboard-facing with the interpreter from `.claude/launch.json`, and declare new imports in the same change.** yfinance version skew (1.2.1 vs 1.4.1) is currently harmless and will not stay that way | 2026-08-09 |
