@@ -3399,15 +3399,20 @@ def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -
         # as an extra blank line between the chips and the card. Empty for every
         # other caller, so their cards are unchanged.
         f'{header_html}'
-        # Header row: avatar · identity · right cluster
-        f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">'
+        # Header row: avatar · identity · right cluster.
+        # flex-wrap + a real min-width on the identity column so that in a narrow
+        # 3-up card the fixed-width ring+icons cluster DROPS to its own line
+        # instead of starving the identity column to ~0px (which forced the text
+        # to wrap character-by-character — "1.2% fro m 52w high").
+        f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;'
+        f'flex-wrap:wrap;">'
         # Avatar
         f'<div style="width:34px;height:34px;border-radius:8px;flex-shrink:0;'
         f'background:linear-gradient(135deg,#fbbf24,#ea580c);color:#fff;'
         f'display:flex;align-items:center;justify-content:center;'
         f'font-weight:700;font-size:15px;">{sym[0]}</div>'
-        # Identity column
-        f'<div style="flex:1;min-width:0;">'
+        # Identity column — never collapses below a readable width.
+        f'<div style="flex:1 1 150px;min-width:130px;">'
         f'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">'
         f'{_rating_badge_html(card)}'
         f'<span style="font-size:15px;font-weight:700;color:#3a2a1e;">{sym}</span>'
@@ -3416,8 +3421,11 @@ def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -
         f'</div>'
         f'<div style="margin-top:3px;">{metrics_html}</div>'
         f'</div>'
-        # Right cluster: score ring + action icons
-        f'<div style="display:flex;align-items:center;flex-shrink:0;gap:2px;">'
+        # Right cluster: score ring + action icons. margin-left:auto right-aligns
+        # it on a wide card; flex-wrap lets it (and the icons) drop cleanly to
+        # their own line on a narrow one rather than overflowing.
+        f'<div style="display:flex;align-items:center;flex-shrink:0;gap:2px;'
+        f'flex-wrap:wrap;justify-content:flex-end;margin-left:auto;">'
         f'{ring_html}{action_icons}'
         f'</div>'
         f'</div>'
@@ -4577,6 +4585,25 @@ if current_page == "Opportunity Hub":
                 rs.callout(f"{_sel_date} · market {_regime}.",
                            str(_r0.get("market_verdict") or ""), tone=_tone),
                 unsafe_allow_html=True)
+
+            # ── Archived funnel cards (full frozen detail for this run date) ────
+            # Rendered from the snapshot stored at run time, so a historical date
+            # shows exactly what fired then — scanners, reasons, levels — rather
+            # than re-deriving from today's prices. Older dates without a snapshot
+            # simply skip this and keep the summary list below.
+            _arch = db.get_opportunity_cards(_sel_date) if _sel_date else []
+            if _arch:
+                import json as _arch_json
+                with st.expander(f"📇 Archived funnel cards — {_sel_date} "
+                                 f"({len(_arch)} snapshots, as they fired)"):
+                    for _i in range(0, len(_arch), 3):
+                        _cols = st.columns(3)
+                        for _col, _rec in zip(_cols, _arch[_i:_i + 3]):
+                            with _col:
+                                try:
+                                    _render_pipeline_card(_arch_json.loads(_rec["card_json"]))
+                                except Exception as _e:
+                                    st.caption(f"{_rec['symbol']}: snapshot unreadable ({_e})")
 
             # ── Sort control ───────────────────────────────────────────────────
             _sort_by = st.radio(

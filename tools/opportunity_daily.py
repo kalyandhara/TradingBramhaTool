@@ -308,7 +308,31 @@ def run(universe_size: int = 200, top_n: int = 100,
 
     if save and rows:
         db.save_daily_opportunities(rows, run_date=run_date)
-        _say(f"Stored {len(rows)} rows for {run_date}.")
+        # Full per-card snapshot so the Hub's run-date view renders identically to
+        # the day it fired (frozen scanners / reasons / levels), not re-derived.
+        import json as _json
+
+        def _js(o):
+            import numpy as _np
+            if isinstance(o, _np.integer):
+                return int(o)
+            if isinstance(o, _np.floating):
+                return float(o)
+            if isinstance(o, _np.ndarray):
+                return o.tolist()
+            return str(o)
+
+        _cards = []
+        for r in rows:
+            h = hits.get(r["symbol"])
+            if not h:
+                continue
+            hit = {**h, "rank_score": r["score"], "rank": r["rank"]}
+            _cards.append({"symbol": r["symbol"], "rank": r["rank"],
+                           "card_json": _json.dumps(hit, default=_js)})
+        if _cards:
+            db.save_opportunity_cards(_cards, run_date=run_date)
+        _say(f"Stored {len(rows)} rows + {len(_cards)} card snapshots for {run_date}.")
 
     return {"ok": True, "run_date": run_date, "rows": rows, "market": market,
             "universe_size": len(universe), "candidates": len(stocks),

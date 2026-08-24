@@ -88,6 +88,19 @@ JOBS: dict[str, JobSpec] = {
         managed_bat=False,
         default_time="16:15",
     ),
+    "opportunity_daily": JobSpec(
+        id="opportunity_daily",
+        label="Daily Opportunity Shortlist",
+        desc="Runs the Opportunity Hub funnel headlessly after market close and "
+             "stores the ranked shortlist run-date-wise in the daily_opportunities "
+             "table (read by the Hub's run-date selector and the digest email). "
+             "Replace-on-rerun per date. ~a few minutes at universe 500.",
+        task_name="TradingBramha-OpportunityDaily",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "opportunity_daily.py"}" '
+                f'--universe 500 --top 100',
+        default_time="16:20",
+    ),
 }
 
 

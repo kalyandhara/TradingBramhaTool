@@ -131,6 +131,22 @@ def init_db() -> None:
             "edge_points": "REAL",        # family-capped weight the score spent
             "risk_flags": "TEXT",         # bearish scanners that also fired
         })
+        # Full per-card snapshot for a run date (Opportunity Hub). Stores the
+        # frozen hit payload as JSON so a historical run renders identically to
+        # the day it fired, instead of being re-derived from today's prices.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS daily_opportunity_cards (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                run_date TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                rank INTEGER,
+                card_json TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(run_date, symbol)
+            );
+            """
+        )
         conn.commit()
     finally:
         conn.close()
@@ -444,6 +460,39 @@ def get_opportunity_run_dates() -> list[str]:
         cur = conn.execute(
             "SELECT DISTINCT run_date FROM daily_opportunities ORDER BY run_date DESC")
         return [r[0] for r in cur.fetchall()]
+    finally:
+        conn.close()
+
+
+def save_opportunity_cards(cards: list[dict], run_date: str | None = None) -> int:
+    """Replace the full per-card snapshots for `run_date`. Each item is
+    {"symbol", "rank", "card_json"} — card_json already serialised by the caller
+    (it owns the numpy/pandas coercion). Replace-on-rerun, mirroring the summary."""
+    run_date = run_date or date.today().isoformat()
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM daily_opportunity_cards WHERE run_date = ?", (run_date,))
+        for c in cards:
+            conn.execute(
+                "INSERT INTO daily_opportunity_cards "
+                "(run_date, symbol, rank, card_json, created_at) VALUES (?,?,?,?,?)",
+                (run_date, c["symbol"], c.get("rank"), c["card_json"], now))
+        conn.commit()
+        return len(cards)
+    finally:
+        conn.close()
+
+
+def get_opportunity_cards(run_date: str | None = None) -> list[dict]:
+    """[{symbol, rank, card_json}] for a run date, rank order. Empty if none."""
+    run_date = run_date or date.today().isoformat()
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "SELECT symbol, rank, card_json FROM daily_opportunity_cards "
+            "WHERE run_date = ? ORDER BY rank", (run_date,))
+        return [{"symbol": s, "rank": r, "card_json": j} for s, r, j in cur.fetchall()]
     finally:
         conn.close()
 
