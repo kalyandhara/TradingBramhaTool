@@ -1330,20 +1330,100 @@ def cached_fundamentals_deep(symbol: str) -> dict:
     return fdeep.derive_fundamentals(symbol)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def cached_red_flags(symbol: str) -> dict:
-    """FR-4 checks. Cached hard: the statement inputs are quarterly at best, and
-    the promoter branch hits screener.in, which rate-limits.
-
-    The session lookup is best-effort — with no cookie the promoter checks come
-    back NOT_CHECKED, which is the honest answer rather than a failure.
-    """
+def resolve_screener_sessionid() -> str | None:
+    """Screener.in sessionid, in priority order: (1) auto-grabbed from a local
+    browser cookie, (2) the value manually saved in the DB (Plan B — for when
+    the browser auto-grab finds nothing). None if neither is available."""
     try:
         sid, _browser = bch.get_screener_sessionid()
+        if sid:
+            return sid
     except Exception:
-        sid = None
+        pass
+    try:
+        import portfolio_db as _db
+        return _db.get_setting("screener_sessionid") or None
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_red_flags(symbol: str, sessionid: str | None) -> dict:
+    """Cached core, keyed on (symbol, sessionid) so saving a sessionid (Plan B)
+    invalidates the entry and the screener-gated checks re-run."""
+    _own = cached_nse_ownership(symbol)
+    _pledge = ((_own["pledge_pct"], _own["pledge_as_of"])
+               if _own.get("pledge_pct") is not None else None)
     return rflags.evaluate(symbol, cached_fetch_fundamentals(symbol),
-                           cached_fundamentals_deep(symbol), sid)
+                           cached_fundamentals_deep(symbol), sessionid,
+                           promoter_series=_own["series"],
+                           promoter_pledge=_pledge,
+                           auditor_scan=cached_nse_auditor_scan(symbol))
+
+
+@st.cache_data(ttl=12 * 3600, show_spinner=False)
+def cached_nse_auditor_scan(symbol: str):
+    """Plan A (auditor) — scan free NSE announcements for an auditor-resignation
+    or adverse/qualified-opinion filing. Returns (state, detail, as_of) or None
+    on import/lookup failure (→ the check stays NOT_CHECKED, no source)."""
+    try:
+        import nse_announcements as _na
+        return _na.scan_auditor(symbol)
+    except Exception:
+        return None
+
+
+def cached_red_flags(symbol: str) -> dict:
+    """FR-4 checks. The session lookup is best-effort — with no cookie the
+    screener-gated checks come back NOT_CHECKED, the honest answer, and the user
+    can paste a sessionid via the 'Unlock screener.in checks' panel."""
+    return _cached_red_flags(symbol, resolve_screener_sessionid())
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def cached_nse_ownership(symbol: str) -> dict:
+    """Free/official promoter data for the FR-4 checks (Plan A — no screener.in
+    cookie): promoter-holding history [(period, pct)] oldest→newest PLUS the
+    latest promoter-pledge %. Disk cache first (ownership_cache), then a single
+    bounded live NSE fetch if the cache is thin or lacks pledge."""
+    import datetime as _dt
+    out = {"series": [], "pledge_pct": None, "pledge_as_of": None}
+    try:
+        import ownership_cache as _oc
+        import nse_shareholding_fetch as _nsf
+    except Exception:
+        return out
+
+    def _key(period):
+        d = _nsf._period_date(period)
+        return d or _dt.datetime.min
+
+    q = (_oc.load(symbol).get("quarters") or {})
+    disk = sorted(((p, v) for p, v in q.items()), key=lambda t: _key(t[0]))
+    series = [(p, float(v["promoter"])) for p, v in disk
+              if isinstance(v.get("promoter"), (int, float))]
+    pledge_pct, pledge_as_of = None, None
+    if disk:
+        _latest_p, _latest_v = disk[-1]
+        if isinstance(_latest_v.get("promoter_pledge_pct"), (int, float)):
+            pledge_pct, pledge_as_of = float(_latest_v["promoter_pledge_pct"]), _latest_p
+    if len(series) >= 2 and pledge_pct is not None:
+        return {"series": series, "pledge_pct": pledge_pct, "pledge_as_of": pledge_as_of}
+
+    try:                                    # single bounded live fetch (cached here)
+        res = _nsf.fetch_ownership(symbol, quarters=5)
+        if res:
+            qs = sorted(res.get("quarters", []), key=lambda d: _key(d.get("period")))
+            live = [(d.get("period"), float(d["promoter"])) for d in qs
+                    if isinstance(d.get("promoter"), (int, float))]
+            if len(live) >= 2:
+                series = live
+            latest = res.get("latest") or (qs[-1] if qs else None)
+            if latest and isinstance(latest.get("promoter_pledge_pct"), (int, float)):
+                pledge_pct, pledge_as_of = float(latest["promoter_pledge_pct"]), latest.get("period")
+    except Exception:
+        pass
+    return {"series": series, "pledge_pct": pledge_pct, "pledge_as_of": pledge_as_of}
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1834,6 +1914,23 @@ def render_red_flags(res: dict) -> None:
     st.markdown(rs.card(f'<div style="margin-bottom:8px;">{header_chips}</div>{verdict}'),
                 unsafe_allow_html=True)
 
+    # Plan C — a "verify" deep link per gray-zone flag, so a NOT CHECKED item is
+    # actionable (go look here) rather than a dead end. Screener's consolidated
+    # page carries promoter/pledge tables AND the annual-report documents; the
+    # NSE quote page carries the official shareholding pattern.
+    from urllib.parse import quote as _q
+    _sym = res.get("symbol", "")
+    _scr = f"https://www.screener.in/company/{_q(_sym)}/consolidated/"
+    _nseq = f"https://www.nseindia.com/get-quotes/equity?symbol={_q(_sym)}"
+    _verify_links = {
+        "promoter_holding":      [("screener.in ↗", _scr), ("NSE filing ↗", _nseq)],
+        "promoter_pledge":       [("screener.in ↗", _scr), ("NSE filing ↗", _nseq)],
+        "auditor_qualification": [("Annual report ↗", _scr)],
+        "related_party_txns":    [("Annual report ↗", _scr)],
+        "revenue_concentration": [("Annual report ↗", _scr)],
+    }
+    _link_col = rs.TOKENS.get("accent", "#3fb950")
+
     order = {"FLAG": 0, "NOT_CHECKED": 1, "CLEAN": 2}
     rows = []
     for f in sorted(flags, key=lambda x: (order.get(x["state"], 9),
@@ -1841,6 +1938,14 @@ def render_red_flags(res: dict) -> None:
         tone = _FLAG_TONE.get((f["state"], f["severity"]), "absent")
         fg, bg = rs.tone_colors(tone)
         sev = ("critical" if f["severity"] == "critical" else "watch")
+        _lk = _verify_links.get(f["key"])
+        links_html = ""
+        if _lk:
+            anchors = " · ".join(
+                f'<a href="{u}" target="_blank" rel="noopener" '
+                f'style="color:{_link_col};text-decoration:none;">{t}</a>' for t, u in _lk)
+            links_html = (f'<div class="tb-micro" style="margin-top:3px;">'
+                          f'Verify manually: {anchors}</div>')
         rows.append(
             f'<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 0;'
             f'border-top:1px solid {rs.TOKENS["border"]};">'
@@ -1851,9 +1956,56 @@ def render_red_flags(res: dict) -> None:
             f'<b style="font-size:12.5px;color:{rs.TOKENS["text"]};">{f["label"]}</b>'
             f'<span class="tb-micro" style="margin-left:7px;">{sev} · {f["source"]}</span>'
             f'<div style="font-size:12px;color:{rs.TOKENS["text_body"]};line-height:1.45;">'
-            f'{f["detail"]}</div></div></div>'
+            f'{f["detail"]}</div>{links_html}</div></div>'
         )
     st.markdown("".join(rows), unsafe_allow_html=True)
+
+
+def _render_screener_unlock(res: dict) -> None:
+    """Plan B — paste a screener.in sessionid to unlock the screener-gated checks
+    (promoter pledge, deeper history) when the browser auto-grab found none.
+    Only shown when such a gap actually exists. Stored in the DB like the digest
+    Gmail credentials; clearing the field removes it."""
+    flags = res.get("flags") or []
+    gaps = [f for f in flags
+            if f.get("source") == "screener.in" and f.get("state") == "NOT_CHECKED"]
+    if not gaps:
+        return
+    try:
+        import portfolio_db as _db
+        saved = _db.get_setting("screener_sessionid") or ""
+    except Exception:
+        _db, saved = None, ""
+    if _db is None:
+        return
+
+    with st.expander("🔓 Unlock screener.in checks (promoter pledge, deeper history)"):
+        st.caption(
+            "These need a screener.in `sessionid` cookie and none was found in a "
+            "local browser. Log in to screener.in → DevTools → Application ▸ "
+            "Cookies ▸ https://www.screener.in → copy the **sessionid** value and "
+            "paste it here. It expires periodically — re-paste if checks stop "
+            "resolving. Stored locally in your dashboard DB, only sent to "
+            "screener.in."
+        )
+        val = st.text_input("screener.in sessionid", value=saved, type="password",
+                            key="rf_screener_sid")
+        c1, c2 = st.columns(2)
+        if c1.button("Save & re-check", key="rf_sid_save", type="primary"):
+            try:
+                _db.set_setting("screener_sessionid", (val or "").strip())
+                _cached_red_flags.clear()
+                st.success("Saved — re-running screener checks…")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not save: {e}")
+        if saved and c2.button("Clear saved sessionid", key="rf_sid_clear"):
+            try:
+                _db.set_setting("screener_sessionid", "")
+                _cached_red_flags.clear()
+                st.success("Cleared."); st.rerun()
+            except Exception as e:
+                st.error(f"Could not clear: {e}")
 
 
 #: |YoY| beyond this on a quarter is annotated rather than left for the reader
@@ -3740,7 +3892,9 @@ if current_page == "Stock Analyzer":
                 render_fundamental_header(symbol, df, _fund, _deep)
                 render_fundamental_signals(fscore.score_all(_fund, _deep))
                 render_fundamental_history(_deep)
-                render_red_flags(cached_red_flags(symbol))
+                _rf_res = cached_red_flags(symbol)
+                render_red_flags(_rf_res)
+                _render_screener_unlock(_rf_res)
                 render_scenarios(scen.build(_deep), _deep)
                 render_concalls(cached_concalls(symbol))
 
