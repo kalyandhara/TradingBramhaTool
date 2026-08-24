@@ -1882,14 +1882,17 @@ def compute_ibd_rs_blend(df: pd.DataFrame) -> float | None:
     return 0.4 * r3 + 0.2 * r6 + 0.2 * r9 + 0.2 * r12
 
 
-def compute_recent_exhaustion_signal(df: pd.DataFrame, lookback: int = 3) -> str | None:
+def _percentr_exhaustion(df: pd.DataFrame, lookback: int = 3) -> dict | None:
     """Port of the %R Trend Exhaustion indicator (see
-    percent_r_trend_exhaustion.js — same fast/slow Williams %R + EMA
-    smoothing + overbought/oversold zone logic) for bulk Python screening.
+    percent_r_trend_exhaustion.js — same fast/slow Williams %R + EMA smoothing +
+    overbought/oversold zone logic) for bulk Python screening.
 
-    Returns "bullish" if a bullish exhaustion (price just left the oversold
-    zone) fired within the last `lookback` bars, "bearish" for the oversold
-    equivalent, or None if neither fired recently.
+    Williams %R runs 0 (top of range) to -100 (bottom). When BOTH the fast and
+    slow %R are in the overbought band (>= -threshold) and then LEAVE it, that is
+    a top exhaustion → "bearish" (sell); the oversold-zone exit is the mirror →
+    "bullish" (bottoming). Returns detail so callers can report the reading:
+      {"signal": "bullish"/"bearish"/None, "fast", "slow", "bars_ago"}.
+    None only when there is not enough history.
     """
     fast_len, fast_smooth = 21, 7
     slow_len, slow_smooth = 112, 3
@@ -1910,16 +1913,112 @@ def compute_recent_exhaustion_signal(df: pd.DataFrame, lookback: int = 3) -> str
 
     overbought = (fast >= -threshold) & (slow >= -threshold)
     oversold = (fast <= -(100 - threshold)) & (slow <= -(100 - threshold))
-    ob_reversal = (~overbought) & overbought.shift(1).fillna(False)   # bearish
-    os_reversal = (~oversold) & oversold.shift(1).fillna(False)       # bullish
+    ob_reversal = (~overbought) & overbought.shift(1).fillna(False)   # bearish (top)
+    os_reversal = (~oversold) & oversold.shift(1).fillna(False)       # bullish (bottom)
 
-    recent_bull = bool(os_reversal.tail(lookback).any())
-    recent_bear = bool(ob_reversal.tail(lookback).any())
-    if recent_bull and not recent_bear:
-        return "bullish"
-    if recent_bear and not recent_bull:
-        return "bearish"
-    return None
+    recent_bear = ob_reversal.tail(lookback)
+    recent_bull = os_reversal.tail(lookback)
+    has_bear, has_bull = bool(recent_bear.any()), bool(recent_bull.any())
+    signal = ("bullish" if (has_bull and not has_bear)
+              else "bearish" if (has_bear and not has_bull) else None)
+
+    def _bars_ago(win: pd.Series) -> int | None:
+        hits = [i for i, v in enumerate(win.tolist()) if v]
+        return (len(win) - 1 - hits[-1]) if hits else None
+
+    return {
+        "signal": signal,
+        "fast": round(float(fast.iloc[-1]), 1),
+        "slow": round(float(slow.iloc[-1]), 1),
+        "bars_ago": _bars_ago(recent_bull if signal == "bullish" else recent_bear)
+        if signal else None,
+    }
+
+
+def compute_recent_exhaustion_signal(df: pd.DataFrame, lookback: int = 3) -> str | None:
+    """Back-compat wrapper: just the "bullish"/"bearish"/None signal."""
+    d = _percentr_exhaustion(df, lookback)
+    return d["signal"] if d else None
+
+
+def scan_percentr_exhaustion_sell(df: pd.DataFrame) -> dict | None:
+    """Risk scanner — %R Trend Exhaustion SELL. Fires when fast AND slow Williams
+    %R both left the OVERBOUGHT band within the last 3 bars: a topping/momentum-
+    exhaustion read (exit longs / short-bias), not a with-trend signal. Unmeasured."""
+    d = _percentr_exhaustion(df, lookback=3)
+    if not d or d.get("signal") != "bearish":
+        return None
+    close, high = df["close"], df["high"]
+    last = float(close.iloc[-1])
+    ba = d["bars_ago"]
+    when = f"{ba} bar(s) ago" if ba is not None else "within 3 bars"
+    reasons = [
+        f"%R Trend Exhaustion at the top — fast %R {d['fast']:.0f} & slow %R "
+        f"{d['slow']:.0f} left the overbought zone {when} → momentum exhaustion / "
+        f"distribution risk."
+    ]
+    tags = ["%R exhaustion", "Sell signal"]
+    sma50 = _sma(close, 50)
+    if not np.isnan(sma50):
+        reasons.append(
+            f"Price {last:.0f} vs SMA50 {sma50:.0f}"
+            + (" — still extended above trend (exit / at-risk)" if last > sma50
+               else " — already below trend (breakdown risk)"))
+    swing_high = round(float(high.tail(10).max()), 2)
+    reasons.append(f"Invalidation: a close back above the 10-bar swing high "
+                   f"{swing_high:.0f} negates the exhaustion.")
+    recent_bonus = {0: 15, 1: 10, 2: 5}.get(ba, 5) if ba is not None else 5
+    depth_bonus = max(0.0, (100 + d["fast"]) / 100 * 15)   # closer to 0 = more overbought
+    return {
+        "pattern_type": "%R Exhaustion Sell",
+        "tags": tags,
+        "reasons": reasons,
+        "score": round(min(100.0, 55 + recent_bonus + depth_bonus), 1),
+        "signal": "SELL / reduce",
+        "invalidation": swing_high,
+    }
+
+
+def scan_percentr_bottoming(df: pd.DataFrame) -> dict | None:
+    """Trend scanner — %R bottomed-out candidate. Mirror of the sell scanner:
+    fires when fast AND slow Williams %R both left the OVERSOLD band within the
+    last 3 bars, i.e. seller exhaustion / a potential bottom turning up. Carries
+    a swing-low-stop / 2R read. Unmeasured — a turn attempt, not a confirmed one."""
+    d = _percentr_exhaustion(df, lookback=3)
+    if not d or d.get("signal") != "bullish":
+        return None
+    close, low = df["close"], df["low"]
+    last = float(close.iloc[-1])
+    ba = d["bars_ago"]
+    when = f"{ba} bar(s) ago" if ba is not None else "within 3 bars"
+    reasons = [
+        f"%R Trend Exhaustion at the bottom — fast %R {d['fast']:.0f} & slow %R "
+        f"{d['slow']:.0f} left the oversold zone {when} → seller exhaustion / "
+        f"bottoming attempt."
+    ]
+    tags = ["%R exhaustion", "Bottoming"]
+    sma50 = _sma(close, 50)
+    reclaim = (not np.isnan(sma50)) and last > sma50
+    if not np.isnan(sma50):
+        reasons.append(
+            f"Price {last:.0f} vs SMA50 {sma50:.0f}"
+            + (" — reclaiming trend" if reclaim else " — still below SMA50, early turn"))
+    swing_low = round(float(low.tail(10).min()), 2)
+    risk = last - swing_low
+    target = round(last + 2 * risk, 2) if risk > 0 else None
+    reasons.append(f"Trade read: stop below the 10-bar swing low {swing_low:.0f}"
+                   + (f", 2R target {target:.0f}." if target else "."))
+    recent_bonus = {0: 15, 1: 10, 2: 5}.get(ba, 5) if ba is not None else 5
+    return {
+        "pattern_type": "%R Bottoming",
+        "tags": tags,
+        "reasons": reasons,
+        "score": round(min(100.0, 55 + recent_bonus + (10 if reclaim else 0)), 1),
+        "signal": "BUY / accumulate",
+        "entry": round(last, 2),
+        "stop": swing_low,
+        "target": target,
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -5357,6 +5456,30 @@ SCANNERS: dict[str, dict] = {
             "divergence magnitude (gap ≥10 pts → +10). Emits short/exit entry. Unmeasured."
         ),
         "category": "Risk",
+    },
+    "%R Exhaustion Sell": {
+        "fn": scan_percentr_exhaustion_sell,
+        "description": (
+            "%R Trend Exhaustion SELL — the Python port of the chart's %R Trend "
+            "Exhaustion sub-plot (fast Williams %R 21/7, slow 112/3). Fires when "
+            "BOTH the fast and slow %R were in the overbought band (≥ -20) and left "
+            "it within the last 3 bars = a top/momentum-exhaustion read for exiting "
+            "longs or a short bias — NOT a with-trend signal. Adds the SMA50 context "
+            "and a swing-high invalidation. Unmeasured."
+        ),
+        "category": "Risk",
+    },
+    "%R Bottoming": {
+        "fn": scan_percentr_bottoming,
+        "description": (
+            "%R bottomed-out candidate — mirror of %R Exhaustion Sell. Fires when "
+            "BOTH the fast (21/7) and slow (112/3) Williams %R left the OVERSOLD "
+            "band (≤ -80) within the last 3 bars = seller exhaustion / a bottoming "
+            "attempt turning up. Carries a swing-low stop and 2R target and flags "
+            "whether price has reclaimed SMA50. A turn attempt, not a confirmed "
+            "reversal. Unmeasured."
+        ),
+        "category": "Trend",
     },
     "Darvas Box": {
         "fn": scan_darvas_box,
