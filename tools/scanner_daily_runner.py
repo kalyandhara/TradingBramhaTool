@@ -19,19 +19,19 @@ def main():
     ts = datetime.datetime.now().strftime("%Y%m%d_%H%M")
     out = {}
     for name in SCANNERS:
-        if name not in sc.SCANNERS:
-            continue
-        try:
-            hits = sc.run_scanner(name, universe, _fetch)
-            out[name] = hits
-            print(f"{ts}  {name}: {len(hits)} hits")
-        except Exception as exc:
-            out[name] = []
-            print(f"{ts}  {name}: ERROR {exc}")
+    if name not in sc.SCANNERS:
+        continue
+    try:
+        hits = sc.run_scanner(name, universe, _fetch)
+        out[name] = hits
+        print(f"{ts}  {name}: {len(hits)} hits")
+    except Exception as exc:
+        out[name] = []
+        print(f"{ts}  {name}: ERROR {exc}")
     dest = os.path.join(os.path.dirname(__file__), "cache", f"scanner_daily_{ts}.json")
     os.makedirs(os.path.dirname(dest), exist_ok=True)
     with open(dest, "w") as fh:
-        json.dump(out, fh, default=str)
+    json.dump(out, fh, default=str)
     print(f"Saved → {dest}")
 
 if __name__ == "__main__":
