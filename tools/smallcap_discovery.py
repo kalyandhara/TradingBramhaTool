@@ -154,13 +154,17 @@ if __name__ == "__main__":
     ap.add_argument("--force", action="store_true",
                     help="re-fetch cached quarters too (adds pledge to old entries)")
     ap.add_argument("--kind", default="both")
-    ap.add_argument("--limit", type=int, default=25)
+    ap.add_argument("--limit", type=int, default=None,
+                    help="cap names (backfill AND display); default = ALL for "
+                         "backfill, top 25 for display")
     ap.add_argument("--quarters", type=int, default=6)
     a = ap.parse_args()
     if a.backfill:
+        # A backfill is NOT bounded by the display limit — only an explicit --limit
+        # caps it (else the whole universe is warmed).
         n = backfill(a.kind, limit=a.limit, quarters=a.quarters, force=a.force)
         print(f"Backfilled {n} names into ownership_cache.")
-    res = discover(a.kind, limit=a.limit)
+    res = discover(a.kind, limit=a.limit or 25)
     print(f"\nUniverse {res['universe']} · cached {res['cached']} · showing "
           f"top {len(res['hits'])}:")
     for h in res["hits"]:
