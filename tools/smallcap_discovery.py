@@ -125,9 +125,11 @@ def discover(kind: str = "both", limit: int = 25) -> dict:
 
 
 def backfill(kind: str = "both", limit: int | None = None, quarters: int = 6,
-             progress: bool = True) -> int:
-    """Warm ownership_cache for the small/micro-cap universe. Bounded, resumable
-    (ownership_cache skips symbols already fresh). Returns names processed."""
+             force: bool = False, progress: bool = True) -> int:
+    """Warm ownership_cache for the small/micro-cap universe. Resumable — new
+    quarters are only fetched when absent. Pass force=True to re-fetch cached
+    quarters too (needed once, to add the promoter_pledge_pct column to entries
+    cached before it existed). Returns names processed."""
     uni = scu.fetch_universe(kind)
     if limit:
         uni = uni[:limit]
@@ -135,12 +137,12 @@ def backfill(kind: str = "both", limit: int | None = None, quarters: int = 6,
     done = 0
     for i, e in enumerate(uni, 1):
         try:
-            oc.fetch_symbol(e["symbol"], session=session, quarters=quarters)
+            oc.fetch_symbol(e["symbol"], session=session, quarters=quarters, force=force)
         except Exception as ex:
             log.warning("[%s] backfill failed: %s", e["symbol"], ex)
         done += 1
         if progress and i % 10 == 0:
-            print(f"  …{i}/{len(uni)}")
+            print(f"  …{i}/{len(uni)} ({e['symbol']})")
     return done
 
 
@@ -149,12 +151,14 @@ if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     ap = argparse.ArgumentParser(description="Small/micro-cap conviction discovery")
     ap.add_argument("--backfill", action="store_true")
+    ap.add_argument("--force", action="store_true",
+                    help="re-fetch cached quarters too (adds pledge to old entries)")
     ap.add_argument("--kind", default="both")
     ap.add_argument("--limit", type=int, default=25)
     ap.add_argument("--quarters", type=int, default=6)
     a = ap.parse_args()
     if a.backfill:
-        n = backfill(a.kind, limit=a.limit, quarters=a.quarters)
+        n = backfill(a.kind, limit=a.limit, quarters=a.quarters, force=a.force)
         print(f"Backfilled {n} names into ownership_cache.")
     res = discover(a.kind, limit=a.limit)
     print(f"\nUniverse {res['universe']} · cached {res['cached']} · showing "
