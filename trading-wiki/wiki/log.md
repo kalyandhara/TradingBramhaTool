@@ -1,6 +1,11 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-25] build | B-38 dashboard lane — "Delete Funnel" page shipped
+- **Shipped:** `dashboard_app.py` "Delete Funnel" page (Screening group) wrapping `technofunda_funnel`. Universe source (Watchlist / paste / top-volume, capped at 50 so the per-name fundamentals+red-flags fan-out can't hang), Strict toggle, threshold overrides, a **drop-off table** (deleted-per-stage), **survivor cards** (8 filter chips + why-expander + Watchlist/Analyze/Roster actions), and a reject ledger. Reuses cached `cached_fundamentals_deep` / `cached_red_flags` / `cached_fetch_ohlcv` (520d) / `cached_fetch_nifty50` for the F7 benchmark. Caught two wiring bugs pre-ship: was calling `cached_fetch_fundamentals` (the .info snapshot) instead of `cached_fundamentals_deep`, and `re` isn't imported (switched to a manual split).
+- **Verification limit:** app boots clean (script compiles, no server errors) but the page body is behind a login I can't pass — syntax-checked + pattern-matched to existing lanes, not clicked through. Folds in the earlier scanner-card duplicate-key fix that was sitting uncommitted in the same file.
+- **Pages:** updated [[strategies/TechnoFunda-Delete-Funnel]] and [[analyses/Open-Backlog]] (B-38 dashboard lane).
+
 ## [2026-08-25] build | B-38 backtest — price sub-funnel measured; fundamentals blocked on point-in-time data
 - **Shipped:** `funnel_backtest.py` — point-in-time replay of the **price legs (F6∧F7∧F8)** and each alone: next-open→+h-close forward return, edge vs every-bar baseline, **Welch two-sample t-test** (scipy-optional — numpy `erfc` normal-approx fallback, exact given hundreds+ baseline bars), "does stacking beat the best single leg?" verdict. Predicates imported from `technofunda_funnel` so the **tested rule = the shipped rule** (no drift). Synthetic 8-symbol machinery check renders correctly (numbers fabricated).
 - **Honest scope limit recorded:** F1–F5 are **not point-in-time testable** — yfinance serves only *current* statements, so historical replay is look-ahead (survivorship/restatement/as-of). The **full-funnel forward test is blocked on point-in-time fundamental data acquisition, not code** — now the single open item on B-38's measurable claim.

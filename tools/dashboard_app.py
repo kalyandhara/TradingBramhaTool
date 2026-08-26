@@ -59,6 +59,7 @@ import fundamentals_deep as fdeep
 import fundamental_score as fscore
 import smart_money as smm
 import red_flags as rflags
+import technofunda_funnel as tff
 import scenarios as scen
 import rating
 import opportunity_daily as od
@@ -922,7 +923,7 @@ _login_gate()
 # must match a "if current_page == '...':" block below exactly.
 # ──────────────────────────────────────────────────────────────────────────────
 PAGE_GROUPS = {
-    "Screening":        ["Opportunity Hub", "Screener", "Other Screeners", "Scanner Hub",
+    "Screening":        ["Opportunity Hub", "Delete Funnel", "Screener", "Other Screeners", "Scanner Hub",
                          "Breakout Screener", "High-Growth Screener", "TradingView Screener"],
     "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
     "Research":         ["Predictive Analysis", "Stock Analyzer", "Sector Map", "Astro Timing", "Telegram Signals"],
@@ -936,6 +937,7 @@ PAGE_GROUPS = {
 #: it just renders without a subtitle.
 PAGE_BLURBS = {
     "Opportunity Hub":      "Ranked daily shortlist across every scanner",
+    "Delete Funnel":        "Technofunda 8-filter noise sieve — deletes to a shortlist",
     "Screener":             "The core NSE screen with the saved pipeline",
     "Other Screeners":      "Ownership pipeline, sector rotation, bulk data",
     "Scanner Hub":          "24 pattern scanners, run on any universe",
@@ -3316,10 +3318,21 @@ def _card_trade_fundamentals_html(sym: str, card: dict) -> str:
     return f'<div style="margin:6px 0 2px 0;">{"".join(parts)}</div>'
 
 
+# Per-render sequence for scanner-card widget keys. Reset every rerun (Streamlit
+# re-executes this whole script top-to-bottom), so keys are deterministic and
+# stable across identical reruns, yet unique even when the SAME symbol+scanner
+# legitimately renders in more than one section of a single page (e.g. the
+# Opportunity-Hub pipeline funnel and the single-scanner list both surfacing the
+# same hit) — which otherwise collides on key=f"sc_s_{sym}_{scanner_name}".
+_scanner_card_key_seq = {"n": 0}
+
+
 def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -> None:
     sym = card["symbol"]
     sym_clean = sym.upper().replace(".NS", "")
     pattern_type = card.get("pattern_type", scanner_name)
+    _scanner_card_key_seq["n"] += 1
+    _kseq = _scanner_card_key_seq["n"]
 
     # ── Inline action icons (header row, all open in new tab) ─────────────
     def _icon_link(href: str, glyph: str, tip: str, small: bool = False) -> str:
@@ -3439,26 +3452,26 @@ def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -
     # Action buttons row — Streamlit widgets (server callbacks)
     _b1, _b2, _b3, _b4 = st.columns(4)
     with _b1:
-        if st.button("★", key=f"sc_s_{sym}_{scanner_name}",
+        if st.button("★", key=f"sc_s_{sym}_{scanner_name}_{_kseq}",
                      help=f"Save {sym} to scanner hits",
                      use_container_width=True):
             db.save_scanner_hit(sym, scanner_name, card.get("pattern_type", ""))
             st.toast(f"★ Saved {sym_clean}")
     with _b2:
-        if st.button("♥", key=f"sc_wl_{sym}_{scanner_name}",
+        if st.button("♥", key=f"sc_wl_{sym}_{scanner_name}_{_kseq}",
                      help=f"Add {sym_clean} to Watchlist",
                      use_container_width=True):
             db.add_watchlist_symbol(sym_clean, f"Scanner Hub — {scanner_name}")
             st.toast(f"♥ {sym_clean} → Watchlist")
     with _b3:
-        if st.button("↗", key=f"sc_an_{sym}_{scanner_name}",
+        if st.button("↗", key=f"sc_an_{sym}_{scanner_name}_{_kseq}",
                      help=f"Open {sym_clean} in Stock Analyzer",
                      use_container_width=True):
             st.session_state["current_page"] = "Stock Analyzer"
             st.session_state["sa_symbol_override"] = sym_clean
             st.rerun()
     with _b4:
-        if st.button("⊕", key=f"sc_ro_{sym}_{scanner_name}",
+        if st.button("⊕", key=f"sc_ro_{sym}_{scanner_name}_{_kseq}",
                      help=f"Add {sym_clean} to Analyzer Roster (batch queue)",
                      use_container_width=True):
             roster = st.session_state.setdefault("sa_roster", [])
@@ -5006,6 +5019,207 @@ if current_page == "Opportunity Hub":
                                     for col, card in zip(cols, shown[i:i + 3]):
                                         with col:
                                             _render_scanner_card(card, _ran)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Delete Funnel — the technofunda 8-filter subtractive sieve (B-38).
+# Wraps technofunda_funnel: each filter can only DELETE; survivors are a
+# shortlist, not a buy list. The chart legs (F6-F8) are the ones backtested
+# separately (funnel_backtest.py); the fundamental legs are gathered live.
+# ──────────────────────────────────────────────────────────────────────────────
+_FUNNEL_TONE = {tff.PASS: "good", tff.CAVEAT: "warn", tff.DELETE: "risk"}
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _funnel_bench_12m() -> float | None:
+    """Nifty trailing ~12-month return (fraction) for the F7 relative-strength
+    leg. Cached so a whole funnel run shares one benchmark read."""
+    try:
+        c = cached_fetch_nifty50(days=520)["close"].dropna()
+        n = tff.Thresholds().rs_lookback
+        if len(c) > n:
+            return float(c.iloc[-1] / c.iloc[-1 - n] - 1.0)
+    except Exception:
+        pass
+    return None
+
+
+def _funnel_context(symbol: str, bench_ret_12m: float | None) -> dict:
+    """Assemble one symbol's funnel context from the existing cached fetchers.
+    Fundamentals + red-flags are the slow legs; both are already st.cache_data."""
+    try:
+        # The DEEP statement payload (CAGRs, ROCE, FCF, D/E, interest coverage) —
+        # NOT cached_fetch_fundamentals, which is the yfinance .info snapshot.
+        deep = cached_fundamentals_deep(symbol)
+    except Exception:
+        deep = None
+    try:
+        flags = cached_red_flags(symbol)
+    except Exception:
+        flags = None
+    try:
+        price = cached_fetch_ohlcv(symbol, days=520)   # ≥252 bars for RS + 200DMA
+    except Exception:
+        price = None
+    return tff.build_context(symbol, deep=deep, flags=flags, price=price,
+                             bench_ret_12m=bench_ret_12m)
+
+
+def _render_funnel_survivor(result) -> None:
+    """One survivor card: the eight filter chips (pass/caveat) + action buttons.
+    Survivors carry no DELETE outcome by definition, so every chip is green or
+    amber; the reason strings (which carry the numbers) sit in a 'why' expander."""
+    sym = result.symbol
+    chips = "".join(
+        rs.chip(o.fid, _FUNNEL_TONE.get(o.verdict, "neutral")) for o in result.outcomes)
+    cav = (f'<div style="margin-top:4px;font-size:11px;color:{rs.TOKENS["accent"]};">'
+           f'⚠ {len(result.caveats)} caveat(s) — unverified, not confirmed clean</div>'
+           if result.caveats else "")
+    st.markdown(
+        rs.card(f'<div style="display:flex;align-items:baseline;gap:8px;">'
+                f'<span style="font-weight:700;font-size:15px;color:{rs.TOKENS["text"]};">'
+                f'{sym}</span>'
+                f'<span style="font-size:11px;color:{rs.TOKENS["good"]};">survives all 8</span>'
+                f'</div><div style="margin-top:6px;">{chips}</div>{cav}',
+                emphasis=False),
+        unsafe_allow_html=True)
+    with st.expander("why it survived"):
+        for o in result.outcomes:
+            st.markdown(f"- **{o.fid} {o.label}** — {o.reason}")
+    b1, b2, b3 = st.columns(3)
+    with b1:
+        if st.button("♥ Watchlist", key=f"df_wl_{sym}", use_container_width=True):
+            db.add_watchlist_symbol(sym, "Delete Funnel survivor")
+            st.toast(f"♥ {sym} → Watchlist")
+    with b2:
+        if st.button("↗ Analyze", key=f"df_an_{sym}", use_container_width=True):
+            st.session_state["current_page"] = "Stock Analyzer"
+            st.session_state["sa_symbol_override"] = sym
+            st.rerun()
+    with b3:
+        if st.button("⊕ Roster", key=f"df_ro_{sym}", use_container_width=True):
+            roster = st.session_state.setdefault("sa_roster", [])
+            if sym not in roster:
+                roster.append(sym)
+            st.toast(f"⊕ {sym} → Roster ({len(roster)})")
+
+
+if current_page == "Delete Funnel":
+    st.subheader("Delete Funnel")
+    st.caption("The technofunda 8-filter **delete** sieve — each filter can only "
+               "*remove* a name; what survives is a shortlist, **not a buy list**. "
+               "Fundamentals first (growth · cash · leverage · returns · governance), "
+               "then price (>200 DMA · relative strength · accumulation). "
+               "Unvalidated as a whole — the chart legs are backtested in "
+               "`funnel_backtest.py`; passing means *investable and confirmed*, not "
+               "*buy today*.")
+
+    _fc1, _fc2 = st.columns([2, 1])
+    with _fc1:
+        _src = st.radio("Universe to sieve", ["Watchlist", "Paste symbols",
+                        "Top-volume universe"], horizontal=True, key="df_src")
+    with _fc2:
+        _strict = st.checkbox("Strict", value=True, key="df_strict",
+                              help="A filter that can't be evaluated DELETES the name "
+                                   "(burden of proof). Off = it passes with a caveat.")
+
+    _syms: list[str] = []
+    if _src == "Watchlist":
+        try:
+            _wl = db.get_watchlist()
+            _syms = [str(s).upper() for s in _wl["symbol"].tolist()] if not _wl.empty else []
+        except Exception:
+            _syms = []
+        if not _syms:
+            st.info("Your Watchlist is empty — add names on the Watchlist page, or "
+                    "pick another universe.")
+    elif _src == "Paste symbols":
+        _txt = st.text_area("Symbols (comma / space / newline separated)",
+                            key="df_paste", height=90, placeholder="TITAN, CDSL, KPITTECH")
+        _norm = (_txt or "").replace(",", " ").replace("\n", " ").replace("\t", " ")
+        _syms = [t.strip().upper() for t in _norm.split() if t.strip()]
+    else:
+        _n = st.number_input("Top-volume names", min_value=5, max_value=60, value=25,
+                             step=5, key="df_topn")
+        if st.checkbox("Load universe", key="df_load_univ"):
+            try:
+                _syms = cached_fetch_bhavcopy_universe(int(_n))
+            except Exception as _e:
+                st.error(f"Could not load the top-volume universe: {_e}")
+
+    # The two fundamental legs fan out to yfinance statements + NSE ownership per
+    # name, so a big list is slow. Cap hard and say so, rather than hang.
+    _CAP = 50
+    if len(_syms) > _CAP:
+        st.warning(f"{len(_syms)} names — sieving the first {_CAP} "
+                   f"(fundamentals + red-flags are fetched per name).")
+        _syms = _syms[:_CAP]
+
+    with st.expander("Thresholds (defaults match the strategy page)"):
+        _t = tff.Thresholds()
+        _cta, _ctb, _ctc = st.columns(3)
+        with _cta:
+            _t.min_rev_cagr_3y = st.number_input("Min rev CAGR 3Y %", value=float(_t.min_rev_cagr_3y), key="df_t_rev")
+            _t.min_profit_cagr_3y = st.number_input("Min profit CAGR 3Y %", value=float(_t.min_profit_cagr_3y), key="df_t_pro")
+        with _ctb:
+            _t.max_de = st.number_input("Max D/E", value=float(_t.max_de), step=0.1, key="df_t_de")
+            _t.min_interest_cov = st.number_input("Min interest cover ×", value=float(_t.min_interest_cov), step=0.5, key="df_t_cov")
+        with _ctc:
+            _t.min_roce = st.number_input("Min ROCE %", value=float(_t.min_roce), key="df_t_roce")
+            _t.max_base_range = st.number_input("Max base range (F8)", value=float(_t.max_base_range), step=0.01, key="df_t_base")
+
+    if st.button("Run the funnel", type="primary", disabled=not _syms, key="df_run"):
+        _bench = _funnel_bench_12m()
+        if _bench is None:
+            st.warning("Nifty benchmark unavailable — the relative-strength leg (F7) "
+                       "will delete every name under strict. Consider unchecking Strict.")
+        _prog = st.progress(0.0, text="Sieving…")
+        _ctxs = []
+        for _i, _s in enumerate(_syms):
+            _prog.progress((_i + 1) / len(_syms), text=f"{_s}  ({_i + 1}/{len(_syms)})")
+            _ctxs.append(_funnel_context(_s, _bench))
+        _prog.empty()
+        _fr = tff.run_funnel(_ctxs, thresholds=_t, strict=_strict)
+        st.session_state["df_result"] = _fr
+        st.session_state["df_result_bench"] = _bench
+
+    _fr = st.session_state.get("df_result")
+    if _fr is not None:
+        st.markdown(rs.section("Funnel drop-off"), unsafe_allow_html=True)
+        st.caption(f"**{_fr.n_in}** in → **{_fr.n_out}** survive. Each row is where "
+                   f"the universe died — a name is deleted by the *first* filter it fails.")
+        _remaining = _fr.n_in
+        _rows = []
+        for _fid, _label, _killed in _fr.dropoff:
+            _remaining -= _killed
+            _rows.append({"Filter": f"{_fid} {_label}", "Deleted here": _killed,
+                          "Left": _remaining})
+        st.dataframe(pd.DataFrame(_rows), hide_index=True, use_container_width=True)
+
+        if _fr.survivors:
+            st.markdown(rs.section(f"Survivors ({len(_fr.survivors)})"),
+                        unsafe_allow_html=True)
+            _surv = [_fr.results[s] for s in _fr.survivors]
+            for _i in range(0, len(_surv), 3):
+                _cols = st.columns(3)
+                for _col, _r in zip(_cols, _surv[_i:_i + 3]):
+                    with _col:
+                        _render_funnel_survivor(_r)
+        else:
+            st.info("Nothing survived all eight filters. In a subtractive sieve that "
+                    "is a real answer — widen the universe, relax a threshold, or "
+                    "uncheck Strict if too much was deleted for missing data.")
+
+        _deleted = [(s, r) for s, r in _fr.results.items() if not r.survived]
+        if _deleted:
+            with st.expander(f"Deleted names ({len(_deleted)}) — the reject ledger"):
+                _drows = []
+                for _s, _r in _deleted:
+                    _kill = next((o for o in _r.outcomes if o.verdict == tff.DELETE), None)
+                    _drows.append({"Symbol": _s, "Deleted at": _r.deleted_at,
+                                   "Reason": _kill.reason if _kill else "—"})
+                st.dataframe(pd.DataFrame(_drows), hide_index=True,
+                             use_container_width=True)
 
 
 # Tab 8 — Scanner Hub (SwingEdge-inspired pre-built pattern scanners)

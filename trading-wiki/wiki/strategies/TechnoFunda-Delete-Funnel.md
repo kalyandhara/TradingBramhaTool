@@ -121,6 +121,12 @@ The funnel maps almost 1:1 onto data already in the repo. Recorded so a build
 
 ## Entry / Exit
 
+**In the app (shipped 2026-08-25):** the *Delete Funnel* page (Screening group)
+runs this live over a chosen universe — Watchlist, a pasted list, or the
+top-volume set — and shows the drop-off (where the universe died), survivor cards
+(the eight filter chips + a "why it survived" breakdown + Watchlist/Analyze/Roster
+actions), and a reject ledger. Strict mode and the thresholds are exposed there.
+
 This is a **shortlisting** funnel, not a trigger — it decides *what* is worth
 watching, not *when* to buy. Hand the survivors to an entry system:
 - **Entry timing:** [[strategies/TechnoFunda-Swing]] (the 7-condition align) or the
