@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-25] build | B-38 filter hardening — every heuristic replaced, tests added
+- **Closed the filter gaps** (each verified live where data-dependent): **F2** real ΣOCF/ΣPAT ratio over ≤5 matched years (TITAN 0.54, RELIANCE 2.25) with the FCF proxy only as fallback; **F4** now gates ROCE **and** ROE (RELIANCE ROE 8.9% = a real delete); **F5** equity-dilution flag from share-count trend (YESBANK +20% flagged), related-party stays honestly NOT_CHECKED; **F8** now uses the pivot-based `detect_vcp_geometry` base detector, heuristic only as fallback; **F1** reads the quarterly accelerating/fading trend and deletes profit-YoY-turned-negative even when the 3Y CAGR clears.
+- **First test suite in the repo:** `test_technofunda_funnel.py` — 13 deterministic tests pinning every filter + funnel orchestration (short-circuit, drop-off, strict vs lenient). Runs as a plain script AND under pytest. 13/13 pass.
+- **In-UI backtest:** "Backtest the price legs (F6∧F7∧F8)" expander on the Delete Funnel lane runs `funnel_backtest` over the chosen universe.
+- **One item left on B-38:** point-in-time fundamentals for the *full*-funnel forward test (blocked on data — yfinance has no historical snapshot).
+- **Pages:** updated [[strategies/TechnoFunda-Delete-Funnel]] (coverage map all-but-one closed) and [[analyses/Open-Backlog]].
+
 ## [2026-08-25] build | B-38 dashboard lane — "Delete Funnel" page shipped
 - **Shipped:** `dashboard_app.py` "Delete Funnel" page (Screening group) wrapping `technofunda_funnel`. Universe source (Watchlist / paste / top-volume, capped at 50 so the per-name fundamentals+red-flags fan-out can't hang), Strict toggle, threshold overrides, a **drop-off table** (deleted-per-stage), **survivor cards** (8 filter chips + why-expander + Watchlist/Analyze/Roster actions), and a reject ledger. Reuses cached `cached_fundamentals_deep` / `cached_red_flags` / `cached_fetch_ohlcv` (520d) / `cached_fetch_nifty50` for the F7 benchmark. Caught two wiring bugs pre-ship: was calling `cached_fetch_fundamentals` (the .info snapshot) instead of `cached_fundamentals_deep`, and `re` isn't imported (switched to a manual split).
 - **Verification limit:** app boots clean (script compiles, no server errors) but the page body is behind a login I can't pass — syntax-checked + pattern-matched to existing lanes, not clicked through. Folds in the earlier scanner-card duplicate-key fix that was sitting uncommitted in the same file.

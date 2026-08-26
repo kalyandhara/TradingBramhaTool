@@ -60,6 +60,7 @@ import fundamental_score as fscore
 import smart_money as smm
 import red_flags as rflags
 import technofunda_funnel as tff
+import funnel_backtest as fbt
 import scenarios as scen
 import rating
 import opportunity_daily as od
@@ -5220,6 +5221,27 @@ if current_page == "Delete Funnel":
                                    "Reason": _kill.reason if _kill else "—"})
                 st.dataframe(pd.DataFrame(_drows), hide_index=True,
                              use_container_width=True)
+
+    # ── Backtest the price legs — the part of the claim that IS testable ───────
+    with st.expander("Backtest the price legs (F6 ∧ F7 ∧ F8)"):
+        st.caption("Does requiring all three chart footprints beat a random bar in "
+                   "the same tape — and beat any single leg? Point-in-time replay "
+                   "over the universe above. **The fundamental legs F1–F5 are not "
+                   "point-in-time testable** (yfinance serves only current "
+                   "statements), so this measures the chart half only.")
+        if not _syms:
+            st.info("Pick a universe above first.")
+        elif st.button("Run price-legs backtest", key="df_bt_run"):
+            with st.spinner(f"Replaying F6∧F7∧F8 over {len(_syms)} names…"):
+                try:
+                    _bench_df = cached_fetch_nifty50(days=1500)
+                    _res = fbt.backtest_price_funnel(
+                        _syms, lambda s: cached_fetch_ohlcv(s, days=1500), _bench_df)
+                    st.session_state["df_bt_result"] = fbt.format_funnel_backtest(_res)
+                except Exception as _e:
+                    st.session_state["df_bt_result"] = f"Backtest failed: {_e}"
+        if st.session_state.get("df_bt_result"):
+            st.code(st.session_state["df_bt_result"], language=None)
 
 
 # Tab 8 — Scanner Hub (SwingEdge-inspired pre-built pattern scanners)
