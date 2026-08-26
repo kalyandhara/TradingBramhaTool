@@ -1,6 +1,11 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-26] measure | ADX/DI as a standalone buy signal — cross is negative-edge, state is neutral
+- **Question:** can you get an actionable buy/sell signal from an ADX+DI subchart? **Measured it** (repo `_adx_di_series`, point-in-time, 20 liquid names, 27,860 baseline bars, ~6y).
+- **Bare bullish +DI/−DI cross (n=1042): NEGATIVE edge**, significant at 60d (−1.01%, p=0.04) — you buy the lag. **DI-cross + ADX>25-rising on the same bar fires ~never (n=6)** — the textbook combined trigger barely exists. **Confirmed DI+ADX *state* (n=1091): ~neutral** — flat to +0.86% @60d (p=0.10, not significant).
+- **Conclusion:** ADX/DI is a regime/context filter + confirmation, **not a standalone entry** — now measured, matching the concept page's prior stance and how `scan` already uses it. Filed the evidence table on [[concepts/ADX]]. Echoes the [[strategies/TechnoFunda-Delete-Funnel]] result: edge lives in longer-horizon strength, not triggers.
+
 ## [2026-08-26] measure | B-38 price-legs backtest — F7 carries the edge, the legs don't stack
 - **First measured result.** 20 liquid names, ~4,700 baseline bars, ~6y. **F7 relative strength is the only price leg with a significant edge** (+0.44% @20d p=0.04, +1.23% @60d p<0.005). **F6 200-DMA ≈ zero** (these names are almost always above it → barely a filter); **F8 accumulation mildly negative** (−0.29% @20d). **The F6∧F7∧F8 combo does NOT beat F7 alone** (+0.02 vs +0.44 @20d) — stacking dilutes momentum's edge and cuts the sample.
 - **Answer to the price half of B-38's claim: no, the deletes don't stack — momentum does the work.** Caveat: favourable RS regime + liquid universe where F6 rarely excludes anything; broader/small-cap/bear-inclusive set could separate F6/F8. Fundamental legs still untested. Actionable: revisit the F8 footprint (not predictive here); F7 earns its place.
