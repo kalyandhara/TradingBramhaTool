@@ -154,7 +154,21 @@ filters as short-circuiting deletes and returns survivors + a per-stage drop-off
 report. Missing-data policy is `strict` (unverifiable filter deletes the name),
 with governance-NOT_CHECKED and uncomputable-D/E held as caveats so the universe
 can't be emptied by absence. F2 (CFO/PAT) and F8 (base tightness) are first-cut
-heuristics pending their gap fills; the backtest above is still the open claim.
+heuristics pending their gap fills.
+
+**Backtest shipped 2026-08-25 — with an honest scope limit:** `funnel_backtest.py`
+answers the claim for the part that *can* be answered. Point-in-time replay is
+only valid for signals computable from data available at the bar, so it covers the
+**price sub-funnel (F6 ∧ F7 ∧ F8)** and each leg alone: enter next open, exit
+next-open + h close, edge = mean(signal fwd) − mean(baseline fwd) with a **Welch
+two-sample t-test**, and a "does stacking beat the best single leg?" verdict at
+the primary horizon. The filter predicates are imported from
+`technofunda_funnel`, so the tested rule is the shipped rule (no drift). **The
+fundamental legs F1–F5 are NOT point-in-time testable** — yfinance serves only
+*current* statements, so replaying them historically is look-ahead
+(survivorship/restatement/as-of bias). The full-funnel forward test is therefore
+blocked on **point-in-time fundamental data acquisition**, not code — the one
+genuinely open item on the measurable claim.
 
 ## Sources
 

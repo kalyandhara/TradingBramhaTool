@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-25] build | B-38 backtest — price sub-funnel measured; fundamentals blocked on point-in-time data
+- **Shipped:** `funnel_backtest.py` — point-in-time replay of the **price legs (F6∧F7∧F8)** and each alone: next-open→+h-close forward return, edge vs every-bar baseline, **Welch two-sample t-test** (scipy-optional — numpy `erfc` normal-approx fallback, exact given hundreds+ baseline bars), "does stacking beat the best single leg?" verdict. Predicates imported from `technofunda_funnel` so the **tested rule = the shipped rule** (no drift). Synthetic 8-symbol machinery check renders correctly (numbers fabricated).
+- **Honest scope limit recorded:** F1–F5 are **not point-in-time testable** — yfinance serves only *current* statements, so historical replay is look-ahead (survivorship/restatement/as-of). The **full-funnel forward test is blocked on point-in-time fundamental data acquisition, not code** — now the single open item on B-38's measurable claim.
+- **Note:** scipy is absent from the local Python 3.14, so `backtest.py` itself won't import here; `funnel_backtest.py` was deliberately made scipy-optional so it runs anyway.
+- **Pages:** updated [[strategies/TechnoFunda-Delete-Funnel]] (Backtest section) and [[analyses/Open-Backlog]] (B-38).
+
 ## [2026-08-25] build | B-38 started — delete-funnel engine + interest-coverage gap closed
 - **Shipped:** `technofunda_funnel.py` — Streamlit-free, data-injected engine (`build_context`→`run_funnel`); all 8 filters as short-circuiting deletes, per-stage drop-off report, `strict` missing-data policy (unverifiable filter deletes; governance-NOT_CHECKED and uncomputable-D/E held as caveats so absence can't empty the universe). Synthetic 5-name demo passes (each dies at the intended filter).
 - **Data-layer gap closed:** `fundamentals_deep` now derives `interest_coverage`, `debt_to_equity`, `ebit`, `interest_expense` (Filter 3) — added as plain keys, NOT to `COVERAGE_FIELDS`, so the coverage dial is undisturbed. Verified live: TITAN 6.76×/1.95, RELIANCE 6.12×/0.44.
