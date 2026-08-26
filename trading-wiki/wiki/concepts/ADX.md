@@ -80,13 +80,22 @@ two-sample p). This confirms the "confirmation, not signal" stance with numbers:
   the Python `_adx_di_series`, so chart and scanners agree.
 - **Registered backtest:** `adx_di_backtest.py` re-measures the ADX/DI *rule
   variants* (bare cross, confirmed state, bearish state) on any universe —
-  point-in-time, Welch p, scipy-optional. Refined run (20 liquid names, 5,576
-  baseline bars): the bare bull cross stays noise; **the confirmed up-state
-  (+DI>−DI, ADX≥25 rising) is flat short-term but +1.20% @60d, p=0.05** — a mild
-  *longer-horizon* trend-persistence edge, so it earns its keep as a
-  position-horizon confirmation, not a day-trade trigger. **The bearish −DI/ADX
-  state showed ~zero forward edge** — the Downside-Risk directional read is a
-  context flag, not a predictive short signal. Re-run: `py adx_di_backtest.py --live`.
+  point-in-time, Welch p, scipy-optional. Re-run: `py adx_di_backtest.py --live`,
+  or point it at any universe. **The result is regime-dependent** — two runs:
+
+  | rule | 20 large-caps (5,576 bars) | 54 small/micro-caps (12,842 bars) |
+  |---|---|---|
+  | bare bull DI cross | noise | **loses** — −0.93% @10d (p=0.02), −2.17% @60d |
+  | confirmed up-state (+DI>−DI, ADX≥25 rising) | +1.20% @60d (p=0.05) | **+1.82% @60d (p<0.005)** — stronger |
+  | bearish −DI/ADX state | ~zero | **+0.51% @5d (p<0.005)** — short-term *bounce* |
+
+  Reads: (1) the bare bull cross is a *losing* buy trigger, worse in small-caps —
+  never trade it. (2) The confirmed up-state is a real **position-horizon** (~60d)
+  trend-persistence edge, and **stronger in small-caps** — that is where the ADX
+  Trend Confirmation scanner earns most. (3) The −DI/ADX "downside" state does NOT
+  predict further decline; in small-caps it precedes a short-term **bounce**
+  (contrarian oversold tell), so the Downside-Risk read is a context/exit flag,
+  emphatically **not a short-entry trigger**.
 - **Scanners** (built to the measured stance — confirmation/risk, not triggers):
   - **ADX Trend Confirmation** (`scan_adx_trend_confirmation`) — price > SMA50,
     +DI > −DI, ADX ≥ 25 **and rising**. Deliberately selective and carries no

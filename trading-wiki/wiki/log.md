@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-26] measure | ADX/DI on small-caps — regime-dependent, one counterintuitive result
+- Ran `adx_di_backtest.py` on 54 NSE small/micro-caps (12,842 baseline bars) vs the earlier 20 large-caps. **Bare bull cross now significantly LOSES** (−0.93% @10d p=0.02, −2.17% @60d) — never a buy. **Confirmed up-state edge is STRONGER in small-caps** (+1.82% @60d, p<0.005 vs +1.20% large-cap) — the ADX Trend Confirmation scanner earns most here, at the ~60d position horizon. **Counterintuitive:** the bearish −DI/ADX "downside" state precedes a short-term BOUNCE in small-caps (+0.51% @5d, p<0.005) — a contrarian oversold tell, NOT a short trigger. Regime-comparison table filed on [[concepts/ADX]].
+
 ## [2026-08-26] build | ADX/DI rule backtest registered (adx_di_backtest.py) + refined finding
 - **Shipped:** `adx_di_backtest.py` — permanent, re-runnable point-in-time harness for the ADX/DI rule variants (bare bull/bear cross, confirmed bull state, bearish state), reusing `_adx_di_series` + scipy-optional Welch. `py adx_di_backtest.py --live`. Synthetic machinery check + live mode.
 - **Refined result** (20 liquid names, 5,576 baseline bars): bare bull cross = noise; **confirmed up-state (+DI>−DI, ADX≥25 rising) flat short-term but +1.20% @60d, p=0.05** — a mild longer-horizon trend-persistence edge (so it's a position-horizon confirmation, not a trigger). **Bearish −DI/ADX state ≈ zero forward edge** — the downside read is a context flag, not a predictive short. Filed on [[concepts/ADX]].
