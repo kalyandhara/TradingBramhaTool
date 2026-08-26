@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-25] build | B-38 started — delete-funnel engine + interest-coverage gap closed
+- **Shipped:** `technofunda_funnel.py` — Streamlit-free, data-injected engine (`build_context`→`run_funnel`); all 8 filters as short-circuiting deletes, per-stage drop-off report, `strict` missing-data policy (unverifiable filter deletes; governance-NOT_CHECKED and uncomputable-D/E held as caveats so absence can't empty the universe). Synthetic 5-name demo passes (each dies at the intended filter).
+- **Data-layer gap closed:** `fundamentals_deep` now derives `interest_coverage`, `debt_to_equity`, `ebit`, `interest_expense` (Filter 3) — added as plain keys, NOT to `COVERAGE_FIELDS`, so the coverage dial is undisturbed. Verified live: TITAN 6.76×/1.95, RELIANCE 6.12×/0.44.
+- **Still open (B-38):** dashboard wiring, F2 multi-year CFO/PAT ratio (needs OCF in payload), ROE, related-party/dilution flags, explicit base detector (F8), and the forward backtest.
+- **Pages:** updated [[strategies/TechnoFunda-Delete-Funnel]] (coverage map + engine note) and [[analyses/Open-Backlog]] (B-38 STARTED).
+
 ## [2026-08-25] strategy | TechnoFunda delete-funnel (8-filter watchlist noise sieve)
 - **Trigger:** owner supplied an unattributed X thread — a subtractive "delete" funnel (each filter removes names) for cutting a universe to a very short list. Files directly against the noise-reduction thrust in [[analyses/Noise-Regime-Coverage-Postmortem]].
 - **Filed as a distinct strategy, not folded in:** it is the veto-funnel sibling of the [[strategies/TechnoFunda-Swing]] *scorer* and the [[strategies/Crash-Proof-3-Filter-System]] *gate stack*, with a much wider fundamental leg (adds CFO-vs-PAT, interest coverage, ROCE/ROE, governance) feeding a 3-filter chart confirm (200 DMA · RS vs index+sector · accumulation base).

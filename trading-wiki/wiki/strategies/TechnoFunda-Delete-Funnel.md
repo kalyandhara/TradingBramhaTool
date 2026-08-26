@@ -112,7 +112,7 @@ The funnel maps almost 1:1 onto data already in the repo. Recorded so a build
 |---|---|---|
 | 1 · Growth 6–8Q | `fundamentals_deep.py` + dashboard YoY quarters | The **acceleration/fading trend read** across 6–8Q (not just latest YoY) |
 | 2 · CFO vs PAT | `fundamentals_deep.py` OCF/FCF + the "Cash-Flow Safe" pre-breakout screener | A stored **CFO/PAT ratio over 3–5y**, not a single-period check |
-| 3 · Leverage | debt in `fundamentals_deep.py` | **Interest coverage** (< 3×) is absent; debt-vs-revenue growth check |
+| 3 · Leverage | debt in `fundamentals_deep.py`; **interest coverage + D/E now shipped** (`interest_coverage`, `debt_to_equity` keys, 2026-08-25) | debt-vs-revenue growth rate check |
 | 4 · Capital efficiency | `fundamentals_deep.roce` (EBIT/capital employed); `multibagger_candidates` uses ROCE>15+OPM>10 | **ROE** consistency alongside ROCE; the "consistently ≥15%" multi-year test |
 | 5 · Governance | `red_flags.py` (FR-4): promoter-stake-reduction, pledge veto, **auditor-resignation** NSE scan; pledge% from free NSE + screener.in | **Related-party** and **equity-dilution** flags |
 | 6 · 200 DMA | `SMA200` computed in dashboard + `rating.py` trend template | — (present) |
@@ -147,6 +147,14 @@ survivor set out-perform, forward, both (a) the un-filtered leading-sector
 universe and (b) each single filter applied alone — i.e. does stacking the eight
 deletes beat any one of them? Same discipline the confluence work (B-25) applies:
 agreement is not evidence until measured.
+
+**Engine shipped 2026-08-25:** `technofunda_funnel.py` — a Streamlit-free,
+data-injected engine (`build_context` → `run_funnel`) that applies the eight
+filters as short-circuiting deletes and returns survivors + a per-stage drop-off
+report. Missing-data policy is `strict` (unverifiable filter deletes the name),
+with governance-NOT_CHECKED and uncomputable-D/E held as caveats so the universe
+can't be emptied by absence. F2 (CFO/PAT) and F8 (base tightness) are first-cut
+heuristics pending their gap fills; the backtest above is still the open claim.
 
 ## Sources
 

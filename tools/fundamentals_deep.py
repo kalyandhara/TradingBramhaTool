@@ -65,6 +65,12 @@ _FCF       = ("Free Cash Flow",)
 _OCF       = ("Operating Cash Flow", "Cash Flow From Continuing Operating Activities")
 _CAPEX     = ("Capital Expenditure",)
 _BASIC_EPS = ("Basic EPS", "Diluted EPS")
+# Interest expense — the leverage-cost row the delete-funnel's Filter 3
+# (interest coverage < 3×, see strategies/TechnoFunda-Delete-Funnel) needs.
+# yfinance reports it under a few spellings; it is positive here (the cost),
+# so coverage = EBIT / interest_expense.
+_INTEREST  = ("Interest Expense", "Interest Expense Non Operating",
+              "Net Non Operating Interest Income Expense")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -393,6 +399,18 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
                      (None if _at(equity, 1) is None
                       else _at(equity, 1) + (_at(debt, 1) or 0.0)))
 
+    # Leverage & its serviceability — the Filter-3 inputs. Kept as raw components
+    # plus the two ratios so the funnel can state WHY it deleted (D/E stretched vs
+    # coverage thin). interest_coverage is None when there is no interest expense:
+    # a debt-free name has no coverage constraint, which the funnel reads as pass.
+    interest0 = _at(_row(inc, _INTEREST), 0)
+    interest0 = None if interest0 is None else abs(interest0)   # report the burden as positive
+    debt_to_equity = (round(dt0 / eq0, 2)
+                      if (dt0 is not None and eq0 not in (None, 0) and eq0 > 0) else None)
+    interest_coverage = (round(e0 / interest0, 2)
+                         if (e0 is not None and interest0 not in (None, 0) and interest0 > 0)
+                         else None)
+
     # Working-capital red-flag inputs.
     rev0 = _at(rev, 0)
     recv0 = _at(_row(bal, _RECV), 0)
@@ -449,6 +467,13 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
         "profit_cagr_5y":  pro_5y,
         "roce":          roce,
         "roce_prev":     roce_prev,
+        # Leverage (Filter 3). Not added to COVERAGE_FIELDS on purpose — the
+        # coverage dial counts deep-dive display fields, and moving its
+        # denominator would shift every "have/total" reading in the app.
+        "ebit":              e0,
+        "interest_expense":  interest0,
+        "debt_to_equity":    debt_to_equity,
+        "interest_coverage": interest_coverage,
         "net_margin":    annual[0]["net_margin"] if annual else None,
         "opm":           annual[0]["opm"] if annual else None,
         "debtor_days":   debtor_days,
