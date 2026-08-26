@@ -1,6 +1,10 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-26] verify | B-38 first live end-to-end run — funnel holds on real NSE data
+- **8 real names → 1 survivor** (PERSISTENT), Nifty 12m −2.7%, default/strict. Every deletion economically legible: TITAN F2 (ΣOCF/ΣPAT 0.54), RELIANCE/IRFC F1 (single-digit CAGR), YESBANK F3 (D/E 1.28), KPITTECH F6 (<200DMA), CDSL F7 (lags Nifty). TATAMOTORS deleted at F1 because yfinance 404'd its ticker — strict correctly deletes the unverifiable rather than passing it.
+- Confirms the whole filter stack wires together on live data, not just per-filter. Filed as the worked example on [[strategies/TechnoFunda-Delete-Funnel]]. Fundamental verdicts use current statements (the point-in-time limit still stands).
+
 ## [2026-08-25] build | B-38 filter hardening — every heuristic replaced, tests added
 - **Closed the filter gaps** (each verified live where data-dependent): **F2** real ΣOCF/ΣPAT ratio over ≤5 matched years (TITAN 0.54, RELIANCE 2.25) with the FCF proxy only as fallback; **F4** now gates ROCE **and** ROE (RELIANCE ROE 8.9% = a real delete); **F5** equity-dilution flag from share-count trend (YESBANK +20% flagged), related-party stays honestly NOT_CHECKED; **F8** now uses the pivot-based `detect_vcp_geometry` base detector, heuristic only as fallback; **F1** reads the quarterly accelerating/fading trend and deletes profit-YoY-turned-negative even when the 3Y CAGR clears.
 - **First test suite in the repo:** `test_technofunda_funnel.py` — 13 deterministic tests pinning every filter + funnel orchestration (short-circuit, drop-off, strict vs lenient). Runs as a plain script AND under pytest. 13/13 pass.

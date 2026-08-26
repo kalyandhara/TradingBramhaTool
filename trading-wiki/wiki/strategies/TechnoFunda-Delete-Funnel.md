@@ -182,6 +182,27 @@ genuinely open item on the measurable claim.
   supplied by the owner 2026-08-25. Methodology only; no performance data given,
   so its own claims earn zero weight here (repo measurement-first ethos).
 
+## Worked example — live 8-name run (2026-08-26)
+
+First real end-to-end run over 8 NSE names (default thresholds, strict, Nifty 12m
+**−2.7%**). Illustrative, not a recommendation — the funnel is unbacktested:
+
+```
+8 in → 1 survive
+  F1 Growth        −3   TITAN? no; RELIANCE (6/7% CAGR), IRFC (5/4%), TATAMOTORS (no data)
+  F2 Cash          −1   TITAN     ΣOCF/ΣPAT 0.54 over 4y < 0.70 (jewellery WC drag)
+  F3 Leverage      −1   YESBANK   D/E 1.28 > 1.0
+  F6 200 DMA       −1   KPITTECH  590 ≤ 200DMA 837
+  F7 Rel. strength −1   CDSL      −8% ≤ Nifty −3%
+  Survivor: PERSISTENT (no caveats)
+```
+
+Every deletion is economically legible, and the subtractive sieve correctly
+returns a **very short** list in a weak tape — the design intent. Two data notes:
+TATAMOTORS was deleted at F1 because yfinance 404'd its ticker (strict → an
+unverifiable name is deleted, not passed), and the fundamental verdicts use
+*current* statements (the point-in-time limit the backtest section records).
+
 ## Related
 
 - [[strategies/TechnoFunda-Swing]] — the scorer sibling (entry timing)
