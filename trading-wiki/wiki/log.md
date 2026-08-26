@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-25] strategy | TechnoFunda delete-funnel (8-filter watchlist noise sieve)
+- **Trigger:** owner supplied an unattributed X thread — a subtractive "delete" funnel (each filter removes names) for cutting a universe to a very short list. Files directly against the noise-reduction thrust in [[analyses/Noise-Regime-Coverage-Postmortem]].
+- **Filed as a distinct strategy, not folded in:** it is the veto-funnel sibling of the [[strategies/TechnoFunda-Swing]] *scorer* and the [[strategies/Crash-Proof-3-Filter-System]] *gate stack*, with a much wider fundamental leg (adds CFO-vs-PAT, interest coverage, ROCE/ROE, governance) feeding a 3-filter chart confirm (200 DMA · RS vs index+sector · accumulation base).
+- **Coverage map grounded in code:** ~7 of 8 legs already exist — `fundamentals_deep.py` (ROCE, OCF/FCF, debt), `red_flags.py` FR-4 (promoter-stake/pledge/auditor), `SMA200`, `rating.py`+`rrg.py` (RS vs Nifty + sector), volume/VCP. **Gaps:** interest coverage <3×, 6–8Q acceleration read, CFO/PAT multi-year ratio, related-party/dilution flags, explicit base-tightness detector.
+- **Honesty notes:** thread says "ten filters" but specifies **eight** (valuation + defined-risk are a coda, not sieve filters); funnel is **unbacktested** — measurable claim recorded (does the survivor set beat the unfiltered universe AND any single filter alone?).
+- **Pages:** created [[strategies/TechnoFunda-Delete-Funnel]]; added **B-38** to [[analyses/Open-Backlog]] (P4 + status row); updated [[index]] (261→262 pages).
+
 ## [2026-08-23] analysis | Post-mortem: noise, regime blindness & the small-cap coverage gap
 - **Trigger:** owner's behavioural read — too many stocks/pages in a bear tape (where analytics work least) → worse decisions; scanners cover the top layer, small/micro-cap multibaggers uncovered.
 - **Verified against code (all three hold):** (1) Opportunity universe = `fetch_bhavcopy_top_volume` = top-by-traded-value = **large-cap only**; `multibagger_candidates.py` exists but is a standalone screener.in-gated screen. (2) Regime (RISK-ON/OFF/MIXED) is **computed but only described** — output volume is regime-invariant. (3) 38 scanners (13 Entry+12 Pattern overlap) + ~21 pages = decision paralysis.

@@ -1,12 +1,12 @@
 ---
 title: "Wiki Index"
-updated: 2026-08-23
-pages: 261
+updated: 2026-08-25
+pages: 262
 sources_ingested: 105
 ---
 
 # Trading Wiki — Index
-_Last updated: 2026-08-23 | Pages: 261 | Sources ingested: 105_
+_Last updated: 2026-08-25 | Pages: 262 | Sources ingested: 105_
 <!-- Counting convention, stated because these two counters silently drifted to
      TWO DIFFERENT wrong numbers before 2026-08-07 (see B-27 in
      analyses/Open-Backlog.md): "Pages" = every .md under wiki/ EXCLUDING the
@@ -205,6 +205,7 @@ _Last updated: 2026-08-23 | Pages: 261 | Sources ingested: 105_
 |------|-----------|---------|---------|
 | [Minervini-SEPA](strategies/Minervini-SEPA.md) | Swing / Position | **Specific Entry Point Analysis** — Minervini's full growth-stock framework, and the ancestor of several things already shipped here. Buy only **Stage 2** uptrends (Trend Template), enter at the **VCP pivot**, hard stop set *before* entry, size for **1.25–2.5% equity risk** per trade, sell into strength on base count and climax signals. The Trend Template gates `scan_base_formation` and the VCP geometry powers `detect_vcp_geometry`, so this page is the doctrine behind two live detectors. Related: [[concepts/VCP]], [[concepts/Stage-Analysis]], [[strategies/VCPBot-Trend-Template]] | 2026-06-15 |
 | [4H-Wick-Zone-FVG-Setup](strategies/4H-Wick-Zone-FVG-Setup.md) | Intraday — **PARKED, reference only** | HTF wick zone → LTF liquidity sweep → LTF BOS → **FVG retest entry** (4H→15m as drawn), mirrored bearish. Filed for reuse at the user's request; **not in use, not implemented, not measured**. Each leg removes a different failure mode — zone gives location, sweep proves liquidity was taken, BOS proves the reversal is structural, FVG gives a definable stop — so the claimed power must come from the *sequencing*, since no leg has an independent measured edge. **Entry rule deliberately deviates from the source**: require a close back above the gap, not a resting limit inside it. **Drops the regime layer entirely** — no HTF trend filter anywhere, so it fires against a deteriorating higher timeframe. **The keepable part: a Weekly→Daily translation needs no intraday store and is testable** — 2 of its 4 legs already exist (`detect_bos_choch`, `scan_fvg_pullback`), the other two are candle geometry | 2026-08-09 |
+| [TechnoFunda-Delete-Funnel](strategies/TechnoFunda-Delete-Funnel.md) | Swing / Position | **Delete funnel (8 sequential vetoes, fundamentals then chart):** growth 6–8Q · CFO-vs-PAT · leverage/interest-coverage · ROCE/ROE ≥15% · governance hard-NO (pledge/auditor/holding) · >200 DMA · RS vs index+sector · accumulation base+volume. A **noise sieve** — survivors are a shortlist, not a buy list. Sibling to the scorer (TechnoFunda-Swing) and gate-stack (Crash-Proof). Coverage map + B-38 build; unbacktested | 2026-08-25 |
 | [Crash-Proof-3-Filter-System](strategies/Crash-Proof-3-Filter-System.md) | Swing | Gate stack (veto-only): Market-health 2-of-5 kill switch + Stage-2 stock filter + FII/DII/MF/Retail ownership flow; all three must align; FPV confirms timing; educational (unbacktested) | 2026-07-21 |
 | [TechnoFunda-Swing](strategies/TechnoFunda-Swing.md) | Swing | 7-condition system: VWAP+EMA+SMA+RSI+ADX+VCP+ATR | 2026-06-14 |
 | [VCPBot-Trend-Template](strategies/VCPBot-Trend-Template.md) | Swing | Minervini 7-condition MA stack + RS Rank dual-gate | 2026-06-14 |
