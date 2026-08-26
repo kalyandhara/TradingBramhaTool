@@ -1,6 +1,10 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-26] build | ADX/DI rule backtest registered (adx_di_backtest.py) + refined finding
+- **Shipped:** `adx_di_backtest.py` — permanent, re-runnable point-in-time harness for the ADX/DI rule variants (bare bull/bear cross, confirmed bull state, bearish state), reusing `_adx_di_series` + scipy-optional Welch. `py adx_di_backtest.py --live`. Synthetic machinery check + live mode.
+- **Refined result** (20 liquid names, 5,576 baseline bars): bare bull cross = noise; **confirmed up-state (+DI>−DI, ADX≥25 rising) flat short-term but +1.20% @60d, p=0.05** — a mild longer-horizon trend-persistence edge (so it's a position-horizon confirmation, not a trigger). **Bearish −DI/ADX state ≈ zero forward edge** — the downside read is a context flag, not a predictive short. Filed on [[concepts/ADX]].
+
 ## [2026-08-26] build | ADX+DI in the chart tool + two confirmation/risk scanners
 - **Chart:** `adx_di.js` (Wilder ADX/+DI/−DI) as a subchart indicator, ported bar-for-bar from Python `_adx_di_series` (verified identical: ADX 51.36/51.19/51.22…), wired into `chart_dashboard.html` (registry, MOMENTUM_KEYS, subchart block, 25/20 reference lines, DI-cross bias dots) + Flask route. Verified live in the chart tool — pane renders, no console errors.
 - **Scanners** (honest framing per the measured evidence — confirmation/risk, not triggers): **ADX Trend Confirmation** (`scan_adx_trend_confirmation`: >SMA50, +DI>−DI, ADX≥25 rising; no trade plan; NOT in MEASURED_EDGE; Trend/Momentum family) and **Downside Risk** enhanced with −DI>+DI + ADX≥25 confirmation. Live (Nifty −2.7%): UP fired 1/20 (DIVISLAB), downside 10/20 — selective vs broad, as expected.

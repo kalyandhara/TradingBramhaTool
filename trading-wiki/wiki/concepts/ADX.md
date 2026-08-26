@@ -78,6 +78,15 @@ two-sample p). This confirms the "confirmation, not signal" stance with numbers:
   (Oscillators → "ADX + DI"), with 25 (trend gate) and 20 (chop floor) reference
   lines and DI-cross *bias dots* (not buy/sell arrows). Ported bar-for-bar from
   the Python `_adx_di_series`, so chart and scanners agree.
+- **Registered backtest:** `adx_di_backtest.py` re-measures the ADX/DI *rule
+  variants* (bare cross, confirmed state, bearish state) on any universe —
+  point-in-time, Welch p, scipy-optional. Refined run (20 liquid names, 5,576
+  baseline bars): the bare bull cross stays noise; **the confirmed up-state
+  (+DI>−DI, ADX≥25 rising) is flat short-term but +1.20% @60d, p=0.05** — a mild
+  *longer-horizon* trend-persistence edge, so it earns its keep as a
+  position-horizon confirmation, not a day-trade trigger. **The bearish −DI/ADX
+  state showed ~zero forward edge** — the Downside-Risk directional read is a
+  context flag, not a predictive short signal. Re-run: `py adx_di_backtest.py --live`.
 - **Scanners** (built to the measured stance — confirmation/risk, not triggers):
   - **ADX Trend Confirmation** (`scan_adx_trend_confirmation`) — price > SMA50,
     +DI > −DI, ADX ≥ 25 **and rising**. Deliberately selective and carries no
