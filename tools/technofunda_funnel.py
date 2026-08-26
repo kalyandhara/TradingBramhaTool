@@ -144,15 +144,38 @@ def _miss(fid: str, label: str, what: str, strict: bool) -> FilterOutcome:
     return FilterOutcome(fid, label, CAVEAT, f"insufficient data ({what}) — passed (lenient)")
 
 
+def _growth_trend(quarters: list) -> tuple[str | None, bool]:
+    """(tag, recent_negative) from the quarterly profit-YoY series (newest first).
+    tag ∈ accelerating|steady|fading; recent_negative = last two quarters both
+    grew profit YoY below zero (growth has actually turned down)."""
+    ys = [q["profit_yoy"] for q in (quarters or []) if q.get("profit_yoy") is not None]
+    if len(ys) < 4:
+        return None, False
+    recent, earlier = ys[:2], ys[2:4]
+    r_avg, e_avg = sum(recent) / 2, sum(earlier) / 2
+    tag = ("accelerating" if r_avg > e_avg + 3 else
+           "fading" if r_avg < e_avg - 3 else "steady")
+    return tag, all(y < 0 for y in recent)
+
+
 def f1_growth(ctx, th: Thresholds, strict: bool) -> FilterOutcome:
     """Filter 1 — delete businesses that aren't actually growing.
-    Source: fundamentals_deep 3Y CAGRs, falling back to the quarterly YoY trend."""
+    Source: fundamentals_deep 3Y CAGRs, falling back to the quarterly YoY trend.
+    Also reads the quarterly *trend* (accelerating / fading) and deletes a name
+    whose profit growth has turned negative in the last two quarters, even if the
+    multi-year CAGR still clears — the thread's 'accelerating or fading?' test."""
     d = ctx["deep"] or {}
+    tag, recent_neg = _growth_trend(d.get("quarters"))
+    trend_note = f", {tag}" if tag else ""
     rc, pc = d.get("revenue_cagr_3y"), d.get("profit_cagr_3y")
     if rc is not None and pc is not None:
         if rc >= th.min_rev_cagr_3y and pc >= th.min_profit_cagr_3y:
+            if recent_neg:
+                return FilterOutcome("F1", "Growth", DELETE,
+                                     f"3Y CAGR clears but profit YoY negative the last "
+                                     f"2 quarters — growth turned down")
             return FilterOutcome("F1", "Growth", PASS,
-                                 f"3Y CAGR rev {rc:.0f}% / profit {pc:.0f}% ≥ thresholds")
+                                 f"3Y CAGR rev {rc:.0f}% / profit {pc:.0f}% ≥ thresholds{trend_note}")
         return FilterOutcome("F1", "Growth", DELETE,
                              f"3Y CAGR rev {rc:.0f}% / profit {pc:.0f}% below "
                              f"{th.min_rev_cagr_3y:.0f}/{th.min_profit_cagr_3y:.0f}")
@@ -161,11 +184,12 @@ def f1_growth(ctx, th: Thresholds, strict: bool) -> FilterOutcome:
     look = qs[:th.growth_lookback_q]
     if len(look) >= th.min_positive_q:
         pos = sum(1 for q in look if q["profit_yoy"] > 0)
-        if pos >= th.min_positive_q:
+        if pos >= th.min_positive_q and not recent_neg:
             return FilterOutcome("F1", "Growth", PASS,
-                                 f"{pos}/{len(look)} recent quarters +ve profit YoY")
+                                 f"{pos}/{len(look)} recent quarters +ve profit YoY{trend_note}")
         return FilterOutcome("F1", "Growth", DELETE,
-                             f"only {pos}/{len(look)} recent quarters grew profit")
+                             f"only {pos}/{len(look)} recent quarters grew profit"
+                             + (" and last 2 turned negative" if recent_neg else ""))
     return _miss("F1", "Growth", "no CAGR and <{} quarters".format(th.min_positive_q), strict)
 
 

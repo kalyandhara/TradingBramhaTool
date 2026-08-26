@@ -110,7 +110,7 @@ The funnel maps almost 1:1 onto data already in the repo. Recorded so a build
 
 | Filter | Have | Gap to close |
 |---|---|---|
-| 1 · Growth 6–8Q | `fundamentals_deep.py` + dashboard YoY quarters | The **acceleration/fading trend read** across 6–8Q (not just latest YoY) |
+| 1 · Growth 6–8Q | `fundamentals_deep.py` + dashboard YoY quarters; **acceleration/fading read added** (2026-08-25 — F1 deletes a name whose profit YoY turned negative the last 2 quarters even if the 3Y CAGR clears) | — |
 | 2 · CFO vs PAT | `fundamentals_deep.py` OCF/FCF + the "Cash-Flow Safe" pre-breakout screener | A stored **CFO/PAT ratio over 3–5y**, not a single-period check |
 | 3 · Leverage | debt in `fundamentals_deep.py`; **interest coverage + D/E now shipped** (`interest_coverage`, `debt_to_equity` keys, 2026-08-25) | debt-vs-revenue growth rate check |
 | 4 · Capital efficiency | `fundamentals_deep.roce` (EBIT/capital employed); `multibagger_candidates` uses ROCE>15+OPM>10 | **ROE** consistency alongside ROCE; the "consistently ≥15%" multi-year test |
