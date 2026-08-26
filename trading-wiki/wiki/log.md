@@ -1,6 +1,11 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-26] measure | B-38 price-legs backtest — F7 carries the edge, the legs don't stack
+- **First measured result.** 20 liquid names, ~4,700 baseline bars, ~6y. **F7 relative strength is the only price leg with a significant edge** (+0.44% @20d p=0.04, +1.23% @60d p<0.005). **F6 200-DMA ≈ zero** (these names are almost always above it → barely a filter); **F8 accumulation mildly negative** (−0.29% @20d). **The F6∧F7∧F8 combo does NOT beat F7 alone** (+0.02 vs +0.44 @20d) — stacking dilutes momentum's edge and cuts the sample.
+- **Answer to the price half of B-38's claim: no, the deletes don't stack — momentum does the work.** Caveat: favourable RS regime + liquid universe where F6 rarely excludes anything; broader/small-cap/bear-inclusive set could separate F6/F8. Fundamental legs still untested. Actionable: revisit the F8 footprint (not predictive here); F7 earns its place.
+- Filed on [[strategies/TechnoFunda-Delete-Funnel]] (Backtest section). This is the payoff of the `funnel_backtest` infra — a real, honest, mildly-negative-for-the-thesis finding, in the repo's measurement-first spirit.
+
 ## [2026-08-26] verify | B-38 first live end-to-end run — funnel holds on real NSE data
 - **8 real names → 1 survivor** (PERSISTENT), Nifty 12m −2.7%, default/strict. Every deletion economically legible: TITAN F2 (ΣOCF/ΣPAT 0.54), RELIANCE/IRFC F1 (single-digit CAGR), YESBANK F3 (D/E 1.28), KPITTECH F6 (<200DMA), CDSL F7 (lags Nifty). TATAMOTORS deleted at F1 because yfinance 404'd its ticker — strict correctly deletes the unverifiable rather than passing it.
 - Confirms the whole filter stack wires together on live data, not just per-filter. Filed as the worked example on [[strategies/TechnoFunda-Delete-Funnel]]. Fundamental verdicts use current statements (the point-in-time limit still stands).

@@ -162,6 +162,28 @@ with governance-NOT_CHECKED and uncomputable-D/E held as caveats so the universe
 can't be emptied by absence. F2 (CFO/PAT) and F8 (base tightness) are first-cut
 heuristics pending their gap fills.
 
+**First measured result (2026-08-26) — the price legs do NOT stack.** Ran
+`funnel_backtest` over 20 liquid large/mid-caps (~4,700 baseline bars, ~6y):
+
+| leg | 20d edge (p) | 60d edge (p) |
+|---|---|---|
+| F6 · 200 DMA | −0.00 (0.99) | +0.06 (0.86) |
+| **F7 · Rel. strength** | **+0.44 (0.04)** * | **+1.23 (0.00)** * |
+| F8 · Accumulation | −0.29 (0.17) | −0.72 (0.06) |
+| F6 ∧ F7 ∧ F8 | +0.02 (0.94) | +0.23 (0.66) |
+
+**F7 (relative strength) carries the entire price-leg edge; F6 barely filters**
+(these names are almost always above their 200 DMA) **and F8 is mildly negative.
+Stacking all three does NOT beat requiring F7 alone** — the combo dilutes F7's
+edge (+0.02 vs +0.44 at 20d) and cuts the sample. So for the price half of the
+claim, *the answer is no — the deletes don't stack; momentum does the work.*
+**Caveats:** 20 liquid names in a mostly-constructive tape is a favourable regime
+for RS and a poor test of a trend filter (F6) that rarely excludes anything here;
+a broader / small-cap / bear-inclusive universe could separate F6/F8 more. The
+fundamental legs — the funnel's actual thesis — remain untested. Actionable read:
+the F8 accumulation footprint as implemented is not predictive on this set and is
+worth revisiting; F7 is the price leg that earns its place.
+
 **Backtest shipped 2026-08-25 — with an honest scope limit:** `funnel_backtest.py`
 answers the claim for the part that *can* be answered. Point-in-time replay is
 only valid for signals computable from data available at the bar, so it covers the
