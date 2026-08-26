@@ -114,7 +114,7 @@ The funnel maps almost 1:1 onto data already in the repo. Recorded so a build
 | 2 · CFO vs PAT | `fundamentals_deep.py` OCF/FCF + the "Cash-Flow Safe" pre-breakout screener | A stored **CFO/PAT ratio over 3–5y**, not a single-period check |
 | 3 · Leverage | debt in `fundamentals_deep.py`; **interest coverage + D/E now shipped** (`interest_coverage`, `debt_to_equity` keys, 2026-08-25) | debt-vs-revenue growth rate check |
 | 4 · Capital efficiency | `fundamentals_deep.roce` (EBIT/capital employed); `multibagger_candidates` uses ROCE>15+OPM>10 | **ROE** consistency alongside ROCE; the "consistently ≥15%" multi-year test |
-| 5 · Governance | `red_flags.py` (FR-4): promoter-stake-reduction, pledge veto, **auditor-resignation** NSE scan; pledge% from free NSE + screener.in | **Related-party** and **equity-dilution** flags |
+| 5 · Governance | `red_flags.py` (FR-4): promoter-stake-reduction, pledge veto, **auditor-resignation** NSE scan, **equity-dilution** (share-count trend, 2026-08-25); pledge% from free NSE + screener.in | **Related-party** stays NOT_CHECKED — no free structured feed (honest) |
 | 6 · 200 DMA | `SMA200` computed in dashboard + `rating.py` trend template | — (present) |
 | 7 · Relative strength | `rating.py` `rs_pct` (vs Nifty); `rrg.py` sector RS | Combine into a single **vs-index AND vs-sector** laggard veto |
 | 8 · Accumulation | **now uses `detect_vcp_geometry`** (pivot-based base: contractions shrinking + volume drying) with a range/up-volume fallback | SVP-based distribution read as a second confirmation |

@@ -123,6 +123,37 @@ def _check_days_trend(deep: dict, key: str, label: str, hist_key: str,
                f"({oldest:.0f}d → {latest:.0f}d).", "yfinance")
 
 
+# Equity dilution over the observed window — "constant equity dilution" is on the
+# governance checklist. A QIP for real growth is legitimate, so moderate dilution
+# is a WATCH (caveat), and only egregious issuance is CRITICAL.
+_DILUTION_WATCH_PCT = 15.0
+_DILUTION_CRITICAL_PCT = 50.0
+
+
+def _check_dilution(deep: dict) -> dict[str, Any]:
+    key, label = "equity_dilution", "Equity dilution (share count)"
+    hist = [v for v in (deep.get("shares_history") or []) if v is not None and v > 0]
+    d = deep.get("dilution_pct")
+    if d is None or len(hist) < _MIN_TREND_POINTS:
+        return _mk(key, label, NOT_CHECKED, WATCH,
+                   f"Only {len(hist)} yearly share-count observation(s) — need "
+                   f"{_MIN_TREND_POINTS} for a trend.", "yfinance")
+    span = len(hist)
+    if d >= _DILUTION_CRITICAL_PCT:
+        return _mk(key, label, FLAG, CRITICAL,
+                   f"Share count up {d:+.0f}% over {span} years — heavy dilution.",
+                   "yfinance")
+    if d >= _DILUTION_WATCH_PCT:
+        return _mk(key, label, FLAG, WATCH,
+                   f"Share count up {d:+.0f}% over {span} years — dilution to watch "
+                   f"(may be growth funding).", "yfinance")
+    if d <= -5.0:
+        return _mk(key, label, CLEAN, WATCH,
+                   f"Share count down {d:+.0f}% over {span} years — net buyback.", "yfinance")
+    return _mk(key, label, CLEAN, WATCH,
+               f"Share count {d:+.0f}% over {span} years — no material dilution.", "yfinance")
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # screener.in checks (need a sessionid cookie)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -269,6 +300,7 @@ def evaluate(symbol: str, fundamentals: dict | None, deep: dict | None,
 
     flags = [
         _check_fcf(deep),
+        _check_dilution(deep),
         _check_days_trend(deep, "debtor_days_trend", "Rising debtor days",
                           "debtor_days_history", _DEBTOR_DAYS_FLOOR, WATCH,
                           "Receivable days"),

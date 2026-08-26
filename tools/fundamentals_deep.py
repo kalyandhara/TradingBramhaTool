@@ -65,6 +65,9 @@ _FCF       = ("Free Cash Flow",)
 _OCF       = ("Operating Cash Flow", "Cash Flow From Continuing Operating Activities")
 _CAPEX     = ("Capital Expenditure",)
 _BASIC_EPS = ("Basic EPS", "Diluted EPS")
+# Share count — a rising count over years is equity dilution (Filter 5 / FR-4).
+_SHARES    = ("Basic Average Shares", "Diluted Average Shares",
+              "Share Issued", "Ordinary Shares Number")
 # Interest expense — the leverage-cost row the delete-funnel's Filter 3
 # (interest coverage < 3×, see strategies/TechnoFunda-Delete-Funnel) needs.
 # yfinance reports it under a few spellings; it is positive here (the cost),
@@ -405,6 +408,18 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
                      (None if _at(equity, 1) is None
                       else _at(equity, 1) + (_at(debt, 1) or 0.0)))
 
+    # Share-count history & dilution (Filter 5 / FR-4). A rising share count is
+    # equity dilution; buybacks show as a fall. Balance-sheet share rows can also
+    # be scanned, but Basic Average Shares on the income frame aligns with the
+    # per-year EPS. dilution_pct is oldest→newest over the available years.
+    shares_row = _row(inc, _SHARES)
+    if shares_row is None:
+        shares_row = _row(bal, _SHARES)
+    shares_hist = ([_num(v) for v in shares_row.tolist()] if shares_row is not None else [])
+    _sh = [v for v in shares_hist if v is not None and v > 0]
+    dilution_pct = (round((_sh[0] / _sh[-1] - 1) * 100, 1)
+                    if len(_sh) >= 2 and _sh[-1] > 0 else None)
+
     # ROE = net income / shareholders' equity (Filter 4, paired with ROCE for a
     # "consistently ≥15%" read). Two years is all yfinance reliably gives.
     roe = _pct(_at(ni, 0), _at(equity, 0))
@@ -523,6 +538,8 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
         "ocf_history":       ocf_hist,       # newest first
         "cfo_pat_ratio":     cfo_pat_ratio,  # Σ OCF / Σ PAT over ≤5 matched years
         "cfo_pat_years":     n_pairs,
+        "shares_history":    shares_hist,    # newest first
+        "dilution_pct":      dilution_pct,   # share-count change oldest→newest (%)
         "eps_ttm":       stmts.get("eps_ttm"),
         "book_value":    stmts.get("book_value"),
         "annual_periods":    len(annual),
