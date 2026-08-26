@@ -57,8 +57,11 @@ class Thresholds:
     # F3 leverage
     max_de: float = 1.0                  # debt / equity
     min_interest_cov: float = 3.0        # EBIT / interest
+    # F2 cash conversion
+    min_cfo_pat: float = 0.7             # Σ OCF / Σ PAT over the cycle
     # F4 capital efficiency
     min_roce: float = 15.0               # %
+    min_roe: float = 15.0                # %
     roce_consistency_grace: float = 0.8  # prior-year ROCE may dip to grace×min
     # F6 trend
     # (200 DMA needs no threshold beyond price > SMA200)
@@ -159,13 +162,22 @@ def f1_growth(ctx, th: Thresholds, strict: bool) -> FilterOutcome:
 
 
 def f2_cash(ctx, th: Thresholds, strict: bool) -> FilterOutcome:
-    """Filter 2 — delete profits that never become cash.
-    FIRST-CUT (B-38 gap): uses the FCF sign/streak as a proxy; the real test is a
-    multi-year CFO/PAT ratio, which needs OCF added to the fundamentals payload."""
+    """Filter 2 — delete profits that never become cash. Primary test is the
+    multi-year Σ OCF / Σ PAT ratio (cfo_pat_ratio); when that is absent it falls
+    back to the FCF sign/streak proxy."""
     d = ctx["deep"] or {}
+    ratio, years = d.get("cfo_pat_ratio"), d.get("cfo_pat_years")
+    if ratio is not None:
+        if ratio >= th.min_cfo_pat:
+            return FilterOutcome("F2", "Cash", PASS,
+                                 f"ΣOCF/ΣPAT {ratio:.2f} over {years}y ≥ {th.min_cfo_pat:.2f}")
+        return FilterOutcome("F2", "Cash", DELETE,
+                             f"ΣOCF/ΣPAT {ratio:.2f} over {years}y < {th.min_cfo_pat:.2f} "
+                             f"— profits not converting to cash")
+    # Fallback: FCF sign/streak proxy.
     fcf, streak = d.get("fcf"), d.get("fcf_negative_streak")
     if fcf is None and not d.get("fcf_history"):
-        return _miss("F2", "Cash", "no cash-flow history", strict)
+        return _miss("F2", "Cash", "no CFO/PAT and no cash-flow history", strict)
     if fcf is not None and fcf > 0 and (streak or 0) == 0:
         return FilterOutcome("F2", "Cash", PASS, "FCF positive, no negative streak (proxy)")
     return FilterOutcome("F2", "Cash", DELETE,
@@ -195,19 +207,32 @@ def f3_leverage(ctx, th: Thresholds, strict: bool) -> FilterOutcome:
 
 
 def f4_returns(ctx, th: Thresholds, strict: bool) -> FilterOutcome:
-    """Filter 4 — delete poor capital efficiency. ROCE from fundamentals_deep;
-    ROE is a B-38 gap (not in the payload), so this gates on ROCE + its prior year
-    for a light 'consistently' read."""
+    """Filter 4 — delete poor capital efficiency. Gates on BOTH ROCE and ROE
+    (consistently ≥ threshold), each with its prior year for a light
+    'consistently' read. A name that clears ROCE but earns a poor ROE is levered
+    into its capital-efficiency, which Filter 3 may not have caught."""
     d = ctx["deep"] or {}
-    roce, prev = d.get("roce"), d.get("roce_prev")
-    if roce is None:
-        return _miss("F4", "Returns", "no ROCE", strict)
-    if roce < th.min_roce:
-        return FilterOutcome("F4", "Returns", DELETE, f"ROCE {roce:.0f}% < {th.min_roce:.0f}%")
-    if prev is not None and prev < th.min_roce * th.roce_consistency_grace:
-        return FilterOutcome("F4", "Returns", DELETE,
-                             f"ROCE inconsistent — prior {prev:.0f}% below grace floor")
-    return FilterOutcome("F4", "Returns", PASS, f"ROCE {roce:.0f}% ≥ {th.min_roce:.0f}%")
+    roce, roce_p = d.get("roce"), d.get("roce_prev")
+    roe, roe_p = d.get("roe"), d.get("roe_prev")
+    if roce is None and roe is None:
+        return _miss("F4", "Returns", "no ROCE/ROE", strict)
+    bad = []
+    if roce is not None and roce < th.min_roce:
+        bad.append(f"ROCE {roce:.0f}% < {th.min_roce:.0f}%")
+    if roce_p is not None and roce_p < th.min_roce * th.roce_consistency_grace:
+        bad.append(f"prior ROCE {roce_p:.0f}% below grace")
+    if roe is not None and roe < th.min_roe:
+        bad.append(f"ROE {roe:.0f}% < {th.min_roe:.0f}%")
+    if roe_p is not None and roe_p < th.min_roe * th.roce_consistency_grace:
+        bad.append(f"prior ROE {roe_p:.0f}% below grace")
+    if bad:
+        return FilterOutcome("F4", "Returns", DELETE, "; ".join(bad))
+    parts = []
+    if roce is not None:
+        parts.append(f"ROCE {roce:.0f}%")
+    if roe is not None:
+        parts.append(f"ROE {roe:.0f}%")
+    return FilterOutcome("F4", "Returns", PASS, ", ".join(parts) + " ≥ thresholds")
 
 
 def f5_governance(ctx, th: Thresholds, strict: bool) -> FilterOutcome:
@@ -407,8 +432,9 @@ def _demo_contexts() -> list[dict]:
         return pd.DataFrame({"close": close, "volume": vols}, index=idx)
 
     good_deep = dict(revenue_cagr_3y=22, profit_cagr_3y=30, quarters=[],
-                     fcf=120, fcf_negative_streak=0, debt_to_equity=0.3,
-                     interest_coverage=8.0, roce=24, roce_prev=22)
+                     fcf=120, fcf_negative_streak=0, cfo_pat_ratio=1.1, cfo_pat_years=5,
+                     debt_to_equity=0.3, interest_coverage=8.0,
+                     roce=24, roce_prev=22, roe=21, roe_prev=20)
     clean_flags = {"flags": [
         {"state": "CLEAN", "severity": "CRITICAL", "label": "Pledge"},
         {"state": "NOT_CHECKED", "severity": "CRITICAL", "label": "Auditor"}]}

@@ -347,6 +347,12 @@ def _fcf_series(stmts: dict[str, Any]) -> list[float | None]:
     return out
 
 
+def _ocf_series(stmts: dict[str, Any]) -> list[float | None]:
+    """Operating cash flow per year, newest first — the Filter-2 numerator."""
+    ocf = _row(stmts.get("cashflow"), _OCF)
+    return [] if ocf is None else [_num(v) for v in ocf.tolist()]
+
+
 def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dict[str, Any]:
     """The FR-1 payload: statement history + derived long-horizon figures.
 
@@ -399,6 +405,11 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
                      (None if _at(equity, 1) is None
                       else _at(equity, 1) + (_at(debt, 1) or 0.0)))
 
+    # ROE = net income / shareholders' equity (Filter 4, paired with ROCE for a
+    # "consistently ≥15%" read). Two years is all yfinance reliably gives.
+    roe = _pct(_at(ni, 0), _at(equity, 0))
+    roe_prev = _pct(_at(ni, 1), _at(equity, 1))
+
     # Leverage & its serviceability — the Filter-3 inputs. Kept as raw components
     # plus the two ratios so the funnel can state WHY it deleted (D/E stretched vs
     # coverage thin). interest_coverage is None when there is no interest expense:
@@ -446,6 +457,29 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
 
     fcf_hist = _fcf_series(stmts)
     fcf = fcf_hist[0] if fcf_hist else None
+
+    # CFO/PAT over the cycle (Filter 2): do reported profits actually turn into
+    # operating cash? Sum both over the overlapping years (up to 5) rather than
+    # ratio a single year — one year's working-capital swing shouldn't damn or
+    # save a name. OCF (cashflow) and net income (income) are matched BY DATE, as
+    # the two frames don't always carry the same periods. The denominator is
+    # guarded > 0: a loss year makes the ratio meaningless, not "cash-poor".
+    ocf_hist = _ocf_series(stmts)
+    cf_cols = list(stmts["cashflow"].columns) if stmts.get("cashflow") is not None else []
+    ocf_row = _row(stmts.get("cashflow"), _OCF)
+    cfo_sum = pat_sum = 0.0
+    n_pairs = 0
+    for i, col in enumerate(inc_cols[:6]):
+        n_i = _at(ni, i)
+        j = next((k for k, cc in enumerate(cf_cols) if _is_same_period(cc, col)), None)
+        o = _at(ocf_row, j) if j is not None else None
+        if n_i is not None and o is not None:
+            cfo_sum += o
+            pat_sum += n_i
+            n_pairs += 1
+    cfo_pat_ratio = (round(cfo_sum / pat_sum, 2)
+                     if (n_pairs >= 2 and pat_sum > 0) else None)
+
     neg_streak = 0
     for v in fcf_hist:
         if v is not None and v < 0:
@@ -467,6 +501,8 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
         "profit_cagr_5y":  pro_5y,
         "roce":          roce,
         "roce_prev":     roce_prev,
+        "roe":           roe,
+        "roe_prev":      roe_prev,
         # Leverage (Filter 3). Not added to COVERAGE_FIELDS on purpose — the
         # coverage dial counts deep-dive display fields, and moving its
         # denominator would shift every "have/total" reading in the app.
@@ -483,6 +519,10 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
         "fcf":           fcf,
         "fcf_history":   fcf_hist,
         "fcf_negative_streak": neg_streak,
+        "ocf":               ocf_hist[0] if ocf_hist else None,
+        "ocf_history":       ocf_hist,       # newest first
+        "cfo_pat_ratio":     cfo_pat_ratio,  # Σ OCF / Σ PAT over ≤5 matched years
+        "cfo_pat_years":     n_pairs,
         "eps_ttm":       stmts.get("eps_ttm"),
         "book_value":    stmts.get("book_value"),
         "annual_periods":    len(annual),
