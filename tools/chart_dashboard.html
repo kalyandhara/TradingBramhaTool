@@ -16,6 +16,8 @@
 <script src="/fvg.js"></script>
 <!-- %R Trend Exhaustion oscillator plug-in — pure computation module, see percent_r_trend_exhaustion.js -->
 <script src="/percent_r_trend_exhaustion.js"></script>
+<!-- ADX + DI directional-movement oscillator — Wilder's ADX/+DI/−DI, matches scanner_templates._adx_di_series bar-for-bar. See adx_di.js -->
+<script src="/adx_di.js"></script>
 <!-- HM Bottoms & Tops (Hilega Milega, reworked) oscillator plug-in — pure computation, see hm_indicator.js -->
 <script src="/hm_indicator.js"></script>
 <!-- SuperTrend AI (adaptive factor via K-means) overlay — original impl of the LuxAlgo technique, see supertrend_ai.js -->
@@ -1058,6 +1060,7 @@ const INDICATOR_DEFS = [
   {key:'obv',       label:'OBV',                    group:'Oscillators',       color:'#00bd6f'},
   {key:'rs',        label:'RS vs Benchmark',        group:'Oscillators',       color:'#ffd60a'},
   {key:'prte',      label:'%R Trend Exhaustion (+ chart arrows / OB confluence)', group:'Oscillators', color:'#2466A7', alias:'williams percent r exhaustion reversal confluence order block up down arrow'},
+  {key:'adxdi',     label:'ADX + DI (trend strength & direction)', group:'Oscillators', color:'#7B1FA2', alias:'adx dmi directional movement index plus di minus di trend strength downside risk crossover'},
   {key:'roc',       label:'ROC + RSI Zones (21,5,5,14)', group:'Oscillators',    color:'#2962ff'},
   {key:'stoch',     label:'Stochastic (14,3,3)',    group:'Oscillators',       color:'#26c6da'},
   {key:'hm',        label:'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', group:'Oscillators', color:'#26a69a', alias:'hilega milega bottom top reversal strength momentum'},
@@ -2612,7 +2615,7 @@ function addLine(pane, color, lineWidth = 1, lineStyle = 0) {
 // momentum, and remain informative on any series.
 // mabias joins them: a trend-bias card on a monotonic yield line would read
 // "permanent golden cross" — technically true, decisionally meaningless.
-const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'stoch', 'elliott', 'mabias', 'rsidiv', 'hm'];
+const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'adxdi', 'stoch', 'elliott', 'mabias', 'rsidiv', 'hm'];
 
 // Detect liquid-ETF / cash-equivalent behaviour from bar statistics rather
 // than symbol lists — new liquid ETFs launch faster than any hardcoded set
@@ -2685,7 +2688,7 @@ function applyIndicators(pane) {
   // 'volume' is deliberately absent — it is a main-chart overlay now, torn down
   // by removeIndicatorSeries above. A stale volume SUB-pane can still exist from
   // a session saved before the change, so it is swept once here.
-  ['rsi','macd','obv','rs','prte','roc','stoch','hm'].forEach(key => {
+  ['rsi','macd','obv','rs','prte','adxdi','roc','stoch','hm'].forEach(key => {
     if (!pane.indicators.has(key) && pane.subCharts[key]) removeSubPane(pane, key);
   });
   if (pane.subCharts.volume) removeSubPane(pane, 'volume');
@@ -3081,6 +3084,45 @@ function applyIndicators(pane) {
     // Mirror the exhaustion flips onto the MAIN candles (+ confluence with order
     // blocks) and paint the exhaustion background tint. Reuse the computed prte.
     renderPrteOverlay(pane, prte);
+  }
+
+  if (pane.indicators.has('adxdi')) {
+    if (!pane.subCharts.adxdi) {
+      const sub = addSubPane(pane, 'adxdi', 'ADX + DI (14)', 140);
+      // −DI first (red), +DI (green), then ADX on top (purple, thickest) — ADX
+      // carries the value label since its slope/level is the headline read.
+      sub.minusLine = sub.chart.addLineSeries({
+        color: '#EF5350', lineWidth: 1,
+        priceLineVisible: false, lastValueVisible: false, title: '−DI',
+      });
+      sub.plusLine = sub.chart.addLineSeries({
+        color: '#26A69A', lineWidth: 1,
+        priceLineVisible: false, lastValueVisible: false, title: '+DI',
+      });
+      sub.adxLine = sub.chart.addLineSeries({
+        color: '#7B1FA2', lineWidth: 2,
+        priceLineVisible: false, lastValueVisible: true, title: 'ADX',
+      });
+      sub.series = sub.adxLine;   // crosshair sync anchor
+      sub.chart.priceScale('right').applyOptions({scaleMargins: {top: 0.08, bottom: 0.08}});
+      // Reference lines: 25 = actionable-trend gate (solid), 20 = chop floor
+      // (dashed). Below 20, DI crosses are noise (see concepts/ADX.md).
+      sub.adxLine.createPriceLine({price: 25, color: 'rgba(123,31,162,0.55)', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'trend 25'});
+      sub.adxLine.createPriceLine({price: 20, color: 'rgba(150,150,150,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false});
+    }
+    const adxdi = ADXDI.compute(bars);
+    pane.subCharts.adxdi.minusLine.setData(adxdi.minusDI);
+    pane.subCharts.adxdi.plusLine.setData(adxdi.plusDI);
+    pane.subCharts.adxdi.adxLine.setData(padToBars(adxdi.adx, bars));   // primary → full grid
+    // DI crossovers as bias/confirmation dots on +DI (green ● bullish bias) and
+    // −DI (red ● downside-risk bias) — NOT buy/sell arrows: the measured evidence
+    // (concepts/ADX.md) shows the cross is lagging, so these mark a bias change to
+    // confirm against price, not a trigger.
+    const markers = [
+      ...adxdi.bullCross.map(p => ({time: p.time, position: 'belowBar', color: '#26A69A', shape: 'circle', text: '+DI'})),
+      ...adxdi.bearCross.map(p => ({time: p.time, position: 'aboveBar', color: '#EF5350', shape: 'circle', text: '−DI'})),
+    ].sort((a, b) => a.time - b.time);
+    pane.subCharts.adxdi.adxLine.setMarkers(markers);
   }
 
   if (pane.indicators.has('hm')) {
