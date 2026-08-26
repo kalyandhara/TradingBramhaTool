@@ -43,6 +43,14 @@ try:
 except Exception:                       # pragma: no cover - pandas always present in app
     pd = None
 
+# Optional: the app's pivot-based VCP/base detector powers F8's base leg when
+# available. Kept optional (and Streamlit-free) so the funnel still imports in a
+# bare environment; F8 falls back to a range/up-volume heuristic without it.
+try:
+    import scanner_templates as _sc
+except Exception:                       # pragma: no cover
+    _sc = None
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Thresholds — every gate value in one place, so a sweep (B-21-style) has a knob
@@ -297,28 +305,50 @@ def f7_rs(ctx, th: Thresholds, strict: bool) -> FilterOutcome:
 
 
 def f8_accumulation(ctx, th: Thresholds, strict: bool) -> FilterOutcome:
-    """Filter 8 — delete charts with no accumulation footprint.
-    FIRST-CUT (B-38 gap): a tight-range base + up-volume-dominates heuristic; the
-    explicit base/consolidation detector remains to be built."""
+    """Filter 8 — delete charts with no accumulation footprint. Base leg uses the
+    app's pivot-based VCP detector (`detect_vcp_geometry` — contractions shrinking
+    + volume drying) when available, falling back to a tight-range heuristic;
+    either way the up/down volume ratio must show buyers, not distribution."""
     close, vol = ctx.get("close"), ctx.get("volume")
     if close is None or vol is None or len(close) < th.base_lookback:
         return _miss("F8", "Accumulation", f"<{th.base_lookback} bars", strict)
+
+    # Up-volume dominance — the "volume expanding on up moves" half.
     win_c = close.tail(th.base_lookback)
-    lo, hi = float(win_c.min()), float(win_c.max())
-    rng = (hi - lo) / lo if lo > 0 else 1.0
     win_v = vol.tail(th.base_lookback)
     diff = win_c.diff().tail(th.base_lookback)
-    up_v = float(win_v[diff > 0].sum())
-    dn_v = float(win_v[diff < 0].sum())
+    up_v, dn_v = float(win_v[diff > 0].sum()), float(win_v[diff < 0].sum())
     up_ratio = up_v / dn_v if dn_v > 0 else float("inf")
-    tight = rng <= th.max_base_range
     accum = up_ratio >= th.min_up_vol_ratio
+
+    # Base leg — prefer the real VCP detector (needs high/low), else range width.
+    df = ctx.get("price")
+    vcp = None
+    if (_sc is not None and df is not None and pd is not None and len(df) >= 90
+            and {"high", "low"} <= set(getattr(df, "columns", []))):
+        try:
+            vcp = _sc.detect_vcp_geometry(df)
+        except Exception:
+            vcp = None
+    if vcp is not None:
+        base_desc = f"VCP base {vcp.get('footprint', '?')} ({vcp.get('n_contractions', '?')} contractions"
+        base_desc += ", vol drying)" if vcp.get("vol_drying") else ")"
+        if accum:
+            return FilterOutcome("F8", "Accumulation", PASS,
+                                 f"{base_desc}, up/down vol {up_ratio:.1f}×")
+        return FilterOutcome("F8", "Accumulation", DELETE,
+                             f"{base_desc} but up/down vol {up_ratio:.1f}× — distribution")
+
+    # Fallback heuristic when no VCP geometry (or detector unavailable).
+    lo, hi = float(win_c.min()), float(win_c.max())
+    rng = (hi - lo) / lo if lo > 0 else 1.0
+    tight = rng <= th.max_base_range
     if tight and accum:
         return FilterOutcome("F8", "Accumulation", PASS,
-                             f"base {rng*100:.0f}% wide, up/down vol {up_ratio:.1f}× (heuristic)")
+                             f"tight base {rng*100:.0f}% wide, up/down vol {up_ratio:.1f}× (heuristic)")
     why = []
     if not tight:
-        why.append(f"range {rng*100:.0f}% > {th.max_base_range*100:.0f}% (no base)")
+        why.append(f"no base — range {rng*100:.0f}% > {th.max_base_range*100:.0f}% and no VCP")
     if not accum:
         why.append(f"up/down vol {up_ratio:.1f}× — distribution")
     return FilterOutcome("F8", "Accumulation", DELETE, "; ".join(why))
@@ -358,6 +388,7 @@ def build_context(symbol: str, *, deep: dict | None = None, flags: dict | None =
         "symbol": symbol.upper(),
         "deep": deep,
         "flags": flags,
+        "price": price,          # raw OHLCV frame — F8's base detector needs high/low
         "close": close,
         "volume": vol,
         "bench_ret_12m": bench_ret_12m,

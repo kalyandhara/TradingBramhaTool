@@ -117,7 +117,7 @@ The funnel maps almost 1:1 onto data already in the repo. Recorded so a build
 | 5 · Governance | `red_flags.py` (FR-4): promoter-stake-reduction, pledge veto, **auditor-resignation** NSE scan; pledge% from free NSE + screener.in | **Related-party** and **equity-dilution** flags |
 | 6 · 200 DMA | `SMA200` computed in dashboard + `rating.py` trend template | — (present) |
 | 7 · Relative strength | `rating.py` `rs_pct` (vs Nifty); `rrg.py` sector RS | Combine into a single **vs-index AND vs-sector** laggard veto |
-| 8 · Accumulation | volume-expansion in `scanner_templates`; `detect_vcp_geometry`; SVP | An explicit **base/consolidation-tightness** detector as a first-class filter |
+| 8 · Accumulation | **now uses `detect_vcp_geometry`** (pivot-based base: contractions shrinking + volume drying) with a range/up-volume fallback | SVP-based distribution read as a second confirmation |
 
 ## Entry / Exit
 
