@@ -72,6 +72,22 @@ two-sample p). This confirms the "confirmation, not signal" stance with numbers:
   worsens after costs). Mirrors the [[strategies/TechnoFunda-Delete-Funnel]]
   price-leg finding: the mild edge lives in longer-horizon strength, not triggers.
 
+## In this tool (2026-08-26)
+
+- **Chart indicator:** `adx_di.js` renders ADX / +DI / −DI as a subchart pane
+  (Oscillators → "ADX + DI"), with 25 (trend gate) and 20 (chop floor) reference
+  lines and DI-cross *bias dots* (not buy/sell arrows). Ported bar-for-bar from
+  the Python `_adx_di_series`, so chart and scanners agree.
+- **Scanners** (built to the measured stance — confirmation/risk, not triggers):
+  - **ADX Trend Confirmation** (`scan_adx_trend_confirmation`) — price > SMA50,
+    +DI > −DI, ADX ≥ 25 **and rising**. Deliberately selective and carries no
+    entry/stop/target; kept out of `MEASURED_EDGE_SCANNERS`. Pairs with a
+    price+volume trigger. Lives in the Trend/Momentum confluence family.
+  - **Downside Risk** (`scan_downside_risk`) — now confirmed by −DI > +DI with
+    ADX ≥ 25 (a passive "below SMA50" becomes an active downtrend), a `RISK_SCANNERS`
+    member. Live check (weak tape, Nifty −2.7%): UP-confirm fired on 1/20 names
+    (DIVISLAB), downside on 10/20 — appropriately rare vs broad.
+
 ## Common Mistakes
 - Confusing ADX with a directional signal — it is strength-only; always pair with DI or price structure for direction.
 - Using ADX on a single low-volume stock without checking liquidity — the math can break down on thin tickers.

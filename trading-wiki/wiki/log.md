@@ -1,6 +1,11 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-26] build | ADX+DI in the chart tool + two confirmation/risk scanners
+- **Chart:** `adx_di.js` (Wilder ADX/+DI/−DI) as a subchart indicator, ported bar-for-bar from Python `_adx_di_series` (verified identical: ADX 51.36/51.19/51.22…), wired into `chart_dashboard.html` (registry, MOMENTUM_KEYS, subchart block, 25/20 reference lines, DI-cross bias dots) + Flask route. Verified live in the chart tool — pane renders, no console errors.
+- **Scanners** (honest framing per the measured evidence — confirmation/risk, not triggers): **ADX Trend Confirmation** (`scan_adx_trend_confirmation`: >SMA50, +DI>−DI, ADX≥25 rising; no trade plan; NOT in MEASURED_EDGE; Trend/Momentum family) and **Downside Risk** enhanced with −DI>+DI + ADX≥25 confirmation. Live (Nifty −2.7%): UP fired 1/20 (DIVISLAB), downside 10/20 — selective vs broad, as expected.
+- **Design note:** deliberately not "buy/sell arrows." The [[concepts/ADX]] backtest showed the DI cross is negative-edge and the confirmed state ~neutral, so these are gates/context to pair with a price+volume trigger, matching how the swing system already uses ADX.
+
 ## [2026-08-26] measure | ADX/DI as a standalone buy signal — cross is negative-edge, state is neutral
 - **Question:** can you get an actionable buy/sell signal from an ADX+DI subchart? **Measured it** (repo `_adx_di_series`, point-in-time, 20 liquid names, 27,860 baseline bars, ~6y).
 - **Bare bullish +DI/−DI cross (n=1042): NEGATIVE edge**, significant at 60d (−1.01%, p=0.04) — you buy the lag. **DI-cross + ADX>25-rising on the same bar fires ~never (n=6)** — the textbook combined trigger barely exists. **Confirmed DI+ADX *state* (n=1091): ~neutral** — flat to +0.86% @60d (p=0.10, not significant).

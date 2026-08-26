@@ -191,6 +191,7 @@ SCANNER_FAMILIES: dict[str, tuple[str, ...]] = {
         "Momentum Continuation",
         "Stage 2 Uptrend",
         "ATH Breakout (all-time high)",
+        "ADX Trend Confirmation",
     ),
     "Base/Contraction": (
         "VCP Coiling",

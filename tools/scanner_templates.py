@@ -1175,11 +1175,85 @@ def scan_downside_risk(df: pd.DataFrame) -> dict | None:
     )
     if dist_days >= 2:
         reasons.append(f"{dist_days} distribution days in last 10 sessions — selling pressure")
+
+    tags = ["Below SMA50", "Distribution"]
+    score = round((sma50 - last) / sma50 * 100, 2)
+
+    # ADX/DI directional confirmation — −DI in control with trend strength turns a
+    # passive "below SMA50" into an active downtrend. (Measured: ADX/DI is a
+    # regime read, not a trigger — see concepts/ADX; here it CONFIRMS the break.)
+    if len(df) >= 40:
+        try:
+            plus_di, minus_di, adx = _adx_di_series(df)
+            adx_now = float(adx.iloc[-1]); pdi = float(plus_di.iloc[-1]); mdi = float(minus_di.iloc[-1])
+            if not (np.isnan(adx_now) or np.isnan(pdi)):
+                if mdi > pdi and adx_now >= 25:
+                    reasons.append(f"−DI {mdi:.0f} > +DI {pdi:.0f} with ADX {adx_now:.0f} — "
+                                   f"directional downtrend has strength, not just a wobble")
+                    tags.append("−DI>+DI, ADX≥25")
+                    score = min(100.0, score + 15.0)
+                elif mdi > pdi:
+                    reasons.append(f"−DI {mdi:.0f} > +DI {pdi:.0f} (ADX {adx_now:.0f}) — "
+                                   f"sellers ahead but trend strength still weak")
+                    tags.append("−DI>+DI")
+        except Exception:
+            pass
+
     return {
         "pattern_type": "Downside Risk",
-        "tags": ["Below SMA50", "Distribution"],
+        "tags": tags,
         "reasons": reasons,
-        "score": round((sma50 - last) / sma50 * 100, 2),
+        "score": score,
+    }
+
+
+def scan_adx_trend_confirmation(df: pd.DataFrame) -> dict | None:
+    """ADX+DI trend-UP confirmation — NOT a standalone buy trigger.
+
+    Fires when the directional-movement system confirms an up-trend with
+    strength: price > SMA50, **+DI > −DI**, **ADX ≥ 25 AND rising**. This is a
+    *context/confirmation* read, not an entry: the measured evidence
+    (concepts/ADX.md — DI crosses are negative-edge, the confirmed state ~neutral)
+    says ADX/DI does not itself generate alpha. Its job here is to say "the trend
+    is on and pointed up" so a separate price+volume trigger can be taken with the
+    tape rather than against it. Deliberately carries **no entry/stop/target** —
+    it is not a trade plan. Kept out of MEASURED_EDGE_SCANNERS for the same reason.
+    """
+    if len(df) < 60:
+        return None
+    close = df["close"]
+    last = float(close.iloc[-1])
+    sma50 = _sma(close, 50)
+    if np.isnan(sma50) or last <= sma50:
+        return None
+    try:
+        plus_di, minus_di, adx = _adx_di_series(df)
+        adx_now = float(adx.iloc[-1]); adx_prev = float(adx.iloc[-2])
+        pdi = float(plus_di.iloc[-1]); mdi = float(minus_di.iloc[-1])
+    except Exception:
+        return None
+    if any(np.isnan(x) for x in (adx_now, adx_prev, pdi, mdi)):
+        return None
+    # +DI must lead, ADX must be actionable (≥25) AND rising (slope > level).
+    if not (pdi > mdi and adx_now >= 25 and adx_now > adx_prev):
+        return None
+
+    spread = pdi - mdi
+    reasons = [
+        f"ADX {adx_now:.0f} (rising from {adx_prev:.0f}) — trend strength is real and building",
+        f"+DI {pdi:.0f} > −DI {mdi:.0f} (spread {spread:.0f}) — buyers in directional control",
+        f"Price ({last:.0f}) > SMA50 ({sma50:.0f}) — structure agrees with the DI read",
+        "CONFIRMATION, not a trigger — pair with a price+volume entry; ADX/DI alone "
+        "has no measured edge (concepts/ADX.md).",
+    ]
+    # Score from trend strength + directional conviction; capped. No trade plan.
+    score = min(100.0, 35.0 + min(35.0, (adx_now - 25.0)) + min(30.0, spread))
+    return {
+        "pattern_type": "ADX Trend-Up (confirmation)",
+        "tags": [f"ADX {adx_now:.0f}↑", f"+DI>−DI ({spread:.0f})", "Confirm, not trigger"],
+        "reasons": reasons,
+        "score": round(score, 1),
+        "rs_raw": _rs_raw(df),
     }
 
 
@@ -5388,6 +5462,14 @@ SCANNERS: dict[str, dict] = {
     "Stage 2 Uptrend": {
         "fn": scan_stage2_uptrend,
         "description": "Textbook Minervini Stage 2: SMA50 > SMA150 > SMA200, all rising",
+        "category": "Trend",
+    },
+    "ADX Trend Confirmation": {
+        "fn": scan_adx_trend_confirmation,
+        "description": ("ADX+DI confirms an up-trend with strength: price > SMA50, "
+                        "+DI > −DI, ADX ≥ 25 and rising. A CONFIRMATION/context read, "
+                        "not a standalone buy — ADX/DI alone has no measured edge "
+                        "(see concepts/ADX.md). Pair with a price+volume trigger."),
         "category": "Trend",
     },
     "Pullback Entry": {
