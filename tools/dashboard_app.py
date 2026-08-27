@@ -4944,15 +4944,15 @@ if current_page == "Opportunity Hub":
                                 _regime = (_meta.get("market") or {}).get("regime", "UNKNOWN")
                                 _pre_gate = len(shown)
                                 shown, _gate = od._apply_regime_gate(
-                                    shown, _regime, top_n=100, score_key="rank_score")
+                                    shown, _regime, top_n=100, score_key="rank_score",
+                                    rating_key="overall")
                                 _multi = sum(1 for h in shown if len(h["families"]) > 1)
                                 if _gate["n_before"] != _gate["n_after"]:
                                     _gtone = "risk" if _regime == "RISK-OFF" else "warn"
                                     st.markdown(rs.callout(
                                         f"Regime gate [{_regime}]",
                                         f"{_pre_gate} candidates → **{len(shown)}** kept "
-                                        f"(score ≥ {_gate['min_score']:.0f}, cap {_gate['cap']}). "
-                                        f"{_gate['note']}", tone=_gtone),
+                                        f"({_gate['gate_txt']}). {_gate['note']}", tone=_gtone),
                                         unsafe_allow_html=True)
                                 st.caption(
                                     f"**{len(shown)}** of {_meta.get('n_stocks', 0)} "

@@ -197,8 +197,118 @@ def format_report(res: dict) -> str:
     return "\n".join(out)
 
 
+# ── Floor calibration (B-33) ──────────────────────────────────────────────────
+# The gate in opportunity_daily uses per-regime floors on the rank_score. The
+# rank_score is 45% overall-rating, and the rating is the one conviction axis that
+# is (a) point-in-time computable here and (b) already on every shortlist row — so
+# we calibrate a RATING floor per regime: within each regime, split the bullish
+# signals at a rating threshold and compare the KEPT set's forward edge to the
+# dropped TAIL's. The right floor is the lowest threshold whose kept set beats a
+# regime-matched random bar while the tail does not.
+CAL_THRESHOLDS = (40, 50, 60, 70, 80)
+
+
+def calibrate_regime_floors(symbols: list[str], fetch_fn: Callable, nifty_df: pd.DataFrame,
+                            *, horizon: int = 20, thresholds=CAL_THRESHOLDS,
+                            warmup: int = WARMUP, stride: int = 10) -> dict:
+    import rating
+    reg = nifty_regime_series(nifty_df)
+    base = {r: [] for r in REGIMES}
+    sig = {r: [] for r in REGIMES}          # (rating, fwd) on bars where a bullish scanner fired
+    n_used = 0
+    for s in symbols:
+        try:
+            df = fetch_fn(s)
+        except Exception:
+            continue
+        if df is None or len(df) < warmup + horizon + 3 or not isinstance(df.index, pd.DatetimeIndex):
+            continue
+        df = df.dropna(subset=["high", "low", "close"])
+        n = len(df)
+        if n < warmup + horizon + 3:
+            continue
+        openp = (df["open"] if "open" in df else df["close"]).to_numpy(float)
+        close = df["close"].to_numpy(float)
+        n_used += 1
+        for t in range(warmup, n - horizon - 2, stride):
+            entry = openp[t + 1]
+            if entry <= 0:
+                continue
+            r = reg.asof(df.index[t])
+            if r not in REGIMES:
+                continue
+            fwd = (close[t + 1 + horizon] / entry - 1.0) * 100.0
+            base[r].append(fwd)
+            slc = df.iloc[:t + 1]
+            fired = False
+            for fn in SIGNALS.values():
+                try:
+                    if fn(slc) is not None:
+                        fired = True
+                        break
+                except Exception:
+                    pass
+            if not fired:
+                continue
+            try:
+                rv, _ = rating.overall_rating(slc, nifty_df.loc[:df.index[t]])
+            except Exception:
+                rv = None
+            if rv is not None:
+                sig[r].append((float(rv), fwd))
+
+    out = {"horizon": horizon, "n_symbols": n_used, "thresholds": list(thresholds), "regimes": {}}
+    for r in REGIMES:
+        bmean = float(np.mean(base[r])) if base[r] else float("nan")
+        ratings = np.array([x[0] for x in sig[r]]) if sig[r] else np.array([])
+        fwds = np.array([x[1] for x in sig[r]]) if sig[r] else np.array([])
+        rows = []
+        best = None
+        for th in thresholds:
+            keep = fwds[ratings >= th]
+            tail = fwds[ratings < th]
+            kedge = (float(keep.mean()) - bmean) if len(keep) else float("nan")
+            tedge = (float(tail.mean()) - bmean) if len(tail) else float("nan")
+            kp = _welch_p(list(keep), np.asarray(base[r])) if len(keep) else None
+            rows.append({"th": th, "kept_n": int(len(keep)), "kept_edge": kedge,
+                         "kept_p": kp, "tail_n": int(len(tail)), "tail_edge": tedge})
+            # recommend: lowest th where kept beats baseline and beats the tail
+            if best is None and not np.isnan(kedge) and kedge > 0 and (np.isnan(tedge) or kedge > tedge):
+                best = th
+        out["regimes"][r] = {"baseline_mean": bmean, "signal_n": len(sig[r]),
+                             "sweep": rows, "recommended_floor": best}
+    return out
+
+
+def format_calibration(cal: dict) -> str:
+    out = [f"Regime floor calibration — rating threshold vs forward edge @ {cal['horizon']}d",
+           f"symbols used: {cal['n_symbols']}", ""]
+    for r in REGIMES:
+        rg = cal["regimes"][r]
+        out.append(f"[{r}]  baseline {rg['baseline_mean']:+.2f}%  ·  {rg['signal_n']} signal bars")
+        out.append(f"  {'rating≥':>7}  {'kept_n':>7}  {'kept_edge(p)':>16}  {'tail_n':>7}  {'tail_edge':>10}")
+        for row in rg["sweep"]:
+            ke = "n/a" if np.isnan(row["kept_edge"]) else f"{row['kept_edge']:+.2f}"
+            kp = "" if row["kept_p"] is None else f" ({row['kept_p']:.2f})"
+            te = "n/a" if np.isnan(row["tail_edge"]) else f"{row['tail_edge']:+.2f}"
+            star = " *" if (row["kept_p"] is not None and row["kept_p"] < 0.05) else ""
+            out.append(f"  {row['th']:>7}  {row['kept_n']:>7}  {ke+kp+star:>16}  {row['tail_n']:>7}  {te:>10}")
+        rec = rg["recommended_floor"]
+        out.append(f"  → recommended rating floor: "
+                   + (f"{rec} (lowest where kept beats baseline & tail)" if rec is not None
+                      else "NONE — no rating band beats a random bar; hard-cap / near-zero longs"))
+        out.append("")
+    return "\n".join(out)
+
+
 if __name__ == "__main__":
+    import sys
     import screener_pipeline as sp
     nifty = sp.fetch_nifty50(days=1500)
-    res = backtest_by_regime(DEFAULT_UNIVERSE, lambda s: sp.fetch_ohlcv(s, days=1500), nifty)
-    print(format_report(res))
+    if "--calibrate" in sys.argv:
+        cal = calibrate_regime_floors(DEFAULT_UNIVERSE[:15],
+                                      lambda s: sp.fetch_ohlcv(s, days=1500), nifty)
+        print(format_calibration(cal))
+    else:
+        res = backtest_by_regime(DEFAULT_UNIVERSE, lambda s: sp.fetch_ohlcv(s, days=1500), nifty)
+        print(format_report(res))

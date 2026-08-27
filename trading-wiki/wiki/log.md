@@ -1,6 +1,11 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-26] measure+build | B-33 gate floors CALIBRATED — rating floor 50, RISK-OFF near-zero longs
+- **`regime_backtest.py --calibrate`** — sweeps a rating threshold per regime and compares the KEPT set's fwd edge (@20d) to the dropped TAIL's, vs a regime-matched baseline. 15 names.
+- **Result:** RISK-ON — kept edge mildly +, tail turns − above rating 50 → **floor ≈50** (edges small, not significant — rating barely separates in a rising tape). MIXED — kept edge **solidly +1.2% to +2.0%** at every threshold → bullish signals genuinely work; floor 50 fine. RISK-OFF — kept edge **NEGATIVE at every threshold and WORSE at higher rating** (≥70 → −2.5%, ≥80 → −3.1%): the best-looking bullish setups below the 200 SMA are the worst bull traps.
+- **Encoded** in `opportunity_daily.REGIME_GATE`: added a calibrated `min_rating` (RISK-ON/MIXED/UNKNOWN = 50; **RISK-OFF = None** because a rating floor selects *worse* names there) and cut RISK-OFF cap 10→**5** (near-zero longs). `_apply_regime_gate` now takes `rating_key` (stored `overall_rating` / live `overall`); both paths + unit test pass. Floors are now data-set, not judgment. Filed on [[analyses/Open-Backlog]] (B-33).
+
 ## [2026-08-26] build | B-32 + B-33 SHIPPED — regime conviction gate on the shortlist
 - **Built on the proven premise:** `opportunity_daily.REGIME_GATE` + `_apply_regime_gate(rows, regime, top_n, score_key)`. A regime-dependent **score floor + name cap** replaces the flat `top_n=100` cut: RISK-ON floor 45 / no cap; MIXED 55 / 40; RISK-OFF **65 / 10** (hard); UNKNOWN cautious. So the list shrinks by itself with conviction (B-33) and shrinks HARD in RISK-OFF where bullish signals were measured to lose (B-32).
 - **Wired in two places:** `opportunity_daily.run()` (stored/scheduled shortlist, with a `_say` log line + `regime_gate` in the result) and the dashboard **live** Opportunity-Hub pipeline (gates on `rank_score`, shows a throttle callout). Unit-tested the gate across all four regimes; both files compile.

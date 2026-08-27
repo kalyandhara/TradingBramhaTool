@@ -73,27 +73,54 @@ W_RATING, W_SCANNER, W_CONFLUENCE = 0.45, 0.30, 0.25
 # shortlist hard and demands top-conviction; MIXED raises the bar; RISK-ON runs
 # full. The DIRECTION is measured; the exact score floors are heuristic pending a
 # score-calibration backtest (they sit on the 0–100 rank-score scale).
+# Floors CALIBRATED 2026-08-26 by `regime_backtest.py --calibrate` (rating vs
+# forward edge @20d, 15 names): in RISK-ON/MIXED a rating floor ≈50 keeps the set
+# that beats a random bar while the sub-50 tail turns negative; in RISK-OFF NO
+# rating band beats a random bar and higher-rated names do WORSE (rating≥80 →
+# −3.10% edge), so a rating floor is counter-productive there — the only honest
+# lever is a hard cap toward zero. `min_rating` = None means "do not rank-filter
+# by rating" (RISK-OFF); the cap does the work.
 REGIME_GATE: dict[str, dict] = {
-    "RISK-ON":  {"min_score": 45.0, "max_names": None, "note": "full run — bullish edge intact"},
-    "MIXED":    {"min_score": 55.0, "max_names": 40,   "note": "raised bar — uptrend in a pullback"},
-    "RISK-OFF": {"min_score": 65.0, "max_names": 10,
-                 "note": "hard cap — below 200 SMA bullish signals underperform random; watchlist, not a buy list"},
-    "UNKNOWN":  {"min_score": 55.0, "max_names": 40,   "note": "benchmark unavailable — treated cautiously"},
+    "RISK-ON":  {"min_score": 45.0, "min_rating": 50.0, "max_names": None,
+                 "note": "full run — bullish edge intact; rating floor 50 (calibrated)"},
+    "MIXED":    {"min_score": 55.0, "min_rating": 50.0, "max_names": 40,
+                 "note": "bullish edge still positive (~+1.2% @20d); rating floor 50"},
+    "RISK-OFF": {"min_score": 65.0, "min_rating": None, "max_names": 5,
+                 "note": "near-zero longs — below the 200 SMA bullish signals LOSE and "
+                         "higher-rated ones lose MORE (calibrated); watchlist, not a buy list"},
+    "UNKNOWN":  {"min_score": 55.0, "min_rating": 50.0, "max_names": 40,
+                 "note": "benchmark unavailable — treated cautiously"},
 }
 
 
 def _apply_regime_gate(rows: list[dict], regime: str, top_n: int,
-                       score_key: str = "score") -> tuple[list[dict], dict]:
+                       score_key: str = "score",
+                       rating_key: str = "overall_rating") -> tuple[list[dict], dict]:
     """Conviction gate (B-33) whose floor/cap depend on regime (B-32). `rows` must
-    already be score-sorted descending. `score_key` lets the live dashboard
-    pipeline gate on its `rank_score` field. Returns (kept_rows, gate_meta)."""
+    already be score-sorted descending. `score_key`/`rating_key` let the live
+    dashboard pipeline gate on its `rank_score`/`overall` fields. The rating floor
+    is calibrated (see REGIME_GATE); it is skipped where `min_rating` is None
+    (RISK-OFF, where a rating floor selects worse names). Returns (kept, meta)."""
     g = REGIME_GATE.get(regime, REGIME_GATE["UNKNOWN"])
     cap = top_n if g["max_names"] is None else min(g["max_names"], top_n)
-    kept = [r for r in rows if (r.get(score_key) or 0) >= g["min_score"]][:cap]
-    meta = {"regime": regime, "min_score": g["min_score"], "cap": cap,
-            "note": g["note"], "n_before": len(rows), "n_after": len(kept)}
+    mr = g.get("min_rating")
+
+    def _ok(r: dict) -> bool:
+        if (r.get(score_key) or 0) < g["min_score"]:
+            return False
+        if mr is not None and (r.get(rating_key) or 0) < mr:
+            return False
+        return True
+
+    kept = [r for r in rows if _ok(r)][:cap]
+    gate_txt = f"score ≥ {g['min_score']:.0f}"
+    if mr is not None:
+        gate_txt += f", rating ≥ {mr:.0f}"
+    gate_txt += f", cap {cap}"
+    meta = {"regime": regime, "min_score": g["min_score"], "min_rating": mr, "cap": cap,
+            "note": g["note"], "n_before": len(rows), "n_after": len(kept), "gate_txt": gate_txt}
     for r in kept:
-        r["regime_gate"] = f"{regime}: score ≥ {g['min_score']:.0f}, cap {cap}"
+        r["regime_gate"] = f"{regime}: {gate_txt}"
     return kept, meta
 
 
@@ -342,7 +369,7 @@ def run(universe_size: int = 200, top_n: int = 100,
     for i, r in enumerate(rows, 1):
         r["rank"] = i
     _say(f"Regime gate [{gate['regime']}]: {gate['n_before']} → {gate['n_after']} "
-         f"(score ≥ {gate['min_score']:.0f}, cap {gate['cap']}).")
+         f"({gate['gate_txt']}).")
 
     if save and rows:
         db.save_daily_opportunities(rows, run_date=run_date)
