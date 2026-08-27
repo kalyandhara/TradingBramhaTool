@@ -1,6 +1,11 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-26] build | UI concurrency — per-session serial job queue (queue, don't cancel)
+- **Problem:** Streamlit reruns (interrupts) the single script thread on ANY click, so a long inline task (funnel `od.run`, ~minutes; sentiment `compute_sentiment`, ~25s) is CANCELLED when the user clicks another button. Owner wants the second action QUEUED and run after the in-progress one.
+- **Shipped:** `ui_jobs.py` — a per-session `ThreadPoolExecutor(max_workers=1)` serial queue. `submit`/`submit_unique` return instantly (rerun completes, UI stays live); a submit while one runs waits its turn, never cancels it. Attaches the script's `ScriptRunContext` to the worker so cached fetchers work off-thread. `render_panel()` (top) shows running/queued jobs; `autorefresh()` (bottom) polls via sleep+rerun so the full page still renders and stays clickable. `take_result(label)` consumes a finished job's output once. **Standalone self-test proves the serial guarantee** (B queued mid-A runs strictly after A).
+- **Wired** both long tasks in `dashboard_app.py` (funnel run + inline sentiment refresh) to the queue with a global status panel. Core logic unit-proven; the in-app behaviour is behind the login (not clicked through). App boots clean.
+
 ## [2026-08-26] measure | B-33 floor precision — tightened on 55 names + kept-vs-tail test
 - Re-ran `regime_backtest.py --calibrate` on **55 names / ~3,000 signal bars**, adding a direct **kept-vs-tail** separation test and a finer threshold grid. (Caught + fixed a shadowing bug: the significance flag was named `sig`, clobbering the `sig` dict.)
 - **RISK-ON:** a rating floor genuinely SORTS — kept-vs-tail separation significant at 40 and again 65–75 (kept +0.4–0.5%, sub-floor tail negative). Floor 50 is in-band; ~65 is the cleanest cut.

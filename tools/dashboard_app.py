@@ -61,6 +61,7 @@ import smart_money as smm
 import red_flags as rflags
 import technofunda_funnel as tff
 import funnel_backtest as fbt
+import ui_jobs
 import scenarios as scen
 import rating
 import opportunity_daily as od
@@ -1052,6 +1053,12 @@ st.markdown(
 )
 
 current_page = st.session_state["current_page"]
+
+# Background-job status panel (see ui_jobs). Long tasks (funnel run, sentiment
+# refresh) run on a per-session SERIAL queue off the script thread, so clicking a
+# second action while one runs QUEUES it instead of cancelling the running one.
+# The panel is drawn here (top); `ui_jobs.autorefresh()` polls at the very bottom.
+ui_jobs.render_panel()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2963,17 +2970,23 @@ if _show_regime and (_senti_reading is None or (_senti_age or 0) >= 1):
             "as a caution flag, so refreshing may change it.")
 
     if _do_refresh:
-        try:
-            with st.spinner("Computing sentiment — bhavcopy, sector indices, PMax…"):
-                senti.compute_sentiment(persist=True)
-            # Same cache bust the Market Sentiment page performs. Without it the
-            # ribbon keeps serving the stale row for up to 5 minutes and the
-            # button looks broken.
-            cached_latest_sentiment.clear()
+        # Queue the ~25s compute on the serial job queue rather than running it
+        # inline — so a funnel run in progress is NOT cancelled, and vice-versa.
+        _sjid = ui_jobs.submit_unique("Refresh sentiment", senti.compute_sentiment,
+                                      persist=True)
+        if _sjid is None:
+            st.info("A sentiment refresh is already running — click ignored.")
+        st.rerun()
+
+    # Consume a completed sentiment refresh (fires once on completion). The cache
+    # bust + rerun must happen on the MAIN thread, so it lives here, not in the job.
+    _sfin = ui_jobs.get_queue().take_result("Refresh sentiment")
+    if _sfin is not None:
+        if _sfin.status == "error":
+            st.error(f"Sentiment compute failed: {_sfin.error}")
+        else:
+            cached_latest_sentiment.clear()   # else the ribbon serves stale for ~5 min
             st.session_state["ov_senti_refreshed"] = True
-            st.rerun()
-        except Exception as exc:
-            st.error(f"Sentiment compute failed: {exc}")
 
 if _show_regime and st.session_state.pop("ov_senti_refreshed", False):
     st.success("Sentiment recomputed — the verdict above reflects the new reading.")
@@ -4602,18 +4615,29 @@ if current_page == "Opportunity Hub":
         _od_uni = st.number_input("Universe size", 40, 5000, 500, 50, key="od_uni",
                                   help="Top N by traded value. 500 takes a few minutes.")
         if st.button("Run daily shortlist now", type="primary", key="od_run"):
-            _prog = st.empty()
-            with st.spinner("Running the funnel headlessly…"):
-                _res = od.run(universe_size=int(_od_uni), top_n=100,
-                              progress_cb=lambda m: _prog.caption(m))
-            _prog.empty()
-            if not _res.get("ok"):
-                st.error(f"Run failed — {_res.get('reason')}")
-            elif not _res.get("rows"):
-                st.warning(f"No shortlist: {_res.get('reason')}")
+            # Submit to the serial job queue instead of running inline, so a click
+            # elsewhere (e.g. Refresh sentiment) queues behind this run rather than
+            # cancelling it. od.run persists to the DB, so the shortlist below picks
+            # it up on the next poll-rerun; here we only need to report completion.
+            _jid = ui_jobs.submit_unique(
+                "Daily shortlist", od.run, universe_size=int(_od_uni), top_n=100,
+                progress_kw="progress_cb")
+            if _jid is None:
+                st.info("A daily-shortlist run is already in progress — click ignored.")
+            st.rerun()
+        # Consume a completed run (fires once when the background job finishes).
+        _fin = ui_jobs.get_queue().take_result("Daily shortlist")
+        if _fin is not None:
+            if _fin.status == "error":
+                st.error(f"Run failed — {_fin.error}")
             else:
-                st.success(f"Stored {len(_res['rows'])} names for {_res['run_date']}.")
-                st.rerun()
+                _res = _fin.result or {}
+                if not _res.get("ok"):
+                    st.error(f"Run failed — {_res.get('reason')}")
+                elif not _res.get("rows"):
+                    st.warning(f"No shortlist: {_res.get('reason')}")
+                else:
+                    st.success(f"Stored {len(_res['rows'])} names for {_res['run_date']}.")
 
     with dl:
         _shortlist = db.get_daily_opportunities(_sel_date) if _sel_date else pd.DataFrame()
@@ -10486,3 +10510,12 @@ if current_page == "Strategy Hub":
                 f'margin:4px 0;">',
                 unsafe_allow_html=True,
             )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Background-job poll — MUST be the last thing the script does. If any queued /
+# running job exists, sleep briefly then rerun, so the status panel and any
+# completed results refresh on their own. The full page above has already
+# rendered, so the user keeps interacting (new clicks queue) while a job runs.
+# ──────────────────────────────────────────────────────────────────────────────
+ui_jobs.autorefresh()
