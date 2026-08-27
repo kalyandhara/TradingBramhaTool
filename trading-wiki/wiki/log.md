@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-26] ingest | Vedic market-astrology video summary — only new granularity taken
+- **Source:** user-provided English summary of a Vedic market-astrology video (Nifty). Filed [[sources/Astro-Market-Prediction-Time-Agnostic]].
+- **New granularity ingested:** (1) created [[concepts/Vedic-Calendar-Volatility-Triggers]] — **Adhik-Masa** (extra lunar month → claimed 10–30% correction years) + **Panchaka** (5 inauspicious lunar days → volatility, worst on Full-Moon-on-Panchaka), both **unvalidated** and framed as event studies (Panchaka testable now vs matched control; Adhik-Masa too few events for significance). (2) Extended [[concepts/Vedic-Planet-Trading-Aspects]] with the **rashi bullish/bearish sign table** and the explicit **planet×sign×pada majority tally** (sources 2→3).
+- **Deliberately skipped (already covered / no new granularity):** cruel-gentle planet bias, pada mechanics, sector-by-ruling-planet, full-moon-correction, gold/Rohini — all already on file; and the 3–5% support-buffer + illustrative Nifty targets (~26,500/25,300) as **generic TA / date-decaying forecast** (vault "price levels decay" rule).
+- **Convention note:** summary uses malefic=bullish (matches VPTA), opposite the intraday SBC malefic=bearish grid — flagged on both as two frames, not a contradiction. **Measurement stance held:** all astro claims here are hypotheses; the vault's astro backtests are clean negatives, so nothing is treated as a signal. Index 262→264 pages, 105→106 sources.
+
 ## [2026-08-26] measure | ADX/DI on small-caps — regime-dependent, one counterintuitive result
 - Ran `adx_di_backtest.py` on 54 NSE small/micro-caps (12,842 baseline bars) vs the earlier 20 large-caps. **Bare bull cross now significantly LOSES** (−0.93% @10d p=0.02, −2.17% @60d) — never a buy. **Confirmed up-state edge is STRONGER in small-caps** (+1.82% @60d, p<0.005 vs +1.20% large-cap) — the ADX Trend Confirmation scanner earns most here, at the ~60d position horizon. **Counterintuitive:** the bearish −DI/ADX "downside" state precedes a short-term BOUNCE in small-caps (+0.51% @5d, p<0.005) — a contrarian oversold tell, NOT a short trigger. Regime-comparison table filed on [[concepts/ADX]].
 

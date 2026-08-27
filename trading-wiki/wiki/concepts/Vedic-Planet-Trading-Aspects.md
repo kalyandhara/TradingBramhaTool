@@ -3,12 +3,14 @@ title: "Vedic Planet Trading Aspects — Planet-Wise Market Influence Table"
 category: concept
 tags: [astro, vedic, planets, aspects, drishti, karaka, trading-bias, sectors]
 created: 2026-08-12
-updated: 2026-08-12
-sources: 2
+updated: 2026-08-26
+sources: 3
 related:
   - concepts/Jupiter-Market-Crash-Thesis.md
   - concepts/Nakshatra-Sector-Map.md
   - concepts/India-Independence-Chart-Trading.md
+  - concepts/Vedic-Calendar-Volatility-Triggers.md
+  - concepts/Sarvatobhadra-Chakra.md
 ---
 
 # Vedic Planet Trading Aspects
@@ -125,7 +127,56 @@ All three legs of the chain being activated simultaneously = strongest signal.
 
 ---
 
+---
+
+## Rashi (Sign) Bullish/Bearish Classification
+
+*(Added 2026-08-26 from the "Time-Agnostic" astro-prediction summary — a
+**sign-level** bias layer this page previously lacked; it had planet bias and sign
+*lords* but no standalone bullish/bearish tag per rashi.)*
+
+| Bias | Signs (Rashi) |
+|------|---------------|
+| **Bullish** | Aries, Taurus, Leo, Scorpio, Capricorn |
+| **Bearish** | Gemini, Cancer, Virgo, Libra, Sagittarius, Aquarius, Pisces |
+
+A planet's effect is said to be **amplified** when it sits in a sign of matching
+bias (a cruel/malefic → bullish planet in a bullish sign pushes harder up; a
+gentle/benefic → bearish planet in a bearish sign pulls harder down). **Unvalidated
+— a taxonomy, not a measured factor.**
+
+## Three-Layer Bias Tally (Planet × Sign × Pada)
+
+The source's actual *method* — the aggregation this page had only implied. For the
+current moment:
+
+1. **Planet type** — cruel (malefic → bullish) vs gentle (benefic → bearish), per
+   the master table above. (Matches this page's convention; the source corroborates
+   "cruel planets drive fast, usually upward moves.")
+2. **Sign type** — bullish vs bearish rashi (table above).
+3. **Pada type** — the nakshatra quarter (1–4) the planet sits in, tagged
+   bullish/bearish as a sub-trend (see [[concepts/Nakshatra-Sector-Map]] for padas).
+
+**Tally the three layers across all nine grahas; the majority side is the market
+bias.** Example given: Moon/Sun/Mars/Ketu in bullish signs+padas → bullish
+dominance, tempered by Jupiter/Venus/Saturn in gentle signs/padas → range-then-break.
+
+> [!warning] Convention vs the SBC grid — not a contradiction, different frame
+> This page (and this method) uses **malefic = bullish**. The intraday
+> [[concepts/Sarvatobhadra-Chakra]] grid uses **malefic = bearish**. Per the vault's
+> standing note, macro/natal-karaka work (here) and the intraday vedha grid are
+> different frames — do not mix their sign conventions in one read.
+
+> [!note] Measurement stance
+> The whole tally is **unvalidated**. Calendar siblings (Adhik-Masa, Panchaka) are
+> in [[concepts/Vedic-Calendar-Volatility-Triggers]]; the vault's astro backtests
+> are clean negatives, so treat this as a structured *narrative*, testable only as
+> an event study, never as a standalone signal.
+
+---
+
 ## Sources
 
 1. Financial Astrology Course — India Independence Chart & Reliance analysis (user-provided notes, 2026-08-12)
 2. Vedic astrology standard references: Brihat Parashara Hora Shastra (aspect doctrine), Jataka Parijata (karaka assignments)
+3. "Astrological Market-Prediction Theory (Time-Agnostic)" video summary (user-provided, 2026-08-26) — added the rashi bullish/bearish table and the explicit planet×sign×pada tally. See [[sources/Astro-Market-Prediction-Time-Agnostic]].
