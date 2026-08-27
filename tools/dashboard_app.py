@@ -4559,6 +4559,38 @@ if current_page == "Opportunity Hub":
                "scanner runs on just the leaders. The Hub narrows & ranks — you "
                "validate the setup and manage the risk.")
 
+    # ── Regime posture banner (B-36) — the one-line "what do I do today?" ──────
+    # Driven by the SAME regime + conviction gate B-32/B-33 validated, so the
+    # banner states the posture the gate will actually enforce. Puts the
+    # behavioural thesis (do LESS in a hostile tape) at the top of the page rather
+    # than burying it — the anti-over-trading nudge, felt, not filed.
+    try:
+        _mkt_now = od._market_context(cached_fetch_nifty50(days=400))
+    except Exception:
+        _mkt_now = {"regime": "UNKNOWN", "verdict": "Benchmark unavailable — regime not assessed."}
+    _rg = _mkt_now["regime"]
+    _gcfg = od.REGIME_GATE.get(_rg, od.REGIME_GATE["UNKNOWN"])
+    _cap_txt = "full shortlist" if _gcfg["max_names"] is None else f"≤ {_gcfg['max_names']} names"
+    _rate_txt = (f"rating ≥ {_gcfg['min_rating']:.0f}" if _gcfg.get("min_rating") else "no rating floor")
+    _ptone, _plabel = {
+        "RISK-ON":  ("good",   "RISK-ON · full run"),
+        "MIXED":    ("warn",   "MIXED · raised bar"),
+        "RISK-OFF": ("risk",   "RISK-OFF · capital preservation"),
+        "UNKNOWN":  ("absent", "REGIME UNKNOWN · cautious"),
+    }.get(_rg, ("absent", "REGIME UNKNOWN"))
+    _pfg, _pbg = rs.tone_colors(_ptone)
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;'
+        f'background:{_pbg};border-left:5px solid {_pfg};border-radius:8px;'
+        f'padding:10px 14px;margin:4px 0 12px 0;">'
+        f'<span style="font-weight:800;font-size:14px;color:{_pfg};letter-spacing:.02em;'
+        f'white-space:nowrap;">{_plabel}</span>'
+        f'<span style="font-size:12.5px;color:{rs.TOKENS["text_body"]};">'
+        f'{_cap_txt}, {_rate_txt}. {_gcfg["note"]}</span>'
+        f'<span style="margin-left:auto;font-size:11.5px;color:{rs.TOKENS["text_muted"]};'
+        f'max-width:38%;text-align:right;">{_mkt_now["verdict"]}</span>'
+        f'</div>', unsafe_allow_html=True)
+
     # ── Daily shortlist (stored) ──────────────────────────────────────────────
     # The manual funnel below is five steps and keeps nothing. This runs the same
     # funnel unattended and stores the result, so the daily question is "what did

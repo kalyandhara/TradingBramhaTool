@@ -1,6 +1,11 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-26] build | B-36 posture banner — regime nudge at the top of the Opportunity Hub
+- **Shipped:** a regime-coloured one-line posture banner at the top of the Opportunity Hub, driven by the SAME `opportunity_daily.REGIME_GATE` it enforces (so the stated posture always matches the actual gate). RISK-ON green "full run, rating ≥50" → MIXED amber "≤40, rating ≥50" → **RISK-OFF red "≤5 names, no rating floor — bullish signals below the 200 SMA LOSE; watchlist, not a buy list"** → UNKNOWN grey cautious. Shows the Nifty vs-200-SMA verdict on the right. Composition unit-checked for all four regimes; dashboard compiles.
+- **Purpose (B-36):** the anti-over-trading nudge *felt*, not filed — "what do I do today?" answered in one line at the front door, consistent with the measured B-32/B-33 throttle.
+- **Still open:** the nav-consolidation half (fold/demote low-use pages) — held for the owner's call since page usage isn't instrumented; guessing which of ~21 pages to demote would be taste, not data. Filed on [[analyses/Open-Backlog]] (B-36).
+
 ## [2026-08-26] measure+build | B-33 gate floors CALIBRATED — rating floor 50, RISK-OFF near-zero longs
 - **`regime_backtest.py --calibrate`** — sweeps a rating threshold per regime and compares the KEPT set's fwd edge (@20d) to the dropped TAIL's, vs a regime-matched baseline. 15 names.
 - **Result:** RISK-ON — kept edge mildly +, tail turns − above rating 50 → **floor ≈50** (edges small, not significant — rating barely separates in a rising tape). MIXED — kept edge **solidly +1.2% to +2.0%** at every threshold → bullish signals genuinely work; floor 50 fine. RISK-OFF — kept edge **NEGATIVE at every threshold and WORSE at higher rating** (≥70 → −2.5%, ≥80 → −3.1%): the best-looking bullish setups below the 200 SMA are the worst bull traps.
