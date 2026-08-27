@@ -1,6 +1,11 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-26] measure | B-32 RISK-OFF premise PROVEN — bullish scanners pick bull traps below the 200 SMA
+- **Shipped:** `regime_backtest.py` — buckets forward returns by the point-in-time Nifty regime (mirrors `opportunity_daily._market_context`) and reports per-regime **edge over a regime-matched baseline** (isolates signal quality from market beta). scipy-optional. 30 names, ~7,400 bars.
+- **Result:** composite bullish-scanner edge +0.22 @20d in RISK-ON → **−1.78 @20d in RISK-OFF (p<0.005)**; all four scanners flip significantly negative in RISK-OFF (stage2 −2.87, momentum −3.13, 52w_high −2.69). **The premise B-32 needed is proven.**
+- **Sharper than expected:** RISK-OFF *baseline* was POSITIVE (+1.89 @20d — random below-200 bars bounced), so this is NOT market beta. Bullish signals below the 200 SMA underperform a *random* below-200 name by 1.3–3% — they actively pick **bull traps**. Justifies throttling (or inverting) bullish output in RISK-OFF far more than "bad tape" would. B-33's conviction gate should be harshest in RISK-OFF. Filed on [[analyses/Open-Backlog]] (B-32). **Throttle now earned — build next.**
+
 ## [2026-08-26] ingest | Vedic market-astrology video summary — only new granularity taken
 - **Source:** user-provided English summary of a Vedic market-astrology video (Nifty). Filed [[sources/Astro-Market-Prediction-Time-Agnostic]].
 - **New granularity ingested:** (1) created [[concepts/Vedic-Calendar-Volatility-Triggers]] — **Adhik-Masa** (extra lunar month → claimed 10–30% correction years) + **Panchaka** (5 inauspicious lunar days → volatility, worst on Full-Moon-on-Panchaka), both **unvalidated** and framed as event studies (Panchaka testable now vs matched control; Adhik-Masa too few events for significance). (2) Extended [[concepts/Vedic-Planet-Trading-Aspects]] with the **rashi bullish/bearish sign table** and the explicit **planet×sign×pada majority tally** (sources 2→3).
