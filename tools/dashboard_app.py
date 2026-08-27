@@ -927,10 +927,9 @@ PAGE_GROUPS = {
     "Screening":        ["Opportunity Hub", "Delete Funnel", "Screener", "Other Screeners", "Scanner Hub",
                          "Breakout Screener", "High-Growth Screener", "TradingView Screener"],
     "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
-    "Research":         ["Predictive Analysis", "Stock Analyzer", "Sector Map", "Astro Timing", "Telegram Signals"],
+    "Research":         ["Predictive Analysis", "Stock Analyzer", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
     "Ops":              ["Pipeline Log", "Scheduler Hub"],
-    "Analytics":        ["Strategy Hub"],
 }
 
 #: One line per page, shown on the Home cards. Kept factual — each says what the
@@ -969,7 +968,6 @@ GROUP_BLURBS = {
     "Research":         ("🔬", "Study one name"),
     "Portfolio & Risk": ("🛡", "Manage what you hold"),
     "Ops":              ("⚙", "Check the machinery"),
-    "Analytics":        ("📊", "Patterns, strategies, and scores"),
 }
 
 if "current_page" not in st.session_state:
@@ -999,7 +997,6 @@ _NAV_ICONS = {
     "Research":         "🔬",
     "Portfolio & Risk": "🛡",
     "Ops":              "⚙",
-    "Analytics":        "📊",
 }
 
 # Sentinel — CSS ribbon targets the stHorizontalBlock that immediately follows this
