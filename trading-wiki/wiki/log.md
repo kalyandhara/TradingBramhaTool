@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-26] measure | B-33 floor precision — tightened on 55 names + kept-vs-tail test
+- Re-ran `regime_backtest.py --calibrate` on **55 names / ~3,000 signal bars**, adding a direct **kept-vs-tail** separation test and a finer threshold grid. (Caught + fixed a shadowing bug: the significance flag was named `sig`, clobbering the `sig` dict.)
+- **RISK-ON:** a rating floor genuinely SORTS — kept-vs-tail separation significant at 40 and again 65–75 (kept +0.4–0.5%, sub-floor tail negative). Floor 50 is in-band; ~65 is the cleanest cut.
+- **MIXED — correction:** the earlier 15-name "+1.2% edge" was a **small-sample artifact**. On 458 bars the kept edge is ~0 and NO floor significantly sorts. Downgraded the gate note to "coin-flip; mild floor only," removed the false +1.2% claim.
+- **RISK-OFF:** now **significant at nearly every threshold** (−1 to −2.2%, p≤0.05), and higher-rated names do significantly WORSE than the tail (kept<tail p=0.02 @≥70) — the bull-trap finding is statistically pinned. Floors kept (RISK-ON/MIXED/UNKNOWN 50, RISK-OFF None); the calibration comment + MIXED note corrected in `opportunity_daily.REGIME_GATE`. Filed on [[analyses/Open-Backlog]] (B-33).
+
 ## [2026-08-26] build | B-36 posture banner — regime nudge at the top of the Opportunity Hub
 - **Shipped:** a regime-coloured one-line posture banner at the top of the Opportunity Hub, driven by the SAME `opportunity_daily.REGIME_GATE` it enforces (so the stated posture always matches the actual gate). RISK-ON green "full run, rating ≥50" → MIXED amber "≤40, rating ≥50" → **RISK-OFF red "≤5 names, no rating floor — bullish signals below the 200 SMA LOSE; watchlist, not a buy list"** → UNKNOWN grey cautious. Shows the Nifty vs-200-SMA verdict on the right. Composition unit-checked for all four regimes; dashboard compiles.
 - **Purpose (B-36):** the anti-over-trading nudge *felt*, not filed — "what do I do today?" answered in one line at the front door, consistent with the measured B-32/B-33 throttle.

@@ -74,20 +74,25 @@ W_RATING, W_SCANNER, W_CONFLUENCE = 0.45, 0.30, 0.25
 # full. The DIRECTION is measured; the exact score floors are heuristic pending a
 # score-calibration backtest (they sit on the 0–100 rank-score scale).
 # Floors CALIBRATED 2026-08-26 by `regime_backtest.py --calibrate` (rating vs
-# forward edge @20d, 15 names): in RISK-ON/MIXED a rating floor ≈50 keeps the set
-# that beats a random bar while the sub-50 tail turns negative; in RISK-OFF NO
-# rating band beats a random bar and higher-rated names do WORSE (rating≥80 →
-# −3.10% edge), so a rating floor is counter-productive there — the only honest
-# lever is a hard cap toward zero. `min_rating` = None means "do not rank-filter
-# by rating" (RISK-OFF); the cap does the work.
+# forward edge @20d), tightened on 55 names / ~3,000 signal bars:
+#  • RISK-ON — a rating floor SORTS: kept-vs-tail separation is significant at 40
+#    and again 65–75 (kept +0.4–0.5%, sub-floor tail negative). Floor 50 is inside
+#    the supported band; ~65 is the cleanest cut if you want tighter conviction.
+#  • MIXED — no floor significantly sorts and the kept edge is ~0 (the earlier
+#    15-name "+1.2%" was a small-sample artifact). Floor 50 kept only as a mild
+#    "prefer higher-rated when the edge is a coin-flip" filter — NOT edge-backed.
+#  • RISK-OFF — kept edge is NEGATIVE and SIGNIFICANT at nearly every threshold
+#    (−1 to −2.2%, p≤0.05), and higher-rated names do significantly WORSE than the
+#    tail (kept<tail p=0.02 at ≥70). A rating floor is counter-productive; the only
+#    honest lever is a hard cap toward zero. `min_rating=None` there.
 REGIME_GATE: dict[str, dict] = {
     "RISK-ON":  {"min_score": 45.0, "min_rating": 50.0, "max_names": None,
-                 "note": "full run — bullish edge intact; rating floor 50 (calibrated)"},
+                 "note": "full run — a rating floor sorts here (kept beats the tail, calibrated); floor 50"},
     "MIXED":    {"min_score": 55.0, "min_rating": 50.0, "max_names": 40,
-                 "note": "bullish edge still positive (~+1.2% @20d); rating floor 50"},
+                 "note": "coin-flip tape — bullish edge ~0 (no floor sorts); mild floor 50, cap 40"},
     "RISK-OFF": {"min_score": 65.0, "min_rating": None, "max_names": 5,
-                 "note": "near-zero longs — below the 200 SMA bullish signals LOSE and "
-                         "higher-rated ones lose MORE (calibrated); watchlist, not a buy list"},
+                 "note": "near-zero longs — below the 200 SMA bullish signals LOSE (−1 to −2.2%, "
+                         "significant) and higher-rated ones lose MORE; watchlist, not a buy list"},
     "UNKNOWN":  {"min_score": 55.0, "min_rating": 50.0, "max_names": 40,
                  "note": "benchmark unavailable — treated cautiously"},
 }

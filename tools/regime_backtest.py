@@ -60,6 +60,11 @@ DEFAULT_UNIVERSE = [
     "DIVISLAB", "PIDILITIND", "BAJFINANCE", "ASIANPAINT", "NESTLEIND", "HAVELLS",
     "MARUTI", "TRENT", "DMART", "ITC", "AXISBANK", "WIPRO", "ULTRACEMCO",
     "TATASTEEL", "JSWSTEEL", "COALINDIA",
+    # Extended liquid set — more names ⇒ more signal bars ⇒ tighter floors (B-33).
+    "SBIN", "KOTAKBANK", "BHARTIARTL", "HINDUNILVR", "HCLTECH", "TECHM",
+    "POWERGRID", "NTPC", "ONGC", "GRASIM", "ADANIPORTS", "CIPLA", "DRREDDY",
+    "EICHERMOT", "HEROMOTOCO", "BAJAJFINSV", "SBILIFE", "HDFCLIFE", "BRITANNIA",
+    "DABUR", "SIEMENS", "PIIND", "MOTHERSON", "LUPIN", "TORNTPHARM",
 ]
 
 
@@ -205,7 +210,7 @@ def format_report(res: dict) -> str:
 # signals at a rating threshold and compare the KEPT set's forward edge to the
 # dropped TAIL's. The right floor is the lowest threshold whose kept set beats a
 # regime-matched random bar while the tail does not.
-CAL_THRESHOLDS = (40, 50, 60, 70, 80)
+CAL_THRESHOLDS = (35, 40, 45, 50, 55, 60, 65, 70, 75, 80)
 
 
 def calibrate_regime_floors(symbols: list[str], fetch_fn: Callable, nifty_df: pd.DataFrame,
@@ -270,10 +275,20 @@ def calibrate_regime_floors(symbols: list[str], fetch_fn: Callable, nifty_df: pd
             kedge = (float(keep.mean()) - bmean) if len(keep) else float("nan")
             tedge = (float(tail.mean()) - bmean) if len(tail) else float("nan")
             kp = _welch_p(list(keep), np.asarray(base[r])) if len(keep) else None
+            # Direct separation test: do kept names beat the dropped tail? (the
+            # cleanest "is this floor doing anything" question, independent of the
+            # baseline). Requires enough on BOTH sides.
+            sep_p = (_welch_p(list(keep), np.asarray(tail))
+                     if (len(keep) >= 4 and len(tail) >= 4) else None)
             rows.append({"th": th, "kept_n": int(len(keep)), "kept_edge": kedge,
-                         "kept_p": kp, "tail_n": int(len(tail)), "tail_edge": tedge})
-            # recommend: lowest th where kept beats baseline and beats the tail
-            if best is None and not np.isnan(kedge) and kedge > 0 and (np.isnan(tedge) or kedge > tedge):
+                         "kept_p": kp, "tail_n": int(len(tail)), "tail_edge": tedge,
+                         "sep_p": sep_p})
+            # recommend: lowest th where kept significantly beats baseline OR the
+            # kept-vs-tail separation is significant (a floor that provably sorts).
+            is_sig = (kp is not None and kp < 0.05 and kedge > 0) or \
+                     (sep_p is not None and sep_p < 0.05 and not np.isnan(kedge)
+                      and not np.isnan(tedge) and kedge > tedge)
+            if best is None and is_sig:
                 best = th
         out["regimes"][r] = {"baseline_mean": bmean, "signal_n": len(sig[r]),
                              "sweep": rows, "recommended_floor": best}
@@ -286,17 +301,21 @@ def format_calibration(cal: dict) -> str:
     for r in REGIMES:
         rg = cal["regimes"][r]
         out.append(f"[{r}]  baseline {rg['baseline_mean']:+.2f}%  ·  {rg['signal_n']} signal bars")
-        out.append(f"  {'rating≥':>7}  {'kept_n':>7}  {'kept_edge(p)':>16}  {'tail_n':>7}  {'tail_edge':>10}")
+        out.append(f"  {'rating≥':>7}  {'kept_n':>7}  {'kept_edge(p)':>16}  {'tail_n':>7}  {'tail_edge':>10}  {'kept>tail(p)':>13}")
         for row in rg["sweep"]:
             ke = "n/a" if np.isnan(row["kept_edge"]) else f"{row['kept_edge']:+.2f}"
             kp = "" if row["kept_p"] is None else f" ({row['kept_p']:.2f})"
             te = "n/a" if np.isnan(row["tail_edge"]) else f"{row['tail_edge']:+.2f}"
             star = " *" if (row["kept_p"] is not None and row["kept_p"] < 0.05) else ""
-            out.append(f"  {row['th']:>7}  {row['kept_n']:>7}  {ke+kp+star:>16}  {row['tail_n']:>7}  {te:>10}")
+            sp = row.get("sep_p")
+            sptxt = "—" if sp is None else (f"{sp:.3f}" + (" *" if sp < 0.05 else ""))
+            out.append(f"  {row['th']:>7}  {row['kept_n']:>7}  {ke+kp+star:>16}  "
+                       f"{row['tail_n']:>7}  {te:>10}  {sptxt:>13}")
         rec = rg["recommended_floor"]
         out.append(f"  → recommended rating floor: "
-                   + (f"{rec} (lowest where kept beats baseline & tail)" if rec is not None
-                      else "NONE — no rating band beats a random bar; hard-cap / near-zero longs"))
+                   + (f"{rec} (lowest with a SIGNIFICANT kept-vs-baseline or kept-vs-tail edge)"
+                      if rec is not None
+                      else "NONE — no floor significantly sorts; hard-cap / near-zero longs"))
         out.append("")
     return "\n".join(out)
 
@@ -306,8 +325,9 @@ if __name__ == "__main__":
     import screener_pipeline as sp
     nifty = sp.fetch_nifty50(days=1500)
     if "--calibrate" in sys.argv:
-        cal = calibrate_regime_floors(DEFAULT_UNIVERSE[:15],
-                                      lambda s: sp.fetch_ohlcv(s, days=1500), nifty)
+        cal = calibrate_regime_floors(DEFAULT_UNIVERSE,
+                                      lambda s: sp.fetch_ohlcv(s, days=1500), nifty,
+                                      stride=12)
         print(format_calibration(cal))
     else:
         res = backtest_by_regime(DEFAULT_UNIVERSE, lambda s: sp.fetch_ohlcv(s, days=1500), nifty)
