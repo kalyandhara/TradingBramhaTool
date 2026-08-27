@@ -1,6 +1,11 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-26] build | B-32 + B-33 SHIPPED — regime conviction gate on the shortlist
+- **Built on the proven premise:** `opportunity_daily.REGIME_GATE` + `_apply_regime_gate(rows, regime, top_n, score_key)`. A regime-dependent **score floor + name cap** replaces the flat `top_n=100` cut: RISK-ON floor 45 / no cap; MIXED 55 / 40; RISK-OFF **65 / 10** (hard); UNKNOWN cautious. So the list shrinks by itself with conviction (B-33) and shrinks HARD in RISK-OFF where bullish signals were measured to lose (B-32).
+- **Wired in two places:** `opportunity_daily.run()` (stored/scheduled shortlist, with a `_say` log line + `regime_gate` in the result) and the dashboard **live** Opportunity-Hub pipeline (gates on `rank_score`, shows a throttle callout). Unit-tested the gate across all four regimes; both files compile.
+- **Honesty:** the *direction* is measured (`regime_backtest.py`); the exact score floors are heuristic pending a score-calibration backtest (the tail-vs-kept forward-return check — the still-open half of B-33). Filed on [[analyses/Open-Backlog]] (B-32 SHIPPED, B-33 SHIPPED w/ calibration open).
+
 ## [2026-08-26] measure | B-32 RISK-OFF premise PROVEN — bullish scanners pick bull traps below the 200 SMA
 - **Shipped:** `regime_backtest.py` — buckets forward returns by the point-in-time Nifty regime (mirrors `opportunity_daily._market_context`) and reports per-regime **edge over a regime-matched baseline** (isolates signal quality from market beta). scipy-optional. 30 names, ~7,400 bars.
 - **Result:** composite bullish-scanner edge +0.22 @20d in RISK-ON → **−1.78 @20d in RISK-OFF (p<0.005)**; all four scanners flip significantly negative in RISK-OFF (stage2 −2.87, momentum −3.13, 52w_high −2.69). **The premise B-32 needed is proven.**

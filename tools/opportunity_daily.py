@@ -63,6 +63,39 @@ FULL_CONFLUENCE = oh.FULL_CONFLUENCE
 #: pattern can carry a stock on its own.
 W_RATING, W_SCANNER, W_CONFLUENCE = 0.45, 0.30, 0.25
 
+# ── B-32/B-33 · Regime-prescriptive conviction gate ───────────────────────────
+# The floor (min score to make the list) and cap (max names) get harsher as the
+# tape deteriorates. This is EARNED, not a guess: `regime_backtest.py` proved the
+# composite bullish-scanner edge is +0.22 @20d in RISK-ON but −1.78 @20d in
+# RISK-OFF (p<0.005) — and that the RISK-OFF *baseline* was positive, so it is not
+# market beta: bullish signals below the 200 SMA actively pick bull traps,
+# underperforming a random below-200 name by 1.3–3%. So RISK-OFF caps the long
+# shortlist hard and demands top-conviction; MIXED raises the bar; RISK-ON runs
+# full. The DIRECTION is measured; the exact score floors are heuristic pending a
+# score-calibration backtest (they sit on the 0–100 rank-score scale).
+REGIME_GATE: dict[str, dict] = {
+    "RISK-ON":  {"min_score": 45.0, "max_names": None, "note": "full run — bullish edge intact"},
+    "MIXED":    {"min_score": 55.0, "max_names": 40,   "note": "raised bar — uptrend in a pullback"},
+    "RISK-OFF": {"min_score": 65.0, "max_names": 10,
+                 "note": "hard cap — below 200 SMA bullish signals underperform random; watchlist, not a buy list"},
+    "UNKNOWN":  {"min_score": 55.0, "max_names": 40,   "note": "benchmark unavailable — treated cautiously"},
+}
+
+
+def _apply_regime_gate(rows: list[dict], regime: str, top_n: int,
+                       score_key: str = "score") -> tuple[list[dict], dict]:
+    """Conviction gate (B-33) whose floor/cap depend on regime (B-32). `rows` must
+    already be score-sorted descending. `score_key` lets the live dashboard
+    pipeline gate on its `rank_score` field. Returns (kept_rows, gate_meta)."""
+    g = REGIME_GATE.get(regime, REGIME_GATE["UNKNOWN"])
+    cap = top_n if g["max_names"] is None else min(g["max_names"], top_n)
+    kept = [r for r in rows if (r.get(score_key) or 0) >= g["min_score"]][:cap]
+    meta = {"regime": regime, "min_score": g["min_score"], "cap": cap,
+            "note": g["note"], "n_before": len(rows), "n_after": len(kept)}
+    for r in kept:
+        r["regime_gate"] = f"{regime}: score ≥ {g['min_score']:.0f}, cap {cap}"
+    return kept, meta
+
 
 class _FrameCache:
     """Fetch each symbol once and reuse it across every scanner and the rating.
@@ -302,9 +335,14 @@ def run(universe_size: int = 200, top_n: int = 100,
         })
 
     rows.sort(key=lambda r: r["score"], reverse=True)
-    rows = rows[:top_n]
+    # B-32/B-33: regime-prescriptive conviction gate replaces the flat top_n cut.
+    # The list now shrinks by itself when breadth is thin, and shrinks HARD in
+    # RISK-OFF where bullish signals were measured to lose (see REGIME_GATE).
+    rows, gate = _apply_regime_gate(rows, market["regime"], top_n)
     for i, r in enumerate(rows, 1):
         r["rank"] = i
+    _say(f"Regime gate [{gate['regime']}]: {gate['n_before']} → {gate['n_after']} "
+         f"(score ≥ {gate['min_score']:.0f}, cap {gate['cap']}).")
 
     if save and rows:
         db.save_daily_opportunities(rows, run_date=run_date)
@@ -335,6 +373,7 @@ def run(universe_size: int = 200, top_n: int = 100,
         _say(f"Stored {len(rows)} rows + {len(_cards)} card snapshots for {run_date}.")
 
     return {"ok": True, "run_date": run_date, "rows": rows, "market": market,
+            "regime_gate": gate,
             "universe_size": len(universe), "candidates": len(stocks),
             "lead_sectors": lead_sectors, "lead_industries": lead_inds,
             "scanners_used": use_scanners, "scanners_dropped": dropped,
