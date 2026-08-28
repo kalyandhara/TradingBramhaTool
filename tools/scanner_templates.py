@@ -5133,6 +5133,142 @@ def scan_mfi_oversold(df: pd.DataFrame,
     }
 
 
+def _anchored_vwap(df: pd.DataFrame, anchor_idx: int) -> pd.Series:
+    """Anchored VWAP — cumulative volume-weighted typical price from ``anchor_idx``
+    to the end.  This is the *daily* VWAP concept (Brian Shannon): a session VWAP
+    is meaningless on daily bars (one bar = one session), so the mean price a swing
+    leg is measured against is the volume-weighted average since the leg's origin.
+
+    Returns a Series aligned to ``df.index`` — NaN before ``anchor_idx``, the
+    cumulative AVWAP from the anchor onward.  Needs high/low/close/volume.
+    """
+    tp  = (df["high"].astype(float) + df["low"].astype(float) + df["close"].astype(float)) / 3.0
+    vol = df["volume"].astype(float)
+    out = pd.Series(np.nan, index=df.index, dtype=float)
+    seg_tp  = tp.iloc[anchor_idx:]
+    seg_vol = vol.iloc[anchor_idx:]
+    num = (seg_tp * seg_vol).cumsum()
+    den = seg_vol.cumsum().replace(0.0, np.nan)
+    out.iloc[anchor_idx:] = (num / den).to_numpy()
+    return out
+
+
+def _rolling_vwap(df: pd.DataFrame, n: int = 20) -> pd.Series:
+    """Rolling n-day VWAP — volume-weighted typical price over a trailing window.
+
+    Unlike an anchored VWAP (which sits far below price once a trend has run), the
+    rolling VWAP tracks recent price, so price genuinely oscillates around it — the
+    mean a daily pullback/reclaim entry is measured against.  Returns a Series
+    aligned to ``df.index`` (NaN through the first n-1 bars).
+    """
+    tp  = (df["high"].astype(float) + df["low"].astype(float) + df["close"].astype(float)) / 3.0
+    vol = df["volume"].astype(float)
+    num = (tp * vol).rolling(n).sum()
+    den = vol.rolling(n).sum().replace(0.0, np.nan)
+    return num / den
+
+
+def scan_vwap_reclaim(df: pd.DataFrame,
+                      vwap_n: int = 20,
+                      touch_tol: float = 0.01,
+                      extend_cap: float = 0.06) -> dict | None:
+    """Rolling-VWAP reclaim / pullback-support — the VWAP-as-signal entry (B-40).
+
+    On daily bars a session VWAP is meaningless (one bar = one session), so the
+    tradeable mean is a rolling n-day VWAP: in a healthy trend price rides above it
+    and pulls back TO it, not through it.  That mean is what the classic
+    trend+pullback entry actually leans on — not just an EMA.  Fires on either of
+    two long events at the rising VWAP:
+
+      * **reclaim**   — close was below VWAP and has crossed back above it, or
+      * **pullback-hold** — a recent bar's low tagged VWAP (within ``touch_tol``)
+        and price is bouncing (close back above VWAP and up on the day).
+
+    Gates (all required):
+      1. Trend context — close > EMA-50 (with-trend only; not a bottom-fisher).
+      2. VWAP rising over the last 10 bars (the leg is intact).
+      3. Not extended — close ≤ (1 + ``extend_cap``) × VWAP, so it's an entry near
+         the mean, not a chase.
+      4. One of the two events above fired, with volume ≥ 20-day average on a reclaim.
+
+    (The complementary *anchored*-VWAP-from-catalyst read — earnings/breakout/IPO
+    anchors — is served by ``_anchored_vwap`` and belongs with the chart's
+    click-to-anchor, the B-4/B-12 item.)  Emits ``time_stop`` — a pullback-to-mean
+    entry that hasn't worked in ~15 bars is a failed thesis, not an open trade.
+    """
+    n = len(df)
+    if n < vwap_n + 15:
+        return None
+
+    close = df["close"].astype(float)
+    low   = df["low"].astype(float)
+    vol   = df["volume"].astype(float)
+
+    vwap = _rolling_vwap(df, vwap_n)
+    v_now  = float(vwap.iloc[-1])
+    v_prev = float(vwap.iloc[-2])
+    if not np.isfinite(v_now) or v_now <= 0 or not np.isfinite(v_prev):
+        return None
+
+    c_now, c_prev = float(close.iloc[-1]), float(close.iloc[-2])
+    ema50 = float(close.ewm(span=50, adjust=False).mean().iloc[-1])
+
+    # Gate 1 — with-trend
+    if c_now <= ema50:
+        return None
+    # Gate 2 — VWAP rising over the last 10 bars
+    ref = float(vwap.iloc[-11]) if np.isfinite(vwap.iloc[-11]) else v_prev
+    if not (v_now > ref):
+        return None
+    # Gate 3 — not extended above the mean
+    dist = c_now / v_now - 1.0
+    if dist > extend_cap:
+        return None
+
+    # Event (a) — reclaim cross from below
+    reclaim = (c_prev < v_prev) and (c_now > v_now)
+
+    # Event (b) — recent pullback tagged VWAP and price is holding above / bouncing
+    tagged = False
+    for k in range(1, 4):
+        lv = float(vwap.iloc[-k])
+        if np.isfinite(lv) and lv > 0 and (float(low.iloc[-k]) <= lv * (1.0 + touch_tol)):
+            tagged = True
+            break
+    pullback_hold = tagged and (c_now > v_now) and (c_now > c_prev)
+
+    if not (reclaim or pullback_hold):
+        return None
+
+    vol_now = float(vol.iloc[-1])
+    vol_avg = float(vol.rolling(20).mean().iloc[-1]) if n >= 20 else float(vol.mean())
+    vol_x = vol_now / vol_avg if vol_avg > 0 else 0.0
+    # Reclaim needs conviction volume; a quiet pullback-hold does not.
+    if reclaim and vol_x < 1.0:
+        return None
+
+    event = "reclaim" if reclaim else "pullback-hold"
+    slope = (v_now / ref - 1.0) * 100.0
+    proximity = max(0.0, (extend_cap - abs(dist))) / extend_cap    # 0..1
+    score = int(min(100, 55 + proximity * 20 + min(vol_x, 2.0) * 7 + min(slope, 5.0)))
+
+    return {
+        "pattern_type": "VWAP Reclaim/Support",
+        "tags": ["VWAP", event, f"VWAP{vwap_n}"],
+        "reasons": [
+            f"{event} at the rising {vwap_n}-day VWAP (VWAP {v_now:.2f}, close "
+            f"{c_now:.2f}, {dist*100:+.1f}% vs mean); vol {vol_x:.1f}×20d; "
+            f"VWAP slope +{slope:.1f}%/10d"
+        ],
+        "score_base": score,
+        "score": score,
+        "vwap": round(v_now, 2),
+        "dist_pct": round(dist * 100, 2),
+        "vol_x20d": round(vol_x, 2),
+        "time_stop": 15,
+    }
+
+
 def scan_rsi_band_momentum(df: pd.DataFrame,
                             rsi_lo: float = 50.0,
                             rsi_hi: float = 68.0) -> dict | None:
@@ -5844,6 +5980,21 @@ SCANNERS: dict[str, dict] = {
             "exhaustion exits where heavy selling volume reverses before price "
             "fully recovers. Three gates: MFI crosses 20 from below + up-day "
             "confirmation + volume ≥ 20-day average."
+        ),
+        "category": "Entry",
+    },
+    "VWAP Reclaim/Support": {
+        "fn": scan_vwap_reclaim,
+        "description": (
+            "Rolling-VWAP reclaim / pullback-support (B-40 — VWAP as a signal, not "
+            "just a chart line). On daily bars a session VWAP is meaningless, so the "
+            "tradeable mean is a rolling 20-day VWAP: in a healthy trend price rides "
+            "above it and pulls back TO it, so the VWAP is the mean the classic "
+            "trend+pullback entry needs — not just an EMA. Fires on a reclaim cross "
+            "(close back above VWAP on ≥20-day-avg volume) OR a pullback-hold (a bar "
+            "tags VWAP within 1% and price bounces). With-trend only (close > EMA-50), "
+            "VWAP rising, and not extended (≤6% above the mean). The anchored-VWAP-"
+            "from-catalyst read is the complementary chart feature (B-4/B-12)."
         ),
         "category": "Entry",
     },

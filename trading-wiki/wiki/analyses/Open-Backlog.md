@@ -44,8 +44,10 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **Closed 2026-08-27 (re-verify)** | **B-11** (MFI — `scan_mfi_oversold` + `_mfi_series` shipped and registered; page had it "absent"). Ledger/body sync only: **B-5, B-25, B-20a, B-20b, B-7** were already code-complete but mis-filed as open in the body |
 | **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-16, B-17, B-19, B-21, B-21b, B-22, B-23, B-24, B-26, B-27, B-28, B-29, B-30, B-31 |
 | **Open — residual only** | **B-34** (small-cap lane built; quality overlay + dashboard lane + hit-rate backtest remain), **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
-| **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic) |
+| **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic), **B-39** (pin `scipy` in requirements / make `backtest.py` scipy-optional — the hard import silently broke the significance stack on Python 3.14) |
+| **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**, see below), **B-41** (liquidity-sweep / stop-hunt detector — missing third of the SMC stack), **B-42** (shared market-structure engine — BOS/CHoCH). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
 | **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
+| **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
 
 ## Ingested-research additions (2026-08-20)
 
@@ -117,12 +119,34 @@ tags are all unmeasured. Each is *labelled* as such in its own UI, which is the
 minimum honest thing, but the stack is now several layers of unvalidated
 refinement on an unvalidated base.
 
-### ~~B-25 · Confluence itself is unmeasured~~ — CLOSED 2026-08-12
+### ~~B-25 · Confluence itself is unmeasured~~ — TOOL CLOSED 2026-08-12 · **MEASURED 2026-08-27**
 `backtest_confluence` ([backtest.py:431](tools/backtest.py:431)) replays scanners
 co-firing vs single-firing, reports per-horizon `lift_ttest` (Welch, one-sided)
-and a `premise_supported` verdict. The co-firing-beats-single-firing premise is
-now testable; running it on the live scanner set is a B-19 measurement task, not a
-build.
+and a `premise_supported` verdict.
+
+**First actually run 2026-08-27** — 13 bullish trend/breakout scanners (52w
+High, Stage 2, ADX, Pullback, Momentum, VCP, Base, Structural Breakout, ATH,
+RSI 60-40, Consolidation, Darvas, High Tight Flag) × `LIQUID_50`, days=1500,
+co-fire ≥2, n=13,407 single / 5,921 co-fired bars:
+
+| horizon | single% | cofired% | lift% | p(lift) |
+|---|---|---|---|---|
+| 5d  | +0.14 | +0.15 | +0.01 | 0.42 |
+| 10d | +0.37 | +0.41 | +0.04 | 0.32 |
+| 20d | +0.83 | +0.90 | +0.08 | 0.24 |
+| 60d | +2.61 | +2.99 | **+0.38** | **0.025\*** |
+
+**Verdict: premise SUPPORTED only at 60d, and marginally.** `premise_supported`
+returns `True`, but that flag hangs entirely on the one significant horizon — at
+the swing horizons the Opportunity Hub actually ranks on (5–20d) the co-fire lift
+is trivial (+0.01 to +0.08%) and **not** significant (p 0.24–0.42). So confluence
+is **not** the additive edge the ranking premise assumes over 5–20d; its only
+measurable benefit shows up at position-trade horizons. Same caveats as B-21:
+single ~6y window, gross, `LIQUID_50` is large-cap/survivorship-biased — so
+even the 60d result is an in-sample point estimate until walk-forward + costs.
+**Enabling fix:** `backtest.py` hard-imports `scipy`, which was **not installed**
+on the project's Python 3.14 — the whole significance stack (this + B-20a) could
+not import; `scipy 1.18.1` installed 2026-08-27 to unblock the run.
 
 ### ~~B-20a · The harness has no significance test~~ — CLOSED 2026-08-12
 `_ttest_edge` ([backtest.py:279](tools/backtest.py:279)) attaches a t-stat / p /
@@ -217,6 +241,60 @@ rejects the first touch" is a testable, unproven claim — ship it as
 **levels-with-context**, label it unmeasured, and event-study it (first-touch
 rejection vs a matched non-wall strike) before it grades anything.
 
+### B-40 · VWAP is a chart line, not a signal — **SCANNER SHIPPED 2026-08-27**
+Was: zero occurrences of `vwap` in `scanner_templates.py`; VWAP existed only as a
+chart overlay. **Shipped** `scan_vwap_reclaim` (registry "VWAP Reclaim/Support",
+category Entry, scanner #40) + `_rolling_vwap` + `_anchored_vwap` helpers.
+
+**Design correction, recorded so it isn't re-litigated:** the first cut anchored
+VWAP to the lowest low of the last 120 bars (Brian-Shannon style) — but on daily
+data that mean sits far below price in any healthy trend, so the "not-extended"
+gate always rejected and the scanner never fired (0/8 real, even a hand-built
+pullback). A *pullback/reclaim* event needs a mean price actually oscillates
+around, so the scanner uses a **rolling 20-day VWAP**; the `_anchored_vwap` helper
+is kept for the complementary catalyst-anchor read. Fires on a **reclaim** (close
+crosses back above a rising VWAP on ≥20d-avg volume) OR a **pullback-hold** (a bar
+tags VWAP within 1% and bounces), with-trend only (close > EMA-50), not extended
+(≤6% above the mean). Verified: fires selectively (1/8 large-caps: TITAN
+pullback-hold; downtrend correctly rejected; module compiles).
+
+**Still open:** (a) the **anchored-VWAP-from-catalyst** support read (earnings /
+breakout / IPO anchor) + the chart's click-to-anchor — that half is **B-4/B-12**;
+(b) **unmeasured** — like every scanner it needs `backtest_scanner` run on it
+(does a VWAP-reclaim beat the every-bar baseline?) before it grades anything. That
+is the one open measurable claim.
+
+### B-41 · No liquidity-sweep / stop-hunt detector — the missing third of the SMC stack *(2026-08-27)*
+Zero occurrences of `liquidity sweep`, `stop hunt`, or `equal highs/lows` in `tools/`.
+We ship FVG Pullback, Order Block Retest and ICT Setup — **two-thirds of the ICT
+stack** — but not the **sweep-and-reverse**: an equal-highs/lows liquidity pool that
+gets run (a stop hunt beyond a prior swing) and then reverses. This is the event that
+*validates* the OB/FVG entries already scanned, so it is complementary, not a new
+family. Build: detect equal highs/lows (clustered swing pivots within a tolerance),
+flag a wick that pierces then closes back inside, direction-aware. Relates to B-19b
+(support-breakdown) but distinct — a sweep is a *false* break that reverses, not a
+real breakdown. Unmeasured until event-studied (sweep-reversal vs matched clean-break).
+
+### B-42 · No shared market-structure engine (BOS / CHoCH, HH-HL-LH-LL) *(2026-08-27)*
+Swing traders read **market structure** first — the HH/HL/LH/LL sequence and its
+**break of structure (BOS)** / **change of character (CHoCH)** — and every entry
+hangs off it. The tool has a weekly-regime read
+([scanner_templates.py:2827](tools/scanner_templates.py:2827)) and MTF breakout logic,
+plus Structural Breakout / Support Breakdown that *imply* structure, but **no
+first-class structure-state primitive** the scanners share. Build: one engine that
+labels the current swing sequence + last BOS/CHoCH off shared zigzag pivots (the
+`rsi_divergence.js` zigzag already exists), consumed as a filter/context by the
+trend, pullback and SMC scanners — so "structure" means the same thing everywhere,
+the way B-24 wants for RSI-divergence. Verifiable invariant available: the labelled
+sequence must reconcile to the pivots it is built from.
+
+**Explicit scope decision (not a task):** the **intraday lane** the "Day/Intraday"
+style row implies — **Opening Range Breakout, session-VWAP bounce/rejection as
+intraday signals, order-flow/DOM scalping** — is **deliberately out of scope**. The
+tool is EOD/daily on NSE and ingests no intraday or L2 depth data; ORB/DOM need a
+feed the pipeline does not have. Recorded here so the absence is a decision, not an
+oversight. (B-40's VWAP work is the *daily/anchored* slice, which IS in scope.)
+
 ---
 
 ## P3 — Consistency and correctness debt
@@ -272,6 +350,7 @@ large, liquid and certainly file. First suspect remains the
 | B-35 | **Collapse 38 scanners into family "lenses" (UI)** *(2026-08-23)* | 38 scanners (13 Entry + 12 Pattern overlap on the same facts); the confluence **family** de-dup already fixes scoring but the UI still lists all 38 as independent choices. Build: default the Scanner Hub to a curated core, group the rest under their `SCANNER_FAMILIES` lens behind "advanced". **Verifiable invariant (not taste):** no unique hit is lost — every family stays reachable and the union of hits is unchanged. Behavioral noise reduction with a checkable guarantee. |
 | ~~B-36~~ | **Regime posture header + nav consolidation** — ✅ **CLOSED 2026-08-26** | Regime-coloured posture banner atop the Opportunity Hub, pulled from the same `REGIME_GATE` it enforces (RISK-ON green "full run, rating ≥50" → RISK-OFF red "≤5 names — bullish signals below the 200 SMA LOSE"). Nav: folded the single-page Analytics group (Strategy Hub) into Research, 6 groups → 5, no page removed. Residual → **B-36r** (Screening-group trim, held for an owner usage call). |
 | B-32r | **Calibrate exact regime floors** *(2026-08-27)* | The `REGIME_GATE` floors/caps shipped in B-32 have the right *direction* (measured) but the exact numbers are heuristic. Re-run `regime_backtest.py --calibrate` on a larger, walk-forward split once B-21 lands and set the floors from that, rather than the single-pass calibration. Small; gated behind B-21's out-of-sample split so the floors aren't fit on the same window they're tested on. |
+| B-39 | **Pin scipy / make backtest.py scipy-optional** *(2026-08-27)* | `backtest.py:37` does a hard `from scipy import stats`; scipy was **not installed** on the project's Python 3.14, so `backtest.py` (and everything importing it — B-20a significance, B-25 confluence) failed to import entirely. Fixed for now by installing `scipy 1.18.1`, but that is un-pinned and machine-local. Either add scipy to a requirements file, or give `_ttest_edge`/`_ttest_ind` a numpy normal-approx fallback like `funnel_backtest.py` already has. Small; prevents the whole significance stack silently vanishing on a fresh interpreter. |
 | ~~B-36r~~ | **Trim the 8-page Screening nav group** — ✅ **CLOSED 2026-08-27** | Owner chose the safe fold: **Breakout Screener + TradingView Screener → one "Breakout Scans" page** with a Chartink/TradingView source toggle (`bscan_src` radio), 8 pages → 7. Same task (external new-high breakout feed), two providers — structural redundancy, not a usage guess, matching the Analytics→Research standard. Both feeds stay reachable; the two page bodies are unchanged, only re-guarded. `PAGE_GROUPS`/`PAGE_BLURBS` updated; file compiles clean. Further trimming of the *distinct* screeners (Scanner Hub / High-Growth / Screener / Other) was deliberately declined without usage instrumentation. |
 | B-38 | **TechnoFunda delete-funnel as a watchlist noise sieve** *(2026-08-25)* | Wire [[strategies/TechnoFunda-Delete-Funnel]] as a subtractive 8-filter funnel over a watchlist/universe: growth 6–8Q · CFO-vs-PAT · leverage (incl. **interest coverage <3×**, currently absent) · ROCE/ROE ≥15% · governance veto (`red_flags.py` — plus the missing related-party/dilution flags) · >200 DMA · relative strength vs **index AND sector** · accumulation base + up-volume. Each filter only **deletes**; survivors are a *shortlist, not a buy list*. ~7 of 8 legs already exist (see the coverage map on the strategy page) — this is mostly **assembly + the 3 gaps**, not new primitives. **Measurable claim to test (via [[analyses/Backtest-Harness]]):** does the survivor set beat (a) the unfiltered leading universe and (b) any single filter alone, forward? If stacking the deletes doesn't beat the best single delete, the funnel is ceremony. Directly serves the noise-reduction thrust; pairs with B-32/B-33 (regime throttle + conviction-sized list). **STARTED 2026-08-25:** `technofunda_funnel.py` — data-injected engine (`build_context`→`run_funnel`), all 8 filters short-circuiting on first delete, per-stage drop-off report, strict missing-data policy; **interest-coverage + D/E gap CLOSED** at the data layer (`fundamentals_deep` `interest_coverage`/`debt_to_equity`, verified live: TITAN 6.76×/1.95, RELIANCE 6.12×/0.44). **Still TODO:** live wiring into the dashboard (inject `derive_fundamentals` + `red_flags.evaluate` + cached OHLCV + Nifty/sector 12m return), the F2 multi-year CFO/PAT ratio (needs OCF in the payload), ROE alongside ROCE, related-party/dilution flags, an explicit base-tightness detector for F8. **BACKTEST shipped 2026-08-25 (scoped):** `funnel_backtest.py` tests the **price sub-funnel (F6∧F7∧F8)** point-in-time — next-open→+h-close forward return, edge vs every-bar baseline, **Welch two-sample t-test** (scipy-optional, numpy normal-approx fallback), and a "does stacking beat the best single leg?" verdict; predicates imported from `technofunda_funnel` so the tested rule = the shipped rule. **Honest limit:** the fundamental legs F1–F5 are **not point-in-time testable** (yfinance serves only current statements → look-ahead), so the **full-funnel forward test is blocked on point-in-time fundamental data acquisition, not code** — now the single open item on the measurable claim. **DASHBOARD LANE shipped 2026-08-25:** "Delete Funnel" page under Screening — universe source (Watchlist / paste / top-volume, capped at 50), Strict toggle, threshold overrides, a **drop-off table** (where the universe died), **survivor cards** (8 filter chips + why-expander + Watchlist/Analyze/Roster actions), and a reject ledger; reuses the cached fundamentals-deep / red-flags / OHLCV / Nifty fetchers. **Nearly closed — only point-in-time fundamentals remain:** ~~F2 CFO/PAT ratio~~ (DONE 2026-08-25 — `cfo_pat_ratio` = ΣOCF/ΣPAT over ≤5 matched years; live TITAN 0.54, RELIANCE 2.25), ~~ROE~~ (DONE — `roe`/`roe_prev`, F4 now gates ROCE **and** ROE), ~~F1 acceleration read~~ (DONE — deletes profit-YoY-turned-negative), ~~test suite~~ (DONE — `test_technofunda_funnel.py`, 13 tests), ~~in-UI backtest~~ (DONE — "Backtest the price legs" expander on the Delete Funnel lane), ~~dilution flag~~ (DONE 2026-08-25 — `dilution_pct` share-count trend in `red_flags._check_dilution`; live YESBANK +20% flagged, TITAN clean; related-party stays honestly NOT_CHECKED, no free feed), ~~explicit base detector~~ (DONE 2026-08-25 — F8 now uses `detect_vcp_geometry`, heuristic only as fallback), and the point-in-time fundamentals for the full backtest. |
 | B-37 | **"Volume is the story" unusual-volume share card** *(2026-08-25)* | A new **editorial infographic** template: pick the day's top RVOL names (today's volume vs 1-yr avg), render a 1200×675 dark-navy/amber PNG comparing 1-2 stocks — RVOL multiple + mini bar, turnover (₹Cr), **% of mcap traded**, price %, and a per-stock **trigger** (catalyst read from filings) with Q1 Sales/PAT growth, plus a "**THE CONTRAST**" callout (small turnover moving price harder than a large one = float/liquidity tell). Build on the **existing PIL pipeline** (`opportunity_report.render_png` + `report_style` tokens `rs.TOKENS`), fed by `volume_fetcher.py` for RVOL/turnover; catalyst + Q1 lines are hand-supplied (or pulled from the fundamentals cache), not invented. **Not a signal — a distribution artifact**, so it carries the same footer discipline as every export ("⚠ No Buy/Sell recommendation · SEBI Reg."). **Verifiable invariant (not taste):** every printed number reconciles to source — `turnover ≈ today_vol × VWAP`, `%mcap = turnover / mcap`, `RVOL = today_vol / 1yr_avg_vol` — the card must never show a figure it can't derive. Scoped small: one template function + a Scanner/Opportunity-Hub "Share this" button reusing the `_render_export_controls` download pattern. |
@@ -322,6 +401,15 @@ scanner/confluence set — that is B-19, now a measurement chore, not a build �
 through those two, "edge" is still an in-sample gross number. The regime work
 (B-32/33/36) is the one place a claim was measured *before* it shipped — that is
 the bar the rest of the stack has not yet cleared.
+
+The first measurement chore landed 2026-08-27 and immediately paid off:
+**B-25 run for real showed confluence adds no significant edge at 5–20d** — the
+Opportunity Hub's whole premise — and only a marginal +0.38% at 60d. The honest
+"unmeasured" label had been hiding a premise that is, on this window, close to
+false at the horizons that matter. That is why the running matters as much as the
+building — and it also surfaced that the significance stack could not even import
+(`scipy` was missing on the project interpreter), so "the tool exists" had been
+true only on paper.
 
 ## Action Taken / Plan
 

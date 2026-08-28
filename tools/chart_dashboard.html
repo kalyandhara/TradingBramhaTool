@@ -818,6 +818,12 @@ const SERVER  = 'http://localhost:5001';
 const WS_URL  = 'ws://localhost:5001/ws';
 
 const TIMEFRAMES = ['1m','5m','15m','30m','1h','4h','1d','1w'];
+// Chart-type options (display only; both are candlestick series, only the data
+// differs — see heikinAshiBars/applyPriceStyle). Add 'hollow'/'line' here later.
+const CHART_TYPES = [
+  {value: 'candles', label: 'Candles'},
+  {value: 'heikin',  label: 'Heikin Ashi'},
+];
 
 // Default bar counts per timeframe.  Daily needs 2600 to cover 10 years of
 // trading days (~252/yr × 10 = 2520).  Weekly can show 20+ years in 1000 bars.
@@ -1113,6 +1119,35 @@ function renderIndicatorPanel() {
   });
   html += '<div class="ind-empty" style="display:none">No indicators match</div>';
   return html;
+}
+
+// ── Heikin Ashi transform (a DISPLAY-only recolouring of the candles) ─────────
+// HA smooths noise by averaging: HA-close = (O+H+L+C)/4, HA-open = mean of the
+// prior HA open/close, HA-high/low extended to include the HA open/close. This is
+// a rendering choice ONLY — indicators keep computing from the RAW bars (pane.bars),
+// so RSI/VWAP/patterns are never fed the smoothed series. Same {time,o,h,l,c}
+// shape the candlestick series already consumes, so no series swap is needed.
+function heikinAshiBars(bars) {
+  const out = [];
+  let prevOpen, prevClose;
+  for (let i = 0; i < bars.length; i++) {
+    const b = bars[i];
+    const haClose = (b.open + b.high + b.low + b.close) / 4;
+    const haOpen  = (i === 0) ? (b.open + b.close) / 2 : (prevOpen + prevClose) / 2;
+    const haHigh  = Math.max(b.high, haOpen, haClose);
+    const haLow   = Math.min(b.low,  haOpen, haClose);
+    out.push({time: b.time, open: haOpen, high: haHigh, low: haLow, close: haClose});
+    prevOpen = haOpen; prevClose = haClose;
+  }
+  return out;
+}
+
+// Feed the main candle series either the raw bars or their Heikin-Ashi transform,
+// per pane.chartType. Called on load, on live tick, and on chart-type toggle.
+function applyPriceStyle(pane) {
+  const bars = pane.bars || [];
+  if (!bars.length) return;
+  pane.series.setData(pane.chartType === 'heikin' ? heikinAshiBars(bars) : bars);
 }
 
 // ── Indicator math (computed from a full bars[] array of {time,open,high,low,close,volume}) ──
@@ -1691,7 +1726,7 @@ function saveCount(n)  { localStorage.setItem(LS_COUNT, String(n)); }
 function loadPaneCfg() { try { return JSON.parse(localStorage.getItem(LS_PANES)||'{}'); } catch { return {}; } }
 function savePaneCfg() {
   const c = {};
-  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...p.indicators], rangePreset:p.rangePreset}; });
+  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...p.indicators], rangePreset:p.rangePreset, chartType:p.chartType}; });
   localStorage.setItem(LS_PANES, JSON.stringify(c));
 }
 
@@ -1822,7 +1857,7 @@ function buildGrid(count) {
     const cfg  = saved[i] || {};
     const sym  = cfg.symbol || def.symbol;
     const tf   = cfg.tf     || def.tf;
-    const pane = makePane(i, sym, tf, cfg.indicators || [], cfg.rangePreset);
+    const pane = makePane(i, sym, tf, cfg.indicators || [], cfg.rangePreset, cfg.chartType);
     grid.appendChild(pane.el);
     panes.push(pane);
     // Stagger loads to avoid hammering the server
@@ -1831,8 +1866,9 @@ function buildGrid(count) {
 }
 
 // ── Pane factory ──────────────────────────────────────────────────────────────
-function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
+function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChartType) {
   savedIndicators = savedIndicators || [];
+  const chartType = savedChartType || 'candles';
   const el = document.createElement('div');
   el.className = 'pane';
   el.innerHTML = `
@@ -1844,6 +1880,9 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
       </div>
       <select class="tf-sel">${TIMEFRAMES.map(t =>
         `<option value="${t}"${t===tf?' selected':''}>${t}</option>`
+      ).join('')}</select>
+      <select class="tf-sel ctype-sel" title="Chart type">${CHART_TYPES.map(ct =>
+        `<option value="${ct.value}"${ct.value===chartType?' selected':''}>${ct.label}</option>`
       ).join('')}</select>
       <div class="ind-wrap">
         <button type="button" class="ind-btn">INDICATORS</button>
@@ -1989,6 +2028,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
                  lastPrice: null, openPrice: null, prevClose: null, dataSource: null,
                  priceEl, chgEl, badge,
                  bars: [], indicators: new Set(savedIndicators),
+                 chartType,
                  rangePreset: savedRangePreset || DEFAULT_RANGE_PRESET,
                  indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas, projCanvas,
                  fibCanvas, obCanvas, prteCanvas };
@@ -2179,6 +2219,14 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
     resetPaneVisuals(pane);
     savePaneCfg();
     loadData(idx);
+  });
+
+  // ── Chart type (Candles / Heikin Ashi) — display-only, no reload needed ──────
+  const ctypeSel = el.querySelector('.ctype-sel');
+  ctypeSel.addEventListener('change', () => {
+    pane.chartType = ctypeSel.value;
+    applyPriceStyle(pane);   // re-feed the candle series from the same pane.bars
+    savePaneCfg();
   });
 
   // ── Indicators dropdown ──────────────────────────────────────────────────────
@@ -6825,8 +6873,8 @@ async function loadData(idx) {
         });
         savePaneCfg();
       }
-      p.series.setData(bars);
       p.bars = bars;
+      applyPriceStyle(p);   // feeds raw bars or their Heikin-Ashi transform per p.chartType
       // Per-symbol external research links (covers the initial load and reloads;
       // p.symbol is canonical after the reconciliation block above).
       {
@@ -7005,15 +7053,21 @@ function onCandleMsg(msg) {
     // up as a "mirrored duplicate" candle floating near current price.
     if (msg.timeframe && msg.timeframe !== p.tf) return;
     const bar = msg.bar;
-    p.series.update(bar);
-    updateTicker(i, bar.close, true);
-
+    // Update the raw bar store first so indicators + any HA recompute see it.
+    let barsChanged = false;
     if (p.bars && p.bars.length) {
       const lastBar = p.bars[p.bars.length - 1];
       if (lastBar.time === bar.time) p.bars[p.bars.length - 1] = bar;
       else                           p.bars.push(bar);
-      if (p.indicators.size) applyIndicators(p);
+      barsChanged = true;
     }
+    // In Heikin-Ashi mode a raw series.update() would break the HA chain (each HA
+    // bar depends on the prior HA open/close), so recompute the HA series from the
+    // raw bars. Candles mode does the cheap in-place update.
+    if (p.chartType === 'heikin') applyPriceStyle(p);
+    else                          p.series.update(bar);
+    updateTicker(i, bar.close, true);
+    if (barsChanged && p.indicators.size) applyIndicators(p);
   });
 }
 

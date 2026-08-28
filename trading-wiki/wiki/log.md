@@ -1,6 +1,33 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-27] build | Heikin Ashi candles in the chart tool (TradingView-style)
+- Added a per-pane chart-type dropdown (Candles / Heikin Ashi) next to the timeframe selector in `chart_dashboard.html`. `heikinAshiBars()` transform + `applyPriceStyle()` feed the candle series raw bars or their HA transform per `pane.chartType`; wired into load, live-tick, and the toggle; persisted to `tb_pane_cfg` localStorage.
+- **Design decision:** HA is DISPLAY-ONLY — `pane.bars` stays real OHLC, so all indicators (RSI/VWAP/patterns + the new B-40 VWAP scanner) keep computing from true prices, never the smoothed series. Live ticks recompute the HA series (a raw `series.update()` would break the HA chain, since each HA bar depends on the prior one).
+- Verified in-browser: select renders in all 4 panes, HA math correct vs hand-computed values, toggle fires cleanly (no console errors), chartType persists. Hollow/Line left as extensible follow-ons (they need a series-type swap, not just a data transform).
+
+## [2026-08-27] build | B-40 — VWAP-as-signal scanner shipped ("VWAP Reclaim/Support")
+- `scan_vwap_reclaim` + `_rolling_vwap` + `_anchored_vwap` in `scanner_templates.py`, registered as "VWAP Reclaim/Support" (Entry, scanner #40 of 40). Fills the trend+pullback stack's "pull back to a mean" leg, which was only an EMA before.
+- Fires on a **reclaim** (close crosses back above a rising VWAP on ≥20d-avg volume) OR a **pullback-hold** (a bar tags VWAP within 1% and bounces). With-trend only (close > EMA-50), VWAP rising over 10 bars, not extended (≤6% above the mean). Emits `time_stop=15`.
+- **Design correction (kept in the docstring):** first cut anchored VWAP to the 120-bar low (Brian-Shannon style) — but that mean sits far below price in a trend, so the not-extended gate always rejected and it never fired (0/8, even a hand-built pullback). Switched the *event* engine to a **rolling 20-day VWAP** (price actually oscillates around it); kept `_anchored_vwap` for the catalyst-anchor follow-up.
+- Verified: synthetic pullback fires (score 80), downtrend rejected, real-data selective (TITAN pullback-hold, 1/8 large-caps), `py_compile` clean.
+- **Open:** anchored-VWAP-from-catalyst + chart click-to-anchor is B-4/B-12; scanner is unmeasured until `backtest_scanner` is run on it (the one measurable claim).
+
+## [2026-08-27] query | Strategy-coverage audit vs profitable-trader combinations → B-40/41/42
+- Mapped a taxonomy of common 1–3 strategy combinations used by successful traders against the codebase (grounded by grep, not assumption). Well-covered: trend+pullback, breakout+momentum, mean-reversion+trend-filter, regime switching, sector RRG, FVG/OB.
+- **Three in-scope gaps filed:**
+  - **B-40** — VWAP is chart-only (0 occurrences in `scanner_templates.py`; Anchored VWAP hard-wired to last swing low). No VWAP-reclaim/rejection or anchored-VWAP-from-catalyst scanner. Appears in 3 of 5 trader-style stacks. Also gives B-4/B-12 its click-to-anchor.
+  - **B-41** — no liquidity-sweep/stop-hunt detector (0 occurrences of sweep/stop-hunt/equal-highs-lows). We have FVG + OB + ICT Setup = two-thirds of the SMC stack; the sweep-and-reverse that *validates* those entries is missing.
+  - **B-42** — no shared market-structure engine (BOS/CHoCH, HH-HL-LH-LL). Structure is implied by Structural Breakout / Support Breakdown but not a first-class primitive the scanners share.
+- **Explicit scope decision:** the intraday lane (ORB, session-VWAP intraday signals, order-flow/DOM scalping) is OUT of scope — the tool is EOD/daily on NSE with no intraday/L2 feed. Recorded so the absence is a decision, not an oversight.
+- **Meta-point recorded in the answer (not filed):** successful traders master 1–3 strategies; the tool ships 39 scanners and B-25 just showed stacking them adds no 5–20d edge. The real gap is *subtraction/focus* (the B-35 family-lens direction), not a 40th scanner — B-40/41/42 complete half-built stacks rather than adding breadth.
+
+## [2026-08-27] measure | B-25 confluence run for real — premise supported only at 60d
+- First actual run of `backtest_confluence` (shipped 2026-08-12, never executed). 13 bullish trend/breakout scanners × `LIQUID_50`, days=1500, co-fire ≥2. n = 13,407 single / 5,921 co-fired bars.
+- **Result:** co-fire lift is +0.01/+0.04/+0.08/**+0.38%** at 5/10/20/60d with p = 0.42/0.32/0.24/**0.025**. `premise_supported=True` — but it hangs entirely on 60d. **At the 5–20d swing horizons the Opportunity Hub actually ranks on, confluence adds no significant edge.** So the Hub's core premise is close to false where it matters; only position-trade horizons see a (marginal) benefit. Same caveats as B-21 (single ~6y window, gross, large-cap/survivorship).
+- **Enabling fix:** `backtest.py:37` hard-imports `scipy`, which was **not installed** on the project's Python 3.14 — the whole significance stack (B-20a + B-25) could not import. Installed `scipy 1.18.1` (cp314 wheel). Filed **B-39** to pin it / add a numpy fallback so it can't silently vanish again.
+- Backlog updated: B-25 restated from "tool exists" to "measured", ledger + thesis reflect the finding, B-39 added.
+
 ## [2026-08-27] build | B-36r — fold Screening nav 8 → 7 ("Breakout Scans")
 - Owner chose the safe (structural, non-guess) fold. Merged the two sibling nav pages **Breakout Screener** (Chartink, 6M–10Y breakouts) and **TradingView Screener** (BrkoutGeek 1-month-high replica) into one **"Breakout Scans"** page in `dashboard_app.py` with a `bscan_src` Chartink/TradingView source toggle — same task (external new-high breakout feed), two providers.
 - Both page bodies left unchanged; they now guard on `current_page == "Breakout Scans" and bscan_src == ...` instead of being separate top-level pages. `PAGE_GROUPS` + `PAGE_BLURBS` updated; no deep-link/button referenced the old names, so nav is fully consistent. `py_compile` clean.
