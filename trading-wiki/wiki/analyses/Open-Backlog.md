@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-08-25
+updated: 2026-08-27
 sources: 0
 related:
   - analyses/Open-Backlog-2026-08-02.md
@@ -26,8 +26,13 @@ described it as "the single index of everything left open". An index that goes
 stale by construction is not an index. This one gets updated in place; dated
 snapshots can be cut from it when a session wants one.
 
-Statuses below were **re-verified against the code on 2026-08-07**, not carried
-forward from the previous page. Two of them had changed and nobody had noticed.
+Statuses below were **re-verified against the code on 2026-08-27**, not carried
+forward. The failure mode recurred exactly as predicted: on 2026-08-07 two items
+had silently changed; by 2026-08-27 **six more had** — four P1 items the top
+ledger closed on 2026-08-12 still carried full "still open" essays in the body
+(B-25, B-20a, B-20b, B-7), B-5 was closed at the top but called "worse than
+recorded" below, and B-11 (MFI) was filed "verified absent" while
+`scan_mfi_oversold` had already shipped. The body now agrees with the code again.
 
 ## Status since 2026-08-02
 
@@ -35,10 +40,12 @@ forward from the previous page. Two of them had changed and nobody had noticed.
 |---|---|
 | **Closed** | B-1 (2026-08-05), B-14 (`ephem` now installed), B-18 (remote pushed 2026-08-07), **B-2 (chart_server restarted 2026-08-12, /rsi_divergence.js HTTP 200)** |
 | **Closed 2026-08-12** | **B-3** (mean-reversion scanner — `scan_mean_reversion` Connors RSI2, registered), **B-5** (time_stop emitted by 6 scanners: Harmonic/RSI60-40/OrderBlock/FallingWedge/SupportBreakdown/MeanReversion), **B-19b** (support-breakdown detector — `scan_support_breakdown` + `detect_support_breakdown`), **B-20a** (t-test + 95% CI on edge in `_aggregate`), **B-20b** (market-model beta/alpha when benchmark_df supplied to `backtest_scanner`), **B-25** (`backtest_confluence` + `format_confluence_report` measure co-fire vs single-fire), **B-7** (`sweep_volume_threshold` sweeps 1.0/1.2/1.5/2.0× vol floors and ranks by edge) |
-| **Still open** | B-4, B-6 … B-13, B-15, B-16, B-17, B-19 (all 2026-08-07 features unmeasured), B-21, B-21b, B-22, B-23, B-24, B-26, B-27 |
-| **New 2026-08-20** | **B-28** (strike-level OI S/R + max pain), **B-29** (realistic slippage/costs), **B-30** (Moon-in-Pushya event-study), **B-31** (learned confluence weights — gated, not next) |
-| **New 2026-08-23** | **B-32** (regime-PRESCRIPTIVE output throttle), **B-33** (conviction-sized shortlist), **B-34** (small/micro-cap "hidden treasures" lane), **B-35** (family-lens scanner UI), **B-36** (regime posture header + nav consolidation) — from [[analyses/Noise-Regime-Coverage-Postmortem]] |
-| **New 2026-08-25** | **B-37** ("volume is the story" unusual-volume share-card infographic — reuses the `render_png` PIL pipeline), **B-38** (technofunda 8-filter delete-funnel watchlist sieve — see [[strategies/TechnoFunda-Delete-Funnel]]) |
+| **Closed 2026-08-26** | **B-32** (regime output throttle — `_apply_regime_gate` + `REGIME_GATE`, premise proven `regime_backtest.py`), **B-33** (conviction-sized shortlist — score-floor replaces fixed `top_n`, floors data-calibrated), **B-36** (regime posture banner + Analytics→Research nav fold) |
+| **Closed 2026-08-27 (re-verify)** | **B-11** (MFI — `scan_mfi_oversold` + `_mfi_series` shipped and registered; page had it "absent"). Ledger/body sync only: **B-5, B-25, B-20a, B-20b, B-7** were already code-complete but mis-filed as open in the body |
+| **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-16, B-17, B-19, B-21, B-21b, B-22, B-23, B-24, B-26, B-27, B-28, B-29, B-30, B-31 |
+| **Open — residual only** | **B-34** (small-cap lane built; quality overlay + dashboard lane + hit-rate backtest remain), **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
+| **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic) |
+| **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 
 ## Ingested-research additions (2026-08-20)
 
@@ -91,10 +98,10 @@ notes; none of it is credentials, but none of it is meant to be public either.
 vault. 40 MB total.
 
 ### B-16 · OI Momentum off-palette colours
-`_strength_color` at [dashboard_app.py:6648](tools/dashboard_app.py:6648) still
-carries hard-coded hexes of the kind removed everywhere else. Noted because that
-page was edited four times on 2026-08-07 without anyone fixing it — proximity is
-not the same as attention.
+`_strength_color` at [dashboard_app.py:9747](tools/dashboard_app.py:9747) (moved
+from 6648) still carries hard-coded hexes of the kind removed everywhere else.
+Still open on 2026-08-27 — noted originally because that page was edited four times
+on 2026-08-07 without anyone fixing it; proximity is not the same as attention.
 
 ---
 
@@ -110,24 +117,23 @@ tags are all unmeasured. Each is *labelled* as such in its own UI, which is the
 minimum honest thing, but the stack is now several layers of unvalidated
 refinement on an unvalidated base.
 
-### B-25 · Confluence itself is unmeasured
-`backtest.py` measures scanners one at a time. **No test exists that co-firing
-beats single-firing**, which is the entire premise of the Opportunity Hub's
-ranking. Small to close: replay two scanners and compare forward returns on
-co-firing versus single-firing bars.
+### ~~B-25 · Confluence itself is unmeasured~~ — CLOSED 2026-08-12
+`backtest_confluence` ([backtest.py:431](tools/backtest.py:431)) replays scanners
+co-firing vs single-firing, reports per-horizon `lift_ttest` (Welch, one-sided)
+and a `premise_supported` verdict. The co-firing-beats-single-firing premise is
+now testable; running it on the live scanner set is a B-19 measurement task, not a
+build.
 
-### B-20a · The harness has no significance test
-Verified previously: zero occurrences of t-stat / p-value / CI in
-`backtest.py`. So *"Falling Wedge +0.74% @20d"* and *"Harmonic +0.25R, n=122"*
-are point estimates with **no stated probability of being noise** — in the one
-module whose whole purpose is the credibility check.
+### ~~B-20a · The harness has no significance test~~ — CLOSED 2026-08-12
+`_ttest_edge` ([backtest.py:279](tools/backtest.py:279)) attaches a t-stat / p /
+95% CI to every edge (`edge_ttest`) and the report stars `p<0.05`. Point estimates
+now carry a stated probability of being noise.
 
-### B-20b · Edge is not risk-adjusted
-Subtracting the average bar implicitly assumes **β = 1 for every name**, so a
-scanner that fires on high-beta names shows "edge" that is beta being paid — and
-the sample is a mostly-constructive ~6y tape, exactly when that bias is largest.
-Closed by a standard market-model event study; `scipy`/`statsmodels` already
-installed. See [[analyses/Backtest-Harness]].
+### ~~B-20b · Edge is not risk-adjusted~~ — CLOSED 2026-08-12
+Market-model alpha shipped: a 60-bar pre-signal β per name feeds
+`alpha = raw_ret − β × mkt_ret` with its own `alpha_ttest`
+([backtest.py:322](tools/backtest.py:322)), falling back to β=1 only when β is
+unknown. Supply `benchmark_df` to `backtest_scanner` to get risk-adjusted edge.
 
 ### B-21 · Single-window, no costs
 One ~6y window, survivorship-biased, gross returns. Needs walk-forward and
@@ -147,10 +153,11 @@ slippage does not rescue an over-fit signal — only the out-of-sample split and
 pre-registered rule (B-20a/B-21) do. So B-29 raises the bar for *realism*; it does
 nothing for *significance*, and must not be mistaken for it.
 
-### B-7 · Volume-confirmation threshold sweep
-**Five conflicting values** across the repo, including one publisher printing
-1.2× and 1.5× weeks apart. Fully specified and directly runnable through the
-harness; settles five open numbers at once.
+### ~~B-7 · Volume-confirmation threshold sweep~~ — CLOSED 2026-08-12
+`sweep_volume_threshold` ([backtest.py:595](tools/backtest.py:595)) sweeps
+1.0/1.2/1.5/2.0× vol floors and ranks by edge. The five conflicting repo values
+can now be settled empirically; picking the winner and writing it back to the
+scanners is a follow-up, not a build.
 
 ### B-8 · Stops in mean reversion — the Connors contradiction
 ### B-9 · Volume Profile 80% rule
@@ -166,14 +173,12 @@ Re-checked 2026-08-07: the registry's nearest names — Pullback Entry, Early
 Reversal Detector, Harmonic Reversal — are with-trend entries or reversal
 *structure*, not the Connors-style stretch-and-revert the playbook means.
 
-### B-5 · Time stops: plumbed, and emitted by nothing — *worse than recorded*
-The previous page called this "no time dimension in any scanner plan" and
-[[analyses/Backtest-Harness]] recorded `time_stop` support as shipped 2026-08-05.
-Verified 2026-08-07: **`time_stop` appears in `backtest.py` only — five
-occurrences, all consuming it — and in `scanner_templates.py` zero times.** The
-harness faithfully reads a field no scanner has ever written. A trade that
-neither works nor fails is still a loss with the loss deferred, and nothing here
-can express that.
+### ~~B-5 · Time stops: plumbed, and emitted by nothing~~ — CLOSED 2026-08-12
+The 2026-08-07 finding was that `time_stop` was consumed by `backtest.py` but
+written by no scanner (zero occurrences in `scanner_templates.py`). Re-verified
+2026-08-27: **9 occurrences in `scanner_templates.py`** — six scanners
+(Harmonic/RSI60-40/OrderBlock/FallingWedge/SupportBreakdown/MeanReversion) now
+emit it and the harness reads a field that is actually written.
 
 ### B-19b · No support-breakdown detector exists anywhere
 New 2026-08-07, found while building the OI level linkage. Verified: **zero
@@ -190,8 +195,12 @@ automated it away, so earnings / breakout / IPO / macro anchors are unreachable.
 ### B-6 · Retest entries barely modelled
 Recorded repo asymmetry: **we detect breaks well and retests poorly.**
 
-### B-11 · MFI absent
-Verified absent 2026-08-07. Wilder `_rsi_series` already exists, so it is cheap.
+### ~~B-11 · MFI absent~~ — CLOSED (shipped; found 2026-08-27)
+No longer absent: `_mfi_series` ([scanner_templates.py:2307](tools/scanner_templates.py:2307))
++ `scan_mfi_oversold` ([scanner_templates.py:5073](tools/scanner_templates.py:5073))
+ship an MFI(14) oversold-recovery scanner, registered as "MFI Oversold Recovery".
+The page had this "verified absent 2026-08-07" — it shipped since and nobody moved
+the item. Like every scanner here it is unmeasured (folds into B-19).
 
 ### B-28 · No strike-level OI support/resistance or max pain *(ingested 2026-08-20)*
 We read OI at the *underlying* level (momentum quadrant, PCR) but nothing reads the
@@ -257,11 +266,13 @@ large, liquid and certainly file. First suspect remains the
 | B-14 | ~~`ephem` not installed~~ | **CLOSED** — verified `ephem 4.2.1` present 2026-08-07. The reversal calendar can now be rebuilt; that rebuild has not been run, and coverage still ends **2027-12-28**. |
 | B-30 | **Moon-in-Pushya reversal event-study** *(ingested 2026-08-20)* | Astro video claims Moon-in-Pushya days (~13-14/yr) mark major Nifty reversals. We already cache `gurupushya`/`ravipushya` muhurat dates and run muhurat/vedha/newmoon backtests; this adds the *general* Pushya-transit claim as one more event-study, reusing `newmoon_levels_backtest.py` (first-touch reversal vs a **matched non-Pushya control**, permutation null, eclipse strip). Textbook base-rate trap — ~13-14 dates/yr against typical 300-600pt 2-day ranges — so **expect a null**, consistent with the newmoon and sbc-vedha nulls. Worth running only to retire it with evidence. |
 | B-31 | **Learned / regime-adaptive confluence weights — NOT NEXT** *(ingested 2026-08-20)* | The "signal-fusion" talk suggests *learning* confluence weights from historical performance and adapting them by volatility regime (IV<HV → defensive). We already cap correlated families (`scanner_weight`) and carry a RISK-ON/OFF flag, but weights are hand-set. Deliberately parked: learning weights is refinement on the base **B-25/B-19** already flag as unvalidated. Gate: close B-25 (does co-firing beat single-firing at all?) and B-21/B-29 (costs, walk-forward) first. Recorded so the idea is not lost — not so it is built next. |
-| B-32 | **Regime-PRESCRIPTIVE output throttle** *([[analyses/Noise-Regime-Coverage-Postmortem]], 2026-08-23)* | Today `_market_context` computes RISK-ON/MIXED/RISK-OFF (Nifty vs 50/200 SMA) but only writes a *string* — output volume is regime-invariant while signal edge is not. Build: RISK-OFF caps the shortlist hard (or → 0 longs) and elevates `RISK_SCANNERS`; MIXED raises the confluence/rating bar; RISK-ON runs full. **Measurable claim to test FIRST (via [[analyses/Backtest-Harness]]):** does following the shortlist in RISK-OFF underperform RISK-ON out-of-sample? If the premise fails to measure, the throttle is not earned. Highest-leverage item — and simpler/testable-now, unlike the parked B-31 (which throttles *weights*, not *volume*). **PREMISE PROVEN 2026-08-26** (`regime_backtest.py`, 30 names, ~7,400 bars): composite bullish-scanner edge is +0.22 @20d in RISK-ON but **−1.78 @20d in RISK-OFF (p<0.005)**; every scanner flips negative in RISK-OFF (stage2 −2.87, momentum −3.13, 52w_high −2.69, all sig). **Key nuance:** the RISK-OFF *baseline* was positive (+1.89 @20d — random below-200 bars bounced), so it is not market beta — the bullish signals actively pick **bull traps** in downtrends, underperforming a random below-200 name by 1.3–3%. **Throttle is earned; build next.** **SHIPPED 2026-08-26:** `opportunity_daily.REGIME_GATE` + `_apply_regime_gate` — regime-dependent score floor + name cap (RISK-ON: floor 45, no cap; MIXED: 55/40; RISK-OFF: 65/10; UNKNOWN: cautious), applied in `run()` (stored shortlist) AND the dashboard live pipeline (on `rank_score`), with a throttle callout. Direction measured; exact floors heuristic pending score-calibration. |
-| B-33 | **Conviction-sized shortlist (kill fixed top_n=100)** *(2026-08-23)* | Replace the fixed `top_n=100` in `opportunity_daily.run` with a confluence+rating **quality gate**, so the list shrinks by itself when breadth is thin instead of always padding to 100. **Measurable:** forward return of the gated top-quality subset vs the dropped tail — if the tail carries no edge, cutting it is free noise reduction; if it does, the gate threshold is wrong. Depends on nothing; pairs naturally with B-32. **SHIPPED 2026-08-26** as part of the same `_apply_regime_gate`: a score floor now replaces the flat `top_n` cut (rows below the regime floor are dropped, then capped), so the list sizes itself to conviction × regime. **CALIBRATED 2026-08-26** (`regime_backtest.py --calibrate`, rating vs fwd edge @20d): a rating floor ≈**50** in RISK-ON/MIXED keeps the set that beats a random bar while the sub-50 tail turns negative; **MIXED bullish edge is genuinely positive (+1.2%)**. **RISK-OFF: no rating band beats a random bar and higher-rated names do WORSE** (rating≥70 → −2.5%, ≥80 → −3.1%), so a rating floor is counter-productive there — encoded as `min_rating=None` + a hard cap of **5** (near-zero longs). **TIGHTENED 2026-08-26** (55 names, ~3,000 signal bars, + a kept-vs-tail separation test): **RISK-ON** — a rating floor genuinely sorts (kept-vs-tail significant at 40 and 65–75; kept +0.4–0.5%, tail negative); floor 50 is in-band. **MIXED** — *correction:* the 15-name "+1.2%" was a small-sample artifact; on 458 bars the edge is ~0 and no floor sorts, so floor 50 is a mild coin-flip filter only. **RISK-OFF** — now significant at nearly every threshold (−1 to −2.2%, p≤0.05) and higher-rated names do significantly WORSE than the tail (p=0.02 @≥70). Floors now data-set, not judgment. |
+| ~~B-32~~ | **Regime-PRESCRIPTIVE output throttle** — ✅ **CLOSED 2026-08-26** | Premise proven (`regime_backtest.py`, ~7,400 bars): bullish edge +0.22 @20d RISK-ON vs **−1.78 RISK-OFF (p<0.005)**, and the RISK-OFF baseline was *positive* — the signals actively pick bull traps below the 200 SMA, not beta. Shipped as `opportunity_daily.REGIME_GATE` + `_apply_regime_gate` (regime score-floor + name cap, applied in `run()` and the dashboard live pipeline). Residual → **B-32r** (exact floors still heuristic). Full history in [[analyses/Noise-Regime-Coverage-Postmortem]]. |
+| ~~B-33~~ | **Conviction-sized shortlist (kill fixed top_n=100)** — ✅ **CLOSED 2026-08-26** | Score-floor replaces the flat `top_n` cut inside `_apply_regime_gate`, so the list sizes itself to conviction × regime. Floors data-calibrated (`regime_backtest.py --calibrate`, 55 names + kept-vs-tail test): **RISK-ON** floor ≈50 genuinely sorts (kept +0.4–0.5%, tail negative); **MIXED** edge ≈0, floor 50 is a mild filter only (the earlier "+1.2%" was a 15-name artifact); **RISK-OFF** `min_rating=None` + hard cap 5, since higher-rated names do *significantly worse* than the tail there. Floors are data-set, not judgment. |
 | B-34 | **Small/micro-cap "hidden treasures" lane** *(2026-08-23)* | The funnel universe is `fetch_bhavcopy_top_volume` = top-by-traded-value = **large-cap only**; small/micro-cap multibaggers never enter. `multibagger_candidates.py` exists but is a standalone screener.in-gated screen. Build: a **FREE** small-cap universe (NSE Smallcap-250 / Microcap-250 constituents — no cookie) run through the multibagger criteria **plus the now-free NSE promoter% + pledge% checks** (its header's "pledge not scrapable" caveat is obsolete), surfaced as a deliberately SMALL high-conviction lane. **Measurable:** coverage (names outside the top-value set) + forward hit-rate of the criteria vs a Smallcap-250 benchmark. Closes the owner's core coverage gap. **STARTED 2026-08-24:** `smallcap_universe.py` (free 502-name NSE Smallcap-250+Microcap-250 universe, 24h cache) + `smallcap_discovery.py` (ranks by free FII+DII accumulation-rate + promoter conduct + pledge veto from `ownership_cache`; `--force` backfill added). **Full backfill DONE 2026-08-24** — 499/502 scoreable, pledge populated for 97 names (69 vetoed >5%: AFCONS 100%, STAR 38%…); top-15 surfaces real microcaps (CORONA, STLTECH, ASTRAMICRO, UJJIVANSFB, MASTEK) the large-cap funnel can't see. *(Caught a CLI bug: `--limit` defaulted to 25 and silently capped the first "full" run — fixed.)* **Still TODO:** distinguish pledge 0% vs unknown via the `WhetherAnySharesHeldByPromotersAreEncumbered` boolean (398 names show pledge `None` = fact omitted when clean); quality overlay (ROCE/OPM/D/E); dashboard "Hidden Treasures" lane; the forward hit-rate backtest (the measurable claim). |
 | B-35 | **Collapse 38 scanners into family "lenses" (UI)** *(2026-08-23)* | 38 scanners (13 Entry + 12 Pattern overlap on the same facts); the confluence **family** de-dup already fixes scoring but the UI still lists all 38 as independent choices. Build: default the Scanner Hub to a curated core, group the rest under their `SCANNER_FAMILIES` lens behind "advanced". **Verifiable invariant (not taste):** no unique hit is lost — every family stays reachable and the union of hits is unchanged. Behavioral noise reduction with a checkable guarantee. |
-| B-36 | **Regime posture header + nav consolidation** *(2026-08-23)* | ~21 pages / 6 nav groups = too many doors under stress. Build: a one-line **posture banner** on the Opportunity Hub ("Bear regime — capital preservation; N high-conviction names only") driven by the same regime B-32 validates, plus merging/demoting low-use pages so "what do I do today?" has one front door. Lowest-risk; lands in parallel with B-32/B-34. The anti-over-trading nudge that makes the behavioral thesis felt. **POSTURE BANNER SHIPPED 2026-08-26:** a regime-coloured one-line banner at the top of the Opportunity Hub, pulled from the SAME `opportunity_daily.REGIME_GATE` it enforces (RISK-ON green "full run, rating ≥50" → RISK-OFF red "≤5 names, near-zero longs — bullish signals below the 200 SMA LOSE"). **Nav: first safe consolidation done 2026-08-26** — folded the single-page "Analytics" group (Strategy Hub) into "Research", dropping 6 nav groups → 5 with **no page removed** (structurally redundant, not a usage guess). **Still open:** trimming the 8-page "Screening" group needs the owner's call on which screeners overlap enough to fold (usage isn't instrumented) — held rather than guessed. |
+| ~~B-36~~ | **Regime posture header + nav consolidation** — ✅ **CLOSED 2026-08-26** | Regime-coloured posture banner atop the Opportunity Hub, pulled from the same `REGIME_GATE` it enforces (RISK-ON green "full run, rating ≥50" → RISK-OFF red "≤5 names — bullish signals below the 200 SMA LOSE"). Nav: folded the single-page Analytics group (Strategy Hub) into Research, 6 groups → 5, no page removed. Residual → **B-36r** (Screening-group trim, held for an owner usage call). |
+| B-32r | **Calibrate exact regime floors** *(2026-08-27)* | The `REGIME_GATE` floors/caps shipped in B-32 have the right *direction* (measured) but the exact numbers are heuristic. Re-run `regime_backtest.py --calibrate` on a larger, walk-forward split once B-21 lands and set the floors from that, rather than the single-pass calibration. Small; gated behind B-21's out-of-sample split so the floors aren't fit on the same window they're tested on. |
+| ~~B-36r~~ | **Trim the 8-page Screening nav group** — ✅ **CLOSED 2026-08-27** | Owner chose the safe fold: **Breakout Screener + TradingView Screener → one "Breakout Scans" page** with a Chartink/TradingView source toggle (`bscan_src` radio), 8 pages → 7. Same task (external new-high breakout feed), two providers — structural redundancy, not a usage guess, matching the Analytics→Research standard. Both feeds stay reachable; the two page bodies are unchanged, only re-guarded. `PAGE_GROUPS`/`PAGE_BLURBS` updated; file compiles clean. Further trimming of the *distinct* screeners (Scanner Hub / High-Growth / Screener / Other) was deliberately declined without usage instrumentation. |
 | B-38 | **TechnoFunda delete-funnel as a watchlist noise sieve** *(2026-08-25)* | Wire [[strategies/TechnoFunda-Delete-Funnel]] as a subtractive 8-filter funnel over a watchlist/universe: growth 6–8Q · CFO-vs-PAT · leverage (incl. **interest coverage <3×**, currently absent) · ROCE/ROE ≥15% · governance veto (`red_flags.py` — plus the missing related-party/dilution flags) · >200 DMA · relative strength vs **index AND sector** · accumulation base + up-volume. Each filter only **deletes**; survivors are a *shortlist, not a buy list*. ~7 of 8 legs already exist (see the coverage map on the strategy page) — this is mostly **assembly + the 3 gaps**, not new primitives. **Measurable claim to test (via [[analyses/Backtest-Harness]]):** does the survivor set beat (a) the unfiltered leading universe and (b) any single filter alone, forward? If stacking the deletes doesn't beat the best single delete, the funnel is ceremony. Directly serves the noise-reduction thrust; pairs with B-32/B-33 (regime throttle + conviction-sized list). **STARTED 2026-08-25:** `technofunda_funnel.py` — data-injected engine (`build_context`→`run_funnel`), all 8 filters short-circuiting on first delete, per-stage drop-off report, strict missing-data policy; **interest-coverage + D/E gap CLOSED** at the data layer (`fundamentals_deep` `interest_coverage`/`debt_to_equity`, verified live: TITAN 6.76×/1.95, RELIANCE 6.12×/0.44). **Still TODO:** live wiring into the dashboard (inject `derive_fundamentals` + `red_flags.evaluate` + cached OHLCV + Nifty/sector 12m return), the F2 multi-year CFO/PAT ratio (needs OCF in the payload), ROE alongside ROCE, related-party/dilution flags, an explicit base-tightness detector for F8. **BACKTEST shipped 2026-08-25 (scoped):** `funnel_backtest.py` tests the **price sub-funnel (F6∧F7∧F8)** point-in-time — next-open→+h-close forward return, edge vs every-bar baseline, **Welch two-sample t-test** (scipy-optional, numpy normal-approx fallback), and a "does stacking beat the best single leg?" verdict; predicates imported from `technofunda_funnel` so the tested rule = the shipped rule. **Honest limit:** the fundamental legs F1–F5 are **not point-in-time testable** (yfinance serves only current statements → look-ahead), so the **full-funnel forward test is blocked on point-in-time fundamental data acquisition, not code** — now the single open item on the measurable claim. **DASHBOARD LANE shipped 2026-08-25:** "Delete Funnel" page under Screening — universe source (Watchlist / paste / top-volume, capped at 50), Strict toggle, threshold overrides, a **drop-off table** (where the universe died), **survivor cards** (8 filter chips + why-expander + Watchlist/Analyze/Roster actions), and a reject ledger; reuses the cached fundamentals-deep / red-flags / OHLCV / Nifty fetchers. **Nearly closed — only point-in-time fundamentals remain:** ~~F2 CFO/PAT ratio~~ (DONE 2026-08-25 — `cfo_pat_ratio` = ΣOCF/ΣPAT over ≤5 matched years; live TITAN 0.54, RELIANCE 2.25), ~~ROE~~ (DONE — `roe`/`roe_prev`, F4 now gates ROCE **and** ROE), ~~F1 acceleration read~~ (DONE — deletes profit-YoY-turned-negative), ~~test suite~~ (DONE — `test_technofunda_funnel.py`, 13 tests), ~~in-UI backtest~~ (DONE — "Backtest the price legs" expander on the Delete Funnel lane), ~~dilution flag~~ (DONE 2026-08-25 — `dilution_pct` share-count trend in `red_flags._check_dilution`; live YESBANK +20% flagged, TITAN clean; related-party stays honestly NOT_CHECKED, no free feed), ~~explicit base detector~~ (DONE 2026-08-25 — F8 now uses `detect_vcp_geometry`, heuristic only as fallback), and the point-in-time fundamentals for the full backtest. |
 | B-37 | **"Volume is the story" unusual-volume share card** *(2026-08-25)* | A new **editorial infographic** template: pick the day's top RVOL names (today's volume vs 1-yr avg), render a 1200×675 dark-navy/amber PNG comparing 1-2 stocks — RVOL multiple + mini bar, turnover (₹Cr), **% of mcap traded**, price %, and a per-stock **trigger** (catalyst read from filings) with Q1 Sales/PAT growth, plus a "**THE CONTRAST**" callout (small turnover moving price harder than a large one = float/liquidity tell). Build on the **existing PIL pipeline** (`opportunity_report.render_png` + `report_style` tokens `rs.TOKENS`), fed by `volume_fetcher.py` for RVOL/turnover; catalyst + Q1 lines are hand-supplied (or pulled from the fundamentals cache), not invented. **Not a signal — a distribution artifact**, so it carries the same footer discipline as every export ("⚠ No Buy/Sell recommendation · SEBI Reg."). **Verifiable invariant (not taste):** every printed number reconciles to source — `turnover ≈ today_vol × VWAP`, `%mcap = turnover / mcap`, `RVOL = today_vol / 1yr_avg_vol` — the card must never show a figure it can't derive. Scoped small: one template function + a Scanner/Opportunity-Hub "Share this" button reusing the `_render_export_controls` download pattern. |
 
@@ -301,11 +312,16 @@ The defence has not changed and is still cheap: **carry coverage with the data,
 refuse to score below a floor, and calibrate on the population the grade can
 actually apply to.**
 
-The new half is this. **Measurement debt now exceeds feature debt.** The tools
-built on 2026-08-07 are each individually honest about being unmeasured — and
-that is exactly the problem, because the honest labels are accumulating faster
-than the measurements. B-19, B-25 and B-20a/b are one coherent piece of work, and
-until it is done every new refinement makes the stack taller rather than better.
+The new half is this. **Measurement debt still exceeds feature debt — but its
+shape changed.** As of 2026-08-27 the *harness* is no longer the gap: B-20a
+(significance), B-20b (risk-adjusted alpha), B-25 (confluence lift) and B-7
+(threshold sweep) all shipped. What remains is (a) **running** them on the live
+scanner/confluence set — that is B-19, now a measurement chore, not a build — and
+(b) the two credibility gates the harness still cannot supply on its own:
+**walk-forward and realistic costs (B-21 / B-29)**. Until a scanner has been
+through those two, "edge" is still an in-sample gross number. The regime work
+(B-32/33/36) is the one place a claim was measured *before* it shipped — that is
+the bar the rest of the stack has not yet cleared.
 
 ## Action Taken / Plan
 
@@ -319,9 +335,29 @@ until it is done every new refinement makes the stack taller rather than better.
 6. ~~**B-19b** — support-breakdown detector.~~ Done 2026-08-12 (`scan_support_breakdown`).
 7. ~~**B-3** — mean-reversion scanner.~~ Done 2026-08-12 (`scan_mean_reversion` Connors RSI2).
 
-**Next:** B-16 (OI momentum palette), B-24 (RSI-divergence Python/JS disagreement), B-21 (walk-forward + costs) — and fold **B-29** (realistic slippage) into that same costs pass. The new B-28/B-30 are capability/research items that can wait behind the measurement work; **B-31 is explicitly gated behind B-25.**
+**Next (updated 2026-08-27):**
 
-**Strategic thrust (2026-08-23, [[analyses/Noise-Regime-Coverage-Postmortem]]):** the two behaviour-changing items are **B-32** (regime throttles output volume — measure the RISK-OFF-underperforms premise first, then cap) and **B-34** (free small/micro-cap lane — closes the top-layer-only coverage gap, now unblocked by the free NSE pledge work). **B-33** (conviction-sized list) pairs with B-32; **B-35/B-36** (family-lens UI + posture header) are low-risk noise-reduction that can land in parallel. Do B-32 and B-34 first, each gated on its own measurement.
+1. **B-21 + B-29 together** — walk-forward split + realistic costs. The single
+   highest-leverage measurement item now that the significance/alpha/confluence
+   tooling exists. Everything downstream (B-19 verdicts, B-32r floor recalibration,
+   B-31's gate) waits on this. `no-costs-slippage` still appears in
+   [backtest.py:368](tools/backtest.py:368).
+2. **B-19** — actually *run* B-20a/b/B-25 on the live scanner + confluence set and
+   record the verdicts. Now a chore, not a build.
+3. **B-34 residual** — finish the small-cap lane (quality overlay, dashboard
+   "Hidden Treasures" lane, the forward hit-rate backtest — the measurable claim).
+4. **B-16** (OI momentum palette) and **B-24** (RSI-divergence Python/JS
+   disagreement) — small correctness cleanups, land anytime.
+
+**Parked / gated:** B-38 full-funnel test is blocked on point-in-time fundamental
+data, not code; B-31 (learned weights) stays gated behind B-21/B-29; B-28/B-30 are
+capability/research items behind the measurement work; B-35/B-37 (family-lens UI,
+volume share-card) are noise-reduction/distribution polish with no dependency.
+
+**What's done (2026-08-26):** the 2026-08-23 strategic thrust largely landed —
+B-32 (regime throttle, premise proven first), B-33 (conviction-sized list), B-36
+(posture banner + nav fold). B-34 is most of the way there. That leaves the
+measurement gates (B-21/B-29) as the load-bearing next step.
 
 ## Outcome (fill in later)
 

@@ -1,6 +1,17 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-27] build | B-36r — fold Screening nav 8 → 7 ("Breakout Scans")
+- Owner chose the safe (structural, non-guess) fold. Merged the two sibling nav pages **Breakout Screener** (Chartink, 6M–10Y breakouts) and **TradingView Screener** (BrkoutGeek 1-month-high replica) into one **"Breakout Scans"** page in `dashboard_app.py` with a `bscan_src` Chartink/TradingView source toggle — same task (external new-high breakout feed), two providers.
+- Both page bodies left unchanged; they now guard on `current_page == "Breakout Scans" and bscan_src == ...` instead of being separate top-level pages. `PAGE_GROUPS` + `PAGE_BLURBS` updated; no deep-link/button referenced the old names, so nav is fully consistent. `py_compile` clean.
+- Invariant held: both feeds still reachable, nothing removed. Further trimming of the *distinct* screeners (Scanner Hub / High-Growth / Screener / Other Screeners) declined without usage instrumentation. Closes B-36r.
+
+## [2026-08-27] lint | Open-Backlog reconcile + re-verify against code
+- Re-verified every open item against the actual code (the page's own 2026-08-07 discipline). Found **6 silent drifts** since the last re-verify: the body carried "still open" essays for **B-25, B-20a, B-20b, B-7** (all code-complete since 2026-08-12 — `backtest_confluence`/`_ttest_edge`/market-model alpha/`sweep_volume_threshold` confirmed present), **B-5** was closed at the top but called "worse than recorded" below (now 9 `time_stop` occurrences in `scanner_templates.py`), and **B-11 (MFI)** was filed "verified absent" while `scan_mfi_oversold` + `_mfi_series` had shipped.
+- **Closed in the ledger:** B-5, B-7, B-11, B-20a, B-20b, B-25 (sync), plus the three shipped strategic items **B-32, B-33, B-36** collapsed from inline SHIPPED essays to one-line closes. Split their residuals into new items **B-32r** (calibrate exact regime floors post-walk-forward) and **B-36r** (Screening-group nav trim, owner call).
+- **Confirmed still open:** B-16 (`_strength_color` hardcoded, moved to dashboard_app.py:9747), B-21/B-29 (no walk-forward, no cost model — `no-costs-slippage` still at backtest.py:368), B-24, B-19, plus P2/P3 capability items.
+- **Refreshed thesis + Next order:** measurement debt reshaped — the harness (significance/alpha/confluence) now exists, so the load-bearing next step is **B-21+B-29 (walk-forward + costs)**, then running B-19, then the B-34 small-cap residual.
+
 ## [2026-08-26] build | UI concurrency — per-session serial job queue (queue, don't cancel)
 - **Problem:** Streamlit reruns (interrupts) the single script thread on ANY click, so a long inline task (funnel `od.run`, ~minutes; sentiment `compute_sentiment`, ~25s) is CANCELLED when the user clicks another button. Owner wants the second action QUEUED and run after the in-progress one.
 - **Shipped:** `ui_jobs.py` — a per-session `ThreadPoolExecutor(max_workers=1)` serial queue. `submit`/`submit_unique` return instantly (rerun completes, UI stays live); a submit while one runs waits its turn, never cancels it. Attaches the script's `ScriptRunContext` to the worker so cached fetchers work off-thread. `render_panel()` (top) shows running/queued jobs; `autorefresh()` (bottom) polls via sleep+rerun so the full page still renders and stays clickable. `take_result(label)` consumes a finished job's output once. **Standalone self-test proves the serial guarantee** (B queued mid-A runs strictly after A).

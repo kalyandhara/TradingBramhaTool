@@ -926,7 +926,7 @@ _login_gate()
 # ──────────────────────────────────────────────────────────────────────────────
 PAGE_GROUPS = {
     "Screening":        ["Opportunity Hub", "Delete Funnel", "Screener", "Other Screeners", "Scanner Hub",
-                         "Breakout Screener", "High-Growth Screener", "TradingView Screener"],
+                         "Breakout Scans", "High-Growth Screener"],
     "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
     "Research":         ["Predictive Analysis", "Stock Analyzer", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
@@ -942,9 +942,8 @@ PAGE_BLURBS = {
     "Screener":             "The core NSE screen with the saved pipeline",
     "Other Screeners":      "Ownership pipeline, sector rotation, bulk data",
     "Scanner Hub":          "24 pattern scanners, run on any universe",
-    "Breakout Screener":    "Breakout candidates with volume confirmation",
+    "Breakout Scans":       "External new-high breakout feeds — Chartink or TradingView",
     "High-Growth Screener": "Quality growth names on ROE / ROCE / OPM floors",
-    "TradingView Screener": "Hand-off list formatted for TradingView",
     "Market Sentiment":     "0–100 composite regime gauge, with coverage",
     "India Market Intel":   "Bulk & block deals, insider trades, gap scanner",
     "OI Momentum":          "Open-interest build-up and unwinding",
@@ -7907,12 +7906,35 @@ if current_page == "Telegram Signals":
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Tab 12 — Breakout Screener  (live Chartink fetch across entire market)
+# Breakout Scans · Chartink source  (live Chartink fetch across entire market)
 # ──────────────────────────────────────────────────────────────────────────────
 import chartink_scraper as ck
 
-if current_page == "Breakout Screener":
-    st.subheader("Breakout Screener — Live via Chartink")
+# ──────────────────────────────────────────────────────────────────────────────
+# Page — Breakout Scans (B-36r fold, 2026-08-27). Formerly two sibling nav pages
+# — "Breakout Screener" (Chartink) and "TradingView Screener" — collapsed into one
+# page with a source toggle. Same task (external new-high breakout feed), two
+# providers, so the split was structural redundancy, not two distinct tools. The
+# two bodies below are unchanged; they now guard on `bscan_src` instead of being
+# separate top-level pages. Invariant: both feeds stay reachable, nothing lost.
+# ──────────────────────────────────────────────────────────────────────────────
+if current_page == "Breakout Scans":
+    st.subheader("Breakout Scans — external new-high feeds")
+    st.caption(
+        "Two login-light breakout feeds, same idea (a stock clearing a prior high) "
+        "from different providers. Pick a source."
+    )
+    st.radio(
+        "Source",
+        ["Chartink", "TradingView"],
+        horizontal=True,
+        key="bscan_src",
+        help="Chartink: 6M–10Y consolidation breakouts (needs a session cookie). "
+             "TradingView: BrkoutGeek 1-month-high replica, no login.",
+    )
+
+if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chartink") == "Chartink":
+    st.markdown("**Chartink — 6M → 10Y consolidation breakouts**")
     st.caption(
         "Runs directly against **chartink.com** across the entire cash market. "
         "No stock list needed — Chartink scans every listed stock server-side. "
@@ -8343,10 +8365,10 @@ if current_page == "Breakout Screener":
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Page — TradingView Screener (BrkoutGeek: Horz Break replica via public scan API)
+# Breakout Scans · TradingView source (BrkoutGeek: Horz Break replica, public scan API)
 # ──────────────────────────────────────────────────────────────────────────────
-if current_page == "TradingView Screener":
-    st.subheader("TradingView Screener — BrkoutGeek: Horz Break (replica)")
+if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chartink") == "TradingView":
+    st.markdown("**TradingView — BrkoutGeek: Horz Break (replica)**")
     st.caption(
         "Replicates saved screener uPUJdiD5 via TradingView's public scan endpoint — "
         "no login. NSE-only, breaks 1-month high, filtered by Chg %, Rel Vol, and "
