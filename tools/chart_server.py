@@ -276,6 +276,38 @@ def index():
     return send_from_directory(HERE, "chart_dashboard.html")
 
 
+# ── PWA (installable mobile app) — manifest, service worker, icons ────────────
+@app.route("/manifest.webmanifest")
+def pwa_manifest():
+    return send_from_directory(HERE, "manifest.webmanifest",
+                               mimetype="application/manifest+json")
+
+
+@app.route("/sw.js")
+def pwa_service_worker():
+    # Served from the root scope so it can control the whole app. No-cache so a
+    # new SW is picked up on the next visit rather than being pinned by the browser.
+    resp = send_from_directory(HERE, "sw.js", mimetype="application/javascript")
+    resp.headers["Cache-Control"] = "no-cache"
+    resp.headers["Service-Worker-Allowed"] = "/"
+    return resp
+
+
+@app.route("/icon-192.png")
+def pwa_icon_192():
+    return send_from_directory(HERE, "icon-192.png", mimetype="image/png")
+
+
+@app.route("/icon-512.png")
+def pwa_icon_512():
+    return send_from_directory(HERE, "icon-512.png", mimetype="image/png")
+
+
+@app.route("/icon-maskable-512.png")
+def pwa_icon_maskable():
+    return send_from_directory(HERE, "icon-maskable-512.png", mimetype="image/png")
+
+
 @app.route("/elliott_wave.js")
 def elliott_wave_js():
     return send_from_directory(HERE, "elliott_wave.js", mimetype="application/javascript")

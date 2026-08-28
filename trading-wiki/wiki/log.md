@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-08-28] build | Chart tool → installable mobile PWA + responsive layout
+- Owner asked for a mobile app of the chart tool; chose **Responsive + PWA**, reachable **from anywhere**. Built the code half; the "from anywhere" reach is a Tailscale setup step for the owner (private encrypted mesh — no public exposure, so no bolt-on auth needed on the currently-open Flask server).
+- **PWA:** `manifest.webmanifest` (standalone, chart-navy theme), `sw.js` (conservative shell-only cache — NEVER caches `/api/`, ws, or search, so quotes never go stale; offline nav falls back to the cached shell), three PIL-generated icons (192/512/maskable — ascending candles + amber uptrend + "TB"). New `chart_server.py` routes serve all five (verified 200 + correct content-types). HTML head: manifest link, theme-color, iOS/Android app metas, SW registration (guarded on `isSecureContext`).
+- **Responsive:** one `@media (max-width:820px)` block — stacks all panes into a single vertically-scrolling column (works for any chart count), fattens tap targets, range row → horizontal scroller, indicator popover → full-width **bottom sheet**. `loadCount()` now defaults to **1 chart on phones** (4 on desktop). Layout only — charts/data/JS unchanged; base desktop CSS untouched (overrides live only below 820px).
+- **Verified in-browser (mobile emulation 375px):** single-column grid + overflow-y auto, paneCount=1, header wraps, range row scrolls, indicator panel is `position:fixed` bottom-sheet, manifest linked, theme-color set, **service worker "controlling"**, no console errors.
+- **Follow-ons:** Hollow/Line chart types; push notifications need the Capacitor shell (Path 2). New binary assets committed: `tools/icon-192.png`, `icon-512.png`, `icon-maskable-512.png`.
+
 ## [2026-08-27] build | Heikin Ashi candles in the chart tool (TradingView-style)
 - Added a per-pane chart-type dropdown (Candles / Heikin Ashi) next to the timeframe selector in `chart_dashboard.html`. `heikinAshiBars()` transform + `applyPriceStyle()` feed the candle series raw bars or their HA transform per `pane.chartType`; wired into load, live-tick, and the toggle; persisted to `tb_pane_cfg` localStorage.
 - **Design decision:** HA is DISPLAY-ONLY — `pane.bars` stays real OHLC, so all indicators (RSI/VWAP/patterns + the new B-40 VWAP scanner) keep computing from true prices, never the smoothed series. Live ticks recompute the HA series (a raw `series.update()` would break the HA chain, since each HA bar depends on the prior one).
