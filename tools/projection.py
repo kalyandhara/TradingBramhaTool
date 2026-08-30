@@ -46,13 +46,13 @@ ANALYSIS_BARS = 300
 # detector emitting a technically-valid but practically absurd target.
 MAX_MOVE_PCT = {
     "1m": 8, "5m": 10, "15m": 12, "30m": 15,
-    "1h": 20, "4h": 30, "1d": 60, "1w": 100,
+    "1h": 20, "4h": 30, "6h": 38, "1d": 60, "1w": 100,
 }
 # How far forward (in bars) the client draws the projection line. Indicative
 # horizon for slope/magnitude — NOT a dated forecast. Tuned per timeframe.
 HORIZON_BARS = {
     "1m": 30, "5m": 24, "15m": 20, "30m": 18,
-    "1h": 16, "4h": 14, "1d": 20, "1w": 12,
+    "1h": 16, "4h": 14, "6h": 16, "1d": 20, "1w": 12,
 }
 
 # Verdict → confidence maps. Verdict strings mirror the scanner/overlay wording.
@@ -150,7 +150,7 @@ def _rb_candidate(df):
 def _harmonic_candidate(df, timeframe):
     try:
         max_age = {"1m": 8, "5m": 12, "15m": 15, "30m": 20,
-                   "1h": 25, "4h": 30, "1d": 50, "1w": 20}.get(timeframe, 30)
+                   "1h": 25, "4h": 30, "6h": 35, "1d": 50, "1w": 20}.get(timeframe, 30)
         m = hp.detect_last_pattern(df, max_age_bars=max_age)
     except Exception:
         return None

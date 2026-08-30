@@ -669,7 +669,7 @@ def api_structure_chain():
     # or the whole session gets swallowed by one swing (same shape as /api/trendlines).
     piv_default = {
         "1m": 5, "5m": 6, "15m": 8, "30m": 10,
-        "1h": 10, "4h": 12, "1d": 15, "1w": 15,
+        "1h": 10, "4h": 12, "6h": 13, "1d": 15, "1w": 15,
     }.get(timeframe, 15)
     pivot_len  = max(2, min(int(request.args.get("pivot_len", piv_default)), 100))
     confirm    = request.args.get("confirm", "close")
@@ -742,7 +742,7 @@ def api_order_blocks():
     # than /api/structure_chain — otherwise a daily chart surfaces almost none.
     piv_default = {
         "1m": 3, "5m": 4, "15m": 5, "30m": 5,
-        "1h": 6, "4h": 6, "1d": 6, "1w": 6,
+        "1h": 6, "4h": 6, "6h": 6, "1d": 6, "1w": 6,
     }.get(timeframe, 6)
     pivot_len = max(2, min(int(request.args.get("pivot_len", piv_default)), 100))
     if not symbol:
@@ -799,7 +799,7 @@ def api_trendlines():
     # 20; intraday needs a smaller window or all recent pivots get swallowed.
     prd_default = {
         "1m": 6, "5m": 8, "15m": 10, "30m": 10,
-        "1h": 12, "4h": 15, "1d": 20, "1w": 20,
+        "1h": 12, "4h": 15, "6h": 16, "1d": 20, "1w": 20,
     }.get(timeframe, 20)
     prd = int(request.args.get("prd", prd_default))
     if not symbol:
@@ -858,7 +858,7 @@ def api_harmonic():
     # would still act on the pattern.
     _default_max_age = {
         "1m": 8, "5m": 12, "15m": 15, "30m": 20,
-        "1h": 25, "4h": 30, "1d": 50, "1w": 20,
+        "1h": 25, "4h": 30, "6h": 35, "1d": 50, "1w": 20,
     }.get(timeframe, 30)
     max_age = int(request.args.get("max_age", _default_max_age))
     if not symbol:
