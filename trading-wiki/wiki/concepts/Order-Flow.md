@@ -3,8 +3,8 @@ title: "Order Flow"
 category: concept
 tags: [order-flow, DOM, depth-of-market, delta, bookmap, market-microstructure, footprint, scalping]
 created: 2026-06-17
-updated: 2026-06-17
-sources: 1
+updated: 2026-08-29
+sources: 2
 related:
   - concepts/Initial-Balance.md
   - strategies/TPT-Thrust-Pullback-Thrust.md
@@ -157,7 +157,38 @@ The "stop hunt" pattern — price sweeps a predictable level, triggers stops, th
 
 Valid losses in a leech-on-whale setup occur when "something else looked like the iceberg but wasn't" — the confirming sweep was not an institutional level, just noise.
 
+## Absorption is not a reversal (Kmer, 2026-08-29)
+
+The correction [[entities/Chris-Kmer]] volunteers, and the one that separates order flow
+used as a **filter** from order flow used as a licence to trade more:
+
+> Absorption happens constantly throughout the chart. Absorption alone means nothing.
+
+The tradeable event is the **dominance shift** *after* absorption, and his confirmation
+sequence is explicit about how to see it:
+
+1. **Effort** — aggressive sellers concentrated at a candle's lower extreme: a negative
+   delta ladder, with the intra-candle POC sitting in the wick rather than the body. He
+   reads two footprint views of the same 5-minute candle — one with a **volume profile**
+   inside it, one with a **delta profile** — because a plain OHLC candle is only "the
+   scoreboard" of the auction, not a record of how it was played.
+2. **No result** — that effort fails to move price down. This is the absorption.
+3. **Shift** — bullish close, next candle pulls back, sellers try again and **fail
+   higher**, with buy-side imbalances of **≥400%** lighting up on the bid/ask ladder.
+4. **Two attempts, not one.** A single failure is whipsaw. He enters on the second.
+
+**Participation floor.** A hard stand-down rule, not a preference: **20,000 contracts per
+5-minute MNQ candle**. Below it he does not trade at all, on the reasoning that a
+trapped-participant thesis needs participants to be trapped. Combined with a 90-minute
+session window this holds him to **0–2 trades a day**.
+
+**The counter-intuitive use.** He notes order flow splits traders two ways — either you
+see "more data, more things" and trade *more*, or you use it to **filter trades out**. The
+second is the documented path here, and it is the same thrust as this vault's
+noise-reduction work. See [[strategies/Forced-Participation-Reversal]].
+
 ## Sources
 
 1. [Prop-Trading-Secrets-Lien-Crete-2025](../sources/Prop-Trading-Secrets-Lien-Crete-2025.md) — Ch4 (Biocchi), Ch10 (Granger), Ch12 (Silver), Ch14 (Miller), Ch16 (Koehn)
 2. [YT-Samir-Varmer-Physicist-Trader](../sources/YT-Samir-Varmer-Physicist-Trader.md) — Iceberg order mechanics; VWAP algo trader logic; leech on whale strategy; double-tap frequency increase; order placement tactics
+3. [[sources/YT-Chris-Kmer-World-Cup-Order-Flow]] — absorption vs dominance shift; footprint volume+delta pairing; 400% imbalance threshold; the 20,000-contract participation floor

@@ -3,8 +3,8 @@ title: "Premium / Discount Zones"
 category: concept
 tags: [premium, discount, equilibrium, fibonacci, smc, smart-money, ict, mean-reversion, luxalgo, regime-filter]
 created: 2026-07-16
-updated: 2026-07-16
-sources: 1
+updated: 2026-08-29
+sources: 2
 related: [concepts/Market-Structure-CHOCH-BOS, concepts/Order-Blocks, concepts/Fair-Value-Gap, strategies/Supply-Demand-Zone-Trading, concepts/Support-Resistance]
 ---
 
@@ -39,6 +39,32 @@ Premium/discount is a **grader**, most useful stacked on a concrete signal:
 - **Band width**: LuxAlgo's 5% extreme bands vs the simpler full-half shading. Narrow bands = fewer but stronger location calls.
 - Equilibrium = strict 50%; some frameworks add the 0.618/0.705 "OTE" (optimal trade entry) sub-zone inside discount/premium for tighter entries.
 
+## Variants / Parameters — the deep-fib + value-area agreement rule (Kmer, 2026-08-29)
+
+A stricter construction from [[sources/YT-Chris-Kmer-World-Cup-Order-Flow]], notable
+because it requires **two independent definitions of "discount" to agree** before the
+location counts:
+
+1. **Fibonacci band** drawn swing-low → swing-high at **0.705 / 0.786 / 0.886** — deeper
+   than the ICT OTE zone (61.8–79%) documented in [[concepts/ICT-Methodology]], and
+   deeper than the LuxAlgo 5% extreme bands above.
+2. **Value area** ([[concepts/Volume-Profile]]) — the band must sit **below the value
+   area low**. If the fib zone lands *inside* value area, the setup is discarded outright.
+
+The second condition is the load-bearing one and the reason this variant is worth
+recording: a Fibonacci level is a drawing, while value area is where business was
+actually transacted. Requiring both removes the failure mode where a retracement level
+happens to fall in the middle of accepted value and therefore marks nothing.
+
+**The 0.886 as a hard invalidation.** Not a target zone but a line: if price closes beyond
+the 0.886 without the dominance shift appearing, the trade is not taken. The reasoning is
+structural — a pullback that was going to hold should have held before the range is nearly
+fully retraced.
+
+Also required: some **internal structure** (a swing point, ideally a sweep) before price
+enters the zone, and a preference for the pullback to be into an **inefficient /
+low-volume node** — an area price crossed quickly, where little was transacted.
+
 ## Common Mistakes
 - **Using location as a signal.** "Price is in discount" is not a buy — it's permission to look for a buy *setup*. Without structure/OB/FVG confirmation it's just a Fibonacci level.
 - Anchoring to the wrong range — a premium/discount read is only as good as the swing high/low it's measured between; a stale or mis-picked range gives a meaningless zone. Re-anchor when structure shifts ([[concepts/Market-Structure-CHOCH-BOS]]).
@@ -57,4 +83,6 @@ Premium/discount is a **grader**, most useful stacked on a concrete signal:
 - No live-ticker example yet.
 
 ## Sources
+2. [[sources/YT-Chris-Kmer-World-Cup-Order-Flow]] — the 0.705/0.786/0.886 band, the must-be-outside-value-area agreement rule, and the 0.886 hard invalidation.
+
 1. [LuxAlgo-Smart-Money-Concepts-Pine](../sources/LuxAlgo-Smart-Money-Concepts-Pine.md) — Pine v5 indicator by [[entities/LuxAlgo]] (CC BY-NC-SA 4.0), ingested 2026-07-16; the 5%-band premium/equilibrium/discount construction on trailing swing extremes is from this script.

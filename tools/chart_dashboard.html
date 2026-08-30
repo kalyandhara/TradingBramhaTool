@@ -38,6 +38,10 @@
 <script src="/percent_r_trend_exhaustion.js"></script>
 <!-- ADX + DI directional-movement oscillator — Wilder's ADX/+DI/−DI, matches scanner_templates._adx_di_series bar-for-bar. See adx_di.js -->
 <script src="/adx_di.js"></script>
+<!-- EVWMA/VWAP MACD oscillator + BUY/SELL crossovers — port of QuantNomad's Pine v4 strategy, see evwma_vwap_macd.js -->
+<script src="/evwma_vwap_macd.js"></script>
+<!-- Renko brick structure drawn ON the candles (never instead of them) — causal ATR-epoch brick sizing, see renko.js -->
+<script src="/renko.js"></script>
 <!-- HM Bottoms & Tops (Hilega Milega, reworked) oscillator plug-in — pure computation, see hm_indicator.js -->
 <script src="/hm_indicator.js"></script>
 <!-- SuperTrend AI (adaptive factor via K-means) overlay — original impl of the LuxAlgo technique, see supertrend_ai.js -->
@@ -590,6 +594,10 @@ html, body {
   background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 7px;
   padding: 7px 10px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
   max-width: 55%; display: none; box-shadow: 0 2px 10px rgba(0,0,0,0.22);
+  /* The ? guide roughly doubles the card's height. Cap it to the pane and let it
+     scroll, otherwise it grows upward past the top of the chart and the header
+     line — the part naming the current shape — is the first thing clipped. */
+  max-height: calc(100% - 16px); overflow-y: auto; overscroll-behavior: contain;
   /* right:78px clears the ~72px right price axis so the card never covers the
      price labels; bottom-right keeps it out of the top-left toolbar/action-stack. */
 }
@@ -597,6 +605,18 @@ html, body {
 .svp-info.collapsed .svp-body { display: none; }
 .svp-info .svp-seq { font-family: 'Courier New', monospace; letter-spacing: 2px; }
 .svp-info .svp-cav { color: var(--text-muted); font-size: 9px; margin-top: 4px; }
+/* Plain-language layer. The card is read at a glance, so the jargon gloss for each
+   factor sits inline and the teaching ("what is a POC?") hides behind the ? until
+   asked for — dense-by-default was the complaint, not too little information. */
+.svp-info .svp-plain { color: var(--text-chart); }
+.svp-info .svp-tech { color: var(--text-muted); font-size: 9px; }
+.svp-info .svp-q { cursor: pointer; user-select: none; font-weight: 700;
+  border: 1px solid var(--border); border-radius: 50%; padding: 0 4px; margin-left: 4px;
+  font-size: 9px; color: var(--text-muted); }
+.svp-info .svp-help { display: none; margin-top: 5px; padding-top: 5px;
+  border-top: 1px solid var(--border); font-size: 9.5px; color: var(--text-muted); }
+.svp-info.help-open .svp-help { display: block; }
+.svp-info .svp-help b { color: var(--text-chart); }
 .svp-P { color: #26a69a; } .svp-B { color: #f23645; }
 .svp-D { color: #4c9aff; } .svp-I { color: #b0b7c3; }
 .pmax-info .pmax-head { cursor: pointer; font-weight: 700; user-select: none; }
@@ -1129,6 +1149,7 @@ const INDICATOR_DEFS = [
   {key:'keltner',   label:'Keltner (20, 1.5)',     group:'Bands & Channels', color:'#f48fb1'},
   {key:'pmax',      label:'PMax (EMA10, ATR10 × 3) + signals', group:'Bands & Channels', color:'#26a69a'},
   {key:'stai',      label:'SuperTrend AI (adaptive factor via K-means) + signals', group:'Bands & Channels', color:'#00bcd4', alias:'supertrend ai luxalgo adaptive clustering kmeans trend trailing stop'},
+  {key:'renko',     label:'Renko structure on candles (ATR brick) + flips', group:'Bands & Channels', color:'#ab47bc', alias:'renko brick noiseless noise free time independent price sampled staircase brick size atr flip devendra'},
   // ── Sub-pane oscillators ────────────────────────────────────────────────────
   {key:'rsi',       label:'RSI (14)',               group:'Oscillators',       color:'#7b61ff'},
   {key:'macd',      label:'MACD (12, 26, 9)',       group:'Oscillators',       color:'#2962ff'},
@@ -1136,6 +1157,7 @@ const INDICATOR_DEFS = [
   {key:'rs',        label:'RS vs Benchmark',        group:'Oscillators',       color:'#ffd60a'},
   {key:'prte',      label:'%R Trend Exhaustion (+ chart arrows / OB confluence)', group:'Oscillators', color:'#2466A7', alias:'williams percent r exhaustion reversal confluence order block up down arrow'},
   {key:'adxdi',     label:'ADX + DI (trend strength & direction)', group:'Oscillators', color:'#7B1FA2', alias:'adx dmi directional movement index plus di minus di trend strength downside risk crossover'},
+  {key:'evmacd',    label:'EVWMA VWAP MACD (30,5,20) + BUY/SELL', group:'Oscillators', color:'#0094ff', alias:'quantnomad elastic volume weighted moving average vwap macd crossover buy sell signal histogram'},
   {key:'roc',       label:'ROC + RSI Zones (21,5,5,14)', group:'Oscillators',    color:'#2962ff'},
   {key:'stoch',     label:'Stochastic (14,3,3)',    group:'Oscillators',       color:'#26c6da'},
   {key:'hm',        label:'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', group:'Oscillators', color:'#26a69a', alias:'hilega milega bottom top reversal strength momentum'},
@@ -2739,7 +2761,7 @@ function addLine(pane, color, lineWidth = 1, lineStyle = 0) {
 // momentum, and remain informative on any series.
 // mabias joins them: a trend-bias card on a monotonic yield line would read
 // "permanent golden cross" — technically true, decisionally meaningless.
-const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'adxdi', 'stoch', 'elliott', 'mabias', 'rsidiv', 'hm'];
+const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'adxdi', 'stoch', 'elliott', 'mabias', 'rsidiv', 'hm', 'evmacd'];
 
 // Detect liquid-ETF / cash-equivalent behaviour from bar statistics rather
 // than symbol lists — new liquid ETFs launch faster than any hardcoded set
@@ -2812,7 +2834,7 @@ function applyIndicators(pane) {
   // 'volume' is deliberately absent — it is a main-chart overlay now, torn down
   // by removeIndicatorSeries above. A stale volume SUB-pane can still exist from
   // a session saved before the change, so it is swept once here.
-  ['rsi','macd','obv','rs','prte','adxdi','roc','stoch','hm'].forEach(key => {
+  ['rsi','macd','obv','rs','prte','adxdi','evmacd','roc','stoch','hm'].forEach(key => {
     if (!pane.indicators.has(key) && pane.subCharts[key]) removeSubPane(pane, key);
   });
   if (pane.subCharts.volume) removeSubPane(pane, 'volume');
@@ -2861,6 +2883,12 @@ function applyIndicators(pane) {
   // Clear SuperTrend AI flip markers if deselected (its lines are torn down by
   // removeIndicatorSeries, but the merged markers must be cleared explicitly).
   if (!pane.indicators.has('stai')) setPaneMarkers(pane, 'stai', null);
+  // Same for the EVWMA/VWAP MACD crossover arrows mirrored onto the candles —
+  // the sub-pane teardown below removes the oscillator, not the price markers.
+  if (!pane.indicators.has('evmacd')) setPaneMarkers(pane, 'evmacd', null);
+  // Renko draws a step line (torn down by removeIndicatorSeries) plus merged flip
+  // markers, which have to be cleared explicitly like every other marker source.
+  if (!pane.indicators.has('renko')) { setPaneMarkers(pane, 'renko', null); clearRenkoState(pane); }
   // Tear down Harmonic overlay if deselected
   if (!pane.indicators.has('harmonic') && pane.hm) clearHarmonic(pane);
   // Tear down Price Projection overlay if deselected
@@ -2955,6 +2983,21 @@ function applyIndicators(pane) {
           addLine(pane, '#f23645', 2),  // down-trend (above price)
         ];
         break;
+      case 'renko':
+        // The Renko grid as a STAIRCASE over the candles — stepped, because the brick
+        // close only changes when a brick completes, and a smooth line between those
+        // points would imply prices the Renko series never acknowledged. Split into two
+        // colours by brick direction, whitespace-padded like PMax/STAI so each draws
+        // only during its own run.
+        pane.indSeries[key] = [
+          addLine(pane, '#26a69a', 2),  // up-bricks
+          addLine(pane, '#ab47bc', 2),  // down-bricks
+        ];
+        try {
+          pane.indSeries[key][0].applyOptions({lineType: 1});   // 1 = LineType.WithSteps
+          pane.indSeries[key][1].applyOptions({lineType: 1});
+        } catch {}
+        break;
       // sub-pane indicators — created in the computation section below
       case 'rsi': case 'macd': case 'obv': case 'rs': case 'volprofile': break;
     }
@@ -3018,6 +3061,34 @@ function applyIndicators(pane) {
              text: 'BUY ' + sig.strength}
           : {time: sig.time, position: 'aboveBar', color: '#f23645', shape: 'arrowDown',
              text: 'SELL ' + sig.strength}));
+        break;
+      }
+      case 'renko': {
+        // "Renko intelligence on candles": the bricks are the analysis, the candles stay
+        // the chart. Never a chart-type swap — pane.bars is untouched, exactly like the
+        // Heikin Ashi rule, so every other indicator still sees real OHLC.
+        const rk = RENKO.compute(bars, {atrPeriod: 5});
+        const dirByTime = new Map();
+        rk.bricks.forEach(b => dirByTime.set(b.time, b.dir));   // last brick of the bar wins
+        const up = [], dn = [];
+        let curDir = 0;
+        rk.path.forEach(p => {
+          if (p.value === null || p.value === undefined) return;
+          if (dirByTime.has(p.time)) curDir = dirByTime.get(p.time);
+          if (curDir === 0) return;                    // grid anchored, no brick yet
+          (curDir === 1 ? up : dn).push({time: p.time, value: p.value});
+        });
+        s[0].setData(padToBars(up, bars));
+        s[1].setData(padToBars(dn, bars));
+        // Flips are the only actionable event Renko produces, and the measured result
+        // (B-43) is that they carry NO forward edge — labelled FLIP, deliberately not
+        // BUY/SELL, so the chart does not imply a trigger the data does not support.
+        setPaneMarkers(pane, 'renko', rk.flips.map(f => f.dir === 1
+          ? {time: f.time, position: 'belowBar', color: '#26a69a', shape: 'arrowUp',
+             text: 'FLIP↑'}
+          : {time: f.time, position: 'aboveBar', color: '#ab47bc', shape: 'arrowDown',
+             text: 'FLIP↓'}));
+        renderRenkoState(pane, rk);
         break;
       }
     }
@@ -3247,6 +3318,63 @@ function applyIndicators(pane) {
       ...adxdi.bearCross.map(p => ({time: p.time, position: 'aboveBar', color: '#EF5350', shape: 'circle', text: '−DI'})),
     ].sort((a, b) => a.time - b.time);
     pane.subCharts.adxdi.adxLine.setMarkers(markers);
+  }
+
+  if (pane.indicators.has('evmacd')) {
+    if (!pane.subCharts.evmacd) {
+      const sub = addSubPane(pane, 'evmacd', 'EVWMA VWAP MACD (30,5,20)', 140);
+      // Histogram first so the two lines always sit on top of the columns.
+      sub.hist = sub.chart.addHistogramSeries({
+        priceLineVisible: false, lastValueVisible: false, priceScaleId: 'right',
+      });
+      sub.signalLine = sub.chart.addLineSeries({
+        color: '#ff6a00', lineWidth: 1,     // Pine's signal colour
+        priceLineVisible: false, lastValueVisible: true, title: 'signal',
+      });
+      sub.macdLine = sub.chart.addLineSeries({
+        color: '#0094ff', lineWidth: 1.5,   // Pine's macd colour
+        priceLineVisible: false, lastValueVisible: true, title: 'macd',
+      });
+      sub.series = sub.macdLine;   // crosshair sync anchor
+      // Zero is a real level here, not a scale artefact: diff = price − volume
+      // anchor, so macd crossing 0 means price crossed where volume transacted.
+      sub.macdLine.createPriceLine({price: 0, color: 'rgba(150,150,150,0.55)',
+                                    lineWidth: 1, lineStyle: 0, axisLabelVisible: false});
+      sub.chart.priceScale('right').applyOptions({scaleMargins: {top: 0.08, bottom: 0.08}});
+    }
+    const ev = EVMACD.compute(bars, {tf: pane.tf});
+    // Pine's four-state histogram colouring: sign × rising/falling, so a shrinking
+    // positive bar (momentum fading while still bullish) is visibly paler than a
+    // growing one. Reproduced exactly rather than reduced to two colours.
+    const histData = ev.hist.map((p, i) => {
+      const rising = i > 0 ? ev.hist[i - 1].value < p.value : true;
+      return {time: p.time, value: p.value,
+              color: p.value >= 0 ? (rising ? '#26A69A' : '#B2DFDB')
+                                  : (rising ? '#FFCDD2' : '#EF5350')};
+    });
+    pane.subCharts.evmacd.hist.setData(histData);
+    pane.subCharts.evmacd.macdLine.setData(padToBars(ev.macd, bars));   // primary → full grid
+    pane.subCharts.evmacd.signalLine.setData(ev.signal);
+    // Crossovers on the oscillator itself…
+    pane.subCharts.evmacd.macdLine.setMarkers([
+      ...ev.buy.map(p  => ({time: p.time, position: 'belowBar', color: '#26A69A', shape: 'arrowUp',   text: 'L'})),
+      ...ev.sell.map(p => ({time: p.time, position: 'aboveBar', color: '#EF5350', shape: 'arrowDown', text: 'S'})),
+    ].sort((a, b) => a.time - b.time));
+    // …and mirrored onto the candles as the actual BUY/SELL calls. The Pine
+    // strategy is stop-and-reverse (always in the market), so each arrow is both
+    // an exit and an entry — labelled BUY/SELL, not "entry only".
+    setPaneMarkers(pane, 'evmacd', ev.signals.map(sig => sig.dir === 1
+      ? {time: sig.time, position: 'belowBar', color: '#26A69A', shape: 'arrowUp',   text: 'BUY'}
+      : {time: sig.time, position: 'aboveBar', color: '#EF5350', shape: 'arrowDown', text: 'SELL'}));
+    // Current stance in the pane label — on a stop-and-reverse rule the standing
+    // side is the read, and it is otherwise only inferable from the last arrow.
+    // The VWAP mode is named too, because it differs by timeframe (see the module
+    // header): true session VWAP intraday, hlc3 on daily+ (Pine's own collapse).
+    const stance = ev.state
+      ? ((ev.state.dir === 1 ? ' · LONG ' : ' · SHORT ') + ev.state.bars + 'b')
+      : '';
+    pane.subCharts.evmacd.label.textContent =
+      'EVWMA VWAP MACD (30,5,20)' + (ev.source === 'session' ? ' · session VWAP' : ' · hlc3') + stance;
   }
 
   if (pane.indicators.has('hm')) {
@@ -5779,6 +5907,36 @@ function ensurePmaxState(pane) {
   return pane.pmaxTrade;
 }
 
+// ── Renko state line (integration layer for renko.js) ────────────────────────
+// Renko's whole read is two numbers — the brick size in force and how far the current
+// run has travelled — and neither is legible from the staircase alone. Drawn as ONE
+// labelled price line at the live grid level rather than a card: it is the level the
+// next brick prints from, so it belongs on the price axis next to it.
+function clearRenkoState(pane) {
+  (pane._renkoLines || []).forEach(pl => {
+    try { pane.series.removePriceLine(pl); } catch {}
+  });
+  pane._renkoLines = [];
+}
+
+function renderRenkoState(pane, rk) {
+  clearRenkoState(pane);
+  if (!rk || !rk.state || !rk.state.brick) return;
+  const st = rk.state;
+  const up = st.dir === 1;
+  // Brick as a % of price travels across instruments; the raw points do not.
+  const last = pane.bars && pane.bars.length ? pane.bars[pane.bars.length - 1].close : 0;
+  const pct = last > 0 ? (st.brick / last * 100).toFixed(2) : '?';
+  pane._renkoLines = [pane.series.createPriceLine({
+    price: st.lastClose,
+    color: up ? '#26a69a' : '#ab47bc',
+    lineWidth: 1, lineStyle: 2, axisLabelVisible: true,
+    // No BUY/SELL wording anywhere: B-43 measured the flip at zero forward edge, so
+    // this reports STATE (where the grid is, how big a brick is) and nothing more.
+    title: `Renko ${up ? '▲' : '▼'} ${st.bricks}br · brick ${st.brick.toFixed(2)} (${pct}%)`,
+  })];
+}
+
 function clearPmaxTrade(pane) {
   const st = pane.pmaxTrade;
   if (!st) return;
@@ -5999,15 +6157,76 @@ function renderSVPInfo(pane, r) {
     st.infoEl.className = 'svp-info';
     pane.el.querySelector('.chart-main').appendChild(st.infoEl);
     st.infoEl.addEventListener('click', ev => {
+      if (ev.target.closest('.svp-q')) {           // ? toggles the plain-English guide
+        st.helpOpen = !st.helpOpen;
+        st.infoEl.classList.toggle('help-open', st.helpOpen);
+        ev.stopPropagation();
+        return;
+      }
       if (!ev.target.closest('.svp-head')) return;
       st.collapsed = !st.collapsed;
       st.infoEl.classList.toggle('collapsed', st.collapsed);
     });
   }
   const c = r.card;
-  const f = v => Number.isFinite(v) ? v.toFixed(2) : '—';
+  // Thousands separators: these are price levels people read off a chart, and
+  // "3935.56" is measurably harder to scan than "3,935.56".
+  const f = v => Number.isFinite(v)
+    ? v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—';
   const shp = sh => `<span class="svp-${sh}">${sh}</span>`;
   const seq = (c.sequence || '').split(' ').filter(Boolean).map(shp).join(' ');
+  const grainWord = {day: 'daily', week: 'weekly', month: 'monthly'}[c.grain] || '';
+  const grainNoun = {day: 'day', week: 'week', month: 'month'}[c.grain] || 'session';
+
+  // ── Plain-English layer ────────────────────────────────────────────────────
+  // Translation lives HERE, in the renderer, not in the engine: the engine's factor
+  // names and detail strings are also written into the backtest CSVs, so rewording
+  // them would silently break comparability with the 2026-08-29 measurement.
+  const PLAIN_NAME = {
+    'D-anchor regime':      'Trend anchor',
+    'VA re-entry':          'Back inside fair value',
+    'VA breakout':          'Holding above fair value',
+    'VA breakdown':         'Holding below fair value',
+    'POC trap (support)':   'Buyers defending',
+    'POC trap (resistance)':'Sellers capping',
+    'exhaustion stack':     'Push running out of steam',
+    'sequence tilt':        `Recent ${grainNoun}s lean`,
+    'liquidity sweep':      'Stop-run then reversal',
+    'POC cluster':          'Stacked levels (shelf)',
+  };
+  // De-jargon the engine's own detail string while KEEPING every number in it.
+  const plainDetail = (s) => String(s || '')
+    // The sequence factor's detail is "STATE: note", and the state's own plain
+    // wording duplicates the note — so strip the prefix here, BEFORE the rules
+    // below translate a bare state (used on its own in the header).
+    .replace(/^(?:DISTRIBUTION→MARKDOWN|ACCUMULATION→MARKUP)\s*:\s*/i, '')
+    // Group thousands in the embedded price levels so they match the lines above.
+    // Guarded to 4+ integer digits with 2 decimals, so counts ("5 times") are safe.
+    .replace(/\b(\d{4,})\.(\d{2})\b/g,
+             (m, a, b) => Number(a).toLocaleString() + '.' + b)
+    .replace(/(\d+)×\s*rejection of\s*[BPDI]-level\s*([\d.,]+)\s*held/i,
+             'pushed back from $2 $1 times and held')
+    .replace(/(\d+)×\s*rejection of\s*[BPDI]-level\s*([\d.,]+)\s*failed/i,
+             'capped at $2 $1 times')
+    .replace(/(\d+)\s*POCs stacked at/i, '$1 busy levels stacked at')
+    .replace(/Direction-POC/gi, 'trend anchor')
+    .replace(/composite VAL/gi, 'the fair-value floor')
+    .replace(/composite VAH/gi, 'the fair-value ceiling')
+    .replace(/\bVAL\b/g, 'fair-value floor').replace(/\bVAH\b/g, 'fair-value ceiling')
+    .replace(/→\s*bull regime/i, '— up-regime').replace(/→\s*bear regime/i, '— down-regime')
+    .replace(/→\s*reversal-UP/i, '— buyers in control')
+    .replace(/→\s*reversal-DOWN/i, '— sellers in control')
+    .replace(/→\s*support shelf below/i, '— a floor beneath price')
+    .replace(/→\s*resistance shelf above/i, '— a ceiling above price')
+    .replace(/→\s*acceptance higher/i, '— accepted at higher prices')
+    .replace(/→\s*acceptance lower/i, '— accepted at lower prices')
+    .replace(/→\s*acceptance/i, '— accepted back inside')
+    .replace(/→\s*distribution/i, '— sellers took it back')
+    .replace(/→\s*bull sweep/i, '— swept the low, then reclaimed it')
+    .replace(/→\s*bear sweep/i, '— swept the high, then failed')
+    .replace(/DISTRIBUTION→MARKDOWN/i, 'selling pressure building')
+    .replace(/ACCUMULATION→MARKUP/i, 'buying pressure building')
+    .replace(/→/g, '—');
   const cur = c.current;
   const adCol = /DISTRIB/.test(c.ad.state) ? '#f23645'
               : /ACCUM/.test(c.ad.state) ? '#26a69a' : 'var(--text-muted)';
@@ -6019,43 +6238,105 @@ function renderSVPInfo(pane, r) {
   const sig = c.signal;
   let sigBadge = '', sigBody = '';
   if (sig && sig.dir) {
-    const sc2 = sig.dir === 'BUY' ? '#26a69a' : sig.dir === 'SELL' ? '#f23645' : 'var(--text-muted)';
+    // Deliberately MUTED, not colour-coded. It was measured (2026-08-29) to carry no
+    // forward edge, so giving it the same visual weight as the structural facts —
+    // green for BUY, red for SELL — would have the card shouting its weakest claim.
+    // The word stays, because hiding a reading is not the same as qualifying it.
     const kindTxt = sig.kind ? ` · ${sig.kind}` : '';
-    const conf = sig.confidence ? ` <span style="color:var(--text-muted);font-weight:400;">(${sig.confidence} conf)</span>` : '';
-    sigBadge = `<span style="color:${sc2};font-weight:800;">${sig.dir}${kindTxt}</span>${conf}`;
+    const conf = sig.confidence ? ` (${sig.confidence} conf)` : '';
+    sigBadge = `<span style="color:var(--text-muted);font-weight:600;" ` +
+               `title="Measured: no forward edge — see ?">${sig.dir}${kindTxt}${conf}</span>`;
     if (sig.dir !== 'NEUTRAL') {
-      const bar = `<span style="color:#26a69a;">▲${f(sig.bullW)}</span> / <span style="color:#f23645;">▼${f(sig.bearW)}</span> · net ${sig.score>0?'+':''}${sig.score} · agree ${(sig.agreement*100).toFixed(0)}%`;
+      // "agree 40%" told nobody anything. Say what the number means.
+      const agr = Math.round((sig.agreement || 0) * 100);
+      const agrWord = agr >= 70 ? 'signals mostly agree'
+                    : agr >= 45 ? 'signals partly disagree'
+                                : 'signals conflict — weak, mixed structure';
+      const bar = `<span style="color:#26a69a;">▲${f(sig.bullW)}</span> up vs ` +
+                  `<span style="color:#f23645;">▼${f(sig.bearW)}</span> down · ` +
+                  `<span class="svp-plain">${agr}% ${agrWord}</span>`;
+      // These are STRUCTURE levels, not a forecast — say so in the label rather
+      // than leaving "Target" to be read as a price prediction.
       const tgtParts = [];
-      if (sig.target != null) tgtParts.push(`Target ${f(sig.target)}`);
-      else tgtParts.push(`Target open (broke ${sig.dir === 'SELL' ? 'underfoot' : 'overhead'})`);
-      if (sig.invalidation != null) tgtParts.push(`invalidate ${f(sig.invalidation)}`);
+      if (sig.target != null) tgtParts.push(`next structure level <b>${f(sig.target)}</b>`);
+      else tgtParts.push(`no level ahead (price broke ${sig.dir === 'SELL' ? 'below' : 'above'} them all)`);
+      if (sig.invalidation != null) tgtParts.push(`this read breaks if price passes <b>${f(sig.invalidation)}</b>`);
       const tgt = `<div>${tgtParts.join(' · ')}</div>`;
       const facs = (sig.factors || []).filter(x => x.dir)
-        .map(x => `<div style="margin-left:8px;color:${x.dir>0?'#26a69a':'#f23645'};">${x.dir>0?'▲':'▼'} <b>${x.name}</b> <span style="color:var(--text-muted);font-weight:400;">— ${x.detail}</span></div>`)
+        .map(x => {
+          const label = PLAIN_NAME[x.name] || x.name;
+          return `<div style="margin-left:8px;color:${x.dir>0?'#26a69a':'#f23645'};">` +
+                 `${x.dir>0?'▲':'▼'} <b>${label}</b> ` +
+                 `<span class="svp-tech">— ${plainDetail(x.detail)}</span></div>`;
+        })
         .join('');
       sigBody = `<div style="margin-top:4px;border-top:1px solid var(--border,rgba(255,255,255,.08));padding-top:4px;">` +
         `<div style="color:var(--text-muted);">Confluence: ${bar}</div>` + tgt + facs + `</div>`;
     }
   }
+  // Flag the agreement between the short- and long-run busiest price: when they sit
+  // on top of each other that IS the structural read, and it was invisible before.
+  const compAlign = (c.composite && cur && cur.poc > 0
+                     && Math.abs(c.composite.poc - cur.poc) / cur.poc < 0.01)
+    ? ` <span style="color:#26a69a;">— same as this ${grainNoun}'s, a level both agree on</span>` : '';
   const compLine = c.composite
-    ? `<div>Composite POC <b>${f(c.composite.poc)}</b> · VA ${f(c.composite.val)}–${f(c.composite.vah)}</div>` : '';
+    ? `<div>Longer-run busiest <b>${f(c.composite.poc)}</b> · fair value ` +
+      `${f(c.composite.val)}–${f(c.composite.vah)}${compAlign}</div>` : '';
 
   st.infoEl.innerHTML =
     `<div class="svp-head">Session VP · ` +
       (sig && sig.dir ? sigBadge + ` · ` : '') +
       (cur ? `now ${shp(cur.shape)} <span style="color:var(--text-muted);font-weight:400;">(${cur.label})</span>` : '') +
-      ` · <span style="color:${adCol};font-weight:700;">${c.ad.state}</span> ` +
-      `<span style="color:var(--text-muted);font-weight:400;">▾</span></div>` +
+      ` · <span style="color:${adCol};font-weight:700;">${plainDetail(c.ad.state)}</span> ` +
+      `<span style="color:var(--text-muted);font-weight:400;">▾</span>` +
+      `<span class="svp-q" title="What am I looking at?">?</span></div>` +
     `<div class="svp-body" style="margin-top:5px;">` +
-      `<div>Sessions: <span class="svp-seq">${seq}</span></div>` +
-      (cur ? `<div>POC <b>${f(cur.poc)}</b> · VA ${f(cur.val)}–${f(cur.vah)}</div>` : '') +
+      // Name the grain. "Session" means a different period per timeframe (a day
+      // intraday, a week on 1d, a month on 1w — and a week on coarse intraday bars
+      // where a day is too thin to profile), and reading the shape sequence without
+      // knowing which is a silent misread.
+      `<div>Sessions${grainWord ? ` <span style="color:var(--text-muted);font-weight:400;">(${grainWord})</span>` : ''}: ` +
+        (seq ? `<span class="svp-seq">${seq}</span>`
+             : `<span style="color:var(--text-muted);">${c.note || 'none computable'}</span>`) + `</div>` +
+      (cur ? `<div>Busiest price <b>${f(cur.poc)}</b> · fair value ${f(cur.val)}–${f(cur.vah)}` +
+             ` <span class="svp-tech">(this ${grainNoun})</span></div>` : '') +
       compLine +
       trapLine +
-      (levels ? `<div style="margin-top:3px;">Critical POCs: ${levels}</div>` : '') +
+      (levels ? `<div style="margin-top:3px;">Key levels <span class="svp-tech">(newest first)</span>: ${levels}</div>` : '') +
       sigBody +
-      `<div class="svp-cav">D=direction · P=buying · B=selling · I=balance. The BUY/SELL ` +
-        `read is a confluence of interpretive priors (D-anchor, VA accept/reject, 3-4× trap, ` +
-        `exhaustion, sequence, sweep, cluster) — every weight is unbacktested. Not advice.</div>` +
+      // The caveat used to read "every weight is unbacktested". That is no longer
+      // true — svp_backtest.py measured it on 2026-08-29 and it FAILED, so the card
+      // now states the result instead of the absence of one. The structural read
+      // (shapes, POC, value area) stands; the directional call does not.
+      // One line by default. The evidence behind it is real and must stay reachable,
+      // but a paragraph of statistics on a chart overlay is how a caveat gets skipped.
+      `<div class="svp-cav">` +
+        `<b>Read the structure, not the BUY/SELL word</b> — the direction call was ` +
+        `measured and has no edge. Not advice.</div>` +
+
+      `<div class="svp-help">` +
+        `<div><b>What this is.</b> A map of where trading actually happened — where price ` +
+        `is supported, where it is capped, and whether the market is trending or balanced. ` +
+        `It describes structure; it does not predict.</div>` +
+        `<div style="margin-top:4px;"><b>Busiest price (POC)</b> — the single price with the ` +
+        `most trade. <b>Fair value</b> — the band holding most of the trade. Price leaving ` +
+        `that band and staying out is the market repricing.</div>` +
+        `<div style="margin-top:4px;"><b>${grainNoun[0].toUpperCase()+grainNoun.slice(1)} shapes</b> — ` +
+        `${shp('D')} one-way move · ${shp('P')} buyers absorbing · ${shp('B')} sellers ` +
+        `unloading · ${shp('I')} balanced. Read left→right, newest last.</div>` +
+        `<div style="margin-top:4px;"><b>Stacked levels</b> — several ${grainNoun}s agreeing ` +
+        `on a price build a shelf: a floor below, a ceiling above.</div>` +
+        `<div style="margin-top:4px;"><b>Agreement %</b> — how much the individual reads point ` +
+        `the same way. Low means conflicting evidence, so expect chop rather than follow-through.</div>` +
+        `<div style="margin-top:4px;"><b>Levels, not forecasts</b> — the "next structure level" ` +
+        `is where the map says price would next meet business, not where it will go.</div>` +
+        `<div style="margin-top:5px;padding-top:4px;border-top:1px solid var(--border);">` +
+        `<b>Why the direction word is greyed out.</b> Measured 2026-08-29 over 8 names and ` +
+        `~19 years: BUY days did <b>worse</b> than an average day (−0.12 to −0.68pp) and SELL ` +
+        `days did <b>better</b> — backwards, though not significantly (p=0.21). The confluence ` +
+        `score carried no information either (corr with 20-day return = −0.04). The levels and ` +
+        `shapes above are still worth reading; the arrow is not.</div>` +
+      `</div>` +
     `</div>`;
   st.infoEl.classList.toggle('collapsed', st.collapsed);
   st.infoEl.style.display = 'block';

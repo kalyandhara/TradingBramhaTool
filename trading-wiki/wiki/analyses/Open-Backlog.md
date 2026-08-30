@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-08-27
+updated: 2026-08-29
 sources: 0
 related:
   - analyses/Open-Backlog-2026-08-02.md
@@ -46,6 +46,7 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **Open — residual only** | **B-34** (small-cap lane built; quality overlay + dashboard lane + hit-rate backtest remain), **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
 | **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic), **B-39** (pin `scipy` in requirements / make `backtest.py` scipy-optional — the hard import silently broke the significance stack on Python 3.14) |
 | **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**, see below), **B-41** (liquidity-sweep / stop-hunt detector — missing third of the SMC stack), **B-42** (shared market-structure engine — BOS/CHoCH). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
+| **New 2026-08-29** | ~~**B-43**~~ **BUILT + MEASURED → clean null** (flip edge ~0, negative on the long leg; beat buy&hold 0/23 — but fires 40% less often than the EVWMA cross, i.e. noise reduction without edge). Chart overlay kept, labelled FLIP not BUY/SELL. MCX still gated. From the Renko podcast ingest. ~~**B-44**~~ **BUILT + MEASURED same day → clean null** (see below); residual **B-44r** (is the naive dealer convention backwards for NSE?). From the Chris Kmer order-flow ingest. |
 | **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
 
@@ -264,6 +265,168 @@ breakout / IPO anchor) + the chart's click-to-anchor — that half is **B-4/B-12
 (does a VWAP-reclaim beat the every-bar baseline?) before it grades anything. That
 is the one open measurable claim.
 
+**Adjacent measured result (2026-08-29) — a *different* VWAP rule, tested and dead.**
+The owner's TradingView `EVWMA_VWAP_MACD[QN]` BUY/SELL strategy was ported into the
+chart tool (`evmacd`) and put through the same harness: **no edge at any horizon**
+(BUY-cross +0.10/+0.04/+0.17/+0.04% at 5/10/20/60d, p 0.32–0.91, 23 names × ~19y),
+stop-and-reverse median **−29%** vs buy&hold **+827%**. Full write-up in
+[[concepts/EVWMA-VWAP-MACD]]. This does **not** settle B-40's open claim — that one
+is about the *reclaim/pullback-hold* event on a rolling 20-day VWAP, a different
+rule — but it is a second data point that VWAP-derived **crossovers** are context,
+not triggers, and the reclaim scanner should be measured expecting the same.
+
+### ~~B-43~~ · Renko / time-independent chart engine — ✅ **BUILT + MEASURED 2026-08-29 → CLEAN NULL**
+`grep -ri renko tools/` returns **nothing**. Every chart type and every scanner in this
+repo is time-sampled (candles, Heikin Ashi), so the whole family of price-sampled charts
+— Renko, and the [[concepts/Point-and-Figure-Charts]] we already document but never
+compute — is absent. Raised by [[sources/YT-Devendra-Renko-Intelligence-Commodities]];
+written up in [[concepts/Renko-Charts]].
+
+**Build (normal-sized, no new architecture):** `renko.js` pure module (bricks from OHLC,
+2-brick reversal) + a rendering plug in `chart_dashboard.html` that keeps the candles and
+draws Renko *structure* on them — the same compute-module-plus-plug shape as `evmacd`,
+`prte` and `stai`. Brick size **derived, not tuned**: `ATR(5)` on a session-length bar ÷
+execution bars per session (≈8.3 pts for Nifty 30-min; the source's own worked numbers
+are internally inconsistent — corrected on the concept page).
+
+**Measurable claim, and the trap:** does a Renko brick-flip beat the every-bar baseline
+on the *underlying OHLC*? Renko bricks are **not fillable bars** — no usable timestamp,
+the last brick repaints, and one brick can span many real bars — so the test must enter on
+the bar that *completes* the brick, scored through the standard harness. A backtest run on
+the brick series itself is the classic way this chart type manufactures a fake equity
+curve; whoever builds this must not take that shortcut.
+
+**Prior:** neutral-to-skeptical. Renko is a *rendering* choice; a rendering choice that
+also removed noise from the signal would be a free lunch. Expect the honest result to
+land where the DI cross and the EVWMA/VWAP MACD cross landed — useful context, no
+standalone edge — and build it to find out, not to confirm.
+
+**RESULT — the flip has no edge, exactly as the prior said.** Shipped `renko.js`
+(close-based bricks, 2-brick reversal, **causal ATR-epoch brick sizing** — re-derived every
+20 bars from ATR over strictly prior bars, because rebuilding the grid from the latest ATR
+repaints all of history), the `renko` chart overlay (two-colour staircase on the candles +
+flip arrows + a labelled state price line), `renko_backtest.js` and `renko_backtest.py`.
+Engine invariant verified in-browser: zero violations of the 2-brick reversal rule across
+470 live bars.
+
+Scored through the **same harness** as the EVWMA cross — `event_edge`/`strategy_equity`
+now take an injected `signals_fn`, so there is one scorer and several engines rather than
+a second copy of the Welch machinery — on the identical 23-name basket and ~19 years:
+
+```
+flip_up (LONG)    n=1862   -0.06 / -0.08 / -0.04 / -0.77 %   p 0.62 / 0.60 / 0.85 / 0.07
+flip_dn (SHORT)   n=1871   +0.11 / +0.05 / -0.19 / -1.00 %   p 0.35 / 0.76 / 0.40 / 0.01*
+```
+
+The long leg is **negative at every horizon**. The single starred cell is not a finding:
+8 cells tested (~0.4 expected under 0.05 by chance), at the longest horizon, where
+overlapping windows inflate Welch hardest — the artefact B-44 measured directly. Equity:
+stop-and-reverse median **−39%**, beating buy&hold **0/23**; long-only +267% vs +827%,
+1/23. At 20bps: −56% / +223%.
+
+**The finding worth carrying forward:** Renko *did* reduce noise — on the same names it
+fires about **40% fewer times** than the EVWMA cross (RELIANCE 202 vs 320). It removed
+signals without improving the survivors. **Fewer decisions of the same quality is an
+ergonomic benefit, not an edge**, and this repo should stop treating the two as the same
+claim — several open items (B-35 family-lens UI, and the noise-reduction thrust generally)
+rest on exactly that conflation.
+
+**Chart feature kept**, labelled **FLIP up / FLIP down** and never BUY/SELL, with no
+wording implying a trigger. Full write-up in [[concepts/Renko-Charts]].
+
+**Gated sub-item — commodities (MCX).** The source's other theme is that real movement
+lives in commodities. The chart tool and all 40 scanners are equity/index only, and MCX
+needs a different data source, session calendar (09:00–23:30) and contract/expiry
+handling. Recorded as a scope decision for the owner, **not** assumed in scope.
+
+### ~~B-44~~ · Gamma-regime (GEX) read — ✅ **BUILT + MEASURED 2026-08-29 → CLEAN NULL**
+The vault has [[concepts/Put-Call-Ratio]] and OI momentum but **nothing on dealer gamma
+positioning**, which is a *mechanical* volatility-regime driver rather than a sentiment
+proxy: positive dealer gamma → hedging sells rips and buys dips → **volatility damped,
+breakouts fail**; negative gamma → hedging buys rips and sells dips → **volatility
+amplified**. Raised by [[sources/YT-Chris-Kmer-World-Cup-Order-Flow]]; mechanism written
+up in [[concepts/Gamma-Exposure-GEX]].
+
+**Why this is cheap:** `nse_oi_momentum.fetch_fo_bhavcopy_raw()` already pulls the **whole**
+F&O bhavcopy from the non-Akamai-blocked archive and keeps only `FinInstrmTp == "STF"`.
+The discarded `STO`/`IDO` option rows — the same ones `pcr.py` reclaimed for Put-Call
+Ratio — carry strike and open interest, which is the raw material for a **naive GEX** on
+NIFTY/BANKNIFTY. Gamma per strike needs a vol input, obtainable by inverting
+Black-Scholes on the bhavcopy settlement prices. **No new network call.**
+
+**The limit that sets the scope, stated up front:** bhavcopy is **end-of-day**. The
+source's use is a pre-open *intraday* regime read; what this data supports is a **daily**
+gamma-regime series — a volatility-regime input to the swing-horizon stack, adjacent to
+the RISK-ON/RISK-OFF gate from B-32, not an intraday tool. Do not let it be built as one.
+
+**Measurable claim (test before any dashboard):** does the forward-return distribution
+differ significantly between positive- and negative-gamma days? Two concrete legs — (a) do
+breakout/momentum signals underperform *their own* baseline on positive-gamma days, and
+(b) is realised volatility higher on negative-gamma days? Both are event studies against
+the existing harness.
+
+**Prior: cautiously positive — the most favourable prior recorded in this backlog.** Unlike
+the pattern-spotting items, GEX rests on a documented hedging obligation. But the Indian
+options market's dealer structure is not the US one, and the naive-GEX positioning
+assumption ("customers buy options") is exactly what the test must not assume. If the
+regime split shows nothing on NSE data, that assumption is the first suspect, and the
+finding should be recorded either way.
+
+**RESULT — the pre-registered claim failed.** Shipped `gamma_exposure.py` (naive dealer
+GEX from the `IDO` bhavcopy rows: per-strike IV inverted from settlement prices, net/gross
+GEX, gamma flip, call/put walls, coverage), `gamma_regime_backtest.py`, and
+`test_gamma_exposure.py` (14 tests). Built the full **480-session** history
+(2024-09-19 .. 2026-08-28 — all the UDiFF-format bhavcopy there is), coverage 87.5% NIFTY
+/ 89.7% BANKNIFTY. Every test is a null:
+
+| test | NIFTY | p_rot |
+|---|---|---|
+| forward realised vol 5/10/20d | +0.28 / +0.24 / **−0.40** pp | 0.84 / 0.83 / 0.67 |
+| next-day absolute move | +0.03 pp | 0.69 |
+| directional return (expected null) | +0.04 … +0.70 pp | 0.22–0.69 ✓ |
+| net/gross **tercile** vol split | +0.06 … +0.63 pp | 0.58–0.95 |
+| 20-day-high breakout follow-through | −0.10 pp (49 events) | 0.84 |
+
+BANKNIFTY has the right sign at every vol horizon (+0.77 / +1.02 / +1.59 pp) but p_rot
+0.75 / 0.68 / 0.58 — a hint, not a result. **The "cautiously positive" prior recorded on
+this item was wrong**, and the tercile split being null too means it is not merely the
+zero-threshold being in the wrong place. **Nothing was wired into `REGIME_GATE` or any
+dashboard** — the item said test first, and the test failed. Full write-up in
+[[concepts/Gamma-Exposure-GEX]].
+
+**A methodology finding that outlives the null, and applies repo-wide.** The first pass
+used Welch, as every other backtest here does, and reported the **expected-null**
+directional test at **p=0.031**. Artefact: daily sampling against a 20-day forward window
+means consecutive observations share 19/20 of their data, so Welch's independence
+assumption fails. The harness now leads with an **exact circular-rotation p-value** (every
+shift of the label series enumerated, preserving the autocorrelation of both series),
+which reads **0.32** on the same test, and prints both columns side by side. Every repo
+backtest that samples daily against multi-day horizons carries this exposure —
+`stride=5` mitigates it, rotation measures it. Worth retro-fitting where a marginal
+Welch result is currently load-bearing.
+
+### B-44r · Is the naive convention backwards for NSE? *(2026-08-29)*
+The pre-registered first suspect, now the only live thread. Naive GEX hard-codes a
+**US-equity** folk model — customers buy puts and sell calls, so dealers are long call
+gamma and short put gamma. Indian index options may be close to the mirror image: retail
+is a heavy **buyer** of cheap weekly OTM options on both sides, with prop desks and
+institutions **writing** them. Under that structure dealers are short gamma on *both*
+sides, and the measured 70% (NIFTY) / 85% (BANKNIFTY) positive-gamma day count is the
+convention talking, not the market.
+
+**This is not a re-run, it is a different measurement.** "Dealers short both sides" makes
+net GEX unconditionally negative, so the *sign* carries no information and the test has
+to move to gamma **magnitude** (normalised by spot, or by gross, or against its own
+trailing distribution) as the vol predictor. Needs a fresh 480-session pass over the raw
+chains — the cache stores aggregates, not per-strike rows. **Scope discipline:** this is
+ONE further pre-specified hypothesis with an independent market-structure rationale, not
+licence to try conventions until something clears p<0.05; if it also nulls, GEX gets
+retired as a research instrument that prints a daily description and nothing more.
+
+**Explicitly NOT in scope from the same source:** footprint/delta order flow (needs
+tick data the repo has never carried) and the intraday futures lane, already recorded as
+out-of-scope. Filed as knowledge in [[strategies/Forced-Participation-Reversal]].
+
 ### B-41 · No liquidity-sweep / stop-hunt detector — the missing third of the SMC stack *(2026-08-27)*
 Zero occurrences of `liquidity sweep`, `stop hunt`, or `equal highs/lows` in `tools/`.
 We ship FVG Pullback, Order Block Retest and ICT Setup — **two-thirds of the ICT
@@ -347,7 +510,7 @@ large, liquid and certainly file. First suspect remains the
 | ~~B-32~~ | **Regime-PRESCRIPTIVE output throttle** — ✅ **CLOSED 2026-08-26** | Premise proven (`regime_backtest.py`, ~7,400 bars): bullish edge +0.22 @20d RISK-ON vs **−1.78 RISK-OFF (p<0.005)**, and the RISK-OFF baseline was *positive* — the signals actively pick bull traps below the 200 SMA, not beta. Shipped as `opportunity_daily.REGIME_GATE` + `_apply_regime_gate` (regime score-floor + name cap, applied in `run()` and the dashboard live pipeline). Residual → **B-32r** (exact floors still heuristic). Full history in [[analyses/Noise-Regime-Coverage-Postmortem]]. |
 | ~~B-33~~ | **Conviction-sized shortlist (kill fixed top_n=100)** — ✅ **CLOSED 2026-08-26** | Score-floor replaces the flat `top_n` cut inside `_apply_regime_gate`, so the list sizes itself to conviction × regime. Floors data-calibrated (`regime_backtest.py --calibrate`, 55 names + kept-vs-tail test): **RISK-ON** floor ≈50 genuinely sorts (kept +0.4–0.5%, tail negative); **MIXED** edge ≈0, floor 50 is a mild filter only (the earlier "+1.2%" was a 15-name artifact); **RISK-OFF** `min_rating=None` + hard cap 5, since higher-rated names do *significantly worse* than the tail there. Floors are data-set, not judgment. |
 | B-34 | **Small/micro-cap "hidden treasures" lane** *(2026-08-23)* | The funnel universe is `fetch_bhavcopy_top_volume` = top-by-traded-value = **large-cap only**; small/micro-cap multibaggers never enter. `multibagger_candidates.py` exists but is a standalone screener.in-gated screen. Build: a **FREE** small-cap universe (NSE Smallcap-250 / Microcap-250 constituents — no cookie) run through the multibagger criteria **plus the now-free NSE promoter% + pledge% checks** (its header's "pledge not scrapable" caveat is obsolete), surfaced as a deliberately SMALL high-conviction lane. **Measurable:** coverage (names outside the top-value set) + forward hit-rate of the criteria vs a Smallcap-250 benchmark. Closes the owner's core coverage gap. **STARTED 2026-08-24:** `smallcap_universe.py` (free 502-name NSE Smallcap-250+Microcap-250 universe, 24h cache) + `smallcap_discovery.py` (ranks by free FII+DII accumulation-rate + promoter conduct + pledge veto from `ownership_cache`; `--force` backfill added). **Full backfill DONE 2026-08-24** — 499/502 scoreable, pledge populated for 97 names (69 vetoed >5%: AFCONS 100%, STAR 38%…); top-15 surfaces real microcaps (CORONA, STLTECH, ASTRAMICRO, UJJIVANSFB, MASTEK) the large-cap funnel can't see. *(Caught a CLI bug: `--limit` defaulted to 25 and silently capped the first "full" run — fixed.)* **Still TODO:** distinguish pledge 0% vs unknown via the `WhetherAnySharesHeldByPromotersAreEncumbered` boolean (398 names show pledge `None` = fact omitted when clean); quality overlay (ROCE/OPM/D/E); dashboard "Hidden Treasures" lane; the forward hit-rate backtest (the measurable claim). |
-| B-35 | **Collapse 38 scanners into family "lenses" (UI)** *(2026-08-23)* | 38 scanners (13 Entry + 12 Pattern overlap on the same facts); the confluence **family** de-dup already fixes scoring but the UI still lists all 38 as independent choices. Build: default the Scanner Hub to a curated core, group the rest under their `SCANNER_FAMILIES` lens behind "advanced". **Verifiable invariant (not taste):** no unique hit is lost — every family stays reachable and the union of hits is unchanged. Behavioral noise reduction with a checkable guarantee. |
+| B-35 | **Collapse 38 scanners into family "lenses" (UI)** *(2026-08-23)* — **MEASURED 2026-08-29** (`tools/scanner_overlap.py`, 110 names × 2,496 cells): **12 bullish scanners have ZERO unique cells** and are removable without breaking the invariant; **2 of them (Minervini VCP valchak, EMA-50 Coil) never fired at all** — dead, not redundant, triage before any UI change; the trend/momentum quartet (52W High Leaders / Momentum Continuation / Stage 2 / Pullback Entry) is one detector under four names (52W is **95% contained** in Momentum Continuation, 401 hits, 0 unique). Full table: [[analyses/Scanner-Overlap-Audit]]. Caveat recorded: overlap is not edge, and a zero-unique scanner may still add precision. | 38 scanners (13 Entry + 12 Pattern overlap on the same facts); the confluence **family** de-dup already fixes scoring but the UI still lists all 38 as independent choices. Build: default the Scanner Hub to a curated core, group the rest under their `SCANNER_FAMILIES` lens behind "advanced". **Verifiable invariant (not taste):** no unique hit is lost — every family stays reachable and the union of hits is unchanged. Behavioral noise reduction with a checkable guarantee. |
 | ~~B-36~~ | **Regime posture header + nav consolidation** — ✅ **CLOSED 2026-08-26** | Regime-coloured posture banner atop the Opportunity Hub, pulled from the same `REGIME_GATE` it enforces (RISK-ON green "full run, rating ≥50" → RISK-OFF red "≤5 names — bullish signals below the 200 SMA LOSE"). Nav: folded the single-page Analytics group (Strategy Hub) into Research, 6 groups → 5, no page removed. Residual → **B-36r** (Screening-group trim, held for an owner usage call). |
 | B-32r | **Calibrate exact regime floors** *(2026-08-27)* | The `REGIME_GATE` floors/caps shipped in B-32 have the right *direction* (measured) but the exact numbers are heuristic. Re-run `regime_backtest.py --calibrate` on a larger, walk-forward split once B-21 lands and set the floors from that, rather than the single-pass calibration. Small; gated behind B-21's out-of-sample split so the floors aren't fit on the same window they're tested on. |
 | B-39 | **Pin scipy / make backtest.py scipy-optional** *(2026-08-27)* | `backtest.py:37` does a hard `from scipy import stats`; scipy was **not installed** on the project's Python 3.14, so `backtest.py` (and everything importing it — B-20a significance, B-25 confluence) failed to import entirely. Fixed for now by installing `scipy 1.18.1`, but that is un-pinned and machine-local. Either add scipy to a requirements file, or give `_ttest_edge`/`_ttest_ind` a numpy normal-approx fallback like `funnel_backtest.py` already has. Small; prevents the whole significance stack silently vanishing on a fresh interpreter. |

@@ -3,8 +3,8 @@ title: "Prop Trading Funded Model"
 category: concept
 tags: [prop-trading, funded-accounts, evaluation, apex, ftmo, topstep, risk-management, trailing-drawdown]
 created: 2026-06-17
-updated: 2026-06-17
-sources: 1
+updated: 2026-08-29
+sources: 3
 related:
   - sources/Prop-Trading-Secrets-Lien-Crete-2025.md
   - concepts/Trading-Psychology-Champion.md
@@ -97,6 +97,71 @@ Why this works better than scaling contracts on one account:
 6. **Customer service**: Multiple channels, real response time
 7. **Payout terms**: Minimum days before first withdrawal? Payout frequency? Payout size limits?
 
+## The "target ÷ drawdown = your R" argument, and why it is wrong (2026-08-29)
+
+A widely repeated piece of prop-firm reasoning, stated plainly in
+[[sources/YT-Chris-Kmer-World-Cup-Order-Flow]]:
+
+> The drawdown is 2,000 but the profit target is 3,000. It's literally a 1.5R. So if you
+> just constantly take 1.5R trades, then you'll be fine.
+
+**This is a unit error.** `R` is a *per-trade* quantity (reward ÷ the risk taken on that
+trade). The 3,000/2,000 ratio is a *per-account* quantity (target ÷ maximum drawdown).
+They are not the same measure and one does not license the other. Whether you reach
++3,000 before −2,000 is a **gambler's-ruin** question determined by per-trade risk size
+relative to the buffer, win rate, and the *sequence* of outcomes — a trader taking 1.5R
+setups at a 50% win rate is a coin flip to bust, and one risking 1,000 per trade can be
+out in two trades regardless of payoff ratio.
+
+The underlying point survives the bad argument: a small drawdown buffer *does* force
+larger per-trade risk than a personal account would justify, and that is a real structural
+feature of the evaluation model — the trader's downside is capped at the evaluation fee,
+which genuinely changes optimal aggression. In the cited case the implied sizing is
+**4–8% of account risked per trade**, against the **0.5%** default in
+[[concepts/Capital-Management-Methods]].
+
+**What does not transfer:** that sizing, to a personal account. The asymmetry that
+justifies it — capped downside, someone else's capital — does not exist there.
+
+## Prop firms as a game-theory problem (2026-08-29)
+
+From [[sources/YT-Pro-Trader-Amygdala-Options-Philosophy]], said without hostility —
+"we're all adults" — and worth pricing in rather than resenting.
+
+**Whose side the incentives are on.** If a firm's only product is *simulated* funding, its
+interests are **diametrically opposed** to its clients': it wants you to lose, but not so
+much that you quit, and it wants a handful of winners as aspirational marketing. That is
+not a scandal, it is the business model — but it should be read before, not after.
+
+**Counterparty risk is the real risk.** *"They just might not pay you."* These are
+unregulated private businesses; the recourse when a legitimate payout is denied is public
+noise, and perhaps the firm closing. Accept that risk explicitly at purchase or don't buy.
+
+**Where to look for alignment.** Not necessarily live capital. If you can hold $1M across
+simulated accounts against a $200k live ceiling, the sim programme is where the money is —
+the question is *which stage of which programme* aligns the firm's payout with your
+performance, and that varies by firm.
+
+**Rules incentivise behaviour — that is where traders actually get hurt.**
+
+> "It's not whether you know the rules and decide to follow them or not. It's if you don't
+> understand how the rules incentivise certain types of behaviour."
+
+Consistency rules, in his read, serve the firm rather than the trader — which is fine if
+you know it. The task is to identify the behaviour a given rule set pushes you into and
+decide whether you still have an edge *inside that behaviour*. A worked example he gives:
+where evaluations are cheap and fast, treat the pass as a modelled cost of doing business
+(size the account to your expected pass rate, accept failing more often than passing) — and
+then **trade the funded stage completely differently**.
+
+**Would he start on prop today? Yes, 100%** — while preparing for the day he has to trade
+his own capital, build a track record, and raise money responsibly. But the two are not the
+same skill:
+
+> "Just because you play Call of Duty doesn't make you a real soldier."
+
+He also thinks we are in the **late stages** of the prop-firm golden era.
+
 ## Common Mistakes
 
 1. Going from learning straight to funded account — prove consistency with personal money first
@@ -116,3 +181,5 @@ Why this works better than scaling contracts on one account:
 ## Sources
 
 1. [Prop-Trading-Secrets-Lien-Crete-2025](../sources/Prop-Trading-Secrets-Lien-Crete-2025.md) — All 17 chapters (Lien & Crete, 2025)
+2. [[sources/YT-Chris-Kmer-World-Cup-Order-Flow]] — evaluation-vs-personal sizing asymmetry; the target÷drawdown "R" fallacy
+3. [[sources/YT-Pro-Trader-Amygdala-Options-Philosophy]] — sim-firm incentive opposition; counterparty risk; rules-incentivise-behaviour

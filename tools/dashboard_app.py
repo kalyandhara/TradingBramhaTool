@@ -5330,9 +5330,34 @@ if current_page == "Scanner Hub":
              "fact table, and see a consolidated view.",
     )
 
+    # Default the card grid to the CORE list. `oh.COVERED_SCANNERS` are the ones measured
+    # to contribute zero unique (symbol, as-of) cells — every hit they produce is already
+    # flagged by something else on the list (analyses/Scanner-Overlap-Audit). They are
+    # hidden, not removed: one toggle brings them back, and they remain runnable,
+    # backtestable and active in the pipeline. Coverage is not quality, so this reduces
+    # what you have to read, not what the system knows.
+    _covered = [n for n in sc.SCANNERS if n in oh.COVERED_SCANNERS]
+    _show_covered = False
+    if _covered:
+        _show_covered = st.checkbox(
+            f"Show {len(_covered)} covered scanners",
+            key="hub_show_covered",
+            help="Measured to add no unique hits — everything they flag is already "
+                 "flagged by another scanner on the list. Hidden by default to cut "
+                 "reading, not capability: they still run, backtest and score.",
+        )
+    _visible = set(sc.SCANNERS) if _show_covered else set(oh.core_scanners())
+    # A session saved before this change (or a deep link) can have a covered scanner
+    # selected. Keep its card on screen regardless, or the caption below describes a
+    # scanner the user can see no card for and cannot deselect.
+    _sel_now = st.session_state.get("hub_scanner")
+    if _sel_now in sc.SCANNERS:
+        _visible.add(_sel_now)
+
     by_cat: dict[str, list[str]] = {}
     for name, spec in sc.SCANNERS.items():
-        by_cat.setdefault(spec["category"], []).append(name)
+        if name in _visible:
+            by_cat.setdefault(spec["category"], []).append(name)
 
     selected_scanner = st.session_state.get("hub_scanner", list(sc.SCANNERS.keys())[0])
     if selected_scanner not in sc.SCANNERS:

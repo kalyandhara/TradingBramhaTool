@@ -4,9 +4,9 @@ category: concept
 family: trend-following
 tags: [trend, atr, trailing-stop, supertrend, indicator]
 created: 2026-07-12
-updated: 2026-08-09
+updated: 2026-08-29
 sources: 3
-related: [concepts/True-Strength-Index-TSI, concepts/ADX, concepts/EMA, concepts/PMax, concepts/Point-and-Figure-Charts, entities/Kaushik-Akkiwakar, sources/YT-Kaushik-Akkiwakar-TSI-Momentum]
+related: [concepts/True-Strength-Index-TSI, concepts/ADX, concepts/EMA, concepts/PMax, concepts/Point-and-Figure-Charts, concepts/Renko-Charts, entities/Kaushik-Akkiwakar, sources/YT-Kaushik-Akkiwakar-TSI-Momentum]
 ---
 
 # SuperTrend

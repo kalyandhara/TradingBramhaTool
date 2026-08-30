@@ -361,6 +361,17 @@ def adx_di_js():
     return send_from_directory(HERE, "adx_di.js", mimetype="application/javascript")
 
 
+@app.route("/evwma_vwap_macd.js")
+def evwma_vwap_macd_js():
+    return send_from_directory(HERE, "evwma_vwap_macd.js",
+                               mimetype="application/javascript")
+
+
+@app.route("/renko.js")
+def renko_js():
+    return send_from_directory(HERE, "renko.js", mimetype="application/javascript")
+
+
 @app.route("/rsi_divergence.js")
 def rsi_divergence_js():
     return send_from_directory(HERE, "rsi_divergence.js", mimetype="application/javascript")

@@ -47,10 +47,15 @@
     return new Date();
   }
 
-  function periodKey(t, tf) {
+  //: A profile built from fewer than this many bars is noise wearing a profile's
+  //: clothes, so `analyze` discards such segments. That guard used to interact badly
+  //: with a fixed per-timeframe grouping — see chooseGrain.
+  const MIN_SESSION_BARS = 3;
+
+  function periodKey(t, grain) {
     const d = toDate(t);
-    if (tf === '1w') return d.getUTCFullYear() + '-M' + (d.getUTCMonth() + 1);
-    if (tf === '1d') {                                   // ISO week
+    if (grain === 'month') return d.getUTCFullYear() + '-M' + (d.getUTCMonth() + 1);
+    if (grain === 'week') {                              // ISO week
       const dt = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
       const dayNum = (dt.getUTCDay() + 6) % 7;
       dt.setUTCDate(dt.getUTCDate() - dayNum + 3);
@@ -61,11 +66,53 @@
     return d.getUTCFullYear() + '-' + (d.getUTCMonth() + 1) + '-' + d.getUTCDate();
   }
 
+  function medianBarsPerPeriod(bars, grain) {
+    const counts = new Map();
+    for (const b of bars) {
+      const k = periodKey(b.time, grain);
+      counts.set(k, (counts.get(k) || 0) + 1);
+    }
+    const v = Array.from(counts.values()).sort((a, b) => a - b);
+    return v.length ? v[Math.floor(v.length / 2)] : 0;
+  }
+
+  //: Grouping grain is MEASURED from the bars, not read off a timeframe table.
+  //:
+  //: The old code grouped every intraday timeframe by calendar day. That silently
+  //: broke 4h charts on exchange-hours instruments: an NSE cash session is ~6.25h,
+  //: so a day holds TWO 4h bars, every segment failed the MIN_SESSION_BARS guard,
+  //: and `sessions` came back empty — which rendered as a card with a composite POC
+  //: and nothing else, and a profile overlay that drew nothing at all. Crypto was
+  //: unaffected (24h day = six 4h bars), which is why it survived review.
+  //:
+  //: Measuring instead of tabulating fixes every such combination at once — any
+  //: exchange, any session length, any future timeframe — and matches how
+  //: `isLikelyLiquidETF` already detects instrument character in this repo.
+  const GRAIN_LADDER = ['day', 'week', 'month'];
+
+  function chooseGrain(bars, tf) {
+    // Daily/weekly charts keep their established meaning: one "session" is the
+    // period ABOVE the bar, so a 1d bar groups per week and a 1w bar per month.
+    if (tf === '1w') return 'month';
+    if (tf === '1d') return 'week';
+    for (const g of GRAIN_LADDER) {
+      if (medianBarsPerPeriod(bars, g) >= MIN_SESSION_BARS) return g;
+    }
+    return 'month';
+  }
+
   function segment(bars, tf) {
+    const grain = chooseGrain(bars, tf);
+    const out = segmentByGrain(bars, grain);
+    out.grain = grain;                 // informational; array semantics unchanged
+    return out;
+  }
+
+  function segmentByGrain(bars, grain) {
     const out = [];
     let cur = null;
     for (let i = 0; i < bars.length; i++) {
-      const k = periodKey(bars[i].time, tf);
+      const k = periodKey(bars[i].time, grain);
       if (!cur || cur.key !== k) {
         cur = { key: k, i0: i, i1: i, startTime: bars[i].time, endTime: bars[i].time, bars: [] };
         out.push(cur);
@@ -92,12 +139,13 @@
     if (typeof global.VP === 'undefined' || !bars || bars.length < 20) return null;
     const maxSessions = opts.maxSessions || 12;
     const binsPerSession = opts.bins || 24;
-    let segs = segment(bars, tf);
+    const grain = opts.grain || chooseGrain(bars, tf);
+    let segs = segmentByGrain(bars, grain);
     segs = segs.slice(-maxSessions);
 
     const sessions = [];
     for (const s of segs) {
-      if (s.bars.length < 3) continue;
+      if (s.bars.length < MIN_SESSION_BARS) continue;
       const prof = global.VP.computeProfile(s.bars, { bins: binsPerSession });
       if (!prof) continue;
       let hi = -Infinity, lo = Infinity;
@@ -128,8 +176,13 @@
     // Confluence BUY / SELL / TRAP-REVERSAL signal (see buildSignal).
     const signal = buildSignal(sessions, windowBars, composite, trap, ad);
 
-    return { sessions, trap, ad, levels, composite, signal,
-             card: buildCard(sessions, trap, ad, composite, signal) };
+    // If nothing survived the bar-count guard, say so rather than returning a
+    // half-populated object the caller will render as a blank card.
+    const note = sessions.length ? null
+      : `no ${grain} segment reached ${MIN_SESSION_BARS} bars — profile not computable at this timeframe`;
+
+    return { sessions, trap, ad, levels, composite, signal, grain, note,
+             card: buildCard(sessions, trap, ad, composite, signal, grain, note) };
   }
 
   function detectTrap(sessions) {
@@ -365,17 +418,19 @@
 
   function fmt(v) { return Number.isFinite(v) ? v.toFixed(2) : '—'; }
 
-  function buildCard(sessions, trap, ad, composite, signal) {
+  function buildCard(sessions, trap, ad, composite, signal, grain, note) {
     const last = sessions[sessions.length - 1] || null;
     const seq = sessions.slice(-6).map(s => s.shape).join(' ');
     return {
       current: last ? { shape: last.shape, label: last.shapeLabel, poc: last.poc,
                         vah: last.vah, val: last.val } : null,
       sequence: seq,
+      grain: grain || null, note: note || null,
       trap, ad, composite, signal,
       levels: sessions.slice(-4).reverse().map(s => ({ poc: s.poc, shape: s.shape })),
     };
   }
 
-  global.SVP = { segment, classify, analyze, buildSignal };
+  global.SVP = { segment, classify, analyze, buildSignal, chooseGrain,
+                 MIN_SESSION_BARS };
 })(typeof window !== 'undefined' ? window : globalThis);

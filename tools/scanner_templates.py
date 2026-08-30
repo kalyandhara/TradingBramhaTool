@@ -1048,16 +1048,36 @@ def scan_vcp_minervini_valchak(df: pd.DataFrame, strict: bool = False) -> dict |
     if not geom:
         return None
     depths = [c["depth_pct"] for c in geom["contractions"]]
-    first_d = depths[0]
-    final_d = depths[-1]
+    # NOTE: the first/final depth ranges are applied BELOW, to the tightening run —
+    # not here to the raw detector output. Checking them twice would silently reject a
+    # base whose raw outermost leg is out of range even though the run that actually
+    # forms the VCP is inside it, which is the same class of bug being fixed.
+    tight_ratio_cap = 0.5 if strict else 0.9
+    # ── Fixed 2026-08-29: this gate rejected 59 of 59 candidates, i.e. everything ──
+    # The old test demanded that EVERY consecutive pair in `detect_vcp_geometry`'s
+    # output tighten. But that helper returns the raw pivot-to-pivot contractions in
+    # the window, and real bases oscillate — measured depth runs look like
+    # [14.2, 10.2, 8.0, 5.3, 10.5, 5.7]: clearly contracting overall, yet one widening
+    # leg is enough to fail a strict all-pairs test. valchak's script does not test a
+    # raw list; it only COUNTS a contraction when it is tighter than the previous one,
+    # so the ratio test belongs to the tightening RUN, not to everything detected.
+    #
+    # So: take the longest run ending at the most recent contraction in which each step
+    # tightens by <= cap, and apply valchak's depth ranges to THAT run. A widening leg
+    # earlier in the window now ends the run instead of invalidating the whole base.
+    run = [depths[-1]]
+    for i in range(len(depths) - 2, -1, -1):
+        if run[0] <= depths[i] * tight_ratio_cap:
+            run.insert(0, depths[i])
+        else:
+            break
+    if len(run) < 2:
+        return None
+    depths = run
+    first_d, final_d = depths[0], depths[-1]
     if not (10.0 <= first_d <= 35.0):
         return None
     if not (3.0 <= final_d <= 10.0):
-        return None
-    tight_ratio_cap = 0.5 if strict else 0.9
-    tighten_ok = all(depths[i + 1] <= depths[i] * tight_ratio_cap
-                     for i in range(len(depths) - 1))
-    if not tighten_ok:
         return None
     base_bars = geom["base_end_bar_idx"] - geom["base_start_bar_idx"]
     if not (15 <= base_bars <= 325):
@@ -1088,7 +1108,11 @@ def scan_vcp_minervini_valchak(df: pd.DataFrame, strict: bool = False) -> dict |
     if ext_above_pivot_pct > max_ext_pct:
         return None
 
-    footprint = geom["footprint"]
+    # Footprint must describe the RUN, not the detector's full window. Reporting
+    # "2 contractions" next to a six-leg footprint (geom["footprint"]) invited the
+    # reader to check a number the gates never used.
+    footprint = "/".join(f"{d:.0f}" for d in depths) + "%"
+    window_footprint = geom["footprint"]
     tags = [
         "Trend Template ✓",
         f"VCP {footprint}",
@@ -1097,7 +1121,8 @@ def scan_vcp_minervini_valchak(df: pd.DataFrame, strict: bool = False) -> dict |
     ]
     reasons = [
         "All 8 Trend Template criteria passed (above/below levels, MA stack, 52w low/high bands, SMA200 rising)",
-        f"VCP: {len(depths)} contractions, footprint {footprint}%, base {base_bars} bars",
+        f"VCP: {len(depths)} tightening contractions {footprint}, base {base_bars} bars "
+        f"(detector saw {window_footprint}% across the whole window)",
         f"First {first_d:.1f}% → Final {final_d:.1f}% (tightening ≤{tight_ratio_cap:.1f}× each step)",
         f"Breakout: close {last:.2f} > pivot {pivot:.2f} on {vol_mult:.1f}× 50-DMA volume",
         f"Not extended: only {ext_above_pivot_pct:.1f}% above pivot (cap {max_ext_pct:.0f}%)",
@@ -4979,11 +5004,26 @@ def scan_ema50_coil(df: pd.DataFrame) -> dict | None:
 
     Gates:
       1. Close > EMA200 — broad uptrend context
-      2. ADX(14) > 25 AND ADX rising vs prior bar — trend has strength AND momentum
-      3. +DI > -DI — directional bias is bullish (buyers outpacing sellers)
-      4. Close within 2% above OR below EMA-50 (the coil zone)
-      5. Close > 1.03× prior close AND volume > 20-day avg — breakout thrust
+      2. ADX(14) > 25 — the trend is actionable
+      3. Close within 2% above OR below EMA-50 (the coil zone)
+      4. Close > 1.03× prior close AND volume > 20-day avg — breakout thrust
          confirmed by price AND participation simultaneously
+
+    ── Fixed 2026-08-29: it fired ZERO times in 2,496 cells ─────────────────
+    The port carried two gates the source does not have — **ADX rising vs the prior
+    bar** and **+DI > −DI** — and they contradict this scanner's own premise. A stock
+    whose ADX is high *and still accelerating* is, by construction, extended away from
+    its 50-EMA; this scanner exists to catch the opposite state, price resting ON that
+    mean before the thrust. Measured: 375 cells cleared ADX-rising + DI, and exactly
+    **1** of those was also within 2% of the EMA-50. Removing the two undocumented
+    gates restores the source (Ashok Daniel's StockEdge screen: ADX > 25, close within
+    2% of EMA-50, close > 1.03× prior on above-average volume).
+
+    It remains a genuinely RARE setup — ~0.2% of cells, ~5 hits per 2,496 — because
+    "resting at the mean" and "thrusting 3% today" only coincide when a stock gaps up
+    into its 50-EMA from below. That is the setup, not a defect. `close > EMA200` is
+    kept as context (it costs 8 hits → 5) and is deliberately not dropped to chase a
+    higher fire rate.
     """
     if len(df) < 60 or "volume" not in df.columns:
         return None
@@ -4999,7 +5039,9 @@ def scan_ema50_coil(df: pd.DataFrame) -> dict | None:
     if last < ema200:
         return None
 
-    # Gate 2 & 3 — ADX > 25 rising AND +DI > -DI
+    # Gate 2 — ADX > 25. Deliberately NOT "and rising", and no +DI/−DI gate: both
+    # were undocumented additions and both select for an extended stock, which is the
+    # opposite of the coil this scanner looks for (see the docstring).
     if len(df) < 50:
         return None
     plus_di, minus_di, adx = _adx_di_series(df)
@@ -5009,9 +5051,7 @@ def scan_ema50_coil(df: pd.DataFrame) -> dict | None:
     mdi_now  = float(minus_di.iloc[-1])
     if np.isnan(adx_now) or np.isnan(pdi_now):
         return None
-    if adx_now < 25 or adx_now <= adx_prev:
-        return None
-    if pdi_now <= mdi_now:
+    if adx_now < 25:
         return None
 
     # Gate 4 — close within 2% of EMA-50 (above OR below — the coil can form
@@ -5037,8 +5077,8 @@ def scan_ema50_coil(df: pd.DataFrame) -> dict | None:
     reasons = [
         f"Price ({last:.1f}) {zone} EMA50 ({ema50:.1f}) — resting in the coil zone "
         f"({dist_pct:+.1f}%)",
-        f"ADX {adx_now:.0f} rising (was {adx_prev:.0f}), +DI {pdi_now:.0f} > "
-        f"-DI {mdi_now:.0f} — trend strengthening with directional bias",
+        f"ADX {adx_now:.0f} (prior {adx_prev:.0f}), +DI {pdi_now:.0f} vs −DI {mdi_now:.0f} "
+        f"— trend is actionable; direction comes from the thrust, not the DI spread",
         f"Thrust: +{move_pct:.1f}% vs prior close on {vol_x:.1f}× 20-day volume — "
         "institutional breakout signal",
         f"Above EMA200 ({ema200:.1f}) — long-term uptrend intact",
@@ -5589,7 +5629,228 @@ def scan_hm_buy(df: pd.DataFrame) -> dict | None:
     }
 
 
+# ── Renko structure (Python port of tools/renko.js) ───────────────────────────
+#
+# Ported, not re-invented: `renko.js` is the shipped chart engine and was measured
+# in B-43, so the scanner must fire on exactly the bars the chart draws a flip on.
+# `test_renko_parity.py` asserts bar-for-bar agreement between the two.
+#
+# NOTE — this deliberately does NOT reuse `_atr_series`. That helper is
+# `ewm(alpha=1/n, adjust=False)`, which seeds from the first TR; `renko.js` (and
+# `chart_dashboard.atrSeries`) seed from the SMA of the first `n` TRs and then
+# recurse. The gap decays but never reaches zero, and brick size feeds a RECURSIVE
+# grid — a hair's difference at an epoch boundary flips a brick and the two series
+# diverge permanently afterwards. Parity has to be exact at the source.
+
+RENKO_ATR_PERIOD = 5      # the source rule's lookback ("ATR of the last five sessions")
+RENKO_EPOCH_BARS = 20     # re-derive the brick ~monthly, from PRIOR bars only
+RENKO_WARMUP = 30
+RENKO_REVERSAL = 2        # bricks needed to turn — the classic Renko definition
+
+
+def _renko_atr(df: pd.DataFrame, period: int = RENKO_ATR_PERIOD) -> list[float]:
+    """Wilder ATR seeded with the SMA of the first `period` true ranges (matches renko.js)."""
+    high = df["high"].to_numpy(float)
+    low = df["low"].to_numpy(float)
+    close = df["close"].to_numpy(float)
+    out = [float("nan")] * len(close)
+    trs: list[float] = []
+    atr = None
+    prev_close = None
+    for i in range(len(close)):
+        tr = (high[i] - low[i]) if prev_close is None else max(
+            high[i] - low[i], abs(high[i] - prev_close), abs(low[i] - prev_close))
+        trs.append(tr)
+        prev_close = close[i]
+        if i == period - 1:
+            atr = sum(trs[:period]) / period
+            out[i] = atr
+        elif i > period - 1:
+            atr = (atr * (period - 1) + tr) / period
+            out[i] = atr
+    return out
+
+
+def _renko_flips(df: pd.DataFrame,
+                 atr_period: int = RENKO_ATR_PERIOD,
+                 epoch_bars: int = RENKO_EPOCH_BARS,
+                 warmup: int = RENKO_WARMUP,
+                 reversal: int = RENKO_REVERSAL) -> dict:
+    """Close-based Renko with causal ATR-epoch brick sizing.
+
+    Returns ``{"flips": [...], "state": {...} | None}`` where each flip is
+    ``{"index", "dir", "price", "bricks_in_prior"}`` and ``index`` is the bar whose
+    CLOSE completed the turn — i.e. a bar you could have acted on the next open.
+    """
+    empty = {"flips": [], "state": None}
+    if df is None or len(df) < warmup + atr_period + 5:
+        return empty
+    close = df["close"].to_numpy(float)
+    atr = _renko_atr(df, atr_period)
+
+    flips: list[dict] = []
+    brick = None
+    last_close = None
+    direction = 0
+    bricks_in_dir = 0
+
+    for i in range(len(close)):
+        # Epoch boundary: re-derive the brick from ATR at the PREVIOUS bar, so the
+        # bar about to complete a brick never contributes to that brick's size.
+        if i >= warmup and (last_close is None or (i - warmup) % epoch_bars == 0):
+            a = atr[i - 1] if i > 0 else float("nan")
+            if a == a and a > 0:                      # a == a filters NaN
+                brick = a
+                if last_close is None:
+                    last_close = close[i]
+                    direction = 0
+        if last_close is None or not brick or brick <= 0:
+            continue
+
+        c = close[i]
+        for _ in range(1000):                          # a gap can complete many bricks
+            moved = False
+            if direction >= 0 and c >= last_close + brick:
+                last_close += brick
+                if direction != 1:
+                    direction, bricks_in_dir = 1, 0
+                bricks_in_dir += 1
+                moved = True
+            elif direction <= 0 and c <= last_close - brick:
+                last_close -= brick
+                if direction != -1:
+                    direction, bricks_in_dir = -1, 0
+                bricks_in_dir += 1
+                moved = True
+            elif direction == 1 and c <= last_close - reversal * brick:
+                last_close -= reversal * brick
+                flips.append({"index": i, "dir": -1, "price": float(c),
+                              "bricks_in_prior": bricks_in_dir})
+                direction, bricks_in_dir = -1, 1
+                moved = True
+            elif direction == -1 and c >= last_close + reversal * brick:
+                last_close += reversal * brick
+                flips.append({"index": i, "dir": 1, "price": float(c),
+                              "bricks_in_prior": bricks_in_dir})
+                direction, bricks_in_dir = 1, 1
+                moved = True
+            if not moved:
+                break
+
+    state = None if last_close is None else {
+        "dir": direction, "bricks": bricks_in_dir,
+        "brick": float(brick) if brick else None, "last_close": float(last_close),
+    }
+    return {"flips": flips, "state": state}
+
+
+def scan_renko_flip(df: pd.DataFrame, max_bars_ago: int = 2) -> dict | None:
+    """Renko brick FLIP — a structure-change SCREEN, explicitly not a trade trigger.
+
+    Fires when the Renko grid changed direction within the last `max_bars_ago` bars,
+    in EITHER direction. Renko samples by price rather than by time, so a flip says
+    "price has now travelled far enough, against the prior run, to reverse the grid"
+    — a statement about structure, not about what happens next.
+
+    **It carries no direction implication and no trade plan, by measurement.** B-43
+    scored this exact engine's flips over 23 names and ~19 years: the up-flip's edge
+    was NEGATIVE at every horizon (−0.06 / −0.08 / −0.04 / −0.77% at 5/10/20/60d) and
+    stop-and-reverse beat buy-and-hold 0 times in 23. What Renko *did* deliver is
+    noise reduction — it fires ~40% less often than the EVWMA cross on the same names.
+    Fewer decisions of the same quality is an ergonomic benefit, not an edge, and this
+    scanner is registered to exploit the former only.
+
+    Consequences of that, enforced structurally rather than by wording:
+      * no ``entry`` / ``stop`` / ``target`` keys — the thing that would make it a plan;
+      * listed in ``opportunity_hub.PIPELINE_EXCLUDED`` so it can never become a
+        confluence vote;
+      * a DOWN flip is reported as plainly as an UP flip and is not a risk flag —
+        it is neutral information, not a bearish call.
+
+    ``max_bars_ago`` is the freshness window, and it is what makes this selective.
+    Measured over 2,496 (symbol, as-of) cells on a 110-name NIFTY-500 sample
+    (`scanner_overlap.py`):
+
+        max_bars_ago=0   4.3% of cells    flipped today
+        max_bars_ago=1   8.9%
+        max_bars_ago=2  13.7%             <- default
+        max_bars_ago=3  17.5%
+        max_bars_ago=5  24.3%             a firehose, not a screen
+
+    Default 2 catches a Friday flip when you scan on Monday without flooding the list.
+    Widen it only if you are deliberately trading a slower book.
+
+    In the same measurement it flagged **146 cells no other scanner flagged** — the
+    largest unique contribution of any bullish scanner in the registry. That is what a
+    price-sampled detector buys you when everything else is time-sampled: a genuinely
+    different view. It is NOT a claim that the view is profitable — see above.
+
+    Use it to answer "which names just changed structure?", then bring your own
+    tested trigger.
+    """
+    if df is None or len(df) < RENKO_WARMUP + RENKO_ATR_PERIOD + 10:
+        return None
+    r = _renko_flips(df)
+    flips, state = r["flips"], r["state"]
+    if not flips or not state:
+        return None
+
+    last = flips[-1]
+    n = len(df)
+    bars_ago = (n - 1) - last["index"]
+    if bars_ago > max_bars_ago:
+        return None
+
+    close = float(df["close"].iloc[-1])
+    brick = state["brick"] or 0.0
+    brick_pct = (brick / close * 100.0) if close > 0 else 0.0
+    up = last["dir"] == 1
+    word = "UP" if up else "DOWN"
+    when = "today" if bars_ago == 0 else f"{bars_ago} bar{'s' if bars_ago > 1 else ''} ago"
+
+    reasons = [
+        f"Renko grid flipped {word} {when} at {last['price']:.2f} — the {RENKO_REVERSAL}-brick "
+        f"reversal completed on that close",
+        f"Ended a run of {last['bricks_in_prior']} brick(s) in the other direction",
+        f"Brick size {brick:.2f} ({brick_pct:.2f}% of price), derived from ATR("
+        f"{RENKO_ATR_PERIOD}) and re-set every {RENKO_EPOCH_BARS} bars — not tuned",
+        "SCREEN, not a trigger: the flip was measured at NO forward edge (B-43), so this "
+        "is a 'what changed' filter. No entry/stop/target, and a DOWN flip is not a sell.",
+    ]
+    return {
+        "pattern_type": f"Renko flip {word} (structure change)",
+        "tags": [f"Renko {word}", f"{when}", f"brick {brick_pct:.2f}%",
+                 "Screen, not trigger"],
+        "reasons": reasons,
+        # Freshness only — deliberately NOT a conviction score. A flip 0 bars ago is
+        # more current than one 5 bars ago; neither is more likely to be profitable.
+        "score": round(max(10.0, 60.0 - 8.0 * bars_ago), 1),
+        "renko_dir": word,
+        "renko_bars_ago": bars_ago,
+        "renko_brick": round(brick, 4),
+        "rs_raw": _rs_raw(df),
+    }
+
+
 SCANNERS: dict[str, dict] = {
+    "Renko Flip (structure change)": {
+        "fn": scan_renko_flip,
+        "description": (
+            "Renko brick FLIP in either direction within the last 2 bars — a "
+            "structure-change SCREEN, not a trade trigger. Renko samples by price "
+            "instead of time, so a flip means price has travelled far enough against "
+            "the prior run to reverse the grid. B-43 measured this exact engine's "
+            "flips over 23 names / ~19 years and found NO forward edge (up-flip edge "
+            "negative at every horizon; stop-and-reverse beat buy-and-hold 0/23), so "
+            "it carries no direction implication, no entry/stop/target, and never "
+            "votes in confluence. What it does give is fewer, cleaner events (~40% "
+            "fewer than the EVWMA cross on the same names), and in a 2,496-cell overlap "
+            "audit it flagged 146 cells no other scanner flagged — the largest unique "
+            "contribution in the registry. Use it to ask 'which "
+            "names just changed structure?' and bring your own tested trigger."
+        ),
+        "category": "Trend",
+    },
     "52-Week High Leaders": {
         "fn": scan_52w_high_leaders,
         "description": "Strong momentum leaders within 5% of their 52-week high",
