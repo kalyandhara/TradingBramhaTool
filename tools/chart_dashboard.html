@@ -303,19 +303,63 @@ html, body {
 }
 .ind-panel {
   display: none; position: absolute; top: 100%; left: 0; margin-top: 4px;
-  width: 220px; max-height: 360px; overflow-y: auto; z-index: 50;
-  background: var(--bg-dropdown); border: 1px solid var(--border); border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.2); padding: 8px 0;
+  width: 520px; max-width: calc(100vw - 24px); z-index: 50;
+  background: var(--bg-dropdown); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.2); padding: 8px 0 0;
+  overflow: hidden;   /* the LIST scrolls, not the panel — the rail stays put */
 }
+/* Two columns: family rail, then the list. The rail is the whole point of the
+   redesign — it turns 44 rows into 8 choices. */
+.ind-body { display: flex; align-items: stretch; height: 380px; }
+.ind-rail {
+  flex: 0 0 148px; overflow-y: auto; padding: 4px 6px 8px;
+  border-right: 1px solid var(--border-soft);
+}
+.ind-fam {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 6px 8px; margin-bottom: 1px; border: 0; border-radius: 5px;
+  background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: 11.5px; text-align: left; cursor: pointer;
+}
+.ind-fam:hover { background: var(--bg-hover); color: var(--text-chart); }
+.ind-fam.active { background: var(--bg-hover); color: var(--text-chart); font-weight: 600; }
+.ind-fam-name { flex: 1; min-width: 0; }
+.ind-fam-n {
+  flex-shrink: 0; font-size: 10px; font-variant-numeric: tabular-nums;
+  color: var(--text-secondary); opacity: .8;
+}
+.ind-rail-sep { height: 1px; background: var(--border-soft); margin: 6px 4px; }
+.ind-list { flex: 1; min-width: 0; overflow-y: auto; padding-bottom: 8px; }
 .ind-panel.open { display: block; }
 .ind-group-title {
+  display: flex; align-items: baseline; gap: 6px;
+  position: sticky; top: 0; z-index: 2; background: var(--bg-dropdown);
   font-size: 10px; font-weight: 700; letter-spacing: .05em; color: var(--text-secondary);
-  padding: 6px 12px 4px; text-transform: uppercase;
+  padding: 7px 12px 4px; text-transform: uppercase;
+}
+.ind-group-n { font-size: 9.5px; font-weight: 600; opacity: .65; font-variant-numeric: tabular-nums; }
+/* One line of orientation per family. Hidden while searching, where the query
+   is the context and the blurbs would just be noise between matches. */
+.ind-group-blurb {
+  padding: 0 12px 5px; font-size: 10.5px; line-height: 1.35;
+  color: var(--text-secondary); opacity: .78;
+}
+.ind-searching .ind-group-blurb { display: none; }
+/* Where the indicator draws. Sub-pane entries each shorten the price chart, so
+   the cost of ticking one is visible before the click. */
+.ind-where {
+  flex-shrink: 0; font-size: 9px; font-weight: 700; letter-spacing: .04em;
+  padding: 1px 4px; border-radius: 3px; text-transform: uppercase;
+  color: var(--text-secondary); border: 1px solid var(--border-soft);
 }
 .ind-row {
   display: flex; align-items: center; gap: 8px; padding: 5px 12px;
   cursor: pointer; font-size: 12px; color: var(--text-chart);
 }
+.ind-name { flex: 1; min-width: 0; }
+/* A ticked indicator should be findable by eye in a 44-row list. */
+.ind-row:has(.ind-chk:checked) { background: var(--bg-hover); }
+.ind-row:has(.ind-chk:checked) .ind-name { font-weight: 600; }
 .ind-row:hover { background: var(--bg-hover); }
 .ind-row input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
 .ind-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
@@ -332,7 +376,7 @@ html, body {
 }
 .ind-search::placeholder { color: var(--text-secondary); }
 .ind-search:focus { border-color: var(--accent); }
-.ind-group + .ind-group { border-top: 1px solid var(--border-soft); margin-top: 6px; padding-top: 2px; }
+.ind-group + .ind-group { border-top: 1px solid var(--border-soft); margin-top: 4px; }
 .ind-empty { padding: 12px; font-size: 11px; color: var(--text-secondary); text-align: center; }
 
 /* ── Ticker bar ───────────────────────────────────────────────────────────── */
@@ -779,6 +823,23 @@ html, body {
   .ind-row { padding: 11px 16px; font-size: 14px; }
   .ind-row input[type=checkbox] { width: 20px; height: 20px; }
   .ind-search { font-size: 14px; padding: 8px 10px; }
+  /* A 148px side rail inside a phone-width sheet would leave the list unusable,
+     so the same buttons become a horizontally scrolling chip strip. */
+  /* 58vh is the sheet cap; subtract the search row + the panel's own top
+     padding, or the list's last rows are clipped by the panel's overflow. */
+  .ind-body { flex-direction: column; height: auto; max-height: calc(58vh - 56px); }
+  .ind-rail {
+    flex: 0 0 auto; display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
+    padding: 4px 10px 8px; border-right: 0; border-bottom: 1px solid var(--border-soft);
+    scrollbar-width: none;
+  }
+  .ind-rail::-webkit-scrollbar { display: none; }
+  .ind-fam {
+    width: auto; flex: 0 0 auto; margin-bottom: 0; font-size: 12px;
+    padding: 6px 10px; border: 1px solid var(--border-soft); border-radius: 999px;
+    white-space: nowrap;
+  }
+  .ind-rail-sep { flex: 0 0 1px; height: auto; width: 1px; margin: 2px 2px; }
 
   .ticker-wrap { flex-wrap: wrap; }
 }
@@ -1144,23 +1205,23 @@ const INDICATOR_DEFS = [
   {key:'avwap',     label:'Anchored VWAP (last major swing low)', group:'Moving Averages', color:'#ff8a65'},
   {key:'mabias',    label:'MA Bias (9/20 cross · 50/200 regime) + card',
                                                group:'Moving Averages', color:'#4c9aff'},
-  {key:'bollinger', label:'Bollinger (20, 2)', group:'Bands & Channels', color:'#9aa4af'},
-  {key:'donchian',  label:'Donchian (20)',     group:'Bands & Channels', color:'#26c6da'},
-  {key:'keltner',   label:'Keltner (20, 1.5)',     group:'Bands & Channels', color:'#f48fb1'},
-  {key:'pmax',      label:'PMax (EMA10, ATR10 × 3) + signals', group:'Bands & Channels', color:'#26a69a'},
-  {key:'stai',      label:'SuperTrend AI (adaptive factor via K-means) + signals', group:'Bands & Channels', color:'#00bcd4', alias:'supertrend ai luxalgo adaptive clustering kmeans trend trailing stop'},
-  {key:'renko',     label:'Renko structure on candles (ATR brick) + flips', group:'Bands & Channels', color:'#ab47bc', alias:'renko brick noiseless noise free time independent price sampled staircase brick size atr flip devendra'},
+  {key:'bollinger', label:'Bollinger (20, 2)', group:'Trend & Bands', color:'#9aa4af'},
+  {key:'donchian',  label:'Donchian (20)',     group:'Trend & Bands', color:'#26c6da'},
+  {key:'keltner',   label:'Keltner (20, 1.5)',     group:'Trend & Bands', color:'#f48fb1'},
+  {key:'pmax',      label:'PMax (EMA10, ATR10 × 3) + signals', group:'Trend & Bands', color:'#26a69a'},
+  {key:'stai',      label:'SuperTrend AI (adaptive factor via K-means) + signals', group:'Trend & Bands', color:'#00bcd4', alias:'supertrend ai luxalgo adaptive clustering kmeans trend trailing stop'},
+  {key:'renko',     label:'Renko structure on candles (ATR brick) + flips', group:'Trend & Bands', color:'#ab47bc', alias:'renko brick noiseless noise free time independent price sampled staircase brick size atr flip devendra'},
   // ── Sub-pane oscillators ────────────────────────────────────────────────────
-  {key:'rsi',       label:'RSI (14)',               group:'Oscillators',       color:'#7b61ff'},
-  {key:'macd',      label:'MACD (12, 26, 9)',       group:'Oscillators',       color:'#2962ff'},
-  {key:'obv',       label:'OBV',                    group:'Oscillators',       color:'#00bd6f'},
-  {key:'rs',        label:'RS vs Benchmark',        group:'Oscillators',       color:'#ffd60a'},
-  {key:'prte',      label:'%R Trend Exhaustion (+ chart arrows / OB confluence)', group:'Oscillators', color:'#2466A7', alias:'williams percent r exhaustion reversal confluence order block up down arrow'},
-  {key:'adxdi',     label:'ADX + DI (trend strength & direction)', group:'Oscillators', color:'#7B1FA2', alias:'adx dmi directional movement index plus di minus di trend strength downside risk crossover'},
-  {key:'evmacd',    label:'EVWMA VWAP MACD (30,5,20) + BUY/SELL', group:'Oscillators', color:'#0094ff', alias:'quantnomad elastic volume weighted moving average vwap macd crossover buy sell signal histogram'},
-  {key:'roc',       label:'ROC + RSI Zones (21,5,5,14)', group:'Oscillators',    color:'#2962ff'},
-  {key:'stoch',     label:'Stochastic (14,3,3)',    group:'Oscillators',       color:'#26c6da'},
-  {key:'hm',        label:'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', group:'Oscillators', color:'#26a69a', alias:'hilega milega bottom top reversal strength momentum'},
+  {pane:'sub', key:'rsi',       label:'RSI (14)',               group:'Oscillators',       color:'#7b61ff'},
+  {pane:'sub', key:'macd',      label:'MACD (12, 26, 9)',       group:'Oscillators',       color:'#2962ff'},
+  {pane:'sub', key:'obv',       label:'OBV',                    group:'Oscillators',       color:'#00bd6f'},
+  {pane:'sub', key:'rs',        label:'RS vs Benchmark',        group:'Oscillators',       color:'#ffd60a'},
+  {pane:'sub', key:'prte',      label:'%R Trend Exhaustion (+ chart arrows / OB confluence)', group:'Oscillators', color:'#2466A7', alias:'williams percent r exhaustion reversal confluence order block up down arrow'},
+  {pane:'sub', key:'adxdi',     label:'ADX + DI (trend strength & direction)', group:'Oscillators', color:'#7B1FA2', alias:'adx dmi directional movement index plus di minus di trend strength downside risk crossover'},
+  {pane:'sub', key:'evmacd',    label:'EVWMA VWAP MACD (30,5,20) + BUY/SELL', group:'Oscillators', color:'#0094ff', alias:'quantnomad elastic volume weighted moving average vwap macd crossover buy sell signal histogram'},
+  {pane:'sub', key:'roc',       label:'ROC + RSI Zones (21,5,5,14)', group:'Oscillators',    color:'#2962ff'},
+  {pane:'sub', key:'stoch',     label:'Stochastic (14,3,3)',    group:'Oscillators',       color:'#26c6da'},
+  {pane:'sub', key:'hm',        label:'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', group:'Oscillators', color:'#26a69a', alias:'hilega milega bottom top reversal strength momentum'},
   // Draws on BOTH the price chart and the RSI pane, so selecting it turns RSI
   // on (see applyIndicators) — half the signal lives in the oscillator.
   {key:'rsidiv',    label:'RSI Divergence (regular + hidden)', group:'Oscillators', color:'#ffd166'},
@@ -1169,47 +1230,95 @@ const INDICATOR_DEFS = [
   {key:'volprofile', label:'Volume Profile (POC/VA/HVN/LVN)', group:'Volume',  color:'#9aa4af'},
   {key:'svp',        label:'Session Volume Profile HD (D/P/B/I + Accum/Distrib)', group:'Volume', color:'#26c6da'},
   // ── Pattern Recognition ──────────────────────────────────────────────────────
-  {key:'elliott',      label:'Elliott Wave (1-5, A-B-C)', group:'Pattern Recognition', color:'#00e5ff'},
-  {key:'fvg',          label:'Fair Value Gap + Buy/Sell signal (FPV)', group:'Pattern Recognition', color:'#26a69a'},
-  {key:'roundbottom',  label:'Rounding Bottom (saucer)',  group:'Pattern Recognition', color:'#ffab40'},
-  {key:'vcp',          label:'VCP Coiling',               group:'Pattern Recognition', color:'#26c6da'},
-  {key:'trendlines',   label:'Trendlines (supply/demand)', group:'Pattern Recognition', color:'#ff9800'},
-  {key:'falling_wedge', label:'Falling Wedge (converging → breakout)', group:'Pattern Recognition', color:'#26a69a'},
-  {key:'structure_chain', label:'Structure Break Chain (BOS/CHoCH + quality)', group:'Pattern Recognition', color:'#00e676'},
-  {key:'orderblock',   label:'Order Blocks (SMC demand / supply zones)', group:'Pattern Recognition', color:'#4c9aff', alias:'order block ob smart money smc demand supply zone mitigation institutional'},
-  {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab)', group:'Pattern Recognition', color:'#ba68c8'},
-  {key:'projection',   label:'Price Projection (EW + patterns)', group:'Pattern Recognition', color:'#4c9aff'},
+  {key:'elliott',      label:'Elliott Wave (1-5, A-B-C)', group:'Levels & Projection', color:'#00e5ff'},
+  {key:'fvg',          label:'Fair Value Gap + Buy/Sell signal (FPV)', group:'Smart Money & Structure', color:'#26a69a'},
+  {key:'roundbottom',  label:'Rounding Bottom (saucer)',  group:'Price Patterns', color:'#ffab40'},
+  {key:'vcp',          label:'VCP Coiling',               group:'Price Patterns', color:'#26c6da'},
+  {key:'trendlines',   label:'Trendlines (supply/demand)', group:'Smart Money & Structure', color:'#ff9800'},
+  {key:'falling_wedge', label:'Falling Wedge (converging → breakout)', group:'Price Patterns', color:'#26a69a'},
+  {key:'structure_chain', label:'Structure Break Chain (BOS/CHoCH + quality)', group:'Smart Money & Structure', color:'#00e676'},
+  {key:'orderblock',   label:'Order Blocks (SMC demand / supply zones)', group:'Smart Money & Structure', color:'#4c9aff', alias:'order block ob smart money smc demand supply zone mitigation institutional'},
+  {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab)', group:'Price Patterns', color:'#ba68c8'},
+  {key:'projection',   label:'Price Projection (EW + patterns)', group:'Levels & Projection', color:'#4c9aff'},
   {key:'fib',          label:'Fibonacci + Trade Plan (VP + Projection confluence)',
-                                                     group:'Pattern Recognition', color:'#c9a227'},
+                                                     group:'Levels & Projection', color:'#c9a227'},
   {key:'gann',         label:'Gann S/R + Break Odds (Square-of-9 + historical follow-through)',
-                                                     group:'Pattern Recognition', color:'#d9b45b'},
+                                                     group:'Price Patterns', color:'#d9b45b'},
   // ── Calendar ────────────────────────────────────────────────────────────────
   {key:'reversal_calendar', label:'Reversal Calendar (Yogas + Lunar)',
                                                      group:'Calendar',           color:'#ffd60a'},
 ];
-const INDICATOR_GROUPS = ['Moving Averages', 'Bands & Channels', 'Oscillators', 'Volume', 'Pattern Recognition', 'Calendar'];
+// Families, in the order they appear in the rail. Display-only grouping: the
+// stored `key` is unchanged, so saved pane configs survive a regroup.
+const INDICATOR_GROUPS = [
+  'Moving Averages', 'Trend & Bands', 'Oscillators', 'Volume',
+  'Price Patterns', 'Smart Money & Structure', 'Levels & Projection', 'Calendar',
+];
+// One-line orientation per family, shown under the list header. The panel now
+// carries 44 entries across 8 families; without this the rail is just nouns.
+const GROUP_BLURB = {
+  'Moving Averages':         'Direction and dynamic support. Draw on price.',
+  'Trend & Bands':           'Volatility envelopes and trailing-stop trend flips.',
+  'Oscillators':             'Momentum and exhaustion. Each opens its own pane below the chart.',
+  'Volume':                  'Where volume actually traded, not just how much.',
+  'Price Patterns':          'Named geometric formations detected on the bars.',
+  'Smart Money & Structure': 'Institutional-footprint reads: gaps, zones, structure breaks.',
+  'Levels & Projection':     'Forward-looking levels and price targets.',
+  'Calendar':                'Date-based, not price-based.',
+};
 
 function renderIndicatorPanel() {
-  let html = '<div class="ind-search-wrap">'
-           + '<input type="text" class="ind-search" placeholder="Search indicators…" spellcheck="false" autocomplete="off">'
-           + '</div>';
+  // TradingView-style two-column browser: a family rail on the left, the
+  // matching list on the right. The rail is what makes the families legible —
+  // 44 entries in one scrolling column read as a wall regardless of headings.
+  const counts = {};
+  INDICATOR_GROUPS.forEach(g => { counts[g] = INDICATOR_DEFS.filter(d => d.group === g).length; });
+
+  let rail = '<button type="button" class="ind-fam active" data-fam="__all__">'
+           + `<span class="ind-fam-name">All</span><span class="ind-fam-n">${INDICATOR_DEFS.length}</span></button>`
+           + '<button type="button" class="ind-fam" data-fam="__active__">'
+           + '<span class="ind-fam-name">On this chart</span><span class="ind-fam-n" data-active-count>0</span></button>'
+           + '<div class="ind-rail-sep"></div>';
+  INDICATOR_GROUPS.forEach(g => {
+    rail += `<button type="button" class="ind-fam" data-fam="${g}">`
+          + `<span class="ind-fam-name">${g}</span><span class="ind-fam-n">${counts[g]}</span></button>`;
+  });
+
+  let list = '';
   INDICATOR_GROUPS.forEach((g) => {
     let rows = '';
     INDICATOR_DEFS.filter(d => d.group === g).forEach(d => {
       // data-search: lowercased label + key + group + optional aliases, so the
       // filter matches a synonym (e.g. "hilega") even when it isn't in the label.
       const hay = (d.label + ' ' + d.key + ' ' + g + ' ' + (d.alias || '')).toLowerCase().replace(/"/g, '');
+      // Where it draws. Sub-pane indicators stack BELOW the chart and each one
+      // shortens the price panel, so say so before the click, not after.
+      const where = d.pane === 'sub'
+        ? '<span class="ind-where sub" title="Opens its own pane below the price chart">pane</span>'
+        : '';
       rows += `
-        <label class="ind-row" data-search="${hay}">
+        <label class="ind-row" data-search="${hay}" data-fam="${g}">
           <input type="checkbox" class="ind-chk" data-key="${d.key}">
           <span class="ind-swatch" style="background:${d.color}"></span>
-          ${d.label}
+          <span class="ind-name">${d.label}</span>
+          ${where}
         </label>`;
     });
-    html += `<div class="ind-group" data-group="${g}"><div class="ind-group-title">${g}</div>${rows}</div>`;
+    const blurb = GROUP_BLURB[g] ? `<div class="ind-group-blurb">${GROUP_BLURB[g]}</div>` : '';
+    list += `<div class="ind-group" data-group="${g}">`
+          + `<div class="ind-group-title">${g}<span class="ind-group-n">${counts[g]}</span></div>`
+          + blurb + rows + '</div>';
   });
-  html += '<div class="ind-empty" style="display:none">No indicators match</div>';
-  return html;
+
+  return '<div class="ind-search-wrap">'
+       + `<input type="text" class="ind-search" placeholder="Search all ${INDICATOR_DEFS.length} indicators…" spellcheck="false" autocomplete="off">`
+       + '</div>'
+       + '<div class="ind-body">'
+       +   `<div class="ind-rail">${rail}</div>`
+       +   `<div class="ind-list">${list}`
+       +     '<div class="ind-empty" style="display:none">No indicators match</div>'
+       +   '</div>'
+       + '</div>';
 }
 
 // ── Heikin Ashi transform (a DISPLAY-only recolouring of the candles) ─────────
@@ -2380,29 +2489,80 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
       else             pane.indicators.delete(key);
       applyIndicators(pane);
       savePaneCfg();
+      if (pane._refreshIndActiveCount) pane._refreshIndActiveCount();
+      // Un-ticking while the "On this chart" view is up must drop the row, or
+      // the list keeps showing something that is no longer on the chart.
+      if (pane._filterIndicators) pane._filterIndicators();
     });
   });
 
-  // ── Indicator search / filter ───────────────────────────────────────────────
+  // ── Indicator search / family filter ────────────────────────────────────────
   const indSearch = indPanel.querySelector('.ind-search');
   const indEmpty  = indPanel.querySelector('.ind-empty');
+  const indList   = indPanel.querySelector('.ind-list');
+  let indFam = '__all__';
+
+  // Kept current by every checkbox change, so the rail's "On this chart" count
+  // is a live read of pane.indicators rather than a number that drifts.
+  function refreshActiveCount() {
+    const n = indPanel.querySelectorAll('.ind-chk:checked').length;
+    const badge = indPanel.querySelector('[data-active-count]');
+    if (badge) badge.textContent = n;
+  }
+  pane._refreshIndActiveCount = refreshActiveCount;
+
   function filterIndicators() {
-    const q = indSearch.value.trim().toLowerCase();
+    const q = indSearch ? indSearch.value.trim().toLowerCase() : '';
+    // A search spans every family — typing is how you escape the rail, so a
+    // query silently widens the scope instead of returning "no matches" for a
+    // term that exists one family over.
+    const fam = q ? '__all__' : indFam;
+    indPanel.classList.toggle('ind-searching', !!q);
     let anyVisible = false;
     indPanel.querySelectorAll('.ind-group').forEach(group => {
       let groupVisible = false;
       group.querySelectorAll('.ind-row').forEach(row => {
-        const match = !q || (row.dataset.search || '').includes(q);
+        const okFam = fam === '__all__'
+                    || (fam === '__active__' ? row.querySelector('.ind-chk').checked
+                                             : row.dataset.fam === fam);
+        const match = okFam && (!q || (row.dataset.search || '').includes(q));
         row.style.display = match ? '' : 'none';
         if (match) groupVisible = true;
       });
       group.style.display = groupVisible ? '' : 'none';   // hide whole group when empty
       if (groupVisible) anyVisible = true;
     });
-    if (indEmpty) indEmpty.style.display = anyVisible ? 'none' : '';
+    if (indEmpty) {
+      indEmpty.style.display = anyVisible ? 'none' : '';
+      indEmpty.textContent = (!anyVisible && fam === '__active__' && !q)
+        ? 'Nothing on this chart yet'
+        : 'No indicators match';
+    }
   }
+  pane._filterIndicators = filterIndicators;
+
+  indPanel.querySelectorAll('.ind-fam').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();                      // don't close the panel
+      indFam = btn.dataset.fam;
+      indPanel.querySelectorAll('.ind-fam').forEach(b => b.classList.toggle('active', b === btn));
+      if (indSearch) indSearch.value = '';      // family and query are one scope
+      filterIndicators();
+      if (indList) indList.scrollTop = 0;
+    });
+  });
+
   if (indSearch) {
-    indSearch.addEventListener('input', filterIndicators);
+    indSearch.addEventListener('input', () => {
+      // Typing leaves whatever family was picked; reflect that in the rail so
+      // the highlighted chip never contradicts what the list is showing.
+      if (indSearch.value.trim()) {
+        indPanel.querySelectorAll('.ind-fam').forEach(b =>
+          b.classList.toggle('active', b.dataset.fam === '__all__'));
+        indFam = '__all__';
+      }
+      filterIndicators();
+    });
     indSearch.addEventListener('click', e => e.stopPropagation());   // don't close the panel
     indSearch.addEventListener('keydown', e => {
       if (e.key === 'Escape') { indSearch.value = ''; filterIndicators(); indSearch.blur(); }
@@ -2418,6 +2578,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
       }
     });
   }
+  refreshActiveCount();
 
   return pane;
 }
