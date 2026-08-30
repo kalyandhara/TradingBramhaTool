@@ -427,6 +427,46 @@ retired as a research instrument that prints a daily description and nothing mor
 tick data the repo has never carried) and the intraday futures lane, already recorded as
 out-of-scope. Filed as knowledge in [[strategies/Forced-Participation-Reversal]].
 
+### B-45 · Two indicators are already COMPUTED but not plottable — ATR and MFI *(2026-08-30)*
+From [[analyses/Indicator-Coverage-Gap]]. **MFI** exists as `_mfi_series` and
+`scan_mfi_oversold` in `scanner_templates.py`; **ATR** is computed 32× inside
+`chart_dashboard.html` (Keltner, PMax, Renko). Neither appears in `INDICATOR_DEFS`, so
+neither can be put on a chart. This is wiring, not mathematics, and ATR is the series
+stop-sizing actually needs. **Do this before building any new indicator.** No backtest is
+owed — exposing an existing series makes no claim about edge.
+
+### B-46 · Ichimoku Cloud — the largest single named absence *(2026-08-30)*
+The most consistently cited "complete system" indicator and absent from `tools/` entirely
+(`grep -ri ichimoku tools/` → 0). Five lines (Tenkan 9, Kijun 26, Senkou A/B, Chikou) with
+Senkou shifted **forward** 26 bars — the forward shift is the only non-trivial part, and
+`padSeries` already pads with whitespace points for exactly this reason. Ship the overlay
+first; any BUY/SELL reading is a separate, measured question. **Parabolic SAR is explicitly
+NOT bundled** — `pmax` and `stai` already occupy the trailing-stop-flip role, and adding a
+third would risk another zero-unique entry of the kind [[analyses/Scanner-Overlap-Audit]]
+just trimmed.
+
+### B-47 · TPO / Market Profile pane — the half of profile we don't have *(2026-08-30)*
+`volprofile` and `svp` give **volume**-at-price. **TPO** gives **time**-at-price: which
+prices were visited in each half-hour bracket, letter by letter. Different lens, same bars
+— **no data blocker**, unlike B-48. Complements the session profile rather than duplicating
+it, and is standard on every prop platform surveyed. Needs intraday bars at 30m or finer,
+which `data_source.py` already serves.
+
+### B-48 · Cumulative volume delta — answer the DATA question before writing any indicator *(2026-08-30)*
+The one real information gap ([[analyses/Indicator-Coverage-Gap]] Tier 3): the tool has the
+volume-at-price half of order flow and **none** of the aggressor half — footprint bars,
+delta, CVD — which is what [[entities/Chris-Kmer]] describes trading from and what the
+prop-desk toolset converges on. See [[concepts/Order-Flow]].
+
+> [!warning] This item's deliverable is a NOTE, not a chart.
+> CVD requires **tick or bid/ask-classified trade data**. `data_source.py` serves OHLCV
+> bars from yfinance and Hyperliquid. The tempting shortcut — a bar-level proxy such as
+> close-position-in-range × volume — would render a plausible-looking chart of something
+> that **is not delta**, and would be indistinguishable from the real thing by eye. Do not
+> write the indicator until the feed is identified. Hyperliquid is the only feed in this
+> stack that could plausibly supply trade-side data; establish whether it does, and whether
+> any NSE path exists, first.
+
 ### B-41 · No liquidity-sweep / stop-hunt detector — the missing third of the SMC stack *(2026-08-27)*
 Zero occurrences of `liquidity sweep`, `stop hunt`, or `equal highs/lows` in `tools/`.
 We ship FVG Pullback, Order Block Retest and ICT Setup — **two-thirds of the ICT
