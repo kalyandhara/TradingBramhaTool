@@ -5777,55 +5777,24 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
         if st.button("Generate runner + register task", key="hub_sched_reg",
                      type="primary"):
             try:
-                import json as _json
-                # Write the Python runner script
-                _universe_arg = (
-                    "--universe bhavcopy --top-n 300"
-                    if "Bhavcopy" in _sched_universe
-                    else "--universe screener"
-                )
-                _scanners_arg = " ".join(f'"{s}"' for s in _sched_scanners)
-                _runner_src = f'''\
-"""Daily scanner runner — executed by the Windows Scheduled Task
-{_TASK_NAME}. Do not edit the task directly; regenerate via the
-Scanner Hub → Daily Scanner Scheduler panel."""
-import sys, os, json, datetime
-sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
-import scanner_templates as sc
-from dashboard_app_helpers import cached_fetch_ohlcv_headless  # noqa
-
-SCANNERS = {_json.dumps(_sched_scanners)}
-UNIVERSE_MODE = "{_sched_universe}"
-
-def _fetch(sym, days=300):
-    import data_fetcher as df_mod
-    return df_mod.fetch_ohlcv(sym, days=days)
-
-def main():
-    import bhavcopy_fetcher as bh
-    universe = bh.fetch_top_n(300) if "Bhavcopy" in UNIVERSE_MODE else []
-    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-    out = {{}}
-    for name in SCANNERS:
-    if name not in sc.SCANNERS:
-        continue
-    try:
-        hits = sc.run_scanner(name, universe, _fetch)
-        out[name] = hits
-        print(f"{{ts}}  {{name}}: {{len(hits)}} hits")
-    except Exception as exc:
-        out[name] = []
-        print(f"{{ts}}  {{name}}: ERROR {{exc}}")
-    dest = os.path.join(os.path.dirname(__file__), "cache", f"scanner_daily_{{ts}}.json")
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    with open(dest, "w") as fh:
-    json.dump(out, fh, default=str)
-    print(f"Saved → {{dest}}")
-
-if __name__ == "__main__":
-    main()
-'''
-                _RUNNER_PY.write_text(_runner_src, encoding="utf-8")
+                # The runner is a CHECKED-IN module (tools/scanner_daily_runner.py),
+                # not generated source. It used to be written here from an
+                # f-string template, and the template was broken: an un-indented
+                # `for` body (so it never parsed) plus imports of three modules
+                # that do not exist. Generated Python is invisible to import,
+                # py_compile, linting and tests, which is precisely how that
+                # survived. All this panel writes now is the .bat, and the
+                # universe choice travels as an argument.
+                _universe_arg = ("--universe bhavcopy --top-n 300"
+                                 if "Bhavcopy" in _sched_universe
+                                 else "--universe screener")
+                # An explicit scanner list is passed ONLY when it is a real
+                # subset; "all selected" stays as the runner's own default so the
+                # task does not silently freeze today's registry into the .bat.
+                _scanners_arg = ""
+                if _sched_scanners and len(_sched_scanners) < len(sc.SCANNERS):
+                    _scanners_arg = " --scanners " + " ".join(
+                        f'"{_s}"' for _s in _sched_scanners)
 
                 # Write the .bat wrapper
                 _bat_src = (
@@ -5835,8 +5804,8 @@ if __name__ == "__main__":
                     f"set LOG=%~dp0scanner_daily.log\n"
                     f"cd /d \"%REPO%\"\n"
                     f"echo. >> \"%LOG%\"\n"
-                    f"echo ===== %DATE% %TIME% — daily scanner starting ===== >> \"%LOG%\"\n"
-                    f"\"%PYTHON%\" \"%~dp0scanner_daily_runner.py\" >> \"%LOG%\" 2>&1\n"
+                    f"echo ===== %DATE% %TIME% - daily scanner starting ===== >> \"%LOG%\"\n"
+                    f"\"%PYTHON%\" \"%~dp0scanner_daily_runner.py\" {_universe_arg}{_scanners_arg} >> \"%LOG%\" 2>&1\n"
                     f"if errorlevel 1 (\n"
                     f"    echo ***** FAILED ***** >> \"%LOG%\"\n"
                     f") else (\n"
@@ -5863,7 +5832,8 @@ if __name__ == "__main__":
                 if _res.returncode == 0:
                     st.success(
                         f"Task **{_TASK_NAME}** registered — runs daily at {_sched_time}. "
-                        f"Runner: `tools/scanner_daily_runner.py` · "
+                        f"Runner: `tools/scanner_daily_runner.py` "
+                        f"`{_universe_arg}{_scanners_arg}` · "
                         f"Log: `tools/scanner_daily.log`"
                     )
                 else:
