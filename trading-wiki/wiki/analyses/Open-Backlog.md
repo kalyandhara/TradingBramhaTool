@@ -427,6 +427,151 @@ retired as a research instrument that prints a daily description and nothing mor
 tick data the repo has never carried) and the intraday futures lane, already recorded as
 out-of-scope. Filed as knowledge in [[strategies/Forced-Participation-Reversal]].
 
+### B-49 · Free quality-value screen — **SHIPPED 2026-08-31** *(`tools/value_screen.py`)*
+Owner asked whether the "deep value" card format (P/E, P/S, OPM, ROE, ROCE, D/E,
+revenue & profit growth) could be reproduced from **freely available data**. Tested
+before promising: on AGI Greenpac the free path reproduces **6 of 8 figures to within
+rounding**, and the two that miss are **definition mismatches, not data gaps**.
+
+Closes the gap between two modules that each had half of it:
+`multibagger_candidates.py` runs almost this exact query but is **screener.in
+cookie-gated**; `smallcap_discovery.py` is free but scores **ownership only**.
+
+Built free-only, reusing rather than re-deriving: universe from
+`smallcap_universe` (NSE Smallcap-250 + Microcap-250 archive CSVs), every metric
+from `fundamentals_deep.derive_fundamentals`, governance flags from
+`ownership_cache` when warm.
+
+**Three findings that shaped the design, each from measurement:**
+
+1. **`.info` returns `returnOnEquity: None` for AGI Greenpac.** A screen keyed on
+   `.info` alone would have silently dropped its own worked example. Metrics
+   therefore come from the **statements** path first; `.info` supplies only the
+   multiples. Criteria are three-state **PASS / FAIL / UNKNOWN** (the FR-4
+   convention) and a missing figure is **never counted as a fail**.
+2. **The card's growth figures use the shortest available window.** It advertises
+   "+14% revenue / +12% profit"; those are the `.info` quarterly figures. From the
+   annual statements the same company grows **5.4% YoY and 5.7% over 3 years**.
+   Its "OPM 22%" is likewise the latest *quarter* against 19.3% for the full year.
+   The screen therefore tests the **3Y CAGR** and *reports* the 1Y beside it, with a
+   note when 1Y exceeds the CAGR by >= 6pp — flagged, never screened on, because a
+   genuine inflection and a flattered one look identical from the outside.
+3. **`fetch_statements` already called `.info`** and kept only four fields. Extended
+   it to carry `market_cap / pe / ps / price / sector / industry`, so the screen makes
+   **one** yfinance round trip per symbol instead of two. P/S falls back to
+   market-cap / revenue (tagged `ps_source: calc`) because yfinance's own is sparse
+   on NSE.
+
+Verified end to end over 80 free small-caps: **80/80 derived** (full coverage on the
+free path), 1 hit under the strict defaults. 27 tests in `test_value_screen.py`, all
+passing, none touching the network (`screen` takes an injected `derive`).
+
+> [!warning] Reading list, not edge.
+> Ranking is *passes -> fewest unknowns -> ROCE*, stated as such in the module and in
+> the CLI footer. It is **not a conviction score and not backtested**. "Cheap with
+> good ROCE" is among the most crowded screens in existence. The measurement that
+> would change this is a forward hit-rate study against a Smallcap-250 benchmark —
+> **the same test B-34 still owes**, and the two should be run together.
+
+**Not done, deliberately:** not registered in `scheduler_core` and not surfaced in any
+dashboard page. Both are cheap, and both should wait until the hit-rate study says
+whether the list is worth reading daily.
+
+### B-50 · Contra margin-inflection screen — **SHIPPED 2026-08-31** *(`tools/contra_inflection.py`)*
+Owner asked whether the OPM-jump / PEAD / EPS-acceleration shape on a "deep value"
+card could be caught systematically, as a **contra** strategy aimed at rising stars.
+It can, from free data. See [[concepts/Margin-Inflection-Contra]].
+
+**The design point:** B-49 screens on **level**, this screens on **change**, and they
+select disjoint sets. OCCL Ltd fails B-49 outright (ROCE 11.6%, ROE 11.1%) while its
+June-2026 quarter shows OPM 25.6% vs 16.0% a year earlier and PAT +206%. Annual
+figures average the turn away -- OCCL's annual OPMs read 12.0/11.1/-/15.5 -- so the
+signal only exists at quarterly grain. `fundamentals_deep._quarterly_history` gained
+an `opm` / `ebit` / `opm_yoy_base` field for this.
+
+**Output is a verdict LABEL, not a score:** `INFLECTING` / `MARGIN_LED` /
+`RECOVERING` / `SINGLE_QUARTER` / `UNVERIFIED` / `ONE_OFF_SUSPECT` /
+`NO_INFLECTION` / `INSUFFICIENT_DATA`, each with its reasons printed.
+
+**Two bugs found by running it, not by reading it:**
+
+- **`operating_led` demanded EBIT keep PACE with PAT**, which flags ordinary
+  deleveraging and tax-rate changes as accounting one-offs — the AGI Greenpac
+  card's own "debt cut by over half" pitch is exactly that shape. The test is now
+  **participation, not parity** (`EBIT_PARTICIPATION = 0.25`).
+- **An unevaluated guard was being read as a passed guard.** ITI Limited took the
+  top `INFLECTING` slot on OPM 72.7% vs 3.9% with all four prior quarters
+  loss-making and revenue **down 40%**; `pat_yoy`, `operating_led` and
+  `cfo_pat_ratio` were all `None`, so every check silently no-opped. Fixed with an
+  explicit evidence gate + the `UNVERIFIED` verdict + a `loss_in_base` flag. Same
+  failure mode as B-49's `.info` ROE hole.
+
+**Measured on 120 free small/micro-caps:** 120/120 derived; 11 `INFLECTING`,
+1 `MARGIN_LED`, 1 `RECOVERING`, 19 `SINGLE_QUARTER`, 22 `ONE_OFF_SUSPECT`,
+1 `UNVERIFIED`, 64 `NO_INFLECTION`. **The guards reject 42 names a naive
+"profit up X%" filter would have handed over** — which is the whole value of the
+module. 33 tests, none touching the network.
+
+> [!warning] Unvalidated, and the honest limit is narrower than it looks.
+> [[concepts/PEAD]] is real in Indian equities. That supports *prices under-react to
+> earnings surprises*; it does **not** support this filter set finding multibaggers.
+> Also: yfinance returns only ~5-6 quarters and `_year_ago_index` matches a year-ago
+> quarter for the newest one or two only, so **persistence is measured
+> quarter-on-quarter and is seasonality-exposed** — reported as a count, never as a
+> pass/fail, because it cannot be cleaned up with the data available.
+
+**Owed:** a forward event study — enter at the first `INFLECTING` print, hold N days,
+against a matched non-inflecting control, using the exact rotation p-value. Run it
+with B-34's and B-49's hit-rate study; all three are the same experiment shape.
+**Not** scheduled and **not** wired to a dashboard until that runs.
+
+### B-51 · Volume-anomaly screen with CAUSE attribution — **SHIPPED 2026-08-31** *(`tools/volume_anomaly.py`)*
+Whole-market volume spikes (latest session vs the name's own 1-year average),
+each attributed to a cause read from free NSE feeds. **A screen, not a trigger** —
+no entry/stop/target and never a confluence vote, wired like the Renko Flip screen.
+
+**Why bhavcopy is the same-day source and yfinance is not.** Verified: on
+2026-08-28 yfinance had **no bar at all** for MASTEK or OAL and silently served the
+previous day, turning MASTEK's 43.9x volume day into **0.9x** — not an error, a
+plausible-looking normal reading. `screener_pipeline` gained
+`fetch_bhavcopy_frame()`; `fetch_bhavcopy_top_volume` is now a thin wrapper over it,
+because it already did the column sniffing and threw the volume away. Bhavcopy also
+carries `prev_close`, so the 1-day return needs no second source.
+
+**Cause taxonomy:** `CORPORATE_ACTION` / `PROP_CHURN` / `DEAL_DRIVEN` /
+`UNEXPLAINED`, using `nse_announcements` (per symbol) and
+`india_market_intel`'s bulk/block feeds. The Market Intel page's note that the
+whole-market announcement feed is too high-volume to wire up **does not apply here**:
+announcements are fetched only for names that already cleared the volume filter —
+tens of calls *after* the funnel, not thousands before it.
+
+**The bug the first live run found, and the reason this module works at all:**
+NSE files a **"Spurt in Volume"** notice *because* volume spiked. Counting it as the
+cause is circular, and it labelled **7 of 9** spikes `CORPORATE_ACTION`, starving
+`UNEXPLAINED` — the only bucket worth attention. A `REACTIVE_SUBJECTS` exclusion
+now runs **before** the material-keyword test (order matters: a clarification reply
+quotes the company and routinely contains material words). Distribution moved from
+`UNEXPLAINED=2 / CORPORATE_ACTION=9` to `UNEXPLAINED=5 / CORPORATE_ACTION=5`.
+
+**A correction carried in the code:** the pitch for this module claimed prop churn
+explained MASTEK's spike. Measured, the visible round-trip is 528,244 of 5,449,060
+shares — **9.7%**, below `CHURN_SHARE_MIN`. It is also a **lower bound**: NSE only
+requires a bulk deal to be reported above 0.5% of listed shares, so smaller desks
+never appear. Churn share is therefore printed on every row and only becomes the
+headline cause above the threshold. A test pins MASTEK to `DEAL_DRIVEN` so the
+threshold cannot be quietly re-tuned to fit the example.
+
+**Live result** (2026-08-28, 2,629 EQ universe, top 300 by turnover, >=8x):
+13 spikes — 5 `CORPORATE_ACTION`, 5 `UNEXPLAINED`, 2 `PROP_CHURN`, 1 `DEAL_DRIVEN`;
+19 names skipped for short history rather than scored against a meaningless average.
+21 tests, all offline.
+
+> [!warning] Unvalidated, and one hard operational limit.
+> No forward-return study: nothing says an `UNEXPLAINED` spike precedes anything.
+> And **the NSE bulk/block endpoints return only the current day** — no history —
+> so a back-dated run finds the volume but not the deals. Daily capture into an
+> archive is the obvious follow-on and is **not** built.
+
 ### B-45 · Two indicators are already COMPUTED but not plottable — ATR and MFI *(2026-08-30)*
 From [[analyses/Indicator-Coverage-Gap]]. **MFI** exists as `_mfi_series` and
 `scan_mfi_oversold` in `scanner_templates.py`; **ATR** is computed 32× inside
