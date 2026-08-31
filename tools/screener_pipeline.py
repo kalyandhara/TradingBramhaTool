@@ -149,85 +149,106 @@ def _fetch_bhav_df(session: requests.Session, date: datetime) -> pd.DataFrame | 
     return None
 
 
-def fetch_bhavcopy_top_volume(top_n: int = BHAV_TOP_N) -> list[str]:
-    """
-    Fetch NSE bhavcopy for the most recent trading day (tries last 5 calendar days)
-    and return top_n EQ-series symbols by total traded value.
+def fetch_bhavcopy_frame(date=None) -> "pd.DataFrame | None":
+    """The most recent EQ bhavcopy as a NORMALISED frame, or None.
+
+    Columns: ``symbol, volume, turnover, close, prev_close, trade_date``.
+
+    NSE has published this file under several layouts, so the column names are
+    sniffed rather than assumed. `turnover` is the traded VALUE in rupees where
+    the file carries one; when only a quantity column exists it is a stand-in and
+    ``turnover_is_qty`` is set on the frame's ``attrs`` so a caller can say so
+    rather than silently reporting shares as rupees.
+
+    This is the authoritative same-day source for the whole market (~2,600 EQ
+    rows in one free file). It exists because **yfinance is not reliable for the
+    latest session on smaller NSE names** — on 2026-08-28 it had no bar at all for
+    MASTEK or OAL and silently served the previous day, which turned a 43.9x
+    volume day into 0.9x. A daily volume scanner cannot be built on that.
     """
     session = requests.Session()
-    # Warm up session cookie (NSE blocks cold requests)
     try:
         session.get("https://www.nseindia.com/", headers=NSE_HEADERS, timeout=15)
     except Exception:
         pass
 
     df = None
-    for days_back in range(1, 6):
-        candidate = datetime.today() - timedelta(days=days_back)
-        if candidate.weekday() >= 5:   # skip weekends
-            continue
-        df = _fetch_bhav_df(session, candidate)
-        if df is not None:
-            break
-
+    if date is not None:
+        df = _fetch_bhav_df(session, date)
+    else:
+        for days_back in range(1, 6):
+            candidate = datetime.today() - timedelta(days=days_back)
+            if candidate.weekday() >= 5:
+                continue
+            df = _fetch_bhav_df(session, candidate)
+            if df is not None:
+                break
     if df is None:
-        log.warning("Bhavcopy: could not download any recent file — skipping.")
-        return []
+        log.warning("Bhavcopy: could not download any recent file.")
+        return None
 
-    # Normalise column names (new format uses different casing)
     df.columns = [c.strip().upper() for c in df.columns]
 
-    log.debug("Bhavcopy columns: %s", list(df.columns))
+    def _pick(*exact, contains=()):
+        for c in df.columns:
+            if c in exact:
+                return c
+        for c in df.columns:
+            if any(t in c for t in contains):
+                return c
+        return None
 
-    # New NSE format:  TCKRSYMB / SCTYSRS / TOTTRDBVAL
-    # Old NSE format:  SYMBOL   / SERIES  / TOTTRDVAL  or  TOTTRDVAL
-    sym_col = next((c for c in df.columns if c in ("SYMBOL", "TCKRSYMB")
-                    or "SYMBOL" in c or "SYMB" in c), None)
-    ser_col = next((c for c in df.columns if c in ("SERIES", "SCTYSRS")
-                    or "SERIES" in c or "SCTYSRS" in c), None)
-    # New NSE zip format uses TTLTRFVAL (Total Transfer/Traded Value)
-    # Old full-bhavcopy CSV uses TOTTRDVAL
-    val_col = next((c for c in df.columns if c in (
-                        "TTLTRFVAL",        # new zip format
-                        "TOTTRDBVAL",       # alternate new
-                        "TOTTRDVAL",        # old full-bhavcopy
-                        "TOTALTRADEDVALUE",
-                        "TRADED_VALUE",
-                    )
-                    or "TRFVAL" in c or "TRDBVAL" in c or "TRDVAL" in c), None)
-    # qty fallback: if still None try TTLTRADGVOL (total trading volume/qty)
-    if val_col is None:
-        val_col = next((c for c in df.columns if "TRADGVOL" in c or "TRDQTY" in c
-                        or "TOTTRDQTY" in c or "TTLTRDQTY" in c), None)
-        if val_col:
-            log.info("Bhavcopy: using volume qty column '%s' as proxy for traded value", val_col)
+    sym_col = _pick("SYMBOL", "TCKRSYMB", contains=("SYMBOL", "SYMB"))
+    ser_col = _pick("SERIES", "SCTYSRS", contains=("SERIES", "SCTYSRS"))
+    val_col = _pick("TTLTRFVAL", "TOTTRDBVAL", "TOTTRDVAL", "TOTALTRADEDVALUE",
+                    "TRADED_VALUE", contains=("TRFVAL", "TRDBVAL", "TRDVAL"))
+    qty_col = _pick("TTLTRADGVOL", "TOTTRDQTY", "TTLTRDQTY",
+                    contains=("TRADGVOL", "TRDQTY"))
+    close_col = _pick("CLSPRIC", "CLOSE", contains=("CLSPRIC",))
+    prev_col = _pick("PRVSCLSGPRIC", "PREVCLOSE", contains=("PRVSCLSG",))
+    date_col = _pick("TRADDT", "BIZDT", contains=("TRADDT",))
 
-    if sym_col is None or val_col is None:
-        log.warning(
-            "Bhavcopy: could not identify required columns.\n"
-            "  sym_col=%s  val_col=%s\n  All columns: %s",
-            sym_col, val_col, list(df.columns),
-        )
-        return []
+    if sym_col is None or (val_col is None and qty_col is None):
+        log.warning("Bhavcopy: could not identify required columns: %s",
+                    list(df.columns))
+        return None
 
-    # Filter equity series only.
-    # Old format: SERIES == "EQ"
-    # New format: SCTYSRS == "EQ"  (same values, different column name)
-    # Also filter out derivatives/SME via FININSTRMTP if present
     if ser_col:
         df = df[df[ser_col].astype(str).str.strip() == "EQ"]
     elif "FININSTRMTP" in df.columns:
-        # new format fallback: keep only equity instruments
         df = df[df["FININSTRMTP"].astype(str).str.strip().isin(["EQ", "ES"])]
 
-    df[val_col] = pd.to_numeric(df[val_col], errors="coerce")
-    df = df.dropna(subset=[val_col])
+    turnover_is_qty = val_col is None
+    if turnover_is_qty:
+        val_col = qty_col
+        log.info("Bhavcopy: no traded-value column; using qty '%s' as a stand-in",
+                 qty_col)
 
-    top = (
-        df.nlargest(top_n, val_col)[sym_col]
-        .str.strip()
-        .tolist()
-    )
+    out = pd.DataFrame({
+        "symbol":   df[sym_col].astype(str).str.strip(),
+        "turnover": pd.to_numeric(df[val_col], errors="coerce"),
+        "volume":   (pd.to_numeric(df[qty_col], errors="coerce")
+                     if qty_col else pd.NA),
+        "close":    (pd.to_numeric(df[close_col], errors="coerce")
+                     if close_col else pd.NA),
+        "prev_close": (pd.to_numeric(df[prev_col], errors="coerce")
+                       if prev_col else pd.NA),
+        "trade_date": (df[date_col].astype(str) if date_col else None),
+    }).dropna(subset=["turnover"])
+    out.attrs["turnover_is_qty"] = turnover_is_qty
+    return out.reset_index(drop=True)
+
+
+def fetch_bhavcopy_top_volume(top_n: int = BHAV_TOP_N) -> list[str]:
+    """Top `top_n` EQ symbols by traded value for the most recent session.
+
+    Thin wrapper over :func:`fetch_bhavcopy_frame` — the column sniffing and the
+    EQ filter live there so the two cannot drift apart.
+    """
+    frame = fetch_bhavcopy_frame()
+    if frame is None or frame.empty:
+        return []
+    top = frame.nlargest(top_n, "turnover")["symbol"].tolist()
     log.info("Bhavcopy top-%d by traded value: %d symbols", top_n, len(top))
     return top
 
