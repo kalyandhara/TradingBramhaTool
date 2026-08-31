@@ -95,7 +95,12 @@ def fetch_statements(symbol: str) -> dict[str, Any]:
 
     Returns the frames as yfinance gives them (rows = line items, columns =
     period end dates, newest first) plus the `.info` fields FR-1 maps in
-    (`trailingEps`, `bookValue`, currency, long name).
+    (`trailingEps`, `bookValue`, currency, long name) and the valuation fields
+    B-49 needs (`market_cap`, `pe`, `ps`, `price`, `sector`, `industry`).
+
+    The valuation fields cost NOTHING extra: `.info` is already fetched here for
+    EPS and book value, so carrying them means a screen makes one yfinance round
+    trip per symbol instead of two.
     """
     try:
         import yfinance as yf
@@ -122,6 +127,16 @@ def fetch_statements(symbol: str) -> dict[str, Any]:
     out["book_value"] = _num(info.get("bookValue"))
     out["currency"] = info.get("financialCurrency") or info.get("currency")
     out["long_name"] = info.get("longName") or info.get("shortName")
+    # Valuation (B-49). trailingPE is absent for loss-making names, which is the
+    # honest answer rather than a number; forwardPE is NOT substituted, because a
+    # forward multiple is an analyst estimate and would silently mix two
+    # different things in one screen column.
+    out["market_cap"] = _num(info.get("marketCap"))
+    out["pe"] = _num(info.get("trailingPE"))
+    out["ps"] = _num(info.get("priceToSalesTrailing12Months"))
+    out["price"] = _num(info.get("currentPrice") or info.get("regularMarketPrice"))
+    out["sector"] = info.get("sector")
+    out["industry"] = info.get("industry")
     return out
 
 
@@ -307,21 +322,34 @@ def _quarterly_history(stmts: dict[str, Any]) -> list[dict[str, Any]]:
     """
     inc = stmts.get("income_q")
     rev, ni, eps = _row(inc, _REVENUE), _row(inc, _NET_INC), _row(inc, _BASIC_EPS)
+    # Quarterly EBIT for the margin series (B-50). The alias list falls back to
+    # "Operating Income"; some quarterly frames carry neither, in which case opm
+    # is honestly None rather than silently substituted with net margin -- the
+    # two answer different questions, and a one-off gain moves only the latter.
+    ebit_q = _row(inc, _EBIT)
     if inc is None or (rev is None and ni is None):
         return []
     cols = list(inc.columns)
     rows = []
     for i, col in enumerate(cols):
         r, n = _at(rev, i), _at(ni, i)
+        e = _at(ebit_q, i)
         j = _year_ago_index(cols, i)
         r_yoy = None if j is None else _at(rev, j)
         n_yoy = None if j is None else _at(ni, j)
+        e_yoy = None if j is None else _at(ebit_q, j)
         rows.append({
             "period":      _period_label(col),
             "revenue":     r,
             "net_income":  n,
+            "ebit":        e,
             "eps":         _at(eps, i),
             "net_margin":  _pct(n, r),
+            "opm":         _pct(e, r),
+            # The year-ago quarter's OPM, carried alongside rather than as a
+            # delta, so a caller can tell "margin rose" from "margin rose off a
+            # quarter that had no margin at all".
+            "opm_yoy_base": _pct(e_yoy, r_yoy),
             "revenue_yoy": (round((r / r_yoy - 1) * 100, 2)
                             if (r is not None and r_yoy not in (None, 0) and r_yoy > 0) else None),
             "profit_yoy":  (round((n / n_yoy - 1) * 100, 2)
@@ -502,6 +530,12 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
         else:
             break
 
+    _ps, _ps_src = stmts.get("ps"), ("yf" if stmts.get("ps") is not None else None)
+    if _ps is None:
+        _mc, _rev0 = stmts.get("market_cap"), _at(rev, 0)
+        if _mc is not None and _rev0 not in (None, 0) and _rev0 > 0:
+            _ps, _ps_src = round(_mc / _rev0, 2), "calc"
+
     out: dict[str, Any] = {
         "symbol":        symbol.upper(),
         "available":     True,
@@ -542,6 +576,17 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
         "dilution_pct":      dilution_pct,   # share-count change oldest→newest (%)
         "eps_ttm":       stmts.get("eps_ttm"),
         "book_value":    stmts.get("book_value"),
+        # Valuation (B-49), passed through from the same `.info` call.
+        "market_cap":    stmts.get("market_cap"),
+        "price":         stmts.get("price"),
+        "pe":            stmts.get("pe"),
+        # yfinance's own P/S is missing often enough on NSE that the screen would
+        # drop otherwise-qualifying names; fall back to market cap / latest FY
+        # revenue, which is the same ratio from statements already in hand.
+        "ps":            _ps,
+        "ps_source":     _ps_src,
+        "sector":        stmts.get("sector"),
+        "industry":      stmts.get("industry"),
         "annual_periods":    len(annual),
         "quarterly_periods": len(quarters),
     }
