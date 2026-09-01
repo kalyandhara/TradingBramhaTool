@@ -4384,6 +4384,30 @@ def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 3,
     if np.isnan(rsi_now) or rsi_now <= rsi2:
         return None
 
+    # ── Fibonacci retracement (swing high between the two lows → low2) ───────
+    swing_high_between = float(high.iloc[idx1:idx2 + 1].max())
+    swing_range = swing_high_between - price2
+    has_fib = swing_range > 0 and swing_high_between > price1
+
+    fib_0 = fib_236 = fib_382 = fib_500 = fib_618 = None
+    fib_near_tag = ""
+    fib_score_bonus = 0.0
+    if has_fib:
+        fib_0   = swing_high_between
+        fib_236 = swing_high_between - 0.236 * swing_range
+        fib_382 = swing_high_between - 0.382 * swing_range
+        fib_500 = swing_high_between - 0.500 * swing_range
+        fib_618 = swing_high_between - 0.618 * swing_range
+
+        cmp_now = float(close.iloc[-1])
+        for label, level, bonus in [
+            ("38.2%", fib_382, 8.0), ("50%", fib_500, 10.0), ("61.8%", fib_618, 6.0),
+        ]:
+            if swing_range > 0 and abs(cmp_now - level) / swing_range < 0.02:
+                fib_near_tag = f"@ Fib {label}"
+                fib_score_bonus = bonus
+                break
+
     # ── Score ─────────────────────────────────────────────────────────────────
     score = 55.0
     if rsi2 <= 35.0:
@@ -4394,22 +4418,35 @@ def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 3,
         score += 10.0
     if bars_ago <= 3:
         score += 5.0
+    score += fib_score_bonus
     score = min(round(score, 1), 95.0)
 
-    # ── Trade plan ────────────────────────────────────────────────────────────
-    stop = round(price2 - 0.5 * atr, 2)
-    risk = float(close.iloc[-1]) - stop
-    target = round(float(close.iloc[-1]) + 2.0 * risk, 2) if risk > 0 else None
+    # ── Trade plan: CMP / SL / TGT ───────────────────────────────────────────
+    cmp = round(float(close.iloc[-1]), 2)
+    if has_fib:
+        stop = round(fib_618 - 0.3 * atr, 2)
+        target = round(fib_0, 2)
+    else:
+        stop = round(price2 - 0.5 * atr, 2)
+        risk = cmp - stop
+        target = round(cmp + 2.0 * risk, 2) if risk > 0 else None
 
-    # Highest high between the two lows = measured-move reference
-    swing_high_between = float(high.iloc[idx1:idx2 + 1].max())
+    risk = cmp - stop
+    if risk > 0 and target is not None:
+        rr = round((target - cmp) / risk, 1)
+    else:
+        rr = 0.0
 
     tags = [
-        f"RSI div gap +{rsi_gap:.1f}pt",
-        f"RSI at low {rsi2:.0f}",
+        f"RSI div +{rsi_gap:.1f}pt",
+        f"RSI {rsi2:.0f}",
         f"{bars_ago}d ago",
-        f"2nd low ₹{price2:.2f}",
     ]
+    if fib_near_tag:
+        tags.append(fib_near_tag)
+    if rr > 0:
+        tags.append(f"R:R {rr}×")
+
     reasons = [
         f"Price lower low: ₹{price1:.2f} → ₹{price2:.2f}",
         f"RSI(14) higher low: {rsi1:.1f} → {rsi2:.1f} (+{rsi_gap:.1f} pts divergence)",
@@ -4418,14 +4455,22 @@ def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 3,
     ]
     if rsi2 <= 45.0:
         reasons.append(f"RSI oversold at the low ({rsi2:.0f}) — strengthens the read")
+    if has_fib:
+        reasons.append(
+            f"Fib levels: 0%=₹{fib_0:.0f} · 23.6%=₹{fib_236:.0f} · "
+            f"38.2%=₹{fib_382:.0f} · 50%=₹{fib_500:.0f} · 61.8%=₹{fib_618:.0f}"
+        )
+    reasons.append(
+        f"CMP ₹{cmp} · SL ₹{stop} · TGT ₹{target} · R:R {rr}×"
+    )
 
-    return {
+    result = {
         "symbol": df.index[-1] if hasattr(df.index[-1], "__str__") else "?",
         "pattern_type": "RSI Divergence Bull",
         "score": score,
         "tags": tags,
         "reasons": reasons,
-        "entry": round(float(close.iloc[-1]), 2),
+        "entry": cmp,
         "stop": stop,
         "target": target,
         "time_stop": 10,
@@ -4434,7 +4479,14 @@ def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 3,
         "rsi_at_low": round(rsi2, 1),
         "rsi_gap": round(rsi_gap, 1),
         "bars_since_low": bars_ago,
+        "rr_ratio": rr,
     }
+    if has_fib:
+        result["fib_382_level"] = round(fib_382, 2)
+        result["fib_500_level"] = round(fib_500, 2)
+        result["fib_618_level"] = round(fib_618, 2)
+        result["swing_high"] = round(fib_0, 2)
+    return result
 
 
 def scan_rsi_divergence_bear(df: pd.DataFrame, pivot_len: int = 3,
@@ -4549,6 +4601,193 @@ def scan_rsi_divergence_bear(df: pd.DataFrame, pivot_len: int = 3,
         "rsi_at_high": round(rsi2, 1),
         "rsi_gap": round(rsi_gap, 1),
         "bars_since_high": bars_ago,
+    }
+
+
+def scan_rsi_fibo_hidden_div(df: pd.DataFrame, pivot_len: int = 5,
+                             lookback: int = 120,
+                             fib_tolerance: float = 0.015) -> dict | None:
+    """Hidden bullish RSI divergence + 50% Fibonacci retracement confluence.
+
+    Fires when price is in an uptrend, pulls back to the ~50% fib level of the
+    last completed swing, AND forms a hidden bullish divergence at that pullback
+    — a continuation entry, not a reversal.
+
+    Hidden bullish divergence: price makes a HIGHER low while RSI(14) makes a
+    LOWER low. This is the opposite of regular divergence and signals that
+    underlying momentum is coiling for continuation despite the RSI dip.
+
+    Confluence with the 50% fib retracement adds a second geometric
+    confirmation that institutional demand sits at the equilibrium zone.
+
+    Entry: 38.2% retracement level (after bounce confirmed).
+    Stop: below the 61.8% retracement level.
+    Target: prior swing high (0% fib level).
+    """
+    if df is None or len(df) < pivot_len * 2 + 50:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < pivot_len * 2 + 50:
+        return None
+
+    close = df["close"]
+    low = df["low"]
+    high = df["high"]
+    n = len(df)
+    rsi = _rsi_series(close, 14)
+    atr = float(_atr_series(df, 14).iloc[-1])
+    if np.isnan(atr) or atr <= 0:
+        return None
+
+    # ── Trend filter: price above 200-EMA ────────────────────────────────────
+    if n < 200:
+        return None
+    ema200 = close.ewm(span=200, adjust=False).mean()
+    if float(close.iloc[-1]) < float(ema200.iloc[-1]):
+        return None
+
+    # ── Collect swing highs and swing lows ───────────────────────────────────
+    search_start = max(pivot_len, n - lookback)
+
+    pivot_highs: list[tuple[int, float]] = []
+    for i in range(search_start, n - pivot_len):
+        window = high.iloc[i - pivot_len: i + pivot_len + 1]
+        if float(high.iloc[i]) == float(window.max()):
+            pivot_highs.append((i, float(high.iloc[i])))
+
+    pivot_lows: list[tuple[int, float, float]] = []
+    for i in range(search_start, n - pivot_len):
+        window = low.iloc[i - pivot_len: i + pivot_len + 1]
+        if float(low.iloc[i]) == float(window.min()):
+            rsi_val = float(rsi.iloc[i])
+            if not np.isnan(rsi_val):
+                pivot_lows.append((i, float(low.iloc[i]), rsi_val))
+
+    if len(pivot_lows) < 2 or len(pivot_highs) < 1:
+        return None
+
+    # ── Hidden bullish divergence: higher price low + lower RSI low ──────────
+    idx1, price_low1, rsi1 = pivot_lows[-2]
+    idx2, price_low2, rsi2 = pivot_lows[-1]
+
+    bars_ago = n - 1 - idx2
+    if bars_ago > 5:
+        return None
+    if price_low2 <= price_low1:        # need HIGHER low in price
+        return None
+    if rsi2 >= rsi1:                    # need LOWER low in RSI
+        return None
+    rsi_gap = rsi1 - rsi2               # positive = magnitude of hidden divergence
+    if rsi_gap < 2.0:
+        return None
+
+    # ── Find the swing high between (or just before) the two lows ────────────
+    # This defines the fib measurement leg: swing_low1 → swing_high → pullback
+    swing_high_idx = None
+    swing_high_val = 0.0
+    for ph_idx, ph_val in pivot_highs:
+        if idx1 <= ph_idx <= idx2 and ph_val > swing_high_val:
+            swing_high_idx = ph_idx
+            swing_high_val = ph_val
+    # If no swing high between the two lows, take the most recent one before low2
+    if swing_high_idx is None:
+        for ph_idx, ph_val in reversed(pivot_highs):
+            if ph_idx < idx2 and ph_val > swing_high_val:
+                swing_high_idx = ph_idx
+                swing_high_val = ph_val
+                break
+    if swing_high_idx is None or swing_high_val <= price_low1:
+        return None
+
+    # ── Fibonacci retracement levels (measured from swing_low1 → swing_high) ─
+    swing_range = swing_high_val - price_low1
+    if swing_range <= 0:
+        return None
+
+    fib_0   = swing_high_val                              # 0% = swing high
+    fib_236 = swing_high_val - 0.236 * swing_range
+    fib_382 = swing_high_val - 0.382 * swing_range
+    fib_500 = swing_high_val - 0.500 * swing_range
+    fib_618 = swing_high_val - 0.618 * swing_range
+
+    # ── Check: did the second low land near the 50% fib? ─────────────────────
+    dist_to_50 = abs(price_low2 - fib_500) / swing_range
+    if dist_to_50 > fib_tolerance:
+        return None
+
+    # ── Bounce confirmation: RSI rising off the hidden-divergence low ────────
+    rsi_now = float(rsi.iloc[-1])
+    if np.isnan(rsi_now) or rsi_now <= rsi2:
+        return None
+
+    cmp = round(float(close.iloc[-1]), 2)
+
+    # ── Trade plan: entry at CMP, stop below 61.8%, target at swing high ─────
+    stop = round(fib_618 - 0.3 * atr, 2)
+    target = round(fib_0, 2)
+    risk = cmp - stop
+    if risk <= 0:
+        return None
+    reward = target - cmp
+    rr = round(reward / risk, 1) if risk > 0 else 0.0
+
+    # ── Score ─────────────────────────────────────────────────────────────────
+    score = 55.0
+    if rsi2 <= 35.0:
+        score += 12.0
+    elif rsi2 <= 45.0:
+        score += 6.0
+    if rsi_gap >= 8.0:
+        score += 10.0
+    elif rsi_gap >= 5.0:
+        score += 5.0
+    if dist_to_50 < 0.005:             # very tight fib hit
+        score += 8.0
+    elif dist_to_50 < 0.010:
+        score += 4.0
+    if rr >= 2.0:
+        score += 5.0
+    score = min(round(score, 1), 95.0)
+
+    tags = [
+        "Hidden Div",
+        f"Fib 50% ±{dist_to_50:.1%}",
+        f"R:R {rr}×",
+        f"RSI {rsi_now:.0f}",
+    ]
+    reasons = [
+        f"Hidden bullish divergence: price higher low ₹{price_low1:.2f} → ₹{price_low2:.2f}, "
+        f"RSI lower low {rsi1:.1f} → {rsi2:.1f} (gap {rsi_gap:.1f} pts)",
+        f"Pullback held 50% Fibonacci (₹{fib_500:.2f}) — "
+        f"2nd swing low at ₹{price_low2:.2f} ({dist_to_50:.1%} from 50%)",
+        f"Fib levels: 0%=₹{fib_0:.0f} · 23.6%=₹{fib_236:.0f} · "
+        f"38.2%=₹{fib_382:.0f} · 50%=₹{fib_500:.0f} · 61.8%=₹{fib_618:.0f}",
+        f"CMP ₹{cmp} · SL ₹{stop} (below 61.8%) · TGT ₹{target} (swing high) · R:R {rr}×",
+        f"RSI(14) bouncing: {rsi2:.1f} → {rsi_now:.1f} — momentum resuming",
+        f"Trend: above 200-EMA (₹{float(ema200.iloc[-1]):.0f})",
+        "⚠ Unmeasured — not yet through the backtest harness",
+    ]
+
+    return {
+        "pattern_type": "RSI-Fibo Hidden Div",
+        "score": score,
+        "tags": tags,
+        "reasons": reasons,
+        "entry": cmp,
+        "stop": stop,
+        "target": target,
+        "time_stop": 15,
+        "key_level": round(swing_high_val, 2),
+        "rsi_now": round(rsi_now, 1),
+        "rsi_at_low": round(rsi2, 1),
+        "rsi_gap": round(rsi_gap, 1),
+        "bars_since_low": bars_ago,
+        "fib_50_level": round(fib_500, 2),
+        "fib_382_level": round(fib_382, 2),
+        "fib_618_level": round(fib_618, 2),
+        "swing_high": round(swing_high_val, 2),
+        "rr_ratio": rr,
+        "rs_raw": _rs_raw(df),
     }
 
 
@@ -4717,11 +4956,14 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
                 ob_lo, ob_hi = float(l.iloc[ob_idx]), float(h.iloc[ob_idx])
                 disp = float(h.iloc[ob_idx:i + 1].max()) - ob_hi
                 if ob_hi > ob_lo and disp >= min_disp_atr * a:
+                    buy_ratio = _buy_sell_ratio(o, c, vol, ob_idx, pivot_len)
                     raw.append({"dir": "bull", "ob_idx": ob_idx, "break_idx": i,
                                 "low": ob_lo, "high": ob_hi,
                                 "signal": "BOS" if trend == 1 else "CHOCH",
                                 "disp_atr": round(disp / a, 2),
-                                "vol_x": _vol_x(vol, i)})
+                                "vol_x": _vol_x(vol, i),
+                                "buy_pct": round(buy_ratio * 100, 1),
+                                "sell_pct": round((1 - buy_ratio) * 100, 1)})
             trend = 1
             swing_high = None
         # ── Bearish break → look back for the last UP candle = supply block ──
@@ -4735,11 +4977,14 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
                 ob_lo, ob_hi = float(l.iloc[ob_idx]), float(h.iloc[ob_idx])
                 disp = ob_lo - float(l.iloc[ob_idx:i + 1].min())
                 if ob_hi > ob_lo and disp >= min_disp_atr * a:
+                    buy_ratio = _buy_sell_ratio(o, c, vol, ob_idx, pivot_len)
                     raw.append({"dir": "bear", "ob_idx": ob_idx, "break_idx": i,
                                 "low": ob_lo, "high": ob_hi,
                                 "signal": "BOS" if trend == -1 else "CHOCH",
                                 "disp_atr": round(disp / a, 2),
-                                "vol_x": _vol_x(vol, i)})
+                                "vol_x": _vol_x(vol, i),
+                                "buy_pct": round(buy_ratio * 100, 1),
+                                "sell_pct": round((1 - buy_ratio) * 100, 1)})
             trend = -1
             swing_low = None
 
@@ -4776,7 +5021,40 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
         ob["vio_idx"] = vio_idx
         out.append(ob)
 
-    return out[-max_blocks:]
+    # ── Retest signals ──────────────────────────────────────────────────────
+    # Pine: bullish retest = low crosses above OB top (price reclaims demand),
+    # bearish retest = high crosses below OB bottom (price breaks supply).
+    # Gated by buy%/sell% threshold (default 50%). Only on non-violated zones.
+    retests: list[dict] = []
+    for ob in out:
+        if ob["state"] == "violated":
+            continue
+        end = ob["vio_idx"] if ob["vio_idx"] is not None else n
+        buy_ratio = ob.get("buy_pct", 50.0) / 100.0
+        for m in range(ob["break_idx"] + 1, end):
+            if ob["dir"] == "bull":
+                if buy_ratio < 0.5:
+                    continue
+                prev_low = float(l.iloc[m - 1]) if m > 0 else float(l.iloc[m])
+                cur_low = float(l.iloc[m])
+                if prev_low <= ob["high"] and cur_low > ob["high"]:
+                    retests.append({"dir": "bull", "idx": m,
+                                    "price": ob["high"],
+                                    "buy_pct": ob.get("buy_pct", 50.0)})
+                    break
+            else:
+                sell_ratio = 1.0 - buy_ratio
+                if sell_ratio < 0.5:
+                    continue
+                prev_high = float(h.iloc[m - 1]) if m > 0 else float(h.iloc[m])
+                cur_high = float(h.iloc[m])
+                if prev_high >= ob["low"] and cur_high < ob["low"]:
+                    retests.append({"dir": "bear", "idx": m,
+                                    "price": ob["low"],
+                                    "sell_pct": ob.get("sell_pct", 50.0)})
+                    break
+
+    return out[-max_blocks:], retests
 
 
 def _vol_x(vol: pd.Series, i: int, avg_len: int = 20) -> float:
@@ -4784,6 +5062,23 @@ def _vol_x(vol: pd.Series, i: int, avg_len: int = 20) -> float:
     lo = max(0, i - avg_len)
     avg = float(vol.iloc[lo:i].mean()) if i > lo else 0.0
     return round(float(vol.iloc[i]) / avg, 2) if avg > 0 else 0.0
+
+
+def _buy_sell_ratio(o: pd.Series, c: pd.Series, vol: pd.Series,
+                    center: int, half_win: int) -> float:
+    """Buy-volume ratio in a window around *center* (Pine: get_window_volume_ratio).
+    Returns 0.0–1.0; buy = close >= open bars' volume / total volume."""
+    lo = max(0, center - half_win)
+    hi = min(len(o), center + half_win + 1)
+    buy = sell = 0.0
+    for k in range(lo, hi):
+        v = float(vol.iloc[k])
+        if float(c.iloc[k]) >= float(o.iloc[k]):
+            buy += v
+        else:
+            sell += v
+    total = buy + sell
+    return round(buy / total, 3) if total > 0 else 0.5
 
 
 def detect_falling_wedge_geometry(df: pd.DataFrame, window: int = 60,
@@ -5915,12 +6210,23 @@ SCANNERS: dict[str, dict] = {
     "RSI Divergence Bull": {
         "fn": scan_rsi_divergence_bull,
         "description": (
-            "Bullish RSI divergence on the last closed daily bar — price made a "
-            "lower pivot low within the last 3 bars (pivot_len=3 symmetry) while "
-            "RSI(14) made a higher low (divergence ≥3 RSI points), with RSI now "
-            "already rising above the divergence low. RSI at the low must be ≤60. "
-            "Score rises with depth of oversold (≤35 → +15, ≤45 → +8) and "
-            "divergence magnitude (gap ≥10 pts → +10). Unmeasured."
+            "Bullish RSI divergence + Fibonacci retracement on the last closed daily "
+            "bar — price made a lower pivot low within the last 3 bars while RSI(14) "
+            "made a higher low (divergence ≥3 pts), with RSI now rising. Computes "
+            "Fibonacci levels (23.6 / 38.2 / 50 / 61.8%) from the swing high between "
+            "the two lows; CMP near a fib level boosts score. Card shows CMP / SL "
+            "(below 61.8% fib) / TGT (swing high) with R:R. Unmeasured."
+        ),
+        "category": "Entry",
+    },
+    "RSI-Fibo Hidden Divergence": {
+        "fn": scan_rsi_fibo_hidden_div,
+        "description": (
+            "Hidden bullish RSI divergence + 50% Fibonacci retracement confluence. "
+            "Fires in uptrends (above 200-EMA) when price pulls back to the 50% fib "
+            "of the last swing AND forms a hidden divergence (higher price low, lower "
+            "RSI low) — a continuation entry, not a reversal. Card shows CMP / SL "
+            "(below 61.8% fib) / TGT (swing high) with R:R. Unmeasured."
         ),
         "category": "Entry",
     },

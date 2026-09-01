@@ -718,6 +718,7 @@ large, liquid and certainly file. First suspect remains the
 | Opportunity Hub | Phase 2 industry RRG · Phase 4 presets + backtest | [[analyses/Opportunity-Hub-Roadmap]] |
 | PEAD | Phase 4 backtest · ADX filter | [[analyses/PEAD-Scanner-Roadmap]] |
 | Backtest Harness | Dashboard surface (Ops tab) | [[analyses/Backtest-Harness]] |
+| RSI-Fibo Entry | RFE-1 hidden-divergence + 50% fib scanner | [[analyses/RSI-Fibo-Entry-Scanner-Roadmap]] |
 | Fundamental Deep Dive | FR-6② LLM narration — **genuinely blocked, no API key** | [[analyses/Fundamental-Deep-Dive-Report-Roadmap]] |
 
 ---

@@ -595,4 +595,125 @@ def delete_scanner_run(scanner_name: str, run_date: str) -> None:
         conn.close()
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Hidden Treasures — historical scan fact table
+# ──────────────────────────────────────────────────────────────────────────────
+# One row per (run_date, symbol). Stores the conviction score, ownership deltas,
+# quality overlay, and the full card JSON so any past scan reproduces exactly.
+# Analogous to daily_opportunities but for the small/micro-cap discovery lane.
+
+def _ensure_hidden_treasures_table(conn: sqlite3.Connection) -> None:
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS hidden_treasures (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            run_date         TEXT    NOT NULL,
+            symbol           TEXT    NOT NULL,
+            name             TEXT,
+            rank             INTEGER,
+            score            REAL,
+            inst_delta       REAL,
+            promoter_delta   REAL,
+            pledge_pct       REAL,
+            pledge_flag      INTEGER DEFAULT 0,
+            roce             REAL,
+            opm              REAL,
+            debt_to_equity   REAL,
+            market_cap_cr    REAL,
+            universe_kind    TEXT,
+            universe_size    INTEGER,
+            index_source     TEXT,
+            card_json        TEXT    NOT NULL,
+            created_at       TEXT    NOT NULL,
+            UNIQUE(run_date, symbol)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ht_date
+            ON hidden_treasures(run_date);
+        CREATE INDEX IF NOT EXISTS idx_ht_symbol
+            ON hidden_treasures(symbol);
+    """)
+
+
+def save_hidden_treasures_run(hits: list[dict], universe_kind: str = "both",
+                              universe_size: int = 0,
+                              run_date: str | None = None) -> int:
+    """Persist a Hidden Treasures discovery run. Replaces any prior run for the
+    same run_date so a re-run reflects the latest data."""
+    import json as _json
+    run_date = run_date or date.today().isoformat()
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_connection()
+    try:
+        _ensure_hidden_treasures_table(conn)
+        conn.execute("DELETE FROM hidden_treasures WHERE run_date = ?", (run_date,))
+        for rank, h in enumerate(hits, 1):
+            q = h.get("quality") or {}
+            conn.execute(
+                """
+                INSERT INTO hidden_treasures
+                    (run_date, symbol, name, rank, score, inst_delta,
+                     promoter_delta, pledge_pct, pledge_flag,
+                     roce, opm, debt_to_equity, market_cap_cr,
+                     universe_kind, universe_size, index_source,
+                     card_json, created_at)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                """,
+                (run_date, h.get("symbol"), h.get("name"), rank,
+                 h.get("score"), h.get("inst_delta"),
+                 h.get("promoter_delta"), h.get("pledge_pct"),
+                 1 if h.get("pledge_flag") else 0,
+                 q.get("roce"), q.get("opm"), q.get("debt_to_equity"),
+                 q.get("market_cap_cr"),
+                 universe_kind, universe_size, h.get("index"),
+                 _json.dumps(h), now),
+            )
+        conn.commit()
+        return len(hits)
+    finally:
+        conn.close()
+
+
+def get_hidden_treasures_run(run_date: str) -> list[dict]:
+    """Restore a cached Hidden Treasures run. Returns [] if nothing stored."""
+    import json as _json
+    conn = get_connection()
+    try:
+        _ensure_hidden_treasures_table(conn)
+        rows = conn.execute(
+            "SELECT card_json FROM hidden_treasures "
+            "WHERE run_date = ? ORDER BY rank",
+            (run_date,),
+        ).fetchall()
+        return [_json.loads(r[0]) for r in rows]
+    finally:
+        conn.close()
+
+
+def get_hidden_treasures_dates() -> list[str]:
+    """Dates (newest first) that have a stored Hidden Treasures run."""
+    conn = get_connection()
+    try:
+        _ensure_hidden_treasures_table(conn)
+        rows = conn.execute(
+            "SELECT DISTINCT run_date FROM hidden_treasures ORDER BY run_date DESC"
+        ).fetchall()
+        return [r[0] for r in rows]
+    finally:
+        conn.close()
+
+
+def get_hidden_treasures_history(symbol: str) -> pd.DataFrame:
+    """All historical Hidden Treasures appearances for a symbol, newest first."""
+    conn = get_connection()
+    try:
+        _ensure_hidden_treasures_table(conn)
+        return pd.read_sql_query(
+            "SELECT run_date, rank, score, inst_delta, promoter_delta, "
+            "pledge_pct, roce, opm, debt_to_equity, market_cap_cr "
+            "FROM hidden_treasures WHERE symbol = ? ORDER BY run_date DESC",
+            conn, params=(symbol.upper(),),
+        )
+    finally:
+        conn.close()
+
+
 init_db()

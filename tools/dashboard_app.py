@@ -61,6 +61,7 @@ import smart_money as smm
 import red_flags as rflags
 import technofunda_funnel as tff
 import funnel_backtest as fbt
+import smallcap_discovery as scd
 import ui_jobs
 import scenarios as scen
 import rating
@@ -925,7 +926,7 @@ _login_gate()
 # must match a "if current_page == '...':" block below exactly.
 # ──────────────────────────────────────────────────────────────────────────────
 PAGE_GROUPS = {
-    "Screening":        ["Opportunity Hub", "Delete Funnel", "Screener", "Other Screeners", "Scanner Hub",
+    "Screening":        ["Opportunity Hub", "Delete Funnel", "Hidden Treasures", "Screener", "Other Screeners", "Scanner Hub",
                          "Breakout Scans", "High-Growth Screener"],
     "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
     "Research":         ["Predictive Analysis", "Stock Analyzer", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals"],
@@ -939,6 +940,7 @@ PAGE_GROUPS = {
 PAGE_BLURBS = {
     "Opportunity Hub":      "Ranked daily shortlist across every scanner",
     "Delete Funnel":        "Technofunda 8-filter noise sieve — deletes to a shortlist",
+    "Hidden Treasures":     "Small/micro-cap conviction screen — ownership + quality",
     "Screener":             "The core NSE screen with the saved pipeline",
     "Other Screeners":      "Ownership pipeline, sector rotation, bulk data",
     "Scanner Hub":          "24 pattern scanners, run on any universe",
@@ -5310,6 +5312,155 @@ if current_page == "Delete Funnel":
                     st.session_state["df_bt_result"] = f"Backtest failed: {_e}"
         if st.session_state.get("df_bt_result"):
             st.code(st.session_state["df_bt_result"], language=None)
+
+
+# Hidden Treasures — small/micro-cap conviction discovery lane (B-34).
+# ──────────────────────────────────────────────────────────────────────────────
+if current_page == "Hidden Treasures":
+    st.subheader("Hidden Treasures")
+    st.caption("Small and micro-cap names the main funnel structurally misses — "
+               "ranked by **institutional conviction** (FII+DII accumulation rate, "
+               "promoter conduct, pledge veto) from free NSE shareholding data. "
+               "Quality overlay adds ROCE / OPM / D/E from yfinance. "
+               "**Unvalidated** — a discovery lens, not an edge.")
+
+    _ht_c1, _ht_c2 = st.columns([2, 1])
+    with _ht_c1:
+        _ht_kind = st.radio("Universe",
+                            ["NSE Both", "Smallcap-250", "Microcap-250",
+                             "BSE Both", "BSE SmallCap", "BSE MicroCap",
+                             "All (NSE+BSE)"],
+                            horizontal=True, key="ht_kind")
+    with _ht_c2:
+        _ht_enrich = st.checkbox("Quality overlay (slower)", value=True, key="ht_enrich",
+                                 help="Adds ROCE/OPM/D/E/Market Cap from yfinance — one call per name")
+    _ht_limit = st.slider("Show top N", min_value=5, max_value=100, value=25,
+                           step=5, key="ht_limit")
+    _kind_map = {
+        "NSE Both": "both", "Smallcap-250": "smallcap250", "Microcap-250": "microcap250",
+        "BSE Both": "bse", "BSE SmallCap": "bse_smallcap", "BSE MicroCap": "bse_microcap",
+        "All (NSE+BSE)": "all",
+    }
+
+    if st.button("Discover", type="primary", key="ht_run"):
+        with st.spinner("Scoring small/micro-cap universe…"):
+            try:
+                _ht_kind_val = _kind_map[_ht_kind]
+                _ht_res = scd.discover(kind=_ht_kind_val,
+                                       limit=_ht_limit,
+                                       enrich=_ht_enrich)
+                st.session_state["ht_result"] = _ht_res
+                _saved_n = db.save_hidden_treasures_run(
+                    _ht_res["hits"],
+                    universe_kind=_ht_kind_val,
+                    universe_size=_ht_res.get("universe", 0))
+                st.toast(f"💾 {_saved_n} hits saved to history")
+            except Exception as _e:
+                st.error(f"Discovery failed: {_e}")
+
+    _ht_res = st.session_state.get("ht_result")
+    if _ht_res is not None:
+        st.markdown(rs.section(f"Top {len(_ht_res['hits'])} of {_ht_res['universe']} "
+                               f"({_ht_res['cached']} cached)"),
+                    unsafe_allow_html=True)
+
+        for _i in range(0, len(_ht_res["hits"]), 3):
+            _cols = st.columns(3)
+            for _col, _h in zip(_cols, _ht_res["hits"][_i:_i + 3]):
+                with _col:
+                    _sym = _h["symbol"]
+                    _q = _h.get("quality") or {}
+                    _qual_chips = ""
+                    if _q:
+                        _qparts = []
+                        if _q.get("roce") is not None:
+                            _c = rs.TOKENS["good"] if _q["roce"] >= scd.ROCE_GOOD else rs.TOKENS["text"]
+                            _qparts.append(f'<span style="color:{_c};">ROCE {_q["roce"]:.1f}%</span>')
+                        if _q.get("opm") is not None:
+                            _c = rs.TOKENS["good"] if _q["opm"] >= scd.OPM_GOOD else rs.TOKENS["text"]
+                            _qparts.append(f'<span style="color:{_c};">OPM {_q["opm"]:.1f}%</span>')
+                        if _q.get("debt_to_equity") is not None:
+                            _c = rs.TOKENS["risk"] if _q["debt_to_equity"] > scd.DE_MAX else rs.TOKENS["text"]
+                            _qparts.append(f'<span style="color:{_c};">D/E {_q["debt_to_equity"]:.2f}</span>')
+                        _qual_chips = '<div style="margin-top:4px;font-size:11px;">' + \
+                                      " · ".join(_qparts) + '</div>'
+
+                    _pledge_s = ""
+                    if _h.get("pledge_flag"):
+                        _pledge_s = f'<div style="font-size:11px;color:{rs.TOKENS["risk"]};">⚠ Pledge {_h["pledge_pct"]:.1f}%</div>'
+                    elif _h.get("pledge_pct") is not None:
+                        _pledge_s = f'<div style="font-size:11px;">Pledge {_h["pledge_pct"]:.1f}%</div>'
+
+                    # Market cap chip
+                    _mcap_s = ""
+                    if _q and _q.get("market_cap_cr") is not None:
+                        _mc_cr = _q["market_cap_cr"]
+                        _mc_label = (f"₹{_mc_cr/100:.1f}K Cr" if _mc_cr >= 10000
+                                     else f"₹{_mc_cr:.0f} Cr")
+                        _mcap_s = f'<div style="font-size:11px;color:{rs.TOKENS["text"]};">MCap {_mc_label}</div>'
+
+                    _pd = _h.get("promoter_delta")
+                    _prom_s = f'Prom {_pd:+.2f}pp' if _pd is not None else 'Prom —'
+
+                    # Action icon row (same family as Scanner Hub cards)
+                    _sym_clean = _sym.upper().replace(".NS", "")
+                    def _ht_icon(href, glyph, tip, small=False):
+                        sz = "11px" if small else "13px"
+                        w = "22px" if small else "24px"
+                        return (
+                            f'<a href="{href}" target="_blank" rel="noopener" title="{tip}"'
+                            f' style="display:inline-flex;align-items:center;justify-content:center;'
+                            f'width:{w};height:{w};border-radius:6px;text-decoration:none;'
+                            f'font-size:{sz};line-height:1;background:#f7efe3;'
+                            f'color:#d97706;border:1px solid #f0e0cc;margin-left:4px;">'
+                            f'{glyph}</a>')
+                    _ht_icons = ""
+                    _ht_ch = _chart_url(_sym)
+                    if _ht_ch:
+                        _ht_icons += _ht_icon(_ht_ch, "👁", "Chart Tool (in-app)")
+                    _ht_an = _analyze_url(_sym)
+                    if _ht_an:
+                        _ht_icons += _ht_icon(_ht_an, "↗", "Stock Analyzer (in-app)")
+                    _ht_icons += _ht_icon(f"https://www.tradingview.com/chart/?symbol=NSE%3A{_sym_clean}", "📈", "Open on TradingView")
+                    _ht_icons += _ht_icon(f"https://www.screener.in/company/{_sym_clean}/consolidated/", "S", "Open on Screener.in", small=True)
+                    _ht_icons += _ht_icon(f"https://www.google.com/finance/quote/{_sym_clean}:NSE", "G", "Open on Google Finance", small=True)
+                    _ht_icons += _ht_icon(f"https://twitter.com/search?q=%23{_sym_clean}+%23NSE&src=typed_query", "𝕏", "Search on X / Twitter", small=True)
+
+                    st.markdown(
+                        rs.card(
+                            f'<div style="display:flex;align-items:center;justify-content:space-between;">'
+                            f'<div style="display:flex;align-items:baseline;gap:8px;">'
+                            f'<span style="font-weight:700;font-size:15px;color:{rs.TOKENS["text"]};">'
+                            f'{_sym}</span>'
+                            f'<span style="font-size:12px;color:{rs.TOKENS["accent"]};">'
+                            f'{_h["score"]:.0f}</span>'
+                            f'</div>'
+                            f'<div style="display:flex;align-items:center;flex-wrap:wrap;">'
+                            f'{_ht_icons}</div>'
+                            f'</div>'
+                            f'<div style="font-size:11px;color:{rs.TOKENS["text"]};">'
+                            f'{_h.get("name", "")}</div>'
+                            f'<div style="margin-top:4px;font-size:11px;">'
+                            f'FII+DII {_h["inst_delta"]:+.2f}pp · {_prom_s}'
+                            f'</div>'
+                            f'{_qual_chips}{_mcap_s}{_pledge_s}',
+                            emphasis=False),
+                        unsafe_allow_html=True)
+
+                    _b1, _b2 = st.columns(2)
+                    with _b1:
+                        if st.button("♥ Watchlist", key=f"ht_wl_{_sym}", use_container_width=True):
+                            db.add_watchlist_symbol(_sym, "Hidden Treasures")
+                            st.toast(f"♥ {_sym} → Watchlist")
+                    with _b2:
+                        if st.button("↗ Analyze", key=f"ht_an_{_sym}", use_container_width=True):
+                            st.session_state["current_page"] = "Stock Analyzer"
+                            st.session_state["sa_symbol_override"] = _sym
+                            st.rerun()
+
+                    with st.expander("reasons"):
+                        for _r in _h.get("reasons", []):
+                            st.markdown(f"- {_r}")
 
 
 # Tab 8 — Scanner Hub (SwingEdge-inspired pre-built pattern scanners)

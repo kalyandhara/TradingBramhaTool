@@ -36,6 +36,11 @@ log = logging.getLogger(__name__)
 PLEDGE_MAX = 5.0        # promoter pledge above this = governance veto (flag)
 PROMOTER_SELL_PP = 2.0  # promoter stake falling more than this = distribution
 
+# Quality overlay thresholds (B-34 residual).
+ROCE_GOOD = 15.0        # ROCE above this gets a quality bonus
+OPM_GOOD = 12.0         # operating profit margin floor
+DE_MAX = 1.0            # debt/equity above this is a quality penalty
+
 
 def _ordered_quarters(data: dict) -> list[tuple[str, dict]]:
     q = data.get("quarters") or {}
@@ -104,9 +109,46 @@ def score_from_cache(symbol: str) -> dict | None:
     }
 
 
-def discover(kind: str = "both", limit: int = 25) -> dict:
+def _enrich_quality(hit: dict) -> None:
+    """Add ROCE/OPM/D/E from fundamentals_deep and adjust the conviction score."""
+    try:
+        import fundamentals_deep as fdeep
+        d = fdeep.derive_fundamentals(hit["symbol"])
+    except Exception:
+        hit["quality"] = None
+        return
+    roce = d.get("roce")
+    opm = d.get("opm")
+    de = d.get("debt_to_equity")
+    mc = d.get("market_cap")
+    mc_cr = round(mc / 1e7, 0) if mc else None
+    hit["quality"] = {"roce": roce, "opm": opm, "debt_to_equity": de,
+                      "market_cap": mc, "market_cap_cr": mc_cr}
+
+    bonus = 0.0
+    reasons = hit.setdefault("reasons", [])
+    if roce is not None and roce >= ROCE_GOOD:
+        bonus += 8
+        reasons.append(f"ROCE {roce:.1f}% ≥ {ROCE_GOOD:.0f}%.")
+    elif roce is not None:
+        reasons.append(f"ROCE {roce:.1f}% (below {ROCE_GOOD:.0f}%).")
+    if opm is not None and opm >= OPM_GOOD:
+        bonus += 5
+        reasons.append(f"OPM {opm:.1f}% ≥ {OPM_GOOD:.0f}%.")
+    elif opm is not None:
+        reasons.append(f"OPM {opm:.1f}%.")
+    if de is not None and de > DE_MAX:
+        bonus -= 8
+        reasons.append(f"⚠ D/E {de:.2f} > {DE_MAX:.1f} — leverage risk.")
+    elif de is not None:
+        reasons.append(f"D/E {de:.2f}.")
+    hit["score"] = round(max(0.0, min(100.0, hit["score"] + bonus)), 1)
+
+
+def discover(kind: str = "both", limit: int = 25, enrich: bool = False) -> dict:
     """Rank the cached names in the small/micro-cap universe by conviction.
-    Returns {"hits": [...ranked...], "scanned", "cached", "universe"}."""
+    Pass ``enrich=True`` to add ROCE/OPM/D/E from yfinance (slower — one call
+    per name). Returns {"hits": [...ranked...], "scanned", "cached", "universe"}."""
     uni = scu.fetch_universe(kind)
     meta = {e["symbol"]: e for e in uni}
     hits, cached = [], 0
@@ -118,6 +160,8 @@ def discover(kind: str = "both", limit: int = 25) -> dict:
         s["name"] = e.get("name")
         s["industry"] = e.get("industry")
         s["index"] = e.get("index")
+        if enrich:
+            _enrich_quality(s)
         hits.append(s)
     hits.sort(key=lambda h: h["score"], reverse=True)
     return {"hits": hits[:limit], "scanned": len(hits), "cached": cached,
@@ -153,6 +197,8 @@ if __name__ == "__main__":
     ap.add_argument("--backfill", action="store_true")
     ap.add_argument("--force", action="store_true",
                     help="re-fetch cached quarters too (adds pledge to old entries)")
+    ap.add_argument("--enrich", action="store_true",
+                    help="add ROCE/OPM/D/E quality overlay (slower)")
     ap.add_argument("--kind", default="both")
     ap.add_argument("--limit", type=int, default=None,
                     help="cap names (backfill AND display); default = ALL for "
@@ -160,15 +206,19 @@ if __name__ == "__main__":
     ap.add_argument("--quarters", type=int, default=6)
     a = ap.parse_args()
     if a.backfill:
-        # A backfill is NOT bounded by the display limit — only an explicit --limit
-        # caps it (else the whole universe is warmed).
         n = backfill(a.kind, limit=a.limit, quarters=a.quarters, force=a.force)
         print(f"Backfilled {n} names into ownership_cache.")
-    res = discover(a.kind, limit=a.limit or 25)
+    res = discover(a.kind, limit=a.limit or 25, enrich=a.enrich)
     print(f"\nUniverse {res['universe']} · cached {res['cached']} · showing "
           f"top {len(res['hits'])}:")
     for h in res["hits"]:
+        q = h.get("quality") or {}
+        qual = ""
+        if q:
+            qual = (f" ROCE={q['roce']:.1f}%" if q.get("roce") is not None else "") + \
+                   (f" OPM={q['opm']:.1f}%" if q.get("opm") is not None else "") + \
+                   (f" D/E={q['debt_to_equity']:.2f}" if q.get("debt_to_equity") is not None else "")
         print(f"  {h['score']:5.1f}  {h['symbol']:12} inst{h['inst_delta']:+.2f} "
               f"prom{h['promoter_delta'] if h['promoter_delta'] is not None else '—'} "
-              f"pledge{h['pledge_pct'] if h['pledge_pct'] is not None else '—'}  "
-              f"{h.get('industry','')}")
+              f"pledge{h['pledge_pct'] if h['pledge_pct'] is not None else '—'}"
+              f"{qual}  {h.get('industry','')}")

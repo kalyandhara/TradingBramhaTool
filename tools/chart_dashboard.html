@@ -4167,7 +4167,7 @@ function ensureObState(pane) {
 
 function clearOrderBlocks(pane) {
   const st = pane.ob;
-  if (st) { st.zones = null; st.lastFetchKey = null; }
+  if (st) { st.zones = null; st.retests = null; st.lastFetchKey = null; }
   if (pane.obCanvas) {
     const ctx = pane.obCanvas.getContext('2d');
     ctx.clearRect(0, 0, pane.obCanvas.width, pane.obCanvas.height);
@@ -4186,8 +4186,10 @@ async function renderOrderBlocks(pane) {
       const url = `${SERVER}/api/order_blocks?symbol=${encodeURIComponent(pane.symbol)}` +
                   `&timeframe=${pane.tf}&bars=${barCount}`;
       const res = await fetch(url);
-      st.zones = res.ok ? ((await res.json()).order_blocks || []) : [];
-    } catch (e) { console.warn('order_blocks fetch failed:', e); st.zones = []; }
+      const data = res.ok ? await res.json() : {};
+      st.zones = data.order_blocks || [];
+      st.retests = data.retests || [];
+    } catch (e) { console.warn('order_blocks fetch failed:', e); st.zones = []; st.retests = []; }
   }
   // Guard against a stale response landing after toggle-off / symbol switch.
   if (!pane.indicators.has('orderblock')) return;
@@ -4214,7 +4216,7 @@ function drawOrderBlocks(pane) {
 
   st.zones.forEach(z => {
     const xL = ts.timeToCoordinate(z.start_time);
-    if (xL === null) return;                                   // scrolled off-screen left
+    if (xL === null) return;
     let xR = ts.timeToCoordinate(z.end_time);
     if (xR === null) xR = ts.timeToCoordinate(lastBarTime);
     const yTop = pane.series.priceToCoordinate(z.high);
@@ -4228,31 +4230,97 @@ function drawOrderBlocks(pane) {
     const h = Math.max(1, Math.abs(yBot - yTop));
 
     const bull = z.dir === 'bull';
-    // Green = demand (bullish), red = supply (bearish). Three states:
-    //   fresh     → bold, solid   (untested zone to watch)
-    //   mitigated → faded, solid  (tapped but holding)
-    //   violated  → faint, dashed (closed through — historical, failed)
-    const rgb = bull ? '38,166,154' : '239,83,80';
-    const fillA   = {fresh: 0.17, mitigated: 0.08, violated: 0.045}[z.state] ?? 0.12;
-    const strokeA = {fresh: 0.85, mitigated: 0.42, violated: 0.22}[z.state] ?? 0.5;
-    ctx.fillStyle = `rgba(${rgb},${fillA})`;
-    ctx.fillRect(x, y, w, h);
+    // BigBeluga-style: cyan (#00ffcc) = bullish, magenta (#ff007f) = bearish
+    const rgb = bull ? '0,255,204' : '255,0,127';
+    const fillA   = {fresh: 0.15, mitigated: 0.07, violated: 0.035}[z.state] ?? 0.10;
+    const strokeA = {fresh: 0.70, mitigated: 0.35, violated: 0.18}[z.state] ?? 0.4;
+
+    // Buy/Sell volume split — draw two sub-zones like the Pine indicator
+    const buyPct  = (z.buy_pct  ?? 50) / 100;
+    const sellPct = 1 - buyPct;
+    const splitY  = y + h * sellPct;  // sell zone on top, buy zone on bottom
+
+    // Top sub-zone (sell side)
+    const topH = splitY - y;
+    if (topH > 0) {
+      ctx.fillStyle = `rgba(${rgb},${bull ? fillA * 0.7 : fillA})`;
+      ctx.fillRect(x, y, w, topH);
+    }
+    // Bottom sub-zone (buy side)
+    const botH = h - topH;
+    if (botH > 0) {
+      ctx.fillStyle = `rgba(${rgb},${bull ? fillA : fillA * 0.7})`;
+      ctx.fillRect(x, splitY, w, botH);
+    }
+
+    // Border around the full zone
     ctx.strokeStyle = `rgba(${rgb},${strokeA})`;
     ctx.lineWidth = 1;
     ctx.setLineDash(z.state === 'violated' ? [2, 3] : []);
     ctx.strokeRect(x, y, w, h);
+    // Split line
+    if (h >= 6 && z.state !== 'violated') {
+      ctx.strokeStyle = `rgba(${rgb},${strokeA * 0.5})`;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(x, splitY); ctx.lineTo(x + w, splitY); ctx.stroke();
+    }
     ctx.setLineDash([]);
 
-    // Label only when the box is big enough to carry it, and not for faint
-    // violated zones (they'd just add noise).
-    if (h >= 11 && w >= 30 && z.state !== 'violated') {
+    // Labels: Buy%/Sell% + structure signal
+    if (h >= 18 && w >= 40 && z.state !== 'violated') {
       const fresh = z.state === 'fresh';
-      const label = (bull ? 'Demand' : 'Supply') + ' ' + z.signal + (fresh ? ' ●' : '');
+      const txtA = fresh ? 0.92 : 0.55;
       ctx.font = 'bold 9px system-ui, sans-serif';
+      // Sell % in top sub-zone
+      if (topH >= 10) {
+        ctx.fillStyle = `rgba(224,224,224,${txtA})`;
+        ctx.textAlign = 'right';
+        ctx.fillText(`Sell ${z.sell_pct ?? 50}%`, x + w - 4, y + 10);
+      }
+      // Buy % in bottom sub-zone
+      if (botH >= 10) {
+        ctx.fillStyle = `rgba(224,224,224,${txtA})`;
+        ctx.textAlign = 'right';
+        ctx.fillText(`Buy ${z.buy_pct ?? 50}%`, x + w - 4, splitY + 10);
+      }
+      // Structure label (BOS/CHOCH) on the left
+      ctx.textAlign = 'left';
+      const sigLabel = (bull ? 'Demand' : 'Supply') + ' ' + z.signal + (fresh ? ' ●' : '');
       ctx.fillStyle = `rgba(${rgb},${fresh ? 0.95 : 0.6})`;
-      ctx.fillText(label, x + 3, y + 9);
+      ctx.fillText(sigLabel, x + 3, y + 9);
     }
+    ctx.textAlign = 'left';
   });
+
+  // ── Retest signal arrows (BigBeluga-style cross markers) ──────────────
+  if (st.retests && st.retests.length) {
+    st.retests.forEach(rt => {
+      const xPos = ts.timeToCoordinate(rt.time);
+      if (xPos === null) return;
+      const bull = rt.dir === 'bull';
+      const yAnchor = pane.series.priceToCoordinate(rt.price);
+      if (yAnchor === null) return;
+      const yOff = bull ? 12 : -12;  // below bar for bull, above for bear
+      const cx = xPos, cy = yAnchor + yOff;
+
+      // Draw a cross marker (✕ shape, matching Pine's shape.cross)
+      const sz = 5;
+      ctx.strokeStyle = bull ? 'rgba(0,255,204,0.9)' : 'rgba(255,0,127,0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx - sz, cy - sz); ctx.lineTo(cx + sz, cy + sz);
+      ctx.moveTo(cx + sz, cy - sz); ctx.lineTo(cx - sz, cy + sz);
+      ctx.stroke();
+
+      // Small label
+      ctx.font = 'bold 8px system-ui, sans-serif';
+      ctx.fillStyle = bull ? 'rgba(0,255,204,0.85)' : 'rgba(255,0,127,0.85)';
+      ctx.textAlign = 'center';
+      const pctLabel = bull ? `B${rt.buy_pct ?? ''}%` : `S${rt.sell_pct ?? ''}%`;
+      ctx.fillText(pctLabel, cx, cy + (bull ? 14 : -8));
+      ctx.textAlign = 'left';
+    });
+  }
 }
 
 // ── %R exhaustion main-chart overlay (candle arrows + confluence + tint) ──────

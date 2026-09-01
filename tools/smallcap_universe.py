@@ -37,6 +37,14 @@ INDEX_CSV = {
     "microcap250": "https://nsearchives.nseindia.com/content/indices/ind_niftymicrocap250_list.csv",
 }
 
+# BSE SmallCap / MicroCap — the API endpoint returns JSON with constituent lists.
+# These widen the universe beyond NSE indices (partial overlap expected; de-duped
+# by symbol in fetch_universe).
+BSE_INDEX_API = {
+    "bse_smallcap": "https://api.bseindia.com/BseIndiaAPI/api/GetSensexData/w?Ession_id=&index_Code=22&FL=S",
+    "bse_microcap": "https://api.bseindia.com/BseIndiaAPI/api/GetSensexData/w?Ession_id=&index_Code=90&FL=S",
+}
+
 # Small curated fallback (a handful per bucket) so a fetch failure still returns
 # a usable, clearly small/micro-cap set rather than nothing.
 _FALLBACK = {
@@ -54,8 +62,47 @@ _FALLBACK = {
 }
 
 
+BSE_HEADERS = {
+    "User-Agent": "Mozilla/5.0",
+    "Accept": "application/json",
+    "Referer": "https://www.bseindia.com/",
+}
+
+
 def _cache_path(kind: str) -> Path:
     return CACHE_DIR / f"smallcap_universe_{kind}.json"
+
+
+def _fetch_bse_index(kind: str) -> list[dict] | None:
+    """Fetch BSE index constituents via the public JSON API."""
+    url = BSE_INDEX_API.get(kind)
+    if not url:
+        return None
+    try:
+        import requests
+        r = requests.get(url, headers=BSE_HEADERS, timeout=20)
+        r.raise_for_status()
+        data = r.json()
+        out = []
+        for item in data:
+            # BSE API returns scrip_cd (code) and scripname / long_name / industry
+            sym = (item.get("scrip_id") or item.get("scripname") or "").strip()
+            name = (item.get("long_name") or item.get("scripname") or "").strip()
+            ind = (item.get("industry") or "").strip()
+            if not sym:
+                continue
+            sym_clean = sym.upper().replace(" ", "")
+            out.append({
+                "symbol": sym_clean,
+                "name": name,
+                "industry": ind,
+                "index": kind,
+            })
+        log.info("BSE %s constituents: %d", kind, len(out))
+        return out or None
+    except Exception as e:
+        log.warning("BSE %s constituent fetch failed: %s", kind, e)
+        return None
 
 
 def _fetch_index_csv(kind: str) -> list[dict] | None:
@@ -92,7 +139,10 @@ def _load_kind(kind: str, refresh: bool = False) -> list[dict]:
             return json.loads(p.read_text(encoding="utf-8"))
         except Exception:
             pass
-    entries = _fetch_index_csv(kind)
+    if kind in BSE_INDEX_API:
+        entries = _fetch_bse_index(kind)
+    else:
+        entries = _fetch_index_csv(kind)
     if entries:
         try:
             p.write_text(json.dumps(entries), encoding="utf-8")
@@ -109,10 +159,20 @@ def _load_kind(kind: str, refresh: bool = False) -> list[dict]:
             for s, n, i in _FALLBACK.get(kind, [])]
 
 
+_KIND_ALIASES = {
+    "both": ["smallcap250", "microcap250"],
+    "nse": ["smallcap250", "microcap250"],
+    "bse": ["bse_smallcap", "bse_microcap"],
+    "all": ["smallcap250", "microcap250", "bse_smallcap", "bse_microcap"],
+}
+
+
 def fetch_universe(kind: str = "both", *, refresh: bool = False) -> list[dict]:
-    """Free small/micro-cap universe. kind ∈ {smallcap250, microcap250, both}.
+    """Free small/micro-cap universe.
+    kind ∈ {smallcap250, microcap250, bse_smallcap, bse_microcap,
+            both (NSE only), nse, bse, all (NSE+BSE)}.
     Returns [{symbol, name, industry, index}], de-duplicated by symbol."""
-    kinds = (["smallcap250", "microcap250"] if kind == "both" else [kind])
+    kinds = _KIND_ALIASES.get(kind, [kind])
     seen: set[str] = set()
     out: list[dict] = []
     for k in kinds:

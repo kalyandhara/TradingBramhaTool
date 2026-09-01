@@ -754,7 +754,7 @@ def api_order_blocks():
     if df is None or len(df) < pivot_len * 4 + 20:
         return jsonify({"symbol": symbol, "order_blocks": []})
 
-    blocks = sc.detect_order_blocks(df, pivot_len=pivot_len)
+    blocks, retests = sc.detect_order_blocks(df, pivot_len=pivot_len)
 
     def _t(idx):
         if idx is None or idx < 0 or idx >= len(bars):
@@ -781,9 +781,24 @@ def api_order_blocks():
             "end_time":   _t(end_idx) if end_idx is not None else last_t,
             "disp_atr":   b["disp_atr"],
             "vol_x":      b["vol_x"],
+            "buy_pct":    b.get("buy_pct", 50.0),
+            "sell_pct":   b.get("sell_pct", 50.0),
         })
 
-    return jsonify({"symbol": symbol, "order_blocks": out})
+    retest_out = []
+    for rt in retests:
+        t = _t(rt["idx"])
+        if t is None:
+            continue
+        retest_out.append({
+            "dir":   rt["dir"],
+            "time":  t,
+            "price": round(rt["price"], 2),
+            "buy_pct":  rt.get("buy_pct"),
+            "sell_pct": rt.get("sell_pct"),
+        })
+
+    return jsonify({"symbol": symbol, "order_blocks": out, "retests": retest_out})
 
 
 @app.route("/api/trendlines")
