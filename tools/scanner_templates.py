@@ -2235,21 +2235,37 @@ def detect_bullish_candlestick(df: pd.DataFrame) -> dict | None:
     return None
 
 
-def detect_bullish_rsi_divergence(df: pd.DataFrame, lookback: int = 10) -> bool:
-    """Price makes a new low while RSI doesn't — classic momentum-divergence
-    reversal tell (from the Forthius Reversal Scanner ingest)."""
-    if len(df) < lookback + 20:
+def detect_bullish_rsi_divergence(df: pd.DataFrame, pivot_len: int = 3,
+                                  lookback: int = 80) -> bool:
+    """Pivot-based bullish RSI divergence — same definition as scan_rsi_divergence_bull.
+
+    Uses Wilder's RSI (via _rsi_series) and swing-pivot lows, not a rolling-mean
+    RSI against a raw min.  Returns True when the two most recent pivot lows show
+    price lower-low + RSI higher-low with a ≥3-point gap (B-24 fix).
+    """
+    if len(df) < pivot_len * 2 + 40:
         return False
     close = df["close"]
-    delta = close.diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
-    rs = gain / loss.replace(0, np.nan)
-    rsi = 100 - 100 / (1 + rs)
     low = df["low"]
-    prior_low = float(low.iloc[-lookback - 1:-1].min())
-    prior_rsi_low = float(rsi.iloc[-lookback - 1:-1].min())
-    return bool(low.iloc[-1] < prior_low and rsi.iloc[-1] > prior_rsi_low)
+    n = len(df)
+    rsi = _rsi_series(close, 14)
+
+    search_start = max(pivot_len, n - lookback)
+    pivot_lows: list[tuple[int, float, float]] = []
+    for i in range(search_start, n - pivot_len):
+        window = low.iloc[i - pivot_len: i + pivot_len + 1]
+        if float(low.iloc[i]) == float(window.min()):
+            rsi_val = float(rsi.iloc[i])
+            if not np.isnan(rsi_val):
+                pivot_lows.append((i, float(low.iloc[i]), rsi_val))
+
+    if len(pivot_lows) < 2:
+        return False
+
+    _, price1, rsi1 = pivot_lows[-2]
+    _, price2, rsi2 = pivot_lows[-1]
+
+    return bool(price2 < price1 and rsi2 > rsi1 and (rsi2 - rsi1) >= 3.0)
 
 
 def detect_bullish_reversal_structure(

@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-09-01
+updated: 2026-09-02
 sources: 0
 related:
   - analyses/Open-Backlog-2026-08-02.md
@@ -42,8 +42,9 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **Closed 2026-08-12** | **B-3** (mean-reversion scanner — `scan_mean_reversion` Connors RSI2, registered), **B-5** (time_stop emitted by 6 scanners: Harmonic/RSI60-40/OrderBlock/FallingWedge/SupportBreakdown/MeanReversion), **B-19b** (support-breakdown detector — `scan_support_breakdown` + `detect_support_breakdown`), **B-20a** (t-test + 95% CI on edge in `_aggregate`), **B-20b** (market-model beta/alpha when benchmark_df supplied to `backtest_scanner`), **B-25** (`backtest_confluence` + `format_confluence_report` measure co-fire vs single-fire), **B-7** (`sweep_volume_threshold` sweeps 1.0/1.2/1.5/2.0× vol floors and ranks by edge) |
 | **Closed 2026-08-26** | **B-32** (regime output throttle — `_apply_regime_gate` + `REGIME_GATE`, premise proven `regime_backtest.py`), **B-33** (conviction-sized shortlist — score-floor replaces fixed `top_n`, floors data-calibrated), **B-36** (regime posture banner + Analytics→Research nav fold) |
 | **Closed 2026-09-01** | **B-21** (walk-forward OOS pooling + per-horizon stability), **B-29** (Indian delivery cost model ~29bps, applied everywhere), **B-39** (scipy-optional fallback) |
+| **Closed 2026-09-02** | **B-16** (OI Momentum `_strength_color` → `rs.TOKENS`), **B-24** (RSI divergence Python/JS agreement — `detect_bullish_rsi_divergence` rewritten to Wilder RSI + pivot lows + 3-pt gap) |
 | **Closed 2026-08-27 (re-verify)** | **B-11** (MFI — `scan_mfi_oversold` + `_mfi_series` shipped and registered; page had it "absent"). Ledger/body sync only: **B-5, B-25, B-20a, B-20b, B-7** were already code-complete but mis-filed as open in the body |
-| **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-16, B-17, B-19, B-21b, B-22, B-23, B-24, B-26, B-27, B-28, B-30, B-31 |
+| **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-19, B-21b, B-22, B-23, B-26, B-27, B-28, B-30, B-31 |
 | **Open — residual only** | **B-34** (small-cap lane built; quality overlay + dashboard lane + hit-rate backtest remain), **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
 | **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic), **B-39** (pin `scipy` in requirements / make `backtest.py` scipy-optional — the hard import silently broke the significance stack on Python 3.14) |
 | **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**, see below), **B-41** (liquidity-sweep / stop-hunt detector — missing third of the SMC stack), **B-42** (shared market-structure engine — BOS/CHoCH). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
@@ -101,11 +102,10 @@ notes; none of it is credentials, but none of it is meant to be public either.
 `chart_server.py`, a variable name, not a secret. No personal positions in the
 vault. 40 MB total.
 
-### B-16 · OI Momentum off-palette colours
-`_strength_color` at [dashboard_app.py:9747](tools/dashboard_app.py:9747) (moved
-from 6648) still carries hard-coded hexes of the kind removed everywhere else.
-Still open on 2026-08-27 — noted originally because that page was edited four times
-on 2026-08-07 without anyone fixing it; proximity is not the same as attention.
+### ~~B-16 · OI Momentum off-palette colours~~ — CLOSED 2026-09-02
+`_strength_color` now sources from `rs.TOKENS` (good/info/accent/absent) instead of
+hard-coded hexes. The four colours track the shared palette and will follow any
+future token change automatically.
 
 ---
 
@@ -645,13 +645,14 @@ oversight. (B-40's VWAP work is the *daily/anchored* slice, which IS in scope.)
 
 ## P3 — Consistency and correctness debt
 
-### B-24 · Two RSI-divergence implementations that disagree
-`detect_bullish_rsi_divergence` in `scanner_templates.py` uses a **rolling-mean
-RSI** (not Wilder), tests *last bar vs min of prior 10* rather than swing pivots,
-and covers **1 of the 4** variants — while `rsi_divergence.js` shipped
-2026-08-07 does all four off shared zigzag pivots. The Python one feeds Early
-Reversal's score, so the chart and the scanner will disagree about the same
-chart. The JS/Python split is unavoidable; the *definitions* diverging is not.
+### ~~B-24 · Two RSI-divergence implementations that disagree~~ — CLOSED 2026-09-02
+`detect_bullish_rsi_divergence` rewritten to use Wilder RSI (`_rsi_series`) and
+swing-pivot lows with a ≥3-point RSI gap threshold — the same definition as
+`scan_rsi_divergence_bull`. Early Reversal now agrees with the RSI Divergence
+scanner (and the JS chart). The only remaining difference is recency gating:
+the standalone scanner requires the pivot within the last 3 bars; the Early
+Reversal helper accepts any pivot pair within 80 bars (appropriate for its
+composite-scoring role where recency is not the gate).
 
 ### B-26 · `MIN_PRICE_PCT` contradicts its own stated rationale
 The comment says the floors "sit just above those medians". Measured over 12
@@ -770,16 +771,15 @@ true only on paper.
 6. ~~**B-19b** — support-breakdown detector.~~ Done 2026-08-12 (`scan_support_breakdown`).
 7. ~~**B-3** — mean-reversion scanner.~~ Done 2026-08-12 (`scan_mean_reversion` Connors RSI2).
 
-**Next (updated 2026-09-01):**
+**Next (updated 2026-09-02):**
 
 1. **B-19** — actually *run* `backtest_scanner --cost indian --wf 3` on the live
    scanner + confluence set and record the verdicts. Now a chore, not a build —
-   the walk-forward + cost infrastructure is done.
+   the walk-forward + cost infrastructure is done. *(In progress — batch runner
+   `backtest_all_scanners.py` running all 41 scanners × LIQUID_50.)*
 2. **B-34 residual** — finish the small-cap lane (quality overlay, dashboard
    "Hidden Treasures" lane, the forward hit-rate backtest — the measurable claim).
-3. **B-16** (OI momentum palette) and **B-24** (RSI-divergence Python/JS
-   disagreement) — small correctness cleanups, land anytime.
-4. **B-32r** — recalibrate regime floors with walk-forward (now unblocked).
+3. **B-32r** — recalibrate regime floors with walk-forward (now unblocked).
 
 **Parked / gated:** B-38 full-funnel test is blocked on point-in-time fundamental
 data, not code; B-31 (learned weights) is now gated behind B-19 (the run, not the

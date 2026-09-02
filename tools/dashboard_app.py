@@ -9913,8 +9913,8 @@ if current_page == "OI Momentum":
             st.info("No names match the current filters.")
         else:
             _strength_color = {
-                "STRONG": "#2e7d32", "MODERATE": "#1565c0",
-                "UNSUPPORTED": "#b8860b", "UNRELIABLE": "#9e9e9e",
+                "STRONG": rs.TOKENS["good"], "MODERATE": rs.TOKENS["info"],
+                "UNSUPPORTED": rs.TOKENS["accent"], "UNRELIABLE": rs.TOKENS["absent"],
             }
             _actionable = [r for r in _view
                            if r["strength"] in oim.ACTIONABLE_STRENGTHS]
