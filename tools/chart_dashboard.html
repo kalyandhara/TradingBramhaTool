@@ -60,6 +60,11 @@
      fibonacci.js is: it reads EW.computeZigzag so every structure tool on the
      chart agrees about where the swings are. -->
 <script src="/rsi_divergence.js"></script>
+
+<!-- User drawing tools (trend line / horizontal ray / zone / text / Fib).
+     Lightweight Charts ships none of these, so chart_drawings.js is the pure
+     model + geometry + painter; the chart integration lives in this file. -->
+<script src="/chart_drawings.js"></script>
 <style>
 /* ── Theme variables ──────────────────────────────────────────────────────── */
 :root {
@@ -457,6 +462,37 @@ html, body {
      everything is squeezed. */
   flex: 1 1 auto; min-height: 100px; position: relative; overflow: hidden;
 }
+/* ── Drawing toolbar (user annotations — see chart_drawings.js) ────────────── */
+/* Floats over the left edge of the chart, the way TradingView's does. It sits
+   ABOVE the drawing canvas (z-index 22 vs 20) so its own buttons stay clickable
+   while a tool is armed and the canvas is swallowing pointer events. */
+.draw-tools {
+  position: absolute; top: 6px; left: 6px; z-index: 22;
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--bg-pane-header); border: 1px solid var(--border);
+  border-radius: 6px; padding: 3px; opacity: .55; transition: opacity .12s;
+}
+/* Faded until wanted, so it never competes with the candles for attention —
+   but always full-strength while a tool is armed, or the armed state is easy
+   to lose track of and clicks land on the chart unexpectedly. */
+.draw-tools:hover, .draw-tools.armed { opacity: 1; }
+.draw-btn {
+  width: 24px; height: 22px; display: flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--text-secondary); font-size: 12px; line-height: 1;
+  cursor: pointer; outline: none; padding: 0;
+}
+.draw-btn:hover { border-color: var(--border); color: var(--text-primary); }
+.draw-btn.active { border-color: var(--accent); color: var(--accent); background: var(--bg-input); }
+.draw-btn.danger:hover { border-color: #ef5350; color: #ef5350; }
+.draw-sep { height: 1px; background: var(--border); margin: 2px 1px; }
+.draw-count {
+  font-size: 9px; text-align: center; color: var(--text-secondary);
+  line-height: 1; padding: 1px 0 2px;
+}
+/* Crosshair while armed makes it obvious the next click draws rather than pans. */
+.chart-main.drawing { cursor: crosshair; }
+
 /* Sub-panes must be allowed to shrink so the main chart's min-height wins.
    Individual sub-pane min-height keeps oscillators still readable when
    space is tight; below that they overflow-scroll rather than disappear. */
@@ -1009,6 +1045,10 @@ function applyRangeView(pane) {
   } else {
     pane.chart.timeScale().setVisibleLogicalRange({ from: n - preset.bars, to: n - 1 });
   }
+  // A preset jump rescales BOTH axes. The visible-range event alone is not
+  // enough to re-anchor user drawings, because the price autoscale lands a
+  // frame later — see scheduleDrawRedraw.
+  if (typeof scheduleDrawRedraw === 'function') scheduleDrawRedraw(pane);
 }
 
 // ── Go to date ────────────────────────────────────────────────────────────────
@@ -2195,6 +2235,20 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
   fibCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:6;width:100%;height:100%;';
   chartMain.appendChild(fibCanvas);
 
+  // ── User drawing canvas (topmost — your markup sits over every indicator) ──
+  // The ONLY overlay canvas that ever takes pointer events. It stays
+  // pointer-events:none so the chart pans and zooms exactly as before, and flips
+  // to auto only while a tool is armed or the erase mode is on. Without that
+  // toggle the canvas would swallow every drag and the chart would feel frozen.
+  const drawCanvas = document.createElement('canvas');
+  drawCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:20;width:100%;height:100%;';
+  chartMain.appendChild(drawCanvas);
+
+  const drawTools = document.createElement('div');
+  drawTools.className = 'draw-tools';
+  drawTools.innerHTML = DRAW_TOOLBAR_HTML;
+  chartMain.appendChild(drawTools);
+
   // Track whether we've ever seen a real (>0) size. If the chart was created
   // at fallback 300×200 because chartMain was 0×0 at construction time, the
   // first resize to real dimensions is also when we need to *re-apply* the
@@ -2229,6 +2283,9 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
           drawPatternZones(pane);
         if (pane && pane.indicators && pane.indicators.has('projection'))
           drawProjection(pane);
+        // The drawing canvas is sized from offsetWidth/Height on every paint,
+        // so a resize leaves it stretched until it repaints.
+        if (pane && pane.drawings && pane.drawings.length) scheduleDrawRedraw(pane);
       }
     }
   });
@@ -2242,7 +2299,10 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
                  chartType,
                  rangePreset: savedRangePreset || DEFAULT_RANGE_PRESET,
                  indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas, projCanvas,
-                 fibCanvas, obCanvas, prteCanvas };
+                 fibCanvas, obCanvas, prteCanvas,
+                 drawCanvas, drawTools,
+                 drawings: [], drawTool: null, drawSel: null, drawMagnet: true,
+                 drawHidden: false, drawStart: null, drawPreview: null };
 
   // ── Time-scale sync: main chart drives all sub-pane charts ─────────────────
   chart.timeScale().subscribeVisibleTimeRangeChange(range => {
@@ -2271,6 +2331,10 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
     if (pane.indicators && pane.indicators.has('orderblock')) drawOrderBlocks(pane);
     // %R exhaustion background is time-anchored (x-runs) — redraw on pan/zoom.
     if (pane.indicators && pane.indicators.has('prte')) drawPrteBackground(pane);
+    // User drawings are time+price anchored, so they stale on any pan/zoom for
+    // the same reason every overlay above does. No indicator gate — they are
+    // always on when present.
+    if (pane.drawings && pane.drawings.length) scheduleDrawRedraw(pane);
   });
 
   // ── Crosshair sync to sub-pane charts ─────────────────────────────────────
@@ -2305,6 +2369,10 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
     // Same full reset as the tf-change handler — every series and overlay, so
     // the incoming symbol never shares an axis with the outgoing one's data.
     resetPaneVisuals(pane);
+    // Drawings are keyed per symbol, so swap in the new symbol's set. (They
+    // deliberately survive a TIMEFRAME change — a level you drew on the daily
+    // is still that level on the weekly, since anchors are timestamps.)
+    try { loadDrawings(pane); } catch {}
     const bare = s.replace(/\.(NS|BO|BSE)$/i, '');
     const suffix = (s.match(/\.(NS|BO|BSE)$/i) || [''])[0].toUpperCase();
     const wantExch = suffix === '.NS' ? 'NSE' : (suffix === '.BO' || suffix === '.BSE') ? 'BSE' : null;
@@ -2580,6 +2648,9 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
   }
   refreshActiveCount();
 
+  // Drawing tools: wire the toolbar/canvas, then restore this symbol's markup.
+  try { wireDrawingTools(pane); loadDrawings(pane); } catch (e) { console.warn('drawing tools:', e); }
+
   return pane;
 }
 
@@ -2808,6 +2879,10 @@ async function copyChartSnapshot(pane) {
     if (pane.svpCanvas)     ctx.drawImage(pane.svpCanvas,     0, y, OW, OH);
     if (pane.volCanvas)     ctx.drawImage(pane.volCanvas,     0, y, OW, OH);
     if (pane.fvgCanvas)     ctx.drawImage(pane.fvgCanvas,     0, y, OW, OH);
+    // User drawings last of the price-anchored layers (z-index 20) — your own
+    // markup should survive into a shared snapshot, and on top of the machine's.
+    if (pane.drawCanvas && !pane.drawHidden)
+      ctx.drawImage(pane.drawCanvas, 0, y, OW, OH);
     // Info panels go last so they sit on top, matching their on-screen z-index.
     // Rendered at the capture ratio so the cards stay crisp. A failure here must
     // not cost the whole snapshot — the chart itself is still worth copying.
@@ -3784,6 +3859,12 @@ function applyIndicators(pane) {
   // 2026-07-03). Re-syncing HERE, after every setData, guarantees the
   // sub-panes end up aligned to whatever the main chart is showing.
   syncSubPaneRanges(pane);
+
+  // User drawings repaint last, after every series has its data and the axes
+  // have settled — their coordinates come from the price scale, so painting
+  // earlier would anchor them against a scale that is about to change. Runs on
+  // every apply (symbol/tf reload included), not behind an indicator gate.
+  scheduleDrawRedraw(pane);
 }
 
 // Standalone so anything that changes the main-chart visible range (loadData,
@@ -5812,6 +5893,278 @@ function renderVcpInfo(pane, g) {
   if (vcp.infoBody) vcp.infoBody.innerHTML = html;
   else              vcp.infoEl.innerHTML   = html;
   vcp.infoEl.style.display = 'block';
+}
+
+// ── User drawing tools — integration layer for chart_drawings.js ─────────────
+// window.Drawings is the pure model/geometry/painter and has zero chart
+// dependency. Everything here is the "plug" onto Lightweight Charts: the
+// coordinate adapter, pointer handling, the toolbar, and the redraw hooks. To
+// swap charting libraries later only this section changes — exactly the split
+// used for the Elliott Wave integration above.
+
+const DRAW_TOOL_DEFS = [
+  {key: 'trend', glyph: '╱',  title: 'Trend line — click and drag between two points'},
+  {key: 'hline', glyph: '━',  title: 'Horizontal ray — click a price level'},
+  {key: 'rect',  glyph: '▭',  title: 'Zone — drag a rectangle (supply/demand, consolidation)'},
+  {key: 'fib',   glyph: '≣',  title: 'Fib retracement — drag from swing low to swing high'},
+  {key: 'text',  glyph: 'T',  title: 'Text note — click to place a label'},
+];
+
+const DRAW_TOOLBAR_HTML = (() => {
+  const tools = DRAW_TOOL_DEFS.map(t =>
+    `<button type="button" class="draw-btn" data-tool="${t.key}" title="${t.title}">${t.glyph}</button>`
+  ).join('');
+  return tools +
+    '<div class="draw-sep"></div>' +
+    '<button type="button" class="draw-btn" data-act="magnet" title="Magnet — snap points to the nearest OHLC value">🧲</button>' +
+    '<button type="button" class="draw-btn" data-act="erase" title="Erase — click a drawing to delete it">⌫</button>' +
+    '<button type="button" class="draw-btn" data-act="undo" title="Undo the last drawing">↶</button>' +
+    '<button type="button" class="draw-btn" data-act="hide" title="Hide/show all drawings">👁</button>' +
+    '<button type="button" class="draw-btn danger" data-act="clear" title="Delete every drawing on this symbol">🗑</button>' +
+    '<div class="draw-count"></div>';
+})();
+
+/** Data<->pixel adapter. Null outside the visible range, which the painter
+ *  treats as "skip this drawing" rather than clamping it to an edge. */
+function drawAdapter(pane) {
+  const ts = pane.chart.timeScale();
+  const s  = pane.series;
+  return {
+    toX:   t => { try { return ts.timeToCoordinate(t); } catch { return null; } },
+    toY:   p => { try { return s.priceToCoordinate(p); } catch { return null; } },
+    fromX: x => { try { return ts.coordinateToTime(x); } catch { return null; } },
+    fromY: y => { try { return s.coordinateToPrice(y); } catch { return null; } },
+  };
+}
+
+function redrawDrawings(pane) {
+  const canvas = pane.drawCanvas;
+  if (!canvas) return;
+  const W = canvas.width  = canvas.offsetWidth;
+  const H = canvas.height = canvas.offsetHeight;
+  if (W === 0 || H === 0) {
+    // Restored drawings paint once at pane creation, and in a multi-chart grid
+    // the container can still be 0x0 at that moment. The ResizeObserver hook is
+    // no help — it already fired while pane.drawings was empty — so without a
+    // retry the markup stays invisible until the next pan. Bounded, so a pane
+    // that is legitimately collapsed to zero does not spin a frame callback
+    // forever; the ResizeObserver still covers it once it gets a real size.
+    if (pane.drawings && pane.drawings.length && (pane._drawSizeTries = (pane._drawSizeTries || 0) + 1) < 120)
+      scheduleDrawRedraw(pane);
+    return;
+  }
+  pane._drawSizeTries = 0;
+  const ctx = canvas.getContext('2d');
+  if (pane.drawHidden) { ctx.clearRect(0, 0, W, H); return; }
+  Drawings.render(ctx, pane.drawings || [], drawAdapter(pane), W, H, {
+    selectedId: pane.drawSel,
+    preview: pane.drawPreview,
+    textColor: currentTheme === 'light' ? '#101521' : '#eaeff7',
+  });
+}
+
+/**
+ * Redraw on the NEXT animation frame, coalescing repeats.
+ *
+ * Lightweight Charts settles its price autoscale a frame AFTER it emits the
+ * visible-range event, so painting synchronously inside that callback anchors
+ * every drawing against the outgoing y-mapping — the line stays where it was
+ * while the candles move under it. Deferring one frame is what makes drawings
+ * track their bars through a range-preset change or a "Go to date" jump. It
+ * also collapses the burst of range events during a drag into one paint.
+ *
+ * The live drawing path still calls redrawDrawings() directly: while you are
+ * dragging out a shape the price scale is not moving, and a frame of latency on
+ * the rubber-band preview is visible.
+ */
+function scheduleDrawRedraw(pane) {
+  if (!pane || pane._drawRaf) return;
+  pane._drawRaf = requestAnimationFrame(() => {
+    pane._drawRaf = 0;
+    try { redrawDrawings(pane); } catch {}
+  });
+}
+
+function saveDrawings(pane) {
+  Drawings.save(pane.symbol, pane.drawings || []);
+  updateDrawCount(pane);
+}
+
+function updateDrawCount(pane) {
+  const el = pane.drawTools && pane.drawTools.querySelector('.draw-count');
+  if (el) el.textContent = (pane.drawings && pane.drawings.length) || '';
+}
+
+/** Load this symbol's saved drawings — called whenever the symbol changes. */
+function loadDrawings(pane) {
+  pane.drawings = Drawings.load(pane.symbol);
+  pane.drawSel = null;
+  pane.drawPreview = null;
+  updateDrawCount(pane);
+  redrawDrawings(pane);
+}
+
+/** pointer-events follows the armed state: the chart must stay fully
+ *  interactive whenever no tool is active, or panning breaks. */
+function syncDrawMode(pane) {
+  const armed = !!pane.drawTool || pane.drawErase;
+  pane.drawCanvas.style.pointerEvents = armed ? 'auto' : 'none';
+  pane.drawTools.classList.toggle('armed', armed);
+  pane.el.querySelector('.chart-main').classList.toggle('drawing', armed);
+  pane.drawTools.querySelectorAll('[data-tool]').forEach(b =>
+    b.classList.toggle('active', b.dataset.tool === pane.drawTool));
+  const eraseBtn = pane.drawTools.querySelector('[data-act="erase"]');
+  if (eraseBtn) eraseBtn.classList.toggle('active', !!pane.drawErase);
+}
+
+function setDrawTool(pane, tool) {
+  pane.drawTool = (pane.drawTool === tool) ? null : tool;   // click again to disarm
+  if (pane.drawTool) pane.drawErase = false;
+  pane.drawStart = null;
+  pane.drawPreview = null;
+  syncDrawMode(pane);
+  redrawDrawings(pane);
+}
+
+function wireDrawingTools(pane) {
+  const canvas = pane.drawCanvas;
+  const tools  = pane.drawTools;
+  if (!canvas || !tools || typeof Drawings === 'undefined') return;
+
+  tools.addEventListener('click', ev => {
+    const btn = ev.target.closest('button');
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (btn.dataset.tool) { setDrawTool(pane, btn.dataset.tool); return; }
+    switch (btn.dataset.act) {
+      case 'magnet':
+        pane.drawMagnet = !pane.drawMagnet;
+        btn.classList.toggle('active', pane.drawMagnet);
+        break;
+      case 'erase':
+        pane.drawErase = !pane.drawErase;
+        if (pane.drawErase) pane.drawTool = null;
+        syncDrawMode(pane);
+        break;
+      case 'undo':
+        if (pane.drawings.length) { pane.drawings.pop(); saveDrawings(pane); redrawDrawings(pane); }
+        break;
+      case 'hide':
+        pane.drawHidden = !pane.drawHidden;
+        btn.classList.toggle('active', pane.drawHidden);
+        redrawDrawings(pane);
+        break;
+      case 'clear':
+        if (pane.drawings.length &&
+            confirm(`Delete all ${pane.drawings.length} drawing(s) on ${pane.symbol}?`)) {
+          pane.drawings = [];
+          pane.drawSel = null;
+          saveDrawings(pane);
+          redrawDrawings(pane);
+        }
+        break;
+    }
+  });
+  // Reflect the default-on magnet in the UI.
+  const mag = tools.querySelector('[data-act="magnet"]');
+  if (mag) mag.classList.toggle('active', pane.drawMagnet);
+
+  const pointFrom = (ev) => {
+    const r = canvas.getBoundingClientRect();
+    const x = ev.clientX - r.left, y = ev.clientY - r.top;
+    const a = drawAdapter(pane);
+    const t = a.fromX(x), p = a.fromY(y);
+    if (t == null || p == null) return null;
+    return pane.drawMagnet ? Drawings.snap(pane.bars, a, t, p, 8) : {t: t, y: p};
+  };
+
+  canvas.addEventListener('mousedown', ev => {
+    if (ev.button !== 0) return;
+    const W = canvas.width;
+
+    if (pane.drawErase) {
+      const r = canvas.getBoundingClientRect();
+      const hit = Drawings.hitTest(pane.drawings, drawAdapter(pane),
+                                   ev.clientX - r.left, ev.clientY - r.top, W,
+                                   canvas.getContext('2d'));
+      if (hit) {
+        pane.drawings = pane.drawings.filter(d => d.id !== hit.id);
+        saveDrawings(pane);
+        redrawDrawings(pane);
+      }
+      return;
+    }
+    if (!pane.drawTool) return;
+    const pt = pointFrom(ev);
+    if (!pt) return;
+    ev.preventDefault();
+
+    // One-click tools finish immediately; two-point tools start a drag.
+    if (pane.drawTool === 'hline') {
+      pane.drawings.push(Drawings.make('hline', pt));
+      saveDrawings(pane);
+      setDrawTool(pane, null);
+      redrawDrawings(pane);
+      return;
+    }
+    if (pane.drawTool === 'text') {
+      const txt = prompt('Note text:');
+      if (txt) {
+        pane.drawings.push(Drawings.make('text', pt, null, {text: txt}));
+        saveDrawings(pane);
+      }
+      setDrawTool(pane, null);
+      redrawDrawings(pane);
+      return;
+    }
+    pane.drawStart = {pt: pt, px: ev.clientX, py: ev.clientY};
+  });
+
+  canvas.addEventListener('mousemove', ev => {
+    if (!pane.drawStart || !pane.drawTool) return;
+    const pt = pointFrom(ev);
+    if (!pt) return;
+    pane.drawPreview = Drawings.make(pane.drawTool, pane.drawStart.pt, pt);
+    redrawDrawings(pane);
+  });
+
+  const finish = ev => {
+    if (!pane.drawStart || !pane.drawTool) return;
+    const moved = Math.hypot(ev.clientX - pane.drawStart.px, ev.clientY - pane.drawStart.py);
+    const pt = pointFrom(ev);
+    // A click with no drag is an accident, not a zero-length shape.
+    if (pt && moved >= Drawings.MIN_DRAG_PX) {
+      pane.drawings.push(Drawings.make(pane.drawTool, pane.drawStart.pt, pt));
+      saveDrawings(pane);
+    }
+    pane.drawStart = null;
+    pane.drawPreview = null;
+    setDrawTool(pane, null);       // one shape per arming, as TradingView does
+    redrawDrawings(pane);
+  };
+  canvas.addEventListener('mouseup', finish);
+  canvas.addEventListener('mouseleave', () => {
+    if (!pane.drawStart) return;
+    pane.drawStart = null;
+    pane.drawPreview = null;
+    redrawDrawings(pane);
+  });
+
+  // Escape disarms — the standard way out of a tool you picked by mistake.
+  pane.el.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape' && (pane.drawTool || pane.drawErase)) {
+      pane.drawTool = null;
+      pane.drawErase = false;
+      pane.drawStart = null;
+      pane.drawPreview = null;
+      syncDrawMode(pane);
+      redrawDrawings(pane);
+    }
+  });
+
+  syncDrawMode(pane);
+  updateDrawCount(pane);
 }
 
 // ── Trendlines overlay (supply/demand) ────────────────────────────────────────

@@ -377,6 +377,11 @@ def rsi_divergence_js():
     return send_from_directory(HERE, "rsi_divergence.js", mimetype="application/javascript")
 
 
+@app.route("/chart_drawings.js")
+def chart_drawings_js():
+    return send_from_directory(HERE, "chart_drawings.js", mimetype="application/javascript")
+
+
 @app.route("/api/ohlcv")
 def api_ohlcv():
     symbol    = request.args.get("symbol", "").strip().upper()
