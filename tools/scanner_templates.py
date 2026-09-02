@@ -2779,6 +2779,228 @@ def read_market_structure(df: pd.DataFrame, pivot_len: int = 15,
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# B-41 · Liquidity sweeps (stop hunts) — the missing third of the SMC stack
+#
+# We ship FVG Pullback, Order Block Retest and ICT Setup, but not the event that
+# VALIDATES them: an equal-highs/lows pool where stops rest, run by a wick, then
+# reclaimed. Built on B-42's labelled swings — the equal-level clustering is what
+# `eq_tol_pct` was added for.
+#
+# Distinct from B-19b `detect_support_breakdown`, and the distinction is the
+# whole point: a breakdown CLOSES beyond the level (a real break); a sweep pokes
+# through on the wick and closes back INSIDE (a false break that reverses).
+#
+# That exclusivity is PER LEVEL, not global — a single bar can legitimately sweep
+# a pool below it while still closing under a higher swing low, so both detectors
+# firing on the same bar is coherent rather than contradictory (measured: 1 of 49
+# NSE large-caps, ULTRACEMCO, closing above its 11254 pool and below its 11396
+# swing low). Only "swept and reclaimed level X" and "closed below level X" are
+# mutually exclusive.
+#
+# Also distinct from the JS `session_volume_profile.js` sweep (line ~345), which
+# compares the CURRENT session's extreme against the PRIOR session's — an
+# intraday, two-bar-of-sessions read. This one is a multi-touch pool on daily
+# swing pivots. Two different claims that share a name; recorded so nobody
+# assumes they agree (the B-24 lesson).
+# ─────────────────────────────────────────────────────────────────────────────
+
+MIN_SWEEP_RR = 1.0   # a pool nearer than this many R is not worth targeting
+
+
+def detect_liquidity_pools(df: pd.DataFrame, pivot_len: int = 5,
+                           eq_tol_pct: float = 0.75, min_touches: int = 2,
+                           max_pools: int = 6,
+                           min_separation: int | None = None) -> list[dict]:
+    """Equal-highs / equal-lows clusters — where resting stops pool up.
+
+    Clusters same-kind swing pivots **by level, across the whole window** — not
+    only consecutive ones. A pool is price revisiting a level, and the revisits
+    are normally interrupted: a low at 90, a rally, a low at 95, a rally, then 90
+    again is a textbook double bottom, and grouping only adjacent pivots would
+    miss it because the 95 breaks the run.
+
+    Membership is tested against the cluster ANCHOR rather than pairwise, since
+    chaining pairwise equality lets a "pool" drift arbitrarily far from where it
+    started while every adjacent pair still looks equal.
+
+    Touches must be at least `min_separation` bars apart (default `pivot_len * 2`,
+    the narrowest spacing at which two pivots can independently confirm). Without
+    it a single flat shelf reads as many touches, which would overstate how much
+    stop liquidity has actually accumulated.
+
+    The pool's `level` is the extreme of its members — the low of an equal-lows
+    cluster, the high of an equal-highs cluster — because that is the edge stops
+    sit beyond and therefore the price that must be pierced.
+
+    Returns pools newest-first, each:
+      {"kind": "high"|"low", "level", "touches", "bars", "first_bar", "last_bar",
+       "width_pct"}
+    """
+    if df is None or len(df) < pivot_len * 2 + 20:
+        return []
+    if min_separation is None:
+        min_separation = pivot_len * 2
+    # A generous max_swings on purpose: the chart only needs the drawable tail,
+    # but a pool search must see enough history for a cluster to form.
+    chain = detect_structure_chain(df, pivot_len=pivot_len, max_swings=200)
+    if chain is None:
+        return []
+    labelled = label_swing_sequence(chain.get("swings") or [], tol_pct=eq_tol_pct)
+
+    pools: list[dict] = []
+    for kind in ("high", "low"):
+        members = [s for s in labelled
+                   if s.get("kind") == kind and "duplicate_of" not in s
+                   and isinstance(s.get("level"), (int, float))]
+        if len(members) < min_touches:
+            continue
+
+        def _cluster(anchor_level: float, pool: list[dict]) -> list[dict]:
+            """Members within tolerance of the anchor, thinned to one per
+            `min_separation` window so a shelf counts once.
+
+            The whole cluster must also SPAN no more than one tolerance band.
+            Distance-from-anchor alone still admits a group twice that wide (one
+            member a full tol below the anchor, another a full tol above), and a
+            pool that wide is not "equal" lows in any useful sense.
+            """
+            tol = abs(anchor_level) * (eq_tol_pct / 100.0)
+            near = [m for m in pool if abs(float(m["level"]) - anchor_level) <= tol]
+            near.sort(key=lambda m: m["bar"])
+            kept: list[dict] = []
+            for m in near:
+                if kept and (m["bar"] - kept[-1]["bar"]) < min_separation:
+                    continue
+                lv = [float(g["level"]) for g in kept] + [float(m["level"])]
+                if max(lv) - min(lv) > tol:
+                    continue
+                kept.append(m)
+            return kept
+
+        # Greedy: take the richest cluster available, consume it, repeat. Sorting
+        # candidates by touch count first means a strong pool is not fragmented
+        # by an arbitrary starting anchor.
+        remaining = list(members)
+        while len(remaining) >= min_touches:
+            best: list[dict] | None = None
+            for m in remaining:
+                cand = _cluster(float(m["level"]), remaining)
+                if best is None or len(cand) > len(best) or (
+                        len(cand) == len(best) and cand[-1]["bar"] > best[-1]["bar"]):
+                    best = cand
+            if best is None or len(best) < min_touches:
+                break
+            lv = [float(g["level"]) for g in best]
+            anchor = lv[0]
+            level = min(lv) if kind == "low" else max(lv)
+            pools.append({
+                "kind": kind,
+                "level": round(level, 2),
+                "touches": len(best),
+                "bars": [g["bar"] for g in best],
+                "first_bar": best[0]["bar"],
+                "last_bar": best[-1]["bar"],
+                "width_pct": round((max(lv) - min(lv)) / max(abs(anchor), 1e-9) * 100, 3),
+            })
+            used = {id(g) for g in best}
+            remaining = [m for m in remaining if id(m) not in used]
+
+    pools.sort(key=lambda p: p["last_bar"], reverse=True)
+    return pools[:max_pools] if max_pools > 0 else pools
+
+
+def detect_liquidity_sweep(df: pd.DataFrame, pivot_len: int = 5,
+                           eq_tol_pct: float = 0.75, min_touches: int = 2,
+                           lookback: int = 40, min_wick_ratio: float = 0.5,
+                           min_pierce_atr: float = 0.05,
+                           max_pierce_atr: float = 2.0) -> dict | None:
+    """Most recent sweep-and-reclaim of a liquidity pool, either direction.
+
+    A qualifying bar must, against a pool formed BEFORE it:
+      1. pierce the pool level on the wick — `low < level` (sell-side pool) or
+         `high > level` (buy-side), by between `min_pierce_atr` and
+         `max_pierce_atr` ATR. The floor rejects a meaningless graze; the
+         ceiling rejects a genuine break that simply kept going.
+      2. close back INSIDE — above the level for a low pool, below it for a
+         high pool. This is what separates a sweep from a breakdown/breakout.
+      3. show a dominant rejection wick — the wick beyond the level is at least
+         `min_wick_ratio` of the bar's full range.
+
+    Returns the most recent qualifying event, or None:
+      {"direction": "bullish"|"bearish", "level", "touches", "bars_ago",
+       "pierce_atr", "wick_ratio", "close", "reclaimed", "pool_width_pct"}
+
+    "bullish" = a SELL-side pool (equal lows) was swept and reclaimed, i.e. the
+    stop hunt was downward and the reversal is up.
+    """
+    if df is None or len(df) < pivot_len * 2 + 25:
+        return None
+    d = _clean_ohlc(df)
+    if len(d) < pivot_len * 2 + 25:
+        return None
+    pools = detect_liquidity_pools(d, pivot_len=pivot_len, eq_tol_pct=eq_tol_pct,
+                                   min_touches=min_touches, max_pools=0)
+    if not pools:
+        return None
+
+    atr = _atr_series(d, 14)
+    n = len(d)
+    high, low, close = d["high"], d["low"], d["close"]
+    start = max(pivot_len, n - lookback)
+
+    best: dict | None = None
+    for i in range(start, n):
+        a = float(atr.iloc[i]) if not pd.isna(atr.iloc[i]) else 0.0
+        if a <= 0:
+            continue
+        hi, lo, c = float(high.iloc[i]), float(low.iloc[i]), float(close.iloc[i])
+        o = float(d["open"].iloc[i])
+        rng = hi - lo
+        if rng <= 0:
+            continue
+        # The rejection wick is the bar's SHADOW beyond its body — the standard
+        # reading. Measuring only the part below the pool level instead would
+        # report a fraction of the true rejection and reject real sweeps.
+        lower_wick = (min(o, c) - lo) / rng
+        upper_wick = (hi - max(o, c)) / rng
+        for p in pools:
+            # The pool must be fully formed before the bar that sweeps it.
+            if p["last_bar"] >= i:
+                continue
+            lvl = p["level"]
+            if p["kind"] == "low":
+                pierce = lvl - lo
+                if pierce <= 0 or c <= lvl:
+                    continue
+                wick = lower_wick
+                direction = "bullish"
+            else:
+                pierce = hi - lvl
+                if pierce <= 0 or c >= lvl:
+                    continue
+                wick = upper_wick
+                direction = "bearish"
+            pierce_atr = pierce / a
+            if not (min_pierce_atr <= pierce_atr <= max_pierce_atr):
+                continue
+            if wick < min_wick_ratio:
+                continue
+            best = {
+                "direction": direction,
+                "level": lvl,
+                "touches": p["touches"],
+                "bars_ago": n - 1 - i,
+                "pierce_atr": round(pierce_atr, 2),
+                "wick_ratio": round(wick, 2),
+                "close": round(c, 2),
+                "reclaimed": True,
+                "pool_width_pct": p["width_pct"],
+                "pool_bars": p["bars"],
+            }
+    return best
+
+
 def _displacement_body_ratio(o: float, h: float, l: float, c: float) -> float:
     """Body as a fraction of total range. Used by the ICT displacement gate."""
     rng = h - l
@@ -3433,6 +3655,195 @@ def scan_fvg_pullback(df: pd.DataFrame, max_bars_ago: int = 3) -> dict | None:
         "entry": round(last, 2),
         "stop": stop,
         "target": target,
+        "vol_x50d": round(vol_x, 2),
+    }
+
+
+def _sweep_common(df: pd.DataFrame, direction: str, max_bars_ago: int,
+                  pivot_len: int, eq_tol_pct: float,
+                  min_touches: int) -> tuple[dict, pd.DataFrame] | None:
+    """Shared gate for the two sweep scanners — find a recent sweep of the asked
+    direction and hand back the event plus the cleaned frame."""
+    if df is None or len(df) < pivot_len * 2 + 40:
+        return None
+    d = _clean_ohlc(df)
+    if len(d) < pivot_len * 2 + 40:
+        return None
+    ev = detect_liquidity_sweep(d, pivot_len=pivot_len, eq_tol_pct=eq_tol_pct,
+                                min_touches=min_touches,
+                                lookback=max(20, max_bars_ago * 4))
+    if not ev or ev["direction"] != direction:
+        return None
+    if ev["bars_ago"] > max_bars_ago:
+        return None
+    return ev, d
+
+
+def scan_liquidity_sweep(df: pd.DataFrame, max_bars_ago: int = 3,
+                         pivot_len: int = 5, eq_tol_pct: float = 0.75,
+                         min_touches: int = 2) -> dict | None:
+    """Bullish liquidity sweep — sell-side stop hunt reclaimed (B-41).
+
+    Price ran a pool of **equal lows** (where stops rest), pierced it on the
+    wick, and **closed back above** it. That is a false break, not a breakdown:
+    the sellers who got filled below the pool are trapped, and the reversal is
+    fuelled by their covering.
+
+    This is the SMC event that *validates* the entries we already scan — an
+    Order Block or FVG that forms right after a sweep is the textbook sequence.
+    It is deliberately NOT `detect_support_breakdown`: that one requires a
+    CLOSE beyond the level (a real break), this one requires the close back
+    inside. One bar cannot satisfy both.
+
+    Stop sits below the sweep wick — the point that invalidates the "trapped
+    sellers" read. Target is the nearest buy-side pool above, falling back to
+    2R when no equal-highs cluster is overhead.
+
+    Unmeasured: this scanner has not been through ``analyses/Backtest-Harness``.
+    The claim to test is a sweep-reversal against a matched *clean* break, which
+    is the event study the backlog asks for — not whether it wins in isolation.
+    """
+    got = _sweep_common(df, "bullish", max_bars_ago, pivot_len, eq_tol_pct, min_touches)
+    if got is None:
+        return None
+    ev, d = got
+
+    c = d["close"]
+    last = float(c.iloc[-1])
+    n = len(d)
+    swept_bar = n - 1 - ev["bars_ago"]
+    wick_low = float(d["low"].iloc[swept_bar])
+    atr = float(_atr_series(d, 14).iloc[-1])
+    if np.isnan(atr) or atr <= 0:
+        return None
+
+    # Price must still be holding the reclaim; a later close back under the pool
+    # means the sweep read failed and this is a breakdown after all.
+    if last <= ev["level"] * 0.995:
+        return None
+
+    stop = round(wick_low * 0.995, 2)
+    risk = last - stop
+    if risk <= 0:
+        return None
+
+    # Target the nearest buy-side pool overhead — but only if it is far enough to
+    # be worth taking. A pool sitting just above entry yields an R:R near zero,
+    # which is not a trade plan; fall back to 2R rather than emit one.
+    pools = detect_liquidity_pools(d, pivot_len=pivot_len, eq_tol_pct=eq_tol_pct,
+                                   min_touches=min_touches, max_pools=0)
+    above = [p["level"] for p in pools
+             if p["kind"] == "high" and p["level"] >= last + MIN_SWEEP_RR * risk]
+    target = round(min(above) if above else last + 2.0 * risk, 2)
+
+    vol20 = float(d["volume"].tail(20).mean())
+    vol_x = float(d["volume"].iloc[-1]) / vol20 if vol20 > 0 else 0.0
+    sweep_vol = (float(d["volume"].iloc[swept_bar]) / vol20) if vol20 > 0 else 0.0
+
+    ms = read_market_structure(d, pivot_len=pivot_len)
+    struct_state = ms["state"] if ms else "UNKNOWN"
+    with_trend = struct_state in ("UPTREND", "BROADENING")
+
+    # Score: pool depth (more touches = more stops) · rejection wick · freshness
+    # · volume on the sweep bar · structural agreement.
+    touch = min(ev["touches"], 4) / 4.0
+    fresh = 1.0 if ev["bars_ago"] <= 1 else (0.7 if ev["bars_ago"] == 2 else 0.5)
+    base = (10.0 + 25.0 * touch + 20.0 * min(ev["wick_ratio"], 1.0)
+            + 20.0 * fresh + (15.0 if sweep_vol >= 1.2 else 0.0)
+            + (10.0 if with_trend else 0.0))
+
+    reasons = [
+        f"Swept a {ev['touches']}-touch equal-lows pool at ₹{ev['level']:.0f} "
+        f"{ev['bars_ago']} bar(s) ago and closed back above it",
+        f"Pierce {ev['pierce_atr']:.2f}× ATR with a {ev['wick_ratio']:.0%} rejection wick "
+        f"— a false break, not a breakdown (a breakdown closes below)",
+        (f"Sweep bar volume {sweep_vol:.1f}× the 20d average" if sweep_vol >= 1.2
+         else f"⚠ Sweep bar volume only {sweep_vol:.1f}× average — weaker stop-hunt read"),
+        (f"Market structure {struct_state} — sweep runs with structure" if with_trend
+         else f"⚠ Market structure {struct_state} — sweep is counter-structure"),
+        f"Trade plan — entry {last:.0f} · stop {stop:.0f} · target {target:.0f} "
+        f"(R:R {(target - last) / risk:.1f})",
+        "⚠ Unmeasured — this scanner has not been through the backtest harness",
+    ]
+    return {
+        "pattern_type": "Bullish Liquidity Sweep",
+        "tags": ["Sweep", f"{ev['touches']}-touch EQL", f"₹{ev['level']:.0f}",
+                 f"{ev['bars_ago']}d ago"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, base), 1),
+        "rs_raw": _rs_raw(d),
+        "entry": round(last, 2),
+        "stop": stop,
+        "target": target,
+        "vol_x50d": round(vol_x, 2),
+    }
+
+
+def scan_liquidity_sweep_bear(df: pd.DataFrame, max_bars_ago: int = 3,
+                              pivot_len: int = 5, eq_tol_pct: float = 0.75,
+                              min_touches: int = 2) -> dict | None:
+    """Bearish liquidity sweep — buy-side stop hunt rejected (B-41, Risk lane).
+
+    The mirror of ``scan_liquidity_sweep``: price ran a pool of **equal highs**,
+    pierced it on the wick, and **closed back below**. Breakout buyers filled
+    above the pool are trapped and their stops feed the move down.
+
+    Registered under Risk, so a NEGATIVE forward edge is the desired direction —
+    it flags a name to avoid or exit, not a short to put on.
+
+    Unmeasured, same event-study caveat as the bullish half.
+    """
+    got = _sweep_common(df, "bearish", max_bars_ago, pivot_len, eq_tol_pct, min_touches)
+    if got is None:
+        return None
+    ev, d = got
+
+    last = float(d["close"].iloc[-1])
+    n = len(d)
+    swept_bar = n - 1 - ev["bars_ago"]
+    wick_high = float(d["high"].iloc[swept_bar])
+
+    # Still rejected? A close back above the pool invalidates the trap read.
+    if last >= ev["level"] * 1.005:
+        return None
+
+    invalidation = round(wick_high * 1.005, 2)
+    vol20 = float(d["volume"].tail(20).mean())
+    vol_x = float(d["volume"].iloc[-1]) / vol20 if vol20 > 0 else 0.0
+    sweep_vol = (float(d["volume"].iloc[swept_bar]) / vol20) if vol20 > 0 else 0.0
+
+    ms = read_market_structure(d, pivot_len=pivot_len)
+    struct_state = ms["state"] if ms else "UNKNOWN"
+    with_trend = struct_state in ("DOWNTREND", "BROADENING")
+
+    touch = min(ev["touches"], 4) / 4.0
+    fresh = 1.0 if ev["bars_ago"] <= 1 else (0.7 if ev["bars_ago"] == 2 else 0.5)
+    base = (10.0 + 25.0 * touch + 20.0 * min(ev["wick_ratio"], 1.0)
+            + 20.0 * fresh + (15.0 if sweep_vol >= 1.2 else 0.0)
+            + (10.0 if with_trend else 0.0))
+
+    reasons = [
+        f"Swept a {ev['touches']}-touch equal-highs pool at ₹{ev['level']:.0f} "
+        f"{ev['bars_ago']} bar(s) ago and closed back below it",
+        f"Pierce {ev['pierce_atr']:.2f}× ATR with a {ev['wick_ratio']:.0%} rejection wick "
+        f"— breakout buyers above ₹{ev['level']:.0f} are trapped",
+        (f"Sweep bar volume {sweep_vol:.1f}× the 20d average" if sweep_vol >= 1.2
+         else f"⚠ Sweep bar volume only {sweep_vol:.1f}× average — weaker trap read"),
+        (f"Market structure {struct_state} — sweep runs with structure" if with_trend
+         else f"⚠ Market structure {struct_state} — sweep is counter-structure"),
+        f"Invalidated on a reclaim above {invalidation:.0f}",
+        "⚠ Risk flag, not a short signal — avoid/exit, and unmeasured",
+    ]
+    return {
+        "pattern_type": "Bearish Liquidity Sweep",
+        "tags": ["Sweep", f"{ev['touches']}-touch EQH", f"₹{ev['level']:.0f}",
+                 f"{ev['bars_ago']}d ago"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, base), 1),
+        "rs_raw": _rs_raw(d),
+        "entry": round(last, 2),
+        "stop": invalidation,
+        "target": None,
         "vol_x50d": round(vol_x, 2),
     }
 
@@ -6587,6 +6998,32 @@ SCANNERS: dict[str, dict] = {
         "fn": scan_near_pivot,
         "description": "Within 3% of a recent swing-high pivot — tight stop opportunity",
         "category": "Entry",
+    },
+    "Liquidity Sweep": {
+        "fn": scan_liquidity_sweep,
+        "description": (
+            "Bullish liquidity sweep (stop hunt) — price ran a multi-touch "
+            "equal-lows pool, pierced it on the wick, and closed back ABOVE it. "
+            "A false break, not a breakdown: the distinction is the close, and "
+            "one bar cannot be both. Sellers filled below the pool are trapped "
+            "and their covering fuels the reversal. Stop below the sweep wick; "
+            "target the nearest equal-highs pool overhead. Completes the SMC "
+            "stack alongside FVG Pullback and Order Block Retest — this is the "
+            "event that validates those entries. Built on B-42's equal-level "
+            "labelling. Unmeasured."
+        ),
+        "category": "Entry",
+    },
+    "Liquidity Sweep Bear": {
+        "fn": scan_liquidity_sweep_bear,
+        "description": (
+            "Bearish liquidity sweep — price ran a multi-touch equal-HIGHS pool, "
+            "pierced it on the wick, and closed back BELOW it, trapping breakout "
+            "buyers. Risk flag rather than a short signal: it marks a name to "
+            "avoid or exit, so a negative forward edge is the desired direction. "
+            "Mirror of Liquidity Sweep. Unmeasured."
+        ),
+        "category": "Risk",
     },
     "FVG Pullback": {
         "fn": scan_fvg_pullback,

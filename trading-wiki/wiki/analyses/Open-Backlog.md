@@ -42,12 +42,12 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **Closed 2026-08-12** | **B-3** (mean-reversion scanner — `scan_mean_reversion` Connors RSI2, registered), **B-5** (time_stop emitted by 6 scanners: Harmonic/RSI60-40/OrderBlock/FallingWedge/SupportBreakdown/MeanReversion), **B-19b** (support-breakdown detector — `scan_support_breakdown` + `detect_support_breakdown`), **B-20a** (t-test + 95% CI on edge in `_aggregate`), **B-20b** (market-model beta/alpha when benchmark_df supplied to `backtest_scanner`), **B-25** (`backtest_confluence` + `format_confluence_report` measure co-fire vs single-fire), **B-7** (`sweep_volume_threshold` sweeps 1.0/1.2/1.5/2.0× vol floors and ranks by edge) |
 | **Closed 2026-08-26** | **B-32** (regime output throttle — `_apply_regime_gate` + `REGIME_GATE`, premise proven `regime_backtest.py`), **B-33** (conviction-sized shortlist — score-floor replaces fixed `top_n`, floors data-calibrated), **B-36** (regime posture banner + Analytics→Research nav fold) |
 | **Closed 2026-09-01** | **B-21** (walk-forward OOS pooling + per-horizon stability), **B-29** (Indian delivery cost model ~29bps, applied everywhere), **B-39** (scipy-optional fallback) |
-| **Closed 2026-09-02** | **B-16** (OI Momentum `_strength_color` → `rs.TOKENS`), **B-24** (RSI divergence Python/JS agreement — `detect_bullish_rsi_divergence` rewritten to Wilder RSI + pivot lows + 3-pt gap), **B-34** (small-cap lane complete — quality overlay + dashboard lane shipped earlier; hit-rate backtest measured → WEAK, see below), **B-42** (shared market-structure read — HH/HL/LH/LL sequence + state + premium/discount + sequence-vs-breaks `agreement`; invariant clean on 30 large-caps; residual **B-42r**) |
+| **Closed 2026-09-02** | **B-16** (OI Momentum `_strength_color` → `rs.TOKENS`), **B-24** (RSI divergence Python/JS agreement — `detect_bullish_rsi_divergence` rewritten to Wilder RSI + pivot lows + 3-pt gap), **B-34** (small-cap lane complete — quality overlay + dashboard lane shipped earlier; hit-rate backtest measured → WEAK, see below), **B-42** (shared market-structure read — HH/HL/LH/LL sequence + state + premium/discount + sequence-vs-breaks `agreement`; invariant clean on 30 large-caps; residual **B-42r**), **B-41** (liquidity sweep / stop hunt — pools + bidirectional detector + Entry & Risk scanners, built on B-42's equal-level labelling; SMC stack complete at 44 scanners) |
 | **Closed 2026-08-27 (re-verify)** | **B-11** (MFI — `scan_mfi_oversold` + `_mfi_series` shipped and registered; page had it "absent"). Ledger/body sync only: **B-5, B-25, B-20a, B-20b, B-7** were already code-complete but mis-filed as open in the body |
 | **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-22, B-23, B-26, B-27, B-28, B-30, B-31, B-35, B-37 |
 | **Open — residual only** | **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
 | **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic), **B-39** (pin `scipy` in requirements / make `backtest.py` scipy-optional — the hard import silently broke the significance stack on Python 3.14) |
-| **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**, see below), **B-41** (liquidity-sweep / stop-hunt detector — missing third of the SMC stack; **B-42's `eq_tol_pct` EQH/EQL labelling now supplies its equal-highs/lows primitive**), ~~**B-42**~~ (**CLOSED 2026-09-02**; residual **B-42r** — the pivot_len 5-vs-15 split, to be settled on data). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
+| **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**), ~~**B-41**~~ (**CLOSED 2026-09-02** — `detect_liquidity_pools` + `detect_liquidity_sweep` + both scanners; SMC stack now complete), ~~**B-42**~~ (**CLOSED 2026-09-02**; residual **B-42r** — the pivot_len 5-vs-15 split, to be settled on data). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
 | **New 2026-08-29** | ~~**B-43**~~ **BUILT + MEASURED → clean null** (flip edge ~0, negative on the long leg; beat buy&hold 0/23 — but fires 40% less often than the EVWMA cross, i.e. noise reduction without edge). Chart overlay kept, labelled FLIP not BUY/SELL. MCX still gated. From the Renko podcast ingest. ~~**B-44**~~ **BUILT + MEASURED same day → clean null** (see below); residual **B-44r** (is the naive dealer convention backwards for NSE?). From the Chris Kmer order-flow ingest. |
 | **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
@@ -635,7 +635,7 @@ prop-desk toolset converges on. See [[concepts/Order-Flow]].
 > stack that could plausibly supply trade-side data; establish whether it does, and whether
 > any NSE path exists, first.
 
-### B-41 · No liquidity-sweep / stop-hunt detector — the missing third of the SMC stack *(2026-08-27)*
+### ~~B-41 · No liquidity-sweep / stop-hunt detector — the missing third of the SMC stack~~ — **CLOSED 2026-09-02** *(2026-08-27)*
 Zero occurrences of `liquidity sweep`, `stop hunt`, or `equal highs/lows` in `tools/`.
 We ship FVG Pullback, Order Block Retest and ICT Setup — **two-thirds of the ICT
 stack** — but not the **sweep-and-reverse**: an equal-highs/lows liquidity pool that
@@ -645,6 +645,52 @@ family. Build: detect equal highs/lows (clustered swing pivots within a toleranc
 flag a wick that pierces then closes back inside, direction-aware. Relates to B-19b
 (support-breakdown) but distinct — a sweep is a *false* break that reverses, not a
 real breakdown. Unmeasured until event-studied (sweep-reversal vs matched clean-break).
+
+**SHIPPED 2026-09-02**, built directly on B-42's equal-level labelling (which is
+what `eq_tol_pct` was added for — the two items composed as predicted):
+
+- `detect_liquidity_pools()` — equal-highs/lows clusters. Level is the cluster's
+  **extreme**, not its mean, because that is the edge stops actually sit beyond.
+- `detect_liquidity_sweep()` — bidirectional. Requires a wick pierce of
+  0.05–2.0 ATR (floor rejects a graze, ceiling rejects a break that kept going),
+  a close back **inside**, and a dominant rejection wick.
+- `scan_liquidity_sweep` (Entry) and `scan_liquidity_sweep_bear` (Risk) — the
+  mirror is registered too, so this does not repeat the repo's orphaned-detector
+  pattern. Registry is now **44 scanners, 6 Risk**.
+- `test_liquidity_sweep.py` — 24 tests, all passing.
+
+**Live check, 49 NSE large-caps:** pools on 49/49, a sweep event on 37, 7 bull
+fires and 4 bear fires at `max_bars_ago=5`, all 7 trade plans well-formed
+(R:R 1.15–4.03).
+
+**Three bugs the build surfaced, all found by testing rather than review:**
+
+1. **Consecutive-only clustering missed the normal case.** The first
+   implementation grouped only *adjacent* pivots, so a low at 90, a rally, a low
+   at 95, then 90 again never pooled — yet that interrupted revisit is exactly
+   what a double bottom is. Clustering is now level-based across the window.
+2. **The wick ratio measured the wrong quantity** — the pierce depth below the
+   pool as a fraction of range (0.2 on the test bar) rather than the bar's
+   rejection shadow (0.8). It was silently rejecting real sweeps.
+3. **Targets with no room.** The nearest overhead pool can sit fractionally above
+   entry: NTPC emitted entry 330 / target 330.22, an **R:R of 0.02**. A
+   `MIN_SWEEP_RR` floor now falls back to 2R rather than print a plan that is not
+   one.
+
+**Exclusivity with B-19b is PER LEVEL, not global** — worth recording so a future
+session does not "fix" it. A bar can legitimately sweep a pool below it while
+still closing under a higher swing low, so both detectors firing on one bar is
+coherent (measured: 1 of 49, ULTRACEMCO closing above its 11254 pool and below
+its 11396 swing low). Only "swept and reclaimed level X" and "closed below level
+X" are mutually exclusive, and a test pins that.
+
+**Also recorded:** `session_volume_profile.js` already had a *different* sweep —
+current session's extreme vs the prior session's, intraday. Two claims sharing a
+name; the docstring says so, so nobody assumes they agree (the B-24 lesson).
+
+**Still unmeasured**, and the claim is specific: sweep-reversal vs a **matched
+clean break**, not whether the scanner wins in isolation. That event study is the
+open item, and B-19 sets the expectation — most scanners show no edge after costs.
 
 ### ~~B-42 · No shared market-structure engine (BOS / CHoCH, HH-HL-LH-LL)~~ — **CLOSED 2026-09-02** *(2026-08-27)*
 Swing traders read **market structure** first — the HH/HL/LH/LL sequence and its
@@ -849,12 +895,11 @@ true only on paper.
 
 **Next (updated 2026-09-02):**
 
-1. **B-41** — liquidity-sweep / stop-hunt detector. Now the cheapest real build:
-   B-42 shipped the equal-highs/lows primitive it needs (`label_swing_sequence`
-   with `eq_tol_pct` → EQH/EQL), so this is the wick-pierce-and-reverse test on
-   top of an existing labelled sequence.
-2. **B-42r** — settle the `pivot_len` 5-vs-15 split on data (harness, not taste).
-3. **B-32r** — recalibrate regime floors with walk-forward (now unblocked).
+1. **B-42r** — settle the `pivot_len` 5-vs-15 split on data (harness, not taste).
+2. **B-32r** — recalibrate regime floors with walk-forward (now unblocked).
+3. **B-41 event study** — sweep-reversal vs a **matched clean break**. The two new
+   scanners are unmeasured, and B-19's result (0/41 stable after costs) says to
+   measure before adding them to any scoring path.
 4. **B-31** — learned confluence weights (was gated behind B-19, now unblocked —
    but the B-19 results show most scanners have no edge after costs, so the premise
    of weighting them is weakened).
