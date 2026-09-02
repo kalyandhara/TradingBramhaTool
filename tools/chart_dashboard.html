@@ -665,6 +665,27 @@ html, body {
 .gann-info.collapsed .gann-body { display: none; }
 .gann-info .gann-cav { color: var(--text-muted); font-size: 9px; margin-top: 4px; }
 .gann-info b { font-variant-numeric: tabular-nums; }
+
+/* ── Option OI walls + max pain card (B-28, see option_chain.py) ───────────── */
+/* Sits opposite the Gann card so both can be open at once. Carries an EXPIRY
+   selector because these levels are per-expiry — without it a weekly and a
+   monthly chain silently merge into one picture (the rule B-23 measured). */
+.oiw-info {
+  position: absolute; bottom: 8px; left: 8px; z-index: 9;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 7px;
+  padding: 7px 10px; font-size: 10.5px; line-height: 1.55; color: var(--text-chart);
+  max-width: 46%; display: none; box-shadow: 0 2px 10px rgba(0,0,0,0.22);
+}
+.oiw-info .oiw-head { cursor: pointer; font-weight: 700; user-select: none; }
+.oiw-info.collapsed .oiw-body { display: none; }
+.oiw-info .oiw-cav { color: var(--text-muted); font-size: 9px; margin-top: 4px; }
+.oiw-info b { font-variant-numeric: tabular-nums; }
+.oiw-info select {
+  background: var(--bg-input); border: 1px solid var(--border); color: var(--text-primary);
+  font-size: 9.5px; border-radius: 3px; padding: 1px 3px; outline: none; margin-left: 4px;
+}
+.oiw-info .oiw-row { display: flex; justify-content: space-between; gap: 10px; }
+.oiw-info .oiw-oi { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 /* ── Session Volume Profile HD card ───────────────────────────────────────── */
 /* Top-left of the chart-main, below the toolbar. Header (current session shape +
    accum/distrib) is the click target; body holds the session-shape sequence,
@@ -1284,6 +1305,8 @@ const INDICATOR_DEFS = [
                                                      group:'Levels & Projection', color:'#c9a227'},
   {key:'gann',         label:'Gann S/R + Break Odds (Square-of-9 + historical follow-through)',
                                                      group:'Price Patterns', color:'#d9b45b'},
+  {key:'oiwalls',      label:'Option OI Walls + Max Pain (F&O names only, per expiry)',
+                                                     group:'Levels & Projection', color:'#7e57c2'},
   // ── Calendar ────────────────────────────────────────────────────────────────
   {key:'reversal_calendar', label:'Reversal Calendar (Yogas + Lunar)',
                                                      group:'Calendar',           color:'#ffd60a'},
@@ -3137,6 +3160,7 @@ function applyIndicators(pane) {
   if (!pane.indicators.has('fib') && pane.fib) clearFibonacci(pane);
   // Tear down Gann S/R levels + card if deselected
   if (!pane.indicators.has('gann') && pane.gann) clearGann(pane);
+  if (!pane.indicators.has('oiwalls') && pane.oiw) clearOiWalls(pane);
   // Tear down Reversal Calendar markers if deselected
   if (!pane.indicators.has('reversal_calendar') && pane.rev) clearReversalCalendar(pane);
   if (!bars || bars.length < 2) return;
@@ -3842,6 +3866,11 @@ function applyIndicators(pane) {
     renderGann(pane);
   }
 
+  // ── Option OI walls + max pain (server-side, see option_chain.py) ───────────
+  if (pane.indicators.has('oiwalls')) {
+    renderOiWalls(pane);
+  }
+
   // ── Reversal Calendar overlay (yogas + lunar phases, see reversal_calendar.py)
   if (pane.indicators.has('reversal_calendar')) {
     renderReversalCalendar(pane);
@@ -3950,7 +3979,8 @@ function resetPaneVisuals(pane) {
   [clearElliottWave, clearRoundingBottom, clearVCP, clearTrendlines,
    clearFallingWedge, clearStructureChain, clearHarmonic, clearProjection,
    clearFibonacci, clearReversalCalendar, clearMABias, clearPmaxTrade,
-   clearFVGSignals, clearOrderBlocks, clearPrteOverlay].forEach(fn => { try { fn(pane); } catch {} });
+   clearFVGSignals, clearOrderBlocks, clearPrteOverlay,
+   clearOiWalls].forEach(fn => { try { fn(pane); } catch {} });
   // Canvas overlays are redrawn from pane.bars on resize/pan, and pane.bars
   // still holds the OLD candles until the fetch lands. Blank the canvases and
   // drop the bars so nothing repaints the old timeframe in the meantime.
@@ -7044,6 +7074,188 @@ function renderGannInfo(pane, r) {
       `<div class="gann-cav">Lines are deterministic Square-of-9 levels; the % is THIS ` +
         `symbol's historical breakout follow-through (n past breaks), not a Gann ` +
         `forecast. “No edge” = the break behaves like ordinary S/R. Not advice.</div>` +
+    `</div>`;
+  st.infoEl.classList.toggle('collapsed', st.collapsed);
+  st.infoEl.style.display = 'block';
+}
+
+// ── Option OI walls + max pain overlay (B-28) ────────────────────────────────
+// Backed by /api/option_levels (option_chain.read_levels). Draws the highest-OI
+// call strikes as resistance, the highest-OI put strikes as support, and the
+// max-pain strike as a magnet line.
+//
+// Price lines, not a canvas: these are horizontal PRICE levels, so
+// createPriceLine lets Lightweight Charts own the anchoring and the axis label
+// and there is no pan/zoom redraw to get wrong (the trap the user drawing layer
+// had to solve).
+//
+// Two rules inherited from option_chain.py, and the overlay must not re-derive
+// its own view of either:
+//   1. Levels are PER EXPIRY. The card carries an expiry selector; without one a
+//      weekly and a monthly chain merge into one meaningless picture.
+//   2. Walls are side-correct — resistance at/above spot, support at/below. The
+//      server already enforces it; this draws what it is given rather than
+//      re-ranking the raw strike table.
+//
+// UNMEASURED. "Price gravitates to max pain" and "a wall rejects the first
+// touch" are untested folk claims; the payload carries `unmeasured: true` and
+// the card says so. This is levels-with-context, not a signal.
+const OIW_RES  = '#f23645';   // call walls — resistance
+const OIW_SUP  = '#26a69a';   // put walls  — support
+const OIW_PAIN = '#7e57c2';   // max pain   — magnet
+
+function ensureOiWallsState(pane) {
+  if (!pane.oiw) {
+    pane.oiw = {priceLines: [], infoEl: null, collapsed: false,
+                lastKey: null, expiry: null, data: null, inflight: false};
+  }
+  return pane.oiw;
+}
+
+function clearOiWalls(pane) {
+  const st = pane.oiw;
+  if (!st) return;
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+  if (st.infoEl) { try { st.infoEl.remove(); } catch {} st.infoEl = null; }
+  pane.oiw = null;
+}
+
+async function renderOiWalls(pane) {
+  const st = ensureOiWallsState(pane);
+  // Options are an underlying-level fact: the same chain regardless of the
+  // chart timeframe, so tf is deliberately NOT part of the cache key.
+  const key = `${pane.symbol}:${st.expiry || 'near'}`;
+  if (st.lastKey === key && st.data) { drawOiWalls(pane); return; }
+  if (st.inflight) return;
+
+  st.inflight = true;
+  let payload = null;
+  try {
+    const url = `${SERVER}/api/option_levels?symbol=${encodeURIComponent(pane.symbol)}`
+              + (st.expiry ? `&expiry=${encodeURIComponent(st.expiry)}` : '')
+              + '&walls=3';
+    const res = await fetch(url);
+    if (res.ok) payload = await res.json();
+  } catch (e) { console.warn('option_levels fetch failed:', e); }
+  st.inflight = false;
+
+  // The user may have switched the indicator off or changed symbol mid-flight.
+  if (!pane.indicators.has('oiwalls')) return;
+  if (pane.symbol !== key.split(':')[0]) return;
+
+  st.lastKey = key;
+  st.data = payload ? payload.levels : null;
+  drawOiWalls(pane);
+}
+
+function drawOiWalls(pane) {
+  const st = ensureOiWallsState(pane);
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+
+  const r = st.data;
+  if (!r) { renderOiWallsInfo(pane, null); return; }
+
+  const mk = (price, color, style, width, title) => {
+    if (!Number.isFinite(price)) return;
+    try {
+      st.priceLines.push(pane.series.createPriceLine({
+        price, color, lineWidth: width, lineStyle: style,
+        axisLabelVisible: true, title,
+      }));
+    } catch {}
+  };
+
+  // Rank drives line weight, so the heaviest wall reads as the heaviest line
+  // without needing the numbers. Server returns strongest-first.
+  (r.resistance || []).forEach((w, i) => {
+    mk(w.strike, OIW_RES, i === 0 ? 0 : 2, i === 0 ? 2 : 1,
+       `CE wall ${i === 0 ? '' : (i + 1)}`.trim());
+  });
+  (r.support || []).forEach((w, i) => {
+    mk(w.strike, OIW_SUP, i === 0 ? 0 : 2, i === 0 ? 2 : 1,
+       `PE wall ${i === 0 ? '' : (i + 1)}`.trim());
+  });
+  // Max pain is a magnet, not a barrier — dashed so it never reads as S/R.
+  if (r.max_pain != null) mk(r.max_pain, OIW_PAIN, 1, 2, 'Max pain');
+
+  renderOiWallsInfo(pane, r);
+}
+
+function renderOiWallsInfo(pane, r) {
+  const st = ensureOiWallsState(pane);
+  if (!st.infoEl) {
+    st.infoEl = document.createElement('div');
+    st.infoEl.className = 'oiw-info';
+    pane.el.querySelector('.chart-main').appendChild(st.infoEl);
+    st.infoEl.addEventListener('click', ev => {
+      if (!ev.target.closest('.oiw-head')) return;
+      st.collapsed = !st.collapsed;
+      st.infoEl.classList.toggle('collapsed', st.collapsed);
+    });
+    // Expiry switch — refetch that chain rather than re-slicing the old one,
+    // since max pain is only defined against a single settlement.
+    st.infoEl.addEventListener('change', ev => {
+      const sel = ev.target.closest('.oiw-exp');
+      if (!sel) return;
+      st.expiry = sel.value || null;
+      st.lastKey = null;
+      renderOiWalls(pane);
+    });
+  }
+
+  if (!r) {
+    st.infoEl.innerHTML =
+      `<div class="oiw-head"><span style="color:${OIW_PAIN}">Option OI Walls</span> ` +
+      `<span style="color:var(--text-muted);font-weight:400;">no F&O chain for ` +
+      `${pane.symbol}</span></div>`;
+    st.infoEl.style.display = 'block';
+    return;
+  }
+
+  const f = v => Number.isFinite(v)
+    ? v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—';
+  const oiFmt = v => Number.isFinite(v)
+    ? (v >= 1e7 ? (v / 1e7).toFixed(2) + ' Cr' : v >= 1e5 ? (v / 1e5).toFixed(2) + ' L'
+       : v.toLocaleString()) : '—';
+  const dist = w => (w.dist_pct == null ? '' :
+    ` <span class="oiw-oi">${w.dist_pct >= 0 ? '+' : ''}${w.dist_pct.toFixed(2)}%</span>`);
+
+  const expOpts = (r.expiries || []).map(e =>
+    `<option value="${e}"${e === r.expiry ? ' selected' : ''}>${e}</option>`).join('');
+
+  const row = (w, color, tag) =>
+    `<div class="oiw-row"><span style="color:${color}">${tag} <b>${f(w.strike)}</b>${dist(w)}</span>` +
+    `<span class="oiw-oi">${oiFmt(w.oi)}</span></div>`;
+
+  const mpLine = r.max_pain == null
+    ? `<div class="oiw-oi">Max pain n/a (pooled expiry)</div>`
+    : `<div><span style="color:${OIW_PAIN}">◆ Max pain <b>${f(r.max_pain)}</b></span>` +
+      (r.max_pain_dist_pct == null ? '' :
+        ` <span class="oiw-oi">${r.max_pain_dist_pct >= 0 ? '+' : ''}` +
+        `${r.max_pain_dist_pct.toFixed(2)}% from spot</span>`) + `</div>`;
+
+  st.infoEl.innerHTML =
+    `<div class="oiw-head">` +
+      `<span style="color:${OIW_PAIN}">Option OI Walls · Max Pain</span> ` +
+      `<span class="oiw-oi" style="font-weight:400;">${r.class} · spot ${f(r.spot)}` +
+      (r.pcr_oi != null ? ` · PCR ${r.pcr_oi.toFixed(2)}` : '') + `</span> ` +
+      `<span class="oiw-oi" style="font-weight:400;">▾</span>` +
+    `</div>` +
+    `<div class="oiw-body" style="margin-top:5px;">` +
+      `<div class="oiw-oi" style="margin-bottom:3px;">Expiry` +
+        `<select class="oiw-exp">${expOpts}</select>` +
+        (r.trade_date ? ` <span class="oiw-oi">· session ${r.trade_date}</span>` : '') +
+      `</div>` +
+      (r.resistance || []).map(w => row(w, OIW_RES, '▲')).join('') +
+      mpLine +
+      (r.support || []).map(w => row(w, OIW_SUP, '▼')).join('') +
+      `<div class="oiw-cav">Where option OI sits, from the EOD F&O bhavcopy — ` +
+        `call writers above, put writers below, max pain the settlement that pays ` +
+        `holders least. <b>Unmeasured:</b> "price gravitates to max pain" and "a ` +
+        `wall rejects the first touch" are untested here. Levels for context, not ` +
+        `a signal. Not advice.</div>` +
     `</div>`;
   st.infoEl.classList.toggle('collapsed', st.collapsed);
   st.infoEl.style.display = 'block';
