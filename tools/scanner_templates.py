@@ -2558,6 +2558,227 @@ def detect_structure_chain(df: pd.DataFrame, pivot_len: int = 15,
     }
 
 
+# ─────────────────────────────────────────────────────────────────────────────
+# B-42 · Shared market-structure read
+#
+# `detect_structure_chain` (above) walks the breaks; `detect_bos_choch` returns
+# the latest bullish one. Neither labels the *sequence* — HH/HL/LH/LL — which is
+# what a swing trader reads first and every entry hangs off. These two functions
+# add that layer on top of the existing walk, additively: no existing detector
+# changes behaviour, and `read_market_structure` is the one primitive a consumer
+# should call when it wants "what is structure doing right now".
+#
+# Known open question (B-42r): `detect_bos_choch`/`detect_support_breakdown`
+# default to pivot_len=5 while `detect_structure_chain` and the chart overlay use
+# 15, so "structure" is coarser on the chart than in the scanners. Deliberately
+# NOT unified here — changing either default silently re-grades live output (the
+# B-26 lesson). Settle it on data, not by inheritance.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def label_swing_sequence(swings: list[dict], tol_pct: float = 0.0) -> list[dict]:
+    """Label each swing against the prior swing of the SAME kind.
+
+    highs -> "HH" (higher high) / "LH" (lower high) / "EQH" (equal, within tol)
+    lows  -> "HL" (higher low)  / "LL" (lower low)  / "EQL"
+
+    The first swing of each kind has no predecessor and is labelled None. Input
+    is the `swings` list from `detect_structure_chain` ({"bar", "level", "kind"});
+    returns new dicts (input is not mutated) with "label" and "prev_level" added.
+
+    `tol_pct` treats near-equal levels as equal — an equal-highs/lows cluster is
+    a liquidity pool rather than a trend step (B-41's raw material). Default 0.0
+    keeps the classification strict.
+    """
+    out: list[dict] = []
+    prev: dict[str, float] = {}
+    for idx, s in enumerate(swings):
+        kind = s.get("kind")
+        lvl = s.get("level")
+        d = dict(s)
+        # A flat plateau registers once per bar in `detect_structure_chain`, so a
+        # single real swing can arrive as several identical entries. Collapsing
+        # them keeps the sequence describing the market rather than the sampling:
+        # left in, every trend read degrades to EQH/EQL on plateau-y tapes.
+        if (out and out[-1].get("kind") == kind
+                and isinstance(lvl, (int, float))
+                and out[-1].get("level") == lvl):
+            d["label"] = None
+            d["prev_level"] = None
+            d["duplicate_of"] = out[-1].get("bar")
+            out.append(d)
+            continue
+        d["label"] = None
+        d["prev_level"] = None
+        if kind in ("high", "low") and isinstance(lvl, (int, float)):
+            p = prev.get(kind)
+            if p is not None:
+                d["prev_level"] = p
+                tol = abs(p) * (tol_pct / 100.0)
+                if abs(lvl - p) <= tol:
+                    d["label"] = "EQH" if kind == "high" else "EQL"
+                elif lvl > p:
+                    d["label"] = "HH" if kind == "high" else "HL"
+                else:
+                    d["label"] = "LH" if kind == "high" else "LL"
+            prev[kind] = float(lvl)
+        out.append(d)
+    return out
+
+
+def _verify_swing_sequence(labelled: list[dict], tol_pct: float = 0.0) -> dict:
+    """The B-42 invariant: every label must reconcile to the pivots it came from.
+
+    Re-derives each label from its own `prev_level` and reports any mismatch.
+    A structure read that cannot pass this is not trustworthy as shared context.
+    """
+    violations: list[str] = []
+    for s in labelled:
+        lab, lvl, p, kind = s.get("label"), s.get("level"), s.get("prev_level"), s.get("kind")
+        if lab is None or p is None:
+            continue
+        tol = abs(p) * (tol_pct / 100.0)
+        if abs(lvl - p) <= tol:
+            expect = "EQH" if kind == "high" else "EQL"
+        elif lvl > p:
+            expect = "HH" if kind == "high" else "HL"
+        else:
+            expect = "LH" if kind == "high" else "LL"
+        if expect != lab:
+            violations.append(f"bar {s.get('bar')}: labelled {lab}, pivots imply {expect}")
+    return {"ok": not violations, "violations": violations}
+
+
+def read_market_structure(df: pd.DataFrame, pivot_len: int = 15,
+                          confirm: str = "close", fail_win: int = 3,
+                          max_swings: int = 15,
+                          eq_tol_pct: float = 0.0,
+                          chain: dict | None = None) -> dict | None:
+    """First-class market-structure state — the shared read B-42 asks for.
+
+    Composes the existing `detect_structure_chain` walk with HH/HL/LH/LL sequence
+    labelling and a premium/discount location, so every consumer means the same
+    thing by "structure". Purely additive: it calls the existing engine and does
+    not alter it.
+
+    state is derived from the last high-label and last low-label together:
+      UPTREND     HH + HL   — both ends rising
+      DOWNTREND   LH + LL   — both ends falling
+      RANGE       LH + HL   — contracting, lower highs into higher lows
+      BROADENING  HH + LL   — expanding, both ends widening
+      TRANSITION  anything involving an equal high/low, or only one side known
+      UNKNOWN     not enough labelled swings to say
+
+    `agreement` compares that sequence read against the break-derived trend:
+    CONFIRMED (both agree), DIVERGING (they disagree — the sequence lags pivot
+    confirmation, so a fresh CHOCH against a still-intact sequence is the
+    earliest warning structure is turning), or UNDECIDED (either side neutral).
+
+    `zone` locates the last close inside the most recent swing-high/swing-low
+    band (the SMC premium/discount read): PREMIUM >70%, DISCOUNT <30%, else
+    EQUILIBRIUM. None when the band cannot be established.
+
+    Pass `chain` to reuse a `detect_structure_chain` result you already have
+    (the chart endpoint does) instead of walking the series a second time; the
+    pivot_len/confirm/fail_win args are then only echoed back in `params`, so
+    they must match how that chain was built.
+
+    Returns None when there is not enough history for the underlying walk.
+    """
+    if chain is None:
+        chain = detect_structure_chain(df, pivot_len=pivot_len, confirm=confirm,
+                                       fail_win=fail_win, max_swings=max_swings)
+    if chain is None:
+        return None
+
+    labelled = label_swing_sequence(chain.get("swings") or [], tol_pct=eq_tol_pct)
+    invariant = _verify_swing_sequence(labelled, tol_pct=eq_tol_pct)
+
+    last_high = next((s for s in reversed(labelled)
+                      if s["kind"] == "high" and s["label"]), None)
+    last_low = next((s for s in reversed(labelled)
+                     if s["kind"] == "low" and s["label"]), None)
+    hl = last_high["label"] if last_high else None
+    ll = last_low["label"] if last_low else None
+
+    if hl == "HH" and ll == "HL":
+        state = "UPTREND"
+    elif hl == "LH" and ll == "LL":
+        state = "DOWNTREND"
+    elif hl == "LH" and ll == "HL":
+        state = "RANGE"
+    elif hl == "HH" and ll == "LL":
+        state = "BROADENING"
+    elif hl is None and ll is None:
+        state = "UNKNOWN"
+    else:
+        state = "TRANSITION"
+
+    # Premium/discount inside the live swing band. Fall back to the most recent
+    # pivot of each kind when a side has already been consumed by a break — the
+    # FIRST pivot of a kind carries no label, so this must not filter on one.
+    hi = chain.get("live_swing_high")
+    lo = chain.get("live_swing_low")
+    last_hi_pivot = next((s for s in reversed(labelled)
+                          if s["kind"] == "high" and "duplicate_of" not in s), None)
+    last_lo_pivot = next((s for s in reversed(labelled)
+                          if s["kind"] == "low" and "duplicate_of" not in s), None)
+    if hi is None and last_hi_pivot:
+        hi = last_hi_pivot["level"]
+    if lo is None and last_lo_pivot:
+        lo = last_lo_pivot["level"]
+    zone = None
+    zone_pct = None
+    if hi is not None and lo is not None and hi > lo:
+        c = float(df["close"].iloc[-1])
+        pos = (c - lo) / (hi - lo)
+        # Not clamped on purpose: >100 or <0 means price has left the band its
+        # last pivots defined, which is breakout/breakdown information, not an
+        # error. Callers wanting a bounded gauge should clamp at the edge.
+        zone_pct = round(pos * 100, 1)
+        zone = "PREMIUM" if pos > 0.7 else "DISCOUNT" if pos < 0.3 else "EQUILIBRIUM"
+
+    stats = chain.get("stats", {})
+    events = chain.get("events") or []
+    last_ev = events[-1] if events else None
+
+    # The swing sequence lags (a pivot needs pivot_len bars to confirm) while a
+    # break prints immediately, so the two reads can disagree — an UPTREND
+    # sequence under a fresh CHOCH down is a character change the sequence has
+    # not caught up to yet. Surfacing the disagreement is the point: it is the
+    # earliest honest warning the structure is turning.
+    brk = stats.get("trend")
+    seq_dir = 1 if state == "UPTREND" else -1 if state == "DOWNTREND" else 0
+    if seq_dir == 0 or brk in (0, None):
+        agreement = "UNDECIDED"
+    elif seq_dir == brk:
+        agreement = "CONFIRMED"
+    else:
+        agreement = "DIVERGING"
+
+    return {
+        "state": state,
+        "agreement": agreement,
+        "last_high_label": hl,
+        "last_low_label": ll,
+        "sequence": [s["label"] for s in labelled if s["label"]],
+        "swings": labelled,
+        "zone": zone,
+        "zone_pct": zone_pct,
+        "swing_high": hi,
+        "swing_low": lo,
+        "last_event": ({"type": last_ev["type"], "direction": last_ev["direction"],
+                        "level": last_ev["level"], "quality": last_ev["quality"],
+                        "chain": last_ev["chain"], "failed": last_ev["failed"],
+                        "bars_ago": stats.get("last_bars_ago")}
+                       if last_ev else None),
+        "trend_from_breaks": stats.get("trend"),
+        "invariant_ok": invariant["ok"],
+        "invariant_violations": invariant["violations"],
+        "params": {"pivot_len": pivot_len, "confirm": confirm,
+                   "fail_win": fail_win, "eq_tol_pct": eq_tol_pct},
+    }
+
+
 def _displacement_body_ratio(o: float, h: float, l: float, c: float) -> float:
     """Body as a fraction of total range. Used by the ICT displacement gate."""
     rng = h - l

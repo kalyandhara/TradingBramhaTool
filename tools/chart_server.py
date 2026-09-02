@@ -712,8 +712,19 @@ def api_structure_chain():
             "chain":       e["chain"],
             "failed":      e["failed"],
         })
+    # B-42 · the shared structure read, reusing the walk above rather than
+    # repeating it. Adds the HH/HL/LH/LL sequence, the state it implies, the
+    # premium/discount location, and whether the sequence and the breaks agree.
+    ms = sc.read_market_structure(df, pivot_len=pivot_len, confirm=confirm,
+                                  fail_win=fail_win, max_swings=max_swings,
+                                  chain=r)
+
     # Each swing is drawn from its pivot bar to the right edge, as in the source.
-    swings = [{"t0": _t(s["bar"]), "t1": last_t, "level": s["level"], "kind": s["kind"]}
+    # Labels come from the same read, matched by bar so the chart and the state
+    # cannot drift apart.
+    labels = {s["bar"]: s.get("label") for s in (ms or {}).get("swings", [])}
+    swings = [{"t0": _t(s["bar"]), "t1": last_t, "level": s["level"],
+               "kind": s["kind"], "label": labels.get(s["bar"])}
               for s in r["swings"] if _t(s["bar"]) is not None]
 
     return jsonify({"symbol": symbol, "structure_chain": {
@@ -722,6 +733,16 @@ def api_structure_chain():
         "live_swing_high": r["live_swing_high"],
         "live_swing_low": r["live_swing_low"],
         "stats": r["stats"],
+        "structure": ({
+            "state":      ms["state"],
+            "agreement":  ms["agreement"],
+            "sequence":   ms["sequence"],
+            "zone":       ms["zone"],
+            "zone_pct":   ms["zone_pct"],
+            "swing_high": ms["swing_high"],
+            "swing_low":  ms["swing_low"],
+            "invariant_ok": ms["invariant_ok"],
+        } if ms else None),
     }})
 
 

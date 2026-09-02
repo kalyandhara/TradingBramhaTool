@@ -42,12 +42,12 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **Closed 2026-08-12** | **B-3** (mean-reversion scanner — `scan_mean_reversion` Connors RSI2, registered), **B-5** (time_stop emitted by 6 scanners: Harmonic/RSI60-40/OrderBlock/FallingWedge/SupportBreakdown/MeanReversion), **B-19b** (support-breakdown detector — `scan_support_breakdown` + `detect_support_breakdown`), **B-20a** (t-test + 95% CI on edge in `_aggregate`), **B-20b** (market-model beta/alpha when benchmark_df supplied to `backtest_scanner`), **B-25** (`backtest_confluence` + `format_confluence_report` measure co-fire vs single-fire), **B-7** (`sweep_volume_threshold` sweeps 1.0/1.2/1.5/2.0× vol floors and ranks by edge) |
 | **Closed 2026-08-26** | **B-32** (regime output throttle — `_apply_regime_gate` + `REGIME_GATE`, premise proven `regime_backtest.py`), **B-33** (conviction-sized shortlist — score-floor replaces fixed `top_n`, floors data-calibrated), **B-36** (regime posture banner + Analytics→Research nav fold) |
 | **Closed 2026-09-01** | **B-21** (walk-forward OOS pooling + per-horizon stability), **B-29** (Indian delivery cost model ~29bps, applied everywhere), **B-39** (scipy-optional fallback) |
-| **Closed 2026-09-02** | **B-16** (OI Momentum `_strength_color` → `rs.TOKENS`), **B-24** (RSI divergence Python/JS agreement — `detect_bullish_rsi_divergence` rewritten to Wilder RSI + pivot lows + 3-pt gap), **B-34** (small-cap lane complete — quality overlay + dashboard lane shipped earlier; hit-rate backtest measured → WEAK, see below) |
+| **Closed 2026-09-02** | **B-16** (OI Momentum `_strength_color` → `rs.TOKENS`), **B-24** (RSI divergence Python/JS agreement — `detect_bullish_rsi_divergence` rewritten to Wilder RSI + pivot lows + 3-pt gap), **B-34** (small-cap lane complete — quality overlay + dashboard lane shipped earlier; hit-rate backtest measured → WEAK, see below), **B-42** (shared market-structure read — HH/HL/LH/LL sequence + state + premium/discount + sequence-vs-breaks `agreement`; invariant clean on 30 large-caps; residual **B-42r**) |
 | **Closed 2026-08-27 (re-verify)** | **B-11** (MFI — `scan_mfi_oversold` + `_mfi_series` shipped and registered; page had it "absent"). Ledger/body sync only: **B-5, B-25, B-20a, B-20b, B-7** were already code-complete but mis-filed as open in the body |
 | **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-22, B-23, B-26, B-27, B-28, B-30, B-31, B-35, B-37 |
 | **Open — residual only** | **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
 | **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic), **B-39** (pin `scipy` in requirements / make `backtest.py` scipy-optional — the hard import silently broke the significance stack on Python 3.14) |
-| **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**, see below), **B-41** (liquidity-sweep / stop-hunt detector — missing third of the SMC stack), **B-42** (shared market-structure engine — BOS/CHoCH). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
+| **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**, see below), **B-41** (liquidity-sweep / stop-hunt detector — missing third of the SMC stack; **B-42's `eq_tol_pct` EQH/EQL labelling now supplies its equal-highs/lows primitive**), ~~**B-42**~~ (**CLOSED 2026-09-02**; residual **B-42r** — the pivot_len 5-vs-15 split, to be settled on data). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
 | **New 2026-08-29** | ~~**B-43**~~ **BUILT + MEASURED → clean null** (flip edge ~0, negative on the long leg; beat buy&hold 0/23 — but fires 40% less often than the EVWMA cross, i.e. noise reduction without edge). Chart overlay kept, labelled FLIP not BUY/SELL. MCX still gated. From the Renko podcast ingest. ~~**B-44**~~ **BUILT + MEASURED same day → clean null** (see below); residual **B-44r** (is the naive dealer convention backwards for NSE?). From the Chris Kmer order-flow ingest. |
 | **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
@@ -646,7 +646,7 @@ flag a wick that pierces then closes back inside, direction-aware. Relates to B-
 (support-breakdown) but distinct — a sweep is a *false* break that reverses, not a
 real breakdown. Unmeasured until event-studied (sweep-reversal vs matched clean-break).
 
-### B-42 · No shared market-structure engine (BOS / CHoCH, HH-HL-LH-LL) *(2026-08-27)*
+### ~~B-42 · No shared market-structure engine (BOS / CHoCH, HH-HL-LH-LL)~~ — **CLOSED 2026-09-02** *(2026-08-27)*
 Swing traders read **market structure** first — the HH/HL/LH/LL sequence and its
 **break of structure (BOS)** / **change of character (CHoCH)** — and every entry
 hangs off it. The tool has a weekly-regime read
@@ -658,6 +658,57 @@ labels the current swing sequence + last BOS/CHoCH off shared zigzag pivots (the
 trend, pullback and SMC scanners — so "structure" means the same thing everywhere,
 the way B-24 wants for RSI-divergence. Verifiable invariant available: the labelled
 sequence must reconcile to the pivots it is built from.
+
+**Re-verified against the code 2026-09-02 — the premise was partly stale**, the
+same way B-11 was. Three structure walks already existed: `detect_bos_choch`
+(pivot_len=5, bullish only, consumed by 4 scanners), `detect_support_breakdown`
+(its bearish mirror), and `detect_structure_chain` (pivot_len=15, both
+directions, with quality/chain/failed grading — but **consumed only by the chart
+overlay**, no scanner). What genuinely did not exist was the **sequence
+labelling** the item names.
+
+**SHIPPED 2026-09-02, scoped deliberately additive** (owner's call — unifying the
+two `pivot_len` defaults would silently re-grade live scanner output, the B-26
+lesson):
+
+- `label_swing_sequence()` — labels each swing HH/LH/EQH or HL/LL/EQL against the
+  prior swing **of the same kind**, with an `eq_tol_pct` that turns near-equal
+  levels into EQH/EQL (equal highs/lows are a liquidity pool, not a trend step —
+  this is **B-41's raw material**).
+- `read_market_structure()` — the first-class shared read. Composes the existing
+  walk with the sequence and returns `state` (UPTREND / DOWNTREND / RANGE /
+  BROADENING / TRANSITION / UNKNOWN), the premium/discount `zone`, the last
+  graded event, and `agreement`.
+- `_verify_swing_sequence()` — **the invariant the item asked for**, implemented:
+  every label is re-derived from its own pivots and any mismatch is reported.
+  Measured **0 violations across 30 NSE large-caps**.
+- `/api/structure_chain` now returns a `structure` block and a `label` on each
+  swing, reusing its existing walk (a `chain=` parameter avoids a second pass);
+  a parity test pins reuse == recompute, so chart and scanners cannot drift.
+- `test_market_structure.py` — 23 tests, all passing.
+
+**Two things the real data forced, neither anticipated:**
+
+1. **Plateau duplicates.** `detect_structure_chain` legitimately registers one
+   pivot per bar across a flat top, so a single real swing arrives as several
+   identical entries and the duplicate is always EQH/EQL — which collapsed every
+   trend read to TRANSITION. `label_swing_sequence` now collapses consecutive
+   same-kind swings at an identical level (marking them `duplicate_of`) so the
+   sequence describes the market, not the sampling.
+2. **`agreement` — the sequence lags, the breaks lead.** A pivot needs
+   `pivot_len` bars to confirm while a break prints immediately, so the two reads
+   can disagree. Rather than hide it, the read reports CONFIRMED / DIVERGING /
+   UNDECIDED. **6 of 30 large-caps were DIVERGING** — e.g. KOTAKBANK reading
+   DOWNTREND under a STRONG CHOCH *up* 5 bars prior, ASIANPAINT UPTREND with a
+   CHOCH *down* the previous session. That disagreement is the earliest honest
+   warning structure is turning, and it is the most useful field on the object.
+
+**Residual → B-42r:** the `pivot_len` split (5 in the scanners, 15 on the chart
+and in the shared read) is untouched and documented in-module. "Structure" is
+still coarser on the chart than in the scanners. Settle it on data — the same
+`--wf` harness B-19 used — not by inheritance. Also unbuilt: consuming the read
+as an actual *filter* inside the trend/pullback/SMC scanners, which is a
+detection change and so was out of this item's additive scope.
 
 **Explicit scope decision (not a task):** the **intraday lane** the "Day/Intraday"
 style row implies — **Opening Range Breakout, session-VWAP bounce/rejection as
@@ -798,11 +849,16 @@ true only on paper.
 
 **Next (updated 2026-09-02):**
 
-1. **B-32r** — recalibrate regime floors with walk-forward (now unblocked).
-2. **B-31** — learned confluence weights (was gated behind B-19, now unblocked —
+1. **B-41** — liquidity-sweep / stop-hunt detector. Now the cheapest real build:
+   B-42 shipped the equal-highs/lows primitive it needs (`label_swing_sequence`
+   with `eq_tol_pct` → EQH/EQL), so this is the wick-pierce-and-reverse test on
+   top of an existing labelled sequence.
+2. **B-42r** — settle the `pivot_len` 5-vs-15 split on data (harness, not taste).
+3. **B-32r** — recalibrate regime floors with walk-forward (now unblocked).
+4. **B-31** — learned confluence weights (was gated behind B-19, now unblocked —
    but the B-19 results show most scanners have no edge after costs, so the premise
    of weighting them is weakened).
-3. **B-35** / **B-22** — scanner family de-dup + lens UI (the B-19 + B-35 overlap
+5. **B-35** / **B-22** — scanner family de-dup + lens UI (the B-19 + B-35 overlap
    audit together suggest a significant cull: 3 scanners never fire, 12 have zero
    unique hits, and most show no edge).
 
