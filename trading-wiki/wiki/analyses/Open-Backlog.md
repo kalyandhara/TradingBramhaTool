@@ -42,9 +42,9 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **Closed 2026-08-12** | **B-3** (mean-reversion scanner — `scan_mean_reversion` Connors RSI2, registered), **B-5** (time_stop emitted by 6 scanners: Harmonic/RSI60-40/OrderBlock/FallingWedge/SupportBreakdown/MeanReversion), **B-19b** (support-breakdown detector — `scan_support_breakdown` + `detect_support_breakdown`), **B-20a** (t-test + 95% CI on edge in `_aggregate`), **B-20b** (market-model beta/alpha when benchmark_df supplied to `backtest_scanner`), **B-25** (`backtest_confluence` + `format_confluence_report` measure co-fire vs single-fire), **B-7** (`sweep_volume_threshold` sweeps 1.0/1.2/1.5/2.0× vol floors and ranks by edge) |
 | **Closed 2026-08-26** | **B-32** (regime output throttle — `_apply_regime_gate` + `REGIME_GATE`, premise proven `regime_backtest.py`), **B-33** (conviction-sized shortlist — score-floor replaces fixed `top_n`, floors data-calibrated), **B-36** (regime posture banner + Analytics→Research nav fold) |
 | **Closed 2026-09-01** | **B-21** (walk-forward OOS pooling + per-horizon stability), **B-29** (Indian delivery cost model ~29bps, applied everywhere), **B-39** (scipy-optional fallback) |
-| **Closed 2026-09-02** | **B-16** (OI Momentum `_strength_color` → `rs.TOKENS`), **B-24** (RSI divergence Python/JS agreement — `detect_bullish_rsi_divergence` rewritten to Wilder RSI + pivot lows + 3-pt gap), **B-34** (small-cap lane complete — quality overlay + dashboard lane shipped earlier; hit-rate backtest measured → WEAK, see below), **B-42** (shared market-structure read — HH/HL/LH/LL sequence + state + premium/discount + sequence-vs-breaks `agreement`; invariant clean on 30 large-caps; residual **B-42r**), **B-41** (liquidity sweep / stop hunt — pools + bidirectional detector + Entry & Risk scanners, built on B-42's equal-level labelling; SMC stack complete at 44 scanners) |
+| **Closed 2026-09-02** | **B-16** (OI Momentum `_strength_color` → `rs.TOKENS`), **B-24** (RSI divergence Python/JS agreement — `detect_bullish_rsi_divergence` rewritten to Wilder RSI + pivot lows + 3-pt gap), **B-34** (small-cap lane complete — quality overlay + dashboard lane shipped earlier; hit-rate backtest measured → WEAK, see below), **B-42** (shared market-structure read — HH/HL/LH/LL sequence + state + premium/discount + sequence-vs-breaks `agreement`; invariant clean on 30 large-caps; residual **B-42r**), **B-41** (liquidity sweep / stop hunt — pools + bidirectional detector + Entry & Risk scanners, built on B-42's equal-level labelling; SMC stack complete at 44 scanners), **B-23** (strike-level option OI — `option_chain.py` max pain + OI walls for stocks AND indices, `/api/option_levels`; premise was stale, B-44 had already built the per-strike feed; unblocks B-28) |
 | **Closed 2026-08-27 (re-verify)** | **B-11** (MFI — `scan_mfi_oversold` + `_mfi_series` shipped and registered; page had it "absent"). Ledger/body sync only: **B-5, B-25, B-20a, B-20b, B-7** were already code-complete but mis-filed as open in the body |
-| **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-22, B-23, B-26, B-27, B-28, B-30, B-31, B-35, B-37 |
+| **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-22, B-26, B-27, B-28, B-30, B-31, B-35, B-37 |
 | **Open — residual only** | **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
 | **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic), **B-39** (pin `scipy` in requirements / make `backtest.py` scipy-optional — the hard import silently broke the significance stack on Python 3.14) |
 | **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**), ~~**B-41**~~ (**CLOSED 2026-09-02** — `detect_liquidity_pools` + `detect_liquidity_sweep` + both scanners; SMC stack now complete), ~~**B-42**~~ (**CLOSED 2026-09-02**; residual **B-42r** — the pivot_len 5-vs-15 split, to be settled on data). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
@@ -264,6 +264,25 @@ per-strike feed B-23 scopes. Measurement caveat, same as everything here: "the w
 rejects the first touch" is a testable, unproven claim — ship it as
 **levels-with-context**, label it unmeasured, and event-study it (first-touch
 rejection vs a matched non-wall strike) before it grades anything.
+
+**UNBLOCKED 2026-09-02 — the data half is done, only the overlay remains.** B-23
+shipped `option_chain.py` (`max_pain`, `oi_walls`, `read_levels`) and
+`/api/option_levels`, so the numbers this item wants to draw now exist and are
+reachable from the chart. What is left is purely front-end: horizontal lines for
+the call/put walls and a max-pain marker, on the same canvas-overlay pattern the
+Fibonacci grid uses. The `unmeasured: true` flag rides in the payload precisely
+so the overlay cannot present them as a signal.
+
+Two things B-23 learned that this item must respect when drawing:
+- **Levels are per expiry.** The overlay needs an expiry selector, or it will
+  silently mix a weekly and a monthly chain into one picture.
+- **Side matters.** Only walls at/above spot are resistance and at/below are
+  support; `oi_walls` already enforces it, so the overlay must not re-derive
+  its own ranking from the raw strike table.
+
+The **short-straddle-break → short-cover rally** event is still unbuilt and is
+the actual testable claim here — the wall existing is not the signal; the wall
+being pierced is.
 
 ### B-40 · VWAP is a chart line, not a signal — **SCANNER SHIPPED 2026-08-27**
 Was: zero occurrences of `vwap` in `scanner_templates.py`; VWAP existed only as a
@@ -805,7 +824,7 @@ large, liquid and certainly file. First suspect remains the
 |---|---|---|
 | B-20 | **Index PCR has no history, so no band** | `index_reading()` ships deliberately unbanded. Five same-day observations cannot be ranked; an index can only be ranked against its own past. Storing a daily index PCR is the whole fix. |
 | B-22 | **Sentiment Index factor 5 unwired** | `pcr.py` exists and is the primitive that factor was always waiting for; nothing consumes it there yet. |
-| B-23 | **Strike-level option OI** (OI audit Gap 3) | The largest remaining OI item. Needs per-strike treatment, not an underlying-level sum — its own design pass. |
+| ~~B-23~~ | **Strike-level option OI** (OI audit Gap 3) — ✅ **CLOSED 2026-09-02** | Was: "the largest remaining OI item, needs its own design pass." **The premise was stale** — B-44's `gamma_exposure.py` had already built the per-strike bhavcopy reader this was scoped to design, so the remaining work was the LEVELS read, not the feed. Third stale entry this week after B-11 and B-42. Shipped `option_chain.py`: `load_chain` (per-strike CE/PE OI for **stocks (STO) and indices (IDO)** — `gamma_exposure` is index-only), `max_pain`, `oi_walls`, `read_levels` + `format_levels`, plus `/api/option_levels` on chart_server so B-28's overlay has an interface to consume. 26 tests. Live: NIFTY spot 24,055.80 / max pain 24,050 on expiry day (converges, as theory predicts); RELIANCE 1,308.96 between its 1,300 put wall and 1,320 call wall. **Two correctness rules enforced:** max pain REFUSES a pooled-expiry chain (payoff settles per expiry — a far-month strike does not pay out on this week's settlement, so a pooled number is a different quantity, not a smaller error); and call walls are restricted to strikes at/above spot, put walls at/below, because a large call OI far below spot is deep-ITM inventory and ranking it as "resistance" would put the strongest resistance *under* the price. Levels ship **unmeasured** — see B-28. |
 | B-13 | AW-1…AW-4 astro weekly card | Good-to-have; AW-0 shipped. |
 | B-15 | SR-7 Trendlyne backfill | Optional, only if XBRL coverage proves short. |
 | B-17 | OBV has no wiki page | Verified absent; ships as a chart indicator, undocumented. |
@@ -895,15 +914,18 @@ true only on paper.
 
 **Next (updated 2026-09-02):**
 
-1. **B-42r** — settle the `pivot_len` 5-vs-15 split on data (harness, not taste).
-2. **B-32r** — recalibrate regime floors with walk-forward (now unblocked).
-3. **B-41 event study** — sweep-reversal vs a **matched clean break**. The two new
+1. **B-28** — the max-pain / OI-wall chart overlay. Now pure front-end: B-23
+   shipped the numbers and `/api/option_levels`. Respect the two rules B-23
+   learned (per-expiry, and side-correct walls).
+2. **B-42r** — settle the `pivot_len` 5-vs-15 split on data (harness, not taste).
+3. **B-32r** — recalibrate regime floors with walk-forward (now unblocked).
+4. **B-41 event study** — sweep-reversal vs a **matched clean break**. The two new
    scanners are unmeasured, and B-19's result (0/41 stable after costs) says to
    measure before adding them to any scoring path.
-4. **B-31** — learned confluence weights (was gated behind B-19, now unblocked —
+5. **B-31** — learned confluence weights (was gated behind B-19, now unblocked —
    but the B-19 results show most scanners have no edge after costs, so the premise
    of weighting them is weakened).
-5. **B-35** / **B-22** — scanner family de-dup + lens UI (the B-19 + B-35 overlap
+6. **B-35** / **B-22** — scanner family de-dup + lens UI (the B-19 + B-35 overlap
    audit together suggest a significant cull: 3 scanners never fire, 12 have zero
    unique hits, and most show no edge).
 

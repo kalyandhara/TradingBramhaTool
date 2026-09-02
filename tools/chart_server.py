@@ -382,6 +382,58 @@ def chart_drawings_js():
     return send_from_directory(HERE, "chart_drawings.js", mimetype="application/javascript")
 
 
+# Bhavcopy is one file per session and every strike-level read comes out of it,
+# so the download is cached process-wide rather than repeated per request. Keyed
+# by nothing but recency: a new session simply replaces it.
+_OPT_CACHE: dict[str, object] = {"raw": None, "date": None, "at": 0.0}
+_OPT_TTL = 30 * 60
+
+
+@app.route("/api/option_levels")
+def api_option_levels():
+    """Strike-level option OI — max pain and OI walls (B-23).
+
+    See option_chain.py. LEVELS WITH CONTEXT, NOT A SIGNAL: "price gravitates to
+    max pain" and "a wall rejects the first touch" are both untested, and the
+    payload carries `unmeasured: true` so a consumer cannot forget it.
+
+    Query: symbol (required), expiry (YYYY-MM-DD or "all"), walls (default 3).
+    {"levels": null} when the underlying has no options in the latest bhavcopy —
+    the common case for a non-F&O stock, not an error.
+    """
+    symbol = request.args.get("symbol", "").strip().upper()
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    expiry = request.args.get("expiry") or None
+    walls = max(1, min(int(request.args.get("walls", 3)), 10))
+
+    # The chart sends NSE-suffixed tickers; the bhavcopy keys on the bare symbol.
+    base = symbol.split(":")[-1]
+    for suffix in (".NS", ".NSE", ".BO"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+
+    try:
+        import option_chain as ochain
+        now = time.time()
+        if _OPT_CACHE["raw"] is None or (now - float(_OPT_CACHE["at"] or 0)) > _OPT_TTL:
+            import nse_oi_momentum as oi_mod
+            raw, td = oi_mod.fetch_fo_bhavcopy_raw()
+            _OPT_CACHE.update({"raw": raw, "date": td, "at": now})
+        raw, td = _OPT_CACHE["raw"], _OPT_CACHE["date"]
+        if raw is None or getattr(raw, "empty", True):
+            return jsonify({"symbol": symbol, "levels": None,
+                            "note": "no F&O bhavcopy reachable"})
+        levels = ochain.read_levels(base, expiry=expiry, walls=walls,
+                                    raw=raw, trade_date=td)
+    except Exception as e:                      # a data outage must not 500 the chart
+        log.warning("option_levels failed for %s: %s", symbol, e)
+        return jsonify({"symbol": symbol, "levels": None, "note": str(e)})
+
+    return jsonify({"symbol": symbol, "levels": levels})
+
+
 @app.route("/api/ohlcv")
 def api_ohlcv():
     symbol    = request.args.get("symbol", "").strip().upper()
