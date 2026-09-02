@@ -49,6 +49,7 @@ def _fetch_and_cache(symbols: list[str], days: int = 1500) -> dict:
 
 def main():
     dry_run = "--dry-run" in sys.argv
+    resume = "--resume" in sys.argv
     only = None
     if "--only" in sys.argv:
         idx = sys.argv.index("--only")
@@ -58,6 +59,17 @@ def main():
     run_names = [n for n in all_names if n not in SKIP]
     if only:
         run_names = [n for n in run_names if n in only]
+
+    if resume:
+        done = set()
+        summary_path = os.path.join(OUT_DIR, "_summary.json")
+        if os.path.exists(summary_path):
+            with open(summary_path, "r", encoding="utf-8") as f:
+                for r in json.load(f):
+                    if "ERROR" not in str(r.get("verdict", "")):
+                        done.add(r["scanner"])
+        run_names = [n for n in run_names if n not in done]
+        print(f"Resume mode: {len(done)} already done, {len(run_names)} remaining\n")
 
     risk_scanners = {n for n, spec in sc.SCANNERS.items()
                      if spec.get("category") == "Risk"}

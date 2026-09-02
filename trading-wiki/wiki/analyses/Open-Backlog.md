@@ -44,13 +44,14 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **Closed 2026-09-01** | **B-21** (walk-forward OOS pooling + per-horizon stability), **B-29** (Indian delivery cost model ~29bps, applied everywhere), **B-39** (scipy-optional fallback) |
 | **Closed 2026-09-02** | **B-16** (OI Momentum `_strength_color` → `rs.TOKENS`), **B-24** (RSI divergence Python/JS agreement — `detect_bullish_rsi_divergence` rewritten to Wilder RSI + pivot lows + 3-pt gap), **B-34** (small-cap lane complete — quality overlay + dashboard lane shipped earlier; hit-rate backtest measured → WEAK, see below) |
 | **Closed 2026-08-27 (re-verify)** | **B-11** (MFI — `scan_mfi_oversold` + `_mfi_series` shipped and registered; page had it "absent"). Ledger/body sync only: **B-5, B-25, B-20a, B-20b, B-7** were already code-complete but mis-filed as open in the body |
-| **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-19, B-21b, B-22, B-23, B-26, B-27, B-28, B-30, B-31, B-35, B-37 |
+| **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-22, B-23, B-26, B-27, B-28, B-30, B-31, B-35, B-37 |
 | **Open — residual only** | **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
 | **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic), **B-39** (pin `scipy` in requirements / make `backtest.py` scipy-optional — the hard import silently broke the significance stack on Python 3.14) |
 | **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**, see below), **B-41** (liquidity-sweep / stop-hunt detector — missing third of the SMC stack), **B-42** (shared market-structure engine — BOS/CHoCH). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
 | **New 2026-08-29** | ~~**B-43**~~ **BUILT + MEASURED → clean null** (flip edge ~0, negative on the long leg; beat buy&hold 0/23 — but fires 40% less often than the EVWMA cross, i.e. noise reduction without edge). Chart overlay kept, labelled FLIP not BUY/SELL. MCX still gated. From the Renko podcast ingest. ~~**B-44**~~ **BUILT + MEASURED same day → clean null** (see below); residual **B-44r** (is the naive dealer convention backwards for NSE?). From the Chris Kmer order-flow ingest. |
 | **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
+| **Measured 2026-09-02** | **B-19** batch walk-forward on all 41 scanners (LIQUID_50, 3 windows, Indian delivery ~29bps): **0/41 stable** across all horizons; 11 show positive 20d edge but all UNSTABLE; strongest = %R Bottoming (+2.68% @60d, stable @20d+60d), Falling Wedge (+1.58% @60d); **most scanners show negative edge after costs**. 3 too-few-signals (High Tight Flag, Minervini VCP, RSI-Fibo Hidden Div). 3/5 risk scanners show bearish edge. Full table in `tools/cache/b19_verdicts/_summary_table.txt`. |
 
 ## Ingested-research additions (2026-08-20)
 
@@ -115,11 +116,35 @@ future token change automatically.
 feature shipped that day annotates or refines a grade that has itself never been
 validated.
 
-### B-19 · Nothing shipped in the 2026-08-07 session is backtested
+### ~~B-19 · Nothing shipped in the 2026-08-07 session is backtested~~ — **MEASURED 2026-09-02**
 The OI quadrant, PCR, RSI divergence, family-capped confluence and the level
 tags are all unmeasured. Each is *labelled* as such in its own UI, which is the
 minimum honest thing, but the stack is now several layers of unvalidated
 refinement on an unvalidated base.
+
+**Batch walk-forward run completed 2026-09-02** — `backtest_all_scanners.py`, 41
+scanners × LIQUID_50 (49 symbols), 3 OOS windows, Indian delivery ~29bps. Key
+findings:
+
+- **0/41 scanners are stable** across all four horizons (5/10/20/60d)
+- **11/41 show positive 20d edge** but all marked UNSTABLE
+- **Most scanners show negative edge after costs** — the ~29bps round-trip eats
+  whatever gross edge existed
+- Strongest candidates (positive at BOTH 20d and 60d): %R Bottoming (+0.55%/+2.68%,
+  stable @20d+60d), Falling Wedge (+0.83%/+1.58%), HM Buy (+0.63%/+0.56%),
+  Harmonic Reversal (+0.90%/+0.40%), IPO-Base Breakout (+0.54%/+0.58%),
+  RSI Divergence Bull (+0.36%/+0.93%)
+- 3 scanners never/barely fire on LIQUID_50: High Tight Flag (0), Minervini VCP (8),
+  RSI-Fibo Hidden Div (11)
+- 3/5 risk (bearish) scanners show bearish edge; 2 don't (Downside Risk, Support
+  Breakdown)
+
+**Implication:** the scanner stack is a **screening tool, not a trading signal**.
+Individual scanners do not reliably beat costs on large-caps. The remaining
+value is in coverage (surfacing names to look at) and the confluence premise
+(B-25 showed co-firing adds a small edge at 60d). Scanner weight calibration
+(B-8) and learned weights (B-31) are weakened — there may not be enough edge
+to weight.
 
 ### ~~B-25 · Confluence itself is unmeasured~~ — TOOL CLOSED 2026-08-12 · **MEASURED 2026-08-27**
 `backtest_confluence` ([backtest.py:431](tools/backtest.py:431)) replays scanners
@@ -773,16 +798,19 @@ true only on paper.
 
 **Next (updated 2026-09-02):**
 
-1. **B-19** — actually *run* `backtest_scanner --cost indian --wf 3` on the live
-   scanner + confluence set and record the verdicts. Now a chore, not a build —
-   the walk-forward + cost infrastructure is done. *(In progress — batch runner
-   `backtest_all_scanners.py` running all 41 scanners × LIQUID_50.)*
-2. **B-32r** — recalibrate regime floors with walk-forward (now unblocked).
+1. **B-32r** — recalibrate regime floors with walk-forward (now unblocked).
+2. **B-31** — learned confluence weights (was gated behind B-19, now unblocked —
+   but the B-19 results show most scanners have no edge after costs, so the premise
+   of weighting them is weakened).
+3. **B-35** / **B-22** — scanner family de-dup + lens UI (the B-19 + B-35 overlap
+   audit together suggest a significant cull: 3 scanners never fire, 12 have zero
+   unique hits, and most show no edge).
 
 **Parked / gated:** B-38 full-funnel test is blocked on point-in-time fundamental
-data, not code; B-31 (learned weights) is now gated behind B-19 (the run, not the
-build); B-28/B-30 are capability/research items; B-35/B-37 are noise-reduction/
-distribution polish with no dependency.
+data, not code; B-31 (learned weights) is now unblocked but weakened by B-19's
+finding that most scanners lack individual edge after costs; B-28/B-30 are
+capability/research items; B-35/B-37 are noise-reduction/distribution polish
+with no dependency.
 
 **What's done (2026-08-26):** the 2026-08-23 strategic thrust largely landed —
 B-32 (regime throttle, premise proven first), B-33 (conviction-sized list), B-36
