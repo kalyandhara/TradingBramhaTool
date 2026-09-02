@@ -928,7 +928,7 @@ _login_gate()
 PAGE_GROUPS = {
     "Screening":        ["Opportunity Hub", "Delete Funnel", "Hidden Treasures", "Screener", "Other Screeners", "Scanner Hub",
                          "Breakout Scans", "High-Growth Screener"],
-    "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
+    "Market Intel":     ["Trending Stocks", "Market Sentiment", "India Market Intel", "OI Momentum"],
     "Research":         ["Predictive Analysis", "Stock Analyzer", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
     "Ops":              ["Pipeline Log", "Scheduler Hub"],
@@ -946,6 +946,7 @@ PAGE_BLURBS = {
     "Scanner Hub":          "24 pattern scanners, run on any universe",
     "Breakout Scans":       "External new-high breakout feeds — Chartink or TradingView",
     "High-Growth Screener": "Quality growth names on ROE / ROCE / OPM floors",
+    "Trending Stocks":      "What moved today — movers, volume spikes, 52W & all-time extremes",
     "Market Sentiment":     "0–100 composite regime gauge, with coverage",
     "India Market Intel":   "Bulk & block deals, insider trades, gap scanner",
     "OI Momentum":          "Open-interest build-up and unwinding",
@@ -5461,6 +5462,177 @@ if current_page == "Hidden Treasures":
                     with st.expander("reasons"):
                         for _r in _h.get("reasons", []):
                             st.markdown(f"- {_r}")
+
+
+# Trending Stocks — what moved today, four lenses (see trending_stocks.py)
+# ──────────────────────────────────────────────────────────────────────────────
+# Deliberately a TABLE, not the Scanner Hub card grid. A ranked "what moved" list
+# is a different job from confluence results: the reader scans a column to find
+# the outlier, which cards make harder. The cards-not-tables convention stays
+# where it belongs — on Scanner Hub.
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _trend_bhav():
+    import trending_stocks as _ts
+    return _ts.load_bhav()
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _trend_movers(top_n: int, min_turnover: float):
+    import trending_stocks as _ts
+    bhav, _ = _trend_bhav()
+    return _ts.price_movers(bhav, top_n=top_n, min_turnover=min_turnover)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _trend_volume(top_n: int):
+    import trending_stocks as _ts
+    bhav, _ = _trend_bhav()
+    return _ts.volume_shockers(top_n=top_n, bhav=bhav)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _trend_extremes(universe_n: int, top_n: int, near_pct: float):
+    """Both range lenses off ONE batched history download — two calls would be
+    two minutes for the same bytes."""
+    import trending_stocks as _ts
+    bhav, _ = _trend_bhav()
+    uni = _ts.liquid_universe(bhav, universe_n)
+    hist = _ts._batch_history(uni, period="max")
+    return {
+        "week52": _ts.range_extremes(uni, window=_ts.WEEK52_BARS, near_pct=near_pct,
+                                     top_n=top_n, hist=hist),
+        "alltime": _ts.range_extremes(uni, window=None, near_pct=near_pct,
+                                      top_n=top_n, hist=hist),
+        "n_history": len(hist),
+        "universe_n": len(uni),
+    }
+
+
+if current_page == "Trending Stocks":
+    st.subheader("Trending Stocks")
+    st.caption("What actually moved today, from the free NSE bhavcopy. "
+               "**Attention lists, not signals** — a move or a spike is a *question* "
+               "(\"why did this happen?\"), not a position.")
+
+    _tr_bhav, _tr_date = _trend_bhav()
+    if _tr_bhav is None:
+        st.error("No NSE bhavcopy reachable — markets may be closed or the feed is down.")
+    else:
+        _tc1, _tc2, _tc3 = st.columns([1, 1, 1])
+        with _tc1:
+            _tr_top = st.slider("Rows per list", 5, 40, 15, step=5, key="tr_top")
+        with _tc2:
+            _tr_uni = st.slider("Universe (52W/ATH)", 50, 400, 200, step=50, key="tr_uni",
+                                help="Top N by traded value. NSE publishes no 52-week "
+                                     "columns, so these two lenses compute from history "
+                                     "— one download per name, hence a bounded universe.")
+        with _tc3:
+            _tr_minto = st.number_input("Min turnover (₹ Cr)", 0.0, 500.0, 5.0, step=1.0,
+                                        key="tr_minto",
+                                        help="Without a floor the movers list is almost "
+                                             "entirely penny stocks: a ₹3 share moving "
+                                             "19% is arithmetic, not information.")
+        st.caption(f"Session **{_tr_date or '—'}** · {len(_tr_bhav):,} EQ rows")
+
+        _t_mv, _t_vol, _t_52, _t_ath = st.tabs(
+            ["Price Movers", "Volume Shockers", "52 Week High Low", "All Time High Low"])
+
+        def _tr_table(df):
+            """Render one lens as a table with the chart-icon link family."""
+            if df is None or df.empty:
+                st.info("Nothing qualifies in this session.")
+                return
+            out = df.copy()
+            out = _with_chart_family(out, "symbol")
+            colcfg = dict(_chart_family_colcfg())
+            colcfg["symbol"] = st.column_config.TextColumn("Symbol", width="small")
+            if "close" in out.columns:
+                colcfg["close"] = st.column_config.NumberColumn("LTP", format="%.2f")
+            if "chg" in out.columns:
+                colcfg["chg"] = st.column_config.NumberColumn("Chg", format="%.2f")
+            if "chg_pct" in out.columns:
+                colcfg["chg_pct"] = st.column_config.NumberColumn("Chg%", format="%.2f%%")
+            if "turnover" in out.columns:
+                out["turnover"] = out["turnover"] / 1e7
+                colcfg["turnover"] = st.column_config.NumberColumn("Turnover ₹Cr", format="%.1f")
+            if "volume" in out.columns:
+                colcfg["volume"] = st.column_config.NumberColumn("Volume", format="%d")
+            for c, lbl, fmt in (("multiple", "x avg vol", "%.1f"),
+                                ("day_pct", "Chg%", "%.2f%%"),
+                                ("turnover_cr", "Turnover ₹Cr", "%.1f"),
+                                ("range_high", "High", "%.2f"),
+                                ("range_low", "Low", "%.2f"),
+                                ("from_high_pct", "From high %", "%.2f%%"),
+                                ("from_low_pct", "From low %", "%.2f%%")):
+                if c in out.columns:
+                    colcfg[c] = st.column_config.NumberColumn(lbl, format=fmt)
+            if "cause" in out.columns:
+                colcfg["cause"] = st.column_config.TextColumn("Cause", width="medium")
+            drop = [c for c in ("reasons", "avg_volume", "baseline_days", "trade_date",
+                                "n_deals", "churn_share", "pct_mcap", "bars") if c in out.columns]
+            out = out.drop(columns=drop)
+            st.dataframe(out, width="stretch", hide_index=True, column_config=colcfg)
+
+        with _t_mv:
+            _mv = _trend_movers(_tr_top, float(_tr_minto) * 1e7)
+            st.caption(f"**{_mv['n_filtered']:,}** of {_mv['n_universe']:,} names clear "
+                       f"the ₹{_tr_minto:.0f} Cr turnover floor.")
+            st.markdown("**Top gainers**")
+            _tr_table(_mv["gainers"])
+            st.markdown("**Top losers**")
+            _tr_table(_mv["losers"])
+
+        with _t_vol:
+            with st.spinner("Attributing volume spikes to a cause…"):
+                _vol = _trend_volume(_tr_top)
+            if _vol.get("error"):
+                st.warning(f"Volume scan unavailable: {_vol['error']}")
+            else:
+                _tal = _vol.get("tally") or {}
+                st.caption(
+                    f"**{_vol.get('n_hits', 0)}** spikes across {_vol.get('universe', 0):,} names — "
+                    + " · ".join(f"{k.replace('_', ' ').lower()} **{n}**"
+                                 for k, n in _tal.items() if n)
+                    + ".  Each spike is attributed to a filing, prop churn, deal activity, "
+                      "or nothing — the list answers *why*, not only *what*.")
+                _tr_table(_vol["rows"])
+
+        _ext = None
+        with _t_52:
+            with st.spinner(f"Computing 52-week extremes over the top {_tr_uni} names…"):
+                _ext = _trend_extremes(_tr_uni, _tr_top, 2.0)
+            _w = _ext["week52"]
+            st.caption(f"{_w['n_scanned']} of the top {_ext['universe_n']} by turnover, "
+                       f"within {_w['near_pct']}% of the extreme"
+                       + (f" · {_w.get('n_cash_equivalents', 0)} cash-equivalent ETFs excluded"
+                          if _w.get("n_cash_equivalents") else "") + ".")
+            st.markdown("**At / near 52-week highs**")
+            _tr_table(_w["highs"])
+            st.markdown("**At / near 52-week lows**")
+            _tr_table(_w["lows"])
+
+        with _t_ath:
+            with st.spinner(f"Computing all-time extremes over the top {_tr_uni} names…"):
+                _ext = _ext or _trend_extremes(_tr_uni, _tr_top, 2.0)
+            _a = _ext["alltime"]
+            st.caption(f"{_a['n_scanned']} of the top {_ext['universe_n']} by turnover, "
+                       f"within {_a['near_pct']}% of the extreme"
+                       + (f" · {_a.get('n_cash_equivalents', 0)} cash-equivalent ETFs excluded"
+                          if _a.get("n_cash_equivalents") else "")
+                       + ". History is bounded by what yfinance serves, so \"all-time\" "
+                         "means \"as far back as the feed goes\".")
+            st.markdown("**At / near all-time highs**")
+            _tr_table(_a["highs"])
+            st.markdown("**At / near all-time lows**")
+            _tr_table(_a["lows"])
+
+        st.divider()
+        st.caption(
+            "**No \"Most Visited\" lens.** That is crowd page-view data from a site's own "
+            "traffic logs, and there is no free NSE or public feed for retail attention. "
+            "A proxy (delivery spikes, rank churn) would measure something else while "
+            "wearing the same label, so it is left out rather than faked.")
 
 
 # Tab 8 — Scanner Hub (SwingEdge-inspired pre-built pattern scanners)
