@@ -25,18 +25,100 @@ Design (the honesty-critical parts):
   * **Thin samples are flagged, not hidden.** A hit-rate off < ``MIN_SAMPLE``
     signals is marked unreliable rather than quoted as a headline number.
 
-Known v1 limitations (labelled, not silently ignored):
+Known limitations (labelled, not silently ignored):
   * **Survivorship bias** — only names that exist today are in the universe.
-  * **No costs/slippage** — gross returns; a real edge must survive costs.
   * **History depth varies** — young listings contribute fewer bars/signals.
+
+Cost models (B-29): ``COST_INDIAN`` (realistic NSE delivery: STT + brokerage +
+exchange + GST + stamp + slippage, ~32 bps), ``FlatCost(bps)`` (flat haircut),
+or ``COST_GROSS`` (no costs).  Walk-forward (B-21): ``walk_forward_scanner``
+splits into N non-overlapping windows and pools OOS results.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 import numpy as np
 import pandas as pd
-from scipy import stats
+
+try:
+    from scipy import stats as _scipy_stats
+except Exception:
+    _scipy_stats = None
 
 import scanner_templates as sc
+
+
+# ---------------------------------------------------------------------------
+# Cost models (B-29)
+# ---------------------------------------------------------------------------
+
+@dataclass(frozen=True)
+class CostModel:
+    """Round-trip transaction cost model.
+
+    Subclass or use the two factories below.  The interface is one method:
+    ``round_trip_pct(entry, exit)`` → total cost as **percentage points** of
+    entry price (comparable to the return numbers the harness works in).
+    """
+
+    def round_trip_pct(self, entry: float, exit: float) -> float:
+        raise NotImplementedError
+
+    @property
+    def label(self) -> str:
+        return "unknown"
+
+
+@dataclass(frozen=True)
+class FlatCost(CostModel):
+    bps: float = 0
+
+    def round_trip_pct(self, entry: float, exit: float) -> float:
+        return self.bps / 100.0
+
+    @property
+    def label(self) -> str:
+        return f"flat {self.bps:.0f}bps" if self.bps else "GROSS"
+
+
+@dataclass(frozen=True)
+class IndianDeliveryCost(CostModel):
+    """NSE cash-equity delivery cost structure (discount broker).
+
+    Each field is a fraction (0.001 = 0.1%).  The model is asymmetric:
+    STT is levied on the sell side only for delivery trades.
+    """
+    stt_sell: float = 0.001          # 0.1% on sell value
+    brokerage: float = 0.0003       # 0.03% each side
+    exchange_turnover: float = 0.0000345  # NSE turnover charge
+    gst_rate: float = 0.18          # 18% on (brokerage + exchange)
+    stamp_buy: float = 0.00015      # 0.015% on buy value
+    slippage: float = 0.0005        # 0.05% each side (conservative)
+
+    def round_trip_pct(self, entry: float, exit: float) -> float:
+        if entry <= 0:
+            return 0.0
+        buy_val = entry
+        sell_val = abs(exit)
+        brok_buy = buy_val * self.brokerage
+        brok_sell = sell_val * self.brokerage
+        exch_buy = buy_val * self.exchange_turnover
+        exch_sell = sell_val * self.exchange_turnover
+        gst = (brok_buy + brok_sell + exch_buy + exch_sell) * self.gst_rate
+        stt = sell_val * self.stt_sell
+        stamp = buy_val * self.stamp_buy
+        slip = (buy_val + sell_val) * self.slippage
+        total = brok_buy + brok_sell + exch_buy + exch_sell + gst + stt + stamp + slip
+        return (total / buy_val) * 100.0   # percentage points
+
+    @property
+    def label(self) -> str:
+        approx_pct = self.round_trip_pct(500, 500)
+        return f"Indian delivery ~{approx_pct * 100:.0f}bps"
+
+
+COST_GROSS = FlatCost(0)
+COST_INDIAN = IndianDeliveryCost()
 
 # A scanner needs enough warm-up history before its first honest evaluation
 # (Stage-2 wants ~210 bars). Start every replay after this many bars.
@@ -64,7 +146,8 @@ def _to_float(x) -> float | None:
 
 def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
                    stop: float, target: float, max_bars: int,
-                   time_stop: float | None = None) -> dict | None:
+                   time_stop: float | None = None,
+                   cost_model: CostModel | None = None) -> dict | None:
     """Stop-or-target-first walk forward from ``entry_idx`` (the entry bar).
 
     Conservative tie-break: if a single bar's range spans BOTH the stop and the
@@ -86,6 +169,7 @@ def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
     risk = entry - stop
     if risk <= 0:
         return None
+    cm = cost_model or COST_GROSS
     n = len(df)
     high = df["high"].to_numpy(dtype=float)
     low = df["low"].to_numpy(dtype=float)
@@ -96,17 +180,26 @@ def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
     for i in range(entry_idx, end + 1):
         hit_stop = low[i] <= stop
         hit_tgt = high[i] >= target
-        if hit_stop:                       # pessimistic: stop wins a same-bar tie
-            return {"outcome": "stop", "r": (stop - entry) / risk, "bars": i - entry_idx}
+        if hit_stop:
+            cost = entry * cm.round_trip_pct(entry, stop) / 100.0
+            return {"outcome": "stop", "r": (stop - entry - cost) / risk,
+                    "bars": i - entry_idx}
         if hit_tgt:
-            return {"outcome": "target", "r": (target - entry) / risk, "bars": i - entry_idx}
-    # Neither level hit. If the scanner declared a time stop and we reached it,
-    # that is a planned exit ("time"); otherwise the trade merely ran out of
-    # measurement window ("open") and is still live in reality.
+            cost = entry * cm.round_trip_pct(entry, target) / 100.0
+            return {"outcome": "target", "r": (target - entry - cost) / risk,
+                    "bars": i - entry_idx}
     exit_px = close[end]
+    cost = entry * cm.round_trip_pct(entry, exit_px) / 100.0
     timed_out = time_stop is not None and (end - entry_idx) >= horizon
     return {"outcome": "time" if timed_out else "open",
-            "r": (exit_px - entry) / risk, "bars": end - entry_idx}
+            "r": (exit_px - entry - cost) / risk, "bars": end - entry_idx}
+
+
+def _resolve_cost(cost_bps: float = 0,
+                  cost_model: CostModel | None = None) -> CostModel:
+    if cost_model is not None:
+        return cost_model
+    return FlatCost(cost_bps) if cost_bps else COST_GROSS
 
 
 def backtest_scanner(scanner_name: str,
@@ -116,32 +209,24 @@ def backtest_scanner(scanner_name: str,
                      min_gap: int = DEFAULT_MIN_GAP,
                      warmup: int = WARMUP_BARS,
                      stride: int = 1,
-                     benchmark_df: "pd.DataFrame | None" = None) -> dict:
+                     benchmark_df: "pd.DataFrame | None" = None,
+                     cost_bps: float = 0,
+                     cost_model: CostModel | None = None,
+                     _record_frac: "tuple[float, float] | None" = None) -> dict:
     """Replay ``scanner_name`` over ``symbols`` and return aggregate metrics.
 
-    ``fetch_fn(symbol) -> OHLCV DataFrame`` (lowercase o/h/l/c/v columns). Use a
-    long window (e.g. ``lambda s: fetch_ohlcv(s, days=1500)``) so there is enough
-    history for a meaningful sample. ``stride`` evaluates every k-th bar to trade
-    resolution for speed (default 1 = every bar); signals are still de-duplicated
-    by ``min_gap``.
-
-    ``benchmark_df`` (optional) — a Nifty50 / index OHLCV frame with a DatetimeIndex
-    and a ``close`` column. When supplied, each signal's forward return is also
-    computed against the benchmark over the same window, enabling:
-      * market-model alpha  = signal_ret - β_symbol × benchmark_ret  (B-20b)
-      * OLS β estimated from the 60-bar pre-signal window               (B-20b)
-    The t-stat / p-value / 95% CI for the raw edge and for the alpha are both
-    reported so the numbers can no longer be quoted without a noise-probability
-    caveat (B-20a).
+    ``cost_model`` — a ``CostModel`` instance (``COST_INDIAN`` for realistic NSE
+    delivery costs, ``FlatCost(bps)`` for a flat haircut).  Overrides ``cost_bps``
+    when given.  Costs are applied to BOTH signal and baseline returns so the
+    edge comparison is fair.
     """
     spec = sc.SCANNERS.get(scanner_name)
     if spec is None:
         return {"error": f"unknown scanner '{scanner_name}'"}
     fn = spec["fn"]
     max_h = max(horizons)
+    cm = _resolve_cost(cost_bps, cost_model)
 
-    # Per-signal forward returns (%), keyed by horizon; plus every-bar baseline
-    # returns over the same replay window; plus R results where a plan existed.
     sig_ret: dict[int, list[float]] = {h: [] for h in horizons}
     base_ret: dict[int, list[float]] = {h: [] for h in horizons}
     # Market-model: parallel lists for the benchmark return and estimated alpha
@@ -181,18 +266,31 @@ def backtest_scanner(scanner_name: str,
         # Baseline: every eligible bar's forward returns (random entry in-tape).
         # Entry at t+1 open, exit at t+1+h close — identical timing to signals.
         last_eval = n - max_h - 2
-        for t in range(warmup, last_eval + 1):
+
+        # _record_frac: restrict which bars are counted (for walk-forward windows).
+        # The scanner still evaluates all bars for lookback; only recording is gated.
+        eval_span = last_eval - warmup + 1
+        if _record_frac is not None:
+            rec_start = warmup + int(eval_span * _record_frac[0])
+            rec_end = warmup + int(eval_span * _record_frac[1])
+        else:
+            rec_start = warmup
+            rec_end = last_eval + 1
+
+        for t in range(rec_start, min(rec_end, last_eval + 1)):
             total_bars += 1
             entry_b = openp[t + 1]
             if entry_b <= 0:
                 continue
             for h in horizons:
                 fwd = close[t + 1 + h]
-                base_ret[h].append((fwd / entry_b - 1.0) * 100.0)
+                cost_pct = cm.round_trip_pct(entry_b, fwd)
+                base_ret[h].append((fwd / entry_b - 1.0) * 100.0 - cost_pct)
 
-        # Signals: walk the same window, feed point-in-time slices.
-        t = warmup
-        while t <= last_eval:
+        # Signals: walk the record window, feed point-in-time slices.
+        # Scanner sees df.iloc[:t+1] (full lookback); only the record range counts.
+        t = rec_start
+        while t < rec_end and t <= last_eval:
             if stride > 1 and (t - warmup) % stride != 0:
                 t += 1
                 continue
@@ -229,7 +327,8 @@ def backtest_scanner(scanner_name: str,
 
                 for h in horizons:
                     fwd = close[entry_idx + h]
-                    sr = (fwd / entry_b - 1.0) * 100.0
+                    cost_pct = cm.round_trip_pct(entry_b, fwd)
+                    sr = (fwd / entry_b - 1.0) * 100.0 - cost_pct
                     sig_ret[h].append(sr)
 
                     # Market return for the same forward window (by date index)
@@ -259,7 +358,8 @@ def backtest_scanner(scanner_name: str,
                 if entry_p and stop_p and tgt_p:
                     n_plans += 1
                     r = _simulate_plan(df, entry_idx, entry_p, stop_p, tgt_p,
-                                       max_h, _to_float(hit.get("time_stop")))
+                                       max_h, _to_float(hit.get("time_stop")),
+                                       cost_model=cm)
                     if r:
                         r_results.append(r)
                     else:
@@ -273,7 +373,221 @@ def backtest_scanner(scanner_name: str,
     return _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list,
                       r_results, n_signals, n_symbols_used, total_bars,
                       n_plans, n_plans_unsimulated,
-                      mkt_ret=mkt_ret, alpha_ret=alpha_ret)
+                      mkt_ret=mkt_ret, alpha_ret=alpha_ret,
+                      cost_model=cm)
+
+
+def walk_forward_scanner(scanner_name: str,
+                         symbols: list[str],
+                         fetch_fn,
+                         n_windows: int = 3,
+                         horizons: tuple[int, ...] = DEFAULT_HORIZONS,
+                         cost_bps: float = 0,
+                         cost_model: CostModel | None = None,
+                         **kwargs) -> dict:
+    """Run ``backtest_scanner`` over non-overlapping time windows (B-21).
+
+    Each window's signals are out-of-sample relative to the others.  The pooled
+    result aggregates the per-window metrics (weighted by signal count) rather
+    than re-running the full tape — so "pooled" is a true OOS aggregate, not an
+    in-sample number.
+    """
+    cm = _resolve_cost(cost_bps, cost_model)
+    windows = []
+    for i in range(n_windows):
+        frac = (i / n_windows, (i + 1) / n_windows)
+        r = backtest_scanner(scanner_name, symbols, fetch_fn,
+                             horizons=horizons, cost_model=cm,
+                             _record_frac=frac, **kwargs)
+        r["window"] = i + 1
+        r["window_frac"] = frac
+        windows.append(r)
+
+    # Pool by signal-count-weighted average of per-window metrics (OOS aggregate).
+    pooled_horizons = {}
+    total_signals = sum(w.get("n_signals", 0) for w in windows)
+    total_symbols = max(w.get("n_symbols_used", 0) for w in windows)
+    total_baseline = sum(w.get("baseline_bars", 0) for w in windows)
+    for h in horizons:
+        n_total = 0
+        weighted_avg = 0.0
+        weighted_base = 0.0
+        weighted_hit = 0.0
+        all_edges = []
+        for w in windows:
+            m = w.get("horizons", {}).get(h, {})
+            n = m.get("n", 0)
+            if n == 0:
+                continue
+            n_total += n
+            weighted_avg += m.get("avg_ret", 0) * n
+            weighted_base += m.get("baseline_avg", 0) * n
+            weighted_hit += m.get("hit_rate", 0) * n
+            all_edges.append(m.get("edge", 0) or 0)
+        if n_total > 0:
+            avg_ret = weighted_avg / n_total
+            base_avg = weighted_base / n_total
+            pooled_horizons[h] = {
+                "n": n_total,
+                "avg_ret": round(avg_ret, 2),
+                "baseline_avg": round(base_avg, 2),
+                "edge": round(avg_ret - base_avg, 2),
+                "hit_rate": round(weighted_hit / n_total, 1),
+            }
+        else:
+            pooled_horizons[h] = {"n": 0}
+
+    pooled = {
+        "scanner": scanner_name,
+        "n_signals": total_signals,
+        "n_symbols_used": total_symbols,
+        "baseline_bars": total_baseline,
+        "thin_sample": total_signals < MIN_SAMPLE,
+        "horizons": pooled_horizons,
+        "r_metrics": None,
+        "mae_avg": None,
+        "limitations": windows[0].get("limitations", []) if windows else [],
+        "cost_label": cm.label,
+    }
+
+    # Stability: per-horizon sign consistency.
+    stability_per_h = {}
+    for h in horizons:
+        edges = []
+        for w in windows:
+            m = w.get("horizons", {}).get(h, {})
+            edges.append(m.get("edge", 0) or 0)
+        n_pos = sum(1 for e in edges if e > 0)
+        stable = n_pos == n_windows or n_pos == 0
+        stability_per_h[h] = {
+            "window_edges": [round(e, 2) for e in edges],
+            "n_positive": n_pos,
+            "stable": stable,
+        }
+
+    all_stable = all(s["stable"] for s in stability_per_h.values())
+    any_stable = any(s["stable"] for s in stability_per_h.values())
+
+    # Degradation: pooled edge vs best single window.
+    ref_h = max(horizons)
+    pooled_edge = pooled["horizons"].get(ref_h, {}).get("edge", 0) or 0
+    best_window_edge = max(
+        (w.get("horizons", {}).get(ref_h, {}).get("edge", 0) or 0 for w in windows),
+        default=0)
+    degradation = round(pooled_edge - best_window_edge, 2) if best_window_edge else 0
+
+    if all_stable:
+        verdict = "STABLE — edge sign consistent at all horizons"
+    elif any_stable:
+        stable_hs = [h for h, s in stability_per_h.items() if s["stable"]]
+        verdict = f"MIXED — stable at {stable_hs}, unstable at others"
+    else:
+        verdict = "UNSTABLE — edge sign inconsistent at every horizon"
+
+    return {
+        "scanner": scanner_name,
+        "n_windows": n_windows,
+        "windows": windows,
+        "pooled": pooled,
+        "stability": {
+            "per_horizon": stability_per_h,
+            "all_stable": all_stable,
+            "verdict": verdict,
+        },
+        "degradation": {
+            "ref_horizon": ref_h,
+            "pooled_edge": round(pooled_edge, 2),
+            "best_window_edge": round(best_window_edge, 2),
+            "gap": degradation,
+        },
+        "cost_label": cm.label,
+    }
+
+
+def format_walk_forward(result: dict) -> str:
+    """Human-readable report for walk_forward_scanner."""
+    lines = []
+    cost_note = result.get("cost_label", "GROSS")
+    lines.append(f"=== Walk-Forward: {result['scanner']} "
+                 f"({result['n_windows']} windows, {cost_note}) ===")
+    lines.append("")
+
+    horizons = list(result["pooled"]["horizons"].keys())
+
+    hdr = f"{'window':>7}  {'signals':>8}  " + "  ".join(
+        f"{'edge@'+str(h)+'d':>10}" for h in horizons)
+    lines.append(hdr)
+    for w in result["windows"]:
+        cols = [f"{w['window']:>7}", f"{w['n_signals']:>8}"]
+        for h in horizons:
+            m = w["horizons"].get(h, {})
+            e = m.get("edge")
+            tt = (m.get("edge_ttest") or {})
+            sig = "*" if tt.get("reliable") else " "
+            cols.append(f"{(f'{e:+.2f}' if e is not None else '   n/a'):>9}{sig}")
+        lines.append("  ".join(cols))
+
+    # Pooled (OOS aggregate)
+    cols = [f"{'OOS':>7}", f"{result['pooled']['n_signals']:>8}"]
+    for h in horizons:
+        m = result["pooled"]["horizons"].get(h, {})
+        e = m.get("edge")
+        cols.append(f"{(f'{e:+.2f}' if e is not None else '   n/a'):>9} ")
+    lines.append("  ".join(cols))
+
+    lines.append("")
+    stab = result["stability"]
+    lines.append(f"stability: {stab['verdict']}")
+    for h, s in stab.get("per_horizon", {}).items():
+        tag = "✓" if s["stable"] else "✗"
+        lines.append(f"  @{h}d: {tag} edges={s['window_edges']} "
+                     f"({s['n_positive']}/{result['n_windows']} positive)")
+
+    deg = result.get("degradation", {})
+    if deg:
+        lines.append(f"degradation @{deg['ref_horizon']}d: "
+                     f"pooled {deg['pooled_edge']:+.2f} vs best-window "
+                     f"{deg['best_window_edge']:+.2f} (gap {deg['gap']:+.2f})")
+
+    lines.append(f"  (* = p<0.05 two-tailed)")
+    return "\n".join(lines)
+
+
+def _ttest_1samp(arr: np.ndarray, null: float = 0.0):
+    """One-sample t-test, scipy-optional.  Returns (t, p)."""
+    n = len(arr)
+    mean = float(np.mean(arr))
+    se = float(np.std(arr, ddof=1)) / np.sqrt(n)
+    if se < 1e-15:
+        return 0.0, 1.0
+    t_val = (mean - null) / se
+    if _scipy_stats is not None:
+        p_val = float(_scipy_stats.t.sf(abs(t_val), df=n - 1) * 2)
+    else:
+        from math import erfc, sqrt
+        p_val = erfc(abs(t_val) / sqrt(2))
+    return t_val, p_val
+
+
+def _ttest_ind(a: np.ndarray, b: np.ndarray, alternative: str = "two-sided"):
+    """Two-sample Welch t-test, scipy-optional.  Returns (t, p)."""
+    if _scipy_stats is not None:
+        t_val, p_val = _scipy_stats.ttest_ind(a, b, equal_var=False,
+                                               alternative=alternative)
+        return float(t_val), float(p_val)
+    na, nb = len(a), len(b)
+    ma, mb = float(np.mean(a)), float(np.mean(b))
+    va = float(np.var(a, ddof=1))
+    vb = float(np.var(b, ddof=1))
+    se = np.sqrt(va / na + vb / nb)
+    if se < 1e-15:
+        return 0.0, 1.0
+    t_val = (ma - mb) / se
+    from math import erfc, sqrt
+    p_val = erfc(abs(t_val) / sqrt(2))
+    if alternative == "greater":
+        p_val = p_val / 2 if t_val > 0 else 1.0 - p_val / 2
+    return t_val, p_val
 
 
 def _ttest_edge(arr: np.ndarray, null: float = 0.0) -> dict:
@@ -281,21 +595,29 @@ def _ttest_edge(arr: np.ndarray, null: float = 0.0) -> dict:
     n = len(arr)
     if n < 4:
         return {"t": None, "p": None, "ci95": None, "reliable": False}
-    t, p = stats.ttest_1samp(arr, null)
-    ci = stats.t.interval(0.95, df=n - 1, loc=float(np.mean(arr)),
-                          scale=stats.sem(arr))
+    t_val, p_val = _ttest_1samp(arr, null)
+    mean = float(np.mean(arr))
+    se = float(np.std(arr, ddof=1)) / np.sqrt(n)
+    if _scipy_stats is not None:
+        ci = _scipy_stats.t.interval(0.95, df=n - 1, loc=mean, scale=se)
+        ci_lo, ci_hi = float(ci[0]), float(ci[1])
+    else:
+        ci_lo = mean - 1.96 * se
+        ci_hi = mean + 1.96 * se
     return {
-        "t": round(float(t), 3),
-        "p": round(float(p), 4),
-        "ci95": [round(float(ci[0]), 3), round(float(ci[1]), 3)],
-        "reliable": bool(p < 0.05),   # two-tailed α=0.05
+        "t": round(t_val, 3),
+        "p": round(p_val, 4),
+        "ci95": [round(ci_lo, 3), round(ci_hi, 3)],
+        "reliable": bool(p_val < 0.05),
+        "approx": _scipy_stats is None,
     }
 
 
 def _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list, r_results,
                n_signals, n_symbols_used, total_bars,
                n_plans=0, n_plans_unsimulated=0,
-               mkt_ret=None, alpha_ret=None) -> dict:
+               mkt_ret=None, alpha_ret=None,
+               cost_model: CostModel | None = None) -> dict:
     per_h = {}
     for h in horizons:
         s = np.array(sig_ret[h], dtype=float)
@@ -356,6 +678,13 @@ def _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list, r_results,
             "plans_unsimulated": int(n_plans_unsimulated),
         }
 
+    cm = cost_model or COST_GROSS
+    lims = ["survivorship-bias", "history-depth-varies"]
+    if not isinstance(cm, FlatCost) or cm.bps > 0:
+        lims.append(f"costs: {cm.label}")
+    else:
+        lims.append("no-costs-slippage")
+
     return {
         "scanner": scanner_name,
         "n_signals": n_signals,
@@ -365,7 +694,8 @@ def _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list, r_results,
         "horizons": per_h,
         "r_metrics": r_block,
         "mae_avg": round(float(np.mean(mae_list)), 2) if mae_list else None,
-        "limitations": ["survivorship-bias", "no-costs-slippage", "history-depth-varies"],
+        "limitations": lims,
+        "cost_label": cm.label,
     }
 
 
@@ -375,9 +705,10 @@ def format_report(result: dict) -> str:
         return f"ERROR: {result['error']}"
     lines = []
     warn = "  ⚠ THIN SAMPLE — treat as directional only" if result["thin_sample"] else ""
+    cost_note = f"  cost={result.get('cost_label', 'GROSS')}"
     lines.append(f"=== {result['scanner']} ===")
     lines.append(f"signals={result['n_signals']}  symbols={result['n_symbols_used']}  "
-                 f"baseline-bars={result['baseline_bars']}{warn}")
+                 f"baseline-bars={result['baseline_bars']}{cost_note}{warn}")
     has_alpha = any(m.get("alpha_avg") is not None
                     for m in result["horizons"].values() if m.get("n", 0) > 0)
     hdr = (f"{'horizon':>8} {'n':>5} {'hit%':>6} {'avg%':>7} "
@@ -434,7 +765,9 @@ def backtest_confluence(scanner_names: list[str],
                         horizons: tuple[int, ...] = DEFAULT_HORIZONS,
                         min_gap: int = DEFAULT_MIN_GAP,
                         warmup: int = WARMUP_BARS,
-                        min_cofiring: int = 2) -> dict:
+                        min_cofiring: int = 2,
+                        cost_bps: float = 0,
+                        cost_model: CostModel | None = None) -> dict:
     """Measure whether co-firing (≥ min_cofiring scanners agreeing on the same
     bar) beats any single-scanner fire over the same symbols and tape.
 
@@ -449,7 +782,7 @@ def backtest_confluence(scanner_names: list[str],
       ``lift_ttest`` — t-test on whether lift differs from zero (B-20a applied
                        to the confluence question)
     """
-    # Build a function map: scanner_name → scan_fn
+    cm = _resolve_cost(cost_bps, cost_model)
     fns: dict[str, object] = {}
     for name in scanner_names:
         spec = sc.SCANNERS.get(name)
@@ -510,7 +843,8 @@ def backtest_confluence(scanner_names: list[str],
                 bucket = co_ret if is_co else single_ret
                 for h in horizons:
                     fwd = close[entry_idx + h]
-                    bucket[h].append((fwd / entry_b - 1.0) * 100.0)
+                    cost_pct = cm.round_trip_pct(entry_b, fwd)
+                    bucket[h].append((fwd / entry_b - 1.0) * 100.0 - cost_pct)
 
             t += 1
 
@@ -535,8 +869,7 @@ def backtest_confluence(scanner_names: list[str],
         if len(s) >= 4 and len(c) >= 4:
             _lift = float(np.mean(c)) - float(np.mean(s))
             lift[h] = round(_lift, 2)
-            # Two-sample t-test: is the co-fired mean significantly higher?
-            t2, p2 = stats.ttest_ind(c, s, equal_var=False, alternative="greater")
+            t2, p2 = _ttest_ind(c, s, alternative="greater")
             lift_ttest[h] = {
                 "lift": round(_lift, 2),
                 "t": round(float(t2), 3),
@@ -556,6 +889,7 @@ def backtest_confluence(scanner_names: list[str],
         "lift_per_horizon": lift,
         "lift_ttest": lift_ttest,
         "premise_supported": any(v.get("reliable") for v in lift_ttest.values()),
+        "cost_label": cm.label,
     }
 
 
@@ -563,10 +897,11 @@ def format_confluence_report(result: dict) -> str:
     """Human-readable report for backtest_confluence."""
     if "error" in result:
         return f"ERROR: {result['error']}"
+    cost_note = result.get("cost_label", "GROSS")
     lines = [
         "=== Confluence Backtest ===",
         f"scanners: {', '.join(result['scanners'])}",
-        f"co-fire threshold: ≥{result['min_cofiring']}",
+        f"co-fire threshold: ≥{result['min_cofiring']}  {cost_note}",
         "",
         f"{'horizon':>8}  {'single n':>9} {'single%':>8}  {'cofired n':>9} "
         f"{'cofired%':>8}  {'lift%':>7} {'p(lift)':>8}",
@@ -687,6 +1022,28 @@ if __name__ == "__main__":
     sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
     import screener_pipeline as sp
     name = sys.argv[1] if len(sys.argv) > 1 else "RSI 60-40 Setup"
+    # --cost indian | --cost <bps>
+    _cm: CostModel | None = None
+    if "--cost" in sys.argv:
+        _ci = sys.argv.index("--cost")
+        sys.argv.pop(_ci)
+        _cv = sys.argv.pop(_ci) if _ci < len(sys.argv) else "indian"
+        if _cv.lower() == "indian":
+            _cm = COST_INDIAN
+        else:
+            _cm = FlatCost(float(_cv))
+    # --wf [N]  walk-forward with N windows (default 3)
+    _wf = 0
+    if "--wf" in sys.argv:
+        _wi = sys.argv.index("--wf")
+        sys.argv.pop(_wi)
+        _wf = int(sys.argv.pop(_wi)) if _wi < len(sys.argv) and sys.argv[_wi].isdigit() else 3
     syms = LIQUID_50
-    res = backtest_scanner(name, syms, lambda s: sp.fetch_ohlcv(s, days=1500))
-    print(format_report(res))
+    fetch = lambda s: sp.fetch_ohlcv(s, days=1500)
+    if _wf:
+        res = walk_forward_scanner(name, syms, fetch,
+                                   n_windows=_wf, cost_model=_cm)
+        print(format_walk_forward(res))
+    else:
+        res = backtest_scanner(name, syms, fetch, cost_model=_cm)
+        print(format_report(res))
