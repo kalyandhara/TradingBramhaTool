@@ -20,6 +20,10 @@ sector_rotation_*.html
 sector_rotation_*.png
 sector_rotation_trail_*.json
 
+# Deal board artefacts (regenerated per session by deal_infographic.py)
+reports/deal_board_*.html
+reports/deal_board_*.png
+
 # Obsidian / editor
 .obsidian/
 *.canvas

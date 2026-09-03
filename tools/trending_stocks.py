@@ -176,6 +176,122 @@ def volume_shockers(top_n: int = TOP_N,
             "raw": res}
 
 
+# ── lens 2b · Darvas-box volume shockers (Chartink criteria) ──────────────────
+#
+# The reference scan ("VOLUME SHOCKERS (STOCKS WITH RISING VOLUMES) DARVAS") is
+# two conditions and nothing else:
+#
+#     Daily Volume > 2 x Daily SMA(volume, 10)
+#     AND ( Daily Close > 1.05 x 1-day-ago Close
+#           OR Daily Close < 0.95 x 1-day-ago Close )
+#
+# i.e. a >=5% move in EITHER direction on more than double the 10-day average
+# volume — the Darvas premise that a box only breaks on conviction volume.
+#
+# Two data notes, because they decide whether the numbers match Chartink:
+#
+# 1. Chartink's SMA(volume,10) INCLUDES the current session. So does this:
+#    sma10 = (sum of the prior 9 sessions + today) / 10. Using the prior-10 mean
+#    instead would silently loosen the filter for every name.
+# 2. Today's volume/close/prev_close come from the NSE bhavcopy (authoritative
+#    EOD), the prior 9 sessions from batched yfinance history. The price gate is
+#    applied FIRST, off the bhavcopy alone, so history is downloaded for the few
+#    dozen names that already moved 5% instead of the whole market.
+
+#: Volume must exceed this multiple of SMA(volume, 10).
+DARVAS_VOL_MULT = 2.0
+
+#: Minimum absolute move vs the previous close, in %.
+DARVAS_MOVE_PCT = 5.0
+
+#: Bhavcopy names ranked by turnover that the price gate is applied to.
+DARVAS_PREFILTER_N = 750
+
+
+def darvas_volume_shockers(bhav: Optional[pd.DataFrame] = None,
+                           top_n: int = TOP_N,
+                           vol_mult: float = DARVAS_VOL_MULT,
+                           move_pct: float = DARVAS_MOVE_PCT,
+                           min_turnover: float = MIN_TURNOVER,
+                           prefilter_n: int = DARVAS_PREFILTER_N,
+                           hist: Optional[dict[str, pd.DataFrame]] = None,
+                           ) -> dict[str, Any]:
+    """Chartink's Darvas volume-shocker scan, computed locally.
+
+    Returns `rows` ranked by volume multiple, plus the counts at each gate so the
+    page can say how many names each condition removed rather than only showing
+    the survivors.
+    """
+    if bhav is None:
+        bhav, _ = load_bhav()
+    if bhav is None or bhav.empty:
+        return {"error": "no bhavcopy frame", "rows": pd.DataFrame()}
+
+    d = _pct_change(bhav)
+    n_universe = len(d)
+    d["volume"] = pd.to_numeric(d["volume"], errors="coerce")
+    d["turnover"] = pd.to_numeric(d["turnover"], errors="coerce")
+    d = d.dropna(subset=["volume"])
+    d = d[d["volume"] > 0]
+
+    # Liquidity floor — same reasoning as price movers; skipped when the feed
+    # gave us quantity rather than value in the turnover column.
+    if not bhav.attrs.get("turnover_is_qty", False):
+        d = d[d["turnover"] >= min_turnover]
+    n_liquid = len(d)
+
+    # Gate 1 (free): the +-move_pct% price condition, off the bhavcopy alone.
+    d = d[d["chg_pct"].abs() >= move_pct]
+    d = d.nlargest(min(prefilter_n, len(d)), "turnover")
+    n_price = len(d)
+    if n_price == 0:
+        return {"rows": pd.DataFrame(), "n_universe": n_universe,
+                "n_liquid": n_liquid, "n_price": 0, "n_scanned": 0,
+                "vol_mult": vol_mult, "move_pct": move_pct}
+
+    syms = d["symbol"].astype(str).str.strip().tolist()
+    hist = hist if hist is not None else _batch_history(syms, period="3mo")
+
+    out: list[dict[str, Any]] = []
+    n_scanned = 0
+    for r in d.to_dict("records"):
+        sym = str(r["symbol"]).strip()
+        h = hist.get(sym)
+        if h is None or "Volume" not in h:
+            continue
+        prior = [float(v) for v in h["Volume"].tolist()[-9:] if v and v > 0]
+        if len(prior) < 9:
+            continue
+        n_scanned += 1
+        vol = float(r["volume"])
+        sma10 = (sum(prior) + vol) / 10.0
+        if sma10 <= 0:
+            continue
+        mult = vol / sma10
+        if mult < vol_mult:
+            continue
+        turnover_cr = (None if bhav.attrs.get("turnover_is_qty", False)
+                       else round(float(r["turnover"]) / CRORE, 1))
+        out.append({
+            "symbol": sym,
+            "close": round(float(r["close"]), 2),
+            "chg_pct": round(float(r["chg_pct"]), 2),
+            "direction": "UP" if r["chg_pct"] > 0 else "DOWN",
+            "volume": int(vol),
+            "sma_vol10": int(round(sma10)),
+            "multiple": round(mult, 1),
+            "turnover_cr": turnover_cr,
+        })
+
+    rows = pd.DataFrame(out)
+    if not rows.empty:
+        rows = rows.sort_values("multiple", ascending=False).head(top_n)
+        rows = rows.reset_index(drop=True)
+    return {"rows": rows, "n_universe": n_universe, "n_liquid": n_liquid,
+            "n_price": n_price, "n_scanned": n_scanned, "n_hits": len(out),
+            "vol_mult": vol_mult, "move_pct": move_pct}
+
+
 # ── lens 3 & 4 · range extremes ───────────────────────────────────────────────
 
 def _batch_history(symbols: list[str], period: str = "2y") -> dict[str, pd.DataFrame]:

@@ -52,6 +52,7 @@ import harmonic_patterns as hp
 import sentiment_index as senti
 import market_verdict as mvd
 import block_deal_intel as bdi
+import deal_infographic as dinf
 import nse_oi_momentum as oim
 import browser_cookie_helper as bch
 import stock_council as council
@@ -934,9 +935,9 @@ PAGE_GROUPS = {
     "Ops":              ["Pipeline Log", "Scheduler Hub"],
 }
 
-#: One line per page, shown on the Home cards. Kept factual — each says what the
-#: page DOES, not how good it is. Any page missing from here still routes fine;
-#: it just renders without a subtitle.
+#: One line per page, shown as the tooltip on its nav-popover button (Home no
+#: longer cards the pages). Kept factual — each says what the page DOES, not how
+#: good it is. Any page missing from here still routes fine, just without a hint.
 PAGE_BLURBS = {
     "Opportunity Hub":      "Ranked daily shortlist across every scanner",
     "Delete Funnel":        "Technofunda 8-filter noise sieve — deletes to a shortlist",
@@ -961,16 +962,6 @@ PAGE_BLURBS = {
     "Pipeline Log":         "What the 4:05 PM batch did, and whether it failed",
     "Scheduler Hub":        "Batch jobs & the live alert bot — schedule, run, monitor",
     "Strategy Hub":         "Chart patterns, trading strategies, and fundamental scores",
-}
-
-#: Group → (icon, one-line purpose). The icon is decoration; the line is the
-#: reason the group exists, so Home reads as a map rather than a menu.
-GROUP_BLURBS = {
-    "Screening":        ("🔎", "Find candidates"),
-    "Market Intel":     ("📡", "Read the tape"),
-    "Research":         ("🔬", "Study one name"),
-    "Portfolio & Risk": ("🛡", "Manage what you hold"),
-    "Ops":              ("⚙", "Check the machinery"),
 }
 
 if "current_page" not in st.session_state:
@@ -1034,6 +1025,7 @@ for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
             for _p in _gpages:
                 _is_active = st.session_state["current_page"] == _p
                 if st.button(_p, key=f"nav_{_p}", use_container_width=True,
+                             help=PAGE_BLURBS.get(_p),
                              type="primary" if _is_active else "secondary"):
                     st.session_state["current_page"] = _p
                     st.rerun()
@@ -3609,6 +3601,181 @@ with st.expander("Daily Workflow (IST)"):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Volume Shockers (Darvas) — shared window, used by Home and Trending Stocks
+# ------------------------------------------------------------------------------
+# The lens was buried three clicks deep (Market Intel ▸ Trending Stocks ▸ tab 2),
+# so it now renders on Home as well. Both call the SAME function — one definition,
+# two mount points, no drift.
+#
+# Criteria are Chartink's Darvas volume-shocker scan verbatim (see
+# trending_stocks.darvas_volume_shockers): volume > 2x SMA(volume,10) AND a >=5%
+# move in either direction. The knobs are exposed because the reference scan's
+# 2x/5% are conventions, not measured thresholds.
+#
+# Home must stay cheap to open, so the scan runs only when asked: the button
+# flips a session flag, the cached result is reused for 30 minutes after that.
+# ──────────────────────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _trend_bhav():
+    import trending_stocks as _ts
+    return _ts.load_bhav()
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _darvas_volume(top_n: int, vol_mult: float, move_pct: float, min_turnover_cr: float):
+    import trending_stocks as _ts
+    bhav, _ = _trend_bhav()
+    if bhav is None:
+        return {"error": "no bhavcopy frame", "rows": None}
+    _r = _ts.darvas_volume_shockers(
+        bhav, top_n=top_n, vol_mult=vol_mult, move_pct=move_pct,
+        min_turnover=float(min_turnover_cr) * 1e7)
+    _r["trade_date"] = _trend_bhav()[1]
+    return _r
+
+
+def _darvas_rows_table(df, key_prefix: str):
+    """The hit list, with the same chart-icon link family the other tables use,
+    plus row-select → ♥ add to watchlist.
+
+    Streamlit cannot put a real button INSIDE a dataframe cell, so the icon is a
+    row selection followed by one ♥ button — which is also the cheaper gesture
+    when the answer is usually "these three", not "this one".
+    """
+    if df is None or getattr(df, "empty", True):
+        st.info("No name clears both conditions in this session. "
+                "That is a normal reading — the scan is meant to be quiet.")
+        return
+    out = _with_chart_family(df.copy(), "symbol")
+    cfg = dict(_chart_family_colcfg())
+    cfg["symbol"] = st.column_config.TextColumn("Symbol", width="small")
+    cfg["close"] = st.column_config.NumberColumn("LTP", format="%.2f")
+    cfg["chg_pct"] = st.column_config.NumberColumn("Chg%", format="%.2f%%")
+    cfg["direction"] = st.column_config.TextColumn("Dir", width="small")
+    cfg["volume"] = st.column_config.NumberColumn("Volume", format="%d")
+    cfg["sma_vol10"] = st.column_config.NumberColumn("SMA vol(10)", format="%d")
+    cfg["multiple"] = st.column_config.NumberColumn("x SMA10", format="%.1f")
+    cfg["turnover_cr"] = st.column_config.NumberColumn("Turnover ₹Cr", format="%.1f")
+    # Green/red on Chg%. Colour is REDUNDANT here, never load-bearing: the Dir
+    # column already says UP/DOWN and the number carries its own sign, so the
+    # table still reads correctly in greyscale or with colour-blindness — the
+    # same rule gain_loss_badge() follows.
+    def _chg_color(v):
+        if v is None or pd.isna(v):
+            return ""
+        return (f"color:{rs.TOKENS['good']};font-weight:600" if v > 0
+                else f"color:{rs.TOKENS['risk']};font-weight:600" if v < 0
+                else "")
+
+    _show = out.style.map(_chg_color, subset=["chg_pct"])
+    _sel = st.dataframe(_show, width="stretch", hide_index=True, column_config=cfg,
+                        key=f"{key_prefix}_tbl", on_select="rerun",
+                        selection_mode="multi-row")
+    try:
+        _rows = list(_sel.selection.rows)
+    except Exception:
+        _rows = []
+    _picked = [str(df.iloc[i]["symbol"]) for i in _rows if i < len(df)]
+
+    _wc1, _wc2 = st.columns([1, 3])
+    with _wc1:
+        if st.button(f"♥ Add {len(_picked) or ''} to watchlist".replace("  ", " "),
+                     key=f"{key_prefix}_addwl", disabled=not _picked,
+                     use_container_width=True, type="primary" if _picked else "secondary"):
+            for _s in _picked:
+                db.add_watchlist_symbol(_s, "Volume Shockers · Darvas")
+            st.toast(f"♥ {len(_picked)} → Watchlist")
+            st.rerun()
+    with _wc2:
+        st.caption("Tick one or more rows, then ♥ — they land on the Watchlist "
+                   "tagged with the scan that found them."
+                   + (f"  Selected: **{', '.join(_picked)}**" if _picked else ""))
+
+
+def _darvas_window(key_prefix: str, *, compact: bool = False):
+    """Render the Volume Shockers (Darvas) window.
+
+    `compact` is the Home mounting: no sliders, scan runs on click only.
+    """
+    st.markdown("#### 📊 Volume Shockers · Darvas")
+    st.caption(
+        "Chartink's *Volume Shockers (rising volumes) — Darvas* scan, computed "
+        "locally: **volume > 2× SMA(volume,10)** *and* a **≥5% move** up or down "
+        "vs the previous close. An attention list, not a signal — a box only "
+        "breaks on conviction volume, but volume alone is a question, not an entry."
+    )
+    # Chartink applies NO liquidity floor, so its list carries names trading a few
+    # thousand shares (SURYALA: 3,061). The floor defaults to 0 here for parity —
+    # raise it when you want a list you can actually take size in.
+
+    if compact:
+        _top, _mult, _move, _minto = 60, 2.0, 5.0, 0.0
+        _go = st.session_state.get(f"{key_prefix}_ran", False)
+        if not _go:
+            if st.button("Run volume shocker scan", key=f"{key_prefix}_run",
+                         type="primary"):
+                st.session_state[f"{key_prefix}_ran"] = True
+                st.rerun()
+            st.caption("Not run yet — Home never fetches on load.")
+            return
+    else:
+        _c1, _c2, _c3, _c4 = st.columns(4)
+        with _c1:
+            _top = st.slider("Rows", 10, 200, 60, step=10, key=f"{key_prefix}_top",
+                             help="A cap on the TABLE, not on the scan — the hit "
+                                  "count beside it is always the full number.")
+        with _c2:
+            _mult = st.slider("× SMA(volume,10)", 1.5, 10.0, 2.0, step=0.5,
+                              key=f"{key_prefix}_mult",
+                              help="Chartink's scan uses 2×. Raise it to shorten the list.")
+        with _c3:
+            _move = st.slider("Min move %", 1.0, 15.0, 5.0, step=0.5,
+                              key=f"{key_prefix}_move",
+                              help="Chartink's scan uses ±5%, either direction.")
+        with _c4:
+            _minto = st.number_input("Min turnover ₹Cr", 0.0, 500.0, 0.0, step=1.0,
+                                     key=f"{key_prefix}_minto",
+                                     help="Liquidity floor. 0 = Chartink parity "
+                                          "(it applies none). Raise it to drop names "
+                                          "whose 5% move is arithmetic on 3,000 shares.")
+
+    with st.spinner("Scanning the bhavcopy, then 10-day volume history…"):
+        _res = _darvas_volume(int(_top), float(_mult), float(_move), float(_minto))
+
+    if _res.get("error"):
+        st.warning(f"Scan unavailable: {_res['error']}")
+        return
+
+    # The bhavcopy is EOD and publishes after the close, so on any intraday run
+    # this scan is YESTERDAY's session while Chartink is showing today's. That is
+    # the single most likely reason two lists disagree, so it is stated first and
+    # in the open, not buried in a tooltip.
+    st.caption(f"Session **{_res.get('trade_date') or '—'}** (NSE EOD bhavcopy). "
+               f"Chartink runs intraday — compare like sessions before concluding "
+               f"the filters differ.")
+    _n_hits = _res.get("n_hits", 0)
+    _n_shown = 0 if _res.get("rows") is None else len(_res["rows"])
+    _n_price = _res.get("n_price", 0)
+    _n_scanned = _res.get("n_scanned", 0)
+    st.caption(
+        f"**{_n_hits}** hits"
+        + (f" (showing {_n_shown} — raise *Rows*)" if _n_shown < _n_hits else "")
+        + f" · {_n_price} names cleared the ±{_res.get('move_pct', 5)}% price gate "
+        f"out of {_res.get('n_liquid', 0):,} of {_res.get('n_universe', 0):,} EQ rows "
+        f"· {_n_scanned} of those had 9 prior sessions of volume history to test the "
+        f"{_res.get('vol_mult', 2)}× condition."
+    )
+    if _n_price and _n_scanned < _n_price:
+        # This is the one gap Chartink does not have: it holds its own volume
+        # history, we fetch ours. A name too new (or unmatched on yfinance) is
+        # NOT reported as "no spike" — it is reported as untested.
+        st.caption(f"⚠ {_n_price - _n_scanned} name(s) could not be tested — no "
+                   f"10-session volume history from the feed. Untested, not rejected.")
+    _darvas_rows_table(_res.get("rows"), key_prefix)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Home — the landing page
 # ------------------------------------------------------------------------------
 # The app used to open straight into Screener, which meant the first screen was a
@@ -3677,37 +3844,58 @@ if current_page == "Home":
     )
     st.write("")
 
-    # One card per sidebar group; the buttons are real navigation, so the card
-    # header is markdown and the routing sits underneath it. Streamlit widgets
-    # cannot live inside an st.markdown HTML block, which is why this is a column
-    # grid rather than one rendered card grid.
-    _groups = list(PAGE_GROUPS.items())
-    for _row_start in range(0, len(_groups), 3):
-        _cols = st.columns(3, gap="medium")
-        for _col, (_gname, _gpages) in zip(_cols, _groups[_row_start:_row_start + 3]):
-            with _col:
-                _icon, _purpose = GROUP_BLURBS.get(_gname, ("", ""))
-                st.markdown(
-                    f'<div style="border:1px solid {_t["border"]};border-radius:12px;'
-                    f'background:{_t["surface"]};padding:14px 16px 10px;margin-bottom:8px;">'
-                    f'<div style="font-size:15px;font-weight:700;color:{_t["text"]};">'
-                    f'{_icon} {_gname}</div>'
-                    f'<div style="font-size:12px;color:{_t["text_muted"]};margin-top:2px;">'
-                    f'{_purpose}</div></div>',
-                    unsafe_allow_html=True,
-                )
-                for _p in _gpages:
-                    if st.button(_p, key=f"home_{_p}", use_container_width=True):
-                        st.session_state["current_page"] = _p
-                        st.rerun()
-                    _blurb = PAGE_BLURBS.get(_p)
-                    if _blurb:
-                        st.markdown(
-                            f'<div style="font-size:11px;color:{_t["text_muted"]};'
-                            f'margin:-6px 0 8px 2px;line-height:1.4;">{_blurb}</div>',
-                            unsafe_allow_html=True,
-                        )
-        st.write("")
+    # Home used to be a card grid of every page. It is now a working surface: the
+    # scan that was buried three clicks deep, then the roster it feeds. Navigation
+    # lives in the top ribbon, where it was already complete.
+    _darvas_window("home_vs", compact=True)
+    st.write("")
+
+    # The nav-card grid is gone: every page is already one click away in the top
+    # ribbon, so carding them twice made Home a menu of a menu. Home now shows the
+    # two things you actually act on — today's volume shockers, and what you are
+    # already tracking.
+    st.markdown("#### ♥ Watchlist")
+    _wl = db.get_watchlist()
+    if _wl is None or _wl.empty:
+        st.info("Watchlist is empty — tick rows in the scan above and press ♥.")
+    else:
+        # Deliberately NOT price-enriched here: the Watchlist page fetches OHLCV
+        # per symbol to score Minervini/TechnoFunda, and Home must not fetch on
+        # load. This is the roster; the scored view is one click away.
+        _wl_out = _wl.rename(columns={"symbol": "Symbol", "added_date": "Added",
+                                      "notes": "Notes"})
+        _wl_out = _with_chart_family(_wl_out, "Symbol")
+        _wl_cfg = dict(_chart_family_colcfg())
+        _wl_cfg["Symbol"] = st.column_config.TextColumn("Symbol", width="small")
+        _wl_cfg["Added"] = st.column_config.TextColumn("Added", width="small")
+        _wl_cfg["Notes"] = st.column_config.TextColumn("Notes", width="medium")
+        _wl_sel = st.dataframe(_wl_out, width="stretch", hide_index=True,
+                               column_config=_wl_cfg, key="home_wl_tbl",
+                               on_select="rerun", selection_mode="multi-row")
+        try:
+            _wl_rows = list(_wl_sel.selection.rows)
+        except Exception:
+            _wl_rows = []
+        _wl_pick = [str(_wl.iloc[i]["symbol"]) for i in _wl_rows if i < len(_wl)]
+
+        _h1, _h2, _h3 = st.columns([1, 1, 2])
+        with _h1:
+            if st.button(f"Remove {len(_wl_pick) or ''}".strip(), key="home_wl_rm",
+                         disabled=not _wl_pick, use_container_width=True):
+                for _s in _wl_pick:
+                    db.remove_watchlist_symbol(_s)
+                st.toast(f"Removed {len(_wl_pick)}")
+                st.rerun()
+        with _h2:
+            if st.button("Open Watchlist →", key="home_wl_open",
+                         use_container_width=True):
+                st.session_state["current_page"] = "Watchlist"
+                st.rerun()
+        with _h3:
+            st.caption(f"{len(_wl)} tracked. Scores and trade plans live on the "
+                       f"Watchlist page.")
+
+    st.write("")
 
     st.markdown(
         f'<div style="border-top:1px solid {_t["border"]};margin-top:6px;padding-top:14px;'
@@ -5472,12 +5660,6 @@ if current_page == "Hidden Treasures":
 # where it belongs — on Scanner Hub.
 
 @st.cache_data(ttl=900, show_spinner=False)
-def _trend_bhav():
-    import trending_stocks as _ts
-    return _ts.load_bhav()
-
-
-@st.cache_data(ttl=900, show_spinner=False)
 def _trend_movers(top_n: int, min_turnover: float):
     import trending_stocks as _ts
     bhav, _ = _trend_bhav()
@@ -5583,7 +5765,7 @@ if current_page == "Trending Stocks":
             st.markdown("**Top losers**")
             _tr_table(_mv["losers"])
 
-        with _t_vol:
+        def _render_anomaly_spikes():
             with st.spinner("Attributing volume spikes to a cause…"):
                 _vol = _trend_volume(_tr_top)
             if _vol.get("error"):
@@ -5597,6 +5779,16 @@ if current_page == "Trending Stocks":
                     + ".  Each spike is attributed to a filing, prop churn, deal activity, "
                       "or nothing — the list answers *why*, not only *what*.")
                 _tr_table(_vol["rows"])
+
+        with _t_vol:
+            _darvas_window("tr_vs")
+
+            st.divider()
+            # The cause-attributed scan is a different question ("why did this
+            # spike?") on a different filter, so it stays — one level down,
+            # because the Darvas criteria are now what the tab means.
+            with st.expander("Cause-attributed spikes (volume_anomaly) — why, not what"):
+                _render_anomaly_spikes()
 
         _ext = None
         with _t_52:
@@ -9702,7 +9894,8 @@ if current_page == "India Market Intel":
                 unsafe_allow_html=True)
     st.divider()
 
-    intel_tabs = st.tabs(["Bulk Deals", "Block Deals", "Insider Trading", "Gap & Volume Scanner"])
+    intel_tabs = st.tabs(["Bulk Deals", "Block Deals", "Insider Trading",
+                          "Gap & Volume Scanner", "📰 Deal Board"])
 
     def _highlight_deals(df_deals: pd.DataFrame, min_value_lakh: float, buy_col: str,
                          filter_key: str = "imi_deal_filter") -> None:
@@ -9981,6 +10174,90 @@ if current_page == "India Market Intel":
                     "Gap %": st.column_config.NumberColumn("Gap %", format="%.2f%%"),
                 },
             )
+
+    # ── Deal Board — the shareable infographic ────────────────────────────────
+    # The four tabs above are working tables; this is the one artefact you send
+    # someone. All assembly lives in deal_infographic.py — this only runs it and
+    # hands back the HTML, so the board is identical from the CLI and the page.
+    with intel_tabs[4]:
+        st.caption(
+            "One board for the session: every scrip that had a bulk or block deal, "
+            "ranked by market cap, with what the price did, how much of the day's "
+            "tape the deal was, and how much of that quantity was actually "
+            "**delivered**. A disclosure that someone traded — not evidence they "
+            "were right, and not a recommendation."
+        )
+        _db_c1, _db_c2 = st.columns([1, 2])
+        with _db_c1:
+            _db_mcap = st.checkbox("Look up market caps", value=True, key="imi_db_mcap",
+                                   help="One yfinance call per scrip (~10s for a "
+                                        "typical day). Off = the tables still build, "
+                                        "sorted by delivery value instead.")
+        with _db_c2:
+            _db_run = st.button("📰 Build deal board", type="primary", key="imi_db_run")
+
+        if _db_run:
+            with st.spinner("Fetching deals, delivery file and market caps…"):
+                try:
+                    _db_deals = dinf.collect_deals()
+                    st.session_state["imi_deal_board"] = dinf.build(
+                        _db_deals, with_mcap=_db_mcap)
+                    # A new board makes any previously rendered image stale.
+                    st.session_state.pop("imi_deal_board_png", None)
+                except Exception as e:
+                    st.error(f"Deal board failed: {e}")
+                    st.session_state.pop("imi_deal_board", None)
+
+        _board = st.session_state.get("imi_deal_board")
+        if _board is not None:
+            if _board.get("error"):
+                st.warning(_board["error"])
+            else:
+                _html = dinf.render_html(_board)
+                # Height scales with the row count: a fixed iframe either clips a
+                # 70-scrip day or leaves a void on a 5-scrip one.
+                _rows = _board.get("n_symbols", 0)
+                components.html(_html, height=min(4200, 620 + 26 * _rows),
+                                scrolling=True)
+                _stem = f"deal_board_{date.today():%Y%m%d}"
+                _dl1, _dl2, _dl3 = st.columns([1, 1, 2])
+                with _dl1:
+                    st.download_button(
+                        "⬇ HTML", data=_html, file_name=f"{_stem}.html",
+                        mime="text/html", key="imi_db_dl", use_container_width=True)
+                # PNG is rendered on demand, not with every board: it launches
+                # headless Chromium (~2-4s). Rendering it here rather than in the
+                # browser means the image is produced by the SAME engine that
+                # displays the board — a canvas library re-implements CSS and
+                # would ship a subtly different picture.
+                with _dl2:
+                    if st.button("🖼 Render image", key="imi_db_png",
+                                 use_container_width=True):
+                        with st.spinner("Rendering PNG…"):
+                            try:
+                                st.session_state["imi_deal_board_png"] =                                     dinf.render_png(_html)
+                            except RuntimeError as e:
+                                st.session_state.pop("imi_deal_board_png", None)
+                                st.error(str(e))
+                _png = st.session_state.get("imi_deal_board_png")
+                with _dl3:
+                    if _png:
+                        st.download_button(
+                            f"⬇ Download image (PNG · {len(_png) / 1e6:.1f} MB)",
+                            data=_png, file_name=f"{_stem}.png", mime="image/png",
+                            key="imi_db_dlpng", type="primary",
+                            use_container_width=True)
+                st.caption(
+                    f"{_board.get('n_deals', 0)} deal rows · {_board.get('n_symbols', 0)} "
+                    f"scrips ({_board.get('n_index', 0)} index / "
+                    f"{_board.get('n_other', 0)} beyond) · session "
+                    f"{_board.get('session') or '—'}. Delivery % is NSE's own "
+                    f"published DELIV_PER, not a derived figure — boards elsewhere "
+                    f"that print a different number are computing something else."
+                )
+        else:
+            st.info("Not built yet — press **Build deal board**.")
+
 
 
 # ──────────────────────────────────────────────────────────────────────────────
