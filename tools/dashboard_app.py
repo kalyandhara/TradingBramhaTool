@@ -3709,6 +3709,19 @@ def _darvas_window(key_prefix: str, *, compact: bool = False):
     # thousand shares (SURYALA: 3,061). The floor defaults to 0 here for parity —
     # raise it when you want a list you can actually take size in.
 
+    def _refresh():
+        """Drop the cached bhavcopy AND the cached scan, then re-run.
+
+        Both, not just the scan: the scan is a pure function of the bhavcopy, so
+        clearing it alone would recompute the same numbers off the same cached
+        frame and look broken during the hour after the close, which is exactly
+        when a refresh is worth pressing.
+        """
+        _trend_bhav.clear()
+        _darvas_volume.clear()
+        st.session_state[f"{key_prefix}_refreshed"] = datetime.now().strftime("%H:%M:%S")
+        st.rerun()
+
     if compact:
         _top, _mult, _move, _minto = 60, 2.0, 5.0, 0.0
         _go = st.session_state.get(f"{key_prefix}_ran", False)
@@ -3719,6 +3732,17 @@ def _darvas_window(key_prefix: str, *, compact: bool = False):
                 st.rerun()
             st.caption("Not run yet — Home never fetches on load.")
             return
+        _rc1, _rc2 = st.columns([1, 4])
+        with _rc1:
+            if st.button("↻ Refresh", key=f"{key_prefix}_refresh",
+                         use_container_width=True,
+                         help="Re-download the bhavcopy and re-run the scan. "
+                              "Results are cached for 30 minutes otherwise."):
+                _refresh()
+        with _rc2:
+            _last = st.session_state.get(f"{key_prefix}_refreshed")
+            st.caption(f"Refreshed at **{_last}**." if _last else
+                       "Cached for 30 minutes — press ↻ for a fresh pull.")
     else:
         _c1, _c2, _c3, _c4 = st.columns(4)
         with _c1:
@@ -3739,6 +3763,18 @@ def _darvas_window(key_prefix: str, *, compact: bool = False):
                                      help="Liquidity floor. 0 = Chartink parity "
                                           "(it applies none). Raise it to drop names "
                                           "whose 5% move is arithmetic on 3,000 shares.")
+
+    if not compact:
+        _rc1, _rc2 = st.columns([1, 4])
+        with _rc1:
+            if st.button("↻ Refresh", key=f"{key_prefix}_refresh",
+                         use_container_width=True,
+                         help="Re-download the bhavcopy and re-run the scan."):
+                _refresh()
+        with _rc2:
+            _last = st.session_state.get(f"{key_prefix}_refreshed")
+            st.caption(f"Refreshed at **{_last}**." if _last else
+                       "Cached for 30 minutes — press ↻ for a fresh pull.")
 
     with st.spinner("Scanning the bhavcopy, then 10-day volume history…"):
         _res = _darvas_volume(int(_top), float(_mult), float(_move), float(_minto))
