@@ -18,13 +18,24 @@ emits instead is a per-axis score, a verdict *word*, and a two-word
 business-quality-vs-entry-price split — the same split the source mockup used to
 keep "good business" from reading as "buy now".
 
-Band calibration is judgement, and it is stated here rather than buried
------------------------------------------------------------------------
-Every band below is an explicit constant with the reasoning next to it, because
-wrong bands are how a rating loses trust (the M1-weights lesson). They are tuned
-for NSE listed equity, where quality compounders routinely trade at P/E 50-90 and
-a 25% P/E would be cheap — US-calibrated bands would mark the whole market
-overvalued. Change them here, once, and every consumer moves together.
+Calibration is measured, not asserted (2026-09-04)
+--------------------------------------------------
+Every continuous input is scored against the measured NSE distribution of that
+metric — `calibrate_bands.py` samples the NIFTY-500 and `_CURVES` holds the
+resulting percentile anchors. A score therefore states a company's standing in
+this market: 55 is the median NSE name, ~95 is the top decile.
+
+It used to be hand-set bands, and they were wrong in a way that only showed up
+when ten companies were put in a column (FP-1's peer table): the median Indian
+company was scoring 100 on leverage, 80 on debtor days and 90+ on growth. Wrong
+bands are how a rating loses trust — the M1-weights lesson — and intuition about
+"good ROCE" or "high debt" turns out to be imported from a different market.
+
+Two metrics resisted calibration because yfinance does not carry them for most
+NSE names (PEG 11.5% coverage, ROE 13.5%); those keep absolute, externally
+argued bands, and the reasoning sits beside them.
+
+Change a curve here, once, and every consumer moves together.
 
 Missing data never scores. An axis with no resolvable input returns
 `score=None` and renders DATA N/A; it is never given a neutral 50, which would
@@ -36,71 +47,90 @@ from __future__ import annotations
 from typing import Any, Sequence
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Band tables: (threshold, score) descending by quality, plus a floor score.
-# `_band` walks them in order and takes the first threshold the value satisfies.
+# Scoring curves, measured — not bands, guessed
 # ──────────────────────────────────────────────────────────────────────────────
-# Lower-is-better metrics
-_PE_BANDS   = ((15, 100), (25, 80), (40, 55), (60, 30))      # NSE compounders sit 40-70
-_PB_BANDS   = ((2, 100), (4, 80), (8, 55), (12, 30))
-_PEG_BANDS  = ((1.0, 100), (1.5, 80), (2.5, 55), (4.0, 30))  # Lynch's PEG<1 anchor
-_D2E_BANDS  = ((0.25, 100), (0.5, 85), (1.0, 60), (2.0, 35))  # in ×, not %
-# Debtor (receivable) days, NOT working-capital days. yfinance's Working Capital
-# is current assets minus current liabilities, which includes cash and current
-# investments — so a debt-free, cash-rich company posts a huge WC-days number
-# and scored as "stretched" when it was the opposite. Receivable days measure
-# actual collection stress and no amount of cash flatters them.
-_DEBT_DAYS_BANDS = ((30, 100), (60, 80), (90, 55), (150, 30))
-
-# Higher-is-better metrics
-# Growth is scored on a MEASURED DISTRIBUTION CURVE, not a band ladder — the one
-# axis in this module that is, and the reason is worth stating.
+# Every continuous input is scored against the MEASURED distribution of that
+# metric across NSE, via `calibrate_bands.py` (200-name stride sample of the
+# NIFTY-500, raw values in cache/band_calibration.json, 2026-09-04). Each curve
+# maps that metric's own percentiles onto the shared verdict scale:
 #
-# It used to share one table: (25,100),(15,80),(8,55),(3,30). Measured over a
-# 150-name stride sample of the NIFTY-500 (`calibrate_growth_bands.py`, raw values
-# in cache/growth_calibration.json, 2026-09-04):
+#     p10 -> 20    p25 -> 35    p50 -> 55    p75 -> 80    p90 -> 95
 #
-#            metric            median   >=25%    p75    p90
-#     revenue_cagr_3y           12.8%   18.8%   22.0   35.1
-#     profit_cagr_3y            16.4%   31.0%   29.4   48.7
-#     revenue_yoy               18.6%   35.3%   35.2   52.0
+# interpolated in between and clamped outside. One shared shape on purpose: an
+# axis has to mean "top decile = ~95, median = 55" on all six, or the six numbers
+# on the donut strip stop being comparable to each other, which is the entire
+# point of having one scorer.
 #
-# That 25% ceiling handed a perfect 100 to a fifth of the market on revenue CAGR
-# and over a THIRD on quarterly YoY. Across the whole sample the old table read
-# STRONG for 39% of listed India and put 18% at 90+; inside an individual peer
-# group of post-COVID compounders (jewellers, insurers) it pinned nearly every
-# row at 90-100. **The peer table is what exposed it** — one company at 93 looks
-# fine; ten companies all at 90-100 in a column is visibly not a measurement.
+# WHY THIS REPLACED HAND-SET BANDS. The FP-1 peer table showed nearly every peer
+# scoring Growth 90-100. Measuring it showed the Growth ceiling (25% CAGR) was
+# the 81st percentile of revenue CAGR and only the 65th of quarterly YoY, so a
+# third of the market scored full marks. Calibrating the other five axes the same
+# way found the same fault, in places worse:
 #
-# Two things the fix needed, in order:
+#     metric          old band                 measured NSE median   old score at median
+#     debt_to_equity  0.25x -> 100             0.18x                 100  (saturated)
+#     debtor_days     30d -> 100, 60d -> 80    47.5d                  80  (saturated)
+#     margin_cv       0.15 -> 100, 0.30 -> 70  0.19                   70
+#     pe              15 -> 100, 40 -> 55      35.7x                  55  (about right)
+#     roce_trend      0pp -> 70                -0.69pp                45
 #
-# 1. **Per-metric curves.** The three inputs are not interchangeable. Quarterly
-#    YoY runs hotter than a 3-year CAGR (one soft base quarter lifts it), and
-#    profit compounds faster than revenue through operating leverage. One shared
-#    ladder scored the same company's growth well twice.
-# 2. **Interpolation instead of steps.** Re-banding alone did not fix it: with
-#    four rungs the axis median came out at 47, because averaging three step
-#    scores drags the middle down (the rungs below the median are much further
-#    from it than the rungs above). Steps also collapse 150 companies onto a
-#    handful of values, which is its own kind of non-measurement. Interpolating
-#    between percentile anchors puts the median company at exactly 55 and yields
-#    65 distinct scores over the sample instead of a handful.
+# Two of Health's three inputs were handing the median Indian company a perfect
+# or near-perfect score; only the axis's `min_drag` aggregation was hiding it.
 #
-# Anchors map each metric's own percentiles onto the shared verdict scale:
-# p10 -> 20, p25 -> 35, p50 -> 55, p75 -> 80, p90 -> 95, clamped to [10, 100].
-# So the median NSE grower reads MODERATE (which is what median means), STRONG
-# is roughly the top fifth, and only the genuine top decile approaches 100.
-# Re-run calibrate_growth_bands.py and move these numbers when the market moves;
-# they are a snapshot of a distribution, not a law.
-_GROWTH_CURVES = {
-    "revenue_cagr_3y": ((-0.5, 20), (4.6, 35), (12.8, 55), (22.0, 80), (35.1, 95)),
-    "profit_cagr_3y":  ((-7.8, 20), (3.5, 35), (16.4, 55), (29.4, 80), (48.7, 95)),
-    "revenue_yoy":     ((-0.5, 20), (10.5, 35), (18.6, 55), (35.2, 80), (52.0, 95)),
+# THINGS THE MEASUREMENT ITSELF ESTABLISHED, worth keeping in view:
+#   - NSE is expensive: median P/E 35.7x, p90 92.5x. US-calibrated bands would
+#     mark essentially the whole market overvalued.
+#   - NSE is unlevered: median D/E 0.18x, and a quarter of the market under
+#     0.05x. Leverage is a genuine outlier signal here, not a normal condition.
+#   - ROCE is FALLING for most of the market: median trend -0.69pp YoY. A flat
+#     ROCE is therefore an above-median outcome, which the old 0pp -> 70 band had
+#     roughly right by accident.
+#   - A quarter of listed India runs NEGATIVE free-cash-flow margin (p25 -5.6%).
+#
+# Re-run calibrate_bands.py and move these numbers when the market moves. They
+# are a snapshot of a distribution, not a law.
+_CURVES = {
+    # valuation — lower is better, so the curve runs downhill
+    "pe":              ((11.55, 95), (21.38, 80), (35.98, 55), (57.19, 35), (92.52, 20)),
+    "pb":              ((1.58, 95), (2.41, 80), (4.54, 55), (9.02, 35), (15.05, 20)),
+    # growth
+    "revenue_cagr_3y": ((0.56, 20), (6.39, 35), (12.61, 55), (19.49, 80), (29.81, 95)),
+    "profit_cagr_3y":  ((-5.9, 20), (4.72, 35), (18.71, 55), (32.16, 80), (55.5, 95)),
+    "revenue_yoy":     ((-5.56, 20), (8.85, 35), (16.48, 55), (26.63, 80), (44.07, 95)),
+    # health — lower is better
+    "debt_to_equity":  ((0.01, 95), (0.05, 80), (0.18, 55), (0.64, 35), (1.55, 20)),
+    "debtor_days":     ((8.7, 95), (20.4, 80), (47.5, 55), (79.6, 35), (137.3, 20)),
+    # returns
+    "roce":            ((4.11, 20), (9.3, 35), (14.8, 55), (21.77, 80), (35.64, 95)),
+    "npm":             ((3.13, 20), (6.61, 35), (12.56, 55), (23.72, 80), (38.15, 95)),
+    # capital allocation
+    "fcf_margin":      ((-41.38, 20), (-5.57, 35), (5.6, 55), (13.73, 80), (29.26, 95)),
+    "roce_trend":      ((-6.08, 20), (-3.03, 35), (-0.69, 55), (1.38, 80), (6.48, 95)),
+    # earnings consistency — lower is better
+    "margin_cv":       ((0.05, 95), (0.09, 80), (0.19, 55), (0.42, 35), (0.89, 20)),
 }
-_ROE_BANDS    = ((25, 100), (18, 80), (12, 55), (8, 30))
-_NPM_BANDS    = ((20, 100), (12, 75), (6, 50), (3, 25))
-_FCFM_BANDS   = ((15, 100), (8, 75), (3, 50), (0, 30))       # FCF as % of revenue
-_TREND_BANDS  = ((2, 100), (0, 70), (-2, 45))                # ROCE change, pp YoY
-_CV_BANDS     = ((0.15, 100), (0.30, 70), (0.50, 40))        # margin coeff. of variation
+
+# ──────────────────────────────────────────────────────────────────────────────
+# The two metrics that could NOT be calibrated, and are therefore still bands
+# ──────────────────────────────────────────────────────────────────────────────
+# Both failed the calibrator's 30-observation floor, and the reason is the same:
+# yfinance's `.info` simply does not carry them for most NSE names. That is a
+# finding about our data, not about the market, so the honest response is to
+# keep an ABSOLUTE, externally-argued band rather than fit a curve to a sample
+# that is 87% missing — a distribution measured on the 13% that resolved would
+# describe whichever names yfinance happens to populate, not NSE.
+#
+#   PEG — resolved for 23 of 200 (11.5%). Lynch's PEG < 1 anchor is a real
+#         external reference, so it stays. NOTE: this axis therefore runs on
+#         P/E + P/B alone for ~88% of names, which the coverage count already
+#         reports honestly.
+#   ROE — resolved for 27 of 200 (13.5%). Retained band. Worth knowing: we
+#         compute ROCE ourselves from the statements and get 90.5% coverage, so
+#         ROE is a candidate for the same treatment in fundamentals_deep, which
+#         would let it be calibrated later. Until then Returns effectively runs
+#         on ROCE + net margin.
+_PEG_BANDS = ((1.0, 100), (1.5, 80), (2.5, 55), (4.0, 30))   # Lynch's PEG<1 anchor
+_ROE_BANDS = ((25, 100), (18, 80), (12, 55), (8, 30))
 
 _FLOOR = 10          # score for anything past the last band
 _MIN_ANNUAL_FOR_CONSISTENCY = 3
@@ -146,12 +176,21 @@ def _band(value: float | None, bands: Sequence[tuple[float, int]],
 
 
 def _curve(value: float | None, metric: str) -> int | None:
-    """Score a growth metric off its measured NSE distribution.
+    """Score a metric off its measured NSE distribution (`_CURVES`).
 
-    Piecewise-linear between the percentile anchors in `_GROWTH_CURVES`, clamped
-    to [10, 100] outside them: a 400% CAGR off a tiny base is not four times as
-    impressive as 100%, and there is no evidence in the sample to separate them.
-    `None` in, `None` out — a missing input is never scored (see module docstring).
+    Piecewise-linear between the percentile anchors, clamped past either end.
+    Curves run uphill for higher-is-better metrics and downhill for
+    lower-is-better ones (P/E, D/E, debtor days, margin CV); the direction is
+    read off the anchors themselves rather than passed in, so a curve and its
+    direction cannot disagree.
+
+    Clamping past the ends is deliberate. A 400% CAGR off a tiny base is not four
+    times as impressive as 100%, a P/E of 900 is not meaningfully worse than 300,
+    and the sample carries no evidence to separate either pair. Beyond the top
+    anchor everything is 100 (or 10 at the bottom): past the 90th percentile the
+    ranking has stopped being informative.
+
+    `None` in, `None` out — a missing input is never scored (see the docstring).
     """
     if value is None:
         return None
@@ -161,15 +200,17 @@ def _curve(value: float | None, metric: str) -> int | None:
         return None
     if v != v:                      # NaN
         return None
-    pts = _GROWTH_CURVES[metric]
+
+    pts = _CURVES[metric]
+    ascending = pts[-1][1] >= pts[0][1]        # does a bigger value score better?
     if v <= pts[0][0]:
-        return 10
+        return 10 if ascending else 100
     if v >= pts[-1][0]:
-        return 100
+        return 100 if ascending else 10
     for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
         if v <= x1:
             return y1 if x1 == x0 else round(y0 + (y1 - y0) * (v - x0) / (x1 - x0))
-    return 100
+    return 100 if ascending else 10
 
 
 def _verdict(axis: str, score: float | None) -> str | None:
@@ -235,10 +276,66 @@ def _cv(values: list[float]) -> float | None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Raw metric extraction — ONE path, used by the scorers and the calibrator
+# ──────────────────────────────────────────────────────────────────────────────
+def raw_metrics(fundamentals: dict | None, deep: dict | None) -> dict[str, float | None]:
+    """Every continuous, curve-scored input, before any scoring.
+
+    This is public and shared on purpose. `calibrate_bands.py` measures the NSE
+    distribution of exactly these values to set the curves below, so if it
+    extracted them itself the calibration would slowly stop describing what the
+    scorer actually reads — the bands would be tuned for a metric nobody scores.
+    One extractor means the measurement and the scoring can never drift apart.
+
+    Only continuous metrics live here. The categorical inputs (FCF-negative
+    streak, profitable-years and growth-years ratios) are deliberately absent:
+    they are counts with a natural 0-100 reading, and a percentile curve over
+    "3 of 4 years" would invent precision that the underlying tally does not have.
+    """
+    f, d = fundamentals or {}, deep or {}
+
+    d2e_pct = _f(f.get("debt_to_equity"))       # yfinance reports this as a %
+    annual = d.get("annual") or []
+    revenue = _f(annual[0].get("revenue")) if annual else None
+    fcf = _f(d.get("fcf"))
+    roce, roce_prev = _f(d.get("roce")), _f(d.get("roce_prev"))
+
+    quarters = d.get("quarters") or []
+    revg = next((_f(q.get("revenue_yoy")) for q in quarters
+                 if q.get("revenue_yoy") is not None), None)
+    if revg is None:
+        revg = _f(f.get("revenue_growth"))
+
+    margins = [m for m in (_f(a.get("net_margin")) for a in annual) if m is not None]
+
+    return {
+        # valuation (lower is better)
+        "pe": _f(f.get("pe")), "pb": _f(f.get("pb")), "peg": _f(f.get("peg")),
+        # growth (higher is better)
+        "revenue_cagr_3y": _f(d.get("revenue_cagr_3y")),
+        "profit_cagr_3y": _f(d.get("profit_cagr_3y")),
+        "revenue_yoy": revg,
+        # health (lower is better)
+        "debt_to_equity": None if d2e_pct is None else d2e_pct / 100.0,
+        "debtor_days": _f(d.get("debtor_days")),
+        # returns (higher is better)
+        "roe": _f(f.get("roe")), "roce": roce, "npm": _f(f.get("npm")),
+        # capital allocation (higher is better)
+        "fcf_margin": (round(fcf / revenue * 100, 2)
+                       if (fcf is not None and revenue not in (None, 0) and revenue > 0)
+                       else None),
+        "roce_trend": None if (roce is None or roce_prev is None) else round(roce - roce_prev, 2),
+        # earnings consistency (lower is better)
+        "margin_cv": _cv(margins),
+    }
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # The six axes
 # ──────────────────────────────────────────────────────────────────────────────
 def _score_valuation(f: dict, d: dict) -> dict:
-    pe, pb, peg = _f(f.get("pe")), _f(f.get("pb")), _f(f.get("peg"))
+    m = raw_metrics(f, d)
+    pe, pb, peg = m["pe"], m["pb"], m["peg"]
 
     # A loss-making company has no P/E and no PEG, which would leave P/B as the
     # only scoring input — and P/B alone called SWIGGY "CHEAP" while it was
@@ -258,26 +355,23 @@ def _score_valuation(f: dict, d: dict) -> dict:
                 "missing": ["pe", "peg"], "n_used": 0, "n_possible": 3}
 
     return _axis("valuation", [
-        ("pe",  _band(pe,  _PE_BANDS,  True), f"P/E {pe:.1f}×" if pe else ""),
-        ("pb",  _band(pb,  _PB_BANDS,  True), f"P/B {pb:.1f}×" if pb else ""),
+        ("pe",  _curve(pe, "pe"), f"P/E {pe:.1f}×" if pe else ""),
+        ("pb",  _curve(pb, "pb"), f"P/B {pb:.1f}×" if pb else ""),
         ("peg", _band(peg, _PEG_BANDS, True), f"PEG {peg:.2f}×" if peg else ""),
     ])
 
 
 def _score_growth(f: dict, d: dict) -> dict:
-    rev3 = _f(d.get("revenue_cagr_3y"))
-    pro3 = _f(d.get("profit_cagr_3y"))
+    m = raw_metrics(f, d)
+    rev3, pro3, revg = m["revenue_cagr_3y"], m["profit_cagr_3y"], m["revenue_yoy"]
 
-    # Prefer OUR date-matched quarterly YoY over yfinance's `revenueGrowth`.
-    # The two disagree materially (TITAN: 48% ours vs 80.5% theirs) and ours is
-    # derived from the statements in the open, where the reader can check it.
-    # yfinance's figure stays as the fallback for names with no quarterly frame.
+    # `raw_metrics` prefers OUR date-matched quarterly YoY over yfinance's
+    # `revenueGrowth`; the two disagree materially (TITAN: 48% ours vs 80.5%
+    # theirs) and ours is derived from the statements in the open. This only
+    # re-derives which of the two won, for the driver line.
     quarters = d.get("quarters") or []
-    revg = next((_f(q.get("revenue_yoy")) for q in quarters
-                 if q.get("revenue_yoy") is not None), None)
-    yoy_src = "latest Q"
-    if revg is None:
-        revg, yoy_src = _f(f.get("revenue_growth")), "yfinance"
+    yoy_src = ("latest Q" if any(q.get("revenue_yoy") is not None for q in quarters)
+               else "yfinance")
 
     return _axis("growth", [
         ("revenue_cagr_3y", _curve(rev3, "revenue_cagr_3y"),
@@ -290,10 +384,8 @@ def _score_growth(f: dict, d: dict) -> dict:
 
 
 def _score_health(f: dict, d: dict) -> dict:
-    # yfinance reports debtToEquity as a percentage; convert to × for the bands.
-    d2e_pct = _f(f.get("debt_to_equity"))
-    d2e = None if d2e_pct is None else d2e_pct / 100.0
-    dbd = _f(d.get("debtor_days"))
+    m = raw_metrics(f, d)
+    d2e, dbd = m["debt_to_equity"], m["debtor_days"]
     streak = d.get("fcf_negative_streak")
     fcf_score = None
     fcf_text = ""
@@ -303,20 +395,21 @@ def _score_health(f: dict, d: dict) -> dict:
         fcf_text = ("FCF positive" if streak == 0
                     else f"FCF negative {streak}y")
     return _axis("health", [
-        ("debt_to_equity", _band(d2e, _D2E_BANDS, True),
+        ("debt_to_equity", _curve(d2e, "debt_to_equity"),
          f"D/E {d2e:.2f}×" if d2e is not None else ""),
         ("fcf", fcf_score, fcf_text),
-        ("debtor_days", _band(dbd, _DEBT_DAYS_BANDS, True),
+        ("debtor_days", _curve(dbd, "debtor_days"),
          f"Debtor {dbd:.0f}d" if dbd is not None else ""),
     ], agg="min_drag")
 
 
 def _score_returns(f: dict, d: dict) -> dict:
-    roe, roce, npm = _f(f.get("roe")), _f(d.get("roce")), _f(f.get("npm"))
+    m = raw_metrics(f, d)
+    roe, roce, npm = m["roe"], m["roce"], m["npm"]
     return _axis("returns", [
         ("roe",  _band(roe,  _ROE_BANDS, False), f"ROE {roe:.1f}%" if roe is not None else ""),
-        ("roce", _band(roce, _ROE_BANDS, False), f"ROCE {roce:.1f}%" if roce is not None else ""),
-        ("npm",  _band(npm,  _NPM_BANDS, False), f"Net margin {npm:.1f}%" if npm is not None else ""),
+        ("roce", _curve(roce, "roce"), f"ROCE {roce:.1f}%" if roce is not None else ""),
+        ("npm",  _curve(npm, "npm"), f"Net margin {npm:.1f}%" if npm is not None else ""),
     ])
 
 
@@ -326,18 +419,12 @@ def _score_capital_allocation(f: dict, d: dict) -> dict:
     Two questions: does the business convert revenue into free cash, and is the
     return on the capital it employs rising or falling?
     """
-    fcf = _f(d.get("fcf"))
-    annual = d.get("annual") or []
-    revenue = _f(annual[0]["revenue"]) if annual else None
-    fcf_margin = (round(fcf / revenue * 100, 2)
-                  if (fcf is not None and revenue not in (None, 0) and revenue > 0)
-                  else None)
-    roce, roce_prev = _f(d.get("roce")), _f(d.get("roce_prev"))
-    trend = None if (roce is None or roce_prev is None) else round(roce - roce_prev, 2)
+    m = raw_metrics(f, d)
+    fcf_margin, trend = m["fcf_margin"], m["roce_trend"]
     return _axis("capital_allocation", [
-        ("fcf_margin", _band(fcf_margin, _FCFM_BANDS, False),
+        ("fcf_margin", _curve(fcf_margin, "fcf_margin"),
          f"FCF margin {fcf_margin:.1f}%" if fcf_margin is not None else ""),
-        ("roce_trend", _band(trend, _TREND_BANDS, False),
+        ("roce_trend", _curve(trend, "roce_trend"),
          f"ROCE {trend:+.1f}pp YoY" if trend is not None else ""),
     ])
 
@@ -369,7 +456,7 @@ def _score_earnings_consistency(f: dict, d: dict) -> dict:
     pairs = list(zip(profits, profits[1:]))
     grow_ratio = (sum(1 for new, old in pairs if old > 0 and new > old) / len(pairs)
                   if pairs else None)
-    cv = _cv(margins)
+    cv = raw_metrics(f, d)["margin_cv"]
 
     return _axis("earnings_consistency", [
         ("positive_years", round(pos_ratio * 100),
@@ -377,7 +464,7 @@ def _score_earnings_consistency(f: dict, d: dict) -> dict:
         ("growth_years", None if grow_ratio is None else round(grow_ratio * 100),
          "" if grow_ratio is None
          else f"{sum(1 for n, o in pairs if o > 0 and n > o)}/{len(pairs)} growth years"),
-        ("margin_stability", _band(cv, _CV_BANDS, True),
+        ("margin_stability", _curve(cv, "margin_cv"),
          f"margin CV {cv:.2f}" if cv is not None else ""),
     ])
 

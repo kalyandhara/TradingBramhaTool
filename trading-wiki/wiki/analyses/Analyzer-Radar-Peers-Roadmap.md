@@ -140,6 +140,50 @@ session. Packaging unchanged: **native dashboard feature**, not a Claude skill.
 - **Still no backtest.** Nothing here claims edge; it is a context surface, consistent
   with the desk being a research desk rather than a signal generator.
 
+## Calibration: what measuring all six axes found (2026-09-04)
+
+The Growth fix generalised. [calibrate_bands.py](tools/calibrate_bands.py) now measures
+every continuous input through `fundamental_score.raw_metrics` — the same extractor the
+scorers use, so the measurement cannot drift from what is actually scored — over a
+200-name NIFTY-500 stride sample. All twelve calibratable metrics moved onto measured
+percentile curves (p10→20, p25→35, p50→55, p75→80, p90→95).
+
+**Health was worse than Growth had been.** Two of its three inputs were handing the
+median Indian company a perfect or near-perfect score, and only the axis's `min_drag`
+aggregation was hiding it:
+
+| metric | old band | measured NSE median | old score at the median |
+|---|---|---|---|
+| debt/equity | 0.25× → 100 | **0.18×** | **100** |
+| debtor days | 30d → 100, 60d → 80 | **47.5d** | **80** |
+| margin CV | 0.15 → 100, 0.30 → 70 | 0.19 | 70 |
+| P/E | 15 → 100, 40 → 55 | 35.7× | 55 (about right) |
+| ROCE trend | 0pp → 70 | −0.69pp | 45 |
+
+**Four facts about this market that the calibration established**, none of which were
+in the old bands:
+- **NSE is expensive** — median P/E 35.7×, p90 92.5×. US-calibrated bands would mark
+  essentially the whole market overvalued.
+- **NSE is unlevered** — median D/E 0.18×, a quarter under 0.05×. Leverage here is an
+  outlier signal, not a normal condition, which is why TITAN's 1.95× now reads
+  STRETCHED (40) where it used to read SOLID (57).
+- **ROCE is falling for most of the market** — median trend −0.69pp YoY. Flat ROCE is
+  an above-median outcome.
+- **A quarter of listed India runs negative FCF margin** (p25 −5.6%).
+
+**Two coverage findings, which are about our data rather than the market.** yfinance
+`.info` carries **PEG for 11.5%** and **ROE for 13.5%** of names. Both failed the
+calibrator's 30-observation floor, so both keep absolute bands — fitting a curve to the
+13% that resolved would describe whichever names yfinance happens to populate. The
+practical consequences: Valuation runs on P/E + P/B alone for ~88% of names, and Returns
+on ROCE + net margin. **ROE is worth computing ourselves** — we already derive ROCE from
+the statements at 90.5% coverage, and the same route would make ROE calibratable.
+
+Verified after: every metric's own curve puts the sample median at 55 with ~65 distinct
+scores and 10% clamped at each end (by construction). In the peer groups every axis now
+spreads — the jewellers' Health median is 28 (gold-financing working capital, correctly
+penalised), the insurers' 74.5.
+
 ## Action Taken / Plan
 - ✅ 2026-09-04: re-audit filed. RC-1 **retired as written** (its output already ships
   as donuts); the radar is demoted to FP-2 and redefined as an overlay.
@@ -164,8 +208,11 @@ session. Packaging unchanged: **native dashboard feature**, not a Claude skill.
      `None` becomes float64 with `NaN`, and `NaN is None` is False — so an unscored axis
      rendered as the literal text `nan`. `_score_or_none` now guards it. The no-neutral-50
      rule has to be defended at the render boundary too, not just in the bands.
+- ✅ **2026-09-04 — all six axes calibrated** (see the section above). `raw_metrics()`
+  extracted as the single shared metric path so calibration and scoring cannot diverge.
 - ⏭ Next: **FP-2**, the anchor-vs-peer-median radar overlay (`peer_median()` already
-  returns exactly the vector it needs).
+  returns exactly the vector it needs). Open: compute ROE from the statements so the
+  Returns axis stops running on two inputs.
 
 ## Related Pages
 - [[analyses/Radar-Chart-Analyzer-Fit]] · [[analyses/Peer-Comparison-Roadmap]] — the two superseded plans; keep for band research and the mockup spec.
