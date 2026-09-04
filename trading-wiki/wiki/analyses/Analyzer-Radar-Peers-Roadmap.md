@@ -210,9 +210,38 @@ penalised), the insurers' 74.5.
      rule has to be defended at the render boundary too, not just in the bands.
 - ✅ **2026-09-04 — all six axes calibrated** (see the section above). `raw_metrics()`
   extracted as the single shared metric path so calibration and scoring cannot diverge.
-- ⏭ Next: **FP-2**, the anchor-vs-peer-median radar overlay (`peer_median()` already
-  returns exactly the vector it needs). Open: compute ROE from the statements so the
-  Returns axis stops running on two inputs.
+- ✅ **2026-09-04 — FP-2 … FP-5 SHIPPED** (all four in one pass, at the user's request;
+  the one-phase-per-session rule was set aside deliberately, so they get shaken out
+  together rather than one at a time).
+  - **FP-2 · radar as an overlay** — `radar_figure()`: peer median (dotted) + anchor,
+    plus an optional third trace from an "overlay one peer" selectbox. Capped at three
+    by construction. Caption states *shape, not area*.
+  - **FP-3 · peer-relative reading** — `rank_report()` returns the anchor's **rank**
+    per axis ("3rd of 10"), never a percentile, plus a leader line. The leader averages
+    the **five business axes and excludes Valuation**: leading a peer group must not
+    mean being the cheapest. In the table the ★ on the group's best cell is the only
+    peer-relative mark, and the header row says so — absolute and peer-relative
+    readings never share a column unlabelled. **Ties are all starred**; starring the
+    one that sorted first would invent a ranking between identical scores.
+  - **FP-4 · technical columns + head-to-head** — RS 6m / RSI / ADX / 52w / Stage /
+    Pivot behind a toggle, because it is a *second* network pass (one price history per
+    peer). Stage gets the mockup's richer labels via `stage_label()`. The "vs anchor"
+    drill reuses the already-scored rows, so it cannot disagree with the table it opened
+    from, and it deliberately shows **no gap column for technical rows** — a 12-point
+    RSI difference is not comparable to a 12-point axis difference.
+  - **FP-5 · surfaced twice** — the same `render_peer_comparison()` is now drilled from
+    the Opportunity Hub's leading-industry step. The deep-dive report's "Peers tab" is
+    already satisfied: the analyzer has no tab shell (the nav router replaced `st.tabs`),
+    and the peer section sits in that flow.
+  - **Bug caught in verification, worth recording.** `stock_council`'s `rs_pct` is
+    **6-month outperformance in percentage points**, signed and unbounded — *not* a
+    percentile. The 2026-07 mockup showed "RS 100 = Best RS", which is a within-group
+    percentile and a different quantity; rendering ours under that heading would have
+    been exactly the absolute-vs-peer-relative confusion this roadmap warned about. The
+    column is now "RS 6m", signed, with thresholds at ±10pp.
+- ⏭ Open: compute ROE from the statements so the Returns axis stops running on two
+  inputs; and FP-3's leader mean is unbacktested by construction — it ranks measured
+  characteristics, it does not claim edge.
 
 ## Related Pages
 - [[analyses/Radar-Chart-Analyzer-Fit]] · [[analyses/Peer-Comparison-Roadmap]] — the two superseded plans; keep for band research and the mockup spec.

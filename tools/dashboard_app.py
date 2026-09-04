@@ -1877,19 +1877,173 @@ def render_peer_comparison(anchor: str) -> None:
         unsafe_allow_html=True,
     )
 
+    ranks = res.get("ranks") or {}
+
+    # ── FP-3 · where the anchor stands INSIDE the group ──
+    # Rank, never percentile: in a group of six to twelve names a percentile is a
+    # weak statistic wearing a precise costume.
+    ax_ranks = ranks.get("axes") or {}
+    rank_chips = "".join(
+        rs.chip(fscore.AXIS_LABELS[a], _axis_tone(i["anchor_score"]),
+                f'{i["rank"]}/{i["n"]}')
+        for a in fscore.AXES
+        if (i := ax_ranks.get(a)) and i.get("rank")
+    )
+    if ranks.get("headline") or rank_chips:
+        st.markdown(
+            rs.card(
+                f'<div style="font-size:12.5px;color:{rs.TOKENS["text"]};'
+                f'margin-bottom:6px;">{ranks.get("headline", "")}</div>{rank_chips}'
+                f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};'
+                f'margin-top:6px;">Chips are <b>peer-relative</b> — the anchor\'s rank '
+                f'out of the names that scored on that axis. The table\'s numbers stay '
+                f'<b>absolute</b>. "Strongest business profile" averages the five '
+                f'business axes and deliberately excludes Valuation: leading a peer '
+                f'group must not mean being the cheapest. Nothing here is backtested.</div>'
+            ),
+            unsafe_allow_html=True,
+        )
+
+    # ── FP-4 · the optional technical pass ──
+    tech_key = f"peers_tech_{anchor}"
+    tcol1, tcol2 = st.columns([1, 4])
+    with tcol1:
+        want_tech = st.toggle("Technicals", key=f"tg_{tech_key}",
+                              value=bool(st.session_state.get(tech_key)))
+    with tcol2:
+        st.caption("Adds RS · RSI · ADX · 52w · Stage · Pivot — a **second** network "
+                   "pass (one price history per peer) on top of the statements.")
+
+    if want_tech:
+        tprog = st.progress(0.0, text="Fetching peer price history...")
+        try:
+            _nifty = cached_fetch_nifty50(days=400)
+        except Exception:
+            _nifty = None
+        try:
+            tech = pcmp.technical_columns(
+                df["symbol"].tolist(),
+                lambda s: cached_fetch_ohlcv(s, days=400), _nifty,
+                progress_cb=lambda d, t: tprog.progress(
+                    min(d / max(t, 1), 1.0), text=f"Technicals {d}/{t}..."))
+            df = pcmp.attach_technicals(df, tech)
+            st.session_state[tech_key] = True
+        except Exception as exc:
+            st.warning(f"Technical pass failed: {exc}")
+            want_tech = False
+        tprog.empty()
+
     # ── The table: sticky header, frozen ticker column, in-cell bars ──
     # Markup lives in peer_comparison.table_html, not here: it is pure
     # df -> HTML with no Streamlit in it, so it can be rendered and eyeballed
     # from a script without standing up the app behind its login.
-    st.markdown(pcmp.table_html(df, med, anchor, tone_fn=_axis_tone),
+    st.markdown(pcmp.table_html(df, med, anchor, tone_fn=_axis_tone,
+                                ranks=ranks, with_technicals=want_tech),
                 unsafe_allow_html=True)
     st.caption(
-        f"Sorted by market cap with **{anchor}** pinned first. Every number is the "
-        "same 0–100 band score as the donuts above; `n/a` is a missing input, never "
-        "a zero — the **Cov.** column says how much of each row was actually "
-        "measured, so a sparsely-covered peer is not read as a weak one. Median "
-        "rather than mean, because one loss-maker moves a mean somewhere no company "
-        "in the group actually sits."
+        f"Sorted by market cap with **{anchor}** pinned first. The six axis numbers "
+        "are the same measured 0–100 scores as the donuts above (55 = the median NSE "
+        "company); ★ marks the best in this group and is the only peer-relative mark "
+        "in the table. `n/a` is a missing input, never a zero — **Cov.** says how much "
+        "of each row was actually measured, so a sparsely-covered peer is not read as "
+        "a weak one. Median rather than mean, because one loss-maker moves a mean "
+        "somewhere no company in the group actually sits."
+    )
+
+    # ── FP-2 · the radar, as an overlay ──
+    st.markdown(rs.section("Profile vs the peer group"), unsafe_allow_html=True)
+    rc1, rc2 = st.columns([3, 2])
+    with rc2:
+        others = [s for s in df["symbol"].tolist() if s != anchor]
+        compare = st.selectbox("Overlay one peer (optional)", ["—"] + others,
+                               key=f"peers_cmp_{anchor}")
+        compare = None if compare == "—" else compare
+        st.caption(
+            "Two traces by default, three at most. Radar charts degrade past about "
+            "four overlaid series, so this one is capped below that.\n\n"
+            "**Read the shape, not the area.** Polygon area scales as the square of "
+            "the values and depends on axis order, so it is not a quantity — the "
+            "donuts and the table remain the precise readout. What the overlay adds "
+            "is the one thing they cannot show: whether this profile is normal for "
+            "this industry."
+        )
+    with rc1:
+        try:
+            st.plotly_chart(pcmp.radar_figure(df, med, anchor, compare=compare),
+                            use_container_width=True,
+                            key=f"peer_radar_{anchor}")
+        except Exception as exc:
+            st.warning(f"Radar unavailable: {exc}")
+
+    # ── FP-4 · the "vs anchor" drill ──
+    if compare:
+        _peer_head_to_head(anchor, compare, df, want_tech)
+
+
+def _peer_head_to_head(anchor: str, other: str, df, with_technicals: bool) -> None:
+    """Two names, axis by axis, with the gap stated in the direction that matters.
+
+    The mockup's "vs ANCHOR" link. It reuses the rows already scored for the table
+    rather than re-fetching, so the drill costs nothing and — more importantly —
+    cannot disagree with the table it was opened from.
+    """
+    a_row = df[df["symbol"] == anchor]
+    b_row = df[df["symbol"] == other]
+    if not len(a_row) or not len(b_row):
+        return
+    a_row, b_row = a_row.iloc[0], b_row.iloc[0]
+
+    rows = []
+    for ax in fscore.AXES:
+        av, bv = pcmp._score_or_none(a_row[ax]), pcmp._score_or_none(b_row[ax])
+        if av is None or bv is None:
+            gap_txt, tone = rs.NA, "absent"
+        else:
+            gap = av - bv
+            gap_txt = f"{gap:+d}"
+            tone = "good" if gap > 5 else ("risk" if gap < -5 else "neutral")
+        fg = rs.tone_colors(tone)[0]
+        rows.append(
+            f'<tr><td style="padding:3px 8px;font-size:11.5px;">'
+            f'{fscore.AXIS_LABELS[ax]}</td>'
+            f'<td class="tb-mono" style="text-align:right;padding:3px 8px;">'
+            f'{"—" if av is None else av}</td>'
+            f'<td class="tb-mono" style="text-align:right;padding:3px 8px;">'
+            f'{"—" if bv is None else bv}</td>'
+            f'<td class="tb-mono" style="text-align:right;padding:3px 8px;'
+            f'color:{fg};font-weight:600;">{gap_txt}</td></tr>'
+        )
+    if with_technicals and "stage_label" in df.columns:
+        for col, label, _d in pcmp.TECH_COLUMNS:
+            av, bv = a_row.get(col), b_row.get(col)
+            fmt = lambda v: ("—" if v is None or (isinstance(v, float) and v != v)
+                             else (v if isinstance(v, str) else f"{v:g}"))
+            rows.append(
+                f'<tr><td style="padding:3px 8px;font-size:11.5px;color:'
+                f'{rs.TOKENS["text_muted"]};">{label}</td>'
+                f'<td class="tb-mono" style="text-align:right;padding:3px 8px;">{fmt(av)}</td>'
+                f'<td class="tb-mono" style="text-align:right;padding:3px 8px;">{fmt(bv)}</td>'
+                f'<td></td></tr>'
+            )
+
+    st.markdown(
+        rs.card(
+            f'<table style="width:100%;border-collapse:collapse;">'
+            f'<thead><tr>'
+            f'<th style="text-align:left;font-size:10px;text-transform:uppercase;'
+            f'letter-spacing:.04em;color:{rs.TOKENS["text_muted"]};padding:3px 8px;"></th>'
+            f'<th style="text-align:right;font-size:11px;padding:3px 8px;">{anchor}</th>'
+            f'<th style="text-align:right;font-size:11px;padding:3px 8px;">{other}</th>'
+            f'<th style="text-align:right;font-size:10px;text-transform:uppercase;'
+            f'letter-spacing:.04em;color:{rs.TOKENS["text_muted"]};padding:3px 8px;">Gap</th>'
+            f'</tr></thead><tbody>{"".join(rows)}</tbody></table>'
+            f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};margin-top:6px;">'
+            f'Gap is {anchor} minus {other} in score points, so positive favours '
+            f'{anchor}. Technical rows carry no gap column on purpose — a 12-point '
+            f'RSI difference is not comparable to a 12-point axis difference.</div>',
+            title=f"{anchor} vs {other}",
+        ),
+        unsafe_allow_html=True,
     )
 
 
@@ -5261,6 +5415,21 @@ if current_page == "Opportunity Hub":
                     stocks = oh.stocks_in_groups(sub, "industry", sel_inds)
                     st.markdown(f"#### 4 · Right Stock → Pattern → Entry "
                                 f"· {len(stocks)} candidates in the leaders")
+
+                    # FP-5 — the peer comparison, drilled from the industry
+                    # ranking. The Hub goes sector → industry → constituents;
+                    # peer comparison fixes one constituent and turns the same
+                    # group side-on. Same component as the Stock Analyzer's,
+                    # called with a different anchor — built once, surfaced twice.
+                    if stocks:
+                        with st.expander("Compare one candidate against its peers",
+                                         expanded=False):
+                            _pc_pick = st.selectbox(
+                                "Anchor", sorted(stocks), key="oh_peer_anchor",
+                                help="Scores this name and its industry peers on the "
+                                     "six fundamental axes.")
+                            if _pc_pick:
+                                render_peer_comparison(_pc_pick)
 
                     # ---- Pipeline: every scanner in one pass -----------------
                     if oh_scanner is None:
