@@ -2016,8 +2016,9 @@ def _peer_head_to_head(anchor: str, other: str, df, with_technicals: bool) -> No
     if with_technicals and "stage_label" in df.columns:
         for col, label, _d in pcmp.TECH_COLUMNS:
             av, bv = a_row.get(col), b_row.get(col)
-            fmt = lambda v: ("—" if v is None or (isinstance(v, float) and v != v)
-                             else (v if isinstance(v, str) else f"{v:g}"))
+            # Same formatter as the table: the drill must not render 52w as a
+            # bare 3.2 while the row above it says -3.2%.
+            fmt = lambda v: pcmp.tech_text(v, col)
             rows.append(
                 f'<tr><td style="padding:3px 8px;font-size:11.5px;color:'
                 f'{rs.TOKENS["text_muted"]};">{label}</td>'

@@ -700,46 +700,70 @@ _STAGE_TONE = {
 }
 
 
+def tech_text(value, col: str) -> str:
+    """Display string for a technical value — the ONE formatter.
+
+    It exists because the table and the head-to-head drill briefly disagreed:
+    the table rendered 52w as "-3.2%" (percent below the high, signed for the
+    reader) while the drill printed the raw stored 3.2, and RS as "+23" against
+    a bare "23". Two presentations of one number inside one feature is precisely
+    what this whole surface exists to avoid, so both now call this.
+    """
+    if value is None or (isinstance(value, float) and value != value):
+        return "n/a"
+    if col == "stage_label":
+        return str(value)
+    if col == "rs_pct":
+        return f"{value:+.0f}"          # points of 6-month outperformance, signed
+    if col == "pct_from_52w_high":
+        return f"-{value:.1f}%"         # stored positive as "percent BELOW the high"
+    if col == "from_pivot":
+        return f"{value:+.1f}%"
+    return f"{value:.0f}"               # rsi, adx
+
+
+def _tech_tone(value, col: str) -> str:
+    """good / risk / neutral for a technical value. RSI deliberately has no
+    direction: 70 is strength or exhaustion depending on the rest of the row."""
+    if value is None or (isinstance(value, float) and value != value):
+        return "absent"
+    if col == "stage_label":
+        return _STAGE_TONE.get(str(value), "neutral")
+    if col == "rs_pct":
+        return "good" if value >= 10 else ("risk" if value <= -10 else "neutral")
+    if col == "adx":
+        return "good" if value >= 25 else ("risk" if value < 15 else "neutral")
+    if col == "pct_from_52w_high":
+        return "good" if value <= 10 else ("risk" if value >= 40 else "neutral")
+    if col == "from_pivot":
+        return "good" if -3 <= value <= 5 else ("risk" if value < -15 else "neutral")
+    return "neutral"
+
+
 def _tech_cell(value, col: str) -> str:
     """A technical cell. Plain figures, not bars.
 
     The six axis scores share one 0-100 scale, so a bar is comparable across
-    them; RSI 62, ADX 28 and −14% from the high do not share a scale and a bar
+    them; RSI 62, ADX 28 and -14% from the high do not share a scale and a bar
     would invent one. Tone still encodes good/bad where the metric has a
-    direction — RSI deliberately does not, because "70" is strength or
-    exhaustion depending on what the rest of the row says.
+    direction.
     """
     import report_style as rs
-    if value is None or (isinstance(value, float) and value != value):
+    tone = _tech_tone(value, col)
+    if tone == "absent":
         return (f'<td style="text-align:right;color:{rs.TOKENS["absent"]};'
                 f'font-size:10px;">n/a</td>')
 
+    txt = tech_text(value, col)
     if col == "stage_label":
-        fg, bg = rs.tone_colors(_STAGE_TONE.get(str(value), "neutral"))
+        fg, bg = rs.tone_colors(tone)
         return (f'<td style="text-align:center;white-space:nowrap;">'
                 f'<span style="background:{bg};color:{fg};border-radius:3px;'
-                f'padding:2px 6px;font-size:10px;font-weight:600;">{value}</span></td>')
+                f'padding:2px 6px;font-size:10px;font-weight:600;">{txt}</span></td>')
 
-    if col == "rs_pct":
-        # Percentage points of 6-month outperformance, signed.
-        txt = f"{value:+.0f}"
-        good, bad = value >= 10, value <= -10
-    elif col == "adx":
-        txt, good, bad = f"{value:.0f}", value >= 25, value < 15
-    elif col == "pct_from_52w_high":
-        txt, good, bad = f"-{value:.1f}%", value <= 10, value >= 40
-    elif col == "from_pivot":
-        txt = f"{value:+.1f}%"
-        good, bad = -3 <= value <= 5, value < -15         # near or just above the pivot
-    else:                                                  # rsi — no direction
-        txt, good, bad = f"{value:.0f}", False, False
-
-    # RSI lands here with good=bad=False and therefore reads neutral, which is
-    # the point: 70 is strength or exhaustion depending on the rest of the row.
-    tone = "good" if good else ("risk" if bad else "neutral")
-    fg = rs.tone_colors(tone)[0]
     return (f'<td style="text-align:right;" class="tb-mono">'
-            f'<span style="font-size:11px;color:{fg};">{txt}</span></td>')
+            f'<span style="font-size:11px;color:{rs.tone_colors(tone)[0]};">'
+            f'{txt}</span></td>')
 
 
 def table_html(df: pd.DataFrame, median: dict[str, float | None], anchor: str,
