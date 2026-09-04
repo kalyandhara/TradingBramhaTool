@@ -122,11 +122,21 @@ session. Packaging unchanged: **native dashboard feature**, not a Claude skill.
   "Compare peers" button, never on the default Analyze path.
 - **Rank in a 6-name group is a weak statistic.** Report rank ("3rd of 7"), not a
   smooth percentile, below ~10 peers.
-- **Growth saturates.** In both measured groups nearly every peer scored Growth 90-100,
-  because the band tops out at 25% CAGR and post-COVID Indian jewellers and insurers all
-  clear it. An axis where everyone scores full marks discriminates nothing — a *peer*
-  table is what made this visible, since the anchor's own donut looked fine. Recorded
-  against `fundamental_score.py`'s bands, not fixed here.
+- ~~**Growth saturates.**~~ **FIXED 2026-09-04**, and the fix is the strongest argument
+  for the peer table existing. The old band topped out at 25% CAGR; measured over a
+  150-name NIFTY-500 stride sample ([calibrate_growth_bands.py](tools/calibrate_growth_bands.py)),
+  that is the 81st percentile of revenue CAGR and only the **65th** of quarterly YoY — so
+  a fifth of the market scored a perfect 100 on one input and a third on another, and 39%
+  of listed India read STRONG. Growth is now scored on the **measured distribution
+  curve** per metric (p10→20, p25→35, p50→55, p75→80, p90→95, interpolated), not a shared
+  ladder. Result on the same sample: median 55 (MODERATE, as "median" should read), STRONG
+  20%, only 3% at 100, and **65 distinct scores instead of a handful**. The insurer peer
+  column went from pinned-at-the-top to a 27–90 spread; the jewellers still sit high
+  (59–100) because that sector genuinely is in the top decile right now — which is the
+  point: the axis now separates the two cases instead of flattering both.
+  *Two findings recorded from the fix:* re-banding alone did **not** work (four rungs put
+  the axis median at 47, because averaging step scores drags the middle down), and the
+  saturation was invisible on any single stock's donut — it took ten companies in a column.
 - **Still no backtest.** Nothing here claims edge; it is a context surface, consistent
   with the desk being a research desk rather than a signal generator.
 

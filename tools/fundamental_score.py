@@ -52,7 +52,50 @@ _D2E_BANDS  = ((0.25, 100), (0.5, 85), (1.0, 60), (2.0, 35))  # in ×, not %
 _DEBT_DAYS_BANDS = ((30, 100), (60, 80), (90, 55), (150, 30))
 
 # Higher-is-better metrics
-_GROWTH_BANDS = ((25, 100), (15, 80), (8, 55), (3, 30))      # % CAGR
+# Growth is scored on a MEASURED DISTRIBUTION CURVE, not a band ladder — the one
+# axis in this module that is, and the reason is worth stating.
+#
+# It used to share one table: (25,100),(15,80),(8,55),(3,30). Measured over a
+# 150-name stride sample of the NIFTY-500 (`calibrate_growth_bands.py`, raw values
+# in cache/growth_calibration.json, 2026-09-04):
+#
+#            metric            median   >=25%    p75    p90
+#     revenue_cagr_3y           12.8%   18.8%   22.0   35.1
+#     profit_cagr_3y            16.4%   31.0%   29.4   48.7
+#     revenue_yoy               18.6%   35.3%   35.2   52.0
+#
+# That 25% ceiling handed a perfect 100 to a fifth of the market on revenue CAGR
+# and over a THIRD on quarterly YoY. Across the whole sample the old table read
+# STRONG for 39% of listed India and put 18% at 90+; inside an individual peer
+# group of post-COVID compounders (jewellers, insurers) it pinned nearly every
+# row at 90-100. **The peer table is what exposed it** — one company at 93 looks
+# fine; ten companies all at 90-100 in a column is visibly not a measurement.
+#
+# Two things the fix needed, in order:
+#
+# 1. **Per-metric curves.** The three inputs are not interchangeable. Quarterly
+#    YoY runs hotter than a 3-year CAGR (one soft base quarter lifts it), and
+#    profit compounds faster than revenue through operating leverage. One shared
+#    ladder scored the same company's growth well twice.
+# 2. **Interpolation instead of steps.** Re-banding alone did not fix it: with
+#    four rungs the axis median came out at 47, because averaging three step
+#    scores drags the middle down (the rungs below the median are much further
+#    from it than the rungs above). Steps also collapse 150 companies onto a
+#    handful of values, which is its own kind of non-measurement. Interpolating
+#    between percentile anchors puts the median company at exactly 55 and yields
+#    65 distinct scores over the sample instead of a handful.
+#
+# Anchors map each metric's own percentiles onto the shared verdict scale:
+# p10 -> 20, p25 -> 35, p50 -> 55, p75 -> 80, p90 -> 95, clamped to [10, 100].
+# So the median NSE grower reads MODERATE (which is what median means), STRONG
+# is roughly the top fifth, and only the genuine top decile approaches 100.
+# Re-run calibrate_growth_bands.py and move these numbers when the market moves;
+# they are a snapshot of a distribution, not a law.
+_GROWTH_CURVES = {
+    "revenue_cagr_3y": ((-0.5, 20), (4.6, 35), (12.8, 55), (22.0, 80), (35.1, 95)),
+    "profit_cagr_3y":  ((-7.8, 20), (3.5, 35), (16.4, 55), (29.4, 80), (48.7, 95)),
+    "revenue_yoy":     ((-0.5, 20), (10.5, 35), (18.6, 55), (35.2, 80), (52.0, 95)),
+}
 _ROE_BANDS    = ((25, 100), (18, 80), (12, 55), (8, 30))
 _NPM_BANDS    = ((20, 100), (12, 75), (6, 50), (3, 25))
 _FCFM_BANDS   = ((15, 100), (8, 75), (3, 50), (0, 30))       # FCF as % of revenue
@@ -100,6 +143,33 @@ def _band(value: float | None, bands: Sequence[tuple[float, int]],
         if (value <= threshold) if lower_is_better else (value >= threshold):
             return score
     return _FLOOR
+
+
+def _curve(value: float | None, metric: str) -> int | None:
+    """Score a growth metric off its measured NSE distribution.
+
+    Piecewise-linear between the percentile anchors in `_GROWTH_CURVES`, clamped
+    to [10, 100] outside them: a 400% CAGR off a tiny base is not four times as
+    impressive as 100%, and there is no evidence in the sample to separate them.
+    `None` in, `None` out — a missing input is never scored (see module docstring).
+    """
+    if value is None:
+        return None
+    try:
+        v = float(value)
+    except (TypeError, ValueError):
+        return None
+    if v != v:                      # NaN
+        return None
+    pts = _GROWTH_CURVES[metric]
+    if v <= pts[0][0]:
+        return 10
+    if v >= pts[-1][0]:
+        return 100
+    for (x0, y0), (x1, y1) in zip(pts, pts[1:]):
+        if v <= x1:
+            return y1 if x1 == x0 else round(y0 + (y1 - y0) * (v - x0) / (x1 - x0))
+    return 100
 
 
 def _verdict(axis: str, score: float | None) -> str | None:
@@ -210,11 +280,11 @@ def _score_growth(f: dict, d: dict) -> dict:
         revg, yoy_src = _f(f.get("revenue_growth")), "yfinance"
 
     return _axis("growth", [
-        ("revenue_cagr_3y", _band(rev3, _GROWTH_BANDS, False),
+        ("revenue_cagr_3y", _curve(rev3, "revenue_cagr_3y"),
          f"Rev CAGR 3Y {rev3:.1f}%" if rev3 is not None else ""),
-        ("profit_cagr_3y", _band(pro3, _GROWTH_BANDS, False),
+        ("profit_cagr_3y", _curve(pro3, "profit_cagr_3y"),
          f"Profit CAGR 3Y {pro3:.1f}%" if pro3 is not None else ""),
-        ("revenue_yoy", _band(revg, _GROWTH_BANDS, False),
+        ("revenue_yoy", _curve(revg, "revenue_yoy"),
          f"Rev YoY {revg:.1f}% ({yoy_src})" if revg is not None else ""),
     ])
 
