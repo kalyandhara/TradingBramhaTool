@@ -930,7 +930,7 @@ _login_gate()
 PAGE_GROUPS = {
     "Screening":        ["Opportunity Hub", "Delete Funnel", "Hidden Treasures", "Screener", "Other Screeners", "Scanner Hub",
                          "Breakout Scans", "High-Growth Screener"],
-    "Market Intel":     ["Trending Stocks", "Market Sentiment", "India Market Intel", "OI Momentum"],
+    "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
     "Research":         ["Predictive Analysis", "Stock Analyzer", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
     "Ops":              ["Pipeline Log", "Scheduler Hub"],
@@ -948,7 +948,6 @@ PAGE_BLURBS = {
     "Scanner Hub":          "24 pattern scanners, run on any universe",
     "Breakout Scans":       "External new-high breakout feeds — Chartink or TradingView",
     "High-Growth Screener": "Quality growth names on ROE / ROCE / OPM floors",
-    "Trending Stocks":      "What moved today — movers, volume spikes, 52W & all-time extremes",
     "Market Sentiment":     "0–100 composite regime gauge, with coverage",
     "India Market Intel":   "Bulk & block deals, insider trades, gap scanner",
     "OI Momentum":          "Open-interest build-up and unwinding",
@@ -1048,6 +1047,14 @@ st.markdown(
 )
 
 current_page = st.session_state["current_page"]
+
+# A page that no longer exists must not render a blank screen. This happens to a
+# session that was open across a deploy which removed a page — "Trending Stocks"
+# folded into Home on 2026-09-04 — where session_state still names the old page
+# and no router branch matches it.
+_VALID_PAGES = {"Home", *(p for g in PAGE_GROUPS.values() for p in g)}
+if current_page not in _VALID_PAGES:
+    current_page = st.session_state["current_page"] = "Home"
 
 # Background-job status panel (see ui_jobs). Long tasks (funnel run, sentiment
 # refresh) run on a per-session SERIAL queue off the script thread, so clicking a
@@ -3862,9 +3869,10 @@ with st.expander("Daily Workflow (IST)"):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Volume Shockers (Darvas) — shared window, used by Home and Trending Stocks
+# Volume Shockers (Darvas) — shared window, used twice on Home
 # ------------------------------------------------------------------------------
 # The lens was buried three clicks deep (Market Intel ▸ Trending Stocks ▸ tab 2),
+# which is also why that page has since folded into Home entirely,
 # so it now renders on Home as well. Both call the SAME function — one definition,
 # two mount points, no drift.
 #
@@ -4090,6 +4098,360 @@ def _darvas_window(key_prefix: str, *, compact: bool = False):
 # PERSISTED sentiment row (a DB read the ribbon already does). Home must never be
 # the reason the app feels slow to open.
 # ──────────────────────────────────────────────────────────────────────────────
+if current_page == "Hidden Treasures":
+    st.subheader("Hidden Treasures")
+    st.caption("Small and micro-cap names the main funnel structurally misses — "
+               "ranked by **institutional conviction** (FII+DII accumulation rate, "
+               "promoter conduct, pledge veto) from free NSE shareholding data. "
+               "Quality overlay adds ROCE / OPM / D/E from yfinance. "
+               "**Unvalidated** — a discovery lens, not an edge.")
+
+    _ht_c1, _ht_c2 = st.columns([2, 1])
+    with _ht_c1:
+        _ht_kind = st.radio("Universe",
+                            ["NSE Both", "Smallcap-250", "Microcap-250",
+                             "BSE Both", "BSE SmallCap", "BSE MicroCap",
+                             "All (NSE+BSE)"],
+                            horizontal=True, key="ht_kind")
+    with _ht_c2:
+        _ht_enrich = st.checkbox("Quality overlay (slower)", value=True, key="ht_enrich",
+                                 help="Adds ROCE/OPM/D/E/Market Cap from yfinance — one call per name")
+    _ht_limit = st.slider("Show top N", min_value=5, max_value=100, value=25,
+                           step=5, key="ht_limit")
+    _kind_map = {
+        "NSE Both": "both", "Smallcap-250": "smallcap250", "Microcap-250": "microcap250",
+        "BSE Both": "bse", "BSE SmallCap": "bse_smallcap", "BSE MicroCap": "bse_microcap",
+        "All (NSE+BSE)": "all",
+    }
+
+    if st.button("Discover", type="primary", key="ht_run"):
+        with st.spinner("Scoring small/micro-cap universe…"):
+            try:
+                _ht_kind_val = _kind_map[_ht_kind]
+                _ht_res = scd.discover(kind=_ht_kind_val,
+                                       limit=_ht_limit,
+                                       enrich=_ht_enrich)
+                st.session_state["ht_result"] = _ht_res
+                _saved_n = db.save_hidden_treasures_run(
+                    _ht_res["hits"],
+                    universe_kind=_ht_kind_val,
+                    universe_size=_ht_res.get("universe", 0))
+                st.toast(f"💾 {_saved_n} hits saved to history")
+            except Exception as _e:
+                st.error(f"Discovery failed: {_e}")
+
+    _ht_res = st.session_state.get("ht_result")
+    if _ht_res is not None:
+        st.markdown(rs.section(f"Top {len(_ht_res['hits'])} of {_ht_res['universe']} "
+                               f"({_ht_res['cached']} cached)"),
+                    unsafe_allow_html=True)
+
+        for _i in range(0, len(_ht_res["hits"]), 3):
+            _cols = st.columns(3)
+            for _col, _h in zip(_cols, _ht_res["hits"][_i:_i + 3]):
+                with _col:
+                    _sym = _h["symbol"]
+                    _q = _h.get("quality") or {}
+                    _qual_chips = ""
+                    if _q:
+                        _qparts = []
+                        if _q.get("roce") is not None:
+                            _c = rs.TOKENS["good"] if _q["roce"] >= scd.ROCE_GOOD else rs.TOKENS["text"]
+                            _qparts.append(f'<span style="color:{_c};">ROCE {_q["roce"]:.1f}%</span>')
+                        if _q.get("opm") is not None:
+                            _c = rs.TOKENS["good"] if _q["opm"] >= scd.OPM_GOOD else rs.TOKENS["text"]
+                            _qparts.append(f'<span style="color:{_c};">OPM {_q["opm"]:.1f}%</span>')
+                        if _q.get("debt_to_equity") is not None:
+                            _c = rs.TOKENS["risk"] if _q["debt_to_equity"] > scd.DE_MAX else rs.TOKENS["text"]
+                            _qparts.append(f'<span style="color:{_c};">D/E {_q["debt_to_equity"]:.2f}</span>')
+                        _qual_chips = '<div style="margin-top:4px;font-size:11px;">' + \
+                                      " · ".join(_qparts) + '</div>'
+
+                    _pledge_s = ""
+                    if _h.get("pledge_flag"):
+                        _pledge_s = f'<div style="font-size:11px;color:{rs.TOKENS["risk"]};">⚠ Pledge {_h["pledge_pct"]:.1f}%</div>'
+                    elif _h.get("pledge_pct") is not None:
+                        _pledge_s = f'<div style="font-size:11px;">Pledge {_h["pledge_pct"]:.1f}%</div>'
+
+                    # Market cap chip
+                    _mcap_s = ""
+                    if _q and _q.get("market_cap_cr") is not None:
+                        _mc_cr = _q["market_cap_cr"]
+                        _mc_label = (f"₹{_mc_cr/100:.1f}K Cr" if _mc_cr >= 10000
+                                     else f"₹{_mc_cr:.0f} Cr")
+                        _mcap_s = f'<div style="font-size:11px;color:{rs.TOKENS["text"]};">MCap {_mc_label}</div>'
+
+                    _pd = _h.get("promoter_delta")
+                    _prom_s = f'Prom {_pd:+.2f}pp' if _pd is not None else 'Prom —'
+
+                    # Action icon row (same family as Scanner Hub cards)
+                    _sym_clean = _sym.upper().replace(".NS", "")
+                    def _ht_icon(href, glyph, tip, small=False):
+                        sz = "11px" if small else "13px"
+                        w = "22px" if small else "24px"
+                        return (
+                            f'<a href="{href}" target="_blank" rel="noopener" title="{tip}"'
+                            f' style="display:inline-flex;align-items:center;justify-content:center;'
+                            f'width:{w};height:{w};border-radius:6px;text-decoration:none;'
+                            f'font-size:{sz};line-height:1;background:#f7efe3;'
+                            f'color:#d97706;border:1px solid #f0e0cc;margin-left:4px;">'
+                            f'{glyph}</a>')
+                    _ht_icons = ""
+                    _ht_ch = _chart_url(_sym)
+                    if _ht_ch:
+                        _ht_icons += _ht_icon(_ht_ch, "👁", "Chart Tool (in-app)")
+                    _ht_an = _analyze_url(_sym)
+                    if _ht_an:
+                        _ht_icons += _ht_icon(_ht_an, "↗", "Stock Analyzer (in-app)")
+                    _ht_icons += _ht_icon(f"https://www.tradingview.com/chart/?symbol=NSE%3A{_sym_clean}", "📈", "Open on TradingView")
+                    _ht_icons += _ht_icon(f"https://www.screener.in/company/{_sym_clean}/consolidated/", "S", "Open on Screener.in", small=True)
+                    _ht_icons += _ht_icon(f"https://www.google.com/finance/quote/{_sym_clean}:NSE", "G", "Open on Google Finance", small=True)
+                    _ht_icons += _ht_icon(f"https://twitter.com/search?q=%23{_sym_clean}+%23NSE&src=typed_query", "𝕏", "Search on X / Twitter", small=True)
+
+                    st.markdown(
+                        rs.card(
+                            f'<div style="display:flex;align-items:center;justify-content:space-between;">'
+                            f'<div style="display:flex;align-items:baseline;gap:8px;">'
+                            f'<span style="font-weight:700;font-size:15px;color:{rs.TOKENS["text"]};">'
+                            f'{_sym}</span>'
+                            f'<span style="font-size:12px;color:{rs.TOKENS["accent"]};">'
+                            f'{_h["score"]:.0f}</span>'
+                            f'</div>'
+                            f'<div style="display:flex;align-items:center;flex-wrap:wrap;">'
+                            f'{_ht_icons}</div>'
+                            f'</div>'
+                            f'<div style="font-size:11px;color:{rs.TOKENS["text"]};">'
+                            f'{_h.get("name", "")}</div>'
+                            f'<div style="margin-top:4px;font-size:11px;">'
+                            f'FII+DII {_h["inst_delta"]:+.2f}pp · {_prom_s}'
+                            f'</div>'
+                            f'{_qual_chips}{_mcap_s}{_pledge_s}',
+                            emphasis=False),
+                        unsafe_allow_html=True)
+
+                    _b1, _b2 = st.columns(2)
+                    with _b1:
+                        if st.button("♥ Watchlist", key=f"ht_wl_{_sym}", use_container_width=True):
+                            db.add_watchlist_symbol(_sym, "Hidden Treasures")
+                            st.toast(f"♥ {_sym} → Watchlist")
+                    with _b2:
+                        if st.button("↗ Analyze", key=f"ht_an_{_sym}", use_container_width=True):
+                            st.session_state["current_page"] = "Stock Analyzer"
+                            st.session_state["sa_symbol_override"] = _sym
+                            st.rerun()
+
+                    with st.expander("reasons"):
+                        for _r in _h.get("reasons", []):
+                            st.markdown(f"- {_r}")
+
+
+# What moved today — four lenses (see trending_stocks.py)
+#
+# This was its own "Trending Stocks" page until 2026-09-04. It is now a lazy
+# section on Home: the page was one nav click that only ever led here, and Home
+# already rendered one of its four lenses.
+# ──────────────────────────────────────────────────────────────────────────────
+# Deliberately a TABLE, not the Scanner Hub card grid. A ranked "what moved" list
+# is a different job from confluence results: the reader scans a column to find
+# the outlier, which cards make harder. The cards-not-tables convention stays
+# where it belongs — on Scanner Hub.
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _trend_movers(top_n: int, min_turnover: float):
+    import trending_stocks as _ts
+    bhav, _ = _trend_bhav()
+    # Use real-time yfinance data as the leading source, with fallback to bhavcopy
+    return _ts.price_movers_realtime(bhav, top_n=top_n, min_turnover=min_turnover)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _trend_volume(top_n: int):
+    import trending_stocks as _ts
+    bhav, _ = _trend_bhav()
+    return _ts.volume_shockers(top_n=top_n, bhav=bhav)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _trend_extremes(universe_n: int, top_n: int, near_pct: float):
+    """Both range lenses off ONE batched history download — two calls would be
+    two minutes for the same bytes."""
+    import trending_stocks as _ts
+    bhav, _ = _trend_bhav()
+    uni = _ts.liquid_universe(bhav, universe_n)
+    hist = _ts._batch_history(uni, period="max")
+    return {
+        "week52": _ts.range_extremes(uni, window=_ts.WEEK52_BARS, near_pct=near_pct,
+                                     top_n=top_n, hist=hist),
+        "alltime": _ts.range_extremes(uni, window=None, near_pct=near_pct,
+                                      top_n=top_n, hist=hist),
+        "n_history": len(hist),
+        "universe_n": len(uni),
+    }
+
+
+def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = True) -> None:
+    """The four "what moved today" lenses.
+
+    Extracted from its own page so it can mount on Home, which is where it now
+    lives — the page was one nav click that only ever led here, and Home already
+    carried one of the four lenses (`_darvas_window`).
+
+    `include_volume=False` drops the Volume Shockers tab for the Home mounting,
+    where the Darvas window is already rendered above this section. The
+    cause-attributed spike scan travels with the section either way, since it
+    answers a different question ("why did this spike?") and has no other home.
+
+    `key_prefix` namespaces the widget keys: Home and any future mounting must
+    not collide on `st.slider(key=...)`.
+    """
+    st.caption("Real-time movers from yfinance (refreshes every 5 min). "
+               "**Attention lists, not signals** — a move or a spike is a *question* "
+               "(\"why did this happen?\"), not a position.")
+
+    _tr_bhav, _tr_date = _trend_bhav()
+    if _tr_bhav is None:
+        st.error("No NSE bhavcopy reachable — markets may be closed or the feed is down.")
+    else:
+        _tc1, _tc2, _tc3 = st.columns([1, 1, 1])
+        with _tc1:
+            _tr_top = st.slider("Rows per list", 5, 40, 15, step=5, key=f"{key_prefix}_top")
+        with _tc2:
+            _tr_uni = st.slider("Universe (52W/ATH)", 50, 400, 200, step=50, key=f"{key_prefix}_uni",
+                                help="Top N by traded value. NSE publishes no 52-week "
+                                     "columns, so these two lenses compute from history "
+                                     "— one download per name, hence a bounded universe.")
+        with _tc3:
+            _tr_minto = st.number_input("Min turnover (₹ Cr)", 0.0, 500.0, 5.0, step=1.0,
+                                        key=f"{key_prefix}_minto",
+                                        help="Without a floor the movers list is almost "
+                                             "entirely penny stocks: a ₹3 share moving "
+                                             "19% is arithmetic, not information.")
+        st.caption(f"Session **{_tr_date or '—'}** · {len(_tr_bhav):,} EQ rows")
+
+        # The Volume Shockers tab is dropped on Home, where `_darvas_window` is
+        # already rendered above this section — the same lens twice on one screen
+        # would be the "menu of a menu" mistake Home was cleaned up to avoid.
+        _labels = (["Price Movers"] + (["Volume Shockers"] if include_volume else [])
+                   + ["52 Week High Low", "All Time High Low"])
+        _tabs = st.tabs(_labels)
+        _t_mv = _tabs[0]
+        _t_vol = _tabs[1] if include_volume else None
+        _t_52, _t_ath = _tabs[-2], _tabs[-1]
+
+        def _tr_table(df):
+            """Render one lens as a table with the chart-icon link family."""
+            if df is None or df.empty:
+                st.info("Nothing qualifies in this session.")
+                return
+            out = df.copy()
+            out = _with_chart_family(out, "symbol")
+            colcfg = dict(_chart_family_colcfg())
+            colcfg["symbol"] = st.column_config.TextColumn("Symbol", width="small")
+            if "close" in out.columns:
+                colcfg["close"] = st.column_config.NumberColumn("LTP", format="%.2f")
+            if "chg" in out.columns:
+                colcfg["chg"] = st.column_config.NumberColumn("Chg", format="%.2f")
+            if "chg_pct" in out.columns:
+                colcfg["chg_pct"] = st.column_config.NumberColumn("Chg%", format="%.2f%%")
+            if "turnover" in out.columns:
+                out["turnover"] = out["turnover"] / 1e7
+                colcfg["turnover"] = st.column_config.NumberColumn("Turnover ₹Cr", format="%.1f")
+            if "volume" in out.columns:
+                colcfg["volume"] = st.column_config.NumberColumn("Volume", format="%d")
+            for c, lbl, fmt in (("multiple", "x avg vol", "%.1f"),
+                                ("day_pct", "Chg%", "%.2f%%"),
+                                ("turnover_cr", "Turnover ₹Cr", "%.1f"),
+                                ("range_high", "High", "%.2f"),
+                                ("range_low", "Low", "%.2f"),
+                                ("from_high_pct", "From high %", "%.2f%%"),
+                                ("from_low_pct", "From low %", "%.2f%%")):
+                if c in out.columns:
+                    colcfg[c] = st.column_config.NumberColumn(lbl, format=fmt)
+            if "cause" in out.columns:
+                colcfg["cause"] = st.column_config.TextColumn("Cause", width="medium")
+            drop = [c for c in ("reasons", "avg_volume", "baseline_days", "trade_date",
+                                "n_deals", "churn_share", "pct_mcap", "bars") if c in out.columns]
+            out = out.drop(columns=drop)
+            st.dataframe(out, width="stretch", hide_index=True, column_config=colcfg)
+
+        with _t_mv:
+            _mv = _trend_movers(_tr_top, float(_tr_minto) * 1e7)
+            st.caption(f"**{_mv['n_filtered']:,}** of {_mv['n_universe']:,} names clear "
+                       f"the ₹{_tr_minto:.0f} Cr turnover floor.")
+            st.markdown("**Top gainers**")
+            _tr_table(_mv["gainers"])
+            st.markdown("**Top losers**")
+            _tr_table(_mv["losers"])
+
+        def _render_anomaly_spikes():
+            with st.spinner("Attributing volume spikes to a cause…"):
+                _vol = _trend_volume(_tr_top)
+            if _vol.get("error"):
+                st.warning(f"Volume scan unavailable: {_vol['error']}")
+            else:
+                _tal = _vol.get("tally") or {}
+                st.caption(
+                    f"**{_vol.get('n_hits', 0)}** spikes across {_vol.get('universe', 0):,} names — "
+                    + " · ".join(f"{k.replace('_', ' ').lower()} **{n}**"
+                                 for k, n in _tal.items() if n)
+                    + ".  Each spike is attributed to a filing, prop churn, deal activity, "
+                      "or nothing — the list answers *why*, not only *what*.")
+                _tr_table(_vol["rows"])
+
+        if _t_vol is not None:
+            with _t_vol:
+                _darvas_window(f"{key_prefix}_vs")
+
+                st.divider()
+                # The cause-attributed scan is a different question ("why did this
+                # spike?") on a different filter, so it stays — one level down,
+                # because the Darvas criteria are now what the tab means.
+                with st.expander("Cause-attributed spikes (volume_anomaly) — why, not what"):
+                    _render_anomaly_spikes()
+        else:
+            # Home mounting: the Darvas window sits above, so only the cause
+            # attribution needs a home down here.
+            with st.expander("Cause-attributed spikes (volume_anomaly) — why, not what"):
+                _render_anomaly_spikes()
+
+        _ext = None
+        with _t_52:
+            with st.spinner(f"Computing 52-week extremes over the top {_tr_uni} names…"):
+                _ext = _trend_extremes(_tr_uni, _tr_top, 2.0)
+            _w = _ext["week52"]
+            st.caption(f"{_w['n_scanned']} of the top {_ext['universe_n']} by turnover, "
+                       f"within {_w['near_pct']}% of the extreme"
+                       + (f" · {_w.get('n_cash_equivalents', 0)} cash-equivalent ETFs excluded"
+                          if _w.get("n_cash_equivalents") else "") + ".")
+            st.markdown("**At / near 52-week highs**")
+            _tr_table(_w["highs"])
+            st.markdown("**At / near 52-week lows**")
+            _tr_table(_w["lows"])
+
+        with _t_ath:
+            with st.spinner(f"Computing all-time extremes over the top {_tr_uni} names…"):
+                _ext = _ext or _trend_extremes(_tr_uni, _tr_top, 2.0)
+            _a = _ext["alltime"]
+            st.caption(f"{_a['n_scanned']} of the top {_ext['universe_n']} by turnover, "
+                       f"within {_a['near_pct']}% of the extreme"
+                       + (f" · {_a.get('n_cash_equivalents', 0)} cash-equivalent ETFs excluded"
+                          if _a.get("n_cash_equivalents") else "")
+                       + ". History is bounded by what yfinance serves, so \"all-time\" "
+                         "means \"as far back as the feed goes\".")
+            st.markdown("**At / near all-time highs**")
+            _tr_table(_a["highs"])
+            st.markdown("**At / near all-time lows**")
+            _tr_table(_a["lows"])
+
+        st.divider()
+        st.caption(
+            "**No \"Most Visited\" lens.** That is crowd page-view data from a site's own "
+            "traffic logs, and there is no free NSE or public feed for retail attention. "
+            "A proxy (delivery spikes, rank churn) would measure something else while "
+            "wearing the same label, so it is left out rather than faked.")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Home":
     _t = rs.TOKENS
     _n_pages = sum(len(v) for v in PAGE_GROUPS.values())
@@ -4145,6 +4507,34 @@ if current_page == "Home":
     # scan that was buried three clicks deep, then the roster it feeds. Navigation
     # lives in the top ribbon, where it was already complete.
     _darvas_window("home_vs", compact=True)
+    st.write("")
+
+    # ── What moved today (was the Trending Stocks page) ──────────────────────
+    # Folded in because the page was a single nav click that only ever led here,
+    # and Home already carried one of its four lenses (the Darvas window above).
+    #
+    # LAZY ON PURPOSE. Home's rule is that it must not fetch on load, and these
+    # lenses are the most expensive fetches in the app: Price Movers pulls the
+    # whole-market bhavcopy plus live quotes, and the 52W/ATH pair downloads
+    # history for a few hundred names. Rendering them eagerly would put a
+    # minutes-long wait on the landing page.
+    st.markdown("#### 📈 What moved today")
+    _tr_key = "home_trending_open"
+    if not st.session_state.get(_tr_key):
+        _tc_a, _tc_b = st.columns([1, 4])
+        with _tc_a:
+            if st.button("Load", key="home_trending_btn", use_container_width=True):
+                st.session_state[_tr_key] = True
+                st.rerun()
+        with _tc_b:
+            st.caption("Price movers, 52-week and all-time extremes, and the "
+                       "cause-attributed volume spikes. Runs on request — the "
+                       "range lenses download history for a few hundred names.")
+    else:
+        render_trending_stocks("home_tr", include_volume=False)
+        if st.button("Hide", key="home_trending_hide"):
+            st.session_state[_tr_key] = False
+            st.rerun()
     st.write("")
 
     # The nav-card grid is gone: every page is already one click away in the top
@@ -5817,330 +6207,6 @@ if current_page == "Delete Funnel":
 
 
 # Hidden Treasures — small/micro-cap conviction discovery lane (B-34).
-# ──────────────────────────────────────────────────────────────────────────────
-if current_page == "Hidden Treasures":
-    st.subheader("Hidden Treasures")
-    st.caption("Small and micro-cap names the main funnel structurally misses — "
-               "ranked by **institutional conviction** (FII+DII accumulation rate, "
-               "promoter conduct, pledge veto) from free NSE shareholding data. "
-               "Quality overlay adds ROCE / OPM / D/E from yfinance. "
-               "**Unvalidated** — a discovery lens, not an edge.")
-
-    _ht_c1, _ht_c2 = st.columns([2, 1])
-    with _ht_c1:
-        _ht_kind = st.radio("Universe",
-                            ["NSE Both", "Smallcap-250", "Microcap-250",
-                             "BSE Both", "BSE SmallCap", "BSE MicroCap",
-                             "All (NSE+BSE)"],
-                            horizontal=True, key="ht_kind")
-    with _ht_c2:
-        _ht_enrich = st.checkbox("Quality overlay (slower)", value=True, key="ht_enrich",
-                                 help="Adds ROCE/OPM/D/E/Market Cap from yfinance — one call per name")
-    _ht_limit = st.slider("Show top N", min_value=5, max_value=100, value=25,
-                           step=5, key="ht_limit")
-    _kind_map = {
-        "NSE Both": "both", "Smallcap-250": "smallcap250", "Microcap-250": "microcap250",
-        "BSE Both": "bse", "BSE SmallCap": "bse_smallcap", "BSE MicroCap": "bse_microcap",
-        "All (NSE+BSE)": "all",
-    }
-
-    if st.button("Discover", type="primary", key="ht_run"):
-        with st.spinner("Scoring small/micro-cap universe…"):
-            try:
-                _ht_kind_val = _kind_map[_ht_kind]
-                _ht_res = scd.discover(kind=_ht_kind_val,
-                                       limit=_ht_limit,
-                                       enrich=_ht_enrich)
-                st.session_state["ht_result"] = _ht_res
-                _saved_n = db.save_hidden_treasures_run(
-                    _ht_res["hits"],
-                    universe_kind=_ht_kind_val,
-                    universe_size=_ht_res.get("universe", 0))
-                st.toast(f"💾 {_saved_n} hits saved to history")
-            except Exception as _e:
-                st.error(f"Discovery failed: {_e}")
-
-    _ht_res = st.session_state.get("ht_result")
-    if _ht_res is not None:
-        st.markdown(rs.section(f"Top {len(_ht_res['hits'])} of {_ht_res['universe']} "
-                               f"({_ht_res['cached']} cached)"),
-                    unsafe_allow_html=True)
-
-        for _i in range(0, len(_ht_res["hits"]), 3):
-            _cols = st.columns(3)
-            for _col, _h in zip(_cols, _ht_res["hits"][_i:_i + 3]):
-                with _col:
-                    _sym = _h["symbol"]
-                    _q = _h.get("quality") or {}
-                    _qual_chips = ""
-                    if _q:
-                        _qparts = []
-                        if _q.get("roce") is not None:
-                            _c = rs.TOKENS["good"] if _q["roce"] >= scd.ROCE_GOOD else rs.TOKENS["text"]
-                            _qparts.append(f'<span style="color:{_c};">ROCE {_q["roce"]:.1f}%</span>')
-                        if _q.get("opm") is not None:
-                            _c = rs.TOKENS["good"] if _q["opm"] >= scd.OPM_GOOD else rs.TOKENS["text"]
-                            _qparts.append(f'<span style="color:{_c};">OPM {_q["opm"]:.1f}%</span>')
-                        if _q.get("debt_to_equity") is not None:
-                            _c = rs.TOKENS["risk"] if _q["debt_to_equity"] > scd.DE_MAX else rs.TOKENS["text"]
-                            _qparts.append(f'<span style="color:{_c};">D/E {_q["debt_to_equity"]:.2f}</span>')
-                        _qual_chips = '<div style="margin-top:4px;font-size:11px;">' + \
-                                      " · ".join(_qparts) + '</div>'
-
-                    _pledge_s = ""
-                    if _h.get("pledge_flag"):
-                        _pledge_s = f'<div style="font-size:11px;color:{rs.TOKENS["risk"]};">⚠ Pledge {_h["pledge_pct"]:.1f}%</div>'
-                    elif _h.get("pledge_pct") is not None:
-                        _pledge_s = f'<div style="font-size:11px;">Pledge {_h["pledge_pct"]:.1f}%</div>'
-
-                    # Market cap chip
-                    _mcap_s = ""
-                    if _q and _q.get("market_cap_cr") is not None:
-                        _mc_cr = _q["market_cap_cr"]
-                        _mc_label = (f"₹{_mc_cr/100:.1f}K Cr" if _mc_cr >= 10000
-                                     else f"₹{_mc_cr:.0f} Cr")
-                        _mcap_s = f'<div style="font-size:11px;color:{rs.TOKENS["text"]};">MCap {_mc_label}</div>'
-
-                    _pd = _h.get("promoter_delta")
-                    _prom_s = f'Prom {_pd:+.2f}pp' if _pd is not None else 'Prom —'
-
-                    # Action icon row (same family as Scanner Hub cards)
-                    _sym_clean = _sym.upper().replace(".NS", "")
-                    def _ht_icon(href, glyph, tip, small=False):
-                        sz = "11px" if small else "13px"
-                        w = "22px" if small else "24px"
-                        return (
-                            f'<a href="{href}" target="_blank" rel="noopener" title="{tip}"'
-                            f' style="display:inline-flex;align-items:center;justify-content:center;'
-                            f'width:{w};height:{w};border-radius:6px;text-decoration:none;'
-                            f'font-size:{sz};line-height:1;background:#f7efe3;'
-                            f'color:#d97706;border:1px solid #f0e0cc;margin-left:4px;">'
-                            f'{glyph}</a>')
-                    _ht_icons = ""
-                    _ht_ch = _chart_url(_sym)
-                    if _ht_ch:
-                        _ht_icons += _ht_icon(_ht_ch, "👁", "Chart Tool (in-app)")
-                    _ht_an = _analyze_url(_sym)
-                    if _ht_an:
-                        _ht_icons += _ht_icon(_ht_an, "↗", "Stock Analyzer (in-app)")
-                    _ht_icons += _ht_icon(f"https://www.tradingview.com/chart/?symbol=NSE%3A{_sym_clean}", "📈", "Open on TradingView")
-                    _ht_icons += _ht_icon(f"https://www.screener.in/company/{_sym_clean}/consolidated/", "S", "Open on Screener.in", small=True)
-                    _ht_icons += _ht_icon(f"https://www.google.com/finance/quote/{_sym_clean}:NSE", "G", "Open on Google Finance", small=True)
-                    _ht_icons += _ht_icon(f"https://twitter.com/search?q=%23{_sym_clean}+%23NSE&src=typed_query", "𝕏", "Search on X / Twitter", small=True)
-
-                    st.markdown(
-                        rs.card(
-                            f'<div style="display:flex;align-items:center;justify-content:space-between;">'
-                            f'<div style="display:flex;align-items:baseline;gap:8px;">'
-                            f'<span style="font-weight:700;font-size:15px;color:{rs.TOKENS["text"]};">'
-                            f'{_sym}</span>'
-                            f'<span style="font-size:12px;color:{rs.TOKENS["accent"]};">'
-                            f'{_h["score"]:.0f}</span>'
-                            f'</div>'
-                            f'<div style="display:flex;align-items:center;flex-wrap:wrap;">'
-                            f'{_ht_icons}</div>'
-                            f'</div>'
-                            f'<div style="font-size:11px;color:{rs.TOKENS["text"]};">'
-                            f'{_h.get("name", "")}</div>'
-                            f'<div style="margin-top:4px;font-size:11px;">'
-                            f'FII+DII {_h["inst_delta"]:+.2f}pp · {_prom_s}'
-                            f'</div>'
-                            f'{_qual_chips}{_mcap_s}{_pledge_s}',
-                            emphasis=False),
-                        unsafe_allow_html=True)
-
-                    _b1, _b2 = st.columns(2)
-                    with _b1:
-                        if st.button("♥ Watchlist", key=f"ht_wl_{_sym}", use_container_width=True):
-                            db.add_watchlist_symbol(_sym, "Hidden Treasures")
-                            st.toast(f"♥ {_sym} → Watchlist")
-                    with _b2:
-                        if st.button("↗ Analyze", key=f"ht_an_{_sym}", use_container_width=True):
-                            st.session_state["current_page"] = "Stock Analyzer"
-                            st.session_state["sa_symbol_override"] = _sym
-                            st.rerun()
-
-                    with st.expander("reasons"):
-                        for _r in _h.get("reasons", []):
-                            st.markdown(f"- {_r}")
-
-
-# Trending Stocks — what moved today, four lenses (see trending_stocks.py)
-# ──────────────────────────────────────────────────────────────────────────────
-# Deliberately a TABLE, not the Scanner Hub card grid. A ranked "what moved" list
-# is a different job from confluence results: the reader scans a column to find
-# the outlier, which cards make harder. The cards-not-tables convention stays
-# where it belongs — on Scanner Hub.
-
-@st.cache_data(ttl=300, show_spinner=False)
-def _trend_movers(top_n: int, min_turnover: float):
-    import trending_stocks as _ts
-    bhav, _ = _trend_bhav()
-    # Use real-time yfinance data as the leading source, with fallback to bhavcopy
-    return _ts.price_movers_realtime(bhav, top_n=top_n, min_turnover=min_turnover)
-
-
-@st.cache_data(ttl=1800, show_spinner=False)
-def _trend_volume(top_n: int):
-    import trending_stocks as _ts
-    bhav, _ = _trend_bhav()
-    return _ts.volume_shockers(top_n=top_n, bhav=bhav)
-
-
-@st.cache_data(ttl=1800, show_spinner=False)
-def _trend_extremes(universe_n: int, top_n: int, near_pct: float):
-    """Both range lenses off ONE batched history download — two calls would be
-    two minutes for the same bytes."""
-    import trending_stocks as _ts
-    bhav, _ = _trend_bhav()
-    uni = _ts.liquid_universe(bhav, universe_n)
-    hist = _ts._batch_history(uni, period="max")
-    return {
-        "week52": _ts.range_extremes(uni, window=_ts.WEEK52_BARS, near_pct=near_pct,
-                                     top_n=top_n, hist=hist),
-        "alltime": _ts.range_extremes(uni, window=None, near_pct=near_pct,
-                                      top_n=top_n, hist=hist),
-        "n_history": len(hist),
-        "universe_n": len(uni),
-    }
-
-
-if current_page == "Trending Stocks":
-    st.subheader("Trending Stocks")
-    st.caption("Real-time movers from yfinance (refreshes every 5 min). "
-               "**Attention lists, not signals** — a move or a spike is a *question* "
-               "(\"why did this happen?\"), not a position.")
-
-    _tr_bhav, _tr_date = _trend_bhav()
-    if _tr_bhav is None:
-        st.error("No NSE bhavcopy reachable — markets may be closed or the feed is down.")
-    else:
-        _tc1, _tc2, _tc3 = st.columns([1, 1, 1])
-        with _tc1:
-            _tr_top = st.slider("Rows per list", 5, 40, 15, step=5, key="tr_top")
-        with _tc2:
-            _tr_uni = st.slider("Universe (52W/ATH)", 50, 400, 200, step=50, key="tr_uni",
-                                help="Top N by traded value. NSE publishes no 52-week "
-                                     "columns, so these two lenses compute from history "
-                                     "— one download per name, hence a bounded universe.")
-        with _tc3:
-            _tr_minto = st.number_input("Min turnover (₹ Cr)", 0.0, 500.0, 5.0, step=1.0,
-                                        key="tr_minto",
-                                        help="Without a floor the movers list is almost "
-                                             "entirely penny stocks: a ₹3 share moving "
-                                             "19% is arithmetic, not information.")
-        st.caption(f"Session **{_tr_date or '—'}** · {len(_tr_bhav):,} EQ rows")
-
-        _t_mv, _t_vol, _t_52, _t_ath = st.tabs(
-            ["Price Movers", "Volume Shockers", "52 Week High Low", "All Time High Low"])
-
-        def _tr_table(df):
-            """Render one lens as a table with the chart-icon link family."""
-            if df is None or df.empty:
-                st.info("Nothing qualifies in this session.")
-                return
-            out = df.copy()
-            out = _with_chart_family(out, "symbol")
-            colcfg = dict(_chart_family_colcfg())
-            colcfg["symbol"] = st.column_config.TextColumn("Symbol", width="small")
-            if "close" in out.columns:
-                colcfg["close"] = st.column_config.NumberColumn("LTP", format="%.2f")
-            if "chg" in out.columns:
-                colcfg["chg"] = st.column_config.NumberColumn("Chg", format="%.2f")
-            if "chg_pct" in out.columns:
-                colcfg["chg_pct"] = st.column_config.NumberColumn("Chg%", format="%.2f%%")
-            if "turnover" in out.columns:
-                out["turnover"] = out["turnover"] / 1e7
-                colcfg["turnover"] = st.column_config.NumberColumn("Turnover ₹Cr", format="%.1f")
-            if "volume" in out.columns:
-                colcfg["volume"] = st.column_config.NumberColumn("Volume", format="%d")
-            for c, lbl, fmt in (("multiple", "x avg vol", "%.1f"),
-                                ("day_pct", "Chg%", "%.2f%%"),
-                                ("turnover_cr", "Turnover ₹Cr", "%.1f"),
-                                ("range_high", "High", "%.2f"),
-                                ("range_low", "Low", "%.2f"),
-                                ("from_high_pct", "From high %", "%.2f%%"),
-                                ("from_low_pct", "From low %", "%.2f%%")):
-                if c in out.columns:
-                    colcfg[c] = st.column_config.NumberColumn(lbl, format=fmt)
-            if "cause" in out.columns:
-                colcfg["cause"] = st.column_config.TextColumn("Cause", width="medium")
-            drop = [c for c in ("reasons", "avg_volume", "baseline_days", "trade_date",
-                                "n_deals", "churn_share", "pct_mcap", "bars") if c in out.columns]
-            out = out.drop(columns=drop)
-            st.dataframe(out, width="stretch", hide_index=True, column_config=colcfg)
-
-        with _t_mv:
-            _mv = _trend_movers(_tr_top, float(_tr_minto) * 1e7)
-            st.caption(f"**{_mv['n_filtered']:,}** of {_mv['n_universe']:,} names clear "
-                       f"the ₹{_tr_minto:.0f} Cr turnover floor.")
-            st.markdown("**Top gainers**")
-            _tr_table(_mv["gainers"])
-            st.markdown("**Top losers**")
-            _tr_table(_mv["losers"])
-
-        def _render_anomaly_spikes():
-            with st.spinner("Attributing volume spikes to a cause…"):
-                _vol = _trend_volume(_tr_top)
-            if _vol.get("error"):
-                st.warning(f"Volume scan unavailable: {_vol['error']}")
-            else:
-                _tal = _vol.get("tally") or {}
-                st.caption(
-                    f"**{_vol.get('n_hits', 0)}** spikes across {_vol.get('universe', 0):,} names — "
-                    + " · ".join(f"{k.replace('_', ' ').lower()} **{n}**"
-                                 for k, n in _tal.items() if n)
-                    + ".  Each spike is attributed to a filing, prop churn, deal activity, "
-                      "or nothing — the list answers *why*, not only *what*.")
-                _tr_table(_vol["rows"])
-
-        with _t_vol:
-            _darvas_window("tr_vs")
-
-            st.divider()
-            # The cause-attributed scan is a different question ("why did this
-            # spike?") on a different filter, so it stays — one level down,
-            # because the Darvas criteria are now what the tab means.
-            with st.expander("Cause-attributed spikes (volume_anomaly) — why, not what"):
-                _render_anomaly_spikes()
-
-        _ext = None
-        with _t_52:
-            with st.spinner(f"Computing 52-week extremes over the top {_tr_uni} names…"):
-                _ext = _trend_extremes(_tr_uni, _tr_top, 2.0)
-            _w = _ext["week52"]
-            st.caption(f"{_w['n_scanned']} of the top {_ext['universe_n']} by turnover, "
-                       f"within {_w['near_pct']}% of the extreme"
-                       + (f" · {_w.get('n_cash_equivalents', 0)} cash-equivalent ETFs excluded"
-                          if _w.get("n_cash_equivalents") else "") + ".")
-            st.markdown("**At / near 52-week highs**")
-            _tr_table(_w["highs"])
-            st.markdown("**At / near 52-week lows**")
-            _tr_table(_w["lows"])
-
-        with _t_ath:
-            with st.spinner(f"Computing all-time extremes over the top {_tr_uni} names…"):
-                _ext = _ext or _trend_extremes(_tr_uni, _tr_top, 2.0)
-            _a = _ext["alltime"]
-            st.caption(f"{_a['n_scanned']} of the top {_ext['universe_n']} by turnover, "
-                       f"within {_a['near_pct']}% of the extreme"
-                       + (f" · {_a.get('n_cash_equivalents', 0)} cash-equivalent ETFs excluded"
-                          if _a.get("n_cash_equivalents") else "")
-                       + ". History is bounded by what yfinance serves, so \"all-time\" "
-                         "means \"as far back as the feed goes\".")
-            st.markdown("**At / near all-time highs**")
-            _tr_table(_a["highs"])
-            st.markdown("**At / near all-time lows**")
-            _tr_table(_a["lows"])
-
-        st.divider()
-        st.caption(
-            "**No \"Most Visited\" lens.** That is crowd page-view data from a site's own "
-            "traffic logs, and there is no free NSE or public feed for retail attention. "
-            "A proxy (delivery spikes, rank churn) would measure something else while "
-            "wearing the same label, so it is left out rather than faked.")
-
-
 # Tab 8 — Scanner Hub (SwingEdge-inspired pre-built pattern scanners)
 # ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Scanner Hub":
