@@ -780,146 +780,51 @@ st.markdown(
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Login gate — shown before any dashboard content if the user is not authenticated.
-# Credentials are read from .streamlit/secrets.toml ([auth] username / password);
-# if secrets are absent the fallback keeps the personal tool accessible locally.
+# Sign-in — OPTIONAL (2026-09-04). Browsing no longer requires it.
 # ──────────────────────────────────────────────────────────────────────────────
-def _login_gate() -> None:
-    """Render the login page and block the rest of the app via st.stop()."""
+# This used to be a hard gate: an unauthenticated visitor got a full-page login
+# and `st.stop()`, so nothing rendered until they signed in. It is now a control
+# in the top-right of the ribbon, and the dashboard renders regardless.
+#
+# What signing in currently unlocks: NOTHING. The gate was all-or-nothing, so
+# removing it leaves `logged_in` as a session flag with no consumer. It is kept
+# rather than deleted so a future per-page gate has something to read, and so
+# the credential check does not have to be rebuilt — but nobody should assume
+# this flag is protecting anything today.
+#
+# Credentials still come from .streamlit/secrets.toml ([auth] username/password).
+def _auth_check(username: str, password: str) -> bool:
+    _u = st.secrets.get("auth", {}).get("username", "bramha")
+    _p = st.secrets.get("auth", {}).get("password", "trading2024")
+    return username == _u and password == _p
+
+
+def _signin_control() -> None:
+    """Ribbon sign-in popover. Renders the form, or who is signed in."""
     if st.session_state.get("logged_in"):
+        with st.popover("● Signed in", use_container_width=True):
+            st.caption(f"Signed in as **{st.session_state.get('auth_user', 'user')}**. "
+                       "Sign-in is optional — no page is gated on it today.")
+            if st.button("Sign out", key="tb_signout", use_container_width=True):
+                st.session_state["logged_in"] = False
+                st.session_state.pop("auth_user", None)
+                st.rerun()
         return
 
-    # ── Hero + feature strip ─────────────────────────────────────────────────
-    st.markdown(
-        f"""
-        <style>
-          .tb-login-hero {{
-            background: linear-gradient(180deg, {_T['surface_warm']} 0%, {_T['surface_alt']} 100%);
-            border-radius: 16px;
-            padding: 52px 48px 44px;
-            margin-bottom: 28px;
-            border: 1px solid {_T['border']};
-          }}
-          .tb-login-hero h1 {{
-            font-size: 42px;
-            font-weight: 900;
-            color: {_T['text']};
-            margin: 0 0 10px;
-            letter-spacing: -0.02em;
-            line-height: 1.1;
-          }}
-          .tb-login-hero .sub {{
-            font-size: 17px;
-            font-weight: 600;
-            color: {_T['text_body']};
-            margin: 0 0 6px;
-          }}
-          .tb-login-hero .tagline {{
-            font-size: 14px;
-            color: {_T['text_muted']};
-            margin: 0;
-          }}
-          .tb-feat-grid {{
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 14px;
-            margin-bottom: 32px;
-          }}
-          .tb-feat-card {{
-            background: {_T['surface']};
-            border: 1px solid {_T['border']};
-            border-radius: 14px;
-            padding: 24px 20px 20px;
-            text-align: center;
-          }}
-          .tb-feat-card .icon {{ font-size: 30px; margin-bottom: 10px; }}
-          .tb-feat-card h3 {{
-            font-size: 15px;
-            font-weight: 700;
-            color: {_T['text']};
-            margin: 0 0 6px;
-          }}
-          .tb-feat-card p {{
-            font-size: 13px;
-            color: {_T['text_muted']};
-            margin: 0;
-            line-height: 1.45;
-          }}
-          .tb-login-card {{
-            background: {_T['surface']};
-            border: 1px solid {_T['border_strong']};
-            border-radius: 16px;
-            padding: 32px 36px 28px;
-            max-width: 420px;
-            margin: 0 auto 40px;
-          }}
-          .tb-login-card h2 {{
-            font-size: 20px;
-            font-weight: 800;
-            color: {_T['text']};
-            margin: 0 0 4px;
-          }}
-          .tb-login-card .card-sub {{
-            font-size: 13px;
-            color: {_T['text_muted']};
-            margin: 0 0 22px;
-          }}
-        </style>
-
-        <div class="tb-login-hero">
-          <h1>Let Data Speak.</h1>
-          <p class="sub">No Noise. No Guesswork. Just Bramha Signals.</p>
-          <p class="tagline">For the trader who trusts systems, not stories.</p>
-        </div>
-
-        <div class="tb-feat-grid">
-          <div class="tb-feat-card">
-            <div class="icon">📊</div>
-            <h3>Data First</h3>
-            <p>Momentum, fundamentals, and sector rotation — scored, not opined.</p>
-          </div>
-          <div class="tb-feat-card">
-            <div class="icon">📡</div>
-            <h3>Signal Focused</h3>
-            <p>Stocks moving with real strength, filtered through multi-timeframe logic.</p>
-          </div>
-          <div class="tb-feat-card">
-            <div class="icon">🛡</div>
-            <h3>Zero Noise</h3>
-            <p>No tips, no bias. Algorithmic selection with quantified risk flags.</p>
-          </div>
-        </div>
-
-        <div class="tb-login-card">
-          <h2>Sign in</h2>
-          <p class="card-sub">Access your Trading Bramha dashboard</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # ── Credentials form (Streamlit widgets, not HTML) ────────────────────────
-    # Rendered inside a narrow centered column so it sits inside the card above.
-    _, col, _ = st.columns([1, 1.2, 1])
-    with col:
+    with st.popover("Sign in", use_container_width=True):
+        st.caption("Optional — everything is browsable without it. Signing in "
+                   "only records who you are for now.")
         with st.form("tb_login_form", border=False):
-            username = st.text_input("Username", placeholder="Enter username")
-            password = st.text_input("Password", placeholder="Enter password", type="password")
-            submitted = st.form_submit_button("Sign in →", use_container_width=True, type="primary")
-
-        if submitted:
-            _u = st.secrets.get("auth", {}).get("username", "bramha")
-            _p = st.secrets.get("auth", {}).get("password", "trading2024")
-            if username == _u and password == _p:
-                st.session_state["logged_in"] = True
-                st.rerun()
-            else:
-                st.error("Incorrect username or password.", icon="🔒")
-
-    st.stop()
-
-
-_login_gate()
+            _un = st.text_input("Username", placeholder="Enter username")
+            _pw = st.text_input("Password", placeholder="Enter password", type="password")
+            if st.form_submit_button("Sign in →", use_container_width=True,
+                                     type="primary"):
+                if _auth_check(_un, _pw):
+                    st.session_state["logged_in"] = True
+                    st.session_state["auth_user"] = _un
+                    st.rerun()
+                else:
+                    st.error("Incorrect username or password.", icon="🔒")
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Navigation — left sidebar page router (replaces st.tabs; Streamlit can't
@@ -996,7 +901,7 @@ _NAV_ICONS = {
 # Sentinel — CSS ribbon targets the stHorizontalBlock that immediately follows this
 st.markdown('<div id="tb-navstart"></div>', unsafe_allow_html=True)
 
-_nav = st.columns([2.4, 0.85, 1.05, 1.1, 1.05, 1.35, 0.72, 0.88, 1.9],
+_nav = st.columns([2.4, 0.85, 1.05, 1.1, 1.05, 1.35, 0.72, 0.88, 1.15, 0.95],
                   gap="small", vertical_alignment="center")
 
 with _nav[0]:
@@ -1040,6 +945,11 @@ with _nav[8]:
         f'</div>',
         unsafe_allow_html=True,
     )
+
+# Sign-in sits at the far right of the ribbon, where a sign-in belongs and where
+# it is out of the way of a tool that no longer requires it.
+with _nav[9]:
+    _signin_control()
 
 st.markdown(
     '<div style="margin:0 0 16px;"></div>',
@@ -4452,6 +4362,189 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Home — "where the action is today" card map
+# ──────────────────────────────────────────────────────────────────────────────
+# Modelled on a commercial screener's landing page (user screenshot, 2026-09-04):
+# a hero, then a grid of small cards each showing three names under a heading,
+# with a "View" link into the page that owns that lens.
+#
+# THE HARD CONSTRAINT, and the reason this differs from the mockup:
+# Home must not fetch on load. The commercial page can afford nine live lenses
+# because it serves precomputed server-side lists; we have one machine and a
+# daily job. So every card here reads STORED state - the persisted daily
+# shortlist, the offline constituent file - and a card with no stored data says
+# so instead of being padded with whatever is nearby.
+#
+# The mockup's nine cards are also not nine independent facts for us: a RISK-OFF
+# regime caps the stored shortlist at five names, so nine "top 3" cards off that
+# one table would be the same five names rearranged. Each card below therefore
+# answers a different question from a different column.
+
+def _company_names() -> dict:
+    """symbol -> company name, from the offline NSE constituent files.
+
+    Reuses peer_comparison's loader: a file read with no network, which is the
+    only kind of lookup Home is allowed to do on load.
+    """
+    try:
+        return {k: (v.get("name") or k) for k, v in pcmp._constituents().items()}
+    except Exception:
+        return {}
+
+
+def _action_card(col, title: str, blurb: str, rows: list, target_page,
+                 key: str, *, empty: str = "") -> None:
+    """One card: heading + View link, a one-line blurb, then up to three rows.
+
+    `rows` is [(bold line, muted sub-line)] - usually (symbol, company), but the
+    sector card passes (sector, "N names"), which is why this takes text rather
+    than symbols.
+    """
+    t = rs.TOKENS
+    with col:
+        with st.container(border=True):
+            # 3:1 wrapped the button label onto two lines at Home's card width
+            # (three cards across a ~940px pane leaves the action column ~75px).
+            _h1, _h2 = st.columns([1.9, 1.15])
+            with _h1:
+                st.markdown(
+                    f'<div style="font-size:13.5px;font-weight:700;color:{t["text"]};">'
+                    f'{title}</div>', unsafe_allow_html=True)
+            with _h2:
+                if target_page and st.button("View", key=f"am_{key}",
+                                             use_container_width=True):
+                    st.session_state["current_page"] = target_page
+                    st.rerun()
+            st.markdown(
+                f'<div style="font-size:11px;color:{t["text_muted"]};'
+                f'line-height:1.45;margin:2px 0 8px;">{blurb}</div>',
+                unsafe_allow_html=True)
+            if not rows:
+                st.markdown(
+                    f'<div style="font-size:11.5px;color:{t["absent"]};'
+                    f'font-style:italic;padding:10px 0 4px;">'
+                    f'{empty or "No stored data."}</div>', unsafe_allow_html=True)
+                return
+            cells = "".join(
+                f'<div style="background:{t["surface_alt"]};border-radius:6px;'
+                f'padding:7px 10px;margin-bottom:6px;">'
+                f'<div style="font-size:12.5px;font-weight:700;color:{t["text"]};">'
+                f'{a}</div>'
+                f'<div style="font-size:10px;color:{t["text_muted"]};">{b}</div></div>'
+                for a, b in rows[:3])
+            st.markdown(cells, unsafe_allow_html=True)
+
+
+def render_action_map() -> None:
+    """The card grid. Reads stored state only - no network, no scan."""
+    t = rs.TOKENS
+    try:
+        _dates = db.get_opportunity_run_dates()
+    except Exception:
+        _dates = []
+    _run = _dates[0] if _dates else None
+    try:
+        _df = db.get_daily_opportunities(_run) if _run else pd.DataFrame()
+    except Exception:
+        _df = pd.DataFrame()
+    _names = _company_names()
+
+    def _nm(sym):
+        return _names.get(str(sym).upper(), "")
+
+    _hdr_l, _hdr_r = st.columns([3, 1])
+    with _hdr_l:
+        _date_bit = (f'<span style="color:{t["text_muted"]};font-weight:500;"> &middot; '
+                     f'{_run}</span>' if _run else "")
+        st.markdown(
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
+            f'text-transform:uppercase;color:{t["good"]};padding-top:6px;">'
+            f'&#9679; Where the action is today{_date_bit}</div>',
+            unsafe_allow_html=True)
+    with _hdr_r:
+        if st.button("Open full map", key="am_full", use_container_width=True):
+            st.session_state["current_page"] = "Opportunity Hub"
+            st.rerun()
+
+    if _df is None or _df.empty:
+        st.markdown(
+            rs.callout("No stored shortlist yet.",
+                       "These cards read the persisted daily run rather than "
+                       "scanning on load. Run it from the Opportunity Hub (or let "
+                       "the scheduled job do it) and this map fills in.",
+                       tone="absent"),
+            unsafe_allow_html=True)
+        return
+
+    if _run != date.today().isoformat():
+        st.caption(f"Newest stored run is **{_run}**, not today - these are that "
+                   f"day's names. Price levels decay; treat them as history.")
+
+    # Row 1 - the shortlist, its sectors, its strongest movers
+    c1, c2, c3 = st.columns(3)
+
+    _rank_rows = [(r["symbol"], _nm(r["symbol"]) or f"score {r['score']:.0f}")
+                  for _, r in _df.sort_values("rank").head(3).iterrows()]
+    _action_card(c1, "Today's shortlist",
+                 "Ranked across every scanner by the stored daily run.",
+                 _rank_rows, "Opportunity Hub", "rank")
+
+    _sec_rows = []
+    if "sector" in _df.columns:
+        _sec = (_df.groupby("sector")["momentum"].agg(["count", "mean"])
+                .sort_values(["count", "mean"], ascending=False))
+        _sec_rows = [(str(ix), f"{int(r['count'])} name(s) &middot; avg momentum {r['mean']:.0f}")
+                     for ix, r in _sec.head(3).iterrows()]
+    _action_card(c2, "Sectors in the shortlist",
+                 "Where today's names cluster - counted from the shortlist, not "
+                 "a separate sector scan.", _sec_rows, "Sector Map", "sect")
+
+    _mom_rows = []
+    if "momentum" in _df.columns:
+        _mom_rows = [(r["symbol"],
+                      f"momentum {r['momentum']:.0f} &middot; {r.get('industry') or '-'}")
+                     for _, r in _df.sort_values("momentum", ascending=False).head(3).iterrows()
+                     if pd.notna(r.get("momentum"))]
+    _action_card(c3, "Strongest momentum",
+                 "IBD-style weighted trailing return, highest first.",
+                 _mom_rows, "Opportunity Hub", "mom")
+
+    # Row 2 - rating, confluence, what actually fired
+    c4, c5, c6 = st.columns(3)
+
+    _rat_rows = []
+    if "overall_rating" in _df.columns:
+        _rat_rows = [(r["symbol"], f"M1 rating {r['overall_rating']:.0f}/100")
+                     for _, r in _df.sort_values("overall_rating", ascending=False).head(3).iterrows()
+                     if pd.notna(r.get("overall_rating"))]
+    _action_card(c4, "Highest rated",
+                 "The M1 technical Overall Rating - a different lens from the "
+                 "shortlist score.", _rat_rows, "Predictive Analysis", "rat")
+
+    _conf_rows = []
+    if "confluence" in _df.columns:
+        _conf_rows = [(r["symbol"], f"{int(r['confluence'])} scanners agree")
+                      for _, r in _df.sort_values("confluence", ascending=False).head(3).iterrows()
+                      if pd.notna(r.get("confluence"))]
+    _action_card(c5, "Most confluence",
+                 "Most scanners firing on one name. Measured co-fire lift is "
+                 "significant only at 60d - a lead, not an edge.",
+                 _conf_rows, "Scanner Hub", "conf")
+
+    _tally = {}
+    for _sc in _df.get("scanners", pd.Series(dtype=str)).dropna():
+        for _one in str(_sc).split(","):
+            _one = _one.strip()
+            if _one:
+                _tally[_one] = _tally.get(_one, 0) + 1
+    _scan_rows = [(k, f"fired on {v} of {len(_df)} names")
+                  for k, v in sorted(_tally.items(), key=lambda kv: -kv[1])[:3]]
+    _action_card(c6, "Scanners firing",
+                 "Which detectors actually produced today's list.",
+                 _scan_rows, "Scanner Hub", "scan")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Home":
     _t = rs.TOKENS
     _n_pages = sum(len(v) for v in PAGE_GROUPS.values())
@@ -4473,6 +4566,29 @@ if current_page == "Home":
         f'</div>',
         unsafe_allow_html=True,
     )
+
+    # Call-to-action row, as in the reference layout. Real buttons rather than
+    # styled anchors, because navigation here is session_state + rerun.
+    _cta1, _cta2, _cta3, _cta4 = st.columns([1.15, 1, 1, 3])
+    with _cta1:
+        if st.button("Open screener dashboard", key="home_cta_screen",
+                     type="primary", use_container_width=True):
+            st.session_state["current_page"] = "Opportunity Hub"
+            st.rerun()
+    with _cta2:
+        if st.button("View top movers", key="home_cta_movers",
+                     use_container_width=True):
+            st.session_state["home_trending_open"] = True
+            st.rerun()
+    with _cta3:
+        if st.button("Scanner Hub", key="home_cta_hub", use_container_width=True):
+            st.session_state["current_page"] = "Scanner Hub"
+            st.rerun()
+    st.markdown(
+        f'<div style="font-size:11px;color:{_t["text_muted"]};margin:8px 0 18px;">'
+        f'No sign-in required to browse. '
+        f'<b>For research and educational purposes only — not investment advice.</b>'
+        f'</div>', unsafe_allow_html=True)
 
     # Three genuinely cheap facts. Nothing here fetches.
     try:
@@ -4501,6 +4617,10 @@ if current_page == "Home":
         ], cols=3),
         unsafe_allow_html=True,
     )
+    st.write("")
+
+    # ── The action map — stored state only, so it costs nothing on load ──────
+    render_action_map()
     st.write("")
 
     # Home used to be a card grid of every page. It is now a working surface: the
