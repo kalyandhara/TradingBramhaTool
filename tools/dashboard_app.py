@@ -58,6 +58,7 @@ import browser_cookie_helper as bch
 import stock_council as council
 import fundamentals_deep as fdeep
 import fundamental_score as fscore
+import peer_comparison as pcmp
 import smart_money as smm
 import red_flags as rflags
 import technofunda_funnel as tff
@@ -1784,6 +1785,111 @@ def render_fundamental_signals(score: dict) -> None:
         "never disagree. Earnings Consistency measures **realised** results "
         "(profitable years, growth years, margin stability) — consensus "
         "estimates have no free NSE source, so this is not a beat/miss record."
+    )
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_peer_score(symbol: str) -> dict:
+    """One peer's six axes, through the SAME scorer the anchor uses. Cached at the
+    same TTL as the statement layer it reads — the peer table's cost is entirely
+    network, and a peer of one stock is usually a peer of the next one too."""
+    return fscore.score_all(council.fetch_fundamentals(symbol),
+                            fdeep.derive_fundamentals(symbol))
+
+
+def render_peer_comparison(anchor: str) -> None:
+    """FP-1 — the anchor against its industry peers, on the same six axes.
+
+    Lazy on purpose. Twelve peers is ~48 yfinance calls, which would make it the
+    slowest thing on this page; it therefore sits behind a button and never runs
+    on the default Analyze path. See wiki/analyses/Analyzer-Radar-Peers-Roadmap.md.
+    """
+    st.markdown(rs.section("Peer comparison"), unsafe_allow_html=True)
+    key = f"peers_{anchor}"
+
+    if not st.session_state.get(key):
+        c1, c2 = st.columns([1, 4])
+        with c1:
+            if st.button("Compare peers", key=f"btn_{key}", use_container_width=True):
+                st.session_state[key] = True
+                st.rerun()
+        with c2:
+            st.caption(
+                f"Scores up to {pcmp.MAX_PEERS} same-industry names through the same "
+                "scorer as the donuts above, so 'cheaper than its peers' means exactly "
+                "what Valuation means. Runs on request — it is several dozen network "
+                "calls."
+            )
+        return
+
+    prog = st.progress(0.0, text="Resolving peer group...")
+    try:
+        res = pcmp.build(
+            anchor, cached_peer_score,
+            tag_progress=lambda d, t: prog.progress(min(d / max(t, 1), 1.0) * 0.6,
+                                                    text=f"Tagging industries {d}/{t}..."),
+            score_progress=lambda d, t: prog.progress(0.6 + min(d / max(t, 1), 1.0) * 0.4,
+                                                      text=f"Scoring peers {d}/{t}..."),
+        )
+    except Exception as exc:
+        prog.empty()
+        st.markdown(rs.callout("Peer comparison failed.", str(exc), tone="risk"),
+                    unsafe_allow_html=True)
+        return
+    prog.empty()
+
+    if not res.get("ok"):
+        st.markdown(
+            rs.callout(f"No peer group for {anchor}.",
+                       (res.get("reason") or "")
+                       + " Industry tags come from yfinance and are coarse or absent "
+                         "for many NSE mid- and small-caps; a thin group is a data "
+                         "limit, not a verdict on the company.",
+                       tone="absent"),
+            unsafe_allow_html=True)
+        return
+
+    df, med = res["table"], res["median"] or {}
+
+    # ── What group is this, and how honest is it ──
+    widened = res.get("group_level") == "family"
+    chips = (
+        rs.chip("Group", "info", res.get("group_label")) +
+        rs.chip("Names", "neutral", str(len(df))) +
+        (rs.chip("Widened", "warn", f"only {res['n_same_industry']} in {res['industry']}")
+         if widened else "")
+    )
+    st.markdown(
+        rs.card(
+            f'{chips}<div style="font-size:12px;color:{rs.TOKENS["text_body"]};'
+            f'margin-top:6px;">'
+            + (f'yfinance tags <b>{anchor}</b> as <i>{res["industry"]}</i>, which holds '
+               f'only {res["n_same_industry"]} other NSE name(s) — too thin to compare '
+               f'against, so the group was widened one rung to <b>{res["group_label"]}</b>. '
+               'Read it as a sector-adjacent group, not a like-for-like one. '
+               if widened else
+               f'Peers are the NSE names yfinance tags <i>{res["industry"]}</i>, '
+               'ranked by market cap. ')
+            + 'Fundamental axes only — no technical or timing content here, and no '
+              'overall peer score: this ranks measured business characteristics, and '
+              'none of it is backtested as an edge.</div>'
+        ),
+        unsafe_allow_html=True,
+    )
+
+    # ── The table: sticky header, frozen ticker column, in-cell bars ──
+    # Markup lives in peer_comparison.table_html, not here: it is pure
+    # df -> HTML with no Streamlit in it, so it can be rendered and eyeballed
+    # from a script without standing up the app behind its login.
+    st.markdown(pcmp.table_html(df, med, anchor, tone_fn=_axis_tone),
+                unsafe_allow_html=True)
+    st.caption(
+        f"Sorted by market cap with **{anchor}** pinned first. Every number is the "
+        "same 0–100 band score as the donuts above; `n/a` is a missing input, never "
+        "a zero — the **Cov.** column says how much of each row was actually "
+        "measured, so a sparsely-covered peer is not read as a weak one. Median "
+        "rather than mean, because one loss-maker moves a mean somewhere no company "
+        "in the group actually sits."
     )
 
 
@@ -4150,6 +4256,7 @@ if current_page == "Stock Analyzer":
                 render_fundamental_header(symbol, df, _fund, _deep)
                 render_fundamental_signals(fscore.score_all(_fund, _deep))
                 render_fundamental_history(_deep)
+                render_peer_comparison(symbol)
                 _rf_res = cached_red_flags(symbol)
                 render_red_flags(_rf_res)
                 _render_screener_unlock(_rf_res)
