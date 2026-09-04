@@ -901,6 +901,10 @@ _NAV_ICONS = {
 # Sentinel — CSS ribbon targets the stHorizontalBlock that immediately follows this
 st.markdown('<div id="tb-navstart"></div>', unsafe_allow_html=True)
 
+# Widths, left to right: brand · Home · the five group popovers · spacer ·
+# current-page label · sign-in. Only the last column is new; the page label gave
+# up the width for it. (The popovers render 62px tall because Streamlit stacks
+# its `expand_more` glyph under the label — that is its chrome, not wrapping.)
 _nav = st.columns([2.4, 0.85, 1.05, 1.1, 1.05, 1.35, 0.72, 0.88, 1.15, 0.95],
                   gap="small", vertical_alignment="center")
 
@@ -3028,39 +3032,22 @@ _ov_cards = [
 ]
 st.markdown(rs.strip(_ov_cards, cols=5), unsafe_allow_html=True)
 
-# ── Regime banner + today's verdict ───────────────────────────────────────────
+# ── Regime + today's verdict — ONE card ───────────────────────────────────────
 _show_regime = current_page != "Scanner Hub"  # hidden on Scanner Hub
-# Five true numbers above still do not answer "do I trade today, and how big?".
-# market_verdict collapses the same sentiment inputs into one decision plus the
-# flags that produced it, so the ribbon can be argued with rather than obeyed.
+# These were two stacked cards and between them they owned most of the first
+# screen on every page. They are now one, because they are one thought: the
+# regime is the CONTEXT and the verdict is the DECISION taken in it, and the
+# reader was scrolling past both to reach the page they asked for.
+#
+# The old code already carried the rule that makes the merge safe — "two
+# coloured surfaces stacked would read as two verdicts, and only one of these is
+# a decision". One card with the verdict's tone on its border keeps exactly one
+# decision on screen; the regime sits inside it as a labelled context line.
+#
+# Compaction is layout only. No flag, number or sentence is dropped: the
+# caution / favorable / not-checked blocks moved from stacked full-width lists
+# into three columns, which is where most of the height went.
 regime_info = mvd.classify_regime(nifty_overview)
-if _show_regime and regime_info["label"] != "UNKNOWN":
-    _rfg, _ = rs.tone_colors(regime_info["tone"])
-    vol_txt = ""
-    if regime_info["vol"] is not None and regime_info["vol_baseline"] is not None:
-        vol_txt = (f'<span class="tb-mono">{regime_info["vol"]:.2f}%</span> vs baseline '
-                   f'<span class="tb-mono">{regime_info["vol_baseline"]:.2f}%</span>')
-    dist_txt = ""
-    if regime_info["dist_pct"] is not None:
-        dist_txt = (f'Price within <span class="tb-mono">'
-                    f'{abs(regime_info["dist_pct"]):.1f}%</span> of the 50 SMA')
-    # The regime chip carries the tone; the card border stays a hairline. Two
-    # coloured surfaces stacked (banner tint + verdict) would read as two
-    # verdicts, and only one of these is a decision.
-    st.markdown(
-        rs.card(
-            f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
-            f'<span class="tb-micro">Market regime</span>'
-            + rs.chip(regime_info["label"], tone=regime_info["tone"])
-            + (f'<span style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
-               f'Vol {vol_txt}</span>' if vol_txt else "")
-            + f'</div>'
-            f'<div style="font-size:14px;color:{rs.TOKENS["text_body"]};'
-            f'margin-top:4px;">{regime_info["playbook"]}</div>'
-            + (f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};'
-               f'margin-top:3px;">{dist_txt}</div>' if dist_txt else "")),
-        unsafe_allow_html=True,
-    )
 
 _senti_reading = cached_latest_sentiment()
 # A reading from three sessions ago must not read as today's green light.
@@ -3080,50 +3067,81 @@ verdict = mvd.build_verdict(_senti_reading, portfolio_summary, _stale_flags)
 _vfg, _ = rs.tone_colors(verdict["tone"])
 
 
-def _flag_list(items: list[str], label: str, tone: str, mark: str) -> str:
-    """One flag block — micro header in the tone, then the flags themselves."""
-    if not items:
-        return ""
+def _flag_col(items: list[str], label: str, tone: str, mark: str) -> str:
+    """One flag column — micro header in the tone, then the flags themselves.
+
+    Empty columns still render (as a dash) so the three keep their widths and
+    the reader can see that a category is empty rather than missing.
+    """
     fg, _bg = rs.tone_colors(tone)
     rows = "".join(
-        f'<div style="font-size:13px;color:{fg};line-height:1.55;">{mark} {i}</div>'
-        for i in items)
-    return (f'<div style="margin-top:10px;">'
+        f'<div style="font-size:11.5px;color:{fg};line-height:1.5;">{mark} {i}</div>'
+        for i in items) or (
+        f'<div style="font-size:11.5px;color:{rs.TOKENS["absent"]};'
+        f'line-height:1.5;">—</div>')
+    return (f'<div style="flex:1;min-width:150px;">'
             f'<div class="tb-micro" style="color:{fg};">{label}</div>{rows}</div>')
 
 
-# One bordered card rather than loose columns: the verdict and the flags that
-# produced it are a single object, and the border colour is where the decision
-# is stated (report_style's `tone` rule — a value's colour states its verdict).
-# The size figure is .tb-mono like every other number on this page; it used to
-# be the one headline figure rendering in the proportional face.
-if _show_regime: st.markdown(
-    rs.card(
-        '<div style="display:flex;align-items:flex-start;gap:16px;">'
-        '<div style="flex:1;min-width:0;">'
-        '<div class="tb-micro">Today\'s verdict</div>'
-        f'<div style="font-size:30px;font-weight:800;color:{_vfg};'
-        f'line-height:1.15;letter-spacing:-.01em;">{verdict["verdict"]}</div>'
-        f'<div style="font-size:14px;color:{rs.TOKENS["text_body"]};'
-        f'margin-top:4px;">{verdict["instruction"]}</div>'
-        '</div>'
-        '<div style="text-align:right;flex-shrink:0;">'
-        '<div class="tb-micro">Position size</div>'
-        f'<div class="tb-mono" style="font-size:30px;font-weight:800;'
-        f'color:{_vfg};line-height:1.15;">{verdict["size_pct"]}%</div>'
-        f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
-        f'max <span class="tb-mono">{verdict["max_trades"]}</span> trade(s) today</div>'
-        '</div></div>'
-        + _flag_list(verdict["caution"], "Caution", "risk", "✗")
-        + _flag_list(verdict["favorable"], "Favorable", "good", "✓")
-        # Components that could not be measured abstain from the vote (B-1), so
-        # the verdict above was formed on LESS than the full weight. Shown
-        # explicitly — otherwise the only visible difference between a complete
-        # verdict and a partial one is that the partial one has fewer flags.
-        + _flag_list(verdict.get("not_checked") or [], "Not checked", "neutral", "—"),
-        tone=verdict["tone"]),
-    unsafe_allow_html=True,
-)
+def _regime_line() -> str:
+    """The regime as a context strip inside the verdict card, or '' if unknown."""
+    if regime_info["label"] == "UNKNOWN":
+        return ""
+    bits = []
+    if regime_info["vol"] is not None and regime_info["vol_baseline"] is not None:
+        bits.append(f'Vol <span class="tb-mono">{regime_info["vol"]:.2f}%</span> vs '
+                    f'<span class="tb-mono">{regime_info["vol_baseline"]:.2f}%</span> baseline')
+    if regime_info["dist_pct"] is not None:
+        bits.append(f'within <span class="tb-mono">'
+                    f'{abs(regime_info["dist_pct"]):.1f}%</span> of the 50 SMA')
+    return (
+        f'<div style="border-top:1px solid {rs.TOKENS["border"]};margin-top:10px;'
+        f'padding-top:8px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">'
+        f'<span class="tb-micro">Regime</span>'
+        + rs.chip(regime_info["label"], tone=regime_info["tone"])
+        + f'<span style="font-size:12.5px;color:{rs.TOKENS["text_body"]};">'
+          f'{regime_info["playbook"]}</span>'
+        + (f'<span style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
+           f'{" · ".join(bits)}</span>' if bits else "")
+        + '</div>'
+    )
+
+
+# One bordered card: the verdict, the regime it was formed in, and the flags that
+# produced it are a single object. The border colour is where the decision is
+# stated (report_style's `tone` rule — a value's colour states its verdict).
+if _show_regime:
+    st.markdown(
+        rs.card(
+            '<div style="display:flex;align-items:flex-start;gap:16px;">'
+            '<div style="flex:1;min-width:0;">'
+            '<div class="tb-micro">Today\'s verdict</div>'
+            f'<div style="font-size:24px;font-weight:800;color:{_vfg};'
+            f'line-height:1.15;letter-spacing:-.01em;">{verdict["verdict"]}</div>'
+            f'<div style="font-size:13px;color:{rs.TOKENS["text_body"]};'
+            f'margin-top:2px;">{verdict["instruction"]}</div>'
+            '</div>'
+            '<div style="text-align:right;flex-shrink:0;">'
+            '<div class="tb-micro">Position size</div>'
+            f'<div class="tb-mono" style="font-size:24px;font-weight:800;'
+            f'color:{_vfg};line-height:1.15;">{verdict["size_pct"]}%</div>'
+            f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
+            f'max <span class="tb-mono">{verdict["max_trades"]}</span> trade(s) today</div>'
+            '</div></div>'
+            + _regime_line()
+            # Components that could not be measured abstain from the vote (B-1),
+            # so the verdict above was formed on LESS than the full weight. Shown
+            # explicitly — otherwise the only visible difference between a
+            # complete verdict and a partial one is that it has fewer flags.
+            + f'<div style="border-top:1px solid {rs.TOKENS["border"]};margin-top:10px;'
+              f'padding-top:8px;display:flex;gap:18px;flex-wrap:wrap;">'
+            + _flag_col(verdict["caution"], "Caution", "risk", "✗")
+            + _flag_col(verdict["favorable"], "Favorable", "good", "✓")
+            + _flag_col(verdict.get("not_checked") or [], "Not checked", "neutral", "—")
+            + '</div>',
+            tone=verdict["tone"]),
+        unsafe_allow_html=True,
+    )
 
 # ── Inline sentiment refresh ────────────────────────────────────────────
 if _show_regime and (_senti_reading is None or (_senti_age or 0) >= 1):
