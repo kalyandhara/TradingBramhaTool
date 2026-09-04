@@ -334,6 +334,135 @@ def _batch_history(symbols: list[str], period: str = "2y") -> dict[str, pd.DataF
     return out
 
 
+def price_movers_realtime(bhav: Optional[pd.DataFrame] = None, top_n: int = TOP_N,
+                          min_turnover: float = MIN_TURNOVER) -> dict[str, Any]:
+    """Real-time price movers using yfinance intraday data.
+
+    Unlike price_movers() which uses EOD bhavcopy (1 day old), this fetches today's
+    intraday data from yfinance to show live % changes. Uses bhavcopy for the
+    liquid universe (turnover ranking) but gets current prices from yfinance.
+
+    Returns the same structure as price_movers() so it's a drop-in replacement.
+    """
+    if bhav is None:
+        bhav, _ = load_bhav()
+    if bhav is None or bhav.empty:
+        return {"gainers": pd.DataFrame(), "losers": pd.DataFrame(),
+                "n_universe": 0, "n_filtered": 0, "min_turnover": min_turnover}
+
+    try:
+        import yfinance as yf
+    except Exception as e:
+        log.warning("yfinance unavailable for realtime movers: %s", e)
+        # Fall back to bhavcopy movers if yfinance isn't available
+        return price_movers(bhav, top_n=top_n, min_turnover=min_turnover)
+
+    # Get the liquid universe from bhavcopy (for turnover ranking)
+    uni = liquid_universe(bhav, UNIVERSE_N)
+    if not uni:
+        return {"gainers": pd.DataFrame(), "losers": pd.DataFrame(),
+                "n_universe": 0, "n_filtered": 0, "min_turnover": min_turnover}
+
+    # Fetch today's intraday data from yfinance (1d period with 5m interval)
+    tickers = [f"{s}.NS" for s in uni]
+    try:
+        raw = yf.download(tickers, period="1d", interval="5m",
+                          progress=False, auto_adjust=True, group_by="ticker",
+                          threads=True)
+    except Exception as e:
+        log.warning("yfinance realtime fetch failed: %s — falling back to bhavcopy", e)
+        return price_movers(bhav, top_n=top_n, min_turnover=min_turnover)
+
+    if raw is None or raw.empty:
+        log.warning("yfinance returned no data for realtime movers — falling back to bhavcopy")
+        return price_movers(bhav, top_n=top_n, min_turnover=min_turnover)
+
+    # Extract latest intraday data for each symbol
+    rows = []
+    n_universe = len(uni)
+
+    for sym, tkr in zip(uni, tickers):
+        try:
+            if isinstance(raw.columns, pd.MultiIndex):
+                sub = raw[tkr]
+            else:
+                sub = raw
+
+            if sub is None or sub.empty or "Close" not in sub.columns:
+                continue
+
+            # Get the latest close and the opening/previous price from this intraday session
+            closes = pd.to_numeric(sub["Close"], errors="coerce").dropna()
+            if len(closes) < 1:
+                continue
+
+            curr_close = float(closes.iloc[-1])
+            if curr_close <= 0:
+                continue
+
+            # Use the first intraday close as reference (or first valid close from history)
+            # If we only have one candle, we can't compute intraday change, so skip
+            if len(closes) < 2:
+                # Try to get prev_close from bhavcopy as fallback
+                bhav_row = bhav[bhav["symbol"] == sym]
+                if bhav_row.empty:
+                    continue
+                prev_close = pd.to_numeric(bhav_row["prev_close"].iloc[0], errors="coerce")
+            else:
+                prev_close = float(closes.iloc[0])
+
+            if prev_close <= 0:
+                continue
+
+            chg = curr_close - prev_close
+            chg_pct = (chg / prev_close) * 100.0
+
+            # Get turnover from bhavcopy for ranking
+            bhav_row = bhav[bhav["symbol"] == sym]
+            if bhav_row.empty:
+                turnover = 0.0
+                volume = 0
+            else:
+                turnover = pd.to_numeric(bhav_row["turnover"].iloc[0], errors="coerce") or 0.0
+                volume = pd.to_numeric(bhav_row["volume"].iloc[0], errors="coerce") or 0
+
+            rows.append({
+                "symbol": sym,
+                "close": curr_close,
+                "chg": chg,
+                "chg_pct": chg_pct,
+                "turnover": turnover,
+                "volume": volume,
+            })
+        except Exception as e:
+            log.debug("error processing realtime data for %s: %s", sym, e)
+            continue
+
+    if not rows:
+        log.warning("no valid realtime data extracted — falling back to bhavcopy")
+        return price_movers(bhav, top_n=top_n, min_turnover=min_turnover)
+
+    d = pd.DataFrame(rows)
+    n_filtered = len(d)
+
+    # Apply liquidity filter
+    if not bhav.attrs.get("turnover_is_qty", False):
+        d = d[d["turnover"] >= min_turnover]
+
+    cols = ["symbol", "close", "chg", "chg_pct", "turnover", "volume"]
+    d = d[cols]
+
+    return {
+        "gainers": d.nlargest(top_n, "chg_pct").reset_index(drop=True),
+        "losers": d.nsmallest(top_n, "chg_pct").reset_index(drop=True),
+        "n_universe": n_universe,
+        "n_filtered": len(d),
+        "min_turnover": min_turnover,
+        "turnover_is_qty": bool(bhav.attrs.get("turnover_is_qty", False)),
+        "source": "yfinance_realtime",
+    }
+
+
 def is_liquid_etf(df: pd.DataFrame) -> bool:
     """Cash-equivalent instrument check — same definition as the chart's
     `isLikelyLiquidETF` (chart_dashboard.html), deliberately not a second one.

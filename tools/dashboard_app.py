@@ -5695,11 +5695,12 @@ if current_page == "Hidden Treasures":
 # the outlier, which cards make harder. The cards-not-tables convention stays
 # where it belongs — on Scanner Hub.
 
-@st.cache_data(ttl=900, show_spinner=False)
+@st.cache_data(ttl=300, show_spinner=False)
 def _trend_movers(top_n: int, min_turnover: float):
     import trending_stocks as _ts
     bhav, _ = _trend_bhav()
-    return _ts.price_movers(bhav, top_n=top_n, min_turnover=min_turnover)
+    # Use real-time yfinance data as the leading source, with fallback to bhavcopy
+    return _ts.price_movers_realtime(bhav, top_n=top_n, min_turnover=min_turnover)
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -5729,7 +5730,7 @@ def _trend_extremes(universe_n: int, top_n: int, near_pct: float):
 
 if current_page == "Trending Stocks":
     st.subheader("Trending Stocks")
-    st.caption("What actually moved today, from the free NSE bhavcopy. "
+    st.caption("Real-time movers from yfinance (refreshes every 5 min). "
                "**Attention lists, not signals** — a move or a spike is a *question* "
                "(\"why did this happen?\"), not a position.")
 
