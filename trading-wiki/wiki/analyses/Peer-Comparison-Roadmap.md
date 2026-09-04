@@ -117,3 +117,5 @@ tagging. The genuinely new work is peer-*relative* scoring + the comparison-tabl
 - [[analyses/Dashboard-UI-Roadmap]] — the analyzer this extends (Phase 2 features).
 - [[analyses/Setup-Intelligence-Visual-Spec]] — sibling ingested mockup; the "vs anchor" drill reuses the Setup Intelligence read.
 - [[analyses/Fundamental-Deep-Dive-Report-Roadmap]] — its report shell has a **Peers** tab; PC-1…PC-4 fills it (build once, surface twice).
+
+> **2026-09-04 — sequencing superseded by [[analyses/Analyzer-Radar-Peers-Roadmap]].** Re-audit found the six-axis fundamental scorer and its donuts already ship on the Stock Analyzer, so RC-1 (solo radar) is retired; the radar becomes an anchor-vs-peer-median overlay and the peer table leads (FP-1). This page is kept for its band research and mockup spec.

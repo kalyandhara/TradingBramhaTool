@@ -276,6 +276,38 @@ def index():
     return send_from_directory(HERE, "chart_dashboard.html")
 
 
+# ── PWA (installable mobile app) — manifest, service worker, icons ────────────
+@app.route("/manifest.webmanifest")
+def pwa_manifest():
+    return send_from_directory(HERE, "manifest.webmanifest",
+                               mimetype="application/manifest+json")
+
+
+@app.route("/sw.js")
+def pwa_service_worker():
+    # Served from the root scope so it can control the whole app. No-cache so a
+    # new SW is picked up on the next visit rather than being pinned by the browser.
+    resp = send_from_directory(HERE, "sw.js", mimetype="application/javascript")
+    resp.headers["Cache-Control"] = "no-cache"
+    resp.headers["Service-Worker-Allowed"] = "/"
+    return resp
+
+
+@app.route("/icon-192.png")
+def pwa_icon_192():
+    return send_from_directory(HERE, "icon-192.png", mimetype="image/png")
+
+
+@app.route("/icon-512.png")
+def pwa_icon_512():
+    return send_from_directory(HERE, "icon-512.png", mimetype="image/png")
+
+
+@app.route("/icon-maskable-512.png")
+def pwa_icon_maskable():
+    return send_from_directory(HERE, "icon-maskable-512.png", mimetype="image/png")
+
+
 @app.route("/elliott_wave.js")
 def elliott_wave_js():
     return send_from_directory(HERE, "elliott_wave.js", mimetype="application/javascript")
@@ -307,14 +339,99 @@ def session_volume_profile_js():
                                mimetype="application/javascript")
 
 
+@app.route("/hm_indicator.js")
+def hm_indicator_js():
+    return send_from_directory(HERE, "hm_indicator.js",
+                               mimetype="application/javascript")
+
+
+@app.route("/supertrend_ai.js")
+def supertrend_ai_js():
+    return send_from_directory(HERE, "supertrend_ai.js",
+                               mimetype="application/javascript")
+
+
 @app.route("/percent_r_trend_exhaustion.js")
 def percent_r_trend_exhaustion_js():
     return send_from_directory(HERE, "percent_r_trend_exhaustion.js", mimetype="application/javascript")
 
 
+@app.route("/adx_di.js")
+def adx_di_js():
+    return send_from_directory(HERE, "adx_di.js", mimetype="application/javascript")
+
+
+@app.route("/evwma_vwap_macd.js")
+def evwma_vwap_macd_js():
+    return send_from_directory(HERE, "evwma_vwap_macd.js",
+                               mimetype="application/javascript")
+
+
+@app.route("/renko.js")
+def renko_js():
+    return send_from_directory(HERE, "renko.js", mimetype="application/javascript")
+
+
 @app.route("/rsi_divergence.js")
 def rsi_divergence_js():
     return send_from_directory(HERE, "rsi_divergence.js", mimetype="application/javascript")
+
+
+@app.route("/chart_drawings.js")
+def chart_drawings_js():
+    return send_from_directory(HERE, "chart_drawings.js", mimetype="application/javascript")
+
+
+# Bhavcopy is one file per session and every strike-level read comes out of it,
+# so the download is cached process-wide rather than repeated per request. Keyed
+# by nothing but recency: a new session simply replaces it.
+_OPT_CACHE: dict[str, object] = {"raw": None, "date": None, "at": 0.0}
+_OPT_TTL = 30 * 60
+
+
+@app.route("/api/option_levels")
+def api_option_levels():
+    """Strike-level option OI — max pain and OI walls (B-23).
+
+    See option_chain.py. LEVELS WITH CONTEXT, NOT A SIGNAL: "price gravitates to
+    max pain" and "a wall rejects the first touch" are both untested, and the
+    payload carries `unmeasured: true` so a consumer cannot forget it.
+
+    Query: symbol (required), expiry (YYYY-MM-DD or "all"), walls (default 3).
+    {"levels": null} when the underlying has no options in the latest bhavcopy —
+    the common case for a non-F&O stock, not an error.
+    """
+    symbol = request.args.get("symbol", "").strip().upper()
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    expiry = request.args.get("expiry") or None
+    walls = max(1, min(int(request.args.get("walls", 3)), 10))
+
+    # The chart sends NSE-suffixed tickers; the bhavcopy keys on the bare symbol.
+    base = symbol.split(":")[-1]
+    for suffix in (".NS", ".NSE", ".BO"):
+        if base.endswith(suffix):
+            base = base[: -len(suffix)]
+            break
+
+    try:
+        import option_chain as ochain
+        now = time.time()
+        if _OPT_CACHE["raw"] is None or (now - float(_OPT_CACHE["at"] or 0)) > _OPT_TTL:
+            import nse_oi_momentum as oi_mod
+            raw, td = oi_mod.fetch_fo_bhavcopy_raw()
+            _OPT_CACHE.update({"raw": raw, "date": td, "at": now})
+        raw, td = _OPT_CACHE["raw"], _OPT_CACHE["date"]
+        if raw is None or getattr(raw, "empty", True):
+            return jsonify({"symbol": symbol, "levels": None,
+                            "note": "no F&O bhavcopy reachable"})
+        levels = ochain.read_levels(base, expiry=expiry, walls=walls,
+                                    raw=raw, trade_date=td)
+    except Exception as e:                      # a data outage must not 500 the chart
+        log.warning("option_levels failed for %s: %s", symbol, e)
+        return jsonify({"symbol": symbol, "levels": None, "note": str(e)})
+
+    return jsonify({"symbol": symbol, "levels": levels})
 
 
 @app.route("/api/ohlcv")
@@ -609,7 +726,7 @@ def api_structure_chain():
     # or the whole session gets swallowed by one swing (same shape as /api/trendlines).
     piv_default = {
         "1m": 5, "5m": 6, "15m": 8, "30m": 10,
-        "1h": 10, "4h": 12, "1d": 15, "1w": 15,
+        "1h": 10, "4h": 12, "6h": 13, "1d": 15, "1w": 15,
     }.get(timeframe, 15)
     pivot_len  = max(2, min(int(request.args.get("pivot_len", piv_default)), 100))
     confirm    = request.args.get("confirm", "close")
@@ -652,8 +769,19 @@ def api_structure_chain():
             "chain":       e["chain"],
             "failed":      e["failed"],
         })
+    # B-42 · the shared structure read, reusing the walk above rather than
+    # repeating it. Adds the HH/HL/LH/LL sequence, the state it implies, the
+    # premium/discount location, and whether the sequence and the breaks agree.
+    ms = sc.read_market_structure(df, pivot_len=pivot_len, confirm=confirm,
+                                  fail_win=fail_win, max_swings=max_swings,
+                                  chain=r)
+
     # Each swing is drawn from its pivot bar to the right edge, as in the source.
-    swings = [{"t0": _t(s["bar"]), "t1": last_t, "level": s["level"], "kind": s["kind"]}
+    # Labels come from the same read, matched by bar so the chart and the state
+    # cannot drift apart.
+    labels = {s["bar"]: s.get("label") for s in (ms or {}).get("swings", [])}
+    swings = [{"t0": _t(s["bar"]), "t1": last_t, "level": s["level"],
+               "kind": s["kind"], "label": labels.get(s["bar"])}
               for s in r["swings"] if _t(s["bar"]) is not None]
 
     return jsonify({"symbol": symbol, "structure_chain": {
@@ -662,7 +790,93 @@ def api_structure_chain():
         "live_swing_high": r["live_swing_high"],
         "live_swing_low": r["live_swing_low"],
         "stats": r["stats"],
+        "structure": ({
+            "state":      ms["state"],
+            "agreement":  ms["agreement"],
+            "sequence":   ms["sequence"],
+            "zone":       ms["zone"],
+            "zone_pct":   ms["zone_pct"],
+            "swing_high": ms["swing_high"],
+            "swing_low":  ms["swing_low"],
+            "invariant_ok": ms["invariant_ok"],
+        } if ms else None),
     }})
+
+
+@app.route("/api/order_blocks")
+def api_order_blocks():
+    """SMC order blocks (bullish demand + bearish supply) for the chart overlay.
+    See scanner_templates.detect_order_blocks (multi-zone sibling of
+    scan_order_block) + concepts/Order-Blocks.
+
+    Each block carries its zone (low/high), BOS/CHOCH label, ATR displacement,
+    break-bar volume multiple, and mitigation state — bar indices mapped to
+    timestamps, with the box spanning the OB candle to its mitigation bar (or the
+    right edge while still unmitigated). {"order_blocks": []} when none exist."""
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    # Order blocks are more LOCAL than major structure swings, so a tighter pivot
+    # than /api/structure_chain — otherwise a daily chart surfaces almost none.
+    piv_default = {
+        "1m": 3, "5m": 4, "15m": 5, "30m": 5,
+        "1h": 6, "4h": 6, "6h": 6, "1d": 6, "1w": 6,
+    }.get(timeframe, 6)
+    pivot_len = max(2, min(int(request.args.get("pivot_len", piv_default)), 100))
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < pivot_len * 4 + 20:
+        return jsonify({"symbol": symbol, "order_blocks": []})
+
+    blocks, retests = sc.detect_order_blocks(df, pivot_len=pivot_len)
+
+    def _t(idx):
+        if idx is None or idx < 0 or idx >= len(bars):
+            return None
+        return int(bars[idx]["time"])
+
+    last_t = _t(len(bars) - 1)
+    out = []
+    for b in blocks:
+        t0 = _t(b["ob_idx"])
+        if t0 is None:
+            continue
+        # Violated zones end where price closed through; fresh/mitigated run to
+        # the right edge (still-relevant levels).
+        end_idx = b["vio_idx"] if b["state"] == "violated" else None
+        out.append({
+            "dir":        b["dir"],
+            "signal":     b["signal"],
+            "state":      b["state"],          # fresh | mitigated | violated
+            "low":        round(b["low"], 2),
+            "high":       round(b["high"], 2),
+            "start_time": t0,
+            "break_time": _t(b["break_idx"]),
+            "end_time":   _t(end_idx) if end_idx is not None else last_t,
+            "disp_atr":   b["disp_atr"],
+            "vol_x":      b["vol_x"],
+            "buy_pct":    b.get("buy_pct", 50.0),
+            "sell_pct":   b.get("sell_pct", 50.0),
+        })
+
+    retest_out = []
+    for rt in retests:
+        t = _t(rt["idx"])
+        if t is None:
+            continue
+        retest_out.append({
+            "dir":   rt["dir"],
+            "time":  t,
+            "price": round(rt["price"], 2),
+            "buy_pct":  rt.get("buy_pct"),
+            "sell_pct": rt.get("sell_pct"),
+        })
+
+    return jsonify({"symbol": symbol, "order_blocks": out, "retests": retest_out})
 
 
 @app.route("/api/trendlines")
@@ -678,7 +892,7 @@ def api_trendlines():
     # 20; intraday needs a smaller window or all recent pivots get swallowed.
     prd_default = {
         "1m": 6, "5m": 8, "15m": 10, "30m": 10,
-        "1h": 12, "4h": 15, "1d": 20, "1w": 20,
+        "1h": 12, "4h": 15, "6h": 16, "1d": 20, "1w": 20,
     }.get(timeframe, 20)
     prd = int(request.args.get("prd", prd_default))
     if not symbol:
@@ -737,7 +951,7 @@ def api_harmonic():
     # would still act on the pattern.
     _default_max_age = {
         "1m": 8, "5m": 12, "15m": 15, "30m": 20,
-        "1h": 25, "4h": 30, "1d": 50, "1w": 20,
+        "1h": 25, "4h": 30, "6h": 35, "1d": 50, "1w": 20,
     }.get(timeframe, 30)
     max_age = int(request.args.get("max_age", _default_max_age))
     if not symbol:

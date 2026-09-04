@@ -129,3 +129,5 @@ conversational "analyse my stocks" flow is wanted later.)
 - [[analyses/Setup-Intelligence-Visual-Spec]] — the **other** radar: a *technical* setup-quality radar (VCP/RS/Stage/Volume/Low-risk/Clear-path) for the Setup Intelligence panel. Different data, different purpose — keep the two radars (and their two "Overall" numbers) distinct.
 - [[analyses/Dashboard-UI-Roadmap]] — the analyzer this would extend (Phase 2 "features").
 - [[analyses/PEAD-Scanner-Roadmap]] — Phase 5.2 screener.in fundamentals plumbing RC-2 rides.
+
+> **2026-09-04 — sequencing superseded by [[analyses/Analyzer-Radar-Peers-Roadmap]].** Re-audit found the six-axis fundamental scorer and its donuts already ship on the Stock Analyzer, so RC-1 (solo radar) is retired; the radar becomes an anchor-vs-peer-median overlay and the peer table leads (FP-1). This page is kept for its band research and mockup spec.

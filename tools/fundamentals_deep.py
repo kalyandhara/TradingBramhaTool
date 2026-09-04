@@ -65,6 +65,15 @@ _FCF       = ("Free Cash Flow",)
 _OCF       = ("Operating Cash Flow", "Cash Flow From Continuing Operating Activities")
 _CAPEX     = ("Capital Expenditure",)
 _BASIC_EPS = ("Basic EPS", "Diluted EPS")
+# Share count — a rising count over years is equity dilution (Filter 5 / FR-4).
+_SHARES    = ("Basic Average Shares", "Diluted Average Shares",
+              "Share Issued", "Ordinary Shares Number")
+# Interest expense — the leverage-cost row the delete-funnel's Filter 3
+# (interest coverage < 3×, see strategies/TechnoFunda-Delete-Funnel) needs.
+# yfinance reports it under a few spellings; it is positive here (the cost),
+# so coverage = EBIT / interest_expense.
+_INTEREST  = ("Interest Expense", "Interest Expense Non Operating",
+              "Net Non Operating Interest Income Expense")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -86,7 +95,12 @@ def fetch_statements(symbol: str) -> dict[str, Any]:
 
     Returns the frames as yfinance gives them (rows = line items, columns =
     period end dates, newest first) plus the `.info` fields FR-1 maps in
-    (`trailingEps`, `bookValue`, currency, long name).
+    (`trailingEps`, `bookValue`, currency, long name) and the valuation fields
+    B-49 needs (`market_cap`, `pe`, `ps`, `price`, `sector`, `industry`).
+
+    The valuation fields cost NOTHING extra: `.info` is already fetched here for
+    EPS and book value, so carrying them means a screen makes one yfinance round
+    trip per symbol instead of two.
     """
     try:
         import yfinance as yf
@@ -113,6 +127,16 @@ def fetch_statements(symbol: str) -> dict[str, Any]:
     out["book_value"] = _num(info.get("bookValue"))
     out["currency"] = info.get("financialCurrency") or info.get("currency")
     out["long_name"] = info.get("longName") or info.get("shortName")
+    # Valuation (B-49). trailingPE is absent for loss-making names, which is the
+    # honest answer rather than a number; forwardPE is NOT substituted, because a
+    # forward multiple is an analyst estimate and would silently mix two
+    # different things in one screen column.
+    out["market_cap"] = _num(info.get("marketCap"))
+    out["pe"] = _num(info.get("trailingPE"))
+    out["ps"] = _num(info.get("priceToSalesTrailing12Months"))
+    out["price"] = _num(info.get("currentPrice") or info.get("regularMarketPrice"))
+    out["sector"] = info.get("sector")
+    out["industry"] = info.get("industry")
     return out
 
 
@@ -298,21 +322,34 @@ def _quarterly_history(stmts: dict[str, Any]) -> list[dict[str, Any]]:
     """
     inc = stmts.get("income_q")
     rev, ni, eps = _row(inc, _REVENUE), _row(inc, _NET_INC), _row(inc, _BASIC_EPS)
+    # Quarterly EBIT for the margin series (B-50). The alias list falls back to
+    # "Operating Income"; some quarterly frames carry neither, in which case opm
+    # is honestly None rather than silently substituted with net margin -- the
+    # two answer different questions, and a one-off gain moves only the latter.
+    ebit_q = _row(inc, _EBIT)
     if inc is None or (rev is None and ni is None):
         return []
     cols = list(inc.columns)
     rows = []
     for i, col in enumerate(cols):
         r, n = _at(rev, i), _at(ni, i)
+        e = _at(ebit_q, i)
         j = _year_ago_index(cols, i)
         r_yoy = None if j is None else _at(rev, j)
         n_yoy = None if j is None else _at(ni, j)
+        e_yoy = None if j is None else _at(ebit_q, j)
         rows.append({
             "period":      _period_label(col),
             "revenue":     r,
             "net_income":  n,
+            "ebit":        e,
             "eps":         _at(eps, i),
             "net_margin":  _pct(n, r),
+            "opm":         _pct(e, r),
+            # The year-ago quarter's OPM, carried alongside rather than as a
+            # delta, so a caller can tell "margin rose" from "margin rose off a
+            # quarter that had no margin at all".
+            "opm_yoy_base": _pct(e_yoy, r_yoy),
             "revenue_yoy": (round((r / r_yoy - 1) * 100, 2)
                             if (r is not None and r_yoy not in (None, 0) and r_yoy > 0) else None),
             "profit_yoy":  (round((n / n_yoy - 1) * 100, 2)
@@ -339,6 +376,12 @@ def _fcf_series(stmts: dict[str, Any]) -> list[float | None]:
         o, c = _at(ocf, i), _at(capex, i)
         out.append(None if o is None else (o + c if c is not None else None))
     return out
+
+
+def _ocf_series(stmts: dict[str, Any]) -> list[float | None]:
+    """Operating cash flow per year, newest first — the Filter-2 numerator."""
+    ocf = _row(stmts.get("cashflow"), _OCF)
+    return [] if ocf is None else [_num(v) for v in ocf.tolist()]
 
 
 def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dict[str, Any]:
@@ -393,6 +436,35 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
                      (None if _at(equity, 1) is None
                       else _at(equity, 1) + (_at(debt, 1) or 0.0)))
 
+    # Share-count history & dilution (Filter 5 / FR-4). A rising share count is
+    # equity dilution; buybacks show as a fall. Balance-sheet share rows can also
+    # be scanned, but Basic Average Shares on the income frame aligns with the
+    # per-year EPS. dilution_pct is oldest→newest over the available years.
+    shares_row = _row(inc, _SHARES)
+    if shares_row is None:
+        shares_row = _row(bal, _SHARES)
+    shares_hist = ([_num(v) for v in shares_row.tolist()] if shares_row is not None else [])
+    _sh = [v for v in shares_hist if v is not None and v > 0]
+    dilution_pct = (round((_sh[0] / _sh[-1] - 1) * 100, 1)
+                    if len(_sh) >= 2 and _sh[-1] > 0 else None)
+
+    # ROE = net income / shareholders' equity (Filter 4, paired with ROCE for a
+    # "consistently ≥15%" read). Two years is all yfinance reliably gives.
+    roe = _pct(_at(ni, 0), _at(equity, 0))
+    roe_prev = _pct(_at(ni, 1), _at(equity, 1))
+
+    # Leverage & its serviceability — the Filter-3 inputs. Kept as raw components
+    # plus the two ratios so the funnel can state WHY it deleted (D/E stretched vs
+    # coverage thin). interest_coverage is None when there is no interest expense:
+    # a debt-free name has no coverage constraint, which the funnel reads as pass.
+    interest0 = _at(_row(inc, _INTEREST), 0)
+    interest0 = None if interest0 is None else abs(interest0)   # report the burden as positive
+    debt_to_equity = (round(dt0 / eq0, 2)
+                      if (dt0 is not None and eq0 not in (None, 0) and eq0 > 0) else None)
+    interest_coverage = (round(e0 / interest0, 2)
+                         if (e0 is not None and interest0 not in (None, 0) and interest0 > 0)
+                         else None)
+
     # Working-capital red-flag inputs.
     rev0 = _at(rev, 0)
     recv0 = _at(_row(bal, _RECV), 0)
@@ -428,12 +500,41 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
 
     fcf_hist = _fcf_series(stmts)
     fcf = fcf_hist[0] if fcf_hist else None
+
+    # CFO/PAT over the cycle (Filter 2): do reported profits actually turn into
+    # operating cash? Sum both over the overlapping years (up to 5) rather than
+    # ratio a single year — one year's working-capital swing shouldn't damn or
+    # save a name. OCF (cashflow) and net income (income) are matched BY DATE, as
+    # the two frames don't always carry the same periods. The denominator is
+    # guarded > 0: a loss year makes the ratio meaningless, not "cash-poor".
+    ocf_hist = _ocf_series(stmts)
+    cf_cols = list(stmts["cashflow"].columns) if stmts.get("cashflow") is not None else []
+    ocf_row = _row(stmts.get("cashflow"), _OCF)
+    cfo_sum = pat_sum = 0.0
+    n_pairs = 0
+    for i, col in enumerate(inc_cols[:6]):
+        n_i = _at(ni, i)
+        j = next((k for k, cc in enumerate(cf_cols) if _is_same_period(cc, col)), None)
+        o = _at(ocf_row, j) if j is not None else None
+        if n_i is not None and o is not None:
+            cfo_sum += o
+            pat_sum += n_i
+            n_pairs += 1
+    cfo_pat_ratio = (round(cfo_sum / pat_sum, 2)
+                     if (n_pairs >= 2 and pat_sum > 0) else None)
+
     neg_streak = 0
     for v in fcf_hist:
         if v is not None and v < 0:
             neg_streak += 1
         else:
             break
+
+    _ps, _ps_src = stmts.get("ps"), ("yf" if stmts.get("ps") is not None else None)
+    if _ps is None:
+        _mc, _rev0 = stmts.get("market_cap"), _at(rev, 0)
+        if _mc is not None and _rev0 not in (None, 0) and _rev0 > 0:
+            _ps, _ps_src = round(_mc / _rev0, 2), "calc"
 
     out: dict[str, Any] = {
         "symbol":        symbol.upper(),
@@ -449,6 +550,15 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
         "profit_cagr_5y":  pro_5y,
         "roce":          roce,
         "roce_prev":     roce_prev,
+        "roe":           roe,
+        "roe_prev":      roe_prev,
+        # Leverage (Filter 3). Not added to COVERAGE_FIELDS on purpose — the
+        # coverage dial counts deep-dive display fields, and moving its
+        # denominator would shift every "have/total" reading in the app.
+        "ebit":              e0,
+        "interest_expense":  interest0,
+        "debt_to_equity":    debt_to_equity,
+        "interest_coverage": interest_coverage,
         "net_margin":    annual[0]["net_margin"] if annual else None,
         "opm":           annual[0]["opm"] if annual else None,
         "debtor_days":   debtor_days,
@@ -458,8 +568,25 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
         "fcf":           fcf,
         "fcf_history":   fcf_hist,
         "fcf_negative_streak": neg_streak,
+        "ocf":               ocf_hist[0] if ocf_hist else None,
+        "ocf_history":       ocf_hist,       # newest first
+        "cfo_pat_ratio":     cfo_pat_ratio,  # Σ OCF / Σ PAT over ≤5 matched years
+        "cfo_pat_years":     n_pairs,
+        "shares_history":    shares_hist,    # newest first
+        "dilution_pct":      dilution_pct,   # share-count change oldest→newest (%)
         "eps_ttm":       stmts.get("eps_ttm"),
         "book_value":    stmts.get("book_value"),
+        # Valuation (B-49), passed through from the same `.info` call.
+        "market_cap":    stmts.get("market_cap"),
+        "price":         stmts.get("price"),
+        "pe":            stmts.get("pe"),
+        # yfinance's own P/S is missing often enough on NSE that the screen would
+        # drop otherwise-qualifying names; fall back to market cap / latest FY
+        # revenue, which is the same ratio from statements already in hand.
+        "ps":            _ps,
+        "ps_source":     _ps_src,
+        "sector":        stmts.get("sector"),
+        "industry":      stmts.get("industry"),
         "annual_periods":    len(annual),
         "quarterly_periods": len(quarters),
     }

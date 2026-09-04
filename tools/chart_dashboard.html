@@ -2,8 +2,28 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no,viewport-fit=cover">
 <title>Trading Bramha — Multi-Chart</title>
+<!-- ── PWA: installable mobile app (manifest + icons + iOS/Android metas) ── -->
+<meta name="theme-color" content="#131722">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TB Charts">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" href="/icon-192.png">
+<link rel="icon" type="image/png" href="/icon-192.png">
+<script>
+  // Register the service worker so the app is installable and the shell loads
+  // instantly. Only over secure contexts (https or localhost) — browsers refuse
+  // SW registration otherwise, so this no-ops on a plain-http LAN IP rather than
+  // throwing. (Reach it via https/Tailscale to get full install support.)
+  if ('serviceWorker' in navigator && window.isSecureContext) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('/sw.js').catch(() => {});
+    });
+  }
+</script>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
 <!-- Elliott Wave detection plug-in — pure computation module, see elliott_wave.js -->
 <script src="/elliott_wave.js"></script>
@@ -16,6 +36,16 @@
 <script src="/fvg.js"></script>
 <!-- %R Trend Exhaustion oscillator plug-in — pure computation module, see percent_r_trend_exhaustion.js -->
 <script src="/percent_r_trend_exhaustion.js"></script>
+<!-- ADX + DI directional-movement oscillator — Wilder's ADX/+DI/−DI, matches scanner_templates._adx_di_series bar-for-bar. See adx_di.js -->
+<script src="/adx_di.js"></script>
+<!-- EVWMA/VWAP MACD oscillator + BUY/SELL crossovers — port of QuantNomad's Pine v4 strategy, see evwma_vwap_macd.js -->
+<script src="/evwma_vwap_macd.js"></script>
+<!-- Renko brick structure drawn ON the candles (never instead of them) — causal ATR-epoch brick sizing, see renko.js -->
+<script src="/renko.js"></script>
+<!-- HM Bottoms & Tops (Hilega Milega, reworked) oscillator plug-in — pure computation, see hm_indicator.js -->
+<script src="/hm_indicator.js"></script>
+<!-- SuperTrend AI (adaptive factor via K-means) overlay — original impl of the LuxAlgo technique, see supertrend_ai.js -->
+<script src="/supertrend_ai.js"></script>
 <!-- Fibonacci levels + confluence trade plan — pure computation module, see fibonacci.js.
      Loaded AFTER elliott_wave.js and volume_profile.js: it reads EW.computeZigzag for
      swing anchoring and VP.findConfluence for level scoring. -->
@@ -30,6 +60,11 @@
      fibonacci.js is: it reads EW.computeZigzag so every structure tool on the
      chart agrees about where the swings are. -->
 <script src="/rsi_divergence.js"></script>
+
+<!-- User drawing tools (trend line / horizontal ray / zone / text / Fib).
+     Lightweight Charts ships none of these, so chart_drawings.js is the pure
+     model + geometry + painter; the chart integration lives in this file. -->
+<script src="/chart_drawings.js"></script>
 <style>
 /* ── Theme variables ──────────────────────────────────────────────────────── */
 :root {
@@ -252,25 +287,102 @@ html, body {
 }
 .range-btn:hover { border-color: var(--border); color: var(--text-primary); }
 .range-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* ── Go-to-date (TradingView-style jump), sits after the range presets ─────── */
+.range-sep { width: 1px; align-self: stretch; margin: 1px 4px; background: var(--border-soft); }
+.goto-date {
+  background: transparent; border: 1px solid var(--border-soft); color: var(--text-secondary);
+  padding: 0 4px; border-radius: 4px; font-size: 10px; font-weight: 600;
+  height: 18px; cursor: pointer; outline: none; color-scheme: dark light;
+}
+.goto-date:hover { border-color: var(--border); color: var(--text-primary); }
+.goto-btn { border-color: var(--border-soft); }
+/* Vertical focus line + date pill drawn over the candles at the jumped-to date. */
+.goto-vline {
+  position: absolute; top: 0; bottom: 0; width: 0;
+  border-left: 1px dashed var(--accent); pointer-events: none; z-index: 4; display: none;
+}
+.goto-vline-label {
+  position: absolute; top: 3px; left: 0; transform: translateX(-50%);
+  font-size: 9px; font-weight: 700; line-height: 1; white-space: nowrap;
+  padding: 2px 5px; border-radius: 3px; background: var(--accent); color: #fff;
+}
 .ind-panel {
   display: none; position: absolute; top: 100%; left: 0; margin-top: 4px;
-  width: 220px; max-height: 360px; overflow-y: auto; z-index: 50;
-  background: var(--bg-dropdown); border: 1px solid var(--border); border-radius: 6px;
-  box-shadow: 0 8px 24px rgba(0,0,0,.2); padding: 8px 0;
+  width: 520px; max-width: calc(100vw - 24px); z-index: 50;
+  background: var(--bg-dropdown); border: 1px solid var(--border); border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,.2); padding: 8px 0 0;
+  overflow: hidden;   /* the LIST scrolls, not the panel — the rail stays put */
 }
+/* Two columns: family rail, then the list. The rail is the whole point of the
+   redesign — it turns 44 rows into 8 choices. */
+.ind-body { display: flex; align-items: stretch; height: 380px; }
+.ind-rail {
+  flex: 0 0 148px; overflow-y: auto; padding: 4px 6px 8px;
+  border-right: 1px solid var(--border-soft);
+}
+.ind-fam {
+  display: flex; align-items: center; gap: 6px; width: 100%;
+  padding: 6px 8px; margin-bottom: 1px; border: 0; border-radius: 5px;
+  background: transparent; color: var(--text-secondary);
+  font: inherit; font-size: 11.5px; text-align: left; cursor: pointer;
+}
+.ind-fam:hover { background: var(--bg-hover); color: var(--text-chart); }
+.ind-fam.active { background: var(--bg-hover); color: var(--text-chart); font-weight: 600; }
+.ind-fam-name { flex: 1; min-width: 0; }
+.ind-fam-n {
+  flex-shrink: 0; font-size: 10px; font-variant-numeric: tabular-nums;
+  color: var(--text-secondary); opacity: .8;
+}
+.ind-rail-sep { height: 1px; background: var(--border-soft); margin: 6px 4px; }
+.ind-list { flex: 1; min-width: 0; overflow-y: auto; padding-bottom: 8px; }
 .ind-panel.open { display: block; }
 .ind-group-title {
+  display: flex; align-items: baseline; gap: 6px;
+  position: sticky; top: 0; z-index: 2; background: var(--bg-dropdown);
   font-size: 10px; font-weight: 700; letter-spacing: .05em; color: var(--text-secondary);
-  padding: 6px 12px 4px; text-transform: uppercase;
+  padding: 7px 12px 4px; text-transform: uppercase;
+}
+.ind-group-n { font-size: 9.5px; font-weight: 600; opacity: .65; font-variant-numeric: tabular-nums; }
+/* One line of orientation per family. Hidden while searching, where the query
+   is the context and the blurbs would just be noise between matches. */
+.ind-group-blurb {
+  padding: 0 12px 5px; font-size: 10.5px; line-height: 1.35;
+  color: var(--text-secondary); opacity: .78;
+}
+.ind-searching .ind-group-blurb { display: none; }
+/* Where the indicator draws. Sub-pane entries each shorten the price chart, so
+   the cost of ticking one is visible before the click. */
+.ind-where {
+  flex-shrink: 0; font-size: 9px; font-weight: 700; letter-spacing: .04em;
+  padding: 1px 4px; border-radius: 3px; text-transform: uppercase;
+  color: var(--text-secondary); border: 1px solid var(--border-soft);
 }
 .ind-row {
   display: flex; align-items: center; gap: 8px; padding: 5px 12px;
   cursor: pointer; font-size: 12px; color: var(--text-chart);
 }
+.ind-name { flex: 1; min-width: 0; }
+/* A ticked indicator should be findable by eye in a 44-row list. */
+.ind-row:has(.ind-chk:checked) { background: var(--bg-hover); }
+.ind-row:has(.ind-chk:checked) .ind-name { font-weight: 600; }
 .ind-row:hover { background: var(--bg-hover); }
 .ind-row input[type=checkbox] { accent-color: var(--accent); cursor: pointer; }
 .ind-swatch { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
 .ind-divider { height: 1px; background: var(--border-soft); margin: 6px 0; }
+/* ── Indicator search (filter the long list quickly) ─────────────────────── */
+.ind-search-wrap {
+  position: sticky; top: 0; z-index: 3; background: var(--bg-dropdown);
+  padding: 0 10px 6px; margin-bottom: 2px; border-bottom: 1px solid var(--border-soft);
+}
+.ind-search {
+  width: 100%; box-sizing: border-box; padding: 5px 8px; font-size: 12px;
+  background: var(--bg-pane); color: var(--text-chart);
+  border: 1px solid var(--border-soft); border-radius: 5px; outline: none;
+}
+.ind-search::placeholder { color: var(--text-secondary); }
+.ind-search:focus { border-color: var(--accent); }
+.ind-group + .ind-group { border-top: 1px solid var(--border-soft); margin-top: 4px; }
+.ind-empty { padding: 12px; font-size: 11px; color: var(--text-secondary); text-align: center; }
 
 /* ── Ticker bar ───────────────────────────────────────────────────────────── */
 .ticker-wrap {
@@ -350,6 +462,37 @@ html, body {
      everything is squeezed. */
   flex: 1 1 auto; min-height: 100px; position: relative; overflow: hidden;
 }
+/* ── Drawing toolbar (user annotations — see chart_drawings.js) ────────────── */
+/* Floats over the left edge of the chart, the way TradingView's does. It sits
+   ABOVE the drawing canvas (z-index 22 vs 20) so its own buttons stay clickable
+   while a tool is armed and the canvas is swallowing pointer events. */
+.draw-tools {
+  position: absolute; top: 6px; left: 6px; z-index: 22;
+  display: flex; flex-direction: column; gap: 2px;
+  background: var(--bg-pane-header); border: 1px solid var(--border);
+  border-radius: 6px; padding: 3px; opacity: .55; transition: opacity .12s;
+}
+/* Faded until wanted, so it never competes with the candles for attention —
+   but always full-strength while a tool is armed, or the armed state is easy
+   to lose track of and clicks land on the chart unexpectedly. */
+.draw-tools:hover, .draw-tools.armed { opacity: 1; }
+.draw-btn {
+  width: 24px; height: 22px; display: flex; align-items: center; justify-content: center;
+  background: transparent; border: 1px solid transparent; border-radius: 4px;
+  color: var(--text-secondary); font-size: 12px; line-height: 1;
+  cursor: pointer; outline: none; padding: 0;
+}
+.draw-btn:hover { border-color: var(--border); color: var(--text-primary); }
+.draw-btn.active { border-color: var(--accent); color: var(--accent); background: var(--bg-input); }
+.draw-btn.danger:hover { border-color: #ef5350; color: #ef5350; }
+.draw-sep { height: 1px; background: var(--border); margin: 2px 1px; }
+.draw-count {
+  font-size: 9px; text-align: center; color: var(--text-secondary);
+  line-height: 1; padding: 1px 0 2px;
+}
+/* Crosshair while armed makes it obvious the next click draws rather than pans. */
+.chart-main.drawing { cursor: crosshair; }
+
 /* Sub-panes must be allowed to shrink so the main chart's min-height wins.
    Individual sub-pane min-height keeps oscillators still readable when
    space is tight; below that they overflow-scroll rather than disappear. */
@@ -522,6 +665,27 @@ html, body {
 .gann-info.collapsed .gann-body { display: none; }
 .gann-info .gann-cav { color: var(--text-muted); font-size: 9px; margin-top: 4px; }
 .gann-info b { font-variant-numeric: tabular-nums; }
+
+/* ── Option OI walls + max pain card (B-28, see option_chain.py) ───────────── */
+/* Sits opposite the Gann card so both can be open at once. Carries an EXPIRY
+   selector because these levels are per-expiry — without it a weekly and a
+   monthly chain silently merge into one picture (the rule B-23 measured). */
+.oiw-info {
+  position: absolute; bottom: 8px; left: 8px; z-index: 9;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 7px;
+  padding: 7px 10px; font-size: 10.5px; line-height: 1.55; color: var(--text-chart);
+  max-width: 46%; display: none; box-shadow: 0 2px 10px rgba(0,0,0,0.22);
+}
+.oiw-info .oiw-head { cursor: pointer; font-weight: 700; user-select: none; }
+.oiw-info.collapsed .oiw-body { display: none; }
+.oiw-info .oiw-cav { color: var(--text-muted); font-size: 9px; margin-top: 4px; }
+.oiw-info b { font-variant-numeric: tabular-nums; }
+.oiw-info select {
+  background: var(--bg-input); border: 1px solid var(--border); color: var(--text-primary);
+  font-size: 9.5px; border-radius: 3px; padding: 1px 3px; outline: none; margin-left: 4px;
+}
+.oiw-info .oiw-row { display: flex; justify-content: space-between; gap: 10px; }
+.oiw-info .oiw-oi { color: var(--text-muted); font-variant-numeric: tabular-nums; }
 /* ── Session Volume Profile HD card ───────────────────────────────────────── */
 /* Top-left of the chart-main, below the toolbar. Header (current session shape +
    accum/distrib) is the click target; body holds the session-shape sequence,
@@ -531,6 +695,10 @@ html, body {
   background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 7px;
   padding: 7px 10px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
   max-width: 55%; display: none; box-shadow: 0 2px 10px rgba(0,0,0,0.22);
+  /* The ? guide roughly doubles the card's height. Cap it to the pane and let it
+     scroll, otherwise it grows upward past the top of the chart and the header
+     line — the part naming the current shape — is the first thing clipped. */
+  max-height: calc(100% - 16px); overflow-y: auto; overscroll-behavior: contain;
   /* right:78px clears the ~72px right price axis so the card never covers the
      price labels; bottom-right keeps it out of the top-left toolbar/action-stack. */
 }
@@ -538,6 +706,18 @@ html, body {
 .svp-info.collapsed .svp-body { display: none; }
 .svp-info .svp-seq { font-family: 'Courier New', monospace; letter-spacing: 2px; }
 .svp-info .svp-cav { color: var(--text-muted); font-size: 9px; margin-top: 4px; }
+/* Plain-language layer. The card is read at a glance, so the jargon gloss for each
+   factor sits inline and the teaching ("what is a POC?") hides behind the ? until
+   asked for — dense-by-default was the complaint, not too little information. */
+.svp-info .svp-plain { color: var(--text-chart); }
+.svp-info .svp-tech { color: var(--text-muted); font-size: 9px; }
+.svp-info .svp-q { cursor: pointer; user-select: none; font-weight: 700;
+  border: 1px solid var(--border); border-radius: 50%; padding: 0 4px; margin-left: 4px;
+  font-size: 9px; color: var(--text-muted); }
+.svp-info .svp-help { display: none; margin-top: 5px; padding-top: 5px;
+  border-top: 1px solid var(--border); font-size: 9.5px; color: var(--text-muted); }
+.svp-info.help-open .svp-help { display: block; }
+.svp-info .svp-help b { color: var(--text-chart); }
 .svp-P { color: #26a69a; } .svp-B { color: #f23645; }
 .svp-D { color: #4c9aff; } .svp-I { color: #b0b7c3; }
 .pmax-info .pmax-head { cursor: pointer; font-weight: 700; user-select: none; }
@@ -654,6 +834,72 @@ html, body {
   height: 5px; border-radius: 3px; margin: 3px 0;
   background: linear-gradient(to right, #26a69a var(--buy, 50%), #ef5350 var(--buy, 50%));
 }
+
+/* ── Mobile / touch layout (phones & small tablets) ─────────────────────────
+ * The desktop UI is a dense multi-pane grid with hover popovers. On a narrow
+ * touch screen we: stack every pane into one vertically-scrolling column (so any
+ * chart-count works), grow tap targets, turn the range row into a horizontal
+ * scroller, and float the indicator panel up as a full-width bottom sheet. This
+ * is layout only — the charts, data, and JS behaviour are unchanged. */
+@media (max-width: 820px) {
+  #header {
+    height: auto; min-height: 46px; flex-wrap: wrap; gap: 8px; padding: 6px 10px;
+  }
+  #header .logo { font-size: 12px; max-width: 58vw; overflow: hidden;
+                  text-overflow: ellipsis; white-space: nowrap; }
+  #header select { font-size: 14px; padding: 5px 8px; }
+
+  /* Stack all panes into one scrolling column, regardless of the chart count. */
+  #grid, #grid.g1, #grid.g2, #grid.g4, #grid.g6, #grid.g8 {
+    grid-template-columns: 1fr !important;
+    grid-template-rows: none !important;
+    grid-auto-rows: 82vh;
+    height: calc(100dvh - 54px);
+    overflow-y: auto; -webkit-overflow-scrolling: touch;
+    gap: 8px;
+  }
+  .pane { border-radius: 6px; }
+
+  /* Pane header — allow wrap, fatten the touch targets. */
+  .ph { flex-wrap: wrap; gap: 6px; padding: 6px 8px; }
+  .ph input[type=text] { width: 42vw; font-size: 14px; padding: 6px 8px; }
+  .ph select, .ind-btn { font-size: 13px; min-height: 34px; }
+  .snap-btn { min-height: 34px; }
+
+  /* Range presets — one horizontal scroller instead of a wrapping mess. */
+  .range-row { overflow-x: auto; -webkit-overflow-scrolling: touch; flex-wrap: nowrap; }
+  .range-btn { font-size: 12px; padding: 5px 10px; flex-shrink: 0; }
+  .goto-date { height: 28px; font-size: 12px; }
+
+  /* Indicators — full-width bottom sheet (thumb-reachable), not a tiny popover. */
+  .ind-panel.open {
+    position: fixed; left: 0; right: 0; bottom: 0; top: auto;
+    width: 100%; margin: 0; max-height: 58vh;
+    border-radius: 14px 14px 0 0; box-shadow: 0 -8px 30px rgba(0,0,0,.45);
+  }
+  .ind-row { padding: 11px 16px; font-size: 14px; }
+  .ind-row input[type=checkbox] { width: 20px; height: 20px; }
+  .ind-search { font-size: 14px; padding: 8px 10px; }
+  /* A 148px side rail inside a phone-width sheet would leave the list unusable,
+     so the same buttons become a horizontally scrolling chip strip. */
+  /* 58vh is the sheet cap; subtract the search row + the panel's own top
+     padding, or the list's last rows are clipped by the panel's overflow. */
+  .ind-body { flex-direction: column; height: auto; max-height: calc(58vh - 56px); }
+  .ind-rail {
+    flex: 0 0 auto; display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
+    padding: 4px 10px 8px; border-right: 0; border-bottom: 1px solid var(--border-soft);
+    scrollbar-width: none;
+  }
+  .ind-rail::-webkit-scrollbar { display: none; }
+  .ind-fam {
+    width: auto; flex: 0 0 auto; margin-bottom: 0; font-size: 12px;
+    padding: 6px 10px; border: 1px solid var(--border-soft); border-radius: 999px;
+    white-space: nowrap;
+  }
+  .ind-rail-sep { flex: 0 0 1px; height: auto; width: 1px; margin: 2px 2px; }
+
+  .ticker-wrap { flex-wrap: wrap; }
+}
 </style>
 </head>
 <body>
@@ -710,6 +956,10 @@ const CHART_THEMES = {
 };
 let currentTheme = localStorage.getItem('tb-theme') || 'dark';
 
+// HM "strength" (RSI) line: bold near-black on light, near-white on dark, so it
+// stays the most prominent line over the red/cyan regime fill in either theme.
+function hmStrengthColor() { return currentTheme === 'light' ? '#101521' : '#eaeff7'; }
+
 function applyTheme(mode) {
   currentTheme = mode;
   localStorage.setItem('tb-theme', mode);
@@ -734,6 +984,11 @@ function applyTheme(mode) {
           timeScale: {borderColor:t.borderSoft},
         });
       });
+      // Series colours aren't touched by the generic loop above; the HM strength
+      // line is theme-dependent, so refresh it explicitly on toggle.
+      if (p.subCharts.hm && p.subCharts.hm.rsiLine) {
+        p.subCharts.hm.rsiLine.applyOptions({color: hmStrengthColor()});
+      }
     });
   }
 }
@@ -769,13 +1024,19 @@ function subChartOpts() {
 const SERVER  = 'http://localhost:5001';
 const WS_URL  = 'ws://localhost:5001/ws';
 
-const TIMEFRAMES = ['1m','5m','15m','30m','1h','4h','1d','1w'];
+const TIMEFRAMES = ['1m','5m','15m','30m','1h','4h','6h','1d','1w'];
+// Chart-type options (display only; both are candlestick series, only the data
+// differs — see heikinAshiBars/applyPriceStyle). Add 'hollow'/'line' here later.
+const CHART_TYPES = [
+  {value: 'candles', label: 'Candles'},
+  {value: 'heikin',  label: 'Heikin Ashi'},
+];
 
 // Default bar counts per timeframe.  Daily needs 2600 to cover 10 years of
 // trading days (~252/yr × 10 = 2520).  Weekly can show 20+ years in 1000 bars.
 const TF_BARS = {
   '1m':  200, '5m':  200, '15m': 200, '30m': 200,
-  '1h':  500, '4h':  500,
+  '1h':  500, '4h':  500, '6h':  500,
   '1d': 2600,  // ← 10Y+ daily history
   '1w': 1000,
 };
@@ -805,6 +1066,114 @@ function applyRangeView(pane) {
   } else {
     pane.chart.timeScale().setVisibleLogicalRange({ from: n - preset.bars, to: n - 1 });
   }
+  // A preset jump rescales BOTH axes. The visible-range event alone is not
+  // enough to re-anchor user drawings, because the price autoscale lands a
+  // frame later — see scheduleDrawRedraw.
+  if (typeof scheduleDrawRedraw === 'function') scheduleDrawRedraw(pane);
+}
+
+// ── Go to date ────────────────────────────────────────────────────────────────
+// Jump the chart (and its synced sub-panes) to a specific calendar date, TV-style,
+// and drop a dashed vertical focus line on that bar. Bars carry UTC-second
+// timestamps, so a picked 'YYYY-MM-DD' maps to that UTC day. If the date falls
+// OUTSIDE the loaded bar range we do nothing but tell the user the data isn't
+// available; a weekend/holiday inside the range snaps to the nearest trading bar.
+function gotoDate(pane, dateStr) {
+  const bars = pane.bars;
+  if (!bars || !bars.length) { showToast('No chart data loaded yet'); return; }
+  const dayStart = Date.parse(dateStr + 'T00:00:00Z') / 1000;
+  if (isNaN(dayStart)) { showToast('Invalid date'); return; }
+  const dayEnd = dayStart + 86400;
+
+  // Loaded window bounds, compared at day granularity so the last day counts.
+  const firstDay = Math.floor(bars[0].time / 86400) * 86400;
+  const lastDay  = Math.floor(bars[bars.length - 1].time / 86400) * 86400;
+  if (dayStart < firstDay || dayStart > lastDay) {
+    showToast(`Historical data not available for ${dateStr}`, 3400);
+    return;
+  }
+
+  // Prefer a bar inside the selected UTC day; else snap to the nearest bar.
+  let idx = -1;
+  for (let i = 0; i < bars.length; i++) {
+    if (bars[i].time >= dayStart && bars[i].time < dayEnd) { idx = i; break; }
+  }
+  const exact = idx >= 0;
+  if (!exact) {
+    const mid = dayStart + 43200;
+    let best = Infinity;
+    for (let i = 0; i < bars.length; i++) {
+      const d = Math.abs(bars[i].time - mid);
+      if (d < best) { best = d; idx = i; }
+    }
+  }
+  if (idx < 0) { showToast(`Historical data not available for ${dateStr}`, 3400); return; }
+
+  // Centre the view on idx, keeping roughly the current window width.
+  const ts = pane.chart.timeScale();
+  let span = 60;
+  try { const lr = ts.getVisibleLogicalRange(); if (lr) span = Math.max(20, Math.round(lr.to - lr.from)); } catch {}
+  const half = Math.round(span / 2), n = bars.length;
+  let from = idx - half, to = idx + half;
+  if (from < 0) { to -= from; from = 0; }
+  if (to > n - 1) { from -= (to - (n - 1)); to = n - 1; }
+  if (from < 0) from = 0;
+  ts.setVisibleLogicalRange({ from, to });
+  syncSubPaneRanges(pane);
+
+  // Focused date is a custom view — drop the preset highlight.
+  pane.el.querySelectorAll('.range-btn[data-range]').forEach(b => b.classList.remove('active'));
+  pane.gotoTime = bars[idx].time;
+  drawGotoLine(pane);
+  showToast(exact ? `Jumped to ${dateStr}`
+                  : `${dateStr} had no bar (weekend/holiday) — snapped to nearest trading day`, 2800);
+}
+
+function drawGotoLine(pane) {
+  const host = pane.el.querySelector('.chart-main');
+  if (!host || pane.gotoTime == null) return;
+  if (!pane.gotoLineEl) {
+    const line = document.createElement('div');
+    line.className = 'goto-vline';
+    const lab = document.createElement('div');
+    lab.className = 'goto-vline-label';
+    line.appendChild(lab);
+    host.appendChild(line);
+    pane.gotoLineEl = line;
+    pane.gotoLineLabel = lab;
+    // Reposition the line on every pan/zoom so it stays pinned to its date.
+    if (!pane._gotoSub) {
+      pane._gotoSub = true;
+      try { pane.chart.timeScale().subscribeVisibleLogicalRangeChange(() => repositionGotoLine(pane)); } catch {}
+    }
+  }
+  pane.gotoLineLabel.textContent = new Date(pane.gotoTime * 1000).toISOString().slice(0, 10);
+  // Just after a jump the new range hasn't painted yet, so timeToCoordinate can
+  // return null for a frame or two. Retry across a few frames until it resolves.
+  let tries = 0;
+  const tick = () => {
+    if (pane.gotoTime == null || !pane.gotoLineEl) return;
+    let x = null;
+    try { x = pane.chart.timeScale().timeToCoordinate(pane.gotoTime); } catch {}
+    if (x != null) { pane.gotoLineEl.style.left = x + 'px'; pane.gotoLineEl.style.display = 'block'; return; }
+    if (++tries < 15) requestAnimationFrame(tick);
+    else pane.gotoLineEl.style.display = 'none';
+  };
+  requestAnimationFrame(tick);
+}
+
+function repositionGotoLine(pane) {
+  if (!pane.gotoLineEl || pane.gotoTime == null) return;
+  let x = null;
+  try { x = pane.chart.timeScale().timeToCoordinate(pane.gotoTime); } catch {}
+  if (x == null) { pane.gotoLineEl.style.display = 'none'; return; }   // scrolled off-screen
+  pane.gotoLineEl.style.left = x + 'px';
+  pane.gotoLineEl.style.display = 'block';
+}
+
+function clearGotoLine(pane) {
+  pane.gotoTime = null;
+  if (pane.gotoLineEl) pane.gotoLineEl.style.display = 'none';
 }
 
 // Pad an indicator series to the FULL bar grid with leading whitespace points
@@ -897,18 +1266,23 @@ const INDICATOR_DEFS = [
   {key:'avwap',     label:'Anchored VWAP (last major swing low)', group:'Moving Averages', color:'#ff8a65'},
   {key:'mabias',    label:'MA Bias (9/20 cross · 50/200 regime) + card',
                                                group:'Moving Averages', color:'#4c9aff'},
-  {key:'bollinger', label:'Bollinger (20, 2)', group:'Bands & Channels', color:'#9aa4af'},
-  {key:'donchian',  label:'Donchian (20)',     group:'Bands & Channels', color:'#26c6da'},
-  {key:'keltner',   label:'Keltner (20, 1.5)',     group:'Bands & Channels', color:'#f48fb1'},
-  {key:'pmax',      label:'PMax (EMA10, ATR10 × 3) + signals', group:'Bands & Channels', color:'#26a69a'},
+  {key:'bollinger', label:'Bollinger (20, 2)', group:'Trend & Bands', color:'#9aa4af'},
+  {key:'donchian',  label:'Donchian (20)',     group:'Trend & Bands', color:'#26c6da'},
+  {key:'keltner',   label:'Keltner (20, 1.5)',     group:'Trend & Bands', color:'#f48fb1'},
+  {key:'pmax',      label:'PMax (EMA10, ATR10 × 3) + signals', group:'Trend & Bands', color:'#26a69a'},
+  {key:'stai',      label:'SuperTrend AI (adaptive factor via K-means) + signals', group:'Trend & Bands', color:'#00bcd4', alias:'supertrend ai luxalgo adaptive clustering kmeans trend trailing stop'},
+  {key:'renko',     label:'Renko structure on candles (ATR brick) + flips', group:'Trend & Bands', color:'#ab47bc', alias:'renko brick noiseless noise free time independent price sampled staircase brick size atr flip devendra'},
   // ── Sub-pane oscillators ────────────────────────────────────────────────────
-  {key:'rsi',       label:'RSI (14)',               group:'Oscillators',       color:'#7b61ff'},
-  {key:'macd',      label:'MACD (12, 26, 9)',       group:'Oscillators',       color:'#2962ff'},
-  {key:'obv',       label:'OBV',                    group:'Oscillators',       color:'#00bd6f'},
-  {key:'rs',        label:'RS vs Benchmark',        group:'Oscillators',       color:'#ffd60a'},
-  {key:'prte',      label:'%R Trend Exhaustion',    group:'Oscillators',       color:'#2466A7'},
-  {key:'roc',       label:'ROC + RSI Zones (21,5,5,14)', group:'Oscillators',    color:'#2962ff'},
-  {key:'stoch',     label:'Stochastic (14,3,3)',    group:'Oscillators',       color:'#26c6da'},
+  {pane:'sub', key:'rsi',       label:'RSI (14)',               group:'Oscillators',       color:'#7b61ff'},
+  {pane:'sub', key:'macd',      label:'MACD (12, 26, 9)',       group:'Oscillators',       color:'#2962ff'},
+  {pane:'sub', key:'obv',       label:'OBV',                    group:'Oscillators',       color:'#00bd6f'},
+  {pane:'sub', key:'rs',        label:'RS vs Benchmark',        group:'Oscillators',       color:'#ffd60a'},
+  {pane:'sub', key:'prte',      label:'%R Trend Exhaustion (+ chart arrows / OB confluence)', group:'Oscillators', color:'#2466A7', alias:'williams percent r exhaustion reversal confluence order block up down arrow'},
+  {pane:'sub', key:'adxdi',     label:'ADX + DI (trend strength & direction)', group:'Oscillators', color:'#7B1FA2', alias:'adx dmi directional movement index plus di minus di trend strength downside risk crossover'},
+  {pane:'sub', key:'evmacd',    label:'EVWMA VWAP MACD (30,5,20) + BUY/SELL', group:'Oscillators', color:'#0094ff', alias:'quantnomad elastic volume weighted moving average vwap macd crossover buy sell signal histogram'},
+  {pane:'sub', key:'roc',       label:'ROC + RSI Zones (21,5,5,14)', group:'Oscillators',    color:'#2962ff'},
+  {pane:'sub', key:'stoch',     label:'Stochastic (14,3,3)',    group:'Oscillators',       color:'#26c6da'},
+  {pane:'sub', key:'hm',        label:'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', group:'Oscillators', color:'#26a69a', alias:'hilega milega bottom top reversal strength momentum'},
   // Draws on BOTH the price chart and the RSI pane, so selecting it turns RSI
   // on (see applyIndicators) — half the signal lives in the oscillator.
   {key:'rsidiv',    label:'RSI Divergence (regular + hidden)', group:'Oscillators', color:'#ffd166'},
@@ -917,40 +1291,126 @@ const INDICATOR_DEFS = [
   {key:'volprofile', label:'Volume Profile (POC/VA/HVN/LVN)', group:'Volume',  color:'#9aa4af'},
   {key:'svp',        label:'Session Volume Profile HD (D/P/B/I + Accum/Distrib)', group:'Volume', color:'#26c6da'},
   // ── Pattern Recognition ──────────────────────────────────────────────────────
-  {key:'elliott',      label:'Elliott Wave (1-5, A-B-C)', group:'Pattern Recognition', color:'#00e5ff'},
-  {key:'fvg',          label:'Fair Value Gap + Buy/Sell signal (FPV)', group:'Pattern Recognition', color:'#26a69a'},
-  {key:'roundbottom',  label:'Rounding Bottom (saucer)',  group:'Pattern Recognition', color:'#ffab40'},
-  {key:'vcp',          label:'VCP Coiling',               group:'Pattern Recognition', color:'#26c6da'},
-  {key:'trendlines',   label:'Trendlines (supply/demand)', group:'Pattern Recognition', color:'#ff9800'},
-  {key:'falling_wedge', label:'Falling Wedge (converging → breakout)', group:'Pattern Recognition', color:'#26a69a'},
-  {key:'structure_chain', label:'Structure Break Chain (BOS/CHoCH + quality)', group:'Pattern Recognition', color:'#00e676'},
-  {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab)', group:'Pattern Recognition', color:'#ba68c8'},
-  {key:'projection',   label:'Price Projection (EW + patterns)', group:'Pattern Recognition', color:'#4c9aff'},
+  {key:'elliott',      label:'Elliott Wave (1-5, A-B-C)', group:'Levels & Projection', color:'#00e5ff'},
+  {key:'fvg',          label:'Fair Value Gap + Buy/Sell signal (FPV)', group:'Smart Money & Structure', color:'#26a69a'},
+  {key:'roundbottom',  label:'Rounding Bottom (saucer)',  group:'Price Patterns', color:'#ffab40'},
+  {key:'vcp',          label:'VCP Coiling',               group:'Price Patterns', color:'#26c6da'},
+  {key:'trendlines',   label:'Trendlines (supply/demand)', group:'Smart Money & Structure', color:'#ff9800'},
+  {key:'falling_wedge', label:'Falling Wedge (converging → breakout)', group:'Price Patterns', color:'#26a69a'},
+  {key:'structure_chain', label:'Structure Break Chain (BOS/CHoCH + quality)', group:'Smart Money & Structure', color:'#00e676'},
+  {key:'orderblock',   label:'Order Blocks (SMC demand / supply zones)', group:'Smart Money & Structure', color:'#4c9aff', alias:'order block ob smart money smc demand supply zone mitigation institutional'},
+  {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab)', group:'Price Patterns', color:'#ba68c8'},
+  {key:'projection',   label:'Price Projection (EW + patterns)', group:'Levels & Projection', color:'#4c9aff'},
   {key:'fib',          label:'Fibonacci + Trade Plan (VP + Projection confluence)',
-                                                     group:'Pattern Recognition', color:'#c9a227'},
+                                                     group:'Levels & Projection', color:'#c9a227'},
   {key:'gann',         label:'Gann S/R + Break Odds (Square-of-9 + historical follow-through)',
-                                                     group:'Pattern Recognition', color:'#d9b45b'},
+                                                     group:'Price Patterns', color:'#d9b45b'},
+  {key:'oiwalls',      label:'Option OI Walls + Max Pain (F&O names only, per expiry)',
+                                                     group:'Levels & Projection', color:'#7e57c2'},
   // ── Calendar ────────────────────────────────────────────────────────────────
   {key:'reversal_calendar', label:'Reversal Calendar (Yogas + Lunar)',
                                                      group:'Calendar',           color:'#ffd60a'},
 ];
-const INDICATOR_GROUPS = ['Moving Averages', 'Bands & Channels', 'Oscillators', 'Volume', 'Pattern Recognition', 'Calendar'];
+// Families, in the order they appear in the rail. Display-only grouping: the
+// stored `key` is unchanged, so saved pane configs survive a regroup.
+const INDICATOR_GROUPS = [
+  'Moving Averages', 'Trend & Bands', 'Oscillators', 'Volume',
+  'Price Patterns', 'Smart Money & Structure', 'Levels & Projection', 'Calendar',
+];
+// One-line orientation per family, shown under the list header. The panel now
+// carries 44 entries across 8 families; without this the rail is just nouns.
+const GROUP_BLURB = {
+  'Moving Averages':         'Direction and dynamic support. Draw on price.',
+  'Trend & Bands':           'Volatility envelopes and trailing-stop trend flips.',
+  'Oscillators':             'Momentum and exhaustion. Each opens its own pane below the chart.',
+  'Volume':                  'Where volume actually traded, not just how much.',
+  'Price Patterns':          'Named geometric formations detected on the bars.',
+  'Smart Money & Structure': 'Institutional-footprint reads: gaps, zones, structure breaks.',
+  'Levels & Projection':     'Forward-looking levels and price targets.',
+  'Calendar':                'Date-based, not price-based.',
+};
 
 function renderIndicatorPanel() {
-  let html = '';
-  INDICATOR_GROUPS.forEach((g, gi) => {
-    if (gi > 0) html += '<div class="ind-divider"></div>';
-    html += `<div class="ind-group-title">${g}</div>`;
+  // TradingView-style two-column browser: a family rail on the left, the
+  // matching list on the right. The rail is what makes the families legible —
+  // 44 entries in one scrolling column read as a wall regardless of headings.
+  const counts = {};
+  INDICATOR_GROUPS.forEach(g => { counts[g] = INDICATOR_DEFS.filter(d => d.group === g).length; });
+
+  let rail = '<button type="button" class="ind-fam active" data-fam="__all__">'
+           + `<span class="ind-fam-name">All</span><span class="ind-fam-n">${INDICATOR_DEFS.length}</span></button>`
+           + '<button type="button" class="ind-fam" data-fam="__active__">'
+           + '<span class="ind-fam-name">On this chart</span><span class="ind-fam-n" data-active-count>0</span></button>'
+           + '<div class="ind-rail-sep"></div>';
+  INDICATOR_GROUPS.forEach(g => {
+    rail += `<button type="button" class="ind-fam" data-fam="${g}">`
+          + `<span class="ind-fam-name">${g}</span><span class="ind-fam-n">${counts[g]}</span></button>`;
+  });
+
+  let list = '';
+  INDICATOR_GROUPS.forEach((g) => {
+    let rows = '';
     INDICATOR_DEFS.filter(d => d.group === g).forEach(d => {
-      html += `
-        <label class="ind-row">
+      // data-search: lowercased label + key + group + optional aliases, so the
+      // filter matches a synonym (e.g. "hilega") even when it isn't in the label.
+      const hay = (d.label + ' ' + d.key + ' ' + g + ' ' + (d.alias || '')).toLowerCase().replace(/"/g, '');
+      // Where it draws. Sub-pane indicators stack BELOW the chart and each one
+      // shortens the price panel, so say so before the click, not after.
+      const where = d.pane === 'sub'
+        ? '<span class="ind-where sub" title="Opens its own pane below the price chart">pane</span>'
+        : '';
+      rows += `
+        <label class="ind-row" data-search="${hay}" data-fam="${g}">
           <input type="checkbox" class="ind-chk" data-key="${d.key}">
           <span class="ind-swatch" style="background:${d.color}"></span>
-          ${d.label}
+          <span class="ind-name">${d.label}</span>
+          ${where}
         </label>`;
     });
+    const blurb = GROUP_BLURB[g] ? `<div class="ind-group-blurb">${GROUP_BLURB[g]}</div>` : '';
+    list += `<div class="ind-group" data-group="${g}">`
+          + `<div class="ind-group-title">${g}<span class="ind-group-n">${counts[g]}</span></div>`
+          + blurb + rows + '</div>';
   });
-  return html;
+
+  return '<div class="ind-search-wrap">'
+       + `<input type="text" class="ind-search" placeholder="Search all ${INDICATOR_DEFS.length} indicators…" spellcheck="false" autocomplete="off">`
+       + '</div>'
+       + '<div class="ind-body">'
+       +   `<div class="ind-rail">${rail}</div>`
+       +   `<div class="ind-list">${list}`
+       +     '<div class="ind-empty" style="display:none">No indicators match</div>'
+       +   '</div>'
+       + '</div>';
+}
+
+// ── Heikin Ashi transform (a DISPLAY-only recolouring of the candles) ─────────
+// HA smooths noise by averaging: HA-close = (O+H+L+C)/4, HA-open = mean of the
+// prior HA open/close, HA-high/low extended to include the HA open/close. This is
+// a rendering choice ONLY — indicators keep computing from the RAW bars (pane.bars),
+// so RSI/VWAP/patterns are never fed the smoothed series. Same {time,o,h,l,c}
+// shape the candlestick series already consumes, so no series swap is needed.
+function heikinAshiBars(bars) {
+  const out = [];
+  let prevOpen, prevClose;
+  for (let i = 0; i < bars.length; i++) {
+    const b = bars[i];
+    const haClose = (b.open + b.high + b.low + b.close) / 4;
+    const haOpen  = (i === 0) ? (b.open + b.close) / 2 : (prevOpen + prevClose) / 2;
+    const haHigh  = Math.max(b.high, haOpen, haClose);
+    const haLow   = Math.min(b.low,  haOpen, haClose);
+    out.push({time: b.time, open: haOpen, high: haHigh, low: haLow, close: haClose});
+    prevOpen = haOpen; prevClose = haClose;
+  }
+  return out;
+}
+
+// Feed the main candle series either the raw bars or their Heikin-Ashi transform,
+// per pane.chartType. Called on load, on live tick, and on chart-type toggle.
+function applyPriceStyle(pane) {
+  const bars = pane.bars || [];
+  if (!bars.length) return;
+  pane.series.setData(pane.chartType === 'heikin' ? heikinAshiBars(bars) : bars);
 }
 
 // ── Indicator math (computed from a full bars[] array of {time,open,high,low,close,volume}) ──
@@ -991,7 +1451,11 @@ function emaSeries(bars, period) {
 // boundary is correct for every market we chart: NSE 09:15-15:30 IST is
 // 03:45-10:00 UTC and US 09:30-16:00 ET is 13:30-20:00 UTC, so neither session
 // straddles UTC midnight, and crypto is quoted on UTC days anyway.
-const INTRADAY_TFS = new Set(['1m', '5m', '15m', '30m', '1h', '4h']);
+// Timeframes where a "session" is a fraction of a day, so session VWAP and the SVP
+// day-grain are meaningful. 6h qualifies on a 24h market; on NSE cash the session is
+// 6h15m, so a 6h bar is most of a session and SVP's measured grain-picker steps up to
+// weekly on its own rather than trusting a hardcoded table (see session_volume_profile).
+const INTRADAY_TFS = new Set(['1m', '5m', '15m', '30m', '1h', '4h', '6h']);
 
 function vwapSeries(bars, tf) {
   // SESSION VWAP — resets at the start of each calendar day (UTC).
@@ -1524,12 +1988,19 @@ const LS_PROJ_COLLAPSED = 'tb_proj_collapsed';
 function loadProjCollapsed() { return localStorage.getItem(LS_PROJ_COLLAPSED) === '1'; }
 function saveProjCollapsed(v) { localStorage.setItem(LS_PROJ_COLLAPSED, v ? '1' : '0'); }
 
-function loadCount()   { return parseInt(localStorage.getItem(LS_COUNT) || '4'); }
+function loadCount()   {
+  const saved = localStorage.getItem(LS_COUNT);
+  if (saved) return parseInt(saved);
+  // First run: default to a single chart on phones (4 on desktop) — 6–8 live
+  // charts stacked on a phone is unusable and heavy. The user can still pick more.
+  const small = window.matchMedia && window.matchMedia('(max-width: 820px)').matches;
+  return small ? 1 : 4;
+}
 function saveCount(n)  { localStorage.setItem(LS_COUNT, String(n)); }
 function loadPaneCfg() { try { return JSON.parse(localStorage.getItem(LS_PANES)||'{}'); } catch { return {}; } }
 function savePaneCfg() {
   const c = {};
-  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...p.indicators], rangePreset:p.rangePreset}; });
+  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...p.indicators], rangePreset:p.rangePreset, chartType:p.chartType}; });
   localStorage.setItem(LS_PANES, JSON.stringify(c));
 }
 
@@ -1565,9 +2036,11 @@ async function fetchSymbolMatches(query) {
 const EXCH_ICON_COLOR = {
   NSE: '#3fb950', BSE: '#3fb950', NASDAQ: '#58a6ff', NYSE: '#58a6ff',
   CRYPTO: '#bc8cff', INDEX: '#d29922',
+  FX: '#39c5cf', COMEX: '#c9873a', NYMEX: '#c9873a', ICE: '#c9873a',
 };
 const TYPE_LABEL = {
   stock: 'stock', index: 'index', crypto: 'spot crypto',
+  forex: 'forex', futures: 'futures',
 };
 
 function renderSymResults(container, results, query) {
@@ -1615,8 +2088,9 @@ function currencyPrefix(symbol, source) {
   const s = symbol.toUpperCase();
   if (s.endsWith('.NS') || s.endsWith('.BO') || s.endsWith('.BSE')) return '₹';
   if (s.startsWith('^')) return '';
+  if (s.endsWith('=X') || s.endsWith('.NYB')) return '';  // forex rate / USD index — unitless
   if (source === 'hyperliquid') return '';   // crypto — no fixed prefix
-  return '$';                                 // yfinance + no suffix = US equity
+  return '$';                                 // yfinance + no suffix = US equity / =F future (USD)
 }
 function fmtAbsChange(diff, symbol, source) {
   if (diff === null || isNaN(diff)) return '';
@@ -1657,7 +2131,7 @@ function buildGrid(count) {
     const cfg  = saved[i] || {};
     const sym  = cfg.symbol || def.symbol;
     const tf   = cfg.tf     || def.tf;
-    const pane = makePane(i, sym, tf, cfg.indicators || [], cfg.rangePreset);
+    const pane = makePane(i, sym, tf, cfg.indicators || [], cfg.rangePreset, cfg.chartType);
     grid.appendChild(pane.el);
     panes.push(pane);
     // Stagger loads to avoid hammering the server
@@ -1666,8 +2140,9 @@ function buildGrid(count) {
 }
 
 // ── Pane factory ──────────────────────────────────────────────────────────────
-function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
+function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChartType) {
   savedIndicators = savedIndicators || [];
+  const chartType = savedChartType || 'candles';
   const el = document.createElement('div');
   el.className = 'pane';
   el.innerHTML = `
@@ -1679,6 +2154,9 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
       </div>
       <select class="tf-sel">${TIMEFRAMES.map(t =>
         `<option value="${t}"${t===tf?' selected':''}>${t}</option>`
+      ).join('')}</select>
+      <select class="tf-sel ctype-sel" title="Chart type">${CHART_TYPES.map(ct =>
+        `<option value="${ct.value}"${ct.value===chartType?' selected':''}>${ct.label}</option>`
       ).join('')}</select>
       <div class="ind-wrap">
         <button type="button" class="ind-btn">INDICATORS</button>
@@ -1697,7 +2175,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
     </div>
     <div class="range-row">${RANGE_PRESETS.map(p =>
       `<button type="button" class="range-btn" data-range="${p.label}">${p.label}</button>`
-    ).join('')}</div>
+    ).join('')}<span class="range-sep"></span><input type="date" class="goto-date" title="Go to date — jump the chart to a specific date"><button type="button" class="range-btn goto-btn" title="Jump the chart to the selected date">Go&nbsp;to</button></div>
     <div class="chart-body">
       <div class="chart-main">
         <div class="loading-msg">Loading…</div>
@@ -1752,6 +2230,21 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
   patternCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:8;width:100%;height:100%;';
   chartMain.appendChild(patternCanvas);
 
+  // ── Order Block canvas overlay (SMC demand/supply zones) ───────────────────
+  // Broad backdrop zones — z-index below FVG/pattern so the sharper imbalance
+  // boxes stay legible on top. Drawn on demand by drawOrderBlocks().
+  const obCanvas = document.createElement('canvas');
+  obCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:7;width:100%;height:100%;';
+  chartMain.appendChild(obCanvas);
+
+  // ── %R exhaustion background tint (lowest overlay — a faint context wash) ───
+  // Full-height red/green bands where %R Trend Exhaustion sits in its OB/OS zone,
+  // so the pressure is visible on the price chart before the flip. Drawn by
+  // drawPrteBackground(); the ▲/▼ flip arrows go on the candles via markers.
+  const prteCanvas = document.createElement('canvas');
+  prteCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:5;width:100%;height:100%;';
+  chartMain.appendChild(prteCanvas);
+
   // ── Price-projection canvas overlay (Milestone 3 forward line + label) ─────
   const projCanvas = document.createElement('canvas');
   projCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:7;width:100%;height:100%;';
@@ -1764,6 +2257,20 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
   const fibCanvas = document.createElement('canvas');
   fibCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:6;width:100%;height:100%;';
   chartMain.appendChild(fibCanvas);
+
+  // ── User drawing canvas (topmost — your markup sits over every indicator) ──
+  // The ONLY overlay canvas that ever takes pointer events. It stays
+  // pointer-events:none so the chart pans and zooms exactly as before, and flips
+  // to auto only while a tool is armed or the erase mode is on. Without that
+  // toggle the canvas would swallow every drag and the chart would feel frozen.
+  const drawCanvas = document.createElement('canvas');
+  drawCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:20;width:100%;height:100%;';
+  chartMain.appendChild(drawCanvas);
+
+  const drawTools = document.createElement('div');
+  drawTools.className = 'draw-tools';
+  drawTools.innerHTML = DRAW_TOOLBAR_HTML;
+  chartMain.appendChild(drawTools);
 
   // Track whether we've ever seen a real (>0) size. If the chart was created
   // at fallback 300×200 because chartMain was 0×0 at construction time, the
@@ -1799,6 +2306,9 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
           drawPatternZones(pane);
         if (pane && pane.indicators && pane.indicators.has('projection'))
           drawProjection(pane);
+        // The drawing canvas is sized from offsetWidth/Height on every paint,
+        // so a resize leaves it stretched until it repaints.
+        if (pane && pane.drawings && pane.drawings.length) scheduleDrawRedraw(pane);
       }
     }
   });
@@ -1809,9 +2319,13 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
                  lastPrice: null, openPrice: null, prevClose: null, dataSource: null,
                  priceEl, chgEl, badge,
                  bars: [], indicators: new Set(savedIndicators),
+                 chartType,
                  rangePreset: savedRangePreset || DEFAULT_RANGE_PRESET,
                  indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas, projCanvas,
-                 fibCanvas };
+                 fibCanvas, obCanvas, prteCanvas,
+                 drawCanvas, drawTools,
+                 drawings: [], drawTool: null, drawSel: null, drawMagnet: true,
+                 drawHidden: false, drawStart: null, drawPreview: null };
 
   // ── Time-scale sync: main chart drives all sub-pane charts ─────────────────
   chart.timeScale().subscribeVisibleTimeRangeChange(range => {
@@ -1836,6 +2350,14 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
     if (pane.indicators && pane.indicators.has('volprofile')) drawVolumeProfile(pane);
     // Session VP is both price- AND time-anchored, so it stales on any pan/zoom.
     if (pane.indicators && pane.indicators.has('svp')) drawSessionVP(pane);
+    // Order-block zones are time+price anchored — same staleness as FVG boxes.
+    if (pane.indicators && pane.indicators.has('orderblock')) drawOrderBlocks(pane);
+    // %R exhaustion background is time-anchored (x-runs) — redraw on pan/zoom.
+    if (pane.indicators && pane.indicators.has('prte')) drawPrteBackground(pane);
+    // User drawings are time+price anchored, so they stale on any pan/zoom for
+    // the same reason every overlay above does. No indicator gate — they are
+    // always on when present.
+    if (pane.drawings && pane.drawings.length) scheduleDrawRedraw(pane);
   });
 
   // ── Crosshair sync to sub-pane charts ─────────────────────────────────────
@@ -1870,6 +2392,10 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
     // Same full reset as the tf-change handler — every series and overlay, so
     // the incoming symbol never shares an axis with the outgoing one's data.
     resetPaneVisuals(pane);
+    // Drawings are keyed per symbol, so swap in the new symbol's set. (They
+    // deliberately survive a TIMEFRAME change — a level you drew on the daily
+    // is still that level on the weekly, since anchors are timestamps.)
+    try { loadDrawings(pane); } catch {}
     const bare = s.replace(/\.(NS|BO|BSE)$/i, '');
     const suffix = (s.match(/\.(NS|BO|BSE)$/i) || [''])[0].toUpperCase();
     const wantExch = suffix === '.NS' ? 'NSE' : (suffix === '.BO' || suffix === '.BSE') ? 'BSE' : null;
@@ -1997,26 +2523,46 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
     loadData(idx);
   });
 
+  // ── Chart type (Candles / Heikin Ashi) — display-only, no reload needed ──────
+  const ctypeSel = el.querySelector('.ctype-sel');
+  ctypeSel.addEventListener('change', () => {
+    pane.chartType = ctypeSel.value;
+    applyPriceStyle(pane);   // re-feed the candle series from the same pane.bars
+    savePaneCfg();
+  });
+
   // ── Indicators dropdown ──────────────────────────────────────────────────────
   indBtn.addEventListener('click', e => {
     e.stopPropagation();
     const willOpen = !indPanel.classList.contains('open');
     closeAllIndicatorPanels();
-    if (willOpen) { indPanel.classList.add('open'); indBtn.classList.add('active'); }
+    if (willOpen) {
+      indPanel.classList.add('open'); indBtn.classList.add('active');
+      const s = indPanel.querySelector('.ind-search');
+      if (s) setTimeout(() => { s.focus(); s.select(); }, 0);   // ready to type immediately
+    }
   });
 
   snapBtn.addEventListener('click', () => copyChartSnapshot(pane));
 
-  const rangeBtns = el.querySelectorAll('.range-btn');
+  const rangeBtns = el.querySelectorAll('.range-btn[data-range]');
   rangeBtns.forEach(btn => {
     btn.classList.toggle('active', btn.dataset.range === pane.rangePreset);
     btn.addEventListener('click', () => {
       pane.rangePreset = btn.dataset.range;
       rangeBtns.forEach(b => b.classList.toggle('active', b === btn));
+      clearGotoLine(pane);          // leaving the focused date for a preset window
       applyRangeView(pane);
       savePaneCfg();
     });
   });
+
+  // ── Go to date (TradingView-style) ──────────────────────────────────────────
+  const gotoInput = el.querySelector('.goto-date');
+  const gotoBtn   = el.querySelector('.goto-btn');
+  const runGoto = () => { if (gotoInput.value) gotoDate(pane, gotoInput.value); };
+  gotoBtn.addEventListener('click', runGoto);
+  gotoInput.addEventListener('change', runGoto);   // picking a date jumps immediately
 
   indPanel.querySelectorAll('.ind-chk').forEach(chk => {
     const key = chk.dataset.key;
@@ -2034,8 +2580,99 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset) {
       else             pane.indicators.delete(key);
       applyIndicators(pane);
       savePaneCfg();
+      if (pane._refreshIndActiveCount) pane._refreshIndActiveCount();
+      // Un-ticking while the "On this chart" view is up must drop the row, or
+      // the list keeps showing something that is no longer on the chart.
+      if (pane._filterIndicators) pane._filterIndicators();
     });
   });
+
+  // ── Indicator search / family filter ────────────────────────────────────────
+  const indSearch = indPanel.querySelector('.ind-search');
+  const indEmpty  = indPanel.querySelector('.ind-empty');
+  const indList   = indPanel.querySelector('.ind-list');
+  let indFam = '__all__';
+
+  // Kept current by every checkbox change, so the rail's "On this chart" count
+  // is a live read of pane.indicators rather than a number that drifts.
+  function refreshActiveCount() {
+    const n = indPanel.querySelectorAll('.ind-chk:checked').length;
+    const badge = indPanel.querySelector('[data-active-count]');
+    if (badge) badge.textContent = n;
+  }
+  pane._refreshIndActiveCount = refreshActiveCount;
+
+  function filterIndicators() {
+    const q = indSearch ? indSearch.value.trim().toLowerCase() : '';
+    // A search spans every family — typing is how you escape the rail, so a
+    // query silently widens the scope instead of returning "no matches" for a
+    // term that exists one family over.
+    const fam = q ? '__all__' : indFam;
+    indPanel.classList.toggle('ind-searching', !!q);
+    let anyVisible = false;
+    indPanel.querySelectorAll('.ind-group').forEach(group => {
+      let groupVisible = false;
+      group.querySelectorAll('.ind-row').forEach(row => {
+        const okFam = fam === '__all__'
+                    || (fam === '__active__' ? row.querySelector('.ind-chk').checked
+                                             : row.dataset.fam === fam);
+        const match = okFam && (!q || (row.dataset.search || '').includes(q));
+        row.style.display = match ? '' : 'none';
+        if (match) groupVisible = true;
+      });
+      group.style.display = groupVisible ? '' : 'none';   // hide whole group when empty
+      if (groupVisible) anyVisible = true;
+    });
+    if (indEmpty) {
+      indEmpty.style.display = anyVisible ? 'none' : '';
+      indEmpty.textContent = (!anyVisible && fam === '__active__' && !q)
+        ? 'Nothing on this chart yet'
+        : 'No indicators match';
+    }
+  }
+  pane._filterIndicators = filterIndicators;
+
+  indPanel.querySelectorAll('.ind-fam').forEach(btn => {
+    btn.addEventListener('click', e => {
+      e.stopPropagation();                      // don't close the panel
+      indFam = btn.dataset.fam;
+      indPanel.querySelectorAll('.ind-fam').forEach(b => b.classList.toggle('active', b === btn));
+      if (indSearch) indSearch.value = '';      // family and query are one scope
+      filterIndicators();
+      if (indList) indList.scrollTop = 0;
+    });
+  });
+
+  if (indSearch) {
+    indSearch.addEventListener('input', () => {
+      // Typing leaves whatever family was picked; reflect that in the rail so
+      // the highlighted chip never contradicts what the list is showing.
+      if (indSearch.value.trim()) {
+        indPanel.querySelectorAll('.ind-fam').forEach(b =>
+          b.classList.toggle('active', b.dataset.fam === '__all__'));
+        indFam = '__all__';
+      }
+      filterIndicators();
+    });
+    indSearch.addEventListener('click', e => e.stopPropagation());   // don't close the panel
+    indSearch.addEventListener('keydown', e => {
+      if (e.key === 'Escape') { indSearch.value = ''; filterIndicators(); indSearch.blur(); }
+      else if (e.key === 'Enter') {
+        // If exactly one match is visible and enabled, toggle it — fast path.
+        const vis = [...indPanel.querySelectorAll('.ind-row')]
+          .filter(r => r.style.display !== 'none' && !r.classList.contains('ind-disabled'));
+        if (vis.length === 1) {
+          const c = vis[0].querySelector('.ind-chk');
+          c.checked = !c.checked;
+          c.dispatchEvent(new Event('change', { bubbles: true }));
+        }
+      }
+    });
+  }
+  refreshActiveCount();
+
+  // Drawing tools: wire the toolbar/canvas, then restore this symbol's markup.
+  try { wireDrawingTools(pane); loadDrawings(pane); } catch (e) { console.warn('drawing tools:', e); }
 
   return pane;
 }
@@ -2256,13 +2893,19 @@ async function copyChartSnapshot(pane) {
     let y = headerH;
     const OW = mainShot.width, OH = mainShot.height;
     ctx.drawImage(mainShot, 0, y);
+    if (pane.prteCanvas)    ctx.drawImage(pane.prteCanvas,    0, y, OW, OH);   // %R exhaustion tint (z-index 5)
     if (pane.fibCanvas)     ctx.drawImage(pane.fibCanvas,     0, y, OW, OH);
     if (pane.patternCanvas) ctx.drawImage(pane.patternCanvas, 0, y, OW, OH);
     if (pane.projCanvas)    ctx.drawImage(pane.projCanvas,    0, y, OW, OH);
+    if (pane.obCanvas)      ctx.drawImage(pane.obCanvas,      0, y, OW, OH);   // Order Blocks (z-index 7)
     // Session Volume Profile HD (z-index 8, below volCanvas) — draw before it.
     if (pane.svpCanvas)     ctx.drawImage(pane.svpCanvas,     0, y, OW, OH);
     if (pane.volCanvas)     ctx.drawImage(pane.volCanvas,     0, y, OW, OH);
     if (pane.fvgCanvas)     ctx.drawImage(pane.fvgCanvas,     0, y, OW, OH);
+    // User drawings last of the price-anchored layers (z-index 20) — your own
+    // markup should survive into a shared snapshot, and on top of the machine's.
+    if (pane.drawCanvas && !pane.drawHidden)
+      ctx.drawImage(pane.drawCanvas, 0, y, OW, OH);
     // Info panels go last so they sit on top, matching their on-screen z-index.
     // Rendered at the capture ratio so the cards stay crisp. A failure here must
     // not cost the whole snapshot — the chart itself is still worth copying.
@@ -2381,7 +3024,7 @@ function addLine(pane, color, lineWidth = 1, lineStyle = 0) {
 // momentum, and remain informative on any series.
 // mabias joins them: a trend-bias card on a monotonic yield line would read
 // "permanent golden cross" — technically true, decisionally meaningless.
-const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'stoch', 'elliott', 'mabias', 'rsidiv'];
+const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'adxdi', 'stoch', 'elliott', 'mabias', 'rsidiv', 'hm', 'evmacd'];
 
 // Detect liquid-ETF / cash-equivalent behaviour from bar statistics rather
 // than symbol lists — new liquid ETFs launch faster than any hardcoded set
@@ -2454,7 +3097,7 @@ function applyIndicators(pane) {
   // 'volume' is deliberately absent — it is a main-chart overlay now, torn down
   // by removeIndicatorSeries above. A stale volume SUB-pane can still exist from
   // a session saved before the change, so it is swept once here.
-  ['rsi','macd','obv','rs','prte','roc','stoch'].forEach(key => {
+  ['rsi','macd','obv','rs','prte','adxdi','evmacd','roc','stoch','hm'].forEach(key => {
     if (!pane.indicators.has(key) && pane.subCharts[key]) removeSubPane(pane, key);
   });
   if (pane.subCharts.volume) removeSubPane(pane, 'volume');
@@ -2473,6 +3116,14 @@ function applyIndicators(pane) {
     pane.fvgZones = null;
     clearFVGSignals(pane);
   }
+  // Clear Order Block zones if deselected; if %R is still on, downgrade its
+  // confluence arrows back to plain (no zones to confluence with anymore).
+  if (!pane.indicators.has('orderblock') && pane.ob) {
+    clearOrderBlocks(pane);
+    if (pane.indicators.has('prte')) renderPrteOverlay(pane);
+  }
+  // Clear the %R exhaustion main-chart overlay (arrows + tint) if deselected.
+  if (!pane.indicators.has('prte') && (pane.prteData || pane._markerSrcs?.prte)) clearPrteOverlay(pane);
   // Tear down MA Bias card + cross markers if deselected
   if (!pane.indicators.has('mabias') && pane.maBias) clearMABias(pane);
   // Tear down Elliott Wave overlay if deselected
@@ -2492,6 +3143,15 @@ function applyIndicators(pane) {
   if (!pane.indicators.has('structure_chain') && pane.sbc) clearStructureChain(pane);
   // Tear down PMax flip markers + trade levels if deselected
   if (!pane.indicators.has('pmax') && pane.pmaxTrade) clearPmaxTrade(pane);
+  // Clear SuperTrend AI flip markers if deselected (its lines are torn down by
+  // removeIndicatorSeries, but the merged markers must be cleared explicitly).
+  if (!pane.indicators.has('stai')) setPaneMarkers(pane, 'stai', null);
+  // Same for the EVWMA/VWAP MACD crossover arrows mirrored onto the candles —
+  // the sub-pane teardown below removes the oscillator, not the price markers.
+  if (!pane.indicators.has('evmacd')) setPaneMarkers(pane, 'evmacd', null);
+  // Renko draws a step line (torn down by removeIndicatorSeries) plus merged flip
+  // markers, which have to be cleared explicitly like every other marker source.
+  if (!pane.indicators.has('renko')) { setPaneMarkers(pane, 'renko', null); clearRenkoState(pane); }
   // Tear down Harmonic overlay if deselected
   if (!pane.indicators.has('harmonic') && pane.hm) clearHarmonic(pane);
   // Tear down Price Projection overlay if deselected
@@ -2500,6 +3160,7 @@ function applyIndicators(pane) {
   if (!pane.indicators.has('fib') && pane.fib) clearFibonacci(pane);
   // Tear down Gann S/R levels + card if deselected
   if (!pane.indicators.has('gann') && pane.gann) clearGann(pane);
+  if (!pane.indicators.has('oiwalls') && pane.oiw) clearOiWalls(pane);
   // Tear down Reversal Calendar markers if deselected
   if (!pane.indicators.has('reversal_calendar') && pane.rev) clearReversalCalendar(pane);
   if (!bars || bars.length < 2) return;
@@ -2567,13 +3228,39 @@ function applyIndicators(pane) {
         ];
         break;
       case 'pmax':
-        // Two colored line series: green for up-trend segments, red for down.
-        // Each series holds the PMax value only during its direction — LWC
-        // draws a gap on flip, which is visually accurate for a trend break.
+        // One switching PMax trendline drawn as two colour segments: green while
+        // up-trend, red while down-trend. Each series is whitespace-padded to the
+        // full grid (see the data block) so it draws only during its own trend and
+        // breaks cleanly at the flip — reading as a single line that swaps side and
+        // colour, not two crossing lines.
         pane.indSeries[key] = [
-          addLine(pane, '#26a69a', 2),  // up-trend PMax
-          addLine(pane, '#f23645', 2),  // down-trend PMax
+          addLine(pane, '#26a69a', 2),  // up-trend (below price)
+          addLine(pane, '#f23645', 2),  // down-trend (above price)
         ];
+        break;
+      case 'stai':
+        // SuperTrend AI: one adaptive trailing line, colour-switched like PMax —
+        // teal up-trend (below price), red down-trend (above). Whitespace-padded
+        // in the data block so each colour draws only during its own trend.
+        pane.indSeries[key] = [
+          addLine(pane, '#00bcd4', 2),  // up-trend (below price)
+          addLine(pane, '#f23645', 2),  // down-trend (above price)
+        ];
+        break;
+      case 'renko':
+        // The Renko grid as a STAIRCASE over the candles — stepped, because the brick
+        // close only changes when a brick completes, and a smooth line between those
+        // points would imply prices the Renko series never acknowledged. Split into two
+        // colours by brick direction, whitespace-padded like PMax/STAI so each draws
+        // only during its own run.
+        pane.indSeries[key] = [
+          addLine(pane, '#26a69a', 2),  // up-bricks
+          addLine(pane, '#ab47bc', 2),  // down-bricks
+        ];
+        try {
+          pane.indSeries[key][0].applyOptions({lineType: 1});   // 1 = LineType.WithSteps
+          pane.indSeries[key][1].applyOptions({lineType: 1});
+        } catch {}
         break;
       // sub-pane indicators — created in the computation section below
       case 'rsi': case 'macd': case 'obv': case 'rs': case 'volprofile': break;
@@ -2611,14 +3298,61 @@ function applyIndicators(pane) {
         break;
       }
       case 'pmax': {
+        // One trailing PMax line that switches SIDE and COLOUR at each reversal:
+        // green while below price (up-trend), red while above price (down-trend).
+        // Rendered as two series that each carry the value ONLY during their own
+        // trend and whitespace elsewhere — padToBars inserts the whitespace so a
+        // series never connects across the other's stretch (that gap-jumping was
+        // the old "two crossing lines" bug). The result reads as a single line.
         const rows = pmaxSeries(bars, 10, 3.0, 10);
         const up = [], dn = [];
         rows.forEach(r => {
           if (r.dir === 1) up.push({time: r.time, value: r.pmax});
           else             dn.push({time: r.time, value: r.pmax});
         });
-        s[0].setData(up); s[1].setData(dn);
+        s[0].setData(padToBars(up, bars)); s[1].setData(padToBars(dn, bars));
         renderPmaxTrade(pane, rows, bars);
+        break;
+      }
+      case 'stai': {
+        // SuperTrend AI (adaptive factor) — one switching line + flip signals.
+        const r = STAI.compute(bars);
+        s[0].setData(padToBars(r.up, bars));   // up-trend segments (teal)
+        s[1].setData(padToBars(r.dn, bars));   // down-trend segments (red)
+        // Flip signals as BUY/SELL markers carrying the 0-10 performance strength.
+        setPaneMarkers(pane, 'stai', r.signals.map(sig => sig.dir === 1
+          ? {time: sig.time, position: 'belowBar', color: '#00bcd4', shape: 'arrowUp',
+             text: 'BUY ' + sig.strength}
+          : {time: sig.time, position: 'aboveBar', color: '#f23645', shape: 'arrowDown',
+             text: 'SELL ' + sig.strength}));
+        break;
+      }
+      case 'renko': {
+        // "Renko intelligence on candles": the bricks are the analysis, the candles stay
+        // the chart. Never a chart-type swap — pane.bars is untouched, exactly like the
+        // Heikin Ashi rule, so every other indicator still sees real OHLC.
+        const rk = RENKO.compute(bars, {atrPeriod: 5});
+        const dirByTime = new Map();
+        rk.bricks.forEach(b => dirByTime.set(b.time, b.dir));   // last brick of the bar wins
+        const up = [], dn = [];
+        let curDir = 0;
+        rk.path.forEach(p => {
+          if (p.value === null || p.value === undefined) return;
+          if (dirByTime.has(p.time)) curDir = dirByTime.get(p.time);
+          if (curDir === 0) return;                    // grid anchored, no brick yet
+          (curDir === 1 ? up : dn).push({time: p.time, value: p.value});
+        });
+        s[0].setData(padToBars(up, bars));
+        s[1].setData(padToBars(dn, bars));
+        // Flips are the only actionable event Renko produces, and the measured result
+        // (B-43) is that they carry NO forward edge — labelled FLIP, deliberately not
+        // BUY/SELL, so the chart does not imply a trigger the data does not support.
+        setPaneMarkers(pane, 'renko', rk.flips.map(f => f.dir === 1
+          ? {time: f.time, position: 'belowBar', color: '#26a69a', shape: 'arrowUp',
+             text: 'FLIP↑'}
+          : {time: f.time, position: 'aboveBar', color: '#ab47bc', shape: 'arrowDown',
+             text: 'FLIP↓'}));
+        renderRenkoState(pane, rk);
         break;
       }
     }
@@ -2759,6 +3493,19 @@ function applyIndicators(pane) {
       // each other, and the grey vanished entirely on the light theme.
       // Deep blue (fast) vs orange (slow) separate cleanly on BOTH themes;
       // fast carries the weight since it holds the markers + value label.
+      // Trend-pivot regime fill anchored on the −50 centerline: green while %R is
+      // in the upper half (up-bias), red in the lower half. Added FIRST so the
+      // fast/slow lines and markers sit on top. Read WITH the slow line for trend.
+      sub.regime = sub.chart.addBaselineSeries({
+        baseValue: {type: 'price', price: -50},
+        topLineColor:    'rgba(0,0,0,0)',
+        topFillColor1:   'rgba(38,166,154,0.16)',   // upper half → up-bias green
+        topFillColor2:   'rgba(38,166,154,0.02)',
+        bottomLineColor: 'rgba(0,0,0,0)',
+        bottomFillColor1:'rgba(239,83,80,0.02)',
+        bottomFillColor2:'rgba(239,83,80,0.16)',    // lower half → down-bias red
+        priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      });
       sub.slowLine = sub.chart.addLineSeries({
         color: '#f0883e', lineWidth: 1,
         priceLineVisible: false, lastValueVisible: false,
@@ -2774,13 +3521,15 @@ function applyIndicators(pane) {
       const th = 20;
       sub.fastLine.createPriceLine({price:0,          color:'rgba(202,0,23,0.4)',   lineWidth:1, lineStyle:1, axisLabelVisible:false});
       sub.fastLine.createPriceLine({price:-th,         color:'rgba(202,0,23,0.4)',   lineWidth:1, lineStyle:2, axisLabelVisible:false});
-      sub.fastLine.createPriceLine({price:-50,         color:'rgba(140,140,140,0.25)', lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      // −50 = the trend pivot: a clear solid centerline (labelled), not a faint dash.
+      sub.fastLine.createPriceLine({price:-50,         color:'rgba(150,150,150,0.7)',  lineWidth:1, lineStyle:0, axisLabelVisible:true});
       sub.fastLine.createPriceLine({price:-(100-th),   color:'rgba(36,102,167,0.4)', lineWidth:1, lineStyle:2, axisLabelVisible:false});
       sub.fastLine.createPriceLine({price:-100,        color:'rgba(36,102,167,0.4)', lineWidth:1, lineStyle:1, axisLabelVisible:false});
     }
     const prte = PRTE.compute(bars);
     pane.subCharts.prte.fastLine.setData(padToBars(prte.fast, bars));   // primary → full grid
     pane.subCharts.prte.slowLine.setData(prte.slow);
+    pane.subCharts.prte.regime.setData(padToBars(prte.fast, bars));     // −50 pivot green/red fill
     // Headline signal: reversal arrows the bar a trend exhausts (▼ bearish
     // as OB is left, ▲ bullish as OS is left). Trend-start points (just
     // entered a zone) get a smaller warning circle.
@@ -2791,6 +3540,171 @@ function applyIndicators(pane) {
       ...prte.osStart.map(p    => ({time: p.time, position: 'belowBar', color: '#2466A7', shape: 'circle'})),
     ].sort((a, b) => a.time - b.time);
     pane.subCharts.prte.fastLine.setMarkers(markers);
+    // Mirror the exhaustion flips onto the MAIN candles (+ confluence with order
+    // blocks) and paint the exhaustion background tint. Reuse the computed prte.
+    renderPrteOverlay(pane, prte);
+  }
+
+  if (pane.indicators.has('adxdi')) {
+    if (!pane.subCharts.adxdi) {
+      const sub = addSubPane(pane, 'adxdi', 'ADX + DI (14)', 140);
+      // −DI first (red), +DI (green), then ADX on top (purple, thickest) — ADX
+      // carries the value label since its slope/level is the headline read.
+      sub.minusLine = sub.chart.addLineSeries({
+        color: '#EF5350', lineWidth: 1,
+        priceLineVisible: false, lastValueVisible: false, title: '−DI',
+      });
+      sub.plusLine = sub.chart.addLineSeries({
+        color: '#26A69A', lineWidth: 1,
+        priceLineVisible: false, lastValueVisible: false, title: '+DI',
+      });
+      sub.adxLine = sub.chart.addLineSeries({
+        color: '#7B1FA2', lineWidth: 2,
+        priceLineVisible: false, lastValueVisible: true, title: 'ADX',
+      });
+      sub.series = sub.adxLine;   // crosshair sync anchor
+      sub.chart.priceScale('right').applyOptions({scaleMargins: {top: 0.08, bottom: 0.08}});
+      // Reference lines: 25 = actionable-trend gate (solid), 20 = chop floor
+      // (dashed). Below 20, DI crosses are noise (see concepts/ADX.md).
+      sub.adxLine.createPriceLine({price: 25, color: 'rgba(123,31,162,0.55)', lineWidth: 1, lineStyle: 0, axisLabelVisible: true, title: 'trend 25'});
+      sub.adxLine.createPriceLine({price: 20, color: 'rgba(150,150,150,0.5)', lineWidth: 1, lineStyle: 2, axisLabelVisible: false});
+    }
+    const adxdi = ADXDI.compute(bars);
+    pane.subCharts.adxdi.minusLine.setData(adxdi.minusDI);
+    pane.subCharts.adxdi.plusLine.setData(adxdi.plusDI);
+    pane.subCharts.adxdi.adxLine.setData(padToBars(adxdi.adx, bars));   // primary → full grid
+    // DI crossovers as bias/confirmation dots on +DI (green ● bullish bias) and
+    // −DI (red ● downside-risk bias) — NOT buy/sell arrows: the measured evidence
+    // (concepts/ADX.md) shows the cross is lagging, so these mark a bias change to
+    // confirm against price, not a trigger.
+    const markers = [
+      ...adxdi.bullCross.map(p => ({time: p.time, position: 'belowBar', color: '#26A69A', shape: 'circle', text: '+DI'})),
+      ...adxdi.bearCross.map(p => ({time: p.time, position: 'aboveBar', color: '#EF5350', shape: 'circle', text: '−DI'})),
+    ].sort((a, b) => a.time - b.time);
+    pane.subCharts.adxdi.adxLine.setMarkers(markers);
+  }
+
+  if (pane.indicators.has('evmacd')) {
+    if (!pane.subCharts.evmacd) {
+      const sub = addSubPane(pane, 'evmacd', 'EVWMA VWAP MACD (30,5,20)', 140);
+      // Histogram first so the two lines always sit on top of the columns.
+      sub.hist = sub.chart.addHistogramSeries({
+        priceLineVisible: false, lastValueVisible: false, priceScaleId: 'right',
+      });
+      sub.signalLine = sub.chart.addLineSeries({
+        color: '#ff6a00', lineWidth: 1,     // Pine's signal colour
+        priceLineVisible: false, lastValueVisible: true, title: 'signal',
+      });
+      sub.macdLine = sub.chart.addLineSeries({
+        color: '#0094ff', lineWidth: 1.5,   // Pine's macd colour
+        priceLineVisible: false, lastValueVisible: true, title: 'macd',
+      });
+      sub.series = sub.macdLine;   // crosshair sync anchor
+      // Zero is a real level here, not a scale artefact: diff = price − volume
+      // anchor, so macd crossing 0 means price crossed where volume transacted.
+      sub.macdLine.createPriceLine({price: 0, color: 'rgba(150,150,150,0.55)',
+                                    lineWidth: 1, lineStyle: 0, axisLabelVisible: false});
+      sub.chart.priceScale('right').applyOptions({scaleMargins: {top: 0.08, bottom: 0.08}});
+    }
+    const ev = EVMACD.compute(bars, {tf: pane.tf});
+    // Pine's four-state histogram colouring: sign × rising/falling, so a shrinking
+    // positive bar (momentum fading while still bullish) is visibly paler than a
+    // growing one. Reproduced exactly rather than reduced to two colours.
+    const histData = ev.hist.map((p, i) => {
+      const rising = i > 0 ? ev.hist[i - 1].value < p.value : true;
+      return {time: p.time, value: p.value,
+              color: p.value >= 0 ? (rising ? '#26A69A' : '#B2DFDB')
+                                  : (rising ? '#FFCDD2' : '#EF5350')};
+    });
+    pane.subCharts.evmacd.hist.setData(histData);
+    pane.subCharts.evmacd.macdLine.setData(padToBars(ev.macd, bars));   // primary → full grid
+    pane.subCharts.evmacd.signalLine.setData(ev.signal);
+    // Crossovers on the oscillator itself…
+    pane.subCharts.evmacd.macdLine.setMarkers([
+      ...ev.buy.map(p  => ({time: p.time, position: 'belowBar', color: '#26A69A', shape: 'arrowUp',   text: 'L'})),
+      ...ev.sell.map(p => ({time: p.time, position: 'aboveBar', color: '#EF5350', shape: 'arrowDown', text: 'S'})),
+    ].sort((a, b) => a.time - b.time));
+    // …and mirrored onto the candles as the actual BUY/SELL calls. The Pine
+    // strategy is stop-and-reverse (always in the market), so each arrow is both
+    // an exit and an entry — labelled BUY/SELL, not "entry only".
+    setPaneMarkers(pane, 'evmacd', ev.signals.map(sig => sig.dir === 1
+      ? {time: sig.time, position: 'belowBar', color: '#26A69A', shape: 'arrowUp',   text: 'BUY'}
+      : {time: sig.time, position: 'aboveBar', color: '#EF5350', shape: 'arrowDown', text: 'SELL'}));
+    // Current stance in the pane label — on a stop-and-reverse rule the standing
+    // side is the read, and it is otherwise only inferable from the last arrow.
+    // The VWAP mode is named too, because it differs by timeframe (see the module
+    // header): true session VWAP intraday, hlc3 on daily+ (Pine's own collapse).
+    const stance = ev.state
+      ? ((ev.state.dir === 1 ? ' · LONG ' : ' · SHORT ') + ev.state.bars + 'b')
+      : '';
+    pane.subCharts.evmacd.label.textContent =
+      'EVWMA VWAP MACD (30,5,20)' + (ev.source === 'session' ? ' · session VWAP' : ' · hlc3') + stance;
+  }
+
+  if (pane.indicators.has('hm')) {
+    if (!pane.subCharts.hm) {
+      // Taller pane (160px): three lines + regime shading + entry/exit markers
+      // need vertical room to separate in the 0..100 band (cf. %R's 150px).
+      const sub = addSubPane(pane, 'hm', 'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', 160);
+      // Regime "colour profile": a baseline fill anchored on the 50 midline —
+      // the classic HM look: warm (red) above 50, cool (cyan) below. Added FIRST
+      // so the three lines + markers always sit prominently on top of the shading.
+      sub.regime = sub.chart.addBaselineSeries({
+        baseValue: {type: 'price', price: 50},
+        topLineColor:    'rgba(0,0,0,0)',
+        topFillColor1:   'rgba(239,83,80,0.26)',    // above 50 → red
+        topFillColor2:   'rgba(239,83,80,0.05)',
+        bottomLineColor: 'rgba(0,0,0,0)',
+        bottomFillColor1:'rgba(38,198,218,0.05)',
+        bottomFillColor2:'rgba(38,198,218,0.30)',   // below 50 → cyan
+        priceLineVisible: false, lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      // Lines drawn back-to-front so the primary strength line ends up on top:
+      // VWMA (salmon) → EMA (green) → RSI (bold, theme-aware). Widths bumped so
+      // all three read clearly over the fill.
+      sub.vwmaLine = sub.chart.addLineSeries({
+        color: '#e5544a', lineWidth: 2,            // salmon-red = VWMA(RSI), opaque over the red fill
+        priceLineVisible: false, lastValueVisible: false,
+      });
+      sub.emaLine = sub.chart.addLineSeries({
+        color: '#1f9d57', lineWidth: 2,            // green = EMA(RSI) momentum
+        priceLineVisible: false, lastValueVisible: false,
+      });
+      sub.rsiLine = sub.chart.addLineSeries({
+        color: hmStrengthColor(), lineWidth: 2.5,  // RSI "strength": near-black on light / near-white on dark
+        priceLineVisible: false, lastValueVisible: true,
+      });
+      sub.series = sub.rsiLine;                     // used for crosshair sync + markers
+      sub.chart.priceScale('right').applyOptions({scaleMargins: {top: 0.06, bottom: 0.06}});
+      // Guides: the 50 midline is the whole game (OB/OS collapse onto it); 70/30
+      // echo the fill colours as faint context; 0/100 are the bounds.
+      sub.rsiLine.createPriceLine({price:100, color:'rgba(150,150,150,0.30)', lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      sub.rsiLine.createPriceLine({price:70,  color:'rgba(239,83,80,0.28)',   lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      sub.rsiLine.createPriceLine({price:50,  color:'rgba(140,140,140,0.55)', lineWidth:1, lineStyle:0, axisLabelVisible:false});
+      sub.rsiLine.createPriceLine({price:30,  color:'rgba(38,198,218,0.30)',  lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      sub.rsiLine.createPriceLine({price:0,   color:'rgba(150,150,150,0.30)', lineWidth:1, lineStyle:2, axisLabelVisible:false});
+    }
+    const hm = HM.compute(bars);
+    pane.subCharts.hm.rsiLine.setData(padToBars(hm.rsi, bars));   // primary → full grid
+    pane.subCharts.hm.regime.setData(padToBars(hm.rsi, bars));    // same data → red/cyan 50-band fill
+    pane.subCharts.hm.emaLine.setData(hm.emaRsi);
+    pane.subCharts.hm.vwmaLine.setData(hm.vwmaRsi);
+    // BUY/SELL = the actionable entry (early setup: RSI reclaims 50, EMA-of-RSI
+    // rising, VWMA still inside the band). BUY✓/SELL✓ = confirmed (VWMA then leaves
+    // the 50 band) — a strength upgrade. This matches the "HM Buy (Hilega Milega)"
+    // day-scanner, which fires on the same setup (and flags confirmed ones).
+    // The momentum-fade "exit" markers (RSI recrossing 50) are intentionally NOT
+    // drawn — they fire on every midline cross, duplicate the opposite SELL/BUY,
+    // and just clutter the pane. The exit points still live in HM.signals for
+    // backtests; a SELL✓/BUY✓ or the opposite signal is the visual exit cue.
+    const hmMarkers = [
+      ...hm.bullEarly.map(p   => ({time: p.time, position: 'belowBar', color: '#1f9d57', shape: 'arrowUp',   text: 'BUY'})),
+      ...hm.bullConfirm.map(p => ({time: p.time, position: 'belowBar', color: '#00e676', shape: 'arrowUp',   text: 'BUY✓'})),
+      ...hm.bearEarly.map(p   => ({time: p.time, position: 'aboveBar', color: '#c62828', shape: 'arrowDown', text: 'SELL'})),
+      ...hm.bearConfirm.map(p => ({time: p.time, position: 'aboveBar', color: '#ff1744', shape: 'arrowDown', text: 'SELL✓'})),
+    ].sort((a, b) => (a.time > b.time ? 1 : a.time < b.time ? -1 : 0));
+    pane.subCharts.hm.rsiLine.setMarkers(hmMarkers);
   }
 
   if (pane.indicators.has('roc')) {
@@ -2882,6 +3796,14 @@ function applyIndicators(pane) {
     renderFVGSignals(pane);
   }
 
+  // Order Blocks: server-fetched (async), then drawn from cache. Deferred a frame
+  // like SVP so priceToCoordinate/timeToCoordinate are settled after setData.
+  if (pane.indicators.has('orderblock')) {
+    requestAnimationFrame(() => {
+      if (pane.indicators.has('orderblock')) renderOrderBlocks(pane);
+    });
+  }
+
   // ── MA Bias overlay (regime / stack / trigger / distrust card + crosses) ────
   if (pane.indicators.has('mabias')) {
     renderMABias(pane);
@@ -2944,6 +3866,11 @@ function applyIndicators(pane) {
     renderGann(pane);
   }
 
+  // ── Option OI walls + max pain (server-side, see option_chain.py) ───────────
+  if (pane.indicators.has('oiwalls')) {
+    renderOiWalls(pane);
+  }
+
   // ── Reversal Calendar overlay (yogas + lunar phases, see reversal_calendar.py)
   if (pane.indicators.has('reversal_calendar')) {
     renderReversalCalendar(pane);
@@ -2961,6 +3888,12 @@ function applyIndicators(pane) {
   // 2026-07-03). Re-syncing HERE, after every setData, guarantees the
   // sub-panes end up aligned to whatever the main chart is showing.
   syncSubPaneRanges(pane);
+
+  // User drawings repaint last, after every series has its data and the axes
+  // have settled — their coordinates come from the price scale, so painting
+  // earlier would anchor them against a scale that is about to change. Runs on
+  // every apply (symbol/tf reload included), not behind an indicator gate.
+  scheduleDrawRedraw(pane);
 }
 
 // Standalone so anything that changes the main-chart visible range (loadData,
@@ -3046,11 +3979,12 @@ function resetPaneVisuals(pane) {
   [clearElliottWave, clearRoundingBottom, clearVCP, clearTrendlines,
    clearFallingWedge, clearStructureChain, clearHarmonic, clearProjection,
    clearFibonacci, clearReversalCalendar, clearMABias, clearPmaxTrade,
-   clearFVGSignals].forEach(fn => { try { fn(pane); } catch {} });
+   clearFVGSignals, clearOrderBlocks, clearPrteOverlay,
+   clearOiWalls].forEach(fn => { try { fn(pane); } catch {} });
   // Canvas overlays are redrawn from pane.bars on resize/pan, and pane.bars
   // still holds the OLD candles until the fetch lands. Blank the canvases and
   // drop the bars so nothing repaints the old timeframe in the meantime.
-  [pane.volCanvas, pane.fvgCanvas, pane.patternCanvas, pane.projCanvas, pane.fibCanvas]
+  [pane.volCanvas, pane.fvgCanvas, pane.patternCanvas, pane.projCanvas, pane.fibCanvas, pane.obCanvas, pane.prteCanvas]
     .forEach(c => {
       if (!c) return;
       try { c.getContext('2d').clearRect(0, 0, c.width, c.height); } catch {}
@@ -3058,6 +3992,7 @@ function resetPaneVisuals(pane) {
   pane.vp = null;
   pane.fvgZones = null;
   pane.bars = [];
+  clearGotoLine(pane);   // the focused date belongs to the old symbol/timeframe
 }
 
 // ── Sub-pane chart lifecycle ───────────────────────────────────────────────────
@@ -3328,6 +4263,289 @@ function drawFVG(pane) {
     ctx.strokeRect(x, y, w, h);
     ctx.setLineDash([]);
   });
+}
+
+// ── Order Block overlay (SMC demand / supply zones) ───────────────────────────
+// Server-computed (scanner_templates.detect_order_blocks via /api/order_blocks),
+// cached per (symbol,tf,lastBar); zones drawn as boxes on obCanvas. Unmitigated
+// (fresh) zones are bold; mitigated ones fade to a dashed faint box (kept for
+// context). Green = bullish demand, red = bearish supply. Redrawn from the cached
+// zones on pan/zoom (drawOrderBlocks) so it doesn't re-fetch on every frame.
+function ensureObState(pane) {
+  if (!pane.ob) pane.ob = {zones: null, lastFetchKey: null};
+  return pane.ob;
+}
+
+function clearOrderBlocks(pane) {
+  const st = pane.ob;
+  if (st) { st.zones = null; st.retests = null; st.lastFetchKey = null; }
+  if (pane.obCanvas) {
+    const ctx = pane.obCanvas.getContext('2d');
+    ctx.clearRect(0, 0, pane.obCanvas.width, pane.obCanvas.height);
+  }
+}
+
+async function renderOrderBlocks(pane) {
+  const st = ensureObState(pane);
+  if (!pane.bars || !pane.bars.length) return;
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  if (st.lastFetchKey !== key) {
+    st.lastFetchKey = key;
+    try {
+      const barCount = TF_BARS[pane.tf] || 300;
+      const url = `${SERVER}/api/order_blocks?symbol=${encodeURIComponent(pane.symbol)}` +
+                  `&timeframe=${pane.tf}&bars=${barCount}`;
+      const res = await fetch(url);
+      const data = res.ok ? await res.json() : {};
+      st.zones = data.order_blocks || [];
+      st.retests = data.retests || [];
+    } catch (e) { console.warn('order_blocks fetch failed:', e); st.zones = []; st.retests = []; }
+  }
+  // Guard against a stale response landing after toggle-off / symbol switch.
+  if (!pane.indicators.has('orderblock')) return;
+  if (paneFetchKey(pane) !== key) return;
+  drawOrderBlocks(pane);
+  // Zones just landed — refresh %R confluence so exhaustion arrows sitting in a
+  // zone upgrade to their ▲ OB / ▼ OB confluence marker.
+  if (pane.indicators.has('prte')) renderPrteOverlay(pane);
+}
+
+function drawOrderBlocks(pane) {
+  const canvas = pane.obCanvas;
+  const st = pane.ob;
+  if (!canvas || !st || !st.zones) return;
+  const W = canvas.width  = canvas.offsetWidth;
+  const H = canvas.height = canvas.offsetHeight;
+  if (!W || !H) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  if (!st.zones.length) return;
+
+  const ts = pane.chart.timeScale();
+  const lastBarTime = pane.bars[pane.bars.length - 1].time;
+
+  st.zones.forEach(z => {
+    const xL = ts.timeToCoordinate(z.start_time);
+    if (xL === null) return;
+    let xR = ts.timeToCoordinate(z.end_time);
+    if (xR === null) xR = ts.timeToCoordinate(lastBarTime);
+    const yTop = pane.series.priceToCoordinate(z.high);
+    const yBot = pane.series.priceToCoordinate(z.low);
+    if (xR === null || yTop === null || yBot === null) return;
+
+    const x = Math.max(0, xL);
+    const w = Math.min(W, xR) - x;
+    if (w <= 0) return;
+    const y = Math.min(yTop, yBot);
+    const h = Math.max(1, Math.abs(yBot - yTop));
+
+    const bull = z.dir === 'bull';
+    // BigBeluga-style: cyan (#00ffcc) = bullish, magenta (#ff007f) = bearish
+    const rgb = bull ? '0,255,204' : '255,0,127';
+    const fillA   = {fresh: 0.15, mitigated: 0.07, violated: 0.035}[z.state] ?? 0.10;
+    const strokeA = {fresh: 0.70, mitigated: 0.35, violated: 0.18}[z.state] ?? 0.4;
+
+    // Buy/Sell volume split — draw two sub-zones like the Pine indicator
+    const buyPct  = (z.buy_pct  ?? 50) / 100;
+    const sellPct = 1 - buyPct;
+    const splitY  = y + h * sellPct;  // sell zone on top, buy zone on bottom
+
+    // Top sub-zone (sell side)
+    const topH = splitY - y;
+    if (topH > 0) {
+      ctx.fillStyle = `rgba(${rgb},${bull ? fillA * 0.7 : fillA})`;
+      ctx.fillRect(x, y, w, topH);
+    }
+    // Bottom sub-zone (buy side)
+    const botH = h - topH;
+    if (botH > 0) {
+      ctx.fillStyle = `rgba(${rgb},${bull ? fillA : fillA * 0.7})`;
+      ctx.fillRect(x, splitY, w, botH);
+    }
+
+    // Border around the full zone
+    ctx.strokeStyle = `rgba(${rgb},${strokeA})`;
+    ctx.lineWidth = 1;
+    ctx.setLineDash(z.state === 'violated' ? [2, 3] : []);
+    ctx.strokeRect(x, y, w, h);
+    // Split line
+    if (h >= 6 && z.state !== 'violated') {
+      ctx.strokeStyle = `rgba(${rgb},${strokeA * 0.5})`;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath(); ctx.moveTo(x, splitY); ctx.lineTo(x + w, splitY); ctx.stroke();
+    }
+    ctx.setLineDash([]);
+
+    // Labels: Buy%/Sell% + structure signal
+    if (h >= 18 && w >= 40 && z.state !== 'violated') {
+      const fresh = z.state === 'fresh';
+      const txtA = fresh ? 0.92 : 0.55;
+      ctx.font = 'bold 9px system-ui, sans-serif';
+      // Sell % in top sub-zone
+      if (topH >= 10) {
+        ctx.fillStyle = `rgba(224,224,224,${txtA})`;
+        ctx.textAlign = 'right';
+        ctx.fillText(`Sell ${z.sell_pct ?? 50}%`, x + w - 4, y + 10);
+      }
+      // Buy % in bottom sub-zone
+      if (botH >= 10) {
+        ctx.fillStyle = `rgba(224,224,224,${txtA})`;
+        ctx.textAlign = 'right';
+        ctx.fillText(`Buy ${z.buy_pct ?? 50}%`, x + w - 4, splitY + 10);
+      }
+      // Structure label (BOS/CHOCH) on the left
+      ctx.textAlign = 'left';
+      const sigLabel = (bull ? 'Demand' : 'Supply') + ' ' + z.signal + (fresh ? ' ●' : '');
+      ctx.fillStyle = `rgba(${rgb},${fresh ? 0.95 : 0.6})`;
+      ctx.fillText(sigLabel, x + 3, y + 9);
+    }
+    ctx.textAlign = 'left';
+  });
+
+  // ── Retest signal arrows (BigBeluga-style cross markers) ──────────────
+  if (st.retests && st.retests.length) {
+    st.retests.forEach(rt => {
+      const xPos = ts.timeToCoordinate(rt.time);
+      if (xPos === null) return;
+      const bull = rt.dir === 'bull';
+      const yAnchor = pane.series.priceToCoordinate(rt.price);
+      if (yAnchor === null) return;
+      const yOff = bull ? 12 : -12;  // below bar for bull, above for bear
+      const cx = xPos, cy = yAnchor + yOff;
+
+      // Draw a cross marker (✕ shape, matching Pine's shape.cross)
+      const sz = 5;
+      ctx.strokeStyle = bull ? 'rgba(0,255,204,0.9)' : 'rgba(255,0,127,0.9)';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(cx - sz, cy - sz); ctx.lineTo(cx + sz, cy + sz);
+      ctx.moveTo(cx + sz, cy - sz); ctx.lineTo(cx - sz, cy + sz);
+      ctx.stroke();
+
+      // Small label
+      ctx.font = 'bold 8px system-ui, sans-serif';
+      ctx.fillStyle = bull ? 'rgba(0,255,204,0.85)' : 'rgba(255,0,127,0.85)';
+      ctx.textAlign = 'center';
+      const pctLabel = bull ? `B${rt.buy_pct ?? ''}%` : `S${rt.sell_pct ?? ''}%`;
+      ctx.fillText(pctLabel, cx, cy + (bull ? 14 : -8));
+      ctx.textAlign = 'left';
+    });
+  }
+}
+
+// ── %R exhaustion main-chart overlay (candle arrows + confluence + tint) ──────
+// Extends the %R Trend Exhaustion indicator onto the price chart: the ▲/▼ flips
+// as candle markers — upgraded to a bold ▲ OB / ▼ OB "confluence" marker when a
+// flip lands inside a matching, non-violated order block — plus a faint red/green
+// background wash while %R sits in its OB/OS exhaustion zone. The confluence
+// upgrade needs the Order Blocks overlay on too; without it the arrows are plain.
+function clearPrteOverlay(pane) {
+  setPaneMarkers(pane, 'prte', null);
+  pane.prteData = null;
+  if (pane.prteCanvas) {
+    const ctx = pane.prteCanvas.getContext('2d');
+    ctx.clearRect(0, 0, pane.prteCanvas.width, pane.prteCanvas.height);
+  }
+}
+
+function renderPrteOverlay(pane, prte) {
+  if (typeof PRTE === 'undefined' || !pane.bars || !pane.bars.length) { clearPrteOverlay(pane); return; }
+  prte = prte || PRTE.compute(pane.bars);
+  pane.prteData = prte;
+
+  // Order-block zones for the confluence test (only when that overlay is on).
+  const zones = (pane.indicators.has('orderblock') && pane.ob && pane.ob.zones) ? pane.ob.zones : null;
+  const barByTime = new Map(pane.bars.map(b => [b.time, b]));
+  // Confluent = the flip candle reaches (within a small buffer of) a live,
+  // same-direction order block active at that time. The buffer catches an
+  // exhaustion right at a zone's edge, not only a dead-centre tag.
+  const confluent = (dir, t) => {
+    if (!zones) return false;
+    const bar = barByTime.get(t);
+    if (!bar) return false;
+    return zones.some(z => {
+      if (z.dir !== dir) return false;
+      // Zone must be LIVE at the flip's time. end_time already ends a violated
+      // zone at its violation bar, so a flip before that still counts (a zone
+      // that failed later was valid when the exhaustion tagged it).
+      if (!(z.start_time <= t && t <= z.end_time)) return false;
+      // Proximity buffer: an exhaustion right at a zone's edge still counts, not
+      // only a dead-centre tag. ~0.6% of price or 0.75× the zone height.
+      const buf = Math.max((z.high - z.low) * 0.75, bar.close * 0.006);
+      return bar.low <= z.high + buf && bar.high >= z.low - buf;
+    });
+  };
+
+  // Every flip, tagged with confluence. On the MAIN chart we don't want all of
+  // them (the sub-pane already shows the full set) — keep every confluent flip
+  // plus only the most recent MAIN_MAX non-confluent ones, so the price chart
+  // stays readable and the A+ setups stand out.
+  const MAIN_MAX = 12;
+  const flips = [];
+  prte.osReversal.forEach(p => flips.push({t: p.time, dir: 'bull', conf: confluent('bull', p.time)}));
+  prte.obReversal.forEach(p => flips.push({t: p.time, dir: 'bear', conf: confluent('bear', p.time)}));
+  flips.sort((a, b) => a.t - b.t);
+  const recentPlain = new Set(flips.filter(f => !f.conf).slice(-MAIN_MAX).map(f => f.t + ':' + f.dir));
+  const markers = flips
+    .filter(f => f.conf || recentPlain.has(f.t + ':' + f.dir))
+    .map(f => f.dir === 'bull'
+      ? (f.conf ? {time: f.t, position: 'belowBar', color: '#00e676', shape: 'arrowUp',   text: '▲ OB', size: 2}
+                : {time: f.t, position: 'belowBar', color: '#2466A7', shape: 'arrowUp',   text: '▲'})
+      : (f.conf ? {time: f.t, position: 'aboveBar', color: '#ff1744', shape: 'arrowDown', text: '▼ OB', size: 2}
+                : {time: f.t, position: 'aboveBar', color: '#CA0017', shape: 'arrowDown', text: '▼'}));
+  setPaneMarkers(pane, 'prte', markers.length ? markers : null);
+
+  drawPrteBackground(pane, prte);
+}
+
+function drawPrteBackground(pane, prte) {
+  const canvas = pane.prteCanvas;
+  if (!canvas) return;
+  const W = canvas.width  = canvas.offsetWidth;
+  const H = canvas.height = canvas.offsetHeight;
+  if (!W || !H) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  prte = prte || pane.prteData;
+  if (!prte || !pane.bars || !pane.bars.length) return;
+
+  const th = prte.threshold;
+  const fastMap = new Map(prte.fast.map(p => [p.time, p.value]));
+  const slowMap = new Map(prte.slow.map(p => [p.time, p.value]));
+  const ts = pane.chart.timeScale();
+  const bars = pane.bars;
+
+  // Estimate bar spacing so the last bar of a shaded run still gets width.
+  let sp = 6;
+  for (let i = 1; i < bars.length; i++) {
+    const a = ts.timeToCoordinate(bars[i - 1].time), b = ts.timeToCoordinate(bars[i].time);
+    if (a != null && b != null) { sp = Math.max(1, Math.abs(b - a)); break; }
+  }
+
+  // Shade contiguous runs where BOTH fast & slow %R sit in the same zone (the
+  // real OB/OS condition), red for overbought, green for oversold.
+  let run = null;   // {type:'ob'|'os', x0, x1}
+  const flush = () => {
+    if (!run) return;
+    ctx.fillStyle = run.type === 'ob' ? 'rgba(202,0,23,0.06)' : 'rgba(38,166,154,0.06)';
+    ctx.fillRect(Math.min(run.x0, run.x1) - sp / 2, 0, Math.abs(run.x1 - run.x0) + sp, H);
+    run = null;
+  };
+  for (const bar of bars) {
+    const f = fastMap.get(bar.time), s = slowMap.get(bar.time);
+    let type = null;
+    if (f !== undefined && s !== undefined) {
+      if (f >= -th && s >= -th) type = 'ob';
+      else if (f <= (-100 + th) && s <= (-100 + th)) type = 'os';
+    }
+    if (!type) { flush(); continue; }
+    const x = ts.timeToCoordinate(bar.time);
+    if (x == null) { flush(); continue; }
+    if (run && run.type === type) run.x1 = x;
+    else { flush(); run = {type, x0: x, x1: x}; }
+  }
+  flush();
 }
 
 // ── FVG actionable buy/sell signal (integration layer for FVG.signals) ────────
@@ -4707,6 +5925,278 @@ function renderVcpInfo(pane, g) {
   vcp.infoEl.style.display = 'block';
 }
 
+// ── User drawing tools — integration layer for chart_drawings.js ─────────────
+// window.Drawings is the pure model/geometry/painter and has zero chart
+// dependency. Everything here is the "plug" onto Lightweight Charts: the
+// coordinate adapter, pointer handling, the toolbar, and the redraw hooks. To
+// swap charting libraries later only this section changes — exactly the split
+// used for the Elliott Wave integration above.
+
+const DRAW_TOOL_DEFS = [
+  {key: 'trend', glyph: '╱',  title: 'Trend line — click and drag between two points'},
+  {key: 'hline', glyph: '━',  title: 'Horizontal ray — click a price level'},
+  {key: 'rect',  glyph: '▭',  title: 'Zone — drag a rectangle (supply/demand, consolidation)'},
+  {key: 'fib',   glyph: '≣',  title: 'Fib retracement — drag from swing low to swing high'},
+  {key: 'text',  glyph: 'T',  title: 'Text note — click to place a label'},
+];
+
+const DRAW_TOOLBAR_HTML = (() => {
+  const tools = DRAW_TOOL_DEFS.map(t =>
+    `<button type="button" class="draw-btn" data-tool="${t.key}" title="${t.title}">${t.glyph}</button>`
+  ).join('');
+  return tools +
+    '<div class="draw-sep"></div>' +
+    '<button type="button" class="draw-btn" data-act="magnet" title="Magnet — snap points to the nearest OHLC value">🧲</button>' +
+    '<button type="button" class="draw-btn" data-act="erase" title="Erase — click a drawing to delete it">⌫</button>' +
+    '<button type="button" class="draw-btn" data-act="undo" title="Undo the last drawing">↶</button>' +
+    '<button type="button" class="draw-btn" data-act="hide" title="Hide/show all drawings">👁</button>' +
+    '<button type="button" class="draw-btn danger" data-act="clear" title="Delete every drawing on this symbol">🗑</button>' +
+    '<div class="draw-count"></div>';
+})();
+
+/** Data<->pixel adapter. Null outside the visible range, which the painter
+ *  treats as "skip this drawing" rather than clamping it to an edge. */
+function drawAdapter(pane) {
+  const ts = pane.chart.timeScale();
+  const s  = pane.series;
+  return {
+    toX:   t => { try { return ts.timeToCoordinate(t); } catch { return null; } },
+    toY:   p => { try { return s.priceToCoordinate(p); } catch { return null; } },
+    fromX: x => { try { return ts.coordinateToTime(x); } catch { return null; } },
+    fromY: y => { try { return s.coordinateToPrice(y); } catch { return null; } },
+  };
+}
+
+function redrawDrawings(pane) {
+  const canvas = pane.drawCanvas;
+  if (!canvas) return;
+  const W = canvas.width  = canvas.offsetWidth;
+  const H = canvas.height = canvas.offsetHeight;
+  if (W === 0 || H === 0) {
+    // Restored drawings paint once at pane creation, and in a multi-chart grid
+    // the container can still be 0x0 at that moment. The ResizeObserver hook is
+    // no help — it already fired while pane.drawings was empty — so without a
+    // retry the markup stays invisible until the next pan. Bounded, so a pane
+    // that is legitimately collapsed to zero does not spin a frame callback
+    // forever; the ResizeObserver still covers it once it gets a real size.
+    if (pane.drawings && pane.drawings.length && (pane._drawSizeTries = (pane._drawSizeTries || 0) + 1) < 120)
+      scheduleDrawRedraw(pane);
+    return;
+  }
+  pane._drawSizeTries = 0;
+  const ctx = canvas.getContext('2d');
+  if (pane.drawHidden) { ctx.clearRect(0, 0, W, H); return; }
+  Drawings.render(ctx, pane.drawings || [], drawAdapter(pane), W, H, {
+    selectedId: pane.drawSel,
+    preview: pane.drawPreview,
+    textColor: currentTheme === 'light' ? '#101521' : '#eaeff7',
+  });
+}
+
+/**
+ * Redraw on the NEXT animation frame, coalescing repeats.
+ *
+ * Lightweight Charts settles its price autoscale a frame AFTER it emits the
+ * visible-range event, so painting synchronously inside that callback anchors
+ * every drawing against the outgoing y-mapping — the line stays where it was
+ * while the candles move under it. Deferring one frame is what makes drawings
+ * track their bars through a range-preset change or a "Go to date" jump. It
+ * also collapses the burst of range events during a drag into one paint.
+ *
+ * The live drawing path still calls redrawDrawings() directly: while you are
+ * dragging out a shape the price scale is not moving, and a frame of latency on
+ * the rubber-band preview is visible.
+ */
+function scheduleDrawRedraw(pane) {
+  if (!pane || pane._drawRaf) return;
+  pane._drawRaf = requestAnimationFrame(() => {
+    pane._drawRaf = 0;
+    try { redrawDrawings(pane); } catch {}
+  });
+}
+
+function saveDrawings(pane) {
+  Drawings.save(pane.symbol, pane.drawings || []);
+  updateDrawCount(pane);
+}
+
+function updateDrawCount(pane) {
+  const el = pane.drawTools && pane.drawTools.querySelector('.draw-count');
+  if (el) el.textContent = (pane.drawings && pane.drawings.length) || '';
+}
+
+/** Load this symbol's saved drawings — called whenever the symbol changes. */
+function loadDrawings(pane) {
+  pane.drawings = Drawings.load(pane.symbol);
+  pane.drawSel = null;
+  pane.drawPreview = null;
+  updateDrawCount(pane);
+  redrawDrawings(pane);
+}
+
+/** pointer-events follows the armed state: the chart must stay fully
+ *  interactive whenever no tool is active, or panning breaks. */
+function syncDrawMode(pane) {
+  const armed = !!pane.drawTool || pane.drawErase;
+  pane.drawCanvas.style.pointerEvents = armed ? 'auto' : 'none';
+  pane.drawTools.classList.toggle('armed', armed);
+  pane.el.querySelector('.chart-main').classList.toggle('drawing', armed);
+  pane.drawTools.querySelectorAll('[data-tool]').forEach(b =>
+    b.classList.toggle('active', b.dataset.tool === pane.drawTool));
+  const eraseBtn = pane.drawTools.querySelector('[data-act="erase"]');
+  if (eraseBtn) eraseBtn.classList.toggle('active', !!pane.drawErase);
+}
+
+function setDrawTool(pane, tool) {
+  pane.drawTool = (pane.drawTool === tool) ? null : tool;   // click again to disarm
+  if (pane.drawTool) pane.drawErase = false;
+  pane.drawStart = null;
+  pane.drawPreview = null;
+  syncDrawMode(pane);
+  redrawDrawings(pane);
+}
+
+function wireDrawingTools(pane) {
+  const canvas = pane.drawCanvas;
+  const tools  = pane.drawTools;
+  if (!canvas || !tools || typeof Drawings === 'undefined') return;
+
+  tools.addEventListener('click', ev => {
+    const btn = ev.target.closest('button');
+    if (!btn) return;
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (btn.dataset.tool) { setDrawTool(pane, btn.dataset.tool); return; }
+    switch (btn.dataset.act) {
+      case 'magnet':
+        pane.drawMagnet = !pane.drawMagnet;
+        btn.classList.toggle('active', pane.drawMagnet);
+        break;
+      case 'erase':
+        pane.drawErase = !pane.drawErase;
+        if (pane.drawErase) pane.drawTool = null;
+        syncDrawMode(pane);
+        break;
+      case 'undo':
+        if (pane.drawings.length) { pane.drawings.pop(); saveDrawings(pane); redrawDrawings(pane); }
+        break;
+      case 'hide':
+        pane.drawHidden = !pane.drawHidden;
+        btn.classList.toggle('active', pane.drawHidden);
+        redrawDrawings(pane);
+        break;
+      case 'clear':
+        if (pane.drawings.length &&
+            confirm(`Delete all ${pane.drawings.length} drawing(s) on ${pane.symbol}?`)) {
+          pane.drawings = [];
+          pane.drawSel = null;
+          saveDrawings(pane);
+          redrawDrawings(pane);
+        }
+        break;
+    }
+  });
+  // Reflect the default-on magnet in the UI.
+  const mag = tools.querySelector('[data-act="magnet"]');
+  if (mag) mag.classList.toggle('active', pane.drawMagnet);
+
+  const pointFrom = (ev) => {
+    const r = canvas.getBoundingClientRect();
+    const x = ev.clientX - r.left, y = ev.clientY - r.top;
+    const a = drawAdapter(pane);
+    const t = a.fromX(x), p = a.fromY(y);
+    if (t == null || p == null) return null;
+    return pane.drawMagnet ? Drawings.snap(pane.bars, a, t, p, 8) : {t: t, y: p};
+  };
+
+  canvas.addEventListener('mousedown', ev => {
+    if (ev.button !== 0) return;
+    const W = canvas.width;
+
+    if (pane.drawErase) {
+      const r = canvas.getBoundingClientRect();
+      const hit = Drawings.hitTest(pane.drawings, drawAdapter(pane),
+                                   ev.clientX - r.left, ev.clientY - r.top, W,
+                                   canvas.getContext('2d'));
+      if (hit) {
+        pane.drawings = pane.drawings.filter(d => d.id !== hit.id);
+        saveDrawings(pane);
+        redrawDrawings(pane);
+      }
+      return;
+    }
+    if (!pane.drawTool) return;
+    const pt = pointFrom(ev);
+    if (!pt) return;
+    ev.preventDefault();
+
+    // One-click tools finish immediately; two-point tools start a drag.
+    if (pane.drawTool === 'hline') {
+      pane.drawings.push(Drawings.make('hline', pt));
+      saveDrawings(pane);
+      setDrawTool(pane, null);
+      redrawDrawings(pane);
+      return;
+    }
+    if (pane.drawTool === 'text') {
+      const txt = prompt('Note text:');
+      if (txt) {
+        pane.drawings.push(Drawings.make('text', pt, null, {text: txt}));
+        saveDrawings(pane);
+      }
+      setDrawTool(pane, null);
+      redrawDrawings(pane);
+      return;
+    }
+    pane.drawStart = {pt: pt, px: ev.clientX, py: ev.clientY};
+  });
+
+  canvas.addEventListener('mousemove', ev => {
+    if (!pane.drawStart || !pane.drawTool) return;
+    const pt = pointFrom(ev);
+    if (!pt) return;
+    pane.drawPreview = Drawings.make(pane.drawTool, pane.drawStart.pt, pt);
+    redrawDrawings(pane);
+  });
+
+  const finish = ev => {
+    if (!pane.drawStart || !pane.drawTool) return;
+    const moved = Math.hypot(ev.clientX - pane.drawStart.px, ev.clientY - pane.drawStart.py);
+    const pt = pointFrom(ev);
+    // A click with no drag is an accident, not a zero-length shape.
+    if (pt && moved >= Drawings.MIN_DRAG_PX) {
+      pane.drawings.push(Drawings.make(pane.drawTool, pane.drawStart.pt, pt));
+      saveDrawings(pane);
+    }
+    pane.drawStart = null;
+    pane.drawPreview = null;
+    setDrawTool(pane, null);       // one shape per arming, as TradingView does
+    redrawDrawings(pane);
+  };
+  canvas.addEventListener('mouseup', finish);
+  canvas.addEventListener('mouseleave', () => {
+    if (!pane.drawStart) return;
+    pane.drawStart = null;
+    pane.drawPreview = null;
+    redrawDrawings(pane);
+  });
+
+  // Escape disarms — the standard way out of a tool you picked by mistake.
+  pane.el.addEventListener('keydown', ev => {
+    if (ev.key === 'Escape' && (pane.drawTool || pane.drawErase)) {
+      pane.drawTool = null;
+      pane.drawErase = false;
+      pane.drawStart = null;
+      pane.drawPreview = null;
+      syncDrawMode(pane);
+      redrawDrawings(pane);
+    }
+  });
+
+  syncDrawMode(pane);
+  updateDrawCount(pane);
+}
+
 // ── Trendlines overlay (supply/demand) ────────────────────────────────────────
 // Backed by /api/trendlines (which calls scanner_templates.detect_trendline_break,
 // a port of the "Trend Lines by Kris" Pine indicator). Draws the two active
@@ -5033,6 +6523,36 @@ function ensurePmaxState(pane) {
   return pane.pmaxTrade;
 }
 
+// ── Renko state line (integration layer for renko.js) ────────────────────────
+// Renko's whole read is two numbers — the brick size in force and how far the current
+// run has travelled — and neither is legible from the staircase alone. Drawn as ONE
+// labelled price line at the live grid level rather than a card: it is the level the
+// next brick prints from, so it belongs on the price axis next to it.
+function clearRenkoState(pane) {
+  (pane._renkoLines || []).forEach(pl => {
+    try { pane.series.removePriceLine(pl); } catch {}
+  });
+  pane._renkoLines = [];
+}
+
+function renderRenkoState(pane, rk) {
+  clearRenkoState(pane);
+  if (!rk || !rk.state || !rk.state.brick) return;
+  const st = rk.state;
+  const up = st.dir === 1;
+  // Brick as a % of price travels across instruments; the raw points do not.
+  const last = pane.bars && pane.bars.length ? pane.bars[pane.bars.length - 1].close : 0;
+  const pct = last > 0 ? (st.brick / last * 100).toFixed(2) : '?';
+  pane._renkoLines = [pane.series.createPriceLine({
+    price: st.lastClose,
+    color: up ? '#26a69a' : '#ab47bc',
+    lineWidth: 1, lineStyle: 2, axisLabelVisible: true,
+    // No BUY/SELL wording anywhere: B-43 measured the flip at zero forward edge, so
+    // this reports STATE (where the grid is, how big a brick is) and nothing more.
+    title: `Renko ${up ? '▲' : '▼'} ${st.bricks}br · brick ${st.brick.toFixed(2)} (${pct}%)`,
+  })];
+}
+
 function clearPmaxTrade(pane) {
   const st = pane.pmaxTrade;
   if (!st) return;
@@ -5253,15 +6773,76 @@ function renderSVPInfo(pane, r) {
     st.infoEl.className = 'svp-info';
     pane.el.querySelector('.chart-main').appendChild(st.infoEl);
     st.infoEl.addEventListener('click', ev => {
+      if (ev.target.closest('.svp-q')) {           // ? toggles the plain-English guide
+        st.helpOpen = !st.helpOpen;
+        st.infoEl.classList.toggle('help-open', st.helpOpen);
+        ev.stopPropagation();
+        return;
+      }
       if (!ev.target.closest('.svp-head')) return;
       st.collapsed = !st.collapsed;
       st.infoEl.classList.toggle('collapsed', st.collapsed);
     });
   }
   const c = r.card;
-  const f = v => Number.isFinite(v) ? v.toFixed(2) : '—';
+  // Thousands separators: these are price levels people read off a chart, and
+  // "3935.56" is measurably harder to scan than "3,935.56".
+  const f = v => Number.isFinite(v)
+    ? v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—';
   const shp = sh => `<span class="svp-${sh}">${sh}</span>`;
   const seq = (c.sequence || '').split(' ').filter(Boolean).map(shp).join(' ');
+  const grainWord = {day: 'daily', week: 'weekly', month: 'monthly'}[c.grain] || '';
+  const grainNoun = {day: 'day', week: 'week', month: 'month'}[c.grain] || 'session';
+
+  // ── Plain-English layer ────────────────────────────────────────────────────
+  // Translation lives HERE, in the renderer, not in the engine: the engine's factor
+  // names and detail strings are also written into the backtest CSVs, so rewording
+  // them would silently break comparability with the 2026-08-29 measurement.
+  const PLAIN_NAME = {
+    'D-anchor regime':      'Trend anchor',
+    'VA re-entry':          'Back inside fair value',
+    'VA breakout':          'Holding above fair value',
+    'VA breakdown':         'Holding below fair value',
+    'POC trap (support)':   'Buyers defending',
+    'POC trap (resistance)':'Sellers capping',
+    'exhaustion stack':     'Push running out of steam',
+    'sequence tilt':        `Recent ${grainNoun}s lean`,
+    'liquidity sweep':      'Stop-run then reversal',
+    'POC cluster':          'Stacked levels (shelf)',
+  };
+  // De-jargon the engine's own detail string while KEEPING every number in it.
+  const plainDetail = (s) => String(s || '')
+    // The sequence factor's detail is "STATE: note", and the state's own plain
+    // wording duplicates the note — so strip the prefix here, BEFORE the rules
+    // below translate a bare state (used on its own in the header).
+    .replace(/^(?:DISTRIBUTION→MARKDOWN|ACCUMULATION→MARKUP)\s*:\s*/i, '')
+    // Group thousands in the embedded price levels so they match the lines above.
+    // Guarded to 4+ integer digits with 2 decimals, so counts ("5 times") are safe.
+    .replace(/\b(\d{4,})\.(\d{2})\b/g,
+             (m, a, b) => Number(a).toLocaleString() + '.' + b)
+    .replace(/(\d+)×\s*rejection of\s*[BPDI]-level\s*([\d.,]+)\s*held/i,
+             'pushed back from $2 $1 times and held')
+    .replace(/(\d+)×\s*rejection of\s*[BPDI]-level\s*([\d.,]+)\s*failed/i,
+             'capped at $2 $1 times')
+    .replace(/(\d+)\s*POCs stacked at/i, '$1 busy levels stacked at')
+    .replace(/Direction-POC/gi, 'trend anchor')
+    .replace(/composite VAL/gi, 'the fair-value floor')
+    .replace(/composite VAH/gi, 'the fair-value ceiling')
+    .replace(/\bVAL\b/g, 'fair-value floor').replace(/\bVAH\b/g, 'fair-value ceiling')
+    .replace(/→\s*bull regime/i, '— up-regime').replace(/→\s*bear regime/i, '— down-regime')
+    .replace(/→\s*reversal-UP/i, '— buyers in control')
+    .replace(/→\s*reversal-DOWN/i, '— sellers in control')
+    .replace(/→\s*support shelf below/i, '— a floor beneath price')
+    .replace(/→\s*resistance shelf above/i, '— a ceiling above price')
+    .replace(/→\s*acceptance higher/i, '— accepted at higher prices')
+    .replace(/→\s*acceptance lower/i, '— accepted at lower prices')
+    .replace(/→\s*acceptance/i, '— accepted back inside')
+    .replace(/→\s*distribution/i, '— sellers took it back')
+    .replace(/→\s*bull sweep/i, '— swept the low, then reclaimed it')
+    .replace(/→\s*bear sweep/i, '— swept the high, then failed')
+    .replace(/DISTRIBUTION→MARKDOWN/i, 'selling pressure building')
+    .replace(/ACCUMULATION→MARKUP/i, 'buying pressure building')
+    .replace(/→/g, '—');
   const cur = c.current;
   const adCol = /DISTRIB/.test(c.ad.state) ? '#f23645'
               : /ACCUM/.test(c.ad.state) ? '#26a69a' : 'var(--text-muted)';
@@ -5269,19 +6850,109 @@ function renderSVPInfo(pane, r) {
     ? `<div style="color:#f23645;margin-top:3px;">⚠ ${c.trap.note}</div>` : '';
   const levels = (c.levels || []).map(l => `${shp(l.shape)} ${f(l.poc)}`).join(' · ');
 
+  // ── Confluence signal block ──────────────────────────────────────────────────
+  const sig = c.signal;
+  let sigBadge = '', sigBody = '';
+  if (sig && sig.dir) {
+    // Deliberately MUTED, not colour-coded. It was measured (2026-08-29) to carry no
+    // forward edge, so giving it the same visual weight as the structural facts —
+    // green for BUY, red for SELL — would have the card shouting its weakest claim.
+    // The word stays, because hiding a reading is not the same as qualifying it.
+    const kindTxt = sig.kind ? ` · ${sig.kind}` : '';
+    const conf = sig.confidence ? ` (${sig.confidence} conf)` : '';
+    sigBadge = `<span style="color:var(--text-muted);font-weight:600;" ` +
+               `title="Measured: no forward edge — see ?">${sig.dir}${kindTxt}${conf}</span>`;
+    if (sig.dir !== 'NEUTRAL') {
+      // "agree 40%" told nobody anything. Say what the number means.
+      const agr = Math.round((sig.agreement || 0) * 100);
+      const agrWord = agr >= 70 ? 'signals mostly agree'
+                    : agr >= 45 ? 'signals partly disagree'
+                                : 'signals conflict — weak, mixed structure';
+      const bar = `<span style="color:#26a69a;">▲${f(sig.bullW)}</span> up vs ` +
+                  `<span style="color:#f23645;">▼${f(sig.bearW)}</span> down · ` +
+                  `<span class="svp-plain">${agr}% ${agrWord}</span>`;
+      // These are STRUCTURE levels, not a forecast — say so in the label rather
+      // than leaving "Target" to be read as a price prediction.
+      const tgtParts = [];
+      if (sig.target != null) tgtParts.push(`next structure level <b>${f(sig.target)}</b>`);
+      else tgtParts.push(`no level ahead (price broke ${sig.dir === 'SELL' ? 'below' : 'above'} them all)`);
+      if (sig.invalidation != null) tgtParts.push(`this read breaks if price passes <b>${f(sig.invalidation)}</b>`);
+      const tgt = `<div>${tgtParts.join(' · ')}</div>`;
+      const facs = (sig.factors || []).filter(x => x.dir)
+        .map(x => {
+          const label = PLAIN_NAME[x.name] || x.name;
+          return `<div style="margin-left:8px;color:${x.dir>0?'#26a69a':'#f23645'};">` +
+                 `${x.dir>0?'▲':'▼'} <b>${label}</b> ` +
+                 `<span class="svp-tech">— ${plainDetail(x.detail)}</span></div>`;
+        })
+        .join('');
+      sigBody = `<div style="margin-top:4px;border-top:1px solid var(--border,rgba(255,255,255,.08));padding-top:4px;">` +
+        `<div style="color:var(--text-muted);">Confluence: ${bar}</div>` + tgt + facs + `</div>`;
+    }
+  }
+  // Flag the agreement between the short- and long-run busiest price: when they sit
+  // on top of each other that IS the structural read, and it was invisible before.
+  const compAlign = (c.composite && cur && cur.poc > 0
+                     && Math.abs(c.composite.poc - cur.poc) / cur.poc < 0.01)
+    ? ` <span style="color:#26a69a;">— same as this ${grainNoun}'s, a level both agree on</span>` : '';
+  const compLine = c.composite
+    ? `<div>Longer-run busiest <b>${f(c.composite.poc)}</b> · fair value ` +
+      `${f(c.composite.val)}–${f(c.composite.vah)}${compAlign}</div>` : '';
+
   st.infoEl.innerHTML =
     `<div class="svp-head">Session VP · ` +
+      (sig && sig.dir ? sigBadge + ` · ` : '') +
       (cur ? `now ${shp(cur.shape)} <span style="color:var(--text-muted);font-weight:400;">(${cur.label})</span>` : '') +
-      ` · <span style="color:${adCol};font-weight:700;">${c.ad.state}</span> ` +
-      `<span style="color:var(--text-muted);font-weight:400;">▾</span></div>` +
+      ` · <span style="color:${adCol};font-weight:700;">${plainDetail(c.ad.state)}</span> ` +
+      `<span style="color:var(--text-muted);font-weight:400;">▾</span>` +
+      `<span class="svp-q" title="What am I looking at?">?</span></div>` +
     `<div class="svp-body" style="margin-top:5px;">` +
-      `<div>Sessions: <span class="svp-seq">${seq}</span></div>` +
-      (cur ? `<div>POC <b>${f(cur.poc)}</b> · VA ${f(cur.val)}–${f(cur.vah)}</div>` : '') +
+      // Name the grain. "Session" means a different period per timeframe (a day
+      // intraday, a week on 1d, a month on 1w — and a week on coarse intraday bars
+      // where a day is too thin to profile), and reading the shape sequence without
+      // knowing which is a silent misread.
+      `<div>Sessions${grainWord ? ` <span style="color:var(--text-muted);font-weight:400;">(${grainWord})</span>` : ''}: ` +
+        (seq ? `<span class="svp-seq">${seq}</span>`
+             : `<span style="color:var(--text-muted);">${c.note || 'none computable'}</span>`) + `</div>` +
+      (cur ? `<div>Busiest price <b>${f(cur.poc)}</b> · fair value ${f(cur.val)}–${f(cur.vah)}` +
+             ` <span class="svp-tech">(this ${grainNoun})</span></div>` : '') +
+      compLine +
       trapLine +
-      (levels ? `<div style="margin-top:3px;">Critical POCs: ${levels}</div>` : '') +
-      `<div class="svp-cav">D=direction · P=buying · B=selling · I=balance. POCs are ` +
-        `observed volume levels; shapes + the 3-4× trap rule are interpretive claims to ` +
-        `backtest, not signals. Not advice.</div>` +
+      (levels ? `<div style="margin-top:3px;">Key levels <span class="svp-tech">(newest first)</span>: ${levels}</div>` : '') +
+      sigBody +
+      // The caveat used to read "every weight is unbacktested". That is no longer
+      // true — svp_backtest.py measured it on 2026-08-29 and it FAILED, so the card
+      // now states the result instead of the absence of one. The structural read
+      // (shapes, POC, value area) stands; the directional call does not.
+      // One line by default. The evidence behind it is real and must stay reachable,
+      // but a paragraph of statistics on a chart overlay is how a caveat gets skipped.
+      `<div class="svp-cav">` +
+        `<b>Read the structure, not the BUY/SELL word</b> — the direction call was ` +
+        `measured and has no edge. Not advice.</div>` +
+
+      `<div class="svp-help">` +
+        `<div><b>What this is.</b> A map of where trading actually happened — where price ` +
+        `is supported, where it is capped, and whether the market is trending or balanced. ` +
+        `It describes structure; it does not predict.</div>` +
+        `<div style="margin-top:4px;"><b>Busiest price (POC)</b> — the single price with the ` +
+        `most trade. <b>Fair value</b> — the band holding most of the trade. Price leaving ` +
+        `that band and staying out is the market repricing.</div>` +
+        `<div style="margin-top:4px;"><b>${grainNoun[0].toUpperCase()+grainNoun.slice(1)} shapes</b> — ` +
+        `${shp('D')} one-way move · ${shp('P')} buyers absorbing · ${shp('B')} sellers ` +
+        `unloading · ${shp('I')} balanced. Read left→right, newest last.</div>` +
+        `<div style="margin-top:4px;"><b>Stacked levels</b> — several ${grainNoun}s agreeing ` +
+        `on a price build a shelf: a floor below, a ceiling above.</div>` +
+        `<div style="margin-top:4px;"><b>Agreement %</b> — how much the individual reads point ` +
+        `the same way. Low means conflicting evidence, so expect chop rather than follow-through.</div>` +
+        `<div style="margin-top:4px;"><b>Levels, not forecasts</b> — the "next structure level" ` +
+        `is where the map says price would next meet business, not where it will go.</div>` +
+        `<div style="margin-top:5px;padding-top:4px;border-top:1px solid var(--border);">` +
+        `<b>Why the direction word is greyed out.</b> Measured 2026-08-29 over 8 names and ` +
+        `~19 years: BUY days did <b>worse</b> than an average day (−0.12 to −0.68pp) and SELL ` +
+        `days did <b>better</b> — backwards, though not significantly (p=0.21). The confluence ` +
+        `score carried no information either (corr with 20-day return = −0.04). The levels and ` +
+        `shapes above are still worth reading; the arrow is not.</div>` +
+      `</div>` +
     `</div>`;
   st.infoEl.classList.toggle('collapsed', st.collapsed);
   st.infoEl.style.display = 'block';
@@ -5403,6 +7074,188 @@ function renderGannInfo(pane, r) {
       `<div class="gann-cav">Lines are deterministic Square-of-9 levels; the % is THIS ` +
         `symbol's historical breakout follow-through (n past breaks), not a Gann ` +
         `forecast. “No edge” = the break behaves like ordinary S/R. Not advice.</div>` +
+    `</div>`;
+  st.infoEl.classList.toggle('collapsed', st.collapsed);
+  st.infoEl.style.display = 'block';
+}
+
+// ── Option OI walls + max pain overlay (B-28) ────────────────────────────────
+// Backed by /api/option_levels (option_chain.read_levels). Draws the highest-OI
+// call strikes as resistance, the highest-OI put strikes as support, and the
+// max-pain strike as a magnet line.
+//
+// Price lines, not a canvas: these are horizontal PRICE levels, so
+// createPriceLine lets Lightweight Charts own the anchoring and the axis label
+// and there is no pan/zoom redraw to get wrong (the trap the user drawing layer
+// had to solve).
+//
+// Two rules inherited from option_chain.py, and the overlay must not re-derive
+// its own view of either:
+//   1. Levels are PER EXPIRY. The card carries an expiry selector; without one a
+//      weekly and a monthly chain merge into one meaningless picture.
+//   2. Walls are side-correct — resistance at/above spot, support at/below. The
+//      server already enforces it; this draws what it is given rather than
+//      re-ranking the raw strike table.
+//
+// UNMEASURED. "Price gravitates to max pain" and "a wall rejects the first
+// touch" are untested folk claims; the payload carries `unmeasured: true` and
+// the card says so. This is levels-with-context, not a signal.
+const OIW_RES  = '#f23645';   // call walls — resistance
+const OIW_SUP  = '#26a69a';   // put walls  — support
+const OIW_PAIN = '#7e57c2';   // max pain   — magnet
+
+function ensureOiWallsState(pane) {
+  if (!pane.oiw) {
+    pane.oiw = {priceLines: [], infoEl: null, collapsed: false,
+                lastKey: null, expiry: null, data: null, inflight: false};
+  }
+  return pane.oiw;
+}
+
+function clearOiWalls(pane) {
+  const st = pane.oiw;
+  if (!st) return;
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+  if (st.infoEl) { try { st.infoEl.remove(); } catch {} st.infoEl = null; }
+  pane.oiw = null;
+}
+
+async function renderOiWalls(pane) {
+  const st = ensureOiWallsState(pane);
+  // Options are an underlying-level fact: the same chain regardless of the
+  // chart timeframe, so tf is deliberately NOT part of the cache key.
+  const key = `${pane.symbol}:${st.expiry || 'near'}`;
+  if (st.lastKey === key && st.data) { drawOiWalls(pane); return; }
+  if (st.inflight) return;
+
+  st.inflight = true;
+  let payload = null;
+  try {
+    const url = `${SERVER}/api/option_levels?symbol=${encodeURIComponent(pane.symbol)}`
+              + (st.expiry ? `&expiry=${encodeURIComponent(st.expiry)}` : '')
+              + '&walls=3';
+    const res = await fetch(url);
+    if (res.ok) payload = await res.json();
+  } catch (e) { console.warn('option_levels fetch failed:', e); }
+  st.inflight = false;
+
+  // The user may have switched the indicator off or changed symbol mid-flight.
+  if (!pane.indicators.has('oiwalls')) return;
+  if (pane.symbol !== key.split(':')[0]) return;
+
+  st.lastKey = key;
+  st.data = payload ? payload.levels : null;
+  drawOiWalls(pane);
+}
+
+function drawOiWalls(pane) {
+  const st = ensureOiWallsState(pane);
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+
+  const r = st.data;
+  if (!r) { renderOiWallsInfo(pane, null); return; }
+
+  const mk = (price, color, style, width, title) => {
+    if (!Number.isFinite(price)) return;
+    try {
+      st.priceLines.push(pane.series.createPriceLine({
+        price, color, lineWidth: width, lineStyle: style,
+        axisLabelVisible: true, title,
+      }));
+    } catch {}
+  };
+
+  // Rank drives line weight, so the heaviest wall reads as the heaviest line
+  // without needing the numbers. Server returns strongest-first.
+  (r.resistance || []).forEach((w, i) => {
+    mk(w.strike, OIW_RES, i === 0 ? 0 : 2, i === 0 ? 2 : 1,
+       `CE wall ${i === 0 ? '' : (i + 1)}`.trim());
+  });
+  (r.support || []).forEach((w, i) => {
+    mk(w.strike, OIW_SUP, i === 0 ? 0 : 2, i === 0 ? 2 : 1,
+       `PE wall ${i === 0 ? '' : (i + 1)}`.trim());
+  });
+  // Max pain is a magnet, not a barrier — dashed so it never reads as S/R.
+  if (r.max_pain != null) mk(r.max_pain, OIW_PAIN, 1, 2, 'Max pain');
+
+  renderOiWallsInfo(pane, r);
+}
+
+function renderOiWallsInfo(pane, r) {
+  const st = ensureOiWallsState(pane);
+  if (!st.infoEl) {
+    st.infoEl = document.createElement('div');
+    st.infoEl.className = 'oiw-info';
+    pane.el.querySelector('.chart-main').appendChild(st.infoEl);
+    st.infoEl.addEventListener('click', ev => {
+      if (!ev.target.closest('.oiw-head')) return;
+      st.collapsed = !st.collapsed;
+      st.infoEl.classList.toggle('collapsed', st.collapsed);
+    });
+    // Expiry switch — refetch that chain rather than re-slicing the old one,
+    // since max pain is only defined against a single settlement.
+    st.infoEl.addEventListener('change', ev => {
+      const sel = ev.target.closest('.oiw-exp');
+      if (!sel) return;
+      st.expiry = sel.value || null;
+      st.lastKey = null;
+      renderOiWalls(pane);
+    });
+  }
+
+  if (!r) {
+    st.infoEl.innerHTML =
+      `<div class="oiw-head"><span style="color:${OIW_PAIN}">Option OI Walls</span> ` +
+      `<span style="color:var(--text-muted);font-weight:400;">no F&O chain for ` +
+      `${pane.symbol}</span></div>`;
+    st.infoEl.style.display = 'block';
+    return;
+  }
+
+  const f = v => Number.isFinite(v)
+    ? v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—';
+  const oiFmt = v => Number.isFinite(v)
+    ? (v >= 1e7 ? (v / 1e7).toFixed(2) + ' Cr' : v >= 1e5 ? (v / 1e5).toFixed(2) + ' L'
+       : v.toLocaleString()) : '—';
+  const dist = w => (w.dist_pct == null ? '' :
+    ` <span class="oiw-oi">${w.dist_pct >= 0 ? '+' : ''}${w.dist_pct.toFixed(2)}%</span>`);
+
+  const expOpts = (r.expiries || []).map(e =>
+    `<option value="${e}"${e === r.expiry ? ' selected' : ''}>${e}</option>`).join('');
+
+  const row = (w, color, tag) =>
+    `<div class="oiw-row"><span style="color:${color}">${tag} <b>${f(w.strike)}</b>${dist(w)}</span>` +
+    `<span class="oiw-oi">${oiFmt(w.oi)}</span></div>`;
+
+  const mpLine = r.max_pain == null
+    ? `<div class="oiw-oi">Max pain n/a (pooled expiry)</div>`
+    : `<div><span style="color:${OIW_PAIN}">◆ Max pain <b>${f(r.max_pain)}</b></span>` +
+      (r.max_pain_dist_pct == null ? '' :
+        ` <span class="oiw-oi">${r.max_pain_dist_pct >= 0 ? '+' : ''}` +
+        `${r.max_pain_dist_pct.toFixed(2)}% from spot</span>`) + `</div>`;
+
+  st.infoEl.innerHTML =
+    `<div class="oiw-head">` +
+      `<span style="color:${OIW_PAIN}">Option OI Walls · Max Pain</span> ` +
+      `<span class="oiw-oi" style="font-weight:400;">${r.class} · spot ${f(r.spot)}` +
+      (r.pcr_oi != null ? ` · PCR ${r.pcr_oi.toFixed(2)}` : '') + `</span> ` +
+      `<span class="oiw-oi" style="font-weight:400;">▾</span>` +
+    `</div>` +
+    `<div class="oiw-body" style="margin-top:5px;">` +
+      `<div class="oiw-oi" style="margin-bottom:3px;">Expiry` +
+        `<select class="oiw-exp">${expOpts}</select>` +
+        (r.trade_date ? ` <span class="oiw-oi">· session ${r.trade_date}</span>` : '') +
+      `</div>` +
+      (r.resistance || []).map(w => row(w, OIW_RES, '▲')).join('') +
+      mpLine +
+      (r.support || []).map(w => row(w, OIW_SUP, '▼')).join('') +
+      `<div class="oiw-cav">Where option OI sits, from the EOD F&O bhavcopy — ` +
+        `call writers above, put writers below, max pain the settlement that pays ` +
+        `holders least. <b>Unmeasured:</b> "price gravitates to max pain" and "a ` +
+        `wall rejects the first touch" are untested here. Levels for context, not ` +
+        `a signal. Not advice.</div>` +
     `</div>`;
   st.infoEl.classList.toggle('collapsed', st.collapsed);
   st.infoEl.style.display = 'block';
@@ -6175,8 +8028,8 @@ async function loadData(idx) {
         });
         savePaneCfg();
       }
-      p.series.setData(bars);
       p.bars = bars;
+      applyPriceStyle(p);   // feeds raw bars or their Heikin-Ashi transform per p.chartType
       // Per-symbol external research links (covers the initial load and reloads;
       // p.symbol is canonical after the reconciliation block above).
       {
@@ -6355,15 +8208,21 @@ function onCandleMsg(msg) {
     // up as a "mirrored duplicate" candle floating near current price.
     if (msg.timeframe && msg.timeframe !== p.tf) return;
     const bar = msg.bar;
-    p.series.update(bar);
-    updateTicker(i, bar.close, true);
-
+    // Update the raw bar store first so indicators + any HA recompute see it.
+    let barsChanged = false;
     if (p.bars && p.bars.length) {
       const lastBar = p.bars[p.bars.length - 1];
       if (lastBar.time === bar.time) p.bars[p.bars.length - 1] = bar;
       else                           p.bars.push(bar);
-      if (p.indicators.size) applyIndicators(p);
+      barsChanged = true;
     }
+    // In Heikin-Ashi mode a raw series.update() would break the HA chain (each HA
+    // bar depends on the prior HA open/close), so recompute the HA series from the
+    // raw bars. Candles mode does the cheap in-place update.
+    if (p.chartType === 'heikin') applyPriceStyle(p);
+    else                          p.series.update(bar);
+    updateTicker(i, bar.close, true);
+    if (barsChanged && p.indicators.size) applyIndicators(p);
   });
 }
 

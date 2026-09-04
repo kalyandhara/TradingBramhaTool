@@ -68,7 +68,7 @@ SLEEP = 1.5
 #: DII and retail. Re-fetching two years of filings to add a column later would
 #: not be.
 STORE_LEGS = ("fii", "dii", "mf", "retail", "promoter", "public",
-              "fpi_cat1", "fpi_cat2", "shares_total")
+              "fpi_cat1", "fpi_cat2", "shares_total", "promoter_pledge_pct")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

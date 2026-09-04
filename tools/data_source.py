@@ -22,13 +22,43 @@ log = logging.getLogger(__name__)
 
 TF_SECONDS = {
     "1m": 60, "5m": 300, "15m": 900, "30m": 1800,
-    "1h": 3600, "4h": 14400, "1d": 86400, "1w": 604800,
+    "1h": 3600, "4h": 14400, "6h": 21600, "1d": 86400, "1w": 604800,
 }
+
+#: Timeframes no upstream serves natively; built by resampling 1h bars. Kept as one
+#: constant so the yfinance and Hyperliquid paths cannot disagree about which
+#: timeframes are synthetic.
+_RESAMPLED = ("4h", "6h")
 
 #: The only timeframes this stack understands. Matches TIMEFRAMES in
 #: chart_dashboard.html — the UI and the server must not disagree about what is
 #: askable.
 TIMEFRAMES = tuple(TF_SECONDS)
+
+
+def _fold_bars(rows: list[dict], secs: int) -> list[dict]:
+    """Aggregate sorted OHLCV rows into `secs`-wide CLOCK-aligned buckets.
+
+    Used for timeframes an upstream cannot serve natively. Bucketing on
+    ``time - time % secs`` matches pandas' default clock alignment, so the
+    Hyperliquid and yfinance paths put a 6h bar on the same grid rather than one
+    starting wherever the fetch happened to begin.
+    """
+    if not rows or secs <= 0:
+        return rows
+    out: list[dict] = []
+    for r in sorted(rows, key=lambda x: x["time"]):
+        b = r["time"] - (r["time"] % secs)
+        if out and out[-1]["time"] == b:
+            cur = out[-1]
+            cur["high"] = max(cur["high"], r["high"])
+            cur["low"] = min(cur["low"], r["low"])
+            cur["close"] = r["close"]
+            cur["volume"] += r["volume"]
+        else:
+            out.append({"time": b, "open": r["open"], "high": r["high"],
+                        "low": r["low"], "close": r["close"], "volume": r["volume"]})
+    return out
 
 
 class UnknownTimeframe(ValueError):
@@ -128,6 +158,7 @@ class YFinanceSource(DataSource):
         "30m": ("30m",  "60d"),
         "1h":  ("1h",   "730d"),
         "4h":  ("1h",   "730d"),   # resample 1h → 4h
+        "6h":  ("1h",   "730d"),   # resample 1h → 6h (see _RESAMPLED)
         "1d":  ("1d",   "5y"),
         "1w":  ("1wk",  "max"),
     }
@@ -182,8 +213,24 @@ class YFinanceSource(DataSource):
             if col not in df.columns:
                 return []
 
-        if timeframe == "4h":
-            df = (df.resample("4h")
+        # Timeframes yfinance has no native interval for — built from 1h bars.
+        #
+        # Buckets are CLOCK-aligned (the pandas default), which is right for a 24h
+        # market: 6h gives a clean 00/06/12/18 grid, four bars a day. It is NOT clean
+        # for an exchange-hours instrument, and the consequence is worth knowing
+        # before trusting a 6h NSE chart:
+        #
+        #   yfinance returns NSE 1h bars localized to Asia/Kolkata at 09:15…15:15.
+        #   4h buckets at 08:00/12:00 and 6h buckets at 06:00/12:00 — DIFFERENT
+        #   boundaries that both split the session at 12:00, so on NSE cash the two
+        #   timeframes produce byte-identical bars (measured 2026-08-30 on RELIANCE:
+        #   60 bars each, same OHLC). NSE's session is 6h15m, so no bucket wider than
+        #   ~3h divides it cleanly; "one bar per NSE session" is the 1d chart.
+        #
+        # 6h is therefore genuinely distinct on crypto (4 bars/day) and on the longer
+        # MCX session, and degenerate-but-harmless on NSE cash.
+        if timeframe in _RESAMPLED:
+            df = (df.resample(timeframe)
                     .agg({"Open": "first", "High": "max",
                           "Low": "min", "Close": "last", "Volume": "sum"})
                     .dropna(subset=["Open", "Close"]))
@@ -357,16 +404,26 @@ class HyperliquidSource(DataSource):
     name = "hyperliquid"
     _API = "https://api.hyperliquid.xyz/info"
 
+    #: Hyperliquid's candle intervals. It has 1h/4h but NOT 6h, so 6h is fetched as
+    #: 1h and folded down below — the same synthetic-timeframe rule the yfinance path
+    #: uses, rather than silently serving 4h under a 6h label (the failure mode
+    #: `validate_timeframe` exists to prevent).
     _TF = {
         "1m": "1m", "5m": "5m", "15m": "15m", "30m": "30m",
-        "1h": "1h", "4h": "4h", "1d": "1d",   "1w":  "1w",
+        "1h": "1h", "4h": "4h", "6h": "1h",   "1d": "1d",   "1w":  "1w",
     }
 
     def get_ohlcv(self, symbol: str, timeframe: str, bars: int = 200) -> list[dict]:
-        interval = self._TF[validate_timeframe(timeframe)]
-        secs = TF_SECONDS[timeframe]
+        tf = validate_timeframe(timeframe)
+        interval = self._TF[tf]
+        # A synthetic timeframe needs its source bars, not its own: 200 six-hour bars
+        # are 1,200 one-hour candles. Asking for `bars` of 1h would silently return a
+        # sixth of the requested history.
+        fold = TF_SECONDS[tf] // TF_SECONDS["1h"] if tf == "6h" else 1
+        secs = TF_SECONDS["1h"] if fold > 1 else TF_SECONDS[tf]
+        bars_needed = bars * fold if fold > 1 else bars
         end_ms = int(time.time() * 1000)
-        start_ms = end_ms - (bars + 5) * secs * 1000
+        start_ms = end_ms - (bars_needed + 5) * secs * 1000
         try:
             r = requests.post(self._API, json={
                 "type": "candleSnapshot",
@@ -379,10 +436,10 @@ class HyperliquidSource(DataSource):
             log.warning("Hyperliquid REST failed for %s: %s", symbol, e)
             return []
 
-        out = []
-        for c in candles[-bars:]:
+        rows = []
+        for c in candles:
             try:
-                out.append({
+                rows.append({
                     "time":   int(c["t"]) // 1000,
                     "open":   float(c["o"]),
                     "high":   float(c["h"]),
@@ -392,7 +449,9 @@ class HyperliquidSource(DataSource):
                 })
             except Exception:
                 continue
-        return out
+        if fold > 1:
+            rows = _fold_bars(rows, TF_SECONDS[tf])
+        return rows[-bars:]
 
     def get_latest_price(self, symbol: str) -> float | None:
         try:

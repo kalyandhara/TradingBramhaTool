@@ -3,14 +3,16 @@ title: "Point-and-Figure Charts"
 category: concept
 tags: [chart, point-and-figure, price-action, chart-type, time-independent, box-size, reversal-amount]
 created: 2026-07-12
-updated: 2026-08-09
+updated: 2026-08-29
 sources: 1
-related: [concepts/True-Strength-Index-TSI, concepts/SuperTrend, concepts/Support-Resistance, entities/Kaushik-Akkiwakar, sources/YT-Kaushik-Akkiwakar-TSI-Momentum]
+related: [concepts/True-Strength-Index-TSI, concepts/SuperTrend, concepts/Renko-Charts, concepts/Support-Resistance, entities/Kaushik-Akkiwakar, sources/YT-Kaushik-Akkiwakar-TSI-Momentum]
 ---
 
 # Point-and-Figure Charts (P&F)
 
 Time-independent chart type. Columns of Xs (rising) and Os (falling) plotted by price movement, not by time. A new box is added only when price moves by the *box size*; a new column starts only when price reverses by the *reversal amount* (typically 3 boxes).
+
+Sibling chart type: [[concepts/Renko-Charts]] — same time-independent premise, simpler construction (equal bricks, fixed 2-brick reversal, no column vocabulary).
 
 ## Why It Matters
 

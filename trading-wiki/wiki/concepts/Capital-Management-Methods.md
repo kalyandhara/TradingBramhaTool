@@ -171,6 +171,39 @@ A concrete, named fixed-fractional implementation worth comparing against the me
 - 6 exit-style templates selectable at entry: Fixed R:R (50% at +2R, trail rest), Partial at +1R, Trailing ATR (1.5x ATR below highs), Swing low trail, EMA trail (below 20 EMA), and a **Pyramid mode** (adds only after +1R) — directly analogous to the wash-and-reclaim pyramiding mechanism documented above from David Hannan's interview.
 - See [[sources/SwingEdge-Position-Sizing-Tool]] for full detail.
 
+## Trade from stability, not scarcity — and the streak maths (2026-08-29)
+
+From [[sources/YT-Pro-Trader-Amygdala-Options-Philosophy]]. The sizing argument that
+sits *underneath* every method on this page:
+
+> "Most traders trade like they've got everything to lose, because they do. Everything
+> hinges on that next trade working out."
+
+**The claim, checked exactly.** *"You could have a 55% win rate and still lose seven trades
+in a row."* Computed as a Bernoulli run probability:
+
+| win rate | P(≥7 consecutive losses) in 100 trades | in 200 | in 500 |
+|---|---|---|---|
+| 55% | 17.9% | **33.4%** | 64.4% |
+| 60% | 8.9% | 17.5% | 38.7% |
+| 65% | 3.9% | 7.8% | 18.7% |
+
+A genuinely profitable 55%-win-rate trader taking ~200 trades a year has a **one-in-three
+chance of a seven-loss streak in any given year**, and better-than-even odds across two and
+a half years. This is not rhetoric — it is the arithmetic of variance, and it is the whole
+argument for the **0.5% risk-per-trade default** recorded above. Size so that the streak
+that *will* arrive is an inconvenience rather than an ending.
+
+**The financial-position argument.** *"Trading is what's going to make me wealthy; it's not
+what's going to make me rich in the here and now."* The source describes his most stressful
+years as the ones spent 100% reliant on trading income — hoarding cash, unable to commit to
+a rent cheque, with no working sense of personal finance. Childhood conditioning around
+**resources** (parents arguing about money) installs a scarcity setting that reappears as
+loss aversion at the screen; see [[concepts/Trading-Neurobehavioral-Loop]].
+
+Traders who built everything from nothing are *"exceptions to the rule, and yet everyone
+thinks they're going to be the next exception."*
+
 ## Examples in This Wiki
 - None yet implemented in code — candidate addition to position-sizing logic in `tools/nse_wave_scanner.py` if/when automated sizing is added.
 

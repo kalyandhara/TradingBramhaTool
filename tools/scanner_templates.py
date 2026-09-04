@@ -1048,16 +1048,36 @@ def scan_vcp_minervini_valchak(df: pd.DataFrame, strict: bool = False) -> dict |
     if not geom:
         return None
     depths = [c["depth_pct"] for c in geom["contractions"]]
-    first_d = depths[0]
-    final_d = depths[-1]
+    # NOTE: the first/final depth ranges are applied BELOW, to the tightening run —
+    # not here to the raw detector output. Checking them twice would silently reject a
+    # base whose raw outermost leg is out of range even though the run that actually
+    # forms the VCP is inside it, which is the same class of bug being fixed.
+    tight_ratio_cap = 0.5 if strict else 0.9
+    # ── Fixed 2026-08-29: this gate rejected 59 of 59 candidates, i.e. everything ──
+    # The old test demanded that EVERY consecutive pair in `detect_vcp_geometry`'s
+    # output tighten. But that helper returns the raw pivot-to-pivot contractions in
+    # the window, and real bases oscillate — measured depth runs look like
+    # [14.2, 10.2, 8.0, 5.3, 10.5, 5.7]: clearly contracting overall, yet one widening
+    # leg is enough to fail a strict all-pairs test. valchak's script does not test a
+    # raw list; it only COUNTS a contraction when it is tighter than the previous one,
+    # so the ratio test belongs to the tightening RUN, not to everything detected.
+    #
+    # So: take the longest run ending at the most recent contraction in which each step
+    # tightens by <= cap, and apply valchak's depth ranges to THAT run. A widening leg
+    # earlier in the window now ends the run instead of invalidating the whole base.
+    run = [depths[-1]]
+    for i in range(len(depths) - 2, -1, -1):
+        if run[0] <= depths[i] * tight_ratio_cap:
+            run.insert(0, depths[i])
+        else:
+            break
+    if len(run) < 2:
+        return None
+    depths = run
+    first_d, final_d = depths[0], depths[-1]
     if not (10.0 <= first_d <= 35.0):
         return None
     if not (3.0 <= final_d <= 10.0):
-        return None
-    tight_ratio_cap = 0.5 if strict else 0.9
-    tighten_ok = all(depths[i + 1] <= depths[i] * tight_ratio_cap
-                     for i in range(len(depths) - 1))
-    if not tighten_ok:
         return None
     base_bars = geom["base_end_bar_idx"] - geom["base_start_bar_idx"]
     if not (15 <= base_bars <= 325):
@@ -1088,7 +1108,11 @@ def scan_vcp_minervini_valchak(df: pd.DataFrame, strict: bool = False) -> dict |
     if ext_above_pivot_pct > max_ext_pct:
         return None
 
-    footprint = geom["footprint"]
+    # Footprint must describe the RUN, not the detector's full window. Reporting
+    # "2 contractions" next to a six-leg footprint (geom["footprint"]) invited the
+    # reader to check a number the gates never used.
+    footprint = "/".join(f"{d:.0f}" for d in depths) + "%"
+    window_footprint = geom["footprint"]
     tags = [
         "Trend Template ✓",
         f"VCP {footprint}",
@@ -1097,7 +1121,8 @@ def scan_vcp_minervini_valchak(df: pd.DataFrame, strict: bool = False) -> dict |
     ]
     reasons = [
         "All 8 Trend Template criteria passed (above/below levels, MA stack, 52w low/high bands, SMA200 rising)",
-        f"VCP: {len(depths)} contractions, footprint {footprint}%, base {base_bars} bars",
+        f"VCP: {len(depths)} tightening contractions {footprint}, base {base_bars} bars "
+        f"(detector saw {window_footprint}% across the whole window)",
         f"First {first_d:.1f}% → Final {final_d:.1f}% (tightening ≤{tight_ratio_cap:.1f}× each step)",
         f"Breakout: close {last:.2f} > pivot {pivot:.2f} on {vol_mult:.1f}× 50-DMA volume",
         f"Not extended: only {ext_above_pivot_pct:.1f}% above pivot (cap {max_ext_pct:.0f}%)",
@@ -1175,11 +1200,85 @@ def scan_downside_risk(df: pd.DataFrame) -> dict | None:
     )
     if dist_days >= 2:
         reasons.append(f"{dist_days} distribution days in last 10 sessions — selling pressure")
+
+    tags = ["Below SMA50", "Distribution"]
+    score = round((sma50 - last) / sma50 * 100, 2)
+
+    # ADX/DI directional confirmation — −DI in control with trend strength turns a
+    # passive "below SMA50" into an active downtrend. (Measured: ADX/DI is a
+    # regime read, not a trigger — see concepts/ADX; here it CONFIRMS the break.)
+    if len(df) >= 40:
+        try:
+            plus_di, minus_di, adx = _adx_di_series(df)
+            adx_now = float(adx.iloc[-1]); pdi = float(plus_di.iloc[-1]); mdi = float(minus_di.iloc[-1])
+            if not (np.isnan(adx_now) or np.isnan(pdi)):
+                if mdi > pdi and adx_now >= 25:
+                    reasons.append(f"−DI {mdi:.0f} > +DI {pdi:.0f} with ADX {adx_now:.0f} — "
+                                   f"directional downtrend has strength, not just a wobble")
+                    tags.append("−DI>+DI, ADX≥25")
+                    score = min(100.0, score + 15.0)
+                elif mdi > pdi:
+                    reasons.append(f"−DI {mdi:.0f} > +DI {pdi:.0f} (ADX {adx_now:.0f}) — "
+                                   f"sellers ahead but trend strength still weak")
+                    tags.append("−DI>+DI")
+        except Exception:
+            pass
+
     return {
         "pattern_type": "Downside Risk",
-        "tags": ["Below SMA50", "Distribution"],
+        "tags": tags,
         "reasons": reasons,
-        "score": round((sma50 - last) / sma50 * 100, 2),
+        "score": score,
+    }
+
+
+def scan_adx_trend_confirmation(df: pd.DataFrame) -> dict | None:
+    """ADX+DI trend-UP confirmation — NOT a standalone buy trigger.
+
+    Fires when the directional-movement system confirms an up-trend with
+    strength: price > SMA50, **+DI > −DI**, **ADX ≥ 25 AND rising**. This is a
+    *context/confirmation* read, not an entry: the measured evidence
+    (concepts/ADX.md — DI crosses are negative-edge, the confirmed state ~neutral)
+    says ADX/DI does not itself generate alpha. Its job here is to say "the trend
+    is on and pointed up" so a separate price+volume trigger can be taken with the
+    tape rather than against it. Deliberately carries **no entry/stop/target** —
+    it is not a trade plan. Kept out of MEASURED_EDGE_SCANNERS for the same reason.
+    """
+    if len(df) < 60:
+        return None
+    close = df["close"]
+    last = float(close.iloc[-1])
+    sma50 = _sma(close, 50)
+    if np.isnan(sma50) or last <= sma50:
+        return None
+    try:
+        plus_di, minus_di, adx = _adx_di_series(df)
+        adx_now = float(adx.iloc[-1]); adx_prev = float(adx.iloc[-2])
+        pdi = float(plus_di.iloc[-1]); mdi = float(minus_di.iloc[-1])
+    except Exception:
+        return None
+    if any(np.isnan(x) for x in (adx_now, adx_prev, pdi, mdi)):
+        return None
+    # +DI must lead, ADX must be actionable (≥25) AND rising (slope > level).
+    if not (pdi > mdi and adx_now >= 25 and adx_now > adx_prev):
+        return None
+
+    spread = pdi - mdi
+    reasons = [
+        f"ADX {adx_now:.0f} (rising from {adx_prev:.0f}) — trend strength is real and building",
+        f"+DI {pdi:.0f} > −DI {mdi:.0f} (spread {spread:.0f}) — buyers in directional control",
+        f"Price ({last:.0f}) > SMA50 ({sma50:.0f}) — structure agrees with the DI read",
+        "CONFIRMATION, not a trigger — pair with a price+volume entry; ADX/DI alone "
+        "has no measured edge (concepts/ADX.md).",
+    ]
+    # Score from trend strength + directional conviction; capped. No trade plan.
+    score = min(100.0, 35.0 + min(35.0, (adx_now - 25.0)) + min(30.0, spread))
+    return {
+        "pattern_type": "ADX Trend-Up (confirmation)",
+        "tags": [f"ADX {adx_now:.0f}↑", f"+DI>−DI ({spread:.0f})", "Confirm, not trigger"],
+        "reasons": reasons,
+        "score": round(score, 1),
+        "rs_raw": _rs_raw(df),
     }
 
 
@@ -1882,14 +1981,17 @@ def compute_ibd_rs_blend(df: pd.DataFrame) -> float | None:
     return 0.4 * r3 + 0.2 * r6 + 0.2 * r9 + 0.2 * r12
 
 
-def compute_recent_exhaustion_signal(df: pd.DataFrame, lookback: int = 3) -> str | None:
+def _percentr_exhaustion(df: pd.DataFrame, lookback: int = 3) -> dict | None:
     """Port of the %R Trend Exhaustion indicator (see
-    percent_r_trend_exhaustion.js — same fast/slow Williams %R + EMA
-    smoothing + overbought/oversold zone logic) for bulk Python screening.
+    percent_r_trend_exhaustion.js — same fast/slow Williams %R + EMA smoothing +
+    overbought/oversold zone logic) for bulk Python screening.
 
-    Returns "bullish" if a bullish exhaustion (price just left the oversold
-    zone) fired within the last `lookback` bars, "bearish" for the oversold
-    equivalent, or None if neither fired recently.
+    Williams %R runs 0 (top of range) to -100 (bottom). When BOTH the fast and
+    slow %R are in the overbought band (>= -threshold) and then LEAVE it, that is
+    a top exhaustion → "bearish" (sell); the oversold-zone exit is the mirror →
+    "bullish" (bottoming). Returns detail so callers can report the reading:
+      {"signal": "bullish"/"bearish"/None, "fast", "slow", "bars_ago"}.
+    None only when there is not enough history.
     """
     fast_len, fast_smooth = 21, 7
     slow_len, slow_smooth = 112, 3
@@ -1910,16 +2012,112 @@ def compute_recent_exhaustion_signal(df: pd.DataFrame, lookback: int = 3) -> str
 
     overbought = (fast >= -threshold) & (slow >= -threshold)
     oversold = (fast <= -(100 - threshold)) & (slow <= -(100 - threshold))
-    ob_reversal = (~overbought) & overbought.shift(1).fillna(False)   # bearish
-    os_reversal = (~oversold) & oversold.shift(1).fillna(False)       # bullish
+    ob_reversal = (~overbought) & overbought.shift(1).fillna(False)   # bearish (top)
+    os_reversal = (~oversold) & oversold.shift(1).fillna(False)       # bullish (bottom)
 
-    recent_bull = bool(os_reversal.tail(lookback).any())
-    recent_bear = bool(ob_reversal.tail(lookback).any())
-    if recent_bull and not recent_bear:
-        return "bullish"
-    if recent_bear and not recent_bull:
-        return "bearish"
-    return None
+    recent_bear = ob_reversal.tail(lookback)
+    recent_bull = os_reversal.tail(lookback)
+    has_bear, has_bull = bool(recent_bear.any()), bool(recent_bull.any())
+    signal = ("bullish" if (has_bull and not has_bear)
+              else "bearish" if (has_bear and not has_bull) else None)
+
+    def _bars_ago(win: pd.Series) -> int | None:
+        hits = [i for i, v in enumerate(win.tolist()) if v]
+        return (len(win) - 1 - hits[-1]) if hits else None
+
+    return {
+        "signal": signal,
+        "fast": round(float(fast.iloc[-1]), 1),
+        "slow": round(float(slow.iloc[-1]), 1),
+        "bars_ago": _bars_ago(recent_bull if signal == "bullish" else recent_bear)
+        if signal else None,
+    }
+
+
+def compute_recent_exhaustion_signal(df: pd.DataFrame, lookback: int = 3) -> str | None:
+    """Back-compat wrapper: just the "bullish"/"bearish"/None signal."""
+    d = _percentr_exhaustion(df, lookback)
+    return d["signal"] if d else None
+
+
+def scan_percentr_exhaustion_sell(df: pd.DataFrame) -> dict | None:
+    """Risk scanner — %R Trend Exhaustion SELL. Fires when fast AND slow Williams
+    %R both left the OVERBOUGHT band within the last 3 bars: a topping/momentum-
+    exhaustion read (exit longs / short-bias), not a with-trend signal. Unmeasured."""
+    d = _percentr_exhaustion(df, lookback=3)
+    if not d or d.get("signal") != "bearish":
+        return None
+    close, high = df["close"], df["high"]
+    last = float(close.iloc[-1])
+    ba = d["bars_ago"]
+    when = f"{ba} bar(s) ago" if ba is not None else "within 3 bars"
+    reasons = [
+        f"%R Trend Exhaustion at the top — fast %R {d['fast']:.0f} & slow %R "
+        f"{d['slow']:.0f} left the overbought zone {when} → momentum exhaustion / "
+        f"distribution risk."
+    ]
+    tags = ["%R exhaustion", "Sell signal"]
+    sma50 = _sma(close, 50)
+    if not np.isnan(sma50):
+        reasons.append(
+            f"Price {last:.0f} vs SMA50 {sma50:.0f}"
+            + (" — still extended above trend (exit / at-risk)" if last > sma50
+               else " — already below trend (breakdown risk)"))
+    swing_high = round(float(high.tail(10).max()), 2)
+    reasons.append(f"Invalidation: a close back above the 10-bar swing high "
+                   f"{swing_high:.0f} negates the exhaustion.")
+    recent_bonus = {0: 15, 1: 10, 2: 5}.get(ba, 5) if ba is not None else 5
+    depth_bonus = max(0.0, (100 + d["fast"]) / 100 * 15)   # closer to 0 = more overbought
+    return {
+        "pattern_type": "%R Exhaustion Sell",
+        "tags": tags,
+        "reasons": reasons,
+        "score": round(min(100.0, 55 + recent_bonus + depth_bonus), 1),
+        "signal": "SELL / reduce",
+        "invalidation": swing_high,
+    }
+
+
+def scan_percentr_bottoming(df: pd.DataFrame) -> dict | None:
+    """Trend scanner — %R bottomed-out candidate. Mirror of the sell scanner:
+    fires when fast AND slow Williams %R both left the OVERSOLD band within the
+    last 3 bars, i.e. seller exhaustion / a potential bottom turning up. Carries
+    a swing-low-stop / 2R read. Unmeasured — a turn attempt, not a confirmed one."""
+    d = _percentr_exhaustion(df, lookback=3)
+    if not d or d.get("signal") != "bullish":
+        return None
+    close, low = df["close"], df["low"]
+    last = float(close.iloc[-1])
+    ba = d["bars_ago"]
+    when = f"{ba} bar(s) ago" if ba is not None else "within 3 bars"
+    reasons = [
+        f"%R Trend Exhaustion at the bottom — fast %R {d['fast']:.0f} & slow %R "
+        f"{d['slow']:.0f} left the oversold zone {when} → seller exhaustion / "
+        f"bottoming attempt."
+    ]
+    tags = ["%R exhaustion", "Bottoming"]
+    sma50 = _sma(close, 50)
+    reclaim = (not np.isnan(sma50)) and last > sma50
+    if not np.isnan(sma50):
+        reasons.append(
+            f"Price {last:.0f} vs SMA50 {sma50:.0f}"
+            + (" — reclaiming trend" if reclaim else " — still below SMA50, early turn"))
+    swing_low = round(float(low.tail(10).min()), 2)
+    risk = last - swing_low
+    target = round(last + 2 * risk, 2) if risk > 0 else None
+    reasons.append(f"Trade read: stop below the 10-bar swing low {swing_low:.0f}"
+                   + (f", 2R target {target:.0f}." if target else "."))
+    recent_bonus = {0: 15, 1: 10, 2: 5}.get(ba, 5) if ba is not None else 5
+    return {
+        "pattern_type": "%R Bottoming",
+        "tags": tags,
+        "reasons": reasons,
+        "score": round(min(100.0, 55 + recent_bonus + (10 if reclaim else 0)), 1),
+        "signal": "BUY / accumulate",
+        "entry": round(last, 2),
+        "stop": swing_low,
+        "target": target,
+    }
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2037,21 +2235,37 @@ def detect_bullish_candlestick(df: pd.DataFrame) -> dict | None:
     return None
 
 
-def detect_bullish_rsi_divergence(df: pd.DataFrame, lookback: int = 10) -> bool:
-    """Price makes a new low while RSI doesn't — classic momentum-divergence
-    reversal tell (from the Forthius Reversal Scanner ingest)."""
-    if len(df) < lookback + 20:
+def detect_bullish_rsi_divergence(df: pd.DataFrame, pivot_len: int = 3,
+                                  lookback: int = 80) -> bool:
+    """Pivot-based bullish RSI divergence — same definition as scan_rsi_divergence_bull.
+
+    Uses Wilder's RSI (via _rsi_series) and swing-pivot lows, not a rolling-mean
+    RSI against a raw min.  Returns True when the two most recent pivot lows show
+    price lower-low + RSI higher-low with a ≥3-point gap (B-24 fix).
+    """
+    if len(df) < pivot_len * 2 + 40:
         return False
     close = df["close"]
-    delta = close.diff()
-    gain = delta.clip(lower=0).rolling(14).mean()
-    loss = (-delta.clip(upper=0)).rolling(14).mean()
-    rs = gain / loss.replace(0, np.nan)
-    rsi = 100 - 100 / (1 + rs)
     low = df["low"]
-    prior_low = float(low.iloc[-lookback - 1:-1].min())
-    prior_rsi_low = float(rsi.iloc[-lookback - 1:-1].min())
-    return bool(low.iloc[-1] < prior_low and rsi.iloc[-1] > prior_rsi_low)
+    n = len(df)
+    rsi = _rsi_series(close, 14)
+
+    search_start = max(pivot_len, n - lookback)
+    pivot_lows: list[tuple[int, float, float]] = []
+    for i in range(search_start, n - pivot_len):
+        window = low.iloc[i - pivot_len: i + pivot_len + 1]
+        if float(low.iloc[i]) == float(window.min()):
+            rsi_val = float(rsi.iloc[i])
+            if not np.isnan(rsi_val):
+                pivot_lows.append((i, float(low.iloc[i]), rsi_val))
+
+    if len(pivot_lows) < 2:
+        return False
+
+    _, price1, rsi1 = pivot_lows[-2]
+    _, price2, rsi2 = pivot_lows[-1]
+
+    return bool(price2 < price1 and rsi2 > rsi1 and (rsi2 - rsi1) >= 3.0)
 
 
 def detect_bullish_reversal_structure(
@@ -2342,6 +2556,449 @@ def detect_structure_chain(df: pd.DataFrame, pivot_len: int = 15,
             "fail_win": fail_win,
         },
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B-42 · Shared market-structure read
+#
+# `detect_structure_chain` (above) walks the breaks; `detect_bos_choch` returns
+# the latest bullish one. Neither labels the *sequence* — HH/HL/LH/LL — which is
+# what a swing trader reads first and every entry hangs off. These two functions
+# add that layer on top of the existing walk, additively: no existing detector
+# changes behaviour, and `read_market_structure` is the one primitive a consumer
+# should call when it wants "what is structure doing right now".
+#
+# Known open question (B-42r): `detect_bos_choch`/`detect_support_breakdown`
+# default to pivot_len=5 while `detect_structure_chain` and the chart overlay use
+# 15, so "structure" is coarser on the chart than in the scanners. Deliberately
+# NOT unified here — changing either default silently re-grades live output (the
+# B-26 lesson). Settle it on data, not by inheritance.
+# ─────────────────────────────────────────────────────────────────────────────
+
+def label_swing_sequence(swings: list[dict], tol_pct: float = 0.0) -> list[dict]:
+    """Label each swing against the prior swing of the SAME kind.
+
+    highs -> "HH" (higher high) / "LH" (lower high) / "EQH" (equal, within tol)
+    lows  -> "HL" (higher low)  / "LL" (lower low)  / "EQL"
+
+    The first swing of each kind has no predecessor and is labelled None. Input
+    is the `swings` list from `detect_structure_chain` ({"bar", "level", "kind"});
+    returns new dicts (input is not mutated) with "label" and "prev_level" added.
+
+    `tol_pct` treats near-equal levels as equal — an equal-highs/lows cluster is
+    a liquidity pool rather than a trend step (B-41's raw material). Default 0.0
+    keeps the classification strict.
+    """
+    out: list[dict] = []
+    prev: dict[str, float] = {}
+    for idx, s in enumerate(swings):
+        kind = s.get("kind")
+        lvl = s.get("level")
+        d = dict(s)
+        # A flat plateau registers once per bar in `detect_structure_chain`, so a
+        # single real swing can arrive as several identical entries. Collapsing
+        # them keeps the sequence describing the market rather than the sampling:
+        # left in, every trend read degrades to EQH/EQL on plateau-y tapes.
+        if (out and out[-1].get("kind") == kind
+                and isinstance(lvl, (int, float))
+                and out[-1].get("level") == lvl):
+            d["label"] = None
+            d["prev_level"] = None
+            d["duplicate_of"] = out[-1].get("bar")
+            out.append(d)
+            continue
+        d["label"] = None
+        d["prev_level"] = None
+        if kind in ("high", "low") and isinstance(lvl, (int, float)):
+            p = prev.get(kind)
+            if p is not None:
+                d["prev_level"] = p
+                tol = abs(p) * (tol_pct / 100.0)
+                if abs(lvl - p) <= tol:
+                    d["label"] = "EQH" if kind == "high" else "EQL"
+                elif lvl > p:
+                    d["label"] = "HH" if kind == "high" else "HL"
+                else:
+                    d["label"] = "LH" if kind == "high" else "LL"
+            prev[kind] = float(lvl)
+        out.append(d)
+    return out
+
+
+def _verify_swing_sequence(labelled: list[dict], tol_pct: float = 0.0) -> dict:
+    """The B-42 invariant: every label must reconcile to the pivots it came from.
+
+    Re-derives each label from its own `prev_level` and reports any mismatch.
+    A structure read that cannot pass this is not trustworthy as shared context.
+    """
+    violations: list[str] = []
+    for s in labelled:
+        lab, lvl, p, kind = s.get("label"), s.get("level"), s.get("prev_level"), s.get("kind")
+        if lab is None or p is None:
+            continue
+        tol = abs(p) * (tol_pct / 100.0)
+        if abs(lvl - p) <= tol:
+            expect = "EQH" if kind == "high" else "EQL"
+        elif lvl > p:
+            expect = "HH" if kind == "high" else "HL"
+        else:
+            expect = "LH" if kind == "high" else "LL"
+        if expect != lab:
+            violations.append(f"bar {s.get('bar')}: labelled {lab}, pivots imply {expect}")
+    return {"ok": not violations, "violations": violations}
+
+
+def read_market_structure(df: pd.DataFrame, pivot_len: int = 15,
+                          confirm: str = "close", fail_win: int = 3,
+                          max_swings: int = 15,
+                          eq_tol_pct: float = 0.0,
+                          chain: dict | None = None) -> dict | None:
+    """First-class market-structure state — the shared read B-42 asks for.
+
+    Composes the existing `detect_structure_chain` walk with HH/HL/LH/LL sequence
+    labelling and a premium/discount location, so every consumer means the same
+    thing by "structure". Purely additive: it calls the existing engine and does
+    not alter it.
+
+    state is derived from the last high-label and last low-label together:
+      UPTREND     HH + HL   — both ends rising
+      DOWNTREND   LH + LL   — both ends falling
+      RANGE       LH + HL   — contracting, lower highs into higher lows
+      BROADENING  HH + LL   — expanding, both ends widening
+      TRANSITION  anything involving an equal high/low, or only one side known
+      UNKNOWN     not enough labelled swings to say
+
+    `agreement` compares that sequence read against the break-derived trend:
+    CONFIRMED (both agree), DIVERGING (they disagree — the sequence lags pivot
+    confirmation, so a fresh CHOCH against a still-intact sequence is the
+    earliest warning structure is turning), or UNDECIDED (either side neutral).
+
+    `zone` locates the last close inside the most recent swing-high/swing-low
+    band (the SMC premium/discount read): PREMIUM >70%, DISCOUNT <30%, else
+    EQUILIBRIUM. None when the band cannot be established.
+
+    Pass `chain` to reuse a `detect_structure_chain` result you already have
+    (the chart endpoint does) instead of walking the series a second time; the
+    pivot_len/confirm/fail_win args are then only echoed back in `params`, so
+    they must match how that chain was built.
+
+    Returns None when there is not enough history for the underlying walk.
+    """
+    if chain is None:
+        chain = detect_structure_chain(df, pivot_len=pivot_len, confirm=confirm,
+                                       fail_win=fail_win, max_swings=max_swings)
+    if chain is None:
+        return None
+
+    labelled = label_swing_sequence(chain.get("swings") or [], tol_pct=eq_tol_pct)
+    invariant = _verify_swing_sequence(labelled, tol_pct=eq_tol_pct)
+
+    last_high = next((s for s in reversed(labelled)
+                      if s["kind"] == "high" and s["label"]), None)
+    last_low = next((s for s in reversed(labelled)
+                     if s["kind"] == "low" and s["label"]), None)
+    hl = last_high["label"] if last_high else None
+    ll = last_low["label"] if last_low else None
+
+    if hl == "HH" and ll == "HL":
+        state = "UPTREND"
+    elif hl == "LH" and ll == "LL":
+        state = "DOWNTREND"
+    elif hl == "LH" and ll == "HL":
+        state = "RANGE"
+    elif hl == "HH" and ll == "LL":
+        state = "BROADENING"
+    elif hl is None and ll is None:
+        state = "UNKNOWN"
+    else:
+        state = "TRANSITION"
+
+    # Premium/discount inside the live swing band. Fall back to the most recent
+    # pivot of each kind when a side has already been consumed by a break — the
+    # FIRST pivot of a kind carries no label, so this must not filter on one.
+    hi = chain.get("live_swing_high")
+    lo = chain.get("live_swing_low")
+    last_hi_pivot = next((s for s in reversed(labelled)
+                          if s["kind"] == "high" and "duplicate_of" not in s), None)
+    last_lo_pivot = next((s for s in reversed(labelled)
+                          if s["kind"] == "low" and "duplicate_of" not in s), None)
+    if hi is None and last_hi_pivot:
+        hi = last_hi_pivot["level"]
+    if lo is None and last_lo_pivot:
+        lo = last_lo_pivot["level"]
+    zone = None
+    zone_pct = None
+    if hi is not None and lo is not None and hi > lo:
+        c = float(df["close"].iloc[-1])
+        pos = (c - lo) / (hi - lo)
+        # Not clamped on purpose: >100 or <0 means price has left the band its
+        # last pivots defined, which is breakout/breakdown information, not an
+        # error. Callers wanting a bounded gauge should clamp at the edge.
+        zone_pct = round(pos * 100, 1)
+        zone = "PREMIUM" if pos > 0.7 else "DISCOUNT" if pos < 0.3 else "EQUILIBRIUM"
+
+    stats = chain.get("stats", {})
+    events = chain.get("events") or []
+    last_ev = events[-1] if events else None
+
+    # The swing sequence lags (a pivot needs pivot_len bars to confirm) while a
+    # break prints immediately, so the two reads can disagree — an UPTREND
+    # sequence under a fresh CHOCH down is a character change the sequence has
+    # not caught up to yet. Surfacing the disagreement is the point: it is the
+    # earliest honest warning the structure is turning.
+    brk = stats.get("trend")
+    seq_dir = 1 if state == "UPTREND" else -1 if state == "DOWNTREND" else 0
+    if seq_dir == 0 or brk in (0, None):
+        agreement = "UNDECIDED"
+    elif seq_dir == brk:
+        agreement = "CONFIRMED"
+    else:
+        agreement = "DIVERGING"
+
+    return {
+        "state": state,
+        "agreement": agreement,
+        "last_high_label": hl,
+        "last_low_label": ll,
+        "sequence": [s["label"] for s in labelled if s["label"]],
+        "swings": labelled,
+        "zone": zone,
+        "zone_pct": zone_pct,
+        "swing_high": hi,
+        "swing_low": lo,
+        "last_event": ({"type": last_ev["type"], "direction": last_ev["direction"],
+                        "level": last_ev["level"], "quality": last_ev["quality"],
+                        "chain": last_ev["chain"], "failed": last_ev["failed"],
+                        "bars_ago": stats.get("last_bars_ago")}
+                       if last_ev else None),
+        "trend_from_breaks": stats.get("trend"),
+        "invariant_ok": invariant["ok"],
+        "invariant_violations": invariant["violations"],
+        "params": {"pivot_len": pivot_len, "confirm": confirm,
+                   "fail_win": fail_win, "eq_tol_pct": eq_tol_pct},
+    }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# B-41 · Liquidity sweeps (stop hunts) — the missing third of the SMC stack
+#
+# We ship FVG Pullback, Order Block Retest and ICT Setup, but not the event that
+# VALIDATES them: an equal-highs/lows pool where stops rest, run by a wick, then
+# reclaimed. Built on B-42's labelled swings — the equal-level clustering is what
+# `eq_tol_pct` was added for.
+#
+# Distinct from B-19b `detect_support_breakdown`, and the distinction is the
+# whole point: a breakdown CLOSES beyond the level (a real break); a sweep pokes
+# through on the wick and closes back INSIDE (a false break that reverses).
+#
+# That exclusivity is PER LEVEL, not global — a single bar can legitimately sweep
+# a pool below it while still closing under a higher swing low, so both detectors
+# firing on the same bar is coherent rather than contradictory (measured: 1 of 49
+# NSE large-caps, ULTRACEMCO, closing above its 11254 pool and below its 11396
+# swing low). Only "swept and reclaimed level X" and "closed below level X" are
+# mutually exclusive.
+#
+# Also distinct from the JS `session_volume_profile.js` sweep (line ~345), which
+# compares the CURRENT session's extreme against the PRIOR session's — an
+# intraday, two-bar-of-sessions read. This one is a multi-touch pool on daily
+# swing pivots. Two different claims that share a name; recorded so nobody
+# assumes they agree (the B-24 lesson).
+# ─────────────────────────────────────────────────────────────────────────────
+
+MIN_SWEEP_RR = 1.0   # a pool nearer than this many R is not worth targeting
+
+
+def detect_liquidity_pools(df: pd.DataFrame, pivot_len: int = 5,
+                           eq_tol_pct: float = 0.75, min_touches: int = 2,
+                           max_pools: int = 6,
+                           min_separation: int | None = None) -> list[dict]:
+    """Equal-highs / equal-lows clusters — where resting stops pool up.
+
+    Clusters same-kind swing pivots **by level, across the whole window** — not
+    only consecutive ones. A pool is price revisiting a level, and the revisits
+    are normally interrupted: a low at 90, a rally, a low at 95, a rally, then 90
+    again is a textbook double bottom, and grouping only adjacent pivots would
+    miss it because the 95 breaks the run.
+
+    Membership is tested against the cluster ANCHOR rather than pairwise, since
+    chaining pairwise equality lets a "pool" drift arbitrarily far from where it
+    started while every adjacent pair still looks equal.
+
+    Touches must be at least `min_separation` bars apart (default `pivot_len * 2`,
+    the narrowest spacing at which two pivots can independently confirm). Without
+    it a single flat shelf reads as many touches, which would overstate how much
+    stop liquidity has actually accumulated.
+
+    The pool's `level` is the extreme of its members — the low of an equal-lows
+    cluster, the high of an equal-highs cluster — because that is the edge stops
+    sit beyond and therefore the price that must be pierced.
+
+    Returns pools newest-first, each:
+      {"kind": "high"|"low", "level", "touches", "bars", "first_bar", "last_bar",
+       "width_pct"}
+    """
+    if df is None or len(df) < pivot_len * 2 + 20:
+        return []
+    if min_separation is None:
+        min_separation = pivot_len * 2
+    # A generous max_swings on purpose: the chart only needs the drawable tail,
+    # but a pool search must see enough history for a cluster to form.
+    chain = detect_structure_chain(df, pivot_len=pivot_len, max_swings=200)
+    if chain is None:
+        return []
+    labelled = label_swing_sequence(chain.get("swings") or [], tol_pct=eq_tol_pct)
+
+    pools: list[dict] = []
+    for kind in ("high", "low"):
+        members = [s for s in labelled
+                   if s.get("kind") == kind and "duplicate_of" not in s
+                   and isinstance(s.get("level"), (int, float))]
+        if len(members) < min_touches:
+            continue
+
+        def _cluster(anchor_level: float, pool: list[dict]) -> list[dict]:
+            """Members within tolerance of the anchor, thinned to one per
+            `min_separation` window so a shelf counts once.
+
+            The whole cluster must also SPAN no more than one tolerance band.
+            Distance-from-anchor alone still admits a group twice that wide (one
+            member a full tol below the anchor, another a full tol above), and a
+            pool that wide is not "equal" lows in any useful sense.
+            """
+            tol = abs(anchor_level) * (eq_tol_pct / 100.0)
+            near = [m for m in pool if abs(float(m["level"]) - anchor_level) <= tol]
+            near.sort(key=lambda m: m["bar"])
+            kept: list[dict] = []
+            for m in near:
+                if kept and (m["bar"] - kept[-1]["bar"]) < min_separation:
+                    continue
+                lv = [float(g["level"]) for g in kept] + [float(m["level"])]
+                if max(lv) - min(lv) > tol:
+                    continue
+                kept.append(m)
+            return kept
+
+        # Greedy: take the richest cluster available, consume it, repeat. Sorting
+        # candidates by touch count first means a strong pool is not fragmented
+        # by an arbitrary starting anchor.
+        remaining = list(members)
+        while len(remaining) >= min_touches:
+            best: list[dict] | None = None
+            for m in remaining:
+                cand = _cluster(float(m["level"]), remaining)
+                if best is None or len(cand) > len(best) or (
+                        len(cand) == len(best) and cand[-1]["bar"] > best[-1]["bar"]):
+                    best = cand
+            if best is None or len(best) < min_touches:
+                break
+            lv = [float(g["level"]) for g in best]
+            anchor = lv[0]
+            level = min(lv) if kind == "low" else max(lv)
+            pools.append({
+                "kind": kind,
+                "level": round(level, 2),
+                "touches": len(best),
+                "bars": [g["bar"] for g in best],
+                "first_bar": best[0]["bar"],
+                "last_bar": best[-1]["bar"],
+                "width_pct": round((max(lv) - min(lv)) / max(abs(anchor), 1e-9) * 100, 3),
+            })
+            used = {id(g) for g in best}
+            remaining = [m for m in remaining if id(m) not in used]
+
+    pools.sort(key=lambda p: p["last_bar"], reverse=True)
+    return pools[:max_pools] if max_pools > 0 else pools
+
+
+def detect_liquidity_sweep(df: pd.DataFrame, pivot_len: int = 5,
+                           eq_tol_pct: float = 0.75, min_touches: int = 2,
+                           lookback: int = 40, min_wick_ratio: float = 0.5,
+                           min_pierce_atr: float = 0.05,
+                           max_pierce_atr: float = 2.0) -> dict | None:
+    """Most recent sweep-and-reclaim of a liquidity pool, either direction.
+
+    A qualifying bar must, against a pool formed BEFORE it:
+      1. pierce the pool level on the wick — `low < level` (sell-side pool) or
+         `high > level` (buy-side), by between `min_pierce_atr` and
+         `max_pierce_atr` ATR. The floor rejects a meaningless graze; the
+         ceiling rejects a genuine break that simply kept going.
+      2. close back INSIDE — above the level for a low pool, below it for a
+         high pool. This is what separates a sweep from a breakdown/breakout.
+      3. show a dominant rejection wick — the wick beyond the level is at least
+         `min_wick_ratio` of the bar's full range.
+
+    Returns the most recent qualifying event, or None:
+      {"direction": "bullish"|"bearish", "level", "touches", "bars_ago",
+       "pierce_atr", "wick_ratio", "close", "reclaimed", "pool_width_pct"}
+
+    "bullish" = a SELL-side pool (equal lows) was swept and reclaimed, i.e. the
+    stop hunt was downward and the reversal is up.
+    """
+    if df is None or len(df) < pivot_len * 2 + 25:
+        return None
+    d = _clean_ohlc(df)
+    if len(d) < pivot_len * 2 + 25:
+        return None
+    pools = detect_liquidity_pools(d, pivot_len=pivot_len, eq_tol_pct=eq_tol_pct,
+                                   min_touches=min_touches, max_pools=0)
+    if not pools:
+        return None
+
+    atr = _atr_series(d, 14)
+    n = len(d)
+    high, low, close = d["high"], d["low"], d["close"]
+    start = max(pivot_len, n - lookback)
+
+    best: dict | None = None
+    for i in range(start, n):
+        a = float(atr.iloc[i]) if not pd.isna(atr.iloc[i]) else 0.0
+        if a <= 0:
+            continue
+        hi, lo, c = float(high.iloc[i]), float(low.iloc[i]), float(close.iloc[i])
+        o = float(d["open"].iloc[i])
+        rng = hi - lo
+        if rng <= 0:
+            continue
+        # The rejection wick is the bar's SHADOW beyond its body — the standard
+        # reading. Measuring only the part below the pool level instead would
+        # report a fraction of the true rejection and reject real sweeps.
+        lower_wick = (min(o, c) - lo) / rng
+        upper_wick = (hi - max(o, c)) / rng
+        for p in pools:
+            # The pool must be fully formed before the bar that sweeps it.
+            if p["last_bar"] >= i:
+                continue
+            lvl = p["level"]
+            if p["kind"] == "low":
+                pierce = lvl - lo
+                if pierce <= 0 or c <= lvl:
+                    continue
+                wick = lower_wick
+                direction = "bullish"
+            else:
+                pierce = hi - lvl
+                if pierce <= 0 or c >= lvl:
+                    continue
+                wick = upper_wick
+                direction = "bearish"
+            pierce_atr = pierce / a
+            if not (min_pierce_atr <= pierce_atr <= max_pierce_atr):
+                continue
+            if wick < min_wick_ratio:
+                continue
+            best = {
+                "direction": direction,
+                "level": lvl,
+                "touches": p["touches"],
+                "bars_ago": n - 1 - i,
+                "pierce_atr": round(pierce_atr, 2),
+                "wick_ratio": round(wick, 2),
+                "close": round(c, 2),
+                "reclaimed": True,
+                "pool_width_pct": p["width_pct"],
+                "pool_bars": p["bars"],
+            }
+    return best
 
 
 def _displacement_body_ratio(o: float, h: float, l: float, c: float) -> float:
@@ -2998,6 +3655,195 @@ def scan_fvg_pullback(df: pd.DataFrame, max_bars_ago: int = 3) -> dict | None:
         "entry": round(last, 2),
         "stop": stop,
         "target": target,
+        "vol_x50d": round(vol_x, 2),
+    }
+
+
+def _sweep_common(df: pd.DataFrame, direction: str, max_bars_ago: int,
+                  pivot_len: int, eq_tol_pct: float,
+                  min_touches: int) -> tuple[dict, pd.DataFrame] | None:
+    """Shared gate for the two sweep scanners — find a recent sweep of the asked
+    direction and hand back the event plus the cleaned frame."""
+    if df is None or len(df) < pivot_len * 2 + 40:
+        return None
+    d = _clean_ohlc(df)
+    if len(d) < pivot_len * 2 + 40:
+        return None
+    ev = detect_liquidity_sweep(d, pivot_len=pivot_len, eq_tol_pct=eq_tol_pct,
+                                min_touches=min_touches,
+                                lookback=max(20, max_bars_ago * 4))
+    if not ev or ev["direction"] != direction:
+        return None
+    if ev["bars_ago"] > max_bars_ago:
+        return None
+    return ev, d
+
+
+def scan_liquidity_sweep(df: pd.DataFrame, max_bars_ago: int = 3,
+                         pivot_len: int = 5, eq_tol_pct: float = 0.75,
+                         min_touches: int = 2) -> dict | None:
+    """Bullish liquidity sweep — sell-side stop hunt reclaimed (B-41).
+
+    Price ran a pool of **equal lows** (where stops rest), pierced it on the
+    wick, and **closed back above** it. That is a false break, not a breakdown:
+    the sellers who got filled below the pool are trapped, and the reversal is
+    fuelled by their covering.
+
+    This is the SMC event that *validates* the entries we already scan — an
+    Order Block or FVG that forms right after a sweep is the textbook sequence.
+    It is deliberately NOT `detect_support_breakdown`: that one requires a
+    CLOSE beyond the level (a real break), this one requires the close back
+    inside. One bar cannot satisfy both.
+
+    Stop sits below the sweep wick — the point that invalidates the "trapped
+    sellers" read. Target is the nearest buy-side pool above, falling back to
+    2R when no equal-highs cluster is overhead.
+
+    Unmeasured: this scanner has not been through ``analyses/Backtest-Harness``.
+    The claim to test is a sweep-reversal against a matched *clean* break, which
+    is the event study the backlog asks for — not whether it wins in isolation.
+    """
+    got = _sweep_common(df, "bullish", max_bars_ago, pivot_len, eq_tol_pct, min_touches)
+    if got is None:
+        return None
+    ev, d = got
+
+    c = d["close"]
+    last = float(c.iloc[-1])
+    n = len(d)
+    swept_bar = n - 1 - ev["bars_ago"]
+    wick_low = float(d["low"].iloc[swept_bar])
+    atr = float(_atr_series(d, 14).iloc[-1])
+    if np.isnan(atr) or atr <= 0:
+        return None
+
+    # Price must still be holding the reclaim; a later close back under the pool
+    # means the sweep read failed and this is a breakdown after all.
+    if last <= ev["level"] * 0.995:
+        return None
+
+    stop = round(wick_low * 0.995, 2)
+    risk = last - stop
+    if risk <= 0:
+        return None
+
+    # Target the nearest buy-side pool overhead — but only if it is far enough to
+    # be worth taking. A pool sitting just above entry yields an R:R near zero,
+    # which is not a trade plan; fall back to 2R rather than emit one.
+    pools = detect_liquidity_pools(d, pivot_len=pivot_len, eq_tol_pct=eq_tol_pct,
+                                   min_touches=min_touches, max_pools=0)
+    above = [p["level"] for p in pools
+             if p["kind"] == "high" and p["level"] >= last + MIN_SWEEP_RR * risk]
+    target = round(min(above) if above else last + 2.0 * risk, 2)
+
+    vol20 = float(d["volume"].tail(20).mean())
+    vol_x = float(d["volume"].iloc[-1]) / vol20 if vol20 > 0 else 0.0
+    sweep_vol = (float(d["volume"].iloc[swept_bar]) / vol20) if vol20 > 0 else 0.0
+
+    ms = read_market_structure(d, pivot_len=pivot_len)
+    struct_state = ms["state"] if ms else "UNKNOWN"
+    with_trend = struct_state in ("UPTREND", "BROADENING")
+
+    # Score: pool depth (more touches = more stops) · rejection wick · freshness
+    # · volume on the sweep bar · structural agreement.
+    touch = min(ev["touches"], 4) / 4.0
+    fresh = 1.0 if ev["bars_ago"] <= 1 else (0.7 if ev["bars_ago"] == 2 else 0.5)
+    base = (10.0 + 25.0 * touch + 20.0 * min(ev["wick_ratio"], 1.0)
+            + 20.0 * fresh + (15.0 if sweep_vol >= 1.2 else 0.0)
+            + (10.0 if with_trend else 0.0))
+
+    reasons = [
+        f"Swept a {ev['touches']}-touch equal-lows pool at ₹{ev['level']:.0f} "
+        f"{ev['bars_ago']} bar(s) ago and closed back above it",
+        f"Pierce {ev['pierce_atr']:.2f}× ATR with a {ev['wick_ratio']:.0%} rejection wick "
+        f"— a false break, not a breakdown (a breakdown closes below)",
+        (f"Sweep bar volume {sweep_vol:.1f}× the 20d average" if sweep_vol >= 1.2
+         else f"⚠ Sweep bar volume only {sweep_vol:.1f}× average — weaker stop-hunt read"),
+        (f"Market structure {struct_state} — sweep runs with structure" if with_trend
+         else f"⚠ Market structure {struct_state} — sweep is counter-structure"),
+        f"Trade plan — entry {last:.0f} · stop {stop:.0f} · target {target:.0f} "
+        f"(R:R {(target - last) / risk:.1f})",
+        "⚠ Unmeasured — this scanner has not been through the backtest harness",
+    ]
+    return {
+        "pattern_type": "Bullish Liquidity Sweep",
+        "tags": ["Sweep", f"{ev['touches']}-touch EQL", f"₹{ev['level']:.0f}",
+                 f"{ev['bars_ago']}d ago"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, base), 1),
+        "rs_raw": _rs_raw(d),
+        "entry": round(last, 2),
+        "stop": stop,
+        "target": target,
+        "vol_x50d": round(vol_x, 2),
+    }
+
+
+def scan_liquidity_sweep_bear(df: pd.DataFrame, max_bars_ago: int = 3,
+                              pivot_len: int = 5, eq_tol_pct: float = 0.75,
+                              min_touches: int = 2) -> dict | None:
+    """Bearish liquidity sweep — buy-side stop hunt rejected (B-41, Risk lane).
+
+    The mirror of ``scan_liquidity_sweep``: price ran a pool of **equal highs**,
+    pierced it on the wick, and **closed back below**. Breakout buyers filled
+    above the pool are trapped and their stops feed the move down.
+
+    Registered under Risk, so a NEGATIVE forward edge is the desired direction —
+    it flags a name to avoid or exit, not a short to put on.
+
+    Unmeasured, same event-study caveat as the bullish half.
+    """
+    got = _sweep_common(df, "bearish", max_bars_ago, pivot_len, eq_tol_pct, min_touches)
+    if got is None:
+        return None
+    ev, d = got
+
+    last = float(d["close"].iloc[-1])
+    n = len(d)
+    swept_bar = n - 1 - ev["bars_ago"]
+    wick_high = float(d["high"].iloc[swept_bar])
+
+    # Still rejected? A close back above the pool invalidates the trap read.
+    if last >= ev["level"] * 1.005:
+        return None
+
+    invalidation = round(wick_high * 1.005, 2)
+    vol20 = float(d["volume"].tail(20).mean())
+    vol_x = float(d["volume"].iloc[-1]) / vol20 if vol20 > 0 else 0.0
+    sweep_vol = (float(d["volume"].iloc[swept_bar]) / vol20) if vol20 > 0 else 0.0
+
+    ms = read_market_structure(d, pivot_len=pivot_len)
+    struct_state = ms["state"] if ms else "UNKNOWN"
+    with_trend = struct_state in ("DOWNTREND", "BROADENING")
+
+    touch = min(ev["touches"], 4) / 4.0
+    fresh = 1.0 if ev["bars_ago"] <= 1 else (0.7 if ev["bars_ago"] == 2 else 0.5)
+    base = (10.0 + 25.0 * touch + 20.0 * min(ev["wick_ratio"], 1.0)
+            + 20.0 * fresh + (15.0 if sweep_vol >= 1.2 else 0.0)
+            + (10.0 if with_trend else 0.0))
+
+    reasons = [
+        f"Swept a {ev['touches']}-touch equal-highs pool at ₹{ev['level']:.0f} "
+        f"{ev['bars_ago']} bar(s) ago and closed back below it",
+        f"Pierce {ev['pierce_atr']:.2f}× ATR with a {ev['wick_ratio']:.0%} rejection wick "
+        f"— breakout buyers above ₹{ev['level']:.0f} are trapped",
+        (f"Sweep bar volume {sweep_vol:.1f}× the 20d average" if sweep_vol >= 1.2
+         else f"⚠ Sweep bar volume only {sweep_vol:.1f}× average — weaker trap read"),
+        (f"Market structure {struct_state} — sweep runs with structure" if with_trend
+         else f"⚠ Market structure {struct_state} — sweep is counter-structure"),
+        f"Invalidated on a reclaim above {invalidation:.0f}",
+        "⚠ Risk flag, not a short signal — avoid/exit, and unmeasured",
+    ]
+    return {
+        "pattern_type": "Bearish Liquidity Sweep",
+        "tags": ["Sweep", f"{ev['touches']}-touch EQH", f"₹{ev['level']:.0f}",
+                 f"{ev['bars_ago']}d ago"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, base), 1),
+        "rs_raw": _rs_raw(d),
+        "entry": round(last, 2),
+        "stop": invalidation,
+        "target": None,
         "vol_x50d": round(vol_x, 2),
     }
 
@@ -4186,6 +5032,30 @@ def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 3,
     if np.isnan(rsi_now) or rsi_now <= rsi2:
         return None
 
+    # ── Fibonacci retracement (swing high between the two lows → low2) ───────
+    swing_high_between = float(high.iloc[idx1:idx2 + 1].max())
+    swing_range = swing_high_between - price2
+    has_fib = swing_range > 0 and swing_high_between > price1
+
+    fib_0 = fib_236 = fib_382 = fib_500 = fib_618 = None
+    fib_near_tag = ""
+    fib_score_bonus = 0.0
+    if has_fib:
+        fib_0   = swing_high_between
+        fib_236 = swing_high_between - 0.236 * swing_range
+        fib_382 = swing_high_between - 0.382 * swing_range
+        fib_500 = swing_high_between - 0.500 * swing_range
+        fib_618 = swing_high_between - 0.618 * swing_range
+
+        cmp_now = float(close.iloc[-1])
+        for label, level, bonus in [
+            ("38.2%", fib_382, 8.0), ("50%", fib_500, 10.0), ("61.8%", fib_618, 6.0),
+        ]:
+            if swing_range > 0 and abs(cmp_now - level) / swing_range < 0.02:
+                fib_near_tag = f"@ Fib {label}"
+                fib_score_bonus = bonus
+                break
+
     # ── Score ─────────────────────────────────────────────────────────────────
     score = 55.0
     if rsi2 <= 35.0:
@@ -4196,22 +5066,35 @@ def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 3,
         score += 10.0
     if bars_ago <= 3:
         score += 5.0
+    score += fib_score_bonus
     score = min(round(score, 1), 95.0)
 
-    # ── Trade plan ────────────────────────────────────────────────────────────
-    stop = round(price2 - 0.5 * atr, 2)
-    risk = float(close.iloc[-1]) - stop
-    target = round(float(close.iloc[-1]) + 2.0 * risk, 2) if risk > 0 else None
+    # ── Trade plan: CMP / SL / TGT ───────────────────────────────────────────
+    cmp = round(float(close.iloc[-1]), 2)
+    if has_fib:
+        stop = round(fib_618 - 0.3 * atr, 2)
+        target = round(fib_0, 2)
+    else:
+        stop = round(price2 - 0.5 * atr, 2)
+        risk = cmp - stop
+        target = round(cmp + 2.0 * risk, 2) if risk > 0 else None
 
-    # Highest high between the two lows = measured-move reference
-    swing_high_between = float(high.iloc[idx1:idx2 + 1].max())
+    risk = cmp - stop
+    if risk > 0 and target is not None:
+        rr = round((target - cmp) / risk, 1)
+    else:
+        rr = 0.0
 
     tags = [
-        f"RSI div gap +{rsi_gap:.1f}pt",
-        f"RSI at low {rsi2:.0f}",
+        f"RSI div +{rsi_gap:.1f}pt",
+        f"RSI {rsi2:.0f}",
         f"{bars_ago}d ago",
-        f"2nd low ₹{price2:.2f}",
     ]
+    if fib_near_tag:
+        tags.append(fib_near_tag)
+    if rr > 0:
+        tags.append(f"R:R {rr}×")
+
     reasons = [
         f"Price lower low: ₹{price1:.2f} → ₹{price2:.2f}",
         f"RSI(14) higher low: {rsi1:.1f} → {rsi2:.1f} (+{rsi_gap:.1f} pts divergence)",
@@ -4220,14 +5103,22 @@ def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 3,
     ]
     if rsi2 <= 45.0:
         reasons.append(f"RSI oversold at the low ({rsi2:.0f}) — strengthens the read")
+    if has_fib:
+        reasons.append(
+            f"Fib levels: 0%=₹{fib_0:.0f} · 23.6%=₹{fib_236:.0f} · "
+            f"38.2%=₹{fib_382:.0f} · 50%=₹{fib_500:.0f} · 61.8%=₹{fib_618:.0f}"
+        )
+    reasons.append(
+        f"CMP ₹{cmp} · SL ₹{stop} · TGT ₹{target} · R:R {rr}×"
+    )
 
-    return {
+    result = {
         "symbol": df.index[-1] if hasattr(df.index[-1], "__str__") else "?",
         "pattern_type": "RSI Divergence Bull",
         "score": score,
         "tags": tags,
         "reasons": reasons,
-        "entry": round(float(close.iloc[-1]), 2),
+        "entry": cmp,
         "stop": stop,
         "target": target,
         "time_stop": 10,
@@ -4236,7 +5127,14 @@ def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 3,
         "rsi_at_low": round(rsi2, 1),
         "rsi_gap": round(rsi_gap, 1),
         "bars_since_low": bars_ago,
+        "rr_ratio": rr,
     }
+    if has_fib:
+        result["fib_382_level"] = round(fib_382, 2)
+        result["fib_500_level"] = round(fib_500, 2)
+        result["fib_618_level"] = round(fib_618, 2)
+        result["swing_high"] = round(fib_0, 2)
+    return result
 
 
 def scan_rsi_divergence_bear(df: pd.DataFrame, pivot_len: int = 3,
@@ -4354,6 +5252,193 @@ def scan_rsi_divergence_bear(df: pd.DataFrame, pivot_len: int = 3,
     }
 
 
+def scan_rsi_fibo_hidden_div(df: pd.DataFrame, pivot_len: int = 5,
+                             lookback: int = 120,
+                             fib_tolerance: float = 0.015) -> dict | None:
+    """Hidden bullish RSI divergence + 50% Fibonacci retracement confluence.
+
+    Fires when price is in an uptrend, pulls back to the ~50% fib level of the
+    last completed swing, AND forms a hidden bullish divergence at that pullback
+    — a continuation entry, not a reversal.
+
+    Hidden bullish divergence: price makes a HIGHER low while RSI(14) makes a
+    LOWER low. This is the opposite of regular divergence and signals that
+    underlying momentum is coiling for continuation despite the RSI dip.
+
+    Confluence with the 50% fib retracement adds a second geometric
+    confirmation that institutional demand sits at the equilibrium zone.
+
+    Entry: 38.2% retracement level (after bounce confirmed).
+    Stop: below the 61.8% retracement level.
+    Target: prior swing high (0% fib level).
+    """
+    if df is None or len(df) < pivot_len * 2 + 50:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < pivot_len * 2 + 50:
+        return None
+
+    close = df["close"]
+    low = df["low"]
+    high = df["high"]
+    n = len(df)
+    rsi = _rsi_series(close, 14)
+    atr = float(_atr_series(df, 14).iloc[-1])
+    if np.isnan(atr) or atr <= 0:
+        return None
+
+    # ── Trend filter: price above 200-EMA ────────────────────────────────────
+    if n < 200:
+        return None
+    ema200 = close.ewm(span=200, adjust=False).mean()
+    if float(close.iloc[-1]) < float(ema200.iloc[-1]):
+        return None
+
+    # ── Collect swing highs and swing lows ───────────────────────────────────
+    search_start = max(pivot_len, n - lookback)
+
+    pivot_highs: list[tuple[int, float]] = []
+    for i in range(search_start, n - pivot_len):
+        window = high.iloc[i - pivot_len: i + pivot_len + 1]
+        if float(high.iloc[i]) == float(window.max()):
+            pivot_highs.append((i, float(high.iloc[i])))
+
+    pivot_lows: list[tuple[int, float, float]] = []
+    for i in range(search_start, n - pivot_len):
+        window = low.iloc[i - pivot_len: i + pivot_len + 1]
+        if float(low.iloc[i]) == float(window.min()):
+            rsi_val = float(rsi.iloc[i])
+            if not np.isnan(rsi_val):
+                pivot_lows.append((i, float(low.iloc[i]), rsi_val))
+
+    if len(pivot_lows) < 2 or len(pivot_highs) < 1:
+        return None
+
+    # ── Hidden bullish divergence: higher price low + lower RSI low ──────────
+    idx1, price_low1, rsi1 = pivot_lows[-2]
+    idx2, price_low2, rsi2 = pivot_lows[-1]
+
+    bars_ago = n - 1 - idx2
+    if bars_ago > 5:
+        return None
+    if price_low2 <= price_low1:        # need HIGHER low in price
+        return None
+    if rsi2 >= rsi1:                    # need LOWER low in RSI
+        return None
+    rsi_gap = rsi1 - rsi2               # positive = magnitude of hidden divergence
+    if rsi_gap < 2.0:
+        return None
+
+    # ── Find the swing high between (or just before) the two lows ────────────
+    # This defines the fib measurement leg: swing_low1 → swing_high → pullback
+    swing_high_idx = None
+    swing_high_val = 0.0
+    for ph_idx, ph_val in pivot_highs:
+        if idx1 <= ph_idx <= idx2 and ph_val > swing_high_val:
+            swing_high_idx = ph_idx
+            swing_high_val = ph_val
+    # If no swing high between the two lows, take the most recent one before low2
+    if swing_high_idx is None:
+        for ph_idx, ph_val in reversed(pivot_highs):
+            if ph_idx < idx2 and ph_val > swing_high_val:
+                swing_high_idx = ph_idx
+                swing_high_val = ph_val
+                break
+    if swing_high_idx is None or swing_high_val <= price_low1:
+        return None
+
+    # ── Fibonacci retracement levels (measured from swing_low1 → swing_high) ─
+    swing_range = swing_high_val - price_low1
+    if swing_range <= 0:
+        return None
+
+    fib_0   = swing_high_val                              # 0% = swing high
+    fib_236 = swing_high_val - 0.236 * swing_range
+    fib_382 = swing_high_val - 0.382 * swing_range
+    fib_500 = swing_high_val - 0.500 * swing_range
+    fib_618 = swing_high_val - 0.618 * swing_range
+
+    # ── Check: did the second low land near the 50% fib? ─────────────────────
+    dist_to_50 = abs(price_low2 - fib_500) / swing_range
+    if dist_to_50 > fib_tolerance:
+        return None
+
+    # ── Bounce confirmation: RSI rising off the hidden-divergence low ────────
+    rsi_now = float(rsi.iloc[-1])
+    if np.isnan(rsi_now) or rsi_now <= rsi2:
+        return None
+
+    cmp = round(float(close.iloc[-1]), 2)
+
+    # ── Trade plan: entry at CMP, stop below 61.8%, target at swing high ─────
+    stop = round(fib_618 - 0.3 * atr, 2)
+    target = round(fib_0, 2)
+    risk = cmp - stop
+    if risk <= 0:
+        return None
+    reward = target - cmp
+    rr = round(reward / risk, 1) if risk > 0 else 0.0
+
+    # ── Score ─────────────────────────────────────────────────────────────────
+    score = 55.0
+    if rsi2 <= 35.0:
+        score += 12.0
+    elif rsi2 <= 45.0:
+        score += 6.0
+    if rsi_gap >= 8.0:
+        score += 10.0
+    elif rsi_gap >= 5.0:
+        score += 5.0
+    if dist_to_50 < 0.005:             # very tight fib hit
+        score += 8.0
+    elif dist_to_50 < 0.010:
+        score += 4.0
+    if rr >= 2.0:
+        score += 5.0
+    score = min(round(score, 1), 95.0)
+
+    tags = [
+        "Hidden Div",
+        f"Fib 50% ±{dist_to_50:.1%}",
+        f"R:R {rr}×",
+        f"RSI {rsi_now:.0f}",
+    ]
+    reasons = [
+        f"Hidden bullish divergence: price higher low ₹{price_low1:.2f} → ₹{price_low2:.2f}, "
+        f"RSI lower low {rsi1:.1f} → {rsi2:.1f} (gap {rsi_gap:.1f} pts)",
+        f"Pullback held 50% Fibonacci (₹{fib_500:.2f}) — "
+        f"2nd swing low at ₹{price_low2:.2f} ({dist_to_50:.1%} from 50%)",
+        f"Fib levels: 0%=₹{fib_0:.0f} · 23.6%=₹{fib_236:.0f} · "
+        f"38.2%=₹{fib_382:.0f} · 50%=₹{fib_500:.0f} · 61.8%=₹{fib_618:.0f}",
+        f"CMP ₹{cmp} · SL ₹{stop} (below 61.8%) · TGT ₹{target} (swing high) · R:R {rr}×",
+        f"RSI(14) bouncing: {rsi2:.1f} → {rsi_now:.1f} — momentum resuming",
+        f"Trend: above 200-EMA (₹{float(ema200.iloc[-1]):.0f})",
+        "⚠ Unmeasured — not yet through the backtest harness",
+    ]
+
+    return {
+        "pattern_type": "RSI-Fibo Hidden Div",
+        "score": score,
+        "tags": tags,
+        "reasons": reasons,
+        "entry": cmp,
+        "stop": stop,
+        "target": target,
+        "time_stop": 15,
+        "key_level": round(swing_high_val, 2),
+        "rsi_now": round(rsi_now, 1),
+        "rsi_at_low": round(rsi2, 1),
+        "rsi_gap": round(rsi_gap, 1),
+        "bars_since_low": bars_ago,
+        "fib_50_level": round(fib_500, 2),
+        "fib_382_level": round(fib_382, 2),
+        "fib_618_level": round(fib_618, 2),
+        "swing_high": round(swing_high_val, 2),
+        "rr_ratio": rr,
+        "rs_raw": _rs_raw(df),
+    }
+
+
 def scan_order_block(df: pd.DataFrame) -> dict | None:
     """Bullish order block (SMC demand zone) retest entry.
 
@@ -4460,6 +5545,188 @@ def scan_order_block(df: pd.DataFrame) -> dict | None:
         # follow-through means the zone is not acting as support.
         "time_stop": 10,
     }
+
+
+def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
+                        min_disp_atr: float = 1.0, max_ob_search: int = 8,
+                        max_blocks: int = 14) -> list[dict]:
+    """All order blocks (bullish demand + bearish supply) in the window, for the
+    chart overlay — the multi-zone sibling of ``scan_order_block`` (which returns
+    only the single 'retest now' bullish signal).
+
+    Walks the same SMC swing structure as ``detect_bos_choch``: whenever a close
+    breaks the most recent confirmed swing (up = bullish break, down = bearish),
+    the **last opposing-close candle before the break** is the order block — the
+    candle where institutions absorbed the other side before the displacement.
+    Each block keeps its full high-low zone, the BOS/CHOCH label, an ATR-measured
+    displacement gate (≥ ``min_disp_atr`` ATR out of the zone), and its mitigation
+    state: ``mitigated`` once price trades back INTO the zone after the break
+    (``mit_idx`` = first such bar). Blocks fully violated (a close beyond the far
+    side of the zone) are dropped — they are no longer valid order blocks.
+
+    Returns a list of dicts (bar indices, mapped to timestamps by the caller),
+    most-recent last, capped at ``max_blocks``. Bearish is the exact mirror of
+    bullish. See ``concepts/Order-Blocks``.
+    """
+    if df is None or len(df) < pivot_len * 4 + 20:
+        return []
+    df = _clean_ohlc(df)
+    n = len(df)
+    if n < pivot_len * 4 + 20:
+        return []
+    o, h, l, c = df["open"], df["high"], df["low"], df["close"]
+    vol = df["volume"] if "volume" in df.columns else pd.Series([0.0] * n, index=df.index)
+    atr = _atr_series(df, 14)
+
+    swing_high: float | None = None
+    swing_low: float | None = None
+    trend = 0
+    raw: list[dict] = []
+
+    for i in range(pivot_len * 2, n):
+        j = i - pivot_len          # a pivot is confirmed pivot_len bars later
+        if j >= pivot_len:
+            if h.iloc[j] == h.iloc[j - pivot_len: j + pivot_len + 1].max():
+                swing_high = float(h.iloc[j])
+            if l.iloc[j] == l.iloc[j - pivot_len: j + pivot_len + 1].min():
+                swing_low = float(l.iloc[j])
+        a = float(atr.iloc[i]) if not np.isnan(atr.iloc[i]) else 0.0
+        close_i = float(c.iloc[i])
+
+        # ── Bullish break → look back for the last DOWN candle = demand block ──
+        if swing_high is not None and close_i > swing_high and a > 0:
+            ob_idx = None
+            for k in range(i - 1, max(0, i - max_ob_search) - 1, -1):
+                if c.iloc[k] < o.iloc[k]:
+                    ob_idx = k
+                    break
+            if ob_idx is not None:
+                ob_lo, ob_hi = float(l.iloc[ob_idx]), float(h.iloc[ob_idx])
+                disp = float(h.iloc[ob_idx:i + 1].max()) - ob_hi
+                if ob_hi > ob_lo and disp >= min_disp_atr * a:
+                    buy_ratio = _buy_sell_ratio(o, c, vol, ob_idx, pivot_len)
+                    raw.append({"dir": "bull", "ob_idx": ob_idx, "break_idx": i,
+                                "low": ob_lo, "high": ob_hi,
+                                "signal": "BOS" if trend == 1 else "CHOCH",
+                                "disp_atr": round(disp / a, 2),
+                                "vol_x": _vol_x(vol, i),
+                                "buy_pct": round(buy_ratio * 100, 1),
+                                "sell_pct": round((1 - buy_ratio) * 100, 1)})
+            trend = 1
+            swing_high = None
+        # ── Bearish break → look back for the last UP candle = supply block ──
+        elif swing_low is not None and close_i < swing_low and a > 0:
+            ob_idx = None
+            for k in range(i - 1, max(0, i - max_ob_search) - 1, -1):
+                if c.iloc[k] > o.iloc[k]:
+                    ob_idx = k
+                    break
+            if ob_idx is not None:
+                ob_lo, ob_hi = float(l.iloc[ob_idx]), float(h.iloc[ob_idx])
+                disp = ob_lo - float(l.iloc[ob_idx:i + 1].min())
+                if ob_hi > ob_lo and disp >= min_disp_atr * a:
+                    buy_ratio = _buy_sell_ratio(o, c, vol, ob_idx, pivot_len)
+                    raw.append({"dir": "bear", "ob_idx": ob_idx, "break_idx": i,
+                                "low": ob_lo, "high": ob_hi,
+                                "signal": "BOS" if trend == -1 else "CHOCH",
+                                "disp_atr": round(disp / a, 2),
+                                "vol_x": _vol_x(vol, i),
+                                "buy_pct": round(buy_ratio * 100, 1),
+                                "sell_pct": round((1 - buy_ratio) * 100, 1)})
+            trend = -1
+            swing_low = None
+
+    # ── Mitigation + violation pass ──────────────────────────────────────────
+    # State (not a drop): fresh = never returned to; mitigated = price tapped the
+    # zone but hasn't closed through; violated = price closed beyond the far side
+    # (the zone failed). All three are kept so the overlay shows the full history;
+    # the caller fades mitigated and greys violated.
+    out: list[dict] = []
+    seen: set[tuple[str, int]] = set()
+    for ob in raw:
+        dedup = (ob["dir"], ob["ob_idx"])
+        if dedup in seen:
+            continue
+        seen.add(dedup)
+        mit_idx = None
+        vio_idx = None
+        for m in range(ob["break_idx"] + 1, n):
+            if ob["dir"] == "bull":
+                if mit_idx is None and float(l.iloc[m]) <= ob["high"]:
+                    mit_idx = m                       # tapped the zone
+                if float(c.iloc[m]) < ob["low"]:
+                    vio_idx = m                       # closed through → failed
+                    break
+            else:
+                if mit_idx is None and float(h.iloc[m]) >= ob["low"]:
+                    mit_idx = m
+                if float(c.iloc[m]) > ob["high"]:
+                    vio_idx = m
+                    break
+        ob["state"] = ("violated" if vio_idx is not None
+                       else "mitigated" if mit_idx is not None else "fresh")
+        ob["mit_idx"] = mit_idx
+        ob["vio_idx"] = vio_idx
+        out.append(ob)
+
+    # ── Retest signals ──────────────────────────────────────────────────────
+    # Pine: bullish retest = low crosses above OB top (price reclaims demand),
+    # bearish retest = high crosses below OB bottom (price breaks supply).
+    # Gated by buy%/sell% threshold (default 50%). Only on non-violated zones.
+    retests: list[dict] = []
+    for ob in out:
+        if ob["state"] == "violated":
+            continue
+        end = ob["vio_idx"] if ob["vio_idx"] is not None else n
+        buy_ratio = ob.get("buy_pct", 50.0) / 100.0
+        for m in range(ob["break_idx"] + 1, end):
+            if ob["dir"] == "bull":
+                if buy_ratio < 0.5:
+                    continue
+                prev_low = float(l.iloc[m - 1]) if m > 0 else float(l.iloc[m])
+                cur_low = float(l.iloc[m])
+                if prev_low <= ob["high"] and cur_low > ob["high"]:
+                    retests.append({"dir": "bull", "idx": m,
+                                    "price": ob["high"],
+                                    "buy_pct": ob.get("buy_pct", 50.0)})
+                    break
+            else:
+                sell_ratio = 1.0 - buy_ratio
+                if sell_ratio < 0.5:
+                    continue
+                prev_high = float(h.iloc[m - 1]) if m > 0 else float(h.iloc[m])
+                cur_high = float(h.iloc[m])
+                if prev_high >= ob["low"] and cur_high < ob["low"]:
+                    retests.append({"dir": "bear", "idx": m,
+                                    "price": ob["low"],
+                                    "sell_pct": ob.get("sell_pct", 50.0)})
+                    break
+
+    return out[-max_blocks:], retests
+
+
+def _vol_x(vol: pd.Series, i: int, avg_len: int = 20) -> float:
+    """Break-bar volume as a multiple of the trailing average (0 if unavailable)."""
+    lo = max(0, i - avg_len)
+    avg = float(vol.iloc[lo:i].mean()) if i > lo else 0.0
+    return round(float(vol.iloc[i]) / avg, 2) if avg > 0 else 0.0
+
+
+def _buy_sell_ratio(o: pd.Series, c: pd.Series, vol: pd.Series,
+                    center: int, half_win: int) -> float:
+    """Buy-volume ratio in a window around *center* (Pine: get_window_volume_ratio).
+    Returns 0.0–1.0; buy = close >= open bars' volume / total volume."""
+    lo = max(0, center - half_win)
+    hi = min(len(o), center + half_win + 1)
+    buy = sell = 0.0
+    for k in range(lo, hi):
+        v = float(vol.iloc[k])
+        if float(c.iloc[k]) >= float(o.iloc[k]):
+            buy += v
+        else:
+            sell += v
+    total = buy + sell
+    return round(buy / total, 3) if total > 0 else 0.5
 
 
 def detect_falling_wedge_geometry(df: pd.DataFrame, window: int = 60,
@@ -4680,11 +5947,26 @@ def scan_ema50_coil(df: pd.DataFrame) -> dict | None:
 
     Gates:
       1. Close > EMA200 — broad uptrend context
-      2. ADX(14) > 25 AND ADX rising vs prior bar — trend has strength AND momentum
-      3. +DI > -DI — directional bias is bullish (buyers outpacing sellers)
-      4. Close within 2% above OR below EMA-50 (the coil zone)
-      5. Close > 1.03× prior close AND volume > 20-day avg — breakout thrust
+      2. ADX(14) > 25 — the trend is actionable
+      3. Close within 2% above OR below EMA-50 (the coil zone)
+      4. Close > 1.03× prior close AND volume > 20-day avg — breakout thrust
          confirmed by price AND participation simultaneously
+
+    ── Fixed 2026-08-29: it fired ZERO times in 2,496 cells ─────────────────
+    The port carried two gates the source does not have — **ADX rising vs the prior
+    bar** and **+DI > −DI** — and they contradict this scanner's own premise. A stock
+    whose ADX is high *and still accelerating* is, by construction, extended away from
+    its 50-EMA; this scanner exists to catch the opposite state, price resting ON that
+    mean before the thrust. Measured: 375 cells cleared ADX-rising + DI, and exactly
+    **1** of those was also within 2% of the EMA-50. Removing the two undocumented
+    gates restores the source (Ashok Daniel's StockEdge screen: ADX > 25, close within
+    2% of EMA-50, close > 1.03× prior on above-average volume).
+
+    It remains a genuinely RARE setup — ~0.2% of cells, ~5 hits per 2,496 — because
+    "resting at the mean" and "thrusting 3% today" only coincide when a stock gaps up
+    into its 50-EMA from below. That is the setup, not a defect. `close > EMA200` is
+    kept as context (it costs 8 hits → 5) and is deliberately not dropped to chase a
+    higher fire rate.
     """
     if len(df) < 60 or "volume" not in df.columns:
         return None
@@ -4700,7 +5982,9 @@ def scan_ema50_coil(df: pd.DataFrame) -> dict | None:
     if last < ema200:
         return None
 
-    # Gate 2 & 3 — ADX > 25 rising AND +DI > -DI
+    # Gate 2 — ADX > 25. Deliberately NOT "and rising", and no +DI/−DI gate: both
+    # were undocumented additions and both select for an extended stock, which is the
+    # opposite of the coil this scanner looks for (see the docstring).
     if len(df) < 50:
         return None
     plus_di, minus_di, adx = _adx_di_series(df)
@@ -4710,9 +5994,7 @@ def scan_ema50_coil(df: pd.DataFrame) -> dict | None:
     mdi_now  = float(minus_di.iloc[-1])
     if np.isnan(adx_now) or np.isnan(pdi_now):
         return None
-    if adx_now < 25 or adx_now <= adx_prev:
-        return None
-    if pdi_now <= mdi_now:
+    if adx_now < 25:
         return None
 
     # Gate 4 — close within 2% of EMA-50 (above OR below — the coil can form
@@ -4738,8 +6020,8 @@ def scan_ema50_coil(df: pd.DataFrame) -> dict | None:
     reasons = [
         f"Price ({last:.1f}) {zone} EMA50 ({ema50:.1f}) — resting in the coil zone "
         f"({dist_pct:+.1f}%)",
-        f"ADX {adx_now:.0f} rising (was {adx_prev:.0f}), +DI {pdi_now:.0f} > "
-        f"-DI {mdi_now:.0f} — trend strengthening with directional bias",
+        f"ADX {adx_now:.0f} (prior {adx_prev:.0f}), +DI {pdi_now:.0f} vs −DI {mdi_now:.0f} "
+        f"— trend is actionable; direction comes from the thrust, not the DI spread",
         f"Thrust: +{move_pct:.1f}% vs prior close on {vol_x:.1f}× 20-day volume — "
         "institutional breakout signal",
         f"Above EMA200 ({ema200:.1f}) — long-term uptrend intact",
@@ -4831,6 +6113,142 @@ def scan_mfi_oversold(df: pd.DataFrame,
         "mfi_now": round(mfi_now, 1),
         "mfi_prev": round(mfi_prev, 1),
         "vol_x20d": round(vol_x, 2),
+    }
+
+
+def _anchored_vwap(df: pd.DataFrame, anchor_idx: int) -> pd.Series:
+    """Anchored VWAP — cumulative volume-weighted typical price from ``anchor_idx``
+    to the end.  This is the *daily* VWAP concept (Brian Shannon): a session VWAP
+    is meaningless on daily bars (one bar = one session), so the mean price a swing
+    leg is measured against is the volume-weighted average since the leg's origin.
+
+    Returns a Series aligned to ``df.index`` — NaN before ``anchor_idx``, the
+    cumulative AVWAP from the anchor onward.  Needs high/low/close/volume.
+    """
+    tp  = (df["high"].astype(float) + df["low"].astype(float) + df["close"].astype(float)) / 3.0
+    vol = df["volume"].astype(float)
+    out = pd.Series(np.nan, index=df.index, dtype=float)
+    seg_tp  = tp.iloc[anchor_idx:]
+    seg_vol = vol.iloc[anchor_idx:]
+    num = (seg_tp * seg_vol).cumsum()
+    den = seg_vol.cumsum().replace(0.0, np.nan)
+    out.iloc[anchor_idx:] = (num / den).to_numpy()
+    return out
+
+
+def _rolling_vwap(df: pd.DataFrame, n: int = 20) -> pd.Series:
+    """Rolling n-day VWAP — volume-weighted typical price over a trailing window.
+
+    Unlike an anchored VWAP (which sits far below price once a trend has run), the
+    rolling VWAP tracks recent price, so price genuinely oscillates around it — the
+    mean a daily pullback/reclaim entry is measured against.  Returns a Series
+    aligned to ``df.index`` (NaN through the first n-1 bars).
+    """
+    tp  = (df["high"].astype(float) + df["low"].astype(float) + df["close"].astype(float)) / 3.0
+    vol = df["volume"].astype(float)
+    num = (tp * vol).rolling(n).sum()
+    den = vol.rolling(n).sum().replace(0.0, np.nan)
+    return num / den
+
+
+def scan_vwap_reclaim(df: pd.DataFrame,
+                      vwap_n: int = 20,
+                      touch_tol: float = 0.01,
+                      extend_cap: float = 0.06) -> dict | None:
+    """Rolling-VWAP reclaim / pullback-support — the VWAP-as-signal entry (B-40).
+
+    On daily bars a session VWAP is meaningless (one bar = one session), so the
+    tradeable mean is a rolling n-day VWAP: in a healthy trend price rides above it
+    and pulls back TO it, not through it.  That mean is what the classic
+    trend+pullback entry actually leans on — not just an EMA.  Fires on either of
+    two long events at the rising VWAP:
+
+      * **reclaim**   — close was below VWAP and has crossed back above it, or
+      * **pullback-hold** — a recent bar's low tagged VWAP (within ``touch_tol``)
+        and price is bouncing (close back above VWAP and up on the day).
+
+    Gates (all required):
+      1. Trend context — close > EMA-50 (with-trend only; not a bottom-fisher).
+      2. VWAP rising over the last 10 bars (the leg is intact).
+      3. Not extended — close ≤ (1 + ``extend_cap``) × VWAP, so it's an entry near
+         the mean, not a chase.
+      4. One of the two events above fired, with volume ≥ 20-day average on a reclaim.
+
+    (The complementary *anchored*-VWAP-from-catalyst read — earnings/breakout/IPO
+    anchors — is served by ``_anchored_vwap`` and belongs with the chart's
+    click-to-anchor, the B-4/B-12 item.)  Emits ``time_stop`` — a pullback-to-mean
+    entry that hasn't worked in ~15 bars is a failed thesis, not an open trade.
+    """
+    n = len(df)
+    if n < vwap_n + 15:
+        return None
+
+    close = df["close"].astype(float)
+    low   = df["low"].astype(float)
+    vol   = df["volume"].astype(float)
+
+    vwap = _rolling_vwap(df, vwap_n)
+    v_now  = float(vwap.iloc[-1])
+    v_prev = float(vwap.iloc[-2])
+    if not np.isfinite(v_now) or v_now <= 0 or not np.isfinite(v_prev):
+        return None
+
+    c_now, c_prev = float(close.iloc[-1]), float(close.iloc[-2])
+    ema50 = float(close.ewm(span=50, adjust=False).mean().iloc[-1])
+
+    # Gate 1 — with-trend
+    if c_now <= ema50:
+        return None
+    # Gate 2 — VWAP rising over the last 10 bars
+    ref = float(vwap.iloc[-11]) if np.isfinite(vwap.iloc[-11]) else v_prev
+    if not (v_now > ref):
+        return None
+    # Gate 3 — not extended above the mean
+    dist = c_now / v_now - 1.0
+    if dist > extend_cap:
+        return None
+
+    # Event (a) — reclaim cross from below
+    reclaim = (c_prev < v_prev) and (c_now > v_now)
+
+    # Event (b) — recent pullback tagged VWAP and price is holding above / bouncing
+    tagged = False
+    for k in range(1, 4):
+        lv = float(vwap.iloc[-k])
+        if np.isfinite(lv) and lv > 0 and (float(low.iloc[-k]) <= lv * (1.0 + touch_tol)):
+            tagged = True
+            break
+    pullback_hold = tagged and (c_now > v_now) and (c_now > c_prev)
+
+    if not (reclaim or pullback_hold):
+        return None
+
+    vol_now = float(vol.iloc[-1])
+    vol_avg = float(vol.rolling(20).mean().iloc[-1]) if n >= 20 else float(vol.mean())
+    vol_x = vol_now / vol_avg if vol_avg > 0 else 0.0
+    # Reclaim needs conviction volume; a quiet pullback-hold does not.
+    if reclaim and vol_x < 1.0:
+        return None
+
+    event = "reclaim" if reclaim else "pullback-hold"
+    slope = (v_now / ref - 1.0) * 100.0
+    proximity = max(0.0, (extend_cap - abs(dist))) / extend_cap    # 0..1
+    score = int(min(100, 55 + proximity * 20 + min(vol_x, 2.0) * 7 + min(slope, 5.0)))
+
+    return {
+        "pattern_type": "VWAP Reclaim/Support",
+        "tags": ["VWAP", event, f"VWAP{vwap_n}"],
+        "reasons": [
+            f"{event} at the rising {vwap_n}-day VWAP (VWAP {v_now:.2f}, close "
+            f"{c_now:.2f}, {dist*100:+.1f}% vs mean); vol {vol_x:.1f}×20d; "
+            f"VWAP slope +{slope:.1f}%/10d"
+        ],
+        "score_base": score,
+        "score": score,
+        "vwap": round(v_now, 2),
+        "dist_pct": round(dist * 100, 2),
+        "vol_x20d": round(vol_x, 2),
+        "time_stop": 15,
     }
 
 
@@ -5030,7 +6448,352 @@ def scan_triple_rs_52w(df: pd.DataFrame) -> dict | None:
     }
 
 
+def scan_hm_buy(df: pd.DataFrame) -> dict | None:
+    """HM (Hilega Milega) fresh BUY on the last closed daily bar.
+
+    Python port of the chart dashboard's HM indicator (tools/hm_indicator.js,
+    window.HM). Reads three views of a short RSI:
+      - RSI(9)                — "strength" (OB/OS collapse to the 50 midline)
+      - EMA(3) of RSI         — momentum (rising = strength turning up)
+      - VWMA(21) of RSI       — volume-adjusted strength (a true volume weighting,
+                                the fix over the source's plain-WMA "volume" line)
+
+    The actionable BUY is the *early setup* — RSI(9) crosses above 50 with
+    EMA(3)-of-RSI rising while the slower VWMA(21)-of-RSI is still below 50
+    (momentum turning up, not yet exhausted) — which is exactly where the method
+    says to enter. If the VWMA(RSI) later crosses above 50 within a 10-bar prime
+    window, the signal is marked *confirmed* (a strength upgrade). Closed-bar
+    only; fires when the setup (or its confirm) landed within the last 5 bars
+    (~a trading week), so the pick is still fresh but the window is wide enough to
+    catch a signal from earlier in the week. Emits a swing-low-stop / 2R plan. See
+    concepts/HM-(Hilega-Milega)-Indicator. Accuracy is UNMEASURED.
+    """
+    if df is None or len(df) < 40:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < 40:
+        return None
+    close = df["close"]
+    vol = df["volume"] if "volume" in df.columns else pd.Series(0.0, index=df.index)
+    mid = 50.0
+    prime_window = 10
+    recency = 5                      # signal within the last 5 closed bars (~a trading week)
+
+    rsi = _rsi_series(close, 9)
+    ema = _ema_series(rsi, 3)
+    # VWMA of RSI over 21 bars (volume-weighted; plain-mean fallback on no volume).
+    wv = (rsi * vol).rolling(21).sum()
+    wsum = vol.rolling(21).sum()
+    vwma = (wv / wsum.replace(0.0, np.nan)).fillna(rsi.rolling(21).mean())
+
+    r = rsi.to_numpy(); e = ema.to_numpy(); v = vwma.to_numpy()
+    n = len(df)
+    prime = 0
+    last_early = None
+    last_confirm = None
+    for i in range(1, n):
+        vals = (r[i - 1], r[i], e[i - 1], e[i], v[i - 1], v[i])
+        if any(np.isnan(x) for x in vals):
+            continue
+        rsi_cross_up = r[i - 1] <= mid and r[i] > mid
+        ema_rising = e[i] > e[i - 1]
+        vwma_cross_up = v[i - 1] < mid and v[i] >= mid
+        if prime > 0:
+            prime -= 1
+        if rsi_cross_up and ema_rising and v[i] < mid:     # early setup = the entry
+            last_early = i
+            prime = prime_window
+        if prime > 0 and vwma_cross_up:                    # VWMA leaves band = confirmed
+            last_confirm = i
+            prime = 0
+
+    # Fire on whichever is fresh, preferring the stronger confirmed reading.
+    signal = None
+    if last_confirm is not None and (n - 1 - last_confirm) <= recency:
+        signal, sig_idx = "confirmed", last_confirm
+    elif last_early is not None and (n - 1 - last_early) <= recency:
+        signal, sig_idx = "setup", last_early
+    if signal is None:
+        return None
+    bars_since = n - 1 - sig_idx
+
+    entry = float(close.iloc[-1])
+    swing_low = float(df["low"].iloc[-5:].min())           # stop below recent swing low
+    stop = round(swing_low * 0.995, 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+    target = round(entry + 2.0 * risk, 2)
+
+    rsi_now = float(rsi.iloc[-1])
+    vwma_now = float(vwma.iloc[-1])
+    vol20 = float(vol.tail(20).mean())
+    vol_x = float(vol.iloc[-1]) / vol20 if vol20 > 0 else 0.0
+
+    # Score (0-100): a confirmed reading + freshness + RSI strength + VWMA lift + volume.
+    confirmed = signal == "confirmed"
+    fresh = max(0.15, 1.0 - bars_since / (recency + 1.0))   # decays across the 5-bar window
+    strength = min(max((rsi_now - mid) / 20.0, 0.0), 1.0)   # 50→0, 70→1
+    vwma_lift = min(max((vwma_now - mid) / 15.0, 0.0), 1.0)
+    vol_ok = vol_x >= 1.5
+    base = (10.0 + (20.0 if confirmed else 0.0) + 25.0 * fresh
+            + 20.0 * strength + 10.0 * vwma_lift + (15.0 if vol_ok else 0.0))
+
+    kind = "confirmed" if confirmed else "setup"
+    reasons = [
+        (f"HM BUY {kind} {bars_since}b ago — "
+         + ("VWMA(RSI) crossed above 50 (strength confirmed) after "
+            "RSI reclaimed 50 with EMA(RSI) rising" if confirmed
+            else "RSI(9) crossed above the 50 pivot with EMA(RSI) rising while "
+                 "VWMA(RSI) is still below 50 (early, not yet exhausted)")),
+        f"RSI(9) {rsi_now:.0f}; VWMA(RSI) {vwma_now:.0f} "
+        + ("(above the 50 band)" if vwma_now >= mid else "(still inside the sub-50 band)"),
+        (f"Volume {vol_x:.1f}× the 20-day average"
+         if vol_ok else f"⚠ Volume only {vol_x:.1f}× avg — weaker signal"),
+        f"Trade plan — entry {entry:.0f} · stop {stop:.0f} (swing low) · "
+        f"target {target:.0f} (2R, R:R {(target - entry) / risk:.1f})",
+        "HM is a momentum-reversal read; accuracy is unmeasured — size per Risk Per Trade.",
+    ]
+    return {
+        "pattern_type": f"HM BUY · {kind} (Hilega Milega)",
+        "tags": ["HM Buy", kind, "RSI-9", f"{bars_since}b fresh"]
+                + (["Vol 1.5x+"] if vol_ok else []),
+        "reasons": reasons,
+        "score_base": round(min(100.0, base), 1),
+        "score": round(min(100.0, base), 1),   # provisional — run_scanner blends in RS
+        "rs_raw": _rs_raw(df),
+        "entry": round(entry, 2),
+        "stop": stop,
+        "target": target,
+        "vol_x50d": round(vol_x, 2),
+        "rsi_now": round(rsi_now, 1),
+        # HM reversal trades should resolve promptly; give it a fortnight.
+        "time_stop": 15,
+    }
+
+
+# ── Renko structure (Python port of tools/renko.js) ───────────────────────────
+#
+# Ported, not re-invented: `renko.js` is the shipped chart engine and was measured
+# in B-43, so the scanner must fire on exactly the bars the chart draws a flip on.
+# `test_renko_parity.py` asserts bar-for-bar agreement between the two.
+#
+# NOTE — this deliberately does NOT reuse `_atr_series`. That helper is
+# `ewm(alpha=1/n, adjust=False)`, which seeds from the first TR; `renko.js` (and
+# `chart_dashboard.atrSeries`) seed from the SMA of the first `n` TRs and then
+# recurse. The gap decays but never reaches zero, and brick size feeds a RECURSIVE
+# grid — a hair's difference at an epoch boundary flips a brick and the two series
+# diverge permanently afterwards. Parity has to be exact at the source.
+
+RENKO_ATR_PERIOD = 5      # the source rule's lookback ("ATR of the last five sessions")
+RENKO_EPOCH_BARS = 20     # re-derive the brick ~monthly, from PRIOR bars only
+RENKO_WARMUP = 30
+RENKO_REVERSAL = 2        # bricks needed to turn — the classic Renko definition
+
+
+def _renko_atr(df: pd.DataFrame, period: int = RENKO_ATR_PERIOD) -> list[float]:
+    """Wilder ATR seeded with the SMA of the first `period` true ranges (matches renko.js)."""
+    high = df["high"].to_numpy(float)
+    low = df["low"].to_numpy(float)
+    close = df["close"].to_numpy(float)
+    out = [float("nan")] * len(close)
+    trs: list[float] = []
+    atr = None
+    prev_close = None
+    for i in range(len(close)):
+        tr = (high[i] - low[i]) if prev_close is None else max(
+            high[i] - low[i], abs(high[i] - prev_close), abs(low[i] - prev_close))
+        trs.append(tr)
+        prev_close = close[i]
+        if i == period - 1:
+            atr = sum(trs[:period]) / period
+            out[i] = atr
+        elif i > period - 1:
+            atr = (atr * (period - 1) + tr) / period
+            out[i] = atr
+    return out
+
+
+def _renko_flips(df: pd.DataFrame,
+                 atr_period: int = RENKO_ATR_PERIOD,
+                 epoch_bars: int = RENKO_EPOCH_BARS,
+                 warmup: int = RENKO_WARMUP,
+                 reversal: int = RENKO_REVERSAL) -> dict:
+    """Close-based Renko with causal ATR-epoch brick sizing.
+
+    Returns ``{"flips": [...], "state": {...} | None}`` where each flip is
+    ``{"index", "dir", "price", "bricks_in_prior"}`` and ``index`` is the bar whose
+    CLOSE completed the turn — i.e. a bar you could have acted on the next open.
+    """
+    empty = {"flips": [], "state": None}
+    if df is None or len(df) < warmup + atr_period + 5:
+        return empty
+    close = df["close"].to_numpy(float)
+    atr = _renko_atr(df, atr_period)
+
+    flips: list[dict] = []
+    brick = None
+    last_close = None
+    direction = 0
+    bricks_in_dir = 0
+
+    for i in range(len(close)):
+        # Epoch boundary: re-derive the brick from ATR at the PREVIOUS bar, so the
+        # bar about to complete a brick never contributes to that brick's size.
+        if i >= warmup and (last_close is None or (i - warmup) % epoch_bars == 0):
+            a = atr[i - 1] if i > 0 else float("nan")
+            if a == a and a > 0:                      # a == a filters NaN
+                brick = a
+                if last_close is None:
+                    last_close = close[i]
+                    direction = 0
+        if last_close is None or not brick or brick <= 0:
+            continue
+
+        c = close[i]
+        for _ in range(1000):                          # a gap can complete many bricks
+            moved = False
+            if direction >= 0 and c >= last_close + brick:
+                last_close += brick
+                if direction != 1:
+                    direction, bricks_in_dir = 1, 0
+                bricks_in_dir += 1
+                moved = True
+            elif direction <= 0 and c <= last_close - brick:
+                last_close -= brick
+                if direction != -1:
+                    direction, bricks_in_dir = -1, 0
+                bricks_in_dir += 1
+                moved = True
+            elif direction == 1 and c <= last_close - reversal * brick:
+                last_close -= reversal * brick
+                flips.append({"index": i, "dir": -1, "price": float(c),
+                              "bricks_in_prior": bricks_in_dir})
+                direction, bricks_in_dir = -1, 1
+                moved = True
+            elif direction == -1 and c >= last_close + reversal * brick:
+                last_close += reversal * brick
+                flips.append({"index": i, "dir": 1, "price": float(c),
+                              "bricks_in_prior": bricks_in_dir})
+                direction, bricks_in_dir = 1, 1
+                moved = True
+            if not moved:
+                break
+
+    state = None if last_close is None else {
+        "dir": direction, "bricks": bricks_in_dir,
+        "brick": float(brick) if brick else None, "last_close": float(last_close),
+    }
+    return {"flips": flips, "state": state}
+
+
+def scan_renko_flip(df: pd.DataFrame, max_bars_ago: int = 2) -> dict | None:
+    """Renko brick FLIP — a structure-change SCREEN, explicitly not a trade trigger.
+
+    Fires when the Renko grid changed direction within the last `max_bars_ago` bars,
+    in EITHER direction. Renko samples by price rather than by time, so a flip says
+    "price has now travelled far enough, against the prior run, to reverse the grid"
+    — a statement about structure, not about what happens next.
+
+    **It carries no direction implication and no trade plan, by measurement.** B-43
+    scored this exact engine's flips over 23 names and ~19 years: the up-flip's edge
+    was NEGATIVE at every horizon (−0.06 / −0.08 / −0.04 / −0.77% at 5/10/20/60d) and
+    stop-and-reverse beat buy-and-hold 0 times in 23. What Renko *did* deliver is
+    noise reduction — it fires ~40% less often than the EVWMA cross on the same names.
+    Fewer decisions of the same quality is an ergonomic benefit, not an edge, and this
+    scanner is registered to exploit the former only.
+
+    Consequences of that, enforced structurally rather than by wording:
+      * no ``entry`` / ``stop`` / ``target`` keys — the thing that would make it a plan;
+      * listed in ``opportunity_hub.PIPELINE_EXCLUDED`` so it can never become a
+        confluence vote;
+      * a DOWN flip is reported as plainly as an UP flip and is not a risk flag —
+        it is neutral information, not a bearish call.
+
+    ``max_bars_ago`` is the freshness window, and it is what makes this selective.
+    Measured over 2,496 (symbol, as-of) cells on a 110-name NIFTY-500 sample
+    (`scanner_overlap.py`):
+
+        max_bars_ago=0   4.3% of cells    flipped today
+        max_bars_ago=1   8.9%
+        max_bars_ago=2  13.7%             <- default
+        max_bars_ago=3  17.5%
+        max_bars_ago=5  24.3%             a firehose, not a screen
+
+    Default 2 catches a Friday flip when you scan on Monday without flooding the list.
+    Widen it only if you are deliberately trading a slower book.
+
+    In the same measurement it flagged **146 cells no other scanner flagged** — the
+    largest unique contribution of any bullish scanner in the registry. That is what a
+    price-sampled detector buys you when everything else is time-sampled: a genuinely
+    different view. It is NOT a claim that the view is profitable — see above.
+
+    Use it to answer "which names just changed structure?", then bring your own
+    tested trigger.
+    """
+    if df is None or len(df) < RENKO_WARMUP + RENKO_ATR_PERIOD + 10:
+        return None
+    r = _renko_flips(df)
+    flips, state = r["flips"], r["state"]
+    if not flips or not state:
+        return None
+
+    last = flips[-1]
+    n = len(df)
+    bars_ago = (n - 1) - last["index"]
+    if bars_ago > max_bars_ago:
+        return None
+
+    close = float(df["close"].iloc[-1])
+    brick = state["brick"] or 0.0
+    brick_pct = (brick / close * 100.0) if close > 0 else 0.0
+    up = last["dir"] == 1
+    word = "UP" if up else "DOWN"
+    when = "today" if bars_ago == 0 else f"{bars_ago} bar{'s' if bars_ago > 1 else ''} ago"
+
+    reasons = [
+        f"Renko grid flipped {word} {when} at {last['price']:.2f} — the {RENKO_REVERSAL}-brick "
+        f"reversal completed on that close",
+        f"Ended a run of {last['bricks_in_prior']} brick(s) in the other direction",
+        f"Brick size {brick:.2f} ({brick_pct:.2f}% of price), derived from ATR("
+        f"{RENKO_ATR_PERIOD}) and re-set every {RENKO_EPOCH_BARS} bars — not tuned",
+        "SCREEN, not a trigger: the flip was measured at NO forward edge (B-43), so this "
+        "is a 'what changed' filter. No entry/stop/target, and a DOWN flip is not a sell.",
+    ]
+    return {
+        "pattern_type": f"Renko flip {word} (structure change)",
+        "tags": [f"Renko {word}", f"{when}", f"brick {brick_pct:.2f}%",
+                 "Screen, not trigger"],
+        "reasons": reasons,
+        # Freshness only — deliberately NOT a conviction score. A flip 0 bars ago is
+        # more current than one 5 bars ago; neither is more likely to be profitable.
+        "score": round(max(10.0, 60.0 - 8.0 * bars_ago), 1),
+        "renko_dir": word,
+        "renko_bars_ago": bars_ago,
+        "renko_brick": round(brick, 4),
+        "rs_raw": _rs_raw(df),
+    }
+
+
 SCANNERS: dict[str, dict] = {
+    "Renko Flip (structure change)": {
+        "fn": scan_renko_flip,
+        "description": (
+            "Renko brick FLIP in either direction within the last 2 bars — a "
+            "structure-change SCREEN, not a trade trigger. Renko samples by price "
+            "instead of time, so a flip means price has travelled far enough against "
+            "the prior run to reverse the grid. B-43 measured this exact engine's "
+            "flips over 23 names / ~19 years and found NO forward edge (up-flip edge "
+            "negative at every horizon; stop-and-reverse beat buy-and-hold 0/23), so "
+            "it carries no direction implication, no entry/stop/target, and never "
+            "votes in confluence. What it does give is fewer, cleaner events (~40% "
+            "fewer than the EVWMA cross on the same names), and in a 2,496-cell overlap "
+            "audit it flagged 146 cells no other scanner flagged — the largest unique "
+            "contribution in the registry. Use it to ask 'which "
+            "names just changed structure?' and bring your own tested trigger."
+        ),
+        "category": "Trend",
+    },
     "52-Week High Leaders": {
         "fn": scan_52w_high_leaders,
         "description": "Strong momentum leaders within 5% of their 52-week high",
@@ -5039,6 +6802,14 @@ SCANNERS: dict[str, dict] = {
     "Stage 2 Uptrend": {
         "fn": scan_stage2_uptrend,
         "description": "Textbook Minervini Stage 2: SMA50 > SMA150 > SMA200, all rising",
+        "category": "Trend",
+    },
+    "ADX Trend Confirmation": {
+        "fn": scan_adx_trend_confirmation,
+        "description": ("ADX+DI confirms an up-trend with strength: price > SMA50, "
+                        "+DI > −DI, ADX ≥ 25 and rising. A CONFIRMATION/context read, "
+                        "not a standalone buy — ADX/DI alone has no measured edge "
+                        "(see concepts/ADX.md). Pair with a price+volume trigger."),
         "category": "Trend",
     },
     "Pullback Entry": {
@@ -5058,6 +6829,20 @@ SCANNERS: dict[str, dict] = {
         ),
         "category": "Entry",
     },
+    "HM Buy (Hilega Milega)": {
+        "fn": scan_hm_buy,
+        "description": (
+            "Fresh HM (Hilega Milega) BUY on the last closed daily bar — the "
+            "Python port of the chart dashboard's HM sub-plot. RSI(9) crosses "
+            "above the 50 pivot with EMA(3)-of-RSI rising while VWMA(21)-of-RSI is "
+            "still below 50, then the VWMA(RSI) itself crosses above 50 within 10 "
+            "bars = confirmed BUY. Fires when the setup (or confirm) is within the "
+            "last 5 bars (~a trading week), so it catches signals from earlier in "
+            "the week. Carries a swing-low-stop / 2R trade plan "
+            "and a volume-confirmation check. Momentum-reversal read; unmeasured."
+        ),
+        "category": "Entry",
+    },
     "RSI 60-40 Setup": {
         "fn": scan_rsi_60_40,
         "description": (
@@ -5073,12 +6858,23 @@ SCANNERS: dict[str, dict] = {
     "RSI Divergence Bull": {
         "fn": scan_rsi_divergence_bull,
         "description": (
-            "Bullish RSI divergence on the last closed daily bar — price made a "
-            "lower pivot low within the last 3 bars (pivot_len=3 symmetry) while "
-            "RSI(14) made a higher low (divergence ≥3 RSI points), with RSI now "
-            "already rising above the divergence low. RSI at the low must be ≤60. "
-            "Score rises with depth of oversold (≤35 → +15, ≤45 → +8) and "
-            "divergence magnitude (gap ≥10 pts → +10). Unmeasured."
+            "Bullish RSI divergence + Fibonacci retracement on the last closed daily "
+            "bar — price made a lower pivot low within the last 3 bars while RSI(14) "
+            "made a higher low (divergence ≥3 pts), with RSI now rising. Computes "
+            "Fibonacci levels (23.6 / 38.2 / 50 / 61.8%) from the swing high between "
+            "the two lows; CMP near a fib level boosts score. Card shows CMP / SL "
+            "(below 61.8% fib) / TGT (swing high) with R:R. Unmeasured."
+        ),
+        "category": "Entry",
+    },
+    "RSI-Fibo Hidden Divergence": {
+        "fn": scan_rsi_fibo_hidden_div,
+        "description": (
+            "Hidden bullish RSI divergence + 50% Fibonacci retracement confluence. "
+            "Fires in uptrends (above 200-EMA) when price pulls back to the 50% fib "
+            "of the last swing AND forms a hidden divergence (higher price low, lower "
+            "RSI low) — a continuation entry, not a reversal. Card shows CMP / SL "
+            "(below 61.8% fib) / TGT (swing high) with R:R. Unmeasured."
         ),
         "category": "Entry",
     },
@@ -5093,6 +6889,30 @@ SCANNERS: dict[str, dict] = {
             "divergence magnitude (gap ≥10 pts → +10). Emits short/exit entry. Unmeasured."
         ),
         "category": "Risk",
+    },
+    "%R Exhaustion Sell": {
+        "fn": scan_percentr_exhaustion_sell,
+        "description": (
+            "%R Trend Exhaustion SELL — the Python port of the chart's %R Trend "
+            "Exhaustion sub-plot (fast Williams %R 21/7, slow 112/3). Fires when "
+            "BOTH the fast and slow %R were in the overbought band (≥ -20) and left "
+            "it within the last 3 bars = a top/momentum-exhaustion read for exiting "
+            "longs or a short bias — NOT a with-trend signal. Adds the SMA50 context "
+            "and a swing-high invalidation. Unmeasured."
+        ),
+        "category": "Risk",
+    },
+    "%R Bottoming": {
+        "fn": scan_percentr_bottoming,
+        "description": (
+            "%R bottomed-out candidate — mirror of %R Exhaustion Sell. Fires when "
+            "BOTH the fast (21/7) and slow (112/3) Williams %R left the OVERSOLD "
+            "band (≤ -80) within the last 3 bars = seller exhaustion / a bottoming "
+            "attempt turning up. Carries a swing-low stop and 2R target and flags "
+            "whether price has reclaimed SMA50. A turn attempt, not a confirmed "
+            "reversal. Unmeasured."
+        ),
+        "category": "Trend",
     },
     "Darvas Box": {
         "fn": scan_darvas_box,
@@ -5178,6 +6998,32 @@ SCANNERS: dict[str, dict] = {
         "fn": scan_near_pivot,
         "description": "Within 3% of a recent swing-high pivot — tight stop opportunity",
         "category": "Entry",
+    },
+    "Liquidity Sweep": {
+        "fn": scan_liquidity_sweep,
+        "description": (
+            "Bullish liquidity sweep (stop hunt) — price ran a multi-touch "
+            "equal-lows pool, pierced it on the wick, and closed back ABOVE it. "
+            "A false break, not a breakdown: the distinction is the close, and "
+            "one bar cannot be both. Sellers filled below the pool are trapped "
+            "and their covering fuels the reversal. Stop below the sweep wick; "
+            "target the nearest equal-highs pool overhead. Completes the SMC "
+            "stack alongside FVG Pullback and Order Block Retest — this is the "
+            "event that validates those entries. Built on B-42's equal-level "
+            "labelling. Unmeasured."
+        ),
+        "category": "Entry",
+    },
+    "Liquidity Sweep Bear": {
+        "fn": scan_liquidity_sweep_bear,
+        "description": (
+            "Bearish liquidity sweep — price ran a multi-touch equal-HIGHS pool, "
+            "pierced it on the wick, and closed back BELOW it, trapping breakout "
+            "buyers. Risk flag rather than a short signal: it marks a name to "
+            "avoid or exit, so a negative forward edge is the desired direction. "
+            "Mirror of Liquidity Sweep. Unmeasured."
+        ),
+        "category": "Risk",
     },
     "FVG Pullback": {
         "fn": scan_fvg_pullback,
@@ -5375,6 +7221,21 @@ SCANNERS: dict[str, dict] = {
             "exhaustion exits where heavy selling volume reverses before price "
             "fully recovers. Three gates: MFI crosses 20 from below + up-day "
             "confirmation + volume ≥ 20-day average."
+        ),
+        "category": "Entry",
+    },
+    "VWAP Reclaim/Support": {
+        "fn": scan_vwap_reclaim,
+        "description": (
+            "Rolling-VWAP reclaim / pullback-support (B-40 — VWAP as a signal, not "
+            "just a chart line). On daily bars a session VWAP is meaningless, so the "
+            "tradeable mean is a rolling 20-day VWAP: in a healthy trend price rides "
+            "above it and pulls back TO it, so the VWAP is the mean the classic "
+            "trend+pullback entry needs — not just an EMA. Fires on a reclaim cross "
+            "(close back above VWAP on ≥20-day-avg volume) OR a pullback-hold (a bar "
+            "tags VWAP within 1% and price bounces). With-trend only (close > EMA-50), "
+            "VWAP rising, and not extended (≤6% above the mean). The anchored-VWAP-"
+            "from-catalyst read is the complementary chart feature (B-4/B-12)."
         ),
         "category": "Entry",
     },

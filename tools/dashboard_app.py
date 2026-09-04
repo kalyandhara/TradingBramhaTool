@@ -52,13 +52,19 @@ import harmonic_patterns as hp
 import sentiment_index as senti
 import market_verdict as mvd
 import block_deal_intel as bdi
+import deal_infographic as dinf
 import nse_oi_momentum as oim
 import browser_cookie_helper as bch
 import stock_council as council
 import fundamentals_deep as fdeep
 import fundamental_score as fscore
+import peer_comparison as pcmp
 import smart_money as smm
 import red_flags as rflags
+import technofunda_funnel as tff
+import funnel_backtest as fbt
+import smallcap_discovery as scd
+import ui_jobs
 import scenarios as scen
 import rating
 import opportunity_daily as od
@@ -922,26 +928,27 @@ _login_gate()
 # must match a "if current_page == '...':" block below exactly.
 # ──────────────────────────────────────────────────────────────────────────────
 PAGE_GROUPS = {
-    "Screening":        ["Opportunity Hub", "Screener", "Other Screeners", "Scanner Hub",
-                         "Breakout Screener", "High-Growth Screener", "TradingView Screener"],
-    "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
-    "Research":         ["Predictive Analysis", "Stock Analyzer", "Sector Map", "Astro Timing", "Telegram Signals"],
+    "Screening":        ["Opportunity Hub", "Delete Funnel", "Hidden Treasures", "Screener", "Other Screeners", "Scanner Hub",
+                         "Breakout Scans", "High-Growth Screener"],
+    "Market Intel":     ["Trending Stocks", "Market Sentiment", "India Market Intel", "OI Momentum"],
+    "Research":         ["Predictive Analysis", "Stock Analyzer", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
-    "Ops":              ["Pipeline Log"],
-    "Analytics":        ["Strategy Hub"],
+    "Ops":              ["Pipeline Log", "Scheduler Hub"],
 }
 
-#: One line per page, shown on the Home cards. Kept factual — each says what the
-#: page DOES, not how good it is. Any page missing from here still routes fine;
-#: it just renders without a subtitle.
+#: One line per page, shown as the tooltip on its nav-popover button (Home no
+#: longer cards the pages). Kept factual — each says what the page DOES, not how
+#: good it is. Any page missing from here still routes fine, just without a hint.
 PAGE_BLURBS = {
     "Opportunity Hub":      "Ranked daily shortlist across every scanner",
+    "Delete Funnel":        "Technofunda 8-filter noise sieve — deletes to a shortlist",
+    "Hidden Treasures":     "Small/micro-cap conviction screen — ownership + quality",
     "Screener":             "The core NSE screen with the saved pipeline",
     "Other Screeners":      "Ownership pipeline, sector rotation, bulk data",
     "Scanner Hub":          "24 pattern scanners, run on any universe",
-    "Breakout Screener":    "Breakout candidates with volume confirmation",
+    "Breakout Scans":       "External new-high breakout feeds — Chartink or TradingView",
     "High-Growth Screener": "Quality growth names on ROE / ROCE / OPM floors",
-    "TradingView Screener": "Hand-off list formatted for TradingView",
+    "Trending Stocks":      "What moved today — movers, volume spikes, 52W & all-time extremes",
     "Market Sentiment":     "0–100 composite regime gauge, with coverage",
     "India Market Intel":   "Bulk & block deals, insider trades, gap scanner",
     "OI Momentum":          "Open-interest build-up and unwinding",
@@ -954,18 +961,8 @@ PAGE_BLURBS = {
     "Watchlist":            "Tracked names and their trade plans",
     "Alerts":               "Price and metric alerts you have armed",
     "Pipeline Log":         "What the 4:05 PM batch did, and whether it failed",
+    "Scheduler Hub":        "Batch jobs & the live alert bot — schedule, run, monitor",
     "Strategy Hub":         "Chart patterns, trading strategies, and fundamental scores",
-}
-
-#: Group → (icon, one-line purpose). The icon is decoration; the line is the
-#: reason the group exists, so Home reads as a map rather than a menu.
-GROUP_BLURBS = {
-    "Screening":        ("🔎", "Find candidates"),
-    "Market Intel":     ("📡", "Read the tape"),
-    "Research":         ("🔬", "Study one name"),
-    "Portfolio & Risk": ("🛡", "Manage what you hold"),
-    "Ops":              ("⚙", "Check the machinery"),
-    "Analytics":        ("📊", "Patterns, strategies, and scores"),
 }
 
 if "current_page" not in st.session_state:
@@ -995,7 +992,6 @@ _NAV_ICONS = {
     "Research":         "🔬",
     "Portfolio & Risk": "🛡",
     "Ops":              "⚙",
-    "Analytics":        "📊",
 }
 
 # Sentinel — CSS ribbon targets the stHorizontalBlock that immediately follows this
@@ -1030,6 +1026,7 @@ for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
             for _p in _gpages:
                 _is_active = st.session_state["current_page"] == _p
                 if st.button(_p, key=f"nav_{_p}", use_container_width=True,
+                             help=PAGE_BLURBS.get(_p),
                              type="primary" if _is_active else "secondary"):
                     st.session_state["current_page"] = _p
                     st.rerun()
@@ -1051,6 +1048,12 @@ st.markdown(
 )
 
 current_page = st.session_state["current_page"]
+
+# Background-job status panel (see ui_jobs). Long tasks (funnel run, sentiment
+# refresh) run on a per-session SERIAL queue off the script thread, so clicking a
+# second action while one runs QUEUES it instead of cancelling the running one.
+# The panel is drawn here (top); `ui_jobs.autorefresh()` polls at the very bottom.
+ui_jobs.render_panel()
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1329,20 +1332,100 @@ def cached_fundamentals_deep(symbol: str) -> dict:
     return fdeep.derive_fundamentals(symbol)
 
 
-@st.cache_data(ttl=3600, show_spinner=False)
-def cached_red_flags(symbol: str) -> dict:
-    """FR-4 checks. Cached hard: the statement inputs are quarterly at best, and
-    the promoter branch hits screener.in, which rate-limits.
-
-    The session lookup is best-effort — with no cookie the promoter checks come
-    back NOT_CHECKED, which is the honest answer rather than a failure.
-    """
+def resolve_screener_sessionid() -> str | None:
+    """Screener.in sessionid, in priority order: (1) auto-grabbed from a local
+    browser cookie, (2) the value manually saved in the DB (Plan B — for when
+    the browser auto-grab finds nothing). None if neither is available."""
     try:
         sid, _browser = bch.get_screener_sessionid()
+        if sid:
+            return sid
     except Exception:
-        sid = None
+        pass
+    try:
+        import portfolio_db as _db
+        return _db.get_setting("screener_sessionid") or None
+    except Exception:
+        return None
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _cached_red_flags(symbol: str, sessionid: str | None) -> dict:
+    """Cached core, keyed on (symbol, sessionid) so saving a sessionid (Plan B)
+    invalidates the entry and the screener-gated checks re-run."""
+    _own = cached_nse_ownership(symbol)
+    _pledge = ((_own["pledge_pct"], _own["pledge_as_of"])
+               if _own.get("pledge_pct") is not None else None)
     return rflags.evaluate(symbol, cached_fetch_fundamentals(symbol),
-                           cached_fundamentals_deep(symbol), sid)
+                           cached_fundamentals_deep(symbol), sessionid,
+                           promoter_series=_own["series"],
+                           promoter_pledge=_pledge,
+                           auditor_scan=cached_nse_auditor_scan(symbol))
+
+
+@st.cache_data(ttl=12 * 3600, show_spinner=False)
+def cached_nse_auditor_scan(symbol: str):
+    """Plan A (auditor) — scan free NSE announcements for an auditor-resignation
+    or adverse/qualified-opinion filing. Returns (state, detail, as_of) or None
+    on import/lookup failure (→ the check stays NOT_CHECKED, no source)."""
+    try:
+        import nse_announcements as _na
+        return _na.scan_auditor(symbol)
+    except Exception:
+        return None
+
+
+def cached_red_flags(symbol: str) -> dict:
+    """FR-4 checks. The session lookup is best-effort — with no cookie the
+    screener-gated checks come back NOT_CHECKED, the honest answer, and the user
+    can paste a sessionid via the 'Unlock screener.in checks' panel."""
+    return _cached_red_flags(symbol, resolve_screener_sessionid())
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def cached_nse_ownership(symbol: str) -> dict:
+    """Free/official promoter data for the FR-4 checks (Plan A — no screener.in
+    cookie): promoter-holding history [(period, pct)] oldest→newest PLUS the
+    latest promoter-pledge %. Disk cache first (ownership_cache), then a single
+    bounded live NSE fetch if the cache is thin or lacks pledge."""
+    import datetime as _dt
+    out = {"series": [], "pledge_pct": None, "pledge_as_of": None}
+    try:
+        import ownership_cache as _oc
+        import nse_shareholding_fetch as _nsf
+    except Exception:
+        return out
+
+    def _key(period):
+        d = _nsf._period_date(period)
+        return d or _dt.datetime.min
+
+    q = (_oc.load(symbol).get("quarters") or {})
+    disk = sorted(((p, v) for p, v in q.items()), key=lambda t: _key(t[0]))
+    series = [(p, float(v["promoter"])) for p, v in disk
+              if isinstance(v.get("promoter"), (int, float))]
+    pledge_pct, pledge_as_of = None, None
+    if disk:
+        _latest_p, _latest_v = disk[-1]
+        if isinstance(_latest_v.get("promoter_pledge_pct"), (int, float)):
+            pledge_pct, pledge_as_of = float(_latest_v["promoter_pledge_pct"]), _latest_p
+    if len(series) >= 2 and pledge_pct is not None:
+        return {"series": series, "pledge_pct": pledge_pct, "pledge_as_of": pledge_as_of}
+
+    try:                                    # single bounded live fetch (cached here)
+        res = _nsf.fetch_ownership(symbol, quarters=5)
+        if res:
+            qs = sorted(res.get("quarters", []), key=lambda d: _key(d.get("period")))
+            live = [(d.get("period"), float(d["promoter"])) for d in qs
+                    if isinstance(d.get("promoter"), (int, float))]
+            if len(live) >= 2:
+                series = live
+            latest = res.get("latest") or (qs[-1] if qs else None)
+            if latest and isinstance(latest.get("promoter_pledge_pct"), (int, float)):
+                pledge_pct, pledge_as_of = float(latest["promoter_pledge_pct"]), latest.get("period")
+    except Exception:
+        pass
+    return {"series": series, "pledge_pct": pledge_pct, "pledge_as_of": pledge_as_of}
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -1705,6 +1788,266 @@ def render_fundamental_signals(score: dict) -> None:
     )
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def cached_peer_score(symbol: str) -> dict:
+    """One peer's six axes, through the SAME scorer the anchor uses. Cached at the
+    same TTL as the statement layer it reads — the peer table's cost is entirely
+    network, and a peer of one stock is usually a peer of the next one too."""
+    return fscore.score_all(council.fetch_fundamentals(symbol),
+                            fdeep.derive_fundamentals(symbol))
+
+
+def render_peer_comparison(anchor: str) -> None:
+    """FP-1 — the anchor against its industry peers, on the same six axes.
+
+    Lazy on purpose. Twelve peers is ~48 yfinance calls, which would make it the
+    slowest thing on this page; it therefore sits behind a button and never runs
+    on the default Analyze path. See wiki/analyses/Analyzer-Radar-Peers-Roadmap.md.
+    """
+    st.markdown(rs.section("Peer comparison"), unsafe_allow_html=True)
+    key = f"peers_{anchor}"
+
+    if not st.session_state.get(key):
+        c1, c2 = st.columns([1, 4])
+        with c1:
+            if st.button("Compare peers", key=f"btn_{key}", use_container_width=True):
+                st.session_state[key] = True
+                st.rerun()
+        with c2:
+            st.caption(
+                f"Scores up to {pcmp.MAX_PEERS} same-industry names through the same "
+                "scorer as the donuts above, so 'cheaper than its peers' means exactly "
+                "what Valuation means. Runs on request — it is several dozen network "
+                "calls."
+            )
+        return
+
+    prog = st.progress(0.0, text="Resolving peer group...")
+    try:
+        res = pcmp.build(
+            anchor, cached_peer_score,
+            tag_progress=lambda d, t: prog.progress(min(d / max(t, 1), 1.0) * 0.6,
+                                                    text=f"Tagging industries {d}/{t}..."),
+            score_progress=lambda d, t: prog.progress(0.6 + min(d / max(t, 1), 1.0) * 0.4,
+                                                      text=f"Scoring peers {d}/{t}..."),
+        )
+    except Exception as exc:
+        prog.empty()
+        st.markdown(rs.callout("Peer comparison failed.", str(exc), tone="risk"),
+                    unsafe_allow_html=True)
+        return
+    prog.empty()
+
+    if not res.get("ok"):
+        st.markdown(
+            rs.callout(f"No peer group for {anchor}.",
+                       (res.get("reason") or "")
+                       + " Industry tags come from yfinance and are coarse or absent "
+                         "for many NSE mid- and small-caps; a thin group is a data "
+                         "limit, not a verdict on the company.",
+                       tone="absent"),
+            unsafe_allow_html=True)
+        return
+
+    df, med = res["table"], res["median"] or {}
+
+    # ── What group is this, and how honest is it ──
+    widened = res.get("group_level") == "family"
+    chips = (
+        rs.chip("Group", "info", res.get("group_label")) +
+        rs.chip("Names", "neutral", str(len(df))) +
+        (rs.chip("Widened", "warn", f"only {res['n_same_industry']} in {res['industry']}")
+         if widened else "")
+    )
+    st.markdown(
+        rs.card(
+            f'{chips}<div style="font-size:12px;color:{rs.TOKENS["text_body"]};'
+            f'margin-top:6px;">'
+            + (f'yfinance tags <b>{anchor}</b> as <i>{res["industry"]}</i>, which holds '
+               f'only {res["n_same_industry"]} other NSE name(s) — too thin to compare '
+               f'against, so the group was widened one rung to <b>{res["group_label"]}</b>. '
+               'Read it as a sector-adjacent group, not a like-for-like one. '
+               if widened else
+               f'Peers are the NSE names yfinance tags <i>{res["industry"]}</i>, '
+               'ranked by market cap. ')
+            + 'Fundamental axes only — no technical or timing content here, and no '
+              'overall peer score: this ranks measured business characteristics, and '
+              'none of it is backtested as an edge.</div>'
+        ),
+        unsafe_allow_html=True,
+    )
+
+    ranks = res.get("ranks") or {}
+
+    # ── FP-3 · where the anchor stands INSIDE the group ──
+    # Rank, never percentile: in a group of six to twelve names a percentile is a
+    # weak statistic wearing a precise costume.
+    ax_ranks = ranks.get("axes") or {}
+    rank_chips = "".join(
+        rs.chip(fscore.AXIS_LABELS[a], _axis_tone(i["anchor_score"]),
+                f'{i["rank"]}/{i["n"]}')
+        for a in fscore.AXES
+        if (i := ax_ranks.get(a)) and i.get("rank")
+    )
+    if ranks.get("headline") or rank_chips:
+        st.markdown(
+            rs.card(
+                f'<div style="font-size:12.5px;color:{rs.TOKENS["text"]};'
+                f'margin-bottom:6px;">{ranks.get("headline", "")}</div>{rank_chips}'
+                f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};'
+                f'margin-top:6px;">Chips are <b>peer-relative</b> — the anchor\'s rank '
+                f'out of the names that scored on that axis. The table\'s numbers stay '
+                f'<b>absolute</b>. "Strongest business profile" averages the five '
+                f'business axes and deliberately excludes Valuation: leading a peer '
+                f'group must not mean being the cheapest. Nothing here is backtested.</div>'
+            ),
+            unsafe_allow_html=True,
+        )
+
+    # ── FP-4 · the optional technical pass ──
+    tech_key = f"peers_tech_{anchor}"
+    tcol1, tcol2 = st.columns([1, 4])
+    with tcol1:
+        want_tech = st.toggle("Technicals", key=f"tg_{tech_key}",
+                              value=bool(st.session_state.get(tech_key)))
+    with tcol2:
+        st.caption("Adds RS · RSI · ADX · 52w · Stage · Pivot — a **second** network "
+                   "pass (one price history per peer) on top of the statements.")
+
+    if want_tech:
+        tprog = st.progress(0.0, text="Fetching peer price history...")
+        try:
+            _nifty = cached_fetch_nifty50(days=400)
+        except Exception:
+            _nifty = None
+        try:
+            tech = pcmp.technical_columns(
+                df["symbol"].tolist(),
+                lambda s: cached_fetch_ohlcv(s, days=400), _nifty,
+                progress_cb=lambda d, t: tprog.progress(
+                    min(d / max(t, 1), 1.0), text=f"Technicals {d}/{t}..."))
+            df = pcmp.attach_technicals(df, tech)
+            st.session_state[tech_key] = True
+        except Exception as exc:
+            st.warning(f"Technical pass failed: {exc}")
+            want_tech = False
+        tprog.empty()
+
+    # ── The table: sticky header, frozen ticker column, in-cell bars ──
+    # Markup lives in peer_comparison.table_html, not here: it is pure
+    # df -> HTML with no Streamlit in it, so it can be rendered and eyeballed
+    # from a script without standing up the app behind its login.
+    st.markdown(pcmp.table_html(df, med, anchor, tone_fn=_axis_tone,
+                                ranks=ranks, with_technicals=want_tech),
+                unsafe_allow_html=True)
+    st.caption(
+        f"Sorted by market cap with **{anchor}** pinned first. The six axis numbers "
+        "are the same measured 0–100 scores as the donuts above (55 = the median NSE "
+        "company); ★ marks the best in this group and is the only peer-relative mark "
+        "in the table. `n/a` is a missing input, never a zero — **Cov.** says how much "
+        "of each row was actually measured, so a sparsely-covered peer is not read as "
+        "a weak one. Median rather than mean, because one loss-maker moves a mean "
+        "somewhere no company in the group actually sits."
+    )
+
+    # ── FP-2 · the radar, as an overlay ──
+    st.markdown(rs.section("Profile vs the peer group"), unsafe_allow_html=True)
+    rc1, rc2 = st.columns([3, 2])
+    with rc2:
+        others = [s for s in df["symbol"].tolist() if s != anchor]
+        compare = st.selectbox("Overlay one peer (optional)", ["—"] + others,
+                               key=f"peers_cmp_{anchor}")
+        compare = None if compare == "—" else compare
+        st.caption(
+            "Two traces by default, three at most. Radar charts degrade past about "
+            "four overlaid series, so this one is capped below that.\n\n"
+            "**Read the shape, not the area.** Polygon area scales as the square of "
+            "the values and depends on axis order, so it is not a quantity — the "
+            "donuts and the table remain the precise readout. What the overlay adds "
+            "is the one thing they cannot show: whether this profile is normal for "
+            "this industry."
+        )
+    with rc1:
+        try:
+            st.plotly_chart(pcmp.radar_figure(df, med, anchor, compare=compare),
+                            use_container_width=True,
+                            key=f"peer_radar_{anchor}")
+        except Exception as exc:
+            st.warning(f"Radar unavailable: {exc}")
+
+    # ── FP-4 · the "vs anchor" drill ──
+    if compare:
+        _peer_head_to_head(anchor, compare, df, want_tech)
+
+
+def _peer_head_to_head(anchor: str, other: str, df, with_technicals: bool) -> None:
+    """Two names, axis by axis, with the gap stated in the direction that matters.
+
+    The mockup's "vs ANCHOR" link. It reuses the rows already scored for the table
+    rather than re-fetching, so the drill costs nothing and — more importantly —
+    cannot disagree with the table it was opened from.
+    """
+    a_row = df[df["symbol"] == anchor]
+    b_row = df[df["symbol"] == other]
+    if not len(a_row) or not len(b_row):
+        return
+    a_row, b_row = a_row.iloc[0], b_row.iloc[0]
+
+    rows = []
+    for ax in fscore.AXES:
+        av, bv = pcmp._score_or_none(a_row[ax]), pcmp._score_or_none(b_row[ax])
+        if av is None or bv is None:
+            gap_txt, tone = rs.NA, "absent"
+        else:
+            gap = av - bv
+            gap_txt = f"{gap:+d}"
+            tone = "good" if gap > 5 else ("risk" if gap < -5 else "neutral")
+        fg = rs.tone_colors(tone)[0]
+        rows.append(
+            f'<tr><td style="padding:3px 8px;font-size:11.5px;">'
+            f'{fscore.AXIS_LABELS[ax]}</td>'
+            f'<td class="tb-mono" style="text-align:right;padding:3px 8px;">'
+            f'{"—" if av is None else av}</td>'
+            f'<td class="tb-mono" style="text-align:right;padding:3px 8px;">'
+            f'{"—" if bv is None else bv}</td>'
+            f'<td class="tb-mono" style="text-align:right;padding:3px 8px;'
+            f'color:{fg};font-weight:600;">{gap_txt}</td></tr>'
+        )
+    if with_technicals and "stage_label" in df.columns:
+        for col, label, _d in pcmp.TECH_COLUMNS:
+            av, bv = a_row.get(col), b_row.get(col)
+            # Same formatter as the table: the drill must not render 52w as a
+            # bare 3.2 while the row above it says -3.2%.
+            fmt = lambda v: pcmp.tech_text(v, col)
+            rows.append(
+                f'<tr><td style="padding:3px 8px;font-size:11.5px;color:'
+                f'{rs.TOKENS["text_muted"]};">{label}</td>'
+                f'<td class="tb-mono" style="text-align:right;padding:3px 8px;">{fmt(av)}</td>'
+                f'<td class="tb-mono" style="text-align:right;padding:3px 8px;">{fmt(bv)}</td>'
+                f'<td></td></tr>'
+            )
+
+    st.markdown(
+        rs.card(
+            f'<table style="width:100%;border-collapse:collapse;">'
+            f'<thead><tr>'
+            f'<th style="text-align:left;font-size:10px;text-transform:uppercase;'
+            f'letter-spacing:.04em;color:{rs.TOKENS["text_muted"]};padding:3px 8px;"></th>'
+            f'<th style="text-align:right;font-size:11px;padding:3px 8px;">{anchor}</th>'
+            f'<th style="text-align:right;font-size:11px;padding:3px 8px;">{other}</th>'
+            f'<th style="text-align:right;font-size:10px;text-transform:uppercase;'
+            f'letter-spacing:.04em;color:{rs.TOKENS["text_muted"]};padding:3px 8px;">Gap</th>'
+            f'</tr></thead><tbody>{"".join(rows)}</tbody></table>'
+            f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};margin-top:6px;">'
+            f'Gap is {anchor} minus {other} in score points, so positive favours '
+            f'{anchor}. Technical rows carry no gap column on purpose — a 12-point '
+            f'RSI difference is not comparable to a 12-point axis difference.</div>',
+            title=f"{anchor} vs {other}",
+        ),
+        unsafe_allow_html=True,
+    )
+
+
 _SCENARIO_TONE = {"Bull": "good", "Base": "info", "Bear": "risk"}
 
 
@@ -1833,6 +2176,23 @@ def render_red_flags(res: dict) -> None:
     st.markdown(rs.card(f'<div style="margin-bottom:8px;">{header_chips}</div>{verdict}'),
                 unsafe_allow_html=True)
 
+    # Plan C — a "verify" deep link per gray-zone flag, so a NOT CHECKED item is
+    # actionable (go look here) rather than a dead end. Screener's consolidated
+    # page carries promoter/pledge tables AND the annual-report documents; the
+    # NSE quote page carries the official shareholding pattern.
+    from urllib.parse import quote as _q
+    _sym = res.get("symbol", "")
+    _scr = f"https://www.screener.in/company/{_q(_sym)}/consolidated/"
+    _nseq = f"https://www.nseindia.com/get-quotes/equity?symbol={_q(_sym)}"
+    _verify_links = {
+        "promoter_holding":      [("screener.in ↗", _scr), ("NSE filing ↗", _nseq)],
+        "promoter_pledge":       [("screener.in ↗", _scr), ("NSE filing ↗", _nseq)],
+        "auditor_qualification": [("Annual report ↗", _scr)],
+        "related_party_txns":    [("Annual report ↗", _scr)],
+        "revenue_concentration": [("Annual report ↗", _scr)],
+    }
+    _link_col = rs.TOKENS.get("accent", "#3fb950")
+
     order = {"FLAG": 0, "NOT_CHECKED": 1, "CLEAN": 2}
     rows = []
     for f in sorted(flags, key=lambda x: (order.get(x["state"], 9),
@@ -1840,6 +2200,14 @@ def render_red_flags(res: dict) -> None:
         tone = _FLAG_TONE.get((f["state"], f["severity"]), "absent")
         fg, bg = rs.tone_colors(tone)
         sev = ("critical" if f["severity"] == "critical" else "watch")
+        _lk = _verify_links.get(f["key"])
+        links_html = ""
+        if _lk:
+            anchors = " · ".join(
+                f'<a href="{u}" target="_blank" rel="noopener" '
+                f'style="color:{_link_col};text-decoration:none;">{t}</a>' for t, u in _lk)
+            links_html = (f'<div class="tb-micro" style="margin-top:3px;">'
+                          f'Verify manually: {anchors}</div>')
         rows.append(
             f'<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 0;'
             f'border-top:1px solid {rs.TOKENS["border"]};">'
@@ -1850,9 +2218,56 @@ def render_red_flags(res: dict) -> None:
             f'<b style="font-size:12.5px;color:{rs.TOKENS["text"]};">{f["label"]}</b>'
             f'<span class="tb-micro" style="margin-left:7px;">{sev} · {f["source"]}</span>'
             f'<div style="font-size:12px;color:{rs.TOKENS["text_body"]};line-height:1.45;">'
-            f'{f["detail"]}</div></div></div>'
+            f'{f["detail"]}</div>{links_html}</div></div>'
         )
     st.markdown("".join(rows), unsafe_allow_html=True)
+
+
+def _render_screener_unlock(res: dict) -> None:
+    """Plan B — paste a screener.in sessionid to unlock the screener-gated checks
+    (promoter pledge, deeper history) when the browser auto-grab found none.
+    Only shown when such a gap actually exists. Stored in the DB like the digest
+    Gmail credentials; clearing the field removes it."""
+    flags = res.get("flags") or []
+    gaps = [f for f in flags
+            if f.get("source") == "screener.in" and f.get("state") == "NOT_CHECKED"]
+    if not gaps:
+        return
+    try:
+        import portfolio_db as _db
+        saved = _db.get_setting("screener_sessionid") or ""
+    except Exception:
+        _db, saved = None, ""
+    if _db is None:
+        return
+
+    with st.expander("🔓 Unlock screener.in checks (promoter pledge, deeper history)"):
+        st.caption(
+            "These need a screener.in `sessionid` cookie and none was found in a "
+            "local browser. Log in to screener.in → DevTools → Application ▸ "
+            "Cookies ▸ https://www.screener.in → copy the **sessionid** value and "
+            "paste it here. It expires periodically — re-paste if checks stop "
+            "resolving. Stored locally in your dashboard DB, only sent to "
+            "screener.in."
+        )
+        val = st.text_input("screener.in sessionid", value=saved, type="password",
+                            key="rf_screener_sid")
+        c1, c2 = st.columns(2)
+        if c1.button("Save & re-check", key="rf_sid_save", type="primary"):
+            try:
+                _db.set_setting("screener_sessionid", (val or "").strip())
+                _cached_red_flags.clear()
+                st.success("Saved — re-running screener checks…")
+                st.rerun()
+            except Exception as e:
+                st.error(f"Could not save: {e}")
+        if saved and c2.button("Clear saved sessionid", key="rf_sid_clear"):
+            try:
+                _db.set_setting("screener_sessionid", "")
+                _cached_red_flags.clear()
+                st.success("Cleared."); st.rerun()
+            except Exception as e:
+                st.error(f"Could not clear: {e}")
 
 
 #: |YoY| beyond this on a quarter is annotated rather than left for the reader
@@ -2810,17 +3225,23 @@ if _show_regime and (_senti_reading is None or (_senti_age or 0) >= 1):
             "as a caution flag, so refreshing may change it.")
 
     if _do_refresh:
-        try:
-            with st.spinner("Computing sentiment — bhavcopy, sector indices, PMax…"):
-                senti.compute_sentiment(persist=True)
-            # Same cache bust the Market Sentiment page performs. Without it the
-            # ribbon keeps serving the stale row for up to 5 minutes and the
-            # button looks broken.
-            cached_latest_sentiment.clear()
+        # Queue the ~25s compute on the serial job queue rather than running it
+        # inline — so a funnel run in progress is NOT cancelled, and vice-versa.
+        _sjid = ui_jobs.submit_unique("Refresh sentiment", senti.compute_sentiment,
+                                      persist=True)
+        if _sjid is None:
+            st.info("A sentiment refresh is already running — click ignored.")
+        st.rerun()
+
+    # Consume a completed sentiment refresh (fires once on completion). The cache
+    # bust + rerun must happen on the MAIN thread, so it lives here, not in the job.
+    _sfin = ui_jobs.get_queue().take_result("Refresh sentiment")
+    if _sfin is not None:
+        if _sfin.status == "error":
+            st.error(f"Sentiment compute failed: {_sfin.error}")
+        else:
+            cached_latest_sentiment.clear()   # else the ribbon serves stale for ~5 min
             st.session_state["ov_senti_refreshed"] = True
-            st.rerun()
-        except Exception as exc:
-            st.error(f"Sentiment compute failed: {exc}")
 
 if _show_regime and st.session_state.pop("ov_senti_refreshed", False):
     st.success("Sentiment recomputed — the verdict above reflects the new reading.")
@@ -3163,10 +3584,21 @@ def _card_trade_fundamentals_html(sym: str, card: dict) -> str:
     return f'<div style="margin:6px 0 2px 0;">{"".join(parts)}</div>'
 
 
+# Per-render sequence for scanner-card widget keys. Reset every rerun (Streamlit
+# re-executes this whole script top-to-bottom), so keys are deterministic and
+# stable across identical reruns, yet unique even when the SAME symbol+scanner
+# legitimately renders in more than one section of a single page (e.g. the
+# Opportunity-Hub pipeline funnel and the single-scanner list both surfacing the
+# same hit) — which otherwise collides on key=f"sc_s_{sym}_{scanner_name}".
+_scanner_card_key_seq = {"n": 0}
+
+
 def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -> None:
     sym = card["symbol"]
     sym_clean = sym.upper().replace(".NS", "")
     pattern_type = card.get("pattern_type", scanner_name)
+    _scanner_card_key_seq["n"] += 1
+    _kseq = _scanner_card_key_seq["n"]
 
     # ── Inline action icons (header row, all open in new tab) ─────────────
     def _icon_link(href: str, glyph: str, tip: str, small: bool = False) -> str:
@@ -3246,15 +3678,20 @@ def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -
         # as an extra blank line between the chips and the card. Empty for every
         # other caller, so their cards are unchanged.
         f'{header_html}'
-        # Header row: avatar · identity · right cluster
-        f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;">'
+        # Header row: avatar · identity · right cluster.
+        # flex-wrap + a real min-width on the identity column so that in a narrow
+        # 3-up card the fixed-width ring+icons cluster DROPS to its own line
+        # instead of starving the identity column to ~0px (which forced the text
+        # to wrap character-by-character — "1.2% fro m 52w high").
+        f'<div style="display:flex;align-items:center;gap:10px;margin-bottom:6px;'
+        f'flex-wrap:wrap;">'
         # Avatar
         f'<div style="width:34px;height:34px;border-radius:8px;flex-shrink:0;'
         f'background:linear-gradient(135deg,#fbbf24,#ea580c);color:#fff;'
         f'display:flex;align-items:center;justify-content:center;'
         f'font-weight:700;font-size:15px;">{sym[0]}</div>'
-        # Identity column
-        f'<div style="flex:1;min-width:0;">'
+        # Identity column — never collapses below a readable width.
+        f'<div style="flex:1 1 150px;min-width:130px;">'
         f'<div style="display:flex;align-items:center;flex-wrap:wrap;gap:6px;">'
         f'{_rating_badge_html(card)}'
         f'<span style="font-size:15px;font-weight:700;color:#3a2a1e;">{sym}</span>'
@@ -3263,8 +3700,11 @@ def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -
         f'</div>'
         f'<div style="margin-top:3px;">{metrics_html}</div>'
         f'</div>'
-        # Right cluster: score ring + action icons
-        f'<div style="display:flex;align-items:center;flex-shrink:0;gap:2px;">'
+        # Right cluster: score ring + action icons. margin-left:auto right-aligns
+        # it on a wide card; flex-wrap lets it (and the icons) drop cleanly to
+        # their own line on a narrow one rather than overflowing.
+        f'<div style="display:flex;align-items:center;flex-shrink:0;gap:2px;'
+        f'flex-wrap:wrap;justify-content:flex-end;margin-left:auto;">'
         f'{ring_html}{action_icons}'
         f'</div>'
         f'</div>'
@@ -3278,26 +3718,26 @@ def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -
     # Action buttons row — Streamlit widgets (server callbacks)
     _b1, _b2, _b3, _b4 = st.columns(4)
     with _b1:
-        if st.button("★", key=f"sc_s_{sym}_{scanner_name}",
+        if st.button("★", key=f"sc_s_{sym}_{scanner_name}_{_kseq}",
                      help=f"Save {sym} to scanner hits",
                      use_container_width=True):
             db.save_scanner_hit(sym, scanner_name, card.get("pattern_type", ""))
             st.toast(f"★ Saved {sym_clean}")
     with _b2:
-        if st.button("♥", key=f"sc_wl_{sym}_{scanner_name}",
+        if st.button("♥", key=f"sc_wl_{sym}_{scanner_name}_{_kseq}",
                      help=f"Add {sym_clean} to Watchlist",
                      use_container_width=True):
             db.add_watchlist_symbol(sym_clean, f"Scanner Hub — {scanner_name}")
             st.toast(f"♥ {sym_clean} → Watchlist")
     with _b3:
-        if st.button("↗", key=f"sc_an_{sym}_{scanner_name}",
+        if st.button("↗", key=f"sc_an_{sym}_{scanner_name}_{_kseq}",
                      help=f"Open {sym_clean} in Stock Analyzer",
                      use_container_width=True):
             st.session_state["current_page"] = "Stock Analyzer"
             st.session_state["sa_symbol_override"] = sym_clean
             st.rerun()
     with _b4:
-        if st.button("⊕", key=f"sc_ro_{sym}_{scanner_name}",
+        if st.button("⊕", key=f"sc_ro_{sym}_{scanner_name}_{_kseq}",
                      help=f"Add {sym_clean} to Analyzer Roster (batch queue)",
                      use_container_width=True):
             roster = st.session_state.setdefault("sa_roster", [])
@@ -3422,6 +3862,217 @@ with st.expander("Daily Workflow (IST)"):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Volume Shockers (Darvas) — shared window, used by Home and Trending Stocks
+# ------------------------------------------------------------------------------
+# The lens was buried three clicks deep (Market Intel ▸ Trending Stocks ▸ tab 2),
+# so it now renders on Home as well. Both call the SAME function — one definition,
+# two mount points, no drift.
+#
+# Criteria are Chartink's Darvas volume-shocker scan verbatim (see
+# trending_stocks.darvas_volume_shockers): volume > 2x SMA(volume,10) AND a >=5%
+# move in either direction. The knobs are exposed because the reference scan's
+# 2x/5% are conventions, not measured thresholds.
+#
+# Home must stay cheap to open, so the scan runs only when asked: the button
+# flips a session flag, the cached result is reused for 30 minutes after that.
+# ──────────────────────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _trend_bhav():
+    import trending_stocks as _ts
+    return _ts.load_bhav()
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _darvas_volume(top_n: int, vol_mult: float, move_pct: float, min_turnover_cr: float):
+    import trending_stocks as _ts
+    bhav, _ = _trend_bhav()
+    if bhav is None:
+        return {"error": "no bhavcopy frame", "rows": None}
+    _r = _ts.darvas_volume_shockers(
+        bhav, top_n=top_n, vol_mult=vol_mult, move_pct=move_pct,
+        min_turnover=float(min_turnover_cr) * 1e7)
+    _r["trade_date"] = _trend_bhav()[1]
+    return _r
+
+
+def _darvas_rows_table(df, key_prefix: str):
+    """The hit list, with the same chart-icon link family the other tables use,
+    plus row-select → ♥ add to watchlist.
+
+    Streamlit cannot put a real button INSIDE a dataframe cell, so the icon is a
+    row selection followed by one ♥ button — which is also the cheaper gesture
+    when the answer is usually "these three", not "this one".
+    """
+    if df is None or getattr(df, "empty", True):
+        st.info("No name clears both conditions in this session. "
+                "That is a normal reading — the scan is meant to be quiet.")
+        return
+    out = _with_chart_family(df.copy(), "symbol")
+    cfg = dict(_chart_family_colcfg())
+    cfg["symbol"] = st.column_config.TextColumn("Symbol", width="small")
+    cfg["close"] = st.column_config.NumberColumn("LTP", format="%.2f")
+    cfg["chg_pct"] = st.column_config.NumberColumn("Chg%", format="%.2f%%")
+    cfg["direction"] = st.column_config.TextColumn("Dir", width="small")
+    cfg["volume"] = st.column_config.NumberColumn("Volume", format="%d")
+    cfg["sma_vol10"] = st.column_config.NumberColumn("SMA vol(10)", format="%d")
+    cfg["multiple"] = st.column_config.NumberColumn("x SMA10", format="%.1f")
+    cfg["turnover_cr"] = st.column_config.NumberColumn("Turnover ₹Cr", format="%.1f")
+    # Green/red on Chg%. Colour is REDUNDANT here, never load-bearing: the Dir
+    # column already says UP/DOWN and the number carries its own sign, so the
+    # table still reads correctly in greyscale or with colour-blindness — the
+    # same rule gain_loss_badge() follows.
+    def _chg_color(v):
+        if v is None or pd.isna(v):
+            return ""
+        return (f"color:{rs.TOKENS['good']};font-weight:600" if v > 0
+                else f"color:{rs.TOKENS['risk']};font-weight:600" if v < 0
+                else "")
+
+    _show = out.style.map(_chg_color, subset=["chg_pct"])
+    _sel = st.dataframe(_show, width="stretch", hide_index=True, column_config=cfg,
+                        key=f"{key_prefix}_tbl", on_select="rerun",
+                        selection_mode="multi-row")
+    try:
+        _rows = list(_sel.selection.rows)
+    except Exception:
+        _rows = []
+    _picked = [str(df.iloc[i]["symbol"]) for i in _rows if i < len(df)]
+
+    _wc1, _wc2 = st.columns([1, 3])
+    with _wc1:
+        if st.button(f"♥ Add {len(_picked) or ''} to watchlist".replace("  ", " "),
+                     key=f"{key_prefix}_addwl", disabled=not _picked,
+                     use_container_width=True, type="primary" if _picked else "secondary"):
+            for _s in _picked:
+                db.add_watchlist_symbol(_s, "Volume Shockers · Darvas")
+            st.toast(f"♥ {len(_picked)} → Watchlist")
+            st.rerun()
+    with _wc2:
+        st.caption("Tick one or more rows, then ♥ — they land on the Watchlist "
+                   "tagged with the scan that found them."
+                   + (f"  Selected: **{', '.join(_picked)}**" if _picked else ""))
+
+
+def _darvas_window(key_prefix: str, *, compact: bool = False):
+    """Render the Volume Shockers (Darvas) window.
+
+    `compact` is the Home mounting: no sliders, scan runs on click only.
+    """
+    st.markdown("#### 📊 Volume Shockers · Darvas")
+    st.caption(
+        "Chartink's *Volume Shockers (rising volumes) — Darvas* scan, computed "
+        "locally: **volume > 2× SMA(volume,10)** *and* a **≥5% move** up or down "
+        "vs the previous close. An attention list, not a signal — a box only "
+        "breaks on conviction volume, but volume alone is a question, not an entry."
+    )
+    # Chartink applies NO liquidity floor, so its list carries names trading a few
+    # thousand shares (SURYALA: 3,061). The floor defaults to 0 here for parity —
+    # raise it when you want a list you can actually take size in.
+
+    def _refresh():
+        """Drop the cached bhavcopy AND the cached scan, then re-run.
+
+        Both, not just the scan: the scan is a pure function of the bhavcopy, so
+        clearing it alone would recompute the same numbers off the same cached
+        frame and look broken during the hour after the close, which is exactly
+        when a refresh is worth pressing.
+        """
+        _trend_bhav.clear()
+        _darvas_volume.clear()
+        st.session_state[f"{key_prefix}_refreshed"] = datetime.now().strftime("%H:%M:%S")
+        st.rerun()
+
+    if compact:
+        _top, _mult, _move, _minto = 60, 2.0, 5.0, 0.0
+        _go = st.session_state.get(f"{key_prefix}_ran", False)
+        if not _go:
+            if st.button("Run volume shocker scan", key=f"{key_prefix}_run",
+                         type="primary"):
+                st.session_state[f"{key_prefix}_ran"] = True
+                st.rerun()
+            st.caption("Not run yet — Home never fetches on load.")
+            return
+        _rc1, _rc2 = st.columns([1, 4])
+        with _rc1:
+            if st.button("↻ Refresh", key=f"{key_prefix}_refresh",
+                         use_container_width=True,
+                         help="Re-download the bhavcopy and re-run the scan. "
+                              "Results are cached for 30 minutes otherwise."):
+                _refresh()
+        with _rc2:
+            _last = st.session_state.get(f"{key_prefix}_refreshed")
+            st.caption(f"Refreshed at **{_last}**." if _last else
+                       "Cached for 30 minutes — press ↻ for a fresh pull.")
+    else:
+        _c1, _c2, _c3, _c4 = st.columns(4)
+        with _c1:
+            _top = st.slider("Rows", 10, 200, 60, step=10, key=f"{key_prefix}_top",
+                             help="A cap on the TABLE, not on the scan — the hit "
+                                  "count beside it is always the full number.")
+        with _c2:
+            _mult = st.slider("× SMA(volume,10)", 1.5, 10.0, 2.0, step=0.5,
+                              key=f"{key_prefix}_mult",
+                              help="Chartink's scan uses 2×. Raise it to shorten the list.")
+        with _c3:
+            _move = st.slider("Min move %", 1.0, 15.0, 5.0, step=0.5,
+                              key=f"{key_prefix}_move",
+                              help="Chartink's scan uses ±5%, either direction.")
+        with _c4:
+            _minto = st.number_input("Min turnover ₹Cr", 0.0, 500.0, 0.0, step=1.0,
+                                     key=f"{key_prefix}_minto",
+                                     help="Liquidity floor. 0 = Chartink parity "
+                                          "(it applies none). Raise it to drop names "
+                                          "whose 5% move is arithmetic on 3,000 shares.")
+
+    if not compact:
+        _rc1, _rc2 = st.columns([1, 4])
+        with _rc1:
+            if st.button("↻ Refresh", key=f"{key_prefix}_refresh",
+                         use_container_width=True,
+                         help="Re-download the bhavcopy and re-run the scan."):
+                _refresh()
+        with _rc2:
+            _last = st.session_state.get(f"{key_prefix}_refreshed")
+            st.caption(f"Refreshed at **{_last}**." if _last else
+                       "Cached for 30 minutes — press ↻ for a fresh pull.")
+
+    with st.spinner("Scanning the bhavcopy, then 10-day volume history…"):
+        _res = _darvas_volume(int(_top), float(_mult), float(_move), float(_minto))
+
+    if _res.get("error"):
+        st.warning(f"Scan unavailable: {_res['error']}")
+        return
+
+    # The bhavcopy is EOD and publishes after the close, so on any intraday run
+    # this scan is YESTERDAY's session while Chartink is showing today's. That is
+    # the single most likely reason two lists disagree, so it is stated first and
+    # in the open, not buried in a tooltip.
+    st.caption(f"Session **{_res.get('trade_date') or '—'}** (NSE EOD bhavcopy). "
+               f"Chartink runs intraday — compare like sessions before concluding "
+               f"the filters differ.")
+    _n_hits = _res.get("n_hits", 0)
+    _n_shown = 0 if _res.get("rows") is None else len(_res["rows"])
+    _n_price = _res.get("n_price", 0)
+    _n_scanned = _res.get("n_scanned", 0)
+    st.caption(
+        f"**{_n_hits}** hits"
+        + (f" (showing {_n_shown} — raise *Rows*)" if _n_shown < _n_hits else "")
+        + f" · {_n_price} names cleared the ±{_res.get('move_pct', 5)}% price gate "
+        f"out of {_res.get('n_liquid', 0):,} of {_res.get('n_universe', 0):,} EQ rows "
+        f"· {_n_scanned} of those had 9 prior sessions of volume history to test the "
+        f"{_res.get('vol_mult', 2)}× condition."
+    )
+    if _n_price and _n_scanned < _n_price:
+        # This is the one gap Chartink does not have: it holds its own volume
+        # history, we fetch ours. A name too new (or unmatched on yfinance) is
+        # NOT reported as "no spike" — it is reported as untested.
+        st.caption(f"⚠ {_n_price - _n_scanned} name(s) could not be tested — no "
+                   f"10-session volume history from the feed. Untested, not rejected.")
+    _darvas_rows_table(_res.get("rows"), key_prefix)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Home — the landing page
 # ------------------------------------------------------------------------------
 # The app used to open straight into Screener, which meant the first screen was a
@@ -3490,37 +4141,58 @@ if current_page == "Home":
     )
     st.write("")
 
-    # One card per sidebar group; the buttons are real navigation, so the card
-    # header is markdown and the routing sits underneath it. Streamlit widgets
-    # cannot live inside an st.markdown HTML block, which is why this is a column
-    # grid rather than one rendered card grid.
-    _groups = list(PAGE_GROUPS.items())
-    for _row_start in range(0, len(_groups), 3):
-        _cols = st.columns(3, gap="medium")
-        for _col, (_gname, _gpages) in zip(_cols, _groups[_row_start:_row_start + 3]):
-            with _col:
-                _icon, _purpose = GROUP_BLURBS.get(_gname, ("", ""))
-                st.markdown(
-                    f'<div style="border:1px solid {_t["border"]};border-radius:12px;'
-                    f'background:{_t["surface"]};padding:14px 16px 10px;margin-bottom:8px;">'
-                    f'<div style="font-size:15px;font-weight:700;color:{_t["text"]};">'
-                    f'{_icon} {_gname}</div>'
-                    f'<div style="font-size:12px;color:{_t["text_muted"]};margin-top:2px;">'
-                    f'{_purpose}</div></div>',
-                    unsafe_allow_html=True,
-                )
-                for _p in _gpages:
-                    if st.button(_p, key=f"home_{_p}", use_container_width=True):
-                        st.session_state["current_page"] = _p
-                        st.rerun()
-                    _blurb = PAGE_BLURBS.get(_p)
-                    if _blurb:
-                        st.markdown(
-                            f'<div style="font-size:11px;color:{_t["text_muted"]};'
-                            f'margin:-6px 0 8px 2px;line-height:1.4;">{_blurb}</div>',
-                            unsafe_allow_html=True,
-                        )
-        st.write("")
+    # Home used to be a card grid of every page. It is now a working surface: the
+    # scan that was buried three clicks deep, then the roster it feeds. Navigation
+    # lives in the top ribbon, where it was already complete.
+    _darvas_window("home_vs", compact=True)
+    st.write("")
+
+    # The nav-card grid is gone: every page is already one click away in the top
+    # ribbon, so carding them twice made Home a menu of a menu. Home now shows the
+    # two things you actually act on — today's volume shockers, and what you are
+    # already tracking.
+    st.markdown("#### ♥ Watchlist")
+    _wl = db.get_watchlist()
+    if _wl is None or _wl.empty:
+        st.info("Watchlist is empty — tick rows in the scan above and press ♥.")
+    else:
+        # Deliberately NOT price-enriched here: the Watchlist page fetches OHLCV
+        # per symbol to score Minervini/TechnoFunda, and Home must not fetch on
+        # load. This is the roster; the scored view is one click away.
+        _wl_out = _wl.rename(columns={"symbol": "Symbol", "added_date": "Added",
+                                      "notes": "Notes"})
+        _wl_out = _with_chart_family(_wl_out, "Symbol")
+        _wl_cfg = dict(_chart_family_colcfg())
+        _wl_cfg["Symbol"] = st.column_config.TextColumn("Symbol", width="small")
+        _wl_cfg["Added"] = st.column_config.TextColumn("Added", width="small")
+        _wl_cfg["Notes"] = st.column_config.TextColumn("Notes", width="medium")
+        _wl_sel = st.dataframe(_wl_out, width="stretch", hide_index=True,
+                               column_config=_wl_cfg, key="home_wl_tbl",
+                               on_select="rerun", selection_mode="multi-row")
+        try:
+            _wl_rows = list(_wl_sel.selection.rows)
+        except Exception:
+            _wl_rows = []
+        _wl_pick = [str(_wl.iloc[i]["symbol"]) for i in _wl_rows if i < len(_wl)]
+
+        _h1, _h2, _h3 = st.columns([1, 1, 2])
+        with _h1:
+            if st.button(f"Remove {len(_wl_pick) or ''}".strip(), key="home_wl_rm",
+                         disabled=not _wl_pick, use_container_width=True):
+                for _s in _wl_pick:
+                    db.remove_watchlist_symbol(_s)
+                st.toast(f"Removed {len(_wl_pick)}")
+                st.rerun()
+        with _h2:
+            if st.button("Open Watchlist →", key="home_wl_open",
+                         use_container_width=True):
+                st.session_state["current_page"] = "Watchlist"
+                st.rerun()
+        with _h3:
+            st.caption(f"{len(_wl)} tracked. Scores and trade plans live on the "
+                       f"Watchlist page.")
+
+    st.write("")
 
     st.markdown(
         f'<div style="border-top:1px solid {_t["border"]};margin-top:6px;padding-top:14px;'
@@ -3739,7 +4411,10 @@ if current_page == "Stock Analyzer":
                 render_fundamental_header(symbol, df, _fund, _deep)
                 render_fundamental_signals(fscore.score_all(_fund, _deep))
                 render_fundamental_history(_deep)
-                render_red_flags(cached_red_flags(symbol))
+                render_peer_comparison(symbol)
+                _rf_res = cached_red_flags(symbol)
+                render_red_flags(_rf_res)
+                _render_screener_unlock(_rf_res)
                 render_scenarios(scen.build(_deep), _deep)
                 render_concalls(cached_concalls(symbol))
 
@@ -4269,6 +4944,106 @@ if current_page == "Pipeline Log":
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Scheduler Hub — manage batch jobs as Windows Scheduled Tasks. Generalises the
+# Scanner Hub's one-off scheduler panel (scheduler_core.JOBS registry). Star job:
+# the live Alert Bot (alert_watcher.js), run every N min during market hours.
+# ──────────────────────────────────────────────────────────────────────────────
+if current_page == "Scheduler Hub":
+    import json as _sched_json
+    import scheduler_core as sched
+
+    st.subheader("Scheduler Hub")
+    st.caption(
+        "Batch jobs registered as Windows Scheduled Tasks. **Register / Remove / "
+        "Run now change persistent OS scheduled tasks.** The Alert Bot runs the live "
+        "SVP / indicator signal engine each interval during market hours and fires on "
+        "pattern-buildup transitions."
+    )
+    st.info(
+        "Jobs read live bars from the chart server (http://127.0.0.1:5001) and the "
+        "dashboard cache — keep the chart server running during market hours so the "
+        "Alert Bot has data.", icon="ℹ️",
+    )
+
+    for _jid, _job in sched.JOBS.items():
+        _stt = sched.status(_job)
+        _reg = _stt.get("registered")
+        with st.container(border=True):
+            _hdr = st.columns([3, 1])
+            _hdr[0].markdown(f"### {_job.label}")
+            _hdr[0].caption(_job.desc)
+            _hdr[1].markdown(f"**{'🟢 registered' if _reg else '⚪ not registered'}**")
+            _hdr[1].caption(f"`{_job.task_name}`")
+
+            if _reg:
+                _m = st.columns(4)
+                _m[0].metric("State", _stt.get("state", "—"))
+                _m[1].metric("Next run", _stt.get("next_run", "—"))
+                _m[2].metric("Last run", _stt.get("last_run", "—"))
+                _m[3].metric("Last result", _stt.get("last_result", "—"))
+
+            # Schedule configuration
+            if _job.kind == "interval":
+                _c = st.columns(3)
+                _v_st = _c[0].text_input("Start (HH:MM)", value=_job.default_time, key=f"sch_{_jid}_st")
+                _v_et = _c[1].text_input("End (HH:MM)", value=_job.default_end, key=f"sch_{_jid}_et")
+                _v_mo = _c[2].number_input("Every N min", 1, 240, int(_job.default_interval), key=f"sch_{_jid}_mo")
+                _sched_kw = dict(time=_v_st, end=_v_et, interval=int(_v_mo))
+            else:
+                _c = st.columns(3)
+                _v_t = _c[0].text_input("Run time (HH:MM)", value=_job.default_time, key=f"sch_{_jid}_t")
+                _sched_kw = dict(time=_v_t)
+
+            _b = st.columns(4)
+            if _b[0].button("Register / Update", key=f"sch_{_jid}_reg", type="primary"):
+                _ok, _msg = sched.register(_job, **_sched_kw)
+                if _ok:
+                    st.success(_msg); st.rerun()
+                else:
+                    st.error(_msg)
+                    st.code(" ".join(sched.register_argv(_job, **_sched_kw)), language="bat")
+                    st.caption("If it's a permissions error, run the command above in an elevated terminal.")
+            if _b[1].button("Run now", key=f"sch_{_jid}_run", disabled=not _reg):
+                _ok, _msg = sched.run_now(_job)
+                (st.success if _ok else st.error)(_msg)
+            if _b[2].button("Remove", key=f"sch_{_jid}_del", disabled=not _reg):
+                _ok, _msg = sched.remove(_job)
+                (st.success if _ok else st.warning)(_msg); st.rerun()
+
+            with st.expander("Log tail", expanded=False):
+                st.code(sched.tail_log(_job, 40), language=None)
+
+            # Alert-bot specifics: config summary, delivery status, recent alerts.
+            if _jid == "alert_watcher":
+                _cfg_path = sched.HERE / "alert_config.json"
+                try:
+                    _cfg = _sched_json.loads(_cfg_path.read_text(encoding="utf-8"))
+                except Exception:
+                    _cfg = {}
+                _delivery = _cfg.get("delivery", [])
+                if not _delivery or _delivery == ["log"]:
+                    st.warning(
+                        "Delivery is **dry-run** (log only) — no email/Telegram channel wired "
+                        "yet. Fired alerts go to `tools/cache/alerts/alerts.jsonl`.", icon="⚠️",
+                    )
+                _watch = _cfg.get("watch", [])
+                if _watch:
+                    st.caption("Watchlist: " + " · ".join(f"{w.get('symbol')}·{w.get('tf')}" for w in _watch)
+                               + "   |   Rules: " + ", ".join(r.get("id", "?") for r in _cfg.get("rules", [])))
+                _feed = sched.HERE / "cache" / "alerts" / "alerts.jsonl"
+                if _feed.exists():
+                    _rows = [r for r in _feed.read_text(encoding="utf-8").splitlines() if r.strip()][-10:]
+                    if _rows:
+                        with st.expander(f"Recent alerts ({len(_rows)})", expanded=False):
+                            for _r in reversed(_rows):
+                                try:
+                                    _a = _sched_json.loads(_r)
+                                    st.markdown(f"- `{_a.get('ts','')}` — **{_a.get('headline','')}**")
+                                except Exception:
+                                    pass
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Opportunity Hub — top-down Sector→Industry→Stock→Pattern→Entry funnel (Phase 1)
 # Composition of shipped pieces: sector/industry strength is derived bottom-up
 # from constituents' momentum (opportunity_hub.py), then the EXISTING Scanner Hub
@@ -4281,6 +5056,38 @@ if current_page == "Opportunity Hub":
                "ranked bottom-up from their constituents' momentum, then a pattern "
                "scanner runs on just the leaders. The Hub narrows & ranks — you "
                "validate the setup and manage the risk.")
+
+    # ── Regime posture banner (B-36) — the one-line "what do I do today?" ──────
+    # Driven by the SAME regime + conviction gate B-32/B-33 validated, so the
+    # banner states the posture the gate will actually enforce. Puts the
+    # behavioural thesis (do LESS in a hostile tape) at the top of the page rather
+    # than burying it — the anti-over-trading nudge, felt, not filed.
+    try:
+        _mkt_now = od._market_context(cached_fetch_nifty50(days=400))
+    except Exception:
+        _mkt_now = {"regime": "UNKNOWN", "verdict": "Benchmark unavailable — regime not assessed."}
+    _rg = _mkt_now["regime"]
+    _gcfg = od.REGIME_GATE.get(_rg, od.REGIME_GATE["UNKNOWN"])
+    _cap_txt = "full shortlist" if _gcfg["max_names"] is None else f"≤ {_gcfg['max_names']} names"
+    _rate_txt = (f"rating ≥ {_gcfg['min_rating']:.0f}" if _gcfg.get("min_rating") else "no rating floor")
+    _ptone, _plabel = {
+        "RISK-ON":  ("good",   "RISK-ON · full run"),
+        "MIXED":    ("warn",   "MIXED · raised bar"),
+        "RISK-OFF": ("risk",   "RISK-OFF · capital preservation"),
+        "UNKNOWN":  ("absent", "REGIME UNKNOWN · cautious"),
+    }.get(_rg, ("absent", "REGIME UNKNOWN"))
+    _pfg, _pbg = rs.tone_colors(_ptone)
+    st.markdown(
+        f'<div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;'
+        f'background:{_pbg};border-left:5px solid {_pfg};border-radius:8px;'
+        f'padding:10px 14px;margin:4px 0 12px 0;">'
+        f'<span style="font-weight:800;font-size:14px;color:{_pfg};letter-spacing:.02em;'
+        f'white-space:nowrap;">{_plabel}</span>'
+        f'<span style="font-size:12.5px;color:{rs.TOKENS["text_body"]};">'
+        f'{_cap_txt}, {_rate_txt}. {_gcfg["note"]}</span>'
+        f'<span style="margin-left:auto;font-size:11.5px;color:{rs.TOKENS["text_muted"]};'
+        f'max-width:38%;text-align:right;">{_mkt_now["verdict"]}</span>'
+        f'</div>', unsafe_allow_html=True)
 
     # ── Daily shortlist (stored) ──────────────────────────────────────────────
     # The manual funnel below is five steps and keeps nothing. This runs the same
@@ -4296,18 +5103,29 @@ if current_page == "Opportunity Hub":
         _od_uni = st.number_input("Universe size", 40, 5000, 500, 50, key="od_uni",
                                   help="Top N by traded value. 500 takes a few minutes.")
         if st.button("Run daily shortlist now", type="primary", key="od_run"):
-            _prog = st.empty()
-            with st.spinner("Running the funnel headlessly…"):
-                _res = od.run(universe_size=int(_od_uni), top_n=100,
-                              progress_cb=lambda m: _prog.caption(m))
-            _prog.empty()
-            if not _res.get("ok"):
-                st.error(f"Run failed — {_res.get('reason')}")
-            elif not _res.get("rows"):
-                st.warning(f"No shortlist: {_res.get('reason')}")
+            # Submit to the serial job queue instead of running inline, so a click
+            # elsewhere (e.g. Refresh sentiment) queues behind this run rather than
+            # cancelling it. od.run persists to the DB, so the shortlist below picks
+            # it up on the next poll-rerun; here we only need to report completion.
+            _jid = ui_jobs.submit_unique(
+                "Daily shortlist", od.run, universe_size=int(_od_uni), top_n=100,
+                progress_kw="progress_cb")
+            if _jid is None:
+                st.info("A daily-shortlist run is already in progress — click ignored.")
+            st.rerun()
+        # Consume a completed run (fires once when the background job finishes).
+        _fin = ui_jobs.get_queue().take_result("Daily shortlist")
+        if _fin is not None:
+            if _fin.status == "error":
+                st.error(f"Run failed — {_fin.error}")
             else:
-                st.success(f"Stored {len(_res['rows'])} names for {_res['run_date']}.")
-                st.rerun()
+                _res = _fin.result or {}
+                if not _res.get("ok"):
+                    st.error(f"Run failed — {_res.get('reason')}")
+                elif not _res.get("rows"):
+                    st.warning(f"No shortlist: {_res.get('reason')}")
+                else:
+                    st.success(f"Stored {len(_res['rows'])} names for {_res['run_date']}.")
 
     with dl:
         _shortlist = db.get_daily_opportunities(_sel_date) if _sel_date else pd.DataFrame()
@@ -4322,6 +5140,25 @@ if current_page == "Opportunity Hub":
                 rs.callout(f"{_sel_date} · market {_regime}.",
                            str(_r0.get("market_verdict") or ""), tone=_tone),
                 unsafe_allow_html=True)
+
+            # ── Archived funnel cards (full frozen detail for this run date) ────
+            # Rendered from the snapshot stored at run time, so a historical date
+            # shows exactly what fired then — scanners, reasons, levels — rather
+            # than re-deriving from today's prices. Older dates without a snapshot
+            # simply skip this and keep the summary list below.
+            _arch = db.get_opportunity_cards(_sel_date) if _sel_date else []
+            if _arch:
+                import json as _arch_json
+                with st.expander(f"📇 Archived funnel cards — {_sel_date} "
+                                 f"({len(_arch)} snapshots, as they fired)"):
+                    for _i in range(0, len(_arch), 3):
+                        _cols = st.columns(3)
+                        for _col, _rec in zip(_cols, _arch[_i:_i + 3]):
+                            with _col:
+                                try:
+                                    _render_pipeline_card(_arch_json.loads(_rec["card_json"]))
+                                except Exception as _e:
+                                    st.caption(f"{_rec['symbol']}: snapshot unreadable ({_e})")
 
             # ── Sort control ───────────────────────────────────────────────────
             _sort_by = st.radio(
@@ -4580,6 +5417,21 @@ if current_page == "Opportunity Hub":
                     st.markdown(f"#### 4 · Right Stock → Pattern → Entry "
                                 f"· {len(stocks)} candidates in the leaders")
 
+                    # FP-5 — the peer comparison, drilled from the industry
+                    # ranking. The Hub goes sector → industry → constituents;
+                    # peer comparison fixes one constituent and turns the same
+                    # group side-on. Same component as the Stock Analyzer's,
+                    # called with a different anchor — built once, surfaced twice.
+                    if stocks:
+                        with st.expander("Compare one candidate against its peers",
+                                         expanded=False):
+                            _pc_pick = st.selectbox(
+                                "Anchor", sorted(stocks), key="oh_peer_anchor",
+                                help="Scores this name and its industry peers on the "
+                                     "six fundamental axes.")
+                            if _pc_pick:
+                                render_peer_comparison(_pc_pick)
+
                     # ---- Pipeline: every scanner in one pass -----------------
                     if oh_scanner is None:
                         if stocks and st.button(
@@ -4640,11 +5492,27 @@ if current_page == "Opportunity Hub":
                                 shown = sorted(_pipe.values(),
                                                key=lambda h: h.get("rank_score") or 0,
                                                reverse=True)
+                                # B-32/B-33: regime-prescriptive conviction gate —
+                                # shrinks the list by itself, and HARD in RISK-OFF
+                                # where bullish signals were measured to lose
+                                # (regime_backtest.py). Same gate as the stored
+                                # shortlist, on the live pipeline's rank_score.
+                                _regime = (_meta.get("market") or {}).get("regime", "UNKNOWN")
+                                _pre_gate = len(shown)
+                                shown, _gate = od._apply_regime_gate(
+                                    shown, _regime, top_n=100, score_key="rank_score",
+                                    rating_key="overall")
                                 _multi = sum(1 for h in shown if len(h["families"]) > 1)
+                                if _gate["n_before"] != _gate["n_after"]:
+                                    _gtone = "risk" if _regime == "RISK-OFF" else "warn"
+                                    st.markdown(rs.callout(
+                                        f"Regime gate [{_regime}]",
+                                        f"{_pre_gate} candidates → **{len(shown)}** kept "
+                                        f"({_gate['gate_txt']}). {_gate['note']}", tone=_gtone),
+                                        unsafe_allow_html=True)
                                 st.caption(
                                     f"**{len(shown)}** of {_meta.get('n_stocks', 0)} "
-                                    f"leaders were caught by at least one of "
-                                    f"{_meta.get('n_scanners', 0)} scanners · "
+                                    f"leaders survived the {_regime} conviction gate · "
                                     f"**{_multi}** span more than one independent "
                                     f"family · sorted by the same score the stored "
                                     f"daily shortlist uses.")
@@ -4726,6 +5594,553 @@ if current_page == "Opportunity Hub":
                                             _render_scanner_card(card, _ran)
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Delete Funnel — the technofunda 8-filter subtractive sieve (B-38).
+# Wraps technofunda_funnel: each filter can only DELETE; survivors are a
+# shortlist, not a buy list. The chart legs (F6-F8) are the ones backtested
+# separately (funnel_backtest.py); the fundamental legs are gathered live.
+# ──────────────────────────────────────────────────────────────────────────────
+_FUNNEL_TONE = {tff.PASS: "good", tff.CAVEAT: "warn", tff.DELETE: "risk"}
+
+
+@st.cache_data(ttl=900, show_spinner=False)
+def _funnel_bench_12m() -> float | None:
+    """Nifty trailing ~12-month return (fraction) for the F7 relative-strength
+    leg. Cached so a whole funnel run shares one benchmark read."""
+    try:
+        c = cached_fetch_nifty50(days=520)["close"].dropna()
+        n = tff.Thresholds().rs_lookback
+        if len(c) > n:
+            return float(c.iloc[-1] / c.iloc[-1 - n] - 1.0)
+    except Exception:
+        pass
+    return None
+
+
+def _funnel_context(symbol: str, bench_ret_12m: float | None) -> dict:
+    """Assemble one symbol's funnel context from the existing cached fetchers.
+    Fundamentals + red-flags are the slow legs; both are already st.cache_data."""
+    try:
+        # The DEEP statement payload (CAGRs, ROCE, FCF, D/E, interest coverage) —
+        # NOT cached_fetch_fundamentals, which is the yfinance .info snapshot.
+        deep = cached_fundamentals_deep(symbol)
+    except Exception:
+        deep = None
+    try:
+        flags = cached_red_flags(symbol)
+    except Exception:
+        flags = None
+    try:
+        price = cached_fetch_ohlcv(symbol, days=520)   # ≥252 bars for RS + 200DMA
+    except Exception:
+        price = None
+    return tff.build_context(symbol, deep=deep, flags=flags, price=price,
+                             bench_ret_12m=bench_ret_12m)
+
+
+def _render_funnel_survivor(result) -> None:
+    """One survivor card: the eight filter chips (pass/caveat) + action buttons.
+    Survivors carry no DELETE outcome by definition, so every chip is green or
+    amber; the reason strings (which carry the numbers) sit in a 'why' expander."""
+    sym = result.symbol
+    chips = "".join(
+        rs.chip(o.fid, _FUNNEL_TONE.get(o.verdict, "neutral")) for o in result.outcomes)
+    cav = (f'<div style="margin-top:4px;font-size:11px;color:{rs.TOKENS["accent"]};">'
+           f'⚠ {len(result.caveats)} caveat(s) — unverified, not confirmed clean</div>'
+           if result.caveats else "")
+    st.markdown(
+        rs.card(f'<div style="display:flex;align-items:baseline;gap:8px;">'
+                f'<span style="font-weight:700;font-size:15px;color:{rs.TOKENS["text"]};">'
+                f'{sym}</span>'
+                f'<span style="font-size:11px;color:{rs.TOKENS["good"]};">survives all 8</span>'
+                f'</div><div style="margin-top:6px;">{chips}</div>{cav}',
+                emphasis=False),
+        unsafe_allow_html=True)
+    with st.expander("why it survived"):
+        for o in result.outcomes:
+            st.markdown(f"- **{o.fid} {o.label}** — {o.reason}")
+    b1, b2, b3 = st.columns(3)
+    with b1:
+        if st.button("♥ Watchlist", key=f"df_wl_{sym}", use_container_width=True):
+            db.add_watchlist_symbol(sym, "Delete Funnel survivor")
+            st.toast(f"♥ {sym} → Watchlist")
+    with b2:
+        if st.button("↗ Analyze", key=f"df_an_{sym}", use_container_width=True):
+            st.session_state["current_page"] = "Stock Analyzer"
+            st.session_state["sa_symbol_override"] = sym
+            st.rerun()
+    with b3:
+        if st.button("⊕ Roster", key=f"df_ro_{sym}", use_container_width=True):
+            roster = st.session_state.setdefault("sa_roster", [])
+            if sym not in roster:
+                roster.append(sym)
+            st.toast(f"⊕ {sym} → Roster ({len(roster)})")
+
+
+if current_page == "Delete Funnel":
+    st.subheader("Delete Funnel")
+    st.caption("The technofunda 8-filter **delete** sieve — each filter can only "
+               "*remove* a name; what survives is a shortlist, **not a buy list**. "
+               "Fundamentals first (growth · cash · leverage · returns · governance), "
+               "then price (>200 DMA · relative strength · accumulation). "
+               "Unvalidated as a whole — the chart legs are backtested in "
+               "`funnel_backtest.py`; passing means *investable and confirmed*, not "
+               "*buy today*.")
+
+    _fc1, _fc2 = st.columns([2, 1])
+    with _fc1:
+        _src = st.radio("Universe to sieve", ["Watchlist", "Paste symbols",
+                        "Top-volume universe"], horizontal=True, key="df_src")
+    with _fc2:
+        _strict = st.checkbox("Strict", value=True, key="df_strict",
+                              help="A filter that can't be evaluated DELETES the name "
+                                   "(burden of proof). Off = it passes with a caveat.")
+
+    _syms: list[str] = []
+    if _src == "Watchlist":
+        try:
+            _wl = db.get_watchlist()
+            _syms = [str(s).upper() for s in _wl["symbol"].tolist()] if not _wl.empty else []
+        except Exception:
+            _syms = []
+        if not _syms:
+            st.info("Your Watchlist is empty — add names on the Watchlist page, or "
+                    "pick another universe.")
+    elif _src == "Paste symbols":
+        _txt = st.text_area("Symbols (comma / space / newline separated)",
+                            key="df_paste", height=90, placeholder="TITAN, CDSL, KPITTECH")
+        _norm = (_txt or "").replace(",", " ").replace("\n", " ").replace("\t", " ")
+        _syms = [t.strip().upper() for t in _norm.split() if t.strip()]
+    else:
+        _n = st.number_input("Top-volume names", min_value=5, max_value=60, value=25,
+                             step=5, key="df_topn")
+        if st.checkbox("Load universe", key="df_load_univ"):
+            try:
+                _syms = cached_fetch_bhavcopy_universe(int(_n))
+            except Exception as _e:
+                st.error(f"Could not load the top-volume universe: {_e}")
+
+    # The two fundamental legs fan out to yfinance statements + NSE ownership per
+    # name, so a big list is slow. Cap hard and say so, rather than hang.
+    _CAP = 50
+    if len(_syms) > _CAP:
+        st.warning(f"{len(_syms)} names — sieving the first {_CAP} "
+                   f"(fundamentals + red-flags are fetched per name).")
+        _syms = _syms[:_CAP]
+
+    with st.expander("Thresholds (defaults match the strategy page)"):
+        _t = tff.Thresholds()
+        _cta, _ctb, _ctc = st.columns(3)
+        with _cta:
+            _t.min_rev_cagr_3y = st.number_input("Min rev CAGR 3Y %", value=float(_t.min_rev_cagr_3y), key="df_t_rev")
+            _t.min_profit_cagr_3y = st.number_input("Min profit CAGR 3Y %", value=float(_t.min_profit_cagr_3y), key="df_t_pro")
+        with _ctb:
+            _t.max_de = st.number_input("Max D/E", value=float(_t.max_de), step=0.1, key="df_t_de")
+            _t.min_interest_cov = st.number_input("Min interest cover ×", value=float(_t.min_interest_cov), step=0.5, key="df_t_cov")
+        with _ctc:
+            _t.min_roce = st.number_input("Min ROCE %", value=float(_t.min_roce), key="df_t_roce")
+            _t.max_base_range = st.number_input("Max base range (F8)", value=float(_t.max_base_range), step=0.01, key="df_t_base")
+
+    if st.button("Run the funnel", type="primary", disabled=not _syms, key="df_run"):
+        _bench = _funnel_bench_12m()
+        if _bench is None:
+            st.warning("Nifty benchmark unavailable — the relative-strength leg (F7) "
+                       "will delete every name under strict. Consider unchecking Strict.")
+        _prog = st.progress(0.0, text="Sieving…")
+        _ctxs = []
+        for _i, _s in enumerate(_syms):
+            _prog.progress((_i + 1) / len(_syms), text=f"{_s}  ({_i + 1}/{len(_syms)})")
+            _ctxs.append(_funnel_context(_s, _bench))
+        _prog.empty()
+        _fr = tff.run_funnel(_ctxs, thresholds=_t, strict=_strict)
+        st.session_state["df_result"] = _fr
+        st.session_state["df_result_bench"] = _bench
+
+    _fr = st.session_state.get("df_result")
+    if _fr is not None:
+        st.markdown(rs.section("Funnel drop-off"), unsafe_allow_html=True)
+        st.caption(f"**{_fr.n_in}** in → **{_fr.n_out}** survive. Each row is where "
+                   f"the universe died — a name is deleted by the *first* filter it fails.")
+        _remaining = _fr.n_in
+        _rows = []
+        for _fid, _label, _killed in _fr.dropoff:
+            _remaining -= _killed
+            _rows.append({"Filter": f"{_fid} {_label}", "Deleted here": _killed,
+                          "Left": _remaining})
+        st.dataframe(pd.DataFrame(_rows), hide_index=True, use_container_width=True)
+
+        if _fr.survivors:
+            st.markdown(rs.section(f"Survivors ({len(_fr.survivors)})"),
+                        unsafe_allow_html=True)
+            _surv = [_fr.results[s] for s in _fr.survivors]
+            for _i in range(0, len(_surv), 3):
+                _cols = st.columns(3)
+                for _col, _r in zip(_cols, _surv[_i:_i + 3]):
+                    with _col:
+                        _render_funnel_survivor(_r)
+        else:
+            st.info("Nothing survived all eight filters. In a subtractive sieve that "
+                    "is a real answer — widen the universe, relax a threshold, or "
+                    "uncheck Strict if too much was deleted for missing data.")
+
+        _deleted = [(s, r) for s, r in _fr.results.items() if not r.survived]
+        if _deleted:
+            with st.expander(f"Deleted names ({len(_deleted)}) — the reject ledger"):
+                _drows = []
+                for _s, _r in _deleted:
+                    _kill = next((o for o in _r.outcomes if o.verdict == tff.DELETE), None)
+                    _drows.append({"Symbol": _s, "Deleted at": _r.deleted_at,
+                                   "Reason": _kill.reason if _kill else "—"})
+                st.dataframe(pd.DataFrame(_drows), hide_index=True,
+                             use_container_width=True)
+
+    # ── Backtest the price legs — the part of the claim that IS testable ───────
+    with st.expander("Backtest the price legs (F6 ∧ F7 ∧ F8)"):
+        st.caption("Does requiring all three chart footprints beat a random bar in "
+                   "the same tape — and beat any single leg? Point-in-time replay "
+                   "over the universe above. **The fundamental legs F1–F5 are not "
+                   "point-in-time testable** (yfinance serves only current "
+                   "statements), so this measures the chart half only.")
+        if not _syms:
+            st.info("Pick a universe above first.")
+        elif st.button("Run price-legs backtest", key="df_bt_run"):
+            with st.spinner(f"Replaying F6∧F7∧F8 over {len(_syms)} names…"):
+                try:
+                    _bench_df = cached_fetch_nifty50(days=1500)
+                    _res = fbt.backtest_price_funnel(
+                        _syms, lambda s: cached_fetch_ohlcv(s, days=1500), _bench_df)
+                    st.session_state["df_bt_result"] = fbt.format_funnel_backtest(_res)
+                except Exception as _e:
+                    st.session_state["df_bt_result"] = f"Backtest failed: {_e}"
+        if st.session_state.get("df_bt_result"):
+            st.code(st.session_state["df_bt_result"], language=None)
+
+
+# Hidden Treasures — small/micro-cap conviction discovery lane (B-34).
+# ──────────────────────────────────────────────────────────────────────────────
+if current_page == "Hidden Treasures":
+    st.subheader("Hidden Treasures")
+    st.caption("Small and micro-cap names the main funnel structurally misses — "
+               "ranked by **institutional conviction** (FII+DII accumulation rate, "
+               "promoter conduct, pledge veto) from free NSE shareholding data. "
+               "Quality overlay adds ROCE / OPM / D/E from yfinance. "
+               "**Unvalidated** — a discovery lens, not an edge.")
+
+    _ht_c1, _ht_c2 = st.columns([2, 1])
+    with _ht_c1:
+        _ht_kind = st.radio("Universe",
+                            ["NSE Both", "Smallcap-250", "Microcap-250",
+                             "BSE Both", "BSE SmallCap", "BSE MicroCap",
+                             "All (NSE+BSE)"],
+                            horizontal=True, key="ht_kind")
+    with _ht_c2:
+        _ht_enrich = st.checkbox("Quality overlay (slower)", value=True, key="ht_enrich",
+                                 help="Adds ROCE/OPM/D/E/Market Cap from yfinance — one call per name")
+    _ht_limit = st.slider("Show top N", min_value=5, max_value=100, value=25,
+                           step=5, key="ht_limit")
+    _kind_map = {
+        "NSE Both": "both", "Smallcap-250": "smallcap250", "Microcap-250": "microcap250",
+        "BSE Both": "bse", "BSE SmallCap": "bse_smallcap", "BSE MicroCap": "bse_microcap",
+        "All (NSE+BSE)": "all",
+    }
+
+    if st.button("Discover", type="primary", key="ht_run"):
+        with st.spinner("Scoring small/micro-cap universe…"):
+            try:
+                _ht_kind_val = _kind_map[_ht_kind]
+                _ht_res = scd.discover(kind=_ht_kind_val,
+                                       limit=_ht_limit,
+                                       enrich=_ht_enrich)
+                st.session_state["ht_result"] = _ht_res
+                _saved_n = db.save_hidden_treasures_run(
+                    _ht_res["hits"],
+                    universe_kind=_ht_kind_val,
+                    universe_size=_ht_res.get("universe", 0))
+                st.toast(f"💾 {_saved_n} hits saved to history")
+            except Exception as _e:
+                st.error(f"Discovery failed: {_e}")
+
+    _ht_res = st.session_state.get("ht_result")
+    if _ht_res is not None:
+        st.markdown(rs.section(f"Top {len(_ht_res['hits'])} of {_ht_res['universe']} "
+                               f"({_ht_res['cached']} cached)"),
+                    unsafe_allow_html=True)
+
+        for _i in range(0, len(_ht_res["hits"]), 3):
+            _cols = st.columns(3)
+            for _col, _h in zip(_cols, _ht_res["hits"][_i:_i + 3]):
+                with _col:
+                    _sym = _h["symbol"]
+                    _q = _h.get("quality") or {}
+                    _qual_chips = ""
+                    if _q:
+                        _qparts = []
+                        if _q.get("roce") is not None:
+                            _c = rs.TOKENS["good"] if _q["roce"] >= scd.ROCE_GOOD else rs.TOKENS["text"]
+                            _qparts.append(f'<span style="color:{_c};">ROCE {_q["roce"]:.1f}%</span>')
+                        if _q.get("opm") is not None:
+                            _c = rs.TOKENS["good"] if _q["opm"] >= scd.OPM_GOOD else rs.TOKENS["text"]
+                            _qparts.append(f'<span style="color:{_c};">OPM {_q["opm"]:.1f}%</span>')
+                        if _q.get("debt_to_equity") is not None:
+                            _c = rs.TOKENS["risk"] if _q["debt_to_equity"] > scd.DE_MAX else rs.TOKENS["text"]
+                            _qparts.append(f'<span style="color:{_c};">D/E {_q["debt_to_equity"]:.2f}</span>')
+                        _qual_chips = '<div style="margin-top:4px;font-size:11px;">' + \
+                                      " · ".join(_qparts) + '</div>'
+
+                    _pledge_s = ""
+                    if _h.get("pledge_flag"):
+                        _pledge_s = f'<div style="font-size:11px;color:{rs.TOKENS["risk"]};">⚠ Pledge {_h["pledge_pct"]:.1f}%</div>'
+                    elif _h.get("pledge_pct") is not None:
+                        _pledge_s = f'<div style="font-size:11px;">Pledge {_h["pledge_pct"]:.1f}%</div>'
+
+                    # Market cap chip
+                    _mcap_s = ""
+                    if _q and _q.get("market_cap_cr") is not None:
+                        _mc_cr = _q["market_cap_cr"]
+                        _mc_label = (f"₹{_mc_cr/100:.1f}K Cr" if _mc_cr >= 10000
+                                     else f"₹{_mc_cr:.0f} Cr")
+                        _mcap_s = f'<div style="font-size:11px;color:{rs.TOKENS["text"]};">MCap {_mc_label}</div>'
+
+                    _pd = _h.get("promoter_delta")
+                    _prom_s = f'Prom {_pd:+.2f}pp' if _pd is not None else 'Prom —'
+
+                    # Action icon row (same family as Scanner Hub cards)
+                    _sym_clean = _sym.upper().replace(".NS", "")
+                    def _ht_icon(href, glyph, tip, small=False):
+                        sz = "11px" if small else "13px"
+                        w = "22px" if small else "24px"
+                        return (
+                            f'<a href="{href}" target="_blank" rel="noopener" title="{tip}"'
+                            f' style="display:inline-flex;align-items:center;justify-content:center;'
+                            f'width:{w};height:{w};border-radius:6px;text-decoration:none;'
+                            f'font-size:{sz};line-height:1;background:#f7efe3;'
+                            f'color:#d97706;border:1px solid #f0e0cc;margin-left:4px;">'
+                            f'{glyph}</a>')
+                    _ht_icons = ""
+                    _ht_ch = _chart_url(_sym)
+                    if _ht_ch:
+                        _ht_icons += _ht_icon(_ht_ch, "👁", "Chart Tool (in-app)")
+                    _ht_an = _analyze_url(_sym)
+                    if _ht_an:
+                        _ht_icons += _ht_icon(_ht_an, "↗", "Stock Analyzer (in-app)")
+                    _ht_icons += _ht_icon(f"https://www.tradingview.com/chart/?symbol=NSE%3A{_sym_clean}", "📈", "Open on TradingView")
+                    _ht_icons += _ht_icon(f"https://www.screener.in/company/{_sym_clean}/consolidated/", "S", "Open on Screener.in", small=True)
+                    _ht_icons += _ht_icon(f"https://www.google.com/finance/quote/{_sym_clean}:NSE", "G", "Open on Google Finance", small=True)
+                    _ht_icons += _ht_icon(f"https://twitter.com/search?q=%23{_sym_clean}+%23NSE&src=typed_query", "𝕏", "Search on X / Twitter", small=True)
+
+                    st.markdown(
+                        rs.card(
+                            f'<div style="display:flex;align-items:center;justify-content:space-between;">'
+                            f'<div style="display:flex;align-items:baseline;gap:8px;">'
+                            f'<span style="font-weight:700;font-size:15px;color:{rs.TOKENS["text"]};">'
+                            f'{_sym}</span>'
+                            f'<span style="font-size:12px;color:{rs.TOKENS["accent"]};">'
+                            f'{_h["score"]:.0f}</span>'
+                            f'</div>'
+                            f'<div style="display:flex;align-items:center;flex-wrap:wrap;">'
+                            f'{_ht_icons}</div>'
+                            f'</div>'
+                            f'<div style="font-size:11px;color:{rs.TOKENS["text"]};">'
+                            f'{_h.get("name", "")}</div>'
+                            f'<div style="margin-top:4px;font-size:11px;">'
+                            f'FII+DII {_h["inst_delta"]:+.2f}pp · {_prom_s}'
+                            f'</div>'
+                            f'{_qual_chips}{_mcap_s}{_pledge_s}',
+                            emphasis=False),
+                        unsafe_allow_html=True)
+
+                    _b1, _b2 = st.columns(2)
+                    with _b1:
+                        if st.button("♥ Watchlist", key=f"ht_wl_{_sym}", use_container_width=True):
+                            db.add_watchlist_symbol(_sym, "Hidden Treasures")
+                            st.toast(f"♥ {_sym} → Watchlist")
+                    with _b2:
+                        if st.button("↗ Analyze", key=f"ht_an_{_sym}", use_container_width=True):
+                            st.session_state["current_page"] = "Stock Analyzer"
+                            st.session_state["sa_symbol_override"] = _sym
+                            st.rerun()
+
+                    with st.expander("reasons"):
+                        for _r in _h.get("reasons", []):
+                            st.markdown(f"- {_r}")
+
+
+# Trending Stocks — what moved today, four lenses (see trending_stocks.py)
+# ──────────────────────────────────────────────────────────────────────────────
+# Deliberately a TABLE, not the Scanner Hub card grid. A ranked "what moved" list
+# is a different job from confluence results: the reader scans a column to find
+# the outlier, which cards make harder. The cards-not-tables convention stays
+# where it belongs — on Scanner Hub.
+
+@st.cache_data(ttl=300, show_spinner=False)
+def _trend_movers(top_n: int, min_turnover: float):
+    import trending_stocks as _ts
+    bhav, _ = _trend_bhav()
+    # Use real-time yfinance data as the leading source, with fallback to bhavcopy
+    return _ts.price_movers_realtime(bhav, top_n=top_n, min_turnover=min_turnover)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _trend_volume(top_n: int):
+    import trending_stocks as _ts
+    bhav, _ = _trend_bhav()
+    return _ts.volume_shockers(top_n=top_n, bhav=bhav)
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _trend_extremes(universe_n: int, top_n: int, near_pct: float):
+    """Both range lenses off ONE batched history download — two calls would be
+    two minutes for the same bytes."""
+    import trending_stocks as _ts
+    bhav, _ = _trend_bhav()
+    uni = _ts.liquid_universe(bhav, universe_n)
+    hist = _ts._batch_history(uni, period="max")
+    return {
+        "week52": _ts.range_extremes(uni, window=_ts.WEEK52_BARS, near_pct=near_pct,
+                                     top_n=top_n, hist=hist),
+        "alltime": _ts.range_extremes(uni, window=None, near_pct=near_pct,
+                                      top_n=top_n, hist=hist),
+        "n_history": len(hist),
+        "universe_n": len(uni),
+    }
+
+
+if current_page == "Trending Stocks":
+    st.subheader("Trending Stocks")
+    st.caption("Real-time movers from yfinance (refreshes every 5 min). "
+               "**Attention lists, not signals** — a move or a spike is a *question* "
+               "(\"why did this happen?\"), not a position.")
+
+    _tr_bhav, _tr_date = _trend_bhav()
+    if _tr_bhav is None:
+        st.error("No NSE bhavcopy reachable — markets may be closed or the feed is down.")
+    else:
+        _tc1, _tc2, _tc3 = st.columns([1, 1, 1])
+        with _tc1:
+            _tr_top = st.slider("Rows per list", 5, 40, 15, step=5, key="tr_top")
+        with _tc2:
+            _tr_uni = st.slider("Universe (52W/ATH)", 50, 400, 200, step=50, key="tr_uni",
+                                help="Top N by traded value. NSE publishes no 52-week "
+                                     "columns, so these two lenses compute from history "
+                                     "— one download per name, hence a bounded universe.")
+        with _tc3:
+            _tr_minto = st.number_input("Min turnover (₹ Cr)", 0.0, 500.0, 5.0, step=1.0,
+                                        key="tr_minto",
+                                        help="Without a floor the movers list is almost "
+                                             "entirely penny stocks: a ₹3 share moving "
+                                             "19% is arithmetic, not information.")
+        st.caption(f"Session **{_tr_date or '—'}** · {len(_tr_bhav):,} EQ rows")
+
+        _t_mv, _t_vol, _t_52, _t_ath = st.tabs(
+            ["Price Movers", "Volume Shockers", "52 Week High Low", "All Time High Low"])
+
+        def _tr_table(df):
+            """Render one lens as a table with the chart-icon link family."""
+            if df is None or df.empty:
+                st.info("Nothing qualifies in this session.")
+                return
+            out = df.copy()
+            out = _with_chart_family(out, "symbol")
+            colcfg = dict(_chart_family_colcfg())
+            colcfg["symbol"] = st.column_config.TextColumn("Symbol", width="small")
+            if "close" in out.columns:
+                colcfg["close"] = st.column_config.NumberColumn("LTP", format="%.2f")
+            if "chg" in out.columns:
+                colcfg["chg"] = st.column_config.NumberColumn("Chg", format="%.2f")
+            if "chg_pct" in out.columns:
+                colcfg["chg_pct"] = st.column_config.NumberColumn("Chg%", format="%.2f%%")
+            if "turnover" in out.columns:
+                out["turnover"] = out["turnover"] / 1e7
+                colcfg["turnover"] = st.column_config.NumberColumn("Turnover ₹Cr", format="%.1f")
+            if "volume" in out.columns:
+                colcfg["volume"] = st.column_config.NumberColumn("Volume", format="%d")
+            for c, lbl, fmt in (("multiple", "x avg vol", "%.1f"),
+                                ("day_pct", "Chg%", "%.2f%%"),
+                                ("turnover_cr", "Turnover ₹Cr", "%.1f"),
+                                ("range_high", "High", "%.2f"),
+                                ("range_low", "Low", "%.2f"),
+                                ("from_high_pct", "From high %", "%.2f%%"),
+                                ("from_low_pct", "From low %", "%.2f%%")):
+                if c in out.columns:
+                    colcfg[c] = st.column_config.NumberColumn(lbl, format=fmt)
+            if "cause" in out.columns:
+                colcfg["cause"] = st.column_config.TextColumn("Cause", width="medium")
+            drop = [c for c in ("reasons", "avg_volume", "baseline_days", "trade_date",
+                                "n_deals", "churn_share", "pct_mcap", "bars") if c in out.columns]
+            out = out.drop(columns=drop)
+            st.dataframe(out, width="stretch", hide_index=True, column_config=colcfg)
+
+        with _t_mv:
+            _mv = _trend_movers(_tr_top, float(_tr_minto) * 1e7)
+            st.caption(f"**{_mv['n_filtered']:,}** of {_mv['n_universe']:,} names clear "
+                       f"the ₹{_tr_minto:.0f} Cr turnover floor.")
+            st.markdown("**Top gainers**")
+            _tr_table(_mv["gainers"])
+            st.markdown("**Top losers**")
+            _tr_table(_mv["losers"])
+
+        def _render_anomaly_spikes():
+            with st.spinner("Attributing volume spikes to a cause…"):
+                _vol = _trend_volume(_tr_top)
+            if _vol.get("error"):
+                st.warning(f"Volume scan unavailable: {_vol['error']}")
+            else:
+                _tal = _vol.get("tally") or {}
+                st.caption(
+                    f"**{_vol.get('n_hits', 0)}** spikes across {_vol.get('universe', 0):,} names — "
+                    + " · ".join(f"{k.replace('_', ' ').lower()} **{n}**"
+                                 for k, n in _tal.items() if n)
+                    + ".  Each spike is attributed to a filing, prop churn, deal activity, "
+                      "or nothing — the list answers *why*, not only *what*.")
+                _tr_table(_vol["rows"])
+
+        with _t_vol:
+            _darvas_window("tr_vs")
+
+            st.divider()
+            # The cause-attributed scan is a different question ("why did this
+            # spike?") on a different filter, so it stays — one level down,
+            # because the Darvas criteria are now what the tab means.
+            with st.expander("Cause-attributed spikes (volume_anomaly) — why, not what"):
+                _render_anomaly_spikes()
+
+        _ext = None
+        with _t_52:
+            with st.spinner(f"Computing 52-week extremes over the top {_tr_uni} names…"):
+                _ext = _trend_extremes(_tr_uni, _tr_top, 2.0)
+            _w = _ext["week52"]
+            st.caption(f"{_w['n_scanned']} of the top {_ext['universe_n']} by turnover, "
+                       f"within {_w['near_pct']}% of the extreme"
+                       + (f" · {_w.get('n_cash_equivalents', 0)} cash-equivalent ETFs excluded"
+                          if _w.get("n_cash_equivalents") else "") + ".")
+            st.markdown("**At / near 52-week highs**")
+            _tr_table(_w["highs"])
+            st.markdown("**At / near 52-week lows**")
+            _tr_table(_w["lows"])
+
+        with _t_ath:
+            with st.spinner(f"Computing all-time extremes over the top {_tr_uni} names…"):
+                _ext = _ext or _trend_extremes(_tr_uni, _tr_top, 2.0)
+            _a = _ext["alltime"]
+            st.caption(f"{_a['n_scanned']} of the top {_ext['universe_n']} by turnover, "
+                       f"within {_a['near_pct']}% of the extreme"
+                       + (f" · {_a.get('n_cash_equivalents', 0)} cash-equivalent ETFs excluded"
+                          if _a.get("n_cash_equivalents") else "")
+                       + ". History is bounded by what yfinance serves, so \"all-time\" "
+                         "means \"as far back as the feed goes\".")
+            st.markdown("**At / near all-time highs**")
+            _tr_table(_a["highs"])
+            st.markdown("**At / near all-time lows**")
+            _tr_table(_a["lows"])
+
+        st.divider()
+        st.caption(
+            "**No \"Most Visited\" lens.** That is crowd page-view data from a site's own "
+            "traffic logs, and there is no free NSE or public feed for retail attention. "
+            "A proxy (delivery spikes, rank churn) would measure something else while "
+            "wearing the same label, so it is left out rather than faked.")
+
+
 # Tab 8 — Scanner Hub (SwingEdge-inspired pre-built pattern scanners)
 # ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Scanner Hub":
@@ -4744,9 +6159,34 @@ if current_page == "Scanner Hub":
              "fact table, and see a consolidated view.",
     )
 
+    # Default the card grid to the CORE list. `oh.COVERED_SCANNERS` are the ones measured
+    # to contribute zero unique (symbol, as-of) cells — every hit they produce is already
+    # flagged by something else on the list (analyses/Scanner-Overlap-Audit). They are
+    # hidden, not removed: one toggle brings them back, and they remain runnable,
+    # backtestable and active in the pipeline. Coverage is not quality, so this reduces
+    # what you have to read, not what the system knows.
+    _covered = [n for n in sc.SCANNERS if n in oh.COVERED_SCANNERS]
+    _show_covered = False
+    if _covered:
+        _show_covered = st.checkbox(
+            f"Show {len(_covered)} covered scanners",
+            key="hub_show_covered",
+            help="Measured to add no unique hits — everything they flag is already "
+                 "flagged by another scanner on the list. Hidden by default to cut "
+                 "reading, not capability: they still run, backtest and score.",
+        )
+    _visible = set(sc.SCANNERS) if _show_covered else set(oh.core_scanners())
+    # A session saved before this change (or a deep link) can have a covered scanner
+    # selected. Keep its card on screen regardless, or the caption below describes a
+    # scanner the user can see no card for and cannot deselect.
+    _sel_now = st.session_state.get("hub_scanner")
+    if _sel_now in sc.SCANNERS:
+        _visible.add(_sel_now)
+
     by_cat: dict[str, list[str]] = {}
     for name, spec in sc.SCANNERS.items():
-        by_cat.setdefault(spec["category"], []).append(name)
+        if name in _visible:
+            by_cat.setdefault(spec["category"], []).append(name)
 
     selected_scanner = st.session_state.get("hub_scanner", list(sc.SCANNERS.keys())[0])
     if selected_scanner not in sc.SCANNERS:
@@ -5166,55 +6606,24 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
         if st.button("Generate runner + register task", key="hub_sched_reg",
                      type="primary"):
             try:
-                import json as _json
-                # Write the Python runner script
-                _universe_arg = (
-                    "--universe bhavcopy --top-n 300"
-                    if "Bhavcopy" in _sched_universe
-                    else "--universe screener"
-                )
-                _scanners_arg = " ".join(f'"{s}"' for s in _sched_scanners)
-                _runner_src = f'''\
-"""Daily scanner runner — executed by the Windows Scheduled Task
-{_TASK_NAME}. Do not edit the task directly; regenerate via the
-Scanner Hub → Daily Scanner Scheduler panel."""
-import sys, os, json, datetime
-sys.path.insert(0, os.path.join(os.path.dirname(__file__)))
-import scanner_templates as sc
-from dashboard_app_helpers import cached_fetch_ohlcv_headless  # noqa
-
-SCANNERS = {_json.dumps(_sched_scanners)}
-UNIVERSE_MODE = "{_sched_universe}"
-
-def _fetch(sym, days=300):
-    import data_fetcher as df_mod
-    return df_mod.fetch_ohlcv(sym, days=days)
-
-def main():
-    import bhavcopy_fetcher as bh
-    universe = bh.fetch_top_n(300) if "Bhavcopy" in UNIVERSE_MODE else []
-    ts = datetime.datetime.now().strftime("%Y%m%d_%H%M")
-    out = {{}}
-    for name in SCANNERS:
-    if name not in sc.SCANNERS:
-        continue
-    try:
-        hits = sc.run_scanner(name, universe, _fetch)
-        out[name] = hits
-        print(f"{{ts}}  {{name}}: {{len(hits)}} hits")
-    except Exception as exc:
-        out[name] = []
-        print(f"{{ts}}  {{name}}: ERROR {{exc}}")
-    dest = os.path.join(os.path.dirname(__file__), "cache", f"scanner_daily_{{ts}}.json")
-    os.makedirs(os.path.dirname(dest), exist_ok=True)
-    with open(dest, "w") as fh:
-    json.dump(out, fh, default=str)
-    print(f"Saved → {{dest}}")
-
-if __name__ == "__main__":
-    main()
-'''
-                _RUNNER_PY.write_text(_runner_src, encoding="utf-8")
+                # The runner is a CHECKED-IN module (tools/scanner_daily_runner.py),
+                # not generated source. It used to be written here from an
+                # f-string template, and the template was broken: an un-indented
+                # `for` body (so it never parsed) plus imports of three modules
+                # that do not exist. Generated Python is invisible to import,
+                # py_compile, linting and tests, which is precisely how that
+                # survived. All this panel writes now is the .bat, and the
+                # universe choice travels as an argument.
+                _universe_arg = ("--universe bhavcopy --top-n 300"
+                                 if "Bhavcopy" in _sched_universe
+                                 else "--universe screener")
+                # An explicit scanner list is passed ONLY when it is a real
+                # subset; "all selected" stays as the runner's own default so the
+                # task does not silently freeze today's registry into the .bat.
+                _scanners_arg = ""
+                if _sched_scanners and len(_sched_scanners) < len(sc.SCANNERS):
+                    _scanners_arg = " --scanners " + " ".join(
+                        f'"{_s}"' for _s in _sched_scanners)
 
                 # Write the .bat wrapper
                 _bat_src = (
@@ -5224,8 +6633,8 @@ if __name__ == "__main__":
                     f"set LOG=%~dp0scanner_daily.log\n"
                     f"cd /d \"%REPO%\"\n"
                     f"echo. >> \"%LOG%\"\n"
-                    f"echo ===== %DATE% %TIME% — daily scanner starting ===== >> \"%LOG%\"\n"
-                    f"\"%PYTHON%\" \"%~dp0scanner_daily_runner.py\" >> \"%LOG%\" 2>&1\n"
+                    f"echo ===== %DATE% %TIME% - daily scanner starting ===== >> \"%LOG%\"\n"
+                    f"\"%PYTHON%\" \"%~dp0scanner_daily_runner.py\" {_universe_arg}{_scanners_arg} >> \"%LOG%\" 2>&1\n"
                     f"if errorlevel 1 (\n"
                     f"    echo ***** FAILED ***** >> \"%LOG%\"\n"
                     f") else (\n"
@@ -5252,7 +6661,8 @@ if __name__ == "__main__":
                 if _res.returncode == 0:
                     st.success(
                         f"Task **{_TASK_NAME}** registered — runs daily at {_sched_time}. "
-                        f"Runner: `tools/scanner_daily_runner.py` · "
+                        f"Runner: `tools/scanner_daily_runner.py` "
+                        f"`{_universe_arg}{_scanners_arg}` · "
                         f"Log: `tools/scanner_daily.log`"
                     )
                 else:
@@ -7320,12 +8730,35 @@ if current_page == "Telegram Signals":
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Tab 12 — Breakout Screener  (live Chartink fetch across entire market)
+# Breakout Scans · Chartink source  (live Chartink fetch across entire market)
 # ──────────────────────────────────────────────────────────────────────────────
 import chartink_scraper as ck
 
-if current_page == "Breakout Screener":
-    st.subheader("Breakout Screener — Live via Chartink")
+# ──────────────────────────────────────────────────────────────────────────────
+# Page — Breakout Scans (B-36r fold, 2026-08-27). Formerly two sibling nav pages
+# — "Breakout Screener" (Chartink) and "TradingView Screener" — collapsed into one
+# page with a source toggle. Same task (external new-high breakout feed), two
+# providers, so the split was structural redundancy, not two distinct tools. The
+# two bodies below are unchanged; they now guard on `bscan_src` instead of being
+# separate top-level pages. Invariant: both feeds stay reachable, nothing lost.
+# ──────────────────────────────────────────────────────────────────────────────
+if current_page == "Breakout Scans":
+    st.subheader("Breakout Scans — external new-high feeds")
+    st.caption(
+        "Two login-light breakout feeds, same idea (a stock clearing a prior high) "
+        "from different providers. Pick a source."
+    )
+    st.radio(
+        "Source",
+        ["Chartink", "TradingView"],
+        horizontal=True,
+        key="bscan_src",
+        help="Chartink: 6M–10Y consolidation breakouts (needs a session cookie). "
+             "TradingView: BrkoutGeek 1-month-high replica, no login.",
+    )
+
+if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chartink") == "Chartink":
+    st.markdown("**Chartink — 6M → 10Y consolidation breakouts**")
     st.caption(
         "Runs directly against **chartink.com** across the entire cash market. "
         "No stock list needed — Chartink scans every listed stock server-side. "
@@ -7756,10 +9189,10 @@ if current_page == "Breakout Screener":
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Page — TradingView Screener (BrkoutGeek: Horz Break replica via public scan API)
+# Breakout Scans · TradingView source (BrkoutGeek: Horz Break replica, public scan API)
 # ──────────────────────────────────────────────────────────────────────────────
-if current_page == "TradingView Screener":
-    st.subheader("TradingView Screener — BrkoutGeek: Horz Break (replica)")
+if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chartink") == "TradingView":
+    st.markdown("**TradingView — BrkoutGeek: Horz Break (replica)**")
     st.caption(
         "Replicates saved screener uPUJdiD5 via TradingView's public scan endpoint — "
         "no login. NSE-only, breaks 1-month high, filtered by Chg %, Rel Vol, and "
@@ -8775,7 +10208,8 @@ if current_page == "India Market Intel":
                 unsafe_allow_html=True)
     st.divider()
 
-    intel_tabs = st.tabs(["Bulk Deals", "Block Deals", "Insider Trading", "Gap & Volume Scanner"])
+    intel_tabs = st.tabs(["Bulk Deals", "Block Deals", "Insider Trading",
+                          "Gap & Volume Scanner", "📰 Deal Board"])
 
     def _highlight_deals(df_deals: pd.DataFrame, min_value_lakh: float, buy_col: str,
                          filter_key: str = "imi_deal_filter") -> None:
@@ -9055,6 +10489,90 @@ if current_page == "India Market Intel":
                 },
             )
 
+    # ── Deal Board — the shareable infographic ────────────────────────────────
+    # The four tabs above are working tables; this is the one artefact you send
+    # someone. All assembly lives in deal_infographic.py — this only runs it and
+    # hands back the HTML, so the board is identical from the CLI and the page.
+    with intel_tabs[4]:
+        st.caption(
+            "One board for the session: every scrip that had a bulk or block deal, "
+            "ranked by market cap, with what the price did, how much of the day's "
+            "tape the deal was, and how much of that quantity was actually "
+            "**delivered**. A disclosure that someone traded — not evidence they "
+            "were right, and not a recommendation."
+        )
+        _db_c1, _db_c2 = st.columns([1, 2])
+        with _db_c1:
+            _db_mcap = st.checkbox("Look up market caps", value=True, key="imi_db_mcap",
+                                   help="One yfinance call per scrip (~10s for a "
+                                        "typical day). Off = the tables still build, "
+                                        "sorted by delivery value instead.")
+        with _db_c2:
+            _db_run = st.button("📰 Build deal board", type="primary", key="imi_db_run")
+
+        if _db_run:
+            with st.spinner("Fetching deals, delivery file and market caps…"):
+                try:
+                    _db_deals = dinf.collect_deals()
+                    st.session_state["imi_deal_board"] = dinf.build(
+                        _db_deals, with_mcap=_db_mcap)
+                    # A new board makes any previously rendered image stale.
+                    st.session_state.pop("imi_deal_board_png", None)
+                except Exception as e:
+                    st.error(f"Deal board failed: {e}")
+                    st.session_state.pop("imi_deal_board", None)
+
+        _board = st.session_state.get("imi_deal_board")
+        if _board is not None:
+            if _board.get("error"):
+                st.warning(_board["error"])
+            else:
+                _html = dinf.render_html(_board)
+                # Height scales with the row count: a fixed iframe either clips a
+                # 70-scrip day or leaves a void on a 5-scrip one.
+                _rows = _board.get("n_symbols", 0)
+                components.html(_html, height=min(4200, 620 + 26 * _rows),
+                                scrolling=True)
+                _stem = f"deal_board_{date.today():%Y%m%d}"
+                _dl1, _dl2, _dl3 = st.columns([1, 1, 2])
+                with _dl1:
+                    st.download_button(
+                        "⬇ HTML", data=_html, file_name=f"{_stem}.html",
+                        mime="text/html", key="imi_db_dl", use_container_width=True)
+                # PNG is rendered on demand, not with every board: it launches
+                # headless Chromium (~2-4s). Rendering it here rather than in the
+                # browser means the image is produced by the SAME engine that
+                # displays the board — a canvas library re-implements CSS and
+                # would ship a subtly different picture.
+                with _dl2:
+                    if st.button("🖼 Render image", key="imi_db_png",
+                                 use_container_width=True):
+                        with st.spinner("Rendering PNG…"):
+                            try:
+                                st.session_state["imi_deal_board_png"] =                                     dinf.render_png(_html)
+                            except RuntimeError as e:
+                                st.session_state.pop("imi_deal_board_png", None)
+                                st.error(str(e))
+                _png = st.session_state.get("imi_deal_board_png")
+                with _dl3:
+                    if _png:
+                        st.download_button(
+                            f"⬇ Download image (PNG · {len(_png) / 1e6:.1f} MB)",
+                            data=_png, file_name=f"{_stem}.png", mime="image/png",
+                            key="imi_db_dlpng", type="primary",
+                            use_container_width=True)
+                st.caption(
+                    f"{_board.get('n_deals', 0)} deal rows · {_board.get('n_symbols', 0)} "
+                    f"scrips ({_board.get('n_index', 0)} index / "
+                    f"{_board.get('n_other', 0)} beyond) · session "
+                    f"{_board.get('session') or '—'}. Delivery % is NSE's own "
+                    f"published DELIV_PER, not a derived figure — boards elsewhere "
+                    f"that print a different number are computing something else."
+                )
+        else:
+            st.info("Not built yet — press **Build deal board**.")
+
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Page — OI Momentum (price change vs open-interest change, stock futures)
@@ -9158,8 +10676,8 @@ if current_page == "OI Momentum":
             st.info("No names match the current filters.")
         else:
             _strength_color = {
-                "STRONG": "#2e7d32", "MODERATE": "#1565c0",
-                "UNSUPPORTED": "#b8860b", "UNRELIABLE": "#9e9e9e",
+                "STRONG": rs.TOKENS["good"], "MODERATE": rs.TOKENS["info"],
+                "UNSUPPORTED": rs.TOKENS["accent"], "UNRELIABLE": rs.TOKENS["absent"],
             }
             _actionable = [r for r in _view
                            if r["strength"] in oim.ACTIONABLE_STRENGTHS]
@@ -9923,3 +11441,12 @@ if current_page == "Strategy Hub":
                 f'margin:4px 0;">',
                 unsafe_allow_html=True,
             )
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Background-job poll — MUST be the last thing the script does. If any queued /
+# running job exists, sleep briefly then rerun, so the status panel and any
+# completed results refresh on their own. The full page above has already
+# rendered, so the user keeps interacting (new clicks queue) while a job runs.
+# ──────────────────────────────────────────────────────────────────────────────
+ui_jobs.autorefresh()

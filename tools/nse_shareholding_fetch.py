@@ -181,6 +181,13 @@ _SHARES_FACT = re.compile(
     r'[^>]*>([\d.eE+-]+)<')
 _CONTEXT = re.compile(r'<xbrli:context id="([^"]+)">(.*?)</xbrli:context>', re.S)
 _MEMBER = re.compile(r'<xbrldi:explicitMember[^>]*>([^<]+)</xbrldi:explicitMember>')
+# Promoter pledge. In the PROMOTER-only context this fact = pledged shares ÷
+# promoter holding (verified on ADANIENT Jul-2026: 0.0079 = 7.70M / 974.23M =
+# 0.79%), i.e. the standard "promoter pledge %". Same per-filing fraction/percent
+# scale as the holding percentages.
+_PLEDGE_PCT_FACT = re.compile(
+    r'<in-bse-shp:EncumberedShareUnderPledgedAsPercentageOfTotalNumberOfShares'
+    r'\s+contextRef="([^"]+)"[^>]*>([\d.eE+-]+)<')
 
 
 def parse_shareholding(xbrl_text: str) -> dict | None:
@@ -271,6 +278,19 @@ def parse_shareholding(xbrl_text: str) -> dict | None:
     # — a strategic foreign stake is not the portfolio flow the framework reads.
     out["fii"] = _sum("fpi_cat1", "fpi_cat2")
     out["retail"] = _sum("retail_small", "retail_large")
+
+    # Promoter pledge %, read from the promoter-only context (see _PLEDGE_PCT_FACT).
+    pledge = None
+    for cid, val in _PLEDGE_PCT_FACT.findall(xbrl_text):
+        m = _MEMBER.findall(contexts.get(cid, ""))
+        if len(m) == 1 and m[0].split(":")[-1] == "ShareholdingOfPromoterAndPromoterGroupMember":
+            try:
+                pledge = float(val) * scale
+            except ValueError:
+                pledge = None
+            break
+    out["promoter_pledge_pct"] = pledge
+
     out = {k: (round(v, 4) if isinstance(v, float) else v) for k, v in out.items()}
 
     # Cross-checks travel WITH the data so a caller can reject a filing that does

@@ -123,6 +123,37 @@ def _check_days_trend(deep: dict, key: str, label: str, hist_key: str,
                f"({oldest:.0f}d → {latest:.0f}d).", "yfinance")
 
 
+# Equity dilution over the observed window — "constant equity dilution" is on the
+# governance checklist. A QIP for real growth is legitimate, so moderate dilution
+# is a WATCH (caveat), and only egregious issuance is CRITICAL.
+_DILUTION_WATCH_PCT = 15.0
+_DILUTION_CRITICAL_PCT = 50.0
+
+
+def _check_dilution(deep: dict) -> dict[str, Any]:
+    key, label = "equity_dilution", "Equity dilution (share count)"
+    hist = [v for v in (deep.get("shares_history") or []) if v is not None and v > 0]
+    d = deep.get("dilution_pct")
+    if d is None or len(hist) < _MIN_TREND_POINTS:
+        return _mk(key, label, NOT_CHECKED, WATCH,
+                   f"Only {len(hist)} yearly share-count observation(s) — need "
+                   f"{_MIN_TREND_POINTS} for a trend.", "yfinance")
+    span = len(hist)
+    if d >= _DILUTION_CRITICAL_PCT:
+        return _mk(key, label, FLAG, CRITICAL,
+                   f"Share count up {d:+.0f}% over {span} years — heavy dilution.",
+                   "yfinance")
+    if d >= _DILUTION_WATCH_PCT:
+        return _mk(key, label, FLAG, WATCH,
+                   f"Share count up {d:+.0f}% over {span} years — dilution to watch "
+                   f"(may be growth funding).", "yfinance")
+    if d <= -5.0:
+        return _mk(key, label, CLEAN, WATCH,
+                   f"Share count down {d:+.0f}% over {span} years — net buyback.", "yfinance")
+    return _mk(key, label, CLEAN, WATCH,
+               f"Share count {d:+.0f}% over {span} years — no material dilution.", "yfinance")
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # screener.in checks (need a sessionid cookie)
 # ──────────────────────────────────────────────────────────────────────────────
@@ -148,6 +179,30 @@ def _screener_holdings(symbol: str, sessionid: str | None) -> dict[str, Any] | N
         return None
 
 
+def _check_promoter_holding_nse(series: list | None) -> dict[str, Any] | None:
+    """Promoter-stake verdict from the FREE, official NSE shareholding filings.
+
+    `series` is [(period_label, promoter_pct), ...] ordered oldest→newest, built
+    by the caller from ownership_cache / nse_shareholding_fetch — no screener.in
+    cookie involved. Returns None when fewer than two quarters are available, so
+    the caller can fall back to the screener.in path (and then to NOT_CHECKED).
+    """
+    pts = [(p, _f(v)) for p, v in (series or []) if _f(v) is not None]
+    if len(pts) < 2:
+        return None
+    key, label = "promoter_holding", "Promoter stake reduction"
+    oldest, latest = pts[0][1], pts[-1][1]
+    delta = latest - oldest
+    n = len(pts)
+    if delta <= -_PROMOTER_DROP_PP:
+        return _mk(key, label, FLAG, CRITICAL,
+                   f"Promoter holding fell {abs(delta):.2f}pp across {n} NSE-filed "
+                   f"quarters ({oldest:.2f}% → {latest:.2f}%).", "NSE")
+    return _mk(key, label, CLEAN, CRITICAL,
+               f"Promoter holding {latest:.2f}% ({delta:+.2f}pp over {n} NSE-filed "
+               f"quarters).", "NSE")
+
+
 def _check_promoter_holding(holdings: dict | None) -> dict[str, Any]:
     key, label = "promoter_holding", "Promoter stake reduction"
     if not holdings or not holdings.get("promoter"):
@@ -166,6 +221,29 @@ def _check_promoter_holding(holdings: dict | None) -> dict[str, Any]:
     return _mk(key, label, CLEAN, CRITICAL,
                f"Promoter holding {latest:.2f}% ({delta:+.2f}pp over the reported "
                f"quarters).", "screener.in")
+
+
+def _check_promoter_pledge_nse(pledge: tuple | None) -> dict[str, Any] | None:
+    """Promoter-pledge verdict from FREE NSE encumbrance data (no cookie).
+
+    `pledge` is (pct, as_of) where pct is pledged shares as a % of promoter
+    holding. Returns None when unavailable so the caller falls back to
+    screener.in, then to NOT_CHECKED. A genuine 0.00% here IS a checked-clean
+    result (unlike an absent screener row, which must never read as zero).
+    """
+    if not pledge:
+        return None
+    pct, as_of = pledge
+    pct = _f(pct)
+    if pct is None:
+        return None
+    key, label = "promoter_pledge", "Promoter share pledging"
+    asof = f" (as of {as_of})" if as_of else ""
+    if pct > _PLEDGE_PCT_MAX:
+        return _mk(key, label, FLAG, CRITICAL,
+                   f"{pct:.2f}% of promoter holding is pledged{asof} (above the "
+                   f"{_PLEDGE_PCT_MAX:.0f}% comfort line).", "NSE")
+    return _mk(key, label, CLEAN, CRITICAL, f"{pct:.2f}% pledged{asof}.", "NSE")
 
 
 def _check_promoter_pledge(holdings: dict | None) -> dict[str, Any]:
@@ -206,24 +284,40 @@ _UNSOURCED = (
 
 
 def evaluate(symbol: str, fundamentals: dict | None, deep: dict | None,
-             sessionid: str | None = None) -> dict[str, Any]:
-    """Run every red-flag check and return them with a three-state summary."""
+             sessionid: str | None = None,
+             promoter_series: list | None = None,
+             promoter_pledge: tuple | None = None,
+             auditor_scan: tuple | None = None) -> dict[str, Any]:
+    """Run every red-flag check and return them with a three-state summary.
+
+    `promoter_series` (optional) is the free NSE promoter-holding history
+    [(period, pct), ...] oldest→newest. When it has >=2 quarters the promoter
+    stake is checked from it with NO screener.in cookie; otherwise the check
+    falls back to screener holdings, then to NOT_CHECKED.
+    """
     deep = deep or {}
     holdings = _screener_holdings(symbol, sessionid)
 
     flags = [
         _check_fcf(deep),
+        _check_dilution(deep),
         _check_days_trend(deep, "debtor_days_trend", "Rising debtor days",
                           "debtor_days_history", _DEBTOR_DAYS_FLOOR, WATCH,
                           "Receivable days"),
         _check_days_trend(deep, "wc_days_trend", "Rising working-capital days",
                           "wc_days_history", _WC_DAYS_FLOOR, WATCH,
                           "Working-capital days"),
-        _check_promoter_holding(holdings),
-        _check_promoter_pledge(holdings),
+        _check_promoter_holding_nse(promoter_series) or _check_promoter_holding(holdings),
+        _check_promoter_pledge_nse(promoter_pledge) or _check_promoter_pledge(holdings),
     ]
-    flags += [_mk(k, lbl, NOT_CHECKED, CRITICAL, why, "no source")
-              for k, lbl, why in _UNSOURCED]
+    for k, lbl, why in _UNSOURCED:
+        if k == "auditor_qualification" and auditor_scan:
+            a_state, a_detail, a_asof = auditor_scan
+            flags.append(_mk(k, lbl, a_state, CRITICAL,
+                             a_detail + (f" (as of {a_asof})" if a_asof else ""),
+                             "NSE announcements"))
+        else:
+            flags.append(_mk(k, lbl, NOT_CHECKED, CRITICAL, why, "no source"))
 
     counts = {
         "flagged":     sum(1 for f in flags if f["state"] == FLAG),

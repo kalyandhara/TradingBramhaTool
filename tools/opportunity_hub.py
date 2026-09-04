@@ -191,6 +191,7 @@ SCANNER_FAMILIES: dict[str, tuple[str, ...]] = {
         "Momentum Continuation",
         "Stage 2 Uptrend",
         "ATH Breakout (all-time high)",
+        "ADX Trend Confirmation",
     ),
     "Base/Contraction": (
         "VCP Coiling",
@@ -209,6 +210,7 @@ SCANNER_FAMILIES: dict[str, tuple[str, ...]] = {
         "Harmonic Reversal (XABCD)",
         "Rounding Bottom",
         "Early Reversal Detector",
+        "%R Bottoming",
     ),
     "Entry Trigger": (
         "Pullback Entry",
@@ -231,14 +233,80 @@ FAMILY_ORDER: tuple[str, ...] = tuple(SCANNER_FAMILIES.keys())
 #: Bearish scanners. These RUN — a distribution warning on a shortlisted name is
 #: worth seeing — but a hit is evidence AGAINST the name, so it can never add to
 #: a confluence count. It is surfaced as a risk flag instead.
-RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "Support Breakdown", "RSI Divergence Bear")
+RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "Support Breakdown", "RSI Divergence Bear", "%R Exhaustion Sell")
 
 #: Registry entries the pipeline must not run.
 #: "Zero-Debt Quality PEAD" declares ``fn = scan_pead`` — the IDENTICAL function
 #: as "PEAD Drift". It only differs when routed through ``run_quality_pead()``
 #: with its fundamentals gate, which a generic pipeline never calls. Left in, it
 #: would silently turn every PEAD hit into two votes for the same detector.
-PIPELINE_EXCLUDED: tuple[str, ...] = ("Zero-Debt Quality PEAD",)
+#:
+#: "Renko Flip (structure change)" is a SCREEN, not a trigger, and the exclusion is how
+#: that is enforced rather than merely worded. B-43 measured this exact engine's flips at
+#: no forward edge (up-flip edge negative at every horizon; stop-and-reverse beat
+#: buy-and-hold 0/23), so letting it into the confluence pipeline would spend ranking
+#: weight on a detector known to carry none — and it fires in BOTH directions, so a hit is
+#: not even evidence of a side. It stays visible in the Scanner Hub as a "what changed?"
+#: filter and contributes nothing to the score.
+PIPELINE_EXCLUDED: tuple[str, ...] = ("Zero-Debt Quality PEAD",
+                                      "Renko Flip (structure change)")
+
+#: Measured to be FULLY COVERED by the rest of the registry — zero unique
+#: (symbol, as-of) cells across 110 NIFTY-500 names × 2,496 cells, on full listing
+#: history. See analyses/Scanner-Overlap-Audit for the method and the numbers.
+#:
+#: These are hidden from the Scanner Hub's DEFAULT list and nothing else. They stay
+#: registered, stay runnable behind the hub's "show covered" toggle, stay backtestable,
+#: and stay in the confluence pipeline — because "covered" is a statement about
+#: COVERAGE, not about quality. A covered scanner can still be the more precise way to
+#: express a setup; what the measurement rules out is that removing it from the default
+#: view loses a hit no other scanner flags. That is exactly B-35's invariant and nothing
+#: more, which is why this list drives visibility rather than deletion.
+#:
+#: Re-derive after any scanner change:  py -3 tools/scanner_overlap.py --days 0
+COVERED_SCANNERS: tuple[str, ...] = (
+    # Zero unique cells in BOTH independent samples (see the stability rule below).
+    # Counts shown as: 1500-day sample / full-listing-history sample.
+    "52-Week High Leaders",             # 401 / 285 — 95% contained in Momentum Continuation
+    "RSI Mid-Band Momentum",            # 269 / 200 — 93% contained in Pullback Entry
+    "Base Formation",                   #  89 /  95 — 99% contained in Stage 2 Uptrend
+    "RSI 60-40 Setup",                  #  91 /  84
+    "Triple-RS 52W Cross",              #  70 /  63 — 99% contained in 52-Week High Leaders
+    "ATH Breakout (all-time high)",     #  67 /  45
+    "Consolidation Breakout (6M–10Y)",  #  17 /   8 — 100% contained in Pullback Entry
+    "IPO-Base Breakout",                #  14 /   6
+    "Minervini VCP (valchak)",          #   3 /   4 — containment is structural: its Trend
+                                        #             Template gate tests what Stage 2 does
+)
+
+#: The stability rule, and why it is not just "whatever the last run said".
+#:
+#: The audit was run twice on independent samples — a 1500-day window and full listing
+#: history. Three scanners DISAGREE between them, which is exactly the signature of a
+#: sampling artefact rather than a property of the scanner:
+#:
+#:     High Tight Flag       1500d: 11 hits / 0 unique   full: 19 / 1
+#:     Structural Breakout   1500d: 58 hits / 0 unique   full: 64 / 2
+#:     Rounding Bottom       1500d: 89 hits / 1 unique   full: 75 / 0
+#:
+#: So the rule is: hide only what measures zero-unique in BOTH samples. All three above
+#: stay VISIBLE. Hiding on a single run would have removed two scanners that do carry
+#: unique hits (the first cut of this list did exactly that, and this is the correction).
+#:
+#: ATH Breakout and IPO-Base Breakout appear here only after the full-history re-run,
+#: which is the first VALID measurement of them: on truncated frames ATH read a 261-bar
+#: slice max as an "all-time" high and IPO-Base saw every stock as freshly listed. Their
+#: counts fell 67→45 and 14→6 once fed real history, confirming both artefacts.
+#:
+#: Re-derive after any scanner change, and run it BOTH ways:
+#:     py -3 tools/scanner_overlap.py                 # 1500-day sample
+#:     py -3 tools/scanner_overlap.py --days 0        # full listing history
+
+
+def core_scanners() -> list[str]:
+    """Registry order, minus the measured-covered ones. The Hub's default list."""
+    return [n for n in sc.SCANNERS if n not in COVERED_SCANNERS]
+
 
 #: Measured to BEAT a random-entry baseline (wiki/analyses/Backtest-Harness):
 #: Falling Wedge +0.74% @20d (+0.14R), Harmonic Reversal +0.67% (+0.25R).

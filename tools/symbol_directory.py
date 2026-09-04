@@ -345,7 +345,10 @@ _BSE_SUPPLEMENT = [
     ]
 ]
 
-# US indices (yfinance "^" tickers) — always routed to yfinance.
+# Global indices (yfinance "^" tickers) — always routed to yfinance.
+# NOTE: Indian indices live in _INDIA_INDICES below (with NSE/BSE-branded display
+# tickers), NOT here — keep them out of this list to avoid duplicate directory
+# entries (the index groups are concatenated without dedup in _build_directory).
 _US_INDICES = [
     {"symbol": s, "display": s, "name": n, "type": "index",
      "exchange": "INDEX", "source": "yfinance"}
@@ -358,8 +361,71 @@ _US_INDICES = [
         ("^VIX",  "CBOE Volatility Index"),
         ("^FTSE", "FTSE 100"),
         ("^N225", "Nikkei 225"),
-        ("^NSEI", "Nifty 50"),
-        ("^NSEBANK", "Nifty Bank"),
+        ("^HSI",  "Hang Seng Index"),
+        ("^GDAXI", "DAX (Germany)"),
+        ("^STOXX50E", "EURO STOXX 50"),
+    ]
+]
+
+# Indian indices — Yahoo/yfinance "^" tickers (plus one ".NS"), each verified to
+# return full daily history (2026-08). Display tickers mirror what TradingView/NSE
+# users type (NIFTY, BANKNIFTY, CNXIT, CNX500 …) while `symbol` is the canonical
+# Yahoo fetch symbol; _build_symbol_lookup() maps the display back to it so typing
+# the ticker and Enter works without picking from the dropdown.
+#
+# Yahoo coverage gap (verified 2026-08): the Nifty SECTORAL indices — Auto, Metal,
+# FMCG, Realty, Energy, Infra, PSU Bank, Media, Financial Services, Service, PSE,
+# Commodities, Consumption, MNC — exist as ^CNX* symbols but Yahoo serves only a
+# 1-bar stub for every one of them on every window, so they are deliberately NOT
+# listed here (adding them would reproduce the "Loading… forever" sparse-history
+# trap). They would need a dedicated NSE index-history feed to support.
+_INDIA_INDICES = [
+    {"symbol": s, "display": d, "name": n, "type": "index",
+     "exchange": ex, "source": "yfinance"}
+    for s, d, n, ex in [
+        ("^NSEI",            "NIFTY",          "Nifty 50 Index",         "NSE"),
+        ("^NSEBANK",         "BANKNIFTY",      "Nifty Bank Index",       "NSE"),
+        ("^CNXIT",           "CNXIT",          "Nifty IT Index",         "NSE"),
+        ("^CNXPHARMA",       "CNXPHARMA",      "Nifty Pharma Index",     "NSE"),
+        ("^CRSLDX",          "CNX500",         "Nifty 500 Index",        "NSE"),
+        ("^CNX100",          "CNX100",         "Nifty 100 Index",        "NSE"),
+        ("^CNX200",          "CNX200",         "Nifty 200 Index",        "NSE"),
+        ("^NSEMDCP50",       "NIFTYMIDCAP50",  "Nifty Midcap 50 Index",  "NSE"),
+        ("^NSMIDCP",         "NIFTYMIDCAP100", "Nifty Midcap 100 Index", "NSE"),
+        ("NIFTYMIDCAP150.NS","NIFTYMIDCAP150", "Nifty Midcap 150 Index", "NSE"),
+        ("^INDIAVIX",        "INDIAVIX",       "India VIX",              "NSE"),
+        ("^BSESN",           "SENSEX",         "S&P BSE Sensex",         "BSE"),
+    ]
+]
+
+# Forex — Yahoo "PAIR=X" tickers (INR crosses first, then majors) + the dollar
+# index. Verified to return full daily history (2026-08).
+_FOREX = [
+    {"symbol": s, "display": d, "name": n, "type": "forex",
+     "exchange": "FX", "source": "yfinance"}
+    for s, d, n in [
+        ("USDINR=X", "USDINR", "US Dollar / Indian Rupee"),
+        ("EURINR=X", "EURINR", "Euro / Indian Rupee"),
+        ("GBPINR=X", "GBPINR", "British Pound / Indian Rupee"),
+        ("JPYINR=X", "JPYINR", "Japanese Yen / Indian Rupee"),
+        ("EURUSD=X", "EURUSD", "Euro / US Dollar"),
+        ("GBPUSD=X", "GBPUSD", "British Pound / US Dollar"),
+        ("USDJPY=X", "USDJPY", "US Dollar / Japanese Yen"),
+        ("DX-Y.NYB", "DXY",    "US Dollar Index"),
+    ]
+]
+
+# Commodity futures — Yahoo "XX=F" continuous-front tickers. Verified 2026-08.
+_COMMODITIES = [
+    {"symbol": s, "display": d, "name": n, "type": "futures",
+     "exchange": ex, "source": "yfinance"}
+    for s, d, n, ex in [
+        ("GC=F", "GOLD",   "Gold Futures",         "COMEX"),
+        ("SI=F", "SILVER", "Silver Futures",       "COMEX"),
+        ("HG=F", "COPPER", "Copper Futures",       "COMEX"),
+        ("CL=F", "WTI",    "WTI Crude Oil Futures", "NYMEX"),
+        ("BZ=F", "BRENT",  "Brent Crude Oil Futures", "ICE"),
+        ("NG=F", "NATGAS", "Natural Gas Futures",  "NYMEX"),
     ]
 ]
 
@@ -436,7 +502,8 @@ def _build_directory() -> list[dict]:
     # entry for their display ticker.
     bse_live = _load_bse_list()
     bse = [e for e in bse_live if e["symbol"] not in seen]
-    return nse + bse + _US_INDICES + _US_STOCKS + _CRYPTO
+    return (nse + bse + _INDIA_INDICES + _US_INDICES + _US_STOCKS
+            + _FOREX + _COMMODITIES + _CRYPTO)
 
 
 def get_directory() -> list[dict]:
@@ -486,7 +553,34 @@ def _build_symbol_lookup() -> dict[str, str]:
         "BANKNIFTY":  "^NSEBANK",
         "BANK NIFTY": "^NSEBANK",
         "NSEBANK":    "^NSEBANK",
+        "NIFTYBANK":  "^NSEBANK",
+        "NIFTY BANK": "^NSEBANK",
         "SENSEX":     "^BSESN",
+        "BSESN":      "^BSESN",
+        # Indian sector / broad-market indices (alternate spellings; the display
+        # tickers CNXIT/CNX500/… already resolve on their own).
+        "NIFTY IT":     "^CNXIT",
+        "NIFTYIT":      "^CNXIT",
+        "NIFTY PHARMA": "^CNXPHARMA",
+        "NIFTYPHARMA":  "^CNXPHARMA",
+        "NIFTY 500":    "^CRSLDX",
+        "NIFTY500":     "^CRSLDX",
+        "NIFTY 100":    "^CNX100",
+        "NIFTY100":     "^CNX100",
+        "NIFTY 200":    "^CNX200",
+        "NIFTY200":     "^CNX200",
+        "NIFTY MIDCAP": "^NSMIDCP",
+        "MIDCAP":       "^NSMIDCP",
+        "INDIA VIX":    "^INDIAVIX",
+        "VIX INDIA":    "^INDIAVIX",
+        # Forex / commodities natural-language variants.
+        "USD INR":      "USDINR=X",
+        "DOLLAR INDEX": "DX-Y.NYB",
+        "CRUDE":        "CL=F",
+        "CRUDE OIL":    "CL=F",
+        "WTI":          "CL=F",
+        "BRENT":        "BZ=F",
+        "NATURAL GAS":  "NG=F",
     }
     for alias, canonical in _ALIASES.items():
         lookup.setdefault(alias.upper(), canonical)

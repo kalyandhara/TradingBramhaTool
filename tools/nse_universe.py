@@ -53,6 +53,11 @@ INDEX_CSVS = {
     "nifty200": "https://nsearchives.nseindia.com/content/indices/ind_nifty200list.csv",
     "nifty100": "https://nsearchives.nseindia.com/content/indices/ind_nifty100list.csv",
     "nifty50":  "https://nsearchives.nseindia.com/content/indices/ind_nifty50list.csv",
+    # ~750 names: the broadest list NSE publishes as a CSV. Used as the
+    # "index constituent vs beyond" split on the deal board, where it is a
+    # MEMBERSHIP test, not a size cut.
+    "niftytotalmarket":
+        "https://nsearchives.nseindia.com/content/indices/ind_niftytotalmarket_list.csv",
 }
 
 HEADERS = {
