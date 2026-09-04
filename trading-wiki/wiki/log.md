@@ -1,6 +1,14 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-04] build | ROE derived from the filed statements - 13.5% -> 100% coverage, and the Returns axis stops running on two inputs
+- The calibration pass had flagged ROE as uncalibratable: yfinance `.info` carries it for only 27 of 200 NSE names. **It turned out `fundamentals_deep` was already computing `roe` and `roe_prev` from the balance sheet (net income / shareholders' equity) and returning them - `fundamental_score.raw_metrics` was simply reading `.info` instead.** Same story for `debt_to_equity`. The fix was a preference order, not a new data layer.
+- **Coverage: ROE 13.5% -> 100% (200/200), D/E 90.5% -> 99.5%.** Where both sources exist they agree closely: median |diff| **1.9pp**, max 8.0pp over the overlap (worst case NIVABUPA 4.1 derived vs 12.1 from `.info`, a timing difference - ours is latest filed FY, point-in-time equity, not average equity). So this is a coverage fix rather than a change of opinion.
+- **Unit trap worth recording:** `.info`'s debtToEquity is a PERCENT (195.0), the derived one is already a RATIO (1.95). Preferring one over the other without the conversion would have scaled every leverage score by 100. The fallback keeps the /100 only on the `.info` branch.
+- **Recalibrated the whole curve set from one fresh 200-name run** rather than pasting the new ROE curve into the old table - a curve table mixing two measurement dates is not a snapshot of anything. Measured NSE median ROE **13.5%**, p75 18.1%, p90 27.9%.
+- **The one band intuition got right.** The old ROE ladder (12% -> 55, 18% -> 80) sits almost exactly on the measured p50/p75. Every other hand-set band was wrong, several badly; this one was not, and that is worth recording as honestly as the failures.
+- **Result:** Returns now uses **2.90 of 3 inputs** on average (was ~2.0), median 57, 73 distinct scores over the sample. ITC coverage 16/17 -> 17/17. TITAN Returns 52 -> 66 with ROE 32.3% against ROCE 17.2% - which is the leverage story its Health axis (D/E 1.95x, STRETCHED 40) tells from the other side. Only **PEG** (11.5%) still resists calibration and keeps Lynch's absolute band.
+
 ## [2026-09-04] build | FP-2 to FP-5 shipped: peer radar overlay, within-group rank, technical columns, second surface
 - Completed the [[analyses/Analyzer-Radar-Peers-Roadmap]] plan in one pass at the owner's request (the one-phase-per-live-session rule was set aside deliberately).
 - **FP-2 radar** - `radar_figure()` draws peer median (dotted) + anchor, with an optional third trace picked from a selectbox; capped at three by construction because radars degrade past ~4 series. Caption states **shape, not area**: polygon area scales as the square of the values and depends on axis order, so the donuts and table stay the precise readout.

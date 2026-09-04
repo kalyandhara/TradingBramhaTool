@@ -239,8 +239,18 @@ penalised), the insurers' 74.5.
     percentile and a different quantity; rendering ours under that heading would have
     been exactly the absolute-vs-peer-relative confusion this roadmap warned about. The
     column is now "RS 6m", signed, with thresholds at ±10pp.
-- ⏭ Open: compute ROE from the statements so the Returns axis stops running on two
-  inputs; and FP-3's leader mean is unbacktested by construction — it ranks measured
+- ✅ **2026-09-04 — ROE derived from the statements.** It turned out `fundamentals_deep`
+  was *already* computing `roe` (and `debt_to_equity`) from the balance sheet and simply
+  returning them unread — `raw_metrics` was taking yfinance's `.info` figure for both.
+  Preferring the filed statements took ROE from **13.5% to 100% coverage** and D/E from
+  90.5% to 99.5%. Where both sources exist they agree closely (median |diff| **1.9pp**
+  over the overlap, max 8.0pp), so this is a coverage fix, not a change of opinion.
+  Returns now uses **2.90 of 3 inputs** on average instead of ~2, and ROE is calibrated
+  like everything else. Only **PEG** (11.5%) still resists calibration and keeps Lynch's
+  absolute band. Recorded because it is the one band intuition got right: the old ROE
+  ladder (12% → 55, 18% → 80) sits almost exactly on the measured p50 of 13.5% and p75
+  of 18.1%.
+- ⏭ Open: FP-3's leader mean is unbacktested by construction — it ranks measured
   characteristics, it does not claim edge.
 
 ## Related Pages

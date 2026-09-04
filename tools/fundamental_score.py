@@ -31,9 +31,10 @@ company was scoring 100 on leverage, 80 on debtor days and 90+ on growth. Wrong
 bands are how a rating loses trust — the M1-weights lesson — and intuition about
 "good ROCE" or "high debt" turns out to be imported from a different market.
 
-Two metrics resisted calibration because yfinance does not carry them for most
-NSE names (PEG 11.5% coverage, ROE 13.5%); those keep absolute, externally
-argued bands, and the reasoning sits beside them.
+One metric resists calibration because yfinance does not carry it for most NSE
+names — PEG, 11.5% coverage — and keeps an absolute, externally argued band with
+the reasoning beside it. ROE was the other, until it was switched to the filed
+statements (`fundamentals_deep`) and went from 13.5% to 100% coverage.
 
 Change a curve here, once, and every consumer moves together.
 
@@ -68,11 +69,12 @@ from typing import Any, Sequence
 # way found the same fault, in places worse:
 #
 #     metric          old band                 measured NSE median   old score at median
-#     debt_to_equity  0.25x -> 100             0.18x                 100  (saturated)
+#     debt_to_equity  0.25x -> 100             0.21x                 100  (saturated)
 #     debtor_days     30d -> 100, 60d -> 80    47.5d                  80  (saturated)
 #     margin_cv       0.15 -> 100, 0.30 -> 70  0.19                   70
-#     pe              15 -> 100, 40 -> 55      35.7x                  55  (about right)
+#     pe              15 -> 100, 40 -> 55      35.5x                  55  (about right)
 #     roce_trend      0pp -> 70                -0.69pp                45
+#     roe             12% -> 55, 18% -> 80     13.5%                  55  (about right)
 #
 # Two of Health's three inputs were handing the median Indian company a perfect
 # or near-perfect score; only the axis's `min_drag` aggregation was hiding it.
@@ -80,8 +82,12 @@ from typing import Any, Sequence
 # THINGS THE MEASUREMENT ITSELF ESTABLISHED, worth keeping in view:
 #   - NSE is expensive: median P/E 35.7x, p90 92.5x. US-calibrated bands would
 #     mark essentially the whole market overvalued.
-#   - NSE is unlevered: median D/E 0.18x, and a quarter of the market under
-#     0.05x. Leverage is a genuine outlier signal here, not a normal condition.
+#   - NSE is unlevered: median D/E 0.21x, and a quarter of the market under
+#     0.06x. Leverage is a genuine outlier signal here, not a normal condition.
+#   - Median NSE ROE is 13.5% and median ROCE 14.8%. The old ROE band happened to
+#     be close (12% -> 55, 18% -> 80 against a measured p50 of 13.5 and p75 of
+#     18.1), so this one was right by intuition — worth recording, because it is
+#     the only band that was.
 #   - ROCE is FALLING for most of the market: median trend -0.69pp YoY. A flat
 #     ROCE is therefore an above-median outcome, which the old 0pp -> 70 band had
 #     roughly right by accident.
@@ -91,16 +97,17 @@ from typing import Any, Sequence
 # are a snapshot of a distribution, not a law.
 _CURVES = {
     # valuation — lower is better, so the curve runs downhill
-    "pe":              ((11.55, 95), (21.38, 80), (35.98, 55), (57.19, 35), (92.52, 20)),
-    "pb":              ((1.58, 95), (2.41, 80), (4.54, 55), (9.02, 35), (15.05, 20)),
+    "pe":              ((11.52, 95), (21.13, 80), (35.87, 55), (56.55, 35), (92.66, 20)),
+    "pb":              ((1.59, 95), (2.39, 80), (4.49, 55), (8.85, 35), (15.11, 20)),
     # growth
     "revenue_cagr_3y": ((0.56, 20), (6.39, 35), (12.61, 55), (19.49, 80), (29.81, 95)),
     "profit_cagr_3y":  ((-5.9, 20), (4.72, 35), (18.71, 55), (32.16, 80), (55.5, 95)),
     "revenue_yoy":     ((-5.56, 20), (8.85, 35), (16.48, 55), (26.63, 80), (44.07, 95)),
     # health — lower is better
-    "debt_to_equity":  ((0.01, 95), (0.05, 80), (0.18, 55), (0.64, 35), (1.55, 20)),
+    "debt_to_equity":  ((0.01, 95), (0.06, 80), (0.21, 55), (0.74, 35), (1.51, 20)),
     "debtor_days":     ((8.7, 95), (20.4, 80), (47.5, 55), (79.6, 35), (137.3, 20)),
     # returns
+    "roe":             ((4.58, 20), (9.62, 35), (13.47, 55), (18.11, 80), (27.88, 95)),
     "roce":            ((4.11, 20), (9.3, 35), (14.8, 55), (21.77, 80), (35.64, 95)),
     "npm":             ((3.13, 20), (6.61, 35), (12.56, 55), (23.72, 80), (38.15, 95)),
     # capital allocation
@@ -111,26 +118,20 @@ _CURVES = {
 }
 
 # ──────────────────────────────────────────────────────────────────────────────
-# The two metrics that could NOT be calibrated, and are therefore still bands
+# The ONE metric that still cannot be calibrated
 # ──────────────────────────────────────────────────────────────────────────────
-# Both failed the calibrator's 30-observation floor, and the reason is the same:
-# yfinance's `.info` simply does not carry them for most NSE names. That is a
-# finding about our data, not about the market, so the honest response is to
-# keep an ABSOLUTE, externally-argued band rather than fit a curve to a sample
-# that is 87% missing — a distribution measured on the 13% that resolved would
-# describe whichever names yfinance happens to populate, not NSE.
+# PEG resolves for 23 of 200 names (11.5%) — yfinance's `.info` simply does not
+# carry it for NSE. That is a finding about our data, not about the market, so it
+# keeps an ABSOLUTE, externally-argued band: a curve fitted to the 11% that
+# resolved would describe whichever names yfinance happens to populate. Lynch's
+# PEG < 1 anchor is a real external reference and stands on its own. Valuation
+# therefore runs on P/E + P/B alone for ~88% of names, which the coverage count
+# already reports honestly.
 #
-#   PEG — resolved for 23 of 200 (11.5%). Lynch's PEG < 1 anchor is a real
-#         external reference, so it stays. NOTE: this axis therefore runs on
-#         P/E + P/B alone for ~88% of names, which the coverage count already
-#         reports honestly.
-#   ROE — resolved for 27 of 200 (13.5%). Retained band. Worth knowing: we
-#         compute ROCE ourselves from the statements and get 90.5% coverage, so
-#         ROE is a candidate for the same treatment in fundamentals_deep, which
-#         would let it be calibrated later. Until then Returns effectively runs
-#         on ROCE + net margin.
+# ROE used to be the second such metric (27 of 200 from `.info`). It is now
+# derived from the filed statements instead and resolves for 200 of 200, so it
+# is calibrated above. See `raw_metrics` for the preference order.
 _PEG_BANDS = ((1.0, 100), (1.5, 80), (2.5, 55), (4.0, 30))   # Lynch's PEG<1 anchor
-_ROE_BANDS = ((25, 100), (18, 80), (12, 55), (8, 30))
 
 _FLOOR = 10          # score for anything past the last band
 _MIN_ANNUAL_FOR_CONSISTENCY = 3
@@ -294,6 +295,18 @@ def raw_metrics(fundamentals: dict | None, deep: dict | None) -> dict[str, float
     """
     f, d = fundamentals or {}, deep or {}
 
+    # Leverage and ROE: PREFER THE FILED STATEMENTS, fall back to `.info`.
+    #
+    # Both were already being derived by `fundamentals_deep` from the balance
+    # sheet and simply not read here — the scorer took yfinance's `.info` figure,
+    # which is absent for ~87% of NSE names. That gap was invisible until the
+    # calibrator counted it (ROE resolved for 27 of 200), and it meant the
+    # Returns axis was running on two of its three inputs for most of the market.
+    #
+    # Unit trap worth stating: `.info`'s debtToEquity is a PERCENT (195.0) while
+    # the derived figure is already a RATIO (1.95). Mixing them silently would
+    # have scaled every leverage score by 100.
+    d2e_ratio = _f(d.get("debt_to_equity"))
     d2e_pct = _f(f.get("debt_to_equity"))       # yfinance reports this as a %
     annual = d.get("annual") or []
     revenue = _f(annual[0].get("revenue")) if annual else None
@@ -316,10 +329,12 @@ def raw_metrics(fundamentals: dict | None, deep: dict | None) -> dict[str, float
         "profit_cagr_3y": _f(d.get("profit_cagr_3y")),
         "revenue_yoy": revg,
         # health (lower is better)
-        "debt_to_equity": None if d2e_pct is None else d2e_pct / 100.0,
+        "debt_to_equity": (d2e_ratio if d2e_ratio is not None
+                           else (None if d2e_pct is None else d2e_pct / 100.0)),
         "debtor_days": _f(d.get("debtor_days")),
         # returns (higher is better)
-        "roe": _f(f.get("roe")), "roce": roce, "npm": _f(f.get("npm")),
+        "roe": _f(d.get("roe")) if d.get("roe") is not None else _f(f.get("roe")),
+        "roce": roce, "npm": _f(f.get("npm")),
         # capital allocation (higher is better)
         "fcf_margin": (round(fcf / revenue * 100, 2)
                        if (fcf is not None and revenue not in (None, 0) and revenue > 0)
@@ -407,7 +422,7 @@ def _score_returns(f: dict, d: dict) -> dict:
     m = raw_metrics(f, d)
     roe, roce, npm = m["roe"], m["roce"], m["npm"]
     return _axis("returns", [
-        ("roe",  _band(roe,  _ROE_BANDS, False), f"ROE {roe:.1f}%" if roe is not None else ""),
+        ("roe",  _curve(roe, "roe"), f"ROE {roe:.1f}%" if roe is not None else ""),
         ("roce", _curve(roce, "roce"), f"ROCE {roce:.1f}%" if roce is not None else ""),
         ("npm",  _curve(npm, "npm"), f"Net margin {npm:.1f}%" if npm is not None else ""),
     ])
