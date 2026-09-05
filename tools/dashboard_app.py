@@ -4558,7 +4558,8 @@ if current_page == "Hidden Treasures":
                "ranked by **institutional conviction** (FII+DII accumulation rate, "
                "promoter conduct, pledge penalty) from free NSE shareholding data. "
                "Quality overlay adds ROCE / OPM / D/E from yfinance and runs the "
-               "FR-4 red-flag checklist, which can **veto** a name outright. "
+               "FR-4 red-flag checklist, which can **veto** on governance flags "
+               "(negative FCF only penalises — B-34r2). "
                "**Unvalidated** — a discovery lens, not an edge. B-34 measured the "
                "ranking at +2.5% @60d (p=0.22): coverage, not edge.")
 
@@ -4574,8 +4575,9 @@ if current_page == "Hidden Treasures":
                                  help="Adds ROCE/OPM/D/E/Market Cap from yfinance — one call per name")
         _ht_veto = st.checkbox("Red-flag veto", value=True, key="ht_veto",
                                disabled=not _ht_enrich,
-                               help="Drop names where an FR-4 CRITICAL check actually fired "
-                                    "(negative FCF, promoter selling, pledge, heavy dilution). "
+                               help="Drop names where a VETOING critical check fired "
+                                    "(promoter selling, pledge, heavy dilution). Negative FCF "
+                                    "is a penalty, not a veto — B-34r2. "
                                     "Needs the quality overlay — the checklist reads the same "
                                     "fundamentals payload, so it costs no extra fetch.")
     _ht_limit = st.slider("Show top N", min_value=5, max_value=100, value=25,
@@ -4616,9 +4618,10 @@ if current_page == "Hidden Treasures":
             _ht_total = len(_ht_vetoed) + _ht_res["scanned"]
             st.warning(
                 f"**{len(_ht_vetoed)} of {_ht_total}** scoreable names vetoed on a "
-                f"critical red flag. Negative FCF is the most common reason and is "
-                f"ordinary for a reinvesting small-cap — check the list before "
-                f"trusting the gate.", icon="⛔")
+                f"vetoing red flag — promoter selling, pledge, or heavy dilution. "
+                f"Negative FCF is a penalty rather than a veto (B-34r2): it caused "
+                f"most exclusions, could not be backtested point-in-time, and is "
+                f"often a reinvesting small-cap's business model.", icon="⛔")
             with st.expander(f"Vetoed — {len(_ht_vetoed)} names and why", expanded=False):
                 for _v in _ht_vetoed[:60]:
                     st.markdown(

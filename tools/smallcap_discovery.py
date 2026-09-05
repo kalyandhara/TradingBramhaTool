@@ -109,6 +109,21 @@ def score_from_cache(symbol: str) -> dict | None:
     }
 
 
+#: Critical flags that DEMOTE to a penalty instead of vetoing, with the cost.
+#:
+#: negative_fcf demoted 2026-09-05 after B-34r2. It caused 59 of the 100 vetoes
+#: on Smallcap-250 - the majority - and it is the one critical flag that could
+#: NOT be backtested: `fcf_history` arrives from yfinance with no year labels, so
+#: it cannot be evaluated as-of a past quarter without hindsight. On top of that,
+#: this lane has no valuation input at all, so it is not strictly a value screen,
+#: and for a reinvesting small-cap negative FCF is frequently the business model.
+#: It was removing JSWCEMENT and GRSE on what is plausibly a capex cycle.
+#:
+#: 12 points sits deliberately between the watch penalty (6) and the pledge
+#: penalty (20): two or more years of not funding yourself from operations is a
+#: real concern, just not a disqualifying one in THIS lane.
+RF_DEMOTED = {"negative_fcf": 12.0}
+
 #: Penalty for a WATCH-severity red flag (rising debtor days, rising
 #: working-capital days, moderate dilution). These describe a business getting
 #: harder to run, not one that is already broken, so they cost score rather
@@ -190,22 +205,40 @@ def _enrich_quality(hit: dict) -> None:
         hit["red_flags"] = None
     else:
         c = rfres["counts"]
+        fired = [f for f in rfres["flags"] if f["state"] == "FLAG"]
+        # A critical flag vetoes UNLESS it is demoted. Counting from the flag
+        # list rather than from counts["critical_flagged"] is what makes the
+        # demotion real - the count itself still includes negative_fcf.
+        vetoing = [f for f in fired if f["severity"] == "critical"
+                   and f["key"] not in RF_DEMOTED]
+        # Demotion applies to the CRITICAL grade only. red_flags itself scores a
+        # single negative-FCF year as WATCH ("one year alone can be a capex cycle
+        # rather than a problem"), so charging that the full demoted penalty
+        # would be harsher than the source module's own reading of it. A 1-year
+        # dip falls through to the watch bucket and costs 6, not 12.
+        demoted = [f for f in fired
+                   if f["key"] in RF_DEMOTED and f["severity"] == "critical"]
         hit["red_flags"] = {
             "critical_flagged": c["critical_flagged"],
             "flagged": c["flagged"],
             "not_checked": c["not_checked"],
-            "vetoed": c["critical_flagged"] > 0,
-            "flags": [f for f in rfres["flags"] if f["state"] == "FLAG"],
+            "vetoed": bool(vetoing),
+            "flags": fired,
+            "veto_flags": vetoing,
+            "demoted_flags": demoted,
         }
-        watch = sum(1 for f in rfres["flags"]
-                    if f["state"] == "FLAG" and f["severity"] != "critical")
+        watch = sum(1 for f in fired if f["severity"] != "critical")
         if watch:
             bonus -= RF_WATCH_PENALTY * watch
             reasons.append(f"⚠ {watch} watch-level red flag(s) "
                            f"(-{RF_WATCH_PENALTY * watch:.0f}).")
-        for f in rfres["flags"]:
-            if f["state"] == "FLAG" and f["severity"] == "critical":
-                reasons.append(f"⛔ VETO — {f['label']}: {f['detail']}")
+        for f in demoted:
+            pen = RF_DEMOTED[f["key"]]
+            bonus -= pen
+            reasons.append(f"⚠ {f['label']}: {f['detail']} (-{pen:.0f}, "
+                           f"penalty not veto — see B-34r2).")
+        for f in vetoing:
+            reasons.append(f"⛔ VETO — {f['label']}: {f['detail']}")
         # NOT_CHECKED is not a pass. Say how much of the checklist was blank so
         # a clean-looking name cannot be mistaken for a verified one.
         reasons.append(f"Red flags: {c['flagged']} flagged, {c['clean']} clean, "
@@ -221,11 +254,13 @@ def discover(kind: str = "both", limit: int = 25, enrich: bool = False,
     Pass ``enrich=True`` to add ROCE/OPM/D/E from yfinance (slower — one call
     per name) AND to run the FR-4 red-flag checklist on the same payload.
 
-    ``veto_critical`` (default True) DROPS a name when a critical red flag
-    actually fired — negative free cash flow, >=50% dilution, promoter stake
-    falling hard, pledge above the comfort line. This is the first hard gate in
-    this lane: everything else here is a score adjustment, so a bad name
-    previously just ranked low and could still surface in a thin universe.
+    ``veto_critical`` (default True) DROPS a name when a VETOING critical red
+    flag fired — promoter stake falling hard, pledge above the comfort line,
+    >=50% dilution. Negative FCF is critical in FR-4 but demoted here to a
+    penalty (see RF_DEMOTED and B-34r2), so it costs score without removing the
+    name. This is the first hard gate in this lane: everything else is a score
+    adjustment, so a bad name previously just ranked low and could still surface
+    in a thin universe.
 
     Vetoes only run with ``enrich=True``, because the checklist needs the
     fundamentals payload. With the overlay off, nothing is checked and nothing
@@ -259,8 +294,8 @@ def discover(kind: str = "both", limit: int = 25, enrich: bool = False,
                 vetoed.append({
                     "symbol": h["symbol"], "name": h.get("name"),
                     "score": h["score"],
-                    "reasons": [f"{f['label']}: {f['detail']}" for f in rf["flags"]
-                                if f.get("severity") == "critical"],
+                    "reasons": [f"{f['label']}: {f['detail']}"
+                                for f in rf.get("veto_flags") or []],
                 })
             else:
                 kept.append(h)
