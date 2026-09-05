@@ -48,6 +48,7 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **Open — residual only** | **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
 | **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic), **B-39** (pin `scipy` in requirements / make `backtest.py` scipy-optional — the hard import silently broke the significance stack on Python 3.14) |
 | **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**), ~~**B-41**~~ (**CLOSED 2026-09-02** — `detect_liquidity_pools` + `detect_liquidity_sweep` + both scanners; SMC stack now complete), ~~**B-42**~~ (**CLOSED 2026-09-02**; residual **B-42r** — the pivot_len 5-vs-15 split, to be settled on data). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
+| **Closed 2026-09-05** | ~~**B-44r**~~ **MEASURED → FALSIFIED, GEX retired** (magnitude convention inverted the pre-registered direction and what survives the 1/σ control flips sign between vol terciles — see below). **B-34r** *(new, shipped same day)* — **Hidden Treasures gained its first HARD gate**: `red_flags.py` (FR-4) wired into `smallcap_discovery`, critical flags veto, watch flags cost 6 pts, NOT_CHECKED never reads as a pass. Zero extra fetches (rides the quality overlay's payload; `sessionid=None` keeps screener.in dormant). **Vetoes 100 of 249 on Smallcap-250** — 59 negative FCF, 51 promoter stake reduction, 28 pledge, 5 dilution. Toggleable and every exclusion is listed, because the default is NOT settled: see **B-34r2**. |
 | **New 2026-08-29** | ~~**B-43**~~ **BUILT + MEASURED → clean null** (flip edge ~0, negative on the long leg; beat buy&hold 0/23 — but fires 40% less often than the EVWMA cross, i.e. noise reduction without edge). Chart overlay kept, labelled FLIP not BUY/SELL. MCX still gated. From the Renko podcast ingest. ~~**B-44**~~ **BUILT + MEASURED same day → clean null** (see below); residual **B-44r** (is the naive dealer convention backwards for NSE?). From the Chris Kmer order-flow ingest. |
 | **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
@@ -463,6 +464,68 @@ which reads **0.32** on the same test, and prints both columns side by side. Eve
 backtest that samples daily against multi-day horizons carries this exposure —
 `stride=5` mitigates it, rotation measures it. Worth retro-fitting where a marginal
 Welch result is currently load-bearing.
+
+### ~~B-34r~~ · Hidden Treasures had no gate at all — **SHIPPED 2026-09-05**
+
+Owner asked whether the small/micro-cap lane has a value-trap avoidance gate. It had **no
+gate of any kind**. Every factor in `smallcap_discovery.score_from_cache` was a soft score
+adjustment, including the one the page called a *"pledge veto"* — in code it was **−20
+points**. A name with 40% pledge and promoters distributing scored ~27, stayed in the
+universe, and merely ranked low; in a thin universe it could still surface.
+
+`red_flags.py` (FR-4) already existed and was imported by `dashboard_app`,
+`market_health` and `technofunda_funnel` — but **not** by this lane. So the fix was
+wiring, not writing.
+
+**Cost: zero extra requests.** The checklist reads the same `fundamentals_deep` payload
+the quality overlay already fetches, and the promoter/pledge checks are fed from
+`ownership_cache`, so `sessionid=None` leaves the screener.in path dormant.
+
+**The obvious gate is a trap.** `red_flags.no_critical_flags()` returns `False` for *every*
+symbol by design — auditor qualification, related-party dealing and contingent liabilities
+live in filing prose nothing in this stack parses, so they are permanently `NOT_CHECKED`
+and a helper demanding every critical check be CLEAN can never pass. Gating on it would
+empty the list. The gate is `counts["critical_flagged"]`: a critical check that ran **and**
+failed.
+
+Behaviour: critical flag fired → **veto**; watch-level flag → **−6** each; `NOT_CHECKED`
+counted and reported, never a pass. Vetoes require the quality overlay (they need its
+payload); with it off, `veto_active` is False and the page says nothing was screened.
+
+**Measured, Smallcap-250, 249 scoreable:**
+
+| reason | names |
+|---|---|
+| Negative free cash flow | 59 |
+| Promoter stake reduction | 51 |
+| Promoter share pledging | 28 |
+| Equity dilution | 5 |
+| **vetoed total** | **100 (40%)** — 37 tripped more than one |
+
+**SAILIFE, the highest-scoring name in the universe (76.9), is vetoed** on two years of
+negative FCF. So are JSWCEMENT and GRSE.
+
+### B-34r2 · Should negative FCF veto in THIS lane? *(open, 2026-09-05)*
+
+The default shipped as "yes" and I am not confident it is right. Three reasons to doubt it:
+
+1. **Negative FCF is the single biggest cause** (59 of 100) and for a reinvesting small-cap
+   it is frequently the business model, not a value trap.
+2. **This lane has no valuation input at all** — no P/E, P/B or price enters the score. It
+   is an ownership-conviction screen, so "value trap" may be the wrong frame entirely; its
+   real failure mode is an **ownership trap** (institutions accumulating a deteriorating
+   business, or passive flow misread as conviction).
+3. **B-34 measured the ungated ranking at +2.51% @60d (p=0.22) / +6.29% @120d (p=0.14) —
+   WEAK.** Changing what the list contains changes that number in an unknown direction.
+
+The gate is therefore a **toggle**, defaulted on, with all 100 exclusions listed in the UI.
+Deciding it properly is a measurement, not an opinion: re-run `hidden_treasures_backtest.py`
+with and without the veto and compare hit rates. That is the same experiment shape as B-34,
+B-49 and B-50 — the shared event-study harness Phase 0 keeps asking for.
+
+Sub-question if the answer is "penalise, not veto": governance items (pledge, promoter
+dumping, egregious dilution) have a much better claim to vetoing than FCF does, so the
+split may be per-flag rather than all-or-nothing.
 
 ### ~~B-44r~~ · Is the naive convention backwards for NSE? — **MEASURED 2026-09-05: FALSIFIED, GEX RETIRED**
 

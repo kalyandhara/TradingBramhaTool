@@ -1,6 +1,15 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-05] build | Hidden Treasures had NO gate - FR-4 red flags wired in as the first hard one
+- Code: `smallcap_discovery.py` (+`_red_flags_for`, veto in `discover`), `dashboard_app.py` (toggle + vetoed-list UI). Updated: [[analyses/Open-Backlog]] (B-34r closed, **B-34r2** opened).
+- **The question was "is there a value-trap gate?" and the honest answer was "there is no gate".** Every factor was a soft score nudge - including the one the page called a *pledge veto*, which in code was **-20 points**. A name with 40% pledge and promoters distributing scored ~27 and stayed in the universe.
+- **Fix was wiring, not writing.** `red_flags.py` (FR-4) already existed and was imported by three other modules but not this lane. It now runs at **zero extra network cost**: same `fundamentals_deep` payload the quality overlay already fetches, promoter/pledge fed from `ownership_cache`, `sessionid=None` so the screener.in path stays dormant.
+- **The obvious gate would have emptied the list.** `no_critical_flags()` returns False for every symbol by design - auditor/related-party/contingent-liability items live in filing prose nothing here parses and are permanently NOT_CHECKED. The real gate is `counts["critical_flagged"]`: a critical check that ran AND failed. Recorded in the code comment so the next reader does not repeat it.
+- **Measured, Smallcap-250: 100 of 249 vetoed (40%)** - 59 negative FCF, 51 promoter stake reduction, 28 pledge, 5 dilution, 37 tripping more than one. **SAILIFE, the top-scoring name in the universe at 76.9, is vetoed** on two years of negative FCF; so are JSWCEMENT and GRSE.
+- **I do not think the default is settled, so it is a toggle and every exclusion is listed.** Negative FCF is the biggest cause and is often a reinvesting small-cap's business model; this lane has no valuation input at all, so "value trap" may be the wrong frame - its real failure mode is an ownership trap. Filed as **B-34r2**: decide it by re-running `hidden_treasures_backtest.py` with and without the veto, not by opinion. Same experiment shape as B-34/B-49/B-50.
+- Also corrected the page caption ("pledge veto" -> "pledge penalty") and put B-34's measured result (+2.5% @60d, p=0.22 - coverage, not edge) on the page instead of only in the backlog.
+
 ## [2026-09-05] measure | B-44r - the convention was the suspect; it is now eliminated, and GEX retires
 - Built: `tools/gamma_magnitude_backtest.py`. Updated: [[concepts/Gamma-Exposure-GEX]], [[analyses/Open-Backlog]].
 - **The backlog was wrong about the cost.** It said B-44r "needs a fresh 480-session pass over the raw chains". It does not: the quantity the both-sides-short convention needs is `gross_gex_cr` - the sum of absolute gamma notional - which `compute_gex` has persisted since day one. Zero downloads.
