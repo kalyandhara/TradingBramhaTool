@@ -442,6 +442,18 @@ def _explain(hit: dict, rating_val: int | None, row) -> str:
 
 
 def main() -> int:
+    # Windows consoles (and redirected stdout, which is what the scheduled task
+    # gets) default to cp1252, and this script's own progress lines contain "→",
+    # "…" and en-dashes. A print was therefore able to kill the run: a complete
+    # funnel — 42 scanners, 114 candidates rated — died on the regime-gate line,
+    # four statements before the save. Nothing was stored, and the failure looked
+    # like a crash in the pipeline rather than in a progress message.
+    for _stream in (sys.stdout, sys.stderr):
+        try:
+            _stream.reconfigure(encoding="utf-8", errors="replace")
+        except Exception:
+            pass    # older/odd streams: fall through, the text is cosmetic
+
     ap = argparse.ArgumentParser(description="Daily Opportunity Hub shortlist")
     ap.add_argument("--universe", type=int, default=200,
                     help="top N symbols by traded value (default 200)")
