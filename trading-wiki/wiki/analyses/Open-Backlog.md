@@ -546,11 +546,32 @@ cache deepens — on the live page as well. **B-34r3:** bound the promoter-drop 
 fixed trailing 4 quarters, or express it per-quarter like the score's `rate` term already
 does) before reading anything into the veto rate.
 
-**Recommendation, pending B-34r3 and a point-in-time store:** keep the two governance
-vetoes (measured harmless, directionally positive, and they are the ones with a real
-governance rationale); demote **negative FCF to a penalty**, because it causes the majority
-of exclusions, is untestable here, and removes names like JSWCEMENT and GRSE whose negative
-FCF is plausibly a capex cycle rather than a trap.
+**Resolved 2026-09-05 — negative FCF demoted to a penalty.** The two governance vetoes stay
+(measured harmless and directionally positive, and testable point-in-time); FCF now costs
+**12 points** via `RF_DEMOTED` instead of removing the name. 12 sits between the watch
+penalty (6) and the pledge penalty (20).
+
+| | before | after |
+|---|---|---|
+| vetoed (Smallcap-250) | 100 | **72** |
+| kept | 149 | **177** |
+| veto causes | promoter 51 · pledge 28 · dilution 5 · **FCF 59** | promoter 51 · pledge 28 · dilution 5 |
+
+51 kept names now carry the FCF flag as a penalty. **SAILIFE**, the top-scoring name in the
+universe, is back at 64.9 (76.9 less 12) having been removed entirely before.
+
+Two implementation notes worth keeping:
+- The demotion is computed from the **flag list**, not from `counts["critical_flagged"]` —
+  that count still includes `negative_fcf`, so gating on it would have silently ignored the
+  demotion.
+- Demotion applies to the **CRITICAL grade only**. `red_flags` scores a single negative-FCF
+  year as WATCH ("one year alone can be a capex cycle rather than a problem"), so charging
+  it the full 12 would have been harsher than the source module's own reading. Caught on
+  SUNTV, a one-year dip: 50.9 → 56.9 once it took the watch 6 instead.
+
+**Still open:** whether FCF *should* veto remains unanswered rather than answered — the
+demotion is a judgement made because the test was impossible, not because the test came
+back negative. A point-in-time fundamentals store would let it be settled properly.
 
 ### B-34r2 · original framing *(2026-09-05)*
 

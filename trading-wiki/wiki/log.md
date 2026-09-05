@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-05] build | B-34r2 resolved - negative FCF demoted from veto to a 12-point penalty
+- Code: `smallcap_discovery.RF_DEMOTED` + UI copy. Updated: [[analyses/Open-Backlog]].
+- **Vetoed 100 -> 72, kept 149 -> 177.** Veto causes are now promoter 51 / pledge 28 / dilution 5; FCF is gone from the list. 51 kept names carry the FCF flag as a penalty instead. **SAILIFE**, the highest-scoring name in the universe, is back in at 64.9 (76.9 less 12) having been removed entirely.
+- **Why FCF and not the others:** it caused the majority of exclusions, it is the one critical flag B-34r2 could NOT backtest (no year labels on `fcf_history`, so no as-of evaluation without hindsight), this lane has no valuation input so it is not strictly a value screen, and it was removing JSWCEMENT and GRSE on what is plausibly a capex cycle. The two governance vetoes stay - they measured harmless and directionally positive AND were testable point-in-time.
+- **Two implementation traps, both hit and fixed:** (1) the demotion must be computed from the flag LIST, not `counts["critical_flagged"]`, which still includes `negative_fcf` - gating on the count would have silently ignored the demotion; (2) demotion must apply to the CRITICAL grade only, because `red_flags` scores a single negative-FCF year as WATCH and charging that the full 12 is harsher than the source module's own reading. Caught on SUNTV (1-year dip): 50.9 -> 56.9 once it took the watch 6.
+- **Honest status:** this is a judgement made because the measurement was impossible, not a measurement. Whether FCF *should* veto is still unanswered and needs a point-in-time fundamentals store.
+
 ## [2026-09-05] measure | B-34r2 - the Hidden Treasures veto, backtested as far as the data allows
 - Code: `hidden_treasures_backtest.py --gov-veto`. Updated: [[analyses/Open-Backlog]] (B-34r2 half-measured, **B-34r3** opened).
 - **Result: WEAK, same class as B-34 itself.** Smallcap-250, top 25, 6 quarters. No veto: +0.91% @60d (p=0.54) / +1.47% @120d (p=0.54). Governance veto: **+1.21% @60d (p=0.42) / +2.15% @120d (p=0.39)**, hit rate 59.3->60.7% and 58.4->60.0%, Q+/Q 3/6->4/6 at 60d. Every metric moves the right way; nothing is significant. It does not hurt and cannot be shown to help.
