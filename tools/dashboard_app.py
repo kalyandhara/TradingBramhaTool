@@ -4556,9 +4556,11 @@ if current_page == "Hidden Treasures":
     st.subheader("Hidden Treasures")
     st.caption("Small and micro-cap names the main funnel structurally misses — "
                "ranked by **institutional conviction** (FII+DII accumulation rate, "
-               "promoter conduct, pledge veto) from free NSE shareholding data. "
-               "Quality overlay adds ROCE / OPM / D/E from yfinance. "
-               "**Unvalidated** — a discovery lens, not an edge.")
+               "promoter conduct, pledge penalty) from free NSE shareholding data. "
+               "Quality overlay adds ROCE / OPM / D/E from yfinance and runs the "
+               "FR-4 red-flag checklist, which can **veto** a name outright. "
+               "**Unvalidated** — a discovery lens, not an edge. B-34 measured the "
+               "ranking at +2.5% @60d (p=0.22): coverage, not edge.")
 
     _ht_c1, _ht_c2 = st.columns([2, 1])
     with _ht_c1:
@@ -4570,6 +4572,12 @@ if current_page == "Hidden Treasures":
     with _ht_c2:
         _ht_enrich = st.checkbox("Quality overlay (slower)", value=True, key="ht_enrich",
                                  help="Adds ROCE/OPM/D/E/Market Cap from yfinance — one call per name")
+        _ht_veto = st.checkbox("Red-flag veto", value=True, key="ht_veto",
+                               disabled=not _ht_enrich,
+                               help="Drop names where an FR-4 CRITICAL check actually fired "
+                                    "(negative FCF, promoter selling, pledge, heavy dilution). "
+                                    "Needs the quality overlay — the checklist reads the same "
+                                    "fundamentals payload, so it costs no extra fetch.")
     _ht_limit = st.slider("Show top N", min_value=5, max_value=100, value=25,
                            step=5, key="ht_limit")
     _kind_map = {
@@ -4584,7 +4592,8 @@ if current_page == "Hidden Treasures":
                 _ht_kind_val = _kind_map[_ht_kind]
                 _ht_res = scd.discover(kind=_ht_kind_val,
                                        limit=_ht_limit,
-                                       enrich=_ht_enrich)
+                                       enrich=_ht_enrich,
+                                       veto_critical=_ht_veto)
                 st.session_state["ht_result"] = _ht_res
                 _saved_n = db.save_hidden_treasures_run(
                     _ht_res["hits"],
@@ -4596,6 +4605,29 @@ if current_page == "Hidden Treasures":
 
     _ht_res = st.session_state.get("ht_result")
     if _ht_res is not None:
+        # The veto is the only HARD gate in this lane, so what it removed has to
+        # be visible. A silent exclusion is indistinguishable from a name that was
+        # never in the universe, and this one drops a large minority of it.
+        _ht_vetoed = _ht_res.get("vetoed") or []
+        if not _ht_res.get("veto_active"):
+            st.info("Red-flag veto is OFF — nothing below has been screened for "
+                    "critical flags. Ranking is by conviction score alone.", icon="ℹ️")
+        elif _ht_vetoed:
+            _ht_total = len(_ht_vetoed) + _ht_res["scanned"]
+            st.warning(
+                f"**{len(_ht_vetoed)} of {_ht_total}** scoreable names vetoed on a "
+                f"critical red flag. Negative FCF is the most common reason and is "
+                f"ordinary for a reinvesting small-cap — check the list before "
+                f"trusting the gate.", icon="⛔")
+            with st.expander(f"Vetoed — {len(_ht_vetoed)} names and why", expanded=False):
+                for _v in _ht_vetoed[:60]:
+                    st.markdown(
+                        f"**{_v['symbol']}** ({_v.get('name') or '—'}) · would have "
+                        f"scored {_v['score']}  \n"
+                        + "  \n".join(f"&nbsp;&nbsp;⛔ {_r}" for _r in _v["reasons"]),
+                        unsafe_allow_html=True)
+                if len(_ht_vetoed) > 60:
+                    st.caption(f"…and {len(_ht_vetoed) - 60} more.")
         st.markdown(rs.section(f"Top {len(_ht_res['hits'])} of {_ht_res['universe']} "
                                f"({_ht_res['cached']} cached)"),
                     unsafe_allow_html=True)

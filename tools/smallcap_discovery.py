@@ -109,6 +109,48 @@ def score_from_cache(symbol: str) -> dict | None:
     }
 
 
+#: Penalty for a WATCH-severity red flag (rising debtor days, rising
+#: working-capital days, moderate dilution). These describe a business getting
+#: harder to run, not one that is already broken, so they cost score rather
+#: than removing the name.
+RF_WATCH_PENALTY = 6.0
+
+
+def _red_flags_for(hit: dict, deep: dict) -> dict | None:
+    """Run FR-4 red flags for one hit, reusing data already fetched.
+
+    Deliberately free-only: `sessionid=None` means `_screener_holdings` returns
+    None without a network call, and the promoter/pledge checks are fed from the
+    ownership cache this module already reads. So the whole thing costs ZERO
+    extra requests on top of the quality overlay's one.
+
+    Note what is NOT used: `red_flags.no_critical_flags()`. It returns False for
+    every symbol on purpose - three critical items (auditor qualification,
+    related-party dealing, contingent liabilities) live in filing prose nothing
+    here parses, so they are permanently NOT_CHECKED and a helper that demands
+    every critical check be CLEAN can never pass. Gating on it would empty the
+    list. The gate is `counts["critical_flagged"]`: a critical check that
+    actually RAN and FAILED.
+    """
+    try:
+        import red_flags as rf
+    except Exception:
+        return None
+    data = oc.load(hit["symbol"])
+    qs = _ordered_quarters(data)
+    series = [(p, v.get("promoter")) for p, v in qs
+              if isinstance(v.get("promoter"), (int, float))]
+    pledge = hit.get("pledge_pct")
+    pledge_arg = (pledge, hit.get("as_of")) if pledge is not None else None
+    try:
+        return rf.evaluate(hit["symbol"], None, deep, sessionid=None,
+                           promoter_series=series or None,
+                           promoter_pledge=pledge_arg)
+    except Exception as e:                       # never take the lane down
+        log.warning("red flags failed for %s: %s", hit["symbol"], e)
+        return None
+
+
 def _enrich_quality(hit: dict) -> None:
     """Add ROCE/OPM/D/E from fundamentals_deep and adjust the conviction score."""
     try:
@@ -142,13 +184,57 @@ def _enrich_quality(hit: dict) -> None:
         reasons.append(f"⚠ D/E {de:.2f} > {DE_MAX:.1f} — leverage risk.")
     elif de is not None:
         reasons.append(f"D/E {de:.2f}.")
+    # ── FR-4 red flags, on the SAME `deep` payload (no extra fetch) ──────────
+    rfres = _red_flags_for(hit, d)
+    if rfres is None:
+        hit["red_flags"] = None
+    else:
+        c = rfres["counts"]
+        hit["red_flags"] = {
+            "critical_flagged": c["critical_flagged"],
+            "flagged": c["flagged"],
+            "not_checked": c["not_checked"],
+            "vetoed": c["critical_flagged"] > 0,
+            "flags": [f for f in rfres["flags"] if f["state"] == "FLAG"],
+        }
+        watch = sum(1 for f in rfres["flags"]
+                    if f["state"] == "FLAG" and f["severity"] != "critical")
+        if watch:
+            bonus -= RF_WATCH_PENALTY * watch
+            reasons.append(f"⚠ {watch} watch-level red flag(s) "
+                           f"(-{RF_WATCH_PENALTY * watch:.0f}).")
+        for f in rfres["flags"]:
+            if f["state"] == "FLAG" and f["severity"] == "critical":
+                reasons.append(f"⛔ VETO — {f['label']}: {f['detail']}")
+        # NOT_CHECKED is not a pass. Say how much of the checklist was blank so
+        # a clean-looking name cannot be mistaken for a verified one.
+        reasons.append(f"Red flags: {c['flagged']} flagged, {c['clean']} clean, "
+                       f"{c['not_checked']} NOT CHECKED.")
+
     hit["score"] = round(max(0.0, min(100.0, hit["score"] + bonus)), 1)
 
 
-def discover(kind: str = "both", limit: int = 25, enrich: bool = False) -> dict:
+def discover(kind: str = "both", limit: int = 25, enrich: bool = False,
+             veto_critical: bool = True) -> dict:
     """Rank the cached names in the small/micro-cap universe by conviction.
+
     Pass ``enrich=True`` to add ROCE/OPM/D/E from yfinance (slower — one call
-    per name). Returns {"hits": [...ranked...], "scanned", "cached", "universe"}."""
+    per name) AND to run the FR-4 red-flag checklist on the same payload.
+
+    ``veto_critical`` (default True) DROPS a name when a critical red flag
+    actually fired — negative free cash flow, >=50% dilution, promoter stake
+    falling hard, pledge above the comfort line. This is the first hard gate in
+    this lane: everything else here is a score adjustment, so a bad name
+    previously just ranked low and could still surface in a thin universe.
+
+    Vetoes only run with ``enrich=True``, because the checklist needs the
+    fundamentals payload. With the overlay off, nothing is checked and nothing
+    is vetoed — `vetoed` comes back empty and `veto_active` False, so the
+    caller can say so rather than implying the list was screened.
+
+    Returns {"hits", "scanned", "cached", "universe", "vetoed", "veto_active"}.
+    `vetoed` carries the dropped names with their reasons: an exclusion nobody
+    can see is indistinguishable from a name that never existed."""
     uni = scu.fetch_universe(kind)
     meta = {e["symbol"]: e for e in uni}
     hits, cached = [], 0
@@ -163,9 +249,28 @@ def discover(kind: str = "both", limit: int = 25, enrich: bool = False) -> dict:
         if enrich:
             _enrich_quality(s)
         hits.append(s)
+
+    vetoed = []
+    if enrich and veto_critical:
+        kept = []
+        for h in hits:
+            rf = h.get("red_flags")
+            if rf and rf.get("vetoed"):
+                vetoed.append({
+                    "symbol": h["symbol"], "name": h.get("name"),
+                    "score": h["score"],
+                    "reasons": [f"{f['label']}: {f['detail']}" for f in rf["flags"]
+                                if f.get("severity") == "critical"],
+                })
+            else:
+                kept.append(h)
+        hits = kept
+
     hits.sort(key=lambda h: h["score"], reverse=True)
+    vetoed.sort(key=lambda v: v["score"], reverse=True)
     return {"hits": hits[:limit], "scanned": len(hits), "cached": cached,
-            "universe": len(uni)}
+            "universe": len(uni), "vetoed": vetoed,
+            "veto_active": bool(enrich and veto_critical)}
 
 
 def backfill(kind: str = "both", limit: int | None = None, quarters: int = 6,
