@@ -14,6 +14,7 @@ Run:  py -3 -m streamlit run tools/dashboard_app.py
 
 import sys
 import csv
+import time as _time
 import json
 import logging
 import socket
@@ -865,6 +866,35 @@ def _signin_control() -> None:
                 else:
                     st.error("Incorrect username or password.", icon="🔒")
 
+
+def _symbol_jump(raw: str) -> None:
+    """Route to the Stock Analyzer for `raw`, priming the same session keys the
+    "Analyze ↗" deep-link sets — one entry path, so an auto-run that works for
+    a table link works for the search box too."""
+    sym = raw.strip().upper().replace(".NS", "")
+    if not sym:
+        return
+    st.session_state["current_page"] = "Stock Analyzer"
+    st.session_state["selected_symbol"] = sym
+    st.session_state["last_analyzed"] = sym
+    st.rerun()
+
+
+def _search_control() -> None:
+    """Ribbon symbol jump. Deliberately does NOT validate against a universe:
+    the Analyzer already reports a symbol it cannot fetch, and a whitelist here
+    would reject the newly-listed names most worth looking up."""
+    with st.popover("Search ⌘K", use_container_width=True):
+        with st.form("tb_symbol_jump", border=False, clear_on_submit=True):
+            _sym = st.text_input(
+                "Symbol", placeholder="RELIANCE", label_visibility="collapsed",
+                key="tb_search_input",
+            )
+            if st.form_submit_button("Analyze →", use_container_width=True,
+                                     type="primary"):
+                _symbol_jump(_sym)
+        st.caption("NSE code, no .NS suffix. Opens the Stock Analyzer.")
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Navigation — left sidebar page router (replaces st.tabs; Streamlit can't
 # switch tabs programmatically, so a real "click sidebar item -> jump to page"
@@ -976,6 +1006,46 @@ def _batch_freshness() -> str:
     return f"batch {when} · {rel}"
 
 
+#: (yahoo ticker, ribbon label). Three is the ceiling: the strip shares a line
+#: with the breadcrumb, and a fourth starts truncating the page name on a laptop.
+_RIBBON_INDICES = [("^NSEI", "NIFTY"), ("^NSEBANK", "BANKNIFTY"), ("^INDIAVIX", "VIX")]
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _ribbon_quotes(_bucket: int):
+    """Last close and day change for the ribbon indices. ONE yfinance call.
+
+    `_bucket` is a time bucket the caller passes in purely to bust this cache —
+    the long ttl is a backstop, the bucket is the real clock. That indirection
+    buys a refresh cadence that changes with the session (see the call site):
+    a fixed short ttl would re-download the same closed-market numbers all
+    evening, and a fixed long one would freeze the strip during a live session.
+
+    Daily bars, so intraday this is the LAST CLOSE, not a live tick — the same
+    basis as the Nifty stat card on Home. Every failure returns None values and
+    the strip renders "—" rather than a stale or invented number.
+    """
+    try:
+        import yfinance as yf
+        data = yf.download(
+            [t for t, _ in _RIBBON_INDICES], period="7d", interval="1d",
+            progress=False, group_by="ticker", auto_adjust=False, threads=True,
+        )
+    except Exception as e:
+        _log.warning("ribbon quotes fetch failed: %s", e)
+        return [(lbl, None, None) for _, lbl in _RIBBON_INDICES]
+
+    out = []
+    for tkr, lbl in _RIBBON_INDICES:
+        try:
+            closes = data[tkr]["Close"].dropna()
+            last, prev = float(closes.iloc[-1]), float(closes.iloc[-2])
+            out.append((lbl, last, (last - prev) / prev * 100.0))
+        except Exception:
+            out.append((lbl, None, None))
+    return out
+
+
 # ── Horizontal top nav ────────────────────────────────────────────────────────
 # Sentinel div → dark ribbon CSS targets the next sibling HorizontalBlock.
 # Brand · Home · one popover per group · current-page label, all in one row.
@@ -988,9 +1058,14 @@ def _batch_freshness() -> str:
 st.markdown('<div id="tb-navstart"></div>', unsafe_allow_html=True)
 
 # Widths, left to right: brand · Home · the five group popovers · spacer ·
-# sign-in. The current-page label used to live here; it is a breadcrumb, and it
-# now sits on the strip below the bar where a breadcrumb belongs.
-_nav = st.columns([2.0, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 0.95],
+# search · sign-in. The current-page label used to live here; it is a breadcrumb,
+# and it now sits on the strip below the bar where a breadcrumb belongs.
+#
+# The quote strip is NOT in this row: width here is scarce (at these weights
+# "Portfolio & Risk ▾" is already near its label width) and three quotes need
+# ~330px that would have to come out of the group labels. It rides the
+# breadcrumb line below instead, which is mostly empty.
+_nav = st.columns([1.8, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 1.15, 0.95],
                    gap="small", vertical_alignment="center")
 
 with _nav[0]:
@@ -1031,6 +1106,9 @@ for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
 # Sign-in sits at the far right of the ribbon, where a sign-in belongs and where
 # it is out of the way of a tool that no longer requires it.
 with _nav[8]:
+    _search_control()
+
+with _nav[9]:
     _signin_control()
 
 # ── Breadcrumb + status strip ────────────────────────────────────
@@ -1054,9 +1132,32 @@ _trail = "".join(
 )
 _mkt_state, _mkt_dot, _mkt_label = _market_status()
 
+# Refresh cadence follows the session: a minute while the tape is running,
+# a quarter-hour once it is not. Passing the bucket in (rather than setting a
+# short ttl) is what lets one cached function have two cadences.
+_q_bucket = int(_time.time() // (60 if _mkt_state in ("LIVE", "PRE-OPEN") else 900))
+_quote_html = ""
+for _lbl, _val, _chg in _ribbon_quotes(_q_bucket):
+    if _val is None:
+        _quote_html += (
+            f'<span style="display:inline-flex;gap:5px;align-items:baseline;">'
+            f'<span style="color:{_T["text_muted"]};font-weight:600;">{_lbl}</span>'
+            f'<span style="color:{_T["absent"]};">—</span></span>'
+        )
+        continue
+    _tone = _T["good"] if _chg >= 0 else _T["risk"]
+    _num = f"{_val:,.0f}" if _lbl != "VIX" else f"{_val:,.2f}"
+    _quote_html += (
+        f'<span style="display:inline-flex;gap:5px;align-items:baseline;">'
+        f'<span style="color:{_T["text_muted"]};font-weight:600;">{_lbl}</span>'
+        f'<span style="color:{_T["text"]};font-variant-numeric:tabular-nums;">{_num}</span>'
+        f'<span style="color:{_tone};font-variant-numeric:tabular-nums;">{_chg:+.2f}%</span>'
+        f'</span>'
+    )
+
 st.markdown(
     f'<div style="display:flex;align-items:center;justify-content:space-between;'
-    f'gap:16px;height:30px;font-size:11.5px;margin:0 0 14px;'
+    f'gap:16px;height:30px;font-size:11.5px;margin:0;'
     f'border-bottom:1px solid {_T["border"]};">'
     f'  <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
     f'    {_trail}'
@@ -1064,6 +1165,8 @@ st.markdown(
     f'  </div>'
     f'  <div style="display:flex;align-items:center;gap:14px;white-space:nowrap;'
     f'color:{_T["text_muted"]};">'
+    f'    {_quote_html}'
+    f'    <span style="color:{_T["border_strong"]};">|</span>'
     f'    <span style="display:inline-flex;align-items:center;gap:5px;">'
     f'      <span style="width:6px;height:6px;border-radius:50%;'
     f'background:{_mkt_dot};display:inline-block;"></span>{_mkt_label}</span>'
@@ -1072,6 +1175,68 @@ st.markdown(
     f'  </div>'
     f'</div>',
     unsafe_allow_html=True,
+)
+
+# ── ⌘K / Ctrl-K ───────────────────────────────────────────────────
+# Streamlit gives no keyboard API, and st.markdown strips <script>, so the only
+# way to bind a global shortcut is a zero-height component iframe reaching into
+# the parent document. Same-origin, so this is allowed — but it is a hack on
+# Streamlit's DOM, and it is written to FAIL SILENTLY: if the markup changes
+# under it, the shortcut stops working and the Search button still does.
+#
+# It finds the button by its ⌘K label rather than a generated key, because
+# Streamlit's element keys are not stable selectors.
+components.html(
+    """
+    <script>
+    (function () {
+      const doc = window.parent && window.parent.document;
+      if (!doc || doc.__tbSearchHotkey) return;   // bind once per page load
+      doc.__tbSearchHotkey = true;
+      // Enter inside the symbol box. Streamlit is documented to submit a form
+      // on Enter from its only text input, and it does not do so here (1.57,
+      // inside a popover) — verified, not assumed. Rather than leave a search
+      // box where Enter silently does nothing, click the submit button.
+      doc.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        const el = doc.activeElement;
+        if (!el || el.getAttribute('aria-label') !== 'Symbol') return;
+        const form = el.closest('[data-testid="stForm"]');
+        const submit = form && form.querySelector('button');
+        if (!submit) return;
+        e.preventDefault();
+        submit.click();
+      });
+
+      doc.addEventListener('keydown', function (e) {
+        const combo = (e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey);
+        // "/" is the second binding on purpose: Chrome also owns Ctrl/Cmd-K
+        // (omnibox search) and preventDefault only wins if the event reaches
+        // the page at all. "/" cannot be shadowed. Ignored while typing, or the
+        // key would be unusable in every text field on the dashboard.
+        const el = doc.activeElement;
+        const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
+                              || el.isContentEditable);
+        const slash = e.key === '/' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey;
+        if (!combo && !slash) return;
+        const btn = Array.from(doc.querySelectorAll('button')).find(
+          b => (b.innerText || '').indexOf('⌘K') !== -1);
+        if (!btn) return;            // markup moved - leave the key to the browser
+        e.preventDefault();
+        btn.click();
+        // The popover mounts async and Streamlit does its own focus work after
+        // mount, so keep re-focusing for a beat rather than firing once.
+        let tries = 0;
+        const t = setInterval(function () {
+          const inp = doc.querySelector('input[aria-label="Symbol"]');
+          if (inp && doc.activeElement !== inp) inp.focus();
+          if ((inp && doc.activeElement === inp) || ++tries > 40) clearInterval(t);
+        }, 25);
+      });
+    })();
+    </script>
+    """,
+    height=0,
 )
 
 current_page = st.session_state["current_page"]
