@@ -1513,13 +1513,13 @@ def _drop_unusable_bars(df):
 def cached_fetch_ohlcv(symbol: str, days: int = 300, enforce_liquidity: bool = True):
     """Daily bars for one symbol, via VolumeFetcher then screener_pipeline.
 
-    `enforce_liquidity=False` drops the 100k 10-day average volume floor. That
+    `enforce_liquidity=False` drops the 10-day average turnover floor. That
     floor belongs to SCANNING — it keeps names you cannot trade out of a
     2,000-symbol sweep — and both fetchers applied it to every caller, so a page
     that had been handed one symbol by name returned "no usable data" for a
-    stock yfinance serves perfectly well. CENTUM (~55k/day) reported as "not on
-    yfinance" while the Opportunity Hub was linking to it, which is the same
-    app refusing to open a door it just pointed at.
+    stock yfinance serves perfectly well. CENTUM reported as "not on yfinance"
+    while the Opportunity Hub was linking to it, which is the same app refusing
+    to open a door it just pointed at.
 
     Bar-count and NaN validation still apply either way: those say there is no
     data, not that the data is not worth scanning.
@@ -1528,7 +1528,7 @@ def cached_fetch_ohlcv(symbol: str, days: int = 300, enforce_liquidity: bool = T
     try:
         volume_fetcher = vf.VolumeFetcher(verbose=False)
         if not enforce_liquidity:
-            volume_fetcher.MIN_VOLUME = 0   # instance attr shadows the class floor
+            volume_fetcher.MIN_TURNOVER = 0   # instance attr shadows the class floor
         df = volume_fetcher.fetch_with_volume(symbol, days=days, validate=True)
         if df is not None:
             return _drop_unusable_bars(df)
@@ -1538,27 +1538,30 @@ def cached_fetch_ohlcv(symbol: str, days: int = 300, enforce_liquidity: bool = T
     # Fallback to screener_pipeline
     return _drop_unusable_bars(
         sp.fetch_ohlcv(symbol, days=days,
-                       min_volume=None if enforce_liquidity else 0))
+                       min_turnover=None if enforce_liquidity else 0))
 
 
 def _thin_volume_note(df, symbol: str) -> None:
     """Warn when a single-symbol page is looking at a name below the screen floor.
 
     The gate is off for these pages, which means the number has to be visible
-    instead: an analysis of a stock trading 55k shares a day is not wrong, but
-    every level on it is worth less than the same level on a liquid name.
+    instead: an analysis of a stock turning over a few lakh a day is not wrong,
+    but every level on it is worth less than the same level on a liquid name.
+
+    Reported as traded value because that is what the floor measures — quoting
+    a share count here would be quoting a number nothing enforces.
     """
     try:
-        avg_vol = float(df["volume"].tail(10).mean())
+        avg_turnover = float((df["close"] * df["volume"]).tail(10).mean())
     except Exception:
         return
-    if avg_vol >= sp.MIN_VOLUME:
+    if avg_turnover >= sp.MIN_TURNOVER:
         return
     st.warning(
-        f"**{symbol}** trades ~{avg_vol:,.0f} shares/day over the last 10 "
-        f"sessions — below the {sp.MIN_VOLUME:,} floor the screeners use, so it "
-        f"never reaches a scan. Everything below is computed normally; treat "
-        f"levels as indicative and assume slippage.",
+        f"**{symbol}** turns over ~₹{avg_turnover / 1e7:,.2f} cr/day over the "
+        f"last 10 sessions — below the ₹{sp.MIN_TURNOVER / 1e7:,.0f} cr floor the "
+        f"screeners use, so it never reaches a scan. Everything below is computed "
+        f"normally; treat levels as indicative and assume slippage.",
         icon="⚠",
     )
 

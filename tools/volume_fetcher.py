@@ -40,11 +40,14 @@ class VolumeFetcher:
 
     # Minimum thresholds
     MIN_BARS = 60
-    # Minimum average daily volume. Same floor as screener_pipeline.MIN_VOLUME
-    # (50k since 2026-09-05) and must be kept in step with it: this class is the
-    # primary fetch path, that constant is what the dashboard quotes back to the
-    # user, and the two disagreeing would show a wrong number in the warning.
-    MIN_VOLUME = 50_000
+    # Minimum 10-day average TURNOVER in rupees, not a share count: shares x
+    # price is what you can actually get in and out of, and a count alone
+    # rejects the most tradable names for being expensive (MRF moves Rs 60 cr
+    # on 4,656 shares). Same floor as screener_pipeline.MIN_TURNOVER and must be
+    # kept in step with it: this class is the primary fetch path, that constant
+    # is what the dashboard quotes back to the user, and the two disagreeing
+    # would show a wrong number in the warning.
+    MIN_TURNOVER = 10_000_000
 
     def __init__(self, verbose: bool = False):
         """
@@ -186,11 +189,12 @@ class VolumeFetcher:
             )
             return False
 
-        # Check volume
-        avg_vol = df['volume'].tail(10).mean()
-        if avg_vol < self.MIN_VOLUME:
+        # Check traded value
+        avg_turnover = float((df['close'] * df['volume']).tail(10).mean())
+        if avg_turnover < self.MIN_TURNOVER:
             logger.warning(
-                f"{symbol}: Avg volume {avg_vol:,.0f} < {self.MIN_VOLUME:,} (illiquid)"
+                f"{symbol}: Avg turnover Rs {avg_turnover / 1e7:,.2f} cr < "
+                f"Rs {self.MIN_TURNOVER / 1e7:,.2f} cr (illiquid)"
             )
             return False
 

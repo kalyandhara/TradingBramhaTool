@@ -1282,16 +1282,20 @@ def scan_adx_trend_confirmation(df: pd.DataFrame) -> dict | None:
     }
 
 
-#: Last-session volume floor for the consolidation-breakout family (6M/1Y/5Y/10Y).
-#: Lowered 200k -> 100k on 2026-09-05, alongside the 50k scan-universe floor in
-#: screener_pipeline. Note this is a DIFFERENT measure from that one: it reads the
-#: single most recent session, not a 10-day average, because a breakout is a claim
-#: about the day it happened — a name that averages well but broke out on nothing
-#: is the case this is meant to reject.
+#: Last-session TURNOVER floor (rupees) for the consolidation-breakout family
+#: (6M/1Y/5Y/10Y). Switched from a 100k share count on 2026-09-05 for the same
+#: reason as screener_pipeline.MIN_TURNOVER: a share count rejects expensive
+#: stocks that trade tens of crores a day. A breakout on MRF would have been
+#: dropped for printing 4,656 shares.
+#:
+#: Still a DIFFERENT measure from the scan floor: it reads the single most recent
+#: session, not a 10-day average, because a breakout is a claim about the day it
+#: happened — a name that averages well but broke out on nothing is what this
+#: rejects. Set at 2x the scan floor, as the share-count version was.
 #:
 #: It lived as a literal in two places (this family's 6M scan and the shared
 #: engine's default), which is how a floor drifts. One name now.
-CONSOLIDATION_MIN_VOLUME = 100_000
+CONSOLIDATION_MIN_TURNOVER = 20_000_000
 
 
 def scan_6m_consolidation_breakout(df: pd.DataFrame) -> dict | None:
@@ -1315,8 +1319,8 @@ def scan_6m_consolidation_breakout(df: pd.DataFrame) -> dict | None:
     last_close  = float(close.iloc[-1])
     last_volume = float(volume.iloc[-1])
 
-    # Condition 4 — liquidity
-    if last_volume < CONSOLIDATION_MIN_VOLUME:
+    # Condition 4 — liquidity, as traded value
+    if last_close * last_volume < CONSOLIDATION_MIN_TURNOVER:
         return None
 
     # Condition 1 — price above 50 EMA
@@ -1379,7 +1383,7 @@ def _consolidation_breakout(
     lookback: int,
     label: str,
     max_range_pct: float,
-    min_volume: int = CONSOLIDATION_MIN_VOLUME,
+    min_turnover: float = CONSOLIDATION_MIN_TURNOVER,
 ) -> dict | None:
     """Generic multi-timeframe consolidation-breakout engine.
 
@@ -1388,7 +1392,9 @@ def _consolidation_breakout(
         label:         Human-readable period label shown in card text.
         max_range_pct: Reject if prior range was wider than this % (prevents trending stocks
                        being flagged as 'consolidating').
-        min_volume:    Minimum last-session volume for liquidity gate.
+        min_turnover:  Minimum last-session traded value (rupees) for the
+                       liquidity gate. Value, not share count — see
+                       CONSOLIDATION_MIN_TURNOVER.
     """
     if len(df) < lookback + 5:
         return None
@@ -1401,7 +1407,7 @@ def _consolidation_breakout(
     last_close  = float(close.iloc[-1])
     last_volume = float(volume.iloc[-1])
 
-    if last_volume < min_volume:
+    if last_close * last_volume < min_turnover:
         return None
 
     ema50 = float(_ema_series(close, 50).iloc[-1])
