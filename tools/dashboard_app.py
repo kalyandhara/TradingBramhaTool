@@ -1210,10 +1210,11 @@ components.html(
 
       doc.addEventListener('keydown', function (e) {
         const combo = (e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey);
-        // "/" is the second binding on purpose: Chrome also owns Ctrl/Cmd-K
-        // (omnibox search) and preventDefault only wins if the event reaches
-        // the page at all. "/" cannot be shadowed. Ignored while typing, or the
-        // key would be unusable in every text field on the dashboard.
+        // Chrome also owns Ctrl/Cmd-K (omnibox search), so the question was
+        // whether preventDefault gets there first. It does — ⌘K confirmed
+        // working in a real browser, 2026-09-05. "/" stays as a second binding
+        // anyway: it needs no modifier and no browser claims it. Ignored while
+        // typing, or the key would be unusable in every text field here.
         const el = doc.activeElement;
         const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
                               || el.isContentEditable);
