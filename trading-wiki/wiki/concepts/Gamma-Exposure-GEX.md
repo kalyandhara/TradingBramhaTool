@@ -4,9 +4,9 @@ category: concept
 family: regime-filter
 tags: [gex, gamma, options, dealer-positioning, volatility-regime, market-maker, call-wall, put-wall, gamma-flip, measured-null]
 created: 2026-08-29
-updated: 2026-08-29
-sources: 1
-related: [concepts/Put-Call-Ratio, concepts/Volume-Profile, concepts/SuperTrend, concepts/Market-Sentiment-Index, sources/YT-Chris-Kmer-World-Cup-Order-Flow, analyses/Open-Backlog]
+updated: 2026-09-05
+sources: 2
+related: [concepts/Put-Call-Ratio, concepts/Volume-Profile, concepts/SuperTrend, concepts/Market-Sentiment-Index, sources/YT-Chris-Kmer-World-Cup-Order-Flow, sources/YT-GEX-Dealer-Hedging-Volatility-Primer, analyses/GEX-Strategy-Mapping-PoC-Probe, analyses/Open-Backlog]
 ---
 
 # Gamma Exposure (GEX)
@@ -121,7 +121,31 @@ positioning, carrying no demonstrated forward information.
 Residual: **B-44r** in [[analyses/Open-Backlog]] — the naive convention as the named
 suspect.
 
+## Second source — corroboration, plus one new claim (2026-09-05)
+
+[[sources/YT-GEX-Dealer-Hedging-Volatility-Primer]] restates the mechanism above
+independently and adds nothing to it: same dealer behaviour, same flip/wall landmarks, same
+"pair it with price action" caveats. Its one new claim is **strategy selection by regime** —
+premium selling (condors, credit spreads, CSPs) in positive gamma, long options in negative
+gamma.
+
+That claim is downstream of the vol difference **this page already measured to a null**, so
+it inherits the null: a strategy split that exists to harvest a vol spread has nothing to
+harvest if the spread is not there. The source names no market, and the evidence base for
+dealer hedging is US index options.
+
+Two things it is missing that the first source has: the "positive ≠ bullish" correction
+(its "shock absorber" framing arguably invites the error), and the naive-vs-inferred
+distinction — which is the named suspect in **B-44r**.
+
+Feasibility of testing it anyway, with costs: [[analyses/GEX-Strategy-Mapping-PoC-Probe]].
+Short version — the cheap decisive test is **RV−IV by regime**, not a strategy simulation;
+it is blocked on `atm_iv` not being persisted (a small code change) and a 480-session
+rebuild with **no F&O bhavcopy cache** (~480 NSE downloads).
+
 ## Sources
 
 - [[sources/YT-Chris-Kmer-World-Cup-Order-Flow]] (2026-08-29) — regime framing, naive vs
   inferred, call/put wall and gamma flip, and the "positive ≠ bullish" correction.
+- [[sources/YT-GEX-Dealer-Hedging-Volatility-Primer]] (2026-09-05) — unattributed primer;
+  corroborates the mechanism, adds the strategy-by-regime prescription.
