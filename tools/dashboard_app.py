@@ -690,8 +690,40 @@ st.markdown(
          visible content) and the nav sentinel, so the bar sits flush at the top
          and its sticky position is actually at y=0. */
       [data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style),
-      [data-testid="stElementContainer"]:has(#tb-navstart) {
+      [data-testid="stElementContainer"]:has(#tb-navstart),
+      [data-testid="stElementContainer"]:has(#tb-searchslot) {
         display: none !important;
+      }
+
+      /* The typeahead's dropdown lives INSIDE its component iframe, and an
+         iframe clips its own content — so the iframe has to be as tall as the
+         open list. Left in flow that would stretch the 48px bar to ~310px, so
+         the search column becomes a positioning context and the iframe hangs
+         out of flow beneath it. The component sets its own frame height: 34px
+         closed, taller while the list is open, so it only covers the page
+         below while there is actually a list to show. */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stColumn"]:has(#tb-searchslot) {
+        position: relative !important;
+        overflow: visible !important;
+        /* Absolutely-positioned child + hidden sentinel = a zero-height column,
+           which would anchor the box to the bar's centre LINE and leave it
+           hanging below the bar. Give the column the bar's height so `top` is
+           measured from the bar's top and the list grows downward from there. */
+        height: 48px !important;
+      }
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stColumn"]:has(#tb-searchslot)
+        [data-testid="stElementContainer"]:has(iframe) {
+        position: absolute !important;
+        top: 9px !important;
+        left: 0 !important;
+        right: 0 !important;
+        z-index: 1200 !important;
+      }
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stColumn"]:has(#tb-searchslot) iframe {
+        width: 100% !important;
+        border: none !important;
+        background: transparent !important;
+        color-scheme: normal !important;
       }
 
       /* ── Nav ribbon ──────────────────────────────────────────────────────────
@@ -713,11 +745,14 @@ st.markdown(
         position: sticky !important;
         top: 0 !important;
         z-index: 999 !important;
+        /* The typeahead hangs below the bar; a clipped ribbon would cut it. */
+        overflow: visible !important;
       }
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
         [data-testid="stHorizontalBlock"] {
         padding: 0 2rem !important;
         min-height: 48px !important;
+        overflow: visible !important;
         align-items: stretch !important;
         gap: 0 !important;
       }
@@ -931,8 +966,9 @@ def _symbol_jump(raw: str) -> None:
     through; anything else parks the candidates for the Analyzer to offer,
     rather than guessing between them or failing with "no usable data".
 
-    No st.rerun(): this runs as a widget callback, and Streamlit reruns after
-    callbacks on its own.
+    Does not rerun: the component path reruns explicitly after this returns,
+    and the text-box fallback is a widget callback, which Streamlit reruns
+    after on its own.
     """
     sym = raw.strip().upper().replace(".NS", "")
     st.session_state["tb_search_input"] = ""   # leave the box ready for the next
@@ -973,26 +1009,71 @@ def _symbol_jump(raw: str) -> None:
     st.session_state.pop("last_analyzed", None)
 
 
-def _search_control() -> None:
-    """Ribbon symbol jump: a plain box, submitted by Enter.
-
-    This was a popover holding a form, and the popover would not reliably close
-    after the jump — it sat open over the page you had just navigated to. Its
-    open state is owned by the frontend; writing session_state[key]=False (the
-    documented control, 1.58) closed it on one jump and not the next, and
-    deferring the write to the following run did not help either. A box needs no
-    open state, so the bug has nowhere to live — and it is one keystroke less
-    to use.
-
-    Deliberately does NOT validate against a universe: the Analyzer already
-    reports a symbol it cannot fetch, and a whitelist would reject exactly the
-    newly-listed names worth looking up.
-    """
-    st.text_input(
-        "Symbol", key="tb_search_input", placeholder="Search ⌘K",
-        label_visibility="collapsed", on_change=_symbol_jump_from_box,
-        help="NSE code, no .NS suffix — Enter opens the Stock Analyzer",
+#: The typeahead component. declare_component wants a directory holding
+#: index.html; None if it is missing, in which case _search_control falls back
+#: to a plain box rather than taking the ribbon down with it.
+try:
+    _SYMSEARCH = components.declare_component(
+        "tb_symbol_search",
+        path=str(Path(__file__).resolve().parent / "components" / "symbol_search"),
     )
+except Exception as _e:            # pragma: no cover - packaging accident
+    _log.warning("symbol search component unavailable: %s", _e)
+    _SYMSEARCH = None
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _symbol_payload() -> str:
+    """The NSE stock list as "DISPLAY|Name" lines, for the typeahead to filter.
+
+    Sent to the browser so filtering is per-keystroke and local. It has to be:
+    a Streamlit widget only reports on Enter or blur, so a round trip to Python
+    per character is not just slow, it is not available at all.
+
+    ~2,570 rows, ~90 KB. That crosses the socket on every rerun, which is the
+    honest cost of this feature; on localhost it is noise next to the dataframes
+    this app already ships. Names are cut to 44 chars because the row ellipsises
+    long ones anyway.
+    """
+    try:
+        entries = [e for e in symdir.get_directory()
+                   if e.get("exchange") == "NSE" and e.get("type") == "stock"]
+    except Exception as e:
+        _log.warning("symbol directory unavailable for typeahead: %s", e)
+        return ""
+    return "\n".join(f"{e['display']}|{(e.get('name') or '')[:44]}" for e in entries)
+
+
+def _search_control() -> None:
+    """Ribbon symbol jump: a live typeahead over the NSE list.
+
+    The component filters in the browser and reports one pick, so this costs a
+    single rerun per search instead of one per keystroke. Everything it offers
+    comes from symbol_directory — the same index behind the chart tool's
+    typeahead — so both agree on what a symbol is.
+
+    Falls back to a plain box if the component did not load: the ribbon losing
+    its search would be worse than the search losing its dropdown.
+    """
+    if _SYMSEARCH is None:
+        st.text_input("Symbol", key="tb_search_input", placeholder="Search ⌘K",
+                      label_visibility="collapsed", on_change=_symbol_jump_from_box,
+                      help="NSE code — Enter opens the Stock Analyzer")
+        return
+
+    # Sentinel: the ribbon CSS lifts this column's iframe out of flow so the
+    # dropdown can hang below a 48px bar without stretching it.
+    st.markdown('<div id="tb-searchslot"></div>', unsafe_allow_html=True)
+    picked = _SYMSEARCH(options=_symbol_payload(), placeholder="Search ⌘K",
+                        key="tb_symsearch", default=None)
+
+    # `picked` persists across reruns — it is the component's current value, not
+    # an event — so act on the nonce changing, or every rerun would re-jump.
+    if isinstance(picked, dict) and picked.get("symbol"):
+        if picked.get("n") != st.session_state.get("_tb_pick_n"):
+            st.session_state["_tb_pick_n"] = picked["n"]
+            _symbol_jump(picked["symbol"])
+            st.rerun()
 
 
 def _symbol_jump_from_box() -> None:
@@ -1169,7 +1250,12 @@ st.markdown('<div id="tb-navstart"></div>', unsafe_allow_html=True)
 # "Portfolio & Risk ▾" is already near its label width) and three quotes need
 # ~330px that would have to come out of the group labels. It rides the
 # breadcrumb line below instead, which is mostly empty.
-_nav = st.columns([1.8, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.5, 1.15, 0.95],
+#
+# The search column is wide (2.0) because the typeahead's dropdown is the width
+# of its column, and at 1.15 the company names were cut to a few characters with
+# a horizontal scrollbar under them. The width comes out of the brand and the
+# spacer, not the group labels — those are already near their text width.
+_nav = st.columns([1.4, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.1, 2.0, 0.95],
                    gap="small", vertical_alignment="center")
 
 with _nav[0]:
@@ -1305,7 +1391,7 @@ components.html(
         if (e.key !== 'Enter') return;
         const el = doc.activeElement;
         if (!el || el.getAttribute('aria-label') !== 'Symbol') return;
-        el.blur();
+        el.blur();   // fallback box only; the component handles its own Enter
       });
 
       doc.addEventListener('keydown', function (e) {
@@ -1320,9 +1406,18 @@ components.html(
                               || el.isContentEditable);
         const slash = e.key === '/' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey;
         if (!combo && !slash) return;
-        // The box is always mounted now, so this is a focus and nothing else —
-        // no popover to open, no async mount to wait for, no submit to fake.
-        const box = doc.querySelector('input[aria-label="Symbol"]');
+        // The box lives inside the typeahead's component iframe now. Same
+        // origin (Streamlit serves it), so we can reach in; if that ever stops
+        // being true, contentDocument throws and the key falls through to the
+        // browser rather than dying here.
+        let box = null;
+        try {
+          for (const f of doc.querySelectorAll('iframe')) {
+            const inner = f.contentDocument && f.contentDocument.getElementById('box');
+            if (inner) { box = inner; break; }
+          }
+        } catch (err) { return; }
+        if (!box) box = doc.querySelector('input[aria-label="Symbol"]');  // fallback box
         if (!box) return;            // markup moved — leave the key to the browser
         e.preventDefault();
         box.focus();
