@@ -738,8 +738,23 @@ st.markdown(
         background: rgba(11,15,20,0.94) !important;
         backdrop-filter: blur(20px) saturate(140%) !important;
         -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
+        /* Full-bleed needs the WIDTH, not just the margins. A block element's
+           width is already resolved before margins apply, so margin-left:-2rem
+           shifted the bar 32px left while margin-right:-2rem did nothing to its
+           own box - it only affects what follows. The bar ended up content-width
+           but offset: page content at 32..1238, ribbon at 0..1206, visibly out of
+           line with the cards under it at BOTH ends. Adding 4rem of width makes
+           the two negative margins actually cancel the container's padding. */
         margin-left:  -2rem !important;
         margin-right: -2rem !important;
+        width: calc(100% + 4rem) !important;
+        /* ...and the width alone is still not enough. The wrapper inherits
+           max-width:100% (which clamps 1270 straight back to the 1206 content
+           width) and it is a FLEX ITEM, so it would shrink again anyway. All
+           three declarations are load-bearing; drop any one and the bar snaps
+           back to being 32px out of line. */
+        max-width: none !important;
+        flex: 0 0 auto !important;
         border-bottom: 1px solid #1c2430 !important;
         /* Sticky: navigation must survive a scroll down a 200-row scanner table. */
         position: sticky !important;
