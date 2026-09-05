@@ -34,6 +34,7 @@ from plotly.subplots import make_subplots
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import screener_pipeline as sp
+import symbol_directory as symdir
 import ew_module
 import scanner_templates as sc
 import opportunity_hub as oh
@@ -899,21 +900,77 @@ def _signin_control() -> None:
                     st.error("Incorrect username or password.", icon="🔒")
 
 
+@st.cache_data(ttl=3600, show_spinner=False)
+def _symbol_matches(query: str, limit: int = 8) -> list[dict]:
+    """NSE equity matches for `query`, from the chart tool's symbol directory.
+
+    symbol_directory is the same index the chart's typeahead runs on — the live
+    NSE equity list, cached to disk for 24h with a curated fallback — so both
+    tools agree on what a symbol is instead of each keeping its own idea.
+
+    Filtered to NSE because this Analyzer is NSE-only: sp.fetch_ohlcv builds
+    "{symbol}.NS", so offering a BSE-only scrip would be offering a dead end.
+    The first call may fetch the list; every later one is served from cache.
+    """
+    try:
+        hits = symdir.search(query, limit=limit * 3)
+    except Exception as e:
+        _log.warning("symbol directory search failed for %r: %s", query, e)
+        return []
+    return [h for h in hits if h.get("exchange") == "NSE"][:limit]
+
+
 def _symbol_jump(raw: str) -> None:
-    """Route to the Stock Analyzer for `raw`, priming the same session keys the
-    "Analyze ↗" deep-link sets — one entry path, so an auto-run that works for
-    a table link works for the search box too.
+    """Resolve `raw` through the symbol directory, then route to the Analyzer.
+
+    Priming the same session keys the "Analyze ↗" deep-link sets — one entry
+    path, so an auto-run that works for a table link works for the box too.
+
+    A typed prefix is the normal case, not an error: "KOPRA" is what you get
+    when you know the name and not the ticker. An exact ticker runs straight
+    through; anything else parks the candidates for the Analyzer to offer,
+    rather than guessing between them or failing with "no usable data".
 
     No st.rerun(): this runs as a widget callback, and Streamlit reruns after
     callbacks on its own.
     """
     sym = raw.strip().upper().replace(".NS", "")
+    st.session_state["tb_search_input"] = ""   # leave the box ready for the next
     if not sym:
         return
+
     st.session_state["current_page"] = "Stock Analyzer"
-    st.session_state["selected_symbol"] = sym
-    st.session_state["last_analyzed"] = sym   # triggers the auto-run
-    st.session_state["tb_search_input"] = ""  # leave the box ready for the next
+    st.session_state.pop("tb_search_matches", None)
+    st.session_state.pop("tb_search_miss", None)
+    st.session_state.pop("tb_search_resolved", None)
+
+    matches = _symbol_matches(sym)
+    exact = next((m for m in matches if m["display"].upper() == sym), None)
+
+    if exact or not matches:
+        # Straight through on an exact hit — and also when the directory knows
+        # nothing, because it can be stale on a fresh listing and the Analyzer's
+        # own "no usable data" is a better answer than refusing to look.
+        st.session_state["selected_symbol"] = sym
+        st.session_state["last_analyzed"] = sym   # triggers the auto-run
+        if not matches:
+            st.session_state["tb_search_miss"] = sym
+        return
+
+    if len(matches) == 1:
+        # One candidate is not ambiguity, it is a typo or a prefix — "KOPRA"
+        # has exactly one NSE answer. Go, and say what it resolved to rather
+        # than silently analysing a different ticker than the one typed.
+        only = matches[0]["display"]
+        st.session_state["selected_symbol"] = only
+        st.session_state["last_analyzed"] = only
+        st.session_state["tb_search_resolved"] = (sym, only, matches[0].get("name", ""))
+        return
+
+    # Genuinely ambiguous: show the candidates instead of analysing a guess.
+    st.session_state["tb_search_matches"] = (sym, matches)
+    st.session_state["selected_symbol"] = ""
+    st.session_state.pop("last_analyzed", None)
 
 
 def _search_control() -> None:
@@ -5146,6 +5203,47 @@ if current_page == "Screener":
 # ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Stock Analyzer":
     st.subheader("Individual Stock Analyzer")
+
+    # Candidates parked by the ribbon search when what was typed was a prefix
+    # rather than a ticker. This is the chart tool's typeahead dropdown, one
+    # step later: Streamlit cannot filter a list per keystroke (a widget only
+    # reports on Enter or blur), so the choice is offered after submit instead
+    # of during typing. Same directory, same ranking, same NSE/BSE reality.
+    _sa_typed, _sa_matches = st.session_state.get("tb_search_matches", (None, []))
+    if _sa_matches:
+        st.caption(f"No exact NSE ticker for **{_sa_typed}** — {len(_sa_matches)} match"
+                   f"{'es' if len(_sa_matches) != 1 else ''}:")
+        _mc = st.columns(min(len(_sa_matches), 4))
+        for _mi, _m in enumerate(_sa_matches):
+            with _mc[_mi % 4]:
+                if st.button(f"{_m['display']}", key=f"tb_match_{_m['display']}",
+                             use_container_width=True,
+                             help=_m.get("name") or _m["display"]):
+                    st.session_state["selected_symbol"] = _m["display"]
+                    st.session_state["last_analyzed"] = _m["display"]
+                    st.session_state.pop("tb_search_matches", None)
+                    st.rerun()
+                st.caption(f"<span style='font-size:10.5px;color:{_T['text_muted']}'>"
+                           f"{(_m.get('name') or '')[:34]}</span>",
+                           unsafe_allow_html=True)
+        if st.button("✕ Dismiss", key="tb_match_clear"):
+            st.session_state.pop("tb_search_matches", None)
+            st.rerun()
+
+    # Resolved a prefix/typo to a single ticker. Worth one line: the page is
+    # about to show a company nobody typed the exact name of.
+    _sa_res = st.session_state.pop("tb_search_resolved", None)
+    if _sa_res:
+        _typed, _to, _nm = _sa_res
+        st.caption(f"**{_typed}** → **{_to}**{f' · {_nm}' if _nm else ''} "
+                   f"(only NSE match)")
+
+    # Typed something the directory has never heard of. Say so once — the
+    # analysis below still runs, and its own failure message is the detail.
+    _sa_miss = st.session_state.pop("tb_search_miss", None)
+    if _sa_miss:
+        st.caption(f"**{_sa_miss}** is not in the NSE symbol directory — analysing "
+                   f"it anyway, in case the directory is behind on a new listing.")
 
     # Consume symbol pushed from Scanner Hub card "↗ Analyze" button
     _sa_override = st.session_state.pop("sa_symbol_override", None)
