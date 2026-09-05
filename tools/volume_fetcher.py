@@ -40,7 +40,11 @@ class VolumeFetcher:
 
     # Minimum thresholds
     MIN_BARS = 60
-    MIN_VOLUME = 100000  # Minimum average daily volume
+    # Minimum average daily volume. Same floor as screener_pipeline.MIN_VOLUME
+    # (50k since 2026-09-05) and must be kept in step with it: this class is the
+    # primary fetch path, that constant is what the dashboard quotes back to the
+    # user, and the two disagreeing would show a wrong number in the warning.
+    MIN_VOLUME = 50_000
 
     def __init__(self, verbose: bool = False):
         """

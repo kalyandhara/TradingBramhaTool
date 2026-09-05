@@ -85,7 +85,13 @@ BHAV_TOP_N = 5000
 
 # Minimum data requirements
 MIN_BARS   = 60
-MIN_VOLUME = 100_000
+#: 10-day average volume floor for SCANNING. Lowered 100k -> 50k on 2026-09-05:
+#: at 100k, names like CENTUM (~55k/day) could never reach a scan, and the desk
+#: is a research tool for a single participant rather than a fund that needs to
+#: fill size. Single-symbol pages bypass this entirely (fetch_ohlcv min_volume).
+#: volume_fetcher.VolumeFetcher.MIN_VOLUME is the same floor on the other fetch
+#: path and MUST be kept in step with this number.
+MIN_VOLUME = 50_000
 
 logging.basicConfig(
     level=logging.INFO,
