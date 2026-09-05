@@ -681,6 +681,17 @@ st.markdown(
       [data-testid="stMainBlockContainer"] { padding-top: 0 !important; }
       section.main > div:first-child { padding-top: 0 !important; }
 
+      /* Every st.markdown("<style>…") leaves a zero-height element container
+         behind, and the vertical block's 16px flex gap still applies to each —
+         six of them stacked 96px of dead white space ABOVE the ribbon. Collapse
+         style-only containers (no st.markdown in this app mixes <style> with
+         visible content) and the nav sentinel, so the bar sits flush at the top
+         and its sticky position is actually at y=0. */
+      [data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style),
+      [data-testid="stElementContainer"]:has(#tb-navstart) {
+        display: none !important;
+      }
+
       /* ── Nav ribbon ──────────────────────────────────────────────────────────
          DOM in Streamlit 1.57: stVerticalBlock
            > stElementContainer (wraps stMarkdown > #tb-navstart)  ← sentinel
@@ -690,17 +701,21 @@ st.markdown(
          to reach the nav wrapper without touching any other row.
       ── */
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] {
-        background: rgba(20,14,8,0.52) !important;
-        backdrop-filter: blur(24px) saturate(160%) !important;
-        -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
+        background: rgba(11,15,20,0.94) !important;
+        backdrop-filter: blur(20px) saturate(140%) !important;
+        -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
         margin-left:  -2rem !important;
         margin-right: -2rem !important;
-        border-bottom: 1px solid rgba(234,88,12,0.18) !important;
+        border-bottom: 1px solid #1c2430 !important;
+        /* Sticky: navigation must survive a scroll down a 200-row scanner table. */
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 999 !important;
       }
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
         [data-testid="stHorizontalBlock"] {
-        padding: 0 2.5rem !important;
-        min-height: 62px !important;
+        padding: 0 2rem !important;
+        min-height: 48px !important;
         align-items: stretch !important;
         gap: 0 !important;
       }
@@ -722,11 +737,11 @@ st.markdown(
         background: transparent !important;
         border: none !important;
         border-bottom: 2px solid transparent !important;
-        color: rgba(74,222,128,0.80) !important;
+        color: rgba(255,255,255,0.62) !important;
         font-size: 13px !important;
-        font-weight: 700 !important;
-        min-height: 62px !important;
-        height: 62px !important;
+        font-weight: 500 !important;
+        min-height: 48px !important;
+        height: 48px !important;
         border-radius: 0 !important;
         box-shadow: none !important;
         letter-spacing: 0.01em !important;
@@ -739,17 +754,41 @@ st.markdown(
         [data-testid="stBaseButton-secondary"]:hover,
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
         [data-testid="stPopoverButton"]:hover {
-        background: rgba(74,222,128,0.08) !important;
-        color: #86efac !important;
-        border-bottom-color: rgba(74,222,128,0.5) !important;
+        background: rgba(255,255,255,0.05) !important;
+        color: #ffffff !important;
+        border-bottom-color: rgba(234,88,12,0.45) !important;
       }
 
       /* Active group/home: white text + green underline */
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
         [data-testid="stBaseButton-primary"] {
         color: #ffffff !important;
-        border-bottom: 2px solid #4ade80 !important;
-        font-weight: 800 !important;
+        border-bottom: 2px solid #ea580c !important;
+        font-weight: 700 !important;
+      }
+
+      /* Streamlit stacks its own `expand_more` glyph UNDER the popover label,
+         which is what made the bar 62px tall and the labels look wrapped. Hide
+         it; the ▾ in the label carries the affordance on one line. */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stPopoverButton"] [data-testid="stIconMaterial"],
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stPopoverButton"] span[class*="material-icons"] {
+        display: none !important;
+      }
+      /* Active group: its label is bold markdown (<strong>) — paint it white
+         and underline it in accent, matching the active Home button. */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stPopoverButton"]:has(strong) {
+        color: #ffffff !important;
+        border-bottom: 2px solid #ea580c !important;
+      }
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stPopoverButton"] strong { font-weight: 700 !important; }
+
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stPopoverButton"] > div,
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stBaseButton-secondary"] > div,
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stBaseButton-primary"] > div {
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 4px !important;
+        white-space: nowrap !important;
       }
 
       /* Nav button press feedback */
@@ -890,14 +929,6 @@ if st.query_params.get("nav") == "analyze" and st.query_params.get("symbol"):
 # <div id="tb-navstart"> via st.markdown, then CSS :has(#tb-navstart) + stHorizontalBlock
 # gives us a precise handle on just the nav row without touching anything else.
 
-_NAV_ICONS = {
-    "Screening":        "🔎",
-    "Market Intel":     "📡",
-    "Research":         "🔬",
-    "Portfolio & Risk": "🛡",
-    "Ops":              "⚙",
-}
-
 # Sentinel — CSS ribbon targets the stHorizontalBlock that immediately follows this
 st.markdown('<div id="tb-navstart"></div>', unsafe_allow_html=True)
 
@@ -905,16 +936,19 @@ st.markdown('<div id="tb-navstart"></div>', unsafe_allow_html=True)
 # current-page label · sign-in. Only the last column is new; the page label gave
 # up the width for it. (The popovers render 62px tall because Streamlit stacks
 # its `expand_more` glyph under the label — that is its chrome, not wrapping.)
-_nav = st.columns([2.4, 0.85, 1.05, 1.1, 1.05, 1.35, 0.72, 0.88, 1.15, 0.95],
-                  gap="small", vertical_alignment="center")
+_nav = st.columns([2.0, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9, 1.1, 0.95],
+                   gap="small", vertical_alignment="center")
 
 with _nav[0]:
     st.markdown(
-        '<div style="line-height:1.2;padding:2px 0;">'
-        '<span style="font-size:18px;font-weight:900;color:#fff5eb;letter-spacing:-0.02em;">'
-        '📈 Trading<span style="color:#ea580c;"> Bramha</span></span><br>'
-        '<span style="font-size:10px;color:rgba(255,245,235,0.45);letter-spacing:0.04em;">'
-        'SCREENER &amp; ANALYSIS</span>'
+        '<div style="display:flex;align-items:center;gap:8px;height:48px;">'
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
+        'stroke="#ea580c" stroke-width="2.4" stroke-linecap="round" '
+        'stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/>'
+        '<path d="M21 7h-5v5"/></svg>'
+        '<span style="font-size:15px;font-weight:700;color:#f8fafc;'
+        'letter-spacing:-0.01em;white-space:nowrap;">'
+        'Trading<span style="color:#ea580c;"> Bramha</span></span>'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -927,9 +961,10 @@ with _nav[1]:
 
 for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
     with _nav[2 + _i]:
+        # st.popover takes no `type=`, so the group holding the current page is
+        # marked with markdown bold (CSS then paints bold ribbon labels white).
         _active_here = st.session_state["current_page"] in _gpages
-        _icon = _NAV_ICONS.get(_gname, "")
-        _label = f"{_icon} {_gname} ▾"
+        _label = f"**{_gname}** ▾" if _active_here else f"{_gname} ▾"
         with st.popover(_label, use_container_width=True):
             for _p in _gpages:
                 _is_active = st.session_state["current_page"] == _p
@@ -943,9 +978,9 @@ with _nav[8]:
     _cp = st.session_state["current_page"]
     st.markdown(
         f'<div style="text-align:right;font-size:11px;'
-        f'color:rgba(255,245,235,0.45);padding:2px 0;">'
-        f'<span style="color:rgba(255,245,235,0.35);">▸</span> '
-        f'<span style="color:rgba(255,245,235,0.80);font-weight:500;">{_cp}</span>'
+        f'color:rgba(255,255,255,0.35);padding:2px 0;">'
+        f'<span style="color:rgba(255,255,255,0.28);">▸</span> '
+        f'<span style="color:rgba(255,255,255,0.70);font-weight:500;">{_cp}</span>'
         f'</div>',
         unsafe_allow_html=True,
     )
