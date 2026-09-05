@@ -1282,6 +1282,18 @@ def scan_adx_trend_confirmation(df: pd.DataFrame) -> dict | None:
     }
 
 
+#: Last-session volume floor for the consolidation-breakout family (6M/1Y/5Y/10Y).
+#: Lowered 200k -> 100k on 2026-09-05, alongside the 50k scan-universe floor in
+#: screener_pipeline. Note this is a DIFFERENT measure from that one: it reads the
+#: single most recent session, not a 10-day average, because a breakout is a claim
+#: about the day it happened — a name that averages well but broke out on nothing
+#: is the case this is meant to reject.
+#:
+#: It lived as a literal in two places (this family's 6M scan and the shared
+#: engine's default), which is how a floor drifts. One name now.
+CONSOLIDATION_MIN_VOLUME = 100_000
+
+
 def scan_6m_consolidation_breakout(df: pd.DataFrame) -> dict | None:
     """Chartink-style: price breaks above 6-month high after consolidation.
 
@@ -1304,7 +1316,7 @@ def scan_6m_consolidation_breakout(df: pd.DataFrame) -> dict | None:
     last_volume = float(volume.iloc[-1])
 
     # Condition 4 — liquidity
-    if last_volume < 200_000:
+    if last_volume < CONSOLIDATION_MIN_VOLUME:
         return None
 
     # Condition 1 — price above 50 EMA
@@ -1367,7 +1379,7 @@ def _consolidation_breakout(
     lookback: int,
     label: str,
     max_range_pct: float,
-    min_volume: int = 200_000,
+    min_volume: int = CONSOLIDATION_MIN_VOLUME,
 ) -> dict | None:
     """Generic multi-timeframe consolidation-breakout engine.
 
