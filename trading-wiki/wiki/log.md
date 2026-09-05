@@ -1,6 +1,16 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-05] measure | B-44r - the convention was the suspect; it is now eliminated, and GEX retires
+- Built: `tools/gamma_magnitude_backtest.py`. Updated: [[concepts/Gamma-Exposure-GEX]], [[analyses/Open-Backlog]].
+- **The backlog was wrong about the cost.** It said B-44r "needs a fresh 480-session pass over the raw chains". It does not: the quantity the both-sides-short convention needs is `gross_gex_cr` - the sum of absolute gamma notional - which `compute_gex` has persisted since day one. Zero downloads.
+- **Pre-registered, then falsified.** Hypothesis: dealers short gamma on both sides, so the sign is constant and only MAGNITUDE predicts, bigger book -> HIGHER forward vol. Result: high gross gamma goes with **LOWER** forward vol, both indices, every horizon. NIFTY -2.47 pp (p_rot 0.042), BANKNIFTY -4.27 pp (p_rot 0.004) on the primary 5d test. The expected-null directional control behaved (p_rot 0.77 / 0.57), so this is the market, not a broken harness.
+- **Then most of it turned out mechanical.** Black-Scholes gamma carries 1/sigma, so high vol MAKES low gamma, and vol clusters: corr(gross, trailing vol) = -0.44 / -0.24 against corr(trailing, forward) = +0.43 / +0.49, whose product is most of the raw -0.29 / -0.17. This confounder should have been pre-registered and was not - it was added post-hoc and is labelled as such in the module docstring.
+- **The stratified test is what closed it.** Controls halve NIFTY to insignificance (p_rot 0.029-0.067); BANKNIFTY survives them, including residualisation against 1/vol (the artefact's own shape). But split by trailing-vol tercile, the effect lives ONLY in the high-vol third (-9.25 pp, p_rot 0.010) and **flips sign** in the low-vol third (+1.23 pp, p_rot 0.44). A predictor that inverts depending on which half of the vol distribution the day sits in is describing the vol regime, not forecasting it.
+- **Clause triggered.** B-44r was written with "if it also nulls, GEX gets retired as a research instrument that prints a daily description and nothing more". Both conventions have now been tested - US sign (B-44) and both-sides-short magnitude (B-44r) - and neither carries forward vol information on NSE indices. Retired.
+- **What it settles:** the convention is no longer a live excuse for the B-44 null. The remaining gap is per-strike dealer inventory - data this repo does not have, rather than another assumption about it.
+- 14 existing gamma tests still pass; `gamma_regime_backtest.py` untouched and still runs.
+
 ## [2026-09-05] ingest | GEX primer (unattributed) - corroboration, one new claim, and a PoC probe
 - Source: pasted video summary, no transcript retained -> [[sources/YT-GEX-Dealer-Hedging-Volatility-Primer]]
 - Pages created: [[sources/YT-GEX-Dealer-Hedging-Volatility-Primer]], [[analyses/GEX-Strategy-Mapping-PoC-Probe]]

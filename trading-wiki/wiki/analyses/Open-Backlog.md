@@ -464,6 +464,32 @@ backtest that samples daily against multi-day horizons carries this exposure —
 `stride=5` mitigates it, rotation measures it. Worth retro-fitting where a marginal
 Welch result is currently load-bearing.
 
+### ~~B-44r~~ · Is the naive convention backwards for NSE? — **MEASURED 2026-09-05: FALSIFIED, GEX RETIRED**
+
+`tools/gamma_magnitude_backtest.py`. **No re-download was needed**: the note below says
+"needs a fresh 480-session pass over the raw chains", and that was wrong — the quantity the
+both-sides-short convention needs is `gross_gex_cr`, which `compute_gex` already persists.
+
+The pre-registered direction (bigger dealer book → **higher** forward vol) came back
+**inverted** on both indices at every horizon: NIFTY −2.47 pp / p_rot 0.042, BANKNIFTY
+−4.27 pp / p_rot 0.004 on the primary 5d test. The expected-null directional control
+behaved (p_rot 0.77 / 0.57), so the harness is sound.
+
+Most of the inversion is mechanical — BS gamma carries **1/σ**, so high vol produces low
+gamma, and vol clusters: corr(gross, trailing vol) = −0.44 / −0.24 against
+corr(trailing, forward) = +0.43 / +0.49. Controls halve NIFTY's effect to insignificance
+(p_rot 0.029–0.067); BANKNIFTY survives them (p_rot 0.021–0.033) but the **stratified** test
+kills it: the effect lives only in the high-trailing-vol tercile (−9.25 pp) and **flips
+sign** in the low-vol tercile (+1.23 pp, p_rot 0.44).
+
+Per the scope-discipline clause written into this item in advance, GEX is now **retired as
+a research instrument** — it prints a daily description and nothing more. Both conventions
+have now been tested and neither carries forward vol information on NSE indices. The
+remaining gap is per-strike dealer inventory, which is data this repo does not have, not
+another assumption about it. Full write-up on [[concepts/Gamma-Exposure-GEX]].
+
+<details><summary>Original item, kept for the record</summary>
+
 ### B-44r · Is the naive convention backwards for NSE? *(2026-08-29)*
 The pre-registered first suspect, now the only live thread. Naive GEX hard-codes a
 **US-equity** folk model — customers buy puts and sell calls, so dealers are long call
@@ -485,6 +511,8 @@ retired as a research instrument that prints a daily description and nothing mor
 **Explicitly NOT in scope from the same source:** footprint/delta order flow (needs
 tick data the repo has never carried) and the intraday futures lane, already recorded as
 out-of-scope. Filed as knowledge in [[strategies/Forced-Participation-Reversal]].
+
+</details>
 
 ### B-49 · Free quality-value screen — **SHIPPED 2026-08-31** *(`tools/value_screen.py`)*
 Owner asked whether the "deep value" card format (P/E, P/S, OPM, ROE, ROCE, D/E,
