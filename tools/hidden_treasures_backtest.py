@@ -111,6 +111,21 @@ def _score_at_quarter(symbol: str, eval_date: datetime,
     if pledge_flag:
         score -= 20
 
+    # ── B-34r2: the veto, recomputed POINT-IN-TIME ───────────────────────────
+    # Only the two governance criticals can be tested honestly here, and they
+    # are tested from the SAME filtered quarters the score uses - no new data,
+    # no future information. Thresholds are red_flags' own, not re-picked.
+    #
+    # Negative FCF and dilution are deliberately NOT applied: `fcf_history` and
+    # `shares_history` come back from yfinance as bare value lists with NO year
+    # labels, so there is no way to truncate them to "as known at Q". Applying
+    # today's FCF streak to a 2024 entry would be vetoing a pick for something
+    # that had not happened yet, and would make the whole comparison a
+    # hindsight exercise. See the report footer.
+    import red_flags as _rf
+    prom_veto = prom_delta is not None and prom_delta <= -_rf._PROMOTER_DROP_PP
+    pledge_veto = pledge is not None and pledge > _rf._PLEDGE_PCT_MAX
+
     hit = {
         "symbol": symbol,
         "score": round(max(0.0, min(100.0, score)), 1),
@@ -118,6 +133,9 @@ def _score_at_quarter(symbol: str, eval_date: datetime,
         "promoter_delta": prom_delta,
         "pledge_pct": pledge,
         "pledge_flag": pledge_flag,
+        "gov_veto": bool(prom_veto or pledge_veto),
+        "gov_veto_why": ([f"promoter {prom_delta:+.2f}pp"] if prom_veto else [])
+                        + ([f"pledge {pledge:.1f}%"] if pledge_veto else []),
     }
 
     if enrich:
@@ -178,8 +196,15 @@ def backtest_hidden_treasures(
     top_n: int = 25,
     horizons: tuple[int, ...] = DEFAULT_HORIZONS,
     enrich: bool = False,
+    gov_veto: bool = False,
 ) -> dict:
-    """Run the hit-rate study. Returns a structured result dict."""
+    """Run the hit-rate study. Returns a structured result dict.
+
+    `gov_veto` (B-34r2) drops names carrying a point-in-time governance red flag
+    BEFORE the top-N cut, so the comparison is "same ranking, smaller pool".
+    The BASELINE is left untouched on purpose: the question is whether vetoing
+    improves the picks, not whether it improves the universe average.
+    """
 
     # 1. Get universe and find all unique quarter boundaries from cache
     uni = scu.fetch_universe(kind)
@@ -242,10 +267,19 @@ def backtest_hidden_treasures(
             continue
 
         scored.sort(key=lambda x: x["score"], reverse=True)
-        top = scored[:top_n]
+        eligible = [x for x in scored if not x["gov_veto"]] if gov_veto else scored
+        n_vetoed = len(scored) - len(eligible)
+        if len(eligible) < top_n:
+            # Not enough survivors to fill the same-sized basket. Skipping would
+            # silently compare different quarter sets between the two runs, so
+            # take what there is and record the shortfall instead.
+            log.warning("%s: only %d eligible after veto (wanted %d)",
+                        q_label, len(eligible), top_n)
+        top = eligible[:top_n]
 
         q_info = {"quarter": q_label, "entry_approx": entry_date.strftime("%Y-%m-%d"),
-                  "scored": len(scored), "top_n": len(top)}
+                  "scored": len(scored), "top_n": len(top),
+                  "vetoed": n_vetoed}
 
         for h in horizons:
             top_rets = [s["_fwd"][h] for s in top if s["_fwd"].get(h) is not None]
@@ -379,11 +413,15 @@ if __name__ == "__main__":
     ap.add_argument("--top", type=int, default=25, help="Top N to measure")
     ap.add_argument("--enrich", action="store_true",
                     help="Apply quality overlay scoring (slower)")
+    ap.add_argument("--gov-veto", action="store_true",
+                    help="B-34r2: drop names with a point-in-time governance red "
+                         "flag (promoter stake -2pp+, pledge >5%%) before the top-N cut")
     ap.add_argument("--horizons", default="60,120",
                     help="Comma-separated forward horizons in trading days")
     a = ap.parse_args()
 
     horizons = tuple(int(x) for x in a.horizons.split(","))
     res = backtest_hidden_treasures(kind=a.kind, top_n=a.top,
-                                    horizons=horizons, enrich=a.enrich)
+                                    horizons=horizons, enrich=a.enrich,
+                                    gov_veto=a.gov_veto)
     print(format_backtest(res))
