@@ -778,6 +778,36 @@ st.markdown(
         font-weight: 700 !important;
       }
 
+      /* Search box — a field, not a button, so it needs its own treatment:
+         the bar's ground with a hairline, not Streamlit's light input chrome. */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stTextInput"] input {
+        background: rgba(255,255,255,0.05) !important;
+        border: 1px solid #1c2430 !important;
+        border-radius: 6px !important;
+        color: #f8fafc !important;
+        font-size: 12px !important;
+        height: 30px !important;
+        min-height: 30px !important;
+        padding: 0 9px !important;
+      }
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stTextInput"] input::placeholder {
+        color: rgba(255,255,255,0.40) !important;
+      }
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stTextInput"] input:focus {
+        border-color: rgba(234,88,12,0.55) !important;
+        box-shadow: none !important;
+      }
+      /* Streamlit wraps the input in a BaseWeb root that paints its own light
+         ground (#f0f2f6). Styling only the <input> leaves that showing as a
+         white slab in the dark bar — clear the wrapper too. */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stTextInputRootElement"],
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stTextInputRootElement"] > div,
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stTextInput"] > div {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+      }
+
       /* Streamlit stacks its own `expand_more` glyph UNDER the popover label,
          which is what made the bar 62px tall and the labels look wrapped. Hide
          it; the ▾ in the label carries the affordance on one line. */
@@ -872,36 +902,45 @@ def _signin_control() -> None:
 def _symbol_jump(raw: str) -> None:
     """Route to the Stock Analyzer for `raw`, priming the same session keys the
     "Analyze ↗" deep-link sets — one entry path, so an auto-run that works for
-    a table link works for the search box too."""
+    a table link works for the search box too.
+
+    No st.rerun(): this runs as a widget callback, and Streamlit reruns after
+    callbacks on its own.
+    """
     sym = raw.strip().upper().replace(".NS", "")
     if not sym:
         return
-    # Close the popover on the way out. A widget rerun inside a popover keeps
-    # it open by design (that is what makes the form usable), so after a jump
-    # it would otherwise sit open over the page you just navigated to. Since
-    # 1.58 the popover's open state is real session state, addressable by key.
-    st.session_state["tb_search_pop"] = False
     st.session_state["current_page"] = "Stock Analyzer"
     st.session_state["selected_symbol"] = sym
-    st.session_state["last_analyzed"] = sym
-    st.rerun()
+    st.session_state["last_analyzed"] = sym   # triggers the auto-run
+    st.session_state["tb_search_input"] = ""  # leave the box ready for the next
 
 
 def _search_control() -> None:
-    """Ribbon symbol jump. Deliberately does NOT validate against a universe:
-    the Analyzer already reports a symbol it cannot fetch, and a whitelist here
-    would reject the newly-listed names most worth looking up."""
-    with st.popover("Search ⌘K", use_container_width=True,
-                    key="tb_search_pop"):
-        with st.form("tb_symbol_jump", border=False, clear_on_submit=True):
-            _sym = st.text_input(
-                "Symbol", placeholder="RELIANCE", label_visibility="collapsed",
-                key="tb_search_input",
-            )
-            if st.form_submit_button("Analyze →", use_container_width=True,
-                                     type="primary"):
-                _symbol_jump(_sym)
-        st.caption("NSE code, no .NS suffix. Opens the Stock Analyzer.")
+    """Ribbon symbol jump: a plain box, submitted by Enter.
+
+    This was a popover holding a form, and the popover would not reliably close
+    after the jump — it sat open over the page you had just navigated to. Its
+    open state is owned by the frontend; writing session_state[key]=False (the
+    documented control, 1.58) closed it on one jump and not the next, and
+    deferring the write to the following run did not help either. A box needs no
+    open state, so the bug has nowhere to live — and it is one keystroke less
+    to use.
+
+    Deliberately does NOT validate against a universe: the Analyzer already
+    reports a symbol it cannot fetch, and a whitelist would reject exactly the
+    newly-listed names worth looking up.
+    """
+    st.text_input(
+        "Symbol", key="tb_search_input", placeholder="Search ⌘K",
+        label_visibility="collapsed", on_change=_symbol_jump_from_box,
+        help="NSE code, no .NS suffix — Enter opens the Stock Analyzer",
+    )
+
+
+def _symbol_jump_from_box() -> None:
+    _symbol_jump(st.session_state.get("tb_search_input", ""))
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Navigation — left sidebar page router (replaces st.tabs; Streamlit can't
@@ -1188,9 +1227,9 @@ st.markdown(
 # way to bind a global shortcut is a zero-height component iframe reaching into
 # the parent document. Same-origin, so this is allowed — but it is a hack on
 # Streamlit's DOM, and it is written to FAIL SILENTLY: if the markup changes
-# under it, the shortcut stops working and the Search button still does.
+# under it, the shortcut stops working and the box still does.
 #
-# It finds the button by its ⌘K label rather than a generated key, because
+# It finds the box by its aria-label rather than a generated key, because
 # Streamlit's element keys are not stable selectors.
 components.html(
     """
@@ -1199,19 +1238,17 @@ components.html(
       const doc = window.parent && window.parent.document;
       if (!doc || doc.__tbSearchHotkey) return;   // bind once per page load
       doc.__tbSearchHotkey = true;
-      // Enter inside the symbol box. Streamlit is documented to submit a form
-      // on Enter from its only text input, and it does not do so here (1.57,
-      // inside a popover) — verified, not assumed. Rather than leave a search
-      // box where Enter silently does nothing, click the submit button.
+      // Enter commits the box. Streamlit does this natively on Enter, and this
+      // listener is belt-and-braces: a blur commits too, and if the native
+      // path already fired, the value is unchanged so nothing happens twice.
+      // Kept because Enter could NOT be verified from this side — the test
+      // harness delivers character keys to the page but not Enter or Ctrl-K,
+      // which is also why ⌘K needed a human to confirm it.
       doc.addEventListener('keydown', function (e) {
         if (e.key !== 'Enter') return;
         const el = doc.activeElement;
         if (!el || el.getAttribute('aria-label') !== 'Symbol') return;
-        const form = el.closest('[data-testid="stForm"]');
-        const submit = form && form.querySelector('button');
-        if (!submit) return;
-        e.preventDefault();
-        submit.click();
+        el.blur();
       });
 
       doc.addEventListener('keydown', function (e) {
@@ -1226,19 +1263,13 @@ components.html(
                               || el.isContentEditable);
         const slash = e.key === '/' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey;
         if (!combo && !slash) return;
-        const btn = Array.from(doc.querySelectorAll('button')).find(
-          b => (b.innerText || '').indexOf('⌘K') !== -1);
-        if (!btn) return;            // markup moved - leave the key to the browser
+        // The box is always mounted now, so this is a focus and nothing else —
+        // no popover to open, no async mount to wait for, no submit to fake.
+        const box = doc.querySelector('input[aria-label="Symbol"]');
+        if (!box) return;            // markup moved — leave the key to the browser
         e.preventDefault();
-        btn.click();
-        // The popover mounts async and Streamlit does its own focus work after
-        // mount, so keep re-focusing for a beat rather than firing once.
-        let tries = 0;
-        const t = setInterval(function () {
-          const inp = doc.querySelector('input[aria-label="Symbol"]');
-          if (inp && doc.activeElement !== inp) inp.focus();
-          if ((inp && doc.activeElement === inp) || ++tries > 40) clearInterval(t);
-        }, 25);
+        box.focus();
+        box.select();
       });
     })();
     </script>
