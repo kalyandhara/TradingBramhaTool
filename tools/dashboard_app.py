@@ -768,6 +768,16 @@ st.markdown(
         font-weight: 700 !important;
       }
 
+      /* Active group. A popover trigger keeps data-testid="stPopoverButton"
+         whatever its type, so the primary state is carried on `kind` — which
+         is enough specificity to beat the base rule above without !important
+         gymnastics. Matches the active Home button exactly. */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stPopoverButton"][kind="primary"] {
+        color: #ffffff !important;
+        border-bottom: 2px solid #ea580c !important;
+        font-weight: 700 !important;
+      }
+
       /* Streamlit stacks its own `expand_more` glyph UNDER the popover label,
          which is what made the bar 62px tall and the labels look wrapped. Hide
          it; the ▾ in the label carries the affordance on one line. */
@@ -775,14 +785,6 @@ st.markdown(
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stPopoverButton"] span[class*="material-icons"] {
         display: none !important;
       }
-      /* Active group: its label is bold markdown (<strong>) — paint it white
-         and underline it in accent, matching the active Home button. */
-      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stPopoverButton"]:has(strong) {
-        color: #ffffff !important;
-        border-bottom: 2px solid #ea580c !important;
-      }
-      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stPopoverButton"] strong { font-weight: 700 !important; }
-
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stPopoverButton"] > div,
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stBaseButton-secondary"] > div,
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stBaseButton-primary"] > div {
@@ -1096,11 +1098,9 @@ with _nav[1]:
 
 for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
     with _nav[2 + _i]:
-        # st.popover takes no `type=`, so the group holding the current page is
-        # marked with markdown bold (CSS then paints bold ribbon labels white).
         _active_here = st.session_state["current_page"] in _gpages
-        _label = f"**{_gname}** ▾" if _active_here else f"{_gname} ▾"
-        with st.popover(_label, use_container_width=True):
+        with st.popover(f"{_gname} ▾", use_container_width=True,
+                        type="primary" if _active_here else "secondary"):
             for _p in _gpages:
                 _is_active = st.session_state["current_page"] == _p
                 if st.button(_p, key=f"nav_{_p}", use_container_width=True,
