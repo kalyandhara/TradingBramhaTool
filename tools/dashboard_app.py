@@ -1510,10 +1510,25 @@ def _drop_unusable_bars(df):
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def cached_fetch_ohlcv(symbol: str, days: int = 300):
+def cached_fetch_ohlcv(symbol: str, days: int = 300, enforce_liquidity: bool = True):
+    """Daily bars for one symbol, via VolumeFetcher then screener_pipeline.
+
+    `enforce_liquidity=False` drops the 100k 10-day average volume floor. That
+    floor belongs to SCANNING — it keeps names you cannot trade out of a
+    2,000-symbol sweep — and both fetchers applied it to every caller, so a page
+    that had been handed one symbol by name returned "no usable data" for a
+    stock yfinance serves perfectly well. CENTUM (~55k/day) reported as "not on
+    yfinance" while the Opportunity Hub was linking to it, which is the same
+    app refusing to open a door it just pointed at.
+
+    Bar-count and NaN validation still apply either way: those say there is no
+    data, not that the data is not worth scanning.
+    """
     # Try enhanced volume fetcher first
     try:
         volume_fetcher = vf.VolumeFetcher(verbose=False)
+        if not enforce_liquidity:
+            volume_fetcher.MIN_VOLUME = 0   # instance attr shadows the class floor
         df = volume_fetcher.fetch_with_volume(symbol, days=days, validate=True)
         if df is not None:
             return _drop_unusable_bars(df)
@@ -1521,7 +1536,31 @@ def cached_fetch_ohlcv(symbol: str, days: int = 300):
         _log.warning("VolumeFetcher error for %s: %s", symbol, e)
 
     # Fallback to screener_pipeline
-    return _drop_unusable_bars(sp.fetch_ohlcv(symbol, days=days))
+    return _drop_unusable_bars(
+        sp.fetch_ohlcv(symbol, days=days,
+                       min_volume=None if enforce_liquidity else 0))
+
+
+def _thin_volume_note(df, symbol: str) -> None:
+    """Warn when a single-symbol page is looking at a name below the screen floor.
+
+    The gate is off for these pages, which means the number has to be visible
+    instead: an analysis of a stock trading 55k shares a day is not wrong, but
+    every level on it is worth less than the same level on a liquid name.
+    """
+    try:
+        avg_vol = float(df["volume"].tail(10).mean())
+    except Exception:
+        return
+    if avg_vol >= sp.MIN_VOLUME:
+        return
+    st.warning(
+        f"**{symbol}** trades ~{avg_vol:,.0f} shares/day over the last 10 "
+        f"sessions — below the {sp.MIN_VOLUME:,} floor the screeners use, so it "
+        f"never reaches a scan. Everything below is computed normally; treat "
+        f"levels as indicative and assume slippage.",
+        icon="⚠",
+    )
 
 
 def _scanner_fetch_fn(scanner_name: str):
@@ -5437,10 +5476,13 @@ if current_page == "Stock Analyzer":
         else:
             st.session_state["last_analyzed"] = symbol
             with st.spinner(f"Fetching {symbol}..."):
-                df = cached_fetch_ohlcv(symbol, days=tf_days)
+                # enforce_liquidity=False: the user asked for THIS symbol.
+                df = cached_fetch_ohlcv(symbol, days=tf_days, enforce_liquidity=False)
             if df is None:
-                st.error(f"No usable data for {symbol} (illiquid, too short, or not on yfinance).")
+                st.error(f"No usable data for {symbol} — fewer than {sp.MIN_BARS} "
+                         f"daily bars, or not on yfinance under that NSE code.")
             else:
+                _thin_volume_note(df, symbol)
                 # FR-1 — identity header + valuation/quality strip lead the page:
                 # who is this company and what does it cost, before any signal.
                 with st.spinner("Fetching fundamentals & statements..."):
@@ -7867,11 +7909,12 @@ if current_page == "Predictive Analysis":
             st.info("Pick a candidate on the left (→) or type a symbol to load the "
                     "annotated chart, ratings breakdown, and setup intelligence.")
         else:
-            pa_df = cached_fetch_ohlcv(pa_sym)
+            pa_df = cached_fetch_ohlcv(pa_sym, enforce_liquidity=False)
             if pa_df is None:
-                st.error(f"No usable data for {pa_sym} (illiquid, too short, or not "
-                         "on yfinance).")
+                st.error(f"No usable data for {pa_sym} — fewer than {sp.MIN_BARS} "
+                         f"daily bars, or not on yfinance under that NSE code.")
             else:
+                _thin_volume_note(pa_df, pa_sym)
                 pa_bench = cached_fetch_nifty50()
                 _pa_w = st.session_state.get("hub_overall_weights", OVERALL_WEIGHTS)
                 pa_rating, pa_bd = _overall_rating(pa_df, pa_bench, _pa_w)

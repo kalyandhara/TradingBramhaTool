@@ -315,7 +315,16 @@ def fetch_screener_stocks(slug: str) -> list[str]:
 # Step 2 — Download OHLCV from yfinance
 # ──────────────────────────────────────────────────────────────────────────────
 
-def fetch_ohlcv(symbol: str, days: int = 300) -> pd.DataFrame | None:
+def fetch_ohlcv(symbol: str, days: int = 300,
+                min_volume: int | None = None) -> pd.DataFrame | None:
+    """Daily OHLCV for one NSE symbol, or None if it fails the screen gates.
+
+    `min_volume` defaults to MIN_VOLUME, the screener's liquidity floor. Pass 0
+    to fetch a thin name anyway: the floor exists to keep illiquid stocks OUT of
+    a 2,000-name scan, and it is the wrong rule when someone has asked for one
+    symbol by name. The bar-count and empty-download gates always apply — those
+    are "there is no data", not "this data is not worth scanning".
+    """
     ticker = f"{symbol}.NS"
     period = "max" if not days or days <= 0 else f"{days}d"
     try:
@@ -338,10 +347,11 @@ def fetch_ohlcv(symbol: str, days: int = 300) -> pd.DataFrame | None:
         log.warning("  [skip] %s — only %d bars (need %d)", ticker, len(df), MIN_BARS)
         return None
 
+    floor = MIN_VOLUME if min_volume is None else min_volume
     avg_vol = df["volume"].tail(10).mean()
-    if avg_vol < MIN_VOLUME:
+    if floor and avg_vol < floor:
         log.warning("  [skip] %s — 10d avg volume %.0f < %d (too illiquid)",
-                    ticker, avg_vol, MIN_VOLUME)
+                    ticker, avg_vol, floor)
         return None
 
     return df
