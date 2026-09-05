@@ -921,6 +921,61 @@ if st.query_params.get("nav") == "analyze" and st.query_params.get("symbol"):
     st.session_state["last_analyzed"] = _dl_sym   # triggers auto-run in the tab
     st.query_params.clear()
 
+# ── Ribbon status: market session + data freshness ──────────────────
+# What a trading bar is FOR is telling you whether what you are looking at is
+# current. Two facts, both cheap: is the NSE session on, and how old is the
+# batch that produced these tables.
+_NSE_TZ = "Asia/Kolkata"
+
+
+def _market_status() -> tuple[str, str, str]:
+    """(state, dot_colour, label) for the NSE session, in IST.
+
+    HOLIDAY-UNAWARE, deliberately: this repo has no exchange holiday calendar,
+    and inventing one that silently goes stale is worse than a dot that reads
+    LIVE on Diwali. It answers "is it a weekday inside session hours", nothing
+    more. Anyone gating an order on this needs a real calendar first.
+    """
+    from datetime import datetime as _dt, time as _t
+    try:
+        from zoneinfo import ZoneInfo
+        now = _dt.now(ZoneInfo(_NSE_TZ))
+    except Exception:
+        return ("UNKNOWN", _T["absent"], "session unknown")
+    hhmm = now.strftime("%H:%M")
+    if now.weekday() >= 5:
+        return ("CLOSED", _T["absent"], f"weekend · {hhmm} IST")
+    t = now.time()
+    if _t(9, 0) <= t < _t(9, 15):
+        return ("PRE-OPEN", _T["accent"], f"pre-open · {hhmm} IST")
+    if _t(9, 15) <= t <= _t(15, 30):
+        return ("LIVE", _T["good"], f"live · {hhmm} IST")
+    return ("CLOSED", _T["absent"], f"closed · {hhmm} IST")
+
+
+def _batch_freshness() -> str:
+    """Age of the last pipeline run, from the log file's mtime.
+
+    The mtime is the honest signal here — it moves whenever the batch writes,
+    whether it succeeded or failed. It says "the pipeline last did something
+    at X", NOT "the data is good"; Pipeline Log is where you check the latter.
+    """
+    from datetime import datetime as _dt
+    try:
+        ts = sp.LOG_FILE.stat().st_mtime
+    except Exception:
+        return "no batch run yet"
+    age = _dt.now().timestamp() - ts
+    when = _dt.fromtimestamp(ts).strftime("%H:%M")
+    if age < 3600:
+        rel = f"{int(age // 60)}m ago"
+    elif age < 86400:
+        rel = f"{int(age // 3600)}h ago"
+    else:
+        rel = f"{int(age // 86400)}d ago"
+    return f"batch {when} · {rel}"
+
+
 # ── Horizontal top nav ────────────────────────────────────────────────────────
 # Sentinel div → dark ribbon CSS targets the next sibling HorizontalBlock.
 # Brand · Home · one popover per group · current-page label, all in one row.
@@ -933,10 +988,9 @@ if st.query_params.get("nav") == "analyze" and st.query_params.get("symbol"):
 st.markdown('<div id="tb-navstart"></div>', unsafe_allow_html=True)
 
 # Widths, left to right: brand · Home · the five group popovers · spacer ·
-# current-page label · sign-in. Only the last column is new; the page label gave
-# up the width for it. (The popovers render 62px tall because Streamlit stacks
-# its `expand_more` glyph under the label — that is its chrome, not wrapping.)
-_nav = st.columns([2.0, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.9, 1.1, 0.95],
+# sign-in. The current-page label used to live here; it is a breadcrumb, and it
+# now sits on the strip below the bar where a breadcrumb belongs.
+_nav = st.columns([2.0, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 2.0, 0.95],
                    gap="small", vertical_alignment="center")
 
 with _nav[0]:
@@ -974,24 +1028,49 @@ for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
                     st.session_state["current_page"] = _p
                     st.rerun()
 
-with _nav[8]:
-    _cp = st.session_state["current_page"]
-    st.markdown(
-        f'<div style="text-align:right;font-size:11px;'
-        f'color:rgba(255,255,255,0.35);padding:2px 0;">'
-        f'<span style="color:rgba(255,255,255,0.28);">▸</span> '
-        f'<span style="color:rgba(255,255,255,0.70);font-weight:500;">{_cp}</span>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
 # Sign-in sits at the far right of the ribbon, where a sign-in belongs and where
 # it is out of the way of a tool that no longer requires it.
-with _nav[9]:
+with _nav[8]:
     _signin_control()
 
+# ── Breadcrumb + status strip ────────────────────────────────────
+# One 30px line under the bar: where you are on the left, whether the data is
+# current on the right. Rendered as a single markdown flex row rather than
+# st.columns — it is static text, and a column row would cost another
+# stHorizontalBlock plus the vertical block's 16px gap on both sides of it.
+#
+# The clock is as-of-render: it moves on the next rerun, not on a timer. A
+# self-updating clock would need an autorefresh, and paying a full script rerun
+# per second to animate a timestamp is not a trade worth making.
+_cp = st.session_state["current_page"]
+_crumb_group = next((g for g, ps in PAGE_GROUPS.items() if _cp in ps), None)
+# Home is the trail root, so on Home itself the trail is just "Home" — not
+# "Home › Home". The group sits between only when the page has one.
+_lead = [] if _cp == "Home" else ["Home"] + ([_crumb_group] if _crumb_group else [])
+_trail = "".join(
+    f'<span style="color:{_T["text_muted"]};">{_seg}</span>'
+    f'<span style="color:{_T["absent"]};margin:0 6px;">›</span>'
+    for _seg in _lead
+)
+_mkt_state, _mkt_dot, _mkt_label = _market_status()
+
 st.markdown(
-    '<div style="margin:0 0 16px;"></div>',
+    f'<div style="display:flex;align-items:center;justify-content:space-between;'
+    f'gap:16px;height:30px;font-size:11.5px;margin:0 0 14px;'
+    f'border-bottom:1px solid {_T["border"]};">'
+    f'  <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+    f'    {_trail}'
+    f'    <span style="color:{_T["text"]};font-weight:600;">{_cp}</span>'
+    f'  </div>'
+    f'  <div style="display:flex;align-items:center;gap:14px;white-space:nowrap;'
+    f'color:{_T["text_muted"]};">'
+    f'    <span style="display:inline-flex;align-items:center;gap:5px;">'
+    f'      <span style="width:6px;height:6px;border-radius:50%;'
+    f'background:{_mkt_dot};display:inline-block;"></span>{_mkt_label}</span>'
+    f'    <span style="color:{_T["border_strong"]};">|</span>'
+    f'    <span>{_batch_freshness()}</span>'
+    f'  </div>'
+    f'</div>',
     unsafe_allow_html=True,
 )
 
