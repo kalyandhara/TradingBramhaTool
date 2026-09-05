@@ -874,6 +874,11 @@ def _symbol_jump(raw: str) -> None:
     sym = raw.strip().upper().replace(".NS", "")
     if not sym:
         return
+    # Close the popover on the way out. A widget rerun inside a popover keeps
+    # it open by design (that is what makes the form usable), so after a jump
+    # it would otherwise sit open over the page you just navigated to. Since
+    # 1.58 the popover's open state is real session state, addressable by key.
+    st.session_state["tb_search_pop"] = False
     st.session_state["current_page"] = "Stock Analyzer"
     st.session_state["selected_symbol"] = sym
     st.session_state["last_analyzed"] = sym
@@ -884,7 +889,8 @@ def _search_control() -> None:
     """Ribbon symbol jump. Deliberately does NOT validate against a universe:
     the Analyzer already reports a symbol it cannot fetch, and a whitelist here
     would reject the newly-listed names most worth looking up."""
-    with st.popover("Search ⌘K", use_container_width=True):
+    with st.popover("Search ⌘K", use_container_width=True,
+                    key="tb_search_pop"):
         with st.form("tb_symbol_jump", border=False, clear_on_submit=True):
             _sym = st.text_input(
                 "Symbol", placeholder="RELIANCE", label_visibility="collapsed",
