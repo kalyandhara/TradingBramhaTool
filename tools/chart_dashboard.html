@@ -263,6 +263,15 @@ html, body {
 .ind-btn:hover, .ind-btn.active { border-color: var(--accent); color: var(--accent); }
 .snap-btn { padding: 2px 7px; font-size: 13px; line-height: 1.4; }
 
+/* ── Chart history navigation (forward/back buttons) ──────────────────────── */
+.nav-btn {
+  background: var(--bg-input); border: 1px solid var(--border); color: var(--text-secondary);
+  padding: 2px 6px; border-radius: 4px; font-size: 11px; cursor: pointer; outline: none;
+  min-width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+}
+.nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.nav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
+
 /* ── Per-symbol external quick links (Screener / TradingView / Google / X) ── */
 .qlinks { display: inline-flex; gap: 4px; align-items: center; }
 .qlink {
@@ -2169,6 +2178,8 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
       <select class="tf-sel ctype-sel" title="Chart type">${CHART_TYPES.map(ct =>
         `<option value="${ct.value}"${ct.value===chartType?' selected':''}>${ct.label}</option>`
       ).join('')}</select>
+      <button type="button" class="nav-btn nav-back" title="Back to previous chart (⌘←)">←</button>
+      <button type="button" class="nav-btn nav-forward" title="Forward to next chart (⌘→)">→</button>
       <div class="ind-wrap">
         <button type="button" class="ind-btn">INDICATORS</button>
         <div class="ind-panel">${renderIndicatorPanel()}</div>
@@ -2336,7 +2347,10 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
                  fibCanvas, obCanvas, prteCanvas,
                  drawCanvas, drawTools,
                  drawings: [], drawTool: null, drawSel: null, drawMagnet: true,
-                 drawHidden: false, drawStart: null, drawPreview: null };
+                 drawHidden: false, drawStart: null, drawPreview: null,
+                 // Chart history navigation
+                 chartHistory: [{symbol, tf, chartType, indicators: new Set(savedIndicators)}],
+                 historyIdx: 0 };
 
   // ── Time-scale sync: main chart drives all sub-pane charts ─────────────────
   chart.timeScale().subscribeVisibleTimeRangeChange(range => {
@@ -2383,6 +2397,61 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
       }
     });
   });
+
+  // ── Chart history navigation ───────────────────────────────────────────────
+  const navBackBtn    = el.querySelector('.nav-back');
+  const navForwardBtn = el.querySelector('.nav-forward');
+
+  function updateNavButtons() {
+    navBackBtn.disabled = pane.historyIdx <= 0;
+    navForwardBtn.disabled = pane.historyIdx >= pane.chartHistory.length - 1;
+  }
+
+  pane.recordChartState = function() {
+    const current = this.chartHistory[this.historyIdx];
+    // Only add to history if the chart state actually changed
+    if (!current || current.symbol !== this.symbol || current.tf !== this.tf ||
+        current.chartType !== this.chartType) {
+      // Remove any forward history when a new chart is loaded
+      this.chartHistory = this.chartHistory.slice(0, this.historyIdx + 1);
+      this.chartHistory.push({
+        symbol: this.symbol,
+        tf: this.tf,
+        chartType: this.chartType,
+        indicators: new Set(this.indicators)
+      });
+      this.historyIdx = this.chartHistory.length - 1;
+      updateNavButtons();
+    }
+  };
+
+  pane.navigateToHistory = function(idx) {
+    if (idx < 0 || idx >= this.chartHistory.length) return;
+    this.historyIdx = idx;
+    const entry = this.chartHistory[idx];
+    symIn.value = entry.symbol;
+    tfSel.value = entry.tf;
+    ctypeSel.value = entry.chartType;
+    this.indicators = new Set(entry.indicators);
+    this.symbol = entry.symbol;
+    this.tf = entry.tf;
+    this.chartType = entry.chartType;
+    resetPaneVisuals(this);
+    applyPriceStyle(this);
+    applyIndicators(this);
+    loadData(idx);
+    updateNavButtons();
+  };
+
+  navBackBtn.addEventListener('click', () => {
+    if (pane.historyIdx > 0) pane.navigateToHistory(pane.historyIdx - 1);
+  });
+
+  navForwardBtn.addEventListener('click', () => {
+    if (pane.historyIdx < pane.chartHistory.length - 1) pane.navigateToHistory(pane.historyIdx + 1);
+  });
+
+  updateNavButtons();
 
   // ── Controls ───────────────────────────────────────────────────────────────
   function applySymbol(s) {
@@ -3009,6 +3078,28 @@ function closeAllSymbolDropdowns() {
 document.addEventListener('click', () => {
   closeAllIndicatorPanels();
   closeAllSymbolDropdowns();
+});
+
+// ── Chart history keyboard shortcuts ─────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  // Cmd/Ctrl + Left Arrow → back in chart history (on all panes)
+  if ((e.metaKey || e.ctrlKey) && e.key === 'ArrowLeft') {
+    e.preventDefault();
+    panes.forEach(pane => {
+      if (pane && pane.historyIdx > 0) {
+        pane.navigateToHistory(pane.historyIdx - 1);
+      }
+    });
+  }
+  // Cmd/Ctrl + Right Arrow → forward in chart history (on all panes)
+  if ((e.metaKey || e.ctrlKey) && e.key === 'ArrowRight') {
+    e.preventDefault();
+    panes.forEach(pane => {
+      if (pane && pane.historyIdx < pane.chartHistory.length - 1) {
+        pane.navigateToHistory(pane.historyIdx + 1);
+      }
+    });
+  }
 });
 
 // ── Indicator overlay rendering ─────────────────────────────────────────────────
@@ -8244,7 +8335,11 @@ async function loadData(idx) {
   // Only hide the loader on a successful fetch — the failure paths above
   // set their own visible error text and leave it shown, so the user sees
   // *why* the chart is blank instead of looking at it forever.
-  if (loader && ok) loader.style.display = 'none';
+  if (loader && ok) {
+    loader.style.display = 'none';
+    // Record this successful chart load in history
+    if (p && p.recordChartState) p.recordChartState();
+  }
 
   if (wsReady) wsSubscribe(idx);
 }
