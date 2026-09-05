@@ -1,6 +1,15 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-05] measure | B-34r2 - the Hidden Treasures veto, backtested as far as the data allows
+- Code: `hidden_treasures_backtest.py --gov-veto`. Updated: [[analyses/Open-Backlog]] (B-34r2 half-measured, **B-34r3** opened).
+- **Result: WEAK, same class as B-34 itself.** Smallcap-250, top 25, 6 quarters. No veto: +0.91% @60d (p=0.54) / +1.47% @120d (p=0.54). Governance veto: **+1.21% @60d (p=0.42) / +2.15% @120d (p=0.39)**, hit rate 59.3->60.7% and 58.4->60.0%, Q+/Q 3/6->4/6 at 60d. Every metric moves the right way; nothing is significant. It does not hurt and cannot be shown to help.
+- **Only the smaller half was testable.** FCF and dilution cause **64 of the 100** live vetoes, but `fcf_history` / `shares_history` arrive from yfinance as bare value lists with NO year labels, so they cannot be truncated to "as known at Q". Applying today's FCF streak to a 2024 entry vetoes a pick for something that had not happened yet. **The headline question - should negative FCF veto - is NOT answerable with current data**; it needs a point-in-time fundamentals store.
+- **The run exposed a flaw in the veto itself, which the LIVE page shares.** The veto rate is not stationary: 3% at 31-DEC-2024 rising to 28% at 30-JUN-2026, because `_check_promoter_holding_nse` compares oldest->newest across however many quarters it is handed. A 2pp drop over 8 quarters is much weaker evidence than over 2 and the check cannot tell them apart, so the gate quietly tightens as the ownership cache deepens. Filed as **B-34r3**: bound the window (fixed trailing 4 quarters, or per-quarter like the score's `rate` term) before reading anything into the veto rate.
+- **Also found, not fixed:** `--enrich` has never done anything. The eval loop calls `_score_at_quarter(sym, q_date, enrich=False)` hardcoded, so the parameter is accepted and dropped - B-34's published +2.51% was measured on the ownership score alone regardless of the flag.
+- **Recommendation pending B-34r3:** keep the two governance vetoes (harmless, directionally positive, real rationale); demote negative FCF to a penalty - it drives most exclusions, is untestable here, and removes JSWCEMENT and GRSE on what is plausibly a capex cycle.
+- Both arms share an identical baseline (+4.61 / +6.84) and n(top)=150, confirming the veto touched only the picks and the basket filled every quarter.
+
 ## [2026-09-05] build | Hidden Treasures had NO gate - FR-4 red flags wired in as the first hard one
 - Code: `smallcap_discovery.py` (+`_red_flags_for`, veto in `discover`), `dashboard_app.py` (toggle + vetoed-list UI). Updated: [[analyses/Open-Backlog]] (B-34r closed, **B-34r2** opened).
 - **The question was "is there a value-trap gate?" and the honest answer was "there is no gate".** Every factor was a soft score nudge - including the one the page called a *pledge veto*, which in code was **-20 points**. A name with 40% pledge and promoters distributing scored ~27 and stayed in the universe.

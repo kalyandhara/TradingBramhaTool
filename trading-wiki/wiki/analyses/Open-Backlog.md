@@ -505,7 +505,54 @@ payload); with it off, `veto_active` is False and the page says nothing was scre
 **SAILIFE, the highest-scoring name in the universe (76.9), is vetoed** on two years of
 negative FCF. So are JSWCEMENT and GRSE.
 
-### B-34r2 · Should negative FCF veto in THIS lane? *(open, 2026-09-05)*
+### B-34r2 · Should the veto stay on? — **HALF MEASURED 2026-09-05**
+
+`hidden_treasures_backtest.py --gov-veto`. Smallcap-250, top 25, 6 eval quarters,
+30-SEP-2024 … 31-MAR-2026.
+
+| arm | 60d edge | p | hit% | 120d edge | p | hit% | Q+/Q 60d |
+|---|---|---|---|---|---|---|---|
+| no veto | +0.91% | 0.5393 | 59.3% | +1.47% | 0.5425 | 58.4% | 3/6 |
+| **governance veto** | **+1.21%** | 0.4170 | **60.7%** | **+2.15%** | 0.3884 | **60.0%** | 4/6 |
+
+**Every metric moves the right way and none of it is significant.** Baselines are identical
+in both arms (+4.61 / +6.84), which confirms the veto touched only the picks; n(top)=150 in
+both, so the basket filled in every quarter. Verdict is the same class as B-34 itself:
+**WEAK — it does not hurt, and it cannot be shown to help.**
+
+**Only half the question was testable, and it is the smaller half.** FCF and dilution cause
+**64 of the 100** live vetoes, but `fcf_history` and `shares_history` come back from
+yfinance as bare value lists with **no year labels**, so they cannot be truncated to "as
+known at Q". Applying today's FCF streak to a 2024 entry vetoes a pick for something that
+had not happened yet. **The headline question — should negative FCF veto — remains open and
+is not answerable with the current data.** It needs a point-in-time fundamentals store
+(year-labelled annual history), not another run against the present one.
+
+**A flaw the run exposed, affecting the LIVE page too.** The veto rate is not stationary —
+it climbs with the length of the lookback window, because `_check_promoter_holding_nse`
+compares oldest→newest across however many quarters it is handed:
+
+| quarter | scored | vetoed | veto rate |
+|---|---|---|---|
+| 31-DEC-2024 | 224 | 7 | 3% |
+| 31-MAR-2025 | 232 | 11 | 5% |
+| 30-JUN-2025 | 232 | 43 | 19% |
+| 31-DEC-2025 | 242 | 58 | 24% |
+| 30-JUN-2026 | 249 | 70 | 28% |
+
+A 2pp promoter drop spread over 8 quarters is much weaker evidence than the same drop over
+2, and the check does not distinguish them. So the veto silently tightens as the ownership
+cache deepens — on the live page as well. **B-34r3:** bound the promoter-drop window (a
+fixed trailing 4 quarters, or express it per-quarter like the score's `rate` term already
+does) before reading anything into the veto rate.
+
+**Recommendation, pending B-34r3 and a point-in-time store:** keep the two governance
+vetoes (measured harmless, directionally positive, and they are the ones with a real
+governance rationale); demote **negative FCF to a penalty**, because it causes the majority
+of exclusions, is untestable here, and removes names like JSWCEMENT and GRSE whose negative
+FCF is plausibly a capex cycle rather than a trap.
+
+### B-34r2 · original framing *(2026-09-05)*
 
 The default shipped as "yes" and I am not confident it is right. Three reasons to doubt it:
 
