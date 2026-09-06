@@ -378,6 +378,30 @@ def _fcf_series(stmts: dict[str, Any]) -> list[float | None]:
     return out
 
 
+def _period_ends(df: "pd.DataFrame | None") -> list[str]:
+    """Statement column dates as ISO strings, newest first.
+
+    These are the fiscal period ends yfinance already returns as the frame's
+    columns, and every series in this module was throwing them away by calling
+    `.tolist()` on the row. Without them a caller holds five FCF numbers with no
+    idea WHICH years they cover, so it cannot ask "what was known as of Q3 2024"
+    - which is exactly what a point-in-time backtest needs (B-34r2). Keeping the
+    labels costs nothing and is what makes that test possible at all.
+
+    Aligned by position with the value lists: index i of `fcf_history` is the
+    year ending `fcf_years[i]`.
+    """
+    if df is None or getattr(df, "empty", True):
+        return []
+    out = []
+    for c in df.columns:
+        try:
+            out.append(pd.Timestamp(c).date().isoformat())
+        except Exception:
+            out.append(str(c)[:10])
+    return out
+
+
 def _ocf_series(stmts: dict[str, Any]) -> list[float | None]:
     """Operating cash flow per year, newest first — the Filter-2 numerator."""
     ocf = _row(stmts.get("cashflow"), _OCF)
@@ -444,6 +468,8 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
     if shares_row is None:
         shares_row = _row(bal, _SHARES)
     shares_hist = ([_num(v) for v in shares_row.tolist()] if shares_row is not None else [])
+    # Same treatment for the dilution series - whichever frame the row came from.
+    shares_years = _period_ends(inc if _row(inc, _SHARES) is not None else bal)
     _sh = [v for v in shares_hist if v is not None and v > 0]
     dilution_pct = (round((_sh[0] / _sh[-1] - 1) * 100, 1)
                     if len(_sh) >= 2 and _sh[-1] > 0 else None)
@@ -500,6 +526,9 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
 
     fcf_hist = _fcf_series(stmts)
     fcf = fcf_hist[0] if fcf_hist else None
+    # Period ends for the cash-flow frame, so fcf_history can be truncated to
+    # "as known at date X" instead of being an unlabelled list of five numbers.
+    fcf_years = _period_ends(stmts.get("cashflow"))
 
     # CFO/PAT over the cycle (Filter 2): do reported profits actually turn into
     # operating cash? Sum both over the overlapping years (up to 5) rather than
@@ -573,6 +602,13 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
         "cfo_pat_ratio":     cfo_pat_ratio,  # Σ OCF / Σ PAT over ≤5 matched years
         "cfo_pat_years":     n_pairs,
         "shares_history":    shares_hist,    # newest first
+        #: Fiscal period ends (ISO, newest first) aligned by POSITION with
+        #: fcf_history / shares_history. Present so a caller can evaluate these
+        #: series as of a past date; absent or short on symbols where yfinance
+        #: returned no statement frame, which callers must treat as "unknown"
+        #: rather than assuming the newest year is current.
+        "fcf_years":         fcf_years,
+        "shares_years":      shares_years,
         "dilution_pct":      dilution_pct,   # share-count change oldest→newest (%)
         "eps_ttm":       stmts.get("eps_ttm"),
         "book_value":    stmts.get("book_value"),

@@ -90,7 +90,11 @@ def _score_at_quarter(symbol: str, eval_date: datetime,
 
     fii_new, dii_new = _n(v_new.get("fii")), _n(v_new.get("dii"))
     fii_old, dii_old = _n(v_old.get("fii")), _n(v_old.get("dii"))
-    prom_new, prom_old = _n(v_new.get("promoter")), _n(v_old.get("promoter"))
+    # B-34r4: bounded promoter window in the SCORE too, matching
+    # smallcap_discovery.score_from_cache and the red_flags veto.
+    import red_flags as _rf0
+    _pw0 = ordered[-_rf0._PROMOTER_WINDOW_Q:]
+    prom_new, prom_old = _n(_pw0[-1][1].get("promoter")), _n(_pw0[0][1].get("promoter"))
     pledge = _n(v_new.get("promoter_pledge_pct"))
 
     inst_new = sum(x for x in (fii_new, dii_new) if x is not None)

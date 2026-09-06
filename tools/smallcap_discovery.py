@@ -61,7 +61,18 @@ def score_from_cache(symbol: str) -> dict | None:
 
     fii_new, dii_new = _n(v_new.get("fii")), _n(v_new.get("dii"))
     fii_old, dii_old = _n(v_old.get("fii")), _n(v_old.get("dii"))
-    prom_new, prom_old = _n(v_new.get("promoter")), _n(v_old.get("promoter"))
+    # B-34r4: the promoter term is measured over a BOUNDED trailing window, the
+    # same one red_flags uses for its veto. Comparing the oldest cached quarter
+    # against the newest made the -15 / +10 term drift exactly as the veto did:
+    # the deeper the cache, the more likely a 2pp cumulative fall appeared, so
+    # the same company scored worse over time without changing behaviour.
+    #
+    # The institutional term above does NOT have this problem - it already
+    # divides by (len-1) into a pp/quarter rate, which is why the score spreads
+    # instead of saturating. This makes the promoter term consistent with it.
+    import red_flags as _rf
+    _pw = qs[-_rf._PROMOTER_WINDOW_Q:]
+    prom_new, prom_old = _n(_pw[-1][1].get("promoter")), _n(_pw[0][1].get("promoter"))
     pledge = _n(v_new.get("promoter_pledge_pct"))
 
     inst_new = sum(x for x in (fii_new, dii_new) if x is not None)
@@ -69,6 +80,7 @@ def score_from_cache(symbol: str) -> dict | None:
     inst_delta = round(inst_new - inst_old, 2)                     # pp accumulation
     prom_delta = (round(prom_new - prom_old, 2)
                   if prom_new is not None and prom_old is not None else None)
+    prom_span = len(_pw)
 
     reasons, score = [], 40.0
     # Main engine: FII+DII accumulation RATE (pp per quarter, so windows of
@@ -84,10 +96,12 @@ def score_from_cache(symbol: str) -> dict | None:
     if prom_delta is not None:
         if prom_delta <= -PROMOTER_SELL_PP:
             score -= 15
-            reasons.append(f"⚠ Promoter selling {prom_delta:+.2f}pp — distribution.")
+            reasons.append(f"⚠ Promoter selling {prom_delta:+.2f}pp over "
+                           f"{prom_span}q — distribution.")
         elif prom_delta >= -0.5:
             score += 10
-            reasons.append(f"Promoter steady/adding ({prom_delta:+.2f}pp).")
+            reasons.append(f"Promoter steady/adding ({prom_delta:+.2f}pp over "
+                           f"{prom_span}q).")
     # Pledge veto/flag.
     pledge_flag = pledge is not None and pledge > PLEDGE_MAX
     if pledge_flag:
@@ -101,6 +115,7 @@ def score_from_cache(symbol: str) -> dict | None:
         "score": round(max(0.0, min(100.0, score)), 1),
         "inst_delta": inst_delta,
         "promoter_delta": prom_delta,
+        "promoter_span_q": prom_span,
         "pledge_pct": pledge,
         "pledge_flag": pledge_flag,
         "as_of": p_new,

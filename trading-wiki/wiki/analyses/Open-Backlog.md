@@ -576,11 +576,46 @@ three quarters of history in total, so the window is short — and a 2pp cumulat
 history, the opposite of the original defect, where a longer window quietly made the same
 threshold easier to trip.
 
-**Deliberately out of scope:** the SCORE's promoter term (−15 / +10 in `score_from_cache`)
-still uses the unbounded oldest-to-newest delta and has the same drift. Changing it moves
-the ranking itself and would invalidate B-34's measured baseline — that is a
-re-measurement, not a bug fix, and it needs its own item rather than being smuggled into
-this one. **B-34r4.**
+**Deliberately out of scope here, done next:** the SCORE's promoter term — **B-34r4**.
+
+### ~~B-34r4~~ · The score's promoter term had the same drift — **MEASURED 2026-09-05: the lane's edge was the bug**
+
+`score_from_cache`'s −15 / +10 promoter term compared the oldest cached quarter against the
+newest, exactly as the veto did. The institutional term never had the problem — it already
+divides by `(len-1)` into a pp/quarter rate. Bounded to the same 4-quarter window, then
+re-measured.
+
+All rows below: Smallcap-250, top 25, 6 eval quarters, same session, so they are
+comparable to each other rather than to the historical B-34 figure (which used a different
+universe).
+
+| score term | veto | 60d edge | p | 120d edge | p | hit% 60d |
+|---|---|---|---|---|---|---|
+| unbounded | none | +0.91% | 0.539 | +1.47% | 0.543 | 59.3% |
+| unbounded | drifting | +1.21% | 0.417 | +2.15% | 0.388 | 60.7% |
+| unbounded | bounded | +1.02% | 0.495 | +1.46% | 0.550 | 60.0% |
+| **bounded** | **none** | **−0.12%** | 0.936 | **+0.20%** | 0.935 | 56.0% |
+| **bounded** | **bounded** | **+0.05%** | 0.973 | **+0.33%** | 0.892 | 56.0% |
+
+Universe baseline hit rate is 56.5% at 60d. **With both windows bounded the ranking sits at
+or below a random pick from the same universe, and the veto changes nothing.**
+
+**Every positive number this lane has ever shown traces to one defect.** A cumulative
+promoter drop measured over an ever-lengthening window made names look progressively worse
+as the cache deepened, and the ranking was partly sorting on that artefact rather than on
+conviction. Remove it and the edge is gone.
+
+**What survives is what B-34 always said was the primary value: coverage.** The lane
+surfaces real small/micro-caps the large-cap funnel structurally cannot see. What does not
+survive is any claim that ranking them by institutional conviction beats picking from the
+same universe at random.
+
+> [!contradiction] B-34's headline figure is superseded
+> B-34 closed with "+2.51% @60d (p=0.22), +6.29% @120d (p=0.14) → WEAK". That was measured
+> with the unbounded promoter term in the score. It is not a like-for-like comparison with
+> the table above (different universe), but it is measured on the same defect, so the
+> positive reading should not be relied on. A clean re-run on `kind="both"` would settle
+> the number; the direction is already clear.
 
 **Edge re-measured with the bounded veto — and most of B-34r2's improvement was the bug.**
 

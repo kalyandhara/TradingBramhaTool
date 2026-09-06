@@ -1,6 +1,14 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-05] measure | B-34r4 - Hidden Treasures' edge WAS the bug; plus fcf_years/shares_years for point-in-time
+- Code: bounded promoter window in `smallcap_discovery.score_from_cache` + `hidden_treasures_backtest`; `fundamentals_deep._period_ends` exposing **`fcf_years` / `shares_years`**. Updated: [[analyses/Open-Backlog]] (B-34r4 measured, B-34 headline marked superseded).
+- **The score had the same unbounded window as the veto.** A cumulative promoter drop measured oldest->newest over an ever-lengthening cache made names look progressively worse as history accumulated, so the ranking was partly sorting on an artefact. The institutional term never had this - it already divides by (len-1) into a pp/quarter rate.
+- **Bounding it removes the lane's edge entirely.** Same universe/window, one session: unbounded score + no veto = +0.91% @60d / +1.47% @120d. **Bounded score + no veto = -0.12% / +0.20%** (p 0.94), hit rate 56.0% against a 56.5% baseline - at or below a random pick. With the veto: +0.05% / +0.33%. Every positive number this lane ever showed traces to that one defect.
+- **What survives is coverage**, which is what B-34 always claimed as the primary value: small/micro-caps the large-cap funnel structurally cannot see. What does not survive is any claim that ranking them by institutional conviction beats the same universe at random. B-34's "+2.51% / +6.29% WEAK" carries a superseded callout - measured on the same defect.
+- **Also shipped, and it unblocks the FCF question:** `fundamentals_deep` was calling `.tolist()` on statement rows and throwing away the frame's column dates, so `fcf_history` was five numbers with no idea which years they covered. `_period_ends()` keeps them as `fcf_years` / `shares_years`, aligned by position. That is what makes an as-of evaluation possible at all - no new source, no scraping, no ToS question. Owner had offered trendlyne.com; declined because the labels were already in the payload being discarded, and because scraping today's page still would not give point-in-time history.
+- Still open: actually running the FCF-veto test now that the labels exist (needs a filing-lag assumption on top of fiscal year end).
+
 ## [2026-09-05] fix+measure | B-34r3 - bounded the promoter window, and it retracted B-34r2's conclusion
 - Code: `red_flags._PROMOTER_WINDOW_Q = 4` (both promoter paths), matching bound in `hidden_treasures_backtest`. Updated: [[analyses/Open-Backlog]] (B-34r3 shipped, **B-34r4** opened, B-34r2 marked superseded).
 - **Fixed at the source, not in the lane.** Both promoter checks compared oldest-vs-newest across the whole cached series, so the flaw was the module's and `dashboard_app`'s Analyzer inherited it too. Detail strings now name the span actually compared, so a verdict cannot be read without knowing its window.
