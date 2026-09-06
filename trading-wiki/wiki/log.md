@@ -1,6 +1,14 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-05] build | B-34r5 - the red-flag gate becomes a mark; the Hidden Treasures thread closes
+- Code: `dashboard_app` (veto default OFF, per-card flag marker). Updated: [[analyses/Open-Backlog]].
+- **Measured on the live scoring path, not the backtest:** ranking WITHOUT the veto, the first governance-flagged name lands at rank **128 of 249** (Smallcap-250) and **60 of 250** (Microcap-250). The page's "Show top N" maxes at 100, so the gate could reach **at most one visible name, usually none**.
+- **Structural, not luck:** the score already costs -15 for promoter selling and -20 for pledge, so a flagged name cannot climb into the top ranks. The veto was re-applying as a hard cut a judgement the ranking had already made - which is also why B-34r2's two veto arms were byte-identical and B-34r3's fix measured near zero.
+- **Shipped:** toggle defaults off; flagged names are MARKED on their card with the specific flag rather than removed. Strictly more information than a veto - name, score and reason at the point of use. Verified: Microcap-250 returns 100 hits with INOXGREEN marked at #60 for equity dilution.
+- **The whole thread, in order:** owner asked whether a value-trap gate existed -> there was no gate of any kind (the caption's "pledge veto" was a -20 penalty) -> added FR-4 as a hard gate, which vetoed 40% -> demoted FCF to a penalty -> found the veto's window was drifting (B-34r3) -> found the SCORE's window drifted too and **the lane's entire measured edge was that artefact** (B-34r4: +0.91%/+1.47% -> -0.12%/+0.20%) -> made FCF testable point-in-time and measured it (p=0.80, and it lowers the 120d hit rate) -> and finally found the surviving gate cannot reach the visible list at all.
+- **What Hidden Treasures is, after all that:** a coverage lens on small/micro-caps the large-cap funnel structurally cannot see. Every claim beyond coverage has now been measured to zero.
+
 ## [2026-09-05] measure | B-34r2 closed - FCF veto tested point-in-time; governance veto found redundant
 - Code: `--fcf-veto` in `hidden_treasures_backtest`. Updated: [[analyses/Open-Backlog]] (B-34r2 measured, **B-34r5** opened).
 - **The FCF question is answered, and the demotion stands - now for a measured reason.** Point-in-time FCF veto is the best arm on mean edge (+0.69% @120d vs +0.20% no-veto) and it is still nothing: **p=0.80**. It also LOWERS the 120d hit rate to 52.8% against a 53.6% baseline - edge up while hit rate falls means a few big winners, not more winners. No case for restoring the hard veto; none for dropping the penalty.

@@ -726,8 +726,30 @@ is informative on the page, and it protects a thin universe where 25 names might
 be scraped from the bottom — but it should not be described as improving the shortlist,
 because on this evidence it cannot.
 
-**B-34r5 (small):** given the redundancy, consider whether the governance veto should stay a
-gate at all, or become purely a display of what the score already de-ranked.
+### ~~B-34r5~~ · Gate or display? — **MEASURED → display. SHIPPED 2026-09-05**
+
+Measured on the LIVE scoring path (not the backtest) by ranking without the veto and
+finding where flagged names actually land:
+
+| universe | scored | flagged | first flagged rank | in top 25 / 50 / 100 |
+|---|---|---|---|---|
+| Smallcap-250 | 249 | 50 | **128th** | 0 / 0 / 0 |
+| Microcap-250 | 250 | 56 | **60th** | 0 / 0 / **1** |
+
+The page's "Show top N" maxes at **100**, so the gate can reach **at most one visible name,
+usually none**. It was removing names nobody was going to see, while the banner implied the
+list had been filtered.
+
+**The reason is structural, not luck.** The score already costs −15 for promoter selling
+and −20 for pledge, so a governance-flagged name cannot climb into the top ranks. The veto
+was re-applying, as a hard cut, a judgement the ranking had already made — which is also
+why B-34r2's two veto arms came back byte-identical and B-34r3's fix measured near zero.
+
+**Shipped:** the toggle defaults **off**, and flagged names are **marked on their own card**
+with the specific flag ("⛔ Equity dilution (share count)") rather than removed. That is
+strictly more information than a veto — you see the name, its score and the reason at the
+point of use. The toggle stays for anyone who wants the hard cut. Verified on Microcap-250:
+100 hits returned, INOXGREEN marked at #60 instead of vanishing.
 
 ### B-34r2 · original framing *(2026-09-05)*
 
