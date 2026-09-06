@@ -4560,8 +4560,10 @@ if current_page == "Hidden Treasures":
                "Quality overlay adds ROCE / OPM / D/E from yfinance and runs the "
                "FR-4 red-flag checklist, which can **veto** on governance flags "
                "(negative FCF only penalises — B-34r2). "
-               "**Unvalidated** — a discovery lens, not an edge. B-34 measured the "
-               "ranking at +2.5% @60d (p=0.22): coverage, not edge.")
+               "**Unvalidated** — a discovery lens, not an edge. B-34r4 measured "
+               "the ranking at −0.12% @60d (p=0.94) / +0.20% @120d (p=0.94) once "
+               "the drifting promoter window is bounded — the earlier +2.5% was "
+               "that artefact. Coverage, not edge.")
 
     _ht_c1, _ht_c2 = st.columns([2, 1])
     with _ht_c1:
