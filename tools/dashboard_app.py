@@ -37,6 +37,7 @@ import screener_pipeline as sp
 import symbol_directory as symdir
 import ew_module
 import scanner_templates as sc
+import timeframe_board as tfb
 import opportunity_hub as oh
 import screener_scraper as ss
 import multibagger_candidates as mb
@@ -2232,6 +2233,107 @@ def render_fundamental_signals(score: dict) -> None:
         "never disagree. Earnings Consistency measures **realised** results "
         "(profitable years, growth years, margin stability) — consensus "
         "estimates have no free NSE source, so this is not a beat/miss record."
+    )
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _cached_hourly(symbol: str) -> "pd.DataFrame":
+    """Hourly bars for the timeframe board. Cached separately from daily because
+    it is a second download and the board is the only thing that needs it."""
+    import yfinance as yf
+    tk = symbol if "." in symbol else f"{symbol}.NS"
+    h = yf.download(tk, period="730d", interval="1h", progress=False,
+                    auto_adjust=False)
+    if h is None or h.empty:
+        return pd.DataFrame()
+    if isinstance(h.columns, pd.MultiIndex):
+        h.columns = h.columns.get_level_values(0)
+    h.columns = [str(c).lower() for c in h.columns]
+    return h[[c for c in ("open", "high", "low", "close", "volume") if c in h.columns]]
+
+
+def render_timeframe_board(symbol: str, df: "pd.DataFrame") -> None:
+    """Six horizons of one company, side by side — Hourly to Yearly plus Y-on-Y.
+
+    Perspective, not signal. A daily chart in a downtrend and a yearly chart in a
+    decade-long base are both true, and reading either alone is how a position
+    gets sized against the wrong picture. No triggers, same stance as the
+    momentum meter directly above.
+
+    Lazy behind a button: the hourly panel is a second yfinance download, and
+    this page already spends its patience budget on fundamentals and statements.
+    """
+    st.markdown(rs.section("Six horizons"), unsafe_allow_html=True)
+    key = f"tfboard_{symbol}"
+    if not st.session_state.get(key):
+        c1, c2 = st.columns([1, 4])
+        with c1:
+            if st.button("Show 6 horizons", key=f"btn_{key}",
+                         use_container_width=True):
+                st.session_state[key] = True
+                st.rerun()
+        with c2:
+            st.caption(
+                "Hourly · Daily · Monthly · Half-yearly · Yearly · Year-on-year, "
+                "from one daily download plus one hourly. Runs on request — the "
+                "hourly pull is a second network call."
+            )
+        return
+
+    with st.spinner("Building six horizons..."):
+        panels = tfb.build(symbol, daily=df, hourly=_cached_hourly(symbol))
+
+    for row in (panels[:3], panels[3:]):
+        cols = st.columns(3)
+        for col, p in zip(cols, row):
+            with col:
+                st.markdown(f"**{p.name}**")
+                if not p.ok:
+                    # A stated reason, not an empty box. "Four yearly candles"
+                    # would look like a trend and read like one.
+                    st.markdown(rs.callout("Not shown.", p.note or "no data",
+                                           tone="absent"), unsafe_allow_html=True)
+                    continue
+                if p.lines:
+                    fig = go.Figure()
+                    newest = max(p.lines)
+                    for label in sorted(p.lines):
+                        s_ = p.lines[label]
+                        is_now = label == newest
+                        fig.add_trace(go.Scatter(
+                            x=s_.index, y=s_.values, name=label, mode="lines",
+                            line=dict(width=2.6 if is_now else 1.0,
+                                      color=rs.TOKENS["accent"] if is_now
+                                      else rs.TOKENS["absent"]),
+                            opacity=1.0 if is_now else 0.55))
+                    fig.add_hline(y=0, line_width=1,
+                                  line_color=rs.TOKENS["border_strong"])
+                    fig.update_layout(xaxis_title="day of year",
+                                      yaxis_title="% from 1 Jan")
+                else:
+                    d = p.df
+                    fig = go.Figure(go.Candlestick(
+                        x=d.index, open=d["open"], high=d["high"],
+                        low=d["low"], close=d["close"],
+                        increasing_line_color=rs.TOKENS["good"],
+                        decreasing_line_color=rs.TOKENS["risk"], showlegend=False))
+                    fig.update_layout(xaxis_rangeslider_visible=False)
+                fig.update_layout(height=260, margin=dict(l=4, r=4, t=6, b=4),
+                                  showlegend=bool(p.lines),
+                                  legend=dict(font=dict(size=9), orientation="h",
+                                              y=-0.22))
+                st.plotly_chart(fig, use_container_width=True,
+                                key=f"tf_{symbol}_{p.name}")
+                if p.note:
+                    st.caption(p.note)
+
+    st.caption(
+        "**Context, not a signal.** Half-yearly and yearly are resampled from "
+        "daily bars — exact, since an OHLC aggregate of daily bars *is* the true "
+        "period candle, and Yahoo offers no interval coarser than 3 months. "
+        "Year-on-year rebases every calendar year to its own 1 January, so it "
+        "compares SHAPE and says nothing about absolute performance — that is "
+        "what the other five panels are for."
     )
 
 
@@ -5680,6 +5782,7 @@ if current_page == "Stock Analyzer":
                 render_fundamental_header(symbol, df, _fund, _deep)
                 render_fundamental_signals(fscore.score_all(_fund, _deep))
                 render_momentum_meter(df)
+                render_timeframe_board(symbol, df)
                 render_fundamental_history(_deep)
                 render_peer_comparison(symbol)
                 _rf_res = cached_red_flags(symbol)
