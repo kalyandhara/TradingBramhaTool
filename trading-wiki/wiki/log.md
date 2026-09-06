@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-05] measure | B-34r2 closed - FCF veto tested point-in-time; governance veto found redundant
+- Code: `--fcf-veto` in `hidden_treasures_backtest`. Updated: [[analyses/Open-Backlog]] (B-34r2 measured, **B-34r5** opened).
+- **The FCF question is answered, and the demotion stands - now for a measured reason.** Point-in-time FCF veto is the best arm on mean edge (+0.69% @120d vs +0.20% no-veto) and it is still nothing: **p=0.80**. It also LOWERS the 120d hit rate to 52.8% against a 53.6% baseline - edge up while hit rate falls means a few big winners, not more winners. No case for restoring the hard veto; none for dropping the penalty.
+- **Both veto arms returned byte-identical numbers, which I checked rather than published.** It is correct: **zero** of the FCF-eligible top-25 carry a governance flag in ANY of the 7 quarters. The score already penalises the same signals (-15 promoter selling, -20 pledge, +10 steady/adding), so a governance-flagged name cannot reach the top 25 anyway and the veto only removes names far below the cut. That also explains B-34r3's near-zero effect.
+- **Consequence worth stating plainly:** the governance veto does not improve the shortlist and cannot, on this evidence. It still earns its place as a display of what was excluded and as protection in a thin universe, but describing it as a quality gate on the visible list would be wrong. Filed as **B-34r5**: should it be a gate at all, or just a display?
+- Full arm table (bounded score, Smallcap-250, top 25, 6 quarters): no veto -0.12%/+0.20%; governance +0.05%/+0.33%; FCF +0.22%/+0.69%; both +0.22%/+0.69%. Nothing approaches significance.
+
 ## [2026-09-05] measure | B-34r4 - Hidden Treasures' edge WAS the bug; plus fcf_years/shares_years for point-in-time
 - Code: bounded promoter window in `smallcap_discovery.score_from_cache` + `hidden_treasures_backtest`; `fundamentals_deep._period_ends` exposing **`fcf_years` / `shares_years`**. Updated: [[analyses/Open-Backlog]] (B-34r4 measured, B-34 headline marked superseded).
 - **The score had the same unbounded window as the veto.** A cumulative promoter drop measured oldest->newest over an ever-lengthening cache made names look progressively worse as history accumulated, so the ranking was partly sorting on an artefact. The institutional term never had this - it already divides by (len-1) into a pp/quarter rate.

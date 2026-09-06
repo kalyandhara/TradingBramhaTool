@@ -690,9 +690,44 @@ An *unknown* streak is neither a veto nor a pass: symbols with no cash-flow fram
 nothing filed by the entry date, carry no FCF verdict at all. Same principle as FR-4's
 NOT_CHECKED.
 
-**Edge measurement RUNNING** (`--fcf-veto`, and `--gov-veto --fcf-veto`, both against the
-bounded score so they compare with the −0.12% / +0.20% no-veto arm). Numbers to follow;
-until they land the demotion stands as a judgement, not a measured result.
+**MEASURED 2026-09-05.** All arms on the bounded score, Smallcap-250, top 25, 6 quarters:
+
+| arm | 60d edge | p | 120d edge | p | hit% 60d | hit% 120d |
+|---|---|---|---|---|---|---|
+| no veto | −0.12% | 0.936 | +0.20% | 0.935 | 56.0% | 55.2% |
+| governance veto | +0.05% | 0.973 | +0.33% | 0.892 | 56.0% | 56.0% |
+| **FCF veto (point-in-time)** | **+0.22%** | 0.888 | **+0.69%** | 0.800 | 56.0% | **52.8%** |
+| governance + FCF | +0.22% | 0.888 | +0.69% | 0.800 | 56.0% | 52.8% |
+
+Universe baseline: 56.5% @60d, 53.6% @120d.
+
+**The demotion stands, and now for a measured reason rather than an untestable one.** The
+point-in-time FCF veto is the best arm on mean edge (+0.69% vs +0.20% at 120d) and it is
+still nothing: **p = 0.80**. It also *lowers* the 120d hit rate to 52.8%, below the 53.6%
+baseline — edge up while hit rate falls means a few large winners, not more winners. There
+is no case here for restoring it to a hard veto, and none for removing the penalty either.
+
+**The two veto arms are byte-identical, and that is correct, not a bug.** Checked directly:
+**zero** of the FCF-eligible top-25 carry a governance flag, in *every* one of the 7
+quarters.
+
+| quarter | gov-vetoed (all) | fcf-vetoed (all) | gov-vetoed **inside top-25** |
+|---|---|---|---|
+| 31-DEC-2024 | 7 | 48 | **0** |
+| 30-JUN-2025 | 43 | 51 | **0** |
+| 31-DEC-2025 | 50 | 52 | **0** |
+| 30-JUN-2026 | 47 | 59 | **0** |
+
+**The governance veto is redundant with the score.** Promoter selling already costs −15,
+pledge −20, promoter steady/adding +10 — so a governance-flagged name essentially cannot
+reach the top 25 on score alone, and the veto only ever removes names far below the cut.
+That also explains B-34r3's near-zero measured effect. It is not useless — the vetoed list
+is informative on the page, and it protects a thin universe where 25 names might otherwise
+be scraped from the bottom — but it should not be described as improving the shortlist,
+because on this evidence it cannot.
+
+**B-34r5 (small):** given the redundancy, consider whether the governance veto should stay a
+gate at all, or become purely a display of what the score already de-ranked.
 
 ### B-34r2 · original framing *(2026-09-05)*
 
