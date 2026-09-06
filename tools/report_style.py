@@ -339,8 +339,13 @@ def gauge(value: float | None, caption: str, *, lo: float = 0.0, hi: float = 100
         x0, y0 = _pt(f0, r)
         x1, y1 = _pt(f1, r)
         col, _ = tone_colors(tone)
-        big = 1 if (f1 - f0) > 0.5 else 0
-        arcs.append(f'<path d="M {x0:.2f} {y0:.2f} A {r:.2f} {r:.2f} 0 {big} 1 '
+        # large-arc-flag is ALWAYS 0: the whole dial is a semicircle, so no band
+        # can sweep more than 180 degrees. The first cut set it from the band's
+        # fraction of the scale (>0.5), which is a different quantity — ADX's
+        # 25-60 band is 58% of the scale but only 105 degrees of arc, and the
+        # flag sent SVG the long way round, painting a detached wedge outside
+        # the gauge. Fraction of scale is not sweep.
+        arcs.append(f'<path d="M {x0:.2f} {y0:.2f} A {r:.2f} {r:.2f} 0 0 1 '
                     f'{x1:.2f} {y1:.2f}" fill="none" stroke="{col}" '
                     f'stroke-width="9" stroke-linecap="butt"/>')
         prev = bound
@@ -348,12 +353,12 @@ def gauge(value: float | None, caption: str, *, lo: float = 0.0, hi: float = 100
     needle = centre = ""
     if value is not None:
         frac = (float(value) - lo) / span
-        nx, ny = _pt(frac, r - 13)
+        nx, ny = _pt(frac, r - 20)
         fg = TOKENS["text"]
         needle = (f'<line x1="{cx:.2f}" y1="{cy:.2f}" x2="{nx:.2f}" y2="{ny:.2f}" '
                   f'stroke="{fg}" stroke-width="2.5" stroke-linecap="round"/>'
                   f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="3.5" fill="{fg}"/>')
-        centre = (f'<text x="{cx:.2f}" y="{cy - 14:.2f}" text-anchor="middle" '
+        centre = (f'<text x="{cx:.2f}" y="{cy - 22:.2f}" text-anchor="middle" '
                   f'font-family="{MONO}" font-size="17" font-weight="700" '
                   f'fill="{fg}">{fmt.format(value)}</text>')
 
@@ -368,6 +373,69 @@ def gauge(value: float | None, caption: str, *, lo: float = 0.0, hi: float = 100
         f'{"".join(arcs)}{needle}{centre}</svg>'
         f'{verdict_html}{na_html}'
         f'<div class="tb-micro" style="margin-top:2px;">{caption}</div></div>'
+    )
+
+
+def range_spectrum(low: float, high: float, price: float, *,
+                   marks: "list[tuple[float, str]] | None" = None,
+                   lo_label: str = "52W Low", hi_label: str = "52W High",
+                   cur: str = "₹") -> str:
+    """Where price sits inside a range, as a red-to-green gradient bar.
+
+    The one thing the two 52-week numbers in the valuation strip cannot show:
+    POSITION. "463-865, now 706" is three numbers to hold in your head; the bar
+    is one glance. It is the same information, not new information, which is why
+    it carries no verdict of its own.
+
+    Colour runs red at the low end to green at the high end. That is a
+    convention about POSITION IN RANGE, not a recommendation: near the high is
+    green because it means strength, and this desk's own B-19 walk-forward put
+    52-Week High Leaders at -0.51% @20d, so green here is emphatically not
+    "buy". The caller's caption carries that.
+
+    `marks` adds reference ticks as [(price, label), ...] — support, resistance,
+    an entry. Marks outside the range are dropped rather than clamped: a clamped
+    tick sits on the end cap and reads as though it were AT the extreme.
+    """
+    if not all(isinstance(v, (int, float)) for v in (low, high, price)):
+        return ""
+    if not (high > low):
+        return ""
+    span = high - low
+    pos = max(0.0, min(1.0, (price - low) / span)) * 100.0
+
+    tick_html = ""
+    for mp, label in (marks or []):
+        if not isinstance(mp, (int, float)) or not (low <= mp <= high):
+            continue
+        f = (mp - low) / span * 100.0
+        tick_html += (
+            f'<div style="position:absolute;left:{f:.2f}%;top:-15px;transform:translateX(-50%);'
+            f'font-size:9px;color:{TOKENS["text_muted"]};white-space:nowrap;">{label}</div>'
+            f'<div style="position:absolute;left:{f:.2f}%;top:0;width:2px;height:14px;'
+            f'background:{TOKENS["text_muted"]};transform:translateX(-50%);"></div>'
+        )
+
+    return (
+        f'<div style="margin:22px 0 4px 0;">'
+        f'  <div style="position:relative;height:14px;border-radius:7px;'
+        f'       background:linear-gradient(90deg,{TOKENS["risk"]} 0%,'
+        f'       {TOKENS["accent"]} 45%,{TOKENS["good"]} 100%);">'
+        f'    {tick_html}'
+        f'    <div style="position:absolute;left:{pos:.2f}%;top:50%;'
+        f'         transform:translate(-50%,-50%);width:16px;height:16px;'
+        f'         border-radius:50%;background:{TOKENS["surface"]};'
+        f'         border:3px solid {TOKENS["text"]};box-sizing:border-box;"></div>'
+        f'    <div style="position:absolute;left:{pos:.2f}%;top:-17px;'
+        f'         transform:translateX(-50%);font-family:{MONO};font-size:11px;'
+        f'         font-weight:700;color:{TOKENS["text"]};white-space:nowrap;">'
+        f'      {cur}{price:,.2f}</div>'
+        f'  </div>'
+        f'  <div style="display:flex;justify-content:space-between;margin-top:5px;">'
+        f'    <span class="tb-micro">{lo_label} {cur}{low:,.2f}</span>'
+        f'    <span class="tb-micro">{hi_label} {cur}{high:,.2f}</span>'
+        f'  </div>'
+        f'</div>'
     )
 
 

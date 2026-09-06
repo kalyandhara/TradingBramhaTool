@@ -2281,9 +2281,31 @@ def render_momentum_meter(df: "pd.DataFrame") -> None:
                      bands=[(30, "risk"), (70, "neutral"), (100, "good")])
     g_adx = rs.gauge(adx_v, "ADX 14", verdict=adx_word, hi=60.0,
                      bands=[(20, "absent"), (25, "warn"), (60, "good")])
+    # 52-week position under the dials. RSI and ADX say how price is MOVING;
+    # this says WHERE it is. Both are the same kind of read - descriptive, no
+    # verdict - so they share one card rather than being split by a heading.
+    close = df["close"].astype(float)
+    win = close.tail(252)
+    lo52, hi52 = float(win.min()), float(win.max())
+    price = float(close.iloc[-1])
+    # Nearest swing levels from the same window, as reference ticks. Taken from
+    # the recent extremes rather than a pivot detector: this bar is orientation,
+    # not a levels engine, and a second definition of "support" on this page
+    # would be one more thing that can silently disagree with the chart.
+    tail = close.tail(60)
+    marks = []
+    if len(tail) >= 20:
+        sup, res = float(tail.min()), float(tail.max())
+        if sup < price:
+            marks.append((sup, f"Sup {sup:,.0f}"))
+        if res > price:
+            marks.append((res, f"Res {res:,.0f}"))
+    spectrum = rs.range_spectrum(lo52, hi52, price, marks=marks)
+
     st.markdown(
         rs.card(f'<div style="display:flex;gap:26px;justify-content:center;'
-                f'align-items:flex-start;">{g_rsi}{g_adx}</div>'),
+                f'align-items:flex-start;">{g_rsi}{g_adx}</div>'
+                f'{spectrum}'),
         unsafe_allow_html=True,
     )
     st.caption(
@@ -2292,8 +2314,12 @@ def render_momentum_meter(df: "pd.DataFrame") -> None:
         "B-19's walk-forward put most single-indicator readings at or below a "
         "random-entry baseline, so neither dial implies an action. ADX measures "
         "trend STRENGTH and is direction-blind: a high reading is as consistent "
-        "with a strong downtrend as an uptrend. Read them beside the fundamental "
-        "block above, not merged into it."
+        "with a strong downtrend as an uptrend. The 52-week bar shows POSITION, "
+        "not direction — near the high is green because it means strength, but "
+        "B-19 measured 52-Week High Leaders at −0.51% @20d, so green there is "
+        "emphatically not 'buy'. Sup/Res ticks are the 60-day extremes, "
+        "orientation rather than a levels engine. Read all of it beside the "
+        "fundamental block above, not merged into it."
     )
 
 
@@ -5554,10 +5580,38 @@ if current_page == "Stock Analyzer":
             from_screener = None
             st.caption("Run the screener in Tab 1 to populate this list.")
     with col_b:
-        manual_symbol = st.text_input(
-            "Or enter any NSE symbol manually (no .NS suffix)",
-            value="" if from_screener else (sel_symbol or ""),
-        )
+        # Same live typeahead as the ribbon search, over the same
+        # symbol_directory index — so "what is a valid symbol" has ONE answer on
+        # this page and in the bar. Typing a company name resolves to its NSE
+        # code, which the plain box could never do: it took a code or nothing.
+        #
+        # It reports a pick rather than firing _symbol_jump: the ribbon's job is
+        # to NAVIGATE to the analyzer, and this box is already on it. Jumping
+        # would rerun the page to where it already is and drop the picked symbol.
+        manual_symbol = st.session_state.get("_sa_manual", "")
+        if _SYMSEARCH is not None:
+            st.caption("Or enter any NSE symbol manually (no .NS suffix)")
+            _picked = _SYMSEARCH(options=_symbol_payload(),
+                                 placeholder="Type a name or NSE code…",
+                                 key="sa_symsearch", default=None)
+            if isinstance(_picked, dict) and _picked.get("symbol"):
+                # Nonce-guarded like the ribbon: `picked` is the component's
+                # current VALUE and persists across reruns, so acting on it
+                # directly would re-select on every rerun and pin the page to
+                # one symbol.
+                if _picked.get("n") != st.session_state.get("_sa_pick_n"):
+                    st.session_state["_sa_pick_n"] = _picked["n"]
+                    st.session_state["_sa_manual"] = _picked["symbol"]
+                    st.rerun()
+            if manual_symbol:
+                st.caption(f"Selected **{manual_symbol}** — pick another to change it.")
+        else:
+            # Component missing is a packaging accident, not a reason to lose the
+            # ability to analyse an arbitrary symbol.
+            manual_symbol = st.text_input(
+                "Or enter any NSE symbol manually (no .NS suffix)",
+                value="" if from_screener else (sel_symbol or ""),
+            )
 
     symbol = (manual_symbol or from_screener or "").strip().upper()
 
