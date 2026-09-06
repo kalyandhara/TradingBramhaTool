@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-06] docs | Hidden Treasures caption carries B-34r4's number, not B-34's
+- Code: `dashboard_app` (Hidden Treasures caption), commit `d6c9dd7`. Updated: [[analyses/Open-Backlog]] (B-34r4).
+- The page still advertised **"+2.5% @60d (p=0.22)"** — the exact figure B-34r4 retracted as a drifting-promoter-window artefact. The one place a reader actually meets this lane was quoting the bug.
+- Now reads **−0.12% @60d (p=0.94) / +0.20% @120d (p=0.94)**, cites **B-34r4** rather than B-34, and states that the old number was the artefact — so a reader who remembers +2.5% sees where it went instead of assuming a typo.
+- Small change, but it is the difference between a desk that measured a null and a desk that *shows* one. The correction was only in the wiki until now.
+
 ## [2026-09-05] build | B-34r5 - the red-flag gate becomes a mark; the Hidden Treasures thread closes
 - Code: `dashboard_app` (veto default OFF, per-card flag marker). Updated: [[analyses/Open-Backlog]].
 - **Measured on the live scoring path, not the backtest:** ranking WITHOUT the veto, the first governance-flagged name lands at rank **128 of 249** (Smallcap-250) and **60 of 250** (Microcap-250). The page's "Show top N" maxes at 100, so the gate could reach **at most one visible name, usually none**.

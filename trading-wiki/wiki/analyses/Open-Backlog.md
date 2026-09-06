@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-09-02
+updated: 2026-09-06
 sources: 0
 related:
   - analyses/Open-Backlog-2026-08-02.md
@@ -725,6 +725,13 @@ That also explains B-34r3's near-zero measured effect. It is not useless — the
 is informative on the page, and it protects a thin universe where 25 names might otherwise
 be scraped from the bottom — but it should not be described as improving the shortlist,
 because on this evidence it cannot.
+
+**Shipped 2026-09-06 — the Hidden Treasures page now carries this number.** The caption
+still advertised B-34's "+2.5% @60d (p=0.22)", i.e. the figure this item retracted, so the
+one place a reader actually meets the lane was quoting the artefact. It now reads
+−0.12% @60d (p=0.94) / +0.20% @120d (p=0.94), cites B-34r4 rather than B-34, and says why
+the old number was wrong — a reader who remembers +2.5% sees where it went instead of
+assuming a typo. `tools/dashboard_app.py`, commit `d6c9dd7`.
 
 ### ~~B-34r5~~ · Gate or display? — **MEASURED → display. SHIPPED 2026-09-05**
 
