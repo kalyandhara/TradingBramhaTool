@@ -1,6 +1,15 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-06] build | claims_lint figure patterns tightened — 28 hits → 14, all real
+- Code: `tools/claims_lint.py` (FIGURES split into ALWAYS / CONTEXTUAL + FIGURE_EXCLUDE + `_dedupe`).
+- **The rule that did the work: an inequality states a RULE, an equality states an OUTCOME, and only outcomes go stale.** Widening the p-pattern to `p<0.05` pulled in ~15 lines and every one was a table legend ("* = Welch p<0.05 vs baseline") or a **pre-registered pass bar** ("promote only if lift >= 1.3 AND p < 0.01"). A threshold set BEFORE a run cannot be invalidated by its result — flagging pre-registration would have punished the exact practice this desk is trying to keep. Matches `p =` only.
+- **Bare %/pp figures now need measurement vocabulary within ±55 chars** (horizon, edge, baseline, significance, B-NN) and no disqualifying shape. The window, not the whole string, is the unit: a long docstring mentions a horizon *somewhere*, and judging a number by something 40 lines away is how a filter stops filtering.
+- **Exclusions, each a real false positive:** `-0.00%` (two modules arguing how a flat day should RENDER), "-3.2%" quoted as formatter output, ew_module's 38.2-61.8% Fibonacci zone, scanner_templates' `>= -0.1%` slope floor.
+- **A drop that was better than expected:** `newmoon_levels_backtest:183`'s "+7.1%" was an f-string FORMAT SPEC (`{diff:+7.1%}`), never a figure. I had classified it as a true hit by eye; the gate was right and I was wrong.
+- Also deduped on (file, line) — "−0.12% @60d (p=0.94)" matched on both the percentage and the p-value and was reported twice, which makes the total meaningless, and the total is the number a person reads.
+- **Result: 14 figure hits, every one a genuine claim about a measurement.** Promises section unchanged at 11.
+
 ## [2026-09-06] build | `claims_lint.py` — the code-side sibling of wiki_lint §9
 - Code: **`tools/claims_lint.py`** (new). Run: `python tools/claims_lint.py`.
 - **The gap it closes:** wiki_lint §9 catches wiki phrases that go false when CODE ships. Nothing caught code phrases that go false when a BACKTEST ships — and a docstring cannot fail a test. Three such claims were found by hand this week (HT caption quoting the retracted +2.5%, `smallcap_discovery`'s "UNMEASURED … until then", `gamma_exposure` still calling itself a vol-regime input after B-44r retired it). All were prose written BEFORE a measurement and never revisited AFTER it.

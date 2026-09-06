@@ -84,16 +84,62 @@ PROMISES = [
     r"once (?:this|it) (?:is|has been) measured",
 ]
 
-#: Figures that look authoritative. Deliberately broad: a false positive costs
-#: one glance, a false negative costs a wrong number on the page for a day.
-FIGURES = [
-    r"\bp ?= ?0\.\d+",
-    r"\bp_rot\b ?[=:]? ?0?\.\d+",
+#: A REPORTED p-value is never anything but a claim about a measurement, so
+#: these match unconditionally.
+#:
+#: `=` only, deliberately NOT `<` or `≤`. Widening to `p<0.05` pulled in ~15
+#: lines on the 2026-09-06 tightening pass, and every one was a table legend
+#: ("* = Welch p<0.05 vs baseline") or a PRE-REGISTERED pass bar ("promote only
+#: if lift >= 1.3 AND p < 0.01"). Those are the opposite of a stale claim: a
+#: threshold set before the run cannot be invalidated by the result, and
+#: pre-registration is the practice this desk is trying to keep. An inequality
+#: states a rule; an equality states an outcome. Only outcomes go stale.
+#:
+#: A result written with ≤ (opportunity_daily's "−1 to −2.2%, p≤0.05") is not
+#: lost — it still surfaces through its percentage under the contextual rules.
+FIGURES_ALWAYS = [
+    r"\bp ?= ?0?\.\d+",
+    r"\bp_rot\b ?[=:] ?0?\.\d+",
+    r"\bhit rate of \d",
+    r"\b\d+\.\d+ ?% @ ?\d+ ?d\b",
+]
+
+#: A bare percentage or pp figure is ambiguous — as likely to be a threshold, a
+#: Fibonacci level, or a worked rendering example as a result. These match ONLY
+#: with measurement vocabulary nearby (CONTEXT) and no disqualifying shape in
+#: the window (FIGURE_EXCLUDE).
+FIGURES_CONTEXTUAL = [
     r"[+\-−]\d+\.\d+ ?%",
     r"[+\-−]?\d+\.\d+ ?pp\b",
-    r"\bhit rate of \d",
-    r"\b\d+\.\d+% @ ?\d+d",
 ]
+
+#: Vocabulary that turns a number into a claim about the future: horizons
+#: ("@60d", "at 5/10/20d"), significance, and the words this desk reaches for
+#: when it reports a study.
+CONTEXT = re.compile(
+    r"\bp ?[=≤<] ?0?\.\d"
+    r"|\bp_rot\b|\bwelch\b|\brotation\b"
+    r"|@ ?\d+ ?d\b|\bat \d+(?:/\d+)+ ?d\b"
+    r"|\bedge\b|\blift\b|\balpha\b|\bhit rate\b|\bhit%"
+    r"|\bbacktest\b|\bharness\b|\bforward\b|\bbaseline\b"
+    r"|\bmeasured\b|\bsignifican|\btercile\b|\bmedian\b|\bp25\b|\bp75\b"
+    r"|\bper trade\b|\bquantile\b|\bB-\d+",
+    re.I,
+)
+
+#: Shapes that carry measurement vocabulary by coincidence and still are not
+#: claims. Every one was a real false positive on the 2026-09-06 first run:
+#: `-0.00%` in two modules arguing how a flat day should RENDER; peer_comparison
+#: and dashboard_app quoting "-3.2%" as example formatter output; ew_module's
+#: 38.2-61.8% Fibonacci retracement zone; scanner_templates' ">= -0.1%" slope
+#: floor. Prose about numbers, and constants that were never measured.
+FIGURE_EXCLUDE = re.compile(
+    r"[+\-−]?0\.00 ?%"
+    r"|\b(?:23\.6|38\.2|50\.0|61\.8|78\.6)\b"
+    r"|[≥≤><]=? ?[+\-−]?\d+\.\d+ ?%"
+    r"|\brenders?\b|\brendering\b|\bformatter\b|\bformat(?:ted|s)?\b",
+    re.I,
+)
 
 SUPPRESS = re.compile(r"#\s*claims-lint:\s*checked\s+\S+")
 
@@ -138,7 +184,16 @@ def _suppressed(path: pathlib.Path) -> set[int]:
     return {i for i, ln in enumerate(lines, 1) if SUPPRESS.search(ln)}
 
 
-def _scan(paths: list[pathlib.Path], pats: list[str]) -> list[tuple[str, int, str]]:
+def _scan(paths: list[pathlib.Path], pats: list[str],
+          gated: bool = False) -> list[tuple[str, int, str]]:
+    """Report (file, line, snippet) for each pattern hit.
+
+    With ``gated``, a hit survives only if its ±55-char window carries
+    measurement vocabulary (CONTEXT) and no disqualifying shape
+    (FIGURE_EXCLUDE). The window, not the whole string, is the unit: a long
+    docstring will mention a horizon somewhere, and judging a number by
+    something 40 lines away is how a filter stops filtering.
+    """
     rx = [re.compile(p, re.I) for p in pats]
     found: list[tuple[str, int, str]] = []
     for path in paths:
@@ -160,11 +215,30 @@ def _scan(paths: list[pathlib.Path], pats: list[str]) -> list[tuple[str, int, st
                 if not m:
                     continue
                 lo = max(0, m.start() - 55)
-                snip = text[lo:m.end() + 55].replace("\n", " ").strip()
-                snip = re.sub(r"\s+", " ", snip)
+                window = text[lo:m.end() + 55]
+                if gated and (not CONTEXT.search(window)
+                              or FIGURE_EXCLUDE.search(window)):
+                    continue
+                snip = re.sub(r"\s+", " ", window.replace("\n", " ")).strip()
                 found.append((path.name, lineno, snip))
                 break
     return found
+
+
+def _dedupe(rows: list[tuple[str, int, str]]) -> list[tuple[str, int, str]]:
+    """One row per (file, line), keeping the longest snippet.
+
+    Two patterns hitting the same caption at different offsets is the normal
+    case — "−0.12% @60d (p=0.94)" matches on the percentage and again on the
+    p-value. Reporting it twice makes the total meaningless, and the total is
+    the number a person actually reads.
+    """
+    best: dict[tuple[str, int], tuple[str, int, str]] = {}
+    for name, lineno, snip in rows:
+        cur = best.get((name, lineno))
+        if cur is None or len(snip) > len(cur[2]):
+            best[(name, lineno)] = (name, lineno, snip)
+    return [best[k] for k in sorted(best)]
 
 
 def _report(title: str, note: str, rows: list[tuple[str, int, str]]) -> None:
@@ -211,7 +285,8 @@ def main(argv: list[str]) -> int:
         "superseded figure is trusted MORE than a stale promise. Silence one "
         "with a trailing `# claims-lint: checked B-NNx` naming what you checked "
         "it against.",
-        _scan(paths, FIGURES),
+        _dedupe(_scan(paths, FIGURES_ALWAYS)
+                + _scan(paths, FIGURES_CONTEXTUAL, gated=True)),
     )
 
     print()
