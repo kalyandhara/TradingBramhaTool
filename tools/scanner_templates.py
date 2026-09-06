@@ -6270,6 +6270,183 @@ def scan_vwap_reclaim(df: pd.DataFrame,
     }
 
 
+def scan_vwap_mean_reversion(df: pd.DataFrame,
+                             vwap_n: int = 20,
+                             band_k: float = 2.0,
+                             dev_vol_mult: float = 1.5,
+                             conf_vol_mult: float = 1.2,
+                             max_excursion: int = 15,
+                             min_target_pct: float = 0.5) -> dict | None:
+    """Two-sided VWAP mean reversion with volume in BOTH roles (B-40m).
+
+    The "VWAP Mean Reversion + Volume" rule: price deviates far from VWAP on
+    EXTREME volume, rejects, and reverts to VWAP on RISING volume.  The mirror of
+    ``scan_vwap_reclaim``'s question -- that one asks whether a trend is resuming
+    at its mean, this one asks whether a stretch away from the mean is snapping
+    back.
+
+    -- What makes it a different scanner, not a re-skin ------------------------
+    ``scan_vwap_reclaim`` (B-40) is long-only, with-trend, and uses volume as a
+    participation FLOOR.  Here volume is the signal twice over:
+
+      * ``dev_vol_mult``  -- the deviation extreme must come on heavy volume, or
+        the stretch is drift rather than capitulation and there is nothing to
+        snap back;
+      * ``conf_vol_mult`` -- the reversal bar must ALSO be heavy, because a
+        reversion on falling volume is the failure case the rule exists to skip.
+
+    Neither existing VWAP tool can express that pair, which is the whole reason
+    this one was written.
+
+    -- Daily bars measure a DIFFERENT claim, and that is deliberate ------------
+    Natively this is intraday: session VWAP needs many bars inside one session.
+    On daily bars a session VWAP collapses to the bar's own (H+L+C)/3 (measured
+    24 of 24 on daily RELIANCE), so this uses the ROLLING ``vwap_n``-day VWAP --
+    the same mean ``scan_vwap_reclaim`` settled on after an anchored VWAP proved
+    to sit too far below price to ever be touched.  ``tools/vwap_mean_reversion.js``
+    runs the identical rule on the chart and reports ``source: 'session'`` intraday
+    vs ``'rolling'`` on daily+, so the two never get conflated.
+
+    -- Gates ------------------------------------------------------------------
+      1. An excursion is open: some bar within the last ``max_excursion`` closed
+         at least ``band_k`` dispersions beyond VWAP.
+      2. The LAST bar closes back inside the band -- the reversal candle.
+      3. That candle agrees with the direction (up-close and above yesterday for
+         a long; the mirror for the bearish read).
+      4. Volume at the excursion extreme >= ``dev_vol_mult`` x its trailing 20d.
+      5. Volume on the reversal bar >= ``conf_vol_mult`` x its trailing 20d.
+      6. The trip back to VWAP is worth >= ``min_target_pct``.
+
+    Dispersion, not stdev of close: the band has to answer "how far from VWAP is
+    far for this symbol lately".  Stdev of close would measure the TREND, and the
+    bands would go untouched in exactly the trending conditions where a reversion
+    trade is most dangerous.
+
+    -- Direction --------------------------------------------------------------
+    The bearish side fires as a *stretched-above-VWAP* read.  It is tagged and
+    scored, but described as a name to trim or avoid rather than a short to put
+    on -- the same stance ``scan_distribution`` takes, and the same one this desk
+    takes generally on cash equity.
+
+    UNMEASURED.  Shipped with the chart module so both can go through
+    ``backtest_scanner`` as one rule; two VWAP-derived rules have already measured
+    null here (EVWMA/VWAP MACD crossovers outright, ``scan_vwap_reclaim`` still
+    open), so it grades nothing until its own number exists.
+    """
+    need = vwap_n + 20 + 2
+    if len(df) < need:
+        return None
+
+    close = df["close"].astype(float)
+    high  = df["high"].astype(float)
+    low   = df["low"].astype(float)
+    vol   = df["volume"].astype(float)
+
+    vwap = _rolling_vwap(df, vwap_n)
+    if not np.isfinite(float(vwap.iloc[-1])):
+        return None
+
+    # Dispersion of close around VWAP over the same window.
+    dev = close - vwap
+    sigma = dev.rolling(vwap_n).apply(lambda w: float(np.sqrt(np.mean(w ** 2))), raw=True)
+    s_now = float(sigma.iloc[-1])
+    if not np.isfinite(s_now) or s_now <= 0:
+        return None
+
+    # Trailing 20-bar volume average EXCLUDING the bar being judged -- comparing a
+    # bar's volume to an average containing it dilutes the very spike being tested.
+    vol_avg = vol.shift(1).rolling(20).mean()
+
+    z = dev / sigma
+    z_now = float(z.iloc[-1])
+    if not np.isfinite(z_now) or abs(z_now) >= band_k:
+        return None                      # still outside the band: not back yet
+
+    # Walk back for the excursion this bar just closed.
+    ext_i = None
+    ext_z = 0.0
+    ext_price = None
+    side = 0
+    for k in range(2, min(max_excursion, len(df) - 1) + 2):
+        zk = float(z.iloc[-k])
+        if not np.isfinite(zk):
+            break
+        if abs(zk) < band_k:
+            break                        # excursion started after this bar
+        d = 1 if zk < 0 else -1
+        if side == 0:
+            side = d
+        elif d != side:
+            break                        # flipped sides mid-excursion
+        if abs(zk) > abs(ext_z):
+            ext_z, ext_i = zk, -k
+            ext_price = float(low.iloc[-k]) if d == 1 else float(high.iloc[-k])
+
+    if ext_i is None or side == 0:
+        return None
+
+    c_now, c_prev = float(close.iloc[-1]), float(close.iloc[-2])
+    o_now = float(df["open"].astype(float).iloc[-1])
+    agrees = ((c_now > o_now and c_now > c_prev) if side == 1
+              else (c_now < o_now and c_now < c_prev))
+    if not agrees:
+        return None
+
+    va_ext = float(vol_avg.iloc[ext_i])
+    va_now = float(vol_avg.iloc[-1])
+    if not (np.isfinite(va_ext) and va_ext > 0 and np.isfinite(va_now) and va_now > 0):
+        return None
+    dev_x  = float(vol.iloc[ext_i]) / va_ext
+    conf_x = float(vol.iloc[-1]) / va_now
+    if dev_x < dev_vol_mult or conf_x < conf_vol_mult:
+        return None
+
+    v_now = float(vwap.iloc[-1])
+    target_pct = (v_now - c_now) / c_now * 100.0 if c_now > 0 else 0.0
+    if abs(target_pct) < min_target_pct:
+        return None
+
+    bars_out = -ext_i - 1
+    bull = side == 1
+    label = "below VWAP (long)" if bull else "above VWAP (trim)"
+    score = int(min(100, 55
+                    + min(abs(ext_z) - band_k, 2.0) * 8      # how stretched it got
+                    + min(dev_x, 3.0) * 5                    # capitulation volume
+                    + min(conf_x, 2.5) * 4))                 # confirmation volume
+
+    return {
+        "pattern_type": "VWAP Mean Reversion",
+        "tags": ["VWAP", "mean-reversion", f"VWAP{vwap_n}",
+                 "long" if bull else "bearish", f"{abs(ext_z):.1f}sigma"],
+        "reasons": [
+            f"Stretched {abs(ext_z):.1f}σ {label} then closed back inside the "
+            f"±{band_k:.1f}σ band; extreme bar {bars_out}d ago on {dev_x:.1f}×20d "
+            f"volume, reversal bar on {conf_x:.1f}×20d. VWAP{vwap_n} {v_now:.2f} "
+            f"vs close {c_now:.2f} — {target_pct:+.1f}% back to the mean.",
+            ("⚠ Unmeasured — this scanner has not been through the backtest harness"
+             if bull else
+             "Bearish side is a trim/avoid read, not a short to put on."),
+        ],
+        "score_base": score,
+        "score": score,
+        "direction": "long" if bull else "bearish",
+        # entry/stop/target as a complete plan, so backtest_scanner runs its
+        # R-multiple simulation instead of forward returns alone. For a rule
+        # whose whole thesis is "the trip back to the mean", R is the honest
+        # measure and a raw 60d forward return is not.
+        "entry": round(c_now, 2),
+        "vwap": round(v_now, 2),
+        "z": round(z_now, 2),
+        "dev_z": round(ext_z, 2),
+        "dev_vol_x": round(dev_x, 2),
+        "conf_vol_x": round(conf_x, 2),
+        "target": round(v_now, 2),
+        "target_pct": round(target_pct, 2),
+        "stop": round(ext_price, 2) if ext_price is not None else None,
+        "time_stop": 10,
+    }
+
+
 def scan_rsi_band_momentum(df: pd.DataFrame,
                             rsi_lo: float = 50.0,
                             rsi_hi: float = 68.0) -> dict | None:
@@ -7239,6 +7416,25 @@ SCANNERS: dict[str, dict] = {
             "exhaustion exits where heavy selling volume reverses before price "
             "fully recovers. Three gates: MFI crosses 20 from below + up-day "
             "confirmation + volume ≥ 20-day average."
+        ),
+        "category": "Entry",
+    },
+    "VWAP Mean Reversion": {
+        "fn": scan_vwap_mean_reversion,
+        "description": (
+            "Two-sided VWAP mean reversion with volume in BOTH roles (B-40m). Price "
+            "stretches ≥2σ from the rolling 20-day VWAP on EXTREME volume (≥1.5×20d at "
+            "the extreme), then closes back inside the band on a reversal candle with "
+            "RISING volume (≥1.2×20d). Target is the VWAP itself; stop sits beyond the "
+            "excursion extreme the market already rejected. Distinct from VWAP "
+            "Reclaim/Support, which is long-only, with-trend, and treats volume as a "
+            "floor — a reversion on FALLING volume is the failure case this rule exists "
+            "to skip, and no other scanner here can express that. The bearish side is a "
+            "trim/avoid read, not a short. Natively an intraday rule; on daily bars the "
+            "rolling VWAP measures a different claim, which `vwap_mean_reversion.js` "
+            "reports as source='rolling' so the two are never conflated. UNMEASURED — "
+            "has not been through the backtest harness, and two VWAP-derived rules have "
+            "already measured null on this desk."
         ),
         "category": "Entry",
     },

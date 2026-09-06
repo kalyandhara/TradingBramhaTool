@@ -451,6 +451,12 @@ def evwma_vwap_macd_js():
                                mimetype="application/javascript")
 
 
+@app.route("/vwap_mean_reversion.js")
+def vwap_mean_reversion_js():
+    return send_from_directory(HERE, "vwap_mean_reversion.js",
+                               mimetype="application/javascript")
+
+
 @app.route("/renko.js")
 def renko_js():
     return send_from_directory(HERE, "renko.js", mimetype="application/javascript")

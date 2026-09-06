@@ -40,6 +40,8 @@
 <script src="/adx_di.js"></script>
 <!-- EVWMA/VWAP MACD oscillator + BUY/SELL crossovers — port of QuantNomad's Pine v4 strategy, see evwma_vwap_macd.js -->
 <script src="/evwma_vwap_macd.js"></script>
+<!-- Two-sided VWAP mean-reversion BUY/SELL (band excursion + double volume gate) -->
+<script src="/vwap_mean_reversion.js"></script>
 <!-- Renko brick structure drawn ON the candles (never instead of them) — causal ATR-epoch brick sizing, see renko.js -->
 <script src="/renko.js"></script>
 <!-- HM Bottoms & Tops (Hilega Milega, reworked) oscillator plug-in — pure computation, see hm_indicator.js -->
@@ -1282,6 +1284,7 @@ const INDICATOR_DEFS = [
   {key:'ema200',    label:'EMA (200)',         group:'Moving Averages', color:'#e91e63'},
   {key:'vwap',      label:'VWAP (session · intraday only)', group:'Moving Averages', color:'#ffd60a'},
   {key:'avwap',     label:'Anchored VWAP (last major swing low)', group:'Moving Averages', color:'#ff8a65'},
+  {key:'vwmr',      label:'VWAP Mean Reversion ±σ bands + BUY/SELL', group:'Moving Averages', color:'#7c4dff', alias:'vwap mean reversion revert band deviation sigma volume confirmation buy sell signal'},
   {key:'mabias',    label:'MA Bias (9/20 cross · 50/200 regime) + card',
                                                group:'Moving Averages', color:'#4c9aff'},
   {key:'bollinger', label:'Bollinger (20, 2)', group:'Trend & Bands', color:'#9aa4af'},
@@ -3253,6 +3256,9 @@ function applyIndicators(pane) {
   // Same for the EVWMA/VWAP MACD crossover arrows mirrored onto the candles —
   // the sub-pane teardown below removes the oscillator, not the price markers.
   if (!pane.indicators.has('evmacd')) setPaneMarkers(pane, 'evmacd', null);
+  // VWAP mean-reversion arrows are a marker source too, so they need the same
+  // explicit clear - removeIndicatorSeries only takes the three band lines.
+  if (!pane.indicators.has('vwmr')) setPaneMarkers(pane, 'vwmr', null);
   // Renko draws a step line (torn down by removeIndicatorSeries) plus merged flip
   // markers, which have to be cleared explicitly like every other marker source.
   if (!pane.indicators.has('renko')) { setPaneMarkers(pane, 'renko', null); clearRenkoState(pane); }
@@ -3284,6 +3290,11 @@ function applyIndicators(pane) {
       case 'ema200': pane.indSeries[key] = addLine(pane, def.color); break;
       case 'vwap':   pane.indSeries[key] = addLine(pane, def.color); break;
       case 'avwap':  pane.indSeries[key] = addLine(pane, def.color, 2); break;
+      case 'vwmr':   pane.indSeries[key] = [
+        addLine(pane, def.color, 2),        // the mean itself
+        addLine(pane, def.color, 1, 2),     // +k sigma
+        addLine(pane, def.color, 1, 2),     // -k sigma
+      ]; break;
       case 'volume': {
         // Volume rides ON the price chart rather than in its own sub-pane, the
         // way every trading platform draws it — bars sit under the candles they
@@ -3389,6 +3400,29 @@ function applyIndicators(pane) {
       case 'bollinger': {
         const {mid, upper, lower} = bollingerSeries(bars, 20, 2);
         s[0].setData(mid); s[1].setData(upper); s[2].setData(lower);
+        break;
+      }
+      case 'vwmr': {
+        // The mean and its bands are the drawing; the arrows are the claim. Both
+        // come from one VWMR.compute so the chart can never show a band the
+        // signals were not derived from.
+        const mr = (typeof VWMR !== 'undefined')
+          ? VWMR.compute(bars, {tf: pane.tf}) : null;
+        if (!mr || mr.insufficient) {
+          s[0].setData([]); s[1].setData([]); s[2].setData([]);
+          setPaneMarkers(pane, 'vwmr', null);
+          break;
+        }
+        s[0].setData(mr.vwap); s[1].setData(mr.upper); s[2].setData(mr.lower);
+        // Deliberately NOT stop-and-reverse, unlike evmacd: each signal is one
+        // reversion trade that ends at the mean, so an arrow is an entry and
+        // nothing else. The bearish arrow says TRIM, not SHORT — the scanner
+        // registry takes the same stance and this desk trades cash equity.
+        setPaneMarkers(pane, 'vwmr', mr.signals.map(sig => sig.dir === 1
+          ? {time: sig.time, position: 'belowBar', color: '#7c4dff', shape: 'arrowUp',
+             text: 'BUY ' + sig.targetPct.toFixed(1) + '%'}
+          : {time: sig.time, position: 'aboveBar', color: '#b388ff', shape: 'arrowDown',
+             text: 'TRIM ' + sig.targetPct.toFixed(1) + '%'}));
         break;
       }
       case 'donchian': {
