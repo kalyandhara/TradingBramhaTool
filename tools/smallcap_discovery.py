@@ -12,9 +12,13 @@ DELIBERATELY SMALL, high-conviction list — the opposite of the top-layer funne
 Reads from ownership_cache (pure disk). Names not yet cached are skipped; run
 `backfill()` (or `python smallcap_discovery.py --backfill`) once to warm them.
 
-UNMEASURED: every weight below is a prior. The B-34 test is a forward hit-rate
-study of this ranking vs a Smallcap-250 benchmark — until then it's a discovery
-lens, not an edge.
+MEASURED, AND THE ANSWER IS NO EDGE. Every weight below is still a prior, but the
+B-34 forward hit-rate study has now been run three times. With the promoter window
+bounded (B-34r4) the ranking sits at −0.12% @60d (p=0.94) / +0.20% @120d (p=0.94)
+against a Smallcap-250 benchmark — at or below a random pick from the same universe.
+B-34's original +2.51% / +6.29% was an artefact of a promoter lookback that lengthened
+as the cache deepened. What survives is COVERAGE: this lane surfaces small/micro-caps
+the large-cap funnel structurally cannot see. Do not describe the ranking as an edge.
 
   from smallcap_discovery import discover
   hits = discover(limit=25)

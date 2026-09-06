@@ -41,6 +41,23 @@ That assumption is the single biggest source of error, it is a US-equity-market 
 model, and NSE's participant mix is not the US one. If the regime split measures as a
 null, suspect THIS before suspecting the mechanism — see `gamma_regime_backtest.py`.
 
+── RETIRED AS A RESEARCH INSTRUMENT (B-44r, 2026-09-05) ───────────────────────
+It DID measure null, and the suspicion above was then tested rather than left standing.
+B-44: the regime split moved forward vol by +0.28 / +0.24 / −0.40 pp at 5/10/20d
+(p_rot 0.84 / 0.83 / 0.67), wrong sign at the longest horizon. B-44r re-ran the whole
+thing under the OPPOSITE convention (both sides short, using `gross_gex_cr`) and the
+pre-registered direction came back INVERTED — and mechanically so, because BS gamma
+carries 1/sigma, so high vol produces low gamma and vol clusters. Stratifying kills
+what remains: the effect lives only in the high-trailing-vol tercile and flips sign in
+the low one.
+
+Both conventions have now been tested and NEITHER carries forward-vol information on
+NSE indices. This module still runs and still prints an honest daily description of
+the open book — that is all it is for. It is NOT a volatility-regime input, it does
+not sit next to the RISK-ON/RISK-OFF gate, and the scope note above describing it as
+such predates the measurement. The remaining gap is per-strike dealer inventory, which
+is data this repo does not have — not another assumption about it.
+
 ── Two units facts, both measured rather than assumed ────────────────────────
 1. `OpnIntrst` is in **index units, not lots**. Measured on 2026-08-28 NIFTY: 868 of 936
    non-zero OI values are exact multiples of the 65 lot size, and the total (550,300,680)
