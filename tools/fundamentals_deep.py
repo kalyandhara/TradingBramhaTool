@@ -402,6 +402,51 @@ def _period_ends(df: "pd.DataFrame | None") -> list[str]:
     return out
 
 
+#: Days after fiscal year end before audited annual results are public. SEBI
+#: LODR gives listed companies 60 days for audited annual results, so a FY
+#: ending 31-Mar is not knowable until roughly end-May. Using the year end
+#: itself would hand a backtest two months of hindsight on every entry.
+ANNUAL_FILING_LAG_DAYS = 60
+
+
+def fcf_negative_streak_as_of(deep: dict[str, Any], as_of,
+                              lag_days: int = ANNUAL_FILING_LAG_DAYS):
+    """(streak, n_years_known) using only annual years PUBLISHED by `as_of`.
+
+    This is the whole point of keeping `fcf_years`: without the labels a caller
+    holds five FCF numbers and cannot say which were public on a given date, so
+    a point-in-time test is impossible and any backtest using the series is
+    quietly reading the future (B-34r2).
+
+    Returns (None, 0) when nothing was published yet, which callers must treat
+    as "unknown" - NOT as clean. `as_of` is a date or datetime.
+    """
+    import datetime as _dt
+    hist = deep.get("fcf_history") or []
+    years = deep.get("fcf_years") or []
+    if not hist or not years or len(years) < len(hist):
+        return None, 0
+    if isinstance(as_of, _dt.datetime):
+        as_of = as_of.date()
+    known = []
+    for val, ye in zip(hist, years):          # both newest-first
+        try:
+            end = _dt.date.fromisoformat(ye)
+        except Exception:
+            continue
+        if end + _dt.timedelta(days=lag_days) <= as_of:
+            known.append(val)
+    if not known:
+        return None, 0
+    streak = 0
+    for v in known:                            # newest-first: count the run
+        if v is not None and v < 0:
+            streak += 1
+        else:
+            break
+    return streak, len(known)
+
+
 def _ocf_series(stmts: dict[str, Any]) -> list[float | None]:
     """Operating cash flow per year, newest first — the Filter-2 numerator."""
     ocf = _row(stmts.get("cashflow"), _OCF)

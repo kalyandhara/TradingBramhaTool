@@ -660,9 +660,39 @@ Two implementation notes worth keeping:
   it the full 12 would have been harsher than the source module's own reading. Caught on
   SUNTV, a one-year dip: 50.9 → 56.9 once it took the watch 6 instead.
 
-**Still open:** whether FCF *should* veto remains unanswered rather than answered — the
-demotion is a judgement made because the test was impossible, not because the test came
-back negative. A point-in-time fundamentals store would let it be settled properly.
+**The blocker is gone — the test is now possible (2026-09-05).** `fundamentals_deep` was
+calling `.tolist()` on statement rows and discarding the frame's column dates, so
+`fcf_history` was five numbers with no way to say which years they covered. `_period_ends()`
+keeps them as **`fcf_years` / `shares_years`**, aligned by position, and
+`fcf_negative_streak_as_of(deep, as_of)` counts only years published by a given date —
+fiscal year end plus **60 days** (SEBI LODR's deadline for audited annual results, so a
+31-Mar year end is not knowable until roughly end-May).
+
+No new source and no scraping was needed: the labels were already in the yfinance payload
+being thrown away. A commercial site was offered and declined — scraping today's page still
+would not give history *as it was known then*, which is the only thing that makes this test
+honest.
+
+**The look-ahead was real, and is now measured rather than asserted.** SAILIFE, the name the
+original veto removed from the top of the list:
+
+| as of | streak | years known |
+|---|---|---|
+| 2024-09-30 | **0** | 3 |
+| 2025-09-30 | **1** | 4 |
+| 2026-09-05 | **2** | 5 |
+
+Today's payload reports streak 2. Vetoing SAILIFE at a September-2024 entry — exactly what
+the live gate did before the demotion — used a fact that was not public for another two
+years.
+
+An *unknown* streak is neither a veto nor a pass: symbols with no cash-flow frame, or with
+nothing filed by the entry date, carry no FCF verdict at all. Same principle as FR-4's
+NOT_CHECKED.
+
+**Edge measurement RUNNING** (`--fcf-veto`, and `--gov-veto --fcf-veto`, both against the
+bounded score so they compare with the −0.12% / +0.20% no-veto arm). Numbers to follow;
+until they land the demotion stands as a judgement, not a measured result.
 
 ### B-34r2 · original framing *(2026-09-05)*
 
