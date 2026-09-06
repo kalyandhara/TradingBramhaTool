@@ -3724,9 +3724,31 @@ def scan_liquidity_sweep(df: pd.DataFrame, max_bars_ago: int = 3,
     sellers" read. Target is the nearest buy-side pool above, falling back to
     2R when no equal-highs cluster is overhead.
 
-    Unmeasured: this scanner has not been through ``analyses/Backtest-Harness``.
-    The claim to test is a sweep-reversal against a matched *clean* break, which
-    is the event study the backlog asks for — not whether it wins in isolation.
+    MEASURED 2026-09-06 (B-41m) -- the best result on this desk, and its own plan
+    does not harvest it.  1400 signals on LIQUID_50: **+0.51% @20d (p=0.005) and
+    +0.91% @60d (p=0.002), NET of Indian delivery costs**.  Walk-forward over 3
+    windows is sign-stable at 10d, 20d and 60d (3/3 positive at each), against
+    B-19's 0/41 stable -- though B-19 never covered this scanner, so it is a gap
+    filled rather than a contradiction.
+
+    Two caveats carry equal weight with that headline:
+
+    * **The magnitude lives in two windows of three.**  Window 2 reads +0.03 /
+      +0.06 / +0.12 -- indistinguishable from zero.  The SIGN is stable, the SIZE
+      is not, and degradation confirms it (pooled +1.16 @60d vs a best window of
+      +1.70).
+    * **The shipped stop/target converts the edge to nothing: +0.23R gross,
+      +0.06R after costs**, win 39.2%, target hit 549 times against stop 842.
+      The signal carries forward information; this plan throws it away.
+
+    Widening the stop after seeing which stop lost would be fitting the plan to
+    its own answer, so it is NOT done here.  That needs a pre-registered test, the
+    way B-43r was written before it ran.  A lead, not a graded entry -- left at
+    unmeasured weight in ``opportunity_hub`` rather than promoted, because +0.06R
+    is what trading it as shipped actually returns.
+
+    The claim still untested is the one this docstring always named: a
+    sweep-reversal against a matched *clean* break, rather than against every bar.
     """
     got = _sweep_common(df, "bullish", max_bars_ago, pivot_len, eq_tol_pct, min_touches)
     if got is None:
@@ -3788,7 +3810,7 @@ def scan_liquidity_sweep(df: pd.DataFrame, max_bars_ago: int = 3,
          else f"⚠ Market structure {struct_state} — sweep is counter-structure"),
         f"Trade plan — entry {last:.0f} · stop {stop:.0f} · target {target:.0f} "
         f"(R:R {(target - last) / risk:.1f})",
-        "⚠ Unmeasured — this scanner has not been through the backtest harness",
+        "⚠ B-41m: +0.51% @20d (p=0.005) net of costs, walk-forward stable — but the plan returns +0.06R",
     ]
     return {
         "pattern_type": "Bullish Liquidity Sweep",

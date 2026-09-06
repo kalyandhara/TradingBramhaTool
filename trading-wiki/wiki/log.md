@@ -1,6 +1,16 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-06] measure | B-41m — Liquidity Sweep is the desk's best result, and its own plan does not harvest it
+- Code: `scanner_templates` (docstring + card reason). Updated: [[analyses/Open-Backlog]] (**B-41m**).
+- **The first positive of the day, so it got the most scepticism.** 1400 signals, LIQUID_50: **+0.51% @20d (p=0.005), +0.91% @60d (p=0.002), NET of Indian delivery costs.** Nothing else measured this session survives costs.
+- **Walk-forward, 3 windows: MIXED — sign-stable at 10d, 20d, 60d (3/3 positive each).** Against B-19's **0/41 stable** that is the strongest stability recorded here. B-19 never covered this scanner, so it fills a gap rather than contradicting anything.
+- **Two caveats carry equal weight with the headline.** (1) The magnitude lives in two windows of three — window 2 is +0.03/+0.06/+0.12, indistinguishable from zero; the SIGN is stable, the SIZE is not, and degradation confirms it (pooled +1.16 @60d vs best window +1.70). (2) **The shipped stop/target converts the edge to nothing: +0.23R gross, +0.06R after costs**, win 39.2%, target hit 549 against stop 842.
+- **The obvious fix is the one thing deliberately NOT done.** Widening the stop after seeing which stop lost is fitting the plan to its own answer. That needs pre-registration, the way B-43r was written before it ran. Recorded as the open question.
+- **Not promoted.** Left at unmeasured weight in `opportunity_hub` rather than moved to MEASURED_EDGE, because +0.06R is what trading it as shipped actually returns. A lead — the best one here — not a graded entry.
+- **Bear arm:** 1471 signals, negative at every horizon (−0.16/−0.18/−0.32/−0.56), p 0.11–0.06. Right direction for a bearish signal, no significance. **No R line — it emits `entry` and `stop` but `target=None`**, a real gap in the scanner. This also corrects my earlier claim that both arms carried a full plan: the regex found the key, not that its value was None.
+- **`scanner_templates` now has ZERO promissory claims** — every scanner states its measured result or its genuine absence of one.
+
 ## [2026-09-06] fix | claims_lint sweep of merged master — 3 false claims, and a corroboration nobody had joined up
 - Code: `scanner_templates` (FVG Pullback + ICT Setup docstrings and card reasons; VWAP Mean Reversion card reason). Updated: [[analyses/Open-Backlog]] (B-40).
 - **Three claims were false, not merely aged.** FVG Pullback and ICT Setup both still said "has not been through the backtest harness" — **B-19 measured both on 2026-09-02**, four days earlier (FVG +0.11%/−0.37% POSITIVE-UNSTABLE; ICT −0.36%/−1.24% NO EDGE). And VWAP Mean Reversion's card still printed "⚠ Unmeasured" — **stale within the hour**, since B-40m measured it the same afternoon.

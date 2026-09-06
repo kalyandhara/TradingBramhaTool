@@ -1201,6 +1201,65 @@ prop-desk toolset converges on. See [[concepts/Order-Flow]].
 > stack that could plausibly supply trade-side data; establish whether it does, and whether
 > any NSE path exists, first.
 
+### ~~B-41m~~ · Liquidity Sweep measured — **2026-09-06: the desk's best result, and its plan does not harvest it**
+
+B-41 shipped the detector; nothing had ever measured it. B-19's batch never covered
+it (no `Liquidity_Sweep` file in `cache/b19_verdicts/`), so its docstring correctly
+still said "not been through the backtest harness" — the one such claim of three
+that survived this morning's sweep.
+
+**Bullish arm, 1400 signals, LIQUID_50:**
+
+| horizon | hit% | edge gross | p | edge net | p |
+|---|---|---|---|---|---|
+| 5d | 53.3 | +0.12 | 0.23 | +0.13 | 0.19 |
+| 10d | 56.1 | +0.25 | 0.062 | +0.26 | 0.056 |
+| 20d | 57.5 | **+0.50** | **0.0065** | **+0.51** | **0.0053** |
+| 60d | 64.1 | **+0.87** | **0.0032** | **+0.91** | **0.0022** |
+
+**It survives costs**, which nothing else measured this session does.
+
+**Walk-forward (3 windows, ~29bps) — MIXED, stable at 10/20/60d:**
+
+| window | signals | 5d | 10d | 20d | 60d |
+|---|---|---|---|---|---|
+| 1 | 400 | +0.31 | +0.47 | +0.51 | **+1.42*** |
+| 2 | 404 | −0.15 | +0.03 | +0.06 | +0.12 |
+| 3 | 603 | +0.24 | +0.36 | **+1.00*** | **+1.70*** |
+| OOS | 1407 | +0.15 | +0.29 | +0.59 | +1.16 |
+
+Sign-consistent 3/3 at 10d, 20d and 60d. **Against B-19's 0/41 stable, that is the
+strongest stability this desk has recorded** — and B-19 never tested this scanner,
+so it is a gap being filled, not a contradiction.
+
+> [!key-insight] Two things stop this being called an edge, and both matter
+> **1. The magnitude lives in two windows of three.** Window 2 is +0.03 / +0.06 /
+> +0.12 — indistinguishable from zero. The SIGN is stable; the SIZE is not.
+> Degradation confirms it: pooled +1.16 @60d against a best window of +1.70, a
+> −0.54 gap. Part of this is period, not signal.
+>
+> **2. Its own trade plan converts the edge to nothing.** R expectancy is +0.23R
+> gross and **+0.06R after costs**, on win% 39.2 with target hit 549 times against
+> stop 842. The signal carries forward information and the shipped stop/target
+> throws it away — the stop is hit three times for every two targets.
+
+**The obvious fix is the one thing not done here.** Widening the stop after seeing
+which stop lost is fitting the plan to its own answer. If the levels are worth
+revisiting it needs a pre-registered test, the way B-43r was written before it ran.
+Recorded as the open question, deliberately unanswered.
+
+**Bearish arm — 1471 signals, negative at every horizon** (−0.16 / −0.18 / −0.32 /
+−0.56 gross), p 0.11 / 0.19 / 0.084 / 0.063. Scored as forward LONGS, so negative is
+the direction a bearish signal should point, but nothing reaches significance.
+Suggestive, not established. **No R line: it emits `entry` and `stop` but
+`target=None`**, so the harness correctly reports no plan — a real gap in the
+scanner, not a harness limitation.
+
+**Verdict: a LEAD, and the desk's best one.** Not promoted to MEASURED_EDGE, which
+requires an edge the plan can actually harvest. Left at unmeasured weight in
+`opportunity_hub` rather than upgraded, because the honest reading of +0.06R is that
+trading it as shipped returns nothing.
+
 ### ~~B-41 · No liquidity-sweep / stop-hunt detector — the missing third of the SMC stack~~ — **CLOSED 2026-09-02** *(2026-08-27)*
 Zero occurrences of `liquidity sweep`, `stop hunt`, or `equal highs/lows` in `tools/`.
 We ship FVG Pullback, Order Block Retest and ICT Setup — **two-thirds of the ICT
