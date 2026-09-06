@@ -6328,11 +6328,24 @@ def scan_vwap_mean_reversion(df: pd.DataFrame,
     on -- the same stance ``scan_distribution`` takes, and the same one this desk
     takes generally on cash equity.
 
-    UNMEASURED.  Shipped with the chart module so both can go through
-    ``backtest_scanner`` as one rule; two VWAP-derived rules have already measured
-    null here (EVWMA/VWAP MACD crossovers outright, ``scan_vwap_reclaim`` still
-    open), so it grades nothing until its own number exists.
-    """
+    MEASURED 2026-09-06 (B-40m) -- NULL, AND NEGATIVE AFTER COSTS.  50 symbols,
+    275 signals: forward edge +0.19% at both 5d and 10d (p 0.51 / 0.57), which is
+    where a 10-bar reversion trade actually lives.  The R-multiple sim traded as
+    written -- enter on confirmation, target VWAP, stop beyond the rejected
+    extreme -- returns **+0.04R gross and -0.19R at Indian delivery costs**, on
+    116 long-side plans hitting target 50 times against stop 53.  A coin flip at
+    1:1.
+
+    The +1.54% at 60d (p=0.053) is recorded as a TRAP, not a result: it sits far
+    outside the holding period, so it measures drift rather than this rule.
+
+    Kept as a chart/coverage read, not a trigger.  This is the third VWAP-derived
+    rule to measure null here (EVWMA/VWAP MACD crossovers outright; only
+    ``scan_vwap_reclaim`` is still open), which is consistent enough to state:
+    on NSE daily bars VWAP is context, not a trigger.  Testing the playbook's
+    ACTUAL intraday claim needs a session-VWAP store this repo does not have --
+    a data gap, not a parameter to tune.
+    """  # claims-lint: checked B-40m
     need = vwap_n + 20 + 2
     if len(df) < need:
         return None
@@ -7432,9 +7445,10 @@ SCANNERS: dict[str, dict] = {
             "to skip, and no other scanner here can express that. The bearish side is a "
             "trim/avoid read, not a short. Natively an intraday rule; on daily bars the "
             "rolling VWAP measures a different claim, which `vwap_mean_reversion.js` "
-            "reports as source='rolling' so the two are never conflated. UNMEASURED — "
-            "has not been through the backtest harness, and two VWAP-derived rules have "
-            "already measured null on this desk."
+            "reports as source='rolling' so the two are never conflated. MEASURED "
+            "(B-40m): +0.19% edge at 5d and 10d (p 0.51/0.57) and the traded rule returns "
+            "+0.04R gross, −0.19R after Indian delivery costs. A chart and coverage read, "
+            "NOT a trigger — third VWAP rule to measure null here."  # claims-lint: checked B-40m
         ),
         "category": "Entry",
     },

@@ -64,10 +64,17 @@
  *
  * Bar shape: {time, open, high, low, close, volume}
  *
- * UNMEASURED as a trigger. Shipped alongside `scan_vwap_mean_reversion` so it can
- * go through `backtest_scanner` — see B-40m. Two VWAP rules have already measured
- * null on this desk; this one is drawn on the chart as CONTEXT until its own
- * number exists.
+ * MEASURED 2026-09-06 (B-40m) — NULL, AND NEGATIVE AFTER COSTS. 275 signals over
+ * 50 symbols: +0.19% forward edge at 5d and 10d (p 0.51 / 0.57), and the rule
+ * traded as written returns +0.04R gross, −0.19R at Indian delivery costs, with
+ * target hit 50 times against stop 53. The +1.54% at 60d (p=0.053) is a trap —
+ * it sits far outside the holding period and measures drift, not this rule.
+ *
+ * So these arrows are drawn as CONTEXT, not calls. The bands remain a real read
+ * ("how stretched is this, for this symbol, lately"); the entries do not beat a
+ * coin flip. Third VWAP-derived rule to measure null on this desk. The playbook's
+ * actual INTRADAY claim is untested — that needs a session-VWAP store this repo
+ * does not have, which is a data gap and not a parameter to tune.
  */
 (function (global) {
   'use strict';

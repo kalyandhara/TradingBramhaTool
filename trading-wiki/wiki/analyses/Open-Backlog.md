@@ -335,6 +335,71 @@ is about the *reclaim/pullback-hold* event on a rolling 20-day VWAP, a different
 rule — but it is a second data point that VWAP-derived **crossovers** are context,
 not triggers, and the reclaim scanner should be measured expecting the same.
 
+### ~~B-40m~~ · VWAP mean reversion + volume — **BUILT + MEASURED 2026-09-06 → NULL, NEGATIVE AFTER COSTS**
+
+Prompted by a "VWAP Mean Reversion + Volume" playbook card. The rule: price deviates
+far from VWAP on EXTREME volume, rejects, and reverts to the mean on RISING volume.
+Long below VWAP, short above, exit at VWAP.
+
+**Nothing here could express it, which is why it was worth building.** `evmacd` fires
+when price pulls AWAY from the volume anchor — the opposite trigger, and already dead
+(B-40's adjacent result). `scan_vwap_reclaim` is long-only, with-trend, and treats
+volume as a participation floor. What is new is the **double volume role**: capitulation
+volume marking the deviation, then rising volume confirming the turn. A reversion on
+falling volume is the failure case the rule exists to skip, and no existing tool could
+say that.
+
+**Shipped as one rule in two places** so it could be graded rather than admired:
+`tools/vwap_mean_reversion.js` (chart bands + BUY/TRIM arrows) and
+`scan_vwap_mean_reversion` (registry #45). Both report which VWAP they used —
+`session` intraday, `rolling` on daily+ — because those are different claims.
+
+**Forward returns (50 symbols, 275 signals, ~1500 bars each):**
+
+| horizon | hit% | edge% | p |
+|---|---|---|---|
+| 5d | 54.9 | +0.19 | 0.51 |
+| 10d | 53.5 | +0.19 | 0.57 |
+| 20d | 56.0 | +0.72 | 0.14 |
+| 60d | 62.9 | +1.54 | **0.053** |
+
+**The 60d number is a trap and is recorded as one.** The rule targets VWAP — 3-6% away,
+10-bar time stop — so its claim lives at 5-10d, where the edge is +0.19% at p≈0.5. An
+edge that appears only well beyond the holding period is drift, not the rule.
+
+**The R-multiple sim is the decisive test, and it settles it:**
+
+| | expectancy | win% | target / stop / time |
+|---|---|---|---|
+| gross | **+0.04R** | 43.1 | 50 / 53 / 13 |
+| Indian delivery ~29bps | **−0.19R** | 43.1 | 50 / 53 / 13 |
+
+n=116 (long side only; the sim is long-only and the bearish half is a trim read anyway).
+Target hit 50 times, stop 53 — a coin flip at ~1:1. Gross expectancy is zero with a
+rounding error; **realistic NSE costs make it a losing rule.**
+
+**Third VWAP-derived rule measured to nothing on this desk.** EVWMA/VWAP MACD crossovers
+outright (2026-08-29), this one now; `scan_vwap_reclaim` remains the one unmeasured VWAP
+claim. The pattern is consistent enough to state: **on NSE daily bars VWAP is context,
+not a trigger.**
+
+**The honest limitation, which is a DATA gap and not a parameter to tune.** The playbook
+rule is natively intraday against a session VWAP. On daily bars a session VWAP collapses
+to the bar's own (H+L+C)/3, so what was measured is the rolling-VWAP variant — labelled
+`source: 'rolling'` in both implementations precisely so the two are never conflated.
+Testing the poster's actual claim needs an intraday store this repo does not have. That
+is the same wall B-40 hit and the same one the intraday lane was explicitly scoped out
+over; **it is not re-opened by this result.**
+
+**Kept, not deleted.** The bands are a genuine chart read — "how stretched is this, for
+this symbol, lately" — and the scanner is honest coverage of a setup the funnel has no
+other way to see. What is retired is any claim that it triggers.
+
+**Cross-implementation checking earned its keep.** The JS trailing volume average summed
+19 bars over a divisor of 20, inflating every multiplier ~5% and firing a TATASTEEL
+signal the Python correctly rejected. Neither implementation looked wrong alone; they
+only disagreed. They now agree signal-for-signal on RELIANCE / TATASTEEL / DLF.
+
 ### ~~B-43~~ · Renko / time-independent chart engine — ✅ **BUILT + MEASURED 2026-08-29 → CLEAN NULL**
 `grep -ri renko tools/` returns **nothing**. Every chart type and every scanner in this
 repo is time-sampled (candles, Heikin Ashi), so the whole family of price-sampled charts

@@ -1,6 +1,18 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-06] build+measure | B-40m — VWAP mean reversion + volume: built, measured, NULL (negative after costs)
+- Code: **`tools/vwap_mean_reversion.js`** (new, chart bands + BUY/TRIM arrows), **`scan_vwap_mean_reversion`** (registry #45), chart_server route, chart_dashboard wiring. Updated: [[analyses/Open-Backlog]] (**B-40m**).
+- **Asked for by the owner off a playbook card.** The rule: price deviates far from VWAP on EXTREME volume, rejects, reverts on RISING volume. Nothing here could express it — `evmacd` fires on price pulling AWAY from the anchor (opposite trigger, already dead), `scan_vwap_reclaim` is long-only/with-trend with volume as a floor. The new thing is the **double volume role**, and a reversion on falling volume is the failure case the rule exists to skip.
+- **Forward returns (50 symbols, 275 signals):** +0.19% @5d (p=0.51), +0.19% @10d (p=0.57), +0.72% @20d (p=0.14), +1.54% @60d (p=0.053).
+- **The 60d number is logged as a TRAP, not a result.** The rule targets VWAP 3-6% away on a 10-bar time stop, so its claim lives at 5-10d. An edge appearing only far outside the holding period measures drift, not the rule. Attaching `entry` so the harness ran its R sim was the step that made this legible.
+- **R-multiple settles it: +0.04R gross, −0.19R at Indian delivery costs** (n=116 long-side plans, target hit 50 / stop 53 / time 13). A coin flip at 1:1 that loses money once you pay to trade it.
+- **Third VWAP-derived rule to measure null on this desk** (EVWMA/VWAP MACD crossovers outright; only `scan_vwap_reclaim` still open). Consistent enough to state: **on NSE daily bars VWAP is context, not a trigger.**
+- **Kept, not deleted.** Bands are a real read of how stretched a name is; the arrows are drawn as context. What is retired is the claim that they trigger.
+- **Cross-implementation checking caught a bug neither side showed alone.** The JS trailing volume average summed 19 bars over a divisor of 20, inflating every multiplier ~5% and firing a TATASTEEL signal Python correctly rejected. They now agree signal-for-signal on RELIANCE / TATASTEEL / DLF. Building the same rule twice is expensive; it also found the defect.
+- **The limitation is DATA, not tuning.** The playbook rule is natively intraday against a session VWAP, which on daily bars collapses to (H+L+C)/3. What was measured is the rolling-VWAP variant, labelled `source: 'rolling'` in both implementations so they are never conflated. Testing the real claim needs an intraday store this repo does not have — the same wall B-40 hit; **not re-opening the intraday lane.**
+- **`claims_lint` immediately earned itself back:** the scanner shipped saying UNMEASURED, and hours later that was false. Docstring, registry description and JS header all updated to the measured verdict and marked `# claims-lint: checked B-40m`.
+
 ## [2026-09-06] build | claims_lint figure patterns tightened — 28 hits → 14, all real
 - Code: `tools/claims_lint.py` (FIGURES split into ALWAYS / CONTEXTUAL + FIGURE_EXCLUDE + `_dedupe`).
 - **The rule that did the work: an inequality states a RULE, an equality states an OUTCOME, and only outcomes go stale.** Widening the p-pattern to `p<0.05` pulled in ~15 lines and every one was a table legend ("* = Welch p<0.05 vs baseline") or a **pre-registered pass bar** ("promote only if lift >= 1.3 AND p < 0.01"). A threshold set BEFORE a run cannot be invalidated by its result — flagging pre-registration would have punished the exact practice this desk is trying to keep. Matches `p =` only.
