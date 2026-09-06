@@ -3607,7 +3607,14 @@ def scan_fvg_pullback(df: pd.DataFrame, max_bars_ago: int = 3) -> dict | None:
     guaranteed precisely when it is unwanted. Requiring the close back above the
     zone trades only gaps that held, at the cost of a worse average price.
 
-    Unmeasured: this scanner has never been through ``analyses/Backtest-Harness``.
+    MEASURED in B-19's batch walk-forward (2026-09-02, LIQUID_50, 3 windows,
+    Indian delivery ~29bps): **+0.11% @20d, -0.37% @60d on 1731 signals --
+    "POSITIVE EDGE [UNSTABLE]"**.  Positive at 20d, negative at 60d, and unstable
+    across windows, so it is not a graded entry: the honest read is that the setup
+    is not distinguishable from the baseline once costs and window variation are
+    paid.  (This docstring said "never been through the harness" for four days
+    after B-19 ran -- the drift `claims_lint` exists to catch.)
+
     The separate question of whether gaps fill at all — the "market magnet"
     claim — is measured by ``fvg_fill_study.py``, which is a different question
     from whether this entry makes money.
@@ -3662,7 +3669,7 @@ def scan_fvg_pullback(df: pd.DataFrame, max_bars_ago: int = 3) -> dict | None:
          else "⚠ Displacement volume unconfirmed — weaker gap"),
         f"Trade plan — entry {last:.0f} · stop {stop:.0f} · target {target:.0f} "
         f"(R:R {(target - last) / risk:.1f})",
-        "⚠ Unmeasured — this scanner has not been through the backtest harness",
+        "⚠ B-19 walk-forward: +0.11% @20d, −0.37% @60d — positive but UNSTABLE",
     ]
     return {
         "pattern_type": "Bullish FVG Pullback",
@@ -3884,7 +3891,10 @@ def scan_ict_setup(df: pd.DataFrame, pivot_len: int = 5,
     Stop: below the OTE zone low (same side as the FVG stop).
     Target: the next BSL pool, proxied by the rolling 40-bar swing high.
 
-    Unmeasured — has not been through the backtest harness.
+    MEASURED in B-19's batch walk-forward (2026-09-02): **-0.36% @20d,
+    -1.24% @60d on 158 signals -- "NO EDGE [UNSTABLE]"**.  Negative at both
+    horizons on a thin signal count.  Kept as a structured way to express the ICT
+    read, not as a graded entry.
     """
     if df is None or len(df) < pivot_len * 4 + 40:
         return None
@@ -3943,7 +3953,7 @@ def scan_ict_setup(df: pd.DataFrame, pivot_len: int = 5,
         f"FVG overlap confirmed inside OTE: {fvg_zone_label}",
         f"Trade plan — entry ₹{last:.0f} · stop ₹{stop:.0f} · target ₹{target:.0f} "
         f"(R:R {rr}×) · BSL proxy = 40-bar high",
-        "⚠ Unmeasured — this scanner has not been through the backtest harness",
+        "⚠ B-19 walk-forward: −0.36% @20d, −1.24% @60d — NO EDGE, unstable",
     ]
     score = 55.0 + 20.0 * min(br / 0.8, 1.0) + (15.0 if fvg_overlap else 0.0)
 
@@ -6465,7 +6475,7 @@ def scan_vwap_mean_reversion(df: pd.DataFrame,
             f"±{band_k:.1f}σ band; extreme bar {bars_out}d ago on {dev_x:.1f}×20d "
             f"volume, reversal bar on {conf_x:.1f}×20d. VWAP{vwap_n} {v_now:.2f} "
             f"vs close {c_now:.2f} — {target_pct:+.1f}% back to the mean.",
-            ("⚠ Unmeasured — this scanner has not been through the backtest harness"
+            ("⚠ Measured NULL (B-40m) — +0.04R gross, −0.19R after costs"
              if bull else
              "Bearish side is a trim/avoid read, not a short to put on."),
         ],

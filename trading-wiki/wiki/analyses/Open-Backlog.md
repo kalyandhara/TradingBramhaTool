@@ -335,6 +335,15 @@ statistically solid number this desk has produced on a VWAP rule in either
 direction. Net of Indian delivery costs the hit rate is under 50% at 5/10/20d and
 the median return is negative at all three.
 
+> [!key-insight] Independently corroborated by B-19, which nobody had connected
+> B-19's batch walk-forward (2026-09-02, LIQUID_50, 3 windows, ~29bps) already had
+> VWAP Reclaim/Support at **−0.58% @20d / −0.93% @60d on 2706 signals, "NO EDGE
+> [UNSTABLE]"**. Today's run measured −0.45% @20d on 2745 signals through a
+> different harness. **Two independent measurements, same sign, similar magnitude** —
+> which raises confidence in the negative well above what one run supports. The B-19
+> number was sitting in `cache/b19_verdicts/` for four days and nobody joined it to
+> this item; `claims_lint` surfaced it while sweeping for stale claims.
+
 **Two things explain the shape, and both were foreseeable from this item's own
 notes.** It fires 2745 times against VWAP Mean Reversion's 275, so the gates are
 loose — "a stock in an uptrend near its mean" rather than an event — which is also

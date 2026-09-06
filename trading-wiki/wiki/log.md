@@ -1,6 +1,14 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-06] fix | claims_lint sweep of merged master — 3 false claims, and a corroboration nobody had joined up
+- Code: `scanner_templates` (FVG Pullback + ICT Setup docstrings and card reasons; VWAP Mean Reversion card reason). Updated: [[analyses/Open-Backlog]] (B-40).
+- **Three claims were false, not merely aged.** FVG Pullback and ICT Setup both still said "has not been through the backtest harness" — **B-19 measured both on 2026-09-02**, four days earlier (FVG +0.11%/−0.37% POSITIVE-UNSTABLE; ICT −0.36%/−1.24% NO EDGE). And VWAP Mean Reversion's card still printed "⚠ Unmeasured" — **stale within the hour**, since B-40m measured it the same afternoon.
+- **The card `reasons` were the real find.** Those strings render on the scanner card in the UI, so the false claim was reaching the surface a user actually reads — not just a docstring. Fixing the docstring alone would have missed them; the lint scans every string constant, which is why it caught both halves.
+- **One claim left standing on purpose:** `scan_liquidity_sweep` is genuinely absent from B-19's table, so its "not been through the harness" is still TRUE. Checked rather than blanket-replaced — the anchor string was shared with FVG's, and a careless global replace would have written a false measurement onto an unmeasured scanner.
+- **Corroboration nobody had joined up:** B-19 already had **VWAP Reclaim at −0.58% @20d / −0.93% @60d on 2706 signals**. Today's B-40 run measured −0.45% @20d on 2745 through a different harness. **Two independent measurements, same sign, similar magnitude** — that raises confidence in the negative well above one run. The number had been sitting in `cache/b19_verdicts/` for four days.
+- **Lint on merged master: 12 promissory + 18 figures.** Now 10 + 18; the figures are all current and backlog-checked.
+
 ## [2026-09-06] measure | B-43r — the Renko flip under a trend filter is significantly WORSE, not better
 - Code: **`tools/renko_regime_study.py`** (new, pre-registered). Updated: [[analyses/Open-Backlog]] (**B-43r**).
 - **Owner's hypothesis, from watching the chart:** flips look convincing when momentum trends and worthless sideways, so a trend filter should recover B-43's missing edge. Tested properly rather than argued about.
