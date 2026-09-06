@@ -4573,13 +4573,14 @@ if current_page == "Hidden Treasures":
     with _ht_c2:
         _ht_enrich = st.checkbox("Quality overlay (slower)", value=True, key="ht_enrich",
                                  help="Adds ROCE/OPM/D/E/Market Cap from yfinance — one call per name")
-        _ht_veto = st.checkbox("Red-flag veto", value=True, key="ht_veto",
+        _ht_veto = st.checkbox("Red-flag veto", value=False, key="ht_veto",
                                disabled=not _ht_enrich,
-                               help="Drop names where a VETOING critical check fired "
-                                    "(promoter selling, pledge, heavy dilution). Negative FCF "
-                                    "is a penalty, not a veto — B-34r2. "
-                                    "Needs the quality overlay — the checklist reads the same "
-                                    "fundamentals payload, so it costs no extra fetch.")
+                               help="OFF by default since B-34r5: measured across two "
+                                    "universes, the first governance-flagged name ranks "
+                                    "128th (Smallcap-250) and 60th (Microcap-250), so the "
+                                    "gate cannot reach a list of 100 or fewer. Flagged "
+                                    "names are MARKED in the cards instead. Turn it on to "
+                                    "drop them outright.")
     _ht_limit = st.slider("Show top N", min_value=5, max_value=100, value=25,
                            step=5, key="ht_limit")
     _kind_map = {
@@ -4611,9 +4612,16 @@ if current_page == "Hidden Treasures":
         # be visible. A silent exclusion is indistinguishable from a name that was
         # never in the universe, and this one drops a large minority of it.
         _ht_vetoed = _ht_res.get("vetoed") or []
+        _ht_marked = sum(1 for _h in _ht_res["hits"]
+                         if (_h.get("red_flags") or {}).get("vetoed"))
         if not _ht_res.get("veto_active"):
-            st.info("Red-flag veto is OFF — nothing below has been screened for "
-                    "critical flags. Ranking is by conviction score alone.", icon="ℹ️")
+            st.info(
+                f"Red-flag veto is OFF — flagged names are **marked, not removed** "
+                f"({_ht_marked} in this list). B-34r5 measured the gate as unable to "
+                f"reach a top-100: the score already costs −15 for promoter selling and "
+                f"−20 for pledge, so a flagged name does not rank that high. Removing "
+                f"them looked like protection the list was not actually getting.",
+                icon="ℹ️")
         elif _ht_vetoed:
             _ht_total = len(_ht_vetoed) + _ht_res["scanned"]
             st.warning(
@@ -4673,6 +4681,16 @@ if current_page == "Hidden Treasures":
                     _pd = _h.get("promoter_delta")
                     _prom_s = f'Prom {_pd:+.2f}pp' if _pd is not None else 'Prom —'
 
+                    # B-34r5: with the gate off, a flagged name stays in the list and
+                    # says so on its own card. The count in the banner is a summary;
+                    # this is what tells you WHICH name and WHY, at the point of use.
+                    _rf_h = _h.get("red_flags") or {}
+                    _flag_s = ""
+                    if _rf_h.get("vetoed"):
+                        _why = "; ".join(f["label"] for f in (_rf_h.get("veto_flags") or []))
+                        _flag_s = (f'<div style="font-size:11px;color:{rs.TOKENS["risk"]};'
+                                   f'font-weight:600;">⛔ {_why or "critical red flag"}</div>')
+
                     # Action icon row (same family as Scanner Hub cards)
                     _sym_clean = _sym.upper().replace(".NS", "")
                     def _ht_icon(href, glyph, tip, small=False):
@@ -4714,7 +4732,7 @@ if current_page == "Hidden Treasures":
                             f'<div style="margin-top:4px;font-size:11px;">'
                             f'FII+DII {_h["inst_delta"]:+.2f}pp · {_prom_s}'
                             f'</div>'
-                            f'{_qual_chips}{_mcap_s}{_pledge_s}',
+                            f'{_qual_chips}{_mcap_s}{_pledge_s}{_flag_s}',
                             emphasis=False),
                         unsafe_allow_html=True)
 
