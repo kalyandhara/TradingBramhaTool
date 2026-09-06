@@ -55,6 +55,36 @@ answer hard to obtain.
               MEASURED_EDGE — that needs the new plan measured on its own
               walk-forward, not on the sample that selected it.
 
+══ B-41w PRE-REGISTRATION — the follow-up B-41p's scope clause licensed ═════
+
+B-41p showed arm C (time-only) beats the shipped plan by +0.564R. Its scope
+clause allowed exactly one further pre-registered test, and this is it: **does
+arm C hold up across time, or does it live in one period?**
+
+That question is not answered by B-41p. Its bootstrap resamples SYMBOLS, so it
+speaks to cross-sectional robustness and says nothing about whether the effect is
+stable across eras. B-19's lesson is precisely that: 11 scanners showed positive
+pooled 20d edge and every one was unstable across windows.
+
+  TEST        split the trades CHRONOLOGICALLY into 3 equal windows (by trade
+              date, not by symbol), and compute arm C's mean R and the C-minus-A
+              improvement in each.
+
+  PASS BAR    arm C mean R > 0 in ALL THREE windows AND the C-A improvement
+              positive in all three. Sign consistency, matching the criterion
+              `backtest.walk_forward_scanner` already uses, so this verdict is
+              comparable to every other stability verdict on the desk.
+
+  PRIOR       C is positive in all three but the MAGNITUDE is uneven, because
+              B-41m's forward walk-forward had window 2 at +0.06% — near zero.
+              If window 2 comes back negative in R terms, that is the honest
+              answer and it downgrades B-41p from "the stop is the constraint" to
+              "the stop is the constraint in two eras of three".
+
+  SCOPE       A pass still does NOT promote the scanner. Arm C has uncapped
+              downside; a tradeable plan needs a risk control that is not a stop,
+              and that is a design question this test does not touch.
+
 ══ WHY NOT JUST SWEEP STOP MULTIPLES ════════════════════════════════════════
 Because that finds a winner every time. With ~1400 trades and a dozen stop
 settings, the best one clears p<0.05 by construction; the desk has already been
@@ -98,6 +128,7 @@ from __future__ import annotations
 
 import argparse
 import sys
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -151,6 +182,8 @@ def collect(symbols: list[str]) -> pd.DataFrame:
             continue
         if df is None or len(df) < WARMUP + HORIZON + 5:
             continue
+        dates = (df.index.astype(str).tolist() if not isinstance(df.index, pd.RangeIndex)
+                 else [""] * len(df))
         df = df.reset_index(drop=True)
         atr = sc._atr_series(df, ATR_N)
         last_eval = len(df) - HORIZON - 2
@@ -186,7 +219,7 @@ def collect(symbols: list[str]) -> pd.DataFrame:
             if r_a is None or r_b is None:
                 continue
             cost_r = (COST_BPS / 10000.0) * 2 * entry / a_risk   # in/out, in R
-            rows.append({"symbol": sym, "i": i,
+            rows.append({"symbol": sym, "i": i, "date": str(dates[i])[:10],
                          "A": r_a - cost_r, "B": r_b - cost_r, "C": r_c - cost_r})
         print(f"  [{si}/{len(symbols)}] {sym}: {len(rows)} trades so far", flush=True)
     return pd.DataFrame(rows)
@@ -204,6 +237,36 @@ def _boot_diff(df: pd.DataFrame, arm: str, rng: np.random.Generator):
     return float(np.percentile(diffs, 1.25)), float(np.percentile(diffs, 98.75))
 
 
+
+def walk_forward(df: pd.DataFrame, n_windows: int = 3) -> None:
+    """B-41w — arm C across chronological windows. See the pre-registration above."""
+    d = df.dropna(subset=["date"]).sort_values("date").reset_index(drop=True)
+    if len(d) < n_windows * 20:
+        print("too few dated trades for a walk-forward")
+        return
+    edges = np.array_split(np.arange(len(d)), n_windows)
+    print()
+    print(f"=== B-41w · arm C across {n_windows} chronological windows ===")
+    print(f"  {'window':>7} {'trades':>7} {'from':>11} {'to':>11} "
+          f"{'C mean R':>9} {'A mean R':>9} {'C-A':>8}")
+    c_pos, imp_pos = [], []
+    for w, idx in enumerate(edges, 1):
+        g = d.iloc[idx]
+        c, a_ = g["C"].mean(), g["A"].mean()
+        c_pos.append(c > 0)
+        imp_pos.append((c - a_) > 0)
+        print(f"  {w:>7} {len(g):>7} {g['date'].iloc[0]:>11} {g['date'].iloc[-1]:>11} "
+              f"{c:>+9.3f} {a_:>+9.3f} {c - a_:>+8.3f}")
+    ok = all(c_pos) and all(imp_pos)
+    print()
+    print(f"  arm C positive:    {sum(c_pos)}/{n_windows}")
+    print(f"  C beats A:         {sum(imp_pos)}/{n_windows}")
+    print("VERDICT:", "STABLE — C positive and ahead of A in every window"
+          if ok else
+          f"UNSTABLE — pre-registered bar not met "
+          f"(C positive {sum(c_pos)}/{n_windows}, ahead {sum(imp_pos)}/{n_windows})")
+
+
 def main() -> int:
     for st in (sys.stdout, sys.stderr):
         try:
@@ -212,11 +275,28 @@ def main() -> int:
             pass
     ap = argparse.ArgumentParser(description="B-41p: pre-registered sweep-plan test")
     ap.add_argument("--symbols", nargs="*")
+    ap.add_argument("--cache", type=Path,
+                    default=Path(__file__).resolve().parent / "cache" / "b41p_trades.csv")
+    ap.add_argument("--refresh", action="store_true", help="re-collect, ignoring cache")
+    ap.add_argument("--walk-forward", action="store_true",
+                    help="B-41w: arm C across 3 chronological windows")
     args = ap.parse_args()
 
     symbols = args.symbols or bt.LIQUID_50
-    print(f"B-41p — collecting trades over {len(symbols)} symbols...", flush=True)
-    df = collect(symbols)
+    # Collection is the whole cost of this study (one scanner call per bar per
+    # symbol). Cache it so any FURTHER pre-registered test on the same trades is
+    # free — which is the difference between a follow-up that gets run and one
+    # that gets talked about.
+    if args.cache.exists() and not args.refresh:
+        df = pd.read_csv(args.cache)
+        print(f"B-41p — {len(df)} cached trades from {args.cache}", flush=True)
+    else:
+        print(f"B-41p — collecting trades over {len(symbols)} symbols...", flush=True)
+        df = collect(symbols)
+        if not df.empty:
+            args.cache.parent.mkdir(parents=True, exist_ok=True)
+            df.to_csv(args.cache, index=False)
+            print(f"  cached {len(df)} trades -> {args.cache}", flush=True)
     if df.empty:
         print("no trades collected")
         return 1
@@ -242,6 +322,9 @@ def main() -> int:
             excl = "excludes 0" if (lo > 0 or hi < 0) else "includes 0"
             print(f"  {names[arm]:<40} {m:>+8.3f} {w:>6.1f}% {m - base:>+8.3f}  "
                   f"[{lo:+.3f}, {hi:+.3f}] {excl}")
+
+    if args.walk_forward:
+        walk_forward(df)
 
     print()
     passed = []
