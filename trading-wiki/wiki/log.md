@@ -1,6 +1,15 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-06] build | `claims_lint.py` — the code-side sibling of wiki_lint §9
+- Code: **`tools/claims_lint.py`** (new). Run: `python tools/claims_lint.py`.
+- **The gap it closes:** wiki_lint §9 catches wiki phrases that go false when CODE ships. Nothing caught code phrases that go false when a BACKTEST ships — and a docstring cannot fail a test. Three such claims were found by hand this week (HT caption quoting the retracted +2.5%, `smallcap_discovery`'s "UNMEASURED … until then", `gamma_exposure` still calling itself a vol-regime input after B-44r retired it). All were prose written BEFORE a measurement and never revisited AFTER it.
+- **Two sections:** promissory claims ("until then", "needs a backtest", "has not been through") and hardcoded figures (p-values, % edges, pp deltas) to be checked against [[analyses/Open-Backlog]] by a human.
+- **Parses with `ast`+`tokenize`, does not grep.** It sees only string constants and comments, so `st.number_input(..., step=0.5)` and slider bounds never appear — ~40 lines of noise removed without one exclusion pattern.
+- **The first run was the design input.** Bare "unmeasured"/"unvalidated" matched ~40 lines, every one CORRECT — this repo uses them as honest state labels. Dropped both: what dates itself is the promise of future work, not the admission of present ignorance. A lint that is mostly right is one you learn to skim, which is the exact failure being prevented. Now 11 + 28.
+- **Suppression names its evidence.** `# claims-lint: checked B-NNx` — there is no bare silencer, because "I looked at it once" is the state that produced the bug. Valid anywhere inside an implicitly-concatenated caption.
+- **Reports, does not fix, exit always 0.** Same principle as wiki_lint's `sources: N`: a number rewritten confidently by a script that cannot read the backlog is worse than the stale one. Also reconfigures stdout to UTF-8 — it quotes the prose it scans, and cp1252 killed it on a warning glyph on the first run, the same way it killed a finished 42-scanner `opportunity_daily` run.
+
 ## [2026-09-06] docs | Hidden Treasures caption carries B-34r4's number, not B-34's
 - Code: `dashboard_app` (Hidden Treasures caption), commit `d6c9dd7`. Updated: [[analyses/Open-Backlog]] (B-34r4).
 - The page still advertised **"+2.5% @60d (p=0.22)"** — the exact figure B-34r4 retracted as a drifting-promoter-window artefact. The one place a reader actually meets this lane was quoting the bug.
