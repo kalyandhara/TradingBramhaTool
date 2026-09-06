@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-06] build | VWAP Reclaim removed from the Opportunity Hub pipeline
+- Code: `opportunity_hub.PIPELINE_EXCLUDED` += "VWAP Reclaim/Support"; removed from MEASURED_WEAK; scanner docstring points at the exclusion. Updated: [[analyses/Open-Backlog]] (B-40).
+- **The quarter-weight demotion made an hour earlier was not enough.** WEIGHT_WEAK (0.25) still counts toward `FULL_CONFLUENCE`, so a detector measured significantly NEGATIVE could still help push a name onto the shortlist. Exclusion is the only setting that makes it contribute zero.
+- **Same enforcement Renko Flip gets under B-43, one step further along:** Renko was excluded for measuring NO edge; this measured a negative one, so letting it vote spends ranking weight *against* the ranking rather than merely wasting it.
+- **Removed from MEASURED_WEAK rather than left in both.** That list is for scanners that still vote; leaving a excluded name there is dead configuration that reads as if it were still scoring.
+- **Stays registered, visible and runnable in the Scanner Hub, and backtestable.** The measurement rules out a vote, not the view — and its anchored-VWAP-from-catalyst half (B-4/B-12) is a different mean, untouched.
+
 ## [2026-09-06] measure | B-40 CLOSED — VWAP Reclaim is significantly NEGATIVE; the VWAP question is now settled
 - Code: `scanner_templates` (docstring + registry text), **`opportunity_hub`** (both VWAP scanners demoted to MEASURED_WEAK). Updated: [[analyses/Open-Backlog]] (**B-40 closed**).
 - **2745 signals, 50 symbols. Edge negative at EVERY horizon and significant at three of four:** −0.02% @5d (p=0.77), **−0.20% @10d (p=0.042)**, **−0.45% @20d (p=0.0006)**, **−0.50% @60d (p=0.033)**. Net of Indian delivery costs the hit rate is under 50% at 5/10/20d and the median is negative at all three.

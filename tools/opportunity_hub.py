@@ -248,8 +248,26 @@ RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "S
 #: weight on a detector known to carry none — and it fires in BOTH directions, so a hit is
 #: not even evidence of a side. It stays visible in the Scanner Hub as a "what changed?"
 #: filter and contributes nothing to the score.
+#:
+#: "VWAP Reclaim/Support" joins them 2026-09-06 on the same principle as Renko, one
+#: step further along. B-43 excluded Renko for measuring NO edge; B-40 measured this
+#: one as significantly NEGATIVE: −0.20% @10d (p=0.042), −0.45% @20d (p=0.0006),
+#: −0.50% @60d (p=0.033) over 2745 signals, hit rate under 50% and median negative at
+#: 5/10/20d once Indian delivery costs are paid. A reclaim selects bars that do WORSE
+#: than a random bar from the same pool, so letting it vote in confluence does not
+#: merely waste ranking weight — it spends it against the ranking.
+#:
+#: Demoting it to MEASURED_WEAK (0.25) was the first response and was not enough: a
+#: weak weight still counts toward FULL_CONFLUENCE, so a negative detector could still
+#: help push a name onto the shortlist. Exclusion is the only setting that makes it
+#: contribute zero.
+#:
+#: It stays REGISTERED, visible and runnable in the Scanner Hub, and backtestable —
+#: same as Renko. The measurement rules out a vote, not the view. Its complementary
+#: anchored-VWAP-from-catalyst half (B-4/B-12) is a different mean and is untouched.
 PIPELINE_EXCLUDED: tuple[str, ...] = ("Zero-Debt Quality PEAD",
-                                      "Renko Flip (structure change)")
+                                      "Renko Flip (structure change)",
+                                      "VWAP Reclaim/Support")
 
 #: Measured to be FULLY COVERED by the rest of the registry — zero unique
 #: (symbol, as-of) cells across 110 NIFTY-500 names × 2,496 cells, on full listing
@@ -322,18 +340,19 @@ MEASURED_EDGE_SCANNERS: tuple[str, ...] = (
 #:
 #: Both VWAP entries joined 2026-09-06 (B-40, B-40m) — they were sitting at
 #: WEIGHT_UNMEASURED, which after measurement overstated them:
-#:   • VWAP Reclaim/Support — edge NEGATIVE at every horizon and significantly
-#:     so (−0.20% @10d p=0.042, −0.45% @20d p=0.0006, −0.50% @60d p=0.033) over
-#:     2745 signals. It does not merely fail to predict; it selects bars that do
-#:     WORSE than a random bar from the same pool.
 #:   • VWAP Mean Reversion — null (+0.19% @5d and @10d, p 0.51/0.57) and
-#:     −0.19R once Indian delivery costs are paid.
+#:     −0.19R once Indian delivery costs are paid. Weak, but not negative: it
+#:     still earns a quarter-weight vote.
+#:
+#: VWAP Reclaim/Support was demoted here first and then moved OUT to
+#: PIPELINE_EXCLUDED — it measured significantly negative, and a weak weight still
+#: counts toward FULL_CONFLUENCE, so 0.25 was not low enough. This list is for
+#: scanners that still vote; a scanner that must not vote belongs in the exclusion.
 MEASURED_WEAK_SCANNERS: tuple[str, ...] = (
     "Order Block Retest",
     "RSI 60-40 Setup",
     "VCP Coiling",
     "Structural Breakout",
-    "VWAP Reclaim/Support",
     "VWAP Mean Reversion",
 )
 

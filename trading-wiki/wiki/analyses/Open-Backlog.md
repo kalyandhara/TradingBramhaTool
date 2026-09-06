@@ -349,10 +349,17 @@ pre-registered test, and −0.45% would not survive costs on the short side eith
 would measure a trade plan invented after the fact, on a signal already shown to
 select badly. Left as it is.
 
-**Consequence applied:** demoted to `MEASURED_WEAK_SCANNERS` in `opportunity_hub`
-(WEIGHT_WEAK 0.25, from WEIGHT_UNMEASURED 0.5) alongside VWAP Mean Reversion.
-That table's own comment says such scanners must not carry entry weight; this is
-applying the existing rule to new data, not new policy.
+**Consequence applied, in two steps.** First demoted to `MEASURED_WEAK_SCANNERS`
+(0.25, from 0.5). **That was not enough** — a weak weight still counts toward
+`FULL_CONFLUENCE`, so a detector measured *negative* could still help push a name
+onto the shortlist. It is now in **`PIPELINE_EXCLUDED`**, the same enforcement
+Renko Flip gets under B-43, one step further along: Renko measured NO edge, this
+measured a negative one, and letting it vote would spend ranking weight *against*
+the ranking.
+
+It stays registered, visible and runnable in the Scanner Hub, and backtestable.
+The measurement rules out a vote, not the view. VWAP Mean Reversion stays at
+weak weight — null is not negative, so a quarter-vote is the honest setting.
 
 **Still open:** the **anchored-VWAP-from-catalyst** support read (earnings /
 breakout / IPO anchor) + the chart's click-to-anchor — that half is **B-4/B-12**

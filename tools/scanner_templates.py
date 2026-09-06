@@ -6212,8 +6212,14 @@ def scan_vwap_reclaim(df: pd.DataFrame,
 
     NOT a licence to fade reclaims.  That is a different claim needing its own
     pre-registered test, and -0.45% would not survive costs on the short side.
-    Kept for coverage and context; demoted to MEASURED_WEAK_SCANNERS in
-    opportunity_hub so it cannot carry entry weight.
+
+    Kept for coverage and context, but listed in ``opportunity_hub.PIPELINE_EXCLUDED``
+    so it can never become a confluence vote -- the same enforcement Renko Flip gets
+    for the same reason, one step further along (Renko measured NO edge; this measured
+    a negative one).  A quarter-weight demotion was tried first and was not enough: a
+    weak weight still counts toward FULL_CONFLUENCE, so a negative detector could still
+    help push a name onto the shortlist.  It stays registered, visible and runnable in
+    the Scanner Hub, and backtestable -- the measurement rules out a vote, not the view.
 
     (The complementary *anchored*-VWAP-from-catalyst read — earnings/breakout/IPO
     anchors — is served by ``_anchored_vwap`` and belongs with the chart's
