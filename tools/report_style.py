@@ -303,6 +303,74 @@ def donut(value: str | None, caption: str, verdict: str | None = None,
     )
 
 
+def gauge(value: float | None, caption: str, *, lo: float = 0.0, hi: float = 100.0,
+          bands: "list[tuple[float, str]] | None" = None, verdict: str | None = None,
+          fmt: str = "{:.0f}", size: int = 132) -> str:
+    """Semicircular banded gauge with a needle. Inline SVG, no plot dependency.
+
+    The sibling of `donut`, for readings that live on a scale with MEANINGFUL
+    REGIONS rather than a 0-100 fill. RSI 36 is not "36% of something" — it sits
+    in a zone, and the zones are the information. A donut would draw it as a
+    third-full ring and say nothing about oversold.
+
+    `bands` is [(upper_bound, tone), ...] in ascending order, painted left to
+    right along the arc. Absent bands render one neutral track.
+
+    A None value draws the arc and the bands but NO needle, with the DATA N/A
+    caption — same rule as `donut`: missing must look missing rather than park a
+    needle at the left stop, which reads as a real extreme value.
+    """
+    import math
+    r = size / 2 - 12
+    cx, cy = size / 2, size / 2 + 2
+    bands = bands or [(hi, "neutral")]
+    span = max(hi - lo, 1e-9)
+
+    def _pt(frac: float, rad: float) -> tuple[float, float]:
+        ang = math.pi * (1.0 - max(0.0, min(1.0, frac)))
+        return cx + rad * math.cos(ang), cy - rad * math.sin(ang)
+
+    arcs, prev = [], lo
+    for bound, tone in bands:
+        f0, f1 = (prev - lo) / span, (min(bound, hi) - lo) / span
+        if f1 <= f0:
+            prev = bound
+            continue
+        x0, y0 = _pt(f0, r)
+        x1, y1 = _pt(f1, r)
+        col, _ = tone_colors(tone)
+        big = 1 if (f1 - f0) > 0.5 else 0
+        arcs.append(f'<path d="M {x0:.2f} {y0:.2f} A {r:.2f} {r:.2f} 0 {big} 1 '
+                    f'{x1:.2f} {y1:.2f}" fill="none" stroke="{col}" '
+                    f'stroke-width="9" stroke-linecap="butt"/>')
+        prev = bound
+
+    needle = centre = ""
+    if value is not None:
+        frac = (float(value) - lo) / span
+        nx, ny = _pt(frac, r - 13)
+        fg = TOKENS["text"]
+        needle = (f'<line x1="{cx:.2f}" y1="{cy:.2f}" x2="{nx:.2f}" y2="{ny:.2f}" '
+                  f'stroke="{fg}" stroke-width="2.5" stroke-linecap="round"/>'
+                  f'<circle cx="{cx:.2f}" cy="{cy:.2f}" r="3.5" fill="{fg}"/>')
+        centre = (f'<text x="{cx:.2f}" y="{cy - 14:.2f}" text-anchor="middle" '
+                  f'font-family="{MONO}" font-size="17" font-weight="700" '
+                  f'fill="{fg}">{fmt.format(value)}</text>')
+
+    verdict_html = (f'<div style="font-size:11px;font-weight:700;margin-top:-6px;">'
+                    f'{verdict}</div>') if verdict else ""
+    na_html = ("" if (value is not None or verdict) else
+               f'<div class="tb-na" style="font-size:11px;margin-top:-6px;">{NA}</div>')
+    return (
+        f'<div style="text-align:center;">'
+        f'<svg width="{size}" height="{size / 2 + 14:.0f}" '
+        f'viewBox="0 0 {size} {size / 2 + 14:.0f}">'
+        f'{"".join(arcs)}{needle}{centre}</svg>'
+        f'{verdict_html}{na_html}'
+        f'<div class="tb-micro" style="margin-top:2px;">{caption}</div></div>'
+    )
+
+
 def section(title: str) -> str:
     """`• SECTION NAME` header."""
     return f'<div class="tb-sec">{title}</div>'

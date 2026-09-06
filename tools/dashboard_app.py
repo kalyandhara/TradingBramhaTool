@@ -2235,6 +2235,68 @@ def render_fundamental_signals(score: dict) -> None:
     )
 
 
+def render_momentum_meter(df: "pd.DataFrame") -> None:
+    """RSI(14) and ADX(14) as banded gauges — CONTEXT, never a signal.
+
+    Its own section rather than inside Fundamental signals, deliberately. RSI and
+    ADX are price-derived; filing them under a heading that says "fundamental"
+    would misdescribe them, and this page's whole convention is that the
+    fundamental read and the technical read are separate questions that never get
+    merged into one number (see `render_fundamental_signals`). Adjacent, not
+    merged.
+
+    Why gauges and not donuts: these live on scales with MEANINGFUL REGIONS.
+    RSI 36 is not "36% of something" — it sits in a zone, and the zone is the
+    information. A donut would draw it as a third-full ring and say nothing about
+    oversold. `rs.gauge` exists for exactly this distinction.
+
+    Bands are the textbook ones and are NOT measured here:
+      RSI  <30 oversold · 30-70 neutral · >70 overbought
+      ADX  <20 no trend · 20-25 forming · >25 trending
+    They are conventions, not thresholds this desk has tested. Anything stronger
+    would need the harness, and B-19 measured most single-indicator readings at or
+    below a random-entry baseline. Hence the caption, and hence no BUY/SELL.
+    """
+    if df is None or len(df) < 30:
+        return
+    try:
+        rsi_v = float(sc._rsi_series(df["close"].astype(float), 14).iloc[-1])
+        adx_s, _pdi, _mdi = sc._adx_di_series(df, 14)
+        adx_v = float(adx_s.iloc[-1])
+    except Exception:
+        return
+    rsi_v = None if not np.isfinite(rsi_v) else rsi_v
+    adx_v = None if not np.isfinite(adx_v) else adx_v
+
+    st.markdown(rs.section("Momentum"), unsafe_allow_html=True)
+
+    rsi_word = (None if rsi_v is None else
+                "OVERSOLD" if rsi_v < 30 else
+                "OVERBOUGHT" if rsi_v > 70 else "NEUTRAL")
+    adx_word = (None if adx_v is None else
+                "NO TREND" if adx_v < 20 else
+                "FORMING" if adx_v < 25 else "TRENDING")
+
+    g_rsi = rs.gauge(rsi_v, "RSI 14", verdict=rsi_word,
+                     bands=[(30, "risk"), (70, "neutral"), (100, "good")])
+    g_adx = rs.gauge(adx_v, "ADX 14", verdict=adx_word, hi=60.0,
+                     bands=[(20, "absent"), (25, "warn"), (60, "good")])
+    st.markdown(
+        rs.card(f'<div style="display:flex;gap:26px;justify-content:center;'
+                f'align-items:flex-start;">{g_rsi}{g_adx}</div>'),
+        unsafe_allow_html=True,
+    )
+    st.caption(
+        "**Context, not a signal.** Both are descriptive readings of price, and the "
+        "bands are textbook conventions rather than thresholds measured here — "
+        "B-19's walk-forward put most single-indicator readings at or below a "
+        "random-entry baseline, so neither dial implies an action. ADX measures "
+        "trend STRENGTH and is direction-blind: a high reading is as consistent "
+        "with a strong downtrend as an uptrend. Read them beside the fundamental "
+        "block above, not merged into it."
+    )
+
+
 @st.cache_data(ttl=3600, show_spinner=False)
 def cached_peer_score(symbol: str) -> dict:
     """One peer's six axes, through the SAME scorer the anchor uses. Cached at the
@@ -5563,6 +5625,7 @@ if current_page == "Stock Analyzer":
                     _deep = cached_fundamentals_deep(symbol)
                 render_fundamental_header(symbol, df, _fund, _deep)
                 render_fundamental_signals(fscore.score_all(_fund, _deep))
+                render_momentum_meter(df)
                 render_fundamental_history(_deep)
                 render_peer_comparison(symbol)
                 _rf_res = cached_red_flags(symbol)
