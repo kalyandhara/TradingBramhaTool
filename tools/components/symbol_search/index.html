@@ -1,0 +1,194 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  /* The iframe is positioned over the ribbon by the host page's CSS, so this
+     document must not paint a ground of its own or it would cover the bar. */
+  html, body {
+    margin: 0; padding: 0; background: transparent;
+    font-family: "Source Sans Pro", -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 Roboto, sans-serif;
+  }
+  #box {
+    width: 100%; height: 30px; box-sizing: border-box;
+    background: rgba(255,255,255,0.05);
+    border: 1px solid #1c2430; border-radius: 6px;
+    color: #f8fafc; font-size: 12px; padding: 0 9px; outline: none;
+  }
+  #box::placeholder { color: rgba(255,255,255,0.40); }
+  #box:focus { border-color: rgba(234,88,12,0.55); }
+
+  #drop {
+    margin-top: 4px; max-height: 268px; overflow-y: auto; overflow-x: hidden;
+    background: #0f1620; border: 1px solid #1c2430; border-radius: 8px;
+    box-shadow: 0 12px 28px rgba(0,0,0,0.45);
+    display: none;
+  }
+  #drop.on { display: block; }
+  .row {
+    display: flex; align-items: center; gap: 8px;
+    padding: 6px 9px; cursor: pointer; border-bottom: 1px solid rgba(28,36,48,0.7);
+  }
+  .row:last-child { border-bottom: none; }
+  .row.sel, .row:hover { background: rgba(234,88,12,0.13); }
+  .badge {
+    width: 18px; height: 18px; flex: 0 0 18px; border-radius: 4px;
+    background: #16a34a; color: #06210f; font-size: 10px; font-weight: 800;
+    display: flex; align-items: center; justify-content: center;
+  }
+  .sym  { color: #f8fafc; font-size: 12px; font-weight: 700; flex: 0 0 auto; }
+  .name {
+    color: rgba(255,255,255,0.52); font-size: 11px;
+    overflow: hidden; text-overflow: ellipsis; white-space: nowrap; flex: 1 1 auto;
+  }
+  .exch { color: rgba(255,255,255,0.30); font-size: 9.5px; letter-spacing: .04em; }
+  .empty { padding: 9px; color: rgba(255,255,255,0.42); font-size: 11.5px; }
+</style>
+</head>
+<body>
+  <input id="box" type="text" autocomplete="off" spellcheck="false" placeholder="Search &#8984;K">
+  <div id="drop"></div>
+
+<script>
+// ── Streamlit component protocol ────────────────────────────────────────────
+// Hand-rolled rather than pulled from streamlit-component-lib: that would mean
+// an npm build step for one input box. The protocol is three postMessage types.
+const CLOSED_H = 34, OPEN_H = 310;
+
+function send(type, extra) {
+  window.parent.postMessage(Object.assign({isStreamlitMessage: true, type}, extra), "*");
+}
+function setHeight(h) { send("streamlit:setFrameHeight", {height: h}); }
+function setValue(v)  { send("streamlit:setComponentValue", {value: v, dataType: "json"}); }
+
+const box  = document.getElementById("box");
+const drop = document.getElementById("drop");
+
+let ENTRIES = [];     // [{d: display, n: name}]
+let matches = [];
+let sel     = -1;
+let picks   = 0;      // nonce: picking the same symbol twice must still register
+
+// ── Ranking — deliberately the same order symbol_directory.search uses, so the
+// list here and the Python-side resolution never disagree about "best match".
+function rank(q) {
+  q = q.trim().toUpperCase();
+  if (!q) return [];
+  const out = [];
+  for (const e of ENTRIES) {
+    const d = e.d, n = e.nu;
+    let s;
+    if (d === q) s = 0;
+    else if (d.startsWith(q)) s = 1;
+    else if (d.includes(q)) s = 2;
+    else if (n.startsWith(q)) s = 3;
+    else if (n.includes(q)) s = 4;
+    else continue;
+    out.push([s, d.length, e]);
+    if (out.length > 400) break;      // enough to sort from; keeps typing cheap
+  }
+  out.sort((a, b) => a[0] - b[0] || a[1] - b[1]);
+  return out.slice(0, 8).map(t => t[2]);
+}
+
+function render() {
+  if (!matches.length) {
+    const q = box.value.trim();
+    if (q) {
+      drop.innerHTML = '<div class="empty">No NSE match for <b>' +
+                       q.replace(/[<>&]/g, "") + '</b> — Enter analyses it anyway</div>';
+      drop.classList.add("on");
+      setHeight(CLOSED_H + 34);
+    } else {
+      close();
+    }
+    return;
+  }
+  drop.innerHTML = matches.map((e, i) =>
+    '<div class="row' + (i === sel ? ' sel' : '') + '" data-i="' + i + '">' +
+      '<div class="badge">' + e.d.charAt(0) + '</div>' +
+      '<div class="sym">' + e.d + '</div>' +
+      '<div class="name">' + e.n + '</div>' +
+      '<div class="exch">NSE</div>' +
+    '</div>').join("");
+  drop.classList.add("on");
+  setHeight(Math.min(OPEN_H, CLOSED_H + 8 + matches.length * 32));
+}
+
+function close() {
+  drop.classList.remove("on");
+  drop.innerHTML = "";
+  sel = -1;
+  setHeight(CLOSED_H);
+}
+
+function pick(sym) {
+  box.value = "";
+  close();
+  setValue({symbol: sym, n: ++picks});
+}
+
+box.addEventListener("input", () => {
+  matches = rank(box.value);
+  sel = matches.length ? 0 : -1;
+  render();
+});
+
+box.addEventListener("keydown", (e) => {
+  if (e.key === "/" && box.value === "") {
+    // "/" is the host page's focus hotkey. Pressing it when focus is ALREADY
+    // here (which is where it leaves you after a pick) would otherwise type a
+    // literal slash and search for "/TATA". No symbol starts with one.
+    e.preventDefault();
+    return;
+  }
+  if (e.key === "ArrowDown" || e.key === "ArrowUp") {
+    if (!matches.length) return;
+    e.preventDefault();
+    sel = (sel + (e.key === "ArrowDown" ? 1 : matches.length - 1)) % matches.length;
+    render();
+  } else if (e.key === "Enter") {
+    e.preventDefault();
+    // A highlighted row wins; otherwise send the raw text and let Python
+    // resolve it — a symbol too new for the directory must still be reachable.
+    if (sel >= 0 && matches[sel]) pick(matches[sel].d);
+    else if (box.value.trim()) pick(box.value.trim().toUpperCase());
+  } else if (e.key === "Escape") {
+    close();
+    box.blur();
+  }
+});
+
+drop.addEventListener("mousedown", (e) => {
+  const row = e.target.closest(".row");
+  if (!row) return;
+  e.preventDefault();                       // keep focus off the blur path
+  pick(matches[Number(row.dataset.i)].d);
+});
+
+box.addEventListener("blur", () => setTimeout(close, 120));
+
+// ── Host handshake ──────────────────────────────────────────────────────────
+window.addEventListener("message", (event) => {
+  if (!event.data || event.data.type !== "streamlit:render") return;
+  const args = event.data.args || {};
+  if (typeof args.options === "string" && args.options.length &&
+      args.options.length !== ENTRIES.__len) {
+    ENTRIES = args.options.split("\n").filter(Boolean).map(line => {
+      const i = line.indexOf("|");
+      const d = i < 0 ? line : line.slice(0, i);
+      const n = i < 0 ? ""   : line.slice(i + 1);
+      return {d: d, n: n, nu: n.toUpperCase()};
+    });
+    ENTRIES.__len = args.options.length;
+  }
+  if (args.placeholder) box.placeholder = args.placeholder;
+  if (!drop.classList.contains("on")) setHeight(CLOSED_H);
+});
+
+send("streamlit:componentReady", {apiVersion: 1});
+setHeight(CLOSED_H);
+</script>
+</body>
+</html>

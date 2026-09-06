@@ -2,11 +2,11 @@
 title: "Gamma Exposure (GEX)"
 category: concept
 family: regime-filter
-tags: [gex, gamma, options, dealer-positioning, volatility-regime, market-maker, call-wall, put-wall, gamma-flip, measured-null]
+tags: [gex, gamma, options, dealer-positioning, volatility-regime, market-maker, call-wall, put-wall, gamma-flip, measured-null, retired]
 created: 2026-08-29
-updated: 2026-08-29
-sources: 1
-related: [concepts/Put-Call-Ratio, concepts/Volume-Profile, concepts/SuperTrend, concepts/Market-Sentiment-Index, sources/YT-Chris-Kmer-World-Cup-Order-Flow, analyses/Open-Backlog]
+updated: 2026-09-05
+sources: 2
+related: [concepts/Put-Call-Ratio, concepts/Volume-Profile, concepts/SuperTrend, concepts/Market-Sentiment-Index, sources/YT-Chris-Kmer-World-Cup-Order-Flow, sources/YT-GEX-Dealer-Hedging-Volatility-Primer, analyses/GEX-Strategy-Mapping-PoC-Probe, analyses/Open-Backlog]
 ---
 
 # Gamma Exposure (GEX)
@@ -121,7 +121,94 @@ positioning, carrying no demonstrated forward information.
 Residual: **B-44r** in [[analyses/Open-Backlog]] — the naive convention as the named
 suspect.
 
+## B-44r — the convention was the suspect. It is now eliminated. *(2026-09-05)*
+
+**Shipped:** `tools/gamma_magnitude_backtest.py`. **No re-download was needed** — the
+backlog assumed a fresh 480-session pass over the raw chains, but the quantity the
+alternative convention needs is `gross_gex_cr`, the sum of absolute gamma notional, which
+`compute_gex` has persisted all along.
+
+The pre-registered hypothesis: if Indian dealers are short gamma on **both** sides, the
+sign is constant and only the **magnitude** can predict, with bigger book → more hedging
+flow with the move → **higher** forward vol.
+
+### The direction came back inverted, on both indices, at every horizon
+
+| test | NIFTY | p_rot | BANKNIFTY | p_rot |
+|---|---|---|---|---|
+| **PRIMARY** fwd 5d vol, high vs low gross | **−2.47 pp** | 0.042 | **−4.27 pp** | 0.004 |
+| fwd 10d vol | −2.17 | 0.098 | −3.78 | 0.015 |
+| fwd 20d vol | −1.77 | 0.158 | −3.03 | 0.058 |
+| next-day absolute move | −0.15 % | 0.048 | −0.18 % | 0.073 |
+| tercile split, 5d vol | −3.39 | 0.027 | −5.80 | 0.002 |
+| *expected null:* fwd 5d return | −0.04 % | 0.773 ✓ | +0.30 % | 0.571 ✓ |
+
+High gross gamma goes with **lower** forward vol — the opposite of what was predicted. The
+expected-null control behaved, so the harness is sound.
+
+### Most of that is mechanical, and the rest is not stable
+
+Black-Scholes gamma carries **1/σ**: high implied vol mechanically produces low gamma per
+contract, and realised vol clusters. That alone manufactures the observed sign.
+
+- corr(gross, trailing 20d vol) = **−0.44** NIFTY / **−0.24** BANKNIFTY
+- corr(trailing vol, fwd 5d vol) = **+0.43** / **+0.49**
+- corr(gross, fwd 5d vol) = −0.29 / −0.17 — close to the product of the two paths
+
+Controlling for trailing vol roughly halves NIFTY's effect (−1.24 to −1.64 pp,
+p_rot 0.029–0.067) and it survives on BANKNIFTY (−3.2 to −3.7 pp, p_rot 0.021–0.033),
+including against **1/trailing-vol**, the artefact's own functional form.
+
+But the stratified test is the one that decides it:
+
+| trailing-vol stratum | NIFTY | p_rot | BANKNIFTY | p_rot |
+|---|---|---|---|---|
+| low | −1.01 pp | 0.429 | **+1.23 pp** (sign flips) | 0.442 |
+| high | −3.00 pp | 0.054 | −9.25 pp | 0.010 |
+
+The relationship exists **only when volatility is already high**, and on BANKNIFTY it
+reverses in the calm half. A predictor that works in one vol regime and inverts in the
+other is not a regime signal; it is a description of the vol regime it is conditioned on.
+
+### Verdict — B-44r closed, and the pre-agreed clause applies
+
+The hypothesis as specified is **falsified**, not merely null: the sign is wrong. What is
+left is a conditionally unstable residual, largely mechanical, that would flip a trader's
+prescription depending on which half of the vol distribution the day happens to sit in.
+The backlog said, in advance: *"if it also nulls, GEX gets retired as a research instrument
+that prints a daily description and nothing more."* That clause is now triggered.
+
+One thing this DOES settle: the convention is no longer a live excuse. Under both the US
+sign convention (B-44) and the both-sides-short magnitude convention (B-44r), NSE index
+gamma carries no dependable forward volatility information. The remaining gap is
+positioning data this repo does not have — per-strike dealer inventory, not another
+assumption about it.
+
+## Second source — corroboration, plus one new claim (2026-09-05)
+
+[[sources/YT-GEX-Dealer-Hedging-Volatility-Primer]] restates the mechanism above
+independently and adds nothing to it: same dealer behaviour, same flip/wall landmarks, same
+"pair it with price action" caveats. Its one new claim is **strategy selection by regime** —
+premium selling (condors, credit spreads, CSPs) in positive gamma, long options in negative
+gamma.
+
+That claim is downstream of the vol difference **this page already measured to a null**, so
+it inherits the null: a strategy split that exists to harvest a vol spread has nothing to
+harvest if the spread is not there. The source names no market, and the evidence base for
+dealer hedging is US index options.
+
+Two things it is missing that the first source has: the "positive ≠ bullish" correction
+(its "shock absorber" framing arguably invites the error), and the naive-vs-inferred
+distinction — which is the named suspect in **B-44r**.
+
+Feasibility of testing it anyway, with costs: [[analyses/GEX-Strategy-Mapping-PoC-Probe]].
+Short version — the cheap decisive test is **RV−IV by regime**, not a strategy simulation;
+it is blocked on `atm_iv` not being persisted (a small code change) and a 480-session
+rebuild with **no F&O bhavcopy cache** (~480 NSE downloads).
+
 ## Sources
 
 - [[sources/YT-Chris-Kmer-World-Cup-Order-Flow]] (2026-08-29) — regime framing, naive vs
   inferred, call/put wall and gamma flip, and the "positive ≠ bullish" correction.
+- [[sources/YT-GEX-Dealer-Hedging-Volatility-Primer]] (2026-09-05) — unattributed primer;
+  corroborates the mechanism, adds the strategy-by-regime prescription.

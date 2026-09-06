@@ -90,7 +90,11 @@ def _score_at_quarter(symbol: str, eval_date: datetime,
 
     fii_new, dii_new = _n(v_new.get("fii")), _n(v_new.get("dii"))
     fii_old, dii_old = _n(v_old.get("fii")), _n(v_old.get("dii"))
-    prom_new, prom_old = _n(v_new.get("promoter")), _n(v_old.get("promoter"))
+    # B-34r4: bounded promoter window in the SCORE too, matching
+    # smallcap_discovery.score_from_cache and the red_flags veto.
+    import red_flags as _rf0
+    _pw0 = ordered[-_rf0._PROMOTER_WINDOW_Q:]
+    prom_new, prom_old = _n(_pw0[-1][1].get("promoter")), _n(_pw0[0][1].get("promoter"))
     pledge = _n(v_new.get("promoter_pledge_pct"))
 
     inst_new = sum(x for x in (fii_new, dii_new) if x is not None)
@@ -111,6 +115,30 @@ def _score_at_quarter(symbol: str, eval_date: datetime,
     if pledge_flag:
         score -= 20
 
+    # ── B-34r2: the veto, recomputed POINT-IN-TIME ───────────────────────────
+    # Only the two governance criticals can be tested honestly here, and they
+    # are tested from the SAME filtered quarters the score uses - no new data,
+    # no future information. Thresholds are red_flags' own, not re-picked.
+    #
+    # Negative FCF and dilution are deliberately NOT applied: `fcf_history` and
+    # `shares_history` come back from yfinance as bare value lists with NO year
+    # labels, so there is no way to truncate them to "as known at Q". Applying
+    # today's FCF streak to a 2024 entry would be vetoing a pick for something
+    # that had not happened yet, and would make the whole comparison a
+    # hindsight exercise. See the report footer.
+    import red_flags as _rf
+    # B-34r3: the veto's promoter comparison is BOUNDED to a trailing window,
+    # matching red_flags._check_promoter_holding_nse. Using the full filtered
+    # history here made the veto rate climb 3% -> 28% across the sample purely
+    # because later quarters had more history behind them, which is drift in the
+    # measuring instrument rather than in the companies.
+    _win = ordered[-_rf._PROMOTER_WINDOW_Q:]
+    _pw_old, _pw_new = _n(_win[0][1].get("promoter")), _n(_win[-1][1].get("promoter"))
+    prom_delta_win = (round(_pw_new - _pw_old, 2)
+                      if _pw_new is not None and _pw_old is not None else None)
+    prom_veto = prom_delta_win is not None and prom_delta_win <= -_rf._PROMOTER_DROP_PP
+    pledge_veto = pledge is not None and pledge > _rf._PLEDGE_PCT_MAX
+
     hit = {
         "symbol": symbol,
         "score": round(max(0.0, min(100.0, score)), 1),
@@ -118,6 +146,11 @@ def _score_at_quarter(symbol: str, eval_date: datetime,
         "promoter_delta": prom_delta,
         "pledge_pct": pledge,
         "pledge_flag": pledge_flag,
+        "gov_veto": bool(prom_veto or pledge_veto),
+        "prom_delta_win": prom_delta_win,
+        "gov_veto_why": ([f"promoter {prom_delta_win:+.2f}pp/"
+                          f"{len(_win)}q"] if prom_veto else [])
+                        + ([f"pledge {pledge:.1f}%"] if pledge_veto else []),
     }
 
     if enrich:
@@ -178,8 +211,22 @@ def backtest_hidden_treasures(
     top_n: int = 25,
     horizons: tuple[int, ...] = DEFAULT_HORIZONS,
     enrich: bool = False,
+    gov_veto: bool = False,
+    fcf_veto: bool = False,
 ) -> dict:
-    """Run the hit-rate study. Returns a structured result dict."""
+    """Run the hit-rate study. Returns a structured result dict.
+
+    `gov_veto` (B-34r2) drops names carrying a point-in-time governance red flag
+    BEFORE the top-N cut, so the comparison is "same ranking, smaller pool".
+    The BASELINE is left untouched on purpose: the question is whether vetoing
+    improves the picks, not whether it improves the universe average.
+
+    `fcf_veto` adds the negative-FCF veto, evaluated POINT-IN-TIME via
+    fundamentals_deep.fcf_negative_streak_as_of - only annual years published by
+    the entry date (fiscal year end + 60d SEBI filing lag) are considered. This
+    is the test B-34r2 could not run until fcf_years existed. Costs one
+    fundamentals fetch per symbol, once.
+    """
 
     # 1. Get universe and find all unique quarter boundaries from cache
     uni = scu.fetch_universe(kind)
@@ -220,6 +267,18 @@ def backtest_hidden_treasures(
     top_fwd: dict[int, list[float]] = {h: [] for h in horizons}
     base_fwd: dict[int, list[float]] = {h: [] for h in horizons}
 
+    deep_cache: dict = {}
+    if fcf_veto:
+        import fundamentals_deep as _fd
+        print("Fetching fundamentals for the FCF veto…")
+        for i, sym in enumerate(symbols, 1):
+            if i % 50 == 0:
+                print(f"  …fundamentals {i}/{len(symbols)}")
+            try:
+                deep_cache[sym] = _fd.derive_fundamentals(sym)
+            except Exception:
+                deep_cache[sym] = {}
+
     for q_label, q_date in eval_quarters:
         entry_date = q_date + timedelta(days=FILING_LAG_DAYS)
 
@@ -241,11 +300,34 @@ def backtest_hidden_treasures(
         if len(scored) < top_n + 5:
             continue
 
+        if fcf_veto:
+            import fundamentals_deep as _fd2
+            for x in scored:
+                streak, known = _fd2.fcf_negative_streak_as_of(
+                    deep_cache.get(x["symbol"]) or {}, entry_date)
+                # Mirrors red_flags._check_fcf: >=2 consecutive negative years is
+                # the CRITICAL grade. An unknown streak is NOT a veto and NOT a
+                # pass - the name simply carries no FCF verdict at this date.
+                x["fcf_veto"] = bool(streak is not None and streak >= 2)
+                x["fcf_years_known"] = known
         scored.sort(key=lambda x: x["score"], reverse=True)
-        top = scored[:top_n]
+        eligible = scored
+        if gov_veto:
+            eligible = [x for x in eligible if not x["gov_veto"]]
+        if fcf_veto:
+            eligible = [x for x in eligible if not x.get("fcf_veto")]
+        n_vetoed = len(scored) - len(eligible)
+        if len(eligible) < top_n:
+            # Not enough survivors to fill the same-sized basket. Skipping would
+            # silently compare different quarter sets between the two runs, so
+            # take what there is and record the shortfall instead.
+            log.warning("%s: only %d eligible after veto (wanted %d)",
+                        q_label, len(eligible), top_n)
+        top = eligible[:top_n]
 
         q_info = {"quarter": q_label, "entry_approx": entry_date.strftime("%Y-%m-%d"),
-                  "scored": len(scored), "top_n": len(top)}
+                  "scored": len(scored), "top_n": len(top),
+                  "vetoed": n_vetoed}
 
         for h in horizons:
             top_rets = [s["_fwd"][h] for s in top if s["_fwd"].get(h) is not None]
@@ -379,11 +461,18 @@ if __name__ == "__main__":
     ap.add_argument("--top", type=int, default=25, help="Top N to measure")
     ap.add_argument("--enrich", action="store_true",
                     help="Apply quality overlay scoring (slower)")
+    ap.add_argument("--gov-veto", action="store_true",
+                    help="B-34r2: drop names with a point-in-time governance red "
+                         "flag (promoter stake -2pp+, pledge >5%%) before the top-N cut")
+    ap.add_argument("--fcf-veto", action="store_true",
+                    help="B-34r2: also veto >=2 consecutive negative-FCF years, "
+                         "evaluated point-in-time (FY end + 60d filing lag)")
     ap.add_argument("--horizons", default="60,120",
                     help="Comma-separated forward horizons in trading days")
     a = ap.parse_args()
 
     horizons = tuple(int(x) for x in a.horizons.split(","))
     res = backtest_hidden_treasures(kind=a.kind, top_n=a.top,
-                                    horizons=horizons, enrich=a.enrich)
+                                    horizons=horizons, enrich=a.enrich,
+                                    gov_veto=a.gov_veto, fcf_veto=a.fcf_veto)
     print(format_backtest(res))

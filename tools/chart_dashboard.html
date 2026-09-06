@@ -40,6 +40,8 @@
 <script src="/adx_di.js"></script>
 <!-- EVWMA/VWAP MACD oscillator + BUY/SELL crossovers — port of QuantNomad's Pine v4 strategy, see evwma_vwap_macd.js -->
 <script src="/evwma_vwap_macd.js"></script>
+<!-- Two-sided VWAP mean-reversion BUY/SELL (band excursion + double volume gate) -->
+<script src="/vwap_mean_reversion.js"></script>
 <!-- Renko brick structure drawn ON the candles (never instead of them) — causal ATR-epoch brick sizing, see renko.js -->
 <script src="/renko.js"></script>
 <!-- HM Bottoms & Tops (Hilega Milega, reworked) oscillator plug-in — pure computation, see hm_indicator.js -->
@@ -262,6 +264,15 @@ html, body {
 }
 .ind-btn:hover, .ind-btn.active { border-color: var(--accent); color: var(--accent); }
 .snap-btn { padding: 2px 7px; font-size: 13px; line-height: 1.4; }
+
+/* ── Chart history navigation (forward/back buttons) ──────────────────────── */
+.nav-btn {
+  background: var(--bg-input); border: 1px solid var(--border); color: var(--text-secondary);
+  padding: 2px 6px; border-radius: 4px; font-size: 11px; cursor: pointer; outline: none;
+  min-width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+}
+.nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.nav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 
 /* ── Per-symbol external quick links (Screener / TradingView / Google / X) ── */
 .qlinks { display: inline-flex; gap: 4px; align-items: center; }
@@ -1021,8 +1032,17 @@ function subChartOpts() {
 }
 
 // ── Config ────────────────────────────────────────────────────────────────────
-const SERVER  = 'http://localhost:5001';
-const WS_URL  = 'ws://localhost:5001/ws';
+// Derived from where the page was served, not hardcoded. The old constants
+// pinned every API call and the websocket to localhost:5001, which broke two
+// real cases: a second server instance on another port (how a feed change gets
+// verified without dropping the running chart's clients), and reaching the app
+// over the Tailscale hostname the PWA notes above recommend for install support
+// — the page loaded, then fetched a localhost that was not the user's machine.
+// file:// has no usable origin, so that one case keeps the old default.
+const SERVER  = (location.protocol === 'file:' || !location.origin ||
+                 location.origin === 'null')
+  ? 'http://localhost:5001' : location.origin;
+const WS_URL  = SERVER.replace(/^http/, 'ws') + '/ws';
 
 const TIMEFRAMES = ['1m','5m','15m','30m','1h','4h','6h','1d','1w'];
 // Chart-type options (display only; both are candlestick series, only the data
@@ -1264,6 +1284,7 @@ const INDICATOR_DEFS = [
   {key:'ema200',    label:'EMA (200)',         group:'Moving Averages', color:'#e91e63'},
   {key:'vwap',      label:'VWAP (session · intraday only)', group:'Moving Averages', color:'#ffd60a'},
   {key:'avwap',     label:'Anchored VWAP (last major swing low)', group:'Moving Averages', color:'#ff8a65'},
+  {key:'vwmr',      label:'VWAP Mean Reversion ±σ bands + BUY/SELL', group:'Moving Averages', color:'#7c4dff', alias:'vwap mean reversion revert band deviation sigma volume confirmation buy sell signal'},
   {key:'mabias',    label:'MA Bias (9/20 cross · 50/200 regime) + card',
                                                group:'Moving Averages', color:'#4c9aff'},
   {key:'bollinger', label:'Bollinger (20, 2)', group:'Trend & Bands', color:'#9aa4af'},
@@ -1290,6 +1311,8 @@ const INDICATOR_DEFS = [
   {key:'volume',     label:'Volume',                 group:'Volume',            color:'#888888'},
   {key:'volprofile', label:'Volume Profile (POC/VA/HVN/LVN)', group:'Volume',  color:'#9aa4af'},
   {key:'svp',        label:'Session Volume Profile HD (D/P/B/I + Accum/Distrib)', group:'Volume', color:'#26c6da'},
+  // Real taker side, not an estimate from bar internals — see drawDeltaProfile.
+  {key:'deltaprofile', label:'Delta Profile — real taker side (Hyperliquid only)', group:'Volume', color:'#26a69a'},
   // ── Pattern Recognition ──────────────────────────────────────────────────────
   {key:'elliott',      label:'Elliott Wave (1-5, A-B-C)', group:'Levels & Projection', color:'#00e5ff'},
   {key:'fvg',          label:'Fair Value Gap + Buy/Sell signal (FPV)', group:'Smart Money & Structure', color:'#26a69a'},
@@ -2158,6 +2181,8 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
       <select class="tf-sel ctype-sel" title="Chart type">${CHART_TYPES.map(ct =>
         `<option value="${ct.value}"${ct.value===chartType?' selected':''}>${ct.label}</option>`
       ).join('')}</select>
+      <button type="button" class="nav-btn nav-back" title="Back to previous chart (⌘←)">←</button>
+      <button type="button" class="nav-btn nav-forward" title="Forward to next chart (⌘→)">→</button>
       <div class="ind-wrap">
         <button type="button" class="ind-btn">INDICATORS</button>
         <div class="ind-panel">${renderIndicatorPanel()}</div>
@@ -2325,7 +2350,10 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
                  fibCanvas, obCanvas, prteCanvas,
                  drawCanvas, drawTools,
                  drawings: [], drawTool: null, drawSel: null, drawMagnet: true,
-                 drawHidden: false, drawStart: null, drawPreview: null };
+                 drawHidden: false, drawStart: null, drawPreview: null,
+                 // Chart history navigation
+                 chartHistory: [{symbol, tf, chartType, indicators: new Set(savedIndicators)}],
+                 historyIdx: 0 };
 
   // ── Time-scale sync: main chart drives all sub-pane charts ─────────────────
   chart.timeScale().subscribeVisibleTimeRangeChange(range => {
@@ -2350,6 +2378,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
     if (pane.indicators && pane.indicators.has('volprofile')) drawVolumeProfile(pane);
     // Session VP is both price- AND time-anchored, so it stales on any pan/zoom.
     if (pane.indicators && pane.indicators.has('svp')) drawSessionVP(pane);
+    if (pane.indicators && pane.indicators.has('deltaprofile')) drawDeltaProfile(pane);
     // Order-block zones are time+price anchored — same staleness as FVG boxes.
     if (pane.indicators && pane.indicators.has('orderblock')) drawOrderBlocks(pane);
     // %R exhaustion background is time-anchored (x-runs) — redraw on pan/zoom.
@@ -2371,6 +2400,61 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
       }
     });
   });
+
+  // ── Chart history navigation ───────────────────────────────────────────────
+  const navBackBtn    = el.querySelector('.nav-back');
+  const navForwardBtn = el.querySelector('.nav-forward');
+
+  function updateNavButtons() {
+    navBackBtn.disabled = pane.historyIdx <= 0;
+    navForwardBtn.disabled = pane.historyIdx >= pane.chartHistory.length - 1;
+  }
+
+  pane.recordChartState = function() {
+    const current = this.chartHistory[this.historyIdx];
+    // Only add to history if the chart state actually changed
+    if (!current || current.symbol !== this.symbol || current.tf !== this.tf ||
+        current.chartType !== this.chartType) {
+      // Remove any forward history when a new chart is loaded
+      this.chartHistory = this.chartHistory.slice(0, this.historyIdx + 1);
+      this.chartHistory.push({
+        symbol: this.symbol,
+        tf: this.tf,
+        chartType: this.chartType,
+        indicators: new Set(this.indicators)
+      });
+      this.historyIdx = this.chartHistory.length - 1;
+      updateNavButtons();
+    }
+  };
+
+  pane.navigateToHistory = function(idx) {
+    if (idx < 0 || idx >= this.chartHistory.length) return;
+    this.historyIdx = idx;
+    const entry = this.chartHistory[idx];
+    symIn.value = entry.symbol;
+    tfSel.value = entry.tf;
+    ctypeSel.value = entry.chartType;
+    this.indicators = new Set(entry.indicators);
+    this.symbol = entry.symbol;
+    this.tf = entry.tf;
+    this.chartType = entry.chartType;
+    resetPaneVisuals(this);
+    applyPriceStyle(this);
+    applyIndicators(this);
+    loadData(idx);
+    updateNavButtons();
+  };
+
+  navBackBtn.addEventListener('click', () => {
+    if (pane.historyIdx > 0) pane.navigateToHistory(pane.historyIdx - 1);
+  });
+
+  navForwardBtn.addEventListener('click', () => {
+    if (pane.historyIdx < pane.chartHistory.length - 1) pane.navigateToHistory(pane.historyIdx + 1);
+  });
+
+  updateNavButtons();
 
   // ── Controls ───────────────────────────────────────────────────────────────
   function applySymbol(s) {
@@ -2999,6 +3083,28 @@ document.addEventListener('click', () => {
   closeAllSymbolDropdowns();
 });
 
+// ── Chart history keyboard shortcuts ─────────────────────────────────────────────
+document.addEventListener('keydown', e => {
+  // Cmd/Ctrl + Left Arrow → back in chart history (on all panes)
+  if ((e.metaKey || e.ctrlKey) && e.key === 'ArrowLeft') {
+    e.preventDefault();
+    panes.forEach(pane => {
+      if (pane && pane.historyIdx > 0) {
+        pane.navigateToHistory(pane.historyIdx - 1);
+      }
+    });
+  }
+  // Cmd/Ctrl + Right Arrow → forward in chart history (on all panes)
+  if ((e.metaKey || e.ctrlKey) && e.key === 'ArrowRight') {
+    e.preventDefault();
+    panes.forEach(pane => {
+      if (pane && pane.historyIdx < pane.chartHistory.length - 1) {
+        pane.navigateToHistory(pane.historyIdx + 1);
+      }
+    });
+  }
+});
+
 // ── Indicator overlay rendering ─────────────────────────────────────────────────
 function removeIndicatorSeries(pane, key) {
   const existing = pane.indSeries[key];
@@ -3109,6 +3215,7 @@ function applyIndicators(pane) {
   }
   // Clear Session Volume Profile HD (canvas + card) if deselected
   if (!pane.indicators.has('svp') && pane.svp) clearSessionVP(pane);
+  if (!pane.indicators.has('deltaprofile')) clearDeltaProfile(pane);
   // Clear FVG canvas + buy/sell signal markers/panel if deselected
   if (!pane.indicators.has('fvg') && pane.fvgCanvas) {
     const ctx = pane.fvgCanvas.getContext('2d');
@@ -3149,6 +3256,9 @@ function applyIndicators(pane) {
   // Same for the EVWMA/VWAP MACD crossover arrows mirrored onto the candles —
   // the sub-pane teardown below removes the oscillator, not the price markers.
   if (!pane.indicators.has('evmacd')) setPaneMarkers(pane, 'evmacd', null);
+  // VWAP mean-reversion arrows are a marker source too, so they need the same
+  // explicit clear - removeIndicatorSeries only takes the three band lines.
+  if (!pane.indicators.has('vwmr')) setPaneMarkers(pane, 'vwmr', null);
   // Renko draws a step line (torn down by removeIndicatorSeries) plus merged flip
   // markers, which have to be cleared explicitly like every other marker source.
   if (!pane.indicators.has('renko')) { setPaneMarkers(pane, 'renko', null); clearRenkoState(pane); }
@@ -3180,6 +3290,11 @@ function applyIndicators(pane) {
       case 'ema200': pane.indSeries[key] = addLine(pane, def.color); break;
       case 'vwap':   pane.indSeries[key] = addLine(pane, def.color); break;
       case 'avwap':  pane.indSeries[key] = addLine(pane, def.color, 2); break;
+      case 'vwmr':   pane.indSeries[key] = [
+        addLine(pane, def.color, 2),        // the mean itself
+        addLine(pane, def.color, 1, 2),     // +k sigma
+        addLine(pane, def.color, 1, 2),     // -k sigma
+      ]; break;
       case 'volume': {
         // Volume rides ON the price chart rather than in its own sub-pane, the
         // way every trading platform draws it — bars sit under the candles they
@@ -3285,6 +3400,29 @@ function applyIndicators(pane) {
       case 'bollinger': {
         const {mid, upper, lower} = bollingerSeries(bars, 20, 2);
         s[0].setData(mid); s[1].setData(upper); s[2].setData(lower);
+        break;
+      }
+      case 'vwmr': {
+        // The mean and its bands are the drawing; the arrows are the claim. Both
+        // come from one VWMR.compute so the chart can never show a band the
+        // signals were not derived from.
+        const mr = (typeof VWMR !== 'undefined')
+          ? VWMR.compute(bars, {tf: pane.tf}) : null;
+        if (!mr || mr.insufficient) {
+          s[0].setData([]); s[1].setData([]); s[2].setData([]);
+          setPaneMarkers(pane, 'vwmr', null);
+          break;
+        }
+        s[0].setData(mr.vwap); s[1].setData(mr.upper); s[2].setData(mr.lower);
+        // Deliberately NOT stop-and-reverse, unlike evmacd: each signal is one
+        // reversion trade that ends at the mean, so an arrow is an entry and
+        // nothing else. The bearish arrow says TRIM, not SHORT — the scanner
+        // registry takes the same stance and this desk trades cash equity.
+        setPaneMarkers(pane, 'vwmr', mr.signals.map(sig => sig.dir === 1
+          ? {time: sig.time, position: 'belowBar', color: '#7c4dff', shape: 'arrowUp',
+             text: 'BUY ' + sig.targetPct.toFixed(1) + '%'}
+          : {time: sig.time, position: 'aboveBar', color: '#b388ff', shape: 'arrowDown',
+             text: 'TRIM ' + sig.targetPct.toFixed(1) + '%'}));
         break;
       }
       case 'donchian': {
@@ -3789,6 +3927,22 @@ function applyIndicators(pane) {
     requestAnimationFrame(() => {
       if (pane.indicators.has('svp')) drawSessionVP(pane);
     });
+  }
+
+  if (pane.indicators.has('deltaprofile')) {
+    // Same RAF deferral, plus the tape poll. The interval is what keeps the
+    // profile live; every other redraw path paints from the cached response, so
+    // panning and zooming never hit the network.
+    requestAnimationFrame(() => {
+      if (pane.indicators.has('deltaprofile')) drawDeltaProfile(pane);
+    });
+    refreshDeltaProfile(pane);
+    if (!pane.dpTimer) {
+      pane.dpTimer = setInterval(() => {
+        if (!pane.indicators.has('deltaprofile')) { clearDeltaProfile(pane); return; }
+        refreshDeltaProfile(pane);
+      }, DP_REFRESH_MS);
+    }
   }
 
   if (pane.indicators.has('fvg')) {
@@ -6684,6 +6838,137 @@ function svpRgba(hex, a) {
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
 }
 
+// ── Delta Profile (LEFT edge) ────────────────────────────────────────────────
+// The only genuinely aggressor-side view in this tool. Hyperliquid publishes the
+// taker side with every print; yfinance, the NSE bhavcopy and intraday.db do not
+// carry it at any timeframe. So this indicator REFUSES to draw for a non-HL
+// symbol rather than falling back to a close-location estimate that would look
+// identical and mean something else. A bar-derived guess could not be validated
+// either — there is no trade-side ground truth in this stack to check it against.
+//
+// It is drawn on the LEFT so it can sit beside the (right-anchored) Volume
+// Profile without either one covering the other: same price axis, one showing
+// where volume traded, the other who lifted it.
+const DP_WIDTH_FRAC = 0.16;     // of the plot width, matching VP's restraint
+const DP_REFRESH_MS = 4000;     // tape poll while the indicator is on
+const DP_BINS = 48;
+
+function ensureDpCanvas(pane) {
+  if (!pane.dpCanvas) {
+    const c = document.createElement('canvas');
+    c.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:9;width:100%;height:100%;';
+    pane.el.querySelector('.chart-main').appendChild(c);
+    pane.dpCanvas = c;
+  }
+  return pane.dpCanvas;
+}
+
+function clearDeltaProfile(pane) {
+  if (pane.dpCanvas) {
+    const ctx = pane.dpCanvas.getContext('2d');
+    ctx.clearRect(0, 0, pane.dpCanvas.width, pane.dpCanvas.height);
+  }
+  if (pane.dpTimer) { clearInterval(pane.dpTimer); pane.dpTimer = null; }
+  pane.dp = null;
+}
+
+function dpIsSupported(pane) {
+  // Mirrors the server's own check: HL coins are bare tickers with no exchange
+  // suffix and no slash. Wrong guesses are harmless — the endpoint answers 400
+  // with the reason, which is surfaced in the overlay note.
+  const s = (pane.symbol || '').toUpperCase();
+  return !!s && !s.includes('.') && !s.includes(':') && !s.includes('/');
+}
+
+async function refreshDeltaProfile(pane) {
+  if (!pane.indicators.has('deltaprofile') || !dpIsSupported(pane)) return;
+  // Bin over the VISIBLE price range so the rows line up with what is on screen
+  // rather than with the tape's own min/max, which drifts as prints arrive.
+  let lo = null, hi = null;
+  try {
+    const H = pane.dpCanvas ? pane.dpCanvas.offsetHeight : 0;
+    if (H > 0) {
+      hi = pane.series.coordinateToPrice(0);
+      lo = pane.series.coordinateToPrice(H);
+    }
+  } catch {}
+  const q = new URLSearchParams({coin: pane.symbol, bins: String(DP_BINS)});
+  if (lo != null && hi != null && hi > lo) { q.set('lo', lo); q.set('hi', hi); }
+  try {
+    const r = await fetch(`${SERVER}/api/delta_profile?${q}`);
+    const d = await r.json();
+    pane.dp = r.ok ? d : {error: d.error || `HTTP ${r.status}`};
+  } catch (e) {
+    pane.dp = {error: String(e && e.message || e)};
+  }
+  drawDeltaProfile(pane);
+}
+
+function drawDeltaProfile(pane) {
+  if (!pane.indicators || !pane.indicators.has('deltaprofile')) return;
+  const canvas = ensureDpCanvas(pane);
+  const W = canvas.width  = canvas.offsetWidth;
+  const H = canvas.height = canvas.offsetHeight;
+  if (W === 0 || H === 0) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  const light = currentTheme === 'light';
+  const note = (txt, tone) => {
+    ctx.font = '11px ui-sans-serif, system-ui, sans-serif';
+    ctx.fillStyle = tone || (light ? 'rgba(60,60,70,0.75)' : 'rgba(220,225,235,0.72)');
+    ctx.fillText(txt, 10, 16);
+  };
+
+  if (!dpIsSupported(pane)) {
+    note(`Delta Profile: no aggressor-side feed for ${pane.symbol} — Hyperliquid coins only`);
+    return;
+  }
+  const d = pane.dp;
+  if (!d) { note('Delta Profile: loading tape…'); return; }
+  if (d.error) { note(`Delta Profile: ${d.error}`); return; }
+  if (!d.bins || !d.bins.length || !d.n_trades) {
+    note(d.note ? `Delta Profile: ${d.note}` : 'Delta Profile: tape is empty');
+    return;
+  }
+
+  const maxVol = Math.max(...d.bins.map(b => b.buy + b.sell));
+  if (!(maxVol > 0)) { note('Delta Profile: no prints in the visible range'); return; }
+  const maxBarW = W * DP_WIDTH_FRAC;
+  const yOf = pr => pane.series.priceToCoordinate(pr);
+  const buyFill  = light ? 'rgba(20,140,70,0.55)'  : 'rgba(38,166,154,0.55)';
+  const sellFill = light ? 'rgba(200,50,45,0.50)'  : 'rgba(239,83,80,0.50)';
+
+  for (const b of d.bins) {
+    const total = b.buy + b.sell;
+    if (total <= 0) continue;
+    const yTop = yOf(b.hi), yBot = yOf(b.lo);
+    if (yTop == null || yBot == null) continue;
+    const h = Math.max(1, Math.abs(yBot - yTop) - 1);
+    const y = Math.min(yTop, yBot);
+    const wTotal = (total / maxVol) * maxBarW;
+    // Stacked from the left edge: sell first, then buy. Stacked rather than
+    // diverging because at 16% of the plot a two-sided bar leaves each half too
+    // short to read, and the split is the point.
+    const wSell = wTotal * (b.sell / total);
+    ctx.fillStyle = sellFill;
+    ctx.fillRect(0, y, wSell, h);
+    ctx.fillStyle = buyFill;
+    ctx.fillRect(wSell, y, wTotal - wSell, h);
+  }
+
+  // Header: what this is, and how much of the window it actually covers. The
+  // tape starts at server subscribe time, so "since" is load-bearing, not decor.
+  const since = new Date(d.first_ts).toLocaleTimeString();
+  const dTone = d.cum_delta >= 0 ? buyFill : sellFill;
+  ctx.font = '600 11px ui-sans-serif, system-ui, sans-serif';
+  ctx.fillStyle = dTone;
+  ctx.fillText(`Δ ${d.cum_delta >= 0 ? '+' : ''}${d.cum_delta.toFixed(3)}`, 10, 16);
+  ctx.font = '10px ui-sans-serif, system-ui, sans-serif';
+  ctx.fillStyle = light ? 'rgba(60,60,70,0.62)' : 'rgba(210,215,225,0.58)';
+  ctx.fillText(`real taker side · ${d.n_trades} prints since ${since}` +
+               (d.ring_full ? ' (ring full)' : ''), 10, 30);
+}
+
 function ensureSvpCanvas(pane) {
   if (!pane.svpCanvas) {
     const c = document.createElement('canvas');
@@ -8054,6 +8339,7 @@ async function loadData(idx) {
       applyIndicators(p);
       if (p.indicators.has('volprofile')) drawVolumeProfile(p);
       if (p.indicators.has('svp')) drawSessionVP(p);
+      if (p.indicators.has('deltaprofile')) drawDeltaProfile(p);
       if (p.indicators.has('fvg')) drawFVG(p);
       const last = bars[bars.length - 1];
       p.openPrice = bars[0].open;
@@ -8083,7 +8369,11 @@ async function loadData(idx) {
   // Only hide the loader on a successful fetch — the failure paths above
   // set their own visible error text and leave it shown, so the user sees
   // *why* the chart is blank instead of looking at it forever.
-  if (loader && ok) loader.style.display = 'none';
+  if (loader && ok) {
+    loader.style.display = 'none';
+    // Record this successful chart load in history
+    if (p && p.recordChartState) p.recordChartState();
+  }
 
   if (wsReady) wsSubscribe(idx);
 }

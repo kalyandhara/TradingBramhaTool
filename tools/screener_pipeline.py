@@ -85,7 +85,22 @@ BHAV_TOP_N = 5000
 
 # Minimum data requirements
 MIN_BARS   = 60
-MIN_VOLUME = 100_000
+#: 10-day average TURNOVER floor for SCANNING, in rupees.
+#:
+#: Was a share-count floor, which measured the wrong thing: shares x price is
+#: what you can get in and out of, and a count alone penalises exactly the
+#: stocks that are easiest to trade. On the 2026-09-05 bhavcopy, every one of
+#: the 160 names a 50k-share floor dropped from the top 1500 had turnover above
+#: Rs 1 cr - MRF (Rs 60 cr on 4,656 shares), BOSCHLTD (Rs 79 cr), PAGEIND
+#: (Rs 52 cr), SHREECEM. The floor was rejecting blue chips for being expensive
+#: while admitting penny stocks with big share counts and no real turnover.
+#:
+#: Rs 1 cr/day keeps 1,610 of 2,633 EQ names. Single-symbol pages bypass this
+#: entirely (fetch_ohlcv min_turnover=0).
+#:
+#: volume_fetcher.VolumeFetcher.MIN_TURNOVER is the same floor on the other
+#: fetch path and MUST be kept in step with this number.
+MIN_TURNOVER = 10_000_000
 
 logging.basicConfig(
     level=logging.INFO,
@@ -315,7 +330,17 @@ def fetch_screener_stocks(slug: str) -> list[str]:
 # Step 2 — Download OHLCV from yfinance
 # ──────────────────────────────────────────────────────────────────────────────
 
-def fetch_ohlcv(symbol: str, days: int = 300) -> pd.DataFrame | None:
+def fetch_ohlcv(symbol: str, days: int = 300,
+                min_turnover: float | None = None) -> pd.DataFrame | None:
+    """Daily OHLCV for one NSE symbol, or None if it fails the screen gates.
+
+    `min_turnover` defaults to MIN_TURNOVER, the screener's liquidity floor, in
+    rupees of 10-day average traded value. Pass 0 to fetch a thin name anyway:
+    the floor exists to keep illiquid stocks OUT of a 2,000-name scan, and it is
+    the wrong rule when someone has asked for one symbol by name. The bar-count
+    and empty-download gates always apply — those are "there is no data", not
+    "this data is not worth scanning".
+    """
     ticker = f"{symbol}.NS"
     period = "max" if not days or days <= 0 else f"{days}d"
     try:
@@ -338,10 +363,11 @@ def fetch_ohlcv(symbol: str, days: int = 300) -> pd.DataFrame | None:
         log.warning("  [skip] %s — only %d bars (need %d)", ticker, len(df), MIN_BARS)
         return None
 
-    avg_vol = df["volume"].tail(10).mean()
-    if avg_vol < MIN_VOLUME:
-        log.warning("  [skip] %s — 10d avg volume %.0f < %d (too illiquid)",
-                    ticker, avg_vol, MIN_VOLUME)
+    floor = MIN_TURNOVER if min_turnover is None else min_turnover
+    avg_turnover = float((df["close"] * df["volume"]).tail(10).mean())
+    if floor and avg_turnover < floor:
+        log.warning("  [skip] %s — 10d avg turnover Rs %.2f cr < Rs %.2f cr "
+                    "(too illiquid)", ticker, avg_turnover / 1e7, floor / 1e7)
         return None
 
     return df

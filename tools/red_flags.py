@@ -53,6 +53,20 @@ _WC_DAYS_FLOOR = 120.0
 # Promoter stake falling by more than this over the observed window is the
 # classic "insiders are leaving" signal.
 _PROMOTER_DROP_PP = 2.0
+#: Quarters the promoter-stake comparison spans (B-34r3, 2026-09-05).
+#:
+#: Both promoter checks used to compare the OLDEST cached quarter against the
+#: newest, so the window grew with the cache and the same threshold silently got
+#: easier to trip. Measured in the Hidden Treasures backtest: the veto rate went
+#: 3% -> 28% across 2024-12 .. 2026-06 with no change in behaviour by the
+#: companies, purely because later evaluations had more quarters behind them.
+#:
+#: A -2pp drop spread over eight quarters is not the same evidence as -2pp in
+#: one year, and an unbounded window cannot tell them apart. Four quarters makes
+#: the threshold mean something a person can state: "promoter stake fell 2pp or
+#: more over the last year". Shorter series are still used, and the detail text
+#: always names the span actually compared so the reader is never guessing.
+_PROMOTER_WINDOW_Q = 4
 # Pledged promoter shares above this are a financing-stress signal.
 _PLEDGE_PCT_MAX = 5.0
 
@@ -190,17 +204,19 @@ def _check_promoter_holding_nse(series: list | None) -> dict[str, Any] | None:
     pts = [(p, _f(v)) for p, v in (series or []) if _f(v) is not None]
     if len(pts) < 2:
         return None
+    # B-34r3: compare over a BOUNDED trailing window, not the whole cache.
+    pts = pts[-_PROMOTER_WINDOW_Q:]
     key, label = "promoter_holding", "Promoter stake reduction"
     oldest, latest = pts[0][1], pts[-1][1]
     delta = latest - oldest
     n = len(pts)
     if delta <= -_PROMOTER_DROP_PP:
         return _mk(key, label, FLAG, CRITICAL,
-                   f"Promoter holding fell {abs(delta):.2f}pp across {n} NSE-filed "
-                   f"quarters ({oldest:.2f}% → {latest:.2f}%).", "NSE")
+                   f"Promoter holding fell {abs(delta):.2f}pp over the last {n} "
+                   f"NSE-filed quarters ({oldest:.2f}% → {latest:.2f}%).", "NSE")
     return _mk(key, label, CLEAN, CRITICAL,
-               f"Promoter holding {latest:.2f}% ({delta:+.2f}pp over {n} NSE-filed "
-               f"quarters).", "NSE")
+               f"Promoter holding {latest:.2f}% ({delta:+.2f}pp over the last {n} "
+               f"NSE-filed quarters).", "NSE")
 
 
 def _check_promoter_holding(holdings: dict | None) -> dict[str, Any]:
@@ -211,16 +227,20 @@ def _check_promoter_holding(holdings: dict | None) -> dict[str, Any]:
                    "holding was not read. This is not a clean bill of health.",
                    "screener.in")
     series = holdings["promoter"]
-    quarters = list(series.keys())
+    # Same bounded window as the NSE path (B-34r3) - the screener.in series has
+    # the identical drift problem, and the two must not disagree about what a
+    # promoter-stake flag means depending on which source answered.
+    quarters = list(series.keys())[-_PROMOTER_WINDOW_Q:]
     latest, oldest = series[quarters[-1]], series[quarters[0]]
     delta = latest - oldest
+    n = len(quarters)
     if delta <= -_PROMOTER_DROP_PP:
         return _mk(key, label, FLAG, CRITICAL,
-                   f"Promoter holding fell {abs(delta):.2f}pp across the reported "
-                   f"quarters ({oldest:.2f}% → {latest:.2f}%).", "screener.in")
+                   f"Promoter holding fell {abs(delta):.2f}pp over the last {n} "
+                   f"reported quarters ({oldest:.2f}% → {latest:.2f}%).", "screener.in")
     return _mk(key, label, CLEAN, CRITICAL,
-               f"Promoter holding {latest:.2f}% ({delta:+.2f}pp over the reported "
-               f"quarters).", "screener.in")
+               f"Promoter holding {latest:.2f}% ({delta:+.2f}pp over the last {n} "
+               f"reported quarters).", "screener.in")
 
 
 def _check_promoter_pledge_nse(pledge: tuple | None) -> dict[str, Any] | None:

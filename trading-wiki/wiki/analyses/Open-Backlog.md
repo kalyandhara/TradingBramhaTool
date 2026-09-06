@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-09-02
+updated: 2026-09-06
 sources: 0
 related:
   - analyses/Open-Backlog-2026-08-02.md
@@ -48,6 +48,7 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **Open — residual only** | **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
 | **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic), **B-39** (pin `scipy` in requirements / make `backtest.py` scipy-optional — the hard import silently broke the significance stack on Python 3.14) |
 | **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**), ~~**B-41**~~ (**CLOSED 2026-09-02** — `detect_liquidity_pools` + `detect_liquidity_sweep` + both scanners; SMC stack now complete), ~~**B-42**~~ (**CLOSED 2026-09-02**; residual **B-42r** — the pivot_len 5-vs-15 split, to be settled on data). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
+| **Closed 2026-09-05** | ~~**B-44r**~~ **MEASURED → FALSIFIED, GEX retired** (magnitude convention inverted the pre-registered direction and what survives the 1/σ control flips sign between vol terciles — see below). **B-34r** *(new, shipped same day)* — **Hidden Treasures gained its first HARD gate**: `red_flags.py` (FR-4) wired into `smallcap_discovery`, critical flags veto, watch flags cost 6 pts, NOT_CHECKED never reads as a pass. Zero extra fetches (rides the quality overlay's payload; `sessionid=None` keeps screener.in dormant). **Vetoes 100 of 249 on Smallcap-250** — 59 negative FCF, 51 promoter stake reduction, 28 pledge, 5 dilution. Toggleable and every exclusion is listed, because the default is NOT settled: see **B-34r2**. |
 | **New 2026-08-29** | ~~**B-43**~~ **BUILT + MEASURED → clean null** (flip edge ~0, negative on the long leg; beat buy&hold 0/23 — but fires 40% less often than the EVWMA cross, i.e. noise reduction without edge). Chart overlay kept, labelled FLIP not BUY/SELL. MCX still gated. From the Renko podcast ingest. ~~**B-44**~~ **BUILT + MEASURED same day → clean null** (see below); residual **B-44r** (is the naive dealer convention backwards for NSE?). From the Chris Kmer order-flow ingest. |
 | **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
@@ -301,7 +302,7 @@ first touch" — needing a first-touch event study against a matched non-wall
 strike. B-19 (0/41 scanners stable after costs) is the prior to hold. Filed as
 **B-28r**.
 
-### B-40 · VWAP is a chart line, not a signal — **SCANNER SHIPPED 2026-08-27**
+### ~~B-40~~ · VWAP is a chart line, not a signal — **CLOSED 2026-09-06: MEASURED NEGATIVE**
 Was: zero occurrences of `vwap` in `scanner_templates.py`; VWAP existed only as a
 chart overlay. **Shipped** `scan_vwap_reclaim` (registry "VWAP Reclaim/Support",
 category Entry, scanner #40) + `_rolling_vwap` + `_anchored_vwap` helpers.
@@ -318,11 +319,63 @@ tags VWAP within 1% and bounces), with-trend only (close > EMA-50), not extended
 (≤6% above the mean). Verified: fires selectively (1/8 large-caps: TITAN
 pullback-hold; downtrend correctly rejected; module compiles).
 
-**Still open:** (a) the **anchored-VWAP-from-catalyst** support read (earnings /
-breakout / IPO anchor) + the chart's click-to-anchor — that half is **B-4/B-12**;
-(b) **unmeasured** — like every scanner it needs `backtest_scanner` run on it
-(does a VWAP-reclaim beat the every-bar baseline?) before it grades anything. That
-is the one open measurable claim.
+**The open measurable claim is now closed, and the answer is worse than null.**
+Ran 2026-09-06 on 50 symbols, **2745 signals**:
+
+| horizon | hit% | edge% | p | net-of-cost median |
+|---|---|---|---|---|
+| 5d | 52.3 | −0.02 | 0.77 | −0.14% |
+| 10d | 50.9 | **−0.20** | **0.042** | −0.16% |
+| 20d | 51.9 | **−0.45** | **0.0006** | −0.02% |
+| 60d | 57.4 | **−0.50** | **0.033** | +1.85% |
+
+**A VWAP reclaim does not merely fail to predict — it selects bars that do WORSE
+than a random bar from the same pool.** −0.45% @20d at p=0.0006 is the most
+statistically solid number this desk has produced on a VWAP rule in either
+direction. Net of Indian delivery costs the hit rate is under 50% at 5/10/20d and
+the median return is negative at all three.
+
+**Two things explain the shape, and both were foreseeable from this item's own
+notes.** It fires 2745 times against VWAP Mean Reversion's 275, so the gates are
+loose — "a stock in an uptrend near its mean" rather than an event — which is also
+why an effect this small is detectable at all. And the design correction recorded
+above says the first cut never fired and the gates were loosened until it did.
+This is what that loosening bought.
+
+**Not a licence to fade reclaims.** That is a different claim, needs its own
+pre-registered test, and −0.45% would not survive costs on the short side either.
+
+**No R-multiple line:** the scanner emits no entry/stop/target. Adding one now
+would measure a trade plan invented after the fact, on a signal already shown to
+select badly. Left as it is.
+
+**Consequence applied, in two steps.** First demoted to `MEASURED_WEAK_SCANNERS`
+(0.25, from 0.5). **That was not enough** — a weak weight still counts toward
+`FULL_CONFLUENCE`, so a detector measured *negative* could still help push a name
+onto the shortlist. It is now in **`PIPELINE_EXCLUDED`**, the same enforcement
+Renko Flip gets under B-43, one step further along: Renko measured NO edge, this
+measured a negative one, and letting it vote would spend ranking weight *against*
+the ranking.
+
+It stays registered, visible and runnable in the Scanner Hub, and backtestable.
+The measurement rules out a vote, not the view. VWAP Mean Reversion stays at
+weak weight — null is not negative, so a quarter-vote is the honest setting.
+
+**Still open:** the **anchored-VWAP-from-catalyst** support read (earnings /
+breakout / IPO anchor) + the chart's click-to-anchor — that half is **B-4/B-12**
+and is untouched by this result, since it is a different mean and a different
+claim.
+
+> [!key-insight] All three VWAP-derived rules on this desk have now been measured
+> EVWMA/VWAP MACD crossovers: no edge, stop-and-reverse −29% vs buy&hold +827%
+> (2026-08-29). VWAP Mean Reversion: null, −0.19R after costs (B-40m). VWAP
+> Reclaim/Support: significantly negative (this item). Three rules, three
+> different mechanisms — momentum, reversion, trend-pullback — all built on the
+> same mean, none of them a trigger. **On NSE daily bars VWAP is context.**
+>
+> The untested case is the one all three were adapted FROM: the intraday session
+> VWAP. That needs an intraday store this repo does not have — a data gap, not a
+> parameter to tune, and not a reason to re-open the intraday lane.
 
 **Adjacent measured result (2026-08-29) — a *different* VWAP rule, tested and dead.**
 The owner's TradingView `EVWMA_VWAP_MACD[QN]` BUY/SELL strategy was ported into the
@@ -333,6 +386,131 @@ stop-and-reverse median **−29%** vs buy&hold **+827%**. Full write-up in
 is about the *reclaim/pullback-hold* event on a rolling 20-day VWAP, a different
 rule — but it is a second data point that VWAP-derived **crossovers** are context,
 not triggers, and the reclaim scanner should be measured expecting the same.
+
+### ~~B-40m~~ · VWAP mean reversion + volume — **BUILT + MEASURED 2026-09-06 → NULL, NEGATIVE AFTER COSTS**
+
+Prompted by a "VWAP Mean Reversion + Volume" playbook card. The rule: price deviates
+far from VWAP on EXTREME volume, rejects, and reverts to the mean on RISING volume.
+Long below VWAP, short above, exit at VWAP.
+
+**Nothing here could express it, which is why it was worth building.** `evmacd` fires
+when price pulls AWAY from the volume anchor — the opposite trigger, and already dead
+(B-40's adjacent result). `scan_vwap_reclaim` is long-only, with-trend, and treats
+volume as a participation floor. What is new is the **double volume role**: capitulation
+volume marking the deviation, then rising volume confirming the turn. A reversion on
+falling volume is the failure case the rule exists to skip, and no existing tool could
+say that.
+
+**Shipped as one rule in two places** so it could be graded rather than admired:
+`tools/vwap_mean_reversion.js` (chart bands + BUY/TRIM arrows) and
+`scan_vwap_mean_reversion` (registry #45). Both report which VWAP they used —
+`session` intraday, `rolling` on daily+ — because those are different claims.
+
+**Forward returns (50 symbols, 275 signals, ~1500 bars each):**
+
+| horizon | hit% | edge% | p |
+|---|---|---|---|
+| 5d | 54.9 | +0.19 | 0.51 |
+| 10d | 53.5 | +0.19 | 0.57 |
+| 20d | 56.0 | +0.72 | 0.14 |
+| 60d | 62.9 | +1.54 | **0.053** |
+
+**The 60d number is a trap and is recorded as one.** The rule targets VWAP — 3-6% away,
+10-bar time stop — so its claim lives at 5-10d, where the edge is +0.19% at p≈0.5. An
+edge that appears only well beyond the holding period is drift, not the rule.
+
+**The R-multiple sim is the decisive test, and it settles it:**
+
+| | expectancy | win% | target / stop / time |
+|---|---|---|---|
+| gross | **+0.04R** | 43.1 | 50 / 53 / 13 |
+| Indian delivery ~29bps | **−0.19R** | 43.1 | 50 / 53 / 13 |
+
+n=116 (long side only; the sim is long-only and the bearish half is a trim read anyway).
+Target hit 50 times, stop 53 — a coin flip at ~1:1. Gross expectancy is zero with a
+rounding error; **realistic NSE costs make it a losing rule.**
+
+**Third VWAP-derived rule measured to nothing on this desk.** EVWMA/VWAP MACD crossovers
+outright (2026-08-29), this one now; `scan_vwap_reclaim` remains the one unmeasured VWAP
+claim. The pattern is consistent enough to state: **on NSE daily bars VWAP is context,
+not a trigger.**
+
+**The honest limitation, which is a DATA gap and not a parameter to tune.** The playbook
+rule is natively intraday against a session VWAP. On daily bars a session VWAP collapses
+to the bar's own (H+L+C)/3, so what was measured is the rolling-VWAP variant — labelled
+`source: 'rolling'` in both implementations precisely so the two are never conflated.
+Testing the poster's actual claim needs an intraday store this repo does not have. That
+is the same wall B-40 hit and the same one the intraday lane was explicitly scoped out
+over; **it is not re-opened by this result.**
+
+**Kept, not deleted.** The bands are a genuine chart read — "how stretched is this, for
+this symbol, lately" — and the scanner is honest coverage of a setup the funnel has no
+other way to see. What is retired is any claim that it triggers.
+
+**Cross-implementation checking earned its keep.** The JS trailing volume average summed
+19 bars over a divisor of 20, inflating every multiplier ~5% and firing a TATASTEEL
+signal the Python correctly rejected. Neither implementation looked wrong alone; they
+only disagreed. They now agree signal-for-signal on RELIANCE / TATASTEEL / DLF.
+
+### ~~B-43r~~ · Does the Renko flip work once sideways chop is cut? — **MEASURED 2026-09-06: NO, IT IS SIGNIFICANTLY WORSE**
+
+Owner's observation from watching the chart: flips look convincing when momentum is
+trending and worthless when it is sideways, so a trend filter should recover the edge
+B-43 could not find. A real, testable claim — and the shape of claim that most often
+produces a false positive, so `tools/renko_regime_study.py` was written to make that
+hard: pre-registration in the docstring, one primary test, a directional control, and
+secondaries explicitly labelled non-decisive.
+
+**Pre-registered before running:** long flips with ADX(14) >= 25, against a baseline of
+**every bar with ADX(14) >= 25**, 20d horizon, entry next open, rotation p-value.
+Pass bar: `edge > 0 AND p_rot < 0.05`.
+
+| test | n | signal | baseline | edge | hit% | p_rot |
+|---|---|---|---|---|---|---|
+| **PRIMARY** flip_up, ADX-matched | 576 | +1.13% | +2.14% | **−1.01%** | 53.1 / 57.7 | **0.000** |
+| CONTROL flip_dn as long | 655 | +2.52% | +2.14% | +0.38% | 56.9 / 57.7 | 0.331 |
+| SECONDARY flip_up, brick run ≥3 | 394 | +0.84% | +2.14% | **−1.30%** | 53.0 | — |
+| B-43 reproduction, no filter | 1766 | +1.60% | +1.61% | −0.02% | 56.0 / 55.7 | — |
+
+**Inside a trend, a flip marks a moment measurably WORSE than an average moment in that
+same trend.** Not "no better" — worse, by a full percent at 20d with p_rot = 0.000.
+
+**The mechanism is legible, which is why the sign is believable.** ADX >= 25 means a
+trend is running. An up-flip *requires* price to have first fallen enough to print down
+bricks and then turned back up, so it systematically selects the moment just after a
+counter-move: part of the run already given back, and the point where a pullback is
+hardest to tell from a real reversal. The matched baseline — "any bar in a trend" — is
+simply already long and holding. **Holding beats re-entering.** The brick-run secondary
+sharpens the same point: the longer the counter-run before the flip, the more of the
+trend was missed, and the worse it gets (−1.30%).
+
+**The controls behave, which is what licenses the sign.** The down-flip control is a
+clean null (p=0.331), so the ADX gate is not merely selecting good periods and lifting
+everything. And the unfiltered arm reproduces B-43 (−0.02% vs its clean null), so the
+harness agrees with the study it is extending.
+
+> [!key-insight] Why it looked convincing, and what the REGIME CONTRAST line is for
+> In a strong trend everything looks convincing in hindsight — the flips looked right
+> because the trend was right. The study prints the same flips against an UNFILTERED
+> baseline precisely to size that illusion. Here it reads **−0.48%**, so even the
+> careless version of this test would not have shown an edge. **The illusion was
+> visual, not arithmetic** — which is the more common of the two and the one no
+> baseline correction can catch.
+
+**Methodological point worth keeping.** Gating the signal on ADX while comparing to an
+unconditional baseline would have measured the regime, not the flip. That is the same
+trap that killed B-44r (BS gamma carries 1/σ, so "high gamma" proxied for "low vol")
+and the same shape as B-34r4's drifting window. **Filter the baseline with whatever you
+filter the signal.**
+
+**Not a licence to fade flips in trends.** The pre-registered bar was `edge > 0`, so a
+significant negative FAILS it; "flips are contrarian" is a new claim needing its own
+pre-registration, and −1% would not survive costs on the short side. Limitations: 22
+symbols, one threshold, survivorship in the basket.
+
+**No change to what ships.** Renko stays a chart overlay labelled FLIP (not BUY/SELL)
+and stays in `PIPELINE_EXCLUDED`. B-43 already put it there for measuring no edge; this
+result only strengthens the case for the exclusion that already exists.
 
 ### ~~B-43~~ · Renko / time-independent chart engine — ✅ **BUILT + MEASURED 2026-08-29 → CLEAN NULL**
 `grep -ri renko tools/` returns **nothing**. Every chart type and every scanner in this
@@ -464,6 +642,347 @@ backtest that samples daily against multi-day horizons carries this exposure —
 `stride=5` mitigates it, rotation measures it. Worth retro-fitting where a marginal
 Welch result is currently load-bearing.
 
+### ~~B-34r~~ · Hidden Treasures had no gate at all — **SHIPPED 2026-09-05**
+
+Owner asked whether the small/micro-cap lane has a value-trap avoidance gate. It had **no
+gate of any kind**. Every factor in `smallcap_discovery.score_from_cache` was a soft score
+adjustment, including the one the page called a *"pledge veto"* — in code it was **−20
+points**. A name with 40% pledge and promoters distributing scored ~27, stayed in the
+universe, and merely ranked low; in a thin universe it could still surface.
+
+`red_flags.py` (FR-4) already existed and was imported by `dashboard_app`,
+`market_health` and `technofunda_funnel` — but **not** by this lane. So the fix was
+wiring, not writing.
+
+**Cost: zero extra requests.** The checklist reads the same `fundamentals_deep` payload
+the quality overlay already fetches, and the promoter/pledge checks are fed from
+`ownership_cache`, so `sessionid=None` leaves the screener.in path dormant.
+
+**The obvious gate is a trap.** `red_flags.no_critical_flags()` returns `False` for *every*
+symbol by design — auditor qualification, related-party dealing and contingent liabilities
+live in filing prose nothing in this stack parses, so they are permanently `NOT_CHECKED`
+and a helper demanding every critical check be CLEAN can never pass. Gating on it would
+empty the list. The gate is `counts["critical_flagged"]`: a critical check that ran **and**
+failed.
+
+Behaviour: critical flag fired → **veto**; watch-level flag → **−6** each; `NOT_CHECKED`
+counted and reported, never a pass. Vetoes require the quality overlay (they need its
+payload); with it off, `veto_active` is False and the page says nothing was screened.
+
+**Measured, Smallcap-250, 249 scoreable:**
+
+| reason | names |
+|---|---|
+| Negative free cash flow | 59 |
+| Promoter stake reduction | 51 |
+| Promoter share pledging | 28 |
+| Equity dilution | 5 |
+| **vetoed total** | **100 (40%)** — 37 tripped more than one |
+
+**SAILIFE, the highest-scoring name in the universe (76.9), is vetoed** on two years of
+negative FCF. So are JSWCEMENT and GRSE.
+
+### B-34r2 · Should the veto stay on? — **HALF MEASURED 2026-09-05**
+
+`hidden_treasures_backtest.py --gov-veto`. Smallcap-250, top 25, 6 eval quarters,
+30-SEP-2024 … 31-MAR-2026.
+
+| arm | 60d edge | p | hit% | 120d edge | p | hit% | Q+/Q 60d |
+|---|---|---|---|---|---|---|---|
+| no veto | +0.91% | 0.5393 | 59.3% | +1.47% | 0.5425 | 58.4% | 3/6 |
+| **governance veto** | **+1.21%** | 0.4170 | **60.7%** | **+2.15%** | 0.3884 | **60.0%** | 4/6 |
+
+> [!contradiction] Superseded by B-34r3
+> These figures were produced with the **unbounded** promoter window. Re-measured after
+> B-34r3 bounded it, the 120d edge falls from +2.15% to **+1.46%**, against +1.47% for no
+> veto at all — the improvement below was mostly the drift. Read the B-34r3 table instead.
+
+**Every metric moves the right way and none of it is significant.** Baselines are identical
+in both arms (+4.61 / +6.84), which confirms the veto touched only the picks; n(top)=150 in
+both, so the basket filled in every quarter. Verdict is the same class as B-34 itself:
+**WEAK — it does not hurt, and it cannot be shown to help.**
+
+**Only half the question was testable, and it is the smaller half.** FCF and dilution cause
+**64 of the 100** live vetoes, but `fcf_history` and `shares_history` come back from
+yfinance as bare value lists with **no year labels**, so they cannot be truncated to "as
+known at Q". Applying today's FCF streak to a 2024 entry vetoes a pick for something that
+had not happened yet. **The headline question — should negative FCF veto — remains open and
+is not answerable with the current data.** It needs a point-in-time fundamentals store
+(year-labelled annual history), not another run against the present one.
+
+**A flaw the run exposed, affecting the LIVE page too.** The veto rate is not stationary —
+it climbs with the length of the lookback window, because `_check_promoter_holding_nse`
+compares oldest→newest across however many quarters it is handed:
+
+| quarter | scored | vetoed | veto rate |
+|---|---|---|---|
+| 31-DEC-2024 | 224 | 7 | 3% |
+| 31-MAR-2025 | 232 | 11 | 5% |
+| 30-JUN-2025 | 232 | 43 | 19% |
+| 31-DEC-2025 | 242 | 58 | 24% |
+| 30-JUN-2026 | 249 | 70 | 28% |
+
+A 2pp promoter drop spread over 8 quarters is much weaker evidence than the same drop over
+2, and the check does not distinguish them. So the veto silently tightens as the ownership
+cache deepens — on the live page as well.
+
+### ~~B-34r3~~ · Bound the promoter window — **SHIPPED 2026-09-05**
+
+`red_flags._PROMOTER_WINDOW_Q = 4`. Fixed **at the source, not in the lane**: both promoter
+paths (free NSE and screener.in) compared oldest-vs-newest across the whole cached series,
+so the flaw belonged to the module and `dashboard_app`'s Analyzer inherited it too. The
+`hidden_treasures_backtest` veto is bounded to match, and every detail string now names the
+span it actually compared ("fell 2.8pp over the last 4 NSE-filed quarters") so a verdict
+can never be read without knowing its window.
+
+**Veto rate is now stationary where it can be:**
+
+| quarter | before | after |
+|---|---|---|
+| 31-DEC-2024 | 3% | 3% |
+| 31-MAR-2025 | 5% | 5% |
+| 30-JUN-2025 | 19% | 19% |
+| 30-SEP-2025 | 22% | **20%** |
+| 31-DEC-2025 | 24% | **21%** |
+| 31-MAR-2026 | 26% | **20%** |
+| 30-JUN-2026 | 28% | **19%** |
+
+**The residual ramp at the start is not the same defect.** Those quarters hold only two or
+three quarters of history in total, so the window is short — and a 2pp cumulative drop is
+*harder* to reach in two quarters than in four. That bias runs toward NOT flagging on thin
+history, the opposite of the original defect, where a longer window quietly made the same
+threshold easier to trip.
+
+**Deliberately out of scope here, done next:** the SCORE's promoter term — **B-34r4**.
+
+### ~~B-34r4~~ · The score's promoter term had the same drift — **MEASURED 2026-09-05: the lane's edge was the bug**
+
+`score_from_cache`'s −15 / +10 promoter term compared the oldest cached quarter against the
+newest, exactly as the veto did. The institutional term never had the problem — it already
+divides by `(len-1)` into a pp/quarter rate. Bounded to the same 4-quarter window, then
+re-measured.
+
+All rows below: Smallcap-250, top 25, 6 eval quarters, same session, so they are
+comparable to each other rather than to the historical B-34 figure (which used a different
+universe).
+
+| score term | veto | 60d edge | p | 120d edge | p | hit% 60d |
+|---|---|---|---|---|---|---|
+| unbounded | none | +0.91% | 0.539 | +1.47% | 0.543 | 59.3% |
+| unbounded | drifting | +1.21% | 0.417 | +2.15% | 0.388 | 60.7% |
+| unbounded | bounded | +1.02% | 0.495 | +1.46% | 0.550 | 60.0% |
+| **bounded** | **none** | **−0.12%** | 0.936 | **+0.20%** | 0.935 | 56.0% |
+| **bounded** | **bounded** | **+0.05%** | 0.973 | **+0.33%** | 0.892 | 56.0% |
+
+Universe baseline hit rate is 56.5% at 60d. **With both windows bounded the ranking sits at
+or below a random pick from the same universe, and the veto changes nothing.**
+
+**Every positive number this lane has ever shown traces to one defect.** A cumulative
+promoter drop measured over an ever-lengthening window made names look progressively worse
+as the cache deepened, and the ranking was partly sorting on that artefact rather than on
+conviction. Remove it and the edge is gone.
+
+**What survives is what B-34 always said was the primary value: coverage.** The lane
+surfaces real small/micro-caps the large-cap funnel structurally cannot see. What does not
+survive is any claim that ranking them by institutional conviction beats picking from the
+same universe at random.
+
+> [!contradiction] B-34's headline figure is superseded
+> B-34 closed with "+2.51% @60d (p=0.22), +6.29% @120d (p=0.14) → WEAK". That was measured
+> with the unbounded promoter term in the score. It is not a like-for-like comparison with
+> the table above (different universe), but it is measured on the same defect, so the
+> positive reading should not be relied on. A clean re-run on `kind="both"` would settle
+> the number; the direction is already clear.
+
+**Edge re-measured with the bounded veto — and most of B-34r2's improvement was the bug.**
+
+| arm | 60d edge | p | hit% | 120d edge | p | hit% |
+|---|---|---|---|---|---|---|
+| no veto | +0.91% | 0.5393 | 59.3% | +1.47% | 0.5425 | 58.4% |
+| veto, **drifting window** (B-34r2) | +1.21% | 0.4170 | 60.7% | **+2.15%** | 0.3884 | 60.0% |
+| veto, **bounded window** (correct) | +1.02% | 0.4945 | 60.0% | **+1.46%** | 0.5498 | 59.2% |
+
+At 120d the corrected veto is **+1.46% against no-veto's +1.47%** — indistinguishable. The
++2.15% that made the veto look worthwhile was substantially an artefact of a gate that
+tightened as the cache deepened, i.e. of the measuring instrument rather than of the
+screen. Hit rate and Q+/Q still tick up slightly (60.0% vs 59.3%, 4/6 vs 3/6 at 60d), so
+the honest verdict is **NEUTRAL: the governance veto does not hurt and does not measurably
+help.**
+
+**This retracts the recommendation given earlier in B-34r2.** "Keep them, they are
+directionally positive" rested partly on the drift. The case for keeping the governance
+vetoes is now a governance-risk argument — you do not want to hold a name whose promoters
+are selling into a pledge — and explicitly **not** a measured-edge one.
+
+**Resolved 2026-09-05 — negative FCF demoted to a penalty.** The two governance vetoes stay
+(measured harmless and directionally positive, and testable point-in-time); FCF now costs
+**12 points** via `RF_DEMOTED` instead of removing the name. 12 sits between the watch
+penalty (6) and the pledge penalty (20).
+
+| | before | after |
+|---|---|---|
+| vetoed (Smallcap-250) | 100 | **72** |
+| kept | 149 | **177** |
+| veto causes | promoter 51 · pledge 28 · dilution 5 · **FCF 59** | promoter 51 · pledge 28 · dilution 5 |
+
+51 kept names now carry the FCF flag as a penalty. **SAILIFE**, the top-scoring name in the
+universe, is back at 64.9 (76.9 less 12) having been removed entirely before.
+
+Two implementation notes worth keeping:
+- The demotion is computed from the **flag list**, not from `counts["critical_flagged"]` —
+  that count still includes `negative_fcf`, so gating on it would have silently ignored the
+  demotion.
+- Demotion applies to the **CRITICAL grade only**. `red_flags` scores a single negative-FCF
+  year as WATCH ("one year alone can be a capex cycle rather than a problem"), so charging
+  it the full 12 would have been harsher than the source module's own reading. Caught on
+  SUNTV, a one-year dip: 50.9 → 56.9 once it took the watch 6 instead.
+
+**The blocker is gone — the test is now possible (2026-09-05).** `fundamentals_deep` was
+calling `.tolist()` on statement rows and discarding the frame's column dates, so
+`fcf_history` was five numbers with no way to say which years they covered. `_period_ends()`
+keeps them as **`fcf_years` / `shares_years`**, aligned by position, and
+`fcf_negative_streak_as_of(deep, as_of)` counts only years published by a given date —
+fiscal year end plus **60 days** (SEBI LODR's deadline for audited annual results, so a
+31-Mar year end is not knowable until roughly end-May).
+
+No new source and no scraping was needed: the labels were already in the yfinance payload
+being thrown away. A commercial site was offered and declined — scraping today's page still
+would not give history *as it was known then*, which is the only thing that makes this test
+honest.
+
+**The look-ahead was real, and is now measured rather than asserted.** SAILIFE, the name the
+original veto removed from the top of the list:
+
+| as of | streak | years known |
+|---|---|---|
+| 2024-09-30 | **0** | 3 |
+| 2025-09-30 | **1** | 4 |
+| 2026-09-05 | **2** | 5 |
+
+Today's payload reports streak 2. Vetoing SAILIFE at a September-2024 entry — exactly what
+the live gate did before the demotion — used a fact that was not public for another two
+years.
+
+An *unknown* streak is neither a veto nor a pass: symbols with no cash-flow frame, or with
+nothing filed by the entry date, carry no FCF verdict at all. Same principle as FR-4's
+NOT_CHECKED.
+
+**MEASURED 2026-09-05.** All arms on the bounded score, Smallcap-250, top 25, 6 quarters:
+
+| arm | 60d edge | p | 120d edge | p | hit% 60d | hit% 120d |
+|---|---|---|---|---|---|---|
+| no veto | −0.12% | 0.936 | +0.20% | 0.935 | 56.0% | 55.2% |
+| governance veto | +0.05% | 0.973 | +0.33% | 0.892 | 56.0% | 56.0% |
+| **FCF veto (point-in-time)** | **+0.22%** | 0.888 | **+0.69%** | 0.800 | 56.0% | **52.8%** |
+| governance + FCF | +0.22% | 0.888 | +0.69% | 0.800 | 56.0% | 52.8% |
+
+Universe baseline: 56.5% @60d, 53.6% @120d.
+
+**The demotion stands, and now for a measured reason rather than an untestable one.** The
+point-in-time FCF veto is the best arm on mean edge (+0.69% vs +0.20% at 120d) and it is
+still nothing: **p = 0.80**. It also *lowers* the 120d hit rate to 52.8%, below the 53.6%
+baseline — edge up while hit rate falls means a few large winners, not more winners. There
+is no case here for restoring it to a hard veto, and none for removing the penalty either.
+
+**The two veto arms are byte-identical, and that is correct, not a bug.** Checked directly:
+**zero** of the FCF-eligible top-25 carry a governance flag, in *every* one of the 7
+quarters.
+
+| quarter | gov-vetoed (all) | fcf-vetoed (all) | gov-vetoed **inside top-25** |
+|---|---|---|---|
+| 31-DEC-2024 | 7 | 48 | **0** |
+| 30-JUN-2025 | 43 | 51 | **0** |
+| 31-DEC-2025 | 50 | 52 | **0** |
+| 30-JUN-2026 | 47 | 59 | **0** |
+
+**The governance veto is redundant with the score.** Promoter selling already costs −15,
+pledge −20, promoter steady/adding +10 — so a governance-flagged name essentially cannot
+reach the top 25 on score alone, and the veto only ever removes names far below the cut.
+That also explains B-34r3's near-zero measured effect. It is not useless — the vetoed list
+is informative on the page, and it protects a thin universe where 25 names might otherwise
+be scraped from the bottom — but it should not be described as improving the shortlist,
+because on this evidence it cannot.
+
+**Shipped 2026-09-06 — the Hidden Treasures page now carries this number.** The caption
+still advertised B-34's "+2.5% @60d (p=0.22)", i.e. the figure this item retracted, so the
+one place a reader actually meets the lane was quoting the artefact. It now reads
+−0.12% @60d (p=0.94) / +0.20% @120d (p=0.94), cites B-34r4 rather than B-34, and says why
+the old number was wrong — a reader who remembers +2.5% sees where it went instead of
+assuming a typo. `tools/dashboard_app.py`, commit `d6c9dd7`.
+
+### ~~B-34r5~~ · Gate or display? — **MEASURED → display. SHIPPED 2026-09-05**
+
+Measured on the LIVE scoring path (not the backtest) by ranking without the veto and
+finding where flagged names actually land:
+
+| universe | scored | flagged | first flagged rank | in top 25 / 50 / 100 |
+|---|---|---|---|---|
+| Smallcap-250 | 249 | 50 | **128th** | 0 / 0 / 0 |
+| Microcap-250 | 250 | 56 | **60th** | 0 / 0 / **1** |
+
+The page's "Show top N" maxes at **100**, so the gate can reach **at most one visible name,
+usually none**. It was removing names nobody was going to see, while the banner implied the
+list had been filtered.
+
+**The reason is structural, not luck.** The score already costs −15 for promoter selling
+and −20 for pledge, so a governance-flagged name cannot climb into the top ranks. The veto
+was re-applying, as a hard cut, a judgement the ranking had already made — which is also
+why B-34r2's two veto arms came back byte-identical and B-34r3's fix measured near zero.
+
+**Shipped:** the toggle defaults **off**, and flagged names are **marked on their own card**
+with the specific flag ("⛔ Equity dilution (share count)") rather than removed. That is
+strictly more information than a veto — you see the name, its score and the reason at the
+point of use. The toggle stays for anyone who wants the hard cut. Verified on Microcap-250:
+100 hits returned, INOXGREEN marked at #60 instead of vanishing.
+
+### B-34r2 · original framing *(2026-09-05)*
+
+The default shipped as "yes" and I am not confident it is right. Three reasons to doubt it:
+
+1. **Negative FCF is the single biggest cause** (59 of 100) and for a reinvesting small-cap
+   it is frequently the business model, not a value trap.
+2. **This lane has no valuation input at all** — no P/E, P/B or price enters the score. It
+   is an ownership-conviction screen, so "value trap" may be the wrong frame entirely; its
+   real failure mode is an **ownership trap** (institutions accumulating a deteriorating
+   business, or passive flow misread as conviction).
+3. **B-34 measured the ungated ranking at +2.51% @60d (p=0.22) / +6.29% @120d (p=0.14) —
+   WEAK.** Changing what the list contains changes that number in an unknown direction.
+
+The gate is therefore a **toggle**, defaulted on, with all 100 exclusions listed in the UI.
+Deciding it properly is a measurement, not an opinion: re-run `hidden_treasures_backtest.py`
+with and without the veto and compare hit rates. That is the same experiment shape as B-34,
+B-49 and B-50 — the shared event-study harness Phase 0 keeps asking for.
+
+Sub-question if the answer is "penalise, not veto": governance items (pledge, promoter
+dumping, egregious dilution) have a much better claim to vetoing than FCF does, so the
+split may be per-flag rather than all-or-nothing.
+
+### ~~B-44r~~ · Is the naive convention backwards for NSE? — **MEASURED 2026-09-05: FALSIFIED, GEX RETIRED**
+
+`tools/gamma_magnitude_backtest.py`. **No re-download was needed**: the note below says
+"needs a fresh 480-session pass over the raw chains", and that was wrong — the quantity the
+both-sides-short convention needs is `gross_gex_cr`, which `compute_gex` already persists.
+
+The pre-registered direction (bigger dealer book → **higher** forward vol) came back
+**inverted** on both indices at every horizon: NIFTY −2.47 pp / p_rot 0.042, BANKNIFTY
+−4.27 pp / p_rot 0.004 on the primary 5d test. The expected-null directional control
+behaved (p_rot 0.77 / 0.57), so the harness is sound.
+
+Most of the inversion is mechanical — BS gamma carries **1/σ**, so high vol produces low
+gamma, and vol clusters: corr(gross, trailing vol) = −0.44 / −0.24 against
+corr(trailing, forward) = +0.43 / +0.49. Controls halve NIFTY's effect to insignificance
+(p_rot 0.029–0.067); BANKNIFTY survives them (p_rot 0.021–0.033) but the **stratified** test
+kills it: the effect lives only in the high-trailing-vol tercile (−9.25 pp) and **flips
+sign** in the low-vol tercile (+1.23 pp, p_rot 0.44).
+
+Per the scope-discipline clause written into this item in advance, GEX is now **retired as
+a research instrument** — it prints a daily description and nothing more. Both conventions
+have now been tested and neither carries forward vol information on NSE indices. The
+remaining gap is per-strike dealer inventory, which is data this repo does not have, not
+another assumption about it. Full write-up on [[concepts/Gamma-Exposure-GEX]].
+
+<details><summary>Original item, kept for the record</summary>
+
 ### B-44r · Is the naive convention backwards for NSE? *(2026-08-29)*
 The pre-registered first suspect, now the only live thread. Naive GEX hard-codes a
 **US-equity** folk model — customers buy puts and sell calls, so dealers are long call
@@ -485,6 +1004,8 @@ retired as a research instrument that prints a daily description and nothing mor
 **Explicitly NOT in scope from the same source:** footprint/delta order flow (needs
 tick data the repo has never carried) and the intraday futures lane, already recorded as
 out-of-scope. Filed as knowledge in [[strategies/Forced-Participation-Reversal]].
+
+</details>
 
 ### B-49 · Free quality-value screen — **SHIPPED 2026-08-31** *(`tools/value_screen.py`)*
 Owner asked whether the "deep value" card format (P/E, P/S, OPM, ROE, ROCE, D/E,

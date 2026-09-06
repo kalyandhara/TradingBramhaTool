@@ -12,9 +12,13 @@ DELIBERATELY SMALL, high-conviction list — the opposite of the top-layer funne
 Reads from ownership_cache (pure disk). Names not yet cached are skipped; run
 `backfill()` (or `python smallcap_discovery.py --backfill`) once to warm them.
 
-UNMEASURED: every weight below is a prior. The B-34 test is a forward hit-rate
-study of this ranking vs a Smallcap-250 benchmark — until then it's a discovery
-lens, not an edge.
+MEASURED, AND THE ANSWER IS NO EDGE. Every weight below is still a prior, but the
+B-34 forward hit-rate study has now been run three times. With the promoter window
+bounded (B-34r4) the ranking sits at −0.12% @60d (p=0.94) / +0.20% @120d (p=0.94)
+against a Smallcap-250 benchmark — at or below a random pick from the same universe.
+B-34's original +2.51% / +6.29% was an artefact of a promoter lookback that lengthened
+as the cache deepened. What survives is COVERAGE: this lane surfaces small/micro-caps
+the large-cap funnel structurally cannot see. Do not describe the ranking as an edge.
 
   from smallcap_discovery import discover
   hits = discover(limit=25)
@@ -61,7 +65,18 @@ def score_from_cache(symbol: str) -> dict | None:
 
     fii_new, dii_new = _n(v_new.get("fii")), _n(v_new.get("dii"))
     fii_old, dii_old = _n(v_old.get("fii")), _n(v_old.get("dii"))
-    prom_new, prom_old = _n(v_new.get("promoter")), _n(v_old.get("promoter"))
+    # B-34r4: the promoter term is measured over a BOUNDED trailing window, the
+    # same one red_flags uses for its veto. Comparing the oldest cached quarter
+    # against the newest made the -15 / +10 term drift exactly as the veto did:
+    # the deeper the cache, the more likely a 2pp cumulative fall appeared, so
+    # the same company scored worse over time without changing behaviour.
+    #
+    # The institutional term above does NOT have this problem - it already
+    # divides by (len-1) into a pp/quarter rate, which is why the score spreads
+    # instead of saturating. This makes the promoter term consistent with it.
+    import red_flags as _rf
+    _pw = qs[-_rf._PROMOTER_WINDOW_Q:]
+    prom_new, prom_old = _n(_pw[-1][1].get("promoter")), _n(_pw[0][1].get("promoter"))
     pledge = _n(v_new.get("promoter_pledge_pct"))
 
     inst_new = sum(x for x in (fii_new, dii_new) if x is not None)
@@ -69,6 +84,7 @@ def score_from_cache(symbol: str) -> dict | None:
     inst_delta = round(inst_new - inst_old, 2)                     # pp accumulation
     prom_delta = (round(prom_new - prom_old, 2)
                   if prom_new is not None and prom_old is not None else None)
+    prom_span = len(_pw)
 
     reasons, score = [], 40.0
     # Main engine: FII+DII accumulation RATE (pp per quarter, so windows of
@@ -84,10 +100,12 @@ def score_from_cache(symbol: str) -> dict | None:
     if prom_delta is not None:
         if prom_delta <= -PROMOTER_SELL_PP:
             score -= 15
-            reasons.append(f"⚠ Promoter selling {prom_delta:+.2f}pp — distribution.")
+            reasons.append(f"⚠ Promoter selling {prom_delta:+.2f}pp over "
+                           f"{prom_span}q — distribution.")
         elif prom_delta >= -0.5:
             score += 10
-            reasons.append(f"Promoter steady/adding ({prom_delta:+.2f}pp).")
+            reasons.append(f"Promoter steady/adding ({prom_delta:+.2f}pp over "
+                           f"{prom_span}q).")
     # Pledge veto/flag.
     pledge_flag = pledge is not None and pledge > PLEDGE_MAX
     if pledge_flag:
@@ -101,12 +119,70 @@ def score_from_cache(symbol: str) -> dict | None:
         "score": round(max(0.0, min(100.0, score)), 1),
         "inst_delta": inst_delta,
         "promoter_delta": prom_delta,
+        "promoter_span_q": prom_span,
         "pledge_pct": pledge,
         "pledge_flag": pledge_flag,
         "as_of": p_new,
         "quarters": len(qs),
         "reasons": reasons,
     }
+
+
+#: Critical flags that DEMOTE to a penalty instead of vetoing, with the cost.
+#:
+#: negative_fcf demoted 2026-09-05 after B-34r2. It caused 59 of the 100 vetoes
+#: on Smallcap-250 - the majority - and it is the one critical flag that could
+#: NOT be backtested: `fcf_history` arrives from yfinance with no year labels, so
+#: it cannot be evaluated as-of a past quarter without hindsight. On top of that,
+#: this lane has no valuation input at all, so it is not strictly a value screen,
+#: and for a reinvesting small-cap negative FCF is frequently the business model.
+#: It was removing JSWCEMENT and GRSE on what is plausibly a capex cycle.
+#:
+#: 12 points sits deliberately between the watch penalty (6) and the pledge
+#: penalty (20): two or more years of not funding yourself from operations is a
+#: real concern, just not a disqualifying one in THIS lane.
+RF_DEMOTED = {"negative_fcf": 12.0}
+
+#: Penalty for a WATCH-severity red flag (rising debtor days, rising
+#: working-capital days, moderate dilution). These describe a business getting
+#: harder to run, not one that is already broken, so they cost score rather
+#: than removing the name.
+RF_WATCH_PENALTY = 6.0
+
+
+def _red_flags_for(hit: dict, deep: dict) -> dict | None:
+    """Run FR-4 red flags for one hit, reusing data already fetched.
+
+    Deliberately free-only: `sessionid=None` means `_screener_holdings` returns
+    None without a network call, and the promoter/pledge checks are fed from the
+    ownership cache this module already reads. So the whole thing costs ZERO
+    extra requests on top of the quality overlay's one.
+
+    Note what is NOT used: `red_flags.no_critical_flags()`. It returns False for
+    every symbol on purpose - three critical items (auditor qualification,
+    related-party dealing, contingent liabilities) live in filing prose nothing
+    here parses, so they are permanently NOT_CHECKED and a helper that demands
+    every critical check be CLEAN can never pass. Gating on it would empty the
+    list. The gate is `counts["critical_flagged"]`: a critical check that
+    actually RAN and FAILED.
+    """
+    try:
+        import red_flags as rf
+    except Exception:
+        return None
+    data = oc.load(hit["symbol"])
+    qs = _ordered_quarters(data)
+    series = [(p, v.get("promoter")) for p, v in qs
+              if isinstance(v.get("promoter"), (int, float))]
+    pledge = hit.get("pledge_pct")
+    pledge_arg = (pledge, hit.get("as_of")) if pledge is not None else None
+    try:
+        return rf.evaluate(hit["symbol"], None, deep, sessionid=None,
+                           promoter_series=series or None,
+                           promoter_pledge=pledge_arg)
+    except Exception as e:                       # never take the lane down
+        log.warning("red flags failed for %s: %s", hit["symbol"], e)
+        return None
 
 
 def _enrich_quality(hit: dict) -> None:
@@ -142,13 +218,77 @@ def _enrich_quality(hit: dict) -> None:
         reasons.append(f"⚠ D/E {de:.2f} > {DE_MAX:.1f} — leverage risk.")
     elif de is not None:
         reasons.append(f"D/E {de:.2f}.")
+    # ── FR-4 red flags, on the SAME `deep` payload (no extra fetch) ──────────
+    rfres = _red_flags_for(hit, d)
+    if rfres is None:
+        hit["red_flags"] = None
+    else:
+        c = rfres["counts"]
+        fired = [f for f in rfres["flags"] if f["state"] == "FLAG"]
+        # A critical flag vetoes UNLESS it is demoted. Counting from the flag
+        # list rather than from counts["critical_flagged"] is what makes the
+        # demotion real - the count itself still includes negative_fcf.
+        vetoing = [f for f in fired if f["severity"] == "critical"
+                   and f["key"] not in RF_DEMOTED]
+        # Demotion applies to the CRITICAL grade only. red_flags itself scores a
+        # single negative-FCF year as WATCH ("one year alone can be a capex cycle
+        # rather than a problem"), so charging that the full demoted penalty
+        # would be harsher than the source module's own reading of it. A 1-year
+        # dip falls through to the watch bucket and costs 6, not 12.
+        demoted = [f for f in fired
+                   if f["key"] in RF_DEMOTED and f["severity"] == "critical"]
+        hit["red_flags"] = {
+            "critical_flagged": c["critical_flagged"],
+            "flagged": c["flagged"],
+            "not_checked": c["not_checked"],
+            "vetoed": bool(vetoing),
+            "flags": fired,
+            "veto_flags": vetoing,
+            "demoted_flags": demoted,
+        }
+        watch = sum(1 for f in fired if f["severity"] != "critical")
+        if watch:
+            bonus -= RF_WATCH_PENALTY * watch
+            reasons.append(f"⚠ {watch} watch-level red flag(s) "
+                           f"(-{RF_WATCH_PENALTY * watch:.0f}).")
+        for f in demoted:
+            pen = RF_DEMOTED[f["key"]]
+            bonus -= pen
+            reasons.append(f"⚠ {f['label']}: {f['detail']} (-{pen:.0f}, "
+                           f"penalty not veto — see B-34r2).")
+        for f in vetoing:
+            reasons.append(f"⛔ VETO — {f['label']}: {f['detail']}")
+        # NOT_CHECKED is not a pass. Say how much of the checklist was blank so
+        # a clean-looking name cannot be mistaken for a verified one.
+        reasons.append(f"Red flags: {c['flagged']} flagged, {c['clean']} clean, "
+                       f"{c['not_checked']} NOT CHECKED.")
+
     hit["score"] = round(max(0.0, min(100.0, hit["score"] + bonus)), 1)
 
 
-def discover(kind: str = "both", limit: int = 25, enrich: bool = False) -> dict:
+def discover(kind: str = "both", limit: int = 25, enrich: bool = False,
+             veto_critical: bool = True) -> dict:
     """Rank the cached names in the small/micro-cap universe by conviction.
+
     Pass ``enrich=True`` to add ROCE/OPM/D/E from yfinance (slower — one call
-    per name). Returns {"hits": [...ranked...], "scanned", "cached", "universe"}."""
+    per name) AND to run the FR-4 red-flag checklist on the same payload.
+
+    ``veto_critical`` (default True) DROPS a name when a VETOING critical red
+    flag fired — promoter stake falling hard, pledge above the comfort line,
+    >=50% dilution. Negative FCF is critical in FR-4 but demoted here to a
+    penalty (see RF_DEMOTED and B-34r2), so it costs score without removing the
+    name. This is the first hard gate in this lane: everything else is a score
+    adjustment, so a bad name previously just ranked low and could still surface
+    in a thin universe.
+
+    Vetoes only run with ``enrich=True``, because the checklist needs the
+    fundamentals payload. With the overlay off, nothing is checked and nothing
+    is vetoed — `vetoed` comes back empty and `veto_active` False, so the
+    caller can say so rather than implying the list was screened.
+
+    Returns {"hits", "scanned", "cached", "universe", "vetoed", "veto_active"}.
+    `vetoed` carries the dropped names with their reasons: an exclusion nobody
+    can see is indistinguishable from a name that never existed."""
     uni = scu.fetch_universe(kind)
     meta = {e["symbol"]: e for e in uni}
     hits, cached = [], 0
@@ -163,9 +303,28 @@ def discover(kind: str = "both", limit: int = 25, enrich: bool = False) -> dict:
         if enrich:
             _enrich_quality(s)
         hits.append(s)
+
+    vetoed = []
+    if enrich and veto_critical:
+        kept = []
+        for h in hits:
+            rf = h.get("red_flags")
+            if rf and rf.get("vetoed"):
+                vetoed.append({
+                    "symbol": h["symbol"], "name": h.get("name"),
+                    "score": h["score"],
+                    "reasons": [f"{f['label']}: {f['detail']}"
+                                for f in rf.get("veto_flags") or []],
+                })
+            else:
+                kept.append(h)
+        hits = kept
+
     hits.sort(key=lambda h: h["score"], reverse=True)
+    vetoed.sort(key=lambda v: v["score"], reverse=True)
     return {"hits": hits[:limit], "scanned": len(hits), "cached": cached,
-            "universe": len(uni)}
+            "universe": len(uni), "vetoed": vetoed,
+            "veto_active": bool(enrich and veto_critical)}
 
 
 def backfill(kind: str = "both", limit: int | None = None, quarters: int = 6,

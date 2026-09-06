@@ -19,6 +19,7 @@ import queue
 import sys
 import threading
 import time
+from collections import deque
 from pathlib import Path
 
 from flask import Flask, jsonify, request, send_from_directory
@@ -96,6 +97,29 @@ _hl_ws_ref: list = [None]      # [websockets.WebSocketClientProtocol | None]
 _hl_subs: set[tuple] = set()   # (coin, interval) already subscribed at HL
 _hl_lock = threading.Lock()
 
+# ── Trade tape (the ONLY aggressor-side data this server receives) ────────────
+# Hyperliquid's `trades` channel carries the taker side per print. Nothing else
+# in this stack does: yfinance is OHLCV, the NSE bhavcopy is EOD, and
+# intraday.db stores bars. So a real (not estimated) delta / footprint profile
+# is possible for HL coins and for nothing else, and the UI must say so.
+#
+# The buffer starts EMPTY on every server start and fills forward from the
+# moment a chart subscribes. There is no historical backfill: HL's REST info
+# endpoint does not serve a deep public trade history, so a delta profile here
+# covers "since this server subscribed", never the whole chart window. That is
+# a real limit of the feed, not a bug, and /api/trades reports it explicitly so
+# the client can label it rather than implying coverage it does not have.
+_hl_trade_subs: set[str] = set()          # coins subscribed to the trades channel
+_hl_trades: dict[str, deque] = {}         # coin -> deque[(ms, px, sz, is_buy)]
+_hl_trades_since: dict[str, int] = {}     # coin -> ms of the first trade retained
+_hl_trades_seen: dict[str, int] = {}      # coin -> total prints seen (pre-eviction)
+_hl_trades_lock = threading.Lock()
+
+#: Ring size per coin. 60k prints is ~a full session on a liquid HL perp and
+#: costs a few MB; the deque evicts the oldest silently, which is why
+#: `first_ts` is reported from what SURVIVES rather than from what arrived.
+HL_TRADE_RING = 60_000
+
 
 def _hl_start() -> None:
     global _hl_loop
@@ -120,11 +144,19 @@ async def _hl_maintain() -> None:
                 log.info("HL WS connected — re-subscribing %d feeds", len(_hl_subs))
                 with _hl_lock:
                     subs_snapshot = list(_hl_subs)
+                    trade_snapshot = list(_hl_trade_subs)
                 for coin, interval in subs_snapshot:
                     await ws.send(json.dumps({
                         "method": "subscribe",
                         "subscription": {"type": "candle", "coin": coin,
                                          "interval": interval},
+                    }))
+                # The tape must come back on reconnect or the delta profile
+                # would quietly stop growing while the candles kept updating.
+                for coin in trade_snapshot:
+                    await ws.send(json.dumps({
+                        "method": "subscribe",
+                        "subscription": {"type": "trades", "coin": coin},
                     }))
                 async for raw in ws:
                     _hl_on_message(raw)
@@ -141,7 +173,11 @@ def _hl_on_message(raw: str) -> None:
         msg = json.loads(raw)
     except Exception:
         return
-    if msg.get("channel") != "candle":
+    channel = msg.get("channel")
+    if channel == "trades":
+        _hl_on_trades(msg.get("data") or [])
+        return
+    if channel != "candle":
         return
     d = msg.get("data", {})
     coin, interval = d.get("s", ""), d.get("i", "")
@@ -160,6 +196,53 @@ def _hl_on_message(raw: str) -> None:
             "volume": float(d["v"]),
         },
     })
+
+
+def _hl_on_trades(rows: list) -> None:
+    """Buffer a `trades` batch. HL sends side as "B" (taker bought) or "A".
+
+    Anything unparseable is dropped rather than defaulted: a trade with an
+    unknown side would land in one arm of the delta and silently bias it, which
+    is worse than a slightly shorter tape.
+    """
+    if not isinstance(rows, list):
+        return
+    with _hl_trades_lock:
+        for r in rows:
+            try:
+                coin = r["coin"]
+                side = r["side"]
+                if side not in ("B", "A"):
+                    continue
+                rec = (int(r["time"]), float(r["px"]), float(r["sz"]), side == "B")
+            except (KeyError, TypeError, ValueError):
+                continue
+            buf = _hl_trades.get(coin)
+            if buf is None:
+                buf = _hl_trades[coin] = deque(maxlen=HL_TRADE_RING)
+            buf.append(rec)
+            _hl_trades_seen[coin] = _hl_trades_seen.get(coin, 0) + 1
+            _hl_trades_since.setdefault(coin, rec[0])
+
+
+def _hl_subscribe_trades(coin: str) -> None:
+    """Subscribe the trades channel for `coin`, once per server lifetime.
+
+    Separate from the candle subscription on purpose: the candle feed is keyed
+    (coin, interval) and a chart switching timeframe re-subscribes, but the tape
+    is per-coin and must not be torn down and restarted underneath it — that
+    would punch a hole in the delta profile every time the user changed
+    timeframe.
+    """
+    with _hl_lock:
+        if coin in _hl_trade_subs:
+            return
+        _hl_trade_subs.add(coin)
+    ws = _hl_ws_ref[0]
+    if _hl_loop and ws:
+        msg = json.dumps({"method": "subscribe",
+                          "subscription": {"type": "trades", "coin": coin}})
+        asyncio.run_coroutine_threadsafe(ws.send(msg), _hl_loop)
 
 
 def _hl_subscribe(coin: str, interval: str) -> None:
@@ -265,6 +348,7 @@ def _ensure_feed(symbol: str, timeframe: str) -> None:
     if source.name == "hyperliquid":
         hl_interval = _HL_TF[timeframe]
         _hl_subscribe(symbol, hl_interval)
+        _hl_subscribe_trades(symbol)
     else:
         _yf_start(symbol, timeframe)
 
@@ -364,6 +448,12 @@ def adx_di_js():
 @app.route("/evwma_vwap_macd.js")
 def evwma_vwap_macd_js():
     return send_from_directory(HERE, "evwma_vwap_macd.js",
+                               mimetype="application/javascript")
+
+
+@app.route("/vwap_mean_reversion.js")
+def vwap_mean_reversion_js():
+    return send_from_directory(HERE, "vwap_mean_reversion.js",
                                mimetype="application/javascript")
 
 
@@ -1026,6 +1116,108 @@ def api_tick():
     return jsonify({"symbol": symbol, "price": price})
 
 
+@app.route("/api/delta_profile")
+def api_delta_profile():
+    """Real buy/sell volume by price for a Hyperliquid coin.
+
+    REAL, not estimated: every row is bucketed by the taker side Hyperliquid
+    publishes with the print. Nothing else this server serves can do this, so
+    the response always carries `source` and the caller is expected to refuse to
+    draw a delta profile for a symbol that is not on this feed rather than
+    falling back to a bar-derived guess under the same label.
+
+    Query:
+      coin   HL coin, e.g. BTC (required)
+      lo,hi  price range to bin over. Defaults to the tape's own min/max.
+      bins   bin count, 10..400 (default 48)
+      from   only trades at or after this epoch-ms
+
+    The window is bounded by what the ring holds, and `coverage` says so: the
+    tape starts empty at server start and there is no historical backfill, so a
+    profile can legitimately cover far less than the chart's visible range.
+    """
+    coin = (request.args.get("coin") or "").strip()
+    if not coin:
+        return jsonify({"error": "coin is required"}), 400
+    if ds.detect_source(coin).name != "hyperliquid":
+        return jsonify({"error": f"{coin} is not a Hyperliquid symbol - no "
+                                 "aggressor-side data exists for it on this server",
+                        "source": None}), 400
+
+    try:
+        nbins = max(10, min(int(request.args.get("bins", 48)), 400))
+    except ValueError:
+        nbins = 48
+    try:
+        t_from = int(request.args.get("from", 0))
+    except ValueError:
+        t_from = 0
+
+    with _hl_trades_lock:
+        rows = list(_hl_trades.get(coin, ()))
+        seen = _hl_trades_seen.get(coin, 0)
+        subscribed = coin in _hl_trade_subs
+    if t_from:
+        rows = [r for r in rows if r[0] >= t_from]
+
+    if not rows:
+        # An empty tape is the NORMAL state for the first minutes after a
+        # subscription, so it is a 200 with an empty profile and an explanation,
+        # not an error the UI has to special-case as a failure.
+        return jsonify({
+            "coin": coin, "source": "hyperliquid-trades", "subscribed": subscribed,
+            "bins": [], "n_trades": 0, "seen": seen,
+            "note": ("tape is empty - subscribed and waiting for prints"
+                     if subscribed else "not subscribed; open this coin on a chart first"),
+        })
+
+    prices = [r[1] for r in rows]
+    try:
+        lo = float(request.args.get("lo", min(prices)))
+        hi = float(request.args.get("hi", max(prices)))
+    except ValueError:
+        lo, hi = min(prices), max(prices)
+    if not (hi > lo):
+        hi = lo + max(lo * 1e-6, 1e-9)
+
+    width = (hi - lo) / nbins
+    buy = [0.0] * nbins
+    sell = [0.0] * nbins
+    n_in = 0
+    for ms, px, sz, is_buy in rows:
+        if px < lo or px > hi:
+            continue
+        i = min(int((px - lo) / width), nbins - 1)
+        (buy if is_buy else sell)[i] += sz
+        n_in += 1
+
+    out = [{"lo": round(lo + i * width, 10),
+            "hi": round(lo + (i + 1) * width, 10),
+            "buy": round(buy[i], 8),
+            "sell": round(sell[i], 8),
+            "delta": round(buy[i] - sell[i], 8)}
+           for i in range(nbins)]
+    tb, ts_ = sum(buy), sum(sell)
+    return jsonify({
+        "coin": coin,
+        "source": "hyperliquid-trades",
+        "subscribed": subscribed,
+        "bins": out,
+        "n_trades": n_in,
+        "n_tape": len(rows),
+        "seen": seen,
+        # True once eviction has begun: the profile no longer starts where the
+        # subscription did, and any "since" label drawn from first_ts is the
+        # ring's horizon rather than the session's.
+        "ring_full": len(rows) >= HL_TRADE_RING,
+        "first_ts": rows[0][0],
+        "last_ts": rows[-1][0],
+        "buy_vol": round(tb, 8),
+        "sell_vol": round(ts_, 8),
+        "cum_delta": round(tb - ts_, 8),
+    })
+
+
 @app.route("/api/symbols/search")
 def api_symbols_search():
     """TradingView-style typeahead search across NSE/BSE/US/Crypto."""
@@ -1135,6 +1327,12 @@ def ws_handler(ws):
 # ── Entry point ───────────────────────────────────────────────────────────────
 
 if __name__ == "__main__":
+    # --port so a second instance can be run alongside the live one (verifying a
+    # feed change without dropping the websocket clients of the running chart).
+    import argparse as _argparse
+    _ap = _argparse.ArgumentParser(description="Trading Bramha chart server")
+    _ap.add_argument("--port", type=int, default=5001)
+    _args = _ap.parse_args()
     _hl_start()
-    log.info("Chart server → http://localhost:5001")
-    app.run(host="0.0.0.0", port=5001, debug=False, threaded=True)
+    log.info("Chart server → http://localhost:%d", _args.port)
+    app.run(host="0.0.0.0", port=_args.port, debug=False, threaded=True)

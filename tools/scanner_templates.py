@@ -1282,6 +1282,22 @@ def scan_adx_trend_confirmation(df: pd.DataFrame) -> dict | None:
     }
 
 
+#: Last-session TURNOVER floor (rupees) for the consolidation-breakout family
+#: (6M/1Y/5Y/10Y). Switched from a 100k share count on 2026-09-05 for the same
+#: reason as screener_pipeline.MIN_TURNOVER: a share count rejects expensive
+#: stocks that trade tens of crores a day. A breakout on MRF would have been
+#: dropped for printing 4,656 shares.
+#:
+#: Still a DIFFERENT measure from the scan floor: it reads the single most recent
+#: session, not a 10-day average, because a breakout is a claim about the day it
+#: happened — a name that averages well but broke out on nothing is what this
+#: rejects. Set at 2x the scan floor, as the share-count version was.
+#:
+#: It lived as a literal in two places (this family's 6M scan and the shared
+#: engine's default), which is how a floor drifts. One name now.
+CONSOLIDATION_MIN_TURNOVER = 20_000_000
+
+
 def scan_6m_consolidation_breakout(df: pd.DataFrame) -> dict | None:
     """Chartink-style: price breaks above 6-month high after consolidation.
 
@@ -1303,8 +1319,8 @@ def scan_6m_consolidation_breakout(df: pd.DataFrame) -> dict | None:
     last_close  = float(close.iloc[-1])
     last_volume = float(volume.iloc[-1])
 
-    # Condition 4 — liquidity
-    if last_volume < 200_000:
+    # Condition 4 — liquidity, as traded value
+    if last_close * last_volume < CONSOLIDATION_MIN_TURNOVER:
         return None
 
     # Condition 1 — price above 50 EMA
@@ -1367,7 +1383,7 @@ def _consolidation_breakout(
     lookback: int,
     label: str,
     max_range_pct: float,
-    min_volume: int = 200_000,
+    min_turnover: float = CONSOLIDATION_MIN_TURNOVER,
 ) -> dict | None:
     """Generic multi-timeframe consolidation-breakout engine.
 
@@ -1376,7 +1392,9 @@ def _consolidation_breakout(
         label:         Human-readable period label shown in card text.
         max_range_pct: Reject if prior range was wider than this % (prevents trending stocks
                        being flagged as 'consolidating').
-        min_volume:    Minimum last-session volume for liquidity gate.
+        min_turnover:  Minimum last-session traded value (rupees) for the
+                       liquidity gate. Value, not share count — see
+                       CONSOLIDATION_MIN_TURNOVER.
     """
     if len(df) < lookback + 5:
         return None
@@ -1389,7 +1407,7 @@ def _consolidation_breakout(
     last_close  = float(close.iloc[-1])
     last_volume = float(volume.iloc[-1])
 
-    if last_volume < min_volume:
+    if last_close * last_volume < min_turnover:
         return None
 
     ema50 = float(_ema_series(close, 50).iloc[-1])
@@ -6174,6 +6192,35 @@ def scan_vwap_reclaim(df: pd.DataFrame,
          the mean, not a chase.
       4. One of the two events above fired, with volume ≥ 20-day average on a reclaim.
 
+    MEASURED 2026-09-06 (B-40) -- NEGATIVE, NOT MERELY NULL.  50 symbols, **2745
+    signals**: forward edge is negative at every horizon and significantly so at
+    three of four -- -0.02% @5d (p=0.77), **-0.20% @10d (p=0.042)**, **-0.45%
+    @20d (p=0.0006)**, **-0.50% @60d (p=0.033)**.  Net of Indian delivery costs
+    the median is negative at 5/10/20d and the hit rate is under 50%.
+
+    Read it plainly: a VWAP reclaim does not merely fail to predict, it selects
+    bars that do WORSE than a random bar from the same pool.  The -0.45% @20d at
+    p=0.0006 is the most statistically solid number this desk has on a VWAP rule
+    in either direction.
+
+    Two things explain the shape.  It fires 2745 times against VWAP Mean
+    Reversion's 275, so the gates are loose -- closer to "a stock in an uptrend
+    near its mean" than to an event -- which is also why the small negative is
+    detectable at all.  And the design note below records that the first cut
+    never fired and the gates were loosened until it did; this is what that
+    bought.
+
+    NOT a licence to fade reclaims.  That is a different claim needing its own
+    pre-registered test, and -0.45% would not survive costs on the short side.
+
+    Kept for coverage and context, but listed in ``opportunity_hub.PIPELINE_EXCLUDED``
+    so it can never become a confluence vote -- the same enforcement Renko Flip gets
+    for the same reason, one step further along (Renko measured NO edge; this measured
+    a negative one).  A quarter-weight demotion was tried first and was not enough: a
+    weak weight still counts toward FULL_CONFLUENCE, so a negative detector could still
+    help push a name onto the shortlist.  It stays registered, visible and runnable in
+    the Scanner Hub, and backtestable -- the measurement rules out a vote, not the view.
+
     (The complementary *anchored*-VWAP-from-catalyst read — earnings/breakout/IPO
     anchors — is served by ``_anchored_vwap`` and belongs with the chart's
     click-to-anchor, the B-4/B-12 item.)  Emits ``time_stop`` — a pullback-to-mean
@@ -6249,6 +6296,196 @@ def scan_vwap_reclaim(df: pd.DataFrame,
         "dist_pct": round(dist * 100, 2),
         "vol_x20d": round(vol_x, 2),
         "time_stop": 15,
+    }
+
+
+def scan_vwap_mean_reversion(df: pd.DataFrame,
+                             vwap_n: int = 20,
+                             band_k: float = 2.0,
+                             dev_vol_mult: float = 1.5,
+                             conf_vol_mult: float = 1.2,
+                             max_excursion: int = 15,
+                             min_target_pct: float = 0.5) -> dict | None:
+    """Two-sided VWAP mean reversion with volume in BOTH roles (B-40m).
+
+    The "VWAP Mean Reversion + Volume" rule: price deviates far from VWAP on
+    EXTREME volume, rejects, and reverts to VWAP on RISING volume.  The mirror of
+    ``scan_vwap_reclaim``'s question -- that one asks whether a trend is resuming
+    at its mean, this one asks whether a stretch away from the mean is snapping
+    back.
+
+    -- What makes it a different scanner, not a re-skin ------------------------
+    ``scan_vwap_reclaim`` (B-40) is long-only, with-trend, and uses volume as a
+    participation FLOOR.  Here volume is the signal twice over:
+
+      * ``dev_vol_mult``  -- the deviation extreme must come on heavy volume, or
+        the stretch is drift rather than capitulation and there is nothing to
+        snap back;
+      * ``conf_vol_mult`` -- the reversal bar must ALSO be heavy, because a
+        reversion on falling volume is the failure case the rule exists to skip.
+
+    Neither existing VWAP tool can express that pair, which is the whole reason
+    this one was written.
+
+    -- Daily bars measure a DIFFERENT claim, and that is deliberate ------------
+    Natively this is intraday: session VWAP needs many bars inside one session.
+    On daily bars a session VWAP collapses to the bar's own (H+L+C)/3 (measured
+    24 of 24 on daily RELIANCE), so this uses the ROLLING ``vwap_n``-day VWAP --
+    the same mean ``scan_vwap_reclaim`` settled on after an anchored VWAP proved
+    to sit too far below price to ever be touched.  ``tools/vwap_mean_reversion.js``
+    runs the identical rule on the chart and reports ``source: 'session'`` intraday
+    vs ``'rolling'`` on daily+, so the two never get conflated.
+
+    -- Gates ------------------------------------------------------------------
+      1. An excursion is open: some bar within the last ``max_excursion`` closed
+         at least ``band_k`` dispersions beyond VWAP.
+      2. The LAST bar closes back inside the band -- the reversal candle.
+      3. That candle agrees with the direction (up-close and above yesterday for
+         a long; the mirror for the bearish read).
+      4. Volume at the excursion extreme >= ``dev_vol_mult`` x its trailing 20d.
+      5. Volume on the reversal bar >= ``conf_vol_mult`` x its trailing 20d.
+      6. The trip back to VWAP is worth >= ``min_target_pct``.
+
+    Dispersion, not stdev of close: the band has to answer "how far from VWAP is
+    far for this symbol lately".  Stdev of close would measure the TREND, and the
+    bands would go untouched in exactly the trending conditions where a reversion
+    trade is most dangerous.
+
+    -- Direction --------------------------------------------------------------
+    The bearish side fires as a *stretched-above-VWAP* read.  It is tagged and
+    scored, but described as a name to trim or avoid rather than a short to put
+    on -- the same stance ``scan_distribution`` takes, and the same one this desk
+    takes generally on cash equity.
+
+    MEASURED 2026-09-06 (B-40m) -- NULL, AND NEGATIVE AFTER COSTS.  50 symbols,
+    275 signals: forward edge +0.19% at both 5d and 10d (p 0.51 / 0.57), which is
+    where a 10-bar reversion trade actually lives.  The R-multiple sim traded as
+    written -- enter on confirmation, target VWAP, stop beyond the rejected
+    extreme -- returns **+0.04R gross and -0.19R at Indian delivery costs**, on
+    116 long-side plans hitting target 50 times against stop 53.  A coin flip at
+    1:1.
+
+    The +1.54% at 60d (p=0.053) is recorded as a TRAP, not a result: it sits far
+    outside the holding period, so it measures drift rather than this rule.
+
+    Kept as a chart/coverage read, not a trigger.  This is the third VWAP-derived
+    rule to measure null here (EVWMA/VWAP MACD crossovers outright; only
+    ``scan_vwap_reclaim`` is still open), which is consistent enough to state:
+    on NSE daily bars VWAP is context, not a trigger.  Testing the playbook's
+    ACTUAL intraday claim needs a session-VWAP store this repo does not have --
+    a data gap, not a parameter to tune.
+    """  # claims-lint: checked B-40m
+    need = vwap_n + 20 + 2
+    if len(df) < need:
+        return None
+
+    close = df["close"].astype(float)
+    high  = df["high"].astype(float)
+    low   = df["low"].astype(float)
+    vol   = df["volume"].astype(float)
+
+    vwap = _rolling_vwap(df, vwap_n)
+    if not np.isfinite(float(vwap.iloc[-1])):
+        return None
+
+    # Dispersion of close around VWAP over the same window.
+    dev = close - vwap
+    sigma = dev.rolling(vwap_n).apply(lambda w: float(np.sqrt(np.mean(w ** 2))), raw=True)
+    s_now = float(sigma.iloc[-1])
+    if not np.isfinite(s_now) or s_now <= 0:
+        return None
+
+    # Trailing 20-bar volume average EXCLUDING the bar being judged -- comparing a
+    # bar's volume to an average containing it dilutes the very spike being tested.
+    vol_avg = vol.shift(1).rolling(20).mean()
+
+    z = dev / sigma
+    z_now = float(z.iloc[-1])
+    if not np.isfinite(z_now) or abs(z_now) >= band_k:
+        return None                      # still outside the band: not back yet
+
+    # Walk back for the excursion this bar just closed.
+    ext_i = None
+    ext_z = 0.0
+    ext_price = None
+    side = 0
+    for k in range(2, min(max_excursion, len(df) - 1) + 2):
+        zk = float(z.iloc[-k])
+        if not np.isfinite(zk):
+            break
+        if abs(zk) < band_k:
+            break                        # excursion started after this bar
+        d = 1 if zk < 0 else -1
+        if side == 0:
+            side = d
+        elif d != side:
+            break                        # flipped sides mid-excursion
+        if abs(zk) > abs(ext_z):
+            ext_z, ext_i = zk, -k
+            ext_price = float(low.iloc[-k]) if d == 1 else float(high.iloc[-k])
+
+    if ext_i is None or side == 0:
+        return None
+
+    c_now, c_prev = float(close.iloc[-1]), float(close.iloc[-2])
+    o_now = float(df["open"].astype(float).iloc[-1])
+    agrees = ((c_now > o_now and c_now > c_prev) if side == 1
+              else (c_now < o_now and c_now < c_prev))
+    if not agrees:
+        return None
+
+    va_ext = float(vol_avg.iloc[ext_i])
+    va_now = float(vol_avg.iloc[-1])
+    if not (np.isfinite(va_ext) and va_ext > 0 and np.isfinite(va_now) and va_now > 0):
+        return None
+    dev_x  = float(vol.iloc[ext_i]) / va_ext
+    conf_x = float(vol.iloc[-1]) / va_now
+    if dev_x < dev_vol_mult or conf_x < conf_vol_mult:
+        return None
+
+    v_now = float(vwap.iloc[-1])
+    target_pct = (v_now - c_now) / c_now * 100.0 if c_now > 0 else 0.0
+    if abs(target_pct) < min_target_pct:
+        return None
+
+    bars_out = -ext_i - 1
+    bull = side == 1
+    label = "below VWAP (long)" if bull else "above VWAP (trim)"
+    score = int(min(100, 55
+                    + min(abs(ext_z) - band_k, 2.0) * 8      # how stretched it got
+                    + min(dev_x, 3.0) * 5                    # capitulation volume
+                    + min(conf_x, 2.5) * 4))                 # confirmation volume
+
+    return {
+        "pattern_type": "VWAP Mean Reversion",
+        "tags": ["VWAP", "mean-reversion", f"VWAP{vwap_n}",
+                 "long" if bull else "bearish", f"{abs(ext_z):.1f}sigma"],
+        "reasons": [
+            f"Stretched {abs(ext_z):.1f}σ {label} then closed back inside the "
+            f"±{band_k:.1f}σ band; extreme bar {bars_out}d ago on {dev_x:.1f}×20d "
+            f"volume, reversal bar on {conf_x:.1f}×20d. VWAP{vwap_n} {v_now:.2f} "
+            f"vs close {c_now:.2f} — {target_pct:+.1f}% back to the mean.",
+            ("⚠ Unmeasured — this scanner has not been through the backtest harness"
+             if bull else
+             "Bearish side is a trim/avoid read, not a short to put on."),
+        ],
+        "score_base": score,
+        "score": score,
+        "direction": "long" if bull else "bearish",
+        # entry/stop/target as a complete plan, so backtest_scanner runs its
+        # R-multiple simulation instead of forward returns alone. For a rule
+        # whose whole thesis is "the trip back to the mean", R is the honest
+        # measure and a raw 60d forward return is not.
+        "entry": round(c_now, 2),
+        "vwap": round(v_now, 2),
+        "z": round(z_now, 2),
+        "dev_z": round(ext_z, 2),
+        "dev_vol_x": round(dev_x, 2),
+        "conf_vol_x": round(conf_x, 2),
+        "target": round(v_now, 2),
+        "target_pct": round(target_pct, 2),
+        "stop": round(ext_price, 2) if ext_price is not None else None,
+        "time_stop": 10,
     }
 
 
@@ -7224,6 +7461,26 @@ SCANNERS: dict[str, dict] = {
         ),
         "category": "Entry",
     },
+    "VWAP Mean Reversion": {
+        "fn": scan_vwap_mean_reversion,
+        "description": (
+            "Two-sided VWAP mean reversion with volume in BOTH roles (B-40m). Price "
+            "stretches ≥2σ from the rolling 20-day VWAP on EXTREME volume (≥1.5×20d at "
+            "the extreme), then closes back inside the band on a reversal candle with "
+            "RISING volume (≥1.2×20d). Target is the VWAP itself; stop sits beyond the "
+            "excursion extreme the market already rejected. Distinct from VWAP "
+            "Reclaim/Support, which is long-only, with-trend, and treats volume as a "
+            "floor — a reversion on FALLING volume is the failure case this rule exists "
+            "to skip, and no other scanner here can express that. The bearish side is a "
+            "trim/avoid read, not a short. Natively an intraday rule; on daily bars the "
+            "rolling VWAP measures a different claim, which `vwap_mean_reversion.js` "
+            "reports as source='rolling' so the two are never conflated. MEASURED "
+            "(B-40m): +0.19% edge at 5d and 10d (p 0.51/0.57) and the traded rule returns "
+            "+0.04R gross, −0.19R after Indian delivery costs. A chart and coverage read, "
+            "NOT a trigger — third VWAP rule to measure null here."  # claims-lint: checked B-40m
+        ),
+        "category": "Entry",
+    },
     "VWAP Reclaim/Support": {
         "fn": scan_vwap_reclaim,
         "description": (
@@ -7235,7 +7492,11 @@ SCANNERS: dict[str, dict] = {
             "(close back above VWAP on ≥20-day-avg volume) OR a pullback-hold (a bar "
             "tags VWAP within 1% and price bounces). With-trend only (close > EMA-50), "
             "VWAP rising, and not extended (≤6% above the mean). The anchored-VWAP-"
-            "from-catalyst read is the complementary chart feature (B-4/B-12)."
+            "from-catalyst read is the complementary chart feature (B-4/B-12). "
+            "MEASURED (B-40) — edge is NEGATIVE at every horizon and significantly so: "
+            "−0.20% @10d (p=0.042), −0.45% @20d (p=0.0006), −0.50% @60d (p=0.033) over "
+            "2745 signals. It selects bars that do WORSE than a random bar from the same "
+            "pool. Coverage and context only — NOT an entry."  # claims-lint: checked B-40
         ),
         "category": "Entry",
     },

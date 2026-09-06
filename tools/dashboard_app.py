@@ -14,6 +14,7 @@ Run:  py -3 -m streamlit run tools/dashboard_app.py
 
 import sys
 import csv
+import time as _time
 import json
 import logging
 import socket
@@ -33,6 +34,7 @@ from plotly.subplots import make_subplots
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 import screener_pipeline as sp
+import symbol_directory as symdir
 import ew_module
 import scanner_templates as sc
 import opportunity_hub as oh
@@ -681,6 +683,49 @@ st.markdown(
       [data-testid="stMainBlockContainer"] { padding-top: 0 !important; }
       section.main > div:first-child { padding-top: 0 !important; }
 
+      /* Every st.markdown("<style>…") leaves a zero-height element container
+         behind, and the vertical block's 16px flex gap still applies to each —
+         six of them stacked 96px of dead white space ABOVE the ribbon. Collapse
+         style-only containers (no st.markdown in this app mixes <style> with
+         visible content) and the nav sentinel, so the bar sits flush at the top
+         and its sticky position is actually at y=0. */
+      [data-testid="stElementContainer"]:has(> [data-testid="stMarkdown"] style),
+      [data-testid="stElementContainer"]:has(#tb-navstart),
+      [data-testid="stElementContainer"]:has(#tb-searchslot) {
+        display: none !important;
+      }
+
+      /* The typeahead's dropdown lives INSIDE its component iframe, and an
+         iframe clips its own content — so the iframe has to be as tall as the
+         open list. Left in flow that would stretch the 48px bar to ~310px, so
+         the search column becomes a positioning context and the iframe hangs
+         out of flow beneath it. The component sets its own frame height: 34px
+         closed, taller while the list is open, so it only covers the page
+         below while there is actually a list to show. */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stColumn"]:has(#tb-searchslot) {
+        position: relative !important;
+        overflow: visible !important;
+        /* Absolutely-positioned child + hidden sentinel = a zero-height column,
+           which would anchor the box to the bar's centre LINE and leave it
+           hanging below the bar. Give the column the bar's height so `top` is
+           measured from the bar's top and the list grows downward from there. */
+        height: 48px !important;
+      }
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stColumn"]:has(#tb-searchslot)
+        [data-testid="stElementContainer"]:has(iframe) {
+        position: absolute !important;
+        top: 9px !important;
+        left: 0 !important;
+        right: 0 !important;
+        z-index: 1200 !important;
+      }
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stColumn"]:has(#tb-searchslot) iframe {
+        width: 100% !important;
+        border: none !important;
+        background: transparent !important;
+        color-scheme: normal !important;
+      }
+
       /* ── Nav ribbon ──────────────────────────────────────────────────────────
          DOM in Streamlit 1.57: stVerticalBlock
            > stElementContainer (wraps stMarkdown > #tb-navstart)  ← sentinel
@@ -690,17 +735,39 @@ st.markdown(
          to reach the nav wrapper without touching any other row.
       ── */
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] {
-        background: rgba(20,14,8,0.52) !important;
-        backdrop-filter: blur(24px) saturate(160%) !important;
-        -webkit-backdrop-filter: blur(24px) saturate(160%) !important;
+        background: rgba(11,15,20,0.94) !important;
+        backdrop-filter: blur(20px) saturate(140%) !important;
+        -webkit-backdrop-filter: blur(20px) saturate(140%) !important;
+        /* Full-bleed needs the WIDTH, not just the margins. A block element's
+           width is already resolved before margins apply, so margin-left:-2rem
+           shifted the bar 32px left while margin-right:-2rem did nothing to its
+           own box - it only affects what follows. The bar ended up content-width
+           but offset: page content at 32..1238, ribbon at 0..1206, visibly out of
+           line with the cards under it at BOTH ends. Adding 4rem of width makes
+           the two negative margins actually cancel the container's padding. */
         margin-left:  -2rem !important;
         margin-right: -2rem !important;
-        border-bottom: 1px solid rgba(234,88,12,0.18) !important;
+        width: calc(100% + 4rem) !important;
+        /* ...and the width alone is still not enough. The wrapper inherits
+           max-width:100% (which clamps 1270 straight back to the 1206 content
+           width) and it is a FLEX ITEM, so it would shrink again anyway. All
+           three declarations are load-bearing; drop any one and the bar snaps
+           back to being 32px out of line. */
+        max-width: none !important;
+        flex: 0 0 auto !important;
+        border-bottom: 1px solid #1c2430 !important;
+        /* Sticky: navigation must survive a scroll down a 200-row scanner table. */
+        position: sticky !important;
+        top: 0 !important;
+        z-index: 999 !important;
+        /* The typeahead hangs below the bar; a clipped ribbon would cut it. */
+        overflow: visible !important;
       }
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
         [data-testid="stHorizontalBlock"] {
-        padding: 0 2.5rem !important;
-        min-height: 62px !important;
+        padding: 0 2rem !important;
+        min-height: 48px !important;
+        overflow: visible !important;
         align-items: stretch !important;
         gap: 0 !important;
       }
@@ -722,11 +789,11 @@ st.markdown(
         background: transparent !important;
         border: none !important;
         border-bottom: 2px solid transparent !important;
-        color: rgba(74,222,128,0.80) !important;
+        color: rgba(255,255,255,0.62) !important;
         font-size: 13px !important;
-        font-weight: 700 !important;
-        min-height: 62px !important;
-        height: 62px !important;
+        font-weight: 500 !important;
+        min-height: 48px !important;
+        height: 48px !important;
         border-radius: 0 !important;
         box-shadow: none !important;
         letter-spacing: 0.01em !important;
@@ -739,17 +806,73 @@ st.markdown(
         [data-testid="stBaseButton-secondary"]:hover,
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
         [data-testid="stPopoverButton"]:hover {
-        background: rgba(74,222,128,0.08) !important;
-        color: #86efac !important;
-        border-bottom-color: rgba(74,222,128,0.5) !important;
+        background: rgba(255,255,255,0.05) !important;
+        color: #ffffff !important;
+        border-bottom-color: rgba(234,88,12,0.45) !important;
       }
 
       /* Active group/home: white text + green underline */
       [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"]
         [data-testid="stBaseButton-primary"] {
         color: #ffffff !important;
-        border-bottom: 2px solid #4ade80 !important;
-        font-weight: 800 !important;
+        border-bottom: 2px solid #ea580c !important;
+        font-weight: 700 !important;
+      }
+
+      /* Active group. A popover trigger keeps data-testid="stPopoverButton"
+         whatever its type, so the primary state is carried on `kind` — which
+         is enough specificity to beat the base rule above without !important
+         gymnastics. Matches the active Home button exactly. */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stPopoverButton"][kind="primary"] {
+        color: #ffffff !important;
+        border-bottom: 2px solid #ea580c !important;
+        font-weight: 700 !important;
+      }
+
+      /* Search box — a field, not a button, so it needs its own treatment:
+         the bar's ground with a hairline, not Streamlit's light input chrome. */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stTextInput"] input {
+        background: rgba(255,255,255,0.05) !important;
+        border: 1px solid #1c2430 !important;
+        border-radius: 6px !important;
+        color: #f8fafc !important;
+        font-size: 12px !important;
+        height: 30px !important;
+        min-height: 30px !important;
+        padding: 0 9px !important;
+      }
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stTextInput"] input::placeholder {
+        color: rgba(255,255,255,0.40) !important;
+      }
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stTextInput"] input:focus {
+        border-color: rgba(234,88,12,0.55) !important;
+        box-shadow: none !important;
+      }
+      /* Streamlit wraps the input in a BaseWeb root that paints its own light
+         ground (#f0f2f6). Styling only the <input> leaves that showing as a
+         white slab in the dark bar — clear the wrapper too. */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stTextInputRootElement"],
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stTextInputRootElement"] > div,
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stTextInput"] > div {
+        background: transparent !important;
+        border: none !important;
+        box-shadow: none !important;
+      }
+
+      /* Streamlit stacks its own `expand_more` glyph UNDER the popover label,
+         which is what made the bar 62px tall and the labels look wrapped. Hide
+         it; the ▾ in the label carries the affordance on one line. */
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stPopoverButton"] [data-testid="stIconMaterial"],
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stPopoverButton"] span[class*="material-icons"] {
+        display: none !important;
+      }
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stPopoverButton"] > div,
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stBaseButton-secondary"] > div,
+      [data-testid="stElementContainer"]:has(#tb-navstart) + [data-testid="stLayoutWrapper"] [data-testid="stBaseButton-primary"] > div {
+        flex-direction: row !important;
+        align-items: center !important;
+        gap: 4px !important;
+        white-space: nowrap !important;
       }
 
       /* Nav button press feedback */
@@ -780,146 +903,197 @@ st.markdown(
 )
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Login gate — shown before any dashboard content if the user is not authenticated.
-# Credentials are read from .streamlit/secrets.toml ([auth] username / password);
-# if secrets are absent the fallback keeps the personal tool accessible locally.
+# Sign-in — OPTIONAL (2026-09-04). Browsing no longer requires it.
 # ──────────────────────────────────────────────────────────────────────────────
-def _login_gate() -> None:
-    """Render the login page and block the rest of the app via st.stop()."""
+# This used to be a hard gate: an unauthenticated visitor got a full-page login
+# and `st.stop()`, so nothing rendered until they signed in. It is now a control
+# in the top-right of the ribbon, and the dashboard renders regardless.
+#
+# What signing in currently unlocks: NOTHING. The gate was all-or-nothing, so
+# removing it leaves `logged_in` as a session flag with no consumer. It is kept
+# rather than deleted so a future per-page gate has something to read, and so
+# the credential check does not have to be rebuilt — but nobody should assume
+# this flag is protecting anything today.
+#
+# Credentials still come from .streamlit/secrets.toml ([auth] username/password).
+def _auth_check(username: str, password: str) -> bool:
+    _u = st.secrets.get("auth", {}).get("username", "bramha")
+    _p = st.secrets.get("auth", {}).get("password", "trading2024")
+    return username == _u and password == _p
+
+
+def _signin_control() -> None:
+    """Ribbon sign-in popover. Renders the form, or who is signed in."""
     if st.session_state.get("logged_in"):
+        with st.popover("● Signed in", use_container_width=True):
+            st.caption(f"Signed in as **{st.session_state.get('auth_user', 'user')}**. "
+                       "Sign-in is optional — no page is gated on it today.")
+            if st.button("Sign out", key="tb_signout", use_container_width=True):
+                st.session_state["logged_in"] = False
+                st.session_state.pop("auth_user", None)
+                st.rerun()
         return
 
-    # ── Hero + feature strip ─────────────────────────────────────────────────
-    st.markdown(
-        f"""
-        <style>
-          .tb-login-hero {{
-            background: linear-gradient(180deg, {_T['surface_warm']} 0%, {_T['surface_alt']} 100%);
-            border-radius: 16px;
-            padding: 52px 48px 44px;
-            margin-bottom: 28px;
-            border: 1px solid {_T['border']};
-          }}
-          .tb-login-hero h1 {{
-            font-size: 42px;
-            font-weight: 900;
-            color: {_T['text']};
-            margin: 0 0 10px;
-            letter-spacing: -0.02em;
-            line-height: 1.1;
-          }}
-          .tb-login-hero .sub {{
-            font-size: 17px;
-            font-weight: 600;
-            color: {_T['text_body']};
-            margin: 0 0 6px;
-          }}
-          .tb-login-hero .tagline {{
-            font-size: 14px;
-            color: {_T['text_muted']};
-            margin: 0;
-          }}
-          .tb-feat-grid {{
-            display: grid;
-            grid-template-columns: repeat(3, 1fr);
-            gap: 14px;
-            margin-bottom: 32px;
-          }}
-          .tb-feat-card {{
-            background: {_T['surface']};
-            border: 1px solid {_T['border']};
-            border-radius: 14px;
-            padding: 24px 20px 20px;
-            text-align: center;
-          }}
-          .tb-feat-card .icon {{ font-size: 30px; margin-bottom: 10px; }}
-          .tb-feat-card h3 {{
-            font-size: 15px;
-            font-weight: 700;
-            color: {_T['text']};
-            margin: 0 0 6px;
-          }}
-          .tb-feat-card p {{
-            font-size: 13px;
-            color: {_T['text_muted']};
-            margin: 0;
-            line-height: 1.45;
-          }}
-          .tb-login-card {{
-            background: {_T['surface']};
-            border: 1px solid {_T['border_strong']};
-            border-radius: 16px;
-            padding: 32px 36px 28px;
-            max-width: 420px;
-            margin: 0 auto 40px;
-          }}
-          .tb-login-card h2 {{
-            font-size: 20px;
-            font-weight: 800;
-            color: {_T['text']};
-            margin: 0 0 4px;
-          }}
-          .tb-login-card .card-sub {{
-            font-size: 13px;
-            color: {_T['text_muted']};
-            margin: 0 0 22px;
-          }}
-        </style>
-
-        <div class="tb-login-hero">
-          <h1>Let Data Speak.</h1>
-          <p class="sub">No Noise. No Guesswork. Just Bramha Signals.</p>
-          <p class="tagline">For the trader who trusts systems, not stories.</p>
-        </div>
-
-        <div class="tb-feat-grid">
-          <div class="tb-feat-card">
-            <div class="icon">📊</div>
-            <h3>Data First</h3>
-            <p>Momentum, fundamentals, and sector rotation — scored, not opined.</p>
-          </div>
-          <div class="tb-feat-card">
-            <div class="icon">📡</div>
-            <h3>Signal Focused</h3>
-            <p>Stocks moving with real strength, filtered through multi-timeframe logic.</p>
-          </div>
-          <div class="tb-feat-card">
-            <div class="icon">🛡</div>
-            <h3>Zero Noise</h3>
-            <p>No tips, no bias. Algorithmic selection with quantified risk flags.</p>
-          </div>
-        </div>
-
-        <div class="tb-login-card">
-          <h2>Sign in</h2>
-          <p class="card-sub">Access your Trading Bramha dashboard</p>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # ── Credentials form (Streamlit widgets, not HTML) ────────────────────────
-    # Rendered inside a narrow centered column so it sits inside the card above.
-    _, col, _ = st.columns([1, 1.2, 1])
-    with col:
+    with st.popover("Sign in", use_container_width=True):
+        st.caption("Optional — everything is browsable without it. Signing in "
+                   "only records who you are for now.")
         with st.form("tb_login_form", border=False):
-            username = st.text_input("Username", placeholder="Enter username")
-            password = st.text_input("Password", placeholder="Enter password", type="password")
-            submitted = st.form_submit_button("Sign in →", use_container_width=True, type="primary")
-
-        if submitted:
-            _u = st.secrets.get("auth", {}).get("username", "bramha")
-            _p = st.secrets.get("auth", {}).get("password", "trading2024")
-            if username == _u and password == _p:
-                st.session_state["logged_in"] = True
-                st.rerun()
-            else:
-                st.error("Incorrect username or password.", icon="🔒")
-
-    st.stop()
+            _un = st.text_input("Username", placeholder="Enter username")
+            _pw = st.text_input("Password", placeholder="Enter password", type="password")
+            if st.form_submit_button("Sign in →", use_container_width=True,
+                                     type="primary"):
+                if _auth_check(_un, _pw):
+                    st.session_state["logged_in"] = True
+                    st.session_state["auth_user"] = _un
+                    st.rerun()
+                else:
+                    st.error("Incorrect username or password.", icon="🔒")
 
 
-_login_gate()
+@st.cache_data(ttl=3600, show_spinner=False)
+def _symbol_matches(query: str, limit: int = 8) -> list[dict]:
+    """NSE equity matches for `query`, from the chart tool's symbol directory.
+
+    symbol_directory is the same index the chart's typeahead runs on — the live
+    NSE equity list, cached to disk for 24h with a curated fallback — so both
+    tools agree on what a symbol is instead of each keeping its own idea.
+
+    Filtered to NSE because this Analyzer is NSE-only: sp.fetch_ohlcv builds
+    "{symbol}.NS", so offering a BSE-only scrip would be offering a dead end.
+    The first call may fetch the list; every later one is served from cache.
+    """
+    try:
+        hits = symdir.search(query, limit=limit * 3)
+    except Exception as e:
+        _log.warning("symbol directory search failed for %r: %s", query, e)
+        return []
+    return [h for h in hits if h.get("exchange") == "NSE"][:limit]
+
+
+def _symbol_jump(raw: str) -> None:
+    """Resolve `raw` through the symbol directory, then route to the Analyzer.
+
+    Priming the same session keys the "Analyze ↗" deep-link sets — one entry
+    path, so an auto-run that works for a table link works for the box too.
+
+    A typed prefix is the normal case, not an error: "KOPRA" is what you get
+    when you know the name and not the ticker. An exact ticker runs straight
+    through; anything else parks the candidates for the Analyzer to offer,
+    rather than guessing between them or failing with "no usable data".
+
+    Does not rerun: the component path reruns explicitly after this returns,
+    and the text-box fallback is a widget callback, which Streamlit reruns
+    after on its own.
+    """
+    sym = raw.strip().upper().replace(".NS", "")
+    st.session_state["tb_search_input"] = ""   # leave the box ready for the next
+    if not sym:
+        return
+
+    st.session_state["current_page"] = "Stock Analyzer"
+    st.session_state.pop("tb_search_matches", None)
+    st.session_state.pop("tb_search_miss", None)
+    st.session_state.pop("tb_search_resolved", None)
+
+    matches = _symbol_matches(sym)
+    exact = next((m for m in matches if m["display"].upper() == sym), None)
+
+    if exact or not matches:
+        # Straight through on an exact hit — and also when the directory knows
+        # nothing, because it can be stale on a fresh listing and the Analyzer's
+        # own "no usable data" is a better answer than refusing to look.
+        st.session_state["selected_symbol"] = sym
+        st.session_state["last_analyzed"] = sym   # triggers the auto-run
+        if not matches:
+            st.session_state["tb_search_miss"] = sym
+        return
+
+    if len(matches) == 1:
+        # One candidate is not ambiguity, it is a typo or a prefix — "KOPRA"
+        # has exactly one NSE answer. Go, and say what it resolved to rather
+        # than silently analysing a different ticker than the one typed.
+        only = matches[0]["display"]
+        st.session_state["selected_symbol"] = only
+        st.session_state["last_analyzed"] = only
+        st.session_state["tb_search_resolved"] = (sym, only, matches[0].get("name", ""))
+        return
+
+    # Genuinely ambiguous: show the candidates instead of analysing a guess.
+    st.session_state["tb_search_matches"] = (sym, matches)
+    st.session_state["selected_symbol"] = ""
+    st.session_state.pop("last_analyzed", None)
+
+
+#: The typeahead component. declare_component wants a directory holding
+#: index.html; None if it is missing, in which case _search_control falls back
+#: to a plain box rather than taking the ribbon down with it.
+try:
+    _SYMSEARCH = components.declare_component(
+        "tb_symbol_search",
+        path=str(Path(__file__).resolve().parent / "components" / "symbol_search"),
+    )
+except Exception as _e:            # pragma: no cover - packaging accident
+    _log.warning("symbol search component unavailable: %s", _e)
+    _SYMSEARCH = None
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _symbol_payload() -> str:
+    """The NSE stock list as "DISPLAY|Name" lines, for the typeahead to filter.
+
+    Sent to the browser so filtering is per-keystroke and local. It has to be:
+    a Streamlit widget only reports on Enter or blur, so a round trip to Python
+    per character is not just slow, it is not available at all.
+
+    ~2,570 rows, ~90 KB. That crosses the socket on every rerun, which is the
+    honest cost of this feature; on localhost it is noise next to the dataframes
+    this app already ships. Names are cut to 44 chars because the row ellipsises
+    long ones anyway.
+    """
+    try:
+        entries = [e for e in symdir.get_directory()
+                   if e.get("exchange") == "NSE" and e.get("type") == "stock"]
+    except Exception as e:
+        _log.warning("symbol directory unavailable for typeahead: %s", e)
+        return ""
+    return "\n".join(f"{e['display']}|{(e.get('name') or '')[:44]}" for e in entries)
+
+
+def _search_control() -> None:
+    """Ribbon symbol jump: a live typeahead over the NSE list.
+
+    The component filters in the browser and reports one pick, so this costs a
+    single rerun per search instead of one per keystroke. Everything it offers
+    comes from symbol_directory — the same index behind the chart tool's
+    typeahead — so both agree on what a symbol is.
+
+    Falls back to a plain box if the component did not load: the ribbon losing
+    its search would be worse than the search losing its dropdown.
+    """
+    if _SYMSEARCH is None:
+        st.text_input("Symbol", key="tb_search_input", placeholder="Search ⌘K",
+                      label_visibility="collapsed", on_change=_symbol_jump_from_box,
+                      help="NSE code — Enter opens the Stock Analyzer")
+        return
+
+    # Sentinel: the ribbon CSS lifts this column's iframe out of flow so the
+    # dropdown can hang below a 48px bar without stretching it.
+    st.markdown('<div id="tb-searchslot"></div>', unsafe_allow_html=True)
+    picked = _SYMSEARCH(options=_symbol_payload(), placeholder="Search ⌘K",
+                        key="tb_symsearch", default=None)
+
+    # `picked` persists across reruns — it is the component's current value, not
+    # an event — so act on the nonce changing, or every rerun would re-jump.
+    if isinstance(picked, dict) and picked.get("symbol"):
+        if picked.get("n") != st.session_state.get("_tb_pick_n"):
+            st.session_state["_tb_pick_n"] = picked["n"]
+            _symbol_jump(picked["symbol"])
+            st.rerun()
+
+
+def _symbol_jump_from_box() -> None:
+    _symbol_jump(st.session_state.get("tb_search_input", ""))
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Navigation — left sidebar page router (replaces st.tabs; Streamlit can't
@@ -977,6 +1151,101 @@ if st.query_params.get("nav") == "analyze" and st.query_params.get("symbol"):
     st.session_state["last_analyzed"] = _dl_sym   # triggers auto-run in the tab
     st.query_params.clear()
 
+# ── Ribbon status: market session + data freshness ──────────────────
+# What a trading bar is FOR is telling you whether what you are looking at is
+# current. Two facts, both cheap: is the NSE session on, and how old is the
+# batch that produced these tables.
+_NSE_TZ = "Asia/Kolkata"
+
+
+def _market_status() -> tuple[str, str, str]:
+    """(state, dot_colour, label) for the NSE session, in IST.
+
+    HOLIDAY-UNAWARE, deliberately: this repo has no exchange holiday calendar,
+    and inventing one that silently goes stale is worse than a dot that reads
+    LIVE on Diwali. It answers "is it a weekday inside session hours", nothing
+    more. Anyone gating an order on this needs a real calendar first.
+    """
+    from datetime import datetime as _dt, time as _t
+    try:
+        from zoneinfo import ZoneInfo
+        now = _dt.now(ZoneInfo(_NSE_TZ))
+    except Exception:
+        return ("UNKNOWN", _T["absent"], "session unknown")
+    hhmm = now.strftime("%H:%M")
+    if now.weekday() >= 5:
+        return ("CLOSED", _T["absent"], f"weekend · {hhmm} IST")
+    t = now.time()
+    if _t(9, 0) <= t < _t(9, 15):
+        return ("PRE-OPEN", _T["accent"], f"pre-open · {hhmm} IST")
+    if _t(9, 15) <= t <= _t(15, 30):
+        return ("LIVE", _T["good"], f"live · {hhmm} IST")
+    return ("CLOSED", _T["absent"], f"closed · {hhmm} IST")
+
+
+def _batch_freshness() -> str:
+    """Age of the last pipeline run, from the log file's mtime.
+
+    The mtime is the honest signal here — it moves whenever the batch writes,
+    whether it succeeded or failed. It says "the pipeline last did something
+    at X", NOT "the data is good"; Pipeline Log is where you check the latter.
+    """
+    from datetime import datetime as _dt
+    try:
+        ts = sp.LOG_FILE.stat().st_mtime
+    except Exception:
+        return "no batch run yet"
+    age = _dt.now().timestamp() - ts
+    when = _dt.fromtimestamp(ts).strftime("%H:%M")
+    if age < 3600:
+        rel = f"{int(age // 60)}m ago"
+    elif age < 86400:
+        rel = f"{int(age // 3600)}h ago"
+    else:
+        rel = f"{int(age // 86400)}d ago"
+    return f"batch {when} · {rel}"
+
+
+#: (yahoo ticker, ribbon label). Three is the ceiling: the strip shares a line
+#: with the breadcrumb, and a fourth starts truncating the page name on a laptop.
+_RIBBON_INDICES = [("^NSEI", "NIFTY"), ("^NSEBANK", "BANKNIFTY"), ("^INDIAVIX", "VIX")]
+
+
+@st.cache_data(ttl=3600, show_spinner=False)
+def _ribbon_quotes(_bucket: int):
+    """Last close and day change for the ribbon indices. ONE yfinance call.
+
+    `_bucket` is a time bucket the caller passes in purely to bust this cache —
+    the long ttl is a backstop, the bucket is the real clock. That indirection
+    buys a refresh cadence that changes with the session (see the call site):
+    a fixed short ttl would re-download the same closed-market numbers all
+    evening, and a fixed long one would freeze the strip during a live session.
+
+    Daily bars, so intraday this is the LAST CLOSE, not a live tick — the same
+    basis as the Nifty stat card on Home. Every failure returns None values and
+    the strip renders "—" rather than a stale or invented number.
+    """
+    try:
+        import yfinance as yf
+        data = yf.download(
+            [t for t, _ in _RIBBON_INDICES], period="7d", interval="1d",
+            progress=False, group_by="ticker", auto_adjust=False, threads=True,
+        )
+    except Exception as e:
+        _log.warning("ribbon quotes fetch failed: %s", e)
+        return [(lbl, None, None) for _, lbl in _RIBBON_INDICES]
+
+    out = []
+    for tkr, lbl in _RIBBON_INDICES:
+        try:
+            closes = data[tkr]["Close"].dropna()
+            last, prev = float(closes.iloc[-1]), float(closes.iloc[-2])
+            out.append((lbl, last, (last - prev) / prev * 100.0))
+        except Exception:
+            out.append((lbl, None, None))
+    return out
+
+
 # ── Horizontal top nav ────────────────────────────────────────────────────────
 # Sentinel div → dark ribbon CSS targets the next sibling HorizontalBlock.
 # Brand · Home · one popover per group · current-page label, all in one row.
@@ -985,27 +1254,35 @@ if st.query_params.get("nav") == "analyze" and st.query_params.get("symbol"):
 # <div id="tb-navstart"> via st.markdown, then CSS :has(#tb-navstart) + stHorizontalBlock
 # gives us a precise handle on just the nav row without touching anything else.
 
-_NAV_ICONS = {
-    "Screening":        "🔎",
-    "Market Intel":     "📡",
-    "Research":         "🔬",
-    "Portfolio & Risk": "🛡",
-    "Ops":              "⚙",
-}
-
 # Sentinel — CSS ribbon targets the stHorizontalBlock that immediately follows this
 st.markdown('<div id="tb-navstart"></div>', unsafe_allow_html=True)
 
-_nav = st.columns([2.4, 0.85, 1.05, 1.1, 1.05, 1.35, 0.72, 0.88, 1.9],
-                  gap="small", vertical_alignment="center")
+# Widths, left to right: brand · Home · the five group popovers · spacer ·
+# search · sign-in. The current-page label used to live here; it is a breadcrumb,
+# and it now sits on the strip below the bar where a breadcrumb belongs.
+#
+# The quote strip is NOT in this row: width here is scarce (at these weights
+# "Portfolio & Risk ▾" is already near its label width) and three quotes need
+# ~330px that would have to come out of the group labels. It rides the
+# breadcrumb line below instead, which is mostly empty.
+#
+# The search column is wide (2.0) because the typeahead's dropdown is the width
+# of its column, and at 1.15 the company names were cut to a few characters with
+# a horizontal scrollbar under them. The width comes out of the brand and the
+# spacer, not the group labels — those are already near their text width.
+_nav = st.columns([1.4, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.1, 2.0, 0.95],
+                   gap="small", vertical_alignment="center")
 
 with _nav[0]:
     st.markdown(
-        '<div style="line-height:1.2;padding:2px 0;">'
-        '<span style="font-size:18px;font-weight:900;color:#fff5eb;letter-spacing:-0.02em;">'
-        '📈 Trading<span style="color:#ea580c;"> Bramha</span></span><br>'
-        '<span style="font-size:10px;color:rgba(255,245,235,0.45);letter-spacing:0.04em;">'
-        'SCREENER &amp; ANALYSIS</span>'
+        '<div style="display:flex;align-items:center;gap:8px;height:48px;">'
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
+        'stroke="#ea580c" stroke-width="2.4" stroke-linecap="round" '
+        'stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/>'
+        '<path d="M21 7h-5v5"/></svg>'
+        '<span style="font-size:15px;font-weight:700;color:#f8fafc;'
+        'letter-spacing:-0.01em;white-space:nowrap;">'
+        'Trading<span style="color:#ea580c;"> Bramha</span></span>'
         '</div>',
         unsafe_allow_html=True,
     )
@@ -1019,9 +1296,8 @@ with _nav[1]:
 for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
     with _nav[2 + _i]:
         _active_here = st.session_state["current_page"] in _gpages
-        _icon = _NAV_ICONS.get(_gname, "")
-        _label = f"{_icon} {_gname} ▾"
-        with st.popover(_label, use_container_width=True):
+        with st.popover(f"{_gname} ▾", use_container_width=True,
+                        type="primary" if _active_here else "secondary"):
             for _p in _gpages:
                 _is_active = st.session_state["current_page"] == _p
                 if st.button(_p, key=f"nav_{_p}", use_container_width=True,
@@ -1030,20 +1306,142 @@ for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
                     st.session_state["current_page"] = _p
                     st.rerun()
 
+# Sign-in sits at the far right of the ribbon, where a sign-in belongs and where
+# it is out of the way of a tool that no longer requires it.
 with _nav[8]:
-    _cp = st.session_state["current_page"]
-    st.markdown(
-        f'<div style="text-align:right;font-size:11px;'
-        f'color:rgba(255,245,235,0.45);padding:2px 0;">'
-        f'<span style="color:rgba(255,245,235,0.35);">▸</span> '
-        f'<span style="color:rgba(255,245,235,0.80);font-weight:500;">{_cp}</span>'
-        f'</div>',
-        unsafe_allow_html=True,
+    _search_control()
+
+with _nav[9]:
+    _signin_control()
+
+# ── Breadcrumb + status strip ────────────────────────────────────
+# One 30px line under the bar: where you are on the left, whether the data is
+# current on the right. Rendered as a single markdown flex row rather than
+# st.columns — it is static text, and a column row would cost another
+# stHorizontalBlock plus the vertical block's 16px gap on both sides of it.
+#
+# The clock is as-of-render: it moves on the next rerun, not on a timer. A
+# self-updating clock would need an autorefresh, and paying a full script rerun
+# per second to animate a timestamp is not a trade worth making.
+_cp = st.session_state["current_page"]
+_crumb_group = next((g for g, ps in PAGE_GROUPS.items() if _cp in ps), None)
+# Home is the trail root, so on Home itself the trail is just "Home" — not
+# "Home › Home". The group sits between only when the page has one.
+_lead = [] if _cp == "Home" else ["Home"] + ([_crumb_group] if _crumb_group else [])
+_trail = "".join(
+    f'<span style="color:{_T["text_muted"]};">{_seg}</span>'
+    f'<span style="color:{_T["absent"]};margin:0 6px;">›</span>'
+    for _seg in _lead
+)
+_mkt_state, _mkt_dot, _mkt_label = _market_status()
+
+# Refresh cadence follows the session: a minute while the tape is running,
+# a quarter-hour once it is not. Passing the bucket in (rather than setting a
+# short ttl) is what lets one cached function have two cadences.
+_q_bucket = int(_time.time() // (60 if _mkt_state in ("LIVE", "PRE-OPEN") else 900))
+_quote_html = ""
+for _lbl, _val, _chg in _ribbon_quotes(_q_bucket):
+    if _val is None:
+        _quote_html += (
+            f'<span style="display:inline-flex;gap:5px;align-items:baseline;">'
+            f'<span style="color:{_T["text_muted"]};font-weight:600;">{_lbl}</span>'
+            f'<span style="color:{_T["absent"]};">—</span></span>'
+        )
+        continue
+    _tone = _T["good"] if _chg >= 0 else _T["risk"]
+    _num = f"{_val:,.0f}" if _lbl != "VIX" else f"{_val:,.2f}"
+    _quote_html += (
+        f'<span style="display:inline-flex;gap:5px;align-items:baseline;">'
+        f'<span style="color:{_T["text_muted"]};font-weight:600;">{_lbl}</span>'
+        f'<span style="color:{_T["text"]};font-variant-numeric:tabular-nums;">{_num}</span>'
+        f'<span style="color:{_tone};font-variant-numeric:tabular-nums;">{_chg:+.2f}%</span>'
+        f'</span>'
     )
 
 st.markdown(
-    '<div style="margin:0 0 16px;"></div>',
+    f'<div style="display:flex;align-items:center;justify-content:space-between;'
+    f'gap:16px;height:30px;font-size:11.5px;margin:0;'
+    f'border-bottom:1px solid {_T["border"]};">'
+    f'  <div style="white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">'
+    f'    {_trail}'
+    f'    <span style="color:{_T["text"]};font-weight:600;">{_cp}</span>'
+    f'  </div>'
+    f'  <div style="display:flex;align-items:center;gap:14px;white-space:nowrap;'
+    f'color:{_T["text_muted"]};">'
+    f'    {_quote_html}'
+    f'    <span style="color:{_T["border_strong"]};">|</span>'
+    f'    <span style="display:inline-flex;align-items:center;gap:5px;">'
+    f'      <span style="width:6px;height:6px;border-radius:50%;'
+    f'background:{_mkt_dot};display:inline-block;"></span>{_mkt_label}</span>'
+    f'    <span style="color:{_T["border_strong"]};">|</span>'
+    f'    <span>{_batch_freshness()}</span>'
+    f'  </div>'
+    f'</div>',
     unsafe_allow_html=True,
+)
+
+# ── ⌘K / Ctrl-K ───────────────────────────────────────────────────
+# Streamlit gives no keyboard API, and st.markdown strips <script>, so the only
+# way to bind a global shortcut is a zero-height component iframe reaching into
+# the parent document. Same-origin, so this is allowed — but it is a hack on
+# Streamlit's DOM, and it is written to FAIL SILENTLY: if the markup changes
+# under it, the shortcut stops working and the box still does.
+#
+# It finds the box by its aria-label rather than a generated key, because
+# Streamlit's element keys are not stable selectors.
+components.html(
+    """
+    <script>
+    (function () {
+      const doc = window.parent && window.parent.document;
+      if (!doc || doc.__tbSearchHotkey) return;   // bind once per page load
+      doc.__tbSearchHotkey = true;
+      // Enter commits the box. Streamlit does this natively on Enter, and this
+      // listener is belt-and-braces: a blur commits too, and if the native
+      // path already fired, the value is unchanged so nothing happens twice.
+      // Kept because Enter could NOT be verified from this side — the test
+      // harness delivers character keys to the page but not Enter or Ctrl-K,
+      // which is also why ⌘K needed a human to confirm it.
+      doc.addEventListener('keydown', function (e) {
+        if (e.key !== 'Enter') return;
+        const el = doc.activeElement;
+        if (!el || el.getAttribute('aria-label') !== 'Symbol') return;
+        el.blur();   // fallback box only; the component handles its own Enter
+      });
+
+      doc.addEventListener('keydown', function (e) {
+        const combo = (e.key === 'k' || e.key === 'K') && (e.metaKey || e.ctrlKey);
+        // Chrome also owns Ctrl/Cmd-K (omnibox search), so the question was
+        // whether preventDefault gets there first. It does — ⌘K confirmed
+        // working in a real browser, 2026-09-05. "/" stays as a second binding
+        // anyway: it needs no modifier and no browser claims it. Ignored while
+        // typing, or the key would be unusable in every text field here.
+        const el = doc.activeElement;
+        const typing = el && (el.tagName === 'INPUT' || el.tagName === 'TEXTAREA'
+                              || el.isContentEditable);
+        const slash = e.key === '/' && !typing && !e.metaKey && !e.ctrlKey && !e.altKey;
+        if (!combo && !slash) return;
+        // The box lives inside the typeahead's component iframe now. Same
+        // origin (Streamlit serves it), so we can reach in; if that ever stops
+        // being true, contentDocument throws and the key falls through to the
+        // browser rather than dying here.
+        let box = null;
+        try {
+          for (const f of doc.querySelectorAll('iframe')) {
+            const inner = f.contentDocument && f.contentDocument.getElementById('box');
+            if (inner) { box = inner; break; }
+          }
+        } catch (err) { return; }
+        if (!box) box = doc.querySelector('input[aria-label="Symbol"]');  // fallback box
+        if (!box) return;            // markup moved — leave the key to the browser
+        e.preventDefault();
+        box.focus();
+        box.select();
+      });
+    })();
+    </script>
+    """,
+    height=0,
 )
 
 current_page = st.session_state["current_page"]
@@ -1127,10 +1525,25 @@ def _drop_unusable_bars(df):
 
 
 @st.cache_data(ttl=300, show_spinner=False)
-def cached_fetch_ohlcv(symbol: str, days: int = 300):
+def cached_fetch_ohlcv(symbol: str, days: int = 300, enforce_liquidity: bool = True):
+    """Daily bars for one symbol, via VolumeFetcher then screener_pipeline.
+
+    `enforce_liquidity=False` drops the 10-day average turnover floor. That
+    floor belongs to SCANNING — it keeps names you cannot trade out of a
+    2,000-symbol sweep — and both fetchers applied it to every caller, so a page
+    that had been handed one symbol by name returned "no usable data" for a
+    stock yfinance serves perfectly well. CENTUM reported as "not on yfinance"
+    while the Opportunity Hub was linking to it, which is the same app refusing
+    to open a door it just pointed at.
+
+    Bar-count and NaN validation still apply either way: those say there is no
+    data, not that the data is not worth scanning.
+    """
     # Try enhanced volume fetcher first
     try:
         volume_fetcher = vf.VolumeFetcher(verbose=False)
+        if not enforce_liquidity:
+            volume_fetcher.MIN_TURNOVER = 0   # instance attr shadows the class floor
         df = volume_fetcher.fetch_with_volume(symbol, days=days, validate=True)
         if df is not None:
             return _drop_unusable_bars(df)
@@ -1138,7 +1551,34 @@ def cached_fetch_ohlcv(symbol: str, days: int = 300):
         _log.warning("VolumeFetcher error for %s: %s", symbol, e)
 
     # Fallback to screener_pipeline
-    return _drop_unusable_bars(sp.fetch_ohlcv(symbol, days=days))
+    return _drop_unusable_bars(
+        sp.fetch_ohlcv(symbol, days=days,
+                       min_turnover=None if enforce_liquidity else 0))
+
+
+def _thin_volume_note(df, symbol: str) -> None:
+    """Warn when a single-symbol page is looking at a name below the screen floor.
+
+    The gate is off for these pages, which means the number has to be visible
+    instead: an analysis of a stock turning over a few lakh a day is not wrong,
+    but every level on it is worth less than the same level on a liquid name.
+
+    Reported as traded value because that is what the floor measures — quoting
+    a share count here would be quoting a number nothing enforces.
+    """
+    try:
+        avg_turnover = float((df["close"] * df["volume"]).tail(10).mean())
+    except Exception:
+        return
+    if avg_turnover >= sp.MIN_TURNOVER:
+        return
+    st.warning(
+        f"**{symbol}** turns over ~₹{avg_turnover / 1e7:,.2f} cr/day over the "
+        f"last 10 sessions — below the ₹{sp.MIN_TURNOVER / 1e7:,.0f} cr floor the "
+        f"screeners use, so it never reaches a scan. Everything below is computed "
+        f"normally; treat levels as indicative and assume slippage.",
+        icon="⚠",
+    )
 
 
 def _scanner_fetch_fn(scanner_name: str):
@@ -3118,39 +3558,22 @@ _ov_cards = [
 ]
 st.markdown(rs.strip(_ov_cards, cols=5), unsafe_allow_html=True)
 
-# ── Regime banner + today's verdict ───────────────────────────────────────────
+# ── Regime + today's verdict — ONE card ───────────────────────────────────────
 _show_regime = current_page != "Scanner Hub"  # hidden on Scanner Hub
-# Five true numbers above still do not answer "do I trade today, and how big?".
-# market_verdict collapses the same sentiment inputs into one decision plus the
-# flags that produced it, so the ribbon can be argued with rather than obeyed.
+# These were two stacked cards and between them they owned most of the first
+# screen on every page. They are now one, because they are one thought: the
+# regime is the CONTEXT and the verdict is the DECISION taken in it, and the
+# reader was scrolling past both to reach the page they asked for.
+#
+# The old code already carried the rule that makes the merge safe — "two
+# coloured surfaces stacked would read as two verdicts, and only one of these is
+# a decision". One card with the verdict's tone on its border keeps exactly one
+# decision on screen; the regime sits inside it as a labelled context line.
+#
+# Compaction is layout only. No flag, number or sentence is dropped: the
+# caution / favorable / not-checked blocks moved from stacked full-width lists
+# into three columns, which is where most of the height went.
 regime_info = mvd.classify_regime(nifty_overview)
-if _show_regime and regime_info["label"] != "UNKNOWN":
-    _rfg, _ = rs.tone_colors(regime_info["tone"])
-    vol_txt = ""
-    if regime_info["vol"] is not None and regime_info["vol_baseline"] is not None:
-        vol_txt = (f'<span class="tb-mono">{regime_info["vol"]:.2f}%</span> vs baseline '
-                   f'<span class="tb-mono">{regime_info["vol_baseline"]:.2f}%</span>')
-    dist_txt = ""
-    if regime_info["dist_pct"] is not None:
-        dist_txt = (f'Price within <span class="tb-mono">'
-                    f'{abs(regime_info["dist_pct"]):.1f}%</span> of the 50 SMA')
-    # The regime chip carries the tone; the card border stays a hairline. Two
-    # coloured surfaces stacked (banner tint + verdict) would read as two
-    # verdicts, and only one of these is a decision.
-    st.markdown(
-        rs.card(
-            f'<div style="display:flex;align-items:center;gap:8px;flex-wrap:wrap;">'
-            f'<span class="tb-micro">Market regime</span>'
-            + rs.chip(regime_info["label"], tone=regime_info["tone"])
-            + (f'<span style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
-               f'Vol {vol_txt}</span>' if vol_txt else "")
-            + f'</div>'
-            f'<div style="font-size:14px;color:{rs.TOKENS["text_body"]};'
-            f'margin-top:4px;">{regime_info["playbook"]}</div>'
-            + (f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};'
-               f'margin-top:3px;">{dist_txt}</div>' if dist_txt else "")),
-        unsafe_allow_html=True,
-    )
 
 _senti_reading = cached_latest_sentiment()
 # A reading from three sessions ago must not read as today's green light.
@@ -3170,50 +3593,81 @@ verdict = mvd.build_verdict(_senti_reading, portfolio_summary, _stale_flags)
 _vfg, _ = rs.tone_colors(verdict["tone"])
 
 
-def _flag_list(items: list[str], label: str, tone: str, mark: str) -> str:
-    """One flag block — micro header in the tone, then the flags themselves."""
-    if not items:
-        return ""
+def _flag_col(items: list[str], label: str, tone: str, mark: str) -> str:
+    """One flag column — micro header in the tone, then the flags themselves.
+
+    Empty columns still render (as a dash) so the three keep their widths and
+    the reader can see that a category is empty rather than missing.
+    """
     fg, _bg = rs.tone_colors(tone)
     rows = "".join(
-        f'<div style="font-size:13px;color:{fg};line-height:1.55;">{mark} {i}</div>'
-        for i in items)
-    return (f'<div style="margin-top:10px;">'
+        f'<div style="font-size:11.5px;color:{fg};line-height:1.5;">{mark} {i}</div>'
+        for i in items) or (
+        f'<div style="font-size:11.5px;color:{rs.TOKENS["absent"]};'
+        f'line-height:1.5;">—</div>')
+    return (f'<div style="flex:1;min-width:150px;">'
             f'<div class="tb-micro" style="color:{fg};">{label}</div>{rows}</div>')
 
 
-# One bordered card rather than loose columns: the verdict and the flags that
-# produced it are a single object, and the border colour is where the decision
-# is stated (report_style's `tone` rule — a value's colour states its verdict).
-# The size figure is .tb-mono like every other number on this page; it used to
-# be the one headline figure rendering in the proportional face.
-if _show_regime: st.markdown(
-    rs.card(
-        '<div style="display:flex;align-items:flex-start;gap:16px;">'
-        '<div style="flex:1;min-width:0;">'
-        '<div class="tb-micro">Today\'s verdict</div>'
-        f'<div style="font-size:30px;font-weight:800;color:{_vfg};'
-        f'line-height:1.15;letter-spacing:-.01em;">{verdict["verdict"]}</div>'
-        f'<div style="font-size:14px;color:{rs.TOKENS["text_body"]};'
-        f'margin-top:4px;">{verdict["instruction"]}</div>'
-        '</div>'
-        '<div style="text-align:right;flex-shrink:0;">'
-        '<div class="tb-micro">Position size</div>'
-        f'<div class="tb-mono" style="font-size:30px;font-weight:800;'
-        f'color:{_vfg};line-height:1.15;">{verdict["size_pct"]}%</div>'
-        f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
-        f'max <span class="tb-mono">{verdict["max_trades"]}</span> trade(s) today</div>'
-        '</div></div>'
-        + _flag_list(verdict["caution"], "Caution", "risk", "✗")
-        + _flag_list(verdict["favorable"], "Favorable", "good", "✓")
-        # Components that could not be measured abstain from the vote (B-1), so
-        # the verdict above was formed on LESS than the full weight. Shown
-        # explicitly — otherwise the only visible difference between a complete
-        # verdict and a partial one is that the partial one has fewer flags.
-        + _flag_list(verdict.get("not_checked") or [], "Not checked", "neutral", "—"),
-        tone=verdict["tone"]),
-    unsafe_allow_html=True,
-)
+def _regime_line() -> str:
+    """The regime as a context strip inside the verdict card, or '' if unknown."""
+    if regime_info["label"] == "UNKNOWN":
+        return ""
+    bits = []
+    if regime_info["vol"] is not None and regime_info["vol_baseline"] is not None:
+        bits.append(f'Vol <span class="tb-mono">{regime_info["vol"]:.2f}%</span> vs '
+                    f'<span class="tb-mono">{regime_info["vol_baseline"]:.2f}%</span> baseline')
+    if regime_info["dist_pct"] is not None:
+        bits.append(f'within <span class="tb-mono">'
+                    f'{abs(regime_info["dist_pct"]):.1f}%</span> of the 50 SMA')
+    return (
+        f'<div style="border-top:1px solid {rs.TOKENS["border"]};margin-top:10px;'
+        f'padding-top:8px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">'
+        f'<span class="tb-micro">Regime</span>'
+        + rs.chip(regime_info["label"], tone=regime_info["tone"])
+        + f'<span style="font-size:12.5px;color:{rs.TOKENS["text_body"]};">'
+          f'{regime_info["playbook"]}</span>'
+        + (f'<span style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
+           f'{" · ".join(bits)}</span>' if bits else "")
+        + '</div>'
+    )
+
+
+# One bordered card: the verdict, the regime it was formed in, and the flags that
+# produced it are a single object. The border colour is where the decision is
+# stated (report_style's `tone` rule — a value's colour states its verdict).
+if _show_regime:
+    st.markdown(
+        rs.card(
+            '<div style="display:flex;align-items:flex-start;gap:16px;">'
+            '<div style="flex:1;min-width:0;">'
+            '<div class="tb-micro">Today\'s verdict</div>'
+            f'<div style="font-size:24px;font-weight:800;color:{_vfg};'
+            f'line-height:1.15;letter-spacing:-.01em;">{verdict["verdict"]}</div>'
+            f'<div style="font-size:13px;color:{rs.TOKENS["text_body"]};'
+            f'margin-top:2px;">{verdict["instruction"]}</div>'
+            '</div>'
+            '<div style="text-align:right;flex-shrink:0;">'
+            '<div class="tb-micro">Position size</div>'
+            f'<div class="tb-mono" style="font-size:24px;font-weight:800;'
+            f'color:{_vfg};line-height:1.15;">{verdict["size_pct"]}%</div>'
+            f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
+            f'max <span class="tb-mono">{verdict["max_trades"]}</span> trade(s) today</div>'
+            '</div></div>'
+            + _regime_line()
+            # Components that could not be measured abstain from the vote (B-1),
+            # so the verdict above was formed on LESS than the full weight. Shown
+            # explicitly — otherwise the only visible difference between a
+            # complete verdict and a partial one is that it has fewer flags.
+            + f'<div style="border-top:1px solid {rs.TOKENS["border"]};margin-top:10px;'
+              f'padding-top:8px;display:flex;gap:18px;flex-wrap:wrap;">'
+            + _flag_col(verdict["caution"], "Caution", "risk", "✗")
+            + _flag_col(verdict["favorable"], "Favorable", "good", "✓")
+            + _flag_col(verdict.get("not_checked") or [], "Not checked", "neutral", "—")
+            + '</div>',
+            tone=verdict["tone"]),
+        unsafe_allow_html=True,
+    )
 
 # ── Inline sentiment refresh ────────────────────────────────────────────
 if _show_regime and (_senti_reading is None or (_senti_age or 0) >= 1):
@@ -4102,9 +4556,14 @@ if current_page == "Hidden Treasures":
     st.subheader("Hidden Treasures")
     st.caption("Small and micro-cap names the main funnel structurally misses — "
                "ranked by **institutional conviction** (FII+DII accumulation rate, "
-               "promoter conduct, pledge veto) from free NSE shareholding data. "
-               "Quality overlay adds ROCE / OPM / D/E from yfinance. "
-               "**Unvalidated** — a discovery lens, not an edge.")
+               "promoter conduct, pledge penalty) from free NSE shareholding data. "
+               "Quality overlay adds ROCE / OPM / D/E from yfinance and runs the "
+               "FR-4 red-flag checklist, which can **veto** on governance flags "
+               "(negative FCF only penalises — B-34r2). "
+               "**Unvalidated** — a discovery lens, not an edge. B-34r4 measured "
+               "the ranking at −0.12% @60d (p=0.94) / +0.20% @120d (p=0.94) once "
+               "the drifting promoter window is bounded — the earlier +2.5% was "
+               "that artefact. Coverage, not edge.")
 
     _ht_c1, _ht_c2 = st.columns([2, 1])
     with _ht_c1:
@@ -4116,6 +4575,14 @@ if current_page == "Hidden Treasures":
     with _ht_c2:
         _ht_enrich = st.checkbox("Quality overlay (slower)", value=True, key="ht_enrich",
                                  help="Adds ROCE/OPM/D/E/Market Cap from yfinance — one call per name")
+        _ht_veto = st.checkbox("Red-flag veto", value=False, key="ht_veto",
+                               disabled=not _ht_enrich,
+                               help="OFF by default since B-34r5: measured across two "
+                                    "universes, the first governance-flagged name ranks "
+                                    "128th (Smallcap-250) and 60th (Microcap-250), so the "
+                                    "gate cannot reach a list of 100 or fewer. Flagged "
+                                    "names are MARKED in the cards instead. Turn it on to "
+                                    "drop them outright.")
     _ht_limit = st.slider("Show top N", min_value=5, max_value=100, value=25,
                            step=5, key="ht_limit")
     _kind_map = {
@@ -4130,7 +4597,8 @@ if current_page == "Hidden Treasures":
                 _ht_kind_val = _kind_map[_ht_kind]
                 _ht_res = scd.discover(kind=_ht_kind_val,
                                        limit=_ht_limit,
-                                       enrich=_ht_enrich)
+                                       enrich=_ht_enrich,
+                                       veto_critical=_ht_veto)
                 st.session_state["ht_result"] = _ht_res
                 _saved_n = db.save_hidden_treasures_run(
                     _ht_res["hits"],
@@ -4142,6 +4610,37 @@ if current_page == "Hidden Treasures":
 
     _ht_res = st.session_state.get("ht_result")
     if _ht_res is not None:
+        # The veto is the only HARD gate in this lane, so what it removed has to
+        # be visible. A silent exclusion is indistinguishable from a name that was
+        # never in the universe, and this one drops a large minority of it.
+        _ht_vetoed = _ht_res.get("vetoed") or []
+        _ht_marked = sum(1 for _h in _ht_res["hits"]
+                         if (_h.get("red_flags") or {}).get("vetoed"))
+        if not _ht_res.get("veto_active"):
+            st.info(
+                f"Red-flag veto is OFF — flagged names are **marked, not removed** "
+                f"({_ht_marked} in this list). B-34r5 measured the gate as unable to "
+                f"reach a top-100: the score already costs −15 for promoter selling and "
+                f"−20 for pledge, so a flagged name does not rank that high. Removing "
+                f"them looked like protection the list was not actually getting.",
+                icon="ℹ️")
+        elif _ht_vetoed:
+            _ht_total = len(_ht_vetoed) + _ht_res["scanned"]
+            st.warning(
+                f"**{len(_ht_vetoed)} of {_ht_total}** scoreable names vetoed on a "
+                f"vetoing red flag — promoter selling, pledge, or heavy dilution. "
+                f"Negative FCF is a penalty rather than a veto (B-34r2): it caused "
+                f"most exclusions, could not be backtested point-in-time, and is "
+                f"often a reinvesting small-cap's business model.", icon="⛔")
+            with st.expander(f"Vetoed — {len(_ht_vetoed)} names and why", expanded=False):
+                for _v in _ht_vetoed[:60]:
+                    st.markdown(
+                        f"**{_v['symbol']}** ({_v.get('name') or '—'}) · would have "
+                        f"scored {_v['score']}  \n"
+                        + "  \n".join(f"&nbsp;&nbsp;⛔ {_r}" for _r in _v["reasons"]),
+                        unsafe_allow_html=True)
+                if len(_ht_vetoed) > 60:
+                    st.caption(f"…and {len(_ht_vetoed) - 60} more.")
         st.markdown(rs.section(f"Top {len(_ht_res['hits'])} of {_ht_res['universe']} "
                                f"({_ht_res['cached']} cached)"),
                     unsafe_allow_html=True)
@@ -4184,6 +4683,16 @@ if current_page == "Hidden Treasures":
                     _pd = _h.get("promoter_delta")
                     _prom_s = f'Prom {_pd:+.2f}pp' if _pd is not None else 'Prom —'
 
+                    # B-34r5: with the gate off, a flagged name stays in the list and
+                    # says so on its own card. The count in the banner is a summary;
+                    # this is what tells you WHICH name and WHY, at the point of use.
+                    _rf_h = _h.get("red_flags") or {}
+                    _flag_s = ""
+                    if _rf_h.get("vetoed"):
+                        _why = "; ".join(f["label"] for f in (_rf_h.get("veto_flags") or []))
+                        _flag_s = (f'<div style="font-size:11px;color:{rs.TOKENS["risk"]};'
+                                   f'font-weight:600;">⛔ {_why or "critical red flag"}</div>')
+
                     # Action icon row (same family as Scanner Hub cards)
                     _sym_clean = _sym.upper().replace(".NS", "")
                     def _ht_icon(href, glyph, tip, small=False):
@@ -4225,7 +4734,7 @@ if current_page == "Hidden Treasures":
                             f'<div style="margin-top:4px;font-size:11px;">'
                             f'FII+DII {_h["inst_delta"]:+.2f}pp · {_prom_s}'
                             f'</div>'
-                            f'{_qual_chips}{_mcap_s}{_pledge_s}',
+                            f'{_qual_chips}{_mcap_s}{_pledge_s}{_flag_s}',
                             emphasis=False),
                         unsafe_allow_html=True)
 
@@ -4452,6 +4961,189 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Home — "where the action is today" card map
+# ──────────────────────────────────────────────────────────────────────────────
+# Modelled on a commercial screener's landing page (user screenshot, 2026-09-04):
+# a hero, then a grid of small cards each showing three names under a heading,
+# with a "View" link into the page that owns that lens.
+#
+# THE HARD CONSTRAINT, and the reason this differs from the mockup:
+# Home must not fetch on load. The commercial page can afford nine live lenses
+# because it serves precomputed server-side lists; we have one machine and a
+# daily job. So every card here reads STORED state - the persisted daily
+# shortlist, the offline constituent file - and a card with no stored data says
+# so instead of being padded with whatever is nearby.
+#
+# The mockup's nine cards are also not nine independent facts for us: a RISK-OFF
+# regime caps the stored shortlist at five names, so nine "top 3" cards off that
+# one table would be the same five names rearranged. Each card below therefore
+# answers a different question from a different column.
+
+def _company_names() -> dict:
+    """symbol -> company name, from the offline NSE constituent files.
+
+    Reuses peer_comparison's loader: a file read with no network, which is the
+    only kind of lookup Home is allowed to do on load.
+    """
+    try:
+        return {k: (v.get("name") or k) for k, v in pcmp._constituents().items()}
+    except Exception:
+        return {}
+
+
+def _action_card(col, title: str, blurb: str, rows: list, target_page,
+                 key: str, *, empty: str = "") -> None:
+    """One card: heading + View link, a one-line blurb, then up to three rows.
+
+    `rows` is [(bold line, muted sub-line)] - usually (symbol, company), but the
+    sector card passes (sector, "N names"), which is why this takes text rather
+    than symbols.
+    """
+    t = rs.TOKENS
+    with col:
+        with st.container(border=True):
+            # 3:1 wrapped the button label onto two lines at Home's card width
+            # (three cards across a ~940px pane leaves the action column ~75px).
+            _h1, _h2 = st.columns([1.9, 1.15])
+            with _h1:
+                st.markdown(
+                    f'<div style="font-size:13.5px;font-weight:700;color:{t["text"]};">'
+                    f'{title}</div>', unsafe_allow_html=True)
+            with _h2:
+                if target_page and st.button("View", key=f"am_{key}",
+                                             use_container_width=True):
+                    st.session_state["current_page"] = target_page
+                    st.rerun()
+            st.markdown(
+                f'<div style="font-size:11px;color:{t["text_muted"]};'
+                f'line-height:1.45;margin:2px 0 8px;">{blurb}</div>',
+                unsafe_allow_html=True)
+            if not rows:
+                st.markdown(
+                    f'<div style="font-size:11.5px;color:{t["absent"]};'
+                    f'font-style:italic;padding:10px 0 4px;">'
+                    f'{empty or "No stored data."}</div>', unsafe_allow_html=True)
+                return
+            cells = "".join(
+                f'<div style="background:{t["surface_alt"]};border-radius:6px;'
+                f'padding:7px 10px;margin-bottom:6px;">'
+                f'<div style="font-size:12.5px;font-weight:700;color:{t["text"]};">'
+                f'{a}</div>'
+                f'<div style="font-size:10px;color:{t["text_muted"]};">{b}</div></div>'
+                for a, b in rows[:3])
+            st.markdown(cells, unsafe_allow_html=True)
+
+
+def render_action_map() -> None:
+    """The card grid. Reads stored state only - no network, no scan."""
+    t = rs.TOKENS
+    try:
+        _dates = db.get_opportunity_run_dates()
+    except Exception:
+        _dates = []
+    _run = _dates[0] if _dates else None
+    try:
+        _df = db.get_daily_opportunities(_run) if _run else pd.DataFrame()
+    except Exception:
+        _df = pd.DataFrame()
+    _names = _company_names()
+
+    def _nm(sym):
+        return _names.get(str(sym).upper(), "")
+
+    _hdr_l, _hdr_r = st.columns([3, 1])
+    with _hdr_l:
+        _date_bit = (f'<span style="color:{t["text_muted"]};font-weight:500;"> &middot; '
+                     f'{_run}</span>' if _run else "")
+        st.markdown(
+            f'<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
+            f'text-transform:uppercase;color:{t["good"]};padding-top:6px;">'
+            f'&#9679; Where the action is today{_date_bit}</div>',
+            unsafe_allow_html=True)
+    with _hdr_r:
+        if st.button("Open full map", key="am_full", use_container_width=True):
+            st.session_state["current_page"] = "Opportunity Hub"
+            st.rerun()
+
+    if _df is None or _df.empty:
+        st.markdown(
+            rs.callout("No stored shortlist yet.",
+                       "These cards read the persisted daily run rather than "
+                       "scanning on load. Run it from the Opportunity Hub (or let "
+                       "the scheduled job do it) and this map fills in.",
+                       tone="absent"),
+            unsafe_allow_html=True)
+        return
+
+    if _run != date.today().isoformat():
+        st.caption(f"Newest stored run is **{_run}**, not today - these are that "
+                   f"day's names. Price levels decay; treat them as history.")
+
+    # Row 1 - the shortlist, its sectors, its strongest movers
+    c1, c2, c3 = st.columns(3)
+
+    _rank_rows = [(r["symbol"], _nm(r["symbol"]) or f"score {r['score']:.0f}")
+                  for _, r in _df.sort_values("rank").head(3).iterrows()]
+    _action_card(c1, "Today's shortlist",
+                 "Ranked across every scanner by the stored daily run.",
+                 _rank_rows, "Opportunity Hub", "rank")
+
+    _sec_rows = []
+    if "sector" in _df.columns:
+        _sec = (_df.groupby("sector")["momentum"].agg(["count", "mean"])
+                .sort_values(["count", "mean"], ascending=False))
+        _sec_rows = [(str(ix), f"{int(r['count'])} name(s) &middot; avg momentum {r['mean']:.0f}")
+                     for ix, r in _sec.head(3).iterrows()]
+    _action_card(c2, "Sectors in the shortlist",
+                 "Where today's names cluster - counted from the shortlist, not "
+                 "a separate sector scan.", _sec_rows, "Sector Map", "sect")
+
+    _mom_rows = []
+    if "momentum" in _df.columns:
+        _mom_rows = [(r["symbol"],
+                      f"momentum {r['momentum']:.0f} &middot; {r.get('industry') or '-'}")
+                     for _, r in _df.sort_values("momentum", ascending=False).head(3).iterrows()
+                     if pd.notna(r.get("momentum"))]
+    _action_card(c3, "Strongest momentum",
+                 "IBD-style weighted trailing return, highest first.",
+                 _mom_rows, "Opportunity Hub", "mom")
+
+    # Row 2 - rating, confluence, what actually fired
+    c4, c5, c6 = st.columns(3)
+
+    _rat_rows = []
+    if "overall_rating" in _df.columns:
+        _rat_rows = [(r["symbol"], f"M1 rating {r['overall_rating']:.0f}/100")
+                     for _, r in _df.sort_values("overall_rating", ascending=False).head(3).iterrows()
+                     if pd.notna(r.get("overall_rating"))]
+    _action_card(c4, "Highest rated",
+                 "The M1 technical Overall Rating - a different lens from the "
+                 "shortlist score.", _rat_rows, "Predictive Analysis", "rat")
+
+    _conf_rows = []
+    if "confluence" in _df.columns:
+        _conf_rows = [(r["symbol"], f"{int(r['confluence'])} scanners agree")
+                      for _, r in _df.sort_values("confluence", ascending=False).head(3).iterrows()
+                      if pd.notna(r.get("confluence"))]
+    _action_card(c5, "Most confluence",
+                 "Most scanners firing on one name. Measured co-fire lift is "
+                 "significant only at 60d - a lead, not an edge.",
+                 _conf_rows, "Scanner Hub", "conf")
+
+    _tally = {}
+    for _sc in _df.get("scanners", pd.Series(dtype=str)).dropna():
+        for _one in str(_sc).split(","):
+            _one = _one.strip()
+            if _one:
+                _tally[_one] = _tally.get(_one, 0) + 1
+    _scan_rows = [(k, f"fired on {v} of {len(_df)} names")
+                  for k, v in sorted(_tally.items(), key=lambda kv: -kv[1])[:3]]
+    _action_card(c6, "Scanners firing",
+                 "Which detectors actually produced today's list.",
+                 _scan_rows, "Scanner Hub", "scan")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Home":
     _t = rs.TOKENS
     _n_pages = sum(len(v) for v in PAGE_GROUPS.values())
@@ -4473,6 +5165,29 @@ if current_page == "Home":
         f'</div>',
         unsafe_allow_html=True,
     )
+
+    # Call-to-action row, as in the reference layout. Real buttons rather than
+    # styled anchors, because navigation here is session_state + rerun.
+    _cta1, _cta2, _cta3, _cta4 = st.columns([1.15, 1, 1, 3])
+    with _cta1:
+        if st.button("Open screener dashboard", key="home_cta_screen",
+                     type="primary", use_container_width=True):
+            st.session_state["current_page"] = "Opportunity Hub"
+            st.rerun()
+    with _cta2:
+        if st.button("View top movers", key="home_cta_movers",
+                     use_container_width=True):
+            st.session_state["home_trending_open"] = True
+            st.rerun()
+    with _cta3:
+        if st.button("Scanner Hub", key="home_cta_hub", use_container_width=True):
+            st.session_state["current_page"] = "Scanner Hub"
+            st.rerun()
+    st.markdown(
+        f'<div style="font-size:11px;color:{_t["text_muted"]};margin:8px 0 18px;">'
+        f'No sign-in required to browse. '
+        f'<b>For research and educational purposes only — not investment advice.</b>'
+        f'</div>', unsafe_allow_html=True)
 
     # Three genuinely cheap facts. Nothing here fetches.
     try:
@@ -4501,6 +5216,10 @@ if current_page == "Home":
         ], cols=3),
         unsafe_allow_html=True,
     )
+    st.write("")
+
+    # ── The action map — stored state only, so it costs nothing on load ──────
+    render_action_map()
     st.write("")
 
     # Home used to be a card grid of every page. It is now a working surface: the
@@ -4692,6 +5411,47 @@ if current_page == "Screener":
 if current_page == "Stock Analyzer":
     st.subheader("Individual Stock Analyzer")
 
+    # Candidates parked by the ribbon search when what was typed was a prefix
+    # rather than a ticker. This is the chart tool's typeahead dropdown, one
+    # step later: Streamlit cannot filter a list per keystroke (a widget only
+    # reports on Enter or blur), so the choice is offered after submit instead
+    # of during typing. Same directory, same ranking, same NSE/BSE reality.
+    _sa_typed, _sa_matches = st.session_state.get("tb_search_matches", (None, []))
+    if _sa_matches:
+        st.caption(f"No exact NSE ticker for **{_sa_typed}** — {len(_sa_matches)} match"
+                   f"{'es' if len(_sa_matches) != 1 else ''}:")
+        _mc = st.columns(min(len(_sa_matches), 4))
+        for _mi, _m in enumerate(_sa_matches):
+            with _mc[_mi % 4]:
+                if st.button(f"{_m['display']}", key=f"tb_match_{_m['display']}",
+                             use_container_width=True,
+                             help=_m.get("name") or _m["display"]):
+                    st.session_state["selected_symbol"] = _m["display"]
+                    st.session_state["last_analyzed"] = _m["display"]
+                    st.session_state.pop("tb_search_matches", None)
+                    st.rerun()
+                st.caption(f"<span style='font-size:10.5px;color:{_T['text_muted']}'>"
+                           f"{(_m.get('name') or '')[:34]}</span>",
+                           unsafe_allow_html=True)
+        if st.button("✕ Dismiss", key="tb_match_clear"):
+            st.session_state.pop("tb_search_matches", None)
+            st.rerun()
+
+    # Resolved a prefix/typo to a single ticker. Worth one line: the page is
+    # about to show a company nobody typed the exact name of.
+    _sa_res = st.session_state.pop("tb_search_resolved", None)
+    if _sa_res:
+        _typed, _to, _nm = _sa_res
+        st.caption(f"**{_typed}** → **{_to}**{f' · {_nm}' if _nm else ''} "
+                   f"(only NSE match)")
+
+    # Typed something the directory has never heard of. Say so once — the
+    # analysis below still runs, and its own failure message is the detail.
+    _sa_miss = st.session_state.pop("tb_search_miss", None)
+    if _sa_miss:
+        st.caption(f"**{_sa_miss}** is not in the NSE symbol directory — analysing "
+                   f"it anyway, in case the directory is behind on a new listing.")
+
     # Consume symbol pushed from Scanner Hub card "↗ Analyze" button
     _sa_override = st.session_state.pop("sa_symbol_override", None)
     if _sa_override:
@@ -4789,10 +5549,13 @@ if current_page == "Stock Analyzer":
         else:
             st.session_state["last_analyzed"] = symbol
             with st.spinner(f"Fetching {symbol}..."):
-                df = cached_fetch_ohlcv(symbol, days=tf_days)
+                # enforce_liquidity=False: the user asked for THIS symbol.
+                df = cached_fetch_ohlcv(symbol, days=tf_days, enforce_liquidity=False)
             if df is None:
-                st.error(f"No usable data for {symbol} (illiquid, too short, or not on yfinance).")
+                st.error(f"No usable data for {symbol} — fewer than {sp.MIN_BARS} "
+                         f"daily bars, or not on yfinance under that NSE code.")
             else:
+                _thin_volume_note(df, symbol)
                 # FR-1 — identity header + valuation/quality strip lead the page:
                 # who is this company and what does it cost, before any signal.
                 with st.spinner("Fetching fundamentals & statements..."):
@@ -7219,11 +7982,12 @@ if current_page == "Predictive Analysis":
             st.info("Pick a candidate on the left (→) or type a symbol to load the "
                     "annotated chart, ratings breakdown, and setup intelligence.")
         else:
-            pa_df = cached_fetch_ohlcv(pa_sym)
+            pa_df = cached_fetch_ohlcv(pa_sym, enforce_liquidity=False)
             if pa_df is None:
-                st.error(f"No usable data for {pa_sym} (illiquid, too short, or not "
-                         "on yfinance).")
+                st.error(f"No usable data for {pa_sym} — fewer than {sp.MIN_BARS} "
+                         f"daily bars, or not on yfinance under that NSE code.")
             else:
+                _thin_volume_note(pa_df, pa_sym)
                 pa_bench = cached_fetch_nifty50()
                 _pa_w = st.session_state.get("hub_overall_weights", OVERALL_WEIGHTS)
                 pa_rating, pa_bd = _overall_rating(pa_df, pa_bench, _pa_w)
