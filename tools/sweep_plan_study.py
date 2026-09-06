@@ -62,6 +62,34 @@ burned by a subgroup that looked real (B-34r4's drifting window carried the whol
 of Hidden Treasures' apparent edge). Three arms with stated reasons, one pass bar,
 one correction.
 
+══ OUTCOME 2026-09-06 — C PASSES, B DOES NOT ════════════════════════════════
+
+  4,854 trades · 50 symbols · 29bps · 2,000-draw symbol bootstrap
+
+    A  SHIPPED     -0.059R   win 43.2%      —
+    B  ATR STOP    -0.047R   win 50.8%   +0.012R  [-0.077, +0.102]  includes 0
+    C  TIME ONLY   +0.504R   win 54.9%   +0.564R  [+0.337, +0.798]  EXCLUDES 0
+
+  **It is not WHERE the stop is. It is that there is one.** Swapping the wick
+  stop for an ATR-derived one moves the result by +0.012R with a CI straddling
+  zero. Removing the stop turns -0.059R into +0.504R. The shipped stop is not
+  badly placed — a 20-day hold on this signal cannot survive a stop of that
+  magnitude at all, and the drawdown path is part of the edge. B-41m's -7.3%
+  average MAE already implied it.
+
+  The registered prior was "C beats A; B lands between". C did; B did not — it
+  was indistinguishable from A. The wrong half is the informative half, because
+  it rules out stop PLACEMENT as the lever.
+
+  Arm C is B-41m's forward study expressed in R (buy next open, exit 20d close),
+  so it is not independent evidence of profit. The new information is the
+  comparison: same signal, same horizon, +0.50R unstopped vs -0.06R stopped.
+
+  NOT a licence to trade C. Its downside is uncapped where the other arms lose at
+  most 1R; a better mean with an unbounded tail is a different risk profile, not
+  a better one. Per the scope clause above, this licenses one further
+  pre-registered test and NOT promotion to MEASURED_EDGE.
+
 CLI:
   py -3 tools/sweep_plan_study.py
   py -3 tools/sweep_plan_study.py --symbols RELIANCE TCS   # smoke test

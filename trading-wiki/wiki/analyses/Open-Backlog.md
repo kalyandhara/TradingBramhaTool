@@ -1201,6 +1201,60 @@ prop-desk toolset converges on. See [[concepts/Order-Flow]].
 > stack that could plausibly supply trade-side data; establish whether it does, and whether
 > any NSE path exists, first.
 
+### ~~B-41p~~ · Is the STOP why the sweep edge does not convert? — **PRE-REGISTERED, PASSED 2026-09-06**
+
+Design committed at `f2c4982` **before the first run**, three fixed arms, one pass
+bar, Bonferroni across the two comparisons. `tools/sweep_plan_study.py`.
+
+| arm | mean R | win% | vs SHIPPED | 97.5% CI |
+|---|---|---|---|---|
+| A — SHIPPED (wick stop + pool target) | −0.059 | 43.2 | — | — |
+| B — ATR stop (1.5×ATR14, same target) | −0.047 | 50.8 | +0.012 | [−0.077, +0.102] **includes 0** |
+| C — TIME ONLY (no stop, exit 20d close) | **+0.504** | 54.9 | **+0.564** | **[+0.337, +0.798] excludes 0** |
+
+4,854 trades, 50 symbols, 29bps, 2,000-draw symbol-block bootstrap.
+**C passes; B does not.**
+
+> [!key-insight] It is not WHERE the stop is. It is that there is one.
+> Swapping the wick stop for an ATR-derived stop moves the result by +0.012R with
+> a CI straddling zero — nothing. Removing the stop entirely turns −0.059R into
+> **+0.504R**. The shipped stop is not badly placed; a 20-day hold on this signal
+> cannot survive a stop of that magnitude at all. **The drawdown path is part of
+> the edge**, which the −7.3% average MAE in B-41m already hinted at and nobody
+> had connected.
+
+**What arm C actually is, stated so it is not oversold.** It is B-41m's forward
+study expressed in R: buy next open, exit at the 20-day close. So its passing is
+not independent evidence of profit — it is the SAME +0.51% @20d, converted. The
+new information is the *comparison*: identical signal, identical horizon, +0.50R
+unstopped against −0.06R stopped.
+
+**Three things this does not license.**
+
+1. **Not a promotion.** The pre-registration's scope clause said a pass licenses
+   one thing — a further pre-registered test of the plan — and explicitly not
+   MEASURED_EDGE status, which needs the new plan on its own walk-forward rather
+   than on the sample that selected it. The scanner stays at unmeasured weight.
+2. **A stopless hold is not "safer" because its mean R is higher.** Arm C's
+   downside is uncapped; the other arms lose at most 1R by construction. A better
+   average with an unbounded tail is a different risk profile, not a strictly
+   better one, and position sizing off +0.504R would be a category error.
+3. **The trade count is not comparable to B-41m's.** This study takes every firing
+   bar (4,854); `backtest_scanner` dedupes with `min_gap=5` (1,400). The extra
+   trades are clustered repeats of the same setup, so they are more correlated
+   than n suggests — which is exactly why the bootstrap resamples symbols and not
+   trades.
+
+**The smoke run is a worked example of why 2 symbols is not a sample.** On
+RELIANCE + TCS alone arm C read **−0.469R**; on 50 it reads **+0.504R**. The
+bootstrap resamples symbols, so a 2-symbol CI (±1.88) is meaningless by
+construction. Recorded because the temptation to read a fast smoke number as a
+result is exactly how a desk fools itself.
+
+**Prior recorded in advance: "C beats A; B lands between." C beat A; B did not
+land between — it was indistinguishable from A.** Half right, and the half that
+was wrong is the informative half: it rules out stop *placement* as the lever.
+
 ### ~~B-41m~~ · Liquidity Sweep measured — **2026-09-06: the desk's best result, and its plan does not harvest it**
 
 B-41 shipped the detector; nothing had ever measured it. B-19's batch never covered

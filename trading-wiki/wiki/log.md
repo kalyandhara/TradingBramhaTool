@@ -1,6 +1,15 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-06] measure | B-41p PRE-REGISTERED — it is not WHERE the sweep stop is, it is that there IS one
+- Code: **`tools/sweep_plan_study.py`**. Design committed at `f2c4982` **before the first run**. Updated: [[analyses/Open-Backlog]] (**B-41p**).
+- **A SHIPPED −0.059R · B ATR-stop −0.047R (+0.012, CI includes 0) · C TIME-ONLY +0.504R (+0.564, CI [+0.337,+0.798] EXCLUDES 0).** 4,854 trades, 50 symbols, 29bps, symbol-block bootstrap. C clears the pre-registered bar; B does not.
+- **The finding is sharper than 'the stop is bad'.** Swapping the wick stop for an ATR stop changes nothing. REMOVING the stop turns −0.059R into +0.504R. So it is not stop placement — a 20-day hold on this signal cannot survive a stop of that magnitude at all. **The drawdown path is part of the edge**, which B-41m's −7.3% average MAE already implied and nobody had joined up.
+- **Arm C is not independent evidence of profit.** It IS B-41m's forward study in R units (buy next open, exit 20d close). The new information is the comparison: same signal, same horizon, +0.50R unstopped vs −0.06R stopped.
+- **Three things it does not license:** promotion (the scope clause said so in advance — a new plan needs its own walk-forward, not the sample that selected it); reading +0.504R as safer (arm C's downside is uncapped, the others lose at most 1R); or comparing n to B-41m's 1,400 (this counts every firing bar, the harness dedupes with min_gap=5, so these trades are more correlated than n suggests — which is why the bootstrap resamples SYMBOLS).
+- **The smoke run is a worked lesson.** On 2 symbols arm C read −**0.469R**; on 50 it read **+0.504R**. The bootstrap resamples symbols, so a 2-symbol CI (±1.88) is meaningless by construction. Reading a fast smoke number as a result is precisely how a desk fools itself.
+- **Registered prior was half right:** "C beats A; B lands between." C did; B did not — indistinguishable from A. The wrong half rules out stop placement as the lever, so it was the more useful half.
+
 ## [2026-09-06] measure | B-41m — Liquidity Sweep is the desk's best result, and its own plan does not harvest it
 - Code: `scanner_templates` (docstring + card reason). Updated: [[analyses/Open-Backlog]] (**B-41m**).
 - **The first positive of the day, so it got the most scepticism.** 1400 signals, LIQUID_50: **+0.51% @20d (p=0.005), +0.91% @60d (p=0.002), NET of Indian delivery costs.** Nothing else measured this session survives costs.

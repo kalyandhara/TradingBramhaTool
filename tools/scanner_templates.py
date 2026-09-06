@@ -3741,9 +3741,17 @@ def scan_liquidity_sweep(df: pd.DataFrame, max_bars_ago: int = 3,
       +0.06R after costs**, win 39.2%, target hit 549 times against stop 842.
       The signal carries forward information; this plan throws it away.
 
-    Widening the stop after seeing which stop lost would be fitting the plan to
-    its own answer, so it is NOT done here.  That needs a pre-registered test, the
-    way B-43r was written before it ran.  A lead, not a graded entry -- left at
+    That pre-registered test was then run (B-41p, `sweep_plan_study.py`, design
+    committed before the first result).  **It is not WHERE the stop is, it is that
+    there IS one**: swapping the wick stop for a 1.5x ATR stop moved the result
+    +0.012R with a CI straddling zero, while REMOVING the stop turned -0.059R into
+    **+0.504R** (CI [+0.337, +0.798], 4,854 trades).  A 20-day hold on this signal
+    cannot survive a stop of that magnitude -- the drawdown path is part of the
+    edge, which the -7.3% average MAE already implied.
+
+    That is NOT a licence to trade it unstopped: arm C's downside is uncapped
+    where a stopped arm loses at most 1R, and a better mean with an unbounded tail
+    is a different risk profile, not a better one.  A lead, not a graded entry -- left at
     unmeasured weight in ``opportunity_hub`` rather than promoted, because +0.06R
     is what trading it as shipped actually returns.
 
