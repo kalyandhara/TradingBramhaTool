@@ -1,6 +1,18 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-06] measure | B-43r — the Renko flip under a trend filter is significantly WORSE, not better
+- Code: **`tools/renko_regime_study.py`** (new, pre-registered). Updated: [[analyses/Open-Backlog]] (**B-43r**).
+- **Owner's hypothesis, from watching the chart:** flips look convincing when momentum trends and worthless sideways, so a trend filter should recover B-43's missing edge. Tested properly rather than argued about.
+- **Pre-registered before running:** long flips with ADX(14)>=25 vs a baseline of EVERY bar with ADX(14)>=25, 20d, entry next open, rotation p. Pass bar `edge>0 AND p_rot<0.05`.
+- **Result: edge −1.01%, p_rot 0.000, n=576.** Inside a trend a flip marks a moment measurably WORSE than an average moment in that same trend. The brick-run>=3 secondary is worse still (−1.30%).
+- **The mechanism is legible, which is why the sign is believable.** An up-flip REQUIRES price to have fallen enough to print down bricks and then turned back up — so it selects the moment just after a counter-move, with part of the run given back. The matched baseline ("any bar in a trend") is already long and holding. **Holding beats re-entering**, and the longer the counter-run, the worse it gets.
+- **Controls behave:** down-flip control is a clean null (p=0.331), so the ADX gate is not just lifting everything; the unfiltered arm reproduces B-43 (−0.02%).
+- **Why it looked convincing:** in a strong trend everything looks convincing in hindsight — the flips looked right because the TREND was right. The REGIME CONTRAST line exists to size that: −0.48% against an unfiltered baseline, so even a careless test would not have shown an edge. **The illusion was visual, not arithmetic** — the kind no baseline correction can catch.
+- **Method worth keeping: filter the baseline with whatever you filter the signal.** Gating on ADX while comparing to an unconditional baseline measures the REGIME, not the signal — the same trap that killed B-44r (BS gamma carries 1/σ) and the same shape as B-34r4's drifting window.
+- **NOT a licence to fade flips.** The pre-registered bar was `edge>0`, so a significant negative FAILS it; "flips are contrarian" is a new claim needing its own pre-registration, and −1% would not survive costs short. 22 symbols, one threshold, survivorship.
+- **Nothing shipped changes.** Renko stays a chart overlay labelled FLIP and stays in PIPELINE_EXCLUDED — this only strengthens an exclusion that already existed.
+
 ## [2026-09-06] build | VWAP Reclaim removed from the Opportunity Hub pipeline
 - Code: `opportunity_hub.PIPELINE_EXCLUDED` += "VWAP Reclaim/Support"; removed from MEASURED_WEAK; scanner docstring points at the exclusion. Updated: [[analyses/Open-Backlog]] (B-40).
 - **The quarter-weight demotion made an hour earlier was not enough.** WEIGHT_WEAK (0.25) still counts toward `FULL_CONFLUENCE`, so a detector measured significantly NEGATIVE could still help push a name onto the shortlist. Exclusion is the only setting that makes it contribute zero.

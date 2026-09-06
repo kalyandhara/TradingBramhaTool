@@ -452,6 +452,66 @@ other way to see. What is retired is any claim that it triggers.
 signal the Python correctly rejected. Neither implementation looked wrong alone; they
 only disagreed. They now agree signal-for-signal on RELIANCE / TATASTEEL / DLF.
 
+### ~~B-43r~~ · Does the Renko flip work once sideways chop is cut? — **MEASURED 2026-09-06: NO, IT IS SIGNIFICANTLY WORSE**
+
+Owner's observation from watching the chart: flips look convincing when momentum is
+trending and worthless when it is sideways, so a trend filter should recover the edge
+B-43 could not find. A real, testable claim — and the shape of claim that most often
+produces a false positive, so `tools/renko_regime_study.py` was written to make that
+hard: pre-registration in the docstring, one primary test, a directional control, and
+secondaries explicitly labelled non-decisive.
+
+**Pre-registered before running:** long flips with ADX(14) >= 25, against a baseline of
+**every bar with ADX(14) >= 25**, 20d horizon, entry next open, rotation p-value.
+Pass bar: `edge > 0 AND p_rot < 0.05`.
+
+| test | n | signal | baseline | edge | hit% | p_rot |
+|---|---|---|---|---|---|---|
+| **PRIMARY** flip_up, ADX-matched | 576 | +1.13% | +2.14% | **−1.01%** | 53.1 / 57.7 | **0.000** |
+| CONTROL flip_dn as long | 655 | +2.52% | +2.14% | +0.38% | 56.9 / 57.7 | 0.331 |
+| SECONDARY flip_up, brick run ≥3 | 394 | +0.84% | +2.14% | **−1.30%** | 53.0 | — |
+| B-43 reproduction, no filter | 1766 | +1.60% | +1.61% | −0.02% | 56.0 / 55.7 | — |
+
+**Inside a trend, a flip marks a moment measurably WORSE than an average moment in that
+same trend.** Not "no better" — worse, by a full percent at 20d with p_rot = 0.000.
+
+**The mechanism is legible, which is why the sign is believable.** ADX >= 25 means a
+trend is running. An up-flip *requires* price to have first fallen enough to print down
+bricks and then turned back up, so it systematically selects the moment just after a
+counter-move: part of the run already given back, and the point where a pullback is
+hardest to tell from a real reversal. The matched baseline — "any bar in a trend" — is
+simply already long and holding. **Holding beats re-entering.** The brick-run secondary
+sharpens the same point: the longer the counter-run before the flip, the more of the
+trend was missed, and the worse it gets (−1.30%).
+
+**The controls behave, which is what licenses the sign.** The down-flip control is a
+clean null (p=0.331), so the ADX gate is not merely selecting good periods and lifting
+everything. And the unfiltered arm reproduces B-43 (−0.02% vs its clean null), so the
+harness agrees with the study it is extending.
+
+> [!key-insight] Why it looked convincing, and what the REGIME CONTRAST line is for
+> In a strong trend everything looks convincing in hindsight — the flips looked right
+> because the trend was right. The study prints the same flips against an UNFILTERED
+> baseline precisely to size that illusion. Here it reads **−0.48%**, so even the
+> careless version of this test would not have shown an edge. **The illusion was
+> visual, not arithmetic** — which is the more common of the two and the one no
+> baseline correction can catch.
+
+**Methodological point worth keeping.** Gating the signal on ADX while comparing to an
+unconditional baseline would have measured the regime, not the flip. That is the same
+trap that killed B-44r (BS gamma carries 1/σ, so "high gamma" proxied for "low vol")
+and the same shape as B-34r4's drifting window. **Filter the baseline with whatever you
+filter the signal.**
+
+**Not a licence to fade flips in trends.** The pre-registered bar was `edge > 0`, so a
+significant negative FAILS it; "flips are contrarian" is a new claim needing its own
+pre-registration, and −1% would not survive costs on the short side. Limitations: 22
+symbols, one threshold, survivorship in the basket.
+
+**No change to what ships.** Renko stays a chart overlay labelled FLIP (not BUY/SELL)
+and stays in `PIPELINE_EXCLUDED`. B-43 already put it there for measuring no edge; this
+result only strengthens the case for the exclusion that already exists.
+
 ### ~~B-43~~ · Renko / time-independent chart engine — ✅ **BUILT + MEASURED 2026-08-29 → CLEAN NULL**
 `grep -ri renko tools/` returns **nothing**. Every chart type and every scanner in this
 repo is time-sampled (candles, Heikin Ashi), so the whole family of price-sampled charts
