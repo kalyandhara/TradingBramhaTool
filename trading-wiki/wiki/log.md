@@ -1,6 +1,16 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-06] measure | B-40 CLOSED — VWAP Reclaim is significantly NEGATIVE; the VWAP question is now settled
+- Code: `scanner_templates` (docstring + registry text), **`opportunity_hub`** (both VWAP scanners demoted to MEASURED_WEAK). Updated: [[analyses/Open-Backlog]] (**B-40 closed**).
+- **2745 signals, 50 symbols. Edge negative at EVERY horizon and significant at three of four:** −0.02% @5d (p=0.77), **−0.20% @10d (p=0.042)**, **−0.45% @20d (p=0.0006)**, **−0.50% @60d (p=0.033)**. Net of Indian delivery costs the hit rate is under 50% at 5/10/20d and the median is negative at all three.
+- **This is not a null.** A VWAP reclaim selects bars that do WORSE than a random bar from the same pool. −0.45% @20d at p=0.0006 is the most statistically solid number this desk has on a VWAP rule in either direction.
+- **Both explanations were already written in the item.** It fires 2745 times vs VWAP Mean Reversion's 275 — loose gates, closer to "a stock in an uptrend near its mean" than an event, which is also why an effect this small is detectable. And B-40's own design note says the first cut never fired and the gates were loosened until it did. **This is what the loosening bought.**
+- **NOT a licence to fade reclaims** — different claim, needs its own pre-registered test, and −0.45% would not survive costs short either.
+- **No R line, deliberately.** The scanner emits no entry/stop/target; inventing one after seeing a negative result would be measuring a plan I made up on a signal already shown to select badly.
+- **Consequence applied, not just recorded:** both VWAP scanners moved to `MEASURED_WEAK_SCANNERS` (weight 0.25, from unmeasured 0.5). That table's comment already said measured-weak scanners must not carry entry weight — applying the existing rule to new data, not new policy.
+- **All three VWAP-derived rules here are now measured, and none is a trigger:** EVWMA/VWAP MACD crossovers (no edge, S&R −29% vs B&H +827%), VWAP Mean Reversion (null, −0.19R after costs), VWAP Reclaim (significantly negative). Three different mechanisms — momentum, reversion, trend-pullback — one mean. **On NSE daily bars VWAP is context.** The untested case is the intraday session VWAP all three were adapted from, and that is a data gap, not a parameter.
+
 ## [2026-09-06] build+measure | B-40m — VWAP mean reversion + volume: built, measured, NULL (negative after costs)
 - Code: **`tools/vwap_mean_reversion.js`** (new, chart bands + BUY/TRIM arrows), **`scan_vwap_mean_reversion`** (registry #45), chart_server route, chart_dashboard wiring. Updated: [[analyses/Open-Backlog]] (**B-40m**).
 - **Asked for by the owner off a playbook card.** The rule: price deviates far from VWAP on EXTREME volume, rejects, reverts on RISING volume. Nothing here could express it — `evmacd` fires on price pulling AWAY from the anchor (opposite trigger, already dead), `scan_vwap_reclaim` is long-only/with-trend with volume as a floor. The new thing is the **double volume role**, and a reversion on falling volume is the failure case the rule exists to skip.

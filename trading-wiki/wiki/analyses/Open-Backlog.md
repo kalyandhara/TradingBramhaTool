@@ -302,7 +302,7 @@ first touch" — needing a first-touch event study against a matched non-wall
 strike. B-19 (0/41 scanners stable after costs) is the prior to hold. Filed as
 **B-28r**.
 
-### B-40 · VWAP is a chart line, not a signal — **SCANNER SHIPPED 2026-08-27**
+### ~~B-40~~ · VWAP is a chart line, not a signal — **CLOSED 2026-09-06: MEASURED NEGATIVE**
 Was: zero occurrences of `vwap` in `scanner_templates.py`; VWAP existed only as a
 chart overlay. **Shipped** `scan_vwap_reclaim` (registry "VWAP Reclaim/Support",
 category Entry, scanner #40) + `_rolling_vwap` + `_anchored_vwap` helpers.
@@ -319,11 +319,56 @@ tags VWAP within 1% and bounces), with-trend only (close > EMA-50), not extended
 (≤6% above the mean). Verified: fires selectively (1/8 large-caps: TITAN
 pullback-hold; downtrend correctly rejected; module compiles).
 
-**Still open:** (a) the **anchored-VWAP-from-catalyst** support read (earnings /
-breakout / IPO anchor) + the chart's click-to-anchor — that half is **B-4/B-12**;
-(b) **unmeasured** — like every scanner it needs `backtest_scanner` run on it
-(does a VWAP-reclaim beat the every-bar baseline?) before it grades anything. That
-is the one open measurable claim.
+**The open measurable claim is now closed, and the answer is worse than null.**
+Ran 2026-09-06 on 50 symbols, **2745 signals**:
+
+| horizon | hit% | edge% | p | net-of-cost median |
+|---|---|---|---|---|
+| 5d | 52.3 | −0.02 | 0.77 | −0.14% |
+| 10d | 50.9 | **−0.20** | **0.042** | −0.16% |
+| 20d | 51.9 | **−0.45** | **0.0006** | −0.02% |
+| 60d | 57.4 | **−0.50** | **0.033** | +1.85% |
+
+**A VWAP reclaim does not merely fail to predict — it selects bars that do WORSE
+than a random bar from the same pool.** −0.45% @20d at p=0.0006 is the most
+statistically solid number this desk has produced on a VWAP rule in either
+direction. Net of Indian delivery costs the hit rate is under 50% at 5/10/20d and
+the median return is negative at all three.
+
+**Two things explain the shape, and both were foreseeable from this item's own
+notes.** It fires 2745 times against VWAP Mean Reversion's 275, so the gates are
+loose — "a stock in an uptrend near its mean" rather than an event — which is also
+why an effect this small is detectable at all. And the design correction recorded
+above says the first cut never fired and the gates were loosened until it did.
+This is what that loosening bought.
+
+**Not a licence to fade reclaims.** That is a different claim, needs its own
+pre-registered test, and −0.45% would not survive costs on the short side either.
+
+**No R-multiple line:** the scanner emits no entry/stop/target. Adding one now
+would measure a trade plan invented after the fact, on a signal already shown to
+select badly. Left as it is.
+
+**Consequence applied:** demoted to `MEASURED_WEAK_SCANNERS` in `opportunity_hub`
+(WEIGHT_WEAK 0.25, from WEIGHT_UNMEASURED 0.5) alongside VWAP Mean Reversion.
+That table's own comment says such scanners must not carry entry weight; this is
+applying the existing rule to new data, not new policy.
+
+**Still open:** the **anchored-VWAP-from-catalyst** support read (earnings /
+breakout / IPO anchor) + the chart's click-to-anchor — that half is **B-4/B-12**
+and is untouched by this result, since it is a different mean and a different
+claim.
+
+> [!key-insight] All three VWAP-derived rules on this desk have now been measured
+> EVWMA/VWAP MACD crossovers: no edge, stop-and-reverse −29% vs buy&hold +827%
+> (2026-08-29). VWAP Mean Reversion: null, −0.19R after costs (B-40m). VWAP
+> Reclaim/Support: significantly negative (this item). Three rules, three
+> different mechanisms — momentum, reversion, trend-pullback — all built on the
+> same mean, none of them a trigger. **On NSE daily bars VWAP is context.**
+>
+> The untested case is the one all three were adapted FROM: the intraday session
+> VWAP. That needs an intraday store this repo does not have — a data gap, not a
+> parameter to tune, and not a reason to re-open the intraday lane.
 
 **Adjacent measured result (2026-08-29) — a *different* VWAP rule, tested and dead.**
 The owner's TradingView `EVWMA_VWAP_MACD[QN]` BUY/SELL strategy was ported into the

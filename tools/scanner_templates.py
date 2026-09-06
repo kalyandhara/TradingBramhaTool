@@ -6192,6 +6192,29 @@ def scan_vwap_reclaim(df: pd.DataFrame,
          the mean, not a chase.
       4. One of the two events above fired, with volume ≥ 20-day average on a reclaim.
 
+    MEASURED 2026-09-06 (B-40) -- NEGATIVE, NOT MERELY NULL.  50 symbols, **2745
+    signals**: forward edge is negative at every horizon and significantly so at
+    three of four -- -0.02% @5d (p=0.77), **-0.20% @10d (p=0.042)**, **-0.45%
+    @20d (p=0.0006)**, **-0.50% @60d (p=0.033)**.  Net of Indian delivery costs
+    the median is negative at 5/10/20d and the hit rate is under 50%.
+
+    Read it plainly: a VWAP reclaim does not merely fail to predict, it selects
+    bars that do WORSE than a random bar from the same pool.  The -0.45% @20d at
+    p=0.0006 is the most statistically solid number this desk has on a VWAP rule
+    in either direction.
+
+    Two things explain the shape.  It fires 2745 times against VWAP Mean
+    Reversion's 275, so the gates are loose -- closer to "a stock in an uptrend
+    near its mean" than to an event -- which is also why the small negative is
+    detectable at all.  And the design note below records that the first cut
+    never fired and the gates were loosened until it did; this is what that
+    bought.
+
+    NOT a licence to fade reclaims.  That is a different claim needing its own
+    pre-registered test, and -0.45% would not survive costs on the short side.
+    Kept for coverage and context; demoted to MEASURED_WEAK_SCANNERS in
+    opportunity_hub so it cannot carry entry weight.
+
     (The complementary *anchored*-VWAP-from-catalyst read — earnings/breakout/IPO
     anchors — is served by ``_anchored_vwap`` and belongs with the chart's
     click-to-anchor, the B-4/B-12 item.)  Emits ``time_stop`` — a pullback-to-mean
@@ -7463,7 +7486,11 @@ SCANNERS: dict[str, dict] = {
             "(close back above VWAP on ≥20-day-avg volume) OR a pullback-hold (a bar "
             "tags VWAP within 1% and price bounces). With-trend only (close > EMA-50), "
             "VWAP rising, and not extended (≤6% above the mean). The anchored-VWAP-"
-            "from-catalyst read is the complementary chart feature (B-4/B-12)."
+            "from-catalyst read is the complementary chart feature (B-4/B-12). "
+            "MEASURED (B-40) — edge is NEGATIVE at every horizon and significantly so: "
+            "−0.20% @10d (p=0.042), −0.45% @20d (p=0.0006), −0.50% @60d (p=0.033) over "
+            "2745 signals. It selects bars that do WORSE than a random bar from the same "
+            "pool. Coverage and context only — NOT an entry."  # claims-lint: checked B-40
         ),
         "category": "Entry",
     },

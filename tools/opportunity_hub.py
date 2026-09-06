@@ -319,11 +319,22 @@ MEASURED_EDGE_SCANNERS: tuple[str, ...] = (
 #: but they must not carry the same weight as the two that were measured to
 #: work. Order Block sits here on its raw forward edge (−0.74%) despite a mildly
 #: positive +0.11R from its 2R targets.
+#:
+#: Both VWAP entries joined 2026-09-06 (B-40, B-40m) — they were sitting at
+#: WEIGHT_UNMEASURED, which after measurement overstated them:
+#:   • VWAP Reclaim/Support — edge NEGATIVE at every horizon and significantly
+#:     so (−0.20% @10d p=0.042, −0.45% @20d p=0.0006, −0.50% @60d p=0.033) over
+#:     2745 signals. It does not merely fail to predict; it selects bars that do
+#:     WORSE than a random bar from the same pool.
+#:   • VWAP Mean Reversion — null (+0.19% @5d and @10d, p 0.51/0.57) and
+#:     −0.19R once Indian delivery costs are paid.
 MEASURED_WEAK_SCANNERS: tuple[str, ...] = (
     "Order Block Retest",
     "RSI 60-40 Setup",
     "VCP Coiling",
     "Structural Breakout",
+    "VWAP Reclaim/Support",
+    "VWAP Mean Reversion",
 )
 
 WEIGHT_MEASURED = 1.0      # measured to beat the baseline
