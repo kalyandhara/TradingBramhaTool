@@ -1,6 +1,16 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-06] measure | B-41w PRE-REGISTERED — the time-only plan is STABLE across eras (3/3)
+- Code: `sweep_plan_study.walk_forward` + trade cache. Design committed before the run. Updated: [[analyses/Open-Backlog]] (**B-41w**).
+- **Arm C positive 3/3 and ahead of the shipped plan 3/3:** +0.335R / +0.927R / +0.273R against A's −0.032 / +0.005 / −0.146. The shipped plan is NEGATIVE in two windows of three and never clears +0.005R.
+- **B-41p's conclusion survives era-splitting**, which is where B-19's 0/41 says these results usually die.
+- **The registered prior was wrong, and untestable as written.** It predicted window 2 weakest (B-41m had +0.06% there); window 2 came back STRONGEST (+0.927R). Cause: `walk_forward_scanner` splits by BAR FRACTION, this splits by EQUAL TRADE COUNTS — different partitions, so "window 2" names different periods and the prediction never mapped. **A defect in the pre-registration, recorded rather than dropped:** state the partition next time, not just the window number.
+- **What the three studies jointly establish, exactly:** the signal carries forward information stable across symbols (B-41p) and eras (B-41w), and any stop of the shipped magnitude destroys it — not because it is misplaced (arm B +0.012R, CI includes 0) but because **the drawdown path is part of the edge**.
+- **Still not promoted, third time of asking.** Arm C's downside is uncapped; "positive mean R in every era" is not "tradeable". The open question is a risk control that is NOT a stop — sizing, a vol cap, a portfolio limit — and no test here touches it.
+- **Reproducibility note:** re-running on freshly fetched bars moved A −0.059→−0.058R and C +0.504→+0.511R. Same code, same symbols; yfinance returned marginally different history. Benign at ~0.01R over 4,854 trades, and the reason figures are quoted to three decimals.
+- **4,854 trades cached** to `cache/b41p_trades.csv` — the next pre-registered test on this data costs nothing to collect.
+
 ## [2026-09-06] measure | B-41p PRE-REGISTERED — it is not WHERE the sweep stop is, it is that there IS one
 - Code: **`tools/sweep_plan_study.py`**. Design committed at `f2c4982` **before the first run**. Updated: [[analyses/Open-Backlog]] (**B-41p**).
 - **A SHIPPED −0.059R · B ATR-stop −0.047R (+0.012, CI includes 0) · C TIME-ONLY +0.504R (+0.564, CI [+0.337,+0.798] EXCLUDES 0).** 4,854 trades, 50 symbols, 29bps, symbol-block bootstrap. C clears the pre-registered bar; B does not.

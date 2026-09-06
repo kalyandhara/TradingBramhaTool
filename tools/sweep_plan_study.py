@@ -120,6 +120,37 @@ one correction.
   a better one. Per the scope clause above, this licenses one further
   pre-registered test and NOT promotion to MEASURED_EDGE.
 
+══ B-41w OUTCOME 2026-09-06 — STABLE (3/3 and 3/3) ══════════════════════════
+
+    window  trades        from          to   C mean R   A mean R      C-A
+         1    1618  2020-11-13  2023-04-10     +0.335     -0.032   +0.367
+         2    1618  2023-04-10  2025-04-03     +0.927     +0.005   +0.922
+         3    1618  2025-04-03  2026-08-06     +0.273     -0.146   +0.419
+
+  Arm C positive 3/3, ahead of the shipped plan 3/3. The shipped plan is negative
+  in two windows of three and never clears +0.005R. B-41p's conclusion survives
+  era-splitting, which B-19's 0/41 says is where results usually die.
+
+  THE PRIOR WAS WRONG, AND UNTESTABLE AS WRITTEN. It predicted window 2 weakest,
+  from B-41m's forward walk-forward reading +0.06% there. Window 2 came back
+  STRONGEST. The reason is that `backtest.walk_forward_scanner` splits by BAR
+  FRACTION while this splits by EQUAL TRADE COUNTS -- different partitions, so
+  "window 2" names different periods and the prediction never mapped. That is a
+  defect in the pre-registration, not a free pass: state the partition next time,
+  not just the window number.
+
+  WHAT THE THREE STUDIES JOINTLY ESTABLISH, stated exactly:
+    the signal carries forward information stable across symbols (B-41p) and
+    across eras (B-41w), and any stop of the shipped magnitude destroys it -- not
+    because the stop is misplaced (arm B: +0.012R, CI includes zero) but because
+    the drawdown path is part of the edge.
+
+  STILL NOT PROMOTED. Arm C's downside is uncapped; "positive mean R in every era"
+  is not "tradeable". The open design question is a risk control that is NOT a
+  stop -- sizing, a volatility cap, a portfolio limit -- and none of these tests
+  touch it. A plan with uncapped per-trade downside needs its risk handled
+  somewhere, and "hold 20 days and hope" is not a plan.
+
 CLI:
   py -3 tools/sweep_plan_study.py
   py -3 tools/sweep_plan_study.py --symbols RELIANCE TCS   # smoke test

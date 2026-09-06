@@ -1201,6 +1201,62 @@ prop-desk toolset converges on. See [[concepts/Order-Flow]].
 > stack that could plausibly supply trade-side data; establish whether it does, and whether
 > any NSE path exists, first.
 
+### ~~B-41w~~ · Does the time-only plan hold across eras? — **PRE-REGISTERED, PASSED 2026-09-06**
+
+The single follow-up B-41p's scope clause licensed. Design committed before the
+run; pass bar was arm C positive in all three chronological windows AND ahead of
+the shipped plan in all three.
+
+| window | trades | from | to | C mean R | A mean R | C−A |
+|---|---|---|---|---|---|---|
+| 1 | 1618 | 2020-11-13 | 2023-04-10 | +0.335 | −0.032 | +0.367 |
+| 2 | 1618 | 2023-04-10 | 2025-04-03 | **+0.927** | +0.005 | +0.922 |
+| 3 | 1618 | 2025-04-03 | 2026-08-06 | +0.273 | −0.146 | +0.419 |
+
+**arm C positive 3/3 · C beats A 3/3 · VERDICT: STABLE.**
+
+The shipped plan is negative in two windows of three and never above +0.005R. The
+time-only exit is positive in all three and ahead in all three. **The conclusion
+from B-41p survives era-splitting**, which B-19's 0/41 says is where these results
+usually die.
+
+> [!key-insight] The registered prior was wrong, and the reason matters more than the miss
+> B-41w predicted window 2 would be the weak one, because B-41m's forward
+> walk-forward had its window 2 at +0.06%. Window 2 came back **strongest**
+> (+0.927R). The prior was not actually testable as written: `walk_forward_scanner`
+> splits by **bar fraction** (`i/n` to `(i+1)/n` of the bar range) while B-41w
+> splits by **equal trade counts**. Those are different partitions, so "window 2"
+> names different periods in the two studies and the prediction never mapped.
+>
+> Recorded rather than quietly dropped. A prior that turns out to be untestable is
+> a defect in the pre-registration, not a free pass — the fix next time is to
+> state the partition, not just the window number.
+
+**What still does not follow.** The scope clause held across both tests and holds
+now: **the scanner is not promoted.** Arm C's downside is uncapped where a stopped
+arm loses at most 1R, so "positive mean R in every era" is not the same as
+tradeable. What the three studies jointly establish is narrower and worth stating
+exactly:
+
+> The Liquidity Sweep signal carries forward information that is stable across
+> symbols (B-41p bootstrap) and across eras (B-41w), and **any stop of the shipped
+> magnitude destroys it** — not because the stop is misplaced (arm B: +0.012R, CI
+> includes zero) but because the drawdown path is part of the edge.
+
+The open design question is a risk control that is not a stop — position sizing,
+a volatility cap, a portfolio-level limit. **None of these tests touch that**, and
+it is not a small step: a plan with uncapped per-trade downside needs its risk
+handled somewhere, and "hold 20 days and hope" is not a plan.
+
+**Reproducibility note.** Re-running B-41p on freshly fetched bars moved arm A
+from −0.059R to −0.058R and arm C from +0.504R to +0.511R. Same code, same
+symbols; yfinance returned marginally different history between runs. ~0.01R on
+4,854 trades is benign, but it is the reason figures here are quoted to three
+decimals and not more.
+
+**Trades cached** to `cache/b41p_trades.csv` (4,854 rows with dates), so the next
+pre-registered test on this data costs nothing to collect.
+
 ### ~~B-41p~~ · Is the STOP why the sweep edge does not convert? — **PRE-REGISTERED, PASSED 2026-09-06**
 
 Design committed at `f2c4982` **before the first run**, three fixed arms, one pass
