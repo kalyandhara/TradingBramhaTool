@@ -123,7 +123,16 @@ def _score_at_quarter(symbol: str, eval_date: datetime,
     # that had not happened yet, and would make the whole comparison a
     # hindsight exercise. See the report footer.
     import red_flags as _rf
-    prom_veto = prom_delta is not None and prom_delta <= -_rf._PROMOTER_DROP_PP
+    # B-34r3: the veto's promoter comparison is BOUNDED to a trailing window,
+    # matching red_flags._check_promoter_holding_nse. Using the full filtered
+    # history here made the veto rate climb 3% -> 28% across the sample purely
+    # because later quarters had more history behind them, which is drift in the
+    # measuring instrument rather than in the companies.
+    _win = ordered[-_rf._PROMOTER_WINDOW_Q:]
+    _pw_old, _pw_new = _n(_win[0][1].get("promoter")), _n(_win[-1][1].get("promoter"))
+    prom_delta_win = (round(_pw_new - _pw_old, 2)
+                      if _pw_new is not None and _pw_old is not None else None)
+    prom_veto = prom_delta_win is not None and prom_delta_win <= -_rf._PROMOTER_DROP_PP
     pledge_veto = pledge is not None and pledge > _rf._PLEDGE_PCT_MAX
 
     hit = {
@@ -134,7 +143,9 @@ def _score_at_quarter(symbol: str, eval_date: datetime,
         "pledge_pct": pledge,
         "pledge_flag": pledge_flag,
         "gov_veto": bool(prom_veto or pledge_veto),
-        "gov_veto_why": ([f"promoter {prom_delta:+.2f}pp"] if prom_veto else [])
+        "prom_delta_win": prom_delta_win,
+        "gov_veto_why": ([f"promoter {prom_delta_win:+.2f}pp/"
+                          f"{len(_win)}q"] if prom_veto else [])
                         + ([f"pledge {pledge:.1f}%"] if pledge_veto else []),
     }
 

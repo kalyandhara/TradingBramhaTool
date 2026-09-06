@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-05] fix+measure | B-34r3 - bounded the promoter window, and it retracted B-34r2's conclusion
+- Code: `red_flags._PROMOTER_WINDOW_Q = 4` (both promoter paths), matching bound in `hidden_treasures_backtest`. Updated: [[analyses/Open-Backlog]] (B-34r3 shipped, **B-34r4** opened, B-34r2 marked superseded).
+- **Fixed at the source, not in the lane.** Both promoter checks compared oldest-vs-newest across the whole cached series, so the flaw was the module's and `dashboard_app`'s Analyzer inherited it too. Detail strings now name the span actually compared, so a verdict cannot be read without knowing its window.
+- **Veto rate is stationary where it can be:** the tail went 22/24/26/28% -> 20/21/20/19%. The residual ramp in the first two quarters is NOT the same defect - those quarters hold only 2-3 quarters of history, so the window is short, and a 2pp drop is HARDER to reach in 2 quarters than in 4. That bias runs toward not flagging on thin history, the opposite of the original defect.
+- **The re-measurement retracted the earlier conclusion.** With the bounded window the 120d edge is **+1.46%** against **+1.47%** for no veto at all - indistinguishable. B-34r2's headline +2.15% was substantially an artefact of a gate that tightened as the cache deepened. Corrected verdict: the governance veto is **NEUTRAL** - it does not hurt and does not measurably help. Keeping it is now a governance-risk argument, not an edge argument, and the earlier "directionally positive" recommendation is withdrawn.
+- **Deliberately out of scope (B-34r4):** the SCORE's promoter term (-15/+10) still uses the unbounded delta and has the same drift. Changing it moves the ranking and would invalidate B-34's baseline - a re-measurement, not a bug fix.
+
 ## [2026-09-05] build | B-34r2 resolved - negative FCF demoted from veto to a 12-point penalty
 - Code: `smallcap_discovery.RF_DEMOTED` + UI copy. Updated: [[analyses/Open-Backlog]].
 - **Vetoed 100 -> 72, kept 149 -> 177.** Veto causes are now promoter 51 / pledge 28 / dilution 5; FCF is gone from the list. 51 kept names carry the FCF flag as a penalty instead. **SAILIFE**, the highest-scoring name in the universe, is back in at 64.9 (76.9 less 12) having been removed entirely.

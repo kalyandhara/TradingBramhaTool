@@ -515,6 +515,11 @@ negative FCF. So are JSWCEMENT and GRSE.
 | no veto | +0.91% | 0.5393 | 59.3% | +1.47% | 0.5425 | 58.4% | 3/6 |
 | **governance veto** | **+1.21%** | 0.4170 | **60.7%** | **+2.15%** | 0.3884 | **60.0%** | 4/6 |
 
+> [!contradiction] Superseded by B-34r3
+> These figures were produced with the **unbounded** promoter window. Re-measured after
+> B-34r3 bounded it, the 120d edge falls from +2.15% to **+1.46%**, against +1.47% for no
+> veto at all — the improvement below was mostly the drift. Read the B-34r3 table instead.
+
 **Every metric moves the right way and none of it is significant.** Baselines are identical
 in both arms (+4.61 / +6.84), which confirms the veto touched only the picks; n(top)=150 in
 both, so the basket filled in every quarter. Verdict is the same class as B-34 itself:
@@ -542,9 +547,60 @@ compares oldest→newest across however many quarters it is handed:
 
 A 2pp promoter drop spread over 8 quarters is much weaker evidence than the same drop over
 2, and the check does not distinguish them. So the veto silently tightens as the ownership
-cache deepens — on the live page as well. **B-34r3:** bound the promoter-drop window (a
-fixed trailing 4 quarters, or express it per-quarter like the score's `rate` term already
-does) before reading anything into the veto rate.
+cache deepens — on the live page as well.
+
+### ~~B-34r3~~ · Bound the promoter window — **SHIPPED 2026-09-05**
+
+`red_flags._PROMOTER_WINDOW_Q = 4`. Fixed **at the source, not in the lane**: both promoter
+paths (free NSE and screener.in) compared oldest-vs-newest across the whole cached series,
+so the flaw belonged to the module and `dashboard_app`'s Analyzer inherited it too. The
+`hidden_treasures_backtest` veto is bounded to match, and every detail string now names the
+span it actually compared ("fell 2.8pp over the last 4 NSE-filed quarters") so a verdict
+can never be read without knowing its window.
+
+**Veto rate is now stationary where it can be:**
+
+| quarter | before | after |
+|---|---|---|
+| 31-DEC-2024 | 3% | 3% |
+| 31-MAR-2025 | 5% | 5% |
+| 30-JUN-2025 | 19% | 19% |
+| 30-SEP-2025 | 22% | **20%** |
+| 31-DEC-2025 | 24% | **21%** |
+| 31-MAR-2026 | 26% | **20%** |
+| 30-JUN-2026 | 28% | **19%** |
+
+**The residual ramp at the start is not the same defect.** Those quarters hold only two or
+three quarters of history in total, so the window is short — and a 2pp cumulative drop is
+*harder* to reach in two quarters than in four. That bias runs toward NOT flagging on thin
+history, the opposite of the original defect, where a longer window quietly made the same
+threshold easier to trip.
+
+**Deliberately out of scope:** the SCORE's promoter term (−15 / +10 in `score_from_cache`)
+still uses the unbounded oldest-to-newest delta and has the same drift. Changing it moves
+the ranking itself and would invalidate B-34's measured baseline — that is a
+re-measurement, not a bug fix, and it needs its own item rather than being smuggled into
+this one. **B-34r4.**
+
+**Edge re-measured with the bounded veto — and most of B-34r2's improvement was the bug.**
+
+| arm | 60d edge | p | hit% | 120d edge | p | hit% |
+|---|---|---|---|---|---|---|
+| no veto | +0.91% | 0.5393 | 59.3% | +1.47% | 0.5425 | 58.4% |
+| veto, **drifting window** (B-34r2) | +1.21% | 0.4170 | 60.7% | **+2.15%** | 0.3884 | 60.0% |
+| veto, **bounded window** (correct) | +1.02% | 0.4945 | 60.0% | **+1.46%** | 0.5498 | 59.2% |
+
+At 120d the corrected veto is **+1.46% against no-veto's +1.47%** — indistinguishable. The
++2.15% that made the veto look worthwhile was substantially an artefact of a gate that
+tightened as the cache deepened, i.e. of the measuring instrument rather than of the
+screen. Hit rate and Q+/Q still tick up slightly (60.0% vs 59.3%, 4/6 vs 3/6 at 60d), so
+the honest verdict is **NEUTRAL: the governance veto does not hurt and does not measurably
+help.**
+
+**This retracts the recommendation given earlier in B-34r2.** "Keep them, they are
+directionally positive" rested partly on the drift. The case for keeping the governance
+vetoes is now a governance-risk argument — you do not want to hold a name whose promoters
+are selling into a pledge — and explicitly **not** a measured-edge one.
 
 **Resolved 2026-09-05 — negative FCF demoted to a penalty.** The two governance vetoes stay
 (measured harmless and directionally positive, and testable point-in-time); FCF now costs
