@@ -50,7 +50,7 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**), ~~**B-41**~~ (**CLOSED 2026-09-02** — `detect_liquidity_pools` + `detect_liquidity_sweep` + both scanners; SMC stack now complete), ~~**B-42**~~ (**CLOSED 2026-09-02**; residual **B-42r** — the pivot_len 5-vs-15 split, to be settled on data). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
 | **Closed 2026-09-05** | ~~**B-44r**~~ **MEASURED → FALSIFIED, GEX retired** (magnitude convention inverted the pre-registered direction and what survives the 1/σ control flips sign between vol terciles — see below). **B-34r** *(new, shipped same day)* — **Hidden Treasures gained its first HARD gate**: `red_flags.py` (FR-4) wired into `smallcap_discovery`, critical flags veto, watch flags cost 6 pts, NOT_CHECKED never reads as a pass. Zero extra fetches (rides the quality overlay's payload; `sessionid=None` keeps screener.in dormant). **Vetoes 100 of 249 on Smallcap-250** — 59 negative FCF, 51 promoter stake reduction, 28 pledge, 5 dilution. Toggleable and every exclusion is listed, because the default is NOT settled: see **B-34r2**. |
 | **New 2026-08-29** | ~~**B-43**~~ **BUILT + MEASURED → clean null** (flip edge ~0, negative on the long leg; beat buy&hold 0/23 — but fires 40% less often than the EVWMA cross, i.e. noise reduction without edge). Chart overlay kept, labelled FLIP not BUY/SELL. MCX still gated. From the Renko podcast ingest. ~~**B-44**~~ **BUILT + MEASURED same day → clean null** (see below); residual **B-44r** (is the naive dealer convention backwards for NSE?). From the Chris Kmer order-flow ingest. |
-| **New 2026-09-07** | **B-57** (**PRE-REGISTERED, NOT YET RUN**) — does a Renko flip out of a SHALLOW (≤10%) correction work on quality names? Owner proposed a flip + ≤40%-correction + revenue/cash-flow screen; `tools/renko_quality_cardinality.py` counted the survivors first and **killed the 40% version before any return was scored**: 4,407 of 4,598 flip_ups (96%) clear a 40% cap, so it is not a filter, and its median `bricks_in_prior` = 3 lands on B-43r's worst measured bucket (−1.30%). The ≤10% rung (631 events, 247 names, median `bricks_in_prior` = 1) is the only one B-43r does not already cover. Threshold chosen on cardinality, NOT returns. Blocked on the same thing as B-38: **point-in-time fundamentals**. |
+| **New 2026-09-07** | **B-57** (**PRE-REGISTERED, NOT YET RUN**) — does a Renko flip out of a SHALLOW (≤10%) correction work on quality names? Owner proposed a flip + ≤40%-correction + revenue/cash-flow screen; `tools/renko_quality_cardinality.py` counted the survivors first and **killed the 40% version before any return was scored**: 4,407 of 4,598 flip_ups (96%) clear a 40% cap, so it is not a filter, and its median `bricks_in_prior` = 3 lands on B-43r's worst measured bucket (−1.30%). The ≤10% rung (631 events, 247 names, median `bricks_in_prior` = 1) is the only one B-43r does not already cover. Threshold chosen on cardinality, NOT returns. **Point-in-time layer BUILT same day** (, 12 tests) — which truncated the window to 2025-05-30+ (yfinance serves only 4 annual columns) and fixed the growth span at 2y so the gate keeps one definition across the sample: **498 events, 233 names**, still above the 200 abort bar. |
 | **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
 | **Shipped 2026-09-02 (not from the backlog)** | **Trending Stocks page** — `trending_stocks.py` + a Market-Intel page with four lenses: Price Movers (whole-market bhavcopy, turnover-floored), Volume Shockers (reuses `volume_anomaly` **with cause attribution** — the one lens the desk does better than the commercial screener it was modelled on), 52-Week and All-Time High/Low (computed from batched history over a bounded top-N-by-turnover universe, since NSE's UDiFF bhavcopy carries **no 52-week columns** — verified, 34 columns, none a range extreme). Requested from a screenshot of a commercial "Trending Stocks" page. **Deliberately NO "Most Visited" lens** — that is crowd page-view data from a site's own traffic logs, there is no free public feed for retail attention, and a proxy (delivery spikes, rank churn) would measure something else under the same label. Recorded as a decision, not an oversight, the same way the intraday ORB/DOM lane is. Two things the build forced: a **turnover floor**, without which the movers list is almost entirely penny stocks (a ₹3 share moving 19% is arithmetic), and a **cash-equivalent filter** reusing the chart's existing `isLikelyLiquidETF` definition, because a liquid ETF is *permanently* at its all-time high by construction and squatted on the first ATH run. |
@@ -462,7 +462,7 @@ other way to see. What is retired is any claim that it triggers.
 signal the Python correctly rejected. Neither implementation looked wrong alone; they
 only disagreed. They now agree signal-for-signal on RELIANCE / TATASTEEL / DLF.
 
-### B-57 · Does a Renko flip out of a SHALLOW correction work on quality names? — **PRE-REGISTERED 2026-09-07, NOT YET RUN**
+### B-57 · Does a Renko flip out of a SHALLOW correction work on quality names? — **PRE-REGISTERED 2026-09-07; point-in-time layer BUILT, STUDY NOT YET RUN**
 
 Owner's screen idea: cherry-pick names showing a Renko buy flip whose preceding
 sell-side flip carried **at most a 40% correction**, and which are fundamentally
@@ -554,29 +554,65 @@ a surviving effect; they do not hunt for one.
 UNDERPOWERED**, not as a null. A null and "we could not tell" are different
 findings and the desk has conflated them before.
 
-═══ THE PART THAT IS ACTUALLY HARD: point-in-time fundamentals ═══════════════════
+═══ POINT-IN-TIME FUNDAMENTALS — **BUILT 2026-09-07**, and it moved the design ═══
 
-The flip side is solved — `renko.js` sizes bricks causally at epoch boundaries and
-`renko_backtest.js` emits the underlying bar index, so the existing harness fills
-at the next open like every other signal here. The fundamentals side is not.
+`tools/point_in_time_quality.py` + 12 offline tests. The flip side was already
+solved (`renko.js` sizes bricks causally at epoch boundaries; `renko_backtest.js`
+emits the underlying bar index, so the harness fills at the next open like every
+other signal here). This closes the fundamentals side.
 
-Scoring a 2024 flip against 2026 statements is lookahead, and it is the leg that
-gets skipped because fundamentals *feel* static. Required, and none of it is
-optional:
+1. **Reporting lag = 60 days, not the 90 this entry first proposed.**
+   `fundamentals_deep.ANNUAL_FILING_LAG_DAYS` already encodes SEBI LODR's 60-day
+   deadline for audited annual results, with the reasoning written down. Reusing
+   it beats inventing a second, more conservative constant that would silently
+   disagree with `fcf_negative_streak_as_of`. **One filing-lag assumption on the
+   desk, not two.** Lag sensitivity moves to a secondary: re-run at 90d and 120d.
+2. **Fewer than 3 published FYs at date T ⇒ EXCLUDED, not FAILED.** `verdict` is
+   three-state (True / False / None), the same discipline FR-4's checklist
+   enforces. Folding "never tested" into the denominator would understate the
+   pass rate by exactly the coverage hole.
+3. **Survivorship stands, acknowledged and unfixable on free data.** Every number
+   built on this is an **upper bound**; `as_of_report()` prints that on each run.
+4. **Restatements are the residual lookahead nobody can close here.** yfinance
+   serves the CURRENT frames, so a later-restated FY24 comes back with an FY24
+   label and a 2024 publication date — the number a screener sees today, not the
+   one the market saw then. Recorded rather than papered over.
 
-1. **Reporting lag.** `fundamentals_deep.fetch_statements` gives annual columns
-   labelled by period END, not publication date. A fiscal year's figures become
-   usable only at `period_end + 90d` (NSE requires annual results within 60 days;
-   90 is the conservative side of that). `fcf_negative_streak_as_of` already
-   establishes this as-of pattern — extend it, do not re-invent it.
-2. **Fewer than 3 usable FYs at date T ⇒ EXCLUDED, not FAILED.** A name that had
-   not yet reported three years has not failed the gate; it was never tested.
-   Folding it into the denominator would understate the pass rate by exactly the
-   coverage hole.
-3. **Survivorship is acknowledged and unfixable with free data.** The universe is
-   today's listed, liquid names, so anything delisted or illiquid in the window is
-   absent. Every number this study produces is therefore an **upper bound**, and
-   must be reported as one.
+> [!warning] The build changed the sample, and the change is not cosmetic
+> **yfinance serves exactly FOUR annual columns** (verified: RELIANCE and TCS both
+> return FY23–FY26 and nothing older). So the count of *published* years is a
+> function of the as-of date, and it is small early in any backtest window:
+>
+> | as-of | published FYs | usable? |
+> |---|---|---|
+> | 2024-06-30 | FY23, FY24 | **no** — 2 years |
+> | 2025-07-15 | FY23, FY24, FY25 | yes — span **2.0y** |
+> | 2026-09-07 | FY23…FY26 | yes — span **3.0y** |
+>
+> Two consequences, both pre-registered here rather than discovered mid-run:
+>
+> **(a) The scoring window truncates to 2025-05-30 → 2026-09-07** (~15 months),
+> the date FY25 publication makes a third year available. At cap ≤10% that leaves
+> **498 events over 233 names** — above the 200-event abort bar, so the study
+> remains powered, but the margin is thinner than the 631 the cardinality run
+> suggested.
+>
+> **(b) `WINDOW_YEARS` is FIXED AT 2 for the primary.** Left at 3 the growth span
+> would be 2.0y before FY26 publishes and 3.0y after — a gate whose *definition*
+> changes mid-sample, so early and late events would not be the same test. Fixing
+> the span keeps one definition across the sample; the 3-year version becomes a
+> secondary. **The primary must therefore not be described as a "3Y CAGR"** — it
+> is a 2-year growth rate, and `quality_as_of` returns `window_years` on every
+> event so the claim can be checked rather than assumed.
+
+**One design note worth keeping.** The base year is selected by DATE, not by
+column position. Positional indexing assumes yfinance never drops a column and
+every company reports on schedule; neither holds, and a dropped year turns a
+2-year span into a number labelled 3-year, overstating growth by half. OCF growth
+is also expressed as total change over the span rather than annualised, because
+a CAGR through a negative base is undefined — and a company whose operating cash
+flow was negative three years ago is exactly the one this gate most needs an
+opinion about.
 
 ═══ SCOPE — what a pass would and would not license ══════════════════════════════
 
