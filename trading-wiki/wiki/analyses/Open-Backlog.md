@@ -51,7 +51,8 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **Closed 2026-09-05** | ~~**B-44r**~~ **MEASURED → FALSIFIED, GEX retired** (magnitude convention inverted the pre-registered direction and what survives the 1/σ control flips sign between vol terciles — see below). **B-34r** *(new, shipped same day)* — **Hidden Treasures gained its first HARD gate**: `red_flags.py` (FR-4) wired into `smallcap_discovery`, critical flags veto, watch flags cost 6 pts, NOT_CHECKED never reads as a pass. Zero extra fetches (rides the quality overlay's payload; `sessionid=None` keeps screener.in dormant). **Vetoes 100 of 249 on Smallcap-250** — 59 negative FCF, 51 promoter stake reduction, 28 pledge, 5 dilution. Toggleable and every exclusion is listed, because the default is NOT settled: see **B-34r2**. |
 | **New 2026-08-29** | ~~**B-43**~~ **BUILT + MEASURED → clean null** (flip edge ~0, negative on the long leg; beat buy&hold 0/23 — but fires 40% less often than the EVWMA cross, i.e. noise reduction without edge). Chart overlay kept, labelled FLIP not BUY/SELL. MCX still gated. From the Renko podcast ingest. ~~**B-44**~~ **BUILT + MEASURED same day → clean null** (see below); residual **B-44r** (is the naive dealer convention backwards for NSE?). From the Chris Kmer order-flow ingest. |
 | **New 2026-09-07** | ~~**B-57**~~ **PRE-REGISTERED then MEASURED same day → FAILS the bar** (edge **−0.25%**, p_rot=0.714, n=207). Owner proposed a Renko flip + ≤40%-correction + revenue/cash-flow screen. `tools/renko_quality_cardinality.py` counted first and **killed the 40% version before any return was scored**: 4,407 of 4,598 flip_ups (96%) clear a 40% cap, so it is not a filter, and its median `bricks_in_prior` = 3 sits on B-43r's worst bucket (−1.30%). The ≤10% rung was the only uncovered one; `tools/point_in_time_quality.py` (12 tests) closed the lookahead leg. Result: **B-43/B-43r stand**, but the null is **soft** — B-43r's −1.01% (p=0.000) dissolves to −0.25%, which is what its own mechanism predicts. CONTROL2 misbehaved (+3.37%, p=0.211); a HARNESS arm reproducing B-43's null (+0.49%, p=0.376) cleared the scorer, so that control is uninformative rather than contradictory. Cite as "no edge found, underpowered", not a settled zero. |
-| **New 2026-09-07 (from a QM/CHOCH setups chart)** | **B-58** (**SCOPED, NOT BUILT**) — coverage audit of a "4 Setups for BUY Entry / QM patterns" chart: CHOCH, key levels, order blocks, the fib grid and the stop-hunt read are all already present, and the two missing rungs (**88.6% entry, 113% stop**) were **added to `fibonacci.js` the same day** (drawn only — deliberately NOT wired into `buildPlan`, since changing what a stop means is a measurement, not a default). The image's setups 1–3 are the retrace-after-structure-break family this desk has measured NEGATIVE three times (`ICT Setup` −0.36%/−1.24%, `Order Block Retest` −0.47%/−0.70%, `Pullback Entry` −0.43%/−1.12%, ~9,000 signals), so they are not proposed. Setup 4's stop-hunt mechanic is `Liquidity Sweep`, **already measured POSITIVE** (B-41m, +0.51% @20d p=0.005). The one real gap is the **QM geometry** itself — the `RL < LL` liquidity grab that distinguishes it from an inverse H&S. Scoped with a pre-registration sketch and a skeptical prior. Multi-timeframe liquidity ("HTF LQ") deferred; note `HTF` in this repo means High Tight Flag, not higher timeframe. |
+| **New 2026-09-07 (from a QM/CHOCH setups chart)** | **B-58** (**DETECTOR BUILT, measurement not run**) — coverage audit of a "4 Setups for BUY Entry / QM patterns" chart: CHOCH, key levels, order blocks, the fib grid and the stop-hunt read are all already present, and the two missing rungs (**88.6% entry, 113% stop**) were **added to `fibonacci.js` the same day** (drawn only — deliberately NOT wired into `buildPlan`, since changing what a stop means is a measurement, not a default). The image's setups 1–3 are the retrace-after-structure-break family this desk has measured NEGATIVE three times (`ICT Setup` −0.36%/−1.24%, `Order Block Retest` −0.47%/−0.70%, `Pullback Entry` −0.43%/−1.12%, ~9,000 signals), so they are not proposed. Setup 4's stop-hunt mechanic is `Liquidity Sweep`, **already measured POSITIVE** (B-41m, +0.51% @20d p=0.005). The one real gap is the **QM geometry** itself — the `RH > LH` CHOCH plus a left-shoulder entry, which is what distinguishes it from an inverse H&S. `detect_quasimodo` built the same day with 17 tests. Two corrections came out of running it: the right shoulder had to become OPTIONAL (it is the retracement into the zone, so requiring a confirmed pivot made the setup visible only after it was untradeable), and the four pivots had to be made CONSECUTIVE — searching them independently reported a "pattern" on **73%** of 460 names, adjacency cut that to **44%**, and only **14 (3%)** have price in the zone with the head unbroken. Pre-registration written, skeptical prior, measurement NOT yet run. Multi-timeframe liquidity ("HTF LQ") deferred; note `HTF` in this repo means High Tight Flag, not higher timeframe. |
+| **New 2026-09-07 (from a PSAR chart)** | **B-59** — **Parabolic SAR is absent** (the `sar` key in `evwma_vwap_macd_backtest.py` is stop-and-reverse EQUITY, not Wilder's dots; not in `INDICATOR_DEFS`, so it cannot be charted). Scoped as an **overlay only**: B-46 already ruled PSAR out, but that objection was about a SCANNER creating a zero-unique registry entry next to `pmax`/`stai` — an overlay makes no claim and votes in nothing, which is the same split B-46 itself used for Ichimoku. Wilder's parameters and the two-bar penetration clamp are pinned in the entry, along with the causality requirement (bar *i*'s dot from bars ≤ *i−1*, so it does not repaint). No backtest owed for the overlay; before any PSAR *signal*, the first measurement owed is an **overlap check against `pmax`/`stai`**, not an edge test. |
 | **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
 | **Shipped 2026-09-02 (not from the backlog)** | **Trending Stocks page** — `trending_stocks.py` + a Market-Intel page with four lenses: Price Movers (whole-market bhavcopy, turnover-floored), Volume Shockers (reuses `volume_anomaly` **with cause attribution** — the one lens the desk does better than the commercial screener it was modelled on), 52-Week and All-Time High/Low (computed from batched history over a bounded top-N-by-turnover universe, since NSE's UDiFF bhavcopy carries **no 52-week columns** — verified, 34 columns, none a range extreme). Requested from a screenshot of a commercial "Trending Stocks" page. **Deliberately NO "Most Visited" lens** — that is crowd page-view data from a site's own traffic logs, there is no free public feed for retail attention, and a proxy (delivery spikes, rank churn) would measure something else under the same label. Recorded as a decision, not an oversight, the same way the intraday ORB/DOM lane is. Two things the build forced: a **turnover floor**, without which the movers list is almost entirely penny stocks (a ₹3 share moving 19% is arithmetic), and a **cash-equivalent filter** reusing the chart's existing `isLikelyLiquidETF` definition, because a liquid ETF is *permanently* at its all-time high by construction and squatted on the first ATH run. |
@@ -463,7 +464,61 @@ other way to see. What is retired is any claim that it triggers.
 signal the Python correctly rejected. Neither implementation looked wrong alone; they
 only disagreed. They now agree signal-for-signal on RELIANCE / TATASTEEL / DLF.
 
-### B-58 · Quasimodo (QM) geometry — **SCOPED 2026-09-07, NOT BUILT**
+### B-59 · Parabolic SAR — chart overlay *(2026-09-07)*
+
+Absent. `grep -ri "parabolic\|psar" tools/` returns nothing but a false positive:
+`evwma_vwap_macd_backtest.py`'s `sar` key is **stop-and-reverse equity**, not
+Wilder's indicator. Not in `INDICATOR_DEFS` (36 entries), so it cannot be put on
+a chart. Asked for from a "How To Use PSAR Indicator" chart.
+
+> [!warning] There is already a decision on record against this, and it is narrower than it looks
+> B-46 says **"Parabolic SAR is explicitly NOT bundled — `pmax` and `stai`
+> already occupy the trailing-stop-flip role, and adding a third would risk
+> another zero-unique entry of the kind [[analyses/Scanner-Overlap-Audit]] just
+> trimmed."** [[analyses/Indicator-Coverage-Gap]] repeats it.
+>
+> That objection is about a **scanner**, not an **overlay**. A zero-unique entry
+> is a registry problem: a scanner that fires where others already fire adds
+> decisions without adding information. A chart overlay makes no claim and votes
+> in nothing — and B-46's own resolution for Ichimoku was *"ship the overlay
+> first; any BUY/SELL reading is a separate, measured question."* The same split
+> applies here, so **this entry is the overlay only** and the objection stands
+> unchanged against a PSAR scanner.
+
+**Build.** `tools/psar.js` as a pure computation library (no DOM), matching
+`renko.js` / `fibonacci.js` / `supertrend_ai.js`; render in
+`chart_dashboard.html`; one `INDICATOR_DEFS` row in `Trend & Bands` beside
+`pmax` and `stai`, where a reader comparing the three trailing-stop tools will
+look for it.
+
+Wilder's rule, stated so the parameters are not quietly invented: AF starts at
+**0.02**, steps **0.02** on each new extreme, caps at **0.20**;
+`SAR(next) = SAR + AF × (EP − SAR)`; on a flip, SAR seats at the prior EP and AF
+resets. The two clamps that everyone omits and then wonders why their dots look
+wrong: SAR may not penetrate **either of the last two bars'** range on the side
+it is trailing.
+
+**Causality.** The dot for bar *i* is computed from bars ≤ *i−1* and is therefore
+known at *i*'s open. That makes it honest to plot and honest to backtest later —
+unlike a naive implementation that seats today's dot from today's extreme, which
+repaints and would flatter any measurement built on it.
+
+**No backtest owed for the overlay** — exposing a series makes no edge claim, the
+same footing B-45 puts Keltner/PMax/Renko wiring on. What IS owed, before any
+PSAR *signal* ships: a pre-registered test AND an overlap check against `pmax`
+and `stai`, because B-46's objection is precisely that the flip may carry zero
+unique cells. **The right first measurement is the overlap, not the edge** — if
+its flips are a subset of PMax's, there is nothing to measure afterwards.
+
+**Note on the source chart.** The image's second panel pairs PSAR with a
+trendline and labels a "Take profit level" at a PSAR flip. That is the
+trailing-stop use, which is the one use the desk's own [[analyses/Indicator-Coverage-Gap]]
+grants it — B-41p is the relevant prior here, and it found that on the Liquidity
+Sweep signal **removing the stop entirely** turned −0.059R into +0.504R. A
+trailing stop is not free, and PSAR is a fairly tight one. Ship the picture; do
+not assume the exit rule.
+
+### B-58 · Quasimodo (QM) geometry — **DETECTOR BUILT 2026-09-07; measurement not run**
 
 From a "4 Setups for BUY Entry, based on QM patterns (CHOCH)" chart the owner
 brought in. A coverage audit of that image against the repo found most of its
@@ -507,34 +562,94 @@ nulls above all share. A Quasimodo requires a specific left-shoulder / head /
 right-shoulder arrangement, and the CHOCH must break the *left shoulder's* low.
 Nothing in the registry tests that shape.
 
-**Definition to build against (bullish QM), pinned so it cannot drift:**
+**Definition to build against (BUY-side QM), pinned so it cannot drift.**
 
-Over the confirmed zigzag pivots (`EW.computeZigzag` — the same detector
-`fibonacci.js` anchors on, so the QM and the grid can never disagree about where
-a swing is):
+> [!warning] CORRECTED 2026-09-07, before the build
+> The first version of this entry described the sequence with `LS` as a swing
+> HIGH and the head above it. **That is the SELL-side pattern**, written under a
+> heading that said bullish, and the distinguishing condition given (`RL < LL`)
+> was wrong for a second reason as well — see below. Pinning a definition is only
+> worth doing if the definition is right, so it is corrected here rather than
+> quietly fixed in code.
 
-1. `LS` left shoulder — a swing HIGH
-2. `LL` — a swing LOW below the prior structure (the first liquidity grab)
-3. `HEAD` — a swing HIGH **above** `LS` (the second grab; takes buy-side liquidity)
-4. `RL` — a swing LOW **below** `LL`. This is the CHOCH: the leg that breaks the
-   left shoulder's low is what turns the structure over.
-5. `RS` right shoulder — a swing HIGH **below** `HEAD` and roughly level with `LS`
+Over the swing sequence from `detect_structure_chain` — the same source
+`detect_liquidity_pools` uses, so QM, the pools and the BOS/CHOCH engine can
+never disagree about where a swing is. Chronological, kinds alternating:
 
-The entry zone is the **`LS` price** (the left shoulder, retested from above),
-which in the image is where the fib rungs land. Invalidation is below `RL`.
+1. `LS` left shoulder — a swing **LOW**
+2. `LH` — the swing **HIGH** after it
+3. `HEAD` — a swing **LOW below `LS`**. The liquidity grab: it takes out the
+   resting sell-side stops under the left shoulder.
+4. `RH` — a swing **HIGH above `LH`**. **This is the CHOCH** — the post-head
+   rally breaks the pre-head high, which is the change of character.
+5. `RS` right shoulder — a swing **LOW above `HEAD`**
 
-**The one thing that separates this from a head-and-shoulders detector:** the
-sequence requires `RL < LL` — the right leg must take out the prior low, not
-merely hold above it. That is the liquidity grab, and it is what makes the shape
-a QM rather than an inverse H&S. A detector that omits it would fire on both and
-the measurement would be about neither.
+Entry zone is the **`LS` level**, retested from above — the left shoulder's low
+becomes the support the fib rungs land on. Invalidation is below `HEAD`.
+
+**What actually separates this from an inverse head-and-shoulders**, corrected:
+it is NOT the head being below the shoulders — an inverse H&S has that by
+definition, so the original entry's claim was empty. The two real differences are
+**(a) the CHOCH condition `RH > LH`**, and **(b) where the entry sits**: QM buys
+the retest of the LEFT SHOULDER, while an inverse H&S buys the neckline break.
+A detector that drops `RH > LH` fires on both shapes and measures neither, which
+is what the pre-registered control below is for.
 
 **Build shape (mirrors `detect_bos_choch` so the two are comparable):**
-`detect_quasimodo(df, pivot_len=5, lookback=120, tol_pct=0.02)` returning the
-five pivots, the entry zone (`LS` ± `tol_pct`), the invalidation (`RL`), and
+`detect_quasimodo(df, pivot_len=5, lookback=120, tol_pct=2.0)` returning the five
+pivots, the entry zone (`LS` ± `tol_pct`), the invalidation (`HEAD`), and
 `bars_ago`. A scanner wraps it. **Registered as a SCREEN on first ship** —
 `PIPELINE_EXCLUDED`, no entry/stop/target — until it has its own pre-registered
 measurement, exactly as B-57's Shallow Flip did.
+
+═══ BUILD — 2026-09-07, `detect_quasimodo` + 17 tests ═══════════════════════════
+
+Detector only. No scanner registered yet, no forward returns scored, and the
+pre-registration below is still what has to run before anything ships.
+
+**Two corrections the build forced, both from running it rather than reading it.**
+
+**1. The right shoulder had to become OPTIONAL.** A swing pivot needs `pivot_len`
+bars on each side to confirm, and the right shoulder IS the retracement into the
+entry zone — so requiring a confirmed `RS` made the pattern visible only *after*
+price had been in the zone and left it. A detector that can only see the setup
+once it is untradeable is a chart annotator, not a screen. The pattern therefore
+completes at the **CHOCH** (`LS, LH, HEAD, RH`); `rs` is reported when a
+confirmed low exists and is `None` otherwise, and whether price is in the zone
+*right now* is a separate live field.
+
+**2. The four pivots must be CONSECUTIVE, which is what makes it a shape at all.**
+First version searched the four positions independently across the 120-bar
+window. Measured on 460 liquid NSE names it reported a pattern on **73%** of
+them — that is not a pattern, it is "this stock has had a pullback and a rally".
+Adding minimum sizes for the grab and the CHOCH only moved it to **67%**, because
+the search simply selected a different, deeper quadruple. Requiring the pivots to
+be **adjacent in the zigzag** — which is how the pattern is drawn — took it to
+**44%**.
+
+| version | names reporting a pattern |
+|---|---|
+| independent search | 73% |
+| + minimum grab / CHOCH size | 67% |
+| **+ consecutive pivots** | **44%** |
+
+**Presence is not the screen; presence AND location is.** Of 460 names, **202**
+carry a QM somewhere in the window and only **14 (3%)** have price inside the
+entry zone with the head unbroken. That 3% is the number a Hub card would show.
+Median grab 2.7%, median CHOCH break +6.5%, median 35 bars since the CHOCH — so
+a freshness bound belongs in the wrapping scanner, not in the detector, which
+reports `bars_ago` and lets the caller decide.
+
+**The minimum grab and CHOCH sizes are not invented.** Both floor at **0.75%**,
+which is `detect_liquidity_pools`'s existing equal-level tolerance: that function
+already treats levels within 0.75% as EQUAL — a liquidity *pool* rather than a
+break. A "grab" shallower than the desk's own definition of equal is not a grab,
+and a "break" that small is not a break. Reusing the constant keeps one
+definition of when two levels are the same price.
+
+**Structural honesty, same as B-57's Shallow Flip.** No `entry` / `stop` /
+`target` / `score` keys — a test asserts their absence — so the detector cannot
+be mistaken for a plan before its measurement exists.
 
 **Pre-registration sketch, to be completed BEFORE the first scoring run.**
 Primary: QM completions vs a **state-matched** baseline — bars in the same names
@@ -542,9 +657,9 @@ that are also retesting a prior swing high from above without the QM sequence.
 Matching on the retest state is the whole point: unmatched, this would measure
 "buying support", which the three nulls above already measured. Horizon 20d,
 entry next open, rotation p, pass bar `edge > 0 AND p_rot < 0.05`. Control: the
-same geometry with the `RL < LL` condition RELAXED — if the relaxed version
-scores the same, the liquidity grab is decorative and the shape is just an
-inverse H&S.
+same geometry with the CHOCH condition `RH > LH` RELAXED — if the relaxed
+version scores the same, the change of character is decorative and the detector
+is an inverse-H&S finder wearing a different name.
 
 **Prior recorded in advance:** skeptical. The family this belongs to is 0-for-3
 on this desk at ~9,000 signals. What buys it a test at all is that the `RL < LL`

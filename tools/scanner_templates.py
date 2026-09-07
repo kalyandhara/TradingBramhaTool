@@ -7201,6 +7201,195 @@ def scan_shallow_flip(df: pd.DataFrame, max_bars_ago: int = 2,
     }
 
 
+
+# ── Quasimodo (QM / "over and under") — B-58 ─────────────────────────────────
+#
+# The BUY-side sequence, and the one thing that makes it a QM rather than an
+# inverse head-and-shoulders. Both shapes put the head below the shoulders, so
+# that condition distinguishes nothing. What does:
+#
+#   * CHOCH — the post-head rally must break the PRE-head swing high (RH > LH).
+#     That is the change of character the pattern is named for.
+#   * The entry sits at the LEFT SHOULDER's low retested from above, not at a
+#     neckline break.
+#
+# Swings come from `detect_structure_chain`, the same source `detect_liquidity_pools`
+# reads, so the QM geometry and the pools can never disagree about where a swing is.
+#
+# ── Why the right shoulder is OPTIONAL, which B-58's first draft got wrong ────
+# A swing pivot needs `pivot_len` bars on BOTH sides to confirm. The right
+# shoulder is the retracement into the entry zone -- so requiring it to be a
+# confirmed pivot means the pattern only becomes visible `pivot_len` bars AFTER
+# price has already been in the zone and left it. A detector that can only see
+# the setup once it is untradeable is a chart annotator, not a screen.
+#
+# So the pattern COMPLETES at the CHOCH (LS, LH, HEAD, RH) and the right shoulder
+# is reported when a confirmed low exists and left None when it does not. Whether
+# price is in the zone right now is a separate, live field (`in_zone`) rather than
+# something smuggled into the pattern's definition.
+
+#: How near the left-shoulder level counts as "at" the entry zone, in percent.
+QM_TOL_PCT = 2.0
+
+#: Swing-sequence window. Deep enough for the four-pivot shape, bounded so an
+#: ancient pattern is not resurrected long after it stopped describing the tape.
+QM_LOOKBACK = 120
+
+#: Minimum size for the two conditions that DEFINE the pattern, in percent.
+#:
+#: Without these the detector fires on 73% of names (measured, 460 liquid NSE
+#: names) -- which is not a pattern, it is "this stock has had a pullback and a
+#: rally". The reason is that both conditions were tested as strict inequalities:
+#: a head 0.2% below the left shoulder counted as a liquidity grab (BANKBEES did
+#: exactly that), and a 1.1% clearance of the pre-head high counted as a change
+#: of character. Neither is the event the pattern is named for.
+#:
+#: The floor is `detect_liquidity_pools`'s own equal-level tolerance rather than a
+#: number invented here: that function already treats levels within 0.75% as EQUAL
+#: -- as a liquidity pool rather than a break. A "grab" shallower than the desk's
+#: own definition of equal is not a grab, and a "break" that small is not a break.
+#: Reusing the constant keeps one definition of when two levels are the same.
+QM_MIN_GRAB_PCT = 0.75
+QM_MIN_CHOCH_PCT = 0.75
+
+
+def detect_quasimodo(df: pd.DataFrame, pivot_len: int = 5,
+                     lookback: int = QM_LOOKBACK,
+                     tol_pct: float = QM_TOL_PCT,
+                     min_grab_pct: float = QM_MIN_GRAB_PCT,
+                     min_choch_pct: float = QM_MIN_CHOCH_PCT) -> dict | None:
+    """The most recent BUY-side Quasimodo, or None.
+
+    Sequence, chronological, over alternating swing pivots:
+
+        LS    swing LOW                      the left shoulder
+        LH    swing HIGH after LS
+        HEAD  swing LOW  **below LS**        the liquidity grab (sell-side stops)
+        RH    swing HIGH **above LH**        the CHOCH -- completes the pattern
+        RS    swing LOW  **above HEAD**      the right shoulder, OPTIONAL (see above)
+
+    Entry zone is `LS` +- `tol_pct`; invalidation is below `HEAD`.
+
+    Returns the pivots with their bars and levels, the zone, the invalidation,
+    `bars_ago` (since the CHOCH), and `choch_break_pct` / `grab_depth_pct` -- a
+    token CHOCH break and a decisive one are not the same event, and a caller
+    thresholding on either should not have to recompute it and risk drifting from
+    this definition.
+
+    **NOT a trade plan.** No entry/stop/target keys, and any wrapping scanner is
+    registered PIPELINE_EXCLUDED until B-58's pre-registered test runs. The family
+    this belongs to -- retrace into a level after a structure break -- has measured
+    negative on this desk three times (`scan_ict_setup` -0.36%/-1.24%, `Order Block
+    Retest` -0.47%/-0.70%, `Pullback Entry` -0.43%/-1.12%, ~9,000 signals), so the
+    prior is low and the geometry is the only thing being added.
+    """
+    if df is None or len(df) < pivot_len * 4 + 40:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < pivot_len * 4 + 40:
+        return None
+
+    chain = detect_structure_chain(df, pivot_len=pivot_len)
+    if not chain:
+        return None
+    swings = chain.get("swings") or []
+    if len(swings) < 4:
+        return None
+
+    n = len(df)
+    swings = [s for s in swings if s.get("bar", 0) >= n - 1 - lookback]
+    if len(swings) < 4:
+        return None
+    swings = sorted(swings, key=lambda s: s["bar"])
+
+    # `detect_structure_chain` can emit the same extreme on consecutive bars
+    # (a flat two-bar top registers twice). Collapse runs of the same kind to
+    # their extreme, or the four-pivot walk below burns its slots on duplicates.
+    dedup: list[dict] = []
+    for sw in swings:
+        if dedup and dedup[-1]["kind"] == sw["kind"]:
+            better = (float(sw["level"]) > float(dedup[-1]["level"])
+                      if sw["kind"] == "high"
+                      else float(sw["level"]) < float(dedup[-1]["level"]))
+            if better:
+                dedup[-1] = sw
+            continue
+        dedup.append(sw)
+    swings = dedup
+    if len(swings) < 4:
+        return None
+
+    # ── The pivots must be CONSECUTIVE, and that is not a detail ─────────────
+    # Searching all four positions independently over a 120-bar window finds a
+    # qualifying combination in almost any series: measured, it fired on 73% of
+    # 460 liquid names, and tightening the grab/CHOCH floors only moved that to
+    # 67% because the search simply selected a different, deeper quadruple.
+    #
+    # A Quasimodo is a LOCAL shape -- LS, LH, HEAD, RH adjacent in the zigzag,
+    # exactly as it is drawn. Requiring adjacency is what makes the detector
+    # describe a pattern rather than assert that a stock has had a pullback and a
+    # rally at some point.
+    best: dict | None = None
+    for i in range(len(swings) - 4, -1, -1):      # newest qualifying shape wins
+        ls, lh, head, rh = swings[i:i + 4]
+        if [ls["kind"], lh["kind"], head["kind"], rh["kind"]] !=                 ["low", "high", "low", "high"]:
+            continue
+        ls_lvl_, lh_lvl_ = float(ls["level"]), float(lh["level"])
+        if ls_lvl_ <= 0 or lh_lvl_ <= 0:
+            continue
+        # The grab: the head must clear the left shoulder's low by more than the
+        # desk's own "these levels are equal" tolerance.
+        if ((ls_lvl_ - float(head["level"])) / ls_lvl_ * 100.0) < min_grab_pct:
+            continue
+        # The CHOCH, same reasoning: a clearance inside that tolerance is an
+        # equal high, not a change of character.
+        if ((float(rh["level"]) - lh_lvl_) / lh_lvl_ * 100.0) < min_choch_pct:
+            continue
+        best = {"ls": ls, "lh": lh, "head": head, "rh": rh}
+        break
+
+    if best is None:
+        return None
+
+    ls_lvl = float(best["ls"]["level"])
+    head_lvl = float(best["head"]["level"])
+    lh_lvl = float(best["lh"]["level"])
+    rh_lvl = float(best["rh"]["level"])
+    if ls_lvl <= 0 or head_lvl <= 0 or lh_lvl <= 0:
+        return None
+
+    # The right shoulder if one has confirmed since the CHOCH. Absent is normal
+    # and not a defect -- see the note above.
+    rs = None
+    for sw in swings:
+        if (sw["bar"] > best["rh"]["bar"] and sw.get("kind") == "low"
+                and float(sw["level"]) > head_lvl):
+            rs = {"bar": int(sw["bar"]), "level": float(sw["level"])}
+
+    tol = ls_lvl * (tol_pct / 100.0)
+    last = float(df["close"].iloc[-1])
+
+    return {
+        "pattern": "quasimodo_buy",
+        "ls": {"bar": int(best["ls"]["bar"]), "level": ls_lvl},
+        "lh": {"bar": int(best["lh"]["bar"]), "level": lh_lvl},
+        "head": {"bar": int(best["head"]["bar"]), "level": head_lvl},
+        "rh": {"bar": int(best["rh"]["bar"]), "level": rh_lvl},
+        "rs": rs,
+        "entry_zone": (round(ls_lvl - tol, 2), round(ls_lvl + tol, 2)),
+        "invalidation": round(head_lvl, 2),
+        # How decisively the CHOCH cleared the pre-head high, as a percent of it.
+        "choch_break_pct": round((rh_lvl - lh_lvl) / lh_lvl * 100.0, 2),
+        # How deep the grab went below the left shoulder.
+        "grab_depth_pct": round((ls_lvl - head_lvl) / ls_lvl * 100.0, 2),
+        # Bars since the CHOCH -- the event that completes the pattern.
+        "bars_ago": int((n - 1) - int(best["rh"]["bar"])),
+        "in_zone": bool(ls_lvl - tol <= last <= ls_lvl + tol),
+        "below_invalidation": bool(last < head_lvl),
+        "last_close": round(last, 2),
+    }
+
+
 SCANNERS: dict[str, dict] = {
     "Shallow Flip (Renko, bounded correction)": {
         "fn": scan_shallow_flip,
