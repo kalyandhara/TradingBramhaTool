@@ -51,6 +51,7 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **Closed 2026-09-05** | ~~**B-44r**~~ **MEASURED → FALSIFIED, GEX retired** (magnitude convention inverted the pre-registered direction and what survives the 1/σ control flips sign between vol terciles — see below). **B-34r** *(new, shipped same day)* — **Hidden Treasures gained its first HARD gate**: `red_flags.py` (FR-4) wired into `smallcap_discovery`, critical flags veto, watch flags cost 6 pts, NOT_CHECKED never reads as a pass. Zero extra fetches (rides the quality overlay's payload; `sessionid=None` keeps screener.in dormant). **Vetoes 100 of 249 on Smallcap-250** — 59 negative FCF, 51 promoter stake reduction, 28 pledge, 5 dilution. Toggleable and every exclusion is listed, because the default is NOT settled: see **B-34r2**. |
 | **New 2026-08-29** | ~~**B-43**~~ **BUILT + MEASURED → clean null** (flip edge ~0, negative on the long leg; beat buy&hold 0/23 — but fires 40% less often than the EVWMA cross, i.e. noise reduction without edge). Chart overlay kept, labelled FLIP not BUY/SELL. MCX still gated. From the Renko podcast ingest. ~~**B-44**~~ **BUILT + MEASURED same day → clean null** (see below); residual **B-44r** (is the naive dealer convention backwards for NSE?). From the Chris Kmer order-flow ingest. |
 | **New 2026-09-07** | ~~**B-57**~~ **PRE-REGISTERED then MEASURED same day → FAILS the bar** (edge **−0.25%**, p_rot=0.714, n=207). Owner proposed a Renko flip + ≤40%-correction + revenue/cash-flow screen. `tools/renko_quality_cardinality.py` counted first and **killed the 40% version before any return was scored**: 4,407 of 4,598 flip_ups (96%) clear a 40% cap, so it is not a filter, and its median `bricks_in_prior` = 3 sits on B-43r's worst bucket (−1.30%). The ≤10% rung was the only uncovered one; `tools/point_in_time_quality.py` (12 tests) closed the lookahead leg. Result: **B-43/B-43r stand**, but the null is **soft** — B-43r's −1.01% (p=0.000) dissolves to −0.25%, which is what its own mechanism predicts. CONTROL2 misbehaved (+3.37%, p=0.211); a HARNESS arm reproducing B-43's null (+0.49%, p=0.376) cleared the scorer, so that control is uninformative rather than contradictory. Cite as "no edge found, underpowered", not a settled zero. |
+| **New 2026-09-07 (from a QM/CHOCH setups chart)** | **B-58** (**SCOPED, NOT BUILT**) — coverage audit of a "4 Setups for BUY Entry / QM patterns" chart: CHOCH, key levels, order blocks, the fib grid and the stop-hunt read are all already present, and the two missing rungs (**88.6% entry, 113% stop**) were **added to `fibonacci.js` the same day** (drawn only — deliberately NOT wired into `buildPlan`, since changing what a stop means is a measurement, not a default). The image's setups 1–3 are the retrace-after-structure-break family this desk has measured NEGATIVE three times (`ICT Setup` −0.36%/−1.24%, `Order Block Retest` −0.47%/−0.70%, `Pullback Entry` −0.43%/−1.12%, ~9,000 signals), so they are not proposed. Setup 4's stop-hunt mechanic is `Liquidity Sweep`, **already measured POSITIVE** (B-41m, +0.51% @20d p=0.005). The one real gap is the **QM geometry** itself — the `RL < LL` liquidity grab that distinguishes it from an inverse H&S. Scoped with a pre-registration sketch and a skeptical prior. Multi-timeframe liquidity ("HTF LQ") deferred; note `HTF` in this repo means High Tight Flag, not higher timeframe. |
 | **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
 | **Shipped 2026-09-02 (not from the backlog)** | **Trending Stocks page** — `trending_stocks.py` + a Market-Intel page with four lenses: Price Movers (whole-market bhavcopy, turnover-floored), Volume Shockers (reuses `volume_anomaly` **with cause attribution** — the one lens the desk does better than the commercial screener it was modelled on), 52-Week and All-Time High/Low (computed from batched history over a bounded top-N-by-turnover universe, since NSE's UDiFF bhavcopy carries **no 52-week columns** — verified, 34 columns, none a range extreme). Requested from a screenshot of a commercial "Trending Stocks" page. **Deliberately NO "Most Visited" lens** — that is crowd page-view data from a site's own traffic logs, there is no free public feed for retail attention, and a proxy (delivery spikes, rank churn) would measure something else under the same label. Recorded as a decision, not an oversight, the same way the intraday ORB/DOM lane is. Two things the build forced: a **turnover floor**, without which the movers list is almost entirely penny stocks (a ₹3 share moving 19% is arithmetic), and a **cash-equivalent filter** reusing the chart's existing `isLikelyLiquidETF` definition, because a liquid ETF is *permanently* at its all-time high by construction and squatted on the first ATH run. |
@@ -461,6 +462,104 @@ other way to see. What is retired is any claim that it triggers.
 19 bars over a divisor of 20, inflating every multiplier ~5% and firing a TATASTEEL
 signal the Python correctly rejected. Neither implementation looked wrong alone; they
 only disagreed. They now agree signal-for-signal on RELIANCE / TATASTEEL / DLF.
+
+### B-58 · Quasimodo (QM) geometry — **SCOPED 2026-09-07, NOT BUILT**
+
+From a "4 Setups for BUY Entry, based on QM patterns (CHOCH)" chart the owner
+brought in. A coverage audit of that image against the repo found most of its
+parts already present, one part measured NEGATIVE under another name, one part
+measured POSITIVE under another name, and exactly one genuine gap. This entry
+scopes the gap.
+
+**What the audit found — the reason this is narrow rather than a four-scanner build.**
+
+| element in the image | repo | |
+|---|---|---|
+| CHOCH / BOS | `detect_bos_choch` (B-42) | covered |
+| Key level | `detect_order_blocks`, structural support | covered |
+| fib entry grid | `fibonacci.js` | covered |
+| 88.6% entry / 113% stop | **added 2026-09-07**, drawn but not wired into `buildPlan` | covered |
+| OB confluence (setup 3) | `detect_order_blocks` | covered |
+| stop hunt (setup 4) | `detect_liquidity_sweep` | covered |
+| "HTF LQ" | liquidity pools are SINGLE-timeframe | **gap, deferred** |
+| QM geometry itself | nothing | **gap, this entry** |
+
+> [!warning] Setups 1–3 are a family this desk has already measured at no edge
+> `scan_ict_setup` chains CHOCH-with-displacement → OTE 61.8–79% fib → FVG
+> confluence → stop below zone → target at the next pool. That IS the image's
+> setups 2 and 3, and B-19 measured it at **−0.36% @20d / −1.24% @60d, NO EDGE
+> [UNSTABLE]** on 158 signals. `Order Block Retest` reads **−0.47% / −0.70%** on
+> 2,341, and `Pullback Entry` **−0.43% / −1.12%** on 6,485. Three independent
+> implementations of "retrace into a level after a structure break", ~9,000
+> signals, all negative. **Rebuilding setups 1–3 as new scanners would re-derive
+> that**, which is why this entry does not propose them.
+>
+> The exception points the other way and is the interesting part: the stop-hunt
+> mechanic, which is the image's setup 4, is `Liquidity Sweep` — B-41m measured
+> **+0.51% @20d (p=0.005), +0.91% @60d (p=0.002)** net of ~29bps, walk-forward,
+> the desk's best result. The picture's own author marks setup 4 as the best R/R
+> quadrant, and it is the only quadrant this desk has independently measured an
+> edge in. That agreement is worth more than the taxonomy around it.
+
+**So the only thing worth building is the QM GEOMETRY**, because it is a
+genuinely different selection rule from "CHOCH then retrace" — the rule the
+nulls above all share. A Quasimodo requires a specific left-shoulder / head /
+right-shoulder arrangement, and the CHOCH must break the *left shoulder's* low.
+Nothing in the registry tests that shape.
+
+**Definition to build against (bullish QM), pinned so it cannot drift:**
+
+Over the confirmed zigzag pivots (`EW.computeZigzag` — the same detector
+`fibonacci.js` anchors on, so the QM and the grid can never disagree about where
+a swing is):
+
+1. `LS` left shoulder — a swing HIGH
+2. `LL` — a swing LOW below the prior structure (the first liquidity grab)
+3. `HEAD` — a swing HIGH **above** `LS` (the second grab; takes buy-side liquidity)
+4. `RL` — a swing LOW **below** `LL`. This is the CHOCH: the leg that breaks the
+   left shoulder's low is what turns the structure over.
+5. `RS` right shoulder — a swing HIGH **below** `HEAD` and roughly level with `LS`
+
+The entry zone is the **`LS` price** (the left shoulder, retested from above),
+which in the image is where the fib rungs land. Invalidation is below `RL`.
+
+**The one thing that separates this from a head-and-shoulders detector:** the
+sequence requires `RL < LL` — the right leg must take out the prior low, not
+merely hold above it. That is the liquidity grab, and it is what makes the shape
+a QM rather than an inverse H&S. A detector that omits it would fire on both and
+the measurement would be about neither.
+
+**Build shape (mirrors `detect_bos_choch` so the two are comparable):**
+`detect_quasimodo(df, pivot_len=5, lookback=120, tol_pct=0.02)` returning the
+five pivots, the entry zone (`LS` ± `tol_pct`), the invalidation (`RL`), and
+`bars_ago`. A scanner wraps it. **Registered as a SCREEN on first ship** —
+`PIPELINE_EXCLUDED`, no entry/stop/target — until it has its own pre-registered
+measurement, exactly as B-57's Shallow Flip did.
+
+**Pre-registration sketch, to be completed BEFORE the first scoring run.**
+Primary: QM completions vs a **state-matched** baseline — bars in the same names
+that are also retesting a prior swing high from above without the QM sequence.
+Matching on the retest state is the whole point: unmatched, this would measure
+"buying support", which the three nulls above already measured. Horizon 20d,
+entry next open, rotation p, pass bar `edge > 0 AND p_rot < 0.05`. Control: the
+same geometry with the `RL < LL` condition RELAXED — if the relaxed version
+scores the same, the liquidity grab is decorative and the shape is just an
+inverse H&S.
+
+**Prior recorded in advance:** skeptical. The family this belongs to is 0-for-3
+on this desk at ~9,000 signals. What buys it a test at all is that the `RL < LL`
+condition makes it a strict subset of that family selected on the one mechanic
+(`Liquidity Sweep`) that DID measure positive — so the honest hypothesis is not
+"QM works" but "QM is a liquidity sweep with extra steps, and the sweep is
+already the better-tested way to express it." The control is designed to catch
+exactly that.
+
+**Deferred, not forgotten: multi-timeframe liquidity ("HTF LQ").**
+`detect_liquidity_pools` takes one `df`. Real HTF liquidity needs a second
+timeframe's pools projected onto the entry chart. That is a bigger build than
+this entry and belongs on its own. **Naming trap for whoever picks it up:** `HTF`
+in this repo means **High Tight Flag**, not higher timeframe — grepping for it
+will produce false confidence that the feature exists.
 
 ### ~~B-57~~ · Does a Renko flip out of a SHALLOW correction work on quality names? — **MEASURED 2026-09-07: NO — a soft null, and it CONFIRMS B-43r's mechanism**
 

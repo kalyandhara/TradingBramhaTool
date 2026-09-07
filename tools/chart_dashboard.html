@@ -7847,6 +7847,11 @@ const FIB_COLORS = {
   stop:    '#ef5350',
   target:  '#26a69a',
   swing:   'rgba(201,162,39,0.55)',
+  // 113% overshoot: past the leg origin the setup is WRONG, not cheap. Drawing
+  // it in the grid's gold would put an invalidation level in the same visual
+  // language as the entry rungs, which is the overtrust this module exists to
+  // avoid. Muted red says "this is the stop side" without shouting.
+  overshoot: 'rgba(239,83,80,0.45)',
 };
 
 function ensureFibState(pane) {
@@ -7948,8 +7953,10 @@ function drawFibonacci(pane) {
     if (y === null || y < 0 || y > H) return;
     const hit = l.score > 0;
 
-    ctx.strokeStyle = hit ? FIB_COLORS.gridHit
-                          : (l.golden ? FIB_COLORS.golden : FIB_COLORS.grid);
+    const over = l.kind === 'overshoot';
+    ctx.strokeStyle = over ? FIB_COLORS.overshoot
+                           : (hit ? FIB_COLORS.gridHit
+                                  : (l.golden ? FIB_COLORS.golden : FIB_COLORS.grid));
     ctx.lineWidth = hit ? 1.4 : 1;
     ctx.setLineDash(hit ? [] : [3, 3]);
     ctx.beginPath();
@@ -7963,7 +7970,8 @@ function drawFibonacci(pane) {
     const txt = `${l.label}  ${l.price.toFixed(2)}${zones}`;
     ctx.font = hit ? 'bold 9.5px -apple-system, "Segoe UI", sans-serif'
                    : '9.5px -apple-system, "Segoe UI", sans-serif';
-    ctx.fillStyle = hit ? FIB_COLORS.gridHit : FIB_COLORS.grid;
+    ctx.fillStyle = over ? FIB_COLORS.overshoot
+                         : (hit ? FIB_COLORS.gridHit : FIB_COLORS.grid);
     ctx.fillText(txt, x0 + 4, y - 6);
   });
 

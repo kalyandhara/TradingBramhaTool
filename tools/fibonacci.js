@@ -46,7 +46,7 @@
  *
  * Public API (window.FIB):
  *   FIB.detectSwing(bars, opts)                -> swing | null
- *   FIB.computeLevels(swing)                   -> level[]
+ *   FIB.computeLevels(swing, opts)             -> level[]
  *   FIB.scoreLevels(levels, profile, tolPct)   -> level[]  (adds .matches/.score)
  *   FIB.buildPlan(swing, levels, ctx)          -> plan | null
  *   FIB.analyze(bars, ctx, opts)               -> {swing, levels, plan}
@@ -58,12 +58,42 @@
 
   // Retracements of the impulse leg. 0.236 is included for completeness but is
   // never eligible as an entry: a 23.6% pullback is noise inside the leg, not a
-  // structural test of it.
-  const RETRACEMENTS = [0.236, 0.382, 0.5, 0.618, 0.786];
+  // structural test of it. 0.886 is the deep end — see DEEP_RETRACEMENT.
+  const RETRACEMENTS = [0.236, 0.382, 0.5, 0.618, 0.786, 0.886];
+
+  // 0.886 exists because the QM / CHOCH setups price their deepest entry there,
+  // and 1.13 because those same setups put the stop there. Both were missing, so
+  // a reader following that method had to compute them by hand off a grid that
+  // stopped at 0.786.
+  //
+  // They are DRAWN AND COMPUTED, and deliberately NOT wired into buildPlan:
+  //
+  //   • 0.886 is not entry-eligible by default. A retracement that deep is the
+  //     stop-hunt read, not "the leg is still intact" — and on this desk the
+  //     stop-hunt read already has a measured home in the Liquidity Sweep
+  //     scanner (B-41m: +0.51% @20d, p=0.005), which is a different and better
+  //     tested way to express it. Pass {deepEntry: true} to computeLevels to
+  //     make it eligible.
+  //   • 1.13 never becomes the plan's stop automatically. It sits 13% of the leg
+  //     BEYOND the origin, so adopting it would widen every existing stop and
+  //     silently change the reward-to-risk — and therefore the `actionable`
+  //     flag — on plans that have nothing to do with QM. Changing what a stop
+  //     means is a measurement, not a default.
+  //
+  // In short: the levels are now available to look at and to build on; which of
+  // them may move money is unchanged until something measures it.
+  const DEEP_RETRACEMENT = 0.886;
 
   // Entry can only come from this band — the region where a pullback is deep
   // enough to be a real test yet shallow enough that the leg is still intact.
   const ENTRY_BAND = [0.382, 0.786];
+  const DEEP_ENTRY_BAND = [0.382, 0.886];
+
+  // Beyond the leg ORIGIN, in the retracement direction — an overshoot of the
+  // swing rather than a projection past it. This is where invalidation lives:
+  // at 1.13 the leg that defined the setup has been fully given back and then
+  // some. Distinct from EXTENSIONS, which run the other way and are targets.
+  const OVERSHOOTS = [1.13];
 
   // Projections beyond the swing, measured from the leg origin.
   const EXTENSIONS = [1.272, 1.618];
@@ -165,10 +195,11 @@
    * retracements fall from the high and extensions project above it, and the
    * mirror for a down-leg.
    */
-  function computeLevels(swing) {
+  function computeLevels(swing, opts) {
     if (!swing) return [];
     const up = swing.direction === 'up';
     const out = [];
+    const band = (opts && opts.deepEntry) ? DEEP_ENTRY_BAND : ENTRY_BAND;
 
     RETRACEMENTS.forEach(r => {
       const price = up ? swing.high - swing.range * r
@@ -178,7 +209,23 @@
         label: `${(r * 100).toFixed(1)}%`,
         // Golden pocket: the 0.5-0.618 band traders actually watch.
         golden: r === 0.5 || r === 0.618,
-        entryEligible: r >= ENTRY_BAND[0] && r <= ENTRY_BAND[1],
+        // The deep rung is flagged so a caller can style or reason about it
+        // without re-testing the ratio and drifting from this definition.
+        deep: r === DEEP_RETRACEMENT,
+        entryEligible: r >= band[0] && r <= band[1],
+      });
+    });
+
+    OVERSHOOTS.forEach(r => {
+      const price = up ? swing.high - swing.range * r
+                       : swing.low  + swing.range * r;
+      out.push({
+        ratio: r, price, kind: 'overshoot',
+        label: `${(r * 100).toFixed(1)}%`,
+        golden: false, deep: true,
+        // Never an entry: past the origin the leg is gone, and this level is
+        // where the setup is wrong rather than where it is cheap.
+        entryEligible: false,
       });
     });
 
@@ -188,15 +235,15 @@
       out.push({
         ratio: r, price, kind: 'extension',
         label: `${(r * 100).toFixed(1)}%`,
-        golden: false, entryEligible: false,
+        golden: false, deep: false, entryEligible: false,
       });
     });
 
     // The leg's own boundaries matter as much as the ratios between them.
     out.push({ratio: 0, price: up ? swing.high : swing.low, kind: 'anchor',
-              label: '0%', golden: false, entryEligible: false});
+              label: '0%', golden: false, deep: false, entryEligible: false});
     out.push({ratio: 1, price: up ? swing.low : swing.high, kind: 'anchor',
-              label: '100%', golden: false, entryEligible: false});
+              label: '100%', golden: false, deep: false, entryEligible: false});
 
     return out.sort((x, y) => y.price - x.price);
   }
