@@ -7052,7 +7052,179 @@ def scan_renko_flip(df: pd.DataFrame, max_bars_ago: int = 2) -> dict | None:
     }
 
 
+
+#: The correction cap that defines "shallow", in percent. Chosen in B-57 on
+#: CARDINALITY and prior coverage -- it is the tightest rung with workable n and
+#: the only one B-43r's brick-run secondary does not already cover -- with no
+#: forward-return information in the choice. It is NOT a tuned threshold, and the
+#: study that used it measured no edge, so nothing here is calibrated to pay.
+SHALLOW_CORRECTION_PCT = 10.0
+
+
+def _correction_before_flip(df: pd.DataFrame, flips: list[dict],
+                            k: int) -> dict | None:
+    """How far price fell into the down-leg that `flips[k]` (an UP flip) ended.
+
+    Same definition `renko_quality_cardinality.flip_events_raw` counted with and
+    `renko_shallow_quality_study` scored with -- peak is the highest high between
+    the PRIOR up-flip and the down-flip, trough the lowest low from that down-flip
+    to this one. Re-deriving it here with a different reading would mean the
+    screen and the measurement that judged it were about different things.
+    """
+    if k <= 0 or flips[k]["dir"] != 1:
+        return None
+    prev_dn = next((flips[j] for j in range(k - 1, -1, -1)
+                    if flips[j]["dir"] == -1), None)
+    if prev_dn is None:
+        return None
+    prev_up = next((flips[j] for j in range(k - 1, -1, -1)
+                    if flips[j]["dir"] == 1
+                    and flips[j]["index"] < prev_dn["index"]), None)
+    i_dn, i_up = prev_dn["index"], flips[k]["index"]
+    if i_up <= i_dn:
+        return None
+    high = df["high"].astype(float).to_numpy()
+    low = df["low"].astype(float).to_numpy()
+    peak_from = prev_up["index"] if prev_up is not None else max(0, i_dn - 120)
+    peak = float(high[peak_from:i_dn + 1].max())
+    trough = float(low[i_dn:i_up + 1].min())
+    if peak <= 0 or trough <= 0:
+        return None
+    return {
+        "depth_pct": round((peak - trough) / peak * 100.0, 2),
+        "peak": peak, "trough": trough,
+        "days_down": int(i_up - i_dn),
+        "bricks_in_prior": int(flips[k].get("bricks_in_prior", 0)),
+    }
+
+
+def scan_shallow_flip(df: pd.DataFrame, max_bars_ago: int = 2,
+                      max_correction: float = SHALLOW_CORRECTION_PCT) -> dict | None:
+    """Renko UP-flip out of a SHALLOW correction — an attention list, measured at zero.
+
+    Fires when the grid flipped UP within `max_bars_ago` bars AND the down-leg it
+    ended took price no more than `max_correction`% below its prior peak. The idea
+    is the owner's: a buy flip whose preceding sell flip led into a bounded, not
+    catastrophic, fall.
+
+    **This carries no edge, and the number is on the record.** B-57 scored exactly
+    this condition on 460 names against a STATE-MATCHED baseline -- the same names,
+    also within 10% of their trailing high, minus the flip -- and measured
+    **-0.25% at 20d, p_rot = 0.714, n = 207**. It fails its pre-registered bar
+    (`edge > 0 AND p_rot < 0.05`).
+
+    What makes it worth registering anyway is the SHAPE of that null, and it is a
+    genuine finding rather than a consolation. B-43r measured the bare flip at
+    **-1.01%, p_rot = 0.000** and explained the sign: an up-flip is punished
+    because it re-enters after price has already given back part of a run.
+    Restricting to shallow corrections dissolves that penalty to -0.25% -- which
+    is what the mechanism predicts, since a <=10% pullback gives back little. So
+    this screen is the version of the Renko flip that has had its known PENALTY
+    removed. It still has no edge. Those are different statements and the card
+    must not blur them.
+
+    Enforced structurally, the same way ``scan_renko_flip`` is:
+      * no ``entry`` / ``stop`` / ``target`` keys -- nothing that reads as a plan;
+      * listed in ``opportunity_hub.PIPELINE_EXCLUDED``, so it can never become a
+        confluence vote;
+      * ``score`` ranks freshness and shallowness ONLY, never conviction.
+
+    The fundamental half of the owner's idea -- revenue and cash-flow growth -- is
+    deliberately NOT filtered here. Scanners in this registry are pure price
+    functions of ``df``; the Hub card already renders a fundamentals strip beside
+    every hit, so the reader sees cash-flow and EPS next to the flip and decides.
+    Filtering on it inside a price scanner would hide the disagreements, which on
+    an attention list is the information.
+
+    B-57 also settled the owner's original ``<=40%`` version without running it:
+    `renko_quality_cardinality.py` counted 4,407 of 4,598 flips (96%) clearing a
+    40% cap -- not a filter at all -- with a median ``bricks_in_prior`` of 3,
+    which is precisely B-43r's WORST measured bucket (-1.30%). Hence 10, not 40.
+    """
+    if df is None or len(df) < RENKO_WARMUP + RENKO_ATR_PERIOD + 10:
+        return None
+    r = _renko_flips(df)
+    flips, state = r["flips"], r["state"]
+    if not flips or not state:
+        return None
+
+    k = len(flips) - 1
+    last = flips[k]
+    if last["dir"] != 1:                       # UP flips only -- this is the buy read
+        return None
+
+    n = len(df)
+    bars_ago = (n - 1) - last["index"]
+    if bars_ago > max_bars_ago:
+        return None
+
+    corr = _correction_before_flip(df, flips, k)
+    if corr is None or corr["depth_pct"] > max_correction:
+        return None
+
+    close = float(df["close"].iloc[-1])
+    brick = state["brick"] or 0.0
+    brick_pct = (brick / close * 100.0) if close > 0 else 0.0
+    when = "today" if bars_ago == 0 else f"{bars_ago} bar{'s' if bars_ago > 1 else ''} ago"
+
+    reasons = [
+        f"Renko grid flipped UP {when} at {last['price']:.2f}, ending a run of "
+        f"{corr['bricks_in_prior']} brick(s) down",
+        f"The correction it ended was SHALLOW: {corr['depth_pct']:.1f}% from "
+        f"{corr['peak']:.2f} to {corr['trough']:.2f} over {corr['days_down']} bars "
+        f"(cap {max_correction:.0f}%)",
+        f"Brick size {brick:.2f} ({brick_pct:.2f}% of price), from ATR("
+        f"{RENKO_ATR_PERIOD}) re-set every {RENKO_EPOCH_BARS} bars — not tuned",
+        "MEASURED AT NO EDGE (B-57): −0.25% at 20d vs a state-matched baseline, "
+        "p_rot=0.714, n=207. This is an attention list, not a trigger.",
+        "What it IS: the flip with its known penalty removed. B-43r measured the "
+        "bare flip at −1.01% (p=0.000) because an up-flip re-enters after giving "
+        "back part of a run; a shallow pullback gives back little. Penalty gone, "
+        "edge still absent — check the fundamentals strip and bring your own trigger.",
+    ]
+    return {
+        "pattern_type": "Renko UP flip out of a shallow correction",
+        "tags": ["Shallow flip", f"correction {corr['depth_pct']:.1f}%", when,
+                 "Screen, not trigger", "Measured: no edge"],
+        "reasons": reasons,
+        # Freshness + shallowness. Explicitly NOT conviction: B-57 measured this
+        # condition at no edge, so a higher number means "more current and shallower",
+        # never "more likely to work".
+        "score": round(max(10.0, 60.0 - 8.0 * bars_ago
+                           - 2.0 * corr["depth_pct"]), 1),
+        "renko_dir": "UP",
+        "renko_bars_ago": bars_ago,
+        "renko_brick": round(brick, 4),
+        "correction_pct": corr["depth_pct"],
+        "correction_days": corr["days_down"],
+        "rs_raw": _rs_raw(df),
+    }
+
+
 SCANNERS: dict[str, dict] = {
+    "Shallow Flip (Renko, bounded correction)": {
+        "fn": scan_shallow_flip,
+        "description": (
+            "Renko UP-flip within the last 2 bars whose preceding down-leg fell no "
+            "more than 10% from its prior peak — the owner's 'buy flip after a "
+            "bounded correction' idea, built and MEASURED. B-57 scored exactly this "
+            "on 460 names against a state-matched baseline (same names, also within "
+            "10% of their trailing high, minus the flip) and found NO EDGE: −0.25% "
+            "at 20d, p_rot=0.714, n=207, failing its pre-registered bar. It is "
+            "registered as an attention list, never a trigger: no entry/stop/target, "
+            "never votes in confluence, and the score ranks freshness and shallowness "
+            "rather than conviction. The reason it earns a place despite the null is "
+            "the shape of it — B-43r measured the BARE flip at −1.01% (p=0.000) "
+            "because an up-flip re-enters after price has given back part of a run, "
+            "and capping the correction dissolves that penalty to −0.25%. This is "
+            "the Renko flip with its known penalty removed and still no edge added. "
+            "The owner's original 40% cap was rejected on counting alone: 96% of all "
+            "flips clear it, so it filters nothing. Quality is NOT filtered here — "
+            "the card's fundamentals strip shows cash-flow and EPS beside each hit "
+            "so the disagreements stay visible."
+        ),
+        "category": "Trend",
+    },
     "Renko Flip (structure change)": {
         "fn": scan_renko_flip,
         "description": (

@@ -267,6 +267,10 @@ RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "S
 #: anchored-VWAP-from-catalyst half (B-4/B-12) is a different mean and is untouched.
 PIPELINE_EXCLUDED: tuple[str, ...] = ("Zero-Debt Quality PEAD",
                                       "Renko Flip (structure change)",
+                                      # B-57 measured this at -0.25% @20d, p_rot=0.714,
+                                      # against a state-matched baseline -- it failed its
+                                      # pre-registered bar, so it screens but never votes.
+                                      "Shallow Flip (Renko, bounded correction)",
                                       "VWAP Reclaim/Support")
 
 #: Measured to be FULLY COVERED by the rest of the registry — zero unique

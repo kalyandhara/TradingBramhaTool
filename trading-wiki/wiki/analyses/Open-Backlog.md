@@ -668,11 +668,36 @@ it. Survivorship makes every figure an UPPER BOUND. The rotation grid is coarse
 (every 3rd offset), so p is indicative. **This is a weaker null than B-43r's, and
 should be cited as "no edge found, underpowered" rather than as a settled zero.**
 
-**What ships: nothing, and that was the pre-registered fail path.** The screen
-remains available as an attention list — "quality names that just turned up after a
-shallow pullback" is a defensible thing to put in front of a reader — and if it is
-ever built it ships labelled as a question, the way every other unmeasured lens on
-this desk does.
+**What ships: the attention list, and NOTHING that votes.** The pre-registered
+fail path said a null leaves the screen available as a view rather than a signal,
+and that is what was built the same day: **`scan_shallow_flip`**, registered as
+*Shallow Flip (Renko, bounded correction)* with 12 tests.
+
+The null is enforced structurally, not by wording a later edit could soften —
+the same three locks `scan_renko_flip` carries:
+
+| lock | why |
+|---|---|
+| no `entry` / `stop` / `target` keys | those are what make a hit read as a plan |
+| in `opportunity_hub.PIPELINE_EXCLUDED` | it can never become a confluence vote |
+| `score` = freshness + shallowness | never conviction; B-57 measured no edge |
+
+The card states the measured number in its own reasons — `−0.25% at 20d,
+p_rot=0.714, n=207` — and a test asserts that text is present, so the finding
+cannot quietly fall out of the UI.
+
+**Quality is NOT filtered inside the scanner.** Registry scanners are pure price
+functions of `df`, and the Hub card already renders a fundamentals strip beside
+every hit, so cash-flow and EPS sit next to the flip and the reader decides.
+Filtering on it in a price scanner would hide the disagreements, which on an
+attention list is precisely the information.
+
+**Live check on the 460-name cache: 5 hits** (MON100 3.8%, VOLTAMP 9.3%,
+IDFCFIRSTB 7.0%, SHILPAMED 8.2%, ANDHRAPAP 9.2%). Selective rather than a
+firehose, which is what a ≤10% cap buys — the ≤40% version would have returned
+the flip list nearly whole. One of the five is an ETF, so the Hub's universe
+should carry the cash-equivalent filter the Trending Stocks build already
+defines (`isLikelyLiquidETF`) if this screen is ever pointed at a raw universe.
 
 **The owner's 40% version was never run**, because `renko_quality_cardinality.py`
 showed it is not a filter (96% of flips clear it) and that its median
