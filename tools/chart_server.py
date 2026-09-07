@@ -457,6 +457,11 @@ def vwap_mean_reversion_js():
                                mimetype="application/javascript")
 
 
+@app.route("/psar.js")
+def psar_js():
+    return send_from_directory(HERE, "psar.js", mimetype="application/javascript")
+
+
 @app.route("/renko.js")
 def renko_js():
     return send_from_directory(HERE, "renko.js", mimetype="application/javascript")

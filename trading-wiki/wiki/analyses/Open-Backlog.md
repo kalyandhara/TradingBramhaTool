@@ -52,7 +52,7 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **New 2026-08-29** | ~~**B-43**~~ **BUILT + MEASURED → clean null** (flip edge ~0, negative on the long leg; beat buy&hold 0/23 — but fires 40% less often than the EVWMA cross, i.e. noise reduction without edge). Chart overlay kept, labelled FLIP not BUY/SELL. MCX still gated. From the Renko podcast ingest. ~~**B-44**~~ **BUILT + MEASURED same day → clean null** (see below); residual **B-44r** (is the naive dealer convention backwards for NSE?). From the Chris Kmer order-flow ingest. |
 | **New 2026-09-07** | ~~**B-57**~~ **PRE-REGISTERED then MEASURED same day → FAILS the bar** (edge **−0.25%**, p_rot=0.714, n=207). Owner proposed a Renko flip + ≤40%-correction + revenue/cash-flow screen. `tools/renko_quality_cardinality.py` counted first and **killed the 40% version before any return was scored**: 4,407 of 4,598 flip_ups (96%) clear a 40% cap, so it is not a filter, and its median `bricks_in_prior` = 3 sits on B-43r's worst bucket (−1.30%). The ≤10% rung was the only uncovered one; `tools/point_in_time_quality.py` (12 tests) closed the lookahead leg. Result: **B-43/B-43r stand**, but the null is **soft** — B-43r's −1.01% (p=0.000) dissolves to −0.25%, which is what its own mechanism predicts. CONTROL2 misbehaved (+3.37%, p=0.211); a HARNESS arm reproducing B-43's null (+0.49%, p=0.376) cleared the scorer, so that control is uninformative rather than contradictory. Cite as "no edge found, underpowered", not a settled zero. |
 | **New 2026-09-07 (from a QM/CHOCH setups chart)** | **B-58** (**DETECTOR BUILT, measurement not run**) — coverage audit of a "4 Setups for BUY Entry / QM patterns" chart: CHOCH, key levels, order blocks, the fib grid and the stop-hunt read are all already present, and the two missing rungs (**88.6% entry, 113% stop**) were **added to `fibonacci.js` the same day** (drawn only — deliberately NOT wired into `buildPlan`, since changing what a stop means is a measurement, not a default). The image's setups 1–3 are the retrace-after-structure-break family this desk has measured NEGATIVE three times (`ICT Setup` −0.36%/−1.24%, `Order Block Retest` −0.47%/−0.70%, `Pullback Entry` −0.43%/−1.12%, ~9,000 signals), so they are not proposed. Setup 4's stop-hunt mechanic is `Liquidity Sweep`, **already measured POSITIVE** (B-41m, +0.51% @20d p=0.005). The one real gap is the **QM geometry** itself — the `RH > LH` CHOCH plus a left-shoulder entry, which is what distinguishes it from an inverse H&S. `detect_quasimodo` built the same day with 17 tests. Two corrections came out of running it: the right shoulder had to become OPTIONAL (it is the retracement into the zone, so requiring a confirmed pivot made the setup visible only after it was untradeable), and the four pivots had to be made CONSECUTIVE — searching them independently reported a "pattern" on **73%** of 460 names, adjacency cut that to **44%**, and only **14 (3%)** have price in the zone with the head unbroken. Pre-registration written, skeptical prior, measurement NOT yet run. Multi-timeframe liquidity ("HTF LQ") deferred; note `HTF` in this repo means High Tight Flag, not higher timeframe. |
-| **New 2026-09-07 (from a PSAR chart)** | **B-59** — **Parabolic SAR is absent** (the `sar` key in `evwma_vwap_macd_backtest.py` is stop-and-reverse EQUITY, not Wilder's dots; not in `INDICATOR_DEFS`, so it cannot be charted). Scoped as an **overlay only**: B-46 already ruled PSAR out, but that objection was about a SCANNER creating a zero-unique registry entry next to `pmax`/`stai` — an overlay makes no claim and votes in nothing, which is the same split B-46 itself used for Ichimoku. Wilder's parameters and the two-bar penetration clamp are pinned in the entry, along with the causality requirement (bar *i*'s dot from bars ≤ *i−1*, so it does not repaint). No backtest owed for the overlay; before any PSAR *signal*, the first measurement owed is an **overlap check against `pmax`/`stai`**, not an edge test. |
+| **New 2026-09-07 (from a PSAR chart)** | ~~**B-59**~~ **BUILT same day** — Parabolic SAR was absent (the `sar` key in `evwma_vwap_macd_backtest.py` is stop-and-reverse EQUITY, not Wilder's dots; not in `INDICATOR_DEFS`, so it cannot be charted). Scoped as an **overlay only**: B-46 already ruled PSAR out, but that objection was about a SCANNER creating a zero-unique registry entry next to `pmax`/`stai` — an overlay makes no claim and votes in nothing, which is the same split B-46 itself used for Ichimoku. Wilder's parameters and the two-bar penetration clamp are pinned in the entry, along with the causality requirement (bar *i*'s dot from bars ≤ *i−1*, so it does not repaint). No backtest owed for the overlay; before any PSAR *signal*, the first measurement owed is an **overlap check against `pmax`/`stai`**, not an edge test. `psar.js` + 11 tests, verified on RELIANCE.NS (2,598 dots over 2,600 bars, no console errors); drawn as dots rather than a line, and with NO flip markers since pmax/stai already draw arrows on that pane. **A chart server already running returns 404 for `/psar.js` until restarted.** |
 | **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
 | **Shipped 2026-09-02 (not from the backlog)** | **Trending Stocks page** — `trending_stocks.py` + a Market-Intel page with four lenses: Price Movers (whole-market bhavcopy, turnover-floored), Volume Shockers (reuses `volume_anomaly` **with cause attribution** — the one lens the desk does better than the commercial screener it was modelled on), 52-Week and All-Time High/Low (computed from batched history over a bounded top-N-by-turnover universe, since NSE's UDiFF bhavcopy carries **no 52-week columns** — verified, 34 columns, none a range extreme). Requested from a screenshot of a commercial "Trending Stocks" page. **Deliberately NO "Most Visited" lens** — that is crowd page-view data from a site's own traffic logs, there is no free public feed for retail attention, and a proxy (delivery spikes, rank churn) would measure something else under the same label. Recorded as a decision, not an oversight, the same way the intraday ORB/DOM lane is. Two things the build forced: a **turnover floor**, without which the movers list is almost entirely penny stocks (a ₹3 share moving 19% is arithmetic), and a **cash-equivalent filter** reusing the chart's existing `isLikelyLiquidETF` definition, because a liquid ETF is *permanently* at its all-time high by construction and squatted on the first ATH run. |
@@ -464,7 +464,7 @@ other way to see. What is retired is any claim that it triggers.
 signal the Python correctly rejected. Neither implementation looked wrong alone; they
 only disagreed. They now agree signal-for-signal on RELIANCE / TATASTEEL / DLF.
 
-### B-59 · Parabolic SAR — chart overlay *(2026-09-07)*
+### ~~B-59~~ · Parabolic SAR — chart overlay — **BUILT 2026-09-07**
 
 Absent. `grep -ri "parabolic\|psar" tools/` returns nothing but a false positive:
 `evwma_vwap_macd_backtest.py`'s `sar` key is **stop-and-reverse equity**, not
@@ -509,6 +509,57 @@ PSAR *signal* ships: a pre-registered test AND an overlap check against `pmax`
 and `stai`, because B-46's objection is precisely that the flip may carry zero
 unique cells. **The right first measurement is the overlap, not the edge** — if
 its flips are a subset of PMax's, there is nothing to measure afterwards.
+
+═══ BUILT — `tools/psar.js` + 11 tests, wired into the chart ════════════════════
+
+Overlay only, exactly as scoped. `psar.js` is pure computation (no DOM, no
+charting-library dependency) beside `renko.js` / `supertrend_ai.js` /
+`fibonacci.js`; one `INDICATOR_DEFS` row in **Trend & Bands** next to `pmax` and
+`stai`, where a reader comparing the three trailing-stop tools will look for it.
+
+**Verified on real bars through the chart**, not just in isolation: RELIANCE.NS,
+2,600 bars → 1,368 long dots + 1,230 short dots = 2,598 (the two-bar seed
+accounts for the rest). Green below price in up-trends, red above in down-trends,
+switching sides at each reversal. No console errors, all module fetches 200.
+
+**Drawn as DOTS, not a line.** Consecutive SAR values sit on opposite sides of
+price across a reversal, so joining them would stroke a line straight through the
+candles that no part of the indicator asserts. lightweight-charts has no points
+series, so it is a line with `lineVisible:false` and point markers — added as a
+shared `addDots()` helper beside `addLine()`.
+
+**No flip markers, deliberately.** `pmax` and `stai` already draw BUY/SELL arrows
+on the same pane; a third set would read as three independent confirmations of
+one idea when they are three renderings of the same trailing-stop concept. That
+is B-46's objection expressed in pixels rather than in the registry.
+
+**Causality is the part that was worth writing carefully, and it has a test.**
+`path[i]` uses bar i-1's SAR/EP/AF and the ranges of bars i-1 and i-2 — nothing
+from bar i — so the dot is known at bar i's OPEN. `test_the_dot_for_a_bar_does_not_use_that_bar`
+mutates one bar's high and low by ±30% and asserts that bar's own dot does not
+move. A naive implementation seats today's dot from today's extreme: it looks
+almost identical on screen and it repaints, so any later measurement inherits a
+peek at the bar it is meant to be trading. Invisible to the eye, trivial to
+reintroduce, which is exactly what the test is for.
+
+Wilder's two-bar clamp is also asserted directly (SAR may not penetrate either of
+the last two bars' range on the side it trails), along with the AF schedule:
+0.02 seed, 0.02 step, 0.20 cap, reset on flip. `flips` carry their bar index and
+are fillable at the next open, the same treatment `renko.js` gives brick flips —
+so if the overlap check ever licenses a signal, the harness can score it without
+this module changing.
+
+> [!note] The running chart server must be restarted to pick this up
+> `chart_server.py` serves each module from an explicit route, and Flask is
+> started without the reloader. A server already running when this shipped
+> returns **404 for `/psar.js`** until restarted — observed on the live instance
+> during verification. `sw.js`'s precache list carries `/psar.js` too, and code is
+> already fetched network-first there (see the PWA cache postmortem), so no
+> service-worker flush is needed beyond the restart.
+
+**Still owed before any PSAR SIGNAL:** the overlap check against `pmax` and
+`stai`, NOT an edge test. B-46's objection is that the flip may carry zero unique
+cells; if its flips are a subset of PMax's there is nothing left to measure.
 
 **Note on the source chart.** The image's second panel pairs PSAR with a
 trendline and labels a "Take profit level" at a PSAR flip. That is the

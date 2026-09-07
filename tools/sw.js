@@ -53,6 +53,7 @@ const SHELL = [
   '/adx_di.js',
   '/rsi_divergence.js',
   '/evwma_vwap_macd.js',
+  '/psar.js',
   '/renko.js',
 ];
 

@@ -48,6 +48,11 @@
 <script src="/hm_indicator.js"></script>
 <!-- SuperTrend AI (adaptive factor via K-means) overlay — original impl of the LuxAlgo technique, see supertrend_ai.js -->
 <script src="/supertrend_ai.js"></script>
+<!-- Parabolic SAR (Wilder) — pure computation module, see psar.js. Overlay only:
+     B-46 ruled a PSAR *scanner* out (pmax/stai already hold the trailing-stop-flip
+     role); an overlay makes no claim and votes in nothing. Dots are causal — the
+     dot for bar i uses nothing from bar i. -->
+<script src="/psar.js"></script>
 <!-- Fibonacci levels + confluence trade plan — pure computation module, see fibonacci.js.
      Loaded AFTER elliott_wave.js and volume_profile.js: it reads EW.computeZigzag for
      swing anchoring and VP.findConfluence for level scoring. -->
@@ -1292,6 +1297,7 @@ const INDICATOR_DEFS = [
   {key:'keltner',   label:'Keltner (20, 1.5)',     group:'Trend & Bands', color:'#f48fb1'},
   {key:'pmax',      label:'PMax (EMA10, ATR10 × 3) + signals', group:'Trend & Bands', color:'#26a69a'},
   {key:'stai',      label:'SuperTrend AI (adaptive factor via K-means) + signals', group:'Trend & Bands', color:'#00bcd4', alias:'supertrend ai luxalgo adaptive clustering kmeans trend trailing stop'},
+  {key:'psar',      label:'Parabolic SAR (0.02, 0.20)', group:'Trend & Bands', color:'#ffa726', alias:'parabolic sar stop and reverse wilder trailing stop dots psar'},
   {key:'renko',     label:'Renko structure on candles (ATR brick) + flips', group:'Trend & Bands', color:'#ab47bc', alias:'renko brick noiseless noise free time independent price sampled staircase brick size atr flip devendra'},
   // ── Sub-pane oscillators ────────────────────────────────────────────────────
   {pane:'sub', key:'rsi',       label:'RSI (14)',               group:'Oscillators',       color:'#7b61ff'},
@@ -3122,6 +3128,17 @@ function addLine(pane, color, lineWidth = 1, lineStyle = 0) {
   });
 }
 
+// A scatter series. lightweight-charts has no dedicated points type, so it is a
+// line with the line hidden and the per-point markers shown — the standard way,
+// and the only way to draw Parabolic SAR without implying a stroke between dots
+// that sit on opposite sides of price.
+function addDots(pane, color, radius = 1.6) {
+  return pane.chart.addLineSeries({
+    color, lineVisible: false, pointMarkersVisible: true, pointMarkersRadius: radius,
+    priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+  });
+}
+
 // Momentum / directional-signal indicators that are meaningless on a
 // cash-equivalent instrument (Liquid ETFs like LIQUIDCASE.NS, LIQUIDBEES,
 // etc.): applying them produces phantom oversold reads, spurious %R
@@ -3362,6 +3379,16 @@ function applyIndicators(pane) {
           addLine(pane, '#f23645', 2),  // down-trend (above price)
         ];
         break;
+      case 'psar':
+        // DOTS, not a line. Consecutive SAR values sit on opposite sides of price
+        // across a reversal, so joining them would draw a stroke straight through
+        // the candles that no part of the indicator asserts. lineVisible:false with
+        // point markers is how lightweight-charts draws a scatter.
+        pane.indSeries[key] = [
+          addDots(pane, '#26a69a'),   // long — dots trail BELOW price
+          addDots(pane, '#f23645'),   // short — dots trail ABOVE price
+        ];
+        break;
       case 'renko':
         // The Renko grid as a STAIRCASE over the candles — stepped, because the brick
         // close only changes when a brick completes, and a smooth line between those
@@ -3463,6 +3490,19 @@ function applyIndicators(pane) {
              text: 'BUY ' + sig.strength}
           : {time: sig.time, position: 'aboveBar', color: '#f23645', shape: 'arrowDown',
              text: 'SELL ' + sig.strength}));
+        break;
+      }
+      case 'psar': {
+        // Wilder's dots, split by side so the colour states the trend without a
+        // second series carrying the same information. Whitespace-padded like
+        // pmax/stai so neither colour connects across the other's stretch.
+        const ps = PSAR.compute(bars);
+        s[0].setData(padToBars(ps.up, bars));   // long  (green, below price)
+        s[1].setData(padToBars(ps.dn, bars));   // short (red, above price)
+        // NO flip markers, deliberately. pmax and stai already draw BUY/SELL
+        // arrows, and a third set on the same pane would read as three
+        // independent confirmations of one idea. B-46's objection to a PSAR
+        // signal stands until the overlap check it asks for has been run.
         break;
       }
       case 'renko': {
