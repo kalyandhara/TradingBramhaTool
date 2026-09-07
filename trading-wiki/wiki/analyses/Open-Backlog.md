@@ -1201,6 +1201,47 @@ prop-desk toolset converges on. See [[concepts/Order-Flow]].
 > stack that could plausibly supply trade-side data; establish whether it does, and whether
 > any NSE path exists, first.
 
+### B-45 · SVP Structure screen — **SHIPPED 2026-09-06 as a BYSTANDER, promotion deliberately deferred**
+
+Owner asked for a screener on the chart tool's SVP confluence. Built as
+`tools/svp_screen_runner.js` (batch the REAL engine headlessly, same modules the
+chart loads) + a **SVP Structure** page under Screening.
+
+**What it screens on, and the one thing it refuses to.** Structure only: value-area
+state, distance to composite POC, session shape sequence, trap/accumulation state.
+**Not the confluence score and not its BUY/SELL direction** — that score measured a
+clean negative on 2026-08-29 (corr(score, 20d fwd) = −0.041, deciles
+non-monotonic, BUY-high confidence performing WORSE than BUY-low, 5 of 7 factor
+families sign-inverted including `trap` at the largest weight). A screener exists
+to surface its top-ranked names, so ranking on that score would systematically
+surface what the measurement says to avoid.
+
+**Bystander by explicit instruction, and the instruction is the useful part.**
+Owner: *"I wish to have the SVP screener as bystander now, based on accuracy we
+can take a call to wire it into pipeline, that too at the end of the pipeline."*
+So: not a registered scanner, not in `pipeline_scanners()`, no ranking weight,
+nothing downstream reads it. Verified — `SVP in scanner registry: False`, `SVP in
+pipeline: False`.
+
+**The promotion gate, recorded now so it is not invented later:** a measured
+accuracy result on the STRUCTURAL fields, and even then it enters at the END of
+the pipeline. That ordering matters — a late-stage lens filters a shortlist
+someone else ranked, where an early-stage one shapes what gets considered at all,
+and a lens whose parent score measured negative should not be shaping the
+candidate set.
+
+**Two stale things found while building.** (1) The engine retains
+`maxSessions = 12`, but the card's prose calls it "the 5-session acceptance
+range" — the screen reports `n_sessions` per row rather than forcing 5, since
+changing it would make the screen disagree with the chart. (2) On NSE dailies the
+measured grain-picker resolves to **weekly**, so a "session" here is a week
+(24 of 26 rows) — worth knowing before reading "last 5 sessions" literally.
+
+**Node, not a Python port**, importing the same modules the chart loads. Not
+hypothetical caution: on 2026-09-06 the VWAP mean-reversion JS and Python
+disagreed because one averaged 19 bars over a divisor of 20 — a bug neither
+implementation revealed alone.
+
 ### ~~B-41w~~ · Does the time-only plan hold across eras? — **PRE-REGISTERED, PASSED 2026-09-06**
 
 The single follow-up B-41p's scope clause licensed. Design committed before the

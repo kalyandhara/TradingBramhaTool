@@ -1104,7 +1104,7 @@ def _symbol_jump_from_box() -> None:
 # ──────────────────────────────────────────────────────────────────────────────
 PAGE_GROUPS = {
     "Screening":        ["Opportunity Hub", "Delete Funnel", "Hidden Treasures", "Screener", "Other Screeners", "Scanner Hub",
-                         "Breakout Scans", "High-Growth Screener"],
+                         "Breakout Scans", "High-Growth Screener", "SVP Structure"],
     "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
     "Research":         ["Predictive Analysis", "Stock Analyzer", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
@@ -1123,6 +1123,7 @@ PAGE_BLURBS = {
     "Scanner Hub":          "24 pattern scanners, run on any universe",
     "Breakout Scans":       "External new-high breakout feeds — Chartink or TradingView",
     "High-Growth Screener": "Quality growth names on ROE / ROCE / OPM floors",
+    "SVP Structure":        "Volume-profile structure — a bystander lens, not in the pipeline",
     "Market Sentiment":     "0–100 composite regime gauge, with coverage",
     "India Market Intel":   "Bulk & block deals, insider trades, gap scanner",
     "OI Momentum":          "Open-interest build-up and unwinding",
@@ -10312,6 +10313,103 @@ if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chart
 # Page — High-Growth Screener (screener.in fundamentals + IBD-style RS rank +
 # %R Trend Exhaustion signal)
 # ──────────────────────────────────────────────────────────────────────────────
+if current_page == "SVP Structure":
+    st.subheader("SVP Structure")
+    st.caption(
+        "Volume-profile **structure** across the engine's retained sessions — where "
+        "price sits against the composite value area and POC, what shapes the "
+        "sessions printed, whether a trap run is in progress. Read from the SAME "
+        "`session_volume_profile.js` the chart draws, via a headless Node pass, so "
+        "the screen and the chart can never disagree."
+    )
+    st.markdown(
+        rs.callout(
+            "A bystander, deliberately.",
+            "This page feeds NOTHING. It is not a registered scanner, it is not in "
+            "the confluence pipeline, and it contributes no ranking weight. The SVP "
+            "confluence SCORE was measured 2026-08-29 as a clean negative — "
+            "corr(score, 20d fwd) = −0.041, deciles non-monotonic, BUY-high "
+            "confidence performing WORSE than BUY-low, 5 of 7 factor families "
+            "sign-inverted — so the score and its BUY/SELL direction are not shown "
+            "here at all. What is shown is structure, which the chart card's own "
+            "caveat says to read while ignoring the direction. If it ever earns a "
+            "place in the pipeline it goes at the END of it, on measured accuracy, "
+            "and that decision has not been taken.",
+            tone="warn"),
+        unsafe_allow_html=True)
+
+    _svp_csv = Path(__file__).resolve().parent / "cache" / "svp_screen.csv"
+    if not _svp_csv.exists():
+        st.info("No screen file yet. Build one with:")
+        st.code("node tools/svp_screen_runner.js "
+                "--dir tools/cache/backtest --out tools/cache/svp_screen.csv",
+                language="bash")
+    else:
+        _svp = pd.read_csv(_svp_csv)
+        _age = datetime.now() - datetime.fromtimestamp(_svp_csv.stat().st_mtime)
+        _hrs = _age.total_seconds() / 3600
+        st.caption(
+            f"{len(_svp)} symbols · file written {_hrs:.1f}h ago · "
+            f"as-of dates in the table are the LAST BAR per symbol, which is what "
+            f"the structure describes — a stale bar makes a stale row, so both are "
+            f"shown rather than one date for the page."
+        )
+
+        _c1, _c2, _c3 = st.columns(3)
+        with _c1:
+            _va = st.multiselect("Value-area state",
+                                 sorted(_svp["va_state"].dropna().unique()),
+                                 default=[], key="svp_va")
+        with _c2:
+            _shape = st.multiselect("Last session shape",
+                                    sorted(_svp["last_shape"].dropna().unique()),
+                                    default=[], key="svp_shape")
+        with _c3:
+            _near = st.slider("Max |distance to composite POC| %", 0.0, 25.0, 25.0,
+                              step=0.5, key="svp_poc",
+                              help="POC is where most volume transacted — the "
+                                   "structural magnet. This filters on PROXIMITY "
+                                   "only; it implies no direction.")
+
+        _f = _svp.copy()
+        if _va:
+            _f = _f[_f["va_state"].isin(_va)]
+        if _shape:
+            _f = _f[_f["last_shape"].isin(_shape)]
+        _f = _f[_f["poc_dist_pct"].abs().fillna(999) <= _near]
+
+        st.markdown(f"**{len(_f)} of {len(_svp)}** symbols match.")
+        st.dataframe(
+            _f[["symbol", "asof", "close", "grain", "n_sessions", "va_state",
+                "poc_dist_pct", "va_pos", "last_shape", "shape_seq", "trap",
+                "accum_dist", "sweep_flag", "exhaustion_flag"]],
+            use_container_width=True, hide_index=True,
+            column_config={
+                "poc_dist_pct": st.column_config.NumberColumn(
+                    "vs POC %", format="%.2f%%",
+                    help="Close against the composite POC. Sign is position, "
+                         "not a verdict."),
+                "va_pos": st.column_config.NumberColumn(
+                    "VA pos", format="%.2f",
+                    help="0 = value-area low, 1 = value-area high. Outside 0–1 "
+                         "means price left the range."),
+                "shape_seq": st.column_config.TextColumn(
+                    "shapes", help="Oldest→newest. P = buying/short-covering, "
+                                   "B = selling/liquidation, D = directional, "
+                                   "I = balance."),
+                "sweep_flag": st.column_config.NumberColumn("sweep", format="%d"),
+                "exhaustion_flag": st.column_config.NumberColumn("exh", format="%d"),
+            })
+        st.caption(
+            "`sweep` and `exh` are the only two of seven factor families that "
+            "measured the RIGHT way (+0.39 and +0.12). They are shown as flags and "
+            "nothing sorts on them: +0.12 is near zero, and picking the winners out "
+            "of an in-sample attribution is the overfit the SVP design "
+            "pre-registered against. They are here for a future pre-registered "
+            "test, not as a signal."
+        )
+
+
 if current_page == "High-Growth Screener":
     st.subheader("High-Growth Screener — Sustained Growth + Quality Gates")
     st.caption(
