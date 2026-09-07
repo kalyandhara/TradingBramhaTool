@@ -1,8 +1,8 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
-## [2026-09-06] build | B-45 SVP Structure screen — shipped as a BYSTANDER, wired to nothing
-- Code: **`tools/svp_screen_runner.js`** (new) + **SVP Structure** page under Screening. Updated: [[analyses/Open-Backlog]] (**B-45**).
+## [2026-09-06] build | B-52 SVP Structure screen — shipped as a BYSTANDER, wired to nothing
+- Code: **`tools/svp_screen_runner.js`** (new) + **SVP Structure** page under Screening. Updated: [[analyses/Open-Backlog]] (**B-52**).
 - **Screens STRUCTURE, refuses the SCORE.** Value-area state, distance to composite POC, shape sequence, trap/accumulation. Not the confluence score or its BUY/SELL direction — measured 2026-08-29 as a clean negative (corr −0.041, deciles non-monotonic, **BUY-high confidence worse than BUY-low**, 5 of 7 families sign-inverted). A screener surfaces its top-ranked names, so ranking on that score would surface exactly what the measurement says to avoid.
 - **Bystander by explicit instruction:** not a registered scanner, not in `pipeline_scanners()`, no ranking weight, nothing downstream reads it. Verified in code, not just asserted.
 - **Promotion gate recorded NOW so it is not invented later:** measured accuracy on the structural fields, and even then it enters at the END of the pipeline. A late-stage lens filters a shortlist someone else ranked; an early-stage one shapes what gets considered at all — and a lens whose parent score measured negative should not shape the candidate set.

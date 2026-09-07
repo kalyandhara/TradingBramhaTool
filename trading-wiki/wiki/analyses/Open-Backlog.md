@@ -1201,7 +1201,7 @@ prop-desk toolset converges on. See [[concepts/Order-Flow]].
 > stack that could plausibly supply trade-side data; establish whether it does, and whether
 > any NSE path exists, first.
 
-### B-45 · SVP Structure screen — **SHIPPED 2026-09-06 as a BYSTANDER, promotion deliberately deferred**
+### B-52 · SVP Structure screen — **SHIPPED 2026-09-06 as a BYSTANDER, promotion deliberately deferred**
 
 Owner asked for a screener on the chart tool's SVP confluence. Built as
 `tools/svp_screen_runner.js` (batch the REAL engine headlessly, same modules the

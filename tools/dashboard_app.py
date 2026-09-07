@@ -10378,13 +10378,56 @@ if current_page == "SVP Structure":
             _f = _f[_f["last_shape"].isin(_shape)]
         _f = _f[_f["poc_dist_pct"].abs().fillna(999) <= _near]
 
+        _reads = st.multiselect("Structural read", ["BUY", "SELL", "HOLD"],
+                                default=[], key="svp_read",
+                                help="From svp_structure_signal.js — POC migration + "
+                                     "HVN/LVN roles + shape series. UNMEASURED; "
+                                     "B-53 is the pre-registered test.")
+        if _reads:
+            _f = _f[_f["struct_read"].isin(_reads)]
+
         st.markdown(f"**{len(_f)} of {len(_svp)}** symbols match.")
+        _show = _f[["symbol", "struct_read", "migration", "migration_frac",
+                    "asof", "close", "va_state", "poc_dist_pct",
+                    "support_hvn", "resistance_hvn", "fast_below", "fast_above",
+                    "last_shape", "shape_seq", "accum_dist", "why"]].copy()
+        # Same action-icon family every other table on this desk carries, so a row
+        # here reaches the chart, the analyzer and the watchlist without retyping
+        # a symbol into another page.
+        _show = _with_chart_family(_show, "symbol")
         st.dataframe(
-            _f[["symbol", "asof", "close", "grain", "n_sessions", "va_state",
-                "poc_dist_pct", "va_pos", "last_shape", "shape_seq", "trap",
-                "accum_dist", "sweep_flag", "exhaustion_flag"]],
+            _show,
             use_container_width=True, hide_index=True,
             column_config={
+                **_chart_family_colcfg(),
+                "struct_read": st.column_config.TextColumn(
+                    "read", help="BUY / SELL / HOLD from the STRUCTURAL rules — "
+                                 "not the measured-negative confluence score."),
+                "migration_frac": st.column_config.NumberColumn(
+                    "mig", format="%.2f",
+                    help="Fraction of session-to-session POC steps agreeing in "
+                         "sign. >= 0.60 is required to call a trend."),
+                "support_hvn": st.column_config.NumberColumn(
+                    "sup HVN", format="%.2f",
+                    help="Nearest HIGH-volume node below — accepted price with "
+                         "inventory to defend it. Stops belong behind this."),
+                "resistance_hvn": st.column_config.NumberColumn(
+                    "res HVN", format="%.2f",
+                    help="Nearest high-volume node above — supply overhead, where "
+                         "price stalls."),
+                "fast_below": st.column_config.NumberColumn(
+                    "fast ▼", format="%.2f",
+                    help="Nearest LOW-volume node below. NOT support — thin trade, "
+                         "price traverses it quickly. A stop here sits in the one "
+                         "place the market moves through fastest."),
+                "fast_above": st.column_config.NumberColumn(
+                    "fast ▲", format="%.2f",
+                    help="Nearest low-volume node above — a fast zone, so a target "
+                         "beyond it is reachable quickly once entered."),
+                "why": st.column_config.TextColumn(
+                    "rules", width="medium",
+                    help="Which named rules fired (or, for HOLD, which failed). "
+                         "No weights — a disagreement is about a stated rule."),
                 "poc_dist_pct": st.column_config.NumberColumn(
                     "vs POC %", format="%.2f%%",
                     help="Close against the composite POC. Sign is position, "
@@ -10397,9 +10440,18 @@ if current_page == "SVP Structure":
                     "shapes", help="Oldest→newest. P = buying/short-covering, "
                                    "B = selling/liquidation, D = directional, "
                                    "I = balance."),
-                "sweep_flag": st.column_config.NumberColumn("sweep", format="%d"),
-                "exhaustion_flag": st.column_config.NumberColumn("exh", format="%d"),
             })
+        st.caption(
+            "**The `read` column is a SECOND, separate construction** "
+            "(`svp_structure_signal.js`) — POC migration, HVN/LVN roles and the "
+            "shape series, as named boolean rules with no weights, so a "
+            "disagreement is about a stated rule rather than a number nobody can "
+            "decompose. It does NOT use the confluence score. It is **unmeasured**, "
+            "and the prior evidence points against it: `sequence` attributed at "
+            "−0.67 and `va` at −0.71 in the 2026-08-29 study, and those are exactly "
+            "the inputs it uses. **B-53 is the pre-registered test.** Nothing here "
+            "reaches the pipeline until that runs."
+        )
         st.caption(
             "`sweep` and `exh` are the only two of seven factor families that "
             "measured the RIGHT way (+0.39 and +0.12). They are shown as flags and "

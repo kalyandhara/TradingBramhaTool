@@ -181,7 +181,13 @@
     const note = sessions.length ? null
       : `no ${grain} segment reached ${MIN_SESSION_BARS} bars — profile not computable at this timeframe`;
 
-    return { sessions, trap, ad, levels, composite, signal, grain, note,
+    // `compositeProfile` is the FULL profile object behind `composite` -- bins,
+    // hvnZones, lvnZones. Additive: `composite` keeps its {poc,vah,val} shape so
+    // every existing caller is untouched. Exposed because a structural read needs
+    // the NODES, and recomputing them outside would be a second profile free to
+    // disagree with the one the card draws.
+    return { sessions, trap, ad, levels, composite, compositeProfile: cp,
+             signal, grain, note,
              card: buildCard(sessions, trap, ad, composite, signal, grain, note) };
   }
 

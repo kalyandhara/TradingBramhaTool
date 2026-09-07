@@ -54,13 +54,16 @@ const path = require('path');
 global.window = global;
 require(path.join(__dirname, 'volume_profile.js'));
 require(path.join(__dirname, 'session_volume_profile.js'));
+require(path.join(__dirname, 'svp_structure_signal.js'));
 
 const COLUMNS = [
   'symbol', 'asof', 'close', 'grain', 'n_sessions',
   'comp_poc', 'comp_vah', 'comp_val',
   'va_state', 'poc_dist_pct', 'va_pos',
   'last_shape', 'shape_seq', 'trap', 'trap_dir', 'accum_dist',
-  'sweep_flag', 'sweep_dir', 'exhaustion_flag', 'exhaustion_dir', 'note',
+  'sweep_flag', 'sweep_dir', 'exhaustion_flag', 'exhaustion_dir',
+  'struct_read', 'migration', 'migration_frac',
+  'support_hvn', 'resistance_hvn', 'fast_below', 'fast_above', 'why', 'note',
 ];
 
 function loadBars(file) {
@@ -109,6 +112,11 @@ function row(symbol, bars) {
   const sweep = find(/sweep/i);
   const exh = find(/exhaust/i);
 
+  // The SEPARATE structural read (svp_structure_signal.js) — POC migration,
+  // HVN/LVN roles, shape series. Not the composite score; see that module's
+  // header for why it is a different construction and why it is still unproven.
+  const st = global.SVPSTRUCT.read(res, bars);
+
   return {
     symbol,
     asof: last.time ? new Date(last.time * 1000).toISOString().slice(0, 10) : '',
@@ -130,6 +138,14 @@ function row(symbol, bars) {
     sweep_dir: sweep ? sweep.dir : '',
     exhaustion_flag: exh ? 1 : 0,
     exhaustion_dir: exh ? exh.dir : '',
+    struct_read: st.read,
+    migration: st.trend ? st.trend.dir : '',
+    migration_frac: st.trend ? st.trend.frac : '',
+    support_hvn: st.levels.support_hvn,
+    resistance_hvn: st.levels.resistance_hvn,
+    fast_below: st.levels.fast_zone_below,
+    fast_above: st.levels.fast_zone_above,
+    why: (st.read === 'HOLD' ? st.against : st.why).join(' | '),
     note: res.note || '',
   };
 }
