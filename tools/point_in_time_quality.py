@@ -130,7 +130,7 @@ def known_as_of(series: list[tuple[dt.date, float]], as_of: dt.date,
     return [(e, v) for e, v in series if e + dt.timedelta(days=lag_days) <= as_of]
 
 
-def _base_for(known: list[tuple[dt.date, float]], window: int = WINDOW_YEARS,
+def _base_for(known: list[tuple[dt.date, float]], window: float = WINDOW_YEARS,
               ) -> Optional[tuple[dt.date, float, float]]:
     """The comparison year, plus the TRUE elapsed span between it and the latest.
 
@@ -165,7 +165,8 @@ def _base_for(known: list[tuple[dt.date, float]], window: int = WINDOW_YEARS,
 # ── the gate ─────────────────────────────────────────────────────────────────
 
 def quality_as_of(stmts: dict[str, Any], as_of, *, lag_days: int = LAG_DAYS,
-                  min_years: int = MIN_YEARS) -> dict[str, Any]:
+                  min_years: int = MIN_YEARS,
+                  window: float = WINDOW_YEARS) -> dict[str, Any]:
     """Revenue growth AND operating-cash-flow growth, as known on `as_of`.
 
     Returns the CONTINUOUS measures alongside the boolean, because B-57's
@@ -203,7 +204,7 @@ def quality_as_of(stmts: dict[str, Any], as_of, *, lag_days: int = LAG_DAYS,
                          f"{as_of.isoformat()}, need {min_years}")
         return out
 
-    rb, ob = _base_for(rev), _base_for(ocf)
+    rb, ob = _base_for(rev, window), _base_for(ocf, window)
     if rb is None or ob is None:
         out["reason"] = "no base year within tolerance of the growth window"
         return out
@@ -292,6 +293,8 @@ def main() -> None:
     ap.add_argument("symbols", nargs="*")
     ap.add_argument("--as-of", default=dt.date.today().isoformat())
     ap.add_argument("--lag-days", type=int, default=LAG_DAYS)
+    ap.add_argument("--window", type=float, default=WINDOW_YEARS,
+                    help="growth span in years (B-57 pins this at 2)")
     ap.add_argument("--refresh", action="store_true")
     args = ap.parse_args()
 
@@ -300,7 +303,8 @@ def main() -> None:
     for s in args.symbols:
         if args.refresh:
             cached_statements(s, refresh=True)
-        print(as_of_report(s, args.as_of, lag_days=args.lag_days))
+        print(as_of_report(s, args.as_of, lag_days=args.lag_days,
+                           window=args.window))
 
 
 if __name__ == "__main__":

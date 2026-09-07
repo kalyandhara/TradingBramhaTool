@@ -134,6 +134,58 @@ def flips_for(bars_path: Path) -> list[dict]:
 
 # ── stage 4 · the correction into each flip ──────────────────────────────────
 
+def flip_events_raw(bars_path: Path) -> list[dict]:
+    """EVERY flip, up and down, with its bar index and the depth before it.
+
+    Split out of `flip_events` so B-57's scorer reads the same depth definition
+    this module counted with, rather than re-deriving one that could drift. The
+    window filtering and the up-only restriction stay in `flip_events`, which is
+    a reporting view over this.
+
+    `depth_from_peak` / `depth_from_flip` are computed for UP-flips only and left
+    as None for down-flips. The measure is "how far did it fall before turning
+    back up" -- there is no coherent reading of that for a flip in the other
+    direction, and inventing one to fill the column would be worse than a gap.
+    """
+    doc = json.loads(bars_path.read_text(encoding="utf-8"))
+    bars = doc["bars"]
+    if len(bars) < WARMUP + 120:
+        return []
+    high = np.array([b["high"] for b in bars], float)
+    low = np.array([b["low"] for b in bars], float)
+
+    fl = flips_for(bars_path)
+    if not fl:
+        return []
+
+    out: list[dict] = []
+    for k, f in enumerate(fl):
+        row = {"symbol": doc["symbol"], "index": f["index"], "dir": f["dir"],
+               "time": f["time"], "bricks_in_prior": f["bricks_in_prior"],
+               "depth_from_peak": None, "depth_from_flip": None,
+               "days_down": None}
+        if f["dir"] == 1:
+            prev_dn = next((fl[j] for j in range(k - 1, -1, -1)
+                            if fl[j]["dir"] == -1), None)
+            if prev_dn is not None:
+                prev_up = next((fl[j] for j in range(k - 1, -1, -1)
+                                if fl[j]["dir"] == 1
+                                and fl[j]["index"] < prev_dn["index"]), None)
+                i_dn, i_up = prev_dn["index"], f["index"]
+                if i_up > i_dn:
+                    trough = float(low[i_dn:i_up + 1].min())
+                    peak_from = (prev_up["index"] if prev_up is not None
+                                 else max(0, i_dn - 120))
+                    peak = float(high[peak_from:i_dn + 1].max())
+                    if trough > 0 and peak > 0:
+                        row["depth_from_peak"] = round((peak - trough) / peak * 100, 2)
+                        row["depth_from_flip"] = round(
+                            (prev_dn["close"] - trough) / prev_dn["close"] * 100, 2)
+                        row["days_down"] = int(i_up - i_dn)
+        out.append(row)
+    return out
+
+
 def flip_events(bars_path: Path, years: int) -> list[dict]:
     """Every flip_up in the scoring window, with the depth of the fall before it.
 
@@ -147,45 +199,20 @@ def flip_events(bars_path: Path, years: int) -> list[dict]:
                        sell SIGNAL would have saved you, which is smaller.
     """
     doc = json.loads(bars_path.read_text(encoding="utf-8"))
-    bars = doc["bars"]
-    if len(bars) < WARMUP + 120:
-        return []
-    high = np.array([b["high"] for b in bars], float)
-    low = np.array([b["low"] for b in bars], float)
-
-    fl = flips_for(bars_path)
-    if not fl:
-        return []
+    n_bars = len(doc["bars"])
     # The scoring window is the last `years` of bars; earlier flips exist only to
     # supply each event its preceding down-flip.
-    cutoff_i = max(WARMUP, len(bars) - int(years * 252))
-
-    out: list[dict] = []
-    for k, f in enumerate(fl):
-        if f["dir"] != 1 or f["index"] < cutoff_i:
-            continue
-        prev_dn = next((fl[j] for j in range(k - 1, -1, -1) if fl[j]["dir"] == -1), None)
-        if prev_dn is None:
-            continue
-        prev_up = next((fl[j] for j in range(k - 1, -1, -1)
-                        if fl[j]["dir"] == 1 and fl[j]["index"] < prev_dn["index"]), None)
-        i_dn, i_up = prev_dn["index"], f["index"]
-        if i_up <= i_dn:
-            continue
-        trough = float(low[i_dn:i_up + 1].min())
-        peak_from = prev_up["index"] if prev_up is not None else max(0, i_dn - 120)
-        peak = float(high[peak_from:i_dn + 1].max())
-        if trough <= 0 or peak <= 0:
-            continue
-        out.append({
-            "symbol": doc["symbol"],
-            "date": pd.to_datetime(f["time"], unit="s").strftime("%Y-%m-%d"),
-            "depth_from_peak": round((peak - trough) / peak * 100, 2),
-            "depth_from_flip": round((prev_dn["close"] - trough) / prev_dn["close"] * 100, 2),
-            "days_down": int(i_up - i_dn),
-            "bricks_in_prior": f["bricks_in_prior"],
-        })
-    return out
+    cutoff_i = max(WARMUP, n_bars - int(years * 252))
+    return [{
+        "symbol": r["symbol"],
+        "date": pd.to_datetime(r["time"], unit="s").strftime("%Y-%m-%d"),
+        "depth_from_peak": r["depth_from_peak"],
+        "depth_from_flip": r["depth_from_flip"],
+        "days_down": r["days_down"],
+        "bricks_in_prior": r["bricks_in_prior"],
+    } for r in flip_events_raw(bars_path)
+        if r["dir"] == 1 and r["index"] >= cutoff_i
+        and r["depth_from_peak"] is not None]
 
 
 # ── stage 5 · the quality gate, as a pass RATE ───────────────────────────────

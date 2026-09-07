@@ -50,7 +50,7 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**), ~~**B-41**~~ (**CLOSED 2026-09-02** — `detect_liquidity_pools` + `detect_liquidity_sweep` + both scanners; SMC stack now complete), ~~**B-42**~~ (**CLOSED 2026-09-02**; residual **B-42r** — the pivot_len 5-vs-15 split, to be settled on data). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
 | **Closed 2026-09-05** | ~~**B-44r**~~ **MEASURED → FALSIFIED, GEX retired** (magnitude convention inverted the pre-registered direction and what survives the 1/σ control flips sign between vol terciles — see below). **B-34r** *(new, shipped same day)* — **Hidden Treasures gained its first HARD gate**: `red_flags.py` (FR-4) wired into `smallcap_discovery`, critical flags veto, watch flags cost 6 pts, NOT_CHECKED never reads as a pass. Zero extra fetches (rides the quality overlay's payload; `sessionid=None` keeps screener.in dormant). **Vetoes 100 of 249 on Smallcap-250** — 59 negative FCF, 51 promoter stake reduction, 28 pledge, 5 dilution. Toggleable and every exclusion is listed, because the default is NOT settled: see **B-34r2**. |
 | **New 2026-08-29** | ~~**B-43**~~ **BUILT + MEASURED → clean null** (flip edge ~0, negative on the long leg; beat buy&hold 0/23 — but fires 40% less often than the EVWMA cross, i.e. noise reduction without edge). Chart overlay kept, labelled FLIP not BUY/SELL. MCX still gated. From the Renko podcast ingest. ~~**B-44**~~ **BUILT + MEASURED same day → clean null** (see below); residual **B-44r** (is the naive dealer convention backwards for NSE?). From the Chris Kmer order-flow ingest. |
-| **New 2026-09-07** | **B-57** (**PRE-REGISTERED, NOT YET RUN**) — does a Renko flip out of a SHALLOW (≤10%) correction work on quality names? Owner proposed a flip + ≤40%-correction + revenue/cash-flow screen; `tools/renko_quality_cardinality.py` counted the survivors first and **killed the 40% version before any return was scored**: 4,407 of 4,598 flip_ups (96%) clear a 40% cap, so it is not a filter, and its median `bricks_in_prior` = 3 lands on B-43r's worst measured bucket (−1.30%). The ≤10% rung (631 events, 247 names, median `bricks_in_prior` = 1) is the only one B-43r does not already cover. Threshold chosen on cardinality, NOT returns. **Point-in-time layer BUILT same day** (, 12 tests) — which truncated the window to 2025-05-30+ (yfinance serves only 4 annual columns) and fixed the growth span at 2y so the gate keeps one definition across the sample: **498 events, 233 names**, still above the 200 abort bar. |
+| **New 2026-09-07** | ~~**B-57**~~ **PRE-REGISTERED then MEASURED same day → FAILS the bar** (edge **−0.25%**, p_rot=0.714, n=207). Owner proposed a Renko flip + ≤40%-correction + revenue/cash-flow screen. `tools/renko_quality_cardinality.py` counted first and **killed the 40% version before any return was scored**: 4,407 of 4,598 flip_ups (96%) clear a 40% cap, so it is not a filter, and its median `bricks_in_prior` = 3 sits on B-43r's worst bucket (−1.30%). The ≤10% rung was the only uncovered one; `tools/point_in_time_quality.py` (12 tests) closed the lookahead leg. Result: **B-43/B-43r stand**, but the null is **soft** — B-43r's −1.01% (p=0.000) dissolves to −0.25%, which is what its own mechanism predicts. CONTROL2 misbehaved (+3.37%, p=0.211); a HARNESS arm reproducing B-43's null (+0.49%, p=0.376) cleared the scorer, so that control is uninformative rather than contradictory. Cite as "no edge found, underpowered", not a settled zero. |
 | **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
 | **Shipped 2026-09-02 (not from the backlog)** | **Trending Stocks page** — `trending_stocks.py` + a Market-Intel page with four lenses: Price Movers (whole-market bhavcopy, turnover-floored), Volume Shockers (reuses `volume_anomaly` **with cause attribution** — the one lens the desk does better than the commercial screener it was modelled on), 52-Week and All-Time High/Low (computed from batched history over a bounded top-N-by-turnover universe, since NSE's UDiFF bhavcopy carries **no 52-week columns** — verified, 34 columns, none a range extreme). Requested from a screenshot of a commercial "Trending Stocks" page. **Deliberately NO "Most Visited" lens** — that is crowd page-view data from a site's own traffic logs, there is no free public feed for retail attention, and a proxy (delivery spikes, rank churn) would measure something else under the same label. Recorded as a decision, not an oversight, the same way the intraday ORB/DOM lane is. Two things the build forced: a **turnover floor**, without which the movers list is almost entirely penny stocks (a ₹3 share moving 19% is arithmetic), and a **cash-equivalent filter** reusing the chart's existing `isLikelyLiquidETF` definition, because a liquid ETF is *permanently* at its all-time high by construction and squatted on the first ATH run. |
@@ -462,7 +462,7 @@ other way to see. What is retired is any claim that it triggers.
 signal the Python correctly rejected. Neither implementation looked wrong alone; they
 only disagreed. They now agree signal-for-signal on RELIANCE / TATASTEEL / DLF.
 
-### B-57 · Does a Renko flip out of a SHALLOW correction work on quality names? — **PRE-REGISTERED 2026-09-07; point-in-time layer BUILT, STUDY NOT YET RUN**
+### ~~B-57~~ · Does a Renko flip out of a SHALLOW correction work on quality names? — **MEASURED 2026-09-07: NO — a soft null, and it CONFIRMS B-43r's mechanism**
 
 Owner's screen idea: cherry-pick names showing a Renko buy flip whose preceding
 sell-side flip carried **at most a 40% correction**, and which are fundamentally
@@ -613,6 +613,71 @@ is also expressed as total change over the span rather than annualised, because
 a CAGR through a negative base is undefined — and a company whose operating cash
 flow was negative three years ago is exactly the one this gate most needs an
 opinion about.
+
+═══ RESULT — 2026-09-07, `tools/renko_shallow_quality_study.py` ═════════════════
+
+460 liquid names, 335 quality-passing, 79,401 evaluable bars, window
+2025-05-30 → 2026-09-07, 20d horizon, entry next open.
+
+| arm | n | signal | baseline | edge | hit% | p_rot |
+|---|---|---|---|---|---|---|
+| **PRIMARY** flip_up ≤10%, quality, state-matched | 207 | +0.98% | +1.23% | **−0.25%** | 54.1 / 51.7 | 0.714 |
+| CONTROL1 flip_dn as long, same state | 447 | +1.02% | +1.23% | −0.21% | 53.5 / 51.7 | 0.699 |
+| CONTROL2 flip_up ≥25%, deep-matched | 113 | +6.81% | +3.44% | **+3.37%** | 59.3 / 55.9 | 0.211 |
+| STATE CONTRAST vs ALL quality bars | 269 | +0.67% | +1.59% | −0.93% | 51.7 / 51.3 | 0.173 |
+| HARNESS bare flip_up vs ALL bars (= B-43) | 2,742 | +2.08% | +1.58% | +0.49% | 52.0 / 51.7 | 0.376 |
+
+**FAILS the pre-registered bar** (`edge > 0 AND p_rot < 0.05`): the edge is
+negative and nowhere near significant. **B-43 and B-43r stand.** Renko remains a
+chart overlay labelled FLIP and remains in `PIPELINE_EXCLUDED`.
+
+> [!key-insight] The null is SOFT, and that is the informative part
+> B-43r measured the flip at **−1.01%, p_rot = 0.000**. Restricted to shallow
+> corrections on quality names it reads **−0.25%, p_rot = 0.714** — the penalty
+> has essentially dissolved. That is exactly what B-43r's mechanism predicts: an
+> up-flip is punished because it re-enters after giving back part of a run, and a
+> ≤10% pullback gives back little. **The prior recorded in advance said "a small
+> positive edge that fails the p-bar"; the outcome was a small NEGATIVE edge that
+> fails it.** Half right — the direction was wrong, the significance call was not.
+> The mechanism survives as an explanation; the trade does not appear.
+
+**CONTROL2 did NOT behave as pre-registered, and that is a real limitation.**
+The entry pre-registered the deep bucket as **negative**, reproducing B-43r. It
+came back **+3.37%**. Per the pre-registration's own clause a misbehaving control
+means debug rather than report, so a **HARNESS arm** was added: the bare flip
+against an unconditional baseline, which is B-43's construction and B-43's settled
+clean null (−0.02%). It reproduces as a null here (+0.49%, p=0.376) — significance
+agrees; the point estimate differs because this panel is 460 names over 15 months
+rather than 22 names over years. **The scorer is therefore not broken, and
+CONTROL2's sign is a property of its sample: 113 events in deeply drawn-down names
+across a window that was kind to them, at p = 0.211 — not significantly different
+from zero and not evidence of anything.** It neither reproduces nor contradicts
+B-43r. The control was uninformative, which is weaker than the design assumed, and
+the primary should be read with that slack in mind.
+
+**The illusion ran BACKWARDS from B-43r, which is worth recording.** There the
+unmatched baseline flattered the signal. Here the STATE CONTRAST is **−0.93%**
+against the matched **−0.25%**: a careless test would have *over-condemned* the
+flip. Baseline matching is not a one-way correction toward pessimism — it moves
+the answer toward the truth, in whichever direction that lies.
+
+**Limits, and they are not small.** 207 primary events against B-43r's 576. One
+15-month window in one regime — the point-in-time gate needs three published
+fiscal years and yfinance serves only four annual columns, which is what truncated
+it. Survivorship makes every figure an UPPER BOUND. The rotation grid is coarse
+(every 3rd offset), so p is indicative. **This is a weaker null than B-43r's, and
+should be cited as "no edge found, underpowered" rather than as a settled zero.**
+
+**What ships: nothing, and that was the pre-registered fail path.** The screen
+remains available as an attention list — "quality names that just turned up after a
+shallow pullback" is a defensible thing to put in front of a reader — and if it is
+ever built it ships labelled as a question, the way every other unmeasured lens on
+this desk does.
+
+**The owner's 40% version was never run**, because `renko_quality_cardinality.py`
+showed it is not a filter (96% of flips clear it) and that its median
+`bricks_in_prior` = 3 sits on B-43r's worst measured bucket. Counting first saved
+the study that would have reproduced a known negative.
 
 ═══ SCOPE — what a pass would and would not license ══════════════════════════════
 
