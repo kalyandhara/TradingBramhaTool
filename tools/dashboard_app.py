@@ -10363,12 +10363,13 @@ if current_page == "SVP Structure":
         _shapes_avail = sorted(_svp["last_shape"].dropna().unique())
         _c1, _c2, _c3 = st.columns(3)
         with _c1:
-            _reads = st.multiselect("Structural read", ["BUY", "SELL", "HOLD"],
-                                    default=["BUY"], key="svp_read",
-                                    help="From svp_structure_signal.js — POC "
-                                         "migration + HVN/LVN roles + shape series. "
-                                         "UNMEASURED; B-56 is the pre-registered "
-                                         "test.")
+            _dirs = st.multiselect("Card read (confluence)", ["BUY", "SELL", "NEUTRAL"],
+                                   default=["BUY"], key="svp_dir",
+                                   help="The chart card's own confluence read — the "
+                                        "same engine, same factors, same wording. "
+                                        "Its DIRECTION measured negative on "
+                                        "2026-08-29; the per-factor detail is the "
+                                        "part that stands on its own.")
         with _c2:
             _shape = st.multiselect(
                 "Last session shape", _shapes_avail,
@@ -10392,14 +10393,32 @@ if current_page == "SVP Structure":
             _f = _f[_f["last_shape"].isin(_shape)]
         _f = _f[_f["poc_dist_pct"].abs().fillna(999) <= _near]
 
-        if _reads:
-            _f = _f[_f["struct_read"].isin(_reads)]
+        _c4, _c5 = st.columns(2)
+        with _c4:
+            _minagree = st.slider("Min agreement %", 0, 100, 0, step=5,
+                                  key="svp_agree",
+                                  help="How one-sided the factors are. This FILTERS, "
+                                       "it does not rank — agreement is a facet of a "
+                                       "composite whose direction measured negative, "
+                                       "so sorting the page by it would rank on the "
+                                       "discredited engine.")
+        with _c5:
+            _minfac = st.slider("Min factors", 0, 7, 0, step=1, key="svp_nfac",
+                                help="How many named factors fired. More factors is "
+                                     "more to READ, not more edge.")
+        if _dirs:
+            _f = _f[_f["sig_dir"].isin(_dirs)]
+        _f = _f[pd.to_numeric(_f["agreement"], errors="coerce").fillna(0) >= _minagree]
+        _f = _f[pd.to_numeric(_f["n_factors"], errors="coerce").fillna(0) >= _minfac]
 
         st.markdown(f"**{len(_f)} of {len(_svp)}** symbols match.")
-        _show = _f[["symbol", "struct_read", "migration", "migration_frac",
-                    "asof", "close", "va_state", "poc_dist_pct",
+        _show = _f[["symbol", "sig_dir", "sig_kind", "sig_conf", "agreement",
+                    "bull_w", "bear_w", "n_factors", "invalidation", "sig_target",
+                    "close", "sess_poc", "sess_val", "sess_vah",
+                    "va_state", "poc_dist_pct",
                     "support_hvn", "resistance_hvn", "fast_below", "fast_above",
-                    "last_shape", "shape_seq", "accum_dist", "why"]].copy()
+                    "last_shape", "shape_seq", "accum_dist",
+                    "struct_read", "migration", "factors", "asof"]].copy()
         # Same action-icon family every other table on this desk carries, so a row
         # here reaches the chart, the analyzer and the watchlist without retyping
         # a symbol into another page.
@@ -10409,9 +10428,32 @@ if current_page == "SVP Structure":
             use_container_width=True, hide_index=True,
             column_config={
                 **_chart_family_colcfg(),
+                "sig_dir": st.column_config.TextColumn(
+                    "card", help="The chart card's confluence direction. Carried as "
+                                 "DATA to be tested, never as a ranking key — it "
+                                 "measured negative on 2026-08-29."),
+                "agreement": st.column_config.NumberColumn(
+                    "agree %", format="%d%%",
+                    help="How one-sided the factors are. 100% means nothing "
+                         "disagreed — which is consistency, not correctness."),
+                "invalidation": st.column_config.NumberColumn(
+                    "breaks if", format="%.2f",
+                    help="The card's own invalidation level: the price at which "
+                         "this read stops holding. Populated on 286 of 500 rows."),
+                "sig_target": st.column_config.NumberColumn(
+                    "target", format="%.2f",
+                    help="The card's target where it has one — 178 of 500 rows. "
+                         "Blank means the structure offers none, not that the "
+                         "number is missing."),
+                "factors": st.column_config.TextColumn(
+                    "factors (plain English)", width="large",
+                    help="Every named factor, its weight, its direction and the "
+                         "card's own wording. This is the part that reads the same "
+                         "on the screen as on the chart."),
                 "struct_read": st.column_config.TextColumn(
-                    "read", help="BUY / SELL / HOLD from the STRUCTURAL rules — "
-                                 "not the measured-negative confluence score."),
+                    "struct", help="The SECOND construction (svp_structure_signal.js) "
+                                   "— POC migration + HVN/LVN roles. Kept alongside "
+                                   "so B-56 can test both against each other."),
                 "migration_frac": st.column_config.NumberColumn(
                     "mig", format="%.2f",
                     help="Fraction of session-to-session POC steps agreeing in "

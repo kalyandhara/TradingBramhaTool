@@ -62,6 +62,9 @@ const COLUMNS = [
   'va_state', 'poc_dist_pct', 'va_pos',
   'last_shape', 'shape_seq', 'trap', 'trap_dir', 'accum_dist',
   'sweep_flag', 'sweep_dir', 'exhaustion_flag', 'exhaustion_dir',
+  'sig_dir', 'sig_kind', 'sig_conf', 'bull_w', 'bear_w', 'agreement',
+  'n_factors', 'factors', 'invalidation', 'sig_target',
+  'sess_poc', 'sess_val', 'sess_vah',
   'struct_read', 'migration', 'migration_frac',
   'support_hvn', 'resistance_hvn', 'fast_below', 'fast_above', 'why', 'note',
 ];
@@ -117,6 +120,20 @@ function row(symbol, bars) {
   // header for why it is a different construction and why it is still unproven.
   const st = global.SVPSTRUCT.read(res, bars);
 
+  // The CARD's own confluence read, surfaced in full. Re-oriented 2026-09-06:
+  // the card already expresses agreement, an invalidation level and per-factor
+  // plain English, and my structural read had none of those. Duplicating a
+  // weaker version of a richer engine is not caution, it is worse tooling.
+  //
+  // The DIRECTION still measured negative (2026-08-29) and that has not changed,
+  // so `sig_dir` is carried as DATA to be tested, never as a ranking key. The
+  // factor DETAIL is the part with standalone value: "3x rejection of ceiling
+  // 231.77 held" is a checkable observation whatever the composite does with it.
+  const fx = factors.map(function (f) {
+    return (f.dir > 0 ? '+' : '-') + f.name + ' (' + f.w + '): ' + (f.detail || '');
+  }).join(' || ');
+  const lastSess = res.sessions.length ? res.sessions[res.sessions.length - 1] : null;
+
   return {
     symbol,
     asof: last.time ? new Date(last.time * 1000).toISOString().slice(0, 10) : '',
@@ -138,6 +155,23 @@ function row(symbol, bars) {
     sweep_dir: sweep ? sweep.dir : '',
     exhaustion_flag: exh ? 1 : 0,
     exhaustion_dir: exh ? exh.dir : '',
+    sig_dir: sig.dir || '',
+    sig_kind: sig.kind || '',
+    sig_conf: sig.confidence || '',
+    bull_w: sig.bullW === undefined ? '' : sig.bullW,
+    bear_w: sig.bearW === undefined ? '' : sig.bearW,
+    // Agreement is emitted as a PERCENT because the card shows it that way
+    // ("100% signals mostly agree") and two units for one quantity is how a
+    // screen and its chart start disagreeing.
+    agreement: sig.agreement === undefined || sig.agreement === null
+      ? '' : +(sig.agreement * 100).toFixed(0),
+    n_factors: factors.length,
+    factors: fx,
+    invalidation: sig.invalidation === undefined ? '' : sig.invalidation,
+    sig_target: sig.target === undefined || sig.target === null ? '' : sig.target,
+    sess_poc: lastSess ? lastSess.poc : null,
+    sess_val: lastSess ? lastSess.val : null,
+    sess_vah: lastSess ? lastSess.vah : null,
     struct_read: st.read,
     migration: st.trend ? st.trend.dir : '',
     migration_frac: st.trend ? st.trend.frac : '',
