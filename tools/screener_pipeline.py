@@ -180,6 +180,11 @@ def fetch_bhavcopy_frame(date=None) -> "pd.DataFrame | None":
     latest session on smaller NSE names** — on 2026-08-28 it had no bar at all for
     MASTEK or OAL and silently served the previous day, which turned a 43.9x
     volume day into 0.9x. A daily volume scanner cannot be built on that.
+
+    Which is why this stayed the FLOOR rather than the lead once yfinance was
+    promoted: `trending_stocks.yf_session_overlay` puts yfinance in front, but
+    accepts its bar only when it is strictly newer than this file's trade date,
+    so a silent stale quote falls back here instead of overwriting it.
     """
     session = requests.Session()
     try:
@@ -191,7 +196,10 @@ def fetch_bhavcopy_frame(date=None) -> "pd.DataFrame | None":
     if date is not None:
         df = _fetch_bhav_df(session, date)
     else:
-        for days_back in range(1, 6):
+        # Starts at 0, not 1: NSE republishes the day's own file after the
+        # close, and skipping it made every bhavcopy-driven scan a day stale for
+        # the whole evening. A missing file just falls through to yesterday.
+        for days_back in range(0, 6):
             candidate = datetime.today() - timedelta(days=days_back)
             if candidate.weekday() >= 5:
                 continue

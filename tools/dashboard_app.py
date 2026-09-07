@@ -4545,7 +4545,11 @@ def _darvas_volume(top_n: int, vol_mult: float, move_pct: float, min_turnover_cr
     _r = _ts.darvas_volume_shockers(
         bhav, top_n=top_n, vol_mult=vol_mult, move_pct=move_pct,
         min_turnover=float(min_turnover_cr) * 1e7)
-    _r["trade_date"] = _trend_bhav()[1]
+    # Do NOT overwrite the scan's own trade_date — when the yfinance overlay led,
+    # it is TODAY's session and the bhavcopy's date would report it as stale.
+    _r.setdefault("trade_date", None)
+    if not _r.get("trade_date"):
+        _r["trade_date"] = _trend_bhav()[1]
     return _r
 
 
@@ -4697,13 +4701,22 @@ def _darvas_window(key_prefix: str, *, compact: bool = False):
         st.warning(f"Scan unavailable: {_res['error']}")
         return
 
-    # The bhavcopy is EOD and publishes after the close, so on any intraday run
-    # this scan is YESTERDAY's session while Chartink is showing today's. That is
-    # the single most likely reason two lists disagree, so it is stated first and
-    # in the open, not buried in a tooltip.
-    st.caption(f"Session **{_res.get('trade_date') or '—'}** (NSE EOD bhavcopy). "
-               f"Chartink runs intraday — compare like sessions before concluding "
-               f"the filters differ.")
+    # Which source actually supplied today's row decides whether this list is
+    # comparable to Chartink at all, so it is stated first and in the open rather
+    # than buried in a tooltip. yfinance leads; the bhavcopy is the floor beneath
+    # it, and any name yfinance could not freshen is still reading EOD.
+    _ov = _res.get("overlay") or {}
+    _n_live = int(_ov.get("n_overlaid") or 0)
+    if _n_live:
+        _src = (f"**{_n_live}** of {_ov.get('n_asked', 0)} scanned names on live "
+                f"yfinance bars, the rest on the NSE EOD bhavcopy "
+                f"({_ov.get('bhav_date') or '—'}).")
+    else:
+        _src = ("NSE EOD bhavcopy — yfinance had nothing newer, so this is the "
+                "last completed session.")
+    st.caption(f"Session **{_res.get('trade_date') or '—'}**. " + _src +
+               " Chartink runs intraday — compare like sessions before "
+               "concluding the filters differ.")
     _n_hits = _res.get("n_hits", 0)
     _n_shown = 0 if _res.get("rows") is None else len(_res["rows"])
     _n_price = _res.get("n_price", 0)

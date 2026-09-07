@@ -136,7 +136,9 @@ def price_movers(bhav: pd.DataFrame, top_n: int = TOP_N,
 # ── lens 2 · volume shockers ──────────────────────────────────────────────────
 
 def volume_shockers(top_n: int = TOP_N,
-                    bhav: Optional[pd.DataFrame] = None) -> dict[str, Any]:
+                    bhav: Optional[pd.DataFrame] = None,
+                    live: bool = True,
+                    prefilter_n: int = 750) -> dict[str, Any]:
     """Whole-market volume spikes, WITH the cause, via volume_anomaly.
 
     This is the one lens where the desk already beats the screener it is modelled
@@ -152,6 +154,24 @@ def volume_shockers(top_n: int = TOP_N,
     except Exception as e:
         return {"error": f"volume_anomaly unavailable: {e}", "rows": pd.DataFrame()}
 
+    # yfinance leads here too: `scan()` reads today's volume straight off the
+    # frame it is handed, so overlaying the frame is the whole change. Its own
+    # baseline already excludes the latest bar, so a live today does not leak
+    # into the average it is measured against.
+    overlay: dict[str, Any] = {}
+    if bhav is None:
+        bhav, _ = load_bhav()
+    if bhav is not None and not bhav.empty and live:
+        try:
+            pre = bhav.dropna(subset=["turnover"]).nlargest(
+                min(prefilter_n, len(bhav)), "turnover")
+            bhav, _h = yf_session_overlay(
+                bhav, pre["symbol"].astype(str).str.strip().tolist())
+            overlay = dict(bhav.attrs.get("overlay") or {})
+        except Exception as e:
+            log.warning("session overlay failed, staying on bhavcopy: %s", e)
+            overlay = {"error": str(e), "n_overlaid": 0}
+
     try:
         res = va.scan(frame=bhav) if bhav is not None else va.scan()
     except Exception as e:
@@ -165,7 +185,8 @@ def volume_shockers(top_n: int = TOP_N,
     rows = res.get("rows") or []
     if not rows:
         return {"rows": pd.DataFrame(), "tally": res.get("tally"),
-                "trade_date": res.get("trade_date"), "raw": res}
+                "trade_date": res.get("trade_date"), "overlay": overlay,
+                "raw": res}
     df = pd.DataFrame(rows)
     # scan() ranks by spike multiple already; keep that order, just cap it.
     return {"rows": df.head(top_n).reset_index(drop=True),
@@ -173,7 +194,126 @@ def volume_shockers(top_n: int = TOP_N,
             "n_hits": res.get("hits"),
             "universe": res.get("universe"),
             "trade_date": res.get("trade_date"),
+            "overlay": overlay,
             "raw": res}
+
+
+# ── the session overlay · yfinance first, bhavcopy as the floor ───────────────
+#
+# The bhavcopy is EOD-only and its downloader walks BACK from today, so during
+# the whole trading day — and any morning before NSE republishes — the "today"
+# row in every bhavcopy-driven scan is the PREVIOUS session. That is the staleness
+# this overlay fixes: yfinance leads, bhavcopy stays underneath.
+#
+# The reason bhavcopy was primary in the first place is real and is NOT discarded
+# here: yfinance silently serves a stale bar for thinner NSE names (2026-08-28,
+# MASTEK/OAL — a 43.9x volume day read as 0.9x). So a yfinance bar is accepted
+# ONLY when its date is strictly NEWER than the bhavcopy's trade date. A stale or
+# missing yfinance bar cannot overwrite anything; that symbol simply keeps its
+# bhavcopy row. Silence downgrades to the old behaviour instead of to a wrong number.
+#
+# Every overlaid row is marked in a `src` column ("yf" / "bhav") and the counts
+# come back in the frame's attrs, so a page can say which source it is reading.
+
+def yf_session_overlay(bhav: pd.DataFrame,
+                       symbols: Optional[list[str]] = None,
+                       hist: Optional[dict[str, pd.DataFrame]] = None,
+                       period: str = "3mo",
+                       since: Optional[str] = None,
+                       ) -> tuple[pd.DataFrame, dict[str, pd.DataFrame]]:
+    """Overlay yfinance's latest bar onto `bhav` for `symbols`.
+
+    Returns the overlaid frame and the history dict, because the caller almost
+    always needs the same history for its lookback — downloading it twice is the
+    only real cost here, and this hands it back so nobody pays it.
+
+    `since` is the date a yfinance bar must beat. Pass it explicitly when the
+    frame has ALREADY been through one overlay pass: its `trade_date` column is
+    mixed by then, and inferring the floor from row 0 would read an
+    already-freshened row and reject every remaining name.
+    """
+    if bhav is None or bhav.empty:
+        return bhav, (hist or {})
+
+    d = bhav.copy()
+    if "src" not in d.columns:
+        d["src"] = "bhav"
+    syms = symbols if symbols is not None else d["symbol"].astype(str).str.strip().tolist()
+    if hist is None:
+        hist = _batch_history(syms, period=period)
+    if not hist:
+        d.attrs.update(bhav.attrs)
+        d.attrs["overlay"] = {"n_overlaid": 0, "n_asked": len(syms),
+                              "yf_date": None, "reason": "no yfinance history"}
+        return d, {}
+
+    bhav_date = pd.to_datetime(since, errors="coerce") if since else None
+    if bhav_date is not None and pd.isna(bhav_date):
+        bhav_date = None
+    if bhav_date is None and "trade_date" in d.columns and not d["trade_date"].isna().all():
+        bhav_date = pd.to_datetime(d["trade_date"].dropna().iloc[0], errors="coerce")
+    if bhav_date is not None and pd.isna(bhav_date):
+        bhav_date = None
+
+    idx = {str(v).strip(): i for i, v in enumerate(d["symbol"].astype(str))}
+    n_ok = n_stale = 0
+    yf_dates: list[pd.Timestamp] = []
+    for sym in syms:
+        h = hist.get(sym)
+        row_i = idx.get(sym)
+        if h is None or h.empty or row_i is None or "Volume" not in h:
+            continue
+        last_ts = pd.to_datetime(h.index[-1]).tz_localize(None).normalize()
+        # The whole guard: only a STRICTLY newer bar may overwrite the bhavcopy.
+        if bhav_date is not None and last_ts <= bhav_date.normalize():
+            n_stale += 1
+            continue
+        if len(h) < 2:
+            continue
+        close = float(h["Close"].iloc[-1])
+        prev = float(h["Close"].iloc[-2])
+        vol = float(h["Volume"].iloc[-1])
+        if not (close > 0 and prev > 0 and vol > 0):
+            n_stale += 1
+            continue
+        d.at[d.index[row_i], "close"] = close
+        d.at[d.index[row_i], "prev_close"] = prev
+        d.at[d.index[row_i], "volume"] = vol
+        # Turnover is a VALUE column; yfinance has no traded value, so close*vol
+        # is the only estimate available. It is used for the liquidity floor and
+        # for ranking, both of which tolerate an approximation.
+        d.at[d.index[row_i], "turnover"] = close * vol
+        d.at[d.index[row_i], "src"] = "yf"
+        d.at[d.index[row_i], "trade_date"] = last_ts.strftime("%Y-%m-%d")
+        yf_dates.append(last_ts)
+        n_ok += 1
+
+    d.attrs.update(bhav.attrs)
+    d.attrs["overlay"] = {
+        "n_overlaid": n_ok,
+        "n_stale": n_stale,
+        "n_asked": len(syms),
+        "yf_date": max(yf_dates).strftime("%Y-%m-%d") if yf_dates else None,
+        "bhav_date": bhav_date.strftime("%Y-%m-%d") if bhav_date is not None else None,
+    }
+    return d, hist
+
+
+def _prior_volumes(h: pd.DataFrame, session: Optional[pd.Timestamp], n: int = 9) -> list[float]:
+    """The `n` sessions BEFORE `session`, as volumes.
+
+    Splitting this out matters once yfinance leads: its history already contains
+    today's bar, so taking the plain last-9 would count today twice — once as the
+    spike and once inside the average it is measured against.
+    """
+    v = h["Volume"]
+    if session is not None:
+        try:
+            keep = pd.to_datetime(h.index).tz_localize(None).normalize() < session.normalize()
+            v = v[keep]
+        except Exception:
+            pass
+    return [float(x) for x in v.tolist()[-n:] if x and x > 0]
 
 
 # ── lens 2b · Darvas-box volume shockers (Chartink criteria) ──────────────────
@@ -193,10 +333,13 @@ def volume_shockers(top_n: int = TOP_N,
 # 1. Chartink's SMA(volume,10) INCLUDES the current session. So does this:
 #    sma10 = (sum of the prior 9 sessions + today) / 10. Using the prior-10 mean
 #    instead would silently loosen the filter for every name.
-# 2. Today's volume/close/prev_close come from the NSE bhavcopy (authoritative
-#    EOD), the prior 9 sessions from batched yfinance history. The price gate is
-#    applied FIRST, off the bhavcopy alone, so history is downloaded for the few
-#    dozen names that already moved 5% instead of the whole market.
+# 2. Today's volume/close/prev_close come from yfinance when it has a bar NEWER
+#    than the bhavcopy, and from the NSE bhavcopy otherwise (see
+#    `yf_session_overlay`). The bhavcopy is EOD-only, so before it publishes,
+#    a bhavcopy-led scan is yesterday's session while Chartink shows today's
+#    -- that gap was the whole reason to promote yfinance. The prior 9 sessions
+#    come from the same batched history, with any bar on or after the session
+#    date excluded so today is not counted inside its own average.
 
 #: Volume must exceed this multiple of SMA(volume, 10).
 DARVAS_VOL_MULT = 2.0
@@ -215,6 +358,7 @@ def darvas_volume_shockers(bhav: Optional[pd.DataFrame] = None,
                            min_turnover: float = MIN_TURNOVER,
                            prefilter_n: int = DARVAS_PREFILTER_N,
                            hist: Optional[dict[str, pd.DataFrame]] = None,
+                           live: bool = True,
                            ) -> dict[str, Any]:
     """Chartink's Darvas volume-shocker scan, computed locally.
 
@@ -226,6 +370,26 @@ def darvas_volume_shockers(bhav: Optional[pd.DataFrame] = None,
         bhav, _ = load_bhav()
     if bhav is None or bhav.empty:
         return {"error": "no bhavcopy frame", "rows": pd.DataFrame()}
+
+    # yfinance FIRST, bhavcopy underneath. The overlay runs on the top
+    # `prefilter_n` names by bhavcopy turnover rather than the whole ~2,600-row
+    # market: one download of a size the page can afford, and it is the SAME
+    # download the SMA lookback needs anyway, so it costs nothing extra.
+    overlay: dict[str, Any] = {}
+    floor_date: Optional[str] = None
+    if "trade_date" in bhav.columns and not bhav["trade_date"].isna().all():
+        floor_date = str(bhav["trade_date"].dropna().iloc[0])
+    if live:
+        pre = bhav.dropna(subset=["turnover"]).nlargest(
+            min(prefilter_n * 2, len(bhav)), "turnover")
+        pre_syms = pre["symbol"].astype(str).str.strip().tolist()
+        try:
+            bhav, hist = yf_session_overlay(bhav, pre_syms, hist=hist,
+                                            since=floor_date)
+            overlay = dict(bhav.attrs.get("overlay") or {})
+        except Exception as e:                       # never let live data break EOD
+            log.warning("session overlay failed, staying on bhavcopy: %s", e)
+            overlay = {"error": str(e), "n_overlaid": 0}
 
     d = _pct_change(bhav)
     n_universe = len(d)
@@ -247,10 +411,44 @@ def darvas_volume_shockers(bhav: Optional[pd.DataFrame] = None,
     if n_price == 0:
         return {"rows": pd.DataFrame(), "n_universe": n_universe,
                 "n_liquid": n_liquid, "n_price": 0, "n_scanned": 0,
-                "vol_mult": vol_mult, "move_pct": move_pct}
+                "vol_mult": vol_mult, "move_pct": move_pct,
+                "overlay": overlay}
 
     syms = d["symbol"].astype(str).str.strip().tolist()
-    hist = hist if hist is not None else _batch_history(syms, period="3mo")
+    if hist is None:
+        hist = _batch_history(syms, period="3mo")
+    elif live:
+        # The overlay downloaded the top names by turnover; the price gate can
+        # let through names below that cut, and a name with no history is a name
+        # silently dropped from the scan. Top up rather than lose it. Only when
+        # `live` — an injected `hist` with the overlay off is the caller's
+        # deliberate, offline choice and must not reach the network.
+        missing = [x for x in syms if x not in hist]
+        if missing:
+            hist = {**hist, **_batch_history(missing, period="3mo")}
+
+    if live:
+        # Second pass, over the gated shortlist only. Without it the output is a
+        # MIXED-SESSION list — the names below the overlay's turnover cut passed
+        # the gate on their last-EOD move and then out-rank today's real movers
+        # with a multiple computed from a different day. Now that their history
+        # has been fetched anyway, they cost nothing to freshen, and the gate is
+        # re-applied so nothing survives on a move it no longer has.
+        try:
+            d, _ = yf_session_overlay(d, syms, hist=hist, since=floor_date)
+            _ov2 = dict(d.attrs.get("overlay") or {})
+            # The shortlist pass is the one that describes the OUTPUT, so its
+            # counts win — but keep the wide pass's count of what it freshened.
+            if _ov2:
+                _ov2["n_overlaid_prefilter"] = overlay.get("n_overlaid", 0)
+                _ov2["yf_date"] = _ov2.get("yf_date") or overlay.get("yf_date")
+                _ov2["bhav_date"] = _ov2.get("bhav_date") or floor_date
+                overlay = _ov2
+            d = _pct_change(d)
+            d = d[d["chg_pct"].abs() >= move_pct]
+            n_price = len(d)
+        except Exception as e:
+            log.warning("shortlist overlay failed, staying on bhavcopy: %s", e)
 
     out: list[dict[str, Any]] = []
     n_scanned = 0
@@ -259,7 +457,10 @@ def darvas_volume_shockers(bhav: Optional[pd.DataFrame] = None,
         h = hist.get(sym)
         if h is None or "Volume" not in h:
             continue
-        prior = [float(v) for v in h["Volume"].tolist()[-9:] if v and v > 0]
+        session = pd.to_datetime(r.get("trade_date"), errors="coerce")
+        if pd.isna(session):
+            session = None
+        prior = _prior_volumes(h, session)
         if len(prior) < 9:
             continue
         n_scanned += 1
@@ -281,6 +482,7 @@ def darvas_volume_shockers(bhav: Optional[pd.DataFrame] = None,
             "sma_vol10": int(round(sma10)),
             "multiple": round(mult, 1),
             "turnover_cr": turnover_cr,
+            "src": str(r.get("src") or "bhav"),
         })
 
     rows = pd.DataFrame(out)
@@ -289,7 +491,10 @@ def darvas_volume_shockers(bhav: Optional[pd.DataFrame] = None,
         rows = rows.reset_index(drop=True)
     return {"rows": rows, "n_universe": n_universe, "n_liquid": n_liquid,
             "n_price": n_price, "n_scanned": n_scanned, "n_hits": len(out),
-            "vol_mult": vol_mult, "move_pct": move_pct}
+            "vol_mult": vol_mult, "move_pct": move_pct,
+            "overlay": overlay,
+            "trade_date": (overlay.get("yf_date") if overlay.get("n_overlaid")
+                           else overlay.get("bhav_date"))}
 
 
 # ── lens 3 & 4 · range extremes ───────────────────────────────────────────────
