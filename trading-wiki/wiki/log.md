@@ -1,8 +1,18 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
-## [2026-09-06] build | B-52 SVP Structure screen — shipped as a BYSTANDER, wired to nothing
-- Code: **`tools/svp_screen_runner.js`** (new) + **SVP Structure** page under Screening. Updated: [[analyses/Open-Backlog]] (**B-52**).
+## [2026-09-06] build | B-55b full nifty500 screen, BUY-first defaults + B-56 structural read
+- Code: **`tools/svp_structure_signal.js`**, **`tools/svp_universe_export.py`**, `session_volume_profile.js` (+`compositeProfile`), runner columns, page defaults + action icons.
+- **Owner pushed back on my over-caution and was right.** Retiring the SVP *composite* does not retire structural inference. B-56 is a SECOND construction — named boolean rules, no weights, no score, does not read the composite.
+- **The correction that made it buildable:** the proposal was "HVN as resistance, LVN as support". **HVN is ACCEPTED price** (congestion — resistance from below, support from above, stalls either way); **LVN is REJECTED price** (thin, no inventory, traversed FAST). An LVN is not support — **a stop below one sits in the single place the market moves through quickest.** Fields named by ROLE so the error cannot return downstream.
+- **Trend from POC MIGRATION**, monotonicity fraction >=0.60, not first-vs-last (two POCs 10% apart with chaos between is not a trend).
+- **Universe: 500 of 501 exported. HOLD 366 / SELL 97 / BUY 37**; BUY+D = 24 (the default view). Migration falling 171 / mixed 195 / rising 134.
+- **A blank `res HVN` on a BUY is meaningful:** `support_hvn` 37/37 on BUYs, `resistance_hvn` 97/97 on SELLs — each rule requires that node. A BUY with nothing above = price cleared every accepted zone (bullish) **but no structural TARGET**: entry and stop, nothing to aim at. A limitation of the method, stated on the page.
+- **UNMEASURED and the prior points AGAINST it:** `sequence` −0.67 and `va` −0.71 on 2026-08-29, exactly these inputs. Reason to measure, not to skip building. Bystander until B-56's test runs.
+- **ID numbering — third attempt, recorded as a process failure.** I allocated B-45/B-46 (taken: ATR+MFI, Ichimoku), then B-52/B-53 (taken: buyback, PDF fact extractor), before scanning the WHOLE vault and finding 1..54 allocated. Final: **B-55 / B-55b / B-56**. Lesson: enumerate every `B-NN` across wiki AND tools before claiming an id, not just the section headers of one file.
+
+## [2026-09-06] build | B-55 SVP Structure screen — shipped as a BYSTANDER, wired to nothing
+- Code: **`tools/svp_screen_runner.js`** (new) + **SVP Structure** page under Screening. Updated: [[analyses/Open-Backlog]] (**B-55**).
 - **Screens STRUCTURE, refuses the SCORE.** Value-area state, distance to composite POC, shape sequence, trap/accumulation. Not the confluence score or its BUY/SELL direction — measured 2026-08-29 as a clean negative (corr −0.041, deciles non-monotonic, **BUY-high confidence worse than BUY-low**, 5 of 7 families sign-inverted). A screener surfaces its top-ranked names, so ranking on that score would surface exactly what the measurement says to avoid.
 - **Bystander by explicit instruction:** not a registered scanner, not in `pipeline_scanners()`, no ranking weight, nothing downstream reads it. Verified in code, not just asserted.
 - **Promotion gate recorded NOW so it is not invented later:** measured accuracy on the structural fields, and even then it enters at the END of the pipeline. A late-stage lens filters a shortlist someone else ranked; an early-stage one shapes what gets considered at all — and a lens whose parent score measured negative should not shape the candidate set.

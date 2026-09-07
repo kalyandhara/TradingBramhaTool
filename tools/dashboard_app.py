@@ -10341,8 +10341,9 @@ if current_page == "SVP Structure":
     _svp_csv = Path(__file__).resolve().parent / "cache" / "svp_screen.csv"
     if not _svp_csv.exists():
         st.info("No screen file yet. Build one with:")
-        st.code("node tools/svp_screen_runner.js "
-                "--dir tools/cache/backtest --out tools/cache/svp_screen.csv",
+        st.code("py -3 tools/svp_universe_export.py --index nifty500\n"
+                "node tools/svp_screen_runner.js --dir tools/cache/svp_bars "
+                "--out tools/cache/svp_screen.csv",
                 language="bash")
     else:
         _svp = pd.read_csv(_svp_csv)
@@ -10355,21 +10356,34 @@ if current_page == "SVP Structure":
             f"shown rather than one date for the page."
         )
 
+        # Defaults are BUY + D, per the desk's stated use: this page is being read
+        # as a long-idea lens. They are DEFAULTS and not restrictions — SELL and
+        # HOLD stay computed and one click away, because a screen that can only
+        # show one side stops being able to tell you the side is empty.
+        _shapes_avail = sorted(_svp["last_shape"].dropna().unique())
         _c1, _c2, _c3 = st.columns(3)
         with _c1:
-            _va = st.multiselect("Value-area state",
-                                 sorted(_svp["va_state"].dropna().unique()),
-                                 default=[], key="svp_va")
+            _reads = st.multiselect("Structural read", ["BUY", "SELL", "HOLD"],
+                                    default=["BUY"], key="svp_read",
+                                    help="From svp_structure_signal.js — POC "
+                                         "migration + HVN/LVN roles + shape series. "
+                                         "UNMEASURED; B-56 is the pre-registered "
+                                         "test.")
         with _c2:
-            _shape = st.multiselect("Last session shape",
-                                    sorted(_svp["last_shape"].dropna().unique()),
-                                    default=[], key="svp_shape")
+            _shape = st.multiselect(
+                "Last session shape", _shapes_avail,
+                default=[x for x in ("D",) if x in _shapes_avail], key="svp_shape",
+                help="D = directional. The BUY rule accepts P or D, so this "
+                     "default hides P-shape BUYs — clear it to see them.")
         with _c3:
             _near = st.slider("Max |distance to composite POC| %", 0.0, 25.0, 25.0,
                               step=0.5, key="svp_poc",
                               help="POC is where most volume transacted — the "
                                    "structural magnet. This filters on PROXIMITY "
                                    "only; it implies no direction.")
+        _va = st.multiselect("Value-area state",
+                             sorted(_svp["va_state"].dropna().unique()),
+                             default=[], key="svp_va")
 
         _f = _svp.copy()
         if _va:
@@ -10378,11 +10392,6 @@ if current_page == "SVP Structure":
             _f = _f[_f["last_shape"].isin(_shape)]
         _f = _f[_f["poc_dist_pct"].abs().fillna(999) <= _near]
 
-        _reads = st.multiselect("Structural read", ["BUY", "SELL", "HOLD"],
-                                default=[], key="svp_read",
-                                help="From svp_structure_signal.js — POC migration + "
-                                     "HVN/LVN roles + shape series. UNMEASURED; "
-                                     "B-53 is the pre-registered test.")
         if _reads:
             _f = _f[_f["struct_read"].isin(_reads)]
 
@@ -10442,6 +10451,17 @@ if current_page == "SVP Structure":
                                    "I = balance."),
             })
         st.caption(
+            "**A blank `res HVN` on a BUY row is meaningful, not missing.** "
+            "Measured on the nifty500 run: `support_hvn` is populated on 37 of 37 "
+            "BUY rows and `resistance_hvn` on 97 of 97 SELL rows, because each "
+            "rule requires that node to exist. A BUY with no node above means "
+            "price has run clear of every accepted zone — no overhead supply, "
+            "which is the bullish reading — but it also means **there is no "
+            "structural target**: the construction gives an entry and a stop "
+            "(behind `sup HVN`) and nothing to aim at. Use `fast ▲` as the next "
+            "reference, remembering it is a fast zone rather than a barrier."
+        )
+        st.caption(
             "**The `read` column is a SECOND, separate construction** "
             "(`svp_structure_signal.js`) — POC migration, HVN/LVN roles and the "
             "shape series, as named boolean rules with no weights, so a "
@@ -10449,7 +10469,7 @@ if current_page == "SVP Structure":
             "decompose. It does NOT use the confluence score. It is **unmeasured**, "
             "and the prior evidence points against it: `sequence` attributed at "
             "−0.67 and `va` at −0.71 in the 2026-08-29 study, and those are exactly "
-            "the inputs it uses. **B-53 is the pre-registered test.** Nothing here "
+            "the inputs it uses. **B-56 is the pre-registered test.** Nothing here "
             "reaches the pipeline until that runs."
         )
         st.caption(

@@ -1201,7 +1201,103 @@ prop-desk toolset converges on. See [[concepts/Order-Flow]].
 > stack that could plausibly supply trade-side data; establish whether it does, and whether
 > any NSE path exists, first.
 
-### B-52 · SVP Structure screen — **SHIPPED 2026-09-06 as a BYSTANDER, promotion deliberately deferred**
+### B-56 · Structural BUY/SELL/HOLD from POC · HVN/LVN · shape series — **BUILT 2026-09-06, PRE-REGISTERED TEST PENDING**
+
+Owner's push-back, and it was right: retiring the SVP *composite* does not retire
+structural inference from volume profile. `tools/svp_structure_signal.js` is a
+SECOND, separate construction — different inputs, explicit named rules, no
+weights and no score, and it does not read the composite.
+
+> [!key-insight] The directional correction that makes this buildable at all
+> The proposal was "HVN as resistance, LVN as support". Half right, and the wrong
+> half would have made the signal wrong by construction. **HVN is ACCEPTED price**
+> — congestion, so it is resistance approached from below and support approached
+> from above; either way price stalls in it. **LVN is REJECTED price** — thin
+> trade, no inventory, so price traverses it FAST. An LVN is not support; it is an
+> accelerant and a boundary between value areas. **A stop below an LVN sits in the
+> one place the market moves through quickest**, and gets hit on the way somewhere
+> else. Stops belong behind an HVN, targets beyond an LVN. The emitted fields are
+> named by ROLE (`support_hvn`, `fast_below`) so the error cannot be reintroduced
+> downstream.
+
+**Trend comes from POC MIGRATION, not the shape sequence.** Migration is the path
+of per-session POCs: rising POCs mean buyers accepting higher prices session after
+session, which is trend by definition rather than by pattern-matching. Measured as
+a monotonicity FRACTION (≥0.60), not first-vs-last — two POCs 10% apart with chaos
+between is not a trend and first-vs-last cannot tell the difference. The shape
+series is the secondary read.
+
+**The rules, stated so they can be argued with.** BUY = migration rising AND price
+at/above composite POC AND the nearest structure below is an HVN not an LVN AND
+last shape P or D. SELL mirrors. Everything else HOLD, explicitly including
+balance-dominant sequences. **No weights** — each rule is a named boolean and the
+page prints which fired, because the specific failure of the composite it replaces
+is that `trap` carried weight 1.5 and attributed at −0.51 and no reader could have
+seen that from the card.
+
+**Universe result (nifty500, 500 symbols): HOLD 366 / SELL 97 / BUY 37** — 7.4%
+BUY, selective rather than firing on everything.
+
+**UNMEASURED, and the prior evidence points AGAINST it.** The 2026-08-29
+attribution scored `sequence` at −0.67 and `va` at −0.71, and those are exactly the
+inputs this uses. That is a reason to measure it, not to skip building it — but it
+means B-56's pre-registered test is required before this goes near the pipeline,
+and it stays a bystander until then per B-55's gate.
+
+**Engine change:** `SVP.analyze` now also returns `compositeProfile` (the full
+profile behind `composite`, with `hvnZones`/`lvnZones`). Additive — `composite`
+keeps its `{poc,vah,val}` shape, every existing caller untouched — and exposed
+rather than recomputed outside, which would be a second profile free to disagree
+with the one the card draws.
+
+**Also shipped:** the standard action-icon family on the table (Chart 👁 / Analyze
+↗ / TradingView / Screener / Google Finance), so a row reaches the chart, the
+analyzer and the watchlist without retyping a symbol.
+
+### B-55b · SVP screen on the full universe, BUY-first — **SHIPPED 2026-09-06**
+
+`svp_universe_export.py` (nifty500 -> `cache/svp_bars`) + the existing runner.
+**500 of 501 exported** (1 too thin, 0 failed); the screen reads all 500.
+
+| read | count |
+|---|---|
+| HOLD | 366 |
+| SELL | 97 |
+| **BUY** | **37** |
+
+Migration across the universe: falling 171 / mixed 195 / rising 134. **BUY+D = 24**,
+the page's default view (23 shown — PTCIL sits 33.5% from its POC and is cut by the
+default 25% proximity slider).
+
+**Defaults are BUY + D, not restrictions.** SELL and HOLD stay computed and one
+click away: a screen that can only show one side loses the ability to say *that
+side is empty*, which is itself information on a quiet day. The D default is
+STRICTER than the rule — BUY accepts P or D, and 13 of the 37 BUYs are P-shape, so
+the default hides them. The help text says so.
+
+> [!key-insight] A blank `res HVN` on a BUY row is meaningful, not missing
+> `support_hvn` is populated on **37 of 37** BUY rows and `resistance_hvn` on
+> **97 of 97** SELL rows — each rule requires that node to exist. So a BUY with
+> nothing above means price has cleared every accepted zone: no overhead supply,
+> the bullish reading. **But it also means there is no structural target.** The
+> construction yields an entry and a stop (behind `sup HVN`) and nothing to aim
+> at. That is a real limitation of the method, not a gap in the data, and the page
+> says so rather than leaving the column looking broken.
+
+**Export is deliberately light:** 400 daily bars, not the backtest cache's 2007
+start. The screen reads ~12 retained sessions, so 18 years for 500 names would be
+~40x the download for the same answer, and yfinance is the rate limit. 400 is
+generous against the floor because the grain-picker measures bars-per-day from the
+data — a symbol resolving to DAILY grain needs more bars than the weekly case, and
+a short pull would silently give it fewer sessions rather than failing.
+
+Generated data (`cache/svp_bars/`, `svp_screen.csv`) is gitignored — regenerated,
+not source.
+
+**Still a bystander.** B-55's gate is unchanged: nothing reaches the pipeline until
+B-56's pre-registered test runs.
+
+### B-55 · SVP Structure screen — **SHIPPED 2026-09-06 as a BYSTANDER, promotion deliberately deferred**
 
 Owner asked for a screener on the chart tool's SVP confluence. Built as
 `tools/svp_screen_runner.js` (batch the REAL engine headlessly, same modules the

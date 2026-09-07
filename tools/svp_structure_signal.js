@@ -11,7 +11,7 @@
  * It is also NOT absolved by being different. `sequence` scored -0.67 and `va`
  * -0.71 in that attribution, and shape-series and value-area logic are exactly
  * what this uses. So the prior evidence points AGAINST this working, the rules
- * below are a hypothesis, and B-53 is the pre-registered test that settles it.
+ * below are a hypothesis, and B-56 is the pre-registered test that settles it.
  * Nothing here is wired into the pipeline until then.
  *
  * ══ THE ONE THING MOST STRUCTURAL SIGNALS GET BACKWARDS ═════════════════════
