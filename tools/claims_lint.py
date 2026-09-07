@@ -82,6 +82,15 @@ PROMISES = [
     r"TODO:? measure",
     r"has (?:not|never) (?:yet )?(?:gone |been )through",
     r"once (?:this|it) (?:is|has been) measured",
+    # "unbacktested" IS matched where bare "unmeasured" is not, and the difference
+    # is real: "unmeasured" is used here as a state label for a thing nobody
+    # intends to measure, while "unbacktested" names a specific pending test and
+    # goes false the day it runs. It appears twice in the tree, so it is nearly
+    # free. Added 2026-09-06 after session_volume_profile.js carried
+    # "unbacktested" for eight days past its own measurement — extending this lint
+    # to .js was necessary to see the file, and this pattern was necessary to
+    # flag the line.
+    r"\bun-?backtested\b",
 ]
 
 #: A REPORTED p-value is never anything but a claim about a measurement, so
@@ -144,10 +153,22 @@ FIGURE_EXCLUDE = re.compile(
 SUPPRESS = re.compile(r"#\s*claims-lint:\s*checked\s+\S+")
 
 
+#: Non-Python files are scanned as PLAIN TEXT (no ast, no tokenize), because the
+#: engine-vs-renderer split this lint exists to catch crosses languages. Proved on
+#: 2026-09-06: session_volume_profile.js emitted "unbacktested" for eight days
+#: after the measurement, and chart_dashboard.html overrode it at the RENDER layer
+#: — so the card looked right while the engine lied to every other consumer. A
+#: .py-only lint could not see either file.
+TEXT_SUFFIXES = (".js", ".html")
+
+
 def _targets(argv: list[str]) -> list[pathlib.Path]:
     if argv:
         return [pathlib.Path(a).resolve() for a in argv]
-    return sorted(p for p in HERE.glob("*.py") if p.name != "claims_lint.py")
+    out = [p for p in HERE.glob("*.py") if p.name != "claims_lint.py"]
+    for suf in TEXT_SUFFIXES:
+        out += list(HERE.glob("*" + suf))
+    return sorted(out)
 
 
 def _prose(path: pathlib.Path) -> list[tuple[int, int, str]]:
@@ -160,6 +181,13 @@ def _prose(path: pathlib.Path) -> list[tuple[int, int, str]]:
     """
     src = io.open(path, encoding="utf-8").read()
     out: list[tuple[int, int, str]] = []
+    if path.suffix.lower() in TEXT_SUFFIXES:
+        # Whole-file, line by line. Cruder than the Python path — a JS string and
+        # a JS comment look alike here — but the alternative is a JS parser to
+        # save a few false positives, and a false positive costs one glance.
+        for i, line in enumerate(src.splitlines(), 1):
+            out.append((i, i, line))
+        return out
     try:
         tree = ast.parse(src)
     except SyntaxError as exc:

@@ -418,7 +418,14 @@
       agreement: +agreement.toFixed(2),
       factors: factors.sort((a, b) => b.w - a.w),
       target, invalidation,
-      caveat: 'Confluence of interpretive priors — unbacktested. Not advice.',
+      // MEASURED 2026-08-29 and it failed: corr(score, 20d fwd) = -0.041, deciles
+      // non-monotonic, BUY-high confidence worse than BUY-low, 5 of 7 factor
+      // families sign-inverted. This string used to say 'unbacktested', which
+      // became false that day. chart_dashboard.html already overrode it at the
+      // RENDER layer -- but an override only protects the one renderer that
+      // knows to apply it, and the screener reading `signal.caveat` would have
+      // picked up the stale claim. The engine now carries the truth itself.
+      caveat: 'Read the structure, not the BUY/SELL word — the direction call \nwas measured (2026-08-29) and has no edge. Not advice.',
     };
   }
 
