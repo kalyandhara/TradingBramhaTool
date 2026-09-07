@@ -58,6 +58,28 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **Shipped 2026-09-02 (not from the backlog)** | **Trending Stocks page** — `trending_stocks.py` + a Market-Intel page with four lenses: Price Movers (whole-market bhavcopy, turnover-floored), Volume Shockers (reuses `volume_anomaly` **with cause attribution** — the one lens the desk does better than the commercial screener it was modelled on), 52-Week and All-Time High/Low (computed from batched history over a bounded top-N-by-turnover universe, since NSE's UDiFF bhavcopy carries **no 52-week columns** — verified, 34 columns, none a range extreme). Requested from a screenshot of a commercial "Trending Stocks" page. **Deliberately NO "Most Visited" lens** — that is crowd page-view data from a site's own traffic logs, there is no free public feed for retail attention, and a proxy (delivery spikes, rank churn) would measure something else under the same label. Recorded as a decision, not an oversight, the same way the intraday ORB/DOM lane is. Two things the build forced: a **turnover floor**, without which the movers list is almost entirely penny stocks (a ₹3 share moving 19% is arithmetic), and a **cash-equivalent filter** reusing the chart's existing `isLikelyLiquidETF` definition, because a liquid ETF is *permanently* at its all-time high by construction and squatted on the first ATH run. |
 | **Measured 2026-09-02** | **B-19** batch walk-forward on all 41 scanners (LIQUID_50, 3 windows, Indian delivery ~29bps): **0/41 stable** across all horizons; 11 show positive 20d edge but all UNSTABLE; strongest = %R Bottoming (+2.68% @60d, stable @20d+60d), Falling Wedge (+1.58% @60d); **most scanners show negative edge after costs**. 3 too-few-signals (High Tight Flag, Minervini VCP, RSI-Fibo Hidden Div). 3/5 risk scanners show bearish edge. Full table in `tools/cache/b19_verdicts/_summary_table.txt`. |
 
+## Left open by the 2026-09-07 session — read this first
+
+Everything below is committed and pushed (`96a3112..5562552`). These are the
+threads that were deliberately NOT closed, with why, so none of it has to be
+reconstructed from the commit log.
+
+| # | pending | where | why it was left |
+|---|---|---|---|
+| 1 | **Restart the chart server** | operational, 2 min | `chart_server.py` serves each module from an explicit Flask route and runs without the reloader, so an instance that was already running returns **404 for `/psar.js`**. Observed live during verification. Nothing to fix in code. |
+| 2 | **B-58 · run the QM measurement** | [[#B-58]] | `detect_quasimodo` is BUILT (17 tests) but is geometry only — no scanner registered, no forward returns scored. The pre-registration and its control (relax `RH > LH`; if the score is unchanged the detector is an inverse-H&S finder) are written and unrun. Prior recorded: skeptical — the honest hypothesis is *"QM is a liquidity sweep with extra steps"*. |
+| 3 | **B-59 · PSAR overlap check** | [[#B-59]] | Owed BEFORE any PSAR signal, and it is an **overlap** check against `pmax`/`stai`, not an edge test. B-46's objection is that the flip may carry zero unique cells; if PSAR's flips are a subset of PMax's there is nothing left to measure. The overlay itself needs no backtest and ships as-is. |
+| 4 | **B-57 · secondaries** | [[#B-57]] | The primary FAILED (−0.25%, p_rot=0.714) and that is settled. Unrun: the 60d horizon, the quality gate tightened from a sign test to a top-quartile OCF rank, and `depth_from_flip` as the depth definition. All were pre-registered as non-decisive, so they describe rather than rescue. |
+| 5 | **B-58 residual · multi-timeframe liquidity** | [[#B-58]] | "HTF LQ" from the source chart. `detect_liquidity_pools` takes one `df` — single timeframe. Bigger build, own entry when picked up. **Naming trap:** `HTF` in this repo means **High Tight Flag**, not higher timeframe, so grepping for it gives false confidence the feature exists. |
+| 6 | **Fib rungs are drawn, not wired** | `fibonacci.js` | 0.886 and 1.13 exist as levels but do NOT feed `buildPlan`: 0.886 is entry-ineligible without `{deepEntry:true}`, and 1.13 never becomes the stop. Adopting either changes reward-to-risk — and therefore the `actionable` flag — on plans unrelated to QM. **Changing what a stop means is a measurement, not a default.** |
+
+> [!note] The one thing worth carrying forward from this session's method
+> Twice, counting BEFORE measuring saved a week. `renko_quality_cardinality.py`
+> killed the 40% correction cap by showing 96% of flips clear it, and the QM
+> detector's first version reported a "pattern" on 73% of names until the pivots
+> were required to be consecutive. **A filter that admits almost everything is not
+> a filter, and that is cheaper to discover by counting than by backtesting.**
+
 ## Ingested-research additions (2026-08-20)
 
 Four items below (B-28…B-31) come from a batch of trading videos ingested into the
