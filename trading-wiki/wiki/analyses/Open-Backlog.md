@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-09-06
+updated: 2026-09-07
 sources: 0
 related:
   - analyses/Open-Backlog-2026-08-02.md
@@ -50,6 +50,7 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**), ~~**B-41**~~ (**CLOSED 2026-09-02** — `detect_liquidity_pools` + `detect_liquidity_sweep` + both scanners; SMC stack now complete), ~~**B-42**~~ (**CLOSED 2026-09-02**; residual **B-42r** — the pivot_len 5-vs-15 split, to be settled on data). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
 | **Closed 2026-09-05** | ~~**B-44r**~~ **MEASURED → FALSIFIED, GEX retired** (magnitude convention inverted the pre-registered direction and what survives the 1/σ control flips sign between vol terciles — see below). **B-34r** *(new, shipped same day)* — **Hidden Treasures gained its first HARD gate**: `red_flags.py` (FR-4) wired into `smallcap_discovery`, critical flags veto, watch flags cost 6 pts, NOT_CHECKED never reads as a pass. Zero extra fetches (rides the quality overlay's payload; `sessionid=None` keeps screener.in dormant). **Vetoes 100 of 249 on Smallcap-250** — 59 negative FCF, 51 promoter stake reduction, 28 pledge, 5 dilution. Toggleable and every exclusion is listed, because the default is NOT settled: see **B-34r2**. |
 | **New 2026-08-29** | ~~**B-43**~~ **BUILT + MEASURED → clean null** (flip edge ~0, negative on the long leg; beat buy&hold 0/23 — but fires 40% less often than the EVWMA cross, i.e. noise reduction without edge). Chart overlay kept, labelled FLIP not BUY/SELL. MCX still gated. From the Renko podcast ingest. ~~**B-44**~~ **BUILT + MEASURED same day → clean null** (see below); residual **B-44r** (is the naive dealer convention backwards for NSE?). From the Chris Kmer order-flow ingest. |
+| **New 2026-09-07** | **B-57** (**PRE-REGISTERED, NOT YET RUN**) — does a Renko flip out of a SHALLOW (≤10%) correction work on quality names? Owner proposed a flip + ≤40%-correction + revenue/cash-flow screen; `tools/renko_quality_cardinality.py` counted the survivors first and **killed the 40% version before any return was scored**: 4,407 of 4,598 flip_ups (96%) clear a 40% cap, so it is not a filter, and its median `bricks_in_prior` = 3 lands on B-43r's worst measured bucket (−1.30%). The ≤10% rung (631 events, 247 names, median `bricks_in_prior` = 1) is the only one B-43r does not already cover. Threshold chosen on cardinality, NOT returns. Blocked on the same thing as B-38: **point-in-time fundamentals**. |
 | **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
 | **Shipped 2026-09-02 (not from the backlog)** | **Trending Stocks page** — `trending_stocks.py` + a Market-Intel page with four lenses: Price Movers (whole-market bhavcopy, turnover-floored), Volume Shockers (reuses `volume_anomaly` **with cause attribution** — the one lens the desk does better than the commercial screener it was modelled on), 52-Week and All-Time High/Low (computed from batched history over a bounded top-N-by-turnover universe, since NSE's UDiFF bhavcopy carries **no 52-week columns** — verified, 34 columns, none a range extreme). Requested from a screenshot of a commercial "Trending Stocks" page. **Deliberately NO "Most Visited" lens** — that is crowd page-view data from a site's own traffic logs, there is no free public feed for retail attention, and a proxy (delivery spikes, rank churn) would measure something else under the same label. Recorded as a decision, not an oversight, the same way the intraday ORB/DOM lane is. Two things the build forced: a **turnover floor**, without which the movers list is almost entirely penny stocks (a ₹3 share moving 19% is arithmetic), and a **cash-equivalent filter** reusing the chart's existing `isLikelyLiquidETF` definition, because a liquid ETF is *permanently* at its all-time high by construction and squatted on the first ATH run. |
@@ -460,6 +461,143 @@ other way to see. What is retired is any claim that it triggers.
 19 bars over a divisor of 20, inflating every multiplier ~5% and firing a TATASTEEL
 signal the Python correctly rejected. Neither implementation looked wrong alone; they
 only disagreed. They now agree signal-for-signal on RELIANCE / TATASTEEL / DLF.
+
+### B-57 · Does a Renko flip out of a SHALLOW correction work on quality names? — **PRE-REGISTERED 2026-09-07, NOT YET RUN**
+
+Owner's screen idea: cherry-pick names showing a Renko buy flip whose preceding
+sell-side flip carried **at most a 40% correction**, and which are fundamentally
+sound on revenue and cash-flow growth. This entry is the pre-registration for the
+only part of that idea the desk has not already measured.
+
+**The 40% version was killed by counting, before any return was scored.**
+`tools/renko_quality_cardinality.py` (committed `f46c638`, counting only — no
+forward returns) ran the shipped `renko.js` over 460 liquid NSE names, 3y of bars,
+2y scoring window:
+
+| cap on correction | flip_ups kept | share | median `bricks_in_prior` |
+|---|---|---|---|
+| ≤5% | 19 | 0.4% | — |
+| **≤10%** | **631** | **13.7%** | **1** |
+| ≤15% | 1,768 | 38.5% | 1 |
+| ≤20% | 2,829 | 61.5% | 2 |
+| **≤40%** | **4,407** | **95.8%** | **3** |
+| none | 4,598 | 100% | 3 |
+
+Median correction into a flip is **17.4%**, p90 is **32%**. A 40% cap therefore
+removes 4% of events — **it is not a filter.** Paired with a quality gate that
+70% of the sample passes (revenue 3Y CAGR > 0 AND OCF growing; 91% statement
+coverage on 80 names), the screen retains ~two thirds of all flips, i.e. it is
+substantially the bare flip that [[#B-43r]] measured at **−1.01%, p_rot = 0.000**.
+
+**And the cap is largely a re-run of B-43r's own secondary.** `depth_from_peak`
+correlates **0.74** with `bricks_in_prior`. Depth and counter-run length are close
+to the same variable, and at a 40% cap the median event carries
+`bricks_in_prior = 3` — precisely B-43r's `run ≥ 3` bucket, its **worst** measured
+result at −1.30%. Testing 40% would spend a week reproducing a number already on
+the page.
+
+What survives is the **tight** end: at ≤10% the median event carries
+`bricks_in_prior = 1`, which is the complement of what B-43r tested, and 631
+events over 247 names is enough to measure. That is what this entry pre-registers.
+
+> [!warning] The threshold was chosen on cardinality and prior coverage, NOT on returns
+> Seven caps were swept in the cardinality study. None of them was scored against
+> forward returns, and 10% was selected because it is (a) the tightest rung with
+> workable n and (b) the only rung B-43r's secondary does not already cover. No
+> return information entered the choice. This is stated because a swept parameter
+> that later "works" is the classic way a study launders selection into a result.
+
+═══ PRE-REGISTRATION — written before the first run, per B-43r / B-41p precedent ═══
+
+**PRIMARY TEST (the only one that decides anything)**
+
+| | |
+|---|---|
+| signal | `flip_up` where `depth_from_peak ≤ 10%` AND the name passes the point-in-time quality gate at that date |
+| baseline | **bars in the SAME quality-passing names that are also within 10% of their trailing 60d peak, but carry no flip** |
+| horizon | 20 trading days, entry at the next open |
+| statistic | mean(signal) − mean(baseline), in percent |
+| p-value | circular-rotation test (Welch is invalid — overlapping windows, cross-sectional correlation) |
+| **PASS BAR** | **edge > 0 AND p_rot < 0.05.** Anything else is a null and the screen does not ship as a signal. |
+
+**Why the baseline is state-matched, and not "every bar in a quality name".**
+Compare a shallow-dip flip against an unconditional baseline and a positive edge
+is close to free: shallow dips in growing companies resolve upward often enough
+on their own. That would measure *the dip state and the quality screen*, not the
+flip. So the baseline is drawn from bars in the same names in the same state,
+differing only by whether a flip printed. This is the rule B-44r and B-43r were
+both written to enforce: **filter the baseline with whatever you filter the
+signal.** The unconditional comparison is still computed and printed, labelled
+**STATE CONTRAST**, because the gap between the two is the size of the illusion.
+
+**CONTROLS (expected null / expected negative; if they misbehave, nothing else counts)**
+
+1. **Directional control** — `flip_dn` under identical depth and quality filters,
+   scored as a long. B-43r's down leg was a clean null (p=0.331). If this lights
+   up, the filters are selecting the dip state rather than the flip, and the
+   primary number means nothing either.
+2. **Depth-inversion control** — `flip_up` where `depth_from_peak ≥ 25%`, same
+   quality gate. **Pre-registered expectation: negative**, reproducing B-43r.
+   This is a harness check: if the deep bucket comes out positive, this study
+   disagrees with a settled result and must be debugged, not reported.
+
+**SECONDARY (reported, NOT decisive, meaningful only if PRIMARY clears)**
+- 60d horizon at the same cap.
+- Quality gate tightened from a sign test to a top-quartile OCF-growth rank.
+- `depth_from_flip ≤ 10%` as the depth definition instead of `depth_from_peak`.
+
+Three tests on one dataset is already three chances to be fooled. These describe
+a surviving effect; they do not hunt for one.
+
+**ABORT CONDITION, declared in advance.** If the point-in-time quality gate leaves
+**fewer than 200 signal events**, the result is reported as **INCONCLUSIVE —
+UNDERPOWERED**, not as a null. A null and "we could not tell" are different
+findings and the desk has conflated them before.
+
+═══ THE PART THAT IS ACTUALLY HARD: point-in-time fundamentals ═══════════════════
+
+The flip side is solved — `renko.js` sizes bricks causally at epoch boundaries and
+`renko_backtest.js` emits the underlying bar index, so the existing harness fills
+at the next open like every other signal here. The fundamentals side is not.
+
+Scoring a 2024 flip against 2026 statements is lookahead, and it is the leg that
+gets skipped because fundamentals *feel* static. Required, and none of it is
+optional:
+
+1. **Reporting lag.** `fundamentals_deep.fetch_statements` gives annual columns
+   labelled by period END, not publication date. A fiscal year's figures become
+   usable only at `period_end + 90d` (NSE requires annual results within 60 days;
+   90 is the conservative side of that). `fcf_negative_streak_as_of` already
+   establishes this as-of pattern — extend it, do not re-invent it.
+2. **Fewer than 3 usable FYs at date T ⇒ EXCLUDED, not FAILED.** A name that had
+   not yet reported three years has not failed the gate; it was never tested.
+   Folding it into the denominator would understate the pass rate by exactly the
+   coverage hole.
+3. **Survivorship is acknowledged and unfixable with free data.** The universe is
+   today's listed, liquid names, so anything delisted or illiquid in the window is
+   absent. Every number this study produces is therefore an **upper bound**, and
+   must be reported as one.
+
+═══ SCOPE — what a pass would and would not license ══════════════════════════════
+
+A pass licenses **one** thing: a further pre-registered test on a walk-forward
+sample that did not select the threshold. It does **not** grant MEASURED_EDGE
+status, does not move Renko out of `PIPELINE_EXCLUDED`, and does not relabel the
+chart overlay from FLIP to BUY. B-41p's scope clause is the precedent.
+
+A fail leaves the screen available as an **attention list** — "quality names that
+just turned up after a shallow pullback" is a defensible thing to put in front of
+a human, and this desk's convention is that such lists ship labelled as questions,
+not as entries. That is the Scanner-Hub-shaped outcome, and it needs no edge to
+justify itself.
+
+**Prior recorded in advance.** Skeptical, but less so than for B-43r. Two nulls and
+one significant negative sit behind this signal, and the mechanism B-43r identified
+— an up-flip selects the moment just after a counter-move, and holding beats
+re-entering — **weakens but does not vanish** at a 10% cap, because a shallow
+pullback gives back little of the run. Against that, the quality gate is doing work
+B-43r's basket never had. Expected outcome: a small positive edge that fails the
+p-bar. If it clears, the depth-inversion control is what decides whether to believe it.
 
 ### ~~B-43r~~ · Does the Renko flip work once sideways chop is cut? — **MEASURED 2026-09-06: NO, IT IS SIGNIFICANTLY WORSE**
 
