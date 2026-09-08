@@ -67,6 +67,10 @@
      fibonacci.js is: it reads EW.computeZigzag so every structure tool on the
      chart agrees about where the swings are. -->
 <script src="/rsi_divergence.js"></script>
+<!-- OBV divergence — the same four-variant walk as rsi_divergence.js with OBV
+     substituted for RSI, so there is one divergence implementation, not two.
+     MUST load after rsi_divergence.js: it delegates to RSIDIV.compute. -->
+<script src="/obv_divergence.js"></script>
 
 <!-- User drawing tools (trend line / horizontal ray / zone / text / Fib).
      Lightweight Charts ships none of these, so chart_drawings.js is the pure
@@ -1313,6 +1317,7 @@ const INDICATOR_DEFS = [
   // Draws on BOTH the price chart and the RSI pane, so selecting it turns RSI
   // on (see applyIndicators) — half the signal lives in the oscillator.
   {key:'rsidiv',    label:'RSI Divergence (regular + hidden)', group:'Oscillators', color:'#ffd166'},
+  {key:'obvdiv',    label:'OBV Divergence (regular + hidden)', group:'Oscillators', color:'#00bd6f', alias:'obv divergence on balance volume accumulation distribution luxalgo volume divergence'},
   // ── Volume ──────────────────────────────────────────────────────────────────
   {key:'volume',     label:'Volume',                 group:'Volume',            color:'#888888'},
   {key:'volprofile', label:'Volume Profile (POC/VA/HVN/LVN)', group:'Volume',  color:'#9aa4af'},
@@ -3147,7 +3152,7 @@ function addDots(pane, color, radius = 1.6) {
 // momentum, and remain informative on any series.
 // mabias joins them: a trend-bias card on a monotonic yield line would read
 // "permanent golden cross" — technically true, decisionally meaningless.
-const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'adxdi', 'stoch', 'elliott', 'mabias', 'rsidiv', 'hm', 'evmacd'];
+const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'adxdi', 'stoch', 'elliott', 'mabias', 'rsidiv', 'obvdiv', 'hm', 'evmacd'];
 
 // Detect liquid-ETF / cash-equivalent behaviour from bar statistics rather
 // than symbol lists — new liquid ETFs launch faster than any hardcoded set
@@ -3205,6 +3210,15 @@ function applyIndicators(pane) {
   //
   // Runs after the ETF gate so a cash-equivalent (where both keys are stripped)
   // cannot re-add RSI through the back door.
+  // OBV divergence draws its lower half in the OBV sub-pane, so turning it on
+  // opens that pane the way rsidiv opens the RSI pane. Without this the
+  // divergence exists but half of it is invisible.
+  const _obvDivOn = pane.indicators.has('obvdiv');
+  if (_obvDivOn && !pane._obvdivWasOn && !pane.indicators.has('obv')) {
+    pane.indicators.add('obv');
+  }
+  pane._obvdivWasOn = _obvDivOn;
+
   const _divOn = pane.indicators.has('rsidiv');
   if (_divOn && !pane._rsidivWasOn && !pane.indicators.has('rsi')) {
     pane.indicators.add('rsi');
@@ -3256,6 +3270,7 @@ function applyIndicators(pane) {
   // divergence survives on the price pane; clearRsiDivergence skips the RSI-side
   // removal once subCharts.rsi is gone, since that chart is already destroyed.
   if (pane.rsidiv && !pane.indicators.has('rsidiv')) clearRsiDivergence(pane);
+  if (pane.obvdiv && !pane.indicators.has('obvdiv')) clearObvDivergence(pane);
   // Tear down Rounding Bottom overlay if deselected
   if (!pane.indicators.has('roundbottom') && pane.rb) clearRoundingBottom(pane);
   // Tear down VCP overlay if deselected
@@ -3588,6 +3603,7 @@ function applyIndicators(pane) {
   // does not exist yet on the pass where RSI was just switched on. Not gated on
   // RSI being present — with the pane off it still draws the price-side lines.
   if (pane.indicators.has('rsidiv')) renderRsiDivergence(pane);
+  if (pane.indicators.has('obvdiv')) renderObvDivergence(pane);
 
   if (pane.indicators.has('macd')) {
     if (!pane.subCharts.macd) {
@@ -5402,6 +5418,106 @@ function renderRsiDivergence(pane) {
     });
   }
   setPaneMarkers(pane, 'rsidiv', markers);
+}
+
+// ── OBV divergence (B-61) ────────────────────────────────────────────────────
+// Same shape as renderRsiDivergence, drawn into the OBV sub-pane instead of the
+// RSI one. Deliberately NOT merged with it into one parameterised renderer: the
+// two panes have different series lookups and different state keys, and the
+// merged version was longer than the two separate ones.
+
+function ensureObvDivState(pane) {
+  if (!pane.obvdiv) pane.obvdiv = {priceLines: [], obvLines: []};
+  return pane.obvdiv;
+}
+
+function clearObvDivergence(pane) {
+  if (!pane.obvdiv) return;
+  pane.obvdiv.priceLines.forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
+  const sub = pane.subCharts && pane.subCharts.obv;
+  if (sub) pane.obvdiv.obvLines.forEach(s => { try { sub.chart.removeSeries(s); } catch {} });
+  setPaneMarkers(pane, 'obvdiv', null);
+  pane.obvdiv.priceLines = [];
+  pane.obvdiv.obvLines = [];
+}
+
+function renderObvDivergence(pane) {
+  const st = ensureObvDivState(pane);
+  clearObvDivergence(pane);
+  const bars = pane.bars;
+  if (!bars || !bars.length || !window.OBVDIV) return;
+
+  // The SAME OBV series the sub-pane draws, so the line you see and the values
+  // the divergence is measured from cannot drift apart.
+  const obvData = obvSeries(bars);
+  let res;
+  try { res = OBVDIV.compute(bars, {obv: obvData}); } catch (e) { return; }
+  if (!res.divergences.length) return;
+
+  const sub = pane.subCharts && pane.subCharts.obv;
+
+  // First activation ordering: turning obvdiv on ADDS 'obv' in the same pass,
+  // and the sub-pane is built after this render runs -- so the very first draw
+  // would put the price half on the chart and silently drop the OBV half.
+  // Measured: priceLines 6, obvLines 0 on pass one; both 6 on pass two. Retry
+  // once on the next frame rather than leaving the user to toggle twice.
+  // setTimeout, not requestAnimationFrame: rAF does not fire while the tab is
+  // hidden, so a chart opened in a background tab would stay half-drawn until
+  // it was looked at. A macrotask runs either way.
+  if (!sub && pane.indicators.has('obv') && !pane._obvdivRetry) {
+    pane._obvdivRetry = true;
+    setTimeout(() => {
+      pane._obvdivRetry = false;
+      if (pane.indicators.has('obvdiv')) renderObvDivergence(pane);
+    }, 0);
+  }
+
+  const markers = [];
+
+  for (const d of res.divergences) {
+    const style = RSIDIV_STYLE[d.dir];       // one colour vocabulary for both panes
+    const color = d.provisional ? style.faded : style.color;
+    const lineStyle = d.kind === 'hidden' ? 2 : 0;
+
+    const priceLine = pane.chart.addLineSeries({
+      color, lineWidth: 2, lineStyle,
+      priceLineVisible: false, lastValueVisible: false,
+      crosshairMarkerVisible: false,
+    });
+    priceLine.setData(RSIDIV.lineOnGrid(bars, d.from.idx, d.from.price,
+                                              d.to.idx,   d.to.price));
+    st.priceLines.push(priceLine);
+
+    if (sub) {
+      const obvLine = sub.chart.addLineSeries({
+        color, lineWidth: 2, lineStyle,
+        priceLineVisible: false, lastValueVisible: false,
+        crosshairMarkerVisible: false,
+      });
+      obvLine.setData(RSIDIV.lineOnGrid(bars, d.from.idx, d.from.obv,
+                                              d.to.idx,   d.to.obv));
+      st.obvLines.push(obvLine);
+    }
+
+    // `!` flags a divergence one session's volume effectively created. OBV books
+    // a bar's ENTIRE volume by its close-to-close sign, so a news candle or an
+    // index rebalance can bend the line into a divergence no genuine flow
+    // produced — the artifact LuxAlgo names as the main false-signal source.
+    // volConcentration is that print's share of the window's volume.
+    const conc = d.volConcentration;
+    const oneBar = conc !== null && conc >= 0.5;
+
+    markers.push({
+      time: bars[d.to.idx].time,
+      position: d.dir === 'bull' ? 'belowBar' : 'aboveBar',
+      color,
+      shape: d.dir === 'bull' ? 'arrowUp' : 'arrowDown',
+      text: `OBV ${d.kind === 'hidden' ? 'Hid' : 'Reg'} `
+            + `${d.dir === 'bull' ? 'Bull' : 'Bear'}`
+            + (d.provisional ? ' ?' : '') + (oneBar ? ' !' : ''),
+    });
+  }
+  setPaneMarkers(pane, 'obvdiv', markers);
 }
 
 function clearElliottWave(pane) {

@@ -51,6 +51,7 @@ const SHELL = [
   '/supertrend_ai.js',
   '/percent_r_trend_exhaustion.js',
   '/adx_di.js',
+  '/obv_divergence.js',
   '/rsi_divergence.js',
   '/evwma_vwap_macd.js',
   '/psar.js',

@@ -53,7 +53,7 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **New 2026-09-07** | ~~**B-57**~~ **PRE-REGISTERED then MEASURED same day → FAILS the bar** (edge **−0.25%**, p_rot=0.714, n=207). Owner proposed a Renko flip + ≤40%-correction + revenue/cash-flow screen. `tools/renko_quality_cardinality.py` counted first and **killed the 40% version before any return was scored**: 4,407 of 4,598 flip_ups (96%) clear a 40% cap, so it is not a filter, and its median `bricks_in_prior` = 3 sits on B-43r's worst bucket (−1.30%). The ≤10% rung was the only uncovered one; `tools/point_in_time_quality.py` (12 tests) closed the lookahead leg. Result: **B-43/B-43r stand**, but the null is **soft** — B-43r's −1.01% (p=0.000) dissolves to −0.25%, which is what its own mechanism predicts. CONTROL2 misbehaved (+3.37%, p=0.211); a HARNESS arm reproducing B-43's null (+0.49%, p=0.376) cleared the scorer, so that control is uninformative rather than contradictory. Cite as "no edge found, underpowered", not a settled zero. |
 | **New 2026-09-07 (from a QM/CHOCH setups chart)** | **B-58** (**DETECTOR BUILT, measurement not run**) — coverage audit of a "4 Setups for BUY Entry / QM patterns" chart: CHOCH, key levels, order blocks, the fib grid and the stop-hunt read are all already present, and the two missing rungs (**88.6% entry, 113% stop**) were **added to `fibonacci.js` the same day** (drawn only — deliberately NOT wired into `buildPlan`, since changing what a stop means is a measurement, not a default). The image's setups 1–3 are the retrace-after-structure-break family this desk has measured NEGATIVE three times (`ICT Setup` −0.36%/−1.24%, `Order Block Retest` −0.47%/−0.70%, `Pullback Entry` −0.43%/−1.12%, ~9,000 signals), so they are not proposed. Setup 4's stop-hunt mechanic is `Liquidity Sweep`, **already measured POSITIVE** (B-41m, +0.51% @20d p=0.005). The one real gap is the **QM geometry** itself — the `RH > LH` CHOCH plus a left-shoulder entry, which is what distinguishes it from an inverse H&S. `detect_quasimodo` built the same day with 17 tests. Two corrections came out of running it: the right shoulder had to become OPTIONAL (it is the retracement into the zone, so requiring a confirmed pivot made the setup visible only after it was untradeable), and the four pivots had to be made CONSECUTIVE — searching them independently reported a "pattern" on **73%** of 460 names, adjacency cut that to **44%**, and only **14 (3%)** have price in the zone with the head unbroken. Pre-registration written, skeptical prior, measurement NOT yet run. Multi-timeframe liquidity ("HTF LQ") deferred; note `HTF` in this repo means High Tight Flag, not higher timeframe. |
 | **New 2026-09-07 (from a PSAR chart)** | ~~**B-59**~~ **BUILT same day** — Parabolic SAR was absent (the `sar` key in `evwma_vwap_macd_backtest.py` is stop-and-reverse EQUITY, not Wilder's dots; not in `INDICATOR_DEFS`, so it cannot be charted). Scoped as an **overlay only**: B-46 already ruled PSAR out, but that objection was about a SCANNER creating a zero-unique registry entry next to `pmax`/`stai` — an overlay makes no claim and votes in nothing, which is the same split B-46 itself used for Ichimoku. Wilder's parameters and the two-bar penetration clamp are pinned in the entry, along with the causality requirement (bar *i*'s dot from bars ≤ *i−1*, so it does not repaint). No backtest owed for the overlay; before any PSAR *signal*, the first measurement owed is an **overlap check against `pmax`/`stai`**, not an edge test. `psar.js` + 11 tests, verified on RELIANCE.NS (2,598 dots over 2,600 bars, no console errors); drawn as dots rather than a line, and with NO flip markers since pmax/stai already draw arrows on that pane. **A chart server already running returns 404 for `/psar.js` until restarted.** |
-| **New 2026-09-07 (from a Screeningmantis screenshot)** | ~~**B-60**~~ **BUILT same day** — **sector money-flow heatmap**: sectors x `today/1W/2W/1M`, shaded by Chaikin Money Flow, with a Trend column, on the Sector page and pipelined to Home with positive-flow sectors highlighted. Indicator ingested to [[concepts/Chaikin-Money-Flow]]. Mostly **assembly, not invention** — `nse_universe`, `sector_rotation.SECTOR_INDEX_MAP`, the Sector Map page, the Home `_action_card` hook and `_batch_history` all already exist, and no new data source is needed. Two design calls recorded up front: aggregate by **summing money-flow volume over the sector and dividing by summed volume** (a mean of constituent CMFs lets a smallcap outvote a heavyweight), and the four columns are **overlapping 21-bar windows, not independent observations**. Ships as a VIEW — no entry/stop/target, not in `SCANNERS`, never a confluence vote. **Live: 500/501 symbols, 20 sectors**, readings inside ±0.25 as the clip assumes; a test shows the naive mean INVERTS a sector's reading vs volume weighting. The live run caught an integration bug no unit test would have (`_batch_history` returns capitalised OHLC columns). |\n| **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
+| **New 2026-09-07 (from a Screeningmantis screenshot)** | ~~**B-60**~~ **BUILT same day** — **sector money-flow heatmap**: sectors x `today/1W/2W/1M`, shaded by Chaikin Money Flow, with a Trend column, on the Sector page and pipelined to Home with positive-flow sectors highlighted. Indicator ingested to [[concepts/Chaikin-Money-Flow]]. Mostly **assembly, not invention** — `nse_universe`, `sector_rotation.SECTOR_INDEX_MAP`, the Sector Map page, the Home `_action_card` hook and `_batch_history` all already exist, and no new data source is needed. Two design calls recorded up front: aggregate by **summing money-flow volume over the sector and dividing by summed volume** (a mean of constituent CMFs lets a smallcap outvote a heavyweight), and the four columns are **overlapping 21-bar windows, not independent observations**. Ships as a VIEW — no entry/stop/target, not in `SCANNERS`, never a confluence vote. **Live: 500/501 symbols, 20 sectors**, readings inside ±0.25 as the clip assumes; a test shows the naive mean INVERTS a sector's reading vs volume weighting. The live run caught an integration bug no unit test would have (`_batch_history` returns capitalised OHLC columns). |\n| **New 2026-09-07 (from LuxAlgo's OBV-divergence page)** | ~~**B-61**~~ **BUILT same day** — OBV Divergence on the chart, beside RSI Divergence. Contains **no divergence walk**: it computes OBV and hands it to `RSIDIV.compute` through the injection point that module already exposes, so there is one implementation of the four-variant table rather than two to drift. Two things recorded because they change how it reads: **OBV is an unbounded running total**, so it trends and divergences are cheaper to satisfy than RSI's — expect more, and do not read the extra ones as extra evidence; and every divergence carries **`volConcentration`**, the largest bar's share of its window's volume, which MEASURES the single-huge-print artifact LuxAlgo says to inspect by hand (chart marks ≥0.5 with `!`). Live on RELIANCE.NS: 6 divergences, all 0.12–0.14 concentration. The browser caught a first-activation half-render (`setTimeout` retry, not rAF, which does not fire in a hidden tab). Context, not a signal; an **overlap check against the RSI pane** is owed before any OBV-divergence signal. |\n| **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
 | **Shipped 2026-09-02 (not from the backlog)** | **Trending Stocks page** — `trending_stocks.py` + a Market-Intel page with four lenses: Price Movers (whole-market bhavcopy, turnover-floored), Volume Shockers (reuses `volume_anomaly` **with cause attribution** — the one lens the desk does better than the commercial screener it was modelled on), 52-Week and All-Time High/Low (computed from batched history over a bounded top-N-by-turnover universe, since NSE's UDiFF bhavcopy carries **no 52-week columns** — verified, 34 columns, none a range extreme). Requested from a screenshot of a commercial "Trending Stocks" page. **Deliberately NO "Most Visited" lens** — that is crowd page-view data from a site's own traffic logs, there is no free public feed for retail attention, and a proxy (delivery spikes, rank churn) would measure something else under the same label. Recorded as a decision, not an oversight, the same way the intraday ORB/DOM lane is. Two things the build forced: a **turnover floor**, without which the movers list is almost entirely penny stocks (a ₹3 share moving 19% is arithmetic), and a **cash-equivalent filter** reusing the chart's existing `isLikelyLiquidETF` definition, because a liquid ETF is *permanently* at its all-time high by construction and squatted on the first ATH run. |
 | **Measured 2026-09-02** | **B-19** batch walk-forward on all 41 scanners (LIQUID_50, 3 windows, Indian delivery ~29bps): **0/41 stable** across all horizons; 11 show positive 20d edge but all UNSTABLE; strongest = %R Bottoming (+2.68% @60d, stable @20d+60d), Falling Wedge (+1.58% @60d); **most scanners show negative edge after costs**. 3 too-few-signals (High Tight Flag, Minervini VCP, RSI-Fibo Hidden Div). 3/5 risk scanners show bearish edge. Full table in `tools/cache/b19_verdicts/_summary_table.txt`. |
@@ -646,6 +646,71 @@ tooltip.
 build — the desk has volume at PRICE (Volume Profile), volume SPIKES
 (`volume_anomaly`), and no view of **where money is going by sector over time**.
 That gap is real regardless of whether the metric predicts anything.
+
+### ~~B-61~~ · OBV Divergence — chart overlay — **BUILT 2026-09-07**
+
+Requested from [LuxAlgo's OBV-divergence page](https://www.luxalgo.com/library/concept/obv-divergence/).
+`tools/obv_divergence.js` + 11 tests, wired into the chart beside RSI Divergence.
+
+Their four-variant table is the one `rsi_divergence.js` has carried since
+2026-06-22, so this is that concept pointed at a different series, not a new
+claim:
+
+| | regular (reversal) | hidden (continuation) |
+|---|---|---|
+| **Bullish** | price LL + OBV HL | price HL + OBV LL |
+| **Bearish** | price HH + OBV LH | price LH + OBV HH |
+
+**This module contains no divergence walk.** It computes OBV and hands it to
+`RSIDIV.compute` through the injection point that module already exposes — the
+same hook the dashboard uses to pass its own RSI in so the drawn line and the
+measured values cannot drift. A second copy of the walk would be one rule
+maintained twice, which is the shape of bug `test_renko_parity.py` exists to
+catch elsewhere. Its output field is renamed `rsi` → `obv` on the way out, and a
+test asserts that, so no downstream reader is told they are looking at an
+oscillator they are not.
+
+> [!warning] OBV is not RSI, and it changes the base rate
+> RSI is bounded 0-100 and mean-reverting. **OBV is an unbounded running total,
+> so it trends with the market.** In a sustained advance nearly every OBV swing
+> low is a higher low, which makes "price LL + OBV HL" cheaper to satisfy than
+> the RSI equivalent. **Expect MORE divergences here than the RSI pane gives on
+> the same bars, and do not read the extra ones as extra evidence.** Live on
+> RELIANCE.NS, 2,600 bars: 6 divergences.
+
+**The artifact is MEASURED here, not just warned about.** LuxAlgo names the main
+false-signal source precisely: OBV books a bar's ENTIRE volume by the sign of its
+close-to-close change, so one enormous print — a news candle, an index rebalance,
+a block deal — can bend the line into a divergence no genuine flow produced.
+Their suggested audit is to inspect the bars by hand.
+
+Every divergence instead carries **`volConcentration`**: the largest single bar's
+share of total volume across the divergence's own window. Evenly spread over N
+bars it reads 1/N; where one session carries half the volume it reads 0.5. The
+chart marks those `!`. On RELIANCE the six read 0.12–0.14 — genuinely distributed
+flow. `volume_anomaly` already attributes such spikes to a cause, so a flagged
+divergence has somewhere to go next.
+
+**A first-activation bug the browser caught and no unit test would have.**
+Turning `obvdiv` on ADDS `obv` in the same pass, and the sub-pane is constructed
+*after* the render call — so the first draw put the price half on the chart and
+silently dropped the OBV half (measured: priceLines 6, obvLines 0 on pass one;
+6 and 6 on pass two). Fixed with a one-shot retry. It uses **`setTimeout`, not
+`requestAnimationFrame`** — rAF does not fire while a tab is hidden, so a chart
+opened in a background tab would have stayed half-drawn until looked at. That
+second point was itself caught by the verification pane being hidden.
+
+**Ships as context, not a signal.** No entry/stop/target, not registered in
+`SCANNERS`, never a confluence vote — LuxAlgo's own advice is to require price
+confirmation (a reversal bar or a swing break) before acting, and this desk has
+measured no forward edge for OBV divergence. It inherits `rsi_divergence.js`'s
+coarser zigzag (2.0/1.5), the setting measured to stop divergence-between-two-
+wiggles, so the two panes stay comparable.
+
+**Owed before any OBV-divergence SIGNAL:** the same thing owed for PSAR — an
+**overlap check against the RSI divergence pane**, not an edge test. Two
+divergence detectors on one chart that fire on the same swings are one detector
+with two colours.
 
 ### ~~B-59~~ · Parabolic SAR — chart overlay — **BUILT 2026-09-07**
 

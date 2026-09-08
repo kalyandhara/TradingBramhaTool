@@ -467,6 +467,12 @@ def renko_js():
     return send_from_directory(HERE, "renko.js", mimetype="application/javascript")
 
 
+@app.route("/obv_divergence.js")
+def obv_divergence_js():
+    return send_from_directory(HERE, "obv_divergence.js",
+                               mimetype="application/javascript")
+
+
 @app.route("/rsi_divergence.js")
 def rsi_divergence_js():
     return send_from_directory(HERE, "rsi_divergence.js", mimetype="application/javascript")
