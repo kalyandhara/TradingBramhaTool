@@ -53,7 +53,7 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **New 2026-09-07** | ~~**B-57**~~ **PRE-REGISTERED then MEASURED same day → FAILS the bar** (edge **−0.25%**, p_rot=0.714, n=207). Owner proposed a Renko flip + ≤40%-correction + revenue/cash-flow screen. `tools/renko_quality_cardinality.py` counted first and **killed the 40% version before any return was scored**: 4,407 of 4,598 flip_ups (96%) clear a 40% cap, so it is not a filter, and its median `bricks_in_prior` = 3 sits on B-43r's worst bucket (−1.30%). The ≤10% rung was the only uncovered one; `tools/point_in_time_quality.py` (12 tests) closed the lookahead leg. Result: **B-43/B-43r stand**, but the null is **soft** — B-43r's −1.01% (p=0.000) dissolves to −0.25%, which is what its own mechanism predicts. CONTROL2 misbehaved (+3.37%, p=0.211); a HARNESS arm reproducing B-43's null (+0.49%, p=0.376) cleared the scorer, so that control is uninformative rather than contradictory. Cite as "no edge found, underpowered", not a settled zero. |
 | **New 2026-09-07 (from a QM/CHOCH setups chart)** | **B-58** (**DETECTOR BUILT, measurement not run**) — coverage audit of a "4 Setups for BUY Entry / QM patterns" chart: CHOCH, key levels, order blocks, the fib grid and the stop-hunt read are all already present, and the two missing rungs (**88.6% entry, 113% stop**) were **added to `fibonacci.js` the same day** (drawn only — deliberately NOT wired into `buildPlan`, since changing what a stop means is a measurement, not a default). The image's setups 1–3 are the retrace-after-structure-break family this desk has measured NEGATIVE three times (`ICT Setup` −0.36%/−1.24%, `Order Block Retest` −0.47%/−0.70%, `Pullback Entry` −0.43%/−1.12%, ~9,000 signals), so they are not proposed. Setup 4's stop-hunt mechanic is `Liquidity Sweep`, **already measured POSITIVE** (B-41m, +0.51% @20d p=0.005). The one real gap is the **QM geometry** itself — the `RH > LH` CHOCH plus a left-shoulder entry, which is what distinguishes it from an inverse H&S. `detect_quasimodo` built the same day with 17 tests. Two corrections came out of running it: the right shoulder had to become OPTIONAL (it is the retracement into the zone, so requiring a confirmed pivot made the setup visible only after it was untradeable), and the four pivots had to be made CONSECUTIVE — searching them independently reported a "pattern" on **73%** of 460 names, adjacency cut that to **44%**, and only **14 (3%)** have price in the zone with the head unbroken. Pre-registration written, skeptical prior, measurement NOT yet run. Multi-timeframe liquidity ("HTF LQ") deferred; note `HTF` in this repo means High Tight Flag, not higher timeframe. |
 | **New 2026-09-07 (from a PSAR chart)** | ~~**B-59**~~ **BUILT same day** — Parabolic SAR was absent (the `sar` key in `evwma_vwap_macd_backtest.py` is stop-and-reverse EQUITY, not Wilder's dots; not in `INDICATOR_DEFS`, so it cannot be charted). Scoped as an **overlay only**: B-46 already ruled PSAR out, but that objection was about a SCANNER creating a zero-unique registry entry next to `pmax`/`stai` — an overlay makes no claim and votes in nothing, which is the same split B-46 itself used for Ichimoku. Wilder's parameters and the two-bar penetration clamp are pinned in the entry, along with the causality requirement (bar *i*'s dot from bars ≤ *i−1*, so it does not repaint). No backtest owed for the overlay; before any PSAR *signal*, the first measurement owed is an **overlap check against `pmax`/`stai`**, not an edge test. `psar.js` + 11 tests, verified on RELIANCE.NS (2,598 dots over 2,600 bars, no console errors); drawn as dots rather than a line, and with NO flip markers since pmax/stai already draw arrows on that pane. **A chart server already running returns 404 for `/psar.js` until restarted.** |
-| **New 2026-09-07 (from a Screeningmantis screenshot)** | **B-60** (**SCOPED, NOT BUILT**) — **sector money-flow heatmap**: sectors x `today/1W/2W/1M`, shaded by Chaikin Money Flow, with a Trend column, on the Sector page and pipelined to Home with positive-flow sectors highlighted. Indicator ingested to [[concepts/Chaikin-Money-Flow]]. Mostly **assembly, not invention** — `nse_universe`, `sector_rotation.SECTOR_INDEX_MAP`, the Sector Map page, the Home `_action_card` hook and `_batch_history` all already exist, and no new data source is needed. Two design calls recorded up front: aggregate by **summing money-flow volume over the sector and dividing by summed volume** (a mean of constituent CMFs lets a smallcap outvote a heavyweight), and the four columns are **overlapping 21-bar windows, not independent observations**. Ships as a VIEW — no entry/stop/target, not in `SCANNERS`, never a confluence vote. |\n| **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
+| **New 2026-09-07 (from a Screeningmantis screenshot)** | ~~**B-60**~~ **BUILT same day** — **sector money-flow heatmap**: sectors x `today/1W/2W/1M`, shaded by Chaikin Money Flow, with a Trend column, on the Sector page and pipelined to Home with positive-flow sectors highlighted. Indicator ingested to [[concepts/Chaikin-Money-Flow]]. Mostly **assembly, not invention** — `nse_universe`, `sector_rotation.SECTOR_INDEX_MAP`, the Sector Map page, the Home `_action_card` hook and `_batch_history` all already exist, and no new data source is needed. Two design calls recorded up front: aggregate by **summing money-flow volume over the sector and dividing by summed volume** (a mean of constituent CMFs lets a smallcap outvote a heavyweight), and the four columns are **overlapping 21-bar windows, not independent observations**. Ships as a VIEW — no entry/stop/target, not in `SCANNERS`, never a confluence vote. **Live: 500/501 symbols, 20 sectors**, readings inside ±0.25 as the clip assumes; a test shows the naive mean INVERTS a sector's reading vs volume weighting. The live run caught an integration bug no unit test would have (`_batch_history` returns capitalised OHLC columns). |\n| **Closed 2026-08-27** | **B-36r** (Screening nav trim — Breakout Screener + TradingView Screener folded into one "Breakout Scans" page with a source toggle; 8 → 7) |
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
 | **Shipped 2026-09-02 (not from the backlog)** | **Trending Stocks page** — `trending_stocks.py` + a Market-Intel page with four lenses: Price Movers (whole-market bhavcopy, turnover-floored), Volume Shockers (reuses `volume_anomaly` **with cause attribution** — the one lens the desk does better than the commercial screener it was modelled on), 52-Week and All-Time High/Low (computed from batched history over a bounded top-N-by-turnover universe, since NSE's UDiFF bhavcopy carries **no 52-week columns** — verified, 34 columns, none a range extreme). Requested from a screenshot of a commercial "Trending Stocks" page. **Deliberately NO "Most Visited" lens** — that is crowd page-view data from a site's own traffic logs, there is no free public feed for retail attention, and a proxy (delivery spikes, rank churn) would measure something else under the same label. Recorded as a decision, not an oversight, the same way the intraday ORB/DOM lane is. Two things the build forced: a **turnover floor**, without which the movers list is almost entirely penny stocks (a ₹3 share moving 19% is arithmetic), and a **cash-equivalent filter** reusing the chart's existing `isLikelyLiquidETF` definition, because a liquid ETF is *permanently* at its all-time high by construction and squatted on the first ATH run. |
 | **Measured 2026-09-02** | **B-19** batch walk-forward on all 41 scanners (LIQUID_50, 3 windows, Indian delivery ~29bps): **0/41 stable** across all horizons; 11 show positive 20d edge but all UNSTABLE; strongest = %R Bottoming (+2.68% @60d, stable @20d+60d), Falling Wedge (+1.58% @60d); **most scanners show negative edge after costs**. 3 too-few-signals (High Tight Flag, Minervini VCP, RSI-Fibo Hidden Div). 3/5 risk scanners show bearish edge. Full table in `tools/cache/b19_verdicts/_summary_table.txt`. |
@@ -71,7 +71,7 @@ reconstructed from the commit log.
 | 3 | **B-59 · PSAR overlap check** | [[#B-59]] | Owed BEFORE any PSAR signal, and it is an **overlap** check against `pmax`/`stai`, not an edge test. B-46's objection is that the flip may carry zero unique cells; if PSAR's flips are a subset of PMax's there is nothing left to measure. The overlay itself needs no backtest and ships as-is. |
 | 4 | **B-57 · secondaries** | [[#B-57]] | The primary FAILED (−0.25%, p_rot=0.714) and that is settled. Unrun: the 60d horizon, the quality gate tightened from a sign test to a top-quartile OCF rank, and `depth_from_flip` as the depth definition. All were pre-registered as non-decisive, so they describe rather than rescue. |
 | 5 | **B-58 residual · multi-timeframe liquidity** | [[#B-58]] | "HTF LQ" from the source chart. `detect_liquidity_pools` takes one `df` — single timeframe. Bigger build, own entry when picked up. **Naming trap:** `HTF` in this repo means **High Tight Flag**, not higher timeframe, so grepping for it gives false confidence the feature exists. |
-| 6 | **B-60 · sector money-flow heatmap** | [[#B-60]] | Scoped from a screenshot, not built. Indicator research done ([[concepts/Chaikin-Money-Flow]]); the build is assembly over `nse_universe`, `sector_rotation`, the Sector Map page and the Home `_action_card` hook, with no new data source. Ships as a VIEW, never a signal. |
+| ~~6~~ | ~~**B-60 · sector money-flow heatmap**~~ | [[#B-60]] | **BUILT 2026-09-07** — `money_flow.py` + 18 tests, on Sector Map and Home, verified in the running dashboard. Ships as a view; unmeasured. |
 | 7 | **Fib rungs are drawn, not wired** | `fibonacci.js` | 0.886 and 1.13 exist as levels but do NOT feed `buildPlan`: 0.886 is entry-ineligible without `{deepEntry:true}`, and 1.13 never becomes the stop. Adopting either changes reward-to-risk — and therefore the `actionable` flag — on plans unrelated to QM. **Changing what a stop means is a measurement, not a default.** |
 
 > [!note] The one thing worth carrying forward from this session's method
@@ -487,7 +487,7 @@ other way to see. What is retired is any claim that it triggers.
 signal the Python correctly rejected. Neither implementation looked wrong alone; they
 only disagreed. They now agree signal-for-signal on RELIANCE / TATASTEEL / DLF.
 
-### B-60 · Sector money-flow heatmap (CMF) — **SCOPED 2026-09-07, NOT BUILT**
+### ~~B-60~~ · Sector money-flow heatmap (CMF) — **BUILT 2026-09-07**
 
 From a Screeningmantis screenshot the owner brought in: sectors down the rows,
 `today / 1W ago / 2W ago / 1M ago` across the columns, each cell shaded red-to-green
@@ -561,6 +561,62 @@ hook — a compact strip of positive-CMF sectors, click through to the full grid
 Home must stay cheap to open, so it renders from the SAME cached frame the page
 computes and never triggers its own fetch (the pattern `_darvas_window(compact=True)`
 already follows).
+
+═══ BUILT — `tools/money_flow.py` + 18 tests, on Sector Map and Home ════════════
+
+Live on NIFTY-500: **500/501 symbols with history, 20 sectors**, rendered as the
+reference layout — sectors down the rows, `today / 1W / 2W / 1M` across, red-to-
+green shading, Trend column. Verified in the running dashboard, not just in
+isolation.
+
+| sector | today | 1W | 2W | 1M | trend |
+|---|---|---|---|---|---|
+| Realty | +0.146 | −0.069 | +0.020 | +0.056 | — |
+| Metals & Mining | +0.078 | +0.153 | +0.090 | −0.011 | — |
+| Consumer Services | +0.070 | +0.037 | +0.085 | +0.046 | Accumulation |
+| … | | | | | |
+| Telecommunication | −0.002 | −0.127 | −0.061 | −0.243 | Distribution |
+| Power | −0.200 | −0.290 | −0.203 | −0.194 | Distribution |
+
+**The readings land inside ±0.25**, which is what `HEAT_CLIP` assumes — so the
+colour scale uses its whole range instead of every cell hugging white. Had this
+been scaled to CMF's theoretical ±1 bound the grid would have been unreadable.
+
+**Aggregation went in as scoped, and a test proves the difference is real** rather
+than asserting it in a comment: one heavyweight accumulating on 10m volume against
+three smallcaps distributing on 1k each reads **+0.99 volume-weighted** and
+**negative** as a mean of members. The naive average inverts the sector's reading.
+`mode="mean_of_members"` is kept so the two can be compared, not hidden.
+
+**One integration bug the live run caught that no unit test would have.**
+`trending_stocks._batch_history` hands back yfinance's capitalised
+`High/Low/Close/Volume`; the module and its tests used lowercase. It failed with a
+`KeyError` 300 symbols into a download. Fixed with a case-insensitive `_col()`
+rather than by making callers normalise — both conventions are legitimate here,
+since the bhavcopy path is lowercase.
+
+**Rendering is a TABLE, deliberately**, against the cards-not-tables convention
+that governs Scanner Hub. That convention is about scanner RESULTS, where each hit
+is an object with its own reasons. This is one metric across 20 sectors and 4
+dates and the reader's job is to scan a column for the outlier — the job cards are
+worst at.
+
+**Three captions ship with the grid**, all verified present in the DOM: the
+aggregation method and coverage, the overlapping-window warning, and the gap
+caveat. `CAVEAT` lives in `money_flow.py` and is rendered from there, so the page
+and the module cannot drift apart.
+
+**Home mounting** is the positive-flow strip only, scan-on-click, reading from the
+same cached frame — Home never fetches on load, the pattern `_darvas_window`
+already follows. `_money_flow_window` is defined ONCE above both mount points;
+the first wiring put the definition after Home's call and Streamlit raised
+`NameError` on load, which the browser check caught.
+
+**Ships as a VIEW, as scoped.** Not in `SCANNERS`, no entry/stop/target, never a
+confluence vote, and a test asserts it stays unregistered. Nothing here has been
+measured — if it is ever to become a signal, the pre-registered question above
+(top-CMF sector vs the equal-weighted sector basket, sector-MATCHED baseline)
+is what has to run first.
 
 ## What this must NOT become
 

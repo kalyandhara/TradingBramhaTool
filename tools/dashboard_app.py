@@ -4514,6 +4514,102 @@ with st.expander("Daily Workflow (IST)"):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Sector money flow (CMF) — B-60. Shared window, used on Sector Map AND Home.
+# ------------------------------------------------------------------------------
+# One definition, two mount points, no drift — the same arrangement the Darvas
+# window uses. Home renders from the SAME cached frame the page computes and can
+# never trigger its own fetch, because Home must stay cheap to open.
+#
+# A TABLE, deliberately, against the cards-not-tables convention that governs
+# Scanner Hub. That convention is about scanner RESULTS, where each hit is an
+# object with its own reasons. This is one metric across ~20 sectors and 4 dates
+# and the reader's job is to scan a column for the outlier — which is the job
+# cards are worst at.
+# ──────────────────────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _sector_money_flow(universe: str = "nifty500", n: int = 21):
+    import money_flow as _mf
+    return _mf.sector_grid(universe, n=n)
+
+
+def _money_flow_window(key_prefix: str, *, compact: bool = False):
+    """Render the sector money-flow grid.
+
+    `compact` is the Home mounting: the positive-flow strip only, scan on click.
+    """
+    import money_flow as _mf
+
+    if compact:
+        st.markdown("#### 💸 Sector money flow · positive today")
+        if not st.session_state.get(f"{key_prefix}_ran", False):
+            if st.button("Run sector money-flow scan", key=f"{key_prefix}_run",
+                         type="primary"):
+                st.session_state[f"{key_prefix}_ran"] = True
+                st.rerun()
+            st.caption("Not run yet — Home never fetches on load.")
+            return
+    else:
+        st.markdown("#### 💸 Sector money flow · Chaikin Money Flow")
+
+    with st.spinner("Computing sector money flow…"):
+        grid = _sector_money_flow()
+    if grid.get("error"):
+        st.warning(f"Sector money flow unavailable: {grid['error']}")
+        return
+    df = grid.get("rows")
+    if df is None or df.empty:
+        st.info("No sector had enough constituents with history to compute.")
+        return
+
+    cols = grid["columns"]
+
+    if compact:
+        pos = _mf.positive_sectors(grid, top_n=5)
+        if pos.empty:
+            st.caption("**No sector is showing positive money flow today.** "
+                       "That is a reading, not an absence of one.")
+        else:
+            st.dataframe(
+                pos[["sector", cols[0], "trend"]],
+                hide_index=True, use_container_width=True,
+                column_config={
+                    cols[0]: st.column_config.NumberColumn("CMF today", format="%.3f"),
+                    "trend": st.column_config.TextColumn("Trend"),
+                })
+        st.caption("Where money went, not where it will go — a reading order, "
+                   "not a buy list. Nothing here has been measured.")
+        return
+
+    # Full grid: red → white → green, clipped at the practical range so ordinary
+    # readings use the whole scale instead of hugging white (CMF is bounded ±1
+    # but lives inside roughly ±0.25).
+    clip = grid["clip"]
+    show = df[["sector", "members"] + cols + ["trend"]]
+    styled = show.style.background_gradient(
+        cmap="RdYlGn", subset=cols, vmin=-clip, vmax=clip
+    ).format({c: "{:.3f}" for c in cols}, na_rep="—")
+    st.dataframe(styled, hide_index=True, use_container_width=True)
+
+    st.caption(
+        f"**CMF({grid['n']})** per sector — money-flow volume summed across "
+        f"constituents ÷ their summed volume, so a heavyweight counts for what it "
+        f"traded rather than one vote. {grid['n_covered']}/{grid['n_symbols']} "
+        f"symbols had history. Colour clipped at ±{clip:.2f}."
+    )
+    st.caption(
+        "⚠️ **The four columns are overlapping 21-bar windows** (5 trading days "
+        "apart, so consecutive columns share ~16 bars). A row agreeing across all "
+        "four is one measurement smeared, **not four confirmations**."
+    )
+    st.caption(f"⚠️ {grid['caveat']}")
+    _thin = df[df["low_coverage"]] if "low_coverage" in df else None
+    if _thin is not None and not _thin.empty:
+        st.caption("Computed from under half their constituents (read with that "
+                   "discount): **" + ", ".join(_thin["sector"]) + "**.")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Volume Shockers (Darvas) — shared window, used twice on Home
 # ------------------------------------------------------------------------------
 # The lens was buried three clicks deep (Market Intel ▸ Trending Stocks ▸ tab 2),
@@ -5430,6 +5526,13 @@ if current_page == "Home":
     # scan that was buried three clicks deep, then the roster it feeds. Navigation
     # lives in the top ribbon, where it was already complete.
     _darvas_window("home_vs", compact=True)
+    st.write("")
+
+    # Sector money flow, positive side only (B-60). Where the day's names sit in
+    # the bigger flow picture -- deliberately AFTER the shockers, because it is
+    # context for that list rather than a list of its own. Scan-on-click, same as
+    # above: Home never fetches on load.
+    _money_flow_window("home_smf", compact=True)
     st.write("")
 
     # ── What moved today (was the Trending Stocks page) ──────────────────────
@@ -8265,6 +8368,12 @@ if current_page == "Predictive Analysis":
 # ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Sector Map":
     st.subheader("Sector Map")
+
+    # Money flow first: it answers "where is money going" from the constituents
+    # themselves, and needs no sector-index fetch, so it renders before the RRG
+    # block that is gated behind a button.
+    _money_flow_window("smf_page")
+    st.divider()
 
     if st.button("Fetch / Refresh Sector Data", type="primary"):
         cached_fetch_sector_data.clear()
