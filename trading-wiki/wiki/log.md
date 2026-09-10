@@ -2448,3 +2448,9 @@
 - **Default deliberately unchanged (`True`)** — scanning is the higher-volume caller and the floor is right for it. The bug was by-name callers inheriting the default silently, not the default itself
 - Rule + audit recorded in `cached_fetch_ohlcv`'s docstring so it is learned once, not at seven call sites
 
+## [2026-09-09] build | B-63b final item — in-row Notes editing on the Watchlist
+- `st.data_editor` with **every computed column disabled** — the table becomes a working surface for the one field that is yours, without a stray keystroke being able to rewrite a price. The watchlist *toggle* was NOT added: the page already has an add form and row-select ♥, and a third way to do the same thing is not a feature
+- **The trap, pinned by 5 tests:** the obvious implementation `add_watchlist_symbol(sym, notes)` is an `INSERT OR REPLACE` and would silently **reset `added_date` to today**, rewriting when you started watching a name. New `portfolio_db.update_watchlist_notes()` updates the note only, and returns **0 rather than inserting** for a symbol no longer on the list, so a stale edit cannot resurrect a removed row (the page reports those as skipped)
+- **Verified by editing a cell in the browser**, not only by unit test: typed a note into MUKKA's row, confirmed in sqlite that `notes` changed and **`added_date` stayed 2026-09-02**, then restored the original value
+- B-63b is now complete. The only genuinely declined item is Stage-2 `x/7` — `score_minervini` already returns x/8 and the page has rendered it all along
+

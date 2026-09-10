@@ -248,6 +248,29 @@ def add_watchlist_symbol(symbol: str, notes: str = "") -> None:
         conn.close()
 
 
+def update_watchlist_notes(symbol: str, notes: str) -> int:
+    """Edit ONLY the note on an existing watchlist row. Returns rows changed.
+
+    Deliberately not `add_watchlist_symbol(symbol, notes)`: that is an
+    INSERT OR REPLACE, so reusing it to edit a note would silently reset
+    `added_date` to today — quietly rewriting when you started watching the name,
+    which is a fact the row exists to carry.
+
+    Returns 0 for a symbol not on the list rather than inserting one, so an edit
+    can never create a row by accident.
+    """
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "UPDATE watchlist SET notes = ? WHERE symbol = ?",
+            (notes or "", symbol.upper()),
+        )
+        conn.commit()
+        return cur.rowcount
+    finally:
+        conn.close()
+
+
 def remove_watchlist_symbol(symbol: str) -> None:
     conn = get_connection()
     try:

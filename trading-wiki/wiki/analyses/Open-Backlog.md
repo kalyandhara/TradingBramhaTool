@@ -2868,7 +2868,9 @@ Checked against `tools/`, because two of the columns above were nearly filed as
 > column library. Everything else in B-63b stands.
 
 **BUILT 2026-09-09 — `tools/row_metrics.py` + 21 tests, live on the Watchlist.**
-Seven of the nine columns shipped; the two that did not are named below with why.
+All nine shipped — seven on 2026-09-09 and the note editor in a follow-up commit
+the same day. The one item genuinely declined is Stage-2 `x/7`, because it
+already exists.
 
 The Watchlist is the mount point because it **already fetches full OHLCV per
 symbol** for its Minervini/TechnoFunda scores — so the technical row costs no new
@@ -2886,10 +2888,24 @@ already existed or should not exist twice:**
   (`scan_stage2_uptrend`) that is a hard gate, not the desk. Surfacing the
   existing score is the fix; a second Stage-2 scorer would be one idea with two
   implementations, drifting.
-- **In-row watchlist toggle + Notes.** The page already has both — an add form
-  and row-select → ♥ — and turning the table into an `st.data_editor` is a
-  write-back change that deserves its own commit rather than riding along with
-  eight read-only columns.
+- ~~**In-row watchlist toggle + Notes.**~~ **BUILT 2026-09-09**, in its own
+  commit as promised. `st.data_editor` with **every computed column disabled**,
+  so the table is a working surface for the one field that is genuinely yours
+  without becoming a place where a stray keystroke rewrites a price. The
+  watchlist *toggle* was not added: the page already has an add form and
+  row-select → ♥, and a third way to do it is not a feature.
+
+  **The trap this avoided, pinned by a test:** the obvious implementation is
+  `add_watchlist_symbol(sym, notes)` — which is an `INSERT OR REPLACE` and would
+  silently **reset `added_date` to today**, rewriting when you started watching
+  the name. `portfolio_db.update_watchlist_notes()` updates the note only, and
+  returns **0 rather than inserting** for a symbol no longer on the list, so a
+  stale edit posted against a removed name cannot resurrect it (the page reports
+  those as skipped).
+
+  **Verified by actually editing a cell in the browser**, not just by unit test:
+  typed a note into MUKKA's row, and confirmed in sqlite that the note changed
+  **and `added_date` stayed 2026-09-02**. Test data restored afterwards.
 
 **Design decisions that are load-bearing, each pinned by a test:**
 

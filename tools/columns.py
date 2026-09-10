@@ -173,6 +173,11 @@ COLUMNS: dict[str, ColSpec] = {
         "Return from that reference date to today — the table re-bases on a "
         "date you choose rather than a fixed lookback.",
         "number", "%+.2f%%"),
+    "notes": ColSpec(
+        "Notes",
+        "Your own note on this row. Editable in place where the table says so — "
+        "click the cell, type, press Enter.",
+        "text", width="large"),
     "minervini": ColSpec(
         "Minervini",
         "Minervini trend-template conditions met, out of 8 — a COUNT, not a "
@@ -233,6 +238,7 @@ ALIASES: dict[str, str] = {
     "Symbol": "symbol",
     "Sector": "sector",
     "LTP": "close",
+    "Notes": "notes",
 }
 
 #: Ids in the chart-icon family, in display order.

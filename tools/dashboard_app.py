@@ -6324,7 +6324,42 @@ if current_page == "Watchlist":
         _wl_cfg = _cols.configure_df(
             _wl_df,
             overrides={"close": {"label": f"LTP ({date.today():%d %b})"}})
-        _paginated_df(_wl_df, key="watchlist_main", column_config=_wl_cfg)
+
+        # In-row note editing (B-63b). The ONLY editable cell on this page: an
+        # `st.data_editor` with every computed column disabled, so the table is a
+        # working surface for the one field that is genuinely yours without
+        # becoming a place where a stray keystroke can rewrite a price.
+        #
+        # Writes go through `db.update_watchlist_notes`, NOT
+        # `add_watchlist_symbol(sym, notes)` — that one is an INSERT OR REPLACE
+        # and would silently reset `added_date`, rewriting when you started
+        # watching the name. A test pins that.
+        _orig_notes = {r["Symbol"]: (r.get("Notes") or "") for r in rows}
+        _wl_edit = st.data_editor(
+            _wl_df, key="wl_notes_editor", hide_index=True, width="stretch",
+            column_config=_wl_cfg,
+            disabled=[c for c in _wl_df.columns if c != "Notes"],
+        )
+        _wl_changed = [
+            (str(sym), "" if pd.isna(note) else str(note))
+            for sym, note in zip(_wl_edit["Symbol"], _wl_edit["Notes"])
+            if ("" if pd.isna(note) else str(note)) != _orig_notes.get(str(sym), "")
+        ]
+        if _wl_changed:
+            _saved = 0
+            for _sym, _note in _wl_changed:
+                # rowcount 0 = the symbol is no longer on the list (removed in
+                # another tab between render and edit). Counted, not written.
+                _saved += db.update_watchlist_notes(_sym, _note)
+            if _saved:
+                st.success(f"Saved note{'s' if _saved > 1 else ''} for "
+                           f"{', '.join(s for s, _ in _wl_changed[:5])}"
+                           f"{'…' if len(_wl_changed) > 5 else ''}.")
+            _stale = len(_wl_changed) - _saved
+            if _stale:
+                st.warning(f"{_stale} edit(s) skipped — those symbols are no "
+                           f"longer on the watchlist.")
+            st.rerun()
         st.caption(
             "**EMA cross (d)** is signed: **+12** = the 10-EMA crossed ABOVE the "
             "20-EMA twelve sessions ago, **−3** = crossed below three sessions "
@@ -6348,7 +6383,9 @@ if current_page == "Watchlist":
                 f"one, and a position may be hard to exit."
             )
         st.caption("Descriptions of state, not signals — none of these columns "
-                   "has been measured, and none casts a vote anywhere.")
+                   "has been measured, and none casts a vote anywhere. "
+                   "**Notes is editable** — click a cell, type, press Enter; "
+                   "every other column is read-only.")
 
         wc1, wc2 = st.columns(2)
         with wc1:
