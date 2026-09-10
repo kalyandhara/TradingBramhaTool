@@ -2440,3 +2440,11 @@
 - Fixed with `enforce_liquidity=False`, and the illiquidity is now **shown, not hidden**: a `Turnover ₹Cr` column plus a caption naming the sub-floor rows and what it means for exits
 - **Generalisable:** `enforce_liquidity=True` is the default, so every other by-name page is a candidate for the same bug. Two instances found so far suggests the default is backwards for single-symbol and curated-list callers
 
+## [2026-09-09] sweep | Liquidity-floor audit across all 20 fetch call sites
+- Rule applied: **the ₹1 cr floor is a SCAN filter — ON where the symbol came from a sweep, OFF wherever it was NAMED**
+- **7 switched off:** portfolio valuation + positions table (you OWN the position; the P&L was silently omitting it), alert evaluation (**an alert that cannot fire is indistinguishable from one that has not fired**), watchlist + quick-add prefill, peer-comparison technical columns, bulk/block deal price context, institutional footprint
+- **Worst find of the sweep:** the deal-price context reported thin **NSE-listed** names as **"not NSE-listed"** — a false statement, not just a gap — and bulk/block deals concentrate in illiquid scrips, so the floor bit hardest precisely where that page looks
+- **10 verified correct and left alone:** scanner fetch fn + prefetch fallback, gap/volume universe scan, Chartink conviction scoring, price-legs backtest (a backtest must not include untradeable names), funnel context, and three Overall-Rating calls + levels fetch that run on already-floored hits
+- **Default deliberately unchanged (`True`)** — scanning is the higher-volume caller and the floor is right for it. The bug was by-name callers inheriting the default silently, not the default itself
+- Rule + audit recorded in `cached_fetch_ohlcv`'s docstring so it is learned once, not at seven call sites
+

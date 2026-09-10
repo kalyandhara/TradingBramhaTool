@@ -1533,6 +1533,20 @@ def cached_fetch_ohlcv(symbol: str, days: int = 300, enforce_liquidity: bool = T
 
     Bar-count and NaN validation still apply either way: those say there is no
     data, not that the data is not worth scanning.
+
+    ── When to pass enforce_liquidity=False (audited 2026-09-09) ──────────────
+    **The floor is a SCAN filter.** Keep it ON where a symbol arrived from a
+    sweep and the point is to exclude what cannot be traded. Turn it OFF
+    wherever the symbol was NAMED — by the user, by a holding, by an alert, by a
+    curated list — because there the page is refusing to price something it is
+    already showing, and a blank row reads as "no data" rather than "filtered".
+
+    Seven call sites were switched during that audit: portfolio valuation and
+    the positions table (you already OWN it), alert evaluation (an alert that
+    CANNOT fire looks exactly like one that has not fired), the watchlist and
+    its quick-add prefill, the peer-comparison technical columns, the bulk/block
+    deal price context (where the floor was reporting thin NSE names as "not
+    NSE-listed" — false), and the institutional-footprint lookup.
     """
     # Try enhanced volume fetcher first
     try:
@@ -2554,7 +2568,7 @@ def render_peer_comparison(anchor: str) -> None:
         try:
             tech = pcmp.technical_columns(
                 df["symbol"].tolist(),
-                lambda s: cached_fetch_ohlcv(s, days=400), _nifty,
+                lambda s: cached_fetch_ohlcv(s, days=400, enforce_liquidity=False), _nifty,
                 progress_cb=lambda d, t: tprog.progress(
                     min(d / max(t, 1), 1.0), text=f"Technicals {d}/{t}..."))
             df = pcmp.attach_technicals(df, tech)
@@ -3583,7 +3597,7 @@ def compute_portfolio_summary() -> dict:
     risk_amount = 0.0
     day_pl = 0.0
     for _, pos in open_pos.iterrows():
-        df = cached_fetch_ohlcv(pos["symbol"])
+        df = cached_fetch_ohlcv(pos["symbol"], enforce_liquidity=False)
         if df is None or df.empty:
             continue
         last = float(df["close"].iloc[-1])
@@ -3623,7 +3637,7 @@ def check_alert(alert: pd.Series, portfolio_summary: dict) -> tuple[bool, str]:
         value = portfolio_summary.get("pl_pct", 0.0)
         return _compare(value, alert["operator"], alert["threshold"]), f"{value:+.2f}%"
 
-    df = cached_fetch_ohlcv(alert["symbol"])
+    df = cached_fetch_ohlcv(alert["symbol"], enforce_liquidity=False)
     if df is None or df.empty:
         return False, "no data"
 
@@ -6155,7 +6169,7 @@ if current_page == "Portfolio":
     else:
         rows = []
         for _, pos in open_pos.iterrows():
-            df = cached_fetch_ohlcv(pos["symbol"])
+            df = cached_fetch_ohlcv(pos["symbol"], enforce_liquidity=False)
             current = float(df["close"].iloc[-1]) if df is not None and not df.empty else None
             pl_pct = ((current - pos["entry_price"]) / pos["entry_price"] * 100
                       ) if current else None
@@ -6350,7 +6364,7 @@ if current_page == "Watchlist":
 
         with st.expander("Quick-add to portfolio"):
             qa_sym = st.selectbox("Symbol", watch["symbol"], key="wl_qa_sym")
-            qa_df = cached_fetch_ohlcv(qa_sym)
+            qa_df = cached_fetch_ohlcv(qa_sym, enforce_liquidity=False)
             qa_price = float(qa_df["close"].iloc[-1]) if qa_df is not None and not qa_df.empty else 0.0
             st.caption(f"Current price: ₹{qa_price:,.2f}")
             qc1, qc2 = st.columns(2)
@@ -11590,9 +11604,16 @@ if current_page == "India Market Intel":
                     Only NSE-listed tickers resolve through the yfinance-backed
                     fetcher, so BSE-only scrips legitimately return None and the
                     Evaluate section reports the gap instead of inventing one.
+
+                    The liquidity floor is OFF here, and the paragraph above is
+                    why: with it on, an NSE-listed name that merely trades thin
+                    ALSO returned None and was reported as "not NSE-listed" —
+                    a different and false statement. Bulk/block deals happen in
+                    illiquid scrips more often than liquid ones, so the floor
+                    was biting hardest exactly where this page looks.
                     """
                     try:
-                        pdf = cached_fetch_ohlcv(sym, days=90)
+                        pdf = cached_fetch_ohlcv(sym, days=90, enforce_liquidity=False)
                     except Exception:
                         return None
                     if pdf is None or pdf.empty or "close" not in pdf.columns:
@@ -12688,7 +12709,7 @@ def _render_layer4_panel() -> None:
 
     ohlcv = None
     try:
-        ohlcv = cached_fetch_ohlcv(sym, days=90)
+        ohlcv = cached_fetch_ohlcv(sym, days=90, enforce_liquidity=False)
     except Exception:
         ohlcv = None
 

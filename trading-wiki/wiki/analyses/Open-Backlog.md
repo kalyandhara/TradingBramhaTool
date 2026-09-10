@@ -2945,10 +2945,37 @@ now −12.18%.
 > same level on a liquid one, and the position may be hard to exit). The `None`
 > rendering in empty numeric cells disappeared with the cause.
 >
-> **Worth generalising:** `enforce_liquidity=True` is the default, so every
-> other by-name page is a candidate for this same bug. Three instances found so
-> far (CENTUM, this one) suggests the default is backwards for single-symbol and
-> curated-list callers.
+> **Swept 2026-09-09.** All 20 `cached_fetch_ohlcv` call sites audited against
+> one rule: **the floor is a SCAN filter — keep it ON where the symbol arrived
+> from a sweep, turn it OFF wherever the symbol was NAMED.**
+>
+> **Seven switched to `enforce_liquidity=False`:**
+>
+> | Call site | Why the floor was wrong there |
+> |---|---|
+> | Portfolio valuation | **You already OWN it** — the P&L silently omitted the holding |
+> | Portfolio positions table | same |
+> | Alert evaluation | an alert the user SET BY NAME could never fire, and **an alert that cannot trigger looks exactly like one that has not triggered** |
+> | Watchlist | the original find |
+> | Watchlist quick-add prefill | prices a name the user is adding by hand |
+> | Peer-comparison technical columns | peers are named by the comparison; a thin peer became a hole that read as missing data |
+> | Bulk/block deal price context | **the floor was reporting thin NSE names as "not NSE-listed"** — a different and false statement, and bulk deals happen in illiquid scrips more often than liquid ones, so it bit hardest exactly where that page looks |
+> | Institutional footprint | a symbol the user typed |
+>
+> **Ten verified as correctly floored** and left alone: `_scanner_fetch_fn` and
+> the scanner prefetch fallback, the gap/volume universe scan, the Chartink
+> conviction scoring, the price-legs backtest (a backtest must not include names
+> you could not have traded), the funnel context builder, and the three
+> Overall-Rating calls plus the levels fetch that run on hits which had already
+> passed the floor — moot there.
+>
+> The rule and the audit are now recorded in `cached_fetch_ohlcv`'s own
+> docstring, so the next reader learns it once rather than at seven call sites.
+>
+> **Not changed: the default stays `True`.** Scanning is the higher-volume
+> caller and the floor is right for it; flipping the default would silently
+> re-admit untradeable names to every sweep. The bug was never the default — it
+> was that by-name callers inherited it without saying so.
 
 **Nothing here is measured, and there is nothing to measure:** these report
 conditions already computed elsewhere. No scanner registration, no confluence
