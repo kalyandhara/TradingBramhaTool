@@ -59,6 +59,7 @@ corrected in place below, each marked with the date.
 | **Closed 2026-08-27 (re-verify)** | **B-11** (MFI — `scan_mfi_oversold` + `_mfi_series` shipped and registered; page had it "absent"). Ledger/body sync only: **B-5, B-25, B-20a, B-20b, B-7** were already code-complete but mis-filed as open in the body |
 | **Closed 2026-09-09** | **B-62** (turnover-share rotation column), **B-63a** (`tools/columns.py` shared column registry), **B-63b** (row_metrics — the nine "how long has this been true" columns, incl. the RS-rank walk and in-row Notes), **B-64** (canonical sector vocabulary). Also shipped that day and NOT from the backlog: the liquidity-floor sweep across all 20 `cached_fetch_ohlcv` call sites (7 by-name callers switched to `enforce_liquidity=False`) |
 | **Closed 2026-09-10** | **B-63a targeted sweep** — registry now **46 ids, 15 aliases, 9 documented refusals**; the "incomplete by design, 4 of 43" claim was retracted (28 call sites pass `column_config`; 15 already reach the registry). Singletons deliberately declined rather than promoted |
+| **Measured 2026-09-10** | **B-58** (`quasimodo_study.py`) — **INCONCLUSIVE, UNDERPOWERED**: 53 QM zone entries across 356 names / 3 years against a pre-registered floor of 200, and too few for a rotation p to be computable at all. Not a null; the pattern is too rare to measure to this desk's bar on daily bars in one market. QM stays geometry, PIPELINE_EXCLUDED. Three process catches recorded: the equivalence check aborted on SCOPE (355/355 once windowed), the pre-registered baseline could not contain its own signal (a QM's left shoulder is by definition a broken low), and the HARNESS clause fired but was resolved as uninformative when the panel reproduced B-43's null at −0.05% |
 | **Corrected 2026-09-10 (re-verify)** | **B-3** and **B-19b** bodies said "absent" for four weeks after the ledger closed them; **B-10** is down to one symbol (`BSE`), not four; **B-17** re-verified still absent and now covers two shipped OBV surfaces |
 | **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-22, B-26, B-27, B-30, B-31, B-35, B-37, B-28r — **all re-verified open 2026-09-10** except B-10, which shrank to a single symbol. Spot checks: no AVWAP anchor UI (`avwap` appears in `scanner_templates.py` only), no Volume-Profile 80% rule anywhere in `session_volume_profile.js` / `volume_profile.js`, and `sentiment_index.py` still carries **four** weighted factors (30/25/25/20) with the PCR factor 5 a docstring line only — even though `pcr.py` is now consumed by `dashboard_app.py` in three other places, so B-22 is wiring, not a build |
 | **Open — residual only** | **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
@@ -83,7 +84,7 @@ reconstructed from the commit log.
 | # | pending | where | why it was left |
 |---|---|---|---|
 | 1 | **Restart the chart server** | operational, 2 min | `chart_server.py` serves each module from an explicit Flask route and runs without the reloader, so an instance that was already running returns **404 for `/psar.js`**. Observed live during verification. Nothing to fix in code. |
-| 2 | **B-58 · run the QM measurement** | [[#B-58]] | `detect_quasimodo` is BUILT (17 tests) but is geometry only — no scanner registered, no forward returns scored. The pre-registration and its control (relax `RH > LH`; if the score is unchanged the detector is an inverse-H&S finder) are written and unrun. Prior recorded: skeptical — the honest hypothesis is *"QM is a liquidity sweep with extra steps"*. |
+| ~~2~~ | ~~**B-58 · run the QM measurement**~~ **RUN 2026-09-10 → INCONCLUSIVE, UNDERPOWERED (53 events vs a floor of 200)** | [[#B-58]] | `detect_quasimodo` is BUILT (17 tests) but is geometry only — no scanner registered, no forward returns scored. The pre-registration and its control (relax `RH > LH`; if the score is unchanged the detector is an inverse-H&S finder) are written and unrun. Prior recorded: skeptical — the honest hypothesis is *"QM is a liquidity sweep with extra steps"*. |
 | 3 | **B-59 · PSAR overlap check** | [[#B-59]] | Owed BEFORE any PSAR signal, and it is an **overlap** check against `pmax`/`stai`, not an edge test. B-46's objection is that the flip may carry zero unique cells; if PSAR's flips are a subset of PMax's there is nothing left to measure. The overlay itself needs no backtest and ships as-is. |
 | 4 | **B-57 · secondaries** | [[#B-57]] | The primary FAILED (−0.25%, p_rot=0.714) and that is settled. Unrun: the 60d horizon, the quality gate tightened from a sign test to a top-quartile OCF rank, and `depth_from_flip` as the depth definition. All were pre-registered as non-decisive, so they describe rather than rescue. |
 | 5 | **B-58 residual · multi-timeframe liquidity** | [[#B-58]] | "HTF LQ" from the source chart. `detect_liquidity_pools` takes one `df` — single timeframe. Bigger build, own entry when picked up. **Naming trap:** `HTF` in this repo means **High Tight Flag**, not higher timeframe, so grepping for it gives false confidence the feature exists. |
@@ -97,8 +98,9 @@ reconstructed from the commit log.
 > were required to be consecutive. **A filter that admits almost everything is not
 > a filter, and that is cheaper to discover by counting than by backtesting.**
 
-**Status of that table on 2026-09-10:** rows 2, 3, 4, 5 and 7 are **all still
-open and untouched** — the 2026-09-09/10 sessions went into the column library
+**Status of that table on 2026-09-10:** row 2 was **run this session** (see
+[[#B-58]] — inconclusive for lack of events, not a null); rows 3, 4, 5 and 7 are
+**still open and untouched** — the 2026-09-09/10 sessions went into the column library
 (B-62/63/64) instead, which was the owner's ask, not a slip. Row 1 (chart-server
 restart) is operational and cannot be verified from the repo; `psar.js` exists on
 disk, so the only question is whether the running process predates it. **Nothing
@@ -873,7 +875,7 @@ Sweep signal **removing the stop entirely** turned −0.059R into +0.504R. A
 trailing stop is not free, and PSAR is a fairly tight one. Ship the picture; do
 not assume the exit rule.
 
-### B-58 · Quasimodo (QM) geometry — **DETECTOR BUILT 2026-09-07; measurement not run**
+### B-58 · Quasimodo (QM) geometry — **MEASURED 2026-09-10: INCONCLUSIVE — UNDERPOWERED (53 events against a pre-registered floor of 200)**
 
 From a "4 Setups for BUY Entry, based on QM patterns (CHOCH)" chart the owner
 brought in. A coverage audit of that image against the repo found most of its
@@ -1096,11 +1098,109 @@ exactly how definitions drift, so the study **asserts that its last-pattern
 output matches `detect_quasimodo`'s on the full frame, per symbol**, and reports
 the agreement count. A mismatch aborts the run rather than being reported.
 
+> [!warning] AMENDMENT 2026-09-10, after the first run ABORTED — the baseline as
+> written could not contain the signal
+> The design says the baseline is a *"confirmed, **still-unbroken** swing low,
+> approached from above"*. The scorer asserts that the QM events are a subset of
+> that state before scoring anything, and the assertion **failed**.
+>
+> It failed for a reason that is the pattern itself: **a Quasimodo's left shoulder
+> is a low that HAS been broken — the head is the break.** The grab takes out the
+> stops under `LS`, and the entry is the retest of that level *after* price
+> reclaimed it. So "still-unbroken" excludes, by construction, every bar the
+> signal fires on. I wrote a baseline that the signal can never belong to, which
+> would have measured QM entries against a state they are disjoint from and called
+> the difference an edge.
+>
+> **Amended:** the state drops the permanence of the break — *close within ±2% of
+> a confirmed prior swing low, approached from above (close at or above the
+> level)*. A level that broke and was reclaimed is still the level being retested.
+> Nothing else changes: same event, same horizon, same statistic, same bar.
+>
+> **This amendment cannot buy power and does not touch the signal.** It changes
+> only which bars the baseline is drawn from; the event count is identical before
+> and after. Recorded here rather than fixed quietly because a baseline change
+> after seeing a run is exactly the move that needs a paper trail.
+>
+> **It also sharpens what the test is asking.** "Retest of a reclaimed low" is
+> nearer to the sweep mechanic than "retest of support" was — which is the
+> skeptical prior below, now baked into the baseline rather than left as a
+> hypothesis. If QM is a liquidity sweep with extra steps, this baseline is where
+> that shows up as a flat PRIMARY.
+
 **PRIOR, restated and unchanged:** skeptical. Family is 0-for-3 at ~9,000
 signals. The honest hypothesis remains *"QM is a liquidity sweep with extra
 steps"* — and if so, the PRIMARY should land near the family nulls while the
 already-measured `Liquidity Sweep` (+0.51% @20d, p=0.005) stays the better way to
 express the same mechanic.
+
+═══ MEASURED — 2026-09-10, `tools/quasimodo_study.py` ═══════════════════════════
+
+**VERDICT: INCONCLUSIVE — UNDERPOWERED. This is NOT a null, and QM is not
+retired.** 53 primary events against the pre-registered floor of 200.
+
+356 liquid names, ~3 years of daily bars (2023-09 → 2026-09), horizon 20d, entry
+next open, no costs (they cancel in a differential edge).
+
+| arm | n | signal | baseline | edge | p_rot |
+|---|---|---|---|---|---|
+| **PRIMARY** QM zone entry vs retests | **53** | +4.31% | +3.61% | **+0.71%** | **none computable** |
+| CONTROL CHOCH relaxed, vs retests | 176 | +3.05% | +3.61% | −0.55% | 0.818 |
+| CONTRAST QM zone entry vs ALL bars | 53 | +4.31% | +1.86% | +2.45% | 0.556 |
+| HARNESS all retests vs ALL bars | 6,669 | +3.61% | +1.86% | +1.74% | 0.707 |
+| DIAGNOSTIC bare Renko flip (= B-43) | 4,718 | +1.82% | +1.86% | −0.05% | 0.932 |
+
+**The primary could not even be given a p-value.** `_rotation_p` needs ≥20 rotated
+offsets each landing ≥5 events inside the baseline mask, and 53 sparse events on a
+narrow mask does not supply that. A missing p is not a weak p — it is the power
+problem stated a second way, and it is why nothing here is reported as a result.
+
+**The count was foreseen and is the honest headline.** The build note already
+said 202 of 460 names carry a QM but only 14 (3%) had price in the zone on a
+given day. Over three years that yields **53 scoreable entries across 356 names**
+— 165 of them never form the pattern at all. **A shape this rare cannot be
+measured to this desk's bar on three years of daily bars in one market.** Either
+the window widens (more history, or intraday bars where the geometry repeats far
+more often) or B-58 stays unmeasurable, and that is a scoping fact about the
+pattern rather than a finding about its edge.
+
+**What the arms hint at, held loosely and not to be cited as a result:** the
+primary's +0.71% and the CHOCH-relaxed control's −0.55% point the *right* way —
+dropping `RH > LH` triples the event count to 176 and makes the edge worse, which
+is what you would see if the change of character were doing real selection rather
+than decoration. At p=0.818 and with no p on the primary, that is a direction to
+re-test, not a claim. **`detect_quasimodo` stays geometry: no scanner, no
+entry/stop/target, PIPELINE_EXCLUDED**, and `Liquidity Sweep` (B-41m, +0.51%
+@20d, p=0.005) remains the measured way to express the same mechanic.
+
+> [!warning] Three things the run caught that reading the design could not
+> **1. The equivalence check aborted first, and was right to.** 37 of 355 names
+> came back `shipped=None walk=pattern`. Not drift: the shipped detector keeps
+> only swings within `lookback` of **today**, so it answers *"is there a QM in the
+> last 120 bars"*, while the study needs every QM in the history. Scoping the
+> check to the same trailing window took it to **355 agree, 0 disagree**. The
+> generalisation is recorded in the code: the detector cuts at a fixed distance
+> from the END of the frame, the study cuts each candidate at a fixed distance
+> from its OWN completion — for the newest pattern the two coincide, and for older
+> ones only the span form means anything.
+>
+> **2. The baseline as pre-registered could not contain the signal** — see the
+> amendment above. Caught by an assertion that ran before any number was scored,
+> which is the only reason it was caught at all.
+>
+> **3. The HARNESS clause fired, and the DIAGNOSTIC arm resolved it.** The
+> support-retest state read **+1.74%** against all bars where the family measured
+> −0.36/−0.47/−0.43%, which by the pre-registration meant *stop, nothing is
+> reportable*. The clause says debug the panel, so the panel was pointed at a
+> settled number: **B-43's bare Renko flip reproduced at −0.05% against its known
+> −0.02%.** The scorer is sound; the harness arm is **uninformative, not
+> contradictory** — exactly B-57's CONTROL2 episode. **The pre-registered
+> expectation was the thing that was wrong:** it assumed comparability with B-19's
+> family numbers, which are cost-applied walk-forward scanner backtests on
+> LIQUID_50 across three windows, against a single uncosted ~3-year window of
+> today's liquid 356 here. **Two backtests of "the same idea" are not comparable
+> unless universe, window, costs and baseline all match** — and the +1.86% mean
+> 20-day return on all bars says most of this window's level is market drift.
 
 **Deferred, not forgotten: multi-timeframe liquidity ("HTF LQ").**
 `detect_liquidity_pools` takes one `df`. Real HTF liquidity needs a second
