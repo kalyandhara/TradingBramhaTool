@@ -222,6 +222,13 @@ def _sector_perf() -> dict[str, Any]:
     one — and on 08-03 all three happened to be green, producing factor 1.0, a
     full 25/25, feeding the composite's bullish verdict.
 
+    **THE FREEZE ENDED. Re-verified 2026-09-10 while scoping B-66: all 11 tickers
+    return current history through 2026-09-10.** The paragraph above is a correct
+    record of a real outage in July–August and a WRONG description of today. It is
+    kept because the guards it explains — the age check, and reporting stale and
+    missing apart — are what make the next freeze visible instead of silent, and
+    those guards earn their place whether or not a feed is frozen right now.
+
     The old code fetched ``period="10d"``, which for a frozen ticker returns a
     single stub row, so ``len(hist) < 2`` skipped it *silently*. That silence was
     the bug. Worse, the obvious "fix" — widening the window so more tickers
