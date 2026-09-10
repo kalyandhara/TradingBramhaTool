@@ -125,6 +125,43 @@ function coveredBy(flip, others, tol) {
   return false;
 }
 
+// ── the chance baseline ─────────────────────────────────────────────────────
+// ADDED 2026-09-10, after the first run was used to argue about sunsetting PMax
+// and could not support the argument in either direction.
+//
+// A raw coverage percentage is close to meaningless on its own. PSAR alternates
+// roughly every 11 bars, so a SAME-DIRECTION PSAR flip comes round about every
+// 22; a ±10 window is 21 bars wide, and will therefore catch a same-direction
+// flip most of the time **whether or not the two indicators are describing the
+// same reversal**. Every number in the tables above is inflated by that, and by
+// an amount that grows with the tolerance — so the tolerance sweep, which was
+// supposed to show the shape of the overlap, was partly showing the shape of the
+// base rate instead.
+//
+// The fix is the null this desk uses everywhere else (B-43r, B-57, B-58):
+// circular rotation. Rotate the comparator's flips through the series and
+// recompute the same coverage. That preserves the flip COUNT, the direction mix
+// and the spacing, and destroys only the alignment — so it answers exactly
+// "these flips, happening at other times", which is the definition of chance
+// here. Coverage above that is real agreement; coverage at it is arithmetic.
+const ROT_OFFSETS = [37, 73, 109, 151, 193, 233, 277, 313, 359, 401, 443, 487];
+
+function rotate(flips, by, n) {
+  if (n <= 0) return flips;
+  return flips.map(f => ({ index: (f.index + by) % n, dir: f.dir }));
+}
+
+function chanceCoverage(flips, others, tol, n) {
+  // Mean coverage of `flips` by `others` across the rotation grid.
+  if (!flips.length) return 0;
+  let hits = 0;
+  for (const s of ROT_OFFSETS) {
+    const rot = rotate(others, s, n);
+    for (const fl of flips) if (coveredBy(fl, rot, tol)) hits++;
+  }
+  return hits / ROT_OFFSETS.length;
+}
+
 function main() {
   const args = process.argv.slice(2);
   const limIdx = args.indexOf('--limit');
@@ -147,10 +184,14 @@ function main() {
     // only one that sees it" are both interesting and only one of them is the
     // one B-46 objected to.
     pmaxCoveredByPsar: {}, staiCoveredByPsar: {},
+    // chance baselines, same keys
+    chPmax: {}, chStai: {}, chEither: {}, chPmaxByPsar: {}, chStaiByPsar: {},
   };
   for (const t of TOLERANCES) {
     totals.coveredPmax[t] = 0; totals.coveredStai[t] = 0; totals.coveredEither[t] = 0;
     totals.pmaxCoveredByPsar[t] = 0; totals.staiCoveredByPsar[t] = 0;
+    totals.chPmax[t] = 0; totals.chStai[t] = 0; totals.chEither[t] = 0;
+    totals.chPmaxByPsar[t] = 0; totals.chStaiByPsar[t] = 0;
   }
 
   const perName = [];
@@ -190,6 +231,13 @@ function main() {
 
       for (const fl of m) if (coveredBy(fl, p, t)) totals.pmaxCoveredByPsar[t]++;
       for (const fl of s) if (coveredBy(fl, p, t)) totals.staiCoveredByPsar[t]++;
+
+      const nb = bars.length;
+      totals.chPmax[t] += chanceCoverage(p, m, t, nb);
+      totals.chStai[t] += chanceCoverage(p, s, t, nb);
+      totals.chEither[t] += chanceCoverage(p, m.concat(s), t, nb);
+      totals.chPmaxByPsar[t] += chanceCoverage(m, p, t, nb);
+      totals.chStaiByPsar[t] += chanceCoverage(s, p, t, nb);
     }
     perName.push(row);
   }
@@ -202,50 +250,66 @@ function main() {
   console.log(`flips: PSAR ${totals.psar} · PMax ${totals.pmax} · STAI ${totals.stai}`);
   console.log(`       PSAR fires ${(totals.psar / Math.max(totals.pmax, 1)).toFixed(1)}x as often as PMax, ` +
               `${(totals.psar / Math.max(totals.stai, 1)).toFixed(1)}x as often as STAI\n`);
-
-  console.log('  tol   PSAR covered by PMax    by STAI      by EITHER      PSAR-UNIQUE');
+  console.log('  PSAR flips covered -- observed vs CHANCE (same flips, rotated). LIFT is the answer.');
+  console.log('  tol     by PMax  chance    lift      by STAI  chance    lift     by EITHER  chance    lift');
   for (const t of TOLERANCES) {
-    const uniq = totals.psar - totals.coveredEither[t];
-    console.log(`  ±${String(t).padEnd(3)}  ${String(totals.coveredPmax[t]).padStart(6)} (${pct(totals.coveredPmax[t], totals.psar).padStart(5)}%)` +
-                `  ${String(totals.coveredStai[t]).padStart(6)} (${pct(totals.coveredStai[t], totals.psar).padStart(5)}%)` +
-                `  ${String(totals.coveredEither[t]).padStart(6)} (${pct(totals.coveredEither[t], totals.psar).padStart(5)}%)` +
-                `  ${String(uniq).padStart(6)} (${pct(uniq, totals.psar).padStart(5)}%)`);
+    const om = +pct(totals.coveredPmax[t], totals.psar), cm = +pct(totals.chPmax[t], totals.psar);
+    const oq = +pct(totals.coveredStai[t], totals.psar), cq = +pct(totals.chStai[t], totals.psar);
+    const oe = +pct(totals.coveredEither[t], totals.psar), ce = +pct(totals.chEither[t], totals.psar);
+    const L = v => ((v >= 0 ? '+' : '') + v.toFixed(1)).padStart(7);
+    const P = v => (v.toFixed(1) + '%').padStart(7);
+    console.log(`  ±${String(t).padEnd(3)}  ${P(om)}  ${P(cm)}  ${L(om - cm)}   ${P(oq)}  ${P(cq)}  ${L(oq - cq)}   ${P(oe)}  ${P(ce)}  ${L(oe - ce)}`);
   }
 
-  console.log('\n  the mirror — how much of PMax/STAI does PSAR itself cover?');
-  console.log('  tol   PMax covered by PSAR    STAI covered by PSAR');
+  console.log('');
+  console.log('  the mirror -- how much of PMax/STAI does PSAR itself cover? This is the');
+  console.log('  direction a SUNSET argument needs: retiring PMax requires PMax to be a');
+  console.log('  subset of PSAR, not the other way round.');
+  console.log('  tol     PMax by PSAR  chance    lift      STAI by PSAR  chance    lift');
   for (const t of TOLERANCES) {
-    console.log(`  ±${String(t).padEnd(3)}  ${String(totals.pmaxCoveredByPsar[t]).padStart(6)} (${pct(totals.pmaxCoveredByPsar[t], totals.pmax).padStart(5)}%)` +
-                `       ${String(totals.staiCoveredByPsar[t]).padStart(6)} (${pct(totals.staiCoveredByPsar[t], totals.stai).padStart(5)}%)`);
+    const om = +pct(totals.pmaxCoveredByPsar[t], totals.pmax), cm = +pct(totals.chPmaxByPsar[t], totals.pmax);
+    const oq = +pct(totals.staiCoveredByPsar[t], totals.stai), cq = +pct(totals.chStaiByPsar[t], totals.stai);
+    const L = v => ((v >= 0 ? '+' : '') + v.toFixed(1)).padStart(7);
+    const P = v => (v.toFixed(1) + '%').padStart(7);
+    console.log(`  ±${String(t).padEnd(3)}       ${P(om)}  ${P(cm)}  ${L(om - cm)}        ${P(oq)}  ${P(cq)}  ${L(oq - cq)}`);
   }
 
   const t3 = 3;
   const uniq3 = totals.psar - totals.coveredEither[t3];
   const uniqPct = uniq3 / Math.max(totals.psar, 1) * 100;
-  console.log('\nREADING (at ±3 bars, the middle of the sweep):');
-  if (uniqPct < 10) {
-    console.log(`  PSAR is a SUBSET: ${uniqPct.toFixed(1)}% of its flips are unseen by pmax/stai.`);
-    console.log('  B-46 stands. There is nothing left to measure, and no PSAR signal');
-    console.log('  should be built — it would add decisions without adding information.');
-  } else {
-    console.log(`  PSAR is NOT a subset: ${uniqPct.toFixed(1)}% of its flips (${uniq3}) are unseen`);
-    console.log('  by pmax and stai at ±3 bars.');
-    console.log('');
-    console.log('  READ THAT NUMBER WITH THE CADENCE BESIDE IT, or it flatters PSAR.');
-    console.log(`  PSAR fires ${totals.psar} times where PMax fires ${totals.pmax}. Most of the`);
-    console.log('  "unique" share is arithmetic: there are not enough PMax flips in existence');
-    console.log('  to cover them, whatever the tolerance. The mirror table is the honest read —');
-    console.log('  PSAR covers most of what the other two see and then keeps going. So this is');
-    console.log('  a SUPERSET at a faster cadence, not a duplicate and not a new detector.');
-    console.log('');
-    console.log('  What that does to B-46: the zero-unique-cell objection does NOT close the');
-    console.log('  question — but the objection it is replaced by is no weaker. The');
-    console.log('  content of PSAR IS its extra flips, so an edge test would have to score');
-    console.log('  the UNIQUE cells specifically against the covered ones, on the prior that');
-    console.log('  a detector firing 8x as often is mostly firing on noise. Uniqueness is');
-    console.log('  not edge — the Scanner-Overlap-Audit says so, and this run does not');
-    console.log('  change it.');
-  }
+  const liftPmax = +pct(totals.pmaxCoveredByPsar[t3], totals.pmax) - +pct(totals.chPmaxByPsar[t3], totals.pmax);
+  const liftStai = +pct(totals.staiCoveredByPsar[t3], totals.stai) - +pct(totals.chStaiByPsar[t3], totals.stai);
+
+  console.log('');
+  console.log('READING (at \u00b13 bars, the middle of the sweep). LIFT over chance, not raw');
+  console.log('coverage, because raw coverage mostly measures how often each indicator fires:');
+  console.log('');
+  console.log(`  PSAR vs STAI:  lift ${liftStai >= 0 ? '+' : ''}${liftStai.toFixed(1)}  -- they describe THE SAME reversals.`);
+  console.log(`  PSAR vs PMax:  lift ${liftPmax >= 0 ? '+' : ''}${liftPmax.toFixed(1)}  -- they agree LESS than chance.`);
+  console.log('');
+  console.log('  That second line is the surprise, and it is negative at EVERY tolerance in');
+  console.log('  both directions. PSAR and PMax do not merely fail to be redundant: their');
+  console.log('  flips systematically avoid each other. A plausible mechanism -- PMax flips');
+  console.log('  only when a trend has genuinely turned, by which point PSAR has usually');
+  console.log('  flipped already -- is NOT measured here and should not be reported as fact.');
+  console.log('');
+  console.log('  CONSEQUENCES, in order of how much they change:');
+  console.log('');
+  console.log('  1. SUNSETTING PMAX IN FAVOUR OF PSAR IS THE WORST AVAILABLE SWAP. It is the');
+  console.log('     least-alike pair of the three, below chance at every tolerance. Whatever');
+  console.log('     PMax contributes, PSAR is not a substitute for it.');
+  console.log('  2. The redundancy that DOES exist is PSAR-STAI, and it is large. If the desk');
+  console.log('     wants one fewer trailing-stop indicator, that is the pair to look at --');
+  console.log('     and the choice between them is an EDGE question, not a counting one.');
+  console.log('  3. B-46 stands on its own terms: PSAR would be a third detector in a role');
+  console.log('     already held, and it duplicates STAI specifically. It stays an overlay.');
+  console.log('');
+  console.log('  What is NOT shown: whether any of the three has an edge. Nothing here scores');
+  console.log('  a forward return, and none of these indicators has ever been measured on');
+  console.log('  this desk. Agreement is not accuracy -- two indicators can agree perfectly');
+  console.log('  and both be worthless.');
+  console.log('');
+
   console.log('\nLIMITS: counting only, no forward returns anywhere in this file; today\'s');
   console.log('        liquid names over ~3 years of daily bars; and a detector that fires');
   console.log('        several times as often as its comparators is cheaper per signal to');

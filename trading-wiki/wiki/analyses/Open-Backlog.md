@@ -59,6 +59,7 @@ corrected in place below, each marked with the date.
 | **Closed 2026-08-27 (re-verify)** | **B-11** (MFI — `scan_mfi_oversold` + `_mfi_series` shipped and registered; page had it "absent"). Ledger/body sync only: **B-5, B-25, B-20a, B-20b, B-7** were already code-complete but mis-filed as open in the body |
 | **Closed 2026-09-09** | **B-62** (turnover-share rotation column), **B-63a** (`tools/columns.py` shared column registry), **B-63b** (row_metrics — the nine "how long has this been true" columns, incl. the RS-rank walk and in-row Notes), **B-64** (canonical sector vocabulary). Also shipped that day and NOT from the backlog: the liquidity-floor sweep across all 20 `cached_fetch_ohlcv` call sites (7 by-name callers switched to `enforce_liquidity=False`) |
 | **Closed 2026-09-10** | **B-63a targeted sweep** — registry now **46 ids, 15 aliases, 9 documented refusals**; the "incomplete by design, 4 of 43" claim was retracted (28 call sites pass `column_config`; 15 already reach the registry). Singletons deliberately declined rather than promoted |
+| **Counted 2026-09-10 (v2, chance-corrected)** | **B-59** re-run with a rotation null after the owner asked whether PMax can be sunset. Raw coverage was mostly base rate; corrected, **PSAR↔STAI agree far above chance (+34.2 lift at ±3) while PSAR↔PMax agree BELOW chance at every tolerance (−12.4 at ±3)**. So: **no, PMax cannot be sunset in favour of PSAR** — it is the least-alike pair, and PMax additionally carries 20% of the sentiment score, a `market_verdict` factor and the chart's trade-state panel. The real redundancy is PSAR↔STAI, and choosing between those two is an edge question nobody has measured. B-46 stands, on better grounds |
 | **Counted 2026-09-10** | **B-59 overlap check** (`psar_overlap.js`, 460 names / 322,608 bars) — **PSAR is a SUPERSET, not a subset**: 28,582 flips against PMax 3,396 and STAI 13,050 (8.4× / 2.2×), 68.9% of them uncovered at ±3 bars, while PSAR itself covers 92% of STAI and 70% of PMax at ±10. B-46's zero-unique-cell objection does NOT survive — but it is replaced by a sharper one, since PSAR's whole content is its extra flips. Gate did not close; an edge test on the UNIQUE cells specifically is now owed. PSAR stays a drawn overlay meanwhile |
 | **Measured 2026-09-10** | **B-58** (`quasimodo_study.py`) — **INCONCLUSIVE, UNDERPOWERED**: 53 QM zone entries across 356 names / 3 years against a pre-registered floor of 200, and too few for a rotation p to be computable at all. Not a null; the pattern is too rare to measure to this desk's bar on daily bars in one market. QM stays geometry, PIPELINE_EXCLUDED. Three process catches recorded: the equivalence check aborted on SCOPE (355/355 once windowed), the pre-registered baseline could not contain its own signal (a QM's left shoulder is by definition a broken low), and the HARNESS clause fired but was resolved as uninformative when the panel reproduced B-43's null at −0.05% |
 | **Corrected 2026-09-10 (re-verify)** | **B-3** and **B-19b** bodies said "absent" for four weeks after the ledger closed them; **B-10** is down to one symbol (`BSE`), not four; **B-17** re-verified still absent and now covers two shipped OBV surfaces |
@@ -836,6 +837,75 @@ new item, not this one; see the ranking.
 >
 > **`pmaxSeries` and `atrSeries` are LIFTED from `chart_dashboard.html` at
 > runtime, not copied.** They live inline in the HTML; a copy would drift the
+> moment the chart changed and this file would go on reporting an overlap against
+> an indicator nobody runs — the same failure the `columns.py` registry (B-63a)
+> was built to end. The lift is brace-matched and **throws loudly** if the
+> function is renamed.
+
+═══ CHANCE BASELINE — added 2026-09-10, and it INVERTS half the reading ═════════
+
+**Asked directly: can we sunset PMax in favour of PSAR? No — and the corrected
+numbers say it more strongly than the raw ones did.**
+
+The first pass reported raw coverage, which is close to meaningless on its own.
+PSAR alternates every ~11 bars, so a **same-direction** PSAR flip comes round
+about every 22; a ±10 window is 21 bars wide and will catch one most of the time
+**whether or not the two indicators are describing the same reversal**. The
+tolerance sweep was partly showing the shape of a base rate. Fixed with the null
+this desk uses everywhere else (B-43r/B-57/B-58): **circular rotation** of the
+comparator's flips — same count, same direction mix, same spacing, alignment
+destroyed. Coverage above that is agreement; coverage at it is arithmetic.
+
+**PSAR flips covered (observed / chance / lift):**
+
+| tol | by PMax | by STAI | by EITHER |
+|---|---|---|---|
+| ±0 | 0.3 / 0.5 / **−0.2** | 11.9 / 2.0 / **+9.9** | 12.2 / 2.5 / +9.7 |
+| ±3 | 2.1 / 3.7 / **−1.6** | 29.7 / 14.1 / **+15.6** | 31.1 / 17.1 / +14.0 |
+| ±10 | 9.2 / 11.0 / **−1.8** | 46.0 / 40.4 / **+5.6** | 49.3 / 44.9 / +4.4 |
+
+**The mirror — the direction a sunset argument actually needs:**
+
+| tol | PMax covered by PSAR | STAI covered by PSAR |
+|---|---|---|
+| ±3 | 17.9 / 30.3 / **−12.4** | 64.7 / 30.5 / **+34.2** |
+| ±10 | 69.6 / 78.1 / **−8.5** | 92.0 / 78.7 / **+13.3** |
+
+**Two findings, and the second was invisible before the baseline.**
+
+**1. PSAR and STAI describe the same reversals.** +34.2 lift at ±3 in the mirror,
++15.6 in the primary. This is real, large agreement — not a base-rate artifact.
+
+**2. PSAR and PMax agree LESS than chance — at every tolerance, in both
+directions.** Not "independent": **systematically avoiding each other**. The
+earlier reading of the raw ±10 mirror number (69.6% covered) as evidence that
+*"PSAR nearly contains PMax"* was **wrong** — chance alone is 78.1% there, so the
+observed figure is 8.5 points *below* what rotation produces. A plausible
+mechanism is that PMax only flips once a trend has genuinely turned, by which
+point PSAR has flipped already — **that is unmeasured and is not being claimed.**
+
+**What follows for the sunset question:**
+
+- **Retiring PMax in favour of PSAR is the worst available swap of the three.**
+  They are the least-alike pair on this desk's own null. Whatever PMax
+  contributes, PSAR is demonstrably not a substitute for it.
+- **PMax is also not just a chart overlay.** It carries `W_PMAX_1H = 20` in
+  `sentiment_index.py` — **a fifth of the sentiment score** — with its own Python
+  port on NIFTY 1H, a named factor row in `market_verdict.py`, and a live
+  trade-state panel with stop and T1/T2/T3 in `dashboard_app.py`. PSAR has none
+  of that. A sunset is a rewiring, not a deletion.
+- **The redundancy that DOES exist is PSAR↔STAI**, and it is the pair to look at
+  if the desk wants one fewer trailing-stop indicator. **That choice is an EDGE
+  question, not a counting one** — and neither has ever been measured here.
+- **B-46 stands, on better grounds than it was argued.** PSAR would be a third
+  detector in an occupied role, and it duplicates **STAI specifically**. Overlay,
+  as shipped.
+
+> [!warning] Agreement is not accuracy
+> Nothing in this file scores a forward return, and **none of PSAR, PMax or STAI
+> has ever been measured on this desk**. Two indicators can agree perfectly and
+> both be worthless. Everything above is about whether they say the same thing,
+> never about whether what they say is right. They live inline in the HTML; a copy would drift the
 > moment the chart changed and this file would go on reporting an overlap against
 > an indicator nobody runs — the same failure the `columns.py` registry (B-63a)
 > was built to end. The lift is brace-matched and **throws loudly** if the
