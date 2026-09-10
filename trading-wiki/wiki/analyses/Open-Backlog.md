@@ -2744,6 +2744,44 @@ a half-migrated table safe — `src` in Volume Shockers renders untouched.
 > within the column, which is a real if minor ugliness and is the reason this is
 > written down rather than left to be rediscovered.
 
+> [!note] Targeted sweep, 2026-09-10 — and a correction to what "incomplete by design" meant
+> The claim that adoption was "incomplete by design, 4 of 43" was challenged and
+> did not survive contact with the numbers. **43 `st.dataframe` calls, but only
+> 28 pass `column_config` at all**, and **15 call sites already reach the
+> registry** — more than 4, because `_chart_family_colcfg` delegates and ~7
+> tables inherit through it. Incremental adoption is sound; describing the
+> remaining drift as *design* was not.
+>
+> What was left split in two, and only one half was drift.
+>
+> **Migrated — same quantity, different spelling, defined inline:** `% Chg` and
+> `Price` (conviction board) → `chg_pct` / `close`; `Gap %` (gap-volume scan) →
+> `gap_pct`; `LTP ₹` (pattern table) → `close`; `Price %`, `OI %`, `RVol` at
+> **both** OI-momentum tables → new futures ids.
+>
+> **The clearest case for doing it:** the OI-momentum STOCK table carried a
+> careful tooltip on `RVol`, and the INDEX table below rendered the same three
+> columns with **none**. One definition now, so the explanation travels with the
+> number instead of living at one of the two call sites.
+>
+> **New ids rather than reuse, deliberately.** Futures `RVol` is futures volume
+> over a 5-session median — a **third** base after the equity 20-day mean and
+> 5-session median. Mapping it onto either would silently redefine the number
+> under the reader.
+>
+> **Declined, and kept declined by a test** (`NOT_ALIASED`): `Turnover ₹` is raw
+> RUPEES while `turnover_cr` is crore — 1e7 apart, the exact trap the module
+> docstring already warns about. The rest (`Pub Price ₹`, `Mkt Cap ₹`,
+> `Basis %`, `Breadth %`, `Median %`, `Avg Mom %`, `# Stocks`, `Move %`) are
+> each defined once and used once: **promoting a singleton creates a shared id
+> nothing else asks for**, which is the opposite of the point.
+>
+> One visible consequence, recorded at the call site: adopting `close` for
+> `LTP ₹` drops the ₹ glyph from those cells, because the format is part of the
+> definition and every other table prints LTP without it.
+>
+> Registry: **46 ids, 15 aliases, 9 documented refusals.**
+
 #### ~~B-63b~~ · The new columns themselves — **BUILT 2026-09-09**
 
 Ordered by cost. Every one of them describes bars we already pull — **no new data

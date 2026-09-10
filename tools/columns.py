@@ -205,6 +205,25 @@ COLUMNS: dict[str, ColSpec] = {
     "confluence": ColSpec("Confluence", "Independent scanners that fired on this name.",
                           "number", "%d", width="small"),
 
+    # ── futures / OI (nse_oi_momentum) ────────────────────────────────────────
+    # These are FUTURES quantities and stay separate from their cash-market
+    # namesakes on purpose. `rvol_fut` in particular is futures volume over a
+    # 5-session MEDIAN — a third base again, and mapping it to either equity
+    # `rvol` id would be a silent redefinition of the number.
+    "price_pct_fut": ColSpec(
+        "Price %", "Futures price change for the session, per cent.",
+        "number", "%.2f%%"),
+    "oi_pct": ColSpec(
+        "OI %", "Change in open interest for the session, per cent.",
+        "number", "%.2f%%"),
+    "rvol_fut": ColSpec(
+        "RVol",
+        "Today's FUTURES volume / the symbol's own median over the prior 5 "
+        "settled sessions. 1.00x means it traded exactly as much as it usually "
+        "does. Blank where the baseline is unavailable. Not comparable with the "
+        "equity Vol spike, which uses a 20-day mean of cash volume.",
+        "number", "%.2fx"),
+
     # ── sector grids ──────────────────────────────────────────────────────────
     "share_pct": ColSpec(
         "Share %", "This sector's slice of the universe's turnover. Sums to 100%.",
@@ -247,7 +266,27 @@ ALIASES: dict[str, str] = {
     "Sector": "sector",
     "LTP": "close",
     "Notes": "notes",
+    # Spellings found in the 2026-09-10 sweep: same quantity, different label,
+    # each defined inline at its own call site.
+    "% Chg": "chg_pct",
+    "Price": "close",
+    "LTP ₹": "close",
+    "Gap %": "gap_pct",
+    "Price %": "price_pct_fut",
+    "OI %": "oi_pct",
+    "RVol": "rvol_fut",
 }
+
+#: Deliberately NOT aliased, with the reason, so the next sweep does not
+#: "finish the job" by adding them:
+#:   "Turnover ₹"      raw RUPEES, while `turnover_cr` is crore — 1e7 apart.
+#:   "Pub Price ₹", "Mkt Cap ₹", "Basis %", "OI", "Breadth %", "Median %",
+#:   "Avg Mom %", "# Stocks", "Move %"
+#:                     each defined once and used once. Promoting a singleton
+#:                     creates a shared id nothing else asks for, which is the
+#:                     opposite of the point.
+NOT_ALIASED = ("Turnover ₹", "Pub Price ₹", "Mkt Cap ₹", "Basis %", "Breadth %",
+               "Median %", "Avg Mom %", "# Stocks", "Move %")
 
 #: Ids in the chart-icon family, in display order.
 CHART_FAMILY = ("chart", "analyze", "tview", "screener", "gfin")

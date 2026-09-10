@@ -2470,3 +2470,12 @@
   2. **Two pages deleted each other's guests** — `save_rs_walk` replaced the whole run_date, so a Hub compute dropped the Watchlist's guests and the column went blank on whichever page was not looked at last. Now a **merge** (upsert per symbol), safe because one run_date shares one day's prices. Live: 558 rows = 500 constituents + 58 guests, both sets intact
 - Also caught myself misreading a screenshot as a column misalignment and **checked it in Python before "fixing" anything** — the alignment was correct; the bug was in my reading
 
+## [2026-09-10] sweep | Column-registry drift migrated; singletons declined on purpose
+- **A claim of mine did not survive being challenged.** "Incomplete by design — 4 of 43" was wrong twice: **only 28** of the 43 `st.dataframe` calls pass `column_config` at all, and **15** call sites already reach the registry (`_chart_family_colcfg` delegates, so ~7 tables inherit). Incremental adoption is sound; calling the leftover drift *design* was not
+- **Migrated (real drift):** `% Chg` + `Price` → `chg_pct`/`close`; `Gap %` → `gap_pct`; `LTP ₹` → `close`; `Price %`, `OI %`, `RVol` at **both** OI-momentum tables → new futures ids
+- **The case for doing it, in one example:** the OI-momentum STOCK table carried a careful `RVol` tooltip and the INDEX table below rendered the same three columns with **none**. One definition now, so the explanation travels with the number
+- **New ids, not reuse:** futures `RVol` is futures volume over a 5-session median — a **third** base after the equity 20-day mean and 5-session median. Mapping it onto either would silently redefine the number under the reader
+- **Declined and kept declined by a test** (`NOT_ALIASED`): `Turnover ₹` is raw RUPEES vs `turnover_cr` in crore (1e7 apart); the other eight are singletons — **promoting a singleton creates a shared id nothing else asks for**
+- Recorded consequence: adopting `close` for `LTP ₹` drops the ₹ glyph, because format is part of the definition
+- Registry now **46 ids, 15 aliases, 9 documented refusals**; 108 tests green
+

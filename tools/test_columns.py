@@ -101,3 +101,29 @@ def test_configure_emits_streamlit_objects():
     assert len(cfg) == 3
     for v in cfg.values():
         assert v is not None
+
+
+def test_the_sweep_aliases_resolve_to_their_ids():
+    """Spellings found across the dashboard in the 2026-09-10 sweep."""
+    assert C.resolve("% Chg") == "chg_pct"
+    assert C.resolve("Price") == "close"
+    assert C.resolve("LTP ₹") == "close"
+    assert C.resolve("Gap %") == "gap_pct"
+    assert C.resolve("Price %") == "price_pct_fut"
+    assert C.resolve("OI %") == "oi_pct"
+    assert C.resolve("RVol") == "rvol_fut"
+
+
+def test_futures_rvol_is_not_the_equity_one():
+    """A third volume base. Mapping it to either equity id would silently
+    redefine the number a reader is looking at."""
+    assert C.resolve("RVol") != "rvol"
+    assert "FUTURES" in C.COLUMNS["rvol_fut"].help
+    assert "20-day mean" in C.COLUMNS["rvol_fut"].help   # says what it is NOT
+
+
+def test_the_declined_spellings_stay_unaliased():
+    """Raw-rupee turnover is 1e7 from turnover_cr; the rest are singletons.
+    This test exists so a later sweep does not 'finish the job'."""
+    for name in C.NOT_ALIASED:
+        assert C.resolve(name) is None, f"{name!r} should not be aliased"

@@ -10718,8 +10718,9 @@ if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chart
                 "Conviction %": st.column_config.ProgressColumn(
                     "Conviction %", min_value=0, max_value=100, format="%.0f%%",
                 ),
-                "% Chg": st.column_config.NumberColumn("% Chg", format="%.2f%%"),
-                "Price": st.column_config.NumberColumn("Price", format="%.2f"),
+                # B-63a: "% Chg" and "Price" resolve to the shared chg_pct /
+                # close definitions — this table spelled them its own way.
+                **_cols_mod().configure("% Chg", "Price"),
             }
             if pledge_note.startswith("manual"):
                 col_cfg_pb["Pledge/CF Check"] = st.column_config.LinkColumn(
@@ -12249,7 +12250,7 @@ if current_page == "India Market Intel":
                 column_config={
                     "Chart": st.column_config.LinkColumn("Chart", display_text="Open Chart", width="small"),
                     "Analyze": _analyze_colcfg(),
-                    "Gap %": st.column_config.NumberColumn("Gap %", format="%.2f%%"),
+                    **_cols_mod().configure("Gap %"),
                 },
             )
 
@@ -12551,15 +12552,10 @@ if current_page == "OI Momentum":
                     "Chart": st.column_config.LinkColumn(
                         "Chart", display_text="📈 Open", width="small"),
                     "Analyze": _analyze_colcfg(),
-                    "Price %": st.column_config.NumberColumn("Price %", format="%.2f%%"),
-                    "OI %": st.column_config.NumberColumn("OI %", format="%.2f%%"),
-                    "RVol": st.column_config.NumberColumn(
-                        "RVol", format="%.2fx",
-                        help="Today's futures volume ÷ the symbol's own median "
-                             "over the prior 5 settled sessions. 1.00x means it "
-                             "traded exactly as much as it usually does. Blank "
-                             "means no baseline was available — unmeasured, not "
-                             "normal."),
+                    # B-63a: these three now come from the registry, which
+                    # carries the tooltip that used to live only here — the
+                    # index table below rendered the same columns WITHOUT it.
+                    **_cols_mod().configure("Price %", "OI %", "RVol"),
                     "Level": st.column_config.TextColumn(
                         "Level", width="small",
                         help="Where the close sits in its 60-bar range: NEW HIGH / "
@@ -12743,11 +12739,7 @@ if current_page == "OI Momentum":
                         "Series OI": int(r["oi"]),
                     } for r in _idx_recs]),
                     use_container_width=True, hide_index=True,
-                    column_config={
-                        "Price %": st.column_config.NumberColumn("Price %", format="%.2f%%"),
-                        "OI %": st.column_config.NumberColumn("OI %", format="%.2f%%"),
-                        "RVol": st.column_config.NumberColumn("RVol", format="%.2fx"),
-                    },
+                    column_config=_cols_mod().configure("Price %", "OI %", "RVol"),
                 )
                 st.caption(
                     f"**Index floors, not stock floors.** A reading needs "
@@ -13026,8 +13018,12 @@ if current_page == "Strategy Hub":
                 "Stock":       st.column_config.TextColumn("Stock", width="medium"),
                 "Pattern":     st.column_config.TextColumn("Pattern", width="medium"),
                 "Published":   st.column_config.TextColumn("Published", width="small"),
+                # "Pub Price ₹" stays inline — a singleton, used only here.
+                # "LTP ₹" is the shared `close`, and adopting it drops the ₹
+                # glyph from the cells: the format is part of the definition and
+                # every other table on the desk prints LTP without it.
                 "Pub Price ₹": st.column_config.NumberColumn("Pub Price ₹", format="₹%.2f"),
-                "LTP ₹":       st.column_config.NumberColumn("LTP ₹", format="₹%.2f"),
+                **_cols_mod().configure("LTP ₹"),
                 "Move %":      st.column_config.NumberColumn("Move %", format="%.1f%%"),
             },
         )
