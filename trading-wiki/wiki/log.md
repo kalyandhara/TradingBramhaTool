@@ -2434,3 +2434,9 @@
 - **The live read makes the case:** SHAKTIPUMP shows `EMA cross −38`, `Near S1`, `BO gain −20.71%` dated **2026-06-24** — a gain-only column would have printed a number; the date shows a three-month-old break now 20% underwater
 - Known cosmetic issue left open: rows whose history fails to load render `None` in numeric cells (text cells render blank correctly). The better question is why AKI / MARALOVER / PRAENG return no data at all
 
+## [2026-09-09] fix | The three blank watchlist rows were a scan filter, not missing data
+- AKI / MARALOVER / PRAENG rendered blank and the obvious reading ("yfinance has nothing") was **wrong** — all three have **297 bars**. They were dropped by the **₹1 cr liquidity floor** (`screener_pipeline.MIN_TURNOVER`): AKI ₹0.712 cr, MARALOVER ₹0.368 cr, PRAENG ₹0.500 cr 10d avg turnover. SARVESHWAR clears it by 10%, which is why it was the only thin name that rendered
+- Cause: the Watchlist called `cached_fetch_ohlcv(symbol)` with the default `enforce_liquidity=True`. **The floor belongs to SCANNING**, not to a hand-curated list — the identical failure that function's docstring already records for CENTUM ("the same app refusing to open a door it just pointed at")
+- Fixed with `enforce_liquidity=False`, and the illiquidity is now **shown, not hidden**: a `Turnover ₹Cr` column plus a caption naming the sub-floor rows and what it means for exits
+- **Generalisable:** `enforce_liquidity=True` is the default, so every other by-name page is a candidate for the same bug. Two instances found so far suggests the default is backwards for single-symbol and curated-list callers
+

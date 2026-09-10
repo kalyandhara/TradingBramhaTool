@@ -6247,7 +6247,16 @@ if current_page == "Watchlist":
         nifty_wl = cached_fetch_nifty50()
         rows = []
         for _, w in watch.iterrows():
-            df = cached_fetch_ohlcv(w["symbol"])
+            # enforce_liquidity=False: the Rs 1 cr floor belongs to SCANNING,
+            # where it keeps untradeable names out of a 2,000-symbol sweep. A
+            # watchlist is curated BY HAND — the user typed these symbols — so
+            # applying a scan filter here silently blanked three of eight rows
+            # (AKI 0.71 cr, MARALOVER 0.37 cr, PRAENG 0.50 cr against the 1.00
+            # cr floor) while the page kept listing the names. Same failure the
+            # docstring of cached_fetch_ohlcv records for CENTUM. The
+            # illiquidity is not hidden: it is shown as the Turnover column and
+            # named in the caption below.
+            df = cached_fetch_ohlcv(w["symbol"], enforce_liquidity=False)
             if df is None or df.empty:
                 rows.append({"Symbol": w["symbol"], "Notes": w["notes"]})
                 continue
@@ -6258,10 +6267,12 @@ if current_page == "Watchlist":
             tf_score, _ = sp.score_technofunda(df)
             m = _rmx.row(df, ref_date=_wl_ref)
             _age = m["ema_cross_age"]
+            _to_cr = float((df["close"] * df["volume"]).tail(10).mean()) / 1e7
             rows.append({
                 "Symbol": w["symbol"],
                 "close": last,
                 "chg_pct": day_chg,
+                "turnover_cr": round(_to_cr, 2),
                 "gap_pct": m["gap_pct"],
                 # Direction travels WITH the age: "12" alone does not say
                 # whether the cross was up or down, and the sign of that is the
@@ -6285,7 +6296,7 @@ if current_page == "Watchlist":
         # Streamlit renders that as the literal string "None" in every cell.
         # Coercing makes them NaN, which renders as an empty cell: an absent
         # reading should look absent, not like a value.
-        for _c in ("close", "chg_pct", "gap_pct", "ema_cross_age",
+        for _c in ("close", "chg_pct", "turnover_cr", "gap_pct", "ema_cross_age",
                    "from_52w_high_pct", "bo_gain_pct", "hist_price",
                    "gain_since_pct"):
             if _c in _wl_df.columns:
@@ -6309,6 +6320,19 @@ if current_page == "Watchlist":
             "+3% from four months ago are not the same situation, and a faded "
             "breakout shows here as a negative."
         )
+        _thin = [r["Symbol"] for r in rows
+                 if r.get("turnover_cr") is not None
+                 and r["turnover_cr"] < sp.MIN_TURNOVER / 1e7]
+        if _thin:
+            st.caption(
+                f"⚠️ Below the ₹{sp.MIN_TURNOVER / 1e7:.0f} cr screen floor: "
+                f"**{', '.join(_thin)}**. They are shown here because a "
+                f"watchlist is curated by hand — the floor exists to keep "
+                f"untradeable names out of a 2,000-symbol *scan*, not to hide a "
+                f"name you asked for. Every level on a stock turning over a few "
+                f"lakh a day is still worth less than the same level on a liquid "
+                f"one, and a position may be hard to exit."
+            )
         st.caption("Descriptions of state, not signals — none of these columns "
                    "has been measured, and none casts a vote anywhere.")
 

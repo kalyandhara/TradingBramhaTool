@@ -2918,13 +2918,37 @@ is nearly three months old and now 20% underwater. RELIANCE via the CLI reads th
 same way: cross down 1 session ago, S1 daily AND weekly, last breakout 2026-05-04
 now −12.18%.
 
-> [!note] Known cosmetic issue, not fixed
-> Watchlist rows whose history fails to load (AKI, MARALOVER, PRAENG on
-> 2026-09-09 — yfinance returns nothing for them) render `None` in the numeric
-> cells rather than an empty one, despite the frame being coerced to float. The
-> text columns were fixed the same way and DO render blank. Worth a look when
-> the Streamlit number formatter is next touched; the separate question of **why
-> three watchlist symbols have no data at all** is the more useful one.
+> [!warning] The empty rows were not missing data — they were a SCAN filter
+> Three of eight watchlist rows (AKI, MARALOVER, PRAENG) rendered blank, and the
+> obvious reading — "yfinance has nothing for them" — was wrong. All three have
+> **297 bars of perfectly good history**. They were being dropped by the
+> **liquidity floor**, `MIN_TURNOVER = ₹1 cr` (`screener_pipeline.py:103`,
+> mirrored in `volume_fetcher.py:50`):
+>
+> | Symbol | Bars | 10d avg turnover | vs ₹1 cr floor |
+> |---|---|---|---|
+> | AKI | 297 | ₹0.712 cr | below |
+> | MARALOVER | 297 | ₹0.368 cr | below |
+> | PRAENG | 297 | ₹0.500 cr | below |
+> | SARVESHWAR | 299 | ₹1.099 cr | clears it by 10% |
+>
+> The Watchlist called `cached_fetch_ohlcv(symbol)` with the default
+> `enforce_liquidity=True`. **That floor belongs to SCANNING** — it keeps
+> untradeable names out of a 2,000-symbol sweep — and a watchlist is curated by
+> hand: the user typed those symbols. This is the identical failure that
+> function's own docstring records for CENTUM: *"the same app refusing to open a
+> door it just pointed at."* Fixed the same way, with `enforce_liquidity=False`.
+>
+> **The illiquidity is now shown rather than hidden:** a `Turnover ₹Cr` column
+> per row, plus a caption naming which rows sit under the floor and why that
+> matters (a level on a name trading a few lakh a day is worth less than the
+> same level on a liquid one, and the position may be hard to exit). The `None`
+> rendering in empty numeric cells disappeared with the cause.
+>
+> **Worth generalising:** `enforce_liquidity=True` is the default, so every
+> other by-name page is a candidate for this same bug. Three instances found so
+> far (CENTUM, this one) suggests the default is backwards for single-symbol and
+> curated-list callers.
 
 **Nothing here is measured, and there is nothing to measure:** these report
 conditions already computed elsewhere. No scanner registration, no confluence
