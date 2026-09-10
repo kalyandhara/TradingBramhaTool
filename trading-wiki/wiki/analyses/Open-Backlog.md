@@ -59,6 +59,7 @@ corrected in place below, each marked with the date.
 | **Closed 2026-08-27 (re-verify)** | **B-11** (MFI — `scan_mfi_oversold` + `_mfi_series` shipped and registered; page had it "absent"). Ledger/body sync only: **B-5, B-25, B-20a, B-20b, B-7** were already code-complete but mis-filed as open in the body |
 | **Closed 2026-09-09** | **B-62** (turnover-share rotation column), **B-63a** (`tools/columns.py` shared column registry), **B-63b** (row_metrics — the nine "how long has this been true" columns, incl. the RS-rank walk and in-row Notes), **B-64** (canonical sector vocabulary). Also shipped that day and NOT from the backlog: the liquidity-floor sweep across all 20 `cached_fetch_ohlcv` call sites (7 by-name callers switched to `enforce_liquidity=False`) |
 | **Closed 2026-09-10** | **B-63a targeted sweep** — registry now **46 ids, 15 aliases, 9 documented refusals**; the "incomplete by design, 4 of 43" claim was retracted (28 call sites pass `column_config`; 15 already reach the registry). Singletons deliberately declined rather than promoted |
+| **Measured 2026-09-10** | **B-65** (`pmax_edge.py`) — **PMax scored for the first time, and it FAILS.** Flip **−0.55% (p=0.511, n=1,538)**; **state (dir=1) −0.19% on 129,761 bars** — *below* the unconditional baseline in a bull window stacked in its favour, so the pre-registered confound did not save it. Completes a four-detector convergence: Renko −1.01 / STAI-only −1.00 / PSAR-only −0.77 / **PMax −0.55**, no shared code, one mechanism (an up-flip re-enters only after price gave part of the run back), PMax shallowest exactly as its rarer/slower cadence predicted. Only B-43r is individually significant. **Does not retire `W_PMAX_1H`** (a STATE on NIFTY 1H — a different claim) but removes the presumption it is safe, and makes the 1H measurement live. Nothing removed on a null |
 | **Measured 2026-09-10** | **B-59r** (`psar_stai_edge.py`, 460 names) — **NEITHER twin carries information.** AGREE (n=4,068) **+0.16% p=0.820** ≈ market; **PSAR-ONLY −0.77% (p=0.053, n=8,576)**; **STAI-ONLY −1.00% (p=0.150, n=1,909)**. Pre-registered "both null" row: trim falls back to cost — keep STAI, PSAR stays an overlay, **nothing deleted**. The shape is the finding: agreement pays the market, disagreement loses in BOTH directions, and −0.77/−1.00% sit beside **B-43r's −1.01% for the Renko flip** — a fourth detector landing on the same mechanism (an up-flip re-enters after price has given back part of a run). Neither p clears 0.05, so convergence, not proof. Leaves **PMax as the only one of the three never scored**, while carrying 20% of the sentiment index |
 | **Counted 2026-09-10 (v2, chance-corrected)** | **B-59** re-run with a rotation null after the owner asked whether PMax can be sunset. Raw coverage was mostly base rate; corrected, **PSAR↔STAI agree far above chance (+34.2 lift at ±3) while PSAR↔PMax agree BELOW chance at every tolerance (−12.4 at ±3)**. So: **no, PMax cannot be sunset in favour of PSAR** — it is the least-alike pair, and PMax additionally carries 20% of the sentiment score, a `market_verdict` factor and the chart's trade-state panel. The real redundancy is PSAR↔STAI, and choosing between those two is an edge question nobody has measured. B-46 stands, on better grounds |
 | **Counted 2026-09-10** | **B-59 overlap check** (`psar_overlap.js`, 460 names / 322,608 bars) — **PSAR is a SUPERSET, not a subset**: 28,582 flips against PMax 3,396 and STAI 13,050 (8.4× / 2.2×), 68.9% of them uncovered at ±3 bars, while PSAR itself covers 92% of STAI and 70% of PMax at ±10. B-46's zero-unique-cell objection does NOT survive — but it is replaced by a sharper one, since PSAR's whole content is its extra flips. Gate did not close; an edge test on the UNIQUE cells specifically is now owed. PSAR stays a drawn overlay meanwhile |
@@ -774,7 +775,7 @@ wiggles, so the two panes stay comparable.
 divergence detectors on one chart that fire on the same swings are one detector
 with two colours.
 
-### B-65 · PMax has never been scored, and it carries a fifth of the sentiment index — **PRE-REGISTERED 2026-09-10**
+### ~~B-65~~ · PMax has never been scored, and it carries a fifth of the sentiment index — **MEASURED 2026-09-10: FAIL. The flip is negative, and the STATE does not even capture the bull drift**
 
 Falls out of [[#B-59r]]. PSAR and STAI have now both been measured on their
 flips; **PMax never has**, and it is the one of the three with actual authority
@@ -837,6 +838,73 @@ does not re-enter after every wobble. The state arm is a different animal and
 significantly below the 200 SMA), so a positive state reading would be
 consistent with this desk's own evidence — and just as consistent with the
 confound above.
+
+═══ MEASURED — 2026-09-10, `tools/pmax_edge.py` ═════════════════════════════════
+
+| arm | n | signal | baseline | edge | p_rot |
+|---|---|---|---|---|---|
+| **PRIMARY · flip** | 1,538 | +1.21% | +1.76% | **−0.55%** | 0.511 |
+| **SECONDARY · state (dir=1)** | 129,761 | +1.57% | +1.76% | **−0.19%** | 0.857 |
+| CONTEXT · lonely flip (no PSAR) | 1,264 | +1.11% | +1.76% | −0.65% | 0.444 |
+| CONTEXT · joint flip (with PSAR) | 274 | +1.70% | +1.76% | −0.06% | 0.947 |
+
+**VERDICT: FAIL on the pre-registered bar.** The flip is negative and
+insignificant — a null, in the same direction as every other member of the
+family.
+
+**The state arm is the one that carries new information, and it is the opposite
+of what the pre-registered confound warned about.** The warning was that *any*
+up-trend filter would look good in a window whose unconditional mean 20-day
+return is +1.76%, simply by sitting out the falls. **It did not look good. It
+came in slightly BELOW the unconditional baseline** (+1.57% vs +1.76%, hit rate
+51.9% vs 52.6%), across 129,761 bars — roughly 43% of the sample. Being "in a
+PMax uptrend" was very slightly worse than being in the market at random, in a
+bull window stacked in its favour. **The confound that should have inflated this
+number did not save it, which makes the null harder rather than softer.**
+
+**Four detectors, four negatives, one mechanism.**
+
+| detector | selective-cell edge @20d | p |
+|---|---|---|
+| Renko flip, state-matched (B-43r) | **−1.01%** | 0.000 |
+| STAI-only flip (B-59r) | **−1.00%** | 0.150 |
+| PSAR-only flip (B-59r) | **−0.77%** | 0.053 |
+| **PMax flip (B-65)** | **−0.55%** | 0.511 |
+
+Four independently-implemented trailing-stop / brick detectors, none sharing
+code, all landing between −0.55% and −1.01%. **PMax is the shallowest, which is
+what the pre-registered prior said to expect** — it flips rarest and slowest, so
+it re-enters after fewer wobbles, and B-43r's mechanism (an up-flip buys back in
+only after price has given part of the run away) bites it least. **Only B-43r is
+individually significant.** This is a convergence across four measurements, not
+four proofs, and it should be cited that way.
+
+**What this does and does not do to the sentiment factor.** As scoped before the
+run: this is daily EQUITY bars, and `W_PMAX_1H` is a direction STATE on NIFTY at
+1H. **This does not retire the factor.** What it removes is the presumption that
+the factor is safe because PMax works — and the state arm makes that presumption
+harder to hold, because the closest daily-equity analogue of exactly that claim
+(*"is the trend up"*) returned **less than the market**. The 1H index version is
+now its own owed measurement, and it is a live question rather than a formality:
+**a fifth of the sentiment score currently rests on an indicator whose only
+measurement is negative on its nearest testable analogue.**
+
+**Nothing is removed on this result.** Same rule as B-59r: a null is not evidence
+of harm, PMax's chart panel and factor stay where they are, and what changes is
+what the desk is entitled to *assume*. That is the whole return on this
+afternoon — four indicators that were all assumed to work are now four
+indicators known not to have been shown to.
+
+> [!note] The prediction that came true, and the one that did not
+> **True:** PMax would be the shallowest negative of the family, because it flips
+> rarest. Written before the run; −0.55% against the others' −0.77 to −1.01.
+>
+> **False:** the state arm would be flattered by the bull window. It was not.
+> Writing the confound down in advance is what makes that readable — had it come
+> back at +1.5% the entry would have had to discount it, and because it came back
+> NEGATIVE the same note now works in the opposite direction, as evidence.
+> **A pre-registered caveat is worth as much when it fails to apply as when it
+> applies.**
 
 ### ~~B-59r~~ · PSAR vs STAI — which of the two agreeing detectors carries the information? — **MEASURED 2026-09-10: NEITHER. Both twins NEGATIVE on their unique cells, agreement ≈ market**
 
