@@ -776,6 +776,94 @@ wiggles, so the two panes stay comparable.
 divergence detectors on one chart that fire on the same swings are one detector
 with two colours.
 
+### B-66 · The other three sentiment factors, and the composite itself — **PRE-REGISTERED 2026-09-10**
+
+[[#B-65r]] measured the PMax factor (weight 20) and found it does not
+discriminate. Its own consequence rule said re-weighting was a live proposal
+*complicated by the fact that the other three factors are equally unmeasured* —
+so moving PMax's 20 points into them would move weight from one unvalidated input
+to three others. **This measures the other three, and then the composite they add
+up to.** Until it runs, nothing about the sentiment index's weights can be
+changed on evidence.
+
+**What is being tested, per factor, as the code defines it:**
+
+| # | factor | weight | shape |
+|---|---|---|---|
+| 1 | Advance/Decline ratio | **30** | `advances / (advances + declines)` on the EQ universe, 0..1 |
+| 2 | Sector participation | **25** | `(greens + 0.5·flats) / scored` across 11 NSE sector indices, 0..1 |
+| 3 | NIFTY vs SMA200 | **25** | `clip(0.5 + dist_pct/10, 0, 1)` — ±5% from the 200-DMA maps to 1/0 |
+| 4 | ~~PMax 1H~~ | ~~20~~ | **measured, does not discriminate — [[#B-65r]]** |
+
+**PRIMARY statistic, per factor: the TERCILE SPREAD** —
+`mean(NIFTY fwd | factor in top third) − mean(fwd | bottom third)`, at **5
+trading days**, entry next open, **circular-rotation p**, **PASS: spread > 0 AND
+p_rot < 0.05.** Terciles rather than the B-65r up/down split because these three
+are continuous, and a tercile split is the plainest way to ask "does more of this
+mean more return" without fitting a threshold. Spearman rank correlation is
+reported alongside as description only.
+
+**THE ARM THAT MATTERS MOST — the COMPOSITE.** The same tercile spread on the
+**0-100 score the desk actually displays**, built from the four factors at their
+shipped weights. A component can be individually weak and the blend still work,
+and the blend is the thing on the page — so this is reported as **co-primary with
+the three factors**, and it is the only arm whose failure implicates the product
+rather than a part. Also reported: the **BAND spread** (Strong Buy days vs Strong
+Sell days), because bands are what the UI shows, with the expectation that n will
+be small at the extremes.
+
+**Windows, which differ per factor and are declared now:**
+
+| factor | source | window | note |
+|---|---|---|---|
+| A/D | **PROXY** — daily advances/declines across the 460 cached liquid names | 2023-10 → 2026-09 | **NOT the shipped input.** The factor uses the full EQ bhavcopy (~2,000 names); this is liquid-only breadth, which is narrower and less noisy. Rebuilding 750 historical bhavcopies is a data-acquisition project, not a measurement. **A null on the proxy is evidence about breadth-as-a-signal, not proof about the shipped factor**, and it is labelled that way in the output |
+| Sector | 11 NSE sector indices, yfinance | 2011-09 → 2026-09 (~15y) | all 11 verified live with current history on 2026-09-10 |
+| Regime | ^NSEI daily | 2007-09 → 2026-09 (~19y) | the deepest arm, four regimes |
+| Composite | all four | **2023-10 → 2026-09**, bounded by the A/D proxy | the shortest leg sets the window; noted as the composite's own power limit |
+
+> [!note] The stale claim this run already corrected
+> `_sector_performance`'s docstring records that **Yahoo stopped updating 8 of
+> the 11 NSE sector indices on 2026-07-17**, verified 2026-08-05. Checked again
+> 2026-09-10 while scoping this: **all 11 now return current history through
+> 2026-09-10.** The freeze ended. The comment is a correct record of a real
+> outage and a wrong description of today, which is exactly the drift
+> `tools/claims_lint.py` exists to catch — fix the comment when this lands.
+
+**PRIOR, stated per factor rather than as one blanket guess:**
+
+- **Regime (25)** — the *most* likely to discriminate, and the only one with
+  direct supporting evidence on this desk: [[#B-32]] measured signals doing
+  significantly worse below the 200 SMA (p<0.005). But note [[#B-65r]]'s
+  distinction, which applies here too and cuts the other way: **B-32 measured
+  SIGNAL performance conditional on regime, not INDEX returns conditional on
+  regime.** This arm tests the second. They can differ, and PMax already showed
+  they do.
+- **A/D (30)** — the heaviest weight and, on the literature, the most likely to
+  be *contrarian* rather than confirmatory at short horizons: extreme breadth is
+  a classic exhaustion read. A monotone tercile spread would be mildly
+  surprising; a **negative** one would be more interesting than a null.
+- **Sector (25)** — expected weakest. It is a same-day count of which sector
+  indices closed green, which is close to a coarse restatement of the market's
+  own daily direction. **If it fails, the honest reading is that it was never an
+  independent input.**
+- **Composite** — genuinely uncertain, and the reason to run it: four weak
+  factors can still blend usefully if their errors are uncorrelated, and can also
+  be four views of the same thing dressed as diversification.
+
+**CONSEQUENCE RULES, fixed in advance and deliberately conservative:**
+
+- **Nothing is deleted or re-weighted by this run**, whatever it says. Same rule
+  as [[#B-59r]], [[#B-65]] and [[#B-65r]]. A null is not evidence of harm.
+- **If the composite discriminates**, the index stands as a product regardless of
+  how the parts scored, and weak components are a refinement question.
+- **If the composite does NOT discriminate while a component does**, the weights
+  are actively getting in the way, and *that* is a concrete re-weighting proposal
+  with a named beneficiary — its own entry.
+- **If nothing discriminates**, the sentiment index is a **descriptive display,
+  not a forecast**, and the honest fix is to say so **on the page** rather than to
+  delete it. Relabelling is cheaper than deletion and loses nothing the desk has
+  been shown to have.
+
 ### ~~B-65r~~ · The actual sentiment factor — PMax direction on NIFTY 1H — **MEASURED 2026-09-10: NEITHER ARM DISCRIMINATES, and 19 years of daily data has the power to say so**
 
 [[#B-65]] deliberately did not test this. It scored PMax on daily EQUITY bars and
