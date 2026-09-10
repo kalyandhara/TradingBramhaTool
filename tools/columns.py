@@ -154,6 +154,39 @@ COLUMNS: dict[str, ColSpec] = {
         "close x volume — a proxy for exchange turnover, not the bhavcopy figure.",
         "number", "localized"),
 
+    # ── earnings reaction (UI-2) ──────────────────────────────────────────────
+    # The triplet is THREE columns on purpose. Indian results are usually
+    # announced after the close and yfinance carries no announcement time, so
+    # "the reaction day" cannot be resolved from the data — a single "reaction %"
+    # would be asserting a time the source does not give. See
+    # `earnings_reaction`'s docstring.
+    "next_earn": ColSpec(
+        "Next earn.",
+        "Next scheduled results date from the cached calendar. A date in the "
+        "cache can be superseded — the table captions how old the calendar is.",
+        "date", width="small"),
+    "past_earn": ColSpec(
+        "Past earn.",
+        "Most recent results date before today, and the date the three reaction "
+        "columns are measured around.",
+        "date", width="small"),
+    "earn_d_minus_1": ColSpec(
+        "−1D%",
+        "Close-to-close return of the session BEFORE the results date — "
+        "positioning ahead of the print, not the reaction to it.",
+        "number", fmt="%.2f%%", width="small", tone="signed"),
+    "earn_day": ColSpec(
+        "E-day%",
+        "Close-to-close return ON the results date. This is the reaction ONLY "
+        "if the result came pre-open or intraday; Indian results are usually "
+        "announced after the close, in which case the reaction is +1D%.",
+        "number", fmt="%.2f%%", width="small", tone="signed"),
+    "earn_d_plus_1": ColSpec(
+        "+1D%",
+        "Close-to-close return of the session AFTER the results date — the "
+        "reaction for a post-close announcement, which is the common case.",
+        "number", fmt="%.2f%%", width="small", tone="signed"),
+
     # ── trend / structure ─────────────────────────────────────────────────────
     "rsi": ColSpec(
         "RSI",

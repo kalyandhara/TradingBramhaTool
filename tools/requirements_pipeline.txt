@@ -12,3 +12,15 @@ beautifulsoup4>=4.12.0
 # but never declared here — which is why the dashboard's interpreter did not have
 # it and the Morning Market Brief failed with ModuleNotFoundError on 2026-08-09.
 ephem>=4.2
+
+# yfinance parses the earnings-dates table with pandas.read_html, which requires
+# lxml. Without it `Ticker.get_earnings_dates()` raises "Import lxml failed" and
+# earnings_calendar.fetch_earnings returns None for EVERY symbol.
+#
+# Recorded properly because the failure is silent and misreads as absent data:
+# the earnings-reaction columns rendered blank for every micro-cap on 2026-09-10
+# and the first explanation reached for was "yfinance has no calendar for small
+# listings". It has. KOPRAN returns 10 events the moment lxml is present. Same
+# shape as the ephem note above — an undeclared dependency that looked like a
+# data problem.
+lxml>=5.0

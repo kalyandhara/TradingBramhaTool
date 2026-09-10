@@ -4768,6 +4768,85 @@ def _rs_walk_compute(universe: str = "nifty500", extra: tuple = ()):
     return g
 
 
+def _earn_cols(symbol, df) -> dict:
+    """The earnings-reaction group for one row. Cache-only, so it never fetches.
+
+    Returns the five columns plus nothing else — `snapped_days` is deliberately
+    NOT surfaced as a column: it would be blank on almost every row and it is a
+    property of the measurement rather than of the company. It stays available
+    to any caller that wants to caption a snapped reading.
+    """
+    try:
+        import earnings_reaction as _erx
+        r = _erx.reaction(str(symbol), df)
+    except Exception:
+        return {}
+    return {
+        "next_earn": r["next_earn"],
+        "past_earn": r["past_earn"],
+        "earn_d_minus_1": r["earn_d_minus_1"],
+        "earn_day": r["earn_day"],
+        "earn_d_plus_1": r["earn_d_plus_1"],
+    }
+
+
+def _earnings_fill_button(symbols, key: str) -> None:
+    """Button that fetches the results CALENDAR for symbols missing from cache.
+
+    `_earn_cols` is cache-only by design — a table render must not fetch. But the
+    shipped cache covers ~400 larger names, so on a watchlist of micro-caps the
+    whole group renders blank, which is honest and useless. This offers the fetch
+    explicitly, with the count, the way the price and pledge columns already do.
+
+    Only MISSING symbols are fetched. A cached calendar is reused whatever its
+    age: a past results date does not change, and the next date is captioned as
+    of its cache rather than silently refreshed on every render.
+    """
+    try:
+        import earnings_reaction as _erx
+        import earnings_calendar as _ecx
+    except Exception:
+        return
+    missing = [s for s in {str(x).strip().upper() for x in symbols}
+               if s and s != "—" and _erx._read_any(s) is None]
+    if not missing:
+        return
+    if st.button(f"Fetch earnings dates ({len(missing)} names)",
+                 key=f"{key}_earn",
+                 help="Results calendar per symbol from yfinance, disk-cached. "
+                      "Fills the Next earn. / Past earn. / −1D% / E-day% / +1D% "
+                      "columns. Only names with no cached calendar are fetched."):
+        ok, errs = 0, []
+        prog = st.progress(0.0, text=f"0/{len(missing)}")
+        for n, sym in enumerate(missing, 1):
+            try:
+                if _ecx.fetch_earnings(sym):
+                    ok += 1
+            except Exception as e:
+                errs.append(f"{sym}: {e}")
+            prog.progress(n / len(missing), text=f"{n}/{len(missing)}")
+        prog.empty()
+        if ok:
+            st.success(f"Results calendar cached for {ok} of {len(missing)} name(s).")
+        else:
+            # "Nothing came back" has two very different causes and they must not
+            # be reported as one. An earlier version of this message asserted the
+            # data-absence explanation outright — and it was WRONG: every symbol
+            # was failing because `lxml` was missing, which yfinance reports as an
+            # import error swallowed inside fetch_earnings. Blaming micro-cap
+            # coverage for a dependency bug would have sent the reader looking in
+            # the wrong place, so this now says both and names the check.
+            st.warning(
+                f"No results calendar returned for any of the {len(missing)} "
+                f"name(s). Two possible causes and they need different fixes: "
+                f"yfinance may genuinely carry no calendar for these listings, "
+                f"**or** the fetch is failing. Check the latter first — "
+                f"`py -3 -c \"import lxml\"` must succeed, since yfinance parses "
+                f"the earnings table with `pandas.read_html` and returns nothing "
+                f"at all when lxml is absent.")
+        st.rerun()
+
+
 def _cap_bucket_map(symbols):
     """{SYMBOL: LC|MC|SC|Mic} from NSE index membership. Free — cached lists.
 
@@ -4825,11 +4904,14 @@ def _hub_price_fill(symbols, key: str) -> int:
         if df is None or len(df) < 30:
             have[s_] = {}
             continue
+        # The earnings group rides along on the SAME frame — it is cache-only and
+        # costs no extra fetch, so a user who paid for the bars gets it free.
         have[s_] = {
             "rsi": _rmx.rsi(df),
             "pct_from_20ema": _rmx.pct_from_ema(df),
             "ema_stack": _rmx.ema_stack(df),
             "rs_momentum": _wl_rs_mom(df),
+            **_earn_cols(s_, df),
         }
         n += 1
     return n
@@ -4845,7 +4927,9 @@ def _hub_enrich(df, symbol_col: str, key: str):
     df["cap_bucket"] = [caps.get(s, "") for s in syms]
     px = _hub_price_cols(syms, key)
     if px:
-        for col in ("rsi", "pct_from_20ema", "ema_stack", "rs_momentum"):
+        for col in ("rsi", "pct_from_20ema", "ema_stack", "rs_momentum",
+                    "next_earn", "past_earn", "earn_d_minus_1", "earn_day",
+                    "earn_d_plus_1"):
             vals = [px.get(s, {}).get(col) for s in syms]
             if any(v is not None for v in vals):
                 df[col] = vals
@@ -6611,6 +6695,7 @@ if current_page == "Watchlist":
                 # returned, and a rank of 90 in a flat market is a different fact
                 # from a rank of 90 in a strong one.
                 "rs_momentum": _wl_rs_mom(df),
+                **_earn_cols(w["symbol"], df),
                 # Direction travels WITH the age: "12" alone does not say
                 # whether the cross was up or down, and the sign of that is the
                 # whole reading.
@@ -6660,7 +6745,8 @@ if current_page == "Watchlist":
         # reading should look absent, not like a value.
         for _c in ("close", "chg_pct", "turnover_cr", "gap_pct", "ema_cross_age",
                    "from_52w_high_pct", "bo_gain_pct", "hist_price",
-                   "gain_since_pct", "rsi", "pct_from_20ema", "rs_momentum"):
+                   "gain_since_pct", "rsi", "pct_from_20ema", "rs_momentum",
+                   "earn_d_minus_1", "earn_day", "earn_d_plus_1"):
             if _c in _wl_df.columns:
                 _wl_df[_c] = pd.to_numeric(_wl_df[_c], errors="coerce")
         if not _wl_walk and "rs_walk" in _wl_df.columns:
@@ -6688,6 +6774,7 @@ if current_page == "Watchlist":
         # `watchlist.notes`. Removing a name from the watchlist no longer
         # destroys what you wrote about it, which is the behaviour the old
         # membership-scoped column had.
+        _earnings_fill_button(_wl_df["Symbol"], "wl")
         _notes_table(_wl_df, key="wl_notes_editor", symbol_col="Symbol",
                      column_config=_wl_cfg)
         st.caption(
@@ -8501,6 +8588,7 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                 # written on the Hub is the same note the Watchlist shows.
                 _sum_df = _hub_enrich(_sum_df, "Top Symbol", "summary")
                 _hub_price_button(_sum_df["Top Symbol"], "summary", "Summary")
+                _earnings_fill_button(_sum_df["Top Symbol"], "hub_summary")
                 _notes_table(
                     _sum_df, key="hub_summary_notes", symbol_col="Top Symbol",
                     column_config={**_chart_family_colcfg(),
@@ -8624,6 +8712,7 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                 _conf_df = _with_chart_family(_conf_df, "Symbol")
                 _conf_df = _hub_enrich(_conf_df, "Symbol", "confluence")
                 _hub_price_button(_conf_df["Symbol"], "confluence", "Confluence")
+                _earnings_fill_button(_conf_df["Symbol"], "hub_conf")
                 _conf_colcfg = {
                     **_chart_family_colcfg(),
                     **_cols_mod().configure_df(_conf_df),
