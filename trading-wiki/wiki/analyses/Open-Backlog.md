@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-09-09
+updated: 2026-09-10
 sources: 0
 related:
   - analyses/Open-Backlog-2026-08-02.md
@@ -34,6 +34,19 @@ ledger closed on 2026-08-12 still carried full "still open" essays in the body
 recorded" below, and B-11 (MFI) was filed "verified absent" while
 `scan_mfi_oversold` had already shipped. The body now agrees with the code again.
 
+**Re-verified again on 2026-09-10, and the drift rate has NOT improved — it has
+just moved.** The recent, actively-worked entries (B-57…B-64) are accurate to the
+commit log; the drift is now entirely in the **old, unworked** items, which is the
+harder half because nobody re-reads them. Found this pass: **B-3** and **B-19b**
+still carried full "nothing implements it" / "zero occurrences" essays in P2
+although the top ledger closed both on 2026-08-12 (`scan_mean_reversion`,
+`detect_support_breakdown` + `scan_support_breakdown` all present), and **B-10**
+had silently shrunk from four uncached symbols to **one** (`BSE`), which also
+undercuts its stated diagnosis. Three of the four items sampled had moved.
+**The rule that keeps producing this: an item is only re-read when it is worked,
+so the staleness concentrates exactly where confidence is highest.** Bodies
+corrected in place below, each marked with the date.
+
 ## Status since 2026-08-02
 
 | | |
@@ -44,7 +57,10 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **Closed 2026-09-01** | **B-21** (walk-forward OOS pooling + per-horizon stability), **B-29** (Indian delivery cost model ~29bps, applied everywhere), **B-39** (scipy-optional fallback) |
 | **Closed 2026-09-02** | **B-16** (OI Momentum `_strength_color` → `rs.TOKENS`), **B-24** (RSI divergence Python/JS agreement — `detect_bullish_rsi_divergence` rewritten to Wilder RSI + pivot lows + 3-pt gap), **B-34** (small-cap lane complete — quality overlay + dashboard lane shipped earlier; hit-rate backtest measured → WEAK, see below), **B-42** (shared market-structure read — HH/HL/LH/LL sequence + state + premium/discount + sequence-vs-breaks `agreement`; invariant clean on 30 large-caps; residual **B-42r**), **B-41** (liquidity sweep / stop hunt — pools + bidirectional detector + Entry & Risk scanners, built on B-42's equal-level labelling; SMC stack complete at 44 scanners), **B-23** (strike-level option OI — `option_chain.py` max pain + OI walls for stocks AND indices, `/api/option_levels`; premise was stale, B-44 had already built the per-strike feed), **B-28** (the overlay — `oiwalls` indicator via `createPriceLine`, expiry selector, unmeasured caveat; residual **B-28r**) |
 | **Closed 2026-08-27 (re-verify)** | **B-11** (MFI — `scan_mfi_oversold` + `_mfi_series` shipped and registered; page had it "absent"). Ledger/body sync only: **B-5, B-25, B-20a, B-20b, B-7** were already code-complete but mis-filed as open in the body |
-| **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-22, B-26, B-27, B-30, B-31, B-35, B-37, B-28r |
+| **Closed 2026-09-09** | **B-62** (turnover-share rotation column), **B-63a** (`tools/columns.py` shared column registry), **B-63b** (row_metrics — the nine "how long has this been true" columns, incl. the RS-rank walk and in-row Notes), **B-64** (canonical sector vocabulary). Also shipped that day and NOT from the backlog: the liquidity-floor sweep across all 20 `cached_fetch_ohlcv` call sites (7 by-name callers switched to `enforce_liquidity=False`) |
+| **Closed 2026-09-10** | **B-63a targeted sweep** — registry now **46 ids, 15 aliases, 9 documented refusals**; the "incomplete by design, 4 of 43" claim was retracted (28 call sites pass `column_config`; 15 already reach the registry). Singletons deliberately declined rather than promoted |
+| **Corrected 2026-09-10 (re-verify)** | **B-3** and **B-19b** bodies said "absent" for four weeks after the ledger closed them; **B-10** is down to one symbol (`BSE`), not four; **B-17** re-verified still absent and now covers two shipped OBV surfaces |
+| **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-22, B-26, B-27, B-30, B-31, B-35, B-37, B-28r — **all re-verified open 2026-09-10** except B-10, which shrank to a single symbol. Spot checks: no AVWAP anchor UI (`avwap` appears in `scanner_templates.py` only), no Volume-Profile 80% rule anywhere in `session_volume_profile.js` / `volume_profile.js`, and `sentiment_index.py` still carries **four** weighted factors (30/25/25/20) with the PCR factor 5 a docstring line only — even though `pcr.py` is now consumed by `dashboard_app.py` in three other places, so B-22 is wiring, not a build |
 | **Open — residual only** | **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
 | **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic), **B-39** (pin `scipy` in requirements / make `backtest.py` scipy-optional — the hard import silently broke the significance stack on Python 3.14) |
 | **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**), ~~**B-41**~~ (**CLOSED 2026-09-02** — `detect_liquidity_pools` + `detect_liquidity_sweep` + both scanners; SMC stack now complete), ~~**B-42**~~ (**CLOSED 2026-09-02**; residual **B-42r** — the pivot_len 5-vs-15 split, to be settled on data). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
@@ -58,7 +74,7 @@ recorded" below, and B-11 (MFI) was filed "verified absent" while
 | **Shipped 2026-09-02 (not from the backlog)** | **Trending Stocks page** — `trending_stocks.py` + a Market-Intel page with four lenses: Price Movers (whole-market bhavcopy, turnover-floored), Volume Shockers (reuses `volume_anomaly` **with cause attribution** — the one lens the desk does better than the commercial screener it was modelled on), 52-Week and All-Time High/Low (computed from batched history over a bounded top-N-by-turnover universe, since NSE's UDiFF bhavcopy carries **no 52-week columns** — verified, 34 columns, none a range extreme). Requested from a screenshot of a commercial "Trending Stocks" page. **Deliberately NO "Most Visited" lens** — that is crowd page-view data from a site's own traffic logs, there is no free public feed for retail attention, and a proxy (delivery spikes, rank churn) would measure something else under the same label. Recorded as a decision, not an oversight, the same way the intraday ORB/DOM lane is. Two things the build forced: a **turnover floor**, without which the movers list is almost entirely penny stocks (a ₹3 share moving 19% is arithmetic), and a **cash-equivalent filter** reusing the chart's existing `isLikelyLiquidETF` definition, because a liquid ETF is *permanently* at its all-time high by construction and squatted on the first ATH run. |
 | **Measured 2026-09-02** | **B-19** batch walk-forward on all 41 scanners (LIQUID_50, 3 windows, Indian delivery ~29bps): **0/41 stable** across all horizons; 11 show positive 20d edge but all UNSTABLE; strongest = %R Bottoming (+2.68% @60d, stable @20d+60d), Falling Wedge (+1.58% @60d); **most scanners show negative edge after costs**. 3 too-few-signals (High Tight Flag, Minervini VCP, RSI-Fibo Hidden Div). 3/5 risk scanners show bearish edge. Full table in `tools/cache/b19_verdicts/_summary_table.txt`. |
 
-## Left open by the 2026-09-07 session — read this first
+## Left open by the 2026-09-07 session — carried forward, re-checked 2026-09-10
 
 Everything below is committed and pushed (`96a3112..5562552`). These are the
 threads that were deliberately NOT closed, with why, so none of it has to be
@@ -80,6 +96,38 @@ reconstructed from the commit log.
 > detector's first version reported a "pattern" on 73% of names until the pivots
 > were required to be consecutive. **A filter that admits almost everything is not
 > a filter, and that is cheaper to discover by counting than by backtesting.**
+
+**Status of that table on 2026-09-10:** rows 2, 3, 4, 5 and 7 are **all still
+open and untouched** — the 2026-09-09/10 sessions went into the column library
+(B-62/63/64) instead, which was the owner's ask, not a slip. Row 1 (chart-server
+restart) is operational and cannot be verified from the repo; `psar.js` exists on
+disk, so the only question is whether the running process predates it. **Nothing
+in that table has aged badly, but note what it is: four of the five survivors are
+MEASUREMENTS owed, not builds.** That is the standing shape of this backlog — the
+desk builds faster than it measures.
+
+## Refinement pass 2026-09-10 — what is actually next
+
+Ranked by *what the desk cannot currently answer*, not by size. No new items were
+invented in this pass; this is the existing page, sorted.
+
+| Rank | Item | Why it is next | Cost |
+|---|---|---|---|
+| 1 | **B-58 · run the QM measurement** | The only BUILT-but-UNSCORED detector on the page. `detect_quasimodo` + 17 tests exist, the pre-registration and its control are written, and the skeptical prior (*"QM is a liquidity sweep with extra steps"*) is recorded. Leaving a built detector unmeasured is precisely the debt B-19 was raised over. | One measurement run |
+| 2 | **B-59 · PSAR overlap check** | Cheap, and it is a **gate**: if PSAR's flips are a subset of `pmax`/`stai`, every downstream PSAR idea is dead and no edge test is owed. An overlap count, not a backtest — the counting-first method that saved a week twice in the 2026-09-07 session. | Hours |
+| 3 | **B-22 · wire sentiment factor 5 (PCR)** | Now the cheapest real capability on the page: `pcr.py` is built, calibrated and already consumed three times in `dashboard_app.py`; `sentiment_index.py` still runs on four weighted factors (30/25/25/20) and documents the fifth in a docstring. Wiring, not a build — and it re-weights a number the desk already shows. | Small |
+| 4 | **B-10 · one symbol, `BSE`** | Was a four-symbol systematic-bug suspicion; it is now a single name. Close it or retire it — a one-line item that has survived five weeks of re-verification costs more to re-read than to fix. | Minutes |
+| 5 | **B-17 · OBV concept page** | Two OBV surfaces now ship (the indicator + B-61's divergence overlay) and neither is documented. B-60 wrote its CMF page with the build; this is the same debt, already incurred. | Small |
+| 6 | **B-57 secondaries** | Explicitly pre-registered as non-decisive (60d horizon, top-quartile OCF gate, `depth_from_flip`) — they describe rather than rescue. Do them only if a session has slack. | Small, low value |
+
+**Not promoted, and why:** B-35 (family lenses) is measured and ready, but it is a
+UI change over 38 scanners that **B-19 found mostly have no edge after costs** —
+reshaping the presentation of an unproven set is motion, not progress. B-31
+(learned confluence weights) stays parked behind B-25, whose own answer was that
+confluence is *not* the additive swing-horizon edge the Hub premise assumes. B-30
+(Pushya) is worth running only to retire it, and the desk already holds three
+astro nulls.
+
 
 ## Ingested-research additions (2026-08-20)
 
@@ -243,11 +291,14 @@ Both fully specified, both still taken on faith.
 
 ## P2 — Capability gaps (the tool contradicts its own advice)
 
-### B-3 · No mean-reversion scanner
-`REGIME_PLAYBOOKS["SIDEWAYS"]` prescribes one and nothing implements it.
-Re-checked 2026-08-07: the registry's nearest names — Pullback Entry, Early
-Reversal Detector, Harmonic Reversal — are with-trend entries or reversal
-*structure*, not the Connors-style stretch-and-revert the playbook means.
+### ~~B-3 · No mean-reversion scanner~~ — CLOSED 2026-08-12 *(body corrected 2026-09-10)*
+The 2026-08-07 finding was that `REGIME_PLAYBOOKS["SIDEWAYS"]` prescribed a
+mean-reversion scanner and nothing implemented it. **`scan_mean_reversion`
+([scanner_templates.py:4633](tools/scanner_templates.py:4633)) is the Connors
+RSI2 stretch-and-revert scanner, registered, and it emits `time_stop`.** The
+ledger closed this on 2026-08-12; the body kept the "nothing implements it"
+essay for a further four weeks. Same drift as B-5/B-11/B-19b — see the
+re-verification note at the top.
 
 ### ~~B-5 · Time stops: plumbed, and emitted by nothing~~ — CLOSED 2026-08-12
 The 2026-08-07 finding was that `time_stop` was consumed by `backtest.py` but
@@ -256,7 +307,12 @@ written by no scanner (zero occurrences in `scanner_templates.py`). Re-verified
 (Harmonic/RSI60-40/OrderBlock/FallingWedge/SupportBreakdown/MeanReversion) now
 emit it and the harness reads a field that is actually written.
 
-### B-19b · No support-breakdown detector exists anywhere
+### ~~B-19b · No support-breakdown detector exists anywhere~~ — CLOSED 2026-08-12 *(body corrected 2026-09-10)*
+**`detect_support_breakdown` ([scanner_templates.py:3119](tools/scanner_templates.py:3119))
++ `scan_support_breakdown` ([scanner_templates.py:3188](tools/scanner_templates.py:3188))
+ship the mirror detector**, and `test_liquidity_sweep.py` exercises it. The
+original 2026-08-07 finding, kept for the record:
+
 New 2026-08-07, found while building the OI level linkage. Verified: **zero
 occurrences** of breakdown detection in the codebase. We detect resistance
 breaks and have nothing for the mirror, so the **bearish half** of the standard
@@ -2446,6 +2502,18 @@ large, liquid and certainly file. First suspect remains the
 `f["symbol"].upper() == symbol.upper()` filter in `get_shareholding_filings` —
 **probably our bug, not NSE's.**
 
+**Re-verified 2026-09-10 — three of the four fixed themselves, and the item
+shrank without anyone closing it.** `tools/cache/ownership/` now holds **751**
+files, not 496, and `ABBOTINDIA`, `BAYERCROP` and `MCX` each have a populated
+cache. **Only `BSE` is still missing.** Note what that does to the diagnosis:
+one uncached symbol out of ~1,500 is not evidence of a systematic filter bug, so
+the "probably our bug" prior is now weak. `get_shareholding_filings` was
+rewritten since (it sorts on the parsed `date` and dedupes revisions — the old
+`toDate` sort key was absent on every row), which is the likely cause of the
+recovery. Remaining work is one symbol: check whether `BSE` — the exchange
+itself — is filed under a different NSE symbol string, before touching the
+filter again.
+
 ---
 
 ## P4 — Scoped elsewhere, or small
@@ -2457,7 +2525,7 @@ large, liquid and certainly file. First suspect remains the
 | ~~B-23~~ | **Strike-level option OI** (OI audit Gap 3) — ✅ **CLOSED 2026-09-02** | Was: "the largest remaining OI item, needs its own design pass." **The premise was stale** — B-44's `gamma_exposure.py` had already built the per-strike bhavcopy reader this was scoped to design, so the remaining work was the LEVELS read, not the feed. Third stale entry this week after B-11 and B-42. Shipped `option_chain.py`: `load_chain` (per-strike CE/PE OI for **stocks (STO) and indices (IDO)** — `gamma_exposure` is index-only), `max_pain`, `oi_walls`, `read_levels` + `format_levels`, plus `/api/option_levels` on chart_server so B-28's overlay has an interface to consume. 26 tests. Live: NIFTY spot 24,055.80 / max pain 24,050 on expiry day (converges, as theory predicts); RELIANCE 1,308.96 between its 1,300 put wall and 1,320 call wall. **Two correctness rules enforced:** max pain REFUSES a pooled-expiry chain (payoff settles per expiry — a far-month strike does not pay out on this week's settlement, so a pooled number is a different quantity, not a smaller error); and call walls are restricted to strikes at/above spot, put walls at/below, because a large call OI far below spot is deep-ITM inventory and ranking it as "resistance" would put the strongest resistance *under* the price. Levels ship **unmeasured** — see B-28. |
 | B-13 | AW-1…AW-4 astro weekly card | Good-to-have; AW-0 shipped. |
 | B-15 | SR-7 Trendlyne backfill | Optional, only if XBRL coverage proves short. |
-| B-17 | OBV has no wiki page | Verified absent; ships as a chart indicator, undocumented. |
+| B-17 | OBV has no wiki page | Verified absent; ships as a chart indicator, undocumented. **Re-verified 2026-09-10: still absent** (`wiki/concepts/` has `Chaikin-Money-Flow.md` from B-60 and no OBV page) — and the debt **grew**, because B-61 shipped an OBV *divergence* overlay on 2026-09-07. Two OBV surfaces, zero pages. The B-60 ingest is the pattern to copy: the concept page was written with the build. |
 | B-27 | **Wiki hygiene** | Index counters had drifted to two *different* wrong numbers (frontmatter 204/78, body 198/81, actual 226/91) — corrected 2026-08-07, but a lint should **compute** these rather than trust them. Also an empty brace-expansion artifact directory `{entities,concepts,strategies,sources,analyses}` in the vault, untracked and harmless. |
 | B-14 | ~~`ephem` not installed~~ | **CLOSED** — verified `ephem 4.2.1` present 2026-08-07. The reversal calendar can now be rebuilt; that rebuild has not been run, and coverage still ends **2027-12-28**. |
 | B-30 | **Moon-in-Pushya reversal event-study** *(ingested 2026-08-20)* | Astro video claims Moon-in-Pushya days (~13-14/yr) mark major Nifty reversals. We already cache `gurupushya`/`ravipushya` muhurat dates and run muhurat/vedha/newmoon backtests; this adds the *general* Pushya-transit claim as one more event-study, reusing `newmoon_levels_backtest.py` (first-touch reversal vs a **matched non-Pushya control**, permutation null, eclipse strip). Textbook base-rate trap — ~13-14 dates/yr against typical 300-600pt 2-day ranges — so **expect a null**, consistent with the newmoon and sbc-vedha nulls. Worth running only to retire it with evidence. |
