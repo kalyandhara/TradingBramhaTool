@@ -2418,3 +2418,11 @@
 - **Independent corroboration, unasked for:** first live run gave **IT +2.73 pt**; ScreeningMantis printed **+2.70 pt** same date, over a different universe, a different sector taxonomy and probably true exchange turnover. Two implementations within 0.03 pt says the measure is **robust to the taxonomy** (the open worry behind B-64) and says **nothing about edge**
 - Both ship as VIEWS: no entry/stop/target, not in `SCANNERS`, never a confluence vote, event study still unrun with an expected-null prior
 
+## [2026-09-09] build | B-63a — shared column registry (`tools/columns.py`)
+- **BUILT** — 33 ids, 7 aliases, 13 tests, 4 call sites migrated. Emits `st.column_config`; renders nothing, so adoption is safe one table at a time
+- **The rule is enforced:** `configure()` allows `label`/`width` overrides and **raises** on format or help — those ARE the definition; a column needing a different one needs its own id
+- Closed two drifts live in a single function: "Chg%" as both `chg_pct` and `day_pct`, "Turnover ₹Cr" defined twice. `configure()` keys output by the caller's column name, so no frame needs renaming to adopt it
+- **Refused to merge** what only looks the same: `rvol` (20d mean) vs `rvol_median5` (5-session median) stay separate ids; raw-rupee `turnover` is NOT aliased to `turnover_cr` (1e7 apart) — the trending lens renames on conversion instead
+- Verification traps recorded: (a) **a running Streamlit process keeps the OLD `columns.py`** because it is imported inside functions — the first check was reading a cache until the server was restarted; (b) `turnover_cr` uses `format="localized"` since the Styler's `{:,.0f}` is gone and printf has no comma flag — confirmed live (`6,196`), at the cost of ragged decimals
+- `sector` became a valid id because B-64 landed first, exactly as the dependency said it would
+

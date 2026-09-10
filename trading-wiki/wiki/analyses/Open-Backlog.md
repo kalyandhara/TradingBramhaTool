@@ -2657,7 +2657,7 @@ the different pages**. Full 28-column header captured in
 
 This is two separable pieces of work and they should not be done in one commit.
 
-#### B-63a · `tools/columns.py` — one definition per column (the real deliverable)
+#### ~~B-63a~~ · `tools/columns.py` — one definition per column — **BUILT 2026-09-09**
 
 **The problem it fixes, counted before proposing anything:** `st.dataframe` is
 called **43 times** across `tools/` (42 in `dashboard_app.py`), with
@@ -2686,9 +2686,9 @@ Rules that make it worth building rather than a second way to do the same thing:
   render path and keeps its pagination; the 5 chart-icon LinkColumns already
   centralised for the Scanner Hub tables move in as ids rather than being
   rebuilt.
-- **`sector` is NOT an id until [[#B-64]] lands.** Three non-joining vocabularies
-  are in use; standardising the label over three different meanings hides the
-  problem instead of fixing it.
+- ~~**`sector` is NOT an id until [[#B-64]] lands.**~~ B-64 landed first, so
+  `sector` IS an id, and its tooltip names the canonical vocabulary and says
+  Yahoo's is description rather than a join key.
 - **Adoption is incremental and per-call-site.** A table not yet migrated keeps
   working. Do NOT convert all 43 in one pass — migrate the Scanner Hub summary +
   confluence tables first (they already have the richest config), then the rest
@@ -2700,6 +2700,49 @@ Rules that make it worth building rather than a second way to do the same thing:
 > Structure belongs in sort order and tags there. B-63 touches the **dataframes
 > only**: summary/confluence tables, Sector Map, watchlist, portfolio, alerts,
 > saved rotation, telegram signals, the Opportunity Hub tables.
+
+**BUILT 2026-09-09 — `tools/columns.py` + 13 tests, 4 call sites migrated.**
+33 column ids, 7 aliases, every one carrying a tooltip (a test asserts that: an
+untooltipped column is how the old mess started).
+
+**The rule is enforced, not documented.** `configure()` accepts `label` and
+`width` overrides and **raises** on anything else — a column needing a different
+format or tooltip needs its own id. `test_the_definition_may_not_be_overridden`
+pins it.
+
+**Two drifts closed on the first pass**, both of which were live in one function:
+"Chg%" defined twice under `chg_pct` and `day_pct`, and "Turnover ₹Cr" defined
+twice forty lines apart. `ALIASES` maps the second spelling onto the first, and
+`configure()` keys its output by **the name the caller passed**, so a frame whose
+column is still `day_pct` adopts the shared definition without being renamed.
+
+**What the registry refuses to merge is as important as what it merges:**
+
+- `rvol` (20-day mean) and `rvol_median5` (5-session median) stay **separate
+  ids**, each saying so in its tooltip. Folding them would be a behaviour change
+  dressed as a refactor.
+- raw-rupee `turnover` is **not** aliased to `turnover_cr` — they differ by 1e7,
+  and a wrong alias there mislabels by seven orders of magnitude. The trending
+  lens now *renames* on conversion instead.
+
+Migrated: the chart-icon family helper (so all ~7 of its call sites inherit at
+once), Volume Shockers, the trending-movers lens, and the new turnover-share
+grid. `configure_df()` leaves unknown columns to Streamlit, which is what makes
+a half-migrated table safe — `src` in Volume Shockers renders untouched.
+
+> [!note] Two things the live run caught that no unit test would
+> **Stale module in a running Streamlit process.** `columns.py` is imported
+> inside functions, so editing it did NOT take effect on a hot reload — the page
+> kept rendering the old format and the first verification pass was quietly
+> testing nothing. Restarting the server showed the change. **Verify a
+> registry edit through a restarted process, or you are reading a cache.**
+>
+> **`turnover_cr` uses `format="localized"`, not printf.** The Styler that used
+> to supply `{:,.0f}` is gone (one formatter, not two), and printf has no comma
+> flag — at crore scale the thousands separator is worth more than a fixed
+> decimal. Confirmed live: `6,196` / `6,812.9`. The cost is **ragged decimals**
+> within the column, which is a real if minor ugliness and is the reason this is
+> written down rather than left to be rediscovered.
 
 #### B-63b · The new columns themselves
 

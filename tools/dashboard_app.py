@@ -178,23 +178,16 @@ def _with_chart_family(df, symbol_col: str):
 
 
 def _chart_family_colcfg() -> dict:
-    return {
-        "Chart":    st.column_config.LinkColumn(
-            "Chart", help="Chart Tool (in-app, :5001)",
-            display_text="👁 Chart", width="small"),
-        "Analyze":  st.column_config.LinkColumn(
-            "Analyze", help="Stock Analyzer (in-app)",
-            display_text="↗ Analyze", width="small"),
-        "TView":    st.column_config.LinkColumn(
-            "TView", help="Open on TradingView",
-            display_text="📈 TV", width="small"),
-        "Screener": st.column_config.LinkColumn(
-            "Screener", help="Open on Screener.in",
-            display_text="📊 Screener", width="small"),
-        "GFin":     st.column_config.LinkColumn(
-            "GFin", help="Open on Google Finance",
-            display_text="G Finance", width="small"),
-    }
+    """The family's config, now from the shared registry (B-63a).
+
+    The frame's columns are Title-Case (`Chart`, `TView`) because
+    `_with_chart_family` has always written them that way and many callers read
+    those names; `columns.py` ids are lower-case. The mapping happens here once,
+    rather than renaming columns under every reader.
+    """
+    import columns as _cols
+    cfg = _cols.configure(*_cols.CHART_FAMILY)
+    return {c: cfg[i] for c, i in zip(_CHART_FAMILY_COLS, _cols.CHART_FAMILY)}
 
 
 # ── Shareable "copy as card" for Telegram / social ────────────────────────────
@@ -4623,6 +4616,13 @@ def _money_flow_window(key_prefix: str, *, compact: bool = False):
 # reasons — not this.
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _cols_mod():
+    """The shared column registry (B-63a) — imported lazily, like every other
+    heavy tool module on this page."""
+    import columns as _cols
+    return _cols
+
+
 @st.cache_data(ttl=1800, show_spinner=False)
 def _sector_turnover_share(universe: str = "nifty500"):
     import turnover_share as _tsx
@@ -4647,28 +4647,10 @@ def _turnover_share_window(key_prefix: str = "tsh_page"):
                "d_share_d", "d_share_w"]]
     styled = show.style.background_gradient(
         cmap="RdYlGn", subset=["d_share_d", "d_share_w"], vmin=-3.0, vmax=3.0
-    ).format({"turnover_cr": "{:,.0f}", "share_pct": "{:.2f}%",
-              "d_share_d": "{:+.2f}", "d_share_w": "{:+.2f}"}, na_rep="—")
+    )  # numbers are formatted by columns.py, not here — one formatter, not two
     st.dataframe(
         styled, hide_index=True, use_container_width=True,
-        column_config={
-            "sector":      st.column_config.TextColumn("Sector"),
-            "members":     st.column_config.NumberColumn(
-                "Members", help="Constituents with usable history."),
-            "turnover_cr": st.column_config.NumberColumn(
-                "Turnover (₹ Cr)",
-                help="Close × volume summed across the sector — a PROXY for "
-                     "exchange traded value, not the bhavcopy figure."),
-            "share_pct":   st.column_config.NumberColumn(
-                "Share %", help="This sector's slice of the whole universe's "
-                                "turnover today. The column sums to 100%."),
-            "d_share_d":   st.column_config.NumberColumn(
-                "Δ share 1D (pt)",
-                help="Change in that share vs yesterday, in percentage POINTS. "
-                     "3.70% → 6.65% is +2.95 pt, not +80%."),
-            "d_share_w":   st.column_config.NumberColumn(
-                "Δ share 1W (pt)", help="Same, vs five trading days ago."),
-        })
+        column_config=_cols_mod().configure_df(show))
 
     st.caption(
         f"**Rotation in money, not price.** Each sector's turnover as a share of "
@@ -4747,15 +4729,12 @@ def _darvas_rows_table(df, key_prefix: str):
                 "That is a normal reading — the scan is meant to be quiet.")
         return
     out = _with_chart_family(df.copy(), "symbol")
+    import columns as _cols
     cfg = dict(_chart_family_colcfg())
-    cfg["symbol"] = st.column_config.TextColumn("Symbol", width="small")
-    cfg["close"] = st.column_config.NumberColumn("LTP", format="%.2f")
-    cfg["chg_pct"] = st.column_config.NumberColumn("Chg%", format="%.2f%%")
-    cfg["direction"] = st.column_config.TextColumn("Dir", width="small")
-    cfg["volume"] = st.column_config.NumberColumn("Volume", format="%d")
-    cfg["sma_vol10"] = st.column_config.NumberColumn("SMA vol(10)", format="%d")
-    cfg["multiple"] = st.column_config.NumberColumn("x SMA10", format="%.1f")
-    cfg["turnover_cr"] = st.column_config.NumberColumn("Turnover ₹Cr", format="%.1f")
+    # One definition per column (B-63a). `multiple` resolves to the shared
+    # `rvol` spec — the same ratio this table labelled "x SMA10" and the
+    # trending tables labelled "x avg vol".
+    cfg.update(_cols.configure_df(out))
     # Green/red on Chg%. Colour is REDUNDANT here, never load-bearing: the Dir
     # column already says UP/DOWN and the number carries its own sign, so the
     # table still reads correctly in greyscale or with colour-blindness — the
@@ -5239,30 +5218,21 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
                 return
             out = df.copy()
             out = _with_chart_family(out, "symbol")
+            import columns as _cols
             colcfg = dict(_chart_family_colcfg())
-            colcfg["symbol"] = st.column_config.TextColumn("Symbol", width="small")
-            if "close" in out.columns:
-                colcfg["close"] = st.column_config.NumberColumn("LTP", format="%.2f")
-            if "chg" in out.columns:
-                colcfg["chg"] = st.column_config.NumberColumn("Chg", format="%.2f")
-            if "chg_pct" in out.columns:
-                colcfg["chg_pct"] = st.column_config.NumberColumn("Chg%", format="%.2f%%")
+            # Raw-rupee turnover is RENAMED on conversion rather than aliased:
+            # `turnover` and `turnover_cr` differ by 1e7, and columns.py refuses
+            # to treat them as one id for exactly that reason.
             if "turnover" in out.columns:
-                out["turnover"] = out["turnover"] / 1e7
-                colcfg["turnover"] = st.column_config.NumberColumn("Turnover ₹Cr", format="%.1f")
-            if "volume" in out.columns:
-                colcfg["volume"] = st.column_config.NumberColumn("Volume", format="%d")
-            for c, lbl, fmt in (("multiple", "x avg vol", "%.1f"),
-                                ("day_pct", "Chg%", "%.2f%%"),
-                                ("turnover_cr", "Turnover ₹Cr", "%.1f"),
-                                ("range_high", "High", "%.2f"),
-                                ("range_low", "Low", "%.2f"),
-                                ("from_high_pct", "From high %", "%.2f%%"),
-                                ("from_low_pct", "From low %", "%.2f%%")):
+                out["turnover_cr"] = out["turnover"] / 1e7
+                out = out.drop(columns=["turnover"])
+            colcfg.update(_cols.configure_df(out))
+            # Bespoke to this lens and used nowhere else, so left inline rather
+            # than promoted to a shared id no other table would ask for.
+            for c, lbl, fmt in (("range_high", "High", "%.2f"),
+                                ("range_low", "Low", "%.2f")):
                 if c in out.columns:
                     colcfg[c] = st.column_config.NumberColumn(lbl, format=fmt)
-            if "cause" in out.columns:
-                colcfg["cause"] = st.column_config.TextColumn("Cause", width="medium")
             drop = [c for c in ("reasons", "avg_volume", "baseline_days", "trade_date",
                                 "n_deals", "churn_share", "pct_mcap", "bars") if c in out.columns]
             out = out.drop(columns=drop)
