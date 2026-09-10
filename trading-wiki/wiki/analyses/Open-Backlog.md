@@ -1024,6 +1024,84 @@ condition makes it a strict subset of that family selected on the one mechanic
 already the better-tested way to express it." The control is designed to catch
 exactly that.
 
+═══ PRE-REGISTRATION — COMPLETED 2026-09-10, BEFORE THE SCORER EXISTED ══════════
+
+The sketch above is now binding, with three things it left open filled in and
+**one thing in it corrected**. Written and committed before
+`tools/quasimodo_study.py`, on the B-57 rule: the design changes first, in
+public, or not at all.
+
+> [!warning] CORRECTION to the sketch's baseline — it named the wrong side
+> The sketch says the baseline is *"bars in the same names that are also
+> retesting a prior swing **high** from above"*. That is incoherent: a retest of
+> a swing high **from above** is a support test of a broken resistance, and the
+> QM entry is not there. **QM buys the retest of the LEFT SHOULDER, which is a
+> swing LOW** (`entry_zone = LS ± tol_pct`, `invalidation = HEAD`). The baseline
+> is therefore *a confirmed swing **LOW**, retested from above, still unbroken* —
+> the plainest possible statement of "buying support". This is the second
+> high/low slip in this entry (the first put `LS` on the wrong side of the
+> pattern), and both were found by reading rather than by running, which is the
+> argument for pinning definitions in prose before scoring them.
+
+**EVENT — the zone entry, not the CHOCH.** The pattern *completes* at the CHOCH
+(`RH`), but nothing is tradeable there: the entry is the retest of `LS` that
+follows. So the scored event is the **first bar after the CHOCH is knowable on
+which the close falls inside `LS ± 2%` with the head unbroken**. This is the
+detector's own `in_zone` field, and it is the 3%-of-names number a Hub card would
+show — the 44% presence number is not a signal and is not scored.
+
+**CAUSALITY.** A swing pivot at bar *j* is only knowable at *j + pivot_len*
+(`detect_structure_chain` appends it exactly there). The event bar must therefore
+satisfy `t > rh.bar + pivot_len`, and entry is the **next open** after *t*. No
+arm may use a pivot before its confirmation bar.
+
+**ARMS.**
+
+| arm | signal | baseline | decides? |
+|---|---|---|---|
+| **PRIMARY** | QM zone entries | every bar in the same names that is a **support retest**: close within ±2% of a confirmed, unbroken swing low, approached from above | **yes** |
+| **CONTROL · relax the CHOCH** | the same walk with `RH > LH` dropped (`min_choch_pct = −∞`) | same | no |
+| **CONTRAST** | QM zone entries | every bar (no state filter) | no |
+| **HARNESS** | all support retests | every bar | no |
+
+- **PRIMARY** is the only arm that can pass anything. Horizon **20 trading days**,
+  entry next open, statistic `mean(signal) − mean(baseline)` in percent,
+  **circular-rotation p** (Welch is invalid — overlapping windows,
+  cross-sectionally correlated), **PASS BAR: `edge > 0 AND p_rot < 0.05`.**
+- **CONTROL** is the sketch's control, made operational. If dropping `RH > LH`
+  leaves the edge materially unchanged, the change of character is decorative and
+  `detect_quasimodo` is an inverse-H&S finder wearing a different name.
+- **CONTRAST** is the size of the illusion — what a careless version of this test
+  would have published by baselining against all bars.
+- **HARNESS** exists because of what B-57 learned when CONTROL2 misbehaved: point
+  the machinery at a settled number before believing it on a new one. "Buy a
+  support retest" is the family measured at **−0.36% / −0.47% / −0.43% @20d**
+  across ~9,000 signals, so this arm should read **flat-to-negative**. A strongly
+  positive HARNESS means the panel is wrong and **no other number in the run may
+  be reported**.
+
+**ABORT.** Fewer than **200** primary events ⇒ **INCONCLUSIVE — UNDERPOWERED**,
+explicitly not a null. (The detector's own cardinality run makes this a live
+risk: 14 of 460 names were in-zone on a single day.)
+
+**COSTS.** None applied, and that is not an oversight — signal and baseline are
+the same instrument held the same 20 days, so the ~29bps Indian delivery model
+cancels in the difference. An absolute return from this study would need it; the
+edge does not.
+
+**EQUIVALENCE, not a second implementation.** The study needs an event *history*,
+and `detect_quasimodo` returns only the newest pattern. The historical walk is
+therefore reimplemented over the same `detect_structure_chain` swings — which is
+exactly how definitions drift, so the study **asserts that its last-pattern
+output matches `detect_quasimodo`'s on the full frame, per symbol**, and reports
+the agreement count. A mismatch aborts the run rather than being reported.
+
+**PRIOR, restated and unchanged:** skeptical. Family is 0-for-3 at ~9,000
+signals. The honest hypothesis remains *"QM is a liquidity sweep with extra
+steps"* — and if so, the PRIMARY should land near the family nulls while the
+already-measured `Liquidity Sweep` (+0.51% @20d, p=0.005) stays the better way to
+express the same mechanic.
+
 **Deferred, not forgotten: multi-timeframe liquidity ("HTF LQ").**
 `detect_liquidity_pools` takes one `df`. Real HTF liquidity needs a second
 timeframe's pools projected onto the entry chart. That is a bigger build than
