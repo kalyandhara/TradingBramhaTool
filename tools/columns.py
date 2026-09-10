@@ -127,11 +127,14 @@ COLUMNS: dict[str, ColSpec] = {
     "pct_from_20ema": ColSpec(
         "% from 20EMA", "Signed distance from the 20-period EMA.",
         "number", "%.2f%%"),
+    # Signed, and the unit lives in the LABEL: "%d days" renders "1 days", and
+    # the sign carries the direction, which is the whole reading.
     "ema_cross_age": ColSpec(
-        "EMA cross age",
-        "Trading days since the 10-EMA last crossed the 20-EMA. Blank = no "
-        "cross within the loaded history, not 'no cross ever'.",
-        "number", "%d days", width="small"),
+        "EMA cross (d)",
+        "Trading days since the 10-EMA last crossed the 20-EMA, SIGNED: "
+        "+12 = crossed above 12 sessions ago, -3 = crossed below 3 sessions "
+        "ago. Blank = no cross within the loaded history, NOT 'no cross ever'.",
+        "number", "%+d", width="small"),
     "stage2_score": ColSpec(
         "Stage 2",
         "How many of the 7 Stage-2 conditions are met — a count, not a gate, so "
@@ -140,6 +143,44 @@ COLUMNS: dict[str, ColSpec] = {
     "direction": ColSpec("Dir", "Direction of the move.", "text", width="small"),
     "cause": ColSpec("Cause", "Attributed reason for the move, where one is known.",
                      "text", width="medium"),
+
+    "pivot_d": ColSpec(
+        "D-Pivot",
+        "Which band today's close sits in against the DAILY floor pivots "
+        "(computed from the prior bar): R1 / R1-PP / PP-S1 / S1, or Near ... "
+        "when price is within 0.15% of a level.",
+        "text", width="small"),
+    "pivot_w": ColSpec(
+        "W-Pivot", "The same band, against WEEKLY pivots.",
+        "text", width="small"),
+    "bo_gain_pct": ColSpec(
+        "BO gain%",
+        "Gain since the last close above its prior 20-bar high. Can be "
+        "NEGATIVE — a breakout that faded is exactly what this shows.",
+        "number", "%+.2f%%"),
+    "bo_date": ColSpec(
+        "BO date",
+        "When that breakout happened. Read it WITH the gain: +3% from last week "
+        "and +3% from four months ago are different situations.",
+        "text", width="small"),
+    "hist_price": ColSpec(
+        "Hist. price",
+        "Close on (or the last close before) the reference date you picked. "
+        "Blank means the history does not reach that far back.",
+        "number", "%.2f"),
+    "gain_since_pct": ColSpec(
+        "Gain% since",
+        "Return from that reference date to today — the table re-bases on a "
+        "date you choose rather than a fixed lookback.",
+        "number", "%+.2f%%"),
+    "minervini": ColSpec(
+        "Minervini",
+        "Minervini trend-template conditions met, out of 8 — a COUNT, not a "
+        "gate, so a name failing one leg stays visible.",
+        "text", width="small"),
+    "technofunda": ColSpec(
+        "TechnoFunda", "TechnoFunda conditions met, out of 6.",
+        "text", width="small"),
 
     # ── scoring ───────────────────────────────────────────────────────────────
     "score": ColSpec("Score", "Scanner score for this hit.", "number", "%.1f"),

@@ -2744,7 +2744,7 @@ a half-migrated table safe — `src` in Volume Shockers renders untouched.
 > within the column, which is a real if minor ugliness and is the reason this is
 > written down rather than left to be rediscovered.
 
-#### B-63b · The new columns themselves
+#### ~~B-63b~~ · The new columns themselves — **BUILT 2026-09-09**
 
 Ordered by cost. Every one of them describes bars we already pull — **no new data
 source, no auth, no vendor**.
@@ -2866,6 +2866,69 @@ Checked against `tools/`, because two of the columns above were nearly filed as
 > the rest. It is a universe-wide RS rank plus a daily snapshot table, and it
 > should be split out and scheduled on its own rather than shipped with the
 > column library. Everything else in B-63b stands.
+
+**BUILT 2026-09-09 — `tools/row_metrics.py` + 21 tests, live on the Watchlist.**
+Seven of the nine columns shipped; the two that did not are named below with why.
+
+The Watchlist is the mount point because it **already fetches full OHLCV per
+symbol** for its Minervini/TechnoFunda scores — so the technical row costs no new
+fetch. Columns now on it: `LTP (09 Sep)` (dated header), `Chg%`, `Gap%`,
+`EMA cross (d)`, `D-Pivot`, `W-Pivot`, `52W high %`, `BO gain%`, `BO date`,
+`Minervini`, `TechnoFunda`, plus `Hist. price` / `Gain% since` when a re-base
+date is picked. All config comes from [[#B-63a]].
+
+**Two items were NOT built, and the reason is the same in both cases — they
+already existed or should not exist twice:**
+
+- **Stage 2 as `x/7`.** `screener_pipeline.score_minervini` already returns
+  `(0-8, conditions)` and the Watchlist has rendered it as **"x/8" all along**.
+  The teardown's finding was real but narrower than it read: it is the SCANNER
+  (`scan_stage2_uptrend`) that is a hard gate, not the desk. Surfacing the
+  existing score is the fix; a second Stage-2 scorer would be one idea with two
+  implementations, drifting.
+- **In-row watchlist toggle + Notes.** The page already has both — an add form
+  and row-select → ♥ — and turning the table into an `st.data_editor` is a
+  write-back change that deserves its own commit rather than riding along with
+  eight read-only columns.
+
+**Design decisions that are load-bearing, each pinned by a test:**
+
+- **`ema_cross_age` returns `searched` alongside `age`.** `age=None` means "no
+  cross within N bars", never "no cross ever" — the borrowed `_bars_ago` idiom
+  windows its search and returns None outside it, and a blank cell that silently
+  meant "we only looked back three bars" would be a lie. Rendered **signed**
+  (`+15` crossed up 15 sessions ago, `−38` crossed down 38 ago) because the
+  direction is the reading and `"%d days"` printed the absurd `"1 days"`.
+- **`breakout()` uses the plainest definition available** — the last close above
+  its prior 20-bar high — deliberately NOT a scanner's pattern, or the column
+  would mean whichever scanner it borrowed from. Its gain **can be negative**,
+  which is the point: a faded breakout is exactly what the pair reveals.
+- **`since()` refuses a date before the history starts** rather than anchoring on
+  the earliest available bar, which would quietly turn "since 1 Jan" into "since
+  whenever this frame happens to begin" — differently per symbol.
+- **`pivot_levels()` is the arithmetic extracted from `build_chart()`**, not a
+  reimplementation, and `weekly_frame()` feeds it for W-Pivot. It returns None on
+  a positional index rather than resampling nonsense.
+
+**First live read, and it makes the case for the time-derivative columns better
+than the argument did.** SHAKTIPUMP: `EMA cross −38`, `Near S1`, `52W high
+−48.72%`, **`BO gain −20.71%` dated `2026-06-24`**. A breakout column showing
+only the gain would have printed a number; showing the date reveals a break that
+is nearly three months old and now 20% underwater. RELIANCE via the CLI reads the
+same way: cross down 1 session ago, S1 daily AND weekly, last breakout 2026-05-04
+now −12.18%.
+
+> [!note] Known cosmetic issue, not fixed
+> Watchlist rows whose history fails to load (AKI, MARALOVER, PRAENG on
+> 2026-09-09 — yfinance returns nothing for them) render `None` in the numeric
+> cells rather than an empty one, despite the frame being coerced to float. The
+> text columns were fixed the same way and DO render blank. Worth a look when
+> the Streamlit number formatter is next touched; the separate question of **why
+> three watchlist symbols have no data at all** is the more useful one.
+
+**Nothing here is measured, and there is nothing to measure:** these report
+conditions already computed elsewhere. No scanner registration, no confluence
+vote, no entry/stop/target.
 
 **`x/7` instead of a gate is the one with a consequence worth stating.** Turning a
 boolean into a count of conditions met changes what the table *hides*: their own

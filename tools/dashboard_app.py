@@ -6229,26 +6229,88 @@ if current_page == "Watchlist":
     if watch.empty:
         st.info("Watchlist is empty.")
     else:
+        # B-63b — the technical row. Every column here describes state that is
+        # already computed from bars this page ALREADY fetches; none of it is a
+        # signal and none of it has been measured. The columns that matter are
+        # the time-derivative ones (EMA-cross age, BO date, Gain% since): the
+        # rest of this desk prints whether a condition is true, never how long
+        # it has been true.
+        import row_metrics as _rmx
+        _cols = _cols_mod()
+
+        _wl_ref = st.date_input(
+            "Re-base on", value=None, key="wl_since_date", format="DD/MM/YYYY",
+            help="Pick a date and the Hist. price / Gain% since columns re-base "
+                 "the whole list on it — 'how has my watchlist done since the "
+                 "day I looked'. Leave empty to hide those two columns.")
+
         nifty_wl = cached_fetch_nifty50()
         rows = []
         for _, w in watch.iterrows():
             df = cached_fetch_ohlcv(w["symbol"])
             if df is None or df.empty:
-                rows.append({"Symbol": w["symbol"], "Price": "—", "Day %": "—",
-                             "Minervini": "—", "TechnoFunda": "—", "Notes": w["notes"]})
+                rows.append({"Symbol": w["symbol"], "Notes": w["notes"]})
                 continue
             last = float(df["close"].iloc[-1])
             prev = float(df["close"].iloc[-2]) if len(df) > 1 else last
             day_chg = (last - prev) / prev * 100 if prev else 0.0
             mv_score, _ = sp.score_minervini(df, nifty_df=nifty_wl)
             tf_score, _ = sp.score_technofunda(df)
+            m = _rmx.row(df, ref_date=_wl_ref)
+            _age = m["ema_cross_age"]
             rows.append({
-                "Symbol": w["symbol"], "Price": f"{last:,.2f}",
-                "Day %": gain_loss_badge(day_chg),
-                "Minervini": f"{mv_score}/8", "TechnoFunda": f"{tf_score}/6",
+                "Symbol": w["symbol"],
+                "close": last,
+                "chg_pct": day_chg,
+                "gap_pct": m["gap_pct"],
+                # Direction travels WITH the age: "12" alone does not say
+                # whether the cross was up or down, and the sign of that is the
+                # whole reading.
+                "ema_cross_age": (None if _age is None else
+                                  (_age if m["ema_cross_dir"] == "up" else -_age)),
+                "pivot_d": m["pivot_d"],
+                "pivot_w": m["pivot_w"],
+                "from_52w_high_pct": m["from_52w_high_pct"],
+                "bo_gain_pct": m["bo_gain_pct"],
+                "bo_date": m["bo_date"],
+                "hist_price": m["hist_price"],
+                "gain_since_pct": m["gain_since_pct"],
+                "minervini": f"{mv_score}/8",
+                "technofunda": f"{tf_score}/6",
                 "Notes": w["notes"],
             })
-        _paginated_df(pd.DataFrame(rows), key="watchlist_main")
+        _wl_df = pd.DataFrame(rows)
+        # A symbol whose history failed to load contributes only Symbol/Notes,
+        # which leaves the numeric columns as object dtype holding None — and
+        # Streamlit renders that as the literal string "None" in every cell.
+        # Coercing makes them NaN, which renders as an empty cell: an absent
+        # reading should look absent, not like a value.
+        for _c in ("close", "chg_pct", "gap_pct", "ema_cross_age",
+                   "from_52w_high_pct", "bo_gain_pct", "hist_price",
+                   "gain_since_pct"):
+            if _c in _wl_df.columns:
+                _wl_df[_c] = pd.to_numeric(_wl_df[_c], errors="coerce")
+        for _c in ("pivot_d", "pivot_w", "bo_date", "minervini", "technofunda"):
+            if _c in _wl_df.columns:
+                _wl_df[_c] = _wl_df[_c].where(_wl_df[_c].notna(), "")
+        if _wl_ref is None and not _wl_df.empty:
+            _wl_df = _wl_df.drop(columns=[c for c in ("hist_price", "gain_since_pct")
+                                          if c in _wl_df.columns])
+        _wl_cfg = _cols.configure_df(
+            _wl_df,
+            overrides={"close": {"label": f"LTP ({date.today():%d %b})"}})
+        _paginated_df(_wl_df, key="watchlist_main", column_config=_wl_cfg)
+        st.caption(
+            "**EMA cross (d)** is signed: **+12** = the 10-EMA crossed ABOVE the "
+            "20-EMA twelve sessions ago, **−3** = crossed below three sessions "
+            "ago, blank = no cross in the last 250 sessions (not 'never'). "
+            "**BO gain%** is measured from the last close above its prior 20-bar "
+            "high — read it beside **BO date**, because +3% from last week and "
+            "+3% from four months ago are not the same situation, and a faded "
+            "breakout shows here as a negative."
+        )
+        st.caption("Descriptions of state, not signals — none of these columns "
+                   "has been measured, and none casts a vote anywhere.")
 
         wc1, wc2 = st.columns(2)
         with wc1:

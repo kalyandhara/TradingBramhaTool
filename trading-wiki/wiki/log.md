@@ -2426,3 +2426,11 @@
 - Verification traps recorded: (a) **a running Streamlit process keeps the OLD `columns.py`** because it is imported inside functions — the first check was reading a cache until the server was restarted; (b) `turnover_cr` uses `format="localized"` since the Styler's `{:,.0f}` is gone and printf has no comma flag — confirmed live (`6,196`), at the cost of ragged decimals
 - `sector` became a valid id because B-64 landed first, exactly as the dependency said it would
 
+## [2026-09-09] build | B-63b — the "how long has this been true" columns
+- **BUILT** — `tools/row_metrics.py` + 21 tests, live on the **Watchlist** (chosen because it already fetches full OHLCV per symbol, so the technical row costs no new fetch)
+- Shipped: dated LTP header, **Gap%**, **EMA cross (d)** (signed), **D-Pivot / W-Pivot** zone labels, **52W high %**, **BO gain% + BO date**, **Hist. price / Gain% since** a date the reader picks. Config all from B-63a
+- **Two items NOT built, both because the thing already exists:** Stage-2 `x/7` — `score_minervini` already returns x/8 and the Watchlist has rendered it all along (it is the SCANNER that is a hard gate, not the desk); in-row watchlist/Notes editing — the page already has an add form and row-select ♥, and `st.data_editor` write-back deserves its own commit
+- Pinned by tests: `ema_cross_age` returns **`searched`** so `age=None` means "no cross in N bars", never "no cross ever"; `breakout()` uses the plainest definition (last close above prior 20-bar high) so the column does not inherit a scanner's meaning, and its gain **can be negative**; `since()` **refuses** a date before the history starts rather than silently anchoring on the earliest bar; `pivot_levels()` is the CPR arithmetic **extracted** from `build_chart()`, with `weekly_frame()` feeding W-Pivot
+- **The live read makes the case:** SHAKTIPUMP shows `EMA cross −38`, `Near S1`, `BO gain −20.71%` dated **2026-06-24** — a gain-only column would have printed a number; the date shows a three-month-old break now 20% underwater
+- Known cosmetic issue left open: rows whose history fails to load render `None` in numeric cells (text cells render blank correctly). The better question is why AKI / MARALOVER / PRAENG return no data at all
+

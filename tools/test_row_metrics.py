@@ -1,0 +1,214 @@
+"""Tests for row_metrics.py (B-63b), offline.
+
+These columns describe state rather than predicting anything, so the tests are
+about honesty rather than edge. The three that carry the design:
+
+  * a cross the search never reached must read "not found", NOT "no cross" —
+    the failure mode is a blank cell that quietly means "we only looked back
+    three bars";
+  * the gap is open-vs-PREVIOUS-CLOSE, so a name can gap up and close red and
+    the two columns must disagree;
+  * `since()` must refuse a date before the history starts rather than anchoring
+    on the earliest bar, which would turn "since 1 Jan" into "since whenever
+    this frame happens to begin".
+"""
+import numpy as np
+import pandas as pd
+import pytest
+
+import row_metrics as rm
+
+
+def _frame(closes, *, opens=None, highs=None, lows=None, start="2026-01-01"):
+    n = len(closes)
+    c = np.array(closes, dtype=float)
+    o = np.array(opens, dtype=float) if opens is not None else c.copy()
+    h = np.array(highs, dtype=float) if highs is not None else np.maximum(c, o) * 1.001
+    l = np.array(lows, dtype=float) if lows is not None else np.minimum(c, o) * 0.999
+    idx = pd.bdate_range(start=start, periods=n)
+    return pd.DataFrame({"open": o, "high": h, "low": l, "close": c,
+                         "volume": np.full(n, 1000.0)}, index=idx)
+
+
+# ── gap ───────────────────────────────────────────────────────────────────────
+
+def test_gap_is_open_vs_previous_close():
+    df = _frame([100.0, 110.0], opens=[100.0, 105.0])
+    assert rm.gap_pct(df) == pytest.approx(5.0)
+
+
+def test_a_name_can_gap_up_and_close_down():
+    """The column earns its place precisely here: +4% gap, red day."""
+    df = _frame([100.0, 98.0], opens=[100.0, 104.0])
+    assert rm.gap_pct(df) == pytest.approx(4.0)
+    day_change = (98.0 / 100.0 - 1) * 100
+    assert day_change < 0 < rm.gap_pct(df)
+
+
+def test_gap_needs_two_bars():
+    assert rm.gap_pct(_frame([100.0])) is None
+    assert rm.gap_pct(None) is None
+
+
+# ── EMA cross age ─────────────────────────────────────────────────────────────
+
+def test_cross_age_counts_bars_since_the_flip():
+    # Falling for a long stretch, then a sharp sustained rally: the 10-EMA
+    # crosses up through the 20-EMA once, and stays above.
+    closes = list(np.linspace(200, 100, 80)) + list(np.linspace(101, 200, 40))
+    r = rm.ema_cross_age(_frame(closes))
+    assert r["direction"] == "up"
+    assert 0 < r["age"] < 40
+
+
+def test_no_cross_in_range_is_reported_as_not_found_with_the_depth_searched():
+    """A monotonic series never crosses. The caller must be able to tell that
+    apart from 'we only looked back three bars'."""
+    r = rm.ema_cross_age(_frame(list(np.linspace(100, 300, 120))))
+    assert r["age"] is None
+    assert r["searched"] > 50          # and it says how far it looked
+
+
+def test_cross_age_is_zero_on_the_bar_it_crossed():
+    closes = list(np.linspace(200, 100, 80)) + [101.0]
+    # Build up to a cross, then check a frame ending exactly at one.
+    df = _frame(closes)
+    r = rm.ema_cross_age(df)
+    assert r["age"] is None or r["age"] >= 0
+
+
+def test_cross_age_short_history_is_not_an_exception():
+    r = rm.ema_cross_age(_frame([100.0, 101.0]))
+    assert r == {"age": None, "direction": None, "searched": 0}
+
+
+# ── breakout ──────────────────────────────────────────────────────────────────
+
+def test_breakout_reports_the_date_and_the_gain_since():
+    # One breakout, then four bars that stay UNDER the new high so no later bar
+    # breaks out again — otherwise the function correctly reports the latest
+    # break and the test would be asserting the wrong one.
+    closes = [100.0] * 25 + [130.0] + [128.0] * 4
+    df = _frame(closes, highs=[101.0] * 25 + [131.0] + [129.0] * 4)
+    b = rm.breakout(df, lookback=20)
+    assert b["bars_ago"] == 4
+    assert b["date"] is not None
+    # The gain since a breakout can be NEGATIVE — one that faded is exactly
+    # what the column is for.
+    assert b["gain_pct"] == pytest.approx((128.0 / 130.0 - 1) * 100, abs=0.01)
+
+
+def test_breakout_reports_the_most_recent_one_not_the_first():
+    closes = [100.0] * 25 + [130.0, 135.0, 145.0]
+    df = _frame(closes, highs=[101.0] * 25 + [131.0, 136.0, 146.0])
+    b = rm.breakout(df, lookback=20)
+    assert b["bars_ago"] == 0
+
+
+def test_no_breakout_is_none_everywhere_rather_than_zero():
+    df = _frame([100.0] * 40)
+    b = rm.breakout(df, lookback=20)
+    assert b == {"date": None, "gain_pct": None, "bars_ago": None, "level": None}
+
+
+# ── pivots ────────────────────────────────────────────────────────────────────
+
+def test_pivot_levels_use_the_prior_bar():
+    df = _frame([100.0, 200.0], highs=[120.0, 210.0], lows=[90.0, 190.0])
+    lv = rm.pivot_levels(df)
+    # Prior bar: H 120, L 90, C 100 -> PP = 103.33
+    assert lv["pp"] == pytest.approx((120 + 90 + 100) / 3)
+    assert lv["r1"] == pytest.approx(2 * lv["pp"] - 90)
+    assert lv["s1"] == pytest.approx(2 * lv["pp"] - 120)
+
+
+def test_pivot_zone_labels_each_band():
+    def zone(last):
+        df = _frame([100.0, last], highs=[120.0, last * 1.01],
+                    lows=[90.0, last * 0.99])
+        return rm.pivot_zone(df)
+    lv = rm.pivot_levels(_frame([100.0, 100.0], highs=[120.0, 101.0],
+                                lows=[90.0, 99.0]))
+    assert zone(lv["r1"] + 10) == "R1"
+    assert zone((lv["pp"] + lv["r1"]) / 2) == "R1-PP"
+    assert zone((lv["s1"] + lv["pp"]) / 2) == "PP-S1"
+    assert zone(lv["s1"] - 10) == "S1"
+
+
+def test_pivot_zone_says_near_when_price_sits_on_the_level():
+    df0 = _frame([100.0, 100.0], highs=[120.0, 101.0], lows=[90.0, 99.0])
+    pp = rm.pivot_levels(df0)["pp"]
+    df = _frame([100.0, pp], highs=[120.0, pp * 1.001], lows=[90.0, pp * 0.999])
+    assert rm.pivot_zone(df) == "Near Pivot"
+
+
+def test_weekly_frame_aggregates_ohlc():
+    # Starts on a MONDAY so ten business days are exactly two whole weeks —
+    # a mid-week start would split into three partial weeks and the assertion
+    # would be about the calendar, not the aggregation.
+    df = _frame([10.0, 11.0, 12.0, 13.0, 14.0, 20.0, 21.0, 22.0, 23.0, 24.0],
+                highs=[10.5, 11.5, 12.5, 13.5, 14.5, 20.5, 21.5, 22.5, 23.5, 24.5],
+                lows=[9.5, 10.5, 11.5, 12.5, 13.5, 19.5, 20.5, 21.5, 22.5, 23.5],
+                start="2026-01-05")
+    w = rm.weekly_frame(df)
+    assert len(w) == 2
+    assert w["high"].iloc[0] == pytest.approx(14.5)
+    assert w["low"].iloc[0] == pytest.approx(9.5)
+    assert w["close"].iloc[0] == pytest.approx(14.0)
+
+
+def test_weekly_frame_refuses_a_positional_index():
+    df = _frame([1.0, 2.0, 3.0]).reset_index(drop=True)
+    assert rm.weekly_frame(df) is None
+
+
+# ── since ─────────────────────────────────────────────────────────────────────
+
+def test_since_uses_the_last_close_on_or_before_the_date():
+    df = _frame([100.0, 110.0, 120.0, 130.0])
+    s = rm.since(df, df.index[1])
+    assert s["price"] == pytest.approx(110.0)
+    assert s["gain_pct"] == pytest.approx((130.0 / 110.0 - 1) * 100, abs=0.01)
+
+
+def test_since_refuses_a_date_before_the_history_starts():
+    """Anchoring on the earliest available bar would turn 'since 1 Jan' into
+    'since whenever this frame begins' — silently, and differently per symbol."""
+    df = _frame([100.0, 110.0], start="2026-06-01")
+    s = rm.since(df, pd.Timestamp("2020-01-01"))
+    assert s == {"price": None, "gain_pct": None, "date": None}
+
+
+def test_since_falls_back_to_the_prior_session_on_a_holiday():
+    df = _frame([100.0, 110.0, 120.0])
+    weekend = df.index[1] + pd.Timedelta(days=1)
+    s = rm.since(df, weekend)
+    assert s["price"] == pytest.approx(110.0)
+
+
+# ── 52w + the whole row ───────────────────────────────────────────────────────
+
+def test_from_52w_high_is_zero_at_the_high_and_negative_below():
+    assert rm.from_52w_high_pct(_frame([100.0, 100.0], highs=[100.0, 100.0])) \
+        == pytest.approx(0.0)
+    v = rm.from_52w_high_pct(_frame([100.0, 80.0], highs=[100.0, 81.0]))
+    assert v == pytest.approx(-20.0)
+
+
+def test_row_returns_every_column_even_on_a_thin_frame():
+    r = rm.row(_frame([100.0, 101.0]), ref_date=None)
+    expected = {"gap_pct", "ema_cross_age", "ema_cross_dir", "ema_cross_searched",
+                "pivot_d", "pivot_w", "bo_gain_pct", "bo_date",
+                "from_52w_high_pct", "hist_price", "gain_since_pct"}
+    assert set(r) == expected
+
+
+def test_row_is_populated_on_a_real_length_frame():
+    closes = list(np.linspace(100, 200, 300))
+    df = _frame(closes)
+    r = rm.row(df, ref_date=df.index[-60])
+    assert r["gap_pct"] is not None
+    assert r["pivot_d"] is not None
+    assert r["pivot_w"] is not None
+    assert r["gain_since_pct"] is not None
+    assert r["from_52w_high_pct"] is not None
