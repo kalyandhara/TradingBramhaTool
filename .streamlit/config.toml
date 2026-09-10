@@ -7,3 +7,17 @@ primaryColor = "#ea580c"
 # webfont, why the mono order changed) is documented on those constants.
 font = "'Segoe UI Variable Text', 'Segoe UI', system-ui, -apple-system, 'Helvetica Neue', sans-serif"
 codeFont = "ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, 'Roboto Mono', 'Courier New', monospace"
+
+# ── Table surface (UI-2, 2026-09-10) ─────────────────────────────────────────
+# Captured from screeningmantis.com's live computed styles and re-tokenised into
+# THIS desk's warm palette rather than copied: their craft, our colours. The
+# decision and the measured comparison are in
+# analyses/ScreeningMantis-Table-Gap-Analysis.md.
+#
+# These two keys are the only sanctioned hooks Streamlit gives for the dataframe
+# grid — it renders to canvas, so CSS cannot reach cell text. Everything else
+# (density, tint pairs, pinning) goes through row_height / Styler / column_config
+# in tools/columns.py.
+dataframeHeaderBackgroundColor = "#f7efe3"
+dataframeBorderColor = "#e5cfae"
+baseRadius = "6px"

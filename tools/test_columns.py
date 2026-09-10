@@ -127,3 +127,102 @@ def test_the_declined_spellings_stay_unaliased():
     This test exists so a later sweep does not 'finish the job'."""
     for name in C.NOT_ALIASED:
         assert C.resolve(name) is None, f"{name!r} should not be aliased"
+
+
+# ── UI-2 · tone, tint and pinning ────────────────────────────────────────────
+
+def test_tone_is_part_of_the_definition_not_an_override():
+    """The whole point of putting tone in the registry: a quantity that means
+    'up is good' on one page and nothing on another is the drift this module
+    exists to end. So tone must NOT be in MUTABLE."""
+    assert "tone" not in C.MUTABLE
+    assert "pinned" not in C.MUTABLE
+    with pytest.raises(ValueError):
+        C.configure("chg_pct", overrides={"chg_pct": {"tone": "heat"}})
+
+
+def test_directional_columns_carry_a_tone():
+    """These are the columns whose sign IS the reading. An untoned one renders
+    as a grey number in a wall of grey numbers."""
+    for cid in ("chg_pct", "gap_pct", "bo_gain_pct", "from_52w_high_pct"):
+        assert C.COLUMNS[cid].tone == "signed", cid
+    assert C.COLUMNS["rvol"].tone == "heat"
+    assert C.COLUMNS["rs_rank"].tone == "rank"
+
+
+def test_tint_returns_a_styler_only_when_something_is_toned():
+    """An untoned table must pay nothing — and must stay a DataFrame so the
+    caller can hand either result to st.dataframe unchanged."""
+    import pandas as pd
+    toned = pd.DataFrame({"symbol": ["A"], "chg_pct": [1.5]})
+    assert hasattr(C.tint(toned), "to_html")          # Styler
+    plain = pd.DataFrame({"whatever": [1]})
+    assert C.tint(plain) is plain                     # untouched frame
+
+
+def test_signed_tint_colours_the_cell_by_sign_and_leaves_zero_alone():
+    assert "background-color" in C._tint_signed(2.4)
+    assert C.TINTS["pos"][0] in C._tint_signed(2.4)
+    assert C.TINTS["neg"][0] in C._tint_signed(-2.4)
+    assert C._tint_signed(0) == ""                    # zero is not news
+    assert C._tint_signed(None) == ""
+    assert C._tint_signed("n/a") == ""
+
+
+def test_heat_has_a_floor_so_it_does_not_paint_every_row():
+    """A heat scale with no floor tints the whole column and says nothing."""
+    assert C._tint_heat(1.0) == ""
+    assert C._tint_heat(C.RVOL_FLOOR - 0.01) == ""
+    assert C._tint_heat(C.RVOL_FLOOR) != ""
+
+
+def test_rank_tint_reads_the_LAST_rung_of_a_walk():
+    """`rs_walk` arrives as '92 -> 94 -> 35 -> 36'. Tinting on the first rung
+    would colour a row by where it used to be."""
+    lagging = C._tint_rank("92 -> 94 -> 35 -> 12")
+    leading = C._tint_rank("3 -> 4 -> 60 -> 95*")     # trailing * = guest
+    assert C.TINTS["rank_lo"][0] in lagging
+    assert C.TINTS["rank_hi"][0] in leading
+    assert C._tint_rank("40 -> 50 -> 55 -> 50") == ""  # mid is not news
+
+
+def test_identity_is_pinned_and_numbers_are_not():
+    """Pinning a number pins the wrong half of the row."""
+    assert C.COLUMNS["symbol"].pinned is True
+    assert C.COLUMNS["chg_pct"].pinned is False
+
+
+def test_notes_is_a_registry_column_with_a_tooltip():
+    """It is editable and persisted, which is exactly why its definition must
+    live in one place like every other column."""
+    assert C.COLUMNS["notes"].help
+    assert "symbol_notes" in C.COLUMNS["notes"].help
+
+
+def test_no_duplicate_ids_in_the_registry_literal():
+    """A dict literal silently keeps the LAST of two identical keys.
+
+    This is not hypothetical: on 2026-09-10 a second `"notes"` entry was added to
+    the identity block while one already existed further down, and Python
+    resolved it to the older definition with no error anywhere. The registry
+    looked correct, `COLUMNS["notes"]` returned something sensible, and the new
+    tooltip simply never existed. Only a test that reads the SOURCE can see it.
+    """
+    import ast
+    import pathlib
+    src = pathlib.Path(C.__file__).read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    for node in ast.walk(tree):
+        if not isinstance(node, ast.Assign):
+            continue
+        if not any(getattr(t, "id", None) in ("COLUMNS", "ALIASES")
+                   for t in node.targets):
+            continue
+        if not isinstance(node.value, ast.Dict):
+            continue
+        keys = [k.value for k in node.value.keys
+                if isinstance(k, ast.Constant) and isinstance(k.value, str)]
+        dupes = sorted({k for k in keys if keys.count(k) > 1})
+        assert not dupes, (
+            f"duplicate keys in the registry literal: {dupes}. Python keeps the "
+            f"last one and reports nothing.")

@@ -51,6 +51,9 @@ from typing import Any, Iterable, Optional
 
 #: Overrides a caller is allowed to pass. Format and help are the definition.
 MUTABLE = ("label", "width")
+#: `tone` and `pinned` are NOT mutable, and that is the point: a column that
+#: means "up is good" here and nothing there is the drift this module exists to
+#: stop. See `configure`'s docstring.
 
 
 @dataclass(frozen=True)
@@ -62,13 +65,25 @@ class ColSpec:
     fmt: Optional[str] = None            # NumberColumn format string
     width: Optional[str] = None          # small | medium | large
     display_text: Optional[str] = None   # LinkColumn only
+    #: How this column CARRIES MEANING IN COLOUR. Part of the definition for the
+    #: same reason the tooltip is: "+2.4%" tinted green on one page and plain on
+    #: another is the same drift `label`/`help`/`fmt` were centralised to end.
+    #:   None      no tint (identity, dates, text)
+    #:   "signed"  positive green / negative red, tint PAIR not coloured text
+    #:   "heat"    magnitude above a neutral floor warms toward the accent
+    #:   "rank"    0-100 percentile, cool at the bottom, strong at the top
+    #:   "zone"    categorical band label (R1 / PP-S1 / Near Pivot)
+    tone: Optional[str] = None
+    #: Kept visible while the table scrolls sideways. Only identity columns
+    #: should set it — pinning a number pins the wrong half of the row.
+    pinned: bool = False
 
 
 #: The registry. Ids are dataframe column names wherever the desk already has a
 #: settled name for the quantity; ALIASES maps the other spellings onto them.
 COLUMNS: dict[str, ColSpec] = {
     # ── identity ──────────────────────────────────────────────────────────────
-    "symbol": ColSpec("Symbol", "NSE symbol.", "text", width="small"),
+    "symbol": ColSpec("Symbol", "NSE symbol.", "text", width="small", pinned=True),
     "sector": ColSpec(
         "Sector",
         "NSE macro sector — the desk's canonical vocabulary (tools/sectors.py). "
@@ -82,17 +97,17 @@ COLUMNS: dict[str, ColSpec] = {
     "chg": ColSpec("Chg", "Change vs the previous close, in rupees.",
                    "number", "%.2f"),
     "chg_pct": ColSpec("Chg%", "Change vs the previous close, per cent.",
-                       "number", "%.2f%%"),
+                       "number", "%.2f%%", tone="signed"),
     "gap_pct": ColSpec("Gap%", "Today's OPEN vs the previous close, per cent — "
                                "the overnight move, before any intraday trading.",
-                       "number", "%.2f%%"),
+                       "number", "%.2f%%", tone="signed"),
     "from_high_pct": ColSpec("From high %", "Distance below the period high.",
                              "number", "%.2f%%"),
     "from_low_pct": ColSpec("From low %", "Distance above the period low.",
                             "number", "%.2f%%"),
     "from_52w_high_pct": ColSpec(
         "52W high %", "Distance below the 52-week high (252 sessions).",
-        "number", "%.2f%%"),
+        "number", "%.2f%%", tone="signed"),
 
     # ── volume ────────────────────────────────────────────────────────────────
     # Four different RVOL bases were live at once before this module: a 20-day
@@ -104,12 +119,12 @@ COLUMNS: dict[str, ColSpec] = {
     "rvol": ColSpec(
         "Vol spike",
         "Today's volume / its 20-day MEAN volume. 2.0x = twice normal.",
-        "number", "%.1fx", width="small"),
+        "number", "%.1fx", width="small", tone="heat"),
     "rvol_median5": ColSpec(
         "Vol spike (5d med)",
         "Today's volume / its 5-session MEDIAN volume — a different base from "
         "the 20-day mean used elsewhere; do not compare the two numbers.",
-        "number", "%.1fx", width="small"),
+        "number", "%.1fx", width="small", tone="heat"),
     "volume": ColSpec("Volume", "Shares traded in the session.", "number", "%d"),
     "sma_vol10": ColSpec("SMA vol(10)", "10-session mean volume.", "number", "%d"),
     # "localized" rather than a printf format: at crore scale the thousands
@@ -157,7 +172,7 @@ COLUMNS: dict[str, ColSpec] = {
         "BO gain%",
         "Gain since the last close above its prior 20-bar high. Can be "
         "NEGATIVE — a breakout that faded is exactly what this shows.",
-        "number", "%+.2f%%"),
+        "number", "%+.2f%%", tone="signed"),
     "bo_date": ColSpec(
         "BO date",
         "When that breakout happened. Read it WITH the gain: +3% from last week "
@@ -180,11 +195,14 @@ COLUMNS: dict[str, ColSpec] = {
         "history), unlike the scan-relative rs_rank — so the four numbers are "
         "one population over time. '?' = the name lacked history that far back, "
         "which is not the same as ranking weak.",
-        "text", width="medium"),
+        "text", width="medium", tone="rank"),
     "notes": ColSpec(
         "Notes",
         "Your own note on this row. Editable in place where the table says so — "
-        "click the cell, type, press Enter.",
+        "click the cell, type, press Enter. Saved to `symbol_notes`, keyed by "
+        "SYMBOL rather than by watchlist membership: one note per name, shared "
+        "by every table that shows one, and it survives the name leaving your "
+        "watchlist.",
         "text", width="large"),
     "minervini": ColSpec(
         "Minervini",
@@ -201,7 +219,7 @@ COLUMNS: dict[str, ColSpec] = {
         "RS rank",
         "Relative-strength percentile 0-100 WITHIN THIS SCAN's matched set — "
         "not a universe-wide rank, so two scans' ranks are not comparable.",
-        "number", "%d", width="small"),
+        "number", "%d", width="small", tone="rank"),
     "confluence": ColSpec("Confluence", "Independent scanners that fired on this name.",
                           "number", "%d", width="small"),
 
@@ -314,6 +332,10 @@ def _to_streamlit(s: ColSpec):
     common: dict[str, Any] = {"help": s.help}
     if s.width:
         common["width"] = s.width
+    if s.pinned:
+        # Keeps identity visible while the row scrolls sideways — their table
+        # pins the left block and it is why 28 columns stay navigable.
+        common["pinned"] = True
     if s.kind == "number":
         return st.column_config.NumberColumn(s.label, format=s.fmt, **common)
     if s.kind == "link":
@@ -350,6 +372,122 @@ def configure(*names: str, overrides: dict[str, dict] | None = None) -> dict:
             s = replace(s, **overrides[n])
         out[n] = _to_streamlit(s)
     return out
+
+
+# ── tint pairs, and why they live here ───────────────────────────────────────
+# Captured from screeningmantis.com on 2026-09-10: the thing that makes a 28-column
+# table scannable is not the font, it is that a positive number sits on a tinted
+# CELL rather than being coloured text. Their pair is #11795d on #dff1ea; ours is
+# the same idea in this desk's warm palette, so the tables stay in step with the
+# PNG exports and cards that already use report_style.TOKENS.
+#
+# It belongs in the registry for the same reason `help` does: a quantity that
+# reads "up is good" on one page and neutral on another is exactly the drift this
+# module was built to end. `tone` is therefore NOT in MUTABLE.
+#
+# Streamlit's grid renders to CANVAS, so CSS cannot reach cell text. Background
+# tint via a pandas Styler is the only sanctioned way in, which is why this emits
+# a Styler rather than a stylesheet.
+TINTS = {
+    "pos":     ("#166534", "#e8f5e9"),   # text, tint
+    "neg":     ("#b91c1c", "#fef2f2"),
+    "heat_hi": ("#9a3412", "#ffedd5"),
+    "heat_mid": ("#a16207", "#fff8e1"),
+    "rank_hi": ("#1d4ed8", "#eef4ff"),
+    "rank_lo": ("#6b7280", "#f3f4f6"),
+}
+
+#: rvol below this is ordinary volume and gets no tint — a heat scale with no
+#: floor paints every row and communicates nothing.
+RVOL_FLOOR = 1.5
+#: rs_rank at or above this is "leading"; below RANK_LO is "lagging". Between
+#: them the cell stays clean, because a percentile in the middle is not news.
+RANK_HI, RANK_LO = 80, 20
+
+
+def _tint_signed(v):
+    if v is None or (isinstance(v, float) and v != v):
+        return ""
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return ""
+    if x > 0:
+        fg, bg = TINTS["pos"]
+    elif x < 0:
+        fg, bg = TINTS["neg"]
+    else:
+        return ""
+    return f"color:{fg};background-color:{bg}"
+
+
+def _tint_heat(v):
+    try:
+        x = float(v)
+    except (TypeError, ValueError):
+        return ""
+    if x != x or x < RVOL_FLOOR:
+        return ""
+    fg, bg = TINTS["heat_hi"] if x >= RVOL_FLOOR * 2 else TINTS["heat_mid"]
+    return f"color:{fg};background-color:{bg}"
+
+
+def _tint_rank(v):
+    """Ranks arrive as numbers OR as a walk string ('92 -> 94 -> 35 -> 36').
+
+    The walk is tinted on its LAST rung, because that is the current standing and
+    the arrow before it is the history. Tinting on the first would colour a row
+    by where it used to be.
+    """
+    x = None
+    if isinstance(v, str):
+        parts = [p.strip().rstrip("*") for p in v.replace("→", "->").split("->")]
+        for p in reversed(parts):
+            try:
+                x = float(p)
+                break
+            except ValueError:
+                continue
+    else:
+        try:
+            x = float(v)
+        except (TypeError, ValueError):
+            return ""
+    if x is None or x != x:
+        return ""
+    if x >= RANK_HI:
+        fg, bg = TINTS["rank_hi"]
+    elif x <= RANK_LO:
+        fg, bg = TINTS["rank_lo"]
+    else:
+        return ""
+    return f"color:{fg};background-color:{bg}"
+
+
+_TINTERS = {"signed": _tint_signed, "heat": _tint_heat, "rank": _tint_rank}
+
+
+def tint(df):
+    """A pandas Styler tinting every column the registry gives a `tone`.
+
+    Returns the frame unchanged (not a Styler) when nothing in it is toned, so a
+    caller can hand the result straight to `st.dataframe` either way and an
+    untoned table pays nothing.
+    """
+    cols = [c for c in df.columns
+            if (k := resolve(str(c))) and COLUMNS[k].tone in _TINTERS]
+    if not cols:
+        return df
+    st_ = df.style
+    for c in cols:
+        st_ = st_.map(_TINTERS[COLUMNS[resolve(str(c))].tone], subset=[c])
+    return st_
+
+
+#: Row height, in px. Theirs is 36 at 11px type; Streamlit will not let us set
+#: the cell font, so 32 is the density that reads as tight WITHOUT shrinking the
+#: text into the row's dead space. Chosen by looking at both, not by copying one.
+ROW_HEIGHT = 32
 
 
 def configure_df(df, *, extra: Iterable[str] = (),

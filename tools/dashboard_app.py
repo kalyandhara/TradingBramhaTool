@@ -1462,11 +1462,101 @@ ui_jobs.render_panel()
 # ≤ page_size rows renders as a plain dataframe (no controls shown).
 # ──────────────────────────────────────────────────────────────────────────────
 
-def _paginated_df(df: "pd.DataFrame", key: str, page_size: int = 25, **kwargs) -> None:
-    """Render a DataFrame with pagination when it exceeds page_size rows."""
+def _notes_table(df, key: str, symbol_col: str, *, column_config=None,
+                 page_size: int = 200):
+    """A table whose ONLY editable cell is the note, persisted per symbol.
+
+    UI-2 (2026-09-10). Generalises the pattern B-63b proved on the Watchlist so
+    the Scanner Hub tables get it too, against ONE note store
+    (`portfolio_db.symbol_notes`) rather than a second one keyed differently.
+
+    Everything computed is `disabled`, so the table stays a working surface for
+    the one field that is genuinely yours without becoming a place where a stray
+    keystroke rewrites a price. Writes go through `db.set_symbol_note`, which is
+    NOT scoped to watchlist membership — a note about a name you are not
+    watching is still a note.
+
+    Returns the edited frame so a caller can keep using it.
+    """
+    import columns as _cols
+    notes = db.get_symbol_notes([str(x) for x in df[symbol_col]])
+    work = df.copy()
+    work["notes"] = [notes.get(str(sym).strip().upper(), "")
+                     for sym in work[symbol_col]]
+    before = dict(zip((str(x).strip().upper() for x in work[symbol_col]),
+                      work["notes"]))
+
+    cfg = dict(column_config or {})
+    cfg.update(_cols.configure("notes"))
+    # `st.data_editor` DOES accept a Styler — its own docs say the styles apply
+    # to NON-EDITABLE columns, and here every column except the note is disabled.
+    # So the editable table keeps the tint pairs; nothing had to be traded away
+    # for making the note writable. (Verified against streamlit 1.58's source
+    # rather than assumed: an earlier version of this helper passed a plain frame
+    # on the belief that editors could not be styled.)
+    try:
+        painted = _cols.tint(work)
+    except Exception:
+        painted = work
+    edited = st.data_editor(
+        painted, key=key, hide_index=True, width="stretch",
+        column_config=cfg, row_height=_cols.ROW_HEIGHT,
+        disabled=[c for c in work.columns if c != "notes"],
+    )
+    changed = []
+    for sym, note in zip(edited[symbol_col], edited["notes"]):
+        s_ = str(sym).strip().upper()
+        n_ = "" if pd.isna(note) else str(note)
+        if n_ != before.get(s_, ""):
+            changed.append((s_, n_))
+    if changed:
+        for s_, n_ in changed:
+            db.set_symbol_note(s_, n_)
+        st.success(f"Saved note{'s' if len(changed) > 1 else ''} for "
+                   f"{', '.join(s for s, _ in changed[:5])}"
+                   f"{'…' if len(changed) > 5 else ''}.")
+        st.rerun()
+    return edited
+
+
+def _paginated_df(df: "pd.DataFrame", key: str, page_size: int = 25,
+                  tint: bool = True, **kwargs) -> None:
+    """Render a DataFrame with pagination when it exceeds page_size rows.
+
+    UI-2 (2026-09-10): this is also where the desk's table LOOK is applied, for
+    the same reason `columns.py` owns the labels — one render path, one answer.
+    Two things happen here that used to happen nowhere:
+
+    * **row_height** is set from `columns.ROW_HEIGHT`, which is what makes a wide
+      table scannable. Streamlit's grid is a canvas, so CSS cannot touch it and
+      this parameter is the only way in.
+    * **tint pairs** are applied from each column's registry `tone` — positive on
+      a green wash, negative on red, volume heat above its floor, rank at the
+      extremes. Colouring the CELL rather than the number is the single biggest
+      readability difference measured against screeningmantis.com
+      (analyses/ScreeningMantis-Table-Gap-Analysis.md).
+
+    `tint=False` opts a table out — used where the frame is already a Styler, or
+    where a caller has its own colour logic that has not been migrated yet.
+    Passing a Styler in is safe either way: `columns.tint` only accepts frames,
+    so a Styler falls through untouched.
+    """
+    import columns as _cols
+    kwargs.setdefault("row_height", _cols.ROW_HEIGHT)
+
+    def _paint(frame):
+        if not tint or not hasattr(frame, "columns"):
+            return frame
+        try:
+            return _cols.tint(frame)
+        except Exception:
+            # A tint failure must never cost the user the table. The numbers are
+            # the point; the wash is decoration.
+            return frame
+
     n = len(df)
     if n <= page_size:
-        st.dataframe(df, use_container_width=True, hide_index=True, **kwargs)
+        st.dataframe(_paint(df), use_container_width=True, hide_index=True, **kwargs)
         return
     n_pages = (n + page_size - 1) // page_size
     _pk = f"_pg_{key}"
@@ -1492,7 +1582,8 @@ def _paginated_df(df: "pd.DataFrame", key: str, page_size: int = 25, **kwargs) -
             st.rerun()
     start = (st.session_state[_pk] - 1) * page_size
     end = min(start + page_size, n)
-    st.dataframe(df.iloc[start:end], use_container_width=True, hide_index=True, **kwargs)
+    st.dataframe(_paint(df.iloc[start:end]), use_container_width=True,
+                 hide_index=True, **kwargs)
     st.caption(f"Page {st.session_state[_pk]}/{n_pages} · rows {start + 1}–{end} of {n}")
 
 
@@ -6410,7 +6501,9 @@ if current_page == "Watchlist":
                 "rs_walk": _rs_walk_cell(w["symbol"], _wl_walk),
                 "minervini": f"{mv_score}/8",
                 "technofunda": f"{tf_score}/6",
-                "Notes": w["notes"],
+                # NOTE deliberately absent: `_notes_table` sources it from the
+                # shared per-symbol store and appends it, so the page cannot show
+                # a note from one place while writing to another.
             })
         _wl_df = pd.DataFrame(rows)
         # A symbol whose history failed to load contributes only Symbol/Notes,
@@ -6436,41 +6529,20 @@ if current_page == "Watchlist":
             _wl_df,
             overrides={"close": {"label": f"LTP ({date.today():%d %b})"}})
 
-        # In-row note editing (B-63b). The ONLY editable cell on this page: an
-        # `st.data_editor` with every computed column disabled, so the table is a
-        # working surface for the one field that is genuinely yours without
-        # becoming a place where a stray keystroke can rewrite a price.
+        # In-row note editing (B-63b), through the SHARED path since UI-2.
+        # This page had its own `st.data_editor` and its own write logic; the
+        # Scanner Hub then needed the same thing, and two editors against one
+        # store is the drift `columns.py` exists to stop. `_notes_table` is now
+        # the single implementation: every computed column disabled, the note
+        # persisted per symbol, and the tint pairs preserved because a Styler
+        # applies to an editor's non-editable columns.
         #
-        # Writes go through `db.update_watchlist_notes`, NOT
-        # `add_watchlist_symbol(sym, notes)` — that one is an INSERT OR REPLACE
-        # and would silently reset `added_date`, rewriting when you started
-        # watching the name. A test pins that.
-        _orig_notes = {r["Symbol"]: (r.get("Notes") or "") for r in rows}
-        _wl_edit = st.data_editor(
-            _wl_df, key="wl_notes_editor", hide_index=True, width="stretch",
-            column_config=_wl_cfg,
-            disabled=[c for c in _wl_df.columns if c != "Notes"],
-        )
-        _wl_changed = [
-            (str(sym), "" if pd.isna(note) else str(note))
-            for sym, note in zip(_wl_edit["Symbol"], _wl_edit["Notes"])
-            if ("" if pd.isna(note) else str(note)) != _orig_notes.get(str(sym), "")
-        ]
-        if _wl_changed:
-            _saved = 0
-            for _sym, _note in _wl_changed:
-                # rowcount 0 = the symbol is no longer on the list (removed in
-                # another tab between render and edit). Counted, not written.
-                _saved += db.update_watchlist_notes(_sym, _note)
-            if _saved:
-                st.success(f"Saved note{'s' if _saved > 1 else ''} for "
-                           f"{', '.join(s for s, _ in _wl_changed[:5])}"
-                           f"{'…' if len(_wl_changed) > 5 else ''}.")
-            _stale = len(_wl_changed) - _saved
-            if _stale:
-                st.warning(f"{_stale} edit(s) skipped — those symbols are no "
-                           f"longer on the watchlist.")
-            st.rerun()
+        # What changed for this page: the note is no longer read from
+        # `watchlist.notes`. Removing a name from the watchlist no longer
+        # destroys what you wrote about it, which is the behaviour the old
+        # membership-scoped column had.
+        _notes_table(_wl_df, key="wl_notes_editor", symbol_col="Symbol",
+                     column_config=_wl_cfg)
         st.caption(
             "**EMA cross (d)** is signed: **+12** = the 10-EMA crossed ABOVE the "
             "20-EMA twelve sessions ago, **−3** = crossed below three sessions "
@@ -8278,8 +8350,10 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                 if _hub_walk:
                     _sum_df["rs_walk"] = [_rs_walk_cell(s, _hub_walk)
                                           for s in _sum_df["Top Symbol"]]
-                st.dataframe(
-                    _sum_df, hide_index=True, use_container_width=True,
+                # UI-2: notes are editable here and stored per SYMBOL, so a note
+                # written on the Hub is the same note the Watchlist shows.
+                _notes_table(
+                    _sum_df, key="hub_summary_notes", symbol_col="Top Symbol",
                     column_config={**_chart_family_colcfg(),
                                    **_cols_mod().configure_df(_sum_df)},
                 )
@@ -8408,10 +8482,8 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                              "yet — use the pledge expander above.",
                     ),
                 }
-                st.dataframe(
-                    _conf_df, hide_index=True, use_container_width=True,
-                    column_config=_conf_colcfg,
-                )
+                _notes_table(_conf_df, key="hub_conf_notes", symbol_col="Symbol",
+                             column_config=_conf_colcfg)
 
                 # Shareable card — top confluence symbols by scanner count
                 with st.expander("📋 Copy as shareable card (Telegram / social)",

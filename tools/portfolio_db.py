@@ -61,6 +61,19 @@ def init_db() -> None:
                 notes TEXT
             );
 
+            -- UI-2 (2026-09-10). ONE note per symbol, for every surface that
+            -- shows one. The Watchlist had `watchlist.notes`, which is scoped to
+            -- membership: remove a name and the note goes with it, and a note on
+            -- a Scanner-Hub row had nowhere to live at all. A second store keyed
+            -- differently would have been the "Vol Spike means four numbers"
+            -- failure again, so there is one table and `watchlist.notes` is
+            -- migrated into it rather than kept alongside.
+            CREATE TABLE IF NOT EXISTS symbol_notes (
+                symbol     TEXT PRIMARY KEY,
+                note       TEXT NOT NULL DEFAULT '',
+                updated_at TEXT NOT NULL
+            );
+
             CREATE TABLE IF NOT EXISTS alerts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
                 symbol TEXT NOT NULL,
@@ -329,6 +342,86 @@ def add_watchlist_symbol(symbol: str, notes: str = "") -> None:
             (symbol.upper(), date.today().isoformat(), notes),
         )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def get_symbol_notes(symbols=None) -> dict[str, str]:
+    """{SYMBOL: note} for the given symbols, or every stored note when None.
+
+    Returns a plain dict so a caller can `.get(sym, "")` without a second query
+    per row — these are read once per table render, not once per cell.
+    """
+    conn = get_connection()
+    try:
+        if symbols is None:
+            rows = conn.execute(
+                "SELECT symbol, note FROM symbol_notes").fetchall()
+        else:
+            syms = [str(x).upper() for x in symbols]
+            if not syms:
+                return {}
+            qs = ",".join("?" * len(syms))
+            rows = conn.execute(
+                f"SELECT symbol, note FROM symbol_notes WHERE symbol IN ({qs})",
+                syms).fetchall()
+        return {r[0]: (r[1] or "") for r in rows}
+    finally:
+        conn.close()
+
+
+def set_symbol_note(symbol: str, note: str) -> None:
+    """Write one symbol's note. Creates the row; blank note deletes it.
+
+    Deleting on blank rather than storing "" keeps the table to symbols that
+    actually carry a note, so `get_symbol_notes()` with no argument stays small
+    and "has a note" is a row's existence rather than a string test.
+
+    Unlike `update_watchlist_notes` this is NOT scoped to watchlist membership —
+    that is the whole reason it exists. A note about a name you are not watching
+    is still a note, and removing a name from the watchlist should not silently
+    destroy what you wrote about it.
+    """
+    sym = str(symbol).upper()
+    conn = get_connection()
+    try:
+        if not (note or "").strip():
+            conn.execute("DELETE FROM symbol_notes WHERE symbol = ?", (sym,))
+        else:
+            conn.execute(
+                "INSERT INTO symbol_notes (symbol, note, updated_at) "
+                "VALUES (?, ?, ?) ON CONFLICT(symbol) DO UPDATE SET "
+                "note = excluded.note, updated_at = excluded.updated_at",
+                (sym, note, datetime.now().isoformat(timespec="seconds")),
+            )
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def migrate_watchlist_notes_to_symbol_notes() -> int:
+    """One-way lift of existing `watchlist.notes` into `symbol_notes`.
+
+    Idempotent and NON-destructive: it never overwrites a note already in
+    `symbol_notes` (that one is newer by construction) and it leaves
+    `watchlist.notes` in place. Dropping the old column would make a rollback
+    lossy for no gain — the column simply stops being read.
+    """
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT symbol, notes FROM watchlist "
+            "WHERE notes IS NOT NULL AND TRIM(notes) <> ''").fetchall()
+        moved = 0
+        now = datetime.now().isoformat(timespec="seconds")
+        for sym, note in rows:
+            cur = conn.execute(
+                "INSERT INTO symbol_notes (symbol, note, updated_at) "
+                "VALUES (?, ?, ?) ON CONFLICT(symbol) DO NOTHING",
+                (str(sym).upper(), note, now))
+            moved += cur.rowcount
+        conn.commit()
+        return moved
     finally:
         conn.close()
 
