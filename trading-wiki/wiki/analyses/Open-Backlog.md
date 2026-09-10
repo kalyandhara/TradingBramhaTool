@@ -774,6 +774,70 @@ wiggles, so the two panes stay comparable.
 divergence detectors on one chart that fire on the same swings are one detector
 with two colours.
 
+### B-65 · PMax has never been scored, and it carries a fifth of the sentiment index — **PRE-REGISTERED 2026-09-10**
+
+Falls out of [[#B-59r]]. PSAR and STAI have now both been measured on their
+flips; **PMax never has**, and it is the one of the three with actual authority
+in the desk:
+
+- `W_PMAX_1H = 20` in `sentiment_index.py` — **a fifth of the sentiment score** —
+  with its own Python port on NIFTY 1H.
+- a named factor row in `market_verdict.py` (`pmax_nifty_1h`).
+- a live trade-state panel in `dashboard_app.py` with stop and T1/T2/T3 derived
+  from the band.
+
+Three surfaces, zero measurements. That is the sharpest unmeasured claim left in
+the trailing-stop family.
+
+> [!warning] SCOPE — what this test does NOT settle, stated before it runs
+> This scores **PMax flips and PMax state on DAILY EQUITY bars**, because that is
+> what the cached universe holds and what makes the result comparable to B-43,
+> B-59r and the rest. **The sentiment factor is a different claim**: a direction
+> *state*, on **NIFTY**, at **1H**. A null here does NOT retire `W_PMAX_1H`, and
+> saying it did would be exactly the over-reading this page keeps catching
+> elsewhere. What a null here *would* do is remove the presumption that the
+> factor is safe because "PMax works", and make the 1H index version its own
+> owed measurement.
+
+**PRE-REGISTERED DESIGN — binding, written before `pmax_edge.py` exists.**
+
+  Same panel, harness, universe and baseline as [[#B-59r]] (460 names, ~3y daily,
+  20d horizon, entry next open, unconditional baseline, costs cancel), so every
+  number lands beside the twins rather than in its own frame.
+
+| arm | definition | decides? |
+|---|---|---|
+| **PRIMARY · flip** | PMax up-flips, all of them | **yes** |
+| **SECONDARY · state** | every bar where PMax `dir == 1` | no — see below |
+| **CONTEXT · lonely flip** | PMax up-flips with NO PSAR up-flip within ±3 bars | no |
+| **CONTEXT · joint flip** | PMax up-flips WITH a PSAR up-flip within ±3 bars | no |
+
+- **PRIMARY** is the direct analogue of what B-59r scored for the twins, and the
+  only arm that can conclude anything. **PASS BAR: `edge > 0 AND p_rot < 0.05`.**
+- **SECONDARY (state)** is the nearest daily-equity analogue of the *sentiment
+  factor's* actual claim — "is the trend up" rather than "did it just turn". It
+  is **explicitly not decisive**, and the reason is a confound I will not be able
+  to remove with this baseline: **in a window whose unconditional mean 20-day
+  return is +1.76%, any up-trend filter will look good simply by sitting out the
+  falls.** A positive state arm therefore measures "trend filter in a bull
+  sample" and must be read that way. Recorded now so a positive number cannot be
+  quietly promoted later.
+- **The two CONTEXT arms exist because of B-59's oddest finding** — PMax and PSAR
+  agree *below chance*. So: does a PMax flip that PSAR happens to confirm behave
+  differently from one it does not? Pure description; no decision hangs on it.
+
+  ABORT   any arm under **200** events is UNDERPOWERED and concludes nothing.
+
+**PRIOR: skeptical on the flip, genuinely uncertain on the state.** The flip is
+the fourth member of a family that has now measured −1.01% (Renko, B-43r),
+−0.77% (PSAR-only) and −1.00% (STAI-only) — and PMax flips are *rarer and
+slower*, which is the one structural reason it might not share their fate: it
+does not re-enter after every wobble. The state arm is a different animal and
+[[#B-32]] found regime *does* carry information (bullish signals lose
+significantly below the 200 SMA), so a positive state reading would be
+consistent with this desk's own evidence — and just as consistent with the
+confound above.
+
 ### ~~B-59r~~ · PSAR vs STAI — which of the two agreeing detectors carries the information? — **MEASURED 2026-09-10: NEITHER. Both twins NEGATIVE on their unique cells, agreement ≈ market**
 
 Falls directly out of [[#B-59]]'s chance-corrected run. The desk now knows that
