@@ -166,6 +166,14 @@ function main() {
   const args = process.argv.slice(2);
   const limIdx = args.indexOf('--limit');
   const limit = limIdx >= 0 ? parseInt(args[limIdx + 1], 10) : Infinity;
+  // --emit <file> writes the raw flip vectors for B-59r's scorer. The flips are
+  // produced HERE, by the shipped psar.js / supertrend_ai.js / lifted pmaxSeries,
+  // and scored THERE, by the same Python harness as B-43/B-57/B-58. Neither side
+  // reimplements the other's half, which is the only reason the two studies can
+  // be compared at all.
+  const emitIdx = args.indexOf('--emit');
+  const emitTo = emitIdx >= 0 ? args[emitIdx + 1] : null;
+  const emitted = {};
 
   let files;
   try {
@@ -208,6 +216,15 @@ function main() {
     const s = staiFlips(bars);
     if (!p.length) continue;
 
+    if (emitTo) {
+      emitted[doc.symbol] = {
+        bars: bars.length,
+        psar: p.map(x => [x.index, x.dir]),
+        pmax: m.map(x => [x.index, x.dir]),
+        stai: s.map(x => [x.index, x.dir]),
+      };
+    }
+
     totals.names++;
     totals.bars += bars.length;
     totals.psar += p.length;
@@ -240,6 +257,11 @@ function main() {
       totals.chStaiByPsar[t] += chanceCoverage(s, p, t, nb);
     }
     perName.push(row);
+  }
+
+  if (emitTo) {
+    fs.writeFileSync(emitTo, JSON.stringify(emitted), 'utf-8');
+    console.error(`flip vectors for ${Object.keys(emitted).length} names -> ${emitTo}`);
   }
 
   const pct = (a, b) => (b ? (a / b * 100) : 0).toFixed(1);

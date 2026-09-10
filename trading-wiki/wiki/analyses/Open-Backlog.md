@@ -59,6 +59,7 @@ corrected in place below, each marked with the date.
 | **Closed 2026-08-27 (re-verify)** | **B-11** (MFI — `scan_mfi_oversold` + `_mfi_series` shipped and registered; page had it "absent"). Ledger/body sync only: **B-5, B-25, B-20a, B-20b, B-7** were already code-complete but mis-filed as open in the body |
 | **Closed 2026-09-09** | **B-62** (turnover-share rotation column), **B-63a** (`tools/columns.py` shared column registry), **B-63b** (row_metrics — the nine "how long has this been true" columns, incl. the RS-rank walk and in-row Notes), **B-64** (canonical sector vocabulary). Also shipped that day and NOT from the backlog: the liquidity-floor sweep across all 20 `cached_fetch_ohlcv` call sites (7 by-name callers switched to `enforce_liquidity=False`) |
 | **Closed 2026-09-10** | **B-63a targeted sweep** — registry now **46 ids, 15 aliases, 9 documented refusals**; the "incomplete by design, 4 of 43" claim was retracted (28 call sites pass `column_config`; 15 already reach the registry). Singletons deliberately declined rather than promoted |
+| **Measured 2026-09-10** | **B-59r** (`psar_stai_edge.py`, 460 names) — **NEITHER twin carries information.** AGREE (n=4,068) **+0.16% p=0.820** ≈ market; **PSAR-ONLY −0.77% (p=0.053, n=8,576)**; **STAI-ONLY −1.00% (p=0.150, n=1,909)**. Pre-registered "both null" row: trim falls back to cost — keep STAI, PSAR stays an overlay, **nothing deleted**. The shape is the finding: agreement pays the market, disagreement loses in BOTH directions, and −0.77/−1.00% sit beside **B-43r's −1.01% for the Renko flip** — a fourth detector landing on the same mechanism (an up-flip re-enters after price has given back part of a run). Neither p clears 0.05, so convergence, not proof. Leaves **PMax as the only one of the three never scored**, while carrying 20% of the sentiment index |
 | **Counted 2026-09-10 (v2, chance-corrected)** | **B-59** re-run with a rotation null after the owner asked whether PMax can be sunset. Raw coverage was mostly base rate; corrected, **PSAR↔STAI agree far above chance (+34.2 lift at ±3) while PSAR↔PMax agree BELOW chance at every tolerance (−12.4 at ±3)**. So: **no, PMax cannot be sunset in favour of PSAR** — it is the least-alike pair, and PMax additionally carries 20% of the sentiment score, a `market_verdict` factor and the chart's trade-state panel. The real redundancy is PSAR↔STAI, and choosing between those two is an edge question nobody has measured. B-46 stands, on better grounds |
 | **Counted 2026-09-10** | **B-59 overlap check** (`psar_overlap.js`, 460 names / 322,608 bars) — **PSAR is a SUPERSET, not a subset**: 28,582 flips against PMax 3,396 and STAI 13,050 (8.4× / 2.2×), 68.9% of them uncovered at ±3 bars, while PSAR itself covers 92% of STAI and 70% of PMax at ±10. B-46's zero-unique-cell objection does NOT survive — but it is replaced by a sharper one, since PSAR's whole content is its extra flips. Gate did not close; an edge test on the UNIQUE cells specifically is now owed. PSAR stays a drawn overlay meanwhile |
 | **Measured 2026-09-10** | **B-58** (`quasimodo_study.py`) — **INCONCLUSIVE, UNDERPOWERED**: 53 QM zone entries across 356 names / 3 years against a pre-registered floor of 200, and too few for a rotation p to be computable at all. Not a null; the pattern is too rare to measure to this desk's bar on daily bars in one market. QM stays geometry, PIPELINE_EXCLUDED. Three process catches recorded: the equivalence check aborted on SCOPE (355/355 once windowed), the pre-registered baseline could not contain its own signal (a QM's left shoulder is by definition a broken low), and the HARNESS clause fired but was resolved as uninformative when the panel reproduced B-43's null at −0.05% |
@@ -773,7 +774,7 @@ wiggles, so the two panes stay comparable.
 divergence detectors on one chart that fire on the same swings are one detector
 with two colours.
 
-### B-59r · PSAR vs STAI — which of the two agreeing detectors carries the information? — **PRE-REGISTERED 2026-09-10**
+### ~~B-59r~~ · PSAR vs STAI — which of the two agreeing detectors carries the information? — **MEASURED 2026-09-10: NEITHER. Both twins NEGATIVE on their unique cells, agreement ≈ market**
 
 Falls directly out of [[#B-59]]'s chance-corrected run. The desk now knows that
 **PSAR and STAI describe the same reversals** (+34.2 lift over rotation at ±3)
@@ -835,6 +836,66 @@ stays an overlay, and the desk stops asking.
 
 **What this deliberately does NOT do:** it does not re-open PMax. B-59 settled
 that PMax is not interchangeable with either twin, and nothing here bears on it.
+
+═══ MEASURED — 2026-09-10, `tools/psar_stai_edge.py` ════════════════════════════
+
+460 names, ~3 years of daily bars, 20d horizon, entry next open, unconditional
+baseline, no costs (they cancel).
+
+| arm | n | signal | baseline | edge | p_rot |
+|---|---|---|---|---|---|
+| **AGREE** both flip up within ±3 | 4,068 | +1.92% | +1.76% | **+0.16%** | 0.820 |
+| **PSAR-ONLY** no STAI flip near it | 8,576 | +0.99% | +1.76% | **−0.77%** | 0.053 |
+| **STAI-ONLY** no PSAR flip near it | 1,909 | +0.77% | +1.76% | **−1.00%** | 0.150 |
+
+**VERDICT: BOTH NULL — the pre-registered third row, with its consequence already
+named. The trim cannot be decided on edge, so it falls back to cost: KEEP STAI
+(already wired), PSAR stays a drawn overlay, and NOTHING IS DELETED.** A null is
+not evidence of harm, and neither twin has been shown to mislead anyone.
+
+**But the shape of the null is more interesting than the null.** All three arms
+tell one coherent story, and it is not "these indicators do nothing":
+
+- **Where the twins AGREE, the flip is worth the market** — +0.16% against a
+  +1.76% baseline, p=0.820. Agreement buys you the index, no more.
+- **Where they DISAGREE, both sides lose** — −0.77% and −1.00%. A trailing-stop
+  up-flip that its twin does not confirm is a **worse-than-market entry**, in
+  both directions, and it is the disagreement cells that make up the bulk of the
+  events (10,485 of 14,553).
+
+**That number should look familiar: B-43r measured the bare Renko flip at
+−1.01%.** Three independently-implemented flip detectors — Renko bricks, PSAR
+dots, STAI's adaptive trail — now land within a quarter-point of each other on
+their selective cells, and B-43r's mechanism explains all three: **an up-flip
+re-enters only after price has already given back part of a run**, so it
+systematically buys the worse half of the distribution. Neither p here clears
+0.05 (0.053 and 0.150), so this is **a convergence worth noting, not a proven
+result** — but it is the fourth measurement pointing the same way, and the desk
+should stop expecting a flip detector to be an entry.
+
+**Consequences, all of them "keep what exists":**
+
+- **PSAR**: drawn overlay, permanently. B-46's exclusion is now supported by a
+  measurement rather than an argument — and by a stronger one than B-46 made,
+  since the objection was redundancy and the finding is that its unique cells are
+  *negative*.
+- **STAI**: unchanged, and note that this is the **first time it has ever been
+  scored on this desk**. Its unique flips are the worst arm of the three. It
+  stays because it is wired and harmless, not because it was vindicated.
+- **PMax**: untouched by this test, as pre-registered. It remains **the only one
+  of the three that has never been scored at all** — and it carries a fifth of
+  the sentiment index. That is now the sharpest unmeasured claim in the
+  trailing-stop family, and it deserves its own entry.
+- **AGREE as a confluence idea**: dead on arrival. +0.16%, p=0.820 — two
+  detectors agreeing does not beat one, which is the same answer B-25 got for
+  confluence generally.
+
+> [!warning] Agreement was measured first, and it was the cheap half
+> B-59 established that PSAR and STAI say the same thing. B-59r establishes that
+> **what they say is not worth acting on**. The order mattered — counting first
+> cost an afternoon and told us which pair was even worth scoring — but it would
+> have been easy to stop at B-59 and conclude "PSAR is redundant, STAI is fine".
+> **Redundancy said nothing about whether the surviving twin was any good.**
 
 ### ~~B-59~~ · Parabolic SAR — chart overlay — **BUILT 2026-09-07 · OVERLAP CHECKED 2026-09-10**
 
