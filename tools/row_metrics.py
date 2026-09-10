@@ -292,6 +292,91 @@ def from_52w_high_pct(df: pd.DataFrame, window: int = 252) -> Optional[float]:
     return round((last / hi - 1.0) * 100.0, 2)
 
 
+#: EMA spans shown in the alignment stack, fast to slow. Deliberately the four
+#: ScreeningMantis shows: they are the spans this desk already computes, and a
+#: fifth would make the cell wider than the fact it carries.
+EMA_STACK_SPANS = (10, 20, 50, 200)
+
+#: The span the "% from EMA" column measures against. 20, NOT 21 — and the
+#: difference is not cosmetic: `scan_pullback_to_ema` uses 21, so a column
+#: labelled "% from 20EMA" that quietly used 21 would disagree with that
+#: scanner by construction while appearing to confirm it. The audit in B-63b
+#: flagged exactly this collision.
+PCT_FROM_EMA_SPAN = 20
+
+
+def rsi(df: pd.DataFrame, n: int = 14) -> Optional[float]:
+    """Wilder RSI(14) at the last bar.
+
+    Imported from `scanner_templates`, not re-derived: that module's `_rsi_series`
+    is the desk's ONE RSI, and B-24 was a full entry about two RSI
+    implementations that disagreed. A second one here would re-open it.
+    """
+    if df is None or len(df) < n + 2:
+        return None
+    try:
+        import scanner_templates as st
+        v = float(st._rsi_series(_f(df, "close"), n).iloc[-1])
+    except (KeyError, ImportError, ValueError, IndexError):
+        return None
+    return None if not np.isfinite(v) else round(v, 1)
+
+
+def pct_from_ema(df: pd.DataFrame, span: int = PCT_FROM_EMA_SPAN) -> Optional[float]:
+    """Signed distance of the close from its `span`-EMA, per cent.
+
+    Computed inline at `scanner_templates.py:4340` and never exposed as a column
+    until now — one of the three things the B-63b audit found we already had and
+    were not showing.
+    """
+    if df is None or len(df) < span + 2:
+        return None
+    try:
+        import scanner_templates as st
+        e = float(st._ema_series(_f(df, "close"), span).iloc[-1])
+        last = float(_f(df, "close").iloc[-1])
+    except (KeyError, ImportError, ValueError, IndexError):
+        return None
+    if not np.isfinite(e) or e <= 0 or not np.isfinite(last):
+        return None
+    return round((last / e - 1.0) * 100.0, 2)
+
+
+def ema_stack(df: pd.DataFrame, spans=EMA_STACK_SPANS) -> Optional[str]:
+    """Price vs each EMA as one glance-width cell, e.g. `10▲ 20▲ 50▲ 200▼`.
+
+    The best idea on the source table: four facts in the width of one column.
+    Each span reads ▲ when the close is above that EMA and ▼ when below, so a
+    fully-stacked name is four ▲ and a name rolling over shows where it broke.
+
+    A span with too little history is OMITTED rather than marked — printing
+    `200▼` for a name with 120 bars would state something we cannot see. That
+    makes the cell shorter for young listings, which is the correct signal.
+    """
+    if df is None or len(df) < 12:
+        return None
+    try:
+        import scanner_templates as st
+        close = _f(df, "close")
+        last = float(close.iloc[-1])
+    except (KeyError, ImportError, ValueError, IndexError):
+        return None
+    if not np.isfinite(last):
+        return None
+    parts = []
+    for sp in spans:
+        if len(close) < sp + 2:
+            continue
+        try:
+            e = float(st._ema_series(close, sp).iloc[-1])
+        except (ValueError, IndexError):
+            continue
+        if not np.isfinite(e) or e <= 0:
+            continue
+        parts.append(f"{sp}{'▲' if last >= e else '▼'}")
+    return " ".join(parts) or None
+
+
 def row(df: pd.DataFrame, ref_date=None) -> dict[str, Any]:
     """Every column above for one symbol, ready to drop into a table row."""
     x = ema_cross_age(df)
@@ -310,6 +395,9 @@ def row(df: pd.DataFrame, ref_date=None) -> dict[str, Any]:
         "from_52w_high_pct": from_52w_high_pct(df),
         "hist_price": sc.get("price"),
         "gain_since_pct": sc.get("gain_pct"),
+        "rsi": rsi(df),
+        "pct_from_20ema": pct_from_ema(df),
+        "ema_stack": ema_stack(df),
     }
 
 

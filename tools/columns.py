@@ -89,9 +89,27 @@ COLUMNS: dict[str, ColSpec] = {
         "NSE macro sector — the desk's canonical vocabulary (tools/sectors.py). "
         "Yahoo's sector/industry is stored as description but is not the join key.",
         "text", width="medium"),
-    "cap_bucket": ColSpec("Cap", "Market-cap bucket.", "text", width="small"),
+    "cap_bucket": ColSpec(
+        "Cap",
+        "NSE index membership, not a market-cap threshold: LC = Nifty 100, "
+        "MC = Midcap 150, SC = Smallcap 250, Mic = Microcap 250. A name in none "
+        "of the four is BLANK rather than guessed — outside the top ~1,000 by "
+        "cap there is no bucket to give it.",
+        "text", width="small"),
 
     # ── price ─────────────────────────────────────────────────────────────────
+    "ema_stack": ColSpec(
+        "EMAs",
+        "Close vs the 10/20/50/200 EMAs — ▲ above, ▼ below. A span with too "
+        "little history is OMITTED rather than marked, so a short cell means a "
+        "young listing, not a bearish one.",
+        "text", width="small"),
+    "rs_momentum": ColSpec(
+        "RS (mom)",
+        "IBD-style weighted trailing return — 63/126/189/252 sessions at "
+        "0.4/0.2/0.2/0.2, minus the benchmark's when one was set. The RAW "
+        "number behind rs_rank's percentile.",
+        "number", fmt="%.1f", width="small", tone="signed"),
     "close": ColSpec("LTP", "Last traded price (the session's close).",
                      "number", "%.2f"),
     "chg": ColSpec("Chg", "Change vs the previous close, in rupees.",
@@ -137,11 +155,18 @@ COLUMNS: dict[str, ColSpec] = {
         "number", "localized"),
 
     # ── trend / structure ─────────────────────────────────────────────────────
-    "rsi": ColSpec("RSI", "Wilder's RSI(14) on the daily close.",
-                   "number", "%d", width="small"),
+    "rsi": ColSpec(
+        "RSI",
+        "Wilder's RSI(14) on the daily close — the desk's ONE RSI "
+        "(`scanner_templates._rsi_series`). B-24 was an entire entry about two "
+        "implementations that disagreed; a second one here would re-open it.",
+        "number", "%d", width="small"),
     "pct_from_20ema": ColSpec(
-        "% from 20EMA", "Signed distance from the 20-period EMA.",
-        "number", "%.2f%%"),
+        "% from 20EMA",
+        "Signed distance of the close from its 20-period EMA. Note 20, not 21: "
+        "`scan_pullback_to_ema` uses 21, so a column silently using that span "
+        "would disagree with the scanner while appearing to confirm it.",
+        "number", "%.2f%%", width="small", tone="signed"),
     # Signed, and the unit lives in the LABEL: "%d days" renders "1 days", and
     # the sign carries the direction, which is the whole reading.
     "ema_cross_age": ColSpec(

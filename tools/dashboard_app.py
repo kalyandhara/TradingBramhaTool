@@ -4768,6 +4768,21 @@ def _rs_walk_compute(universe: str = "nifty500", extra: tuple = ()):
     return g
 
 
+def _wl_rs_mom(df):
+    """The RAW weighted trailing return behind `rs_walk`'s percentile.
+
+    Computed straight from the frame the caller already holds — `rs_walk`'s own
+    `weighted_return_asof`, not a second formula. The rank says where a name
+    stands against the universe; this says what it actually returned, and a rank
+    of 90 in a flat market is a different fact from a rank of 90 in a strong one.
+    """
+    try:
+        import rs_walk as _rw
+        return _rw.weighted_return_asof(df, offset=0)
+    except Exception:
+        return None
+
+
 def _rs_walk_lookup() -> dict:
     """The stored RS-walk grid, or {} when none has been computed.
 
@@ -6483,6 +6498,14 @@ if current_page == "Watchlist":
                 "chg_pct": day_chg,
                 "turnover_cr": round(_to_cr, 2),
                 "gap_pct": m["gap_pct"],
+                "rsi": m["rsi"],
+                "pct_from_20ema": m["pct_from_20ema"],
+                "ema_stack": m["ema_stack"],
+                # The RAW weighted trailing return behind rs_rank's percentile.
+                # rs_walk shows where the name RANKS; this shows what it actually
+                # returned, and a rank of 90 in a flat market is a different fact
+                # from a rank of 90 in a strong one.
+                "rs_momentum": _wl_rs_mom(df),
                 # Direction travels WITH the age: "12" alone does not say
                 # whether the cross was up or down, and the sign of that is the
                 # whole reading.
@@ -6505,7 +6528,26 @@ if current_page == "Watchlist":
                 # shared per-symbol store and appends it, so the page cannot show
                 # a note from one place while writing to another.
             })
+        # CAP buckets come from NSE index membership, resolved ONCE for the whole
+        # table rather than per row — the four constituent lists are cached, and
+        # a per-row lookup would re-read them ten times for ten symbols.
+        try:
+            import smallcap_universe as _capu
+            _cap_map = _capu.cap_bucket([r["Symbol"] for r in rows])
+        except Exception:
+            # A cap label is decoration; the table must not fail without it.
+            _cap_map = {}
+        for _r in rows:
+            _r["cap_bucket"] = _cap_map.get(str(_r["Symbol"]).strip().upper(), "")
+
         _wl_df = pd.DataFrame(rows)
+        # Cap is an IDENTITY attribute, not a measurement, so it belongs beside
+        # the symbol rather than wherever dict insertion order left it — which
+        # was the far right, past a horizontal scroll, where it read as missing.
+        if "cap_bucket" in _wl_df.columns:
+            _wl_df = _wl_df[["Symbol", "cap_bucket"]
+                            + [c for c in _wl_df.columns
+                               if c not in ("Symbol", "cap_bucket")]]
         # A symbol whose history failed to load contributes only Symbol/Notes,
         # which leaves the numeric columns as object dtype holding None — and
         # Streamlit renders that as the literal string "None" in every cell.
@@ -6513,13 +6555,13 @@ if current_page == "Watchlist":
         # reading should look absent, not like a value.
         for _c in ("close", "chg_pct", "turnover_cr", "gap_pct", "ema_cross_age",
                    "from_52w_high_pct", "bo_gain_pct", "hist_price",
-                   "gain_since_pct"):
+                   "gain_since_pct", "rsi", "pct_from_20ema", "rs_momentum"):
             if _c in _wl_df.columns:
                 _wl_df[_c] = pd.to_numeric(_wl_df[_c], errors="coerce")
         if not _wl_walk and "rs_walk" in _wl_df.columns:
             _wl_df = _wl_df.drop(columns=["rs_walk"])
         for _c in ("pivot_d", "pivot_w", "bo_date", "rs_walk", "minervini",
-                   "technofunda"):
+                   "technofunda", "ema_stack", "cap_bucket"):
             if _c in _wl_df.columns:
                 _wl_df[_c] = _wl_df[_c].where(_wl_df[_c].notna(), "")
         if _wl_ref is None and not _wl_df.empty:

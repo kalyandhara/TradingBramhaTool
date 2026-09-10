@@ -35,7 +35,19 @@ CACHE_TTL = 24 * 3600
 INDEX_CSV = {
     "smallcap250": "https://nsearchives.nseindia.com/content/indices/ind_niftysmallcap250list.csv",
     "microcap250": "https://nsearchives.nseindia.com/content/indices/ind_niftymicrocap250_list.csv",
+    # UI-2 (2026-09-10): the two upper buckets, added for the CAP column. Same
+    # free, cookie-less CSV path as the two above — no new dependency, no auth,
+    # and NSE's own index membership rather than a market-cap threshold this
+    # desk would have to pick and defend.
+    "largecap100": "https://nsearchives.nseindia.com/content/indices/ind_nifty100list.csv",
+    "midcap150": "https://nsearchives.nseindia.com/content/indices/ind_niftymidcap150list.csv",
 }
+
+#: Bucket labels, smallest first. Order matters: `cap_bucket` resolves a symbol
+#: to the FIRST list it appears in, so overlaps (a name in both microcap250 and
+#: smallcap250) resolve to the tighter one, which is what the label should say.
+_BUCKET_ORDER = (("microcap250", "Mic"), ("smallcap250", "SC"),
+                 ("midcap150", "MC"), ("largecap100", "LC"))
 
 # BSE SmallCap / MicroCap — the API endpoint returns JSON with constituent lists.
 # These widen the universe beyond NSE indices (partial overlap expected; de-duped
@@ -165,6 +177,36 @@ _KIND_ALIASES = {
     "bse": ["bse_smallcap", "bse_microcap"],
     "all": ["smallcap250", "microcap250", "bse_smallcap", "bse_microcap"],
 }
+
+
+def cap_bucket(symbols=None, *, refresh: bool = False) -> dict[str, str]:
+    """{SYMBOL: "Mic"|"SC"|"MC"|"LC"} from NSE index membership.
+
+    Membership, not a market-cap threshold. A threshold would be a number this
+    desk had to choose, defend and re-cut as the market moves; index membership
+    is NSE's own answer, already cached here, and it is what the label on a
+    screener chip actually means to a reader.
+
+    A symbol in none of the four lists is ABSENT from the result rather than
+    labelled — outside the top ~1,000 by cap there is no bucket to give it, and
+    a blank cell is the honest rendering of that. Never guess a bucket.
+    """
+    out: dict[str, str] = {}
+    want = None if symbols is None else {str(s).strip().upper() for s in symbols}
+    # Reverse order so the TIGHTEST bucket wins on overlap: writing LC first and
+    # letting Mic overwrite it is simpler than checking membership four times.
+    for kind, label in reversed(_BUCKET_ORDER):
+        try:
+            entries = _load_kind(kind, refresh=refresh)
+        except Exception as e:                                # pragma: no cover
+            log.warning("cap_bucket: %s unavailable (%s)", kind, e)
+            continue
+        for e in entries or []:
+            sym = str(e.get("symbol", "")).strip().upper()
+            if not sym or (want is not None and sym not in want):
+                continue
+            out[sym] = label
+    return out
 
 
 def fetch_universe(kind: str = "both", *, refresh: bool = False) -> list[dict]:

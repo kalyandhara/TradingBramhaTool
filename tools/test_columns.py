@@ -212,17 +212,32 @@ def test_no_duplicate_ids_in_the_registry_literal():
     import pathlib
     src = pathlib.Path(C.__file__).read_text(encoding="utf-8")
     tree = ast.parse(src)
+    checked = []
     for node in ast.walk(tree):
-        if not isinstance(node, ast.Assign):
+        # BOTH forms, and that is not defensive padding. The first version of
+        # this test walked only ast.Assign — but COLUMNS is written
+        # `COLUMNS: dict[str, ColSpec] = {...}`, which parses as ast.AnnAssign.
+        # The test therefore examined NOTHING, passed, and let a second
+        # duplicate key ("rsi") through on the very next commit. A guard that
+        # cannot fail is worse than no guard, because it is trusted.
+        if isinstance(node, ast.Assign):
+            names = [getattr(t, "id", None) for t in node.targets]
+        elif isinstance(node, ast.AnnAssign):
+            names = [getattr(node.target, "id", None)]
+        else:
             continue
-        if not any(getattr(t, "id", None) in ("COLUMNS", "ALIASES")
-                   for t in node.targets):
+        if not any(n in ("COLUMNS", "ALIASES") for n in names):
             continue
         if not isinstance(node.value, ast.Dict):
             continue
+        checked.extend(n for n in names if n)
         keys = [k.value for k in node.value.keys
                 if isinstance(k, ast.Constant) and isinstance(k.value, str)]
         dupes = sorted({k for k in keys if keys.count(k) > 1})
         assert not dupes, (
             f"duplicate keys in the registry literal: {dupes}. Python keeps the "
             f"last one and reports nothing.")
+    # The guard must have actually looked at something, or it is vacuous again.
+    assert set(checked) == {"COLUMNS", "ALIASES"}, (
+        f"this test examined {checked!r} — it must reach BOTH registry dicts, "
+        f"or it passes without checking anything.")

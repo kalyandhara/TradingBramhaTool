@@ -199,7 +199,12 @@ def test_row_returns_every_column_even_on_a_thin_frame():
     r = rm.row(_frame([100.0, 101.0]), ref_date=None)
     expected = {"gap_pct", "ema_cross_age", "ema_cross_dir", "ema_cross_searched",
                 "pivot_d", "pivot_w", "bo_gain_pct", "bo_date",
-                "from_52w_high_pct", "hist_price", "gain_since_pct"}
+                "from_52w_high_pct", "hist_price", "gain_since_pct",
+                # UI-2 additions. A thin frame must still produce the KEYS —
+                # a caller building a DataFrame from these rows gets ragged
+                # columns otherwise, and a missing column reads as a missing
+                # feature rather than a missing reading.
+                "rsi", "pct_from_20ema", "ema_stack"}
     assert set(r) == expected
 
 
@@ -212,3 +217,40 @@ def test_row_is_populated_on_a_real_length_frame():
     assert r["pivot_w"] is not None
     assert r["gain_since_pct"] is not None
     assert r["from_52w_high_pct"] is not None
+
+
+# ── UI-2 · the five cheap columns ────────────────────────────────────────────
+
+def test_rsi_and_pct_from_ema_are_none_on_a_thin_frame():
+    """Absent must render absent. Neither may invent a value from two bars."""
+    thin = _frame([100.0, 101.0])
+    assert rm.rsi(thin) is None
+    assert rm.pct_from_ema(thin) is None
+
+
+def test_pct_from_ema_defaults_to_20_not_21():
+    """`scan_pullback_to_ema` uses 21. A column labelled '% from 20EMA' that
+    quietly used 21 would disagree with that scanner while appearing to confirm
+    it — the collision the B-63b audit found."""
+    assert rm.PCT_FROM_EMA_SPAN == 20
+
+
+def test_ema_stack_marks_each_span_and_omits_what_it_cannot_see():
+    """A span with too little history is OMITTED, never marked. Printing 200▼
+    for a name with 120 bars would state something we cannot see."""
+    rising = _frame([100.0 + i for i in range(260)])
+    full = rm.ema_stack(rising)
+    assert full is not None
+    for sp in rm.EMA_STACK_SPANS:
+        assert str(sp) in full
+    assert "▲" in full                       # a rising series sits above them
+
+    short = _frame([100.0 + i for i in range(60)])
+    s = rm.ema_stack(short)
+    assert "200" not in s                    # not enough history — omitted
+    assert "10" in s and "20" in s
+
+
+def test_ema_stack_is_none_when_nothing_can_be_computed():
+    assert rm.ema_stack(_frame([100.0, 101.0])) is None
+    assert rm.ema_stack(None) is None
