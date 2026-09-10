@@ -59,6 +59,7 @@ corrected in place below, each marked with the date.
 | **Closed 2026-08-27 (re-verify)** | **B-11** (MFI — `scan_mfi_oversold` + `_mfi_series` shipped and registered; page had it "absent"). Ledger/body sync only: **B-5, B-25, B-20a, B-20b, B-7** were already code-complete but mis-filed as open in the body |
 | **Closed 2026-09-09** | **B-62** (turnover-share rotation column), **B-63a** (`tools/columns.py` shared column registry), **B-63b** (row_metrics — the nine "how long has this been true" columns, incl. the RS-rank walk and in-row Notes), **B-64** (canonical sector vocabulary). Also shipped that day and NOT from the backlog: the liquidity-floor sweep across all 20 `cached_fetch_ohlcv` call sites (7 by-name callers switched to `enforce_liquidity=False`) |
 | **Closed 2026-09-10** | **B-63a targeted sweep** — registry now **46 ids, 15 aliases, 9 documented refusals**; the "incomplete by design, 4 of 43" claim was retracted (28 call sites pass `column_config`; 15 already reach the registry). Singletons deliberately declined rather than promoted |
+| **Counted 2026-09-10** | **B-59 overlap check** (`psar_overlap.js`, 460 names / 322,608 bars) — **PSAR is a SUPERSET, not a subset**: 28,582 flips against PMax 3,396 and STAI 13,050 (8.4× / 2.2×), 68.9% of them uncovered at ±3 bars, while PSAR itself covers 92% of STAI and 70% of PMax at ±10. B-46's zero-unique-cell objection does NOT survive — but it is replaced by a sharper one, since PSAR's whole content is its extra flips. Gate did not close; an edge test on the UNIQUE cells specifically is now owed. PSAR stays a drawn overlay meanwhile |
 | **Measured 2026-09-10** | **B-58** (`quasimodo_study.py`) — **INCONCLUSIVE, UNDERPOWERED**: 53 QM zone entries across 356 names / 3 years against a pre-registered floor of 200, and too few for a rotation p to be computable at all. Not a null; the pattern is too rare to measure to this desk's bar on daily bars in one market. QM stays geometry, PIPELINE_EXCLUDED. Three process catches recorded: the equivalence check aborted on SCOPE (355/355 once windowed), the pre-registered baseline could not contain its own signal (a QM's left shoulder is by definition a broken low), and the HARNESS clause fired but was resolved as uninformative when the panel reproduced B-43's null at −0.05% |
 | **Corrected 2026-09-10 (re-verify)** | **B-3** and **B-19b** bodies said "absent" for four weeks after the ledger closed them; **B-10** is down to one symbol (`BSE`), not four; **B-17** re-verified still absent and now covers two shipped OBV surfaces |
 | **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-22, B-26, B-27, B-30, B-31, B-35, B-37, B-28r — **all re-verified open 2026-09-10** except B-10, which shrank to a single symbol. Spot checks: no AVWAP anchor UI (`avwap` appears in `scanner_templates.py` only), no Volume-Profile 80% rule anywhere in `session_volume_profile.js` / `volume_profile.js`, and `sentiment_index.py` still carries **four** weighted factors (30/25/25/20) with the PCR factor 5 a docstring line only — even though `pcr.py` is now consumed by `dashboard_app.py` in three other places, so B-22 is wiring, not a build |
@@ -85,7 +86,7 @@ reconstructed from the commit log.
 |---|---|---|---|
 | 1 | **Restart the chart server** | operational, 2 min | `chart_server.py` serves each module from an explicit Flask route and runs without the reloader, so an instance that was already running returns **404 for `/psar.js`**. Observed live during verification. Nothing to fix in code. |
 | ~~2~~ | ~~**B-58 · run the QM measurement**~~ **RUN 2026-09-10 → INCONCLUSIVE, UNDERPOWERED (53 events vs a floor of 200)** | [[#B-58]] | `detect_quasimodo` is BUILT (17 tests) but is geometry only — no scanner registered, no forward returns scored. The pre-registration and its control (relax `RH > LH`; if the score is unchanged the detector is an inverse-H&S finder) are written and unrun. Prior recorded: skeptical — the honest hypothesis is *"QM is a liquidity sweep with extra steps"*. |
-| 3 | **B-59 · PSAR overlap check** | [[#B-59]] | Owed BEFORE any PSAR signal, and it is an **overlap** check against `pmax`/`stai`, not an edge test. B-46's objection is that the flip may carry zero unique cells; if PSAR's flips are a subset of PMax's there is nothing left to measure. The overlay itself needs no backtest and ships as-is. |
+| ~~3~~ | ~~**B-59 · PSAR overlap check**~~ **RUN 2026-09-10 → PSAR is a superset, gate did not close** | [[#B-59]] | Owed BEFORE any PSAR signal, and it is an **overlap** check against `pmax`/`stai`, not an edge test. B-46's objection is that the flip may carry zero unique cells; if PSAR's flips are a subset of PMax's there is nothing left to measure. The overlay itself needs no backtest and ships as-is. |
 | 4 | **B-57 · secondaries** | [[#B-57]] | The primary FAILED (−0.25%, p_rot=0.714) and that is settled. Unrun: the 60d horizon, the quality gate tightened from a sign test to a top-quartile OCF rank, and `depth_from_flip` as the depth definition. All were pre-registered as non-decisive, so they describe rather than rescue. |
 | 5 | **B-58 residual · multi-timeframe liquidity** | [[#B-58]] | "HTF LQ" from the source chart. `detect_liquidity_pools` takes one `df` — single timeframe. Bigger build, own entry when picked up. **Naming trap:** `HTF` in this repo means **High Tight Flag**, not higher timeframe, so grepping for it gives false confidence the feature exists. |
 | ~~6~~ | ~~**B-60 · sector money-flow heatmap**~~ | [[#B-60]] | **BUILT 2026-09-07** — `money_flow.py` + 18 tests, on Sector Map and Home, verified in the running dashboard. Ships as a view; unmeasured. |
@@ -98,9 +99,10 @@ reconstructed from the commit log.
 > were required to be consecutive. **A filter that admits almost everything is not
 > a filter, and that is cheaper to discover by counting than by backtesting.**
 
-**Status of that table on 2026-09-10:** row 2 was **run this session** (see
-[[#B-58]] — inconclusive for lack of events, not a null); rows 3, 4, 5 and 7 are
-**still open and untouched** — the 2026-09-09/10 sessions went into the column library
+**Status of that table on 2026-09-10:** rows 2 and 3 were **run this session**
+([[#B-58]] — inconclusive for lack of events, not a null; [[#B-59]] — PSAR is a
+superset of pmax/stai, so the gate did not close); rows 4, 5 and 7 are **still
+open and untouched** — the 2026-09-09/10 sessions went into the column library
 (B-62/63/64) instead, which was the owner's ask, not a slip. Row 1 (chart-server
 restart) is operational and cannot be verified from the repo; `psar.js` exists on
 disk, so the only question is whether the running process predates it. **Nothing
@@ -116,7 +118,7 @@ invented in this pass; this is the existing page, sorted.
 | Rank | Item | Why it is next | Cost |
 |---|---|---|---|
 | 1 | **B-58 · run the QM measurement** | The only BUILT-but-UNSCORED detector on the page. `detect_quasimodo` + 17 tests exist, the pre-registration and its control are written, and the skeptical prior (*"QM is a liquidity sweep with extra steps"*) is recorded. Leaving a built detector unmeasured is precisely the debt B-19 was raised over. | One measurement run |
-| 2 | **B-59 · PSAR overlap check** | Cheap, and it is a **gate**: if PSAR's flips are a subset of `pmax`/`stai`, every downstream PSAR idea is dead and no edge test is owed. An overlap count, not a backtest — the counting-first method that saved a week twice in the 2026-09-07 session. | Hours |
+| ~~2~~ | ~~**B-59 · PSAR overlap check**~~ — **DONE 2026-09-10.** It did NOT close: PSAR is a superset at 8.4× PMax's cadence, so an edge test on its unique cells is now owed as its own item | Cheap, and it is a **gate**: if PSAR's flips are a subset of `pmax`/`stai`, every downstream PSAR idea is dead and no edge test is owed. An overlap count, not a backtest — the counting-first method that saved a week twice in the 2026-09-07 session. | Hours |
 | 3 | **B-22 · wire sentiment factor 5 (PCR)** | Now the cheapest real capability on the page: `pcr.py` is built, calibrated and already consumed three times in `dashboard_app.py`; `sentiment_index.py` still runs on four weighted factors (30/25/25/20) and documents the fifth in a docstring. Wiring, not a build — and it re-weights a number the desk already shows. | Small |
 | 4 | **B-10 · one symbol, `BSE`** | Was a four-symbol systematic-bug suspicion; it is now a single name. Close it or retire it — a one-line item that has survived five weeks of re-verification costs more to re-read than to fix. | Minutes |
 | 5 | **B-17 · OBV concept page** | Two OBV surfaces now ship (the indicator + B-61's divergence overlay) and neither is documented. B-60 wrote its CMF page with the build; this is the same debt, already incurred. | Small |
@@ -770,7 +772,74 @@ wiggles, so the two panes stay comparable.
 divergence detectors on one chart that fire on the same swings are one detector
 with two colours.
 
-### ~~B-59~~ · Parabolic SAR — chart overlay — **BUILT 2026-09-07**
+### ~~B-59~~ · Parabolic SAR — chart overlay — **BUILT 2026-09-07 · OVERLAP CHECKED 2026-09-10**
+
+═══ OVERLAP CHECK — 2026-09-10, `tools/psar_overlap.js` ═════════════════════════
+
+**The check the overlay owed before any PSAR signal, and it is not an edge test.**
+460 names, 322,608 daily bars, the same cached universe as B-43/B-57/B-58.
+
+| | PSAR | PMax | STAI |
+|---|---|---|---|
+| flips | **28,582** | 3,396 | 13,050 |
+
+**PSAR fires 8.4× as often as PMax and 2.2× as often as STAI.** That ratio is the
+finding; everything below is a consequence of it.
+
+| tol | covered by PMax | by STAI | by EITHER | **PSAR-unique** |
+|---|---|---|---|---|
+| ±0 | 0.3% | 11.9% | 12.2% | 87.8% |
+| ±1 | 0.9% | 20.6% | 21.3% | 78.7% |
+| ±2 | 1.5% | 25.8% | 26.9% | 73.1% |
+| **±3** | **2.1%** | **29.7%** | **31.1%** | **68.9%** |
+| ±5 | 3.7% | 35.4% | 37.4% | 62.6% |
+| ±10 | 9.2% | 46.0% | 49.3% | 50.7% |
+
+**The mirror table is the honest read, and it says the opposite of the primary
+one.** How much of the others does PSAR cover?
+
+| tol | PMax covered by PSAR | STAI covered by PSAR |
+|---|---|---|
+| ±3 | 17.9% | **64.7%** |
+| ±10 | 69.6% | **92.0%** |
+
+**Answer: PSAR is a SUPERSET at a faster cadence — not a duplicate, and not a new
+detector.** It sees nearly everything STAI sees (92% at ±10) and most of what
+PMax sees (70%), then keeps flipping. The 68.9% "unique" share is largely
+**arithmetic**: there are only 3,396 PMax flips in existence, so they cannot
+cover 28,582 PSAR flips at any tolerance. Reporting that number without the
+cadence beside it would have flattered PSAR into looking like new information.
+
+**What this does to B-46, stated precisely.** B-46's objection was
+*zero-unique-cells* — a detector that fires only where others already fire. **That
+objection does not survive: the cells are not zero, they are the majority.** But
+the objection that replaces it is no weaker, and it is more specific: *PSAR's
+entire content is its extra flips.* So the question is no longer "does it
+duplicate" but "**are the 19,690 uncovered flips signal or noise**", and that is
+answerable only by scoring the UNIQUE cells against the COVERED ones — on the
+standing prior that a detector firing 8× as often is mostly firing on chop.
+**Uniqueness is not edge**; [[analyses/Scanner-Overlap-Audit]] says so, and this
+run does not change it.
+
+**Status unchanged by design.** PSAR stays a drawn overlay: no scanner, no
+registry entry, no confluence vote. The gate this check existed to open —
+*"if its flips are a subset there is nothing left to measure"* — **did not close
+the question**, so the edge test is now genuinely owed rather than moot. It is a
+new item, not this one; see the ranking.
+
+> [!note] Two method points worth keeping
+> **Exact-bar matching would have proved nothing.** Three trailing stops with
+> different smoothing do not turn on the same bar even when describing the same
+> reversal, so ±0 reports 87.8% "unique" for what is obviously overlapping
+> behaviour. The tolerance is swept (0/1/2/3/5/10) rather than chosen, because
+> the honest answer to "is this redundant" is a **shape, not a number**.
+>
+> **`pmaxSeries` and `atrSeries` are LIFTED from `chart_dashboard.html` at
+> runtime, not copied.** They live inline in the HTML; a copy would drift the
+> moment the chart changed and this file would go on reporting an overlap against
+> an indicator nobody runs — the same failure the `columns.py` registry (B-63a)
+> was built to end. The lift is brace-matched and **throws loudly** if the
+> function is renamed.
 
 Absent. `grep -ri "parabolic\|psar" tools/` returns nothing but a false positive:
 `evwma_vwap_macd_backtest.py`'s `sar` key is **stop-and-reverse equity**, not
