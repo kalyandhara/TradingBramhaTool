@@ -3032,6 +3032,33 @@ That last row is the argument for the whole B-63b set: four independent columns
 telling one consistent story about a name, none of which this desk could show
 before today.
 
+**Extended to the Scanner Hub 2026-09-09.** The column now sits on the pipeline
+**summary** table (each scanner's top symbol) and the **confluence** table (one
+row per name firing in 2+ scanners). Both READ the stored grid and never compute
+— ranking the universe takes a minute and a table render must not pay it. The
+Hub carries its own button to rank *that run's* names as guests, because a
+full-market scan surfaces names outside the nifty500 by design and a column
+blank for half its rows is not much of a column.
+
+The pairing earns its place immediately: **ACMESOLAR** fired in **12 scanners**
+and its walk reads **92 → 94 → 35 → 36**. Confluence says how many detectors
+agree; the walk says the market stopped agreeing a fortnight ago. Neither is
+visible from the other.
+
+> [!warning] Two bugs the live run caught that the unit tests could not
+> **1. The `*` meant nothing.** `in_universe` was computed but never STORED, so
+> every row read back as a guest and the "ranked against, not within" asterisk
+> appeared on constituents too — BAJAJ-AUTO, a nifty500 member, wore one. Not a
+> blank, a *wrong mark*, which is worse. Column added by migration, existing
+> rows backfilled from the constituent list, and a test now pins the round-trip.
+>
+> **2. Two pages were deleting each other's guests.** `save_rs_walk` replaced
+> the whole run_date, so a Scanner-Hub compute dropped the Watchlist's guests
+> and vice versa — the column silently went blank on whichever page was not
+> looked at last. Now a **merge** (upsert per symbol), which is safe because
+> every row inside one run_date comes from the same day's prices. Verified live:
+> 558 rows = 500 constituents + 58 guests, both pages' sets intact.
+
 **Still survivorship-tinted, and it says so.** T-30 ranks *today's* universe as
 it stood 30 sessions ago — prices point-in-time, membership present-day.
 `SURVIVORSHIP_NOTE` travels with the grid so the page cannot drift from the

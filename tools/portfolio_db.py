@@ -166,6 +166,14 @@ def init_db() -> None:
             );
             """
         )
+        # in_universe says whether the name is a CONSTITUENT or was ranked as a
+        # guest against the universe's distribution. It was missing from the
+        # first release, and the consequence was not a blank but a WRONG mark:
+        # `r.get("in_universe")` read None for every stored row, so the "ranked
+        # against, not within" asterisk appeared on all of them and meant
+        # nothing. Added here rather than in the CREATE so existing databases
+        # migrate instead of keeping the old shape silently.
+        _add_missing_columns(conn, "rs_rank_walk", {"in_universe": "INTEGER"})
         conn.commit()
     finally:
         conn.close()
@@ -173,19 +181,30 @@ def init_db() -> None:
 
 def save_rs_walk(ranks: dict, run_date: str | None = None,
                  universe: str = "nifty500") -> int:
-    """Replace the walk for `run_date`. Returns rows written."""
+    """MERGE the walk into `run_date` — upsert per symbol. Returns rows written.
+
+    Deliberately not a delete-and-replace of the whole run. Two pages compute
+    this grid with different GUESTS: the Watchlist ranks its own names, the
+    Scanner Hub ranks that run's hits. A wholesale replace meant whichever ran
+    last silently deleted the other's guests, and the column went blank on the
+    page that was not looked at most recently — observed live, 2026-09-09.
+
+    Merging is safe because every row inside one `run_date` is computed from the
+    same day's prices: two computes on the same date agree about the
+    constituents and differ only in which guests they carried.
+    """
     run_date = run_date or date.today().isoformat()
     now = datetime.now().isoformat(timespec="seconds")
     conn = get_connection()
     try:
-        conn.execute("DELETE FROM rs_rank_walk WHERE run_date = ? AND universe = ?",
-                     (run_date, universe))
         rows = [(run_date, sym, universe, r.get("t30"), r.get("t15"),
-                 r.get("t5"), r.get("t0"), now)
+                 r.get("t5"), r.get("t0"), now,
+                 1 if r.get("in_universe") else 0)
                 for sym, r in ranks.items()]
         conn.executemany(
-            "INSERT INTO rs_rank_walk (run_date, symbol, universe, t30, t15, t5,"
-            " t0, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
+            "INSERT OR REPLACE INTO rs_rank_walk (run_date, symbol, universe,"
+            " t30, t15, t5, t0, created_at, in_universe)"
+            " VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)", rows)
         conn.commit()
         return len(rows)
     finally:
@@ -209,10 +228,10 @@ def get_rs_walk(run_date: str | None = None,
             if not run_date:
                 return {}
         cur = conn.execute(
-            "SELECT symbol, t30, t15, t5, t0 FROM rs_rank_walk "
+            "SELECT symbol, t30, t15, t5, t0, in_universe FROM rs_rank_walk "
             "WHERE run_date = ? AND universe = ?", (run_date, universe))
         return {r[0]: {"t30": r[1], "t15": r[2], "t5": r[3], "t0": r[4],
-                       "run_date": run_date}
+                       "in_universe": bool(r[5]), "run_date": run_date}
                 for r in cur.fetchall()}
     finally:
         conn.close()

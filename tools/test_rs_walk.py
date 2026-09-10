@@ -234,3 +234,34 @@ def test_a_guest_already_in_the_universe_is_not_double_counted():
 
 def test_rank_against_an_empty_distribution_says_no_information():
     assert rw.rank_against([], 5.0) == 50
+
+
+def test_in_universe_survives_storage(db):
+    """It did not, in the first release — and the consequence was not a blank
+    but a WRONG mark: every stored row read as a guest, so the 'ranked against,
+    not within' asterisk appeared on constituents too and meant nothing."""
+    db.save_rs_walk({
+        "MEMBER": {"t30": 50, "t15": 50, "t5": 50, "t0": 50, "in_universe": True},
+        "GUEST": {"t30": 10, "t15": 10, "t5": 10, "t0": 10, "in_universe": False},
+    }, run_date="2026-09-09")
+    got = db.get_rs_walk("2026-09-09")
+    assert got["MEMBER"]["in_universe"] is True
+    assert got["GUEST"]["in_universe"] is False
+
+
+def test_two_computes_on_one_day_keep_each_others_guests(db):
+    """The Watchlist ranks its own names; the Scanner Hub ranks that run's hits.
+    A wholesale replace meant whichever ran last silently deleted the other's
+    guests and the column went blank on the page not looked at most recently —
+    observed live before this was a merge."""
+    db.save_rs_walk({"MEMBER": {"t0": 50, "in_universe": True},
+                     "WATCHLIST_GUEST": {"t0": 12, "in_universe": False}},
+                    run_date="2026-09-09")
+    db.save_rs_walk({"MEMBER": {"t0": 50, "in_universe": True},
+                     "HUB_GUEST": {"t0": 88, "in_universe": False}},
+                    run_date="2026-09-09")
+    got = db.get_rs_walk("2026-09-09")
+    assert set(got) == {"MEMBER", "WATCHLIST_GUEST", "HUB_GUEST"}
+    assert got["WATCHLIST_GUEST"]["t0"] == 12
+    assert got["HUB_GUEST"]["t0"] == 88
+

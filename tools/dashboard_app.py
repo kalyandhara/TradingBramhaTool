@@ -4651,13 +4651,16 @@ def _rs_walk_compute(universe: str = "nifty500", extra: tuple = ()):
     except Exception:
         bench = None
     extra_hist = {}
-    for _s in extra:
+    if extra:
+        # Batched, not one fetch per symbol: the Scanner Hub can hand this a few
+        # hundred names, and 300 sequential downloads is minutes of waiting for
+        # a column. Same downloader money_flow and turnover_share already use.
         try:
-            _d = cached_fetch_ohlcv(_s, days=760, enforce_liquidity=False)
-            if _d is not None and not _d.empty:
-                extra_hist[_s] = _d
-        except Exception:
-            continue
+            import trending_stocks as _ts
+            _h = _ts._batch_history(sorted(set(extra)), period="2y")
+            extra_hist = {k: v for k, v in (_h or {}).items() if v is not None}
+        except Exception as _e:
+            _log.warning("rs walk extras batch failed: %s", _e)
     g = _rw.walk_grid(universe, benchmark=bench, extra_hist=extra_hist)
     if not g.get("error") and g.get("ranks"):
         try:
@@ -4665,6 +4668,32 @@ def _rs_walk_compute(universe: str = "nifty500", extra: tuple = ()):
         except Exception as _e:                              # pragma: no cover
             _log.warning("rs walk save failed: %s", _e)
     return g
+
+
+def _rs_walk_lookup() -> dict:
+    """The stored RS-walk grid, or {} when none has been computed.
+
+    Read-only and cheap. Every page that shows the column goes through this and
+    `_rs_walk_cell` rather than formatting its own, so the `*` convention and the
+    oldest-first order cannot drift between the Watchlist and the Scanner Hub.
+    """
+    try:
+        return db.get_rs_walk()
+    except Exception:
+        return {}
+
+
+def _rs_walk_cell(symbol: str, walk: dict) -> str:
+    """One cell: `18 → 86 → 95 → 99`, with a trailing `*` for a non-constituent.
+
+    Empty string when the symbol is not in the stored grid — a name nobody has
+    ranked reads as blank, not as a rank of zero.
+    """
+    import rs_walk as _rw
+    r = walk.get(str(symbol).strip().upper())
+    if not r:
+        return ""
+    return _rw.format_walk(r) + ("" if r.get("in_universe") else " *")
 
 
 def _cols_mod():
@@ -6299,10 +6328,7 @@ if current_page == "Watchlist":
         # it ranks the whole universe over two years of bars. The button below
         # is the only thing that triggers a run.
         import rs_walk as _rwx
-        try:
-            _wl_walk = db.get_rs_walk()
-        except Exception:
-            _wl_walk = {}
+        _wl_walk = _rs_walk_lookup()
         _wl_walk_date = next(iter(_wl_walk.values()), {}).get("run_date") if _wl_walk else None
 
         _rw_c1, _rw_c2 = st.columns([1, 3])
@@ -6374,10 +6400,7 @@ if current_page == "Watchlist":
                 # A guest (not a nifty500 constituent) is marked with a
                 # trailing * — the rank is against the index, not within it,
                 # and that is worth one character rather than a footnote.
-                "rs_walk": (
-                    _rwx.format_walk(_wl_walk[w["symbol"]])
-                    + ("" if _wl_walk[w["symbol"]].get("in_universe") else " *")
-                    if w["symbol"] in _wl_walk else ""),
+                "rs_walk": _rs_walk_cell(w["symbol"], _wl_walk),
                 "minervini": f"{mv_score}/8",
                 "technofunda": f"{tf_score}/6",
                 "Notes": w["notes"],
@@ -8239,10 +8262,62 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                 import pandas as _pd_pl
                 _sum_df = _pd_pl.DataFrame(_pl_summary).sort_values("Hits", ascending=False)
                 _sum_df = _with_chart_family(_sum_df, "Top Symbol")
+                # RS walk for each scanner's TOP symbol — read from the stored
+                # grid, never computed here: ranking the universe takes a minute
+                # and the Scanner Hub must not pay that on render. Compute it on
+                # the Watchlist page; every table that shows the column reads the
+                # same stored run.
+                _hub_walk = _rs_walk_lookup()
+                if _hub_walk:
+                    _sum_df["rs_walk"] = [_rs_walk_cell(s, _hub_walk)
+                                          for s in _sum_df["Top Symbol"]]
                 st.dataframe(
                     _sum_df, hide_index=True, use_container_width=True,
-                    column_config=_chart_family_colcfg(),
+                    column_config={**_chart_family_colcfg(),
+                                   **_cols_mod().configure_df(_sum_df)},
                 )
+                _hub_missing = [s for s in _sum_df["Top Symbol"]
+                                if str(s).strip().upper() not in _hub_walk]
+                if _hub_walk:
+                    _hub_walk_date = next(iter(_hub_walk.values()), {}).get("run_date")
+                    st.caption(
+                        f"**RS walk** is the TOP SYMBOL's universe-wide rank at "
+                        f"T-30 / T-15 / T-5 / today (stored run **{_hub_walk_date}**), "
+                        f"oldest first. `*` = ranked against the nifty500 rather "
+                        f"than within it; blank = not in that run."
+                    )
+                # A full-market scan surfaces names outside the nifty500 by
+                # design, so a blank here is expected rather than broken — but a
+                # column that is blank for half its rows is not much of a column.
+                # This ranks THIS run's names against the same universe, as
+                # guests, and stores them alongside it.
+                if _hub_missing:
+                    # Every symbol this run touched — the confluence set is
+                    # computed further down the page, so derive it here from the
+                    # results rather than reaching forward to a name that does
+                    # not exist yet (it would NameError on the first render).
+                    from collections import Counter as _HubCounter
+                    _hub_counts = _HubCounter(
+                        card["symbol"] for cards in _pl_res.values()
+                        for card in cards)
+                    _hub_extra = sorted(
+                        {str(s).strip().upper() for s in _sum_df["Top Symbol"]}
+                        | {s for s, n in _hub_counts.items() if n >= 2})
+                    if st.button(
+                            f"Rank this run's names ({len(_hub_missing)} top "
+                            f"symbols unranked)", key="hub_rs_walk_run",
+                            help="Ranks the nifty500 universe, then places this "
+                                 "run's names into that distribution as guests. "
+                                 "Takes a minute; never runs on load."):
+                        with st.spinner(f"Ranking the universe + "
+                                        f"{len(_hub_extra)} names from this run…"):
+                            _g = _rs_walk_compute(extra=tuple(_hub_extra))
+                        if _g.get("error"):
+                            st.error(f"RS walk failed: {_g['error']}")
+                        else:
+                            st.success(f"Ranked {_g['n_symbols']} constituents "
+                                       f"+ {_g['n_guests']} guests.")
+                            st.rerun()
 
                 # Shareable card — top scanners, symbol linked to TradingView
                 with st.expander("📋 Copy as shareable card (Telegram / social)",
@@ -8289,6 +8364,8 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                     f"fired in 2+ scanners"
                 )
                 _conf_rows = []
+                # Hoisted: one DB read for the table, not one per row.
+                _conf_walk = _rs_walk_lookup()
                 for sym in sorted(_confluence):
                     scanners_fired = [
                         name for name, cards in _pl_res.items()
@@ -8302,14 +8379,22 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                         "Scanners": ", ".join(scanners_fired),
                         "Count": len(scanners_fired),
                         "Pledge %": (_plrec.get("pledge_pct") if _plrec else None),
+                        # Where a name sits in the market, beside how many
+                        # scanners liked it: confluence says how MANY agree,
+                        # the walk says whether the market has been agreeing.
+                        "rs_walk": _rs_walk_cell(sym, _conf_walk),
                     })
                 _conf_rows.sort(key=lambda r: r["Count"], reverse=True)
                 import pandas as _pd_conf
-                _conf_df = _with_chart_family(
-                    _pd_conf.DataFrame(_conf_rows), "Symbol",
-                )
+                _conf_df = _pd_conf.DataFrame(_conf_rows)
+                if not _conf_walk and "rs_walk" in _conf_df.columns:
+                    # An empty column reads as "every name unranked"; no column
+                    # reads as "not computed", which is what is true.
+                    _conf_df = _conf_df.drop(columns=["rs_walk"])
+                _conf_df = _with_chart_family(_conf_df, "Symbol")
                 _conf_colcfg = {
                     **_chart_family_colcfg(),
+                    **_cols_mod().configure_df(_conf_df),
                     "Pledge %": st.column_config.NumberColumn(
                         "Pledge %", format="%.1f%%",
                         help="Promoter pledge (screener.in). Blank = not fetched "

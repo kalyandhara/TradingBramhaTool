@@ -2462,3 +2462,11 @@
 - Survivorship stated, not hidden: T-30 ranks TODAY's universe as it stood 30 sessions ago — prices point-in-time, membership present-day. `SURVIVORSHIP_NOTE` travels with the grid
 - **Operational note against myself:** while clicking through the live page I removed SARVESHWAR from the watchlist by accident, and restored it (same `added_date`, same note). Verifying write-back features by driving the real UI touches real data — use a scratch row next time
 
+## [2026-09-09] extend | RS walk added to the Scanner Hub summary + confluence tables
+- Both tables READ the stored grid and never compute; the Hub has its own button to rank **that run's** names as guests (a full-market scan surfaces names outside the nifty500 by design, and a column blank for half its rows is not much of a column). Extras now fetch through `_batch_history` rather than one call per symbol
+- **The reading the pairing unlocks:** ACMESOLAR fired in **12 scanners** and walks **92 → 94 → 35 → 36** — confluence says how many detectors agree, the walk says the market stopped agreeing a fortnight ago
+- **Two bugs only the live run caught:**
+  1. **The `*` meant nothing** — `in_universe` was computed but never STORED, so every row read back as a guest and constituents (BAJAJ-AUTO) wore the "ranked against, not within" mark. Not a blank but a WRONG mark. Column added by migration, existing rows backfilled, round-trip now tested
+  2. **Two pages deleted each other's guests** — `save_rs_walk` replaced the whole run_date, so a Hub compute dropped the Watchlist's guests and the column went blank on whichever page was not looked at last. Now a **merge** (upsert per symbol), safe because one run_date shares one day's prices. Live: 558 rows = 500 constituents + 58 guests, both sets intact
+- Also caught myself misreading a screenshot as a column misalignment and **checked it in Python before "fixing" anything** — the alignment was correct; the bug was in my reading
+
