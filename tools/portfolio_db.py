@@ -147,7 +147,73 @@ def init_db() -> None:
             );
             """
         )
+        # Universe-wide RS rank walk (B-63b). A CACHE, not a journal: the walk is
+        # recomputable from price history at any time, so a missing run_date
+        # costs a recompute rather than a hole in a record. Keyed by run_date so
+        # yesterday's grid is still readable after today's is written.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS rs_rank_walk (
+                run_date TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                universe TEXT NOT NULL,
+                t30 INTEGER,
+                t15 INTEGER,
+                t5 INTEGER,
+                t0 INTEGER,
+                created_at TEXT NOT NULL,
+                UNIQUE(run_date, symbol, universe)
+            );
+            """
+        )
         conn.commit()
+    finally:
+        conn.close()
+
+
+def save_rs_walk(ranks: dict, run_date: str | None = None,
+                 universe: str = "nifty500") -> int:
+    """Replace the walk for `run_date`. Returns rows written."""
+    run_date = run_date or date.today().isoformat()
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM rs_rank_walk WHERE run_date = ? AND universe = ?",
+                     (run_date, universe))
+        rows = [(run_date, sym, universe, r.get("t30"), r.get("t15"),
+                 r.get("t5"), r.get("t0"), now)
+                for sym, r in ranks.items()]
+        conn.executemany(
+            "INSERT INTO rs_rank_walk (run_date, symbol, universe, t30, t15, t5,"
+            " t0, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)", rows)
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def get_rs_walk(run_date: str | None = None,
+                universe: str = "nifty500") -> dict:
+    """`{symbol: {t30, t15, t5, t0}}` for a run date, or the LATEST stored one.
+
+    Returns `{}` when nothing is stored — the caller offers a recompute rather
+    than rendering a column of blanks that looks like every name is unranked.
+    """
+    conn = get_connection()
+    try:
+        if run_date is None:
+            row = conn.execute(
+                "SELECT MAX(run_date) FROM rs_rank_walk WHERE universe = ?",
+                (universe,)).fetchone()
+            run_date = row[0] if row else None
+            if not run_date:
+                return {}
+        cur = conn.execute(
+            "SELECT symbol, t30, t15, t5, t0 FROM rs_rank_walk "
+            "WHERE run_date = ? AND universe = ?", (run_date, universe))
+        return {r[0]: {"t30": r[1], "t15": r[2], "t5": r[3], "t0": r[4],
+                       "run_date": run_date}
+                for r in cur.fetchall()}
     finally:
         conn.close()
 

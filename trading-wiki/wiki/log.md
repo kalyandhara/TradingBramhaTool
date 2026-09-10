@@ -2454,3 +2454,11 @@
 - **Verified by editing a cell in the browser**, not only by unit test: typed a note into MUKKA's row, confirmed in sqlite that `notes` changed and **`added_date` stayed 2026-09-02**, then restored the original value
 - B-63b is now complete. The only genuinely declined item is Stage-2 `x/7` — `score_minervini` already returns x/8 and the page has rendered it all along
 
+## [2026-09-09] build | RS-rank walk (T-30 → T0) — the last B-63b column
+- **BUILT** — `tools/rs_walk.py` + 23 tests, on the Watchlist behind a button (it ranks the whole universe over 2y of bars, so it is never computed on page load); grid cached in a new `rs_rank_walk` table
+- **The backlog's own assumption was wrong, and that is the lesson:** the walk did NOT need 30 sessions of collected snapshots. `rs_raw` as of a past date is a **pure function of the price series up to that date**, so the whole walk was computable the same afternoon. Persistence is a cache, not a prerequisite — the mistaken assumption is what had kept this filed as a data-collection project instead of a column
+- **A design fault only the live run caught:** the first version showed an EMPTY column on every row, because it ranked the nifty500 and a personal watchlist is made of exactly the small names that are not constituents (**7 of 8 here**). Fixed with `rank_against()` — a non-constituent is placed INTO the universe's distribution without JOINING it (guests never enter the denominator, or the yardstick would depend on whose watchlist was open), marked with a trailing `*`
+- **First live read, 508 ranked:** AKI `0 → 0 → 1 → 80` (a month on the floor, then a violent turn), SARVESHWAR `1 → 2 → 3 → 31`, CENTUM `92 → 85 → 75 → 94`, SHAKTIPUMP `4 → 5 → 4 → 6` — that last agreeing with its own EMA cross −38 and −48.7% from the 52w high. Four independent columns telling one story about a name is the argument for the whole B-63b set
+- Survivorship stated, not hidden: T-30 ranks TODAY's universe as it stood 30 sessions ago — prices point-in-time, membership present-day. `SURVIVORSHIP_NOTE` travels with the grid
+- **Operational note against myself:** while clicking through the live page I removed SARVESHWAR from the watchlist by accident, and restored it (same `added_date`, same note). Verifying write-back features by driving the real UI touches real data — use a scratch row next time
+

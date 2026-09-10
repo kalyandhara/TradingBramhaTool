@@ -2993,6 +2993,50 @@ now −12.18%.
 > re-admit untradeable names to every sweep. The bug was never the default — it
 > was that by-name callers inherited it without saying so.
 
+#### RS-rank walk — **BUILT 2026-09-09**, `tools/rs_walk.py` + 23 tests
+
+**The blocker that was real, and the one that was not.**
+
+*Real:* the existing `rs_rank` is a percentile **across a scan's matched set**,
+so four in a row plot a changing population. `rs_walk` computes a
+**universe-wide** rank — one fixed denominator, every constituent with history,
+whether or not a scanner fired. It sits BESIDE the scan-relative rank; both are
+valid answers to different questions.
+
+*Not real:* this page previously said the walk needed a daily snapshot table
+filled in over 30 sessions. **It did not.** `rs_raw` as of a past date is a pure
+function of the price series up to that date, so the whole walk was computable
+the same afternoon from history the desk already downloads. **The persistence is
+a cache, not a prerequisite** — that assumption is what kept this filed as a
+"data-collection project" instead of a column.
+
+**The design fault caught only by running it.** The first version shipped with
+the column **empty on every row**: it ranked the nifty500, and a personal
+watchlist is made of exactly the small names that are *not* constituents — **7 of
+8 here**. Fixed with `rank_against()`: a non-constituent is placed **into** the
+universe's distribution without **joining** it. Membership is not a prerequisite
+for asking how a return compares; the index is the *yardstick*. Guests never
+enter the denominator (or the yardstick would depend on whose watchlist was
+open) and are marked with a trailing `*`. Four tests pin that.
+
+**First live read, 508 names ranked (500 constituents + 8 guests):**
+
+| Symbol | T-30 → T-15 → T-5 → T0 | reading |
+|---|---|---|
+| AKI | 0 → 0 → 1 → 80 | a month on the floor, then a violent turn |
+| SARVESHWAR | 1 → 2 → 3 → 31 | waking up from the bottom |
+| CENTUM | 92 → 85 → 75 → 94 | dipped and recovered |
+| SHAKTIPUMP | 4 → 5 → 4 → 6 | persistently weak — and its other columns agree (EMA cross −38, −48.7% from the 52w high) |
+
+That last row is the argument for the whole B-63b set: four independent columns
+telling one consistent story about a name, none of which this desk could show
+before today.
+
+**Still survivorship-tinted, and it says so.** T-30 ranks *today's* universe as
+it stood 30 sessions ago — prices point-in-time, membership present-day.
+`SURVIVORSHIP_NOTE` travels with the grid so the page cannot drift from the
+module, and it is why this is a reading, not a signal.
+
 **Nothing here is measured, and there is nothing to measure:** these report
 conditions already computed elsewhere. No scanner registration, no confluence
 vote, no entry/stop/target.

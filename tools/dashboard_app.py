@@ -4630,6 +4630,43 @@ def _money_flow_window(key_prefix: str, *, compact: bool = False):
 # reasons — not this.
 # ──────────────────────────────────────────────────────────────────────────────
 
+@st.cache_data(ttl=1800, show_spinner=False)
+def _rs_walk_compute(universe: str = "nifty500", extra: tuple = ()):
+    """Compute the universe-wide RS-rank walk and cache it in the DB.
+
+    Expensive (the whole universe, 2y of bars), so it is never called on page
+    load — the Watchlist reads the stored grid and offers a button when there is
+    none for today. The DB row is a CACHE: the walk is recomputable from price
+    history at any time, so a missing run_date costs a recompute, not a hole.
+
+    `extra` are symbols to rank AGAINST the universe without joining it. It
+    exists because the first version shipped with an empty column: a personal
+    watchlist is made of exactly the small names that are not nifty500
+    constituents (7 of 8 here), and a percentile against a universe you are not
+    in is still a perfectly good reading — the universe is the yardstick.
+    """
+    import rs_walk as _rw
+    try:
+        bench = sp.fetch_nifty50(days=760)
+    except Exception:
+        bench = None
+    extra_hist = {}
+    for _s in extra:
+        try:
+            _d = cached_fetch_ohlcv(_s, days=760, enforce_liquidity=False)
+            if _d is not None and not _d.empty:
+                extra_hist[_s] = _d
+        except Exception:
+            continue
+    g = _rw.walk_grid(universe, benchmark=bench, extra_hist=extra_hist)
+    if not g.get("error") and g.get("ranks"):
+        try:
+            db.save_rs_walk(g["ranks"], universe=universe)
+        except Exception as _e:                              # pragma: no cover
+            _log.warning("rs walk save failed: %s", _e)
+    return g
+
+
 def _cols_mod():
     """The shared column registry (B-63a) — imported lazily, like every other
     heavy tool module on this page."""
@@ -6258,6 +6295,40 @@ if current_page == "Watchlist":
                  "the whole list on it — 'how has my watchlist done since the "
                  "day I looked'. Leave empty to hide those two columns.")
 
+        # RS-rank walk (B-63b). Read the STORED grid — never compute on load:
+        # it ranks the whole universe over two years of bars. The button below
+        # is the only thing that triggers a run.
+        import rs_walk as _rwx
+        try:
+            _wl_walk = db.get_rs_walk()
+        except Exception:
+            _wl_walk = {}
+        _wl_walk_date = next(iter(_wl_walk.values()), {}).get("run_date") if _wl_walk else None
+
+        _rw_c1, _rw_c2 = st.columns([1, 3])
+        with _rw_c1:
+            if st.button("Compute RS rank walk", key="wl_rs_walk_run",
+                         help="Ranks the WHOLE nifty500 universe at T-30 / T-15 "
+                              "/ T-5 / today. Takes a minute — it is never run "
+                              "on page load."):
+                with st.spinner("Ranking the universe at four dates…"):
+                    # The watchlist's own names ride along as guests, so the
+                    # column is populated for the names actually on this page.
+                    _g = _rs_walk_compute(extra=tuple(watch["symbol"]))
+                if _g.get("error"):
+                    st.error(f"RS walk failed: {_g['error']}")
+                else:
+                    st.success(f"Ranked {min(_g['n_ranked'].values())}–"
+                               f"{max(_g['n_ranked'].values())} names per column.")
+                    st.rerun()
+        with _rw_c2:
+            if _wl_walk_date:
+                st.caption(f"RS walk stored for **{_wl_walk_date}** "
+                           f"({len(_wl_walk)} names ranked).")
+            else:
+                st.caption("No RS walk stored yet — the column appears once "
+                           "you compute one.")
+
         nifty_wl = cached_fetch_nifty50()
         rows = []
         for _, w in watch.iterrows():
@@ -6300,6 +6371,13 @@ if current_page == "Watchlist":
                 "bo_date": m["bo_date"],
                 "hist_price": m["hist_price"],
                 "gain_since_pct": m["gain_since_pct"],
+                # A guest (not a nifty500 constituent) is marked with a
+                # trailing * — the rank is against the index, not within it,
+                # and that is worth one character rather than a footnote.
+                "rs_walk": (
+                    _rwx.format_walk(_wl_walk[w["symbol"]])
+                    + ("" if _wl_walk[w["symbol"]].get("in_universe") else " *")
+                    if w["symbol"] in _wl_walk else ""),
                 "minervini": f"{mv_score}/8",
                 "technofunda": f"{tf_score}/6",
                 "Notes": w["notes"],
@@ -6315,7 +6393,10 @@ if current_page == "Watchlist":
                    "gain_since_pct"):
             if _c in _wl_df.columns:
                 _wl_df[_c] = pd.to_numeric(_wl_df[_c], errors="coerce")
-        for _c in ("pivot_d", "pivot_w", "bo_date", "minervini", "technofunda"):
+        if not _wl_walk and "rs_walk" in _wl_df.columns:
+            _wl_df = _wl_df.drop(columns=["rs_walk"])
+        for _c in ("pivot_d", "pivot_w", "bo_date", "rs_walk", "minervini",
+                   "technofunda"):
             if _c in _wl_df.columns:
                 _wl_df[_c] = _wl_df[_c].where(_wl_df[_c].notna(), "")
         if _wl_ref is None and not _wl_df.empty:
@@ -6382,6 +6463,16 @@ if current_page == "Watchlist":
                 f"lakh a day is still worth less than the same level on a liquid "
                 f"one, and a position may be hard to exit."
             )
+        if _wl_walk:
+            st.caption(
+                r"**RS walk** reads oldest → newest. A trailing **\*** means the "
+                "name is not a nifty500 constituent, so it is ranked **against** "
+                "that universe rather than within it — the index is the "
+                "yardstick, and membership is not required to be measured by it. "
+                "**?** means the name lacked history that far back, which is not "
+                "the same as ranking weak."
+            )
+            st.caption(f"⚠️ **RS walk:** {_rwx.SURVIVORSHIP_NOTE}")
         st.caption("Descriptions of state, not signals — none of these columns "
                    "has been measured, and none casts a vote anywhere. "
                    "**Notes is editable** — click a cell, type, press Enter; "

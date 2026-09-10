@@ -173,6 +173,14 @@ COLUMNS: dict[str, ColSpec] = {
         "Return from that reference date to today — the table re-bases on a "
         "date you choose rather than a fixed lookback.",
         "number", "%+.2f%%"),
+    "rs_walk": ColSpec(
+        "RS walk (T-30→T0)",
+        "Universe-wide relative-strength percentile at T-30 / T-15 / T-5 / "
+        "today, oldest first. A FIXED denominator (every constituent with "
+        "history), unlike the scan-relative rs_rank — so the four numbers are "
+        "one population over time. '?' = the name lacked history that far back, "
+        "which is not the same as ranking weak.",
+        "text", width="medium"),
     "notes": ColSpec(
         "Notes",
         "Your own note on this row. Editable in place where the table says so — "
