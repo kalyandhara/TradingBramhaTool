@@ -4768,6 +4768,111 @@ def _rs_walk_compute(universe: str = "nifty500", extra: tuple = ()):
     return g
 
 
+def _cap_bucket_map(symbols):
+    """{SYMBOL: LC|MC|SC|Mic} from NSE index membership. Free — cached lists.
+
+    Costs no network call in the common case, which is why it is applied to Hub
+    tables unconditionally while the price-derived columns sit behind a button.
+    """
+    try:
+        import smallcap_universe as _capu
+        return _capu.cap_bucket([str(x) for x in symbols])
+    except Exception:
+        return {}
+
+
+def _hub_price_cols(symbols, key: str) -> dict:
+    """RSI / % from 20EMA / EMA stack / RS (mom) per symbol, computed ON DEMAND.
+
+    These four need daily bars, and a Hub table can carry 80 names. Computing
+    them on every render would make an unrelated widget click pay for 80 fetches,
+    so this follows the pattern the page already uses for pledge % and the RS
+    walk: a button fills a session-state cache, and the columns appear once it
+    has. A table that has not been enriched simply does not show them, which
+    reads as "not computed" rather than as "no reading" — the same distinction
+    the `rs_walk` column already makes by dropping itself when the grid is empty.
+
+    Cached per table key, because the summary and confluence tables hold
+    different symbol sets and one should not silently serve the other's rows.
+    """
+    store = st.session_state.setdefault("hub_price_cols", {})
+    have = store.setdefault(key, {})
+    out = {}
+    for sym in symbols:
+        s_ = str(sym).strip().upper()
+        if s_ in have:
+            out[s_] = have[s_]
+    return out
+
+
+def _hub_price_fill(symbols, key: str) -> int:
+    """Fill the cache above for `symbols`. Returns how many were computed."""
+    import row_metrics as _rmx
+    store = st.session_state.setdefault("hub_price_cols", {})
+    have = store.setdefault(key, {})
+    n = 0
+    for sym in symbols:
+        s_ = str(sym).strip().upper()
+        if s_ in have or not s_ or s_ == "—":
+            continue
+        try:
+            # Named by a scan that already applied the liquidity floor, so the
+            # floor is moot here — but these arrive BY NAME, and the swept rule
+            # is that a by-name caller does not inherit the scan filter.
+            df = cached_fetch_ohlcv(s_, enforce_liquidity=False)
+        except Exception:
+            df = None
+        if df is None or len(df) < 30:
+            have[s_] = {}
+            continue
+        have[s_] = {
+            "rsi": _rmx.rsi(df),
+            "pct_from_20ema": _rmx.pct_from_ema(df),
+            "ema_stack": _rmx.ema_stack(df),
+            "rs_momentum": _wl_rs_mom(df),
+        }
+        n += 1
+    return n
+
+
+def _hub_enrich(df, symbol_col: str, key: str):
+    """Attach Cap (always) and the price columns (when computed) to a Hub table."""
+    if df is None or df.empty or symbol_col not in df.columns:
+        return df
+    syms = [str(x).strip().upper() for x in df[symbol_col]]
+    caps = _cap_bucket_map(syms)
+    df = df.copy()
+    df["cap_bucket"] = [caps.get(s, "") for s in syms]
+    px = _hub_price_cols(syms, key)
+    if px:
+        for col in ("rsi", "pct_from_20ema", "ema_stack", "rs_momentum"):
+            vals = [px.get(s, {}).get(col) for s in syms]
+            if any(v is not None for v in vals):
+                df[col] = vals
+    # Cap beside the symbol; it is identity, not a measurement.
+    order = [symbol_col, "cap_bucket"] + [c for c in df.columns
+                                          if c not in (symbol_col, "cap_bucket")]
+    return df[order]
+
+
+def _hub_price_button(symbols, key: str, label: str) -> None:
+    """The button that fills `_hub_price_cols` for one table."""
+    pending = [s for s in {str(x).strip().upper() for x in symbols}
+               if s and s != "—"
+               and s not in st.session_state.get("hub_price_cols", {}).get(key, {})]
+    if not pending:
+        return
+    if st.button(f"Add price columns ({len(pending)} names)", key=f"{key}_px",
+                 help="Fetches daily bars for these names and adds RSI, "
+                      "% from 20EMA, the EMA stack and RS momentum. Cached "
+                      "symbols are free; this is why the columns are not "
+                      "computed on every render."):
+        with st.spinner(f"Reading bars for {len(pending)} names…"):
+            got = _hub_price_fill(pending, key)
+        st.success(f"{label}: price columns ready for {got} name(s).")
+        st.rerun()
+
+
 def _wl_rs_mom(df):
     """The RAW weighted trailing return behind `rs_walk`'s percentile.
 
@@ -8394,6 +8499,8 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                                           for s in _sum_df["Top Symbol"]]
                 # UI-2: notes are editable here and stored per SYMBOL, so a note
                 # written on the Hub is the same note the Watchlist shows.
+                _sum_df = _hub_enrich(_sum_df, "Top Symbol", "summary")
+                _hub_price_button(_sum_df["Top Symbol"], "summary", "Summary")
                 _notes_table(
                     _sum_df, key="hub_summary_notes", symbol_col="Top Symbol",
                     column_config={**_chart_family_colcfg(),
@@ -8515,6 +8622,8 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                     # reads as "not computed", which is what is true.
                     _conf_df = _conf_df.drop(columns=["rs_walk"])
                 _conf_df = _with_chart_family(_conf_df, "Symbol")
+                _conf_df = _hub_enrich(_conf_df, "Symbol", "confluence")
+                _hub_price_button(_conf_df["Symbol"], "confluence", "Confluence")
                 _conf_colcfg = {
                     **_chart_family_colcfg(),
                     **_cols_mod().configure_df(_conf_df),
