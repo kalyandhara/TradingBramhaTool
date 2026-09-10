@@ -18,6 +18,24 @@ Phase 2 (deferred, tracked in the roadmap page):
   5. PCR + PCR-slope on NIFTY options (weight ~20; requires NSE option-chain
      scraper). When added, other weights re-normalise.
 
+MEASURED 2026-09-10 (B-66, `tools/sentiment_factor_edge.py`) — READ THIS BEFORE
+BUILDING ON THE SCORE. Every input above, AND the composite, was tested against
+NIFTY's forward 5-day return as a tercile spread. **None discriminates:**
+
+    A/D (proxy)   -0.03%  rho +0.00  p=0.855
+    Sector        -0.01%  rho -0.00  p=0.908   (19y, n=4,649)
+    Regime        -0.08%  rho -0.04  p=0.829   (18y, n=4,452)
+    COMPOSITE     -0.12%  rho +0.01  p=0.703
+
+PMax was measured separately (B-65r) and also does not discriminate. The two
+deepest arms span 2008, 2013, 2020 and 2022, so this is a measurement rather
+than a shortage of one.
+
+Nothing here was deleted or re-weighted on that result — a null is not evidence
+of harm, and there is no better-scoring input to move weight toward. But the
+score DESCRIBES the current tape and does not FORECAST, and the band names
+("Strong Buy") must not be read as advice. The page carries that caption.
+
 Bands (matches the reference infographic):
     0-20   Strong Sell
    20-40   Sell
@@ -222,12 +240,37 @@ def _sector_perf() -> dict[str, Any]:
     one — and on 08-03 all three happened to be green, producing factor 1.0, a
     full 25/25, feeding the composite's bullish verdict.
 
-    **THE FREEZE ENDED. Re-verified 2026-09-10 while scoping B-66: all 11 tickers
-    return current history through 2026-09-10.** The paragraph above is a correct
-    record of a real outage in July–August and a WRONG description of today. It is
-    kept because the guards it explains — the age check, and reporting stale and
-    missing apart — are what make the next freeze visible instead of silent, and
-    those guards earn their place whether or not a feed is frozen right now.
+    **RE-CHECKED 2026-09-10, and the first version of this correction was WRONG.**
+    Scoping B-66 I fetched all 11 with ``period="max"``, saw current bars through
+    2026-09-10 on every one, and wrote "the freeze ended". The running dashboard
+    said otherwise on the same afternoon: *"only 3/11 sector indices usable"*.
+    Both were true, and the difference is the parameter:
+
+    ==================  ================  =========================================
+    ``period=``         rows for ^CNXAUTO  what the shipped path sees
+    ==================  ================  =========================================
+    ``"1mo"`` (shipped) **1**              one bar -> ``len(hist) < 2`` -> SKIPPED
+    ``"2mo"``           7                  July 10 .. Sep 10, heavily gapped
+    ``"3mo"``           28                 of ~64 trading days
+    ``"max"``           3,681              full history, last bar today
+    ==================  ================  =========================================
+
+    So: **the data is NOT frozen — every ticker's last bar is today — but the feed
+    is SPARSE over the outage window, and ``period="1mo"`` returns a single row
+    for the 8 affected indices.** The component has therefore been reporting
+    NOT_CHECKED for weeks against a feed that was quietly recovering.
+
+    **The fix is not simply a wider window.** With ``period="3mo"`` those tickers
+    return two bars, but the previous one can be many sessions old, and computing
+    a change across that gap and printing it as "today's move" is precisely the
+    trap the paragraph above warns about. A correct fix widens the window AND
+    bounds the GAP BETWEEN the two bars it uses, the way ``MAX_STALE_DAYS`` bounds
+    the age of the last one. Not done here — it is a behaviour change to a live
+    component and belongs in its own commit.
+
+    The lesson, recorded because it is the second time in one session: **verifying
+    through a different code path than the one that ships proves nothing about the
+    one that ships.** Same shape as the PWA service-worker cache trap.
 
     The old code fetched ``period="10d"``, which for a frozen ticker returns a
     single stub row, so ``len(hist) < 2`` skipped it *silently*. That silence was

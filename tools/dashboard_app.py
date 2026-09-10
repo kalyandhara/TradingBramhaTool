@@ -1760,6 +1760,13 @@ def cached_latest_sentiment():
     Streamlit rerun. Returns None when nothing has been persisted yet — the
     verdict engine treats that as a caution flag rather than a green light.
     Refreshing happens on the Market Sentiment page, which owns that button.
+
+    **What this number is NOT, for every downstream consumer of it:** B-66
+    measured all four inputs and the composite against NIFTY's forward returns
+    and found no discrimination anywhere (tercile spreads -0.01% to -0.12%,
+    rho ~ 0, the two deepest inputs covering 18-19 years). It describes the
+    current tape; it does not forecast. Anything reading this for DIRECTION is
+    reading it for something it has been measured not to have.
     """
     try:
         hist = senti.history(days=1)
@@ -11178,6 +11185,22 @@ if current_page == "Market Sentiment":
         "inputs — Advance/Decline, Sector Performance, NIFTY vs SMA200, and "
         "PMax direction on NIFTY 1H. Phase 2 adds PCR when the option-chain "
         "scraper lands."
+    )
+    # B-66 measured all four inputs AND the composite against NIFTY's forward
+    # returns and found no discrimination anywhere. The page is not being removed
+    # — a null is not evidence of harm, and a description of today's tape is worth
+    # having — but it must not read as a forecast, which the band names
+    # ("Strong Buy") otherwise do. This is the caption that entry hands forward.
+    st.warning(
+        "**This describes today's tape. It does not forecast tomorrow's.** "
+        "Measured 2026-09-10 (B-66): none of the four inputs, and not the "
+        "composite either, shows any relationship with NIFTY's next-5-day return "
+        "— tercile spreads −0.01% to −0.12%, all rank correlations ≈ 0, and the "
+        "two deepest inputs cover 18–19 years including 2008, 2020 and 2022. "
+        "The band names are labels for the current reading, **not** buy or sell "
+        "advice. Read this as a summary of where the market stands, and take "
+        "direction from something that has been measured.",
+        icon="⚠️",
     )
 
     col_run, col_peek = st.columns([1, 3])

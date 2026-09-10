@@ -822,6 +822,29 @@ be small at the extremes.
 | Regime | ^NSEI daily | 2007-09 → 2026-09 (~19y) | the deepest arm, four regimes |
 | Composite | all four | **2023-10 → 2026-09**, bounded by the A/D proxy | the shortest leg sets the window; noted as the composite's own power limit |
 
+> [!warning] CORRECTION 2026-09-10 — the "stale claim" fix below was itself wrong
+> The note that follows says the sector freeze ended, on the strength of fetching
+> all 11 tickers with `period="max"` and seeing current bars. **The running
+> dashboard said "only 3/11 sector indices usable" on the same afternoon, and it
+> was right.** The difference is the parameter: the shipped code fetches
+> `period="1mo"`, which returns **one row** for the 8 affected indices, while
+> `"max"` returns 3,681. So the data is **not frozen** — every last bar is today —
+> but the feed is **sparse across the outage window**, and the shipped call cannot
+> see two bars to difference.
+>
+> **The component has been reporting NOT_CHECKED for weeks against a feed that
+> was quietly recovering.** A fix is available but is NOT a one-word widening:
+> `period="3mo"` returns two bars, but the earlier one can be many sessions old,
+> and differencing across that gap and printing it as "today's move" is the exact
+> trap the module already warns about. It needs a bound on the GAP between the two
+> bars used, the way `MAX_STALE_DAYS` bounds the age of the last one — a behaviour
+> change to a live component, so it belongs in its own commit.
+>
+> **The lesson, twice in one session:** verifying through a different code path
+> than the one that ships proves nothing about the one that ships. Same shape as
+> [[analyses/Open-Backlog#B-63a]]'s stale-module trap and the PWA
+> service-worker cache trap.
+
 > [!note] The stale claim this run already corrected
 > `_sector_performance`'s docstring records that **Yahoo stopped updating 8 of
 > the 11 NSE sector indices on 2026-07-17**, verified 2026-08-05. Checked again
