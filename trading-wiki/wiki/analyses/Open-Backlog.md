@@ -773,6 +773,69 @@ wiggles, so the two panes stay comparable.
 divergence detectors on one chart that fire on the same swings are one detector
 with two colours.
 
+### B-59r · PSAR vs STAI — which of the two agreeing detectors carries the information? — **PRE-REGISTERED 2026-09-10**
+
+Falls directly out of [[#B-59]]'s chance-corrected run. The desk now knows that
+**PSAR and STAI describe the same reversals** (+34.2 lift over rotation at ±3)
+and that **PSAR and PMax do not** (−12.4, below chance). So the trailing-stop
+role is not held by three detectors — it is held by **PMax, plus one detector
+implemented twice**. This entry asks which of the twins to keep, and it is the
+only version of that question that can be answered with evidence rather than
+taste.
+
+**It is also the first time any of PSAR / STAI / PMax will have been scored on
+this desk at all.** Agreement was measured; accuracy never was.
+
+**PRE-REGISTERED DESIGN — binding, written before `psar_stai_edge.py` exists.**
+
+  EVENTS   long side only (up-flips), so the question stays single. Three
+           mutually exclusive arms, each an event vector over the same bars:
+
+  | arm | definition |
+  |---|---|
+  | **AGREE** | a PSAR up-flip with an STAI up-flip within ±3 bars |
+  | **PSAR-ONLY** | a PSAR up-flip with NO STAI up-flip within ±3 bars |
+  | **STAI-ONLY** | an STAI up-flip with NO PSAR up-flip within ±3 bars |
+
+  ±3 is not re-chosen here — it is B-59's middle rung, fixed before these
+  numbers were seen.
+
+  CAUSALITY  an AGREE event is dated at **`max(psar_bar, stai_bar)`** — the bar
+             on which both are known. Dating it at the earlier one would trade
+             on a confirmation that had not arrived. Entry is the NEXT OPEN.
+  BASELINE   every bar in the same names (unconditional), the same construction
+             as B-43 and B-58's CONTRAST arm, so the three arms are comparable
+             to each other AND to this desk's existing null.
+  HORIZON    20 trading days.
+  STATISTIC  mean(arm) − mean(baseline), percent. **Circular rotation p.**
+  COSTS      none: every arm is differenced against the same baseline held the
+             same 20 days, so the ~29bps model cancels.
+
+**THE DECISION RULE, fixed in advance — this is a SELECTION, not a pass/fail.**
+
+| outcome | reading |
+|---|---|
+| PSAR-ONLY significant, STAI-ONLY not | PSAR sees something STAI misses → keeping PSAR is justified |
+| STAI-ONLY significant, PSAR-ONLY not | the reverse → PSAR adds nothing and stays an overlay for good |
+| **both null** | **neither twin's unique cells carry measurable information.** The trim cannot be decided on edge, and falls back to cost: **keep STAI**, which is already wired, and PSAR stays a drawn overlay. **No indicator is deleted on a null** — a null is not evidence of harm |
+| both positive | the disagreement is noise in both directions and the AGREE arm is the interesting one |
+
+  AGREE is **context, never decisive**: if it beats both singles, that is a
+  confluence finding for a later entry, not a reason to keep or drop either.
+
+  ABORT   any arm under **200** events is reported UNDERPOWERED for that arm and
+          cannot support a conclusion about it.
+
+**PRIOR: skeptical, and specifically so.** B-19 measured 0/41 scanners stable
+across horizons with most negative after costs, and a trailing-stop up-flip is a
+trend-following entry *after* a move — the same shape as the Renko flip, which
+B-43 measured at a clean null and B-43r at **−1.01%** once state-matched. The
+honest expectation is **both twins null**, landing on row 3: keep STAI, PSAR
+stays an overlay, and the desk stops asking.
+
+**What this deliberately does NOT do:** it does not re-open PMax. B-59 settled
+that PMax is not interchangeable with either twin, and nothing here bears on it.
+
 ### ~~B-59~~ · Parabolic SAR — chart overlay — **BUILT 2026-09-07 · OVERLAP CHECKED 2026-09-10**
 
 ═══ OVERLAP CHECK — 2026-09-10, `tools/psar_overlap.js` ═════════════════════════
