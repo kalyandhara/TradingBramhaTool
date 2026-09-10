@@ -353,6 +353,48 @@ def _regime_sma200() -> dict[str, Any]:
                 "close": None, "sma200": None, "dist_pct": None}
 
 
+def _pmax_walk(ema, atr, atr_mult: float, warm: int):
+    """The PMax ratchet, as a SERIES rather than a final reading.
+
+    Extracted 2026-09-10 for B-65r, which needs the direction at every bar to
+    score the factor rather than just today's value. The loop is unchanged, byte
+    for byte, from the one that used to sit inline in
+    `_pmax_direction_nifty_1h` — that function now calls this and takes the last
+    element, so **there is one ratchet, not two**. A copy would have drifted from
+    the factor it is supposed to be measuring, which is the failure mode
+    `columns.py` (B-63a) exists to prevent and `psar_overlap.js` avoids by
+    lifting `pmaxSeries` out of the chart instead of reimplementing it.
+
+    Returns (direction, long_stop, short_stop) arrays. Bars before `warm` carry
+    direction 0 — "not yet knowable" — rather than the seed value of 1, because a
+    seeded direction is not a reading and must not enter a measurement.
+    """
+    import numpy as _np
+    n = len(ema)
+    dirs = _np.zeros(n, int)
+    longs = _np.full(n, _np.nan)
+    shorts = _np.full(n, _np.nan)
+    long_prev = short_prev = None
+    direction = 1
+    for i in range(warm, n):
+        a = atr[i]
+        long_stop  = ema[i] - atr_mult * a
+        short_stop = ema[i] + atr_mult * a
+        if long_prev is not None and ema[i] > long_prev:
+            long_stop = max(long_stop, long_prev)
+        if short_prev is not None and ema[i] < short_prev:
+            short_stop = min(short_stop, short_prev)
+        if direction == -1 and ema[i] > (short_prev if short_prev is not None else short_stop):
+            direction = 1
+        elif direction == 1 and ema[i] < (long_prev if long_prev is not None else long_stop):
+            direction = -1
+        long_prev, short_prev = long_stop, short_stop
+        dirs[i] = direction
+        longs[i] = long_stop
+        shorts[i] = short_stop
+    return dirs, longs, shorts
+
+
 # ── Input #4: PMax direction on NIFTY 1H ─────────────────────────────────────
 def _pmax_direction_nifty_1h(atr_len: int = 10, atr_mult: float = 3.0,
                               ma_len: int = 10) -> dict[str, Any]:
@@ -392,23 +434,17 @@ def _pmax_direction_nifty_1h(atr_len: int = 10, atr_mult: float = 3.0,
         for i in range(1, n):
             ema[i] = alpha * src[i] + (1 - alpha) * ema[i - 1]
 
-        long_prev = short_prev = None
-        direction = 1
-        # Warm-up to the max of atr_len / ma_len
-        warm = max(atr_len, ma_len)
-        for i in range(warm, n):
-            a = atr[i]
-            long_stop  = ema[i] - atr_mult * a
-            short_stop = ema[i] + atr_mult * a
-            if long_prev is not None and ema[i] > long_prev:
-                long_stop = max(long_stop, long_prev)
-            if short_prev is not None and ema[i] < short_prev:
-                short_stop = min(short_stop, short_prev)
-            if direction == -1 and ema[i] > (short_prev if short_prev is not None else short_stop):
-                direction = 1
-            elif direction == 1 and ema[i] < (long_prev if long_prev is not None else long_stop):
-                direction = -1
-            long_prev, short_prev = long_stop, short_stop
+        dirs, longs, shorts = _pmax_walk(ema, atr, atr_mult,
+                                         warm=max(atr_len, ma_len))
+        # dirs[-1] == 0 means the walk never ran (series shorter than warm-up).
+        # The inline version this replaced fell through with its seed direction
+        # of 1 and pmax None, so that case is reproduced exactly rather than
+        # allowed to become a silent behaviour change in a refactor.
+        if int(dirs[-1]) == 0:
+            direction, long_prev, short_prev = 1, None, None
+        else:
+            direction = int(dirs[-1])
+            long_prev, short_prev = float(longs[-1]), float(shorts[-1])
 
         factor = 1.0 if direction == 1 else 0.0
         pmax_val = long_prev if direction == 1 else short_prev

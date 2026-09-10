@@ -59,6 +59,7 @@ corrected in place below, each marked with the date.
 | **Closed 2026-08-27 (re-verify)** | **B-11** (MFI — `scan_mfi_oversold` + `_mfi_series` shipped and registered; page had it "absent"). Ledger/body sync only: **B-5, B-25, B-20a, B-20b, B-7** were already code-complete but mis-filed as open in the body |
 | **Closed 2026-09-09** | **B-62** (turnover-share rotation column), **B-63a** (`tools/columns.py` shared column registry), **B-63b** (row_metrics — the nine "how long has this been true" columns, incl. the RS-rank walk and in-row Notes), **B-64** (canonical sector vocabulary). Also shipped that day and NOT from the backlog: the liquidity-floor sweep across all 20 `cached_fetch_ohlcv` call sites (7 by-name callers switched to `enforce_liquidity=False`) |
 | **Closed 2026-09-10** | **B-63a targeted sweep** — registry now **46 ids, 15 aliases, 9 documented refusals**; the "incomplete by design, 4 of 43" claim was retracted (28 call sites pass `column_config`; 15 already reach the registry). Singletons deliberately declined rather than promoted |
+| **Measured 2026-09-10** | **B-65r** (`pmax_nifty_edge.py`) — **the sentiment factor's own claim, and it FAILS.** The factor scores 20 for up / 0 for down, so the claim is DISCRIMINATION and the statistic is a spread. **1H (5,057 bars, the yfinance ceiling): −0.30% at ~5d, p=0.306.** The pre-registered power escape — the same spread on **DAILY NIFTY over 19 years (2007→2026, 4,658 bars, four regimes)** — **also fails: −0.58%, p=0.488.** So not a data problem: on the nearby question the data exists and the answer is no. All four spreads lean the wrong way (down-state beat up-state) and **none is significant**, which is the profile of no information, not of a contra-signal. Resolves the pre-registered disagreement with **B-32**: that measured how SIGNALS perform conditional on regime, this measures how the INDEX performs conditional on trend state — different claims, both can be true, and the factor borrows credibility from the first while making the second. **Nothing deleted**; re-weighting is now a live proposal in its own entry, complicated by the other three factors being unmeasured too |
 | **Measured 2026-09-10** | **B-65** (`pmax_edge.py`) — **PMax scored for the first time, and it FAILS.** Flip **−0.55% (p=0.511, n=1,538)**; **state (dir=1) −0.19% on 129,761 bars** — *below* the unconditional baseline in a bull window stacked in its favour, so the pre-registered confound did not save it. Completes a four-detector convergence: Renko −1.01 / STAI-only −1.00 / PSAR-only −0.77 / **PMax −0.55**, no shared code, one mechanism (an up-flip re-enters only after price gave part of the run back), PMax shallowest exactly as its rarer/slower cadence predicted. Only B-43r is individually significant. **Does not retire `W_PMAX_1H`** (a STATE on NIFTY 1H — a different claim) but removes the presumption it is safe, and makes the 1H measurement live. Nothing removed on a null |
 | **Measured 2026-09-10** | **B-59r** (`psar_stai_edge.py`, 460 names) — **NEITHER twin carries information.** AGREE (n=4,068) **+0.16% p=0.820** ≈ market; **PSAR-ONLY −0.77% (p=0.053, n=8,576)**; **STAI-ONLY −1.00% (p=0.150, n=1,909)**. Pre-registered "both null" row: trim falls back to cost — keep STAI, PSAR stays an overlay, **nothing deleted**. The shape is the finding: agreement pays the market, disagreement loses in BOTH directions, and −0.77/−1.00% sit beside **B-43r's −1.01% for the Renko flip** — a fourth detector landing on the same mechanism (an up-flip re-enters after price has given back part of a run). Neither p clears 0.05, so convergence, not proof. Leaves **PMax as the only one of the three never scored**, while carrying 20% of the sentiment index |
 | **Counted 2026-09-10 (v2, chance-corrected)** | **B-59** re-run with a rotation null after the owner asked whether PMax can be sunset. Raw coverage was mostly base rate; corrected, **PSAR↔STAI agree far above chance (+34.2 lift at ±3) while PSAR↔PMax agree BELOW chance at every tolerance (−12.4 at ±3)**. So: **no, PMax cannot be sunset in favour of PSAR** — it is the least-alike pair, and PMax additionally carries 20% of the sentiment score, a `market_verdict` factor and the chart's trade-state panel. The real redundancy is PSAR↔STAI, and choosing between those two is an edge question nobody has measured. B-46 stands, on better grounds |
@@ -775,7 +776,7 @@ wiggles, so the two panes stay comparable.
 divergence detectors on one chart that fire on the same swings are one detector
 with two colours.
 
-### B-65r · The actual sentiment factor — PMax direction on NIFTY 1H — **PRE-REGISTERED 2026-09-10**
+### ~~B-65r~~ · The actual sentiment factor — PMax direction on NIFTY 1H — **MEASURED 2026-09-10: NEITHER ARM DISCRIMINATES, and 19 years of daily data has the power to say so**
 
 [[#B-65]] deliberately did not test this. It scored PMax on daily EQUITY bars and
 said so before running, because `W_PMAX_1H` is a different claim: a direction
@@ -847,6 +848,81 @@ this desk's own evidence disagree, and that is why this is worth running.**
   **nothing is deleted on this result alone** — the same rule as B-59r and B-65 —
   but re-weighting the sentiment index becomes a live proposal with evidence
   behind it, and that proposal is its own entry, not this one.
+
+═══ MEASURED — 2026-09-10, `tools/pmax_nifty_edge.py` ═══════════════════════════
+
+**ARM 1 — ^NSEI 1H, 5,057 bars, 2023-10 → 2026-09** (2,676 up / 2,371 down)
+
+| horizon | up | down | **spread** | hit up/dn | p_rot |
+|---|---|---|---|---|---|
+| **PRIMARY ~5d (35 bars)** | +0.00% | +0.31% | **−0.30%** | 51.9 / 54.5 | 0.306 |
+| desc ~1d (7 bars) | −0.01% | +0.06% | −0.07% | 51.8 / 51.7 | 0.223 |
+| desc ~20d (140 bars) | +0.62% | +0.71% | −0.09% | 60.2 / 62.8 | 0.860 |
+
+**ARM 2 — ^NSEI DAILY, 4,658 bars, 2007-09 → 2026-09** (2,862 up / 1,786 down)
+
+| horizon | up | down | **spread** | hit up/dn | p_rot |
+|---|---|---|---|---|---|
+| 20d | +0.54% | +1.12% | **−0.58%** | 58.3 / 60.1 | 0.488 |
+
+**VERDICT: FAIL on the pre-registered bar, and it is the fourth consequence row —
+NEITHER arm discriminates.** The 20 points `W_PMAX_1H` contributes to the
+sentiment score rest on something nobody has shown.
+
+**The daily arm is what makes this more than a power complaint.** The
+pre-registration anticipated that one 1H series (≈150 independent windows) could
+not settle anything, and named the escape: run the same spread on daily NIFTY
+over the longest history available. That arm covers **19 years — 2007 to 2026,
+including 2008, 2013, 2020 and 2022** — precisely the regimes in which a
+trend-direction filter is supposed to earn its place. **It does not discriminate
+there either.** So this is not "we lacked the data"; on the nearby question, the
+data exists and the answer is no.
+
+**Every point estimate leans the WRONG way, and that deserves stating carefully.**
+All four spreads are negative: the PMax-DOWN state returned *more* than the
+PMax-UP state, by +0.58% over 19 years of daily bars and +0.30% at the primary
+1H horizon. **Not one of them is significant** (p = 0.306, 0.223, 0.860, 0.488),
+so **this is a null, not an inversion** — the desk does not get to claim the
+factor is backwards. What can be said is that four independent
+timeframe/horizon combinations all point the same wrong way while none reaches
+significance, which is the profile of *no information*, not of a hidden
+contra-signal.
+
+> [!note] The pre-registered disagreement, resolved — and they were never actually
+> in conflict
+> The prior said this was the one place skepticism was not automatic, because
+> [[#B-32]] measured that **regime carries real information** (+0.22% RISK-ON vs
+> **−1.78% RISK-OFF, p<0.005**) while [[#B-65]]'s state arm pointed the other way.
+> The result resolves it, and the resolution is a distinction worth keeping:
+>
+> **B-32 measured how SIGNALS perform conditional on regime. This measures how
+> the INDEX performs conditional on trend state.** Those are different claims and
+> both can be true. Bullish scanner hits really do fail below the 200 SMA — that
+> is about signal quality in a hostile tape — while the index's own forward
+> return simply does not depend on whether a trailing band is above or below it.
+> **"Regime matters" was never the same statement as "this regime indicator
+> predicts the index",** and the sentiment factor makes the second claim while
+> borrowing credibility from the first.
+
+**Consequences, following the rules fixed before the run:**
+
+- **Nothing is deleted.** Same rule as [[#B-59r]] and [[#B-65]]: a null is not
+  evidence of harm, and the factor is not shown to mislead. `W_PMAX_1H` stays at
+  20 today.
+- **Re-weighting the sentiment index is now a live proposal with evidence behind
+  it** — and, as pre-registered, **that proposal is its own entry, not this one.**
+  What it will have to weigh: the remaining three factors (adv/decl 30, sector 25,
+  regime 25) are **also unmeasured**, so moving PMax's 20 points into them is
+  moving weight from one unvalidated input to three others. That is not obviously
+  an improvement and must not be done reflexively.
+- **The chart's PMax panel and `market_verdict`'s factor row are untouched.**
+  Neither claims prediction; they report a state, and the state is real even
+  though it is uninformative about what follows.
+
+**The trailing-stop family is now fully measured, and it is a clean sweep.**
+Renko (B-43/B-43r), PSAR and STAI (B-59r), PMax as an entry (B-65) and PMax as
+the sentiment factor (B-65r): **five measurements, five nulls, zero deletions.**
+Every one was assumed to work before this week and not one had been scored.
 
 ### ~~B-65~~ · PMax has never been scored, and it carries a fifth of the sentiment index — **MEASURED 2026-09-10: FAIL. The flip is negative, and the STATE does not even capture the bull drift**
 
