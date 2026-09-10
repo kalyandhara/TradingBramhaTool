@@ -775,6 +775,79 @@ wiggles, so the two panes stay comparable.
 divergence detectors on one chart that fire on the same swings are one detector
 with two colours.
 
+### B-65r · The actual sentiment factor — PMax direction on NIFTY 1H — **PRE-REGISTERED 2026-09-10**
+
+[[#B-65]] deliberately did not test this. It scored PMax on daily EQUITY bars and
+said so before running, because `W_PMAX_1H` is a different claim: a direction
+**state**, on **NIFTY**, at **1H**, worth **20 of the sentiment index's 100
+points**. B-65's state arm came back *below* the market on the nearest daily
+analogue, which is what makes this worth the trouble rather than a formality.
+
+**THE CLAIM, stated as the code makes it.** `_pmax_direction_nifty_1h` returns
+`factor = 1.0` when PMax direction is up and `0.0` when it is down, and that
+factor is multiplied by 20 and added to the score. So the assertion is **not**
+"up-state earns a positive return" — it is that **the two states are different**.
+A factor that scores 20 for up and 0 for down claims to *discriminate*.
+
+**PRIMARY is therefore a SPREAD, not an edge:**
+`mean(fwd | dir=1) − mean(fwd | dir=−1)`. Testing up-vs-all instead would let a
+factor that never discriminates pass on market drift alone, which is exactly the
+confound B-65's state arm was written to expose.
+
+**PRE-REGISTERED DESIGN — binding, written before `pmax_nifty_edge.py` exists.**
+
+| | |
+|---|---|
+| series | `^NSEI` 1H, **730d — the yfinance ceiling**, 5,057 bars, 2023-10 → 2026-09 |
+| indicator | `sentiment_index._pmax_direction_nifty_1h`'s own parameters (ATR 10, mult 3.0, MA 10), reusing the shipped port, not a copy |
+| **PRIMARY** | **spread at 5 trading days ≈ 34 bars**, entry next bar's open |
+| statistic | `mean(up) − mean(down)`, percent, **circular-rotation p** |
+| PASS BAR | `spread > 0 AND p_rot < 0.05` |
+| descriptive | the same spread at ~1 day (7 bars) and ~20 days (135 bars); up-vs-all and down-vs-all separately |
+
+**POWER — declared in advance, because it is the whole problem here.** This is
+**one series**, not a cross-section. 5,057 bars at a 34-bar horizon is roughly
+**150 independent windows**, and the sign of the whole thing can turn on a
+handful of 2024 swings. **A null in this arm does NOT retire the factor** — it
+means the exact claim is *unvalidatable at the depth free data allows*, which is
+a different and more honest statement.
+
+**SECOND ARM — same question, real power, different timeframe.**
+`^NSEI` **DAILY**, the longest history yfinance serves, same PMax parameters,
+same spread statistic at a 20-day horizon. This is **not** the factor's claim —
+the factor is 1H — and it cannot pass or fail `W_PMAX_1H` on its own. What it
+CAN answer is the question standing behind it: **does PMax direction on this
+index discriminate at all, over a sample long enough to contain more than one
+regime?** If the daily arm is also flat, the 1H version is not likely to be
+carrying something the daily one misses, and the factor's 20 points rest on
+nothing anyone has shown. If the daily arm discriminates, the 1H null is a power
+problem and the factor survives on inherited plausibility.
+
+**REGIME CAVEAT, pre-registered.** The 1H window (2023-10 → 2026-09) is
+substantially one bull regime. A direction factor is exactly the kind of thing
+that looks fine in a trend and fails at the turn, so **a positive 1H result must
+be read as "unfalsified in one regime", never as validation.** The daily arm
+exists partly to escape this.
+
+**PRIOR: genuinely uncertain, and this is the one place on this page where the
+skeptical prior is NOT the automatic call.** [[#B-32]] measured that regime
+carries real information — bullish signals lose significantly below the 200 SMA
+(+0.22% RISK-ON vs **−1.78% RISK-OFF, p<0.005**) — so a trend-direction state on
+the index *plausibly* discriminates even though every flip-as-entry test has
+failed. B-65's daily-equity state arm points the other way. **These two pieces of
+this desk's own evidence disagree, and that is why this is worth running.**
+
+**CONSEQUENCE RULES, fixed in advance:**
+
+- **Both arms discriminate** → the factor is supported; leave `W_PMAX_1H` alone
+  and record it as measured.
+- **Daily discriminates, 1H null** → power, not absence. Factor stays; the entry
+  says so.
+- **Neither discriminates** → **the 20 points are unsupported.** Even then
+  **nothing is deleted on this result alone** — the same rule as B-59r and B-65 —
+  but re-weighting the sentiment index becomes a live proposal with evidence
+  behind it, and that proposal is its own entry, not this one.
+
 ### ~~B-65~~ · PMax has never been scored, and it carries a fifth of the sentiment index — **MEASURED 2026-09-10: FAIL. The flip is negative, and the STATE does not even capture the bull drift**
 
 Falls out of [[#B-59r]]. PSAR and STAI have now both been measured on their
