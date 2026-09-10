@@ -4610,6 +4610,91 @@ def _money_flow_window(key_prefix: str, *, compact: bool = False):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Sector turnover-share rotation — B-62. Sits DIRECTLY under the money-flow grid.
+# ------------------------------------------------------------------------------
+# The pairing is the point and the two must not be separated: turnover is
+# UNSIGNED, so delta-share says WHERE the attention went and CMF says which side
+# of the range it closed on. Read alone, a sector taking share on falling price
+# reads as accumulation or distribution with equal ease.
+#
+# A table for the same reason the CMF grid is one: two metrics across ~20 sectors
+# where the job is to scan a column for the outlier. The cards-not-tables
+# convention governs scanner RESULTS, where each hit is an object with its own
+# reasons — not this.
+# ──────────────────────────────────────────────────────────────────────────────
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _sector_turnover_share(universe: str = "nifty500"):
+    import turnover_share as _tsx
+    return _tsx.rotation_grid(universe)
+
+
+def _turnover_share_window(key_prefix: str = "tsh_page"):
+    """Render the sector turnover-share rotation grid."""
+    st.markdown("#### 🔄 Sector rotation · share of market turnover")
+
+    with st.spinner("Computing turnover share…"):
+        grid = _sector_turnover_share()
+    if grid.get("error"):
+        st.warning(f"Turnover share unavailable: {grid['error']}")
+        return
+    df = grid.get("rows")
+    if df is None or df.empty:
+        st.info("No sector had enough constituents with history to compute.")
+        return
+
+    show = df[["sector", "members", "turnover_cr", "share_pct",
+               "d_share_d", "d_share_w"]]
+    styled = show.style.background_gradient(
+        cmap="RdYlGn", subset=["d_share_d", "d_share_w"], vmin=-3.0, vmax=3.0
+    ).format({"turnover_cr": "{:,.0f}", "share_pct": "{:.2f}%",
+              "d_share_d": "{:+.2f}", "d_share_w": "{:+.2f}"}, na_rep="—")
+    st.dataframe(
+        styled, hide_index=True, use_container_width=True,
+        column_config={
+            "sector":      st.column_config.TextColumn("Sector"),
+            "members":     st.column_config.NumberColumn(
+                "Members", help="Constituents with usable history."),
+            "turnover_cr": st.column_config.NumberColumn(
+                "Turnover (₹ Cr)",
+                help="Close × volume summed across the sector — a PROXY for "
+                     "exchange traded value, not the bhavcopy figure."),
+            "share_pct":   st.column_config.NumberColumn(
+                "Share %", help="This sector's slice of the whole universe's "
+                                "turnover today. The column sums to 100%."),
+            "d_share_d":   st.column_config.NumberColumn(
+                "Δ share 1D (pt)",
+                help="Change in that share vs yesterday, in percentage POINTS. "
+                     "3.70% → 6.65% is +2.95 pt, not +80%."),
+            "d_share_w":   st.column_config.NumberColumn(
+                "Δ share 1W (pt)", help="Same, vs five trading days ago."),
+        })
+
+    st.caption(
+        f"**Rotation in money, not price.** Each sector's turnover as a share of "
+        f"the universe's, and the change in that share in percentage points. "
+        f"{grid['n_covered']}/{grid['n_symbols']} symbols across "
+        f"{grid['n_sectors']} sectors."
+    )
+    st.caption(
+        "**Zero-sum by construction** — the shares sum to 100%, so the Δ column "
+        "sums to zero and every sector that gains attention takes it from named "
+        "others. A sector-return column has no such constraint: on a broad day "
+        "everything is green and the ranking says little."
+    )
+    st.caption(f"⚠️ {grid['unsigned_note']}")
+    st.caption(f"⚠️ {grid['turnover_note']}")
+    st.caption("A VIEW, not a signal — no entry, stop or target, and **nothing "
+               "here has been measured**. The prior is low: turnover spikes on "
+               "news, index rebalances, block deals and expiry, none of which is "
+               "rotation in the sense a trader means.")
+    _thin = df[df["low_coverage"]] if "low_coverage" in df else None
+    if _thin is not None and not _thin.empty:
+        st.caption("Computed from under half their constituents (read with that "
+                   "discount): **" + ", ".join(_thin["sector"]) + "**.")
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Volume Shockers (Darvas) — shared window, used twice on Home
 # ------------------------------------------------------------------------------
 # The lens was buried three clicks deep (Market Intel ▸ Trending Stocks ▸ tab 2),
@@ -8373,6 +8458,11 @@ if current_page == "Sector Map":
     # themselves, and needs no sector-index fetch, so it renders before the RRG
     # block that is gated behind a button.
     _money_flow_window("smf_page")
+    st.divider()
+
+    # Directly beneath, deliberately: delta-share is unsigned and CMF is signed,
+    # so the two answer half a question each.
+    _turnover_share_window("tsh_page")
     st.divider()
 
     if st.button("Fetch / Refresh Sector Data", type="primary"):

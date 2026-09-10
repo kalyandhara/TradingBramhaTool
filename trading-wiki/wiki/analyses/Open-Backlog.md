@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-09-07
+updated: 2026-09-09
 sources: 0
 related:
   - analyses/Open-Backlog-2026-08-02.md
@@ -2570,6 +2570,367 @@ with no dependency.
 B-32 (regime throttle, premise proven first), B-33 (conviction-sized list), B-36
 (posture banner + nav fold). B-34 is most of the way there. That leaves the
 measurement gates (B-21/B-29) as the load-bearing next step.
+
+### ~~B-62~~ · Turnover-share rotation column (sector) — **BUILT 2026-09-09**
+
+From [[sources/ScreeningMantis-Price-Volume-Sector-Rotation-2026-09-09]], the one
+idea on that site the vault did not already hold. Concept:
+[[concepts/Turnover-Share-Rotation]].
+
+Per sector, per day: turnover as a **share of total market turnover**, and the
+**change in that share in percentage points** over 1 day and 5 days.
+
+Why it is worth a column and not a scanner:
+
+- **Zero-sum by construction** — the shares sum to 1, so the Δ column sums to
+  zero and every gainer takes from a named loser. A sector-return column has no
+  such constraint and says little on a broad day.
+- **It disagrees with price, usefully.** 2026-09-09: IT took **+2.70 pt of
+  turnover share** while NIFTY IT fell **-3.24%**. Money in, price out.
+- **Turnover is unsigned**, so it cannot tell accumulation from distribution.
+  That is what the B-60 money-flow heatmap is already for — the two belong in the
+  same view, one giving location, the other direction.
+
+**Was blocked on [[#B-64]]** (built first, same day) — turnover share is a ratio over a denominator, and the
+desk currently buckets symbols under three non-joining sector vocabularies. Pick
+one first or the column silently means something different from the heatmap next
+to it.
+
+**Cost: low.** Same daily bars `money_flow.py` and the Sector Map already pull;
+no new source, no auth. **Ships as a VIEW** — no entry/stop/target, not in
+`SCANNERS`, never a confluence vote, on the same terms as B-60.
+
+
+**BUILT 2026-09-09 — `tools/turnover_share.py` + 12 tests, live on Sector Map.**
+Renders **directly beneath the money-flow grid**, and the pairing is load-bearing
+rather than layout: delta-share is unsigned, CMF is signed, so each answers half
+the question. Same aggregation choice as B-60 (turnover **summed** across a
+sector, not averaged) for the same reason.
+
+**Turnover is a PROXY here — `close x volume`, not exchange traded value.** It
+differs from the bhavcopy figure by the gap between the close and the day's VWAP;
+small for a liquid name, smaller across a sector, and named in `TURNOVER_NOTE`
+which the grid returns so the page cannot drift from the module.
+
+The tests pin the property that makes this a rotation column rather than a
+turnover one: **a sector can LOSE share on a day its own turnover ROSE** (its
+money went up 100 -> 150 while the market grew faster). A turnover column calls
+that inflow; a share column calls it what it is. Also pinned: shares sum to 1,
+deltas sum to 0, doubling every volume changes no share, and a heavyweight
+outweighs a minnow.
+
+> [!note] An independent corroboration nobody asked for
+> First live run, 2026-09-09, nifty500, 500/501 symbols, 20 sectors:
+> **Information Technology +2.73 pt** of turnover share. ScreeningMantis printed
+> **+2.70 pt** for the same sector on the same date — computed over **a different
+> universe (1,538 stocks), a different sector taxonomy (~45-50 labels) and
+> probably true exchange turnover rather than our close x volume proxy.**
+>
+> Two independent implementations landing within 0.03 pt is worth more than
+> either number: it says the measure is **robust to the taxonomy**, which was the
+> open worry behind B-64. It says **nothing whatever about edge** — both are
+> descriptions of the same session, and agreement between two thermometers is not
+> evidence that the temperature predicts anything.
+>
+> The day's own reading remains the argument for the column: IT took that share
+> **while NIFTY IT fell -3.24%**. Money in, price out.
+
+**Still unmeasured, and shipping that way.** No entry/stop/target, not in
+`SCANNERS`, never a confluence vote. The pre-registered event study above is
+unrun and its expected result is still no lift.
+
+**Prior: low, and stated before building.** Turnover concentration spikes on
+news, index rebalances, block deals and expiry — none of which is rotation in the
+sense a trader means. The measurement, if it is ever run:
+
+> Rank sectors by Δ share (D and W); score forward 5/20-day sector-index returns
+> of the top and bottom quintile against a random-sector null. **Expected: no
+> lift.** The only interesting outcome is *W* showing something *D* does not,
+> which would mean the measure needs a week to shed one-day event noise.
+
+### B-63 · Shared column library for every table in the desk — **PROPOSED 2026-09-09, refined on request**
+
+Owner's ask, verbatim in intent: bring ScreeningMantis's stock-table column
+structure into our system and **use it for all the tabular displays we have across
+the different pages**. Full 28-column header captured in
+[[sources/ScreeningMantis-Price-Volume-Sector-Rotation-2026-09-09#1 — The PRICE & VOLUME column group (stock table)]].
+
+This is two separable pieces of work and they should not be done in one commit.
+
+#### B-63a · `tools/columns.py` — one definition per column (the real deliverable)
+
+**The problem it fixes, counted before proposing anything:** `st.dataframe` is
+called **43 times** across `tools/` (42 in `dashboard_app.py`), with
+`column_config` built inline **122 times** and `help=` passed **121 times** — and
+not one of those definitions is shared. The same quantity is therefore labelled,
+formatted, coloured and explained differently on different pages, and a column
+added to one table reaches no other. That is the actual blocker behind "use those
+for all the tabular displays": there is nowhere to put a column once.
+
+Shape:
+
+```python
+COLUMNS = {                      # id -> ColSpec
+  "rvol":  ColSpec(label="Vol Spike", help="Today's volume / 20-day average. 2x = twice normal.",
+                   fmt="%.1fx", width="small", tone="heat"),
+  ...
+}
+def configure(df, *ids, **overrides) -> dict   # -> st.column_config for st.dataframe
+```
+
+Rules that make it worth building rather than a second way to do the same thing:
+
+- **One id, one label, one tooltip, one format.** A caller picks ids; it may
+  override width and label, never the definition of the number.
+- **It emits config, it does not render.** `_paginated_df` stays the single
+  render path and keeps its pagination; the 5 chart-icon LinkColumns already
+  centralised for the Scanner Hub tables move in as ids rather than being
+  rebuilt.
+- **`sector` is NOT an id until [[#B-64]] lands.** Three non-joining vocabularies
+  are in use; standardising the label over three different meanings hides the
+  problem instead of fixing it.
+- **Adoption is incremental and per-call-site.** A table not yet migrated keeps
+  working. Do NOT convert all 43 in one pass — migrate the Scanner Hub summary +
+  confluence tables first (they already have the richest config), then the rest
+  as they are touched.
+
+> [!warning] This does not turn cards into tables
+> The Scanner Hub results grid is a **3-column card grid and stays one** — that
+> decision is settled and the column library has nothing to say about it.
+> Structure belongs in sort order and tags there. B-63 touches the **dataframes
+> only**: summary/confluence tables, Sector Map, watchlist, portfolio, alerts,
+> saved rotation, telegram signals, the Opportunity Hub tables.
+
+#### B-63b · The new columns themselves
+
+Ordered by cost. Every one of them describes bars we already pull — **no new data
+source, no auth, no vendor**.
+
+| Column | What it needs | Note |
+|---|---|---|
+| **Gap (opening)** | open vs prior close | already computed in places, never a column |
+| **Price header carries its as-of date** | pass the scan date into the label | one line; kills "is this today's close?" |
+| **EMA cross age (10x20), in days** | a boolean cross series + distance-to-last-True | **the cheapest column here** — both halves already exist, see the note below |
+| **Breakout DATE beside BO gain%** | the date is already known when the gain is computed | we print the gain and drop the date |
+| **Pivot ZONE label** (`R1-PP`, `PP-S1`, `Near Pivot`) | **extract** CPR from `build_chart()` into a function, then bucket price against it | levels are computed but **trapped in a plotting function** — see the audit below |
+| **Stage-2 as `x/7`** | count conditions instead of gating on them | keeps near-misses visible; see below |
+| **W-Pivot** (weekly zone) | resample to weekly first — **no weekly pivot exists at all** | strictly more than D-Pivot, do it second |
+| **RS rank walk T-30/T-15/T-5/T0** | a **universe-wide** RS rank (today's is scan-relative) + daily persistence for the whole universe | **by far the most expensive column here** — it is a data-collection project, not a column; see below |
+| **Hist. price + Gain% since (user date)** | re-base the table on a date the reader picks | a different question from any our pages answer |
+| **In-row watchlist toggle + Notes** | `st.data_editor` on the 1 table that should be editable | write-back; scope it to one table first |
+
+#### What the code actually holds today (audited 2026-09-09, before proposing)
+
+Checked against `tools/`, because two of the columns above were nearly filed as
+"we already have this" when we do not, and one as missing when we do.
+
+| Column | Reality in this repo |
+|---|---|
+| Price / 1D% / Ticker / Sector / Cap | `data_source` OHLCV + `nse_universe`. Fine. |
+| RSI | `scanner_templates._rsi_series`, Wilder n=14. One implementation. Fine. |
+| 52W high | `df["high"].tail(252).max()`. Fine. |
+| **Vol spike** | **four different definitions live at once** — see below |
+| % from 20EMA | computed inline at `scanner_templates.py:4340`, never exposed |
+| EMA spans in use | 10, 20, **21**, 50, 200 — `scan_pullback_to_ema` uses **21**, so it and a "% from 20EMA" column disagree by construction |
+| **EMA cross age** | **absent as a pair (10x20 is computed nowhere), but neither half is new** — cross detection and an age helper both exist. See below |
+| **D-Pivot** | CPR pivot/BC/TC/**R1/S1** ARE computed — `dashboard_app.py:3391-3401` — but **inside `build_chart()`, as plot traces**. Daily only, not a function, no zone label |
+| **W-Pivot** | **absent** |
+| "pivot" in `scanner_templates.py` | **swing** pivots (`pivot_len`), NOT floor pivots. `scan_near_pivot` is swing-high proximity. Reads like coverage; is not |
+| **RS rank** | **EXISTS** — `_rs_raw` + `_finalize_relative_strength` (`scanner_templates.py:76-111`) produce a 0-100 percentile, also worth 25% of the blended score. But its denominator is **the scan's matched set**, and it is **not persisted**. See the correction below |
+| **Stage 2** | `scan_stage2_uptrend` is a **hard gate** returning `None` on any failed leg — there is no `x/7` to surface |
+
+> [!warning] "Vol Spike" already means four different numbers here
+> This is B-63a's case, made by the codebase rather than by argument. The same
+> column name is currently computed as:
+>
+> | Base | Where |
+> |---|---|
+> | 20-day **mean** | `scanner_templates.py:4336` |
+> | 50-day **mean** | `scanner_templates.py:1770` |
+> | 5-day / 20-day **ratio of means** | `scan_pullback_to_ema` |
+> | **5-session MEDIAN** | `nse_oi_momentum.py:100` (`VOLUME_BASELINE_SESSIONS = 5`) |
+>
+> Four windows, two central tendencies, zero shared definition — and
+> ScreeningMantis's **9-day** base would have been a fifth had it been copied.
+> A reader comparing "2.4x" on one page against "2.4x" on another is comparing
+> nothing. **`rvol` is therefore the first id to land in `columns.py`**, and the
+> migration must state which base wins (default 20-day mean) and leave the
+> 5-session median where it is with its own id — `nse_oi_momentum` uses a median
+> deliberately, on intraday-ish data, and collapsing the two would be a silent
+> behaviour change dressed as a refactor.
+
+> [!note] EMA cross age is assembly, not invention — copy `_percentr_exhaustion`
+> The 10x20 pair is computed nowhere (`_ema_series` is called with 10 only once,
+> on **weekly** closes at `scanner_templates.py:3342`), and the nearest thing —
+> `scanner_templates.py:6546` "golden-cross zone" — is **SMA20 > SMA50**, a
+> *state*, not an event, on SMAs not EMAs. So the column is genuinely absent.
+>
+> But both halves of it are already written and should be reused rather than
+> re-derived:
+>
+> - **Cross detection**, the `prev <= x, now > x` idiom, appears at
+>   `scanner_templates.py:6775-6783` (RSI/VWMA vs mid), `hm_indicator.js:194`,
+>   `adx_di.js:94` (+DI/-DI) and `evwma_vwap_macd.js:156` (MACD/signal).
+> - **Age of an event** is `_bars_ago` inside `_percentr_exhaustion`
+>   (`scanner_templates.py:2042`): a boolean event series, then the distance from
+>   the last `True` to the end. `bars_since` in `block_deal_intel.py:311` and
+>   `bars_ago` in `chart_server.py:1025` are the same pattern surfaced in the UI,
+>   so **the desk already has a house style for printing "N days ago"** — follow
+>   it rather than inventing a second phrasing.
+>
+> **One difference to get right:** `_percentr_exhaustion` searches only its
+> `lookback` window (3 bars) and returns `None` outside it. The cross-age column
+> needs an **unbounded** search back, and must distinguish *"crossed more than N
+> bars ago"* from *"never crossed in the loaded history"* — their UI leaves the
+> cell **blank** for the second case, and a blank that silently means "we only
+> looked back 3 bars" would be a lie. State the search depth in the tooltip.
+
+> [!warning] Correction — RS rank exists; the sparkline still does not follow
+> An earlier pass on this page said no RS-rank function exists. **Wrong.**
+> `scanner_templates.py:76-111`:
+>
+> - `_weighted_trailing_return` — IBD-style weighted trailing return,
+>   **63/126/189/252 days at 0.4/0.2/0.2/0.2**, degrading on short history.
+> - `_rs_raw` — that return **minus the benchmark's** when `run_scanner` set one
+>   (excess return vs Nifty), else absolute.
+> - `_finalize_relative_strength` — ranks `rs_raw` across the results into
+>   **`rs_rank`, 0-100**, and blends it in at **25%** of `score` for scanners
+>   exposing `score_base`.
+>
+> **Two things block the T-30 -> T0 walk, and neither is "we don't compute RS".**
+>
+> **1. The denominator moves.** `rs_rank` is a percentile **across that scan's
+> matched set** — deliberately so ("RS rank is by definition relative to the rest
+> of the scan"). A rank of 90 among 12 hits and a rank of 90 among 400 are not
+> the same statement, so **four such ranks in a row are not a trend line** — the
+> sparkline would be plotting a changing population as if it were a moving stock.
+> A universe-wide rank (all ~1,500 names, fixed denominator, computed daily
+> whether or not the name is a hit) is a **different measure** that would have to
+> be added beside the existing one, not a persistence change.
+>
+> **2. Only survivors are stored, and thinly.** Checked in
+> `tools/trading_bramha.db` on 2026-09-09: `daily_opportunities` has **no
+> `rs_rank` column** at all (it stores `momentum`), the frozen
+> `daily_opportunity_cards` JSON carries `rs_rank` in **91 of 204** cards
+> (scanners that emit `rs_raw`), and there are **14 run dates** total, irregular,
+> spanning 2026-08-24..2026-09-07 in the cards table with row counts swinging
+> 5-100. T-30/T-15/T-5 need a **per-symbol daily series for the whole universe**.
+> What exists is a sparse shortlist of that day's winners — so a name that fell
+> out of the shortlist would render as a **gap, not a decline**, which is exactly
+> backwards from what the column is for. **Survivorship, printed as a sparkline.**
+>
+> **Consequence for B-63b:** this column is not "cheap, no new data source" like
+> the rest. It is a universe-wide RS rank plus a daily snapshot table, and it
+> should be split out and scheduled on its own rather than shipped with the
+> column library. Everything else in B-63b stands.
+
+**`x/7` instead of a gate is the one with a consequence worth stating.** Turning a
+boolean into a count of conditions met changes what the table *hides*: their own
+top-20 mixes 7/7, 3/7 and 0/7 rows, and a hard gate would have dropped most of
+them. That is a deliberate widening of what reaches the eye, in a desk whose
+[[analyses/Open-Backlog#B-19]] finding is that most single-condition scanners have
+no edge after costs — so it belongs as a **column**, not as a relaxed filter.
+
+**Deliberately NOT copied:** their **9-day** RVOL base. Ours is 20-day; a 9-day
+mean reacts about twice as fast and lets one prior spike deflate the ratio for a
+fortnight. Keep 20 and keep the numbers comparable to our own history.
+
+**No measurement owed.** These columns describe state that is already computed —
+they make no claim of edge, register no scanner and cast no confluence vote. The
+one thing to watch is the opposite failure: **28 columns is a lot of table**, and
+the reason theirs stays legible is that every header carries an `i` tooltip. The
+tooltip is not decoration here; it is the thing that makes the width affordable,
+which is why B-63a puts `help=` in the definition rather than at the call site.
+
+### ~~B-64~~ · Pick the canonical sector vocabulary — **BUILT 2026-09-09**
+
+Fell out of the B-63 column audit. "Sector" looked like the one column we
+certainly had. We have it **three times, in three vocabularies that do not join**,
+and the one actually persisted is the one nothing else uses.
+
+| # | Vocabulary | Size | Where it lives | What it looks like |
+|---|---|---|---|---|
+| 1 | **NSE macro** (constituent CSV) | **20** labels on nifty500, **22** on niftytotalmarket | `nse_universe`, `NSE_SECTOR_INDEX_MAP` -> 11 indices | "Capital Goods", "Oil Gas & Consumable Fuels" |
+| 2 | **screener.in Industry** | ~130 values, **97** mapped | `sector_rotation.SECTOR_INDEX_MAP` | fine-grained, needs a manual export |
+| 3 | **Yahoo / yfinance** | 11 sectors + ~150 industries | **the only one PERSISTED** — `daily_opportunities.sector` / `.industry` | "Healthcare" / "Drug Manufacturers - Specialty & Generic" |
+
+The damning number is already in our own code comment, measured 2026-08-01:
+**0 of NSE's 20 labels appear among screener.in's 97 keys** — "the two share
+**nothing**", which is why `nse_universe` had to define a *second* map rather than
+extend the first. Nobody has since asked what happens when a third one is stored.
+
+**Two traps found while checking, both worth more than the tidy-up:**
+
+- **The field called `industry` holds a SECTOR.** `nse_universe.fetch_constituents`
+  emits `{"industry": ...}` from the CSV's `Industry` column, but the values are
+  NSE's 20 **macro sector** labels. `money_flow.sector_grid` groups on
+  `r["industry"]` and — correctly — calls the result `sector`. The name lies at
+  the boundary; a reader wiring a genuinely industry-level view off that key will
+  get sectors and no error.
+- **The label set depends on the universe.** nifty500 yields 20 labels,
+  niftytotalmarket 22 (`Forest Materials`, `Utilities` appear). So even *within*
+  vocabulary 1, two runs can disagree about what sectors exist.
+
+**Why this blocks [[#B-62]].** Turnover share is `sector_turnover / total_turnover`
+— a ratio whose denominator is only meaningful if every symbol is bucketed once,
+under one taxonomy, over a stable universe. Today B-60's money-flow grid buckets
+by **NSE macro (20)** while the stored opportunity rows carry **Yahoo (11/150)**,
+so the two sector views on the desk cannot be laid side by side, and a Δ-share
+column computed against either would silently mean something different from the
+heatmap beside it. **Ship B-62 after this, not before.**
+
+It also constrains [[#B-63a]]: `sector` cannot be an id in `columns.py` until
+there is one definition for it to point at. Anything else just standardises the
+*label* over three different meanings, which is worse than the mess it replaces —
+it hides it.
+
+**The decision, stated so it can be argued with:** adopt **NSE macro (20/22)** as
+canonical. It is free, refreshed from NSE itself with a 7-day cache, already
+covers 501/754 constituents, and is the only one with an honest index mapping
+(11 indices, 4 labels **deliberately unmapped** rather than guessed — Services,
+Diversified, Textiles, Media, 5.4% of constituents, left "unscored"). Yahoo's is
+richer and free but is a US-shaped taxonomy applied to Indian names; screener.in's
+is the most granular and the least reachable (manual authenticated export).
+
+Consequences to accept, not paper over:
+
+- **ScreeningMantis's ~45-50 labels do not map onto 20.** "Auto Components",
+  "Refineries & Lubricants", "Jewellery & Watches" are Yahoo-*industry*-grained.
+  A comparison against their sector table is therefore **not** cell-to-cell, and
+  any note that implies otherwise is wrong.
+- Yahoo sector/industry **stays stored** on opportunity rows — it is useful
+  description. It just stops being a join key. One canonical column, additional
+  labels as attributes.
+- The `industry`-holding-sectors misnomer gets renamed at the same time, or the
+  next person repeats this audit.
+
+Cost: small — a mapping table plus a rename, no new data source. Value: it is a
+prerequisite for two other items, and prerequisites bought late are bought twice.
+
+**BUILT 2026-09-09 — `tools/sectors.py` + 11 tests.** NSE macro adopted as
+canonical, exactly as proposed above. What the build added beyond the decision:
+
+- **`from_yahoo(sector, industry)` takes the industry too**, because four Yahoo
+  sectors are irreducibly ambiguous against NSE's vocabulary (Industrials, Basic
+  Materials, Consumer Cyclical, Utilities). Those four have **no sector-level
+  fallback at all** — a test asserts their absence — so an unresolvable pair
+  returns **None**, never a nearest guess. Two industry overrides earn their keep
+  on their own: Yahoo files **gas distribution under Utilities** where NSE files
+  it under Oil Gas & Consumable Fuels, and **Solar under Technology** where NSE
+  files it under Capital Goods.
+- **Every mapping target is asserted to be in `CANONICAL`**, so a typo in a table
+  fails a test rather than inventing a 23rd sector at runtime.
+- **`symbol_map()` is the honest-name replacement** for reaching into
+  `nse_universe.fetch_constituents()` and reading `r["industry"]` — the key whose
+  values are SECTORS. New callers use `symbol_map`; the misnamed key is left
+  untouched rather than renamed under the existing readers.
+
+**Live coverage, measured not assumed:** nifty500 gives **501/501 symbols across
+20 labels, 100% canonical**. Against the Yahoo pairs actually stored in
+`daily_opportunities`: **447 of 453 resolve (98.7%)**, and all six failures are
+rows whose stored sector is the empty string — bad data, not an unmapped pair.
+
+
 
 ## Outcome (fill in later)
 

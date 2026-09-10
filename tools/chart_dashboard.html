@@ -409,13 +409,12 @@ html, body {
   margin-left: auto; display: flex; align-items: center; gap: 6px;
 }
 .sym-badge {
-  font-size: 11px; font-weight: 600; color: var(--text-secondary);
-  white-space: nowrap; max-width: 110px; overflow: hidden; text-overflow: ellipsis;
+  font-size: 15px; font-weight: 700; color: var(--text-primary);
+  white-space: nowrap; max-width: 280px; overflow: hidden; text-overflow: ellipsis;
 }
-.sym-company {
-  font-size: 10px; color: var(--text-secondary); opacity: .7;
-  white-space: nowrap; max-width: 200px; overflow: hidden; text-overflow: ellipsis;
-}
+/* Company name is shown in .sym-badge itself once resolved; this span stays in
+   the DOM (populated) because the snapshot header reads it, but is not drawn. */
+.sym-company { display: none; }
 .sym-exch-badge {
   font-size: 9px; font-weight: 700; letter-spacing: .3px;
   padding: 1px 5px; border-radius: 8px; white-space: nowrap;
@@ -2467,6 +2466,46 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
 
   updateNavButtons();
 
+  // Resolve the exchange chip, the company-name headline and the research
+  // links for a symbol. Called both when the symbol CHANGES and once at pane
+  // creation — the initial symbol comes straight from saved config / the URL
+  // and never passes through applySymbol, so without the init call a restored
+  // pane sat there showing the bare ticker and no exchange chip.
+  function refreshSymbolMeta(s) {
+    const bare = s.replace(/\.(NS|BO|BSE)$/i, '');
+    const suffix = (s.match(/\.(NS|BO|BSE)$/i) || [''])[0].toUpperCase();
+    const wantExch = suffix === '.NS' ? 'NSE' : (suffix === '.BO' || suffix === '.BSE') ? 'BSE' : null;
+    renderQuickLinks(el, bare, wantExch);   // per-symbol external research links
+    fetchSymbolMatches(bare).then(results => {
+      // Ignore a response that lost the race with a newer symbol.
+      if (pane.symbol.toUpperCase() !== s.toUpperCase()) return;
+      // If pane symbol has an exchange suffix, only accept matches from that
+      // exchange — otherwise a BSE-only ticker like 'MARINE.BO' would fall
+      // back to NSE 'MARINE.NS' (a totally different company) and mislabel
+      // the chart.
+      let match = results.find(r => r.symbol.toUpperCase() === s.toUpperCase());
+      if (!match && wantExch) {
+        match = results.find(r => r.exchange === wantExch && r.display.toUpperCase() === bare.toUpperCase());
+      }
+      if (!match && !wantExch) {
+        match = results.find(r => r.display.toUpperCase() === bare.toUpperCase()) || results[0];
+      }
+      if (match) {
+        companyEl.textContent = match.name;
+        companyEl.title = match.name;
+        // Company name replaces the ticker as the headline label (the ticker is
+        // already in the symbol input at the far left of the toolbar).
+        badge.textContent = match.name;
+        badge.title = `${s} — ${match.name}`;
+        exchBadge.textContent = match.exchange;
+        exchBadge.className = `sym-exch-badge ${match.exchange}`;
+      } else if (wantExch) {
+        exchBadge.textContent = wantExch;
+        exchBadge.className = `sym-exch-badge ${wantExch}`;
+      }
+    });
+  }
+
   // ── Controls ───────────────────────────────────────────────────────────────
   function applySymbol(s) {
     s = s.trim().toUpperCase();
@@ -2491,32 +2530,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
     // deliberately survive a TIMEFRAME change — a level you drew on the daily
     // is still that level on the weekly, since anchors are timestamps.)
     try { loadDrawings(pane); } catch {}
-    const bare = s.replace(/\.(NS|BO|BSE)$/i, '');
-    const suffix = (s.match(/\.(NS|BO|BSE)$/i) || [''])[0].toUpperCase();
-    const wantExch = suffix === '.NS' ? 'NSE' : (suffix === '.BO' || suffix === '.BSE') ? 'BSE' : null;
-    renderQuickLinks(el, bare, wantExch);   // per-symbol external research links
-    fetchSymbolMatches(bare).then(results => {
-      // If pane symbol has an exchange suffix, only accept matches from that
-      // exchange — otherwise a BSE-only ticker like 'MARINE.BO' would fall
-      // back to NSE 'MARINE.NS' (a totally different company) and mislabel
-      // the chart.
-      let match = results.find(r => r.symbol.toUpperCase() === pane.symbol.toUpperCase());
-      if (!match && wantExch) {
-        match = results.find(r => r.exchange === wantExch && r.display.toUpperCase() === bare);
-      }
-      if (!match && !wantExch) {
-        match = results.find(r => r.display.toUpperCase() === bare) || results[0];
-      }
-      if (match) {
-        companyEl.textContent = match.name;
-        companyEl.title = match.name;
-        exchBadge.textContent = match.exchange;
-        exchBadge.className = `sym-exch-badge ${match.exchange}`;
-      } else if (wantExch) {
-        exchBadge.textContent = wantExch;
-        exchBadge.className = `sym-exch-badge ${wantExch}`;
-      }
-    });
+    refreshSymbolMeta(s);
     savePaneCfg();
     loadData(idx);
   }
@@ -2768,6 +2782,9 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
 
   // Drawing tools: wire the toolbar/canvas, then restore this symbol's markup.
   try { wireDrawingTools(pane); loadDrawings(pane); } catch (e) { console.warn('drawing tools:', e); }
+
+  // Label the pane's starting symbol (company name + exchange chip + links).
+  try { refreshSymbolMeta(pane.symbol); } catch (e) { console.warn('symbol meta:', e); }
 
   return pane;
 }
@@ -8467,6 +8484,10 @@ async function loadData(idx) {
           if (match && cEl) {
             cEl.textContent = match.name;
             cEl.title = match.name;
+            if (p.badge) {
+              p.badge.textContent = match.name;
+              p.badge.title = `${p.symbol} — ${match.name}`;
+            }
             eEl.textContent = match.exchange;
             eEl.className = `sym-exch-badge ${match.exchange}`;
           } else if (wantExch && eEl) {

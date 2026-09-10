@@ -4,7 +4,7 @@ category: concept
 tags: [indicator, volume, money-flow, accumulation-distribution, sector-analysis]
 timeframe: daily
 created: 2026-09-07
-updated: 2026-09-07
+updated: 2026-09-09
 sources: 4
 related:
   - analyses/Open-Backlog.md
@@ -92,9 +92,30 @@ property that makes a sector heatmap legible.
   volume alone and can disagree with reported flows — when it does, the reported
   series is the fact and CMF is the inference.
 
+
+## What the source product actually does (checked 2026-09-09)
+
+B-60 was built from a screenshot. Reading the live site
+([[sources/ScreeningMantis-Price-Volume-Sector-Rotation-2026-09-09]]) pins down
+three things it had to guess at:
+
+- Their window is **20 sessions**; ours is the conventional **21 bars**. No
+  practical difference in the reading, but the cells are not comparable one to one.
+- They compute a **sector-average CMF** — a mean of constituent CMFs. We
+  deliberately do not: `money_flow.py` sums money-flow volume across the sector
+  and divides by summed volume, because the mean lets a smallcap outvote a
+  heavyweight, and a test here shows the naive mean **inverts** a sector's sign.
+  The departure is intentional and stays.
+- They label each row **Accumulating / Improving / Neutral / Distributing**. A
+  usable naming for our numeric cell — but note it *amplifies* the caveat below:
+  four overlapping 20-bar windows that share most of their bars are close to one
+  observation, so "Improving" is a shape read off correlated cells, not four
+  independent confirmations.
+
 ## Related
 
 - [[analyses/Open-Backlog#B-60]] — the sector money-flow heatmap this was ingested for
+- [[concepts/Turnover-Share-Rotation]] — the unsigned partner: WHERE attention went; CMF says which side of the range it closed on
 - [[concepts/Volume-Profile]] — volume at PRICE; CMF is volume at CLOSE-LOCATION over TIME
 - `tools/scanner_templates.py::_mfi_series` — the desk's existing Money Flow Index,
   a different indicator: MFI is an RSI-style 0-100 oscillator on typical price,

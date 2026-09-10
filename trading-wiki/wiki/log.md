@@ -2368,3 +2368,53 @@
   - **AEGISLOG** · AI 48.6 · Δ +1.39% · Vol× 0.4 · [[AEGISLOG]] (Growth)
   - **GLAND** · AI 46.4 · Δ +0.09% · Vol× 0.9 · [[GLAND]] (Growth)
   - **NRBBEARING** · AI 43.7 · Δ -1.78% · Vol× 0.5 · [[NRBBEARING]] (Growth)
+
+## [2026-09-09] ingest | ScreeningMantis live site (https://screeningmantis.com)
+- Source: commercial NSE screener product UI — second visit (the 2026-09-07 ingest was one screenshot and produced B-60)
+- Read: Stocks table (1,538 rows, PRICE & VOLUME column group), Sectors > Sector Ranking, Sectors > Chaikin Money Flow, Sectors > Nifty Indices (45)
+- Pages created: ScreeningMantis-Price-Volume-Sector-Rotation-2026-09-09 (source), Turnover-Share-Rotation (concept)
+- Pages updated: Chaikin-Money-Flow (their window/aggregation pinned; our volume-weighted departure recorded), Open-Backlog (B-62, B-63 proposed), index.md
+- Key extractions: **Δ turnover share in percentage points** as sector rotation (zero-sum, scale-free, UNSIGNED); sector-health breadth block (A/D net, avg RSI, %>20EMA, **% breakout in last 10 days**); their CMF is a **20-session sector MEAN** vs our 21-bar volume-weighted sum; time-derivative columns (EMA-cross age, breakout date, RS-rank walk T-30/T-15/T-5/T0); Stage-2 as **x/7** not a gate; VOL SPIKE on a **9-day** base, not 20
+- Observed contradiction worth keeping: IT **+2.70 pt turnover share** on a **-3.24%** NIFTY IT day — money in, price out; unsigned turnover cannot say which
+- Declined: the 1,538-row table (decays daily), RS "momentum" (method unstated), the filter presets (already expressible here)
+
+## [2026-09-09] refine | ScreeningMantis column structure -> B-63 spec
+- Source page extended to the **complete 28-column header** (adds My Watchlist toggle, dated Price header, Hist. price + Gain% since a user-chosen date, in-row Notes, and the per-column `i` tooltip as a design element, not decoration)
+- **B-63 rewritten** from a three-bullet idea into a two-part spec at the owner's request ("use those for all the tabular display we have in the different pages"):
+  - **B-63a `tools/columns.py`** — one definition per column (label/tooltip/format/width), emitting `st.column_config`; counted the actual problem first: **43 `st.dataframe` call sites, 122 inline `column_config`, 121 `help=`, zero shared**. Renders through the existing `_paginated_df`; migration is per-call-site, not a big-bang pass
+  - **B-63b** — the nine new columns, costed, all from bars we already pull; only the RS-rank walk has a storage cost
+- Constraint restated inside the backlog entry so it cannot be lost: **the Scanner Hub card grid stays cards**; B-63 touches dataframes only
+- Declined again, explicitly: their 9-day RVOL base (ours is 20d; keep our own history comparable)
+- No measurement owed — these columns describe state already computed and cast no confluence vote
+
+## [2026-09-09] audit | B-63 columns checked against the code, two claims corrected
+- Ran a column-by-column audit of `tools/` before any build, and **two entries were wrong in the pages written earlier today**:
+  - **Pivots understated.** CPR pivot/BC/TC/**R1/S1** ARE computed (`dashboard_app.py:3391-3401`) — but inside `build_chart()` as plot traces: daily only, no reusable function, no zone label. Weekly pivots absent entirely. Corrected in both the source page and B-63b (the task is *extract*, not *build from scratch*)
+  - **Trap recorded:** every `pivot`/`pivot_len` in `scanner_templates.py` is a **swing** pivot; `scan_near_pivot` is swing-high proximity. Grepping "pivot" gives false confidence that D/W-Pivot are covered
+- **"Vol Spike" already means four different numbers in this repo** — 20d mean (`scanner_templates.py:4336`), 50d mean (`:1770`), 5d/20d ratio (`scan_pullback_to_ema`), **5-session median** (`nse_oi_momentum.py:100`). ScreeningMantis's 9-day base would have been a fifth. Added to B-63a as the worked example, with the ruling: `rvol` is the first id to land, default 20d mean, and `nse_oi_momentum`'s median keeps its own id rather than being silently collapsed
+- Also corrected: **Stage 2 is a hard gate here** (`scan_stage2_uptrend` returns `None` on any failed leg), so `x/7` has nothing to surface yet; **no RS-rank function exists** despite [[concepts/Mansfield-RS]] having a page; `% from 20EMA` is inline-only and `scan_pullback_to_ema` uses **21**, not 20
+- Nothing built, nothing measured — this was a coverage audit that changed what B-63 says the work is
+
+## [2026-09-09] correction | RS rank exists — the blocker is the denominator, not the function
+- Retracted from today's earlier audit: **`rs_rank` is NOT absent.** `scanner_templates.py:76-111` — `_weighted_trailing_return` (IBD-style 63/126/189/252 at .4/.2/.2/.2) -> `_rs_raw` (minus benchmark when set) -> `_finalize_relative_strength` (0-100 percentile, also 25% of the blended score)
+- **Why the T-30/T-15/T-5/T0 sparkline still does not follow, two reasons:**
+  1. **The denominator moves** — the percentile is taken across *that scan's matched set* by design, so four ranks in a row plot a changing population, not a moving stock. A universe-wide rank is a **different measure**, added beside the existing one
+  2. **Only survivors are stored** — checked `tools/trading_bramha.db`: no `rs_rank` column in `daily_opportunities`, `rs_rank` present in **91/204** frozen cards, **14 irregular run dates** (5-100 rows). A name dropping off the shortlist would render as a **gap, not a decline** — survivorship printed as a sparkline
+- B-63b updated: this column is **not** in the "cheap, no new data source" class with the others; it is a universe-wide RS rank plus a daily snapshot table, split out and scheduled separately. Everything else in B-63b stands
+
+## [2026-09-09] backlog | B-64 — pick the canonical sector vocabulary (blocks B-62)
+- The B-63 audit's last column, `SECTOR`, looked certain and was not: **three vocabularies, none joining** — NSE macro (**20** labels on nifty500, **22** on niftytotalmarket), screener.in Industry (~130, 97 mapped), and **Yahoo (11 sectors / ~150 industries), which is the only one actually PERSISTED** in `daily_opportunities`
+- Our own code already measured the collision (2026-08-01): **0 of NSE's 20 labels appear among screener.in's 97 keys**
+- Two traps recorded: (a) the field named **`industry` in `nse_universe` holds NSE's macro SECTOR labels** — `money_flow.sector_grid` groups on it and correctly calls the result `sector`, so the name lies at the boundary; (b) the label set **depends on the universe** (nifty500 20 vs totalmarket 22)
+- **B-62 marked blocked on B-64** — turnover share is a ratio whose denominator only means something under one taxonomy over a stable universe; B-60's grid buckets by NSE macro while stored rows carry Yahoo
+- **B-63a: `sector` is not an id in `columns.py` until this lands** — standardising a label over three meanings hides the problem
+- Decision proposed (arguable, written to be argued with): adopt **NSE macro** — free, NSE-sourced, 7-day cache, honest index map with 4 labels deliberately unmapped. Accepted consequence: ScreeningMantis's ~45-50 labels are Yahoo-industry-grained and **do not map onto 20**, so their sector table is not comparable cell-to-cell with ours
+
+## [2026-09-09] build | B-64 (canonical sectors) then B-62 (turnover-share rotation)
+- **B-64 BUILT** — `tools/sectors.py` + 11 tests. NSE macro is canonical. `from_yahoo(sector, industry)` consults industry FIRST because four Yahoo sectors (Industrials, Basic Materials, Consumer Cyclical, Utilities) are irreducibly ambiguous — those four have **no sector-level fallback**, asserted by a test, so an unresolvable pair returns **None**, never a nearest guess. Two overrides earn their keep alone: gas distribution (Utilities at Yahoo, Oil Gas at NSE) and Solar (Technology at Yahoo, Capital Goods at NSE)
+- Coverage measured, not assumed: **501/501 nifty500 symbols, 20 labels, 100% canonical**; against stored Yahoo pairs **447/453 (98.7%)**, all six failures being empty-string sectors (bad data, not unmapped)
+- **B-62 BUILT** — `tools/turnover_share.py` + 12 tests, live on Sector Map **directly beneath the CMF grid** (unsigned + signed = half a question each). Turnover is a **proxy** (`close x volume`), named in a note the grid returns so page and module cannot drift
+- Test that carries the design: **a sector can LOSE share on a day its own turnover ROSE** — a turnover column calls that inflow, a share column does not
+- **Independent corroboration, unasked for:** first live run gave **IT +2.73 pt**; ScreeningMantis printed **+2.70 pt** same date, over a different universe, a different sector taxonomy and probably true exchange turnover. Two implementations within 0.03 pt says the measure is **robust to the taxonomy** (the open worry behind B-64) and says **nothing about edge**
+- Both ship as VIEWS: no entry/stop/target, not in `SCANNERS`, never a confluence vote, event study still unrun with an expected-null prior
+
