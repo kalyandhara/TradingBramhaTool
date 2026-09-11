@@ -548,6 +548,42 @@ def price_movers_realtime(bhav: Optional[pd.DataFrame] = None, top_n: int = TOP_
     liquid universe (turnover ranking) but gets current prices from yfinance.
 
     Returns the same structure as price_movers() so it's a drop-in replacement.
+
+    ── The change BASIS, fixed 2026-09-11. Read this before touching it. ──────
+
+    This function used ``prev_close = closes.iloc[0]`` — **the first 5-minute
+    candle of today's session**. That is not a day change. It measures the move
+    since roughly 09:20, and therefore **throws away the overnight gap, which is
+    where most of a big loser's move lives.**
+
+    Observed live on 2026-09-11, which is what sent this to be fixed:
+
+        MVELECTRO   panel said  −3.09%   (basis 858.00, the 09:20 candle)
+                    actually    −9.72%   (basis 917.50, the previous close)
+
+    The panel's worst "top loser" that session was −3.22% while the real
+    cross-section had names at −17%. A gap-down open is not a small loss that
+    the list may round off; it is the entire event, and the list was blind to
+    exactly the names it exists to surface.
+
+    The basis is now the **previous SESSION's close**, chosen against the
+    bhavcopy's own trade date rather than assumed:
+
+      * intraday session is NEWER than the bhavcopy (the normal live case — the
+        bhavcopy is last night's file) → basis is that file's ``close``.
+      * intraday session is the SAME day as the bhavcopy (it published
+        mid-session, or the feed is a day behind) → basis is ``prev_close``.
+
+    Getting that wrong by one session is the same class of error as the original
+    bug, so it is decided from the dates and reported in ``basis`` rather than
+    left to a comment.
+
+    **Turnover and volume still come from the bhavcopy and are therefore a
+    session old** — yfinance intraday volume is not comparable to an NSE traded
+    value. They are renamed ``turnover_prev`` / ``volume_prev`` so a stale number
+    cannot sit unlabelled beside a live price. The liquidity FLOOR is applied to
+    that previous-session turnover, which is correct for a floor (it asks "does
+    this name normally trade?") and wrong to read as today's activity.
     """
     if bhav is None:
         bhav, _ = load_bhav()
@@ -561,6 +597,13 @@ def price_movers_realtime(bhav: Optional[pd.DataFrame] = None, top_n: int = TOP_
         log.warning("yfinance unavailable for realtime movers: %s", e)
         # Fall back to bhavcopy movers if yfinance isn't available
         return price_movers(bhav, top_n=top_n, min_turnover=min_turnover)
+
+    # Which bhavcopy column is "the previous session's close" depends on whether
+    # that file IS today's session. Resolved once, from the data, and reported.
+    bhav_date = None
+    if "trade_date" in bhav.columns and not bhav["trade_date"].isna().all():
+        bhav_date = pd.to_datetime(bhav["trade_date"].dropna().iloc[0],
+                                   errors="coerce")
 
     # Get the liquid universe from bhavcopy (for turnover ranking)
     uni = liquid_universe(bhav, UNIVERSE_N)
@@ -605,31 +648,36 @@ def price_movers_realtime(bhav: Optional[pd.DataFrame] = None, top_n: int = TOP_
             if curr_close <= 0:
                 continue
 
-            # Use the first intraday close as reference (or first valid close from history)
-            # If we only have one candle, we can't compute intraday change, so skip
-            if len(closes) < 2:
-                # Try to get prev_close from bhavcopy as fallback
-                bhav_row = bhav[bhav["symbol"] == sym]
-                if bhav_row.empty:
-                    continue
-                prev_close = pd.to_numeric(bhav_row["prev_close"].iloc[0], errors="coerce")
-            else:
-                prev_close = float(closes.iloc[0])
+            bhav_row = bhav[bhav["symbol"] == sym]
+            if bhav_row.empty:
+                # No bhavcopy row means no previous close to measure against and
+                # no turnover to rank by. Dropping it is right: the alternative
+                # is a row whose % change is measured off a different clock than
+                # every other row in the same table.
+                continue
 
-            if prev_close <= 0:
+            # PREVIOUS SESSION'S CLOSE — never the first intraday candle. See
+            # the docstring: using the 09:20 bar deletes the overnight gap.
+            intraday_day = closes.index[-1]
+            same_session = (
+                bhav_date is not None
+                and getattr(intraday_day, "date", lambda: None)() is not None
+                and intraday_day.date() == bhav_date.date()
+            )
+            basis_col = "prev_close" if same_session else "close"
+            prev_close = pd.to_numeric(bhav_row[basis_col].iloc[0], errors="coerce")
+
+            if not np.isfinite(prev_close) or prev_close <= 0:
                 continue
 
             chg = curr_close - prev_close
             chg_pct = (chg / prev_close) * 100.0
 
-            # Get turnover from bhavcopy for ranking
-            bhav_row = bhav[bhav["symbol"] == sym]
-            if bhav_row.empty:
-                turnover = 0.0
-                volume = 0
-            else:
-                turnover = pd.to_numeric(bhav_row["turnover"].iloc[0], errors="coerce") or 0.0
-                volume = pd.to_numeric(bhav_row["volume"].iloc[0], errors="coerce") or 0
+            # Bhavcopy turnover/volume are the PREVIOUS session's, and are named
+            # so. See the docstring on why they are not replaced with intraday
+            # figures rather than simply relabelled.
+            turnover = pd.to_numeric(bhav_row["turnover"].iloc[0], errors="coerce") or 0.0
+            volume = pd.to_numeric(bhav_row["volume"].iloc[0], errors="coerce") or 0
 
             rows.append({
                 "symbol": sym,
@@ -648,14 +696,13 @@ def price_movers_realtime(bhav: Optional[pd.DataFrame] = None, top_n: int = TOP_
         return price_movers(bhav, top_n=top_n, min_turnover=min_turnover)
 
     d = pd.DataFrame(rows)
-    n_filtered = len(d)
 
     # Apply liquidity filter
     if not bhav.attrs.get("turnover_is_qty", False):
         d = d[d["turnover"] >= min_turnover]
 
     cols = ["symbol", "close", "chg", "chg_pct", "turnover", "volume"]
-    d = d[cols]
+    d = d[cols].rename(columns={"turnover": "turnover_prev", "volume": "volume_prev"})
 
     return {
         "gainers": d.nlargest(top_n, "chg_pct").reset_index(drop=True),
@@ -665,6 +712,12 @@ def price_movers_realtime(bhav: Optional[pd.DataFrame] = None, top_n: int = TOP_
         "min_turnover": min_turnover,
         "turnover_is_qty": bool(bhav.attrs.get("turnover_is_qty", False)),
         "source": "yfinance_realtime",
+        # The universe is the top UNIVERSE_N names by traded value, NOT the
+        # market. "Top losers" here means "worst of the most-traded 200", and a
+        # caption that does not say so overstates the list.
+        "universe_n": UNIVERSE_N,
+        "basis": "previous session close (bhavcopy)",
+        "bhav_date": bhav_date.date().isoformat() if bhav_date is not None else None,
     }
 
 

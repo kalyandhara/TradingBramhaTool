@@ -67,7 +67,7 @@ corrected in place below, each marked with the date.
 | **Counted 2026-09-10** | **B-59 overlap check** (`psar_overlap.js`, 460 names / 322,608 bars) — **PSAR is a SUPERSET, not a subset**: 28,582 flips against PMax 3,396 and STAI 13,050 (8.4× / 2.2×), 68.9% of them uncovered at ±3 bars, while PSAR itself covers 92% of STAI and 70% of PMax at ±10. B-46's zero-unique-cell objection does NOT survive — but it is replaced by a sharper one, since PSAR's whole content is its extra flips. Gate did not close; an edge test on the UNIQUE cells specifically is now owed. PSAR stays a drawn overlay meanwhile |
 | **Measured 2026-09-10** | **B-58** (`quasimodo_study.py`) — **INCONCLUSIVE, UNDERPOWERED**: 53 QM zone entries across 356 names / 3 years against a pre-registered floor of 200, and too few for a rotation p to be computable at all. Not a null; the pattern is too rare to measure to this desk's bar on daily bars in one market. QM stays geometry, PIPELINE_EXCLUDED. Three process catches recorded: the equivalence check aborted on SCOPE (355/355 once windowed), the pre-registered baseline could not contain its own signal (a QM's left shoulder is by definition a broken low), and the HARNESS clause fired but was resolved as uninformative when the panel reproduced B-43's null at −0.05% |
 | **Corrected 2026-09-10 (re-verify)** | **B-3** and **B-19b** bodies said "absent" for four weeks after the ledger closed them; **B-10** is down to one symbol (`BSE`), not four; **B-17** re-verified still absent and now covers two shipped OBV surfaces |
-| **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-22, B-26, B-27, B-30, B-31, B-35, B-37, B-28r — **all re-verified open 2026-09-10** except B-10, which shrank to a single symbol. Spot checks: no AVWAP anchor UI (`avwap` appears in `scanner_templates.py` only), no Volume-Profile 80% rule anywhere in `session_volume_profile.js` / `volume_profile.js`, and `sentiment_index.py` still carries **four** weighted factors (30/25/25/20) with the PCR factor 5 a docstring line only — even though `pcr.py` is now consumed by `dashboard_app.py` in three other places, so B-22 is wiring, not a build |
+| **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-26, B-27, B-30, B-31, B-35, B-37, B-28r — **all re-verified open 2026-09-10** except B-10, which shrank to a single symbol. Spot checks: no AVWAP anchor UI (`avwap` appears in `scanner_templates.py` only), no Volume-Profile 80% rule anywhere in `session_volume_profile.js` / `volume_profile.js`, and `sentiment_index.py` still carries **four** weighted factors (30/25/25/20) with the PCR factor 5 a docstring line only — even though `pcr.py` is now consumed by `dashboard_app.py` in three other places, so B-22 is wiring, not a build — **B-22 and B-20 both actioned 2026-09-11, see their rows; `sentiment_index.py` now carries five factors at 25/20/20/15/20** |
 | **Open — residual only** | **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
 | **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic), **B-39** (pin `scipy` in requirements / make `backtest.py` scipy-optional — the hard import silently broke the significance stack on Python 3.14) |
 | **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**), ~~**B-41**~~ (**CLOSED 2026-09-02** — `detect_liquidity_pools` + `detect_liquidity_sweep` + both scanners; SMC stack now complete), ~~**B-42**~~ (**CLOSED 2026-09-02**; residual **B-42r** — the pivot_len 5-vs-15 split, to be settled on data). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
@@ -124,9 +124,10 @@ invented in this pass; this is the existing page, sorted.
 |---|---|---|---|
 | 1 | **B-58 · run the QM measurement** | The only BUILT-but-UNSCORED detector on the page. `detect_quasimodo` + 17 tests exist, the pre-registration and its control are written, and the skeptical prior (*"QM is a liquidity sweep with extra steps"*) is recorded. Leaving a built detector unmeasured is precisely the debt B-19 was raised over. | One measurement run |
 | ~~2~~ | ~~**B-59 · PSAR overlap check**~~ — **DONE 2026-09-10.** It did NOT close: PSAR is a superset at 8.4× PMax's cadence, so an edge test on its unique cells is now owed as its own item | Cheap, and it is a **gate**: if PSAR's flips are a subset of `pmax`/`stai`, every downstream PSAR idea is dead and no edge test is owed. An overlap count, not a backtest — the counting-first method that saved a week twice in the 2026-09-07 session. | Hours |
-| 3 | **B-22 · wire sentiment factor 5 (PCR)** | Now the cheapest real capability on the page: `pcr.py` is built, calibrated and already consumed three times in `dashboard_app.py`; `sentiment_index.py` still runs on four weighted factors (30/25/25/20) and documents the fifth in a docstring. Wiring, not a build — and it re-weights a number the desk already shows. | Small |
+| ~~3~~ | ~~**B-22 · wire sentiment factor 5 (PCR)**~~ — **DONE 2026-09-11.** It shipped NOT_CHECKED by construction (no index-PCR baseline existed, so the wiring also had to start storing one) and therefore changed today's score by zero. What it created is a new debt: the sign convention is unmeasured, and B-44r is the reason that is not a footnote | Now the cheapest real capability on the page: `pcr.py` is built, calibrated and already consumed three times in `dashboard_app.py`; `sentiment_index.py` still runs on four weighted factors (30/25/25/20) and documents the fifth in a docstring. Wiring, not a build — and it re-weights a number the desk already shows. | Small |
 | 4 | **B-10 · one symbol, `BSE`** | Was a four-symbol systematic-bug suspicion; it is now a single name. Close it or retire it — a one-line item that has survived five weeks of re-verification costs more to re-read than to fix. | Minutes |
 | 5 | **B-17 · OBV concept page** | Two OBV surfaces now ship (the indicator + B-61's divergence overlay) and neither is documented. B-60 wrote its CMF page with the build; this is the same debt, already incurred. | Small |
+| — | ~~**B-67 · Top Losers**~~ — **RAISED AND CLOSED 2026-09-11** by the owner spotting dubious figures on the running dashboard. Was a change-basis BUG (first 5m candle, not the previous close), not a measurement gap; fixed, then measured to a clean null on 1,215 sessions. **The lesson is the order:** backtesting it first would have measured the bug | Done |
 | 6 | **B-57 secondaries** | Explicitly pre-registered as non-decisive (60d horizon, top-quartile OCF gate, `depth_from_flip`) — they describe rather than rescue. Do them only if a session has slack. | Small, low value |
 
 **Not promoted, and why:** B-35 (family lenses) is measured and ready, but it is a
@@ -3399,6 +3400,86 @@ oversight. (B-40's VWAP work is the *daily/anchored* slice, which IS in scope.)
 
 ---
 
+### ~~B-67~~ · Top Losers was measuring the wrong thing — **BUG FIXED + MEASURED 2026-09-11: CLEAN NULL**
+
+Raised by the owner from the running dashboard: *"top looser need back testing
+since figure are doubious"*. The instinct was right, and the reason was better
+than "unmeasured" — **the figures were wrong**, and the backtest would have
+measured the bug.
+
+**The bug.** `trending_stocks.price_movers_realtime` computed the day change as
+`closes.iloc[0]` → last — **the first 5-minute candle of the session**. That is
+the move since ~09:20, so it **deleted the overnight gap entirely**, which is
+where most of a large loser's move lives. Caught live:
+
+    MVELECTRO   panel said  −3.09%   (basis 858.00 = the 09:20 candle)
+                actually    −9.72%   (basis 917.50 = the previous close)
+
+The panel's worst "top loser" that session was −3.22% while the real liquid
+cross-section held MONEYBOXX at −17.09% and MVELECTRO at −8.94%. **It did not
+merely misprint the numbers, it selected the wrong NAMES** — after the fix, MCX
+and WHEELS fall off the list entirely and INDNIPPON / NOVARTIND / FINCABLES /
+KEI / VAML / DLF appear.
+
+**Why nothing caught it.** No test asserted what the percentage was measured
+AGAINST. The number looked plausible in isolation, and a shallow losers list on a
+quiet day is not obviously wrong — which is exactly the shape of the sector-feed
+bug this file has hit twice before. `test_trending_movers.py` (7 tests) now pins
+the basis to hand-checked arithmetic, including the same-session case where the
+bhavcopy's `close` IS today and `prev_close` is the right column.
+
+Two disclosures shipped with the fix, both previously absent: bhavcopy
+turnover/volume are renamed `turnover_prev`/`volume_prev` (a day-old traded value
+must not sit unlabelled beside a live price), and the caption now says the list
+is ranked **within the top 200 by traded value** — the worst of the most-traded,
+not of the market.
+
+**Then the measurement** (`tools/movers_edge.py`, pre-registered before the first
+run, decision horizon 5d, rotation test decisive). Cross-sectional, so it cannot
+use `backtest.py`: "worst 15 of the day" is a rank across names, not a
+`scan_*(df)`. Baseline is the **same day's own eligible universe**, which differs
+out market drift exactly. NIFTY-500, 2021-09-13 → 2026-09-11, **1,215 scored
+sessions** — comfortably over the pre-registered floor of 200.
+
+| leg | 1d | 5d | 10d | 20d |
+|---|---|---|---|---|
+| **losers** spread | −0.065 (rot p 0.14) | **−0.025 (p 0.92)** | −0.051 (p 0.87) | −0.043 (p 0.99) |
+| **gainers** spread | −0.088 (rot p 0.008) | −0.146 (p 0.53) | −0.048 (p 0.82) | +0.352 (p 0.66) |
+
+**VERDICT: NULL on both legs.** Being in the day's bottom 15 tells you nothing
+about the next five days that the universe does not already tell you. The losers
+leg's absolute return is +0.13% gross at 5d against the universe's +0.16% — i.e.
+buying the losers list is buying the market, and paying 0.29% round trip to do it.
+
+Three things worth keeping:
+
+  * **The spread is cost-free by construction** and the code says so. Both legs
+    pay the same round trip, so it cancels; costs move the ABSOLUTE return of
+    either leg, not the comparison. Quoting "net of costs" on a cross-sectional
+    spread without saying this would be theatre.
+  * **The planted-effect control is in the test suite**, not just asserted in
+    prose. `test_a_planted_edge_is_detected` engineers a +1%/day drift onto the
+    loser set and requires the study to find it. A null from a detector that
+    cannot see anything is not a null, and this is the cheapest possible guard.
+  * **The gainers arm was a control, and it earned its keep**: both tails score
+    alike, so whatever small 1-day drag exists is "extreme move", not "loser".
+    Note the one nominally significant cell — gainers at 1d, rotation p=0.008,
+    spread −0.088% — is **smaller than the 0.29% cost of acting on it**, and is
+    reported rather than promoted for exactly that reason.
+
+**What this does NOT settle.** `trending_stocks` already calls its four lenses
+*attention lists, not signals*. The null does not make the panel wrong; it makes
+the panel exactly what its own docstring says. What it retires is the unstated
+habit of reading the losers list as a shortlist — so the result ships as a
+**caption on the page**, not as a wiki entry nobody re-reads. Survivorship (today's
+NIFTY 500) biases the loser leg UPWARD, so the negative result is if anything
+understated.
+
+**Not done, and deliberately:** the fix widened nothing. The panel still ranks
+within 200 names by traded value because that is what it always did and changing
+the universe mid-fix would have made the before/after incomparable. Whether a
+wider universe surfaces different names is its own question.
+
 ## P3 — Consistency and correctness debt
 
 ### ~~B-24 · Two RSI-divergence implementations that disagree~~ — CLOSED 2026-09-02
@@ -3449,8 +3530,8 @@ filter again.
 
 | | Item | Notes |
 |---|---|---|
-| B-20 | **Index PCR has no history, so no band** | `index_reading()` ships deliberately unbanded. Five same-day observations cannot be ranked; an index can only be ranked against its own past. Storing a daily index PCR is the whole fix. |
-| B-22 | **Sentiment Index factor 5 unwired** | `pcr.py` exists and is the primitive that factor was always waiting for; nothing consumes it there yet. |
+| ~~B-20~~ | **Index PCR has no history, so no band** — **STORAGE SHIPPED 2026-09-11**, band still absent | Was: `index_reading()` ships deliberately unbanded, and storing a daily index PCR is the whole fix. B-22's wiring added that store — `sentiment_index.pcr_index_history` (date, symbol, pcr, pcr_chg, total_oi), written on every persisted compute. **This does not close the band**, and deliberately so: the baseline starts at zero rows and `pcr.index_reading()` is untouched, so the OI-Momentum page still shows an honest unbanded level. What changed is that the clock is now running — in ~60 sessions there will be something to rank against. First row: NIFTY PCR 0.7519, ΔPCR −0.0793 (F&O bhavcopy 2026-09-09). |
+| ~~B-22~~ | **Sentiment Index factor 5 unwired** — **WIRED 2026-09-11** | `sentiment_index.py` now carries five factors on the roadmap's own pre-registered v1 split (25/20/20/15/20, replacing the 30/25/25/20 that was explicitly the "ships without input #5" fallback). `_pcr_nifty()` → `pcr.load()` → `index_reading('NIFTY')`, stored, then ranked against the stored baseline by `pcr_factor()` (0.7 level-percentile + 0.3 slope-percentile). 14 tests in `tools/test_sentiment_pcr.py`. **Two things to hold onto:** (1) it ships NOT_CHECKED and stays that way until 60 sessions are stored, so the composite excludes it and renormalises — verified live, score 14.97 on 60/100 weight, arithmetically identical to what the old weights produced, i.e. **this wiring moved nothing today and was not supposed to**; (2) the sign is a **guess** — high PCR scored bullish (trend-following), `convention_measured: False` in the persisted inputs, and B-44r is the precedent for why that matters: GEX was retired outright once its naive convention was measured backwards for NSE. **An edge test on the convention is now owed**, and it cannot even be run until the baseline fills. |
 | ~~B-23~~ | **Strike-level option OI** (OI audit Gap 3) — ✅ **CLOSED 2026-09-02** | Was: "the largest remaining OI item, needs its own design pass." **The premise was stale** — B-44's `gamma_exposure.py` had already built the per-strike bhavcopy reader this was scoped to design, so the remaining work was the LEVELS read, not the feed. Third stale entry this week after B-11 and B-42. Shipped `option_chain.py`: `load_chain` (per-strike CE/PE OI for **stocks (STO) and indices (IDO)** — `gamma_exposure` is index-only), `max_pain`, `oi_walls`, `read_levels` + `format_levels`, plus `/api/option_levels` on chart_server so B-28's overlay has an interface to consume. 26 tests. Live: NIFTY spot 24,055.80 / max pain 24,050 on expiry day (converges, as theory predicts); RELIANCE 1,308.96 between its 1,300 put wall and 1,320 call wall. **Two correctness rules enforced:** max pain REFUSES a pooled-expiry chain (payoff settles per expiry — a far-month strike does not pay out on this week's settlement, so a pooled number is a different quantity, not a smaller error); and call walls are restricted to strikes at/above spot, put walls at/below, because a large call OI far below spot is deep-ITM inventory and ranking it as "resistance" would put the strongest resistance *under* the price. Levels ship **unmeasured** — see B-28. |
 | B-13 | AW-1…AW-4 astro weekly card | Good-to-have; AW-0 shipped. |
 | B-15 | SR-7 Trendlyne backfill | Optional, only if XBRL coverage proves short. |

@@ -5671,11 +5671,20 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
             if "turnover" in out.columns:
                 out["turnover_cr"] = out["turnover"] / 1e7
                 out = out.drop(columns=["turnover"])
+            # The live movers lens carries the PREVIOUS session's traded value
+            # beside a live price (yfinance intraday volume is not an NSE traded
+            # value). It keeps its own labels rather than borrowing the shared
+            # turnover id — the whole point of the rename is that a reader can
+            # see which number is a day old.
+            if "turnover_prev" in out.columns:
+                out["turnover_prev"] = out["turnover_prev"] / 1e7
             colcfg.update(_cols.configure_df(out))
             # Bespoke to this lens and used nowhere else, so left inline rather
             # than promoted to a shared id no other table would ask for.
             for c, lbl, fmt in (("range_high", "High", "%.2f"),
-                                ("range_low", "Low", "%.2f")):
+                                ("range_low", "Low", "%.2f"),
+                                ("turnover_prev", "Turnover ₹Cr (prev)", "%.2f"),
+                                ("volume_prev", "Volume (prev)", "%d")):
                 if c in out.columns:
                     colcfg[c] = st.column_config.NumberColumn(lbl, format=fmt)
             drop = [c for c in ("reasons", "avg_volume", "baseline_days", "trade_date",
@@ -5687,10 +5696,36 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
             _mv = _trend_movers(_tr_top, float(_tr_minto) * 1e7)
             st.caption(f"**{_mv['n_filtered']:,}** of {_mv['n_universe']:,} names clear "
                        f"the ₹{_tr_minto:.0f} Cr turnover floor.")
+            # Three disclosures, all of which were missing when the list was
+            # showing a −3.22% "worst loser" against a real cross-section that
+            # held −17% names (fixed 2026-09-11):
+            #   what the % is measured from, how wide the universe is, and
+            #   which of the two sources actually produced these rows.
+            if _mv.get("source") == "yfinance_realtime":
+                st.caption(
+                    f"Live prices (yfinance intraday) vs the **previous session "
+                    f"close** from the {_mv.get('bhav_date') or '—'} bhavcopy — the "
+                    f"overnight gap is included. Ranked within the **top "
+                    f"{_mv.get('universe_n', 0)} names by traded value**, so this is "
+                    f"the worst of the most-traded, not of the whole market. "
+                    f"Turnover and volume are that previous session's.")
+            else:
+                st.caption("**EOD bhavcopy** — the live intraday feed was "
+                           "unreachable, so these are last session's closes.")
             st.markdown("**Top gainers**")
             _tr_table(_mv["gainers"])
             st.markdown("**Top losers**")
             _tr_table(_mv["losers"])
+            # The caveat belongs ON the page, not in a wiki drawer. B-67,
+            # tools/movers_edge.py, 1,215 sessions of NIFTY-500 (2021-2026).
+            st.caption(
+                ":grey[**Measured 2026-09-11: neither list predicts anything.** "
+                "Against the same day's own liquid universe, the losers list "
+                "returned **−0.03% at 5 days** (rotation p=0.92) and the gainers "
+                "list −0.15% (p=0.53) — a clean null on 1,215 sessions, with the "
+                "planted-effect control confirming the test can see an edge when "
+                "one exists. These are **attention lists**: a starting point for "
+                "'why did this move?', not a shortlist.]")
 
         def _render_anomaly_spikes():
             with st.spinner("Attributing volume spikes to a cause…"):
