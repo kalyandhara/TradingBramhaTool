@@ -21,3 +21,10 @@ codeFont = "ui-monospace, 'Cascadia Mono', 'Segoe UI Mono', Consolas, 'Roboto Mo
 dataframeHeaderBackgroundColor = "#f7efe3"
 dataframeBorderColor = "#e5cfae"
 baseRadius = "6px"
+
+# UI-3 (2026-09-10) — one step down from Streamlit's 16px default. The dataframe
+# grid renders to CANVAS, so CSS cannot reach its cell text; baseFontSize is the
+# only lever that does, and it is APP-WIDE by construction — every widget, label
+# and caption steps down with the tables. That trade was made deliberately: the
+# tables are the page, and a denser grid is worth slightly smaller chrome.
+baseFontSize = 15

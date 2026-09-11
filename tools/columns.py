@@ -255,6 +255,26 @@ COLUMNS: dict[str, ColSpec] = {
         "one population over time. '?' = the name lacked history that far back, "
         "which is not the same as ranking weak.",
         "text", width="medium", tone="rank"),
+    # ── session volume profile (read-only, from the JS screen file) ───────────
+    # STRUCTURE ONLY. The SVP composite score and its BUY/SELL direction were
+    # measured on 2026-08-29 as a clean negative (corr -0.041, deciles
+    # non-monotonic, 5 of 7 factor families sign-inverted) and the SVP page
+    # hides them; `svp_screen.SAFE_COLUMNS` keeps them off these tables too.
+    "svp_hist_8w": ColSpec(
+        "SVP 8w",
+        "Weekly session-profile shapes for the last 8 weeks, oldest → newest: "
+        "P = buying / short-covering (POC high in the range), B = selling / "
+        "liquidation (POC low), D = directional, I = balance → sideways. "
+        "A DESCRIPTION of what each week's profile looked like, not a forecast. "
+        "Blank = the name is not in the screen file, which covers one index.",
+        "text", width="medium"),
+    "svp_factors": ColSpec(
+        "SVP fac",
+        "How many named SVP structure factors fired — a COUNT, never a "
+        "direction. The composite those factors feed measured a clean negative "
+        "on 2026-08-29, so more factors means more to read, not more edge.",
+        "number", "%d", width="small"),
+
     "notes": ColSpec(
         "Notes",
         "Your own note on this row. Editable in place where the table says so — "
@@ -549,15 +569,69 @@ def tint(df):
 ROW_HEIGHT = 32
 
 
+#: Autofit geometry. Streamlit 1.58 accepts an INT (pixels) for a column width,
+#: which is what makes a measured fit possible at all — "small/medium/large" are
+#: three guesses and a 28-column table is where guessing shows.
+AUTOFIT_PX_PER_CHAR = 7.0    # ~11px body text in the grid's own font
+AUTOFIT_HEADER_PX_PER_CHAR = 6.0   # headers render smaller than body
+AUTOFIT_PADDING_PX = 26      # cell padding + sort affordance
+AUTOFIT_MIN_PX = 58
+AUTOFIT_MAX_PX = 260         # past this a column is a paragraph, not a column
+
+#: Emoji and CJK occupy roughly two character cells at this font size. A cell of
+#: eight coloured dots measured as eight narrow chars is the reason the EMAs
+#: column clipped before this existed.
+_WIDE = set("🟢🔴⚪🟡📈📊👁↗→⚠️")
+
+
+def _display_len(text: str) -> float:
+    """Character width of a rendered cell, counting wide glyphs as two."""
+    return sum(2.0 if ch in _WIDE or ord(ch) > 0x2500 else 1.0 for ch in str(text))
+
+
+def autofit_width(values: Iterable[Any], label: str) -> int:
+    """A pixel width measured from the CONTENT, not guessed from a size name.
+
+    The widest of (header, longest value) decides, because a column narrower
+    than its own header is unreadable no matter how short the data is. Clamped
+    both ways: `AUTOFIT_MIN_PX` so a one-character column still shows its sort
+    arrow, `AUTOFIT_MAX_PX` because a column wide enough for a sentence pushes
+    everything else off the screen — the cell truncates and the tooltip carries
+    the rest, which is the trade this table already makes elsewhere.
+    """
+    widest = max((_display_len(v) for v in values
+                  if v is not None and str(v).strip() not in ("", "nan")),
+                 default=0.0)
+    body = widest * AUTOFIT_PX_PER_CHAR
+    head = _display_len(label) * AUTOFIT_HEADER_PX_PER_CHAR
+    return int(min(AUTOFIT_MAX_PX,
+                   max(AUTOFIT_MIN_PX, max(body, head) + AUTOFIT_PADDING_PX)))
+
+
 def configure_df(df, *, extra: Iterable[str] = (),
-                 overrides: dict[str, dict] | None = None) -> dict:
+                 overrides: dict[str, dict] | None = None,
+                 autofit: bool = False) -> dict:
     """`column_config` for every column of `df` the registry knows about.
 
     Unknown columns are left alone — Streamlit renders them with its defaults,
     which is the right behaviour for a half-migrated table: adopting this must
     never blank out a column nobody has defined yet.
+
+    `autofit=True` replaces each known column's declared width with one measured
+    from the values actually in THIS frame. The declared width stays the default
+    because it is a statement about the column in general; autofit is a statement
+    about one rendering of it, which is why it is opt-in per call site rather
+    than the registry's business.
     """
     names = [c for c in list(df.columns) + list(extra) if resolve(str(c))]
+    if autofit:
+        over = {k: dict(v) for k, v in (overrides or {}).items()}
+        for c in names:
+            if c not in df.columns:
+                continue
+            lbl = over.get(c, {}).get("label") or spec(c).label
+            over.setdefault(c, {})["width"] = autofit_width(df[c].tolist(), lbl)
+        overrides = over
     return configure(*names, overrides=overrides)
 
 

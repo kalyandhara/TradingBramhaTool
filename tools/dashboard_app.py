@@ -4972,6 +4972,69 @@ def _wl_rs_mom(df):
         return None
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _svp_screen_lookup() -> dict:
+    """The SVP screen file, read-only. `{}` when it has never been built.
+
+    Cached briefly rather than not at all: it is a 500-row CSV read, cheap but
+    pointless to repeat per table on one page. Read through `svp_screen`, which
+    exposes STRUCTURE only — the composite score and its direction measured a
+    clean negative on 2026-08-29 and stay off these tables.
+    """
+    try:
+        import svp_screen as _svp
+        return _svp.load()
+    except Exception as _e:                                  # pragma: no cover
+        _log.warning("svp screen unavailable: %s", _e)
+        return {}
+
+
+def _svp_cells(symbol: str, screen: dict) -> dict:
+    """The two SVP cells for one row. One implementation, three mount points."""
+    try:
+        import svp_screen as _svp
+        return _svp.cells(symbol, screen)
+    except Exception:                                        # pragma: no cover
+        return {"svp_hist_8w": "", "svp_factors": None}
+
+
+def _svp_caption(screen: dict) -> str:
+    """The staleness line every table showing these columns must print.
+
+    The screen is built by a MANUAL two-command pipeline, not a scheduled job,
+    so the file can be days old while the table around it is live. Presenting a
+    stale profile as today's structure is the failure this caption exists to
+    prevent, which is why the age is stated in hours and the as-of date is in
+    the tooltip rather than both being left implicit.
+    """
+    if not screen or not screen.get("n"):
+        return ""
+    # The AS-OF range, not the file's mtime: rewriting the CSV to add a few
+    # fresh names would reset the mtime and flatter every old row in it. The
+    # dates below are what each row actually describes.
+    lo, hi = screen.get("asof_min"), screen.get("asof_max")
+    if lo and hi and lo != hi:
+        when = f"bars from **{lo} – {hi}** (mixed)"
+    elif hi:
+        when = f"bars as of **{hi}**"
+    else:
+        age = screen.get("age_hours") or 0
+        when = f"file written {age / 24:.1f} days ago"
+    stale = False
+    try:
+        from datetime import date as _d
+        stale = hi is not None and (_d.today() - _d.fromisoformat(str(hi))).days > 3
+    except Exception:
+        pass
+    warn = " ⚠️ **stale** — rebuild before reading it as current" if stale else ""
+    return (f"**SVP 8w / SVP fac** read from the session-profile screen — "
+            f"{screen['n']} symbols, {when}{warn}. A name outside that screen "
+            f"shows BLANK, which means no structure on file, not flat "
+            f"structure. Structure only: the composite score and its BUY/SELL "
+            f"direction measured a clean negative on 2026-08-29 and are not "
+            f"shown anywhere on this desk.")
+
+
 def _rs_walk_lookup() -> dict:
     """The stored RS-walk grid, or {} when none has been computed.
 
@@ -6631,6 +6694,7 @@ if current_page == "Watchlist":
         # is the only thing that triggers a run.
         import rs_walk as _rwx
         _wl_walk = _rs_walk_lookup()
+        _wl_svp = _svp_screen_lookup()
         _wl_walk_date = next(iter(_wl_walk.values()), {}).get("run_date") if _wl_walk else None
 
         _rw_c1, _rw_c2 = st.columns([1, 3])
@@ -6712,6 +6776,7 @@ if current_page == "Watchlist":
                 # trailing * — the rank is against the index, not within it,
                 # and that is worth one character rather than a footnote.
                 "rs_walk": _rs_walk_cell(w["symbol"], _wl_walk),
+                **_svp_cells(w["symbol"], _wl_svp),
                 "minervini": f"{mv_score}/8",
                 "technofunda": f"{tf_score}/6",
                 # NOTE deliberately absent: `_notes_table` sources it from the
@@ -6744,6 +6809,7 @@ if current_page == "Watchlist":
         # Coercing makes them NaN, which renders as an empty cell: an absent
         # reading should look absent, not like a value.
         for _c in ("close", "chg_pct", "turnover_cr", "gap_pct", "ema_cross_age",
+                   "svp_factors",
                    "from_52w_high_pct", "bo_gain_pct", "hist_price",
                    "gain_since_pct", "rsi", "pct_from_20ema", "rs_momentum",
                    "earn_d_minus_1", "earn_day", "earn_d_plus_1"):
@@ -6752,14 +6818,17 @@ if current_page == "Watchlist":
         if not _wl_walk and "rs_walk" in _wl_df.columns:
             _wl_df = _wl_df.drop(columns=["rs_walk"])
         for _c in ("pivot_d", "pivot_w", "bo_date", "rs_walk", "minervini",
-                   "technofunda", "ema_stack", "cap_bucket"):
+                   "technofunda", "ema_stack", "cap_bucket", "svp_hist_8w"):
             if _c in _wl_df.columns:
                 _wl_df[_c] = _wl_df[_c].where(_wl_df[_c].notna(), "")
         if _wl_ref is None and not _wl_df.empty:
             _wl_df = _wl_df.drop(columns=[c for c in ("hist_price", "gain_since_pct")
                                           if c in _wl_df.columns])
+        # autofit=True: widths measured from the values in THIS frame rather
+        # than the registry's general-case small/medium/large. At ~25 columns
+        # the three guesses cost more screen than they save.
         _wl_cfg = _cols.configure_df(
-            _wl_df,
+            _wl_df, autofit=True,
             overrides={"close": {"label": f"LTP ({date.today():%d %b})"}})
 
         # In-row note editing (B-63b), through the SHARED path since UI-2.
@@ -6799,6 +6868,9 @@ if current_page == "Watchlist":
                 f"lakh a day is still worth less than the same level on a liquid "
                 f"one, and a position may be hard to exit."
             )
+        _svp_cap = _svp_caption(_wl_svp)
+        if _svp_cap:
+            st.caption(_svp_cap)
         if _wl_walk:
             st.caption(
                 r"**RS walk** reads oldest → newest. A trailing **\*** means the "
@@ -8584,6 +8656,13 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                 if _hub_walk:
                     _sum_df["rs_walk"] = [_rs_walk_cell(s, _hub_walk)
                                           for s in _sum_df["Top Symbol"]]
+                # Same two SVP cells, for each scanner's top symbol.
+                _hub_svp = _svp_screen_lookup()
+                if _hub_svp.get("n"):
+                    _svp_pairs = [_svp_cells(s, _hub_svp)
+                                  for s in _sum_df["Top Symbol"]]
+                    _sum_df["svp_hist_8w"] = [c["svp_hist_8w"] for c in _svp_pairs]
+                    _sum_df["svp_factors"] = [c["svp_factors"] for c in _svp_pairs]
                 # UI-2: notes are editable here and stored per SYMBOL, so a note
                 # written on the Hub is the same note the Watchlist shows.
                 _sum_df = _hub_enrich(_sum_df, "Top Symbol", "summary")
@@ -8592,10 +8671,14 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                 _notes_table(
                     _sum_df, key="hub_summary_notes", symbol_col="Top Symbol",
                     column_config={**_chart_family_colcfg(),
-                                   **_cols_mod().configure_df(_sum_df)},
+                                   **_cols_mod().configure_df(_sum_df,
+                                                              autofit=True)},
                 )
                 _hub_missing = [s for s in _sum_df["Top Symbol"]
                                 if str(s).strip().upper() not in _hub_walk]
+                _hub_svp_cap = _svp_caption(_hub_svp)
+                if _hub_svp_cap:
+                    st.caption(_hub_svp_cap)
                 if _hub_walk:
                     _hub_walk_date = next(iter(_hub_walk.values()), {}).get("run_date")
                     st.caption(
@@ -8684,6 +8767,7 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                 _conf_rows = []
                 # Hoisted: one DB read for the table, not one per row.
                 _conf_walk = _rs_walk_lookup()
+                _conf_svp = _svp_screen_lookup()
                 for sym in sorted(_confluence):
                     scanners_fired = [
                         name for name, cards in _pl_res.items()
@@ -8701,6 +8785,7 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                         # scanners liked it: confluence says how MANY agree,
                         # the walk says whether the market has been agreeing.
                         "rs_walk": _rs_walk_cell(sym, _conf_walk),
+                        **_svp_cells(sym, _conf_svp),
                     })
                 _conf_rows.sort(key=lambda r: r["Count"], reverse=True)
                 import pandas as _pd_conf
@@ -8715,7 +8800,7 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                 _earnings_fill_button(_conf_df["Symbol"], "hub_conf")
                 _conf_colcfg = {
                     **_chart_family_colcfg(),
-                    **_cols_mod().configure_df(_conf_df),
+                    **_cols_mod().configure_df(_conf_df, autofit=True),
                     "Pledge %": st.column_config.NumberColumn(
                         "Pledge %", format="%.1f%%",
                         help="Promoter pledge (screener.in). Blank = not fetched "
