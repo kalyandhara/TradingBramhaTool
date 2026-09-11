@@ -100,10 +100,11 @@ COLUMNS: dict[str, ColSpec] = {
     # ── price ─────────────────────────────────────────────────────────────────
     "ema_stack": ColSpec(
         "EMAs",
-        "Close vs the 10/20/50/200 EMAs — ▲ above, ▼ below. A span with too "
-        "little history is OMITTED rather than marked, so a short cell means a "
-        "young listing, not a bearish one.",
-        "text", width="small"),
+        "Close vs the 10/20/50/200 EMAs, in that order: 🟢 above, 🔴 below, "
+        "⚪ too little history for that span to exist. Grey asserts nothing "
+        "about price — it means the EMA cannot be computed yet, which is why a "
+        "young listing shows grey on the long spans rather than red.",
+        "text", width="medium"),
     "rs_momentum": ColSpec(
         "RS (mom)",
         "IBD-style weighted trailing return — 63/126/189/252 sessions at "

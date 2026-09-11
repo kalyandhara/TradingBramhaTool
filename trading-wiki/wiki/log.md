@@ -2479,3 +2479,9 @@
 - Recorded consequence: adopting `close` for `LTP ₹` drops the ₹ glyph, because format is part of the definition
 - Registry now **46 ids, 15 aliases, 9 documented refusals**; 108 tests green
 
+## [2026-09-10] tweak | EMAs column: red / green / GREY dots
+- `ema_stack` now emits `10🟢 20🟢 50🟢 200🔴` instead of `10▲ 20▲ 50▲ 200▼`. Coloured glyphs are the whole mechanism, not decoration: an `st.dataframe` TextColumn cannot style part of its text, so a character that carries its own colour is the only way to get per-EMA colour into one cell. Reuses the dashboard's existing dot vocabulary (`_TONE_DOT`, with `⚪` already its "unknown" fallback)
+- **The design decision is the grey.** The column previously DROPPED a span it could not compute — right in refusing to state what it cannot see, but it also collapsed the cell, so a young listing and a name below its 200-EMA produced different-length cells that no longer lined up down the column. Grey **keeps the slot and empties it**: four positions always, same order, so the column scans vertically and "unknown" is visibly distinct from both "above" and "below" instead of being inferred from a gap. The claim refused is unchanged — grey asserts nothing about price
+- Guard kept for the case where NOTHING is computable: returns None rather than a row of empty circles, because four greys look like a measurement and an absence should look like an absence. Unreachable with the default spans (12 bars is the floor and the 10-EMA is computable at 12), so the test reaches it with custom spans — the only way a caller could
+- Verified live on the Watchlist: GENESYS `10🟢 20🟢 50🟢 200🔴`, SHAKTIPUMP `10🟢 20🟢 50🔴 200🔴`. Both Scanner Hub tables inherit it — one implementation, three mount points. No consumer parses the glyphs, so nothing downstream moved
+
