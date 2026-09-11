@@ -12,7 +12,9 @@ that test (B-59 had already shown it is not interchangeable with either), and
 that leaves it as the one member of the family with real authority in the desk
 and no measurement behind it:
 
-  * `W_PMAX_1H = 20` in `sentiment_index.py` -- a FIFTH of the sentiment score
+  * `W_PMAX_1H = 15` in `sentiment_index.py` -- 15% of the sentiment score
+    (it was 20 of 100 when this was written; B-22 wired the PCR factor on
+    2026-09-11 and the weights went to the roadmap's 25/20/20/15/20)
   * a named factor row in `market_verdict.py` (`pmax_nifty_1h`)
   * a live trade-state panel in `dashboard_app.py`, with stop and T1/T2/T3
 

@@ -6,17 +6,35 @@ Composite 0-100 gauge for NIFTY-wide sentiment, mapped to 5 bands. See
 `trading-wiki/wiki/concepts/Market-Sentiment-Index.md` and the roadmap analysis
 at `wiki/analyses/Market-Sentiment-Index-Roadmap-Fit-2026-07-14.md`.
 
-Phase 1 inputs (Raut-style but with disclosed technical replacements):
-  1. Advance / Decline ratio          (weight 30, bhavcopy)
-  2. Sector performance count         (weight 25, distinct NIFTY sector indices)
-  3. NIFTY vs SMA200 regime           (weight 25, yfinance ^NSEI daily)
-  4. PMax direction on NIFTY 1H       (weight 20, ATR-trailing band on ^NSEI 60m)
+Inputs (Raut-style but with disclosed technical replacements). The weights are
+the roadmap page's own pre-registered v1 table, not a set invented here:
+  1. Advance / Decline ratio          (weight 25, bhavcopy)
+  2. Sector performance count         (weight 20, distinct NIFTY sector indices)
+  3. NIFTY vs SMA200 regime           (weight 20, yfinance ^NSEI daily)
+  4. PMax direction on NIFTY 1H       (weight 15, ATR-trailing band on ^NSEI 60m)
+  5. PCR level + slope on NIFTY       (weight 20, F&O bhavcopy via `pcr.py`)
   ──────────────────────────────────────────────────
                                        total   100
 
-Phase 2 (deferred, tracked in the roadmap page):
-  5. PCR + PCR-slope on NIFTY options (weight ~20; requires NSE option-chain
-     scraper). When added, other weights re-normalise.
+Factor 5 wired 2026-09-10 (backlog B-22). Two things about it that must not be
+lost, because both are the kind of thing this file has been burned by before:
+
+  * **It ships NOT_CHECKED and stays that way for months.** `pcr.py` refuses to
+    band an index PCR without a baseline of that index's OWN history, and none
+    existed. So this module now STORES one (`pcr_index_history`, written on every
+    compute) and scores the factor only once MIN_PCR_HISTORY observations exist.
+    Until then factor 5 is NOT_CHECKED, is excluded from the composite, and the
+    remaining 80 weight is renormalised to 100 exactly as a stale sector feed
+    already is — i.e. **today's score is unchanged by this wiring.** That is the
+    honest shape of the change: it starts the clock rather than inventing a
+    reading to fill the slot.
+  * **The sign convention is a GUESS and is labelled one.** Higher PCR scores as
+    more bullish (the trend-following read). PCR has no fixed sign — the
+    contrarian read is the exact opposite, and `pcr.py` declines to pick for
+    precisely this reason. B-44r retired GEX outright after measuring that its
+    naive convention was backwards for NSE, so this is a live risk, not a
+    theoretical one. `sign_convention` and `convention_measured: False` ride in
+    the persisted inputs so the eventual test can find them.
 
 MEASURED 2026-09-10 (B-66, `tools/sentiment_factor_edge.py`) — READ THIS BEFORE
 BUILDING ON THE SCORE. Every input above, AND the composite, was tested against
@@ -76,12 +94,18 @@ except ImportError:
 
 log = logging.getLogger("sentiment_index")
 
-# ── Weights (Phase 1) ─────────────────────────────────────────────────────────
-W_ADV_DECL = 30
-W_SECTOR   = 25
-W_REGIME   = 25
-W_PMAX_1H  = 20
-W_TOTAL    = W_ADV_DECL + W_SECTOR + W_REGIME + W_PMAX_1H  # 100
+# ── Weights ─────────────────────────────────────────────────────────
+#: These are the roadmap's v1 numbers (25/20/20/15/20), adopted verbatim when
+#: factor 5 landed. The previous 30/25/25/20 was explicitly the "ships without
+#: input #5" fallback, and the docstring there said the others re-normalise when
+#: PCR arrives. Taking the pre-registered split rather than inventing a new one
+#: keeps this out of the "floors all set in one session" bucket (B-21b).
+W_ADV_DECL = 25
+W_SECTOR   = 20
+W_REGIME   = 20
+W_PMAX_1H  = 15
+W_PCR      = 20
+W_TOTAL    = W_ADV_DECL + W_SECTOR + W_REGIME + W_PMAX_1H + W_PCR  # 100
 
 # ── Band mapping (score → label) ──────────────────────────────────────────────
 BANDS = [
@@ -513,21 +537,226 @@ def _pmax_direction_nifty_1h(atr_len: int = 10, atr_mult: float = 3.0,
                 "direction": 0, "last_close": None, "pmax": None}
 
 
+# ── Input #5: PCR level + slope on NIFTY ─────────────────────────────────────
+#: Observations of NIFTY's own PCR required before the factor is scored at all.
+#: `pcr.py` will not band an index without a time-series baseline, and this is
+#: that baseline's floor. 60 is the roadmap's own number for the weight-fitting
+#: step ("after a month of logged data" → ≥60 sessions), reused rather than
+#: invented so there is one threshold in the design, not two.
+MIN_PCR_HISTORY = 60
+
+#: Level vs slope split inside factor 5. The roadmap specified "absolute +
+#: direction blend" without numbers; level carries the standing posture and
+#: slope the day's shift, and level is the steadier of the two, so it takes the
+#: larger share. UNMEASURED, like the sign convention — recorded here so the
+#: eventual test has something to vary.
+PCR_LEVEL_SHARE = 0.7
+
+#: Which way a high PCR reads. "trend_following" = high PCR is bullish.
+#: See the module docstring: this is a guess, and B-44r is why that matters.
+PCR_SIGN_CONVENTION = "trend_following"
+
+
+def _ensure_pcr_table() -> None:
+    with db.get_connection() as conn:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS pcr_index_history (
+                reading_date TEXT NOT NULL,
+                symbol       TEXT NOT NULL,
+                pcr          REAL NOT NULL,
+                pcr_chg      REAL,
+                total_oi     REAL,
+                created_at   TEXT DEFAULT CURRENT_TIMESTAMP,
+                PRIMARY KEY (reading_date, symbol)
+            )
+            """
+        )
+
+
+def _record_pcr(reading_date: str, rec: dict[str, Any]) -> None:
+    """Append today's index PCR to the baseline. Idempotent per (date, symbol).
+
+    Written on EVERY compute, including the long stretch where the factor itself
+    is NOT_CHECKED — storing is what eventually makes scoring possible, so it
+    must not be conditional on being able to score.
+    """
+    _ensure_pcr_table()
+    with db.get_connection() as conn:
+        conn.execute(
+            """
+            INSERT INTO pcr_index_history (reading_date, symbol, pcr, pcr_chg, total_oi)
+            VALUES (?, ?, ?, ?, ?)
+            ON CONFLICT(reading_date, symbol) DO UPDATE SET
+                pcr = excluded.pcr,
+                pcr_chg = excluded.pcr_chg,
+                total_oi = excluded.total_oi
+            """,
+            (reading_date, rec["symbol"], float(rec["pcr"]),
+             rec.get("pcr_chg"), rec.get("total_oi")),
+        )
+
+
+def pcr_history(symbol: str = "NIFTY", before: str | None = None) -> pd.DataFrame:
+    """Stored PCR baseline for one index, oldest first.
+
+    `before` excludes today's own row, so the percentile is taken against PRIOR
+    sessions only. Ranking a value inside a sample that contains it is a small
+    bias, but it is the kind that turns an extreme into a merely-high reading on
+    exactly the days the factor is supposed to speak up.
+    """
+    _ensure_pcr_table()
+    sql = "SELECT reading_date, pcr, pcr_chg FROM pcr_index_history WHERE symbol = ?"
+    params: list[Any] = [symbol]
+    if before is not None:
+        sql += " AND reading_date < ?"
+        params.append(before)
+    sql += " ORDER BY reading_date"
+    with db.get_connection() as conn:
+        return pd.read_sql(sql, conn, params=params)
+
+
+def _pct_rank(value: float | None, sample) -> float | None:
+    """Where `value` sits in `sample`, 0-100. Mirrors `pcr.stock_percentile`'s
+    strict-less-than convention so the two surfaces cannot disagree on what a
+    percentile means."""
+    if value is None or not np.isfinite(value):
+        return None
+    arr = np.asarray([v for v in sample if v is not None and np.isfinite(v)], dtype=float)
+    if arr.size == 0:
+        return None
+    return float((arr < value).sum() / arr.size * 100.0)
+
+
+def pcr_factor(pcr: float | None, pcr_chg: float | None,
+               hist: pd.DataFrame) -> dict[str, Any]:
+    """Pure calibration: today's NIFTY PCR against its own stored past.
+
+    Kept separate from the fetch so it can be tested without a network call and
+    without a database — the whole of the interesting behaviour (the history
+    floor, the blend, the slope falling back to level-only) lives here.
+
+    Factor = 0.7 × level-percentile + 0.3 × slope-percentile, each in [0, 1],
+    under the trend-following convention that a high or rising PCR is bullish.
+    When the slope percentile is unavailable (no `pcr_chg` today, or no stored
+    `pcr_chg` history) the level carries the whole factor rather than the blend
+    silently scoring a missing half as neutral.
+    """
+    n_hist = 0 if hist is None or hist.empty else int(len(hist))
+    out: dict[str, Any] = {
+        "pcr": round(float(pcr), 4) if pcr is not None and np.isfinite(pcr) else None,
+        "pcr_chg": (round(float(pcr_chg), 4)
+                    if pcr_chg is not None and np.isfinite(pcr_chg) else None),
+        "n_history": n_hist,
+        "min_history": MIN_PCR_HISTORY,
+        "sign_convention": PCR_SIGN_CONVENTION,
+        "convention_measured": False,
+    }
+
+    if pcr is None or not np.isfinite(pcr):
+        out.update({
+            "state": NOT_CHECKED, "factor": None, "score": 0.0,
+            "reading": "NOT CHECKED — no NIFTY index PCR available today",
+        })
+        return out
+
+    if n_hist < MIN_PCR_HISTORY:
+        out.update({
+            "state": NOT_CHECKED, "factor": None, "score": 0.0,
+            "reading": (f"NOT CHECKED — PCR {pcr:.2f} recorded, but only {n_hist} of "
+                        f"{MIN_PCR_HISTORY} baseline sessions stored; an index PCR "
+                        f"can only be ranked against its own past"),
+        })
+        return out
+
+    level_pct = _pct_rank(float(pcr), hist["pcr"].tolist())
+    slope_pct = (_pct_rank(float(pcr_chg), hist["pcr_chg"].tolist())
+                 if pcr_chg is not None and np.isfinite(pcr_chg) else None)
+
+    if slope_pct is None:
+        factor = level_pct / 100.0
+        blend = "level only (no slope percentile available)"
+    else:
+        factor = (PCR_LEVEL_SHARE * level_pct
+                  + (1 - PCR_LEVEL_SHARE) * slope_pct) / 100.0
+        blend = f"{PCR_LEVEL_SHARE:.0%} level / {1 - PCR_LEVEL_SHARE:.0%} slope"
+
+    factor = float(np.clip(factor, 0.0, 1.0))
+    out.update({
+        "state": "OK",
+        "level_pct": round(level_pct, 1) if level_pct is not None else None,
+        "slope_pct": round(slope_pct, 1) if slope_pct is not None else None,
+        "blend": blend,
+        "factor": round(factor, 4),
+        "score": round(factor * W_PCR, 2),
+        "reading": (f"NIFTY PCR {pcr:.2f} — {level_pct:.0f}th pct of {n_hist} sessions"
+                    + (f", one-day change {pcr_chg:+.2f} ({slope_pct:.0f}th pct)"
+                       if slope_pct is not None else "")),
+    })
+    return out
+
+
+def _pcr_nifty(reading_date: str, symbol: str = "NIFTY",
+               record: bool = True) -> dict[str, Any]:
+    """Fetch today's index PCR via `pcr.py`, store it, then calibrate it.
+
+    No new network call and no second PCR implementation: `pcr.load()` is the
+    same primitive the OI-Momentum page already consumes, which was the whole
+    point of building it there instead of inside either consumer.
+    """
+    base = {"state": NOT_CHECKED, "factor": None, "score": 0.0,
+            "pcr": None, "pcr_chg": None, "n_history": 0,
+            "min_history": MIN_PCR_HISTORY, "symbol": symbol,
+            "sign_convention": PCR_SIGN_CONVENTION, "convention_measured": False}
+    try:
+        import pcr as pcr_mod
+        loaded = pcr_mod.load()
+        if not loaded.get("ok"):
+            raise RuntimeError(loaded.get("reason", "pcr.load() failed"))
+        rec = pcr_mod.index_reading(loaded["index"], symbol)
+        if rec is None:
+            raise RuntimeError(f"{symbol} absent from the index PCR table")
+        if not rec.get("liquid"):
+            # pcr.py already wrote the reason; do not re-word it.
+            return {**base, "pcr": rec.get("pcr"), "pcr_chg": rec.get("pcr_chg"),
+                    "reading": f"NOT CHECKED — {rec.get('band_reason', 'illiquid')}"}
+        if record:
+            # Gated on the caller's persist flag: --peek must not write, for the
+            # same reason it does not write sentiment_history. A peek that
+            # silently extended the baseline would make the baseline depend on
+            # how often somebody looked at it.
+            try:
+                _record_pcr(reading_date, rec)
+            except Exception as e:                   # storing is best-effort
+                log.warning("PCR history write failed: %s", e)
+        hist = pcr_history(symbol, before=reading_date)
+        out = pcr_factor(rec.get("pcr"), rec.get("pcr_chg"), hist)
+        out["symbol"] = symbol
+        out["pcr_date"] = loaded.get("date")
+        return out
+    except Exception as e:
+        log.warning("PCR factor: %s", e)
+        return {**base, "reading": f"NOT CHECKED — {e}"}
+
+
 # ── Composite ─────────────────────────────────────────────────────────────────
 def compute_sentiment(persist: bool = True) -> dict[str, Any]:
     """Compute the composite sentiment reading and (by default) persist it to
     trading_bramha.db under `sentiment_history`. Idempotent per calendar day —
     same-day recomputes overwrite the previous row."""
+    today   = date.today().isoformat()
     ad      = _advance_decline()
     sector  = _sector_perf()
     regime  = _regime_sma200()
     pmax_1h = _pmax_direction_nifty_1h()
+    pcr_nif = _pcr_nifty(today, record=persist)
 
     components = (
         ("advance_decline",    W_ADV_DECL, ad),
         ("sector_performance", W_SECTOR,   sector),
         ("regime_sma200",      W_REGIME,   regime),
         ("pmax_nifty_1h",      W_PMAX_1H,  pmax_1h),
+        ("pcr_nifty",          W_PCR,      pcr_nif),
     )
 
     # A NOT_CHECKED component is EXCLUDED and the remaining weights are
@@ -556,7 +785,7 @@ def compute_sentiment(persist: bool = True) -> dict[str, Any]:
                     measured_weight, total_weight, ", ".join(excluded))
 
     reading = {
-        "reading_date": date.today().isoformat(),
+        "reading_date": today,
         "score": score,
         "band":  band,
         "weight_measured": measured_weight,
@@ -568,6 +797,7 @@ def compute_sentiment(persist: bool = True) -> dict[str, Any]:
             "sector_performance": {"weight": W_SECTOR, **sector},
             "regime_sma200":    {"weight": W_REGIME, **regime},
             "pmax_nifty_1h":    {"weight": W_PMAX_1H, **pmax_1h},
+            "pcr_nifty":        {"weight": W_PCR,      **pcr_nif},
         },
     }
     if persist:

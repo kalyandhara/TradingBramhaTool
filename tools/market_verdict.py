@@ -46,6 +46,7 @@ COMPONENT_LABELS = {
     "sector_performance": "Sector participation",
     "regime_sma200":      "NIFTY vs 200 SMA",
     "pmax_nifty_1h":      "PMax trend (NIFTY 1H)",
+    "pcr_nifty":          "Option positioning (NIFTY PCR)",
 }
 
 # verdict → (tone, position-size %, max trades, one-line instruction)
