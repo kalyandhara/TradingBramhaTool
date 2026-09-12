@@ -108,7 +108,12 @@ def test_decision_null_when_not_significant():
 
 
 def test_underpowered_is_not_a_null():
-    """B-58 earned this distinction at 53 events; it must not collapse into NULL."""
+    """B-58 earned this distinction at 53 events; it must not collapse into NULL.
+
+    (B-58 was later re-run at power and FAILED on its merits -- which is exactly why
+    the distinction matters: underpowered and null are different answers, and only
+    one of them was the real one.)
+    """
     v, why = st.decide(_primary(0.8, 0.40), st.MIN_SCORED_SESSIONS - 1, True)
     assert v == "UNDERPOWERED" and "Not a null" in why
 
