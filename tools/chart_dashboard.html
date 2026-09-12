@@ -1312,6 +1312,8 @@ const INDICATOR_DEFS = [
   {pane:'sub', key:'evmacd',    label:'EVWMA VWAP MACD (30,5,20) + BUY/SELL', group:'Oscillators', color:'#0094ff', alias:'quantnomad elastic volume weighted moving average vwap macd crossover buy sell signal histogram'},
   {pane:'sub', key:'roc',       label:'ROC + RSI Zones (21,5,5,14)', group:'Oscillators',    color:'#2962ff'},
   {pane:'sub', key:'stoch',     label:'Stochastic (14,3,3)',    group:'Oscillators',       color:'#26c6da'},
+  {pane:'sub', key:'mfi',       label:'MFI (14) · volume-weighted RSI', group:'Oscillators', color:'#26a69a', alias:'money flow index volume weighted rsi typical price oversold overbought accumulation'},
+  {pane:'sub', key:'atr',       label:'ATR (14) · Wilder — stop sizing', group:'Oscillators', color:'#ff8a65', alias:'average true range volatility wilder stop size position sizing risk'},
   {pane:'sub', key:'hm',        label:'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', group:'Oscillators', color:'#26a69a', alias:'hilega milega bottom top reversal strength momentum'},
   // Draws on BOTH the price chart and the RSI pane, so selecting it turns RSI
   // on (see applyIndicators) — half the signal lives in the oscillator.
@@ -1894,6 +1896,43 @@ function obvSeries(bars) {
       else if (bars[i].close < bars[i - 1].close) obv -= (bars[i].volume || 0);
     }
     out.push({time: bars[i].time, value: obv});
+  }
+  return out;
+}
+
+// Money Flow Index (14) — volume-weighted RSI on typical price (H+L+C)/3.
+//
+// This is a deliberate LINE-BY-LINE PORT of `_mfi_series`
+// (tools/scanner_templates.py:2366), which already feeds `scan_mfi_oversold`.
+// B-24 is on this page's backlog because two RSI-divergence implementations
+// were allowed to drift apart and disagree; the point of writing this one as a
+// port rather than from the formula is that the chart and the scanner must
+// answer the same question the same way. Anything changed here is owed a
+// matching change there.
+//
+// Two conventions carried over from the Python on purpose:
+//   • the sums are a ROLLING WINDOW SUM over n bars (not Wilder smoothing) —
+//     that is the original Quong/Soudack definition and what the scanner fires on;
+//   • when no bar in the window had a DOWN typical price, negative flow is 0 and
+//     the ratio is undefined. Python yields NaN there and the scanner skips the
+//     bar; here the point is OMITTED, leaving a visible gap. A gap is the honest
+//     rendering — substituting 100 would draw a pinned overbought line that the
+//     scanner does not see.
+function mfiSeries(bars, n = 14) {
+  if (!bars || bars.length < n + 1) return [];
+  const tp = bars.map(b => (b.high + b.low + b.close) / 3);
+  const rmf = bars.map((b, i) => tp[i] * (b.volume || 0));
+  const out = [];
+  for (let i = n; i < bars.length; i++) {
+    let pos = 0, neg = 0;
+    // Window covers the n bars whose direction is defined, matching
+    // rolling(n).sum() over a diff()-derived series in pandas.
+    for (let j = i - n + 1; j <= i; j++) {
+      if (tp[j] > tp[j - 1])      pos += rmf[j];
+      else if (tp[j] < tp[j - 1]) neg += rmf[j];
+    }
+    if (neg === 0) continue;                       // undefined — see note above
+    out.push({time: bars[i].time, value: 100 - 100 / (1 + pos / neg)});
   }
   return out;
 }
@@ -3178,7 +3217,11 @@ function addDots(pane, color, radius = 1.6) {
 // momentum, and remain informative on any series.
 // mabias joins them: a trend-bias card on a monotonic yield line would read
 // "permanent golden cross" — technically true, decisionally meaningless.
-const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'adxdi', 'stoch', 'elliott', 'mabias', 'rsidiv', 'obvdiv', 'hm', 'evmacd'];
+// 'mfi' joins them for the same reason as 'rsi': a volume-weighted oscillator on
+// a monotonic yield line prints permanent overbought. 'atr' deliberately does
+// NOT — on a cash-equivalent an ATR of ~0 is the TRUE and useful answer, the
+// same reason volume and the MAs stay. Volatility is structural, not momentum.
+const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'adxdi', 'stoch', 'elliott', 'mabias', 'rsidiv', 'obvdiv', 'hm', 'evmacd', 'mfi'];
 
 // Detect liquid-ETF / cash-equivalent behaviour from bar statistics rather
 // than symbol lists — new liquid ETFs launch faster than any hardcoded set
@@ -3260,7 +3303,7 @@ function applyIndicators(pane) {
   // 'volume' is deliberately absent — it is a main-chart overlay now, torn down
   // by removeIndicatorSeries above. A stale volume SUB-pane can still exist from
   // a session saved before the change, so it is swept once here.
-  ['rsi','macd','obv','rs','prte','adxdi','evmacd','roc','stoch','hm'].forEach(key => {
+  ['rsi','macd','obv','rs','prte','adxdi','evmacd','roc','stoch','hm','mfi','atr'].forEach(key => {
     if (!pane.indicators.has(key) && pane.subCharts[key]) removeSubPane(pane, key);
   });
   if (pane.subCharts.volume) removeSubPane(pane, 'volume');
@@ -3991,6 +4034,44 @@ function applyIndicators(pane) {
     const {k, d} = stochSeries(bars, 14, 3, 3);
     pane.subCharts.stoch.kLine.setData(padToBars(k, bars));   // primary → full grid
     pane.subCharts.stoch.dLine.setData(d);
+  }
+
+  if (pane.indicators.has('mfi')) {
+    if (!pane.subCharts.mfi) {
+      const sub = addSubPane(pane, 'mfi', 'MFI (14)');
+      sub.mfiLine = sub.chart.addLineSeries({
+        color: '#26a69a', lineWidth: 1.5,
+        priceLineVisible: false, lastValueVisible: true,
+      });
+      // 80 / 50 / 20 — and 20 is not decorative here: it is the exact level
+      // `scan_mfi_oversold` fires a cross-up through (scanner_templates.py:6114),
+      // so the guide line is what the scanner sees, drawn.
+      sub.mfiLine.createPriceLine({price:80, color:'rgba(248,81,73,0.45)',  lineWidth:1, lineStyle:1, axisLabelVisible:false});
+      sub.mfiLine.createPriceLine({price:50, color:'rgba(140,140,140,0.25)',lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      sub.mfiLine.createPriceLine({price:20, color:'rgba(63,185,80,0.45)',  lineWidth:1, lineStyle:1, axisLabelVisible:false});
+      sub.series = sub.mfiLine;   // crosshair sync target
+    }
+    pane.subCharts.mfi.mfiLine.setData(padToBars(mfiSeries(bars, 14), bars));
+  }
+
+  if (pane.indicators.has('atr')) {
+    if (!pane.subCharts.atr) {
+      const sub = addSubPane(pane, 'atr', 'ATR (14)');
+      sub.atrLine = sub.chart.addLineSeries({
+        color: '#ff8a65', lineWidth: 1.5,
+        priceLineVisible: false, lastValueVisible: true,
+      });
+      // No guide lines, on purpose. ATR is in PRICE units, so there is no level
+      // that means the same thing on a ₹50 stock and a ₹5,000 one — any fixed
+      // line here would be a number pretending to be a threshold. Read it as a
+      // series: rising = widening stops, and the last value IS the stop distance
+      // the desk's ATR-based sizing uses.
+      sub.series = sub.atrLine;   // crosshair sync target
+    }
+    // Reuses `atrSeries` — the same Wilder ATR that already backs PMax, Keltner,
+    // Renko and AVWAP in this file. Exposing it is wiring, not a second
+    // implementation, which is the whole reason this item owed no backtest.
+    pane.subCharts.atr.atrLine.setData(padToBars(atrSeries(bars, 14), bars));
   }
 
   if (pane.indicators.has('volprofile')) {

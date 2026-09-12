@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-09-10
+updated: 2026-09-11
 sources: 0
 related:
   - analyses/Open-Backlog-2026-08-02.md
@@ -123,7 +123,7 @@ invented in this pass; this is the existing page, sorted.
 | Rank | Item | Why it is next | Cost |
 |---|---|---|---|
 | 1 | **B-58 · run the QM measurement** | The only BUILT-but-UNSCORED detector on the page. `detect_quasimodo` + 17 tests exist, the pre-registration and its control are written, and the skeptical prior (*"QM is a liquidity sweep with extra steps"*) is recorded. Leaving a built detector unmeasured is precisely the debt B-19 was raised over. | One measurement run |
-| ~~2~~ | ~~**B-59 · PSAR overlap check**~~ — **DONE 2026-09-10.** It did NOT close: PSAR is a superset at 8.4× PMax's cadence, so an edge test on its unique cells is now owed as its own item | Cheap, and it is a **gate**: if PSAR's flips are a subset of `pmax`/`stai`, every downstream PSAR idea is dead and no edge test is owed. An overlap count, not a backtest — the counting-first method that saved a week twice in the 2026-09-07 session. | Hours |
+| ~~2~~ | ~~**B-59 · PSAR overlap check**~~ — **DONE 2026-09-10.** It did NOT close on overlap — PSAR is a superset at 8.4× PMax's cadence — and the edge test this row said was "now owed as its own item" **was run the same session as [[#B-59r]]: both twins NEGATIVE on their unique cells. Nothing further is owed.** *(row corrected 2026-09-11)* | Cheap, and it is a **gate**: if PSAR's flips are a subset of `pmax`/`stai`, every downstream PSAR idea is dead and no edge test is owed. An overlap count, not a backtest — the counting-first method that saved a week twice in the 2026-09-07 session. | Hours |
 | ~~3~~ | ~~**B-22 · wire sentiment factor 5 (PCR)**~~ — **DONE 2026-09-11.** It shipped NOT_CHECKED by construction (no index-PCR baseline existed, so the wiring also had to start storing one) and therefore changed today's score by zero. What it created is a new debt: the sign convention is unmeasured, and B-44r is the reason that is not a footnote | Now the cheapest real capability on the page: `pcr.py` is built, calibrated and already consumed three times in `dashboard_app.py`; `sentiment_index.py` still runs on four weighted factors (30/25/25/20) and documents the fifth in a docstring. Wiring, not a build — and it re-weights a number the desk already shows. | Small |
 | 4 | **B-10 · one symbol, `BSE`** | Was a four-symbol systematic-bug suspicion; it is now a single name. Close it or retire it — a one-line item that has survived five weeks of re-verification costs more to re-read than to fix. | Minutes |
 | 5 | **B-17 · OBV concept page** | Two OBV surfaces now ship (the indicator + B-61's divergence overlay) and neither is documented. B-60 wrote its CMF page with the build; this is the same debt, already incurred. | Small |
@@ -138,6 +138,80 @@ confluence is *not* the additive swing-horizon edge the Hub premise assumes. B-3
 (Pushya) is worth running only to retire it, and the desk already holds three
 astro nulls.
 
+
+## Refinement pass 2026-09-11 — re-verified against code, and one item was owed to itself
+
+Same method as 2026-09-10: every item ranked below was re-read against the
+**code**, not against the previous pass. Nothing new was invented. What follows is
+what changed in one day, what is genuinely next, and one correction.
+
+**The correction, and it is the fastest drift this page has recorded.** The
+2026-09-10 ranked table says of B-59: *"an edge test on its unique cells is now
+owed as its own item."* That edge test is **[[#B-59r]], and it was run in the same
+session** — both twins NEGATIVE on their unique cells, agreement ≈ market. The
+debt was discharged roughly an hour after it was written down, and the line
+claiming it was owed survived anyway. Previous passes explained drift by *"an item
+is only re-read when it is worked"*; this one does not fit that rule — it drifted
+**inside** the worked set, because the summary table and the item body were
+written at different moments and only the body was updated. **Ranked tables that
+paraphrase item bodies are a second source of truth, and they go stale faster than
+the bodies do.** Row 2 of that table is struck below; no further PSAR edge test is
+owed.
+
+### Re-verified 2026-09-11 (what was actually checked)
+
+| Item | Claim on the page | Verified against | Verdict |
+|---|---|---|---|
+| **B-45** (ATR/MFI not plottable) | "Neither appears in `INDICATOR_DEFS`" | `INDICATOR_DEFS` at [chart_dashboard.html:1285](tools/chart_dashboard.html:1285) — **48 keys**, no `atr`, no `mfi` | **Open, accurate** |
+| **B-46** (Ichimoku) | "absent from `tools/` entirely" | only hit for `ichimoku` repo-wide is a *comment in* `tools/psar.js:14` citing B-46 itself | **Open, accurate** |
+| **B-47** (TPO) | absent | no TPO source outside vendored `breakout_scanner` bundles | **Open, accurate** |
+| **B-10** (uncached symbols) | "only `BSE`" | `tools/cache/ownership/` — **751 files**, no `BSE*` | **Open, unchanged since 09-10** |
+| **B-17** (OBV concept page) | absent | `wiki/concepts/` still has no OBV page; two OBV surfaces ship | **Open, and still growing** |
+| **Fib rungs** (row 7, 09-07 table) | drawn, not wired | [fibonacci.js:85-96](tools/fibonacci.js:85) — `DEEP_RETRACEMENT` 0.886 still gated behind `{deepEntry:true}`, 1.13 still only in `OVERSHOOTS`, never a stop | **Open, accurate** |
+| **B-22** (PCR factor) | "four factors 30/25/25/20" | `sentiment_index.py` now documents **five** at 25/20/20/15/20 | **Closed 2026-09-11** |
+
+Six of seven bodies were accurate. That is a better hit-rate than any previous
+re-verification pass on this page, and the reason is visible: those six have not
+been touched, so nobody has had the chance to desynchronise a summary from them.
+
+### New item raised by this pass
+
+#### B-22r · The PCR factor's sign convention is unmeasured
+B-22 shipped `NOT_CHECKED` by construction — no index-PCR baseline existed, so the
+wiring had to *start storing* one, and it changed today's score by zero. That is
+the honest way to ship it. But it leaves a live claim in the code: **factor 5
+asserts a direction** (which way a PCR level and slope should push sentiment) and
+that direction has never been scored. [[#B-44r]] is why this is not a footnote —
+GEX was retired precisely because the naive convention turned out to be backwards
+for NSE, and PCR is the same *shape* of assumption made by the same reasoning. The
+factor carries weight 20 of 100.
+
+**Cost:** blocked on data, not on thinking. The baseline began accumulating
+2026-09-11, so the earliest defensible measurement is whenever the stored series
+is long enough to percentile against — this item's first action is to write down
+**how many sessions that is, and pre-register the test now**, while the
+convention's author is still in the room. Do not let it ship unmeasured into a
+score the desk reads daily.
+
+### What is next, ranked
+
+| Rank | Item | Why it is next | Cost |
+|---|---|---|---|
+| ~~1~~ | ~~**B-45 · wire ATR + MFI into `INDICATOR_DEFS`**~~ — **DONE 2026-09-11**, 48 → 50 indicators, with a parity test that found 1,333 zero-volume NIFTY bars | Both series already exist and are already computed; 48 indicators are reachable and these two are not. **No backtest is owed** — exposing an existing series makes no claim about edge — which makes it the only item on the page that is pure progress with zero measurement debt attached. ATR is also the series stop-sizing actually needs. | Hours |
+| 2 | **B-22r · pre-register the PCR sign test** | New, and it is a *clock* item: the pre-registration is worth more written today than written correctly in six weeks. Weight 20 of the sentiment score rests on an unmeasured direction, and B-44r is the precedent for that being backwards. | Small now, blocked later |
+| 3 | **B-58 · decide QM's fate** | 53 events against a pre-registered floor of 200 is **inconclusive, not null** — and an inconclusive result is the one outcome that does not retire an item. Either extend the universe/era to reach the floor, or retire QM on the recorded prior (*"a liquidity sweep with extra steps"*). Leaving it inconclusive is the worst of the three. | One decision, then maybe one run |
+| 4 | **B-10 · `BSE`, one symbol** | Third consecutive pass carrying a single-symbol item whose diagnosis ("probably our bug") is now weak — 1 of ~1,500. Check whether the exchange files under a different NSE symbol string, then close or retire it. **It costs more to re-read than to fix.** | Minutes |
+| 5 | **B-17 · OBV concept page** | Unchanged from rank 5 last pass. Two shipped surfaces, zero pages; B-60's CMF page is the pattern. | Small |
+| 6 | **Fib rungs (0.886 / 1.13)** | Unchanged and correctly parked: adopting either changes reward-to-risk and therefore the `actionable` flag on plans unrelated to QM. **Changing what a stop means is a measurement, not a default** — so this is gated behind B-58's decision, not independent of it. | Measured, not small |
+
+**Not promoted, and why (unchanged from 2026-09-10):** B-35, B-31 and B-30 stay
+where they were, for the reasons already given — no new evidence arrived this pass
+to move them.
+
+**The shape of the backlog has not changed.** Last pass's summary was *"the desk
+builds faster than it measures"*; this pass adds a second: **the desk summarises
+faster than it re-reads.** B-45 is ranked first partly because it is the rare item
+that adds a capability without adding to either debt.
 
 ## Ingested-research additions (2026-08-20)
 
@@ -2924,13 +2998,54 @@ threshold cannot be quietly re-tuned to fit the example.
 > so a back-dated run finds the volume but not the deals. Daily capture into an
 > archive is the obvious follow-on and is **not** built.
 
-### B-45 · Two indicators are already COMPUTED but not plottable — ATR and MFI *(2026-08-30)*
+### ~~B-45~~ · Two indicators are already COMPUTED but not plottable — ATR and MFI — **BUILT 2026-09-11**
 From [[analyses/Indicator-Coverage-Gap]]. **MFI** exists as `_mfi_series` and
 `scan_mfi_oversold` in `scanner_templates.py`; **ATR** is computed 32× inside
 `chart_dashboard.html` (Keltner, PMax, Renko). Neither appears in `INDICATOR_DEFS`, so
 neither can be put on a chart. This is wiring, not mathematics, and ATR is the series
 stop-sizing actually needs. **Do this before building any new indicator.** No backtest is
 owed — exposing an existing series makes no claim about edge.
+
+**SHIPPED 2026-09-11.** `INDICATOR_DEFS` goes 48 → 50: `mfi` and `atr` are both
+sub-pane oscillators in the Oscillators group, with teardown wired into the
+existing sweep and an alias line each so search finds them by the words people
+actually type (*"average true range"*, *"money flow index"*, *"position sizing"*).
+Verified in the running chart on `RELIANCE.NS` and `^NSEI` — both panes draw, both
+tear down cleanly, console clean.
+
+**ATR reuses `atrSeries`, the same Wilder ATR already behind PMax, Keltner, Renko
+and AVWAP.** That is the entire point of the item: no second implementation was
+created, so there is nothing new to be wrong. It draws with **no guide lines**, on
+purpose — ATR is in price units, so no fixed level means the same thing on a ₹50
+stock and a ₹5,000 one, and a line drawn there would be a number pretending to be
+a threshold.
+
+**MFI is a port, and it got a parity test — because [[#B-24]] is on this page.**
+`mfiSeries` is a line-by-line port of `_mfi_series` (`scanner_templates.py:2366`),
+which already feeds `scan_mfi_oversold`. B-24 exists because two RSI-divergence
+implementations were left to drift until the scanner fired on bars the chart showed
+nothing on. `tools/test_mfi_parity.py` (follows the `test_renko_parity.py` pattern)
+slices `mfiSeries` out of the HTML by brace-matching, runs it in node, and compares
+it to the Python across five cached symbols: **worst |py−js| = 4.3e-14 over
+≈19,000 bars.** The 20-line on the pane is not decorative either — it is the exact
+level `scan_mfi_oversold` fires a cross-up through, so the guide line is what the
+scanner sees, drawn.
+
+> [!key-insight] The parity test's first run found something the build did not
+> **`^NSEI` has 1,333 zero-volume bars out of 4,648 — 28.7%.** yfinance does not
+> carry turnover for the index, so **MFI is UNDEFINED over a quarter of NIFTY's
+> history** (no down-bar carries volume → negative money flow is zero → the ratio
+> has no value). Python yields NaN and the JS omits the point, so the chart draws a
+> **gap**, which is the honest rendering. A port that had "helpfully" substituted 50
+> or 100 there would have drawn a confident line over 1,333 bars of nothing, and it
+> would have looked completely normal. The first version of the test flagged this as
+> a FAILURE at 27.9%; the finding was that the threshold was wrong, not the port.
+> **This is the counting-first method landing again: the cheap check found the data
+> problem, not the backtest.**
+
+**No backtest is owed and none was run** — that claim is unchanged and is why this
+was ranked first. Neither series makes an assertion about edge. The MFI *scanner*
+remains unmeasured and still folds into [[#B-19]].
 
 ### B-46 · Ichimoku Cloud — the largest single named absence *(2026-08-30)*
 The most consistently cited "complete system" indicator and absent from `tools/` entirely
