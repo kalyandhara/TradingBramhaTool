@@ -239,10 +239,10 @@ unmeasured assertion inside a number that gets read daily.
 |---|---|---|---|
 | ~~1~~ | ~~**B-45 · wire ATR + MFI into `INDICATOR_DEFS`**~~ — **DONE 2026-09-11**, 48 → 50 indicators, with a parity test that found 1,333 zero-volume NIFTY bars | Both series already exist and are already computed; 48 indicators are reachable and these two are not. **No backtest is owed** — exposing an existing series makes no claim about edge — which makes it the only item on the page that is pure progress with zero measurement debt attached. ATR is also the series stop-sizing actually needs. | Hours |
 | ~~2~~ | ~~**B-22r · pre-register the PCR sign test**~~ — **DONE 2026-09-11: pre-registered, then the "blocked until December" premise collapsed (the archive is backfillable), so it was also MEASURED — NULL, and factor 5 now scores zero** | New, and it is a *clock* item: the pre-registration is worth more written today than written correctly in six weeks. Weight 20 of the sentiment score rests on an unmeasured direction, and B-44r is the precedent for that being backwards. | Small now, blocked later |
-| 3 | **B-58 · decide QM's fate** | 53 events against a pre-registered floor of 200 is **inconclusive, not null** — and an inconclusive result is the one outcome that does not retire an item. Either extend the universe/era to reach the floor, or retire QM on the recorded prior (*"a liquidity sweep with extra steps"*). Leaving it inconclusive is the worst of the three. | One decision, then maybe one run |
+| ~~3~~ | ~~**B-58 · decide QM's fate**~~ — **DONE 2026-09-11: widened the window, found the 2026-09-10 verdict was an artifact of `max_swings=15`, re-ran at 5,048 events — FAIL (−0.64%, p=0.120). QM stays geometry** | 53 events against a pre-registered floor of 200 is **inconclusive, not null** — and an inconclusive result is the one outcome that does not retire an item. Either extend the universe/era to reach the floor, or retire QM on the recorded prior (*"a liquidity sweep with extra steps"*). Leaving it inconclusive is the worst of the three. | One decision, then maybe one run |
 | 4 | **B-10 · `BSE`, one symbol** | Third consecutive pass carrying a single-symbol item whose diagnosis ("probably our bug") is now weak — 1 of ~1,500. Check whether the exchange files under a different NSE symbol string, then close or retire it. **It costs more to re-read than to fix.** | Minutes |
 | 5 | **B-17 · OBV concept page** | Unchanged from rank 5 last pass. Two shipped surfaces, zero pages; B-60's CMF page is the pattern. | Small |
-| 6 | **Fib rungs (0.886 / 1.13)** | Unchanged and correctly parked: adopting either changes reward-to-risk and therefore the `actionable` flag on plans unrelated to QM. **Changing what a stop means is a measurement, not a default** — so this is gated behind B-58's decision, not independent of it. | Measured, not small |
+| ~~6~~ | ~~**Fib rungs (0.886 / 1.13)**~~ — **SETTLED 2026-09-11 by B-58's FAIL: the geometry they serve does not beat a plain support retest, so neither becomes a `buildPlan` default. They stay drawn** | Unchanged and correctly parked: adopting either changes reward-to-risk and therefore the `actionable` flag on plans unrelated to QM. **Changing what a stop means is a measurement, not a default** — so this is gated behind B-58's decision, not independent of it. | Measured, not small |
 
 **Not promoted, and why (unchanged from 2026-09-10):** B-35, B-31 and B-30 stay
 where they were, for the reasons already given — no new evidence arrived this pass
@@ -1741,7 +1741,8 @@ Sweep signal **removing the stop entirely** turned −0.059R into +0.504R. A
 trailing stop is not free, and PSAR is a fairly tight one. Ship the picture; do
 not assume the exit rule.
 
-### B-58 · Quasimodo (QM) geometry — **MEASURED 2026-09-10: INCONCLUSIVE — UNDERPOWERED (53 events against a pre-registered floor of 200)**
+### ~~B-58~~ · Quasimodo (QM) geometry — **MEASURED 2026-09-11 AT POWER: FAILS THE BAR (5,048 events, edge −0.64%, p_rot 0.120)**
+*(The 2026-09-10 "too rare to measure" verdict was itself an artifact — see the re-run below.)*
 
 From a "4 Setups for BUY Entry, based on QM patterns (CHOCH)" chart the owner
 brought in. A coverage audit of that image against the repo found most of its
@@ -2067,6 +2068,137 @@ entry/stop/target, PIPELINE_EXCLUDED**, and `Liquidity Sweep` (B-41m, +0.51%
 > today's liquid 356 here. **Two backtests of "the same idea" are not comparable
 > unless universe, window, costs and baseline all match** — and the +1.86% mean
 > 20-day return on all bars says most of this window's level is market drift.
+
+═══ AMENDMENT 2026-09-11 — WIDEN THE WINDOW, CHANGE NOTHING ELSE ══════════
+
+**Written and committed BEFORE the re-run**, because the re-run is the move that
+needs a paper trail most: *I already know which way the primary pointed.*
+
+The 2026-09-10 run aborted on power, and its own closing sentence named the two
+ways out: *"either the window widens (more history, or intraday bars where the
+geometry repeats far more often) or B-58 stays unmeasurable."* This takes the
+first. The third option — retire QM on the skeptical prior — is deliberately NOT
+taken, because retiring a pattern for being rare is not the same as retiring it
+for having no edge, and the page should not record the one as the other.
+
+**Why the count was low, and why this fixes it.** The event rate is a property of
+the bar supply, not of the pattern: `cache/cardinality/` holds **743 daily bars
+per name** (the `--years 2` build, +1y warm-up), which is ~3 years. 53 events came
+out of that. The same 460 names carry **up to ~4,700 daily bars** where the full
+history exists, so a deeper cache should clear the floor of 200 on arithmetic
+alone. **Nothing about the detector, the event, the baseline, the horizon, the
+statistic or the pass bar changes** — only how many bars each name brings.
+
+> [!warning] What this amendment is NOT allowed to do, stated so it can be checked
+> **Every parameter stays frozen at its pre-registered value**: event = first
+> in-zone close after `rh.bar + pivot_len`, baseline = within ±2% of a confirmed
+> prior swing low approached from above, horizon 20d, entry next open, statistic
+> `mean(signal) − mean(baseline)`, **pass bar `edge > 0 AND p_rot < 0.05`**, abort
+> below 200 events. The ONLY change is the bar supply.
+>
+> **This is a power fix, and it can only be run once.** The first run reported
+> PRIMARY +0.71% with no computable p. If the wider window is allowed to be
+> re-cut, re-filtered or re-horizoned until that +0.71% acquires a p, the result
+> is not a measurement, it is a search. So: one run, on the frozen design, and
+> whatever it prints is the answer — including a null, which on this page now has
+> teeth (see [[#B-22r]], where a null cost a factor its vote).
+>
+> **The deeper cache is written to a SEPARATE directory** (`cache/cardinality_deep/`).
+> `cache/cardinality/` is the shared panel behind B-43, B-57 and the DIAGNOSTIC
+> arm; overwriting it to serve this item would silently re-cut settled results.
+
+**Two known costs of a deeper window, disclosed up front rather than discovered:**
+
+1. **Survivorship gets worse, not better.** The universe is today's liquid 500,
+   so extending backwards asks *"how did today's survivors behave in 2010"* — a
+   bias that inflates long-horizon returns. It inflates SIGNAL and BASELINE
+   together, which is why this study measures a difference and not a level, but
+   the CONTRAST and HARNESS arms (which baseline against all bars) get less
+   trustworthy, not more. They were already non-decisive.
+2. **Era mixing.** 15 years spans regimes with different volatility and different
+   microstructure. The pre-registered statistic is a pooled difference and stays
+   pooled — splitting by era after the fact would be exactly the search this
+   amendment forbids.
+
+═══ RE-RUN — 2026-09-11, AT POWER: **FAIL** ═══════════════════════════
+
+**VERDICT: FAIL against the pre-registered bar** (`edge > 0 AND p_rot < 0.05`).
+**5,048 primary events** — 25× the floor of 200, so this is a real answer and the
+INCONCLUSIVE of 2026-09-10 is superseded.
+
+| arm | n | signal | baseline | edge | p_rot |
+|---|---|---|---|---|---|
+| **PRIMARY** QM zone entry vs retests | **5,048** | +0.82% | +1.47% | **−0.64%** | **0.120** |
+| CONTROL CHOCH relaxed, vs retests | 15,391 | +0.99% | +1.47% | −0.48% | 0.083 |
+| CONTRAST QM zone entry vs ALL bars | 5,048 | +0.82% | +1.97% | −1.15% | 0.015 |
+| HARNESS all retests vs ALL bars | 950,658 | +1.47% | +1.97% | −0.50% | 0.000 |
+| DIAGNOSTIC bare Renko flip (= B-43) | 27,728 | +1.94% | +1.97% | −0.03% | 0.947 |
+
+**The prior was right, and the control now says why.** Dropping `RH > LH` moves the
+edge from −0.64% to −0.48% while tripling the event count — **the change of character
+is doing almost nothing**. That is precisely what the control was pre-registered to
+detect: `detect_quasimodo` is an inverse-H&S finder with an extra condition that
+does not select. The skeptical prior — *"QM is a liquidity sweep with extra steps"*
+— survives, and `Liquidity Sweep` (B-41m, **+0.51% @20d, p=0.005**) remains the
+measured way to express the mechanic.
+
+**The HARNESS clause did not fire this time, and that is its own result.** At 950k
+retest bars it reads **−0.50%**, finally agreeing with B-19's family numbers
+(−0.36 / −0.47 / −0.43% @20d) instead of contradicting them at +1.74%. The
+2026-09-10 harness anomaly was a small-sample artifact, and the DIAGNOSTIC arm
+reproduces B-43's settled null at −0.03% in both runs.
+
+> [!key-insight] The 2026-09-10 verdict was measuring a DEFAULT ARGUMENT, not a pattern
+> The re-run's first attempt widened the bar supply 5.5× (743 → 4,122 daily bars per
+> name, 264k → 1.50M bars) and the event count went **53 → 68**. It should have gone
+> to ~300. **68/53 is exactly 459/356 — the ratio of NAMES, not of history.**
+>
+> `detect_structure_chain` defaults to **`max_swings=15`**: it returns only the most
+> recent fifteen swings. The study took that default, so its "historical walk" could
+> never see more than ~12 candidate quadruples per name however many bars it was
+> handed — in practice about **one event per name**. Lifting it took the same
+> universe from **68 events to 5,050**, a 74× difference in what the study could see.
+>
+> So *"a shape this rare cannot be measured to this desk's bar on three years of
+> daily bars in one market"* — written up as a scoping fact about the pattern — was
+> a statement about a keyword argument. **The equivalence check could not catch it:
+> `detect_quasimodo` also looks only at a recent window, so the newest pattern agreed
+> exactly as designed. A check that compares the NEWEST event is blind to a missing
+> HISTORY.**
+>
+> Both bugs on this page now have regression tests (`tools/test_quasimodo_study.py`),
+> because both produced runs that looked completely healthy.
+
+> [!warning] AMENDMENT 2026-09-11 (second one) — "traded above" now means the HIGH
+> With 5,050 events the subset assertion failed again, on **8 events across 7 names**
+> — invisible at 68. `support_retests` tested *"price has traded clear above the
+> band"* on **closes**. When a QM's structure is compressed inside the ±2% tolerance,
+> `LH` itself sits inside the band and no close ever prints above it. COFORGE bar
+> 1094: LS 39.16, band 38.38–39.94, post-head rally peaked at **39.75 on closes** — a
+> real 9.5% grab and a real CHOCH that the close-based rule could not see.
+>
+> **"Traded" is what the sentence already said, and `high` is what "traded" means.**
+> Like the first amendment this changes only which bars the BASELINE is drawn from:
+> the event definition, horizon, statistic and pass bar are untouched, **the event
+> count is identical before and after so it cannot buy power**, and it *widens* the
+> baseline — the conservative direction, since a wider baseline makes any signal
+> edge harder to stand out from.
+
+**Consequence — no code change, which is the point.** `detect_quasimodo` was already
+geometry-only: no scanner, no `entry`/`stop`/`target`, `PIPELINE_EXCLUDED`, with a
+test asserting the absence of those keys. **The measurement confirms that placement
+rather than changing it**, and B-58 closes as a measured FAIL rather than an open
+inconclusive.
+
+**This also settles the fib rungs** (row 7 of the 2026-09-07 carry-forward table).
+0.886 and 1.13 were added for the QM setups and left drawn-but-unwired, deliberately
+gated behind this measurement. The geometry they serve does not beat a plain support
+retest, so **adopting either as a `buildPlan` default has no support** — they stay
+drawn, and now for a measured reason rather than a pending one.
+
+**Reproduce:** `py -3 tools/qm_deep_cache.py` then
+`py -3 tools/quasimodo_study.py --cache cache/cardinality_deep`
+(`tools/cache/` is gitignored, so the 1.50M-bar panel is rebuilt, not cloned).
 
 **Deferred, not forgotten: multi-timeframe liquidity ("HTF LQ").**
 `detect_liquidity_pools` takes one `df`. Real HTF liquidity needs a second

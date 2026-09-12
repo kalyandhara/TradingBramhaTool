@@ -5,6 +5,13 @@ Runs the test pre-registered in `analyses/Open-Backlog.md` §B-58, completed and
 committed at `5ab30f6` BEFORE this scorer existed. Nothing here may change the
 design; if something has to change, the entry changes first and says why.
 
+RESULT 2026-09-11, at power: **FAIL**. 5,048 primary events (floor 200), edge
+−0.64%, p_rot 0.120 — and the pre-registered CONTROL is the informative half:
+relaxing `RH > LH` moves the edge to −0.48% while TRIPLING the count, so the
+change of character does not select. QM stays geometry, PIPELINE_EXCLUDED.
+(The 2026-09-10 run's "INCONCLUSIVE — 53 events, too rare to measure" was an
+artifact of `max_swings=15`; see the note in `build_panel`.)
+
 Scored through the SAME harness as B-43/B-43r/B-57 (`renko_regime_study._edge`,
 `_rotation_p`, `_row`) and over the same cached bar universe
 (`renko_quality_cardinality.CACHE`), so "QM zone entry" and "Renko flip" are
@@ -172,7 +179,8 @@ def zone_entries(patterns: list[dict], c: np.ndarray, m: int) -> list[int]:
     return ev
 
 
-def support_retests(swings: list[dict], c: np.ndarray, m: int) -> np.ndarray:
+def support_retests(swings: list[dict], c: np.ndarray, m: int,
+                    h: np.ndarray) -> np.ndarray:
     """The STATE: close within +-TOL_PCT of a confirmed prior swing low, from above.
 
     This is the plainest statement of "buying support" — the family that has
@@ -198,8 +206,27 @@ def support_retests(swings: list[dict], c: np.ndarray, m: int) -> np.ndarray:
     "From above" therefore means: since the pivot confirmed, price has traded
     clear above the band at least once and has now come back into it. That is
     what distinguishes a retest from a name arriving at the level for the first
-    time on the way down, and it is satisfied by every QM entry — the post-head
-    rally to `RH` is above `LH`, which is above the shoulder.
+    time on the way down.
+
+    AMENDED AGAIN 2026-09-11, and for the third time on the same clause. "Traded
+    clear above the band" is now tested on the bar's HIGH, not on its close.
+
+    The close-based version broke the subset property on **8 of 5,050 events** --
+    invisible at the 68 events the capped walk produced, and only surfaced once the
+    `max_swings` bug was fixed. The cause is a case the docstring's reasoning above
+    misses: it argues every QM qualifies because "the post-head rally to RH is above
+    LH, which is above the shoulder" -- true of the LEVELS, but when the whole
+    structure is compressed inside the +-2% band, `LH` itself sits inside it and no
+    CLOSE ever prints above `hi`. COFORGE bar 1094 is the worked example: LS 39.16,
+    band 38.38-39.94, post-head rally peaked at 39.75 on closes. A real grab (35.45,
+    -9.5%), a real CHOCH, and a retest the close-based rule could not see.
+
+    "Traded" is what the sentence already said, and `high` is what "traded" means.
+    Like the 2026-09-10 amendment this changes only which bars the BASELINE is drawn
+    from -- the event definition, the horizon, the statistic and the pass bar are all
+    untouched, and the event count is identical before and after, so it cannot buy
+    power. It widens the baseline slightly, and a wider baseline is the conservative
+    direction: it can only make the signal's edge harder to stand out from.
     """
     mask = np.zeros(m, bool)
     for sw in swings:
@@ -211,9 +238,9 @@ def support_retests(swings: list[dict], c: np.ndarray, m: int) -> np.ndarray:
         lo, hi = lvl * (1 - TOL_PCT / 100.0), lvl * (1 + TOL_PCT / 100.0)
         been_above = False
         for t in range(int(sw["bar"]) + PIVOT_LEN + 1, m):
-            if c[t] > hi:
+            if h[t] > hi:
                 been_above = True
-            elif been_above and lo <= c[t] <= hi:
+            if been_above and lo <= c[t] <= hi:
                 mask[t] = True
     return mask
 
@@ -241,7 +268,25 @@ def build_panel(paths: list[Path], horizon: int = HORIZON) -> tuple[list[dict[st
         m = len(df)
         if m < WARMUP + horizon + 3:
             continue
-        chain = st.detect_structure_chain(df, pivot_len=PIVOT_LEN)
+        # max_swings MUST be lifted, and this is a BUG FIX, not a parameter choice.
+        #
+        # `detect_structure_chain` defaults to `max_swings=15` -- it keeps only the
+        # most recent 15 swings. The 2026-09-10 run took that default, so the
+        # "historical walk" could never see more than ~12 candidate quadruples per
+        # name no matter how many bars it was given, and in practice yielded about
+        # ONE event per name. That is why 5.5x the bars (743 -> 4,122 per name)
+        # produced 68 events instead of 53: the count was tracking the number of
+        # NAMES, not the amount of history.
+        #
+        # It also means the pre-registration's own conclusion -- "a shape this rare
+        # cannot be measured on three years of daily bars" -- was measuring a
+        # default argument, not the pattern. The design says every QM in the
+        # history; this is what executing that actually requires.
+        #
+        # The equivalence check could not catch it: `detect_quasimodo` ALSO looks at
+        # a recent window, so the newest pattern agreed exactly as designed. A check
+        # that compares the newest event cannot see a missing history.
+        chain = st.detect_structure_chain(df, pivot_len=PIVOT_LEN, max_swings=10**9)
         if not chain or not chain.get("swings"):
             stats["no_chain"] += 1
             continue
@@ -267,7 +312,7 @@ def build_panel(paths: list[Path], horizon: int = HORIZON) -> tuple[list[dict[st
             if WARMUP <= t <= last:
                 qmr[t] = True
 
-        state = support_retests(swings, c, m)
+        state = support_retests(swings, c, m, df["high"].to_numpy(float))
         allb = np.zeros(m, bool)
         allb[WARMUP:last + 1] = True
 
@@ -374,14 +419,24 @@ def main() -> int:
     ap.add_argument("--universe", type=int, default=500)
     ap.add_argument("--horizon", type=int, default=HORIZON)
     ap.add_argument("--verify", action="store_true", help="equivalence check only")
+    #: B-58's 2026-09-11 amendment: the 3-year cache yielded 53 events against a
+    #: floor of 200, and the event rate is a property of the BAR SUPPLY, not of the
+    #: pattern. This points the same frozen design at a deeper cache. It is a
+    #: directory switch on purpose - cache/cardinality/ is the shared panel behind
+    #: B-43, B-57 and the DIAGNOSTIC arm, and re-cutting it to serve this item
+    #: would silently move settled results.
+    ap.add_argument("--cache", type=str, default=None,
+                    help="bar cache directory (default: cache/cardinality)")
     args = ap.parse_args()
 
+    cache_dir = Path(args.cache) if args.cache else CACHE
     syms, bhav_date = card.universe(args.universe)
-    paths = [p for p in (CACHE / f"{s}_1d.json" for s in syms) if p.exists()]
+    paths = [p for p in (cache_dir / f"{s}_1d.json" for s in syms) if p.exists()]
     if not paths:
-        sys.exit(f"no cached bars in {CACHE} - run renko_quality_cardinality.py first")
+        sys.exit(f"no cached bars in {cache_dir} - run renko_quality_cardinality.py first")
 
     print(f"B-58 - Quasimodo zone entry vs support retest   (bhavcopy {bhav_date})")
+    print(f"bars from {cache_dir.name}")
     print(f"universe {len(paths)} names | horizon {args.horizon}d | pivot_len {PIVOT_LEN} "
           f"| zone +-{TOL_PCT}% | grab >={MIN_GRAB}% | CHOCH >={MIN_CHOCH}%")
     panel, pstats = build_panel(paths, args.horizon)
