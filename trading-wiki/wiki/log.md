@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-11] write | B-17 — the OBV concept page, five weeks late and for two surfaces
+- **The debt had grown since it was filed.** B-17 was raised when OBV shipped as a chart indicator with no page; B-61 then added an OBV *divergence* overlay on 2026-09-07. **Two surfaces, zero pages.** [[concepts/Chaikin-Money-Flow]] was written alongside its build (B-60) — same day, same session — which is the pattern this one failed to follow.
+- **Written from the code, not from the concept.** The page documents what actually ships: `obvSeries` in `chart_dashboard.html`, `obv_divergence.js` reusing `RSIDIV.compute` through its injection point (so there is one divergence walk, not two), and the `volConcentration` field that MEASURES the single-huge-print artifact LuxAlgo says to inspect by hand.
+- **The pairing with CMF is the part worth keeping:** the two fail in *opposite* directions. CMF ignores the previous close entirely so it cannot see gaps; OBV sees only the previous close so it cannot see where inside the bar anything happened. Neither is a better version of the other, and a disagreement between them says which artifact is firing.
+- **One claim was wrong on the first draft and was checked rather than shipped.** I wrote that the RSI-divergence engine OBV reuses "has never been scored on forward returns". It has: B-19 measured **RSI Divergence Bull +0.36%/+0.93% (211 signals)** and **Bear −0.84%/−1.18% (403)**, both flagged **UNSTABLE**. The page now carries the table — weak support pointing the right way, not a result to build on.
+- **Recorded as owed:** an **overlap check against the RSI pane** before any OBV-divergence signal. It is a gate, not a study — the same cheap check that killed the PSAR signal idea (B-59: a superset at 8.4× the cadence).
+
 ## [2026-09-11] measure | B-58 — QM re-run AT POWER: FAIL, and the previous verdict was an artifact
 - **The 2026-09-10 result was measuring a default argument.** It reported *"53 events, too rare to measure on three years of daily bars"* — a scoping claim about the pattern. Widening the bar supply 5.5× (743 → 4,122 bars/name) moved the count only **53 → 68**, and **68/53 is exactly 459/356: the ratio of NAMES, not of history.**
 - **Cause: `detect_structure_chain` defaults to `max_swings=15`** — the last fifteen swings only. The study's "historical walk" could never see more than ~12 candidate quadruples per name however many bars it got. Lifting it: **68 → 5,050 events, 74×**.
