@@ -514,6 +514,104 @@ when fresh, plain `SWEEP 5153 · wick 56%` when not. Verified live on both cases
 **No new measurement is owed** — nothing new is claimed. The event was measured, the
 plan was measured, and both numbers now travel with the pixels that draw them.
 
+## B-73 · "Ultimate All-In-One (Cash Segment)" contra theme — **SCOPED 2026-09-12, NOT STARTED**
+
+Owner's ask, verbatim in intent — a single cash-segment contra pipeline delivering:
+
+1. one separate pipeline for **Multibagger Investing Frameworks**
+2. **1–2 Momentum & Swing ideas daily**
+3. **1–2 Smallcap Opportunities every month**
+4. **SME Opportunities**
+
+Scoped the way [[#B-58]] was: audit what already exists BEFORE proposing a build,
+because three of the four are mostly assembly and the fourth is blocked on data.
+
+### Coverage audit — what the four asks already have
+
+| ask | what exists today | state |
+|---|---|---|
+| **1. Multibagger framework** | `multibagger_candidates.py` — early-stage small/mid-cap screen on fresh institutional conviction + capital efficiency | **built, and UNMEASURED** — no B-19 verdict file, no named study, no reference to a backtest anywhere in the module |
+| **2. Momentum & swing daily** | `opportunity_hub.py` (funnel, families, confluence, weights) + `opportunity_daily.py` (scheduler job, persists to `daily_opportunities`) | **built and running daily** |
+| **3. Smallcap monthly** | `smallcap_universe.py` (free NSE small/micro universe the Hub's traded-value funnel structurally cannot see) + `smallcap_discovery.py` (B-34 conviction scorer) | **built, MEASURED WEAK** (B-34), gate shipped 2026-09-05 |
+| **4. SME** | nothing | **genuine gap, and blocked twice over — see below** |
+| *contra framing itself* | [[analyses/Contra-Strategy-Roadmap]] + `value_screen.py`, `contra_inflection.py`, `volume_anomaly.py` | built; the roadmap's own **Phase 0** says measurement debt blocks everything |
+
+**So the honest shape of this theme is: one unmeasured screen, one working daily
+pipeline, one measured-weak monthly lane, and one real gap.** It is not four builds.
+
+### The SME ask is blocked twice, independently
+
+> [!warning] Neither blocker is a matter of effort
+> **1. SME is in no universe this desk builds.** `smallcap_universe` is drawn from
+> **NSE index constituents**, and NSE Emerge (the SME board) is a separate segment
+> that is not in them. The Hub's `liquid_universe` is top-N by **traded value** from
+> the bhavcopy, and an SME name does not survive a liquidity floor — that is what
+> the floor is for.
+>
+> **2. The price data is known-unreliable for exactly these names.** `data_source`
+> carries a retry loop written because *"yfinance intermittently returns an empty /
+> 1-3 row STUB for thinly-traded BSE/SME names (e.g. DIACABS.BO, VILAS)"*, and
+> `dashboard_app` already warns that growth/ROCE/working-capital reads are
+> untrustworthy for thin BSE/SME names.
+>
+> **This is the B-48 situation, not the B-45 situation:** the blocker is the FEED,
+> not the code. Building an SME screen on a feed that stubs would produce a
+> plausible-looking screen of names whose history was never there — indistinguishable
+> from a working one by eye. **First deliverable for the SME ask is therefore a DATA
+> probe, not a screen:** how many NSE Emerge symbols resolve, how often they stub,
+> and whether any free source carries their fundamentals.
+
+### The cadence contradiction in ask 3, which is worth deciding before building
+
+**"1–2 smallcap opportunities every month" asks a QUARTERLY signal to speak
+monthly.** `smallcap_discovery.score_from_cache` reads **shareholding filings** and
+returns `None` with fewer than 2 quarters; conviction is the *change* in
+institutional holding between filings, and NSE publishes those **four times a
+year**. Two months in every three, a "monthly" idea would be the same filing data
+re-ranked, dressed as new information.
+
+Three honest ways out, and the choice is the owner's:
+- **(a) Quarterly cadence** for the conviction lane, matching its input.
+- **(b) Monthly cadence on a different signal** — price/volume structure on the
+  smallcap universe, which updates daily but is NOT what B-34 measured.
+- **(c) Monthly delivery, quarterly refresh** — stated plainly on the card, so the
+  reader knows which months carry new filings.
+
+### What this must NOT become
+
+> [!warning] The desk has already measured most of what a theme like this would stack
+> **B-19 measured most single-condition scanners at no edge after costs.** The three
+> "retrace into a level after a structure break" implementations measured
+> −0.36% / −0.47% / −0.43% @20d across ~9,000 signals. [[analyses/Contra-Strategy-Roadmap]]
+> already records that **the two highest-rated methods on a supplied contra list are
+> the two already falsified here** — POC/liquidity-exhaustion (SVP: 5 of 7 factors
+> sign-inverted) and astro-contra (SBC daily-vedha: clean negative).
+>
+> **Bundling unmeasured screens into a themed pipeline does not make them work; it
+> makes the failure harder to attribute.** The one component with a measured,
+> cost-surviving edge is `Liquidity Sweep` (B-41m, +0.51% @20d) — and even there
+> B-41p showed the shipped plan returns +0.06R.
+
+### Proposed sequencing
+
+**Phase 0 — measure what is already built, before adding anything.** This is not new
+advice; [[analyses/Contra-Strategy-Roadmap]] already names it as blocking. The
+concrete item here is **`multibagger_candidates` has never been measured** and is
+ask #1's whole deliverable. One pre-registered event study, the [[#B-22r]] pattern:
+design committed before the scorer runs.
+
+**Phase 1 — decide the smallcap cadence** (a/b/c above). A decision, not a build.
+
+**Phase 2 — the SME data probe.** Answers whether ask #4 is possible at all before
+any screen is written.
+
+**Phase 3 — assembly.** Only now is there a "pipeline": one page that routes
+daily momentum/swing from the Hub, the smallcap lane at its decided cadence, the
+multibagger screen at whatever weight its measurement earned, and SME if and only
+if Phase 2 says the data exists.
+
+**Nothing in Phase 3 is hard. Phases 0–2 are where this item actually lives.**
+
 ## Ingested-research additions (2026-08-20)
 
 Four items below (B-28…B-31) come from a batch of trading videos ingested into the
