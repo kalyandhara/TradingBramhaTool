@@ -7552,10 +7552,12 @@ function renderPmaxInfo(pane, sig, trail, last, long, col) {
       //     the precedent: a signal measurement does not transfer to a plan built
       //     on it, and no one has scored this plan.
       `<div class="pmax-cav">` +
-        `<b>The flip has no measured edge</b> — B-65: −0.55% @20d, p=0.511 ` +
-        `(n=1,538 flips, daily equity), one of four trailing-stop detectors to ` +
-        `land on nothing. Entry and exit are both that flip; the stop/target ` +
-        `plan itself is unscored. Not advice.</div>` +
+        `<b>Measured, and worse than doing nothing</b> — B-65: the flip has no ` +
+        `edge (−0.55% @20d, p=0.511). B-74: <b>this plan returns −0.50R against ` +
+        `simply holding the same stock for the same days</b> (n=1,269 long, CI ` +
+        `excludes 0); a plain 20-day hold gives back only −0.15R, and using the ` +
+        `drawn trail as a stop is worse again. The levels are the indicator's ` +
+        `geometry — not a plan to trade. Not advice.</div>` +
     `</div>`;
   st.infoEl.classList.toggle('collapsed', st.collapsed);
   st.infoEl.style.display = 'block';

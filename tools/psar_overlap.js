@@ -60,27 +60,10 @@ require(path.join(HERE, 'psar.js'));
 require(path.join(HERE, 'supertrend_ai.js'));
 
 // ── pmaxSeries / atrSeries, lifted from the chart rather than reimplemented ──
-// Sliced by brace-matching from the function header, so a rename or an edit in
-// chart_dashboard.html surfaces here as a loud failure instead of a silent
-// divergence between what the chart draws and what this file measures.
-function liftFunction(src, name) {
-  const start = src.indexOf(`function ${name}(`);
-  if (start < 0) throw new Error(`chart_dashboard.html no longer defines ${name}()`);
-  let depth = 0, i = src.indexOf('{', start);
-  const open = i;
-  for (; i < src.length; i++) {
-    if (src[i] === '{') depth++;
-    else if (src[i] === '}') { depth--; if (depth === 0) break; }
-  }
-  if (depth !== 0) throw new Error(`unbalanced braces lifting ${name}()`);
-  return src.slice(start, i + 1);
-}
-
-const html = fs.readFileSync(path.join(HERE, 'chart_dashboard.html'), 'utf-8');
-const chartFns = new Function(
-  `${liftFunction(html, 'atrSeries')}\n${liftFunction(html, 'pmaxSeries')}\n` +
-  'return {atrSeries, pmaxSeries};'
-)();
+// The lift itself moved to chart_lift.js on 2026-09-12, when B-74 needed the
+// same borrow. Two copies of "how to borrow from the chart" is exactly the
+// drift the lift exists to prevent, one level up.
+const { chartFns } = require(path.join(HERE, 'chart_lift.js'));
 
 // ── flip extraction, one shape for all three ────────────────────────────────
 // Each returns [{index, dir}] with dir 1 = turned bullish, -1 = turned bearish,

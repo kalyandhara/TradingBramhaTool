@@ -612,7 +612,7 @@ if Phase 2 says the data exists.
 
 **Nothing in Phase 3 is hard. Phases 0–2 are where this item actually lives.**
 
-## B-74 · The PMax PLAN has never been scored — the B-41p that PMax never got — **PRE-REGISTERED 2026-09-12, NOT RUN**
+## B-74 · The PMax PLAN has never been scored — the B-41p that PMax never got — **MEASURED 2026-09-12: the drawn plan is WORSE THAN HOLDING**
 
 Raised while answering a question, not during a review: owner asked what *"the
 band"* means in the PMax card's exit line. Answering it exposed that the card was
@@ -671,6 +671,83 @@ card now says so in as many words; this entry is the thing it points at.
 stop attached to it. The value of running this is not discovery — it is closing
 the one gap the card currently admits to in public, and finding out what the
 ratcheting exit **costs** against a flat hold.
+
+═══ MEASURED — 2026-09-12, `tools/pmax_plan_study.py` ═══════════════════════════
+
+2,788 trades (1,269 long / 1,519 short) · 448 symbols · 29bps · 2,000-draw
+symbol-block bootstrap. Bands emitted by `tools/pmax_bands_emit.js`, which lifts
+`pmaxSeries` out of the chart through the new `chart_lift.js` rather than
+reimplementing it — so these are the numbers the chart draws.
+
+**EDGE — each arm against an equal-length unconditional window, LONG (decides):**
+
+| arm | edge R | 95% CI |
+|---|---|---|
+| **A1 · SHIPPED-FLIP** | **−0.500** | [−0.564, −0.433] **excludes 0** |
+| A2 · SHIPPED-TRAIL | −0.600 | [−0.696, −0.504] excludes 0 |
+| B · FROZEN STOP | −0.533 | [−0.616, −0.458] excludes 0 |
+| C · TIME ONLY (20d) | −0.145 | [−0.191, −0.099] excludes 0 |
+
+**VERDICT: DEMOTE.** On equal footing the shipped plan is worse than a plain
+20-day hold by **+0.355R (CI [+0.296, +0.412], excludes 0)**, and worse than
+simply holding the same stock over the identical window by **half an R per
+trade**. The drift the shipped hold sits through is **+0.635R over a median 67
+bars**; the plan hands back four fifths of it.
+
+> [!warning] The registered decision bar was MIS-SPECIFIED, and it said KEEP
+> As written it compared A1 and C on RAW R. But A1 holds to the opposite flip
+> (median **67 bars**) and C exits at a fixed **20**, so A1 collects ~3× the drift
+> before any plan quality is involved. On raw R, A1 (+0.135) "beats" C (−0.012)
+> and the bar returns **KEEP** — the opposite of the truth. The bar's INTENT
+> (*does the drawn plan cost the reader against doing nothing*) is answerable only
+> once each arm is measured against its own equal-length window, and then it is
+> **DEMOTE**. Both readings are printed by the module so the error stays visible.
+>
+> **The defect is mine and it is instructive:** B-74's PANEL line said *"B-65's,
+> unchanged … unconditional baseline"* and the first cut of the scorer then
+> reported raw R. B-65's −0.55% is an EDGE, not a return. A pre-registration that
+> names a baseline and a scorer that omits it is how a null becomes a positive.
+
+**The harness reproduces B-65 exactly**, which is why the above can be trusted:
+run under B-65's own convention (entry next open, all up-flips, no cost) it
+returns **n=1,538, raw +1.214%**, and +1.214% − the unconditional **+1.76%** =
+**−0.546%** against B-65's published **−0.55%**. Same count, same number.
+
+**SHORT (description, 1,519 trades): the raw −0.473R is ENTIRELY drift.** Edge on
+the short side is **+0.000R [−0.077, +0.102], includes 0** — PMax shorts do no
+worse than shorting an arbitrary window of the same length. They look
+catastrophic raw only because shorting a rising market loses. **Raw R flatters
+longs and damns shorts, and neither is a reading.**
+
+**The prior was wrong in the direction that matters.** It predicted all arms ≈ 0.
+Raw, the long plan came in at **+0.135R with a CI excluding zero** — and that is
+precisely the confound [[#B-65]] pre-registered against for its own state arm:
+*in a window whose unconditional mean is positive, any long-biased hold looks
+good*. The edge table is what that prior should have been written against.
+
+**Two findings the study was not looking for:**
+
+1. **The drawn trail is worse than the sentence beside it.** A2 (the "Trail SL"
+   line used as a stop) is **−0.099R below A1** raw, CI excludes 0, and −0.600R on
+   edge. The card draws a line that, if acted on, is worse than the exit rule
+   printed next to it.
+2. **Stop PLACEMENT is not the lever here either** — B (frozen stop) sits within
+   noise of A1 (−0.033R, CI includes 0). Same shape as [[#B-41p]]'s arm B, and for
+   the same reason: what costs is the exit discipline, not where the stop sits.
+
+**CONSEQUENCE APPLIED.** Per the registered bar, the card's furniture is demoted
+to context: the PMax card now reads *"Measured, and worse than doing nothing"*
+and carries the −0.50R. The lines stay drawn — they are the indicator's own
+geometry — but they are no longer presented as a plan. Precedent: [[#B-72]] put
+B-41p's number on the stop's axis label rather than removing the stop.
+
+**NOT promoted to anything, and nothing here licenses trading the 20-day hold.**
+Arm C is B-65's study in R and is itself **−0.145R on edge, CI excluding zero**.
+Every arm loses against the benchmark. The result is a demotion, not a discovery.
+
+**Still owed:** an era split. [[#B-41w]] is the precedent — B-41p's conclusion
+survived era-splitting and that is where results usually die. Nothing here is
+walk-forward.
 
 **Not ranked yet.** The 2026-09-11 refinement pass predates it; it takes its place
 in the next pass's ordering.

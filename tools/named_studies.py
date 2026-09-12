@@ -78,6 +78,17 @@ STUDIES: tuple[dict, ...] = (
         "source": "analyses/Open-Backlog#B-41p",
     },
     {
+        "item": "B-74", "tool": "pmax_plan_study.py", "date": "2026-09-12",
+        # PMax is a chart indicator, not a registered scanner, so the subject is
+        # the component label -- same convention B-58 uses for detect_quasimodo.
+        "subjects": ("pmaxSeries",),
+        "verdict": "NEGATIVE",
+        "headline": ("the SHIPPED plan returns -0.50R against an equal-length hold of the "
+                     "same stock; a plain 20d hold gives back only -0.15R, and the drawn "
+                     "trail used as a stop is worse again"),
+        "source": "analyses/Open-Backlog#B-74",
+    },
+    {
         "item": "B-57", "tool": "renko_shallow_quality_study.py", "date": "2026-09-07",
         "subjects": ("Shallow Flip (Renko, bounded correction)",),
         "verdict": "NULL",
