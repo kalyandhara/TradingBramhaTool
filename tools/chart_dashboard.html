@@ -2107,29 +2107,39 @@ function loadProjCollapsed() { return localStorage.getItem(LS_PROJ_COLLAPSED) ==
 function saveProjCollapsed(v) { localStorage.setItem(LS_PROJ_COLLAPSED, v ? '1' : '0'); }
 
 // ── Card placement mode ─────────────────────────────────────────────────────
-// Global, not per-pane, for the same reason the collapse preferences above are:
-// the cards behave identically on every pane, so "where do I want my cards" is
-// one answer, not eight. The switch lives at the bottom of the drawing toolbar
-// because that toolbar is already the pane's "what is drawn on my chart" panel.
+// PER-PANE. This shipped global, on the argument that the cards behave the same
+// everywhere so the answer should be one. That was wrong about how the grid gets
+// used: panes are a comparison surface, and the pane you are reading closely
+// wants its cards docked and legible while the three you are watching out of the
+// corner of your eye want the full plot. One switch for all eight forced the
+// same answer onto both jobs.
+//
+// It lives in LS_PANES with symbol/tf/indicators/rangePreset rather than in a key
+// of its own, because that is already the per-pane config store and a second one
+// would drift out of step with it.
 //
 // The ARRAY ORDER IS THE CYCLE ORDER, and CARD_MODE_UI's titles describe what the
 // NEXT click does -- reorder one and the other has to move with it. First entry
-// is the default for a browser that has never touched the switch: floating, the
-// layout the tool has always had, so nothing moves under a reader who did not
-// ask for it. One click from there docks; a second hides.
+// is the default for a pane that has never been switched: floating, the layout
+// the tool has always had, so nothing moves under a reader who did not ask for
+// it. One click from there docks; a second hides.
 const CARD_MODES   = ['float', 'dock', 'off'];
+// Legacy: the key the global version wrote. Still read, so a reader who had
+// chosen `dock` back then keeps it as the default for panes that have no stored
+// mode of their own. Never written any more.
 const LS_CARD_MODE = 'tb_card_mode';
-let _cardMode = (() => {
+function defaultCardMode() {
   const v = localStorage.getItem(LS_CARD_MODE);
   return CARD_MODES.includes(v) ? v : CARD_MODES[0];
-})();
-function cardMode() { return _cardMode; }
-function setCardMode(mode) {
-  _cardMode = CARD_MODES.includes(mode) ? mode : CARD_MODES[0];
-  localStorage.setItem(LS_CARD_MODE, _cardMode);
-  panes.forEach(p => {
-    try { applyCardMode(p); syncCardModeBtn(p); } catch (e) { console.warn('card mode:', e); }
-  });
+}
+function cardMode(pane) {
+  return (pane && CARD_MODES.includes(pane.cardMode)) ? pane.cardMode : defaultCardMode();
+}
+function setCardMode(pane, mode) {
+  if (!pane) return;
+  pane.cardMode = CARD_MODES.includes(mode) ? mode : defaultCardMode();
+  try { savePaneCfg(); } catch (e) { console.warn('card mode save:', e); }
+  try { applyCardMode(pane); syncCardModeBtn(pane); } catch (e) { console.warn('card mode:', e); }
 }
 
 // One flow strip per pane, after .sub-panes — i.e. the bottom of the chart body.
@@ -2180,13 +2190,13 @@ function mountCard(pane, el, home) {
   return el;
 }
 function cardHost(pane, home) {
-  if (cardMode() === 'dock') return ensureCardDock(pane);
+  if (cardMode(pane) === 'dock') return ensureCardDock(pane);
   return home === 'stack' ? ensureActionStack(pane)
                           : pane.el.querySelector('.chart-main');
 }
 
 function applyCardMode(pane) {
-  const mode = cardMode();
+  const mode = cardMode(pane);
   const chartMain = pane.el.querySelector('.chart-main');
   const dock = ensureCardDock(pane);
   if (!chartMain || !dock) return;
@@ -2213,10 +2223,10 @@ const CARD_MODE_UI = {
 function syncCardModeBtn(pane) {
   const btn = pane.drawTools && pane.drawTools.querySelector('[data-act="cards"]');
   if (!btn) return;
-  const ui = CARD_MODE_UI[cardMode()] || CARD_MODE_UI[CARD_MODES[0]];
+  const ui = CARD_MODE_UI[cardMode(pane)] || CARD_MODE_UI[CARD_MODES[0]];
   btn.textContent = ui.glyph;
   btn.title = ui.title;
-  btn.classList.toggle('active', cardMode() !== 'off');
+  btn.classList.toggle('active', cardMode(pane) !== 'off');
 }
 
 function loadCount()   {
@@ -2231,7 +2241,7 @@ function saveCount(n)  { localStorage.setItem(LS_COUNT, String(n)); }
 function loadPaneCfg() { try { return JSON.parse(localStorage.getItem(LS_PANES)||'{}'); } catch { return {}; } }
 function savePaneCfg() {
   const c = {};
-  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...p.indicators], rangePreset:p.rangePreset, chartType:p.chartType}; });
+  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...p.indicators], rangePreset:p.rangePreset, chartType:p.chartType, cardMode:p.cardMode}; });
   localStorage.setItem(LS_PANES, JSON.stringify(c));
 }
 
@@ -2362,7 +2372,7 @@ function buildGrid(count) {
     const cfg  = saved[i] || {};
     const sym  = cfg.symbol || def.symbol;
     const tf   = cfg.tf     || def.tf;
-    const pane = makePane(i, sym, tf, cfg.indicators || [], cfg.rangePreset, cfg.chartType);
+    const pane = makePane(i, sym, tf, cfg.indicators || [], cfg.rangePreset, cfg.chartType, cfg.cardMode);
     grid.appendChild(pane.el);
     panes.push(pane);
     // Stagger loads to avoid hammering the server
@@ -2371,7 +2381,7 @@ function buildGrid(count) {
 }
 
 // ── Pane factory ──────────────────────────────────────────────────────────────
-function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChartType) {
+function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChartType, savedCardMode) {
   savedIndicators = savedIndicators || [];
   const chartType = savedChartType || 'candles';
   const el = document.createElement('div');
@@ -2554,6 +2564,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
                  bars: [], indicators: new Set(savedIndicators),
                  chartType,
                  rangePreset: savedRangePreset || DEFAULT_RANGE_PRESET,
+                 cardMode: CARD_MODES.includes(savedCardMode) ? savedCardMode : defaultCardMode(),
                  indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas, projCanvas,
                  fibCanvas, obCanvas, prteCanvas,
                  drawCanvas, drawTools,
@@ -6933,8 +6944,8 @@ function wireDrawingTools(pane) {
         redrawDrawings(pane);
         break;
       case 'cards':
-        // Cycles dock -> float -> off. Global, so every pane follows.
-        setCardMode(CARD_MODES[(CARD_MODES.indexOf(cardMode()) + 1) % CARD_MODES.length]);
+        // Cycles float -> dock -> off, for THIS pane only.
+        setCardMode(pane, CARD_MODES[(CARD_MODES.indexOf(cardMode(pane)) + 1) % CARD_MODES.length]);
         break;
       case 'clear':
         if (pane.drawings.length &&
