@@ -6834,10 +6834,14 @@ if current_page == "Watchlist":
         # Cap is an IDENTITY attribute, not a measurement, so it belongs beside
         # the symbol rather than wherever dict insertion order left it — which
         # was the far right, past a horizontal scroll, where it read as missing.
-        if "cap_bucket" in _wl_df.columns:
-            _wl_df = _wl_df[["Symbol", "cap_bucket"]
-                            + [c for c in _wl_df.columns
-                               if c not in ("Symbol", "cap_bucket")]]
+        # The card's chart-icon family (Chart / Analyze / TView / Screener /
+        # GFin). Every other symbol table on the desk carries it; this one did
+        # not, so the page you keep open all day was the one page with no way to
+        # open a chart. Placed beside the identity columns rather than appended,
+        # because at ~25 columns "appended" means "behind a horizontal scroll".
+        _wl_df = _with_chart_family(_wl_df, "Symbol")
+        _head = ["Symbol"] + (["cap_bucket"] if "cap_bucket" in _wl_df.columns else [])             + _CHART_FAMILY_COLS
+        _wl_df = _wl_df[_head + [c for c in _wl_df.columns if c not in _head]]
         # A symbol whose history failed to load contributes only Symbol/Notes,
         # which leaves the numeric columns as object dtype holding None — and
         # Streamlit renders that as the literal string "None" in every cell.
@@ -6865,6 +6869,9 @@ if current_page == "Watchlist":
         _wl_cfg = _cols.configure_df(
             _wl_df, autofit=True,
             overrides={"close": {"label": f"LTP ({date.today():%d %b})"}})
+        # The family's columns are Title-Case in the frame and lower-case in the
+        # registry, so their config comes from the shared helper, not configure_df.
+        _wl_cfg.update(_chart_family_colcfg())
 
         # In-row note editing (B-63b), through the SHARED path since UI-2.
         # This page had its own `st.data_editor` and its own write logic; the
