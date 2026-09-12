@@ -538,14 +538,19 @@ html, body {
 /* A dock holding only hidden cards must take no space at all, or a bare 13px
    strip sits under the sub-plots. `.empty` is maintained by watchDock(). */
 .card-dock.empty, .card-dock[hidden] { display: none; }
-/* In float mode a card is absolutely positioned to a chart corner; in the dock
-   it is a flow child of a row. !important is needed for the falling-wedge card,
-   which sets its position in an inline style. The width cap keeps one verbose
-   card (Session VP, Gann) from claiming the whole row. */
+/* In float mode a card is absolutely positioned to a chart corner; in the dock it
+   is a flow child of a row. RELATIVE, not static, and for the same reason
+   `.action-stack > *` is relative: .rb-info and .vcp-info hang their collapse
+   chevron on an absolutely positioned child, which needs the card itself to be
+   the containing block or it flies to the nearest positioned ancestor.
+   !important is needed for the falling-wedge card, which positions itself in an
+   inline style. The width cap stops one verbose card (Session VP, Gann) from
+   claiming the whole row. */
 .card-dock > * {
-  position: static !important; transform: none !important; margin: 0 !important;
+  position: relative !important; transform: none !important; margin: 0 !important;
   flex: 0 0 auto; max-width: 360px !important; max-height: none !important;
   z-index: auto !important;
+  top: auto !important; right: auto !important; bottom: auto !important; left: auto !important;
 }
 /* Hidden mode is one rule rather than a list of card classes, because every
    card carries the data attribute that mountCard() stamps on it. */
@@ -701,6 +706,13 @@ html, body {
   white-space: nowrap; display: none;
   box-shadow: 0 2px 10px rgba(0,0,0,0.22);
 }
+/* The card is nowrap so the entry/stop/target row stays on one line; the caveat
+   is prose and has to wrap, so it opts out and carries its own width. */
+.pmax-info .pmax-cav {
+  color: var(--text-muted); font-size: 9px; margin-top: 4px;
+  white-space: normal; max-width: 330px;
+}
+
 /* ── Gann S/R + Break Odds card ───────────────────────────────────────────── */
 /* Bottom-center so it does not collide with the top-center PMax card. Mirrors
    the pmax-info house style. The header (S/R + the conditional break odds) is
@@ -3053,10 +3065,20 @@ async function renderPanelBand(pane, scale, cssW) {
   panels.forEach(el => {
     const clone = el.cloneNode(true);
     // A card anchored to a chart corner would leave the flow as an absolutely
-    // positioned flex child and stack on top of its neighbours. Only the ones
-    // that actually are absolute get neutralised — blanket-resetting position
-    // would break any chevron or badge absolutely placed INSIDE a card.
-    if (getComputedStyle(el).position === 'absolute') clone.style.position = 'static';
+    // positioned flex child and contribute no height at all, collapsing the band
+    // to its padding. RELATIVE rather than static, because .rb-info and
+    // .vcp-info hang their collapse chevron on an absolutely positioned child
+    // that needs the card as its containing block.
+    //
+    // Unconditional, and that matters: this used to neutralise only cards whose
+    // LIVE computed position was absolute, which reads the card in whatever
+    // container the placement mode put it in. Docked, `.card-dock > *` has
+    // already made it relative, so the test said "not absolute", the clone got
+    // no override, and .pmax-info's own `position: absolute` re-applied inside
+    // the band — silently dropping every corner card out of the snapshot.
+    clone.style.position = 'relative';
+    clone.style.top = clone.style.right = clone.style.bottom = clone.style.left = 'auto';
+    clone.style.transform = 'none';
     clone.style.margin = '0';
     // Pin each card to the width it has on screen. Where a flex row wraps is
     // otherwise decided by measured text, and the measuring pass here and the
@@ -7496,6 +7518,24 @@ function renderPmaxInfo(pane, sig, trail, last, long, col) {
       `<div style="margin-top:4px;font-size:9.5px;opacity:.85;">` +
         `Exit when the band flips — a ${long ? 'SELL' : 'BUY'} arrow closes this position.` +
       `</div>` +
+      // B-65 (`pmax_edge.py`) scored PMax for the first time on 2026-09-10 and it
+      // failed, so the card states the result rather than presenting a plan with
+      // nothing behind it — the same move the SVP card made after svp_backtest.py.
+      //
+      // Two distinctions the wording has to keep, because both are the desk's own:
+      //   * p=0.511 is a NULL, not a measured loss. Of the four trailing-stop
+      //     detectors that converged here (Renko -1.01, STAI -1.00, PSAR -0.77,
+      //     PMax -0.55) only B-43r is individually significant, so "no edge" is
+      //     the honest claim and "it loses" is not.
+      //   * B-65 measured the SIGNAL (flip -> 20d forward return), not THIS
+      //     entry/stop/target. The B-41m/B-41p split on the liquidity sweep is
+      //     the precedent: a signal measurement does not transfer to a plan built
+      //     on it, and no one has scored this plan.
+      `<div class="pmax-cav">` +
+        `<b>The flip has no measured edge</b> — B-65: −0.55% @20d, p=0.511 ` +
+        `(n=1,538 flips, daily equity), one of four trailing-stop detectors to ` +
+        `land on nothing. Entry and exit are both that flip; the stop/target ` +
+        `plan itself is unscored. Not advice.</div>` +
     `</div>`;
   st.infoEl.classList.toggle('collapsed', st.collapsed);
   st.infoEl.style.display = 'block';
