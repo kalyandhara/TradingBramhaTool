@@ -7752,7 +7752,18 @@ SCANNERS: dict[str, dict] = {
             "broken level (now resistance) from below; (3) the retest failed (close back "
             "under); (4) down-day on ≥1× 20-day average volume. Emits a short-side trade "
             "plan (stop above the breakdown level, target = measured move). Evidence "
-            "AGAINST a long, not a buy signal. MEASURED (B-19): 2,880 signals, +0.47% @20d / +1.22% @60d — NO BEARISH EDGE, i.e. it points the WRONG WAY for a risk flag: names it flags went UP on average."
+            "AGAINST a long, not a buy signal. "
+            "RETIRED 2026-09-11 — MEASURED (B-19): 2,880 signals, +0.47% @20d / "
+            "+1.22% @60d, NO BEARISH EDGE: names it flagged went UP on average. "
+            "Now in opportunity_hub.PIPELINE_EXCLUDED, so it no longer runs in the "
+            "pipeline and no longer displays a bearish flag on shortlisted names. "
+            "It never voted (risk scanners cannot), but a WARNING with no support "
+            "steers a reader away from names that outperformed, which is its own "
+            "harm. The verdict is [UNSTABLE] — not sign-stable across windows — so "
+            "read this as 'the bearish claim has no support', not as a significant "
+            "inversion. Still registered, runnable and backtestable (the B-44r GEX "
+            "precedent: retired as a decision input, kept as a view); restoring it "
+            "needs a NEW measurement finding a bearish edge."
         ),
         "category": "Risk",
     },

@@ -364,6 +364,44 @@ machine-readable index of them, which does not exist yet.
 `tools/test_claims_lint.py` (9 tests) proves the positive case on synthetic input,
 pins the two correct-silence cases, and guards the vacuity.
 
+## B-70 · `Support Breakdown` retired — a risk flag that pointed the wrong way — **2026-09-11**
+
+Surfaced by [[#B-69]]'s new lint check and decided by the owner. B-19 measured it at
+**+0.47% @20d / +1.22% @60d on 2,880 signals**: a RISK flag whose flagged names went
+**UP** on average.
+
+**What the harm actually was, since it is not the obvious one.** It never *voted* —
+risk scanners are excluded from confluence by construction, so it was never adding
+weight to a shortlist. But it was **DISPLAYED as a bearish warning on shortlisted
+names**, and a warning with no support steers a reader away from names that
+outperformed. *A flag is a decision input even when it is not a vote.*
+
+**Retired the way [[#B-44r]] retired GEX: removed as a decision input, kept as a
+view.** `opportunity_hub.PIPELINE_EXCLUDED` now contains it, so the pipeline does not
+run it and no flag is shown. It stays **registered, runnable in the Scanner Hub and
+backtestable** — the standing rule that nothing is deleted on a measurement still
+holds.
+
+> [!warning] The evidence is weaker than GEX's, and the record should not pretend
+> otherwise
+> B-44r's GEX inversion was significant (p_rot 0.004–0.042 with controls). This
+> verdict is **"NO BEARISH EDGE [UNSTABLE]"** — *not sign-stable across walk-forward
+> windows*. So the honest reading is **"the bearish claim has no support"**, not
+> "it is significantly inverted". That is still sufficient to stop displaying the
+> warning — a flag needs positive evidence to earn a place on a card — but it is not
+> the same finding, and the description says so.
+
+**One subtlety worth recording, because the obvious cleanup would make it worse.**
+It stays in `RISK_SCANNERS` even though it is also in `PIPELINE_EXCLUDED`, and the
+overlap is deliberate: the exclusion stops the pipeline *running* it, while
+`RISK_SCANNERS` is what `scanner_tier()` reads to colour it. **Removing it from
+`RISK_SCANNERS` as dead config would re-classify it as an unmapped non-risk scanner
+— which counts as "a family of one" — turning a discredited BEARISH flag into a
+BULLISH confluence vote.** A test asserts it stays.
+
+`tools/test_support_breakdown_retired.py` (6 tests) pins the exclusion, the continued
+registration, the tier, that un-retirement trap, and the description.
+
 ## Ingested-research additions (2026-08-20)
 
 Four items below (B-28…B-31) come from a batch of trading videos ingested into the

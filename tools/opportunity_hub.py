@@ -233,6 +233,14 @@ FAMILY_ORDER: tuple[str, ...] = tuple(SCANNER_FAMILIES.keys())
 #: Bearish scanners. These RUN — a distribution warning on a shortlisted name is
 #: worth seeing — but a hit is evidence AGAINST the name, so it can never add to
 #: a confluence count. It is surfaced as a risk flag instead.
+#:
+#: "Support Breakdown" stays in this tuple although it is now also in
+#: PIPELINE_EXCLUDED, and the overlap is deliberate rather than dead config: the
+#: exclusion stops the PIPELINE running it (so no flag is displayed), while this
+#: tuple is what `scanner_tier()` reads to colour it as a RISK entry where it is
+#: still listed and runnable in the Scanner Hub. Dropping it here would re-label a
+#: retired bearish scanner as "unmeasured", which is the opposite of what happened
+#: to it.
 RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "Support Breakdown", "RSI Divergence Bear", "%R Exhaustion Sell")
 
 #: Registry entries the pipeline must not run.
@@ -271,6 +279,30 @@ PIPELINE_EXCLUDED: tuple[str, ...] = ("Zero-Debt Quality PEAD",
                                       # against a state-matched baseline -- it failed its
                                       # pre-registered bar, so it screens but never votes.
                                       "Shallow Flip (Renko, bounded correction)",
+                                      # RETIRED 2026-09-11. A RISK flag measured
+                                      # POSITIVE: B-19 scored it +0.47% @20d /
+                                      # +1.22% @60d on 2,880 signals -- names it
+                                      # warned about went UP. It never voted (risk
+                                      # scanners cannot), but it was DISPLAYED as a
+                                      # bearish warning on shortlisted names, which
+                                      # is its own kind of harm: a flag that steers
+                                      # a reader away from names that outperformed.
+                                      #
+                                      # Honest about the strength of that evidence:
+                                      # the verdict is "NO BEARISH EDGE [UNSTABLE]",
+                                      # i.e. not sign-stable across walk-forward
+                                      # windows, so "points the wrong way" is the
+                                      # reading, not a significant inversion like
+                                      # B-44r's GEX. What IS established is that the
+                                      # bearish claim has no support, and a warning
+                                      # with no support should not be shown.
+                                      #
+                                      # It stays REGISTERED, runnable in the Scanner
+                                      # Hub and backtestable -- the GEX precedent
+                                      # (B-44r): retired as a decision input, kept as
+                                      # a view. Restoring it needs a NEW measurement
+                                      # that finds a bearish edge, not a re-reading.
+                                      "Support Breakdown",
                                       "VWAP Reclaim/Support")
 
 #: Measured to be FULLY COVERED by the rest of the registry — zero unique
