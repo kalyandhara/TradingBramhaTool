@@ -1334,6 +1334,7 @@ const INDICATOR_DEFS = [
   {key:'falling_wedge', label:'Falling Wedge (converging → breakout)', group:'Price Patterns', color:'#26a69a'},
   {key:'structure_chain', label:'Structure Break Chain (BOS/CHoCH + quality)', group:'Smart Money & Structure', color:'#00e676'},
   {key:'orderblock',   label:'Order Blocks (SMC demand / supply zones)', group:'Smart Money & Structure', color:'#4c9aff', alias:'order block ob smart money smc demand supply zone mitigation institutional'},
+  {key:'liquidity',    label:'Liquidity Pools + Sweep (equal highs/lows · stop run)', group:'Smart Money & Structure', color:'#ff6d00', alias:'liquidity pool sweep stop hunt stop run raid equal highs equal lows resting stops smc trap reclaim'},
   {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab)', group:'Price Patterns', color:'#ba68c8'},
   {key:'projection',   label:'Price Projection (EW + patterns)', group:'Levels & Projection', color:'#4c9aff'},
   {key:'fib',          label:'Fibonacci + Trade Plan (VP + Projection confluence)',
@@ -3329,6 +3330,8 @@ function applyIndicators(pane) {
     clearOrderBlocks(pane);
     if (pane.indicators.has('prte')) renderPrteOverlay(pane);
   }
+  // Clear liquidity pools + sweep marker if deselected.
+  if (!pane.indicators.has('liquidity') && pane.liq) clearLiquidity(pane);
   // Clear the %R exhaustion main-chart overlay (arrows + tint) if deselected.
   if (!pane.indicators.has('prte') && (pane.prteData || pane._markerSrcs?.prte)) clearPrteOverlay(pane);
   // Tear down MA Bias card + cross markers if deselected
@@ -4121,6 +4124,11 @@ function applyIndicators(pane) {
     });
   }
 
+  // Liquidity pools + sweep: server-fetched like order blocks. No RAF deferral
+  // needed -- price lines and markers are placed by PRICE and TIME, not by pixel
+  // coordinates, so they do not care whether LWC has settled its scales yet.
+  if (pane.indicators.has('liquidity')) renderLiquidity(pane);
+
   // ── MA Bias overlay (regime / stack / trigger / distrust card + crosses) ────
   if (pane.indicators.has('mabias')) {
     renderMABias(pane);
@@ -4297,7 +4305,7 @@ function resetPaneVisuals(pane) {
    clearFallingWedge, clearStructureChain, clearHarmonic, clearProjection,
    clearFibonacci, clearReversalCalendar, clearMABias, clearPmaxTrade,
    clearFVGSignals, clearOrderBlocks, clearPrteOverlay,
-   clearOiWalls].forEach(fn => { try { fn(pane); } catch {} });
+   clearLiquidity, clearOiWalls].forEach(fn => { try { fn(pane); } catch {} });
   // Canvas overlays are redrawn from pane.bars on resize/pan, and pane.bars
   // still holds the OLD candles until the fetch lands. Blank the canvases and
   // drop the bars so nothing repaints the old timeframe in the meantime.
@@ -7737,6 +7745,134 @@ function ensureOiWallsState(pane) {
                 lastKey: null, expiry: null, data: null, inflight: false};
   }
   return pane.oiw;
+}
+
+// ── Liquidity pools + sweep ─────────────────────────────────────────────────
+// Backed by /api/liquidity, which calls scanner_templates.detect_liquidity_pools
+// and detect_liquidity_sweep -- the SAME functions scan_liquidity_sweep fires on.
+// Nothing is recomputed here, so the zones drawn and the scanner's hits cannot
+// disagree; that drift is what B-24 was raised over.
+//
+// WHY THIS OVERLAY EARNS ITS PLACE: B-41m measured `Liquidity Sweep` at +0.51%
+// @20d (p=0.005) NET of ~29bps -- the only scanner on this desk whose edge
+// survives costs -- and it was the one SMC component with a measured edge and no
+// way to see it on a chart. Drawing an already-measured detector makes no new
+// claim, so no backtest is owed for the overlay itself.
+//
+// Drawn with createPriceLine + markers rather than a canvas, deliberately: a pool
+// IS a horizontal level, and price lines cost nothing on pan/zoom and cannot
+// repeat the 1x-into-2x snapshot bug that the canvas overlays needed sizeOverlay()
+// to fix.
+const LIQ_BUYSIDE  = '#ef5350';   // equal HIGHS  -- stops rest ABOVE (buy-side liquidity)
+const LIQ_SELLSIDE = '#26a69a';   // equal LOWS   -- stops rest BELOW (sell-side)
+const LIQ_SWEPT    = '#ff6d00';   // the level that was actually raided
+
+function ensureLiqState(pane) {
+  if (!pane.liq) pane.liq = {priceLines: [], lastFetchKey: null, inflight: false};
+  return pane.liq;
+}
+
+function clearLiquidity(pane) {
+  const st = pane.liq;
+  if (!st) return;
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+  setPaneMarkers(pane, 'liq', null);
+  pane.liq = null;
+}
+
+async function renderLiquidity(pane) {
+  const st = ensureLiqState(pane);
+  if (!pane.bars || !pane.bars.length) return;
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  if (st.lastFetchKey === key && st.data) { drawLiquidity(pane); return; }
+  if (st.inflight) return;
+
+  st.inflight = true;
+  try {
+    const barCount = TF_BARS[pane.tf] || 300;
+    const url = `${SERVER}/api/liquidity?symbol=${encodeURIComponent(pane.symbol)}` +
+                `&timeframe=${pane.tf}&bars=${barCount}`;
+    const res = await fetch(url);
+    st.data = res.ok ? await res.json() : {pools: [], sweep: null};
+    st.lastFetchKey = key;
+  } catch (e) {
+    console.warn('liquidity fetch failed:', e);
+    st.data = {pools: [], sweep: null};
+  } finally {
+    st.inflight = false;
+  }
+  if (pane.indicators.has('liquidity')) drawLiquidity(pane);
+}
+
+function drawLiquidity(pane) {
+  const st = pane.liq;
+  if (!st || !st.data) return;
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+
+  const sweep = st.data.sweep || null;
+  const pools = st.data.pools || [];
+
+  pools.forEach(pool => {
+    // The swept level is drawn in its own colour and solid: it is the one level
+    // on the chart something already happened at, and it should not read as just
+    // another resting pool.
+    const isSwept = sweep && Math.abs(sweep.level - pool.level) < 1e-6;
+    const color = isSwept ? LIQ_SWEPT
+                : (pool.kind === 'high' ? LIQ_BUYSIDE : LIQ_SELLSIDE);
+    // Touch count IS the strength of the pool -- more touches, more stops resting
+    // there -- so it goes in the label rather than being encoded as opacity, which
+    // would be unreadable against candles.
+    const side = pool.kind === 'high' ? 'buy-side' : 'sell-side';
+    try {
+      st.priceLines.push(pane.series.createPriceLine({
+        price: pool.level,
+        color,
+        lineWidth: isSwept ? 2 : 1,
+        lineStyle: isSwept ? 0 : 2,           // solid when swept, dashed while resting
+        axisLabelVisible: true,
+        title: `${isSwept ? 'SWEPT ' : ''}${side} x${pool.touches}`,
+      }));
+    } catch {}
+  });
+
+  // The swept level MUST be drawn even when it is not in `pools`, and it often is
+  // not: `detect_liquidity_pools` returns the strongest `max_pools` (6) levels,
+  // while `detect_liquidity_sweep` searches its own `lookback`, so the raided pool
+  // can legitimately fall outside the top six. Found in the browser -- RELIANCE
+  // drew six lines and put the SWEEP arrow at 1279.45, a level with no line under
+  // it. An arrow pointing at nothing is worse than no arrow.
+  if (sweep && !pools.some(pl => Math.abs(sweep.level - pl.level) < 1e-6)) {
+    try {
+      st.priceLines.push(pane.series.createPriceLine({
+        price: sweep.level,
+        color: LIQ_SWEPT,
+        lineWidth: 2,
+        lineStyle: 0,
+        axisLabelVisible: true,
+        title: `SWEPT ${sweep.direction === 'bullish' ? 'sell-side' : 'buy-side'} x${sweep.touches || ''}`,
+      }));
+    } catch {}
+  }
+
+  if (sweep && sweep.time) {
+    const bullish = sweep.direction === 'bullish';
+    // A bullish sweep raids stops BELOW and reverses UP, so its marker belongs
+    // under the bar pointing up. Naming the direction by what it does to PRICE,
+    // not by which pool it took, is the reading error the detector's own
+    // docstring warns about.
+    setPaneMarkers(pane, 'liq', [{
+      time: sweep.time,
+      position: bullish ? 'belowBar' : 'aboveBar',
+      color: bullish ? LIQ_SELLSIDE : LIQ_BUYSIDE,
+      shape: bullish ? 'arrowUp' : 'arrowDown',
+      text: `SWEEP ${sweep.level} \u00b7 wick ${Math.round((sweep.wick_ratio || 0) * 100)}%`,
+    }]);
+  } else {
+    setPaneMarkers(pane, 'liq', null);
+  }
 }
 
 function clearOiWalls(pane) {

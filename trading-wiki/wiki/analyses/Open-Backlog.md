@@ -253,6 +253,67 @@ builds faster than it measures"*; this pass adds a second: **the desk summarises
 faster than it re-reads.** B-45 is ranked first partly because it is the rare item
 that adds a capability without adding to either debt.
 
+## B-68 · Liquidity Sweep had a measured edge and no way to see it — **BUILT 2026-09-11**
+
+Raised by the owner asking a one-line question: *"do we have any indicator for
+liquidity sweep by signal"*. The answer was **no**, and checking it turned up a
+worse problem than the missing overlay.
+
+**The state before:** `detect_liquidity_pools` + `detect_liquidity_sweep` and two
+registered scanners (`Liquidity Sweep` Entry, `Liquidity Sweep Bear` Risk) — but
+**no `INDICATOR_DEFS` key**, so the one SMC component with a measured edge was the
+one you could not see on a chart. The only chart-side mentions of "sweep" were
+plain-English phrasings used to render scanner text.
+
+> [!warning] Found on the way: EVERY remaining "Unmeasured." label in the scanner
+> registry was stale
+> Both liquidity-sweep descriptions ended with the word **"Unmeasured."** — for the
+> scanner B-41m measured at **+0.51% @20d (p=0.005) net of costs**, the only one on
+> this desk whose edge survives them. Cross-checking the other eight against
+> `cache/b19_verdicts/` found **all eight were stale too**: RSI Divergence
+> Bull/Bear, RSI-Fibo Hidden, %R Exhaustion Sell, %R Bottoming, FVG Pullback, ICT
+> Setup, Support Breakdown. B-19 measured every one of them on 2026-09-02 and
+> nobody updated the text.
+>
+> **`claims_lint` cannot catch this by design** — it deliberately does not match
+> bare "unmeasured", because this repo uses that word as a legitimate state label.
+> The stale-claim class it misses is *a state label that was true when written and
+> silently became false*. All ten now carry their actual verdicts.
+>
+> The worst single case was **Support Breakdown**: a Risk flag whose measured
+> result is **+0.47% @20d / +1.22% @60d — it points the WRONG WAY**, and its
+> description said only "Unmeasured."
+
+**The overlay.** `/api/liquidity` → the SAME `detect_liquidity_pools` /
+`detect_liquidity_sweep` the scanner fires on; **nothing recomputed in JS**, so the
+zones drawn and the scanner's hits cannot disagree. Pools draw as dashed price
+lines labelled `buy-side x3` / `sell-side x5` (touch count IS pool strength), the
+swept level draws solid orange, and the sweep itself gets a direction-aware arrow.
+`INDICATOR_DEFS` 50 → 51.
+
+**Drawn with price lines rather than a canvas, deliberately:** a pool IS a
+horizontal level, price lines cost nothing on pan/zoom, and they cannot repeat the
+1×-into-2× snapshot bug that the canvas overlays needed `sizeOverlay()` to fix.
+
+> [!key-insight] The browser caught a bug no unit test would have
+> First render put the SWEEP arrow at 1279.45 on RELIANCE — **a level with no line
+> under it.** `detect_liquidity_pools` returns the strongest `max_pools` (6) levels
+> while `detect_liquidity_sweep` searches its own `lookback`, so **the raided pool
+> can legitimately fall outside the top six.** The swept level is now always drawn,
+> whether or not it survived the pool cap. An arrow pointing at nothing is worse
+> than no arrow.
+
+**No backtest owed.** Drawing an already-measured detector makes no new claim — the
+same reasoning as [[#B-45]]. What the overlay must NOT be read as is a plan:
+B-41p measured the shipped entry/stop/target at **−0.06R** against **+0.50R** for
+the same signal held 20 days with no stop. The signal is measured; the stop is a
+known defect, and both facts now travel in the scanner description.
+
+**Operational note:** `chart_server.py` serves each module from an explicit Flask
+route and runs without the reloader, so a server started before this commit returns
+404 for the new route. Verified on a second instance (`--port 5002`), which is what
+that flag exists for; the live 5001 instance needs a restart to pick it up.
+
 ## Ingested-research additions (2026-08-20)
 
 Four items below (B-28…B-31) come from a batch of trading videos ingested into the

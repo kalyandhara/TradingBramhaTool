@@ -980,6 +980,90 @@ def api_order_blocks():
     return jsonify({"symbol": symbol, "order_blocks": out, "retests": retest_out})
 
 
+@app.route("/api/liquidity")
+def api_liquidity():
+    """Liquidity pools (equal highs/lows) + the most recent sweep-and-reclaim.
+
+    Backs the `liquidity` chart overlay. Calls the SAME
+    `scanner_templates.detect_liquidity_pools` / `detect_liquidity_sweep` that
+    `scan_liquidity_sweep` fires on, so the zones drawn here and the scanner's
+    hits cannot disagree - the drift B-24 was raised over. Nothing is recomputed
+    in JS.
+
+    Why this overlay exists at all: B-41m measured `Liquidity Sweep` at +0.51%
+    @20d (p=0.005) net of costs, the only scanner on this desk whose edge survives
+    them, and until now it was the one SMC component with a measured edge and no
+    way to see it on a chart.
+
+    {"pools": [...], "sweep": {...} | None}. Bar indices are mapped to
+    timestamps; a pool spans its first touch to the right edge, because a pool is
+    a level that is still there until price takes it out.
+    """
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    # Same pivot default as /api/order_blocks: pools are local structure, and the
+    # major-swing pivot used by /api/structure_chain surfaces almost none on daily.
+    piv_default = {
+        "1m": 3, "5m": 4, "15m": 5, "30m": 5,
+        "1h": 6, "4h": 6, "6h": 6, "1d": 5, "1w": 5,
+    }.get(timeframe, 5)
+    pivot_len = max(2, min(int(request.args.get("pivot_len", piv_default)), 100))
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < pivot_len * 2 + 25:
+        return jsonify({"symbol": symbol, "pools": [], "sweep": None})
+
+    pools = sc.detect_liquidity_pools(df, pivot_len=pivot_len)
+    sweep = sc.detect_liquidity_sweep(df, pivot_len=pivot_len)
+
+    def _t(idx):
+        if idx is None or idx < 0 or idx >= len(bars):
+            return None
+        return int(bars[idx]["time"])
+
+    last_t = _t(len(bars) - 1)
+    pools_out = []
+    for pool in pools:
+        t0 = _t(pool.get("first_bar"))
+        if t0 is None:
+            continue
+        pools_out.append({
+            "kind":       pool["kind"],            # "high" = buy-side, "low" = sell-side
+            "level":      round(float(pool["level"]), 2),
+            "touches":    int(pool["touches"]),
+            "width_pct":  pool.get("width_pct"),
+            "start_time": t0,
+            "last_time":  _t(pool.get("last_bar")),
+            "end_time":   last_t,
+            "touch_times": [t for t in (_t(b) for b in pool.get("bars", [])) if t],
+        })
+
+    sweep_out = None
+    if sweep:
+        # bars_ago is counted from the LAST bar, which is how the detector reports
+        # freshness; the chart needs the bar itself.
+        idx = len(bars) - 1 - int(sweep.get("bars_ago", 0))
+        sweep_out = {
+            "direction":   sweep["direction"],     # bullish = sell-side pool swept
+            "level":       round(float(sweep["level"]), 2),
+            "time":        _t(idx),
+            "close":       sweep.get("close"),
+            "touches":     sweep.get("touches"),
+            "bars_ago":    sweep.get("bars_ago"),
+            "pierce_atr":  sweep.get("pierce_atr"),
+            "wick_ratio":  sweep.get("wick_ratio"),
+            "reclaimed":   sweep.get("reclaimed"),
+            "pool_times":  [t for t in (_t(b) for b in sweep.get("pool_bars", [])) if t],
+        }
+
+    return jsonify({"symbol": symbol, "pools": pools_out, "sweep": sweep_out})
+
+
 @app.route("/api/trendlines")
 def api_trendlines():
     """Supply / demand trendlines via scanner_templates.detect_trendline_break
