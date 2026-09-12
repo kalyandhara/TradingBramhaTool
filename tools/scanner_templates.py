@@ -7289,7 +7289,20 @@ def detect_quasimodo(df: pd.DataFrame, pivot_len: int = 5,
     if len(df) < pivot_len * 4 + 40:
         return None
 
-    chain = detect_structure_chain(df, pivot_len=pivot_len)
+    # max_swings must cover `lookback`, or this function's window is not the window
+    # it documents. The default is 15; measured on 200 liquid names, **29% carry
+    # more than 15 swings inside the 120-bar lookback** (median exactly 15, max 20),
+    # and in 2% the cap silently dropped the oldest in-window swings and with them a
+    # valid pattern. The filter below then trimmed to `lookback` anyway, so the cap
+    # was doing nothing except removing history the filter was about to keep.
+    #
+    # Found auditing every `detect_structure_chain` caller after the same default
+    # invalidated B-58's first measurement. Every OTHER caller is safe: the chart
+    # endpoint and `read_market_structure` pass their own, `detect_liquidity_pools`
+    # sets 200 deliberately, and the scanner harness replays `scan_*(df.iloc[:t+1])`
+    # per bar, where a trailing window is exactly right.
+    chain = detect_structure_chain(df, pivot_len=pivot_len,
+                                   max_swings=max(15, lookback))
     if not chain:
         return None
     swings = chain.get("swings") or []

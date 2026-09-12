@@ -2200,6 +2200,40 @@ drawn, and now for a measured reason rather than a pending one.
 `py -3 tools/quasimodo_study.py --cache cache/cardinality_deep`
 (`tools/cache/` is gitignored, so the 1.50M-bar panel is rebuilt, not cloned).
 
+**AUDIT 2026-09-11 — did any OTHER caller take the same default?** Asked because
+`max_swings=15` had just invalidated a completed measurement, and
+`detect_structure_chain` is shared. **Every `detect_structure_chain` call site was
+read. The answer is no — with one real exception, now fixed.**
+
+| caller | swing budget | verdict |
+|---|---|---|
+| `chart_server` `/structure_chain` | caller's own param | correct — a chart wants the drawable tail |
+| `read_market_structure` | passes its own through | correct |
+| `detect_liquidity_pools` | **explicit `max_swings=200`**, with a comment saying why | correct, and it had already thought about this |
+| `scan_*` via `backtest.py` | default, but replayed as `fn(df.iloc[:t+1])` **per bar** | correct — at each bar a trailing window IS the right window, and every bar gets its own chance to fire. **B-41m's Liquidity Sweep result is unaffected** |
+| `quasimodo_study` (the walk) | default → **fixed 2026-09-11** | **the bug.** The only ONE-PASS historical walk in the repo |
+| **`detect_quasimodo` itself** | default 15, while filtering to `lookback=120` | **also wrong, fixed here** |
+
+> [!key-insight] The shipped detector's window was not the window it documented
+> `detect_quasimodo` asks for 15 swings and then filters them to a 120-bar
+> lookback — so the cap was removing history the filter was about to keep.
+> **Counted on 200 liquid names: 29% carry MORE than 15 swings inside that
+> 120-bar window** (median exactly 15, max 20), and in **2%** the cap cost the
+> detector a valid pattern. Now `max_swings=max(15, lookback)`.
+>
+> **The equivalence check had to follow it, and that is the more interesting
+> half.** `verify()` built its comparison walk with the bare default, so until
+> today it agreed with the detector *because both were capped the same way*. When
+> the detector was fixed, the check broke on exactly the names where the cap used
+> to bind. **An equivalence check that agrees because two implementations share a
+> bug is not checking anything** — it is the same blindness that let
+> `max_swings=15` survive a completed study, in a second place.
+>
+> **B-58's measurement is unaffected and was re-run to prove it:** the study's walk
+> was already uncapped, so PRIMARY is byte-identical at 5,048 events, −0.64%,
+> p_rot 0.120. The fix changes what the LIVE detector draws, not what was measured
+> — and what it draws is ~2% more instances of a shape that just failed.
+
 **Deferred, not forgotten: multi-timeframe liquidity ("HTF LQ").**
 `detect_liquidity_pools` takes one `df`. Real HTF liquidity needs a second
 timeframe's pools projected onto the entry chart. That is a bigger build than

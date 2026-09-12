@@ -370,7 +370,15 @@ def verify(panel: list[dict]) -> tuple[int, int, list[str]]:
     for d in panel:
         shipped = st.detect_quasimodo(d["df"], pivot_len=PIVOT_LEN)
         n = len(d["df"])
-        chain = st.detect_structure_chain(d["df"], pivot_len=PIVOT_LEN) or {}
+        # Mirror the detector's OWN swing budget, not the library default. Until
+        # 2026-09-11 both took `max_swings=15` and this line agreed with the
+        # detector by accident -- they were capped identically. The detector now
+        # requests enough swings to cover its documented `lookback`, so a bare
+        # default here would make the check fail on names where the cap used to
+        # bind (29% of the universe). An equivalence check has to track what it is
+        # checking; agreeing because two things share a bug is not agreement.
+        chain = st.detect_structure_chain(d["df"], pivot_len=PIVOT_LEN,
+                                          max_swings=max(15, LOOKBACK)) or {}
         recent = [s for s in (chain.get("swings") or [])
                   if s.get("bar", 0) >= n - 1 - LOOKBACK]
         recent_pats = qm_patterns(recent)
