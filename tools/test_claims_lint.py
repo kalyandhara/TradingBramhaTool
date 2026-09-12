@@ -112,6 +112,73 @@ def test_descriptions_parse_without_importing_scanner_templates(tree):
     assert got["Alpha Scan"].startswith("Fires on a thing")
 
 
+# ── the named-study half (B-41m's blind spot) ───────────────────────────────────
+
+NAMED_SRC = '''
+SCANNERS = {
+    "Liquidity Sweep": {
+        "fn": None,
+        "description": "Bullish stop hunt. Unmeasured.",
+        "category": "Entry",
+    },
+    "Totally Unmeasured Scan": {
+        "fn": None,
+        "description": "Nothing has ever measured this. Unmeasured.",
+        "category": "Entry",
+    },
+}
+'''
+
+
+def test_a_named_study_subject_is_flagged_even_with_no_verdict_file(tmp_path):
+    """The exact case that let `Liquidity Sweep` sit stale for five days.
+
+    B-41m ran through the SHARED harness, so cache/b19_verdicts/ has no file for
+    it and CHECK 0's original half was blind. The index is what makes it visible.
+    """
+    src = tmp_path / "scanner_templates.py"
+    src.write_text(NAMED_SRC, encoding="utf-8")
+    vdir = tmp_path / "empty_verdicts"
+    vdir.mkdir()
+    rows = cl._scan_state_labels(src, vdir)
+    blob = " ".join(r[2] for r in rows)
+    assert "Liquidity Sweep" in blob, "the named-study half did not fire"
+    assert "B-41m" in blob, "the finding must name the study that measured it"
+
+
+def test_a_scanner_nothing_measured_is_still_silent(tmp_path):
+    """The index must not make the lint noisy: an unindexed, unmeasured scanner
+    keeps its honest label."""
+    src = tmp_path / "scanner_templates.py"
+    src.write_text(NAMED_SRC, encoding="utf-8")
+    vdir = tmp_path / "empty_verdicts"
+    vdir.mkdir()
+    rows = cl._scan_state_labels(src, vdir)
+    assert not any("Totally Unmeasured Scan" in r[2] for r in rows)
+
+
+def test_the_index_is_self_consistent():
+    """Every entry names a real tool, a source, subjects and a known verdict."""
+    import named_studies as ns
+    assert ns._self_check() == []
+
+
+def test_the_index_reports_its_own_gaps():
+    """The property that keeps the index from rotting: an unindexed study file is
+    a finding. If this ever returns [] it should be because the index is complete,
+    not because the scan broke -- so assert the scan can see files at all."""
+    import named_studies as ns
+    assert ns.study_files(), "no study files found -- the glob went blind"
+    gaps = ns.uncovered_tools()
+    assert isinstance(gaps, list)
+
+
+def test_liquidity_sweep_is_actually_in_the_index():
+    """Pins the motivating case, so a refactor of the index cannot drop it."""
+    import named_studies as ns
+    assert "Liquidity Sweep" in ns.by_subject()
+
+
 # ── the real tree ───────────────────────────────────────────────────────────────
 
 def test_the_real_registry_actually_parses():
