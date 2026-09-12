@@ -438,7 +438,39 @@ B-41p, B-57, B-58, B-22r, B-44, B-44r, B-66, B-59r, B-67, B-34. The remaining 14
 study files are **listed as coverage gaps rather than guessed at**, which is the
 honest state and is visible every run.
 
-Tests: `test_claims_lint.py` grows to 14, including the motivating case — a scanner
+**COMPLETED 2026-09-11: all 14 gaps indexed, coverage is now zero.** Working
+through them turned up something the index had no vocabulary for.
+
+> [!key-insight] Four studies ran and left no write-up — the stale-claim disease,
+> inverted
+> `funnel_backtest.py` (B-38), `sbc_backtest.py`, `sbc_muhurat_backtest.py` and
+> `newmoon_levels_backtest.py` all exist as measurement tools, and **none has a
+> result recorded anywhere this index can cite.** The backlog, the wiki pages and
+> their own docstrings state the question and the null hypothesis; **no page states
+> what came back.**
+>
+> That is the same failure as a stale claim seen from the other side: **a claim that
+> outlived its measurement vs. a measurement that never became a claim.** Both leave
+> a reader trusting something nobody checked.
+>
+> They are indexed as **`UNRECORDED`** rather than guessed at — the mapping
+> (tool → subjects) is what CHECK 0 needs, so their subjects stay checkable either
+> way, and a labelled gap is worth more than a fabricated verdict. **CHECK 0c
+> reports them every run**, because a measurement with no write-up is debt and debt
+> that is not displayed does not get paid. Each should gain a source with real
+> numbers or be retired; what it must not do is sit in the index looking measured.
+
+The other ten were verified against their own write-ups first: **B-43** and
+**B-43r** (Renko), **B-32** (the regime-gate premise), **B-55** (SVP composite),
+**ADX** (mixed — the bare DI cross **loses** at −0.93% @10d while the confirmed
+state is +1.82% @60d), the **FVG fill-rate** study (gaps are **not** magnets against
+a width-matched placebo), **evmacd**, **FA-2** rahu-kaal and hora, and the **SBC
+daily-vedha** negative.
+
+Tests: `test_claims_lint.py` grows to 17 — coverage must stay complete (a new study
+file now FAILS a test rather than waiting to be noticed), every `UNRECORDED` entry
+must stay reported, and an `UNRECORDED` study must still make its subjects
+checkable — including the motivating case — a scanner
 with **no** verdict file that the index still catches, asserting the finding names
 B-41m — and the guard that an unindexed, genuinely unmeasured scanner stays silent.
 
