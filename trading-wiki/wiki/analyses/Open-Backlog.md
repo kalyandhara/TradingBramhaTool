@@ -438,9 +438,179 @@ B-41p, B-57, B-58, B-22r, B-44, B-44r, B-66, B-59r, B-67, B-34. The remaining 14
 study files are **listed as coverage gaps rather than guessed at**, which is the
 honest state and is visible every run.
 
-Tests: `test_claims_lint.py` grows to 14, including the motivating case — a scanner
+**COMPLETED 2026-09-11: all 14 gaps indexed, coverage is now zero.** Working
+through them turned up something the index had no vocabulary for.
+
+> [!key-insight] Four studies ran and left no write-up — the stale-claim disease,
+> inverted
+> `funnel_backtest.py` (B-38), `sbc_backtest.py`, `sbc_muhurat_backtest.py` and
+> `newmoon_levels_backtest.py` all exist as measurement tools, and **none has a
+> result recorded anywhere this index can cite.** The backlog, the wiki pages and
+> their own docstrings state the question and the null hypothesis; **no page states
+> what came back.**
+>
+> That is the same failure as a stale claim seen from the other side: **a claim that
+> outlived its measurement vs. a measurement that never became a claim.** Both leave
+> a reader trusting something nobody checked.
+>
+> They are indexed as **`UNRECORDED`** rather than guessed at — the mapping
+> (tool → subjects) is what CHECK 0 needs, so their subjects stay checkable either
+> way, and a labelled gap is worth more than a fabricated verdict. **CHECK 0c
+> reports them every run**, because a measurement with no write-up is debt and debt
+> that is not displayed does not get paid. Each should gain a source with real
+> numbers or be retired; what it must not do is sit in the index looking measured.
+
+The other ten were verified against their own write-ups first: **B-43** and
+**B-43r** (Renko), **B-32** (the regime-gate premise), **B-55** (SVP composite),
+**ADX** (mixed — the bare DI cross **loses** at −0.93% @10d while the confirmed
+state is +1.82% @60d), the **FVG fill-rate** study (gaps are **not** magnets against
+a width-matched placebo), **evmacd**, **FA-2** rahu-kaal and hora, and the **SBC
+daily-vedha** negative.
+
+Tests: `test_claims_lint.py` grows to 17 — coverage must stay complete (a new study
+file now FAILS a test rather than waiting to be noticed), every `UNRECORDED` entry
+must stay reported, and an `UNRECORDED` study must still make its subjects
+checkable — including the motivating case — a scanner
 with **no** verdict file that the index still catches, asserting the finding names
 B-41m — and the guard that an unindexed, genuinely unmeasured scanner stays silent.
+
+## B-72 · A BUY signal on the liquidity-sweep overlay — **BUILT 2026-09-12**
+
+Owner asked whether the sweep overlay ([[#B-68]]) could carry a buy/sell signal. It
+can, and the measured evidence makes the answer **asymmetric** — which is the whole
+design.
+
+**BUY, bullish side only.** `/api/liquidity` now returns the plan
+`scan_liquidity_sweep` already emits — **the scanner's own, not a second plan
+invented for the chart**. That matters for the same reason the pools are not
+recomputed in JS: one definition, one place to be wrong.
+
+**No SELL signal, and that is evidence rather than taste.**
+`scan_liquidity_sweep_bear` is a RISK read whose B-41m arm **never reached
+significance** (−0.16 / −0.18 / −0.32 / −0.56% gross, p 0.11–0.063) and which emits
+**`target=None`**, so no R can be computed for it at all. A SELL arrow would be a
+plan nobody measured. A test pins that reasoning and says what would justify
+revisiting it.
+
+**The signal is gated on the SCANNER firing, not on a sweep existing.**
+`scan_liquidity_sweep` requires the sweep to be ≤ 3 bars old, so an older sweep keeps
+its arrow as CONTEXT and gets no plan. **The difference between "this happened" and
+"act on this" is the gate**, and the marker reflects it: `BUY · SWEEP 320 · wick 85%`
+when fresh, plain `SWEEP 5153 · wick 56%` when not. Verified live on both cases.
+
+> [!warning] The stop is drawn with its own measurement on the label
+> B-41m measured the SIGNAL at **+0.51% @20d (p=0.005) net of costs**. B-41p measured
+> **this exact entry/stop/target at +0.06R**, and found the cause is that a stop
+> exists *at all*, not where it sits — removing it turned −0.059R into **+0.504R**.
+>
+> So the stop line's axis label literally reads **`stop · B-41p: this plan returns
+> +0.06R`**. Drawing a clean stop with no caveat would have shipped, as a chart
+> recommendation, a plan this desk has already measured to return nothing.
+>
+> That is NOT a licence to trade it unstopped: arm C's downside is uncapped where a
+> stopped arm loses at most 1R. A better mean with an unbounded tail is a different
+> risk profile, not a better one.
+
+**No new measurement is owed** — nothing new is claimed. The event was measured, the
+plan was measured, and both numbers now travel with the pixels that draw them.
+
+## B-73 · "Ultimate All-In-One (Cash Segment)" contra theme — **SCOPED 2026-09-12, NOT STARTED**
+
+Owner's ask, verbatim in intent — a single cash-segment contra pipeline delivering:
+
+1. one separate pipeline for **Multibagger Investing Frameworks**
+2. **1–2 Momentum & Swing ideas daily**
+3. **1–2 Smallcap Opportunities every month**
+4. **SME Opportunities**
+
+Scoped the way [[#B-58]] was: audit what already exists BEFORE proposing a build,
+because three of the four are mostly assembly and the fourth is blocked on data.
+
+### Coverage audit — what the four asks already have
+
+| ask | what exists today | state |
+|---|---|---|
+| **1. Multibagger framework** | `multibagger_candidates.py` — early-stage small/mid-cap screen on fresh institutional conviction + capital efficiency | **built, and UNMEASURED** — no B-19 verdict file, no named study, no reference to a backtest anywhere in the module |
+| **2. Momentum & swing daily** | `opportunity_hub.py` (funnel, families, confluence, weights) + `opportunity_daily.py` (scheduler job, persists to `daily_opportunities`) | **built and running daily** |
+| **3. Smallcap monthly** | `smallcap_universe.py` (free NSE small/micro universe the Hub's traded-value funnel structurally cannot see) + `smallcap_discovery.py` (B-34 conviction scorer) | **built, MEASURED WEAK** (B-34), gate shipped 2026-09-05 |
+| **4. SME** | nothing | **genuine gap, and blocked twice over — see below** |
+| *contra framing itself* | [[analyses/Contra-Strategy-Roadmap]] + `value_screen.py`, `contra_inflection.py`, `volume_anomaly.py` | built; the roadmap's own **Phase 0** says measurement debt blocks everything |
+
+**So the honest shape of this theme is: one unmeasured screen, one working daily
+pipeline, one measured-weak monthly lane, and one real gap.** It is not four builds.
+
+### The SME ask is blocked twice, independently
+
+> [!warning] Neither blocker is a matter of effort
+> **1. SME is in no universe this desk builds.** `smallcap_universe` is drawn from
+> **NSE index constituents**, and NSE Emerge (the SME board) is a separate segment
+> that is not in them. The Hub's `liquid_universe` is top-N by **traded value** from
+> the bhavcopy, and an SME name does not survive a liquidity floor — that is what
+> the floor is for.
+>
+> **2. The price data is known-unreliable for exactly these names.** `data_source`
+> carries a retry loop written because *"yfinance intermittently returns an empty /
+> 1-3 row STUB for thinly-traded BSE/SME names (e.g. DIACABS.BO, VILAS)"*, and
+> `dashboard_app` already warns that growth/ROCE/working-capital reads are
+> untrustworthy for thin BSE/SME names.
+>
+> **This is the B-48 situation, not the B-45 situation:** the blocker is the FEED,
+> not the code. Building an SME screen on a feed that stubs would produce a
+> plausible-looking screen of names whose history was never there — indistinguishable
+> from a working one by eye. **First deliverable for the SME ask is therefore a DATA
+> probe, not a screen:** how many NSE Emerge symbols resolve, how often they stub,
+> and whether any free source carries their fundamentals.
+
+### The cadence contradiction in ask 3, which is worth deciding before building
+
+**"1–2 smallcap opportunities every month" asks a QUARTERLY signal to speak
+monthly.** `smallcap_discovery.score_from_cache` reads **shareholding filings** and
+returns `None` with fewer than 2 quarters; conviction is the *change* in
+institutional holding between filings, and NSE publishes those **four times a
+year**. Two months in every three, a "monthly" idea would be the same filing data
+re-ranked, dressed as new information.
+
+Three honest ways out, and the choice is the owner's:
+- **(a) Quarterly cadence** for the conviction lane, matching its input.
+- **(b) Monthly cadence on a different signal** — price/volume structure on the
+  smallcap universe, which updates daily but is NOT what B-34 measured.
+- **(c) Monthly delivery, quarterly refresh** — stated plainly on the card, so the
+  reader knows which months carry new filings.
+
+### What this must NOT become
+
+> [!warning] The desk has already measured most of what a theme like this would stack
+> **B-19 measured most single-condition scanners at no edge after costs.** The three
+> "retrace into a level after a structure break" implementations measured
+> −0.36% / −0.47% / −0.43% @20d across ~9,000 signals. [[analyses/Contra-Strategy-Roadmap]]
+> already records that **the two highest-rated methods on a supplied contra list are
+> the two already falsified here** — POC/liquidity-exhaustion (SVP: 5 of 7 factors
+> sign-inverted) and astro-contra (SBC daily-vedha: clean negative).
+>
+> **Bundling unmeasured screens into a themed pipeline does not make them work; it
+> makes the failure harder to attribute.** The one component with a measured,
+> cost-surviving edge is `Liquidity Sweep` (B-41m, +0.51% @20d) — and even there
+> B-41p showed the shipped plan returns +0.06R.
+
+### Proposed sequencing
+
+**Phase 0 — measure what is already built, before adding anything.** This is not new
+advice; [[analyses/Contra-Strategy-Roadmap]] already names it as blocking. The
+concrete item here is **`multibagger_candidates` has never been measured** and is
+ask #1's whole deliverable. One pre-registered event study, the [[#B-22r]] pattern:
+design committed before the scorer runs.
+
+**Phase 1 — decide the smallcap cadence** (a/b/c above). A decision, not a build.
+
+**Phase 2 — the SME data probe.** Answers whether ask #4 is possible at all before
+any screen is written.
+
+**Phase 3 — assembly.** Only now is there a "pipeline": one page that routes
+daily momentum/swing from the Hub, the smallcap lane at its decided cadence, the
+multibagger screen at whatever weight its measurement earned, and SME if and only
+if Phase 2 says the data exists.
+
+**Nothing in Phase 3 is hard. Phases 0–2 are where this item actually lives.**
 
 ## Ingested-research additions (2026-08-20)
 

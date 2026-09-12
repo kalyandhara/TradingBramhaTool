@@ -379,6 +379,18 @@ def _scan_uncovered_studies() -> list[tuple[str, int, str]]:
              f"cannot be checked for stale labels") for g in gaps]
 
 
+def _scan_unrecorded_studies() -> list[tuple[str, int, str]]:
+    """Indexed studies with no citable result. Debt, displayed."""
+    try:
+        import named_studies
+        rows = named_studies.unrecorded()
+    except Exception:
+        return []
+    return [("named_studies.py", 0,
+             f"{st['item']} ({st['tool']}) is indexed but has NO citable result — "
+             f"{st.get('headline') or 'no write-up found'}") for st in rows]
+
+
 def _scan_state_labels(src: pathlib.Path | None = None,
                        vdir: pathlib.Path | None = None) -> list[tuple[str, int, str]]:
     rows: list[tuple[str, int, str]] = []
@@ -471,6 +483,14 @@ def main(argv: list[str]) -> int:
         "scanners become checkable. Expected to be non-empty while the index is "
         "still being filled in.",
         _scan_uncovered_studies(),
+    )
+    _report(
+        "0c. STUDIES THAT RAN AND LEFT NO WRITE-UP (the stale-claim disease, "
+        "inverted)",
+        "Indexed, subjects known, result not recorded anywhere citable. A "
+        "measurement with no write-up is debt; each should gain a source with real "
+        "numbers or be retired.",
+        _scan_unrecorded_studies(),
     )
     _report(
         "1. PROMISSORY CLAIMS (prose that dates itself when a study runs)",

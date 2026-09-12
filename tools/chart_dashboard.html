@@ -520,6 +520,42 @@ html, body {
   height: 100px; min-height: 50px; flex-shrink: 1;
   position: relative; border-top: 1px solid var(--border-soft); overflow: hidden;
 }
+/* ── Card dock — the info cards, stapled under the sub-plots ───────────────── */
+/* Every info card (FVG signal, Structure Break Chain, Session VP, PMax, the
+   pattern panels, ...) lives in one of three places, chosen by the switch at the
+   bottom of the drawing toolbar: docked here, floating over the candles the way
+   they used to, or hidden. Docked is the default. Floating cards cover the price
+   action they describe, and on a wide pane a 260px card is ~12% of the frame,
+   which is the same reason a shared snapshot of one could not be read.
+   A wrapping row, so any number of cards line up; capped at a third of the pane
+   so the candles keep the room they need, and it scrolls past that. */
+.card-dock {
+  flex: 0 0 auto; display: flex; flex-direction: row; flex-wrap: wrap;
+  align-items: flex-start; gap: 6px; padding: 6px 8px;
+  max-height: 34%; overflow-y: auto; overscroll-behavior: contain;
+  border-top: 1px solid var(--border); background: var(--bg-pane-header);
+}
+/* A dock holding only hidden cards must take no space at all, or a bare 13px
+   strip sits under the sub-plots. `.empty` is maintained by watchDock(). */
+.card-dock.empty, .card-dock[hidden] { display: none; }
+/* In float mode a card is absolutely positioned to a chart corner; in the dock it
+   is a flow child of a row. RELATIVE, not static, and for the same reason
+   `.action-stack > *` is relative: .rb-info and .vcp-info hang their collapse
+   chevron on an absolutely positioned child, which needs the card itself to be
+   the containing block or it flies to the nearest positioned ancestor.
+   !important is needed for the falling-wedge card, which positions itself in an
+   inline style. The width cap stops one verbose card (Session VP, Gann) from
+   claiming the whole row. */
+.card-dock > * {
+  position: relative !important; transform: none !important; margin: 0 !important;
+  flex: 0 0 auto; max-width: 360px !important; max-height: none !important;
+  z-index: auto !important;
+  top: auto !important; right: auto !important; bottom: auto !important; left: auto !important;
+}
+/* Hidden mode is one rule rather than a list of card classes, because every
+   card carries the data attribute that mountCard() stamps on it. */
+.pane.cards-off [data-card-home] { display: none !important; }
+
 .sub-pane-label {
   position: absolute; top: 4px; left: 8px; z-index: 10; pointer-events: none;
   font-size: 9px; font-weight: 700; letter-spacing: .05em;
@@ -670,6 +706,13 @@ html, body {
   white-space: nowrap; display: none;
   box-shadow: 0 2px 10px rgba(0,0,0,0.22);
 }
+/* The card is nowrap so the entry/stop/target row stays on one line; the caveat
+   is prose and has to wrap, so it opts out and carries its own width. */
+.pmax-info .pmax-cav {
+  color: var(--text-muted); font-size: 9px; margin-top: 4px;
+  white-space: normal; max-width: 330px;
+}
+
 /* ── Gann S/R + Break Odds card ───────────────────────────────────────────── */
 /* Bottom-center so it does not collide with the top-center PMax card. Mirrors
    the pmax-info house style. The header (S/R + the conditional break odds) is
@@ -1334,7 +1377,7 @@ const INDICATOR_DEFS = [
   {key:'falling_wedge', label:'Falling Wedge (converging → breakout)', group:'Price Patterns', color:'#26a69a'},
   {key:'structure_chain', label:'Structure Break Chain (BOS/CHoCH + quality)', group:'Smart Money & Structure', color:'#00e676'},
   {key:'orderblock',   label:'Order Blocks (SMC demand / supply zones)', group:'Smart Money & Structure', color:'#4c9aff', alias:'order block ob smart money smc demand supply zone mitigation institutional'},
-  {key:'liquidity',    label:'Liquidity Pools + Sweep (equal highs/lows · stop run)', group:'Smart Money & Structure', color:'#ff6d00', alias:'liquidity pool sweep stop hunt stop run raid equal highs equal lows resting stops smc trap reclaim'},
+  {key:'liquidity',    label:'Liquidity Pools + Sweep + BUY signal (equal highs/lows · stop run)', group:'Smart Money & Structure', color:'#ff6d00', alias:'liquidity pool sweep stop hunt stop run raid equal highs equal lows resting stops smc trap reclaim'},
   {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab)', group:'Price Patterns', color:'#ba68c8'},
   {key:'projection',   label:'Price Projection (EW + patterns)', group:'Levels & Projection', color:'#4c9aff'},
   {key:'fib',          label:'Fibonacci + Trade Plan (VP + Projection confluence)',
@@ -2060,6 +2103,112 @@ function savePmaxCollapsed(v) { localStorage.setItem(LS_PMAX_COLLAPSED, v ? '1' 
 const LS_PROJ_COLLAPSED = 'tb_proj_collapsed';
 function loadProjCollapsed() { return localStorage.getItem(LS_PROJ_COLLAPSED) === '1'; }
 function saveProjCollapsed(v) { localStorage.setItem(LS_PROJ_COLLAPSED, v ? '1' : '0'); }
+
+// ── Card placement mode ─────────────────────────────────────────────────────
+// Global, not per-pane, for the same reason the collapse preferences above are:
+// the cards behave identically on every pane, so "where do I want my cards" is
+// one answer, not eight. The switch lives at the bottom of the drawing toolbar
+// because that toolbar is already the pane's "what is drawn on my chart" panel.
+const CARD_MODES   = ['dock', 'float', 'off'];
+const LS_CARD_MODE = 'tb_card_mode';
+let _cardMode = (() => {
+  const v = localStorage.getItem(LS_CARD_MODE);
+  return CARD_MODES.includes(v) ? v : 'dock';
+})();
+function cardMode() { return _cardMode; }
+function setCardMode(mode) {
+  _cardMode = CARD_MODES.includes(mode) ? mode : 'dock';
+  localStorage.setItem(LS_CARD_MODE, _cardMode);
+  panes.forEach(p => {
+    try { applyCardMode(p); syncCardModeBtn(p); } catch (e) { console.warn('card mode:', e); }
+  });
+}
+
+// One flow strip per pane, after .sub-panes — i.e. the bottom of the chart body.
+function ensureCardDock(pane) {
+  const body = pane.el.querySelector('.chart-body');
+  if (!body) return null;
+  let dock = body.querySelector(':scope > .card-dock');
+  if (!dock) {
+    dock = document.createElement('div');
+    dock.className = 'card-dock empty';
+    body.appendChild(dock);
+    pane._syncDock = watchDock(dock);
+  }
+  return dock;
+}
+
+// The dock has to collapse when every card in it is hidden. Cards are shown and
+// hidden by a dozen different renderers writing style.display, so rather than
+// add a call to each one — which the next card added would forget — watch the
+// dock itself. Coalesced to one frame because a render pass touches several
+// cards in a row.
+function watchDock(dock) {
+  let queued = false;
+  const sync = () => {
+    queued = false;
+    const any = Array.from(dock.children).some(c => getComputedStyle(c).display !== 'none');
+    dock.classList.toggle('empty', !any);
+  };
+  // setTimeout, not requestAnimationFrame: a pane in a background tab stops
+  // getting animation frames, and the dock would then sit collapsed over live
+  // cards until the user looked at it. Timers still run there.
+  const queue = () => { if (!queued) { queued = true; setTimeout(sync, 0); } };
+  new MutationObserver(queue).observe(dock, {
+    attributes: true, attributeFilter: ['style', 'class'], childList: true, subtree: true,
+  });
+  sync();
+  return sync;
+}
+
+// Where a card lives is a mode, not a fixed parent. Every card declares the home
+// it wants when cards FLOAT — the top-right action stack, or its own chart
+// corner — and is mounted through here, so the switch can re-home all of them
+// without thirteen renderers each having to know about the dock.
+function mountCard(pane, el, home) {
+  el.dataset.cardHome = home;
+  const host = cardHost(pane, home);
+  if (host) host.appendChild(el);
+  return el;
+}
+function cardHost(pane, home) {
+  if (cardMode() === 'dock') return ensureCardDock(pane);
+  return home === 'stack' ? ensureActionStack(pane)
+                          : pane.el.querySelector('.chart-main');
+}
+
+function applyCardMode(pane) {
+  const mode = cardMode();
+  const chartMain = pane.el.querySelector('.chart-main');
+  const dock = ensureCardDock(pane);
+  if (!chartMain || !dock) return;
+  Array.from(pane.el.querySelectorAll('[data-card-home]')).forEach(el => {
+    const host = (mode === 'dock') ? dock
+               : (el.dataset.cardHome === 'stack' ? ensureActionStack(pane) : chartMain);
+    if (el.parentElement !== host) host.appendChild(el);
+  });
+  pane.el.classList.toggle('cards-off', mode === 'off');
+  dock.hidden = (mode !== 'dock');
+  if (pane._syncDock) pane._syncDock();
+  // Docking takes height out of the flex column, so the chart is now a different
+  // size and every price-anchored overlay is drawing against a stale y-mapping.
+  // The ResizeObserver on .chart-main repaints four of them; this is the rest.
+  try { redrawPaneOverlays(pane, true); } catch {}
+}
+
+const CARD_MODE_UI = {
+  dock:  {glyph: '▤', title: 'Cards: docked under the sub-plots — click to float them over the chart'},
+  float: {glyph: '❐', title: 'Cards: floating over the chart — click to hide them'},
+  off:   {glyph: '▭', title: 'Cards: hidden — click to dock them under the sub-plots'},
+};
+function syncCardModeBtn(pane) {
+  const btn = pane.drawTools && pane.drawTools.querySelector('[data-act="cards"]');
+  if (!btn) return;
+  const ui = CARD_MODE_UI[cardMode()] || CARD_MODE_UI.dock;
+  btn.textContent = ui.glyph;
+  btn.title = ui.title;
+  btn.classList.toggle('active', cardMode() !== 'off');
+}
 
 function loadCount()   {
   const saved = localStorage.getItem(LS_COUNT);
@@ -2799,6 +2948,10 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
   // Drawing tools: wire the toolbar/canvas, then restore this symbol's markup.
   try { wireDrawingTools(pane); loadDrawings(pane); } catch (e) { console.warn('drawing tools:', e); }
 
+  // Build the dock and apply the saved placement before any card exists, so the
+  // first card a renderer mounts already lands in the right container.
+  try { applyCardMode(pane); } catch (e) { console.warn('card mode:', e); }
+
   // Label the pane's starting symbol (company name + exchange chip + links).
   try { refreshSymbolMeta(pane.symbol); } catch (e) { console.warn('symbol meta:', e); }
 
@@ -2825,42 +2978,73 @@ function showToast(msg, ms = 2200) {
   _snapToastEl._hideTimer = setTimeout(() => _snapToastEl.classList.remove('show'), ms);
 }
 
-// The info panels (PMax trade state, VCP, Elliott Wave, Rounding Bottom,
-// Projection, Reversal Calendar) are DOM divs, not canvases — takeScreenshot()
-// cannot see them, so snapshots used to lose exactly the numbers you took the
-// snapshot for. Rasterize them by wrapping clones in an SVG <foreignObject>:
-// the browser lays out real HTML with real CSS, so panels land at their true
-// positions with their true styling and no external library is needed.
+// ── Card readout band ───────────────────────────────────────────────────────
+// The info panels (FVG signal, Structure Break Chain, PMax trade state, VCP,
+// Elliott Wave, Rounding Bottom, Projection, Session VP, Reversal Calendar) are
+// DOM divs, not canvases — takeScreenshot() cannot see them, so snapshots used
+// to lose exactly the numbers you took the snapshot for. They are rasterized by
+// wrapping clones in an SVG <foreignObject>: the browser lays out real HTML with
+// real CSS, so the cards keep their true styling and no external library
+// (html2canvas etc.) is needed.
 //
-// Two details make it work: the page's own stylesheet is inlined (foreignObject
-// gets no access to the parent document's CSS), and the :root custom properties
-// are copied as resolved values (`:root` inside the SVG would not match the
-// document root, so --overlay-bg etc. would silently fall back to nothing).
-// Reading them off getComputedStyle also means the snapshot follows the live
-// Dark/Light toggle for free.
-/* .action-stack is cloned as a whole: its cards (rb/fvg/fib/proj) are static
-   flex children, so cloning them individually would lose their stacked
-   positions — and cloning the stack also picks up the FVG and Fib cards,
-   which the old per-panel list never included. */
-const SNAP_PANEL_SEL = '.ew-info, .vcp-info, .pmax-info, .gann-info, .svp-info, .rev-info, .action-stack';
+// They are laid out in a BAND UNDER the chart rather than composited back over
+// it in place (changed 2026-09-12, "insider card is not readable"). Overlaying
+// is what the app looks like, but it cannot be made legible: a card is ~260 CSS
+// px wide on a chart 1300-2700 CSS px wide, so in a shared PNG — which every
+// viewer sees scaled to fit — the 10.5px card type lands under half a pixel per
+// stroke. Magnifying the cards in place was tried first and is bounded by the
+// chart's own HEIGHT, not by resolution: measured on the running chart, the top
+// card stack is already 56% of it (259px of 458px) and the bottom Session VP
+// card another 32%, so the most that fits before the two blocks meet is 1.08x —
+// 7px type in an 800px-wide view, still unreadable. A band has as much room as
+// it needs, so the cards are drawn at a constant ~34% of the image width
+// whatever the monitor, and the price action stops being covered by them.
+//
+// Two details make the rasterization work: the page's own stylesheet is inlined
+// (foreignObject gets no access to the parent document's CSS), and the :root
+// custom properties are copied as resolved values (`:root` inside the SVG would
+// not match the document root, so --overlay-bg etc. would silently fall back to
+// nothing). Reading them off getComputedStyle also means the snapshot follows
+// the live Dark/Light toggle for free.
+// Cards are found by the attribute mountCard() stamps on every one of them, not
+// by a list of class names. The hand-maintained list this replaces had already
+// drifted — it was missing the OI-walls and falling-wedge cards — and it could
+// only find cards parented under .chart-main, which stopped being true the
+// moment the placement switch gained a dock below the sub-plots.
+const SNAP_PANEL_SEL = '[data-card-home]';
 
-async function renderOverlayPanels(chartMain, scale = 1) {
-  const panels = Array.from(chartMain.querySelectorAll(SNAP_PANEL_SEL))
-    .filter(el => el.offsetParent !== null && getComputedStyle(el).display !== 'none')
-    // An action stack with no visible card contributes nothing — drop it so
-    // an otherwise panel-free chart skips the foreignObject pass entirely.
-    .filter(el => !el.classList.contains('action-stack')
-      || Array.from(el.children).some(c => getComputedStyle(c).display !== 'none'));
-  if (!panels.length) return null;
+// Width of one "column" of band, in CSS px: the band is laid out this many px
+// wide per unit of magnification, so a 260px card is always ~34% of the frame
+// and reads at ~11px when the image is viewed 800px wide. Lower = bigger cards.
+const SNAP_BAND_REF = 760;
 
-  const w = chartMain.clientWidth, h = chartMain.clientHeight;
-  if (!w || !h) return null;
+async function renderPanelBand(pane, scale, cssW) {
+  const chartMain = pane.el.querySelector('.chart-main');
+  if (!chartMain) return null;
+  const vis = el => el.offsetParent !== null && getComputedStyle(el).display !== 'none';
+  // Whole-pane query, not chart-main: in dock mode the cards live below the
+  // sub-plots. Each card is taken individually rather than through its
+  // container, so the band reads the same whichever mode the chart is in — and
+  // `order` survives, because the band is a flex row like the stack and the
+  // dock, so the cards keep the sequence they have on screen. Hidden mode needs
+  // no special case: `vis` is false for every card, so the band is skipped.
+  const panels = Array.from(pane.el.querySelectorAll(SNAP_PANEL_SEL)).filter(vis);
+  if (!panels.length || !cssW) return null;
+
+  // The band is laid out at cssW / K px wide, so K is both the magnification
+  // AND how many cards fit per row: shrinking it widens the layout, which
+  // un-wraps rows and shortens the band. The two pull against each other, and
+  // the resolved K is the largest one whose band still fits `capH` — settled by
+  // measuring rather than solving, because where the cards wrap is the
+  // browser's call, not arithmetic we can redo here.
+  const KMAX = Math.min(3.5, Math.max(1.25, cssW / SNAP_BAND_REF));
+  const capH = Math.max(300, 0.9 * (chartMain.clientHeight || 400));
 
   const rootCS = getComputedStyle(document.documentElement);
   let vars = '';
   for (let i = 0; i < rootCS.length; i++) {
-    const p = rootCS[i];
-    if (p.startsWith('--')) vars += `${p}:${rootCS.getPropertyValue(p)};`;
+    const prop = rootCS[i];
+    if (prop.startsWith('--')) vars += `${prop}:${rootCS.getPropertyValue(prop)};`;
   }
 
   let css = '';
@@ -2871,24 +3055,101 @@ async function renderOverlayPanels(chartMain, scale = 1) {
 
   const wrap = document.createElement('div');
   wrap.setAttribute('xmlns', 'http://www.w3.org/1999/xhtml');
-  wrap.setAttribute('style', `position:relative;width:${w}px;height:${h}px;overflow:hidden;${vars}`);
+  // Width is left to the fit loop below — it is the variable being solved for.
+  wrap.setAttribute('style',
+    `box-sizing:border-box;display:flex;flex-wrap:wrap;` +
+    `align-items:flex-start;gap:8px;padding:9px 10px;${vars}`);
   const style = document.createElement('style');
   style.textContent = css;
   wrap.appendChild(style);
-  panels.forEach(el => wrap.appendChild(el.cloneNode(true)));
+  panels.forEach(el => {
+    const clone = el.cloneNode(true);
+    // A card anchored to a chart corner would leave the flow as an absolutely
+    // positioned flex child and contribute no height at all, collapsing the band
+    // to its padding. RELATIVE rather than static, because .rb-info and
+    // .vcp-info hang their collapse chevron on an absolutely positioned child
+    // that needs the card as its containing block.
+    //
+    // Unconditional, and that matters: this used to neutralise only cards whose
+    // LIVE computed position was absolute, which reads the card in whatever
+    // container the placement mode put it in. Docked, `.card-dock > *` has
+    // already made it relative, so the test said "not absolute", the clone got
+    // no override, and .pmax-info's own `position: absolute` re-applied inside
+    // the band — silently dropping every corner card out of the snapshot.
+    clone.style.position = 'relative';
+    clone.style.top = clone.style.right = clone.style.bottom = clone.style.left = 'auto';
+    clone.style.transform = 'none';
+    clone.style.margin = '0';
+    // Pin each card to the width it has on screen. Where a flex row wraps is
+    // otherwise decided by measured text, and the measuring pass here and the
+    // SVG image's own layout pass disagreed by a few px — enough to flip a card
+    // onto a second row in one pass and not the other, which sized the band for
+    // a row the rendered image did not have (a dead strip under the cards).
+    // With explicit widths the wrap point is arithmetic, so both passes agree.
+    const r = el.getBoundingClientRect();
+    clone.style.boxSizing = 'border-box';
+    clone.style.width = Math.ceil(r.width) + 'px';
+    clone.style.flex = '0 0 auto';
+    wrap.appendChild(clone);
+  });
+
+  // <foreignObject> needs an explicit height, and the only honest source for it
+  // is the browser: lay the real thing out offscreen in this document, with this
+  // document's stylesheet, and measure it.
+  const holder = document.createElement('div');
+  holder.style.cssText = 'position:fixed;left:-20000px;top:0;visibility:hidden;pointer-events:none;';
+  holder.appendChild(wrap);
+  document.body.appendChild(holder);
+  // Sweep K from the most magnified down and measure what each one costs. The
+  // pick is NOT simply the largest K that fits: a slightly bigger K that spills
+  // one card onto a second row makes the band taller AND leaves a hole beside
+  // that card, which reads worse than cards a few percent smaller in one row.
+  // So the rule is "fewest rows first, then as large as fits" — lh is the proxy
+  // for row count, and lhMin is the tightest packing any K achieves.
+  const steps = [];
+  for (let i = 0; i <= 24; i++) {
+    const K = KMAX - (KMAX - 1.25) * (i / 24);
+    const lw = Math.max(200, Math.round(cssW / K));
+    wrap.style.width = lw + 'px';
+    steps.push({K, lw, lh: Math.max(1, Math.ceil(wrap.getBoundingClientRect().height))});
+  }
+  holder.remove();
+  const lhMin = Math.min(...steps.map(s => s.lh));
+  // steps is ordered largest K first, so `find` is "the biggest that qualifies".
+  // Fallbacks: no minimal-row layout fits the height cap, so take the biggest
+  // that fits at all; and if nothing fits, the smallest K — the shortest band.
+  const pick = steps.find(s => s.lh <= lhMin * 1.05 && s.lh * s.K <= capH)
+            || steps.find(s => s.lh * s.K <= capH)
+            || steps[steps.length - 1];
+  const K = pick.K, lw = pick.lw, lh = pick.lh;
+  wrap.style.width = lw + 'px';
 
   const xml = new XMLSerializer().serializeToString(wrap);
-  // Rasterize at device resolution. The layout stays in CSS pixels via viewBox,
-  // but the SVG's pixel size is w*scale, so the info cards land at the same
-  // crispness as the candle screenshot instead of being rendered 1x and then
-  // upscaled to the device-pixel canvas (the "hazy card" bug).
-  const pw = Math.round(w * scale), ph = Math.round(h * scale);
-  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}" viewBox="0 0 ${w} ${h}">` +
-              `<foreignObject x="0" y="0" width="${w}" height="${h}">${xml}</foreignObject></svg>`;
+  // viewBox is the band's CSS-pixel layout; width/height are its device pixels.
+  // One attribute pair therefore carries both jobs — content magnified by K, and
+  // rendered at `scale` device pixels per CSS pixel, so the cards are natively
+  // sharp rather than a 1x render stretched into a 2x canvas.
+  const pw = Math.round(cssW * scale), ph = Math.round(lh * K * scale);
+  const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="${pw}" height="${ph}" viewBox="0 0 ${lw} ${lh}">` +
+              `<foreignObject x="0" y="0" width="${lw}" height="${lh}">${xml}</foreignObject></svg>`;
   const img = new Image();
   img.src = 'data:image/svg+xml;charset=utf-8,' + encodeURIComponent(svg);
   await img.decode();
-  return img;
+  return {img, w: pw, h: ph};
+}
+
+// Trim `text` to fit `maxW` device px in the ctx's CURRENT font, ellipsising if
+// it has to. The header draws a full company name into whatever room the ticker
+// left it, and a long name silently running under the brand is worse than a cut
+// one.
+function fitTextToWidth(ctx, text, maxW) {
+  if (!text || ctx.measureText(text).width <= maxW) return text || '';
+  let lo = 0, hi = text.length;
+  while (lo < hi) {
+    const mid = (lo + hi + 1) >> 1;
+    if (ctx.measureText(text.slice(0, mid) + '…').width <= maxW) lo = mid; else hi = mid - 1;
+  }
+  return lo > 0 ? text.slice(0, lo) + '…' : '';
 }
 
 async function copyChartSnapshot(pane) {
@@ -2904,6 +3165,28 @@ async function copyChartSnapshot(pane) {
   // line/bar overlays.
   const dpr0    = window.devicePixelRatio || 1;
   const S       = Math.max(2, dpr0);   // target export ratio (>= 2x CSS pixels)
+
+  // ── Export chrome scale ────────────────────────────────────────────────────
+  // The snapshot is composed in the chart's own CSS pixels, so every piece of
+  // text in it — header, info cards, axis labels — is sized for a desktop
+  // viewport sitting an arm's length away. On a 1920px-wide chart that is ~10px
+  // type inside a 3840px image, and nobody ever views a 3840px image at 1:1, so
+  // it arrives as the grey mush this fixes ("unclear, hazy, card not readable",
+  // 2026-09-12). Resolution was never the problem — the hi-DPI path below was
+  // already producing crisp pixels of text that is simply too small a share of
+  // the frame. Measured before the fix: a 1272px chart exported 2544x1348 with
+  // a 16px title and 10.5px cards, i.e. the title was 0.6% of the image height.
+  //
+  // So the chrome scales with how much wider the chart is than the width its UI
+  // was designed to be read at. Capped, because past ~2x the cards start eating
+  // the chart they annotate.
+  const UI_REF  = 980;                 // CSS px at which the chart UI reads 1:1
+  const UI_K    = Math.min(1.9, Math.max(1, (chartMain.clientWidth || UI_REF) / UI_REF));
+  // Lightweight Charts' own axis labels get a gentler bump: unlike the header
+  // they are laid out against each other, and scaling them like the header
+  // collides the price labels that sit a few px apart on a busy scale (measured
+  // at 19px: the buy-side/sell-side line labels overlapped into one blur).
+  const AXIS_K  = Math.min(1.25, UI_K);
   const dprDesc = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio');
   const subEls  = Array.from(pane.el.querySelectorAll('.sub-pane'));
   const reflow  = [{chart: pane.chart, el: chartMain}];
@@ -2911,14 +3194,24 @@ async function copyChartSnapshot(pane) {
     const sub = pane.subCharts[subEl.dataset.key];
     if (sub) reflow.push({chart: sub.chart, el: subEl});
   });
-  const relayout = (ratioVal) => {
+  // Remember each chart's own axis font so the capture can raise it and put it
+  // back — read per chart rather than assumed, since a sub-pane may not match.
+  reflow.forEach(e => {
+    try { e.font0 = (e.chart.options().layout || {}).fontSize || 12; } catch { e.font0 = 12; }
+  });
+  const relayout = (ratioVal, bigFont) => {
     try { Object.defineProperty(window, 'devicePixelRatio', {configurable: true, get: () => ratioVal}); } catch {}
     // The app overlays do not read devicePixelRatio through LWC, so they are told
     // directly. Without this they render at 1x and drawImage stretches them into
     // the 2x canvas — the candles sharpen and everything drawn ON them does not,
     // which is what "the snapshot still looks poor" actually was.
     SNAP_RATIO = (ratioVal > 1) ? ratioVal : 0;
-    reflow.forEach(({chart, el}) => {
+    reflow.forEach(entry => {
+      const {chart, el} = entry;
+      // Axis labels ride along with the chrome scale — applied before the resize
+      // so the price scale's new width is part of the same relayout.
+      const fs = bigFont ? Math.min(16, Math.round(entry.font0 * AXIS_K)) : entry.font0;
+      try { chart.applyOptions({layout: {fontSize: fs}}); } catch {}
       const w = el.clientWidth, h = el.clientHeight;
       // Jiggle the width so LWC actually recomputes its bitmap at the new ratio
       // (a same-size resize is a no-op).
@@ -2928,7 +3221,7 @@ async function copyChartSnapshot(pane) {
 
   try {
     if (S > dpr0) {
-      relayout(S);              // engage hi-DPI only when it would help
+      relayout(S, true);        // engage hi-DPI only when it would help
       // Re-render the overlays INTO the raised ratio. Synchronous, because the
       // capture below runs to completion in this turn and a deferred
       // animation-frame redraw would land after the screenshot.
@@ -2946,11 +3239,24 @@ async function copyChartSnapshot(pane) {
     // The ratio actually captured: S if the hi-DPI re-render engaged, else native.
     // All vector drawing uses it; the rasters are drawn at their own native size.
     const ratio   = mainShot.width / (chartMain.clientWidth || mainShot.width) || 1;
-    const headerH = Math.round(46 * ratio);   // two rows (symbol+company, then price/change)
-    const footerH = Math.round(22 * ratio);   // brand + timestamp caption strip
+    // Chrome (header, footer, sub-pane labels, cards) is drawn at ratio * UI_K
+    // so its type holds a constant SHARE of the frame however wide the chart is.
+    const u       = ratio * UI_K;
+    const headerH = Math.round(52 * u);   // two rows (symbol/company, then price)
+    const footerH = Math.round(24 * u);   // brand + timestamp caption strip
     const totalW  = mainShot.width;
+    // The card band is rasterized before the canvas exists, because its height
+    // is what the canvas has to be sized for. A failure here must not cost the
+    // whole snapshot — the chart itself is still worth copying.
+    let band = null;
+    try {
+      band = await renderPanelBand(pane, ratio, chartMain.clientWidth);
+    } catch (bandErr) {
+      console.warn('Snapshot: card band skipped —', bandErr);
+    }
+    const bandH   = band ? band.h : 0;
     const totalH  = headerH + mainShot.height
-                  + subShots.reduce((s, x) => s + x.shot.height, 0) + footerH;
+                  + subShots.reduce((s, x) => s + x.shot.height, 0) + bandH + footerH;
 
     const out = document.createElement('canvas');
     out.width = totalW;
@@ -2963,9 +3269,16 @@ async function copyChartSnapshot(pane) {
     ctx.fillStyle = rootStyle.getPropertyValue('--bg-pane-header').trim() || '#161b22';
     ctx.fillRect(0, 0, totalW, totalH);
 
-    // Header, two rows for prominence:
-    //  Row 1 — SYMBOL (bold) · exchange chip · full company name · brand (right)
-    //  Row 2 — price (colored) · change (colored) · timeframe
+    // Header, two rows — the caption a shared image is actually read by:
+    //  Row 1 — SYMBOL (bold) · exchange chip      …      COMPANY NAME (right)
+    //  Row 2 — price · change · timeframe         …      Trading Bramha (right)
+    //
+    // The company name moved to the top RIGHT (2026-09-12). It used to trail the
+    // exchange chip on the left in 13px type, where on a wide chart it read as a
+    // footnote to the ticker — and the ticker alone does not say what the chart
+    // is of. The right corner is the second place a reader's eye lands, so the
+    // name takes it and the brand drops to the quiet row underneath.
+    const SNAP_FONT = '-apple-system, "Segoe UI", sans-serif';
     const symVal    = pane.el.querySelector('.sym-in').value;
     const tfVal     = pane.el.querySelector('.tf-sel').value;
     const priceEl   = pane.el.querySelector('.price-el');
@@ -2977,40 +3290,50 @@ async function copyChartSnapshot(pane) {
     const textPrimary   = rootStyle.getPropertyValue('--text-primary').trim()   || '#e6edf3';
     const textSecondary = rootStyle.getPropertyValue('--text-secondary').trim() || '#8b949e';
     ctx.textBaseline = 'middle';
-    const row1Y = Math.round(16 * ratio), row2Y = Math.round(34 * ratio);
+    const row1Y = Math.round(19 * u), row2Y = Math.round(38 * u);
+    const padX  = Math.round(12 * u);
 
-    // Row 1 — bold symbol
-    let hx = 12 * ratio;
-    ctx.font = `700 ${Math.round(16 * ratio)}px -apple-system, "Segoe UI", sans-serif`;
-    ctx.fillStyle = textPrimary;
-    ctx.fillText(symVal, hx, row1Y);
-    hx += ctx.measureText(symVal).width + 10 * ratio;
-    // exchange chip
-    if (exch) {
-      ctx.font = `600 ${Math.round(10 * ratio)}px -apple-system, "Segoe UI", sans-serif`;
-      const ew = ctx.measureText(exch).width, epx = 5 * ratio, ech = 16 * ratio;
-      ctx.fillStyle = 'rgba(88,166,255,0.18)';
-      ctx.fillRect(hx, row1Y - ech / 2, ew + epx * 2, ech);
-      ctx.fillStyle = '#58a6ff';
-      ctx.fillText(exch, hx + epx, row1Y);
-      hx += ew + epx * 2 + 10 * ratio;
-    }
-    // full company name (the part the ticker alone doesn't tell you)
-    if (company) {
-      ctx.font = `${Math.round(13 * ratio)}px -apple-system, "Segoe UI", sans-serif`;
-      ctx.fillStyle = textSecondary;
-      ctx.fillText(company, hx, row1Y);
-    }
-    // brand, right-aligned
+    // Right column FIRST: it fixes the point the left column has to stop before,
+    // so a long ticker truncates instead of colliding with the company name.
     ctx.textAlign = 'right';
-    ctx.font = `700 ${Math.round(12 * ratio)}px -apple-system, "Segoe UI", sans-serif`;
+    let rightLimit = totalW - padX;
+    if (company) {
+      ctx.font = `600 ${Math.round(15 * u)}px ${SNAP_FONT}`;
+      ctx.fillStyle = textPrimary;
+      const nameTxt = fitTextToWidth(ctx, company, totalW * 0.52);
+      ctx.fillText(nameTxt, totalW - padX, row1Y);
+      rightLimit = totalW - padX - ctx.measureText(nameTxt).width - 16 * u;
+    }
+    ctx.font = `700 ${Math.round(11 * u)}px ${SNAP_FONT}`;
     ctx.fillStyle = textSecondary;
-    ctx.fillText('Trading Bramha', totalW - 12 * ratio, row1Y);
+    ctx.fillText('Trading Bramha', totalW - padX, row2Y);
     ctx.textAlign = 'left';
 
+    // Row 1 left — bold symbol, then the exchange chip
+    let hx = padX;
+    ctx.font = `700 ${Math.round(18 * u)}px ${SNAP_FONT}`;
+    ctx.fillStyle = textPrimary;
+    const symTxt = fitTextToWidth(ctx, symVal, Math.max(60 * u, rightLimit - hx));
+    ctx.fillText(symTxt, hx, row1Y);
+    hx += ctx.measureText(symTxt).width + 10 * u;
+    // exchange chip
+    if (exch) {
+      ctx.font = `600 ${Math.round(11 * u)}px ${SNAP_FONT}`;
+      const ew = ctx.measureText(exch).width, epx = 6 * u, ech = 18 * u;
+      // Take the chip's colours off the live badge rather than hard-coding the
+      // dark-theme pair: the old rgba(88,166,255,.18) on #58a6ff washed out to
+      // near-invisible on the Light theme's white header.
+      const exchCS = getComputedStyle(exchEl);
+      ctx.fillStyle = exchCS.backgroundColor || 'rgba(88,166,255,0.18)';
+      ctx.fillRect(hx, row1Y - ech / 2, ew + epx * 2, ech);
+      ctx.fillStyle = exchCS.color || '#58a6ff';
+      ctx.fillText(exch, hx + epx, row1Y);
+      hx += ew + epx * 2 + 10 * u;
+    }
+
     // Row 2 — price · change · timeframe (theme-aware up/down coloring preserved)
-    let px = 12 * ratio;
-    ctx.font = `600 ${Math.round(13 * ratio)}px -apple-system, "Segoe UI", sans-serif`;
+    let px = padX;
+    ctx.font = `600 ${Math.round(15 * u)}px ${SNAP_FONT}`;
     [[priceEl.textContent, getComputedStyle(priceEl).color || textPrimary],
      [chgEl.textContent,   getComputedStyle(chgEl).color   || textPrimary],
      [tfVal,               textSecondary],
@@ -3035,43 +3358,48 @@ async function copyChartSnapshot(pane) {
     let y = headerH;
     const OW = mainShot.width, OH = mainShot.height;
     ctx.drawImage(mainShot, 0, y);
-    if (pane.prteCanvas)    ctx.drawImage(pane.prteCanvas,    0, y, OW, OH);   // %R exhaustion tint (z-index 5)
-    if (pane.fibCanvas)     ctx.drawImage(pane.fibCanvas,     0, y, OW, OH);
-    if (pane.patternCanvas) ctx.drawImage(pane.patternCanvas, 0, y, OW, OH);
-    if (pane.projCanvas)    ctx.drawImage(pane.projCanvas,    0, y, OW, OH);
-    if (pane.obCanvas)      ctx.drawImage(pane.obCanvas,      0, y, OW, OH);   // Order Blocks (z-index 7)
+    // An overlay is only worth compositing when it actually holds pixels. A
+    // layer whose indicator was never switched on can sit at a 0-sized backing
+    // store, and drawImage throws InvalidStateError on one of those — which took
+    // the ENTIRE snapshot down with it (seen 2026-09-12 on a fresh load, where
+    // the drawing layer had been sized before the pane had a width).
+    const blit = c => { if (c && c.width > 0 && c.height > 0) ctx.drawImage(c, 0, y, OW, OH); };
+    blit(pane.prteCanvas);      // %R exhaustion tint (z-index 5)
+    blit(pane.fibCanvas);
+    blit(pane.patternCanvas);
+    blit(pane.projCanvas);
+    blit(pane.obCanvas);        // Order Blocks (z-index 7)
     // Session Volume Profile HD (z-index 8, below volCanvas) — draw before it.
-    if (pane.svpCanvas)     ctx.drawImage(pane.svpCanvas,     0, y, OW, OH);
-    if (pane.volCanvas)     ctx.drawImage(pane.volCanvas,     0, y, OW, OH);
-    if (pane.fvgCanvas)     ctx.drawImage(pane.fvgCanvas,     0, y, OW, OH);
+    blit(pane.svpCanvas);
+    blit(pane.volCanvas);
+    blit(pane.fvgCanvas);
     // User drawings last of the price-anchored layers (z-index 20) — your own
     // markup should survive into a shared snapshot, and on top of the machine's.
-    if (pane.drawCanvas && !pane.drawHidden)
-      ctx.drawImage(pane.drawCanvas, 0, y, OW, OH);
-    // Info panels go last so they sit on top, matching their on-screen z-index.
-    // Rendered at the capture ratio so the cards stay crisp. A failure here must
-    // not cost the whole snapshot — the chart itself is still worth copying.
-    try {
-      const panelImg = await renderOverlayPanels(chartMain, ratio);
-      if (panelImg) ctx.drawImage(panelImg, 0, y, OW, OH);
-    } catch (panelErr) {
-      console.warn('Snapshot: overlay panels skipped —', panelErr);
-    }
+    if (!pane.drawHidden) blit(pane.drawCanvas);
     y += mainShot.height;
 
     subShots.forEach(({shot, label}) => {
       ctx.drawImage(shot, 0, y);
-      const fontSize = Math.round(10 * ratio), padX = 6 * ratio, padY = 3 * ratio;
-      ctx.font = `${fontSize}px -apple-system, "Segoe UI", sans-serif`;
+      const fontSize = Math.round(11 * u), lpx = 7 * u, lpy = 4 * u;
+      ctx.font = `600 ${fontSize}px -apple-system, "Segoe UI", sans-serif`;
       const tw = ctx.measureText(label).width;
       ctx.fillStyle = 'rgba(0,0,0,0.55)';
-      ctx.fillRect(4 * ratio, y + 4 * ratio, tw + padX * 2, fontSize + padY * 2);
+      ctx.fillRect(4 * u, y + 4 * u, tw + lpx * 2, fontSize + lpy * 2);
       ctx.fillStyle = '#c9d1d9';
       ctx.textBaseline = 'top';
-      ctx.fillText(label, 4 * ratio + padX, y + 4 * ratio + padY);
+      ctx.fillText(label, 4 * u + lpx, y + 4 * u + lpy);
       ctx.textBaseline = 'middle';
       y += shot.height;
     });
+
+    // Card readout band — the info panels, at a size that survives being shared.
+    if (band) {
+      const hair2 = Math.max(1, Math.round(ratio / 2));
+      ctx.fillStyle = 'rgba(139,148,158,0.25)';
+      ctx.fillRect(0, y, totalW, hair2);
+      ctx.drawImage(band.img, 0, y, totalW, bandH);
+      y += bandH;
+    }
 
     // Footer caption strip — brand, symbol/company, timestamp and a quiet
     // disclaimer, so a shared image explains itself away from the app.
@@ -3080,12 +3408,12 @@ async function copyChartSnapshot(pane) {
     ctx.fillRect(0, fy, totalW, Math.max(1, Math.round(ratio / 2)));
     ctx.textBaseline = 'middle';
     ctx.textAlign = 'left';
-    ctx.font = `${Math.round(11 * ratio)}px -apple-system, "Segoe UI", sans-serif`;
+    ctx.font = `${Math.round(12 * u)}px -apple-system, "Segoe UI", sans-serif`;
     ctx.fillStyle = textSecondary;
-    ctx.fillText(`${symVal}${company ? '  ·  ' + company : ''}`, 12 * ratio, fy + footerH / 2);
+    ctx.fillText(`${symVal}${company ? '  ·  ' + company : ''}`, padX, fy + footerH / 2);
     ctx.textAlign = 'right';
     ctx.fillText(`Trading Bramha · ${new Date().toLocaleString()} · not investment advice`,
-                 totalW - 12 * ratio, fy + footerH / 2);
+                 totalW - padX, fy + footerH / 2);
     ctx.textAlign = 'left';
 
     out.toBlob(async blob => {
@@ -3118,7 +3446,9 @@ async function copyChartSnapshot(pane) {
         if (dprDesc) Object.defineProperty(window, 'devicePixelRatio', dprDesc);
         else Object.defineProperty(window, 'devicePixelRatio', {configurable: true, get: () => dpr0});
       } catch {}
-      reflow.forEach(({chart, el}) => {
+      reflow.forEach(entry => {
+        const {chart, el} = entry;
+        try { chart.applyOptions({layout: {fontSize: entry.font0}}); } catch {}
         const w = el.clientWidth, h = el.clientHeight;
         // Jiggle on the way BACK too. This used to be a same-size resize, which
         // LWC treats as a no-op for exactly the reason the engage path above
@@ -5032,7 +5362,7 @@ function renderFVGInfo(pane, d) {
   if (!st.infoEl) {
     st.infoEl = document.createElement('div');
     st.infoEl.className = 'fvg-info';
-    ensureActionStack(pane).appendChild(st.infoEl);
+    mountCard(pane, st.infoEl, 'stack');
     st.infoEl.addEventListener('click', ev => {
       if (!ev.target.closest('.fvg-head')) return;
       st.collapsed = !st.collapsed;
@@ -5315,7 +5645,7 @@ function renderMABiasInfo(pane, d) {
   if (!st.infoEl) {
     st.infoEl = document.createElement('div');
     st.infoEl.className = 'ma-info';
-    ensureActionStack(pane).appendChild(st.infoEl);
+    mountCard(pane, st.infoEl, 'stack');
     st.infoEl.addEventListener('click', ev => {
       if (!ev.target.closest('.ma-head')) return;
       st.collapsed = !st.collapsed;
@@ -5919,7 +6249,7 @@ function renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConf
     ew.infoEl.appendChild(body);
     ew.infoBody = body;
     ew.infoSummary = summary;
-    pane.el.querySelector('.chart-main').appendChild(ew.infoEl);
+    mountCard(pane, ew.infoEl, 'corner');
   }
   if (!lastImpulse) { ew.infoEl.style.display = 'none'; return; }
   // Compact chip: label + confidence, matches the leading line of the full
@@ -6158,7 +6488,7 @@ function renderRbInfo(pane, saucer) {
     rb.infoEl.appendChild(body);
     rb.infoBody = body;
     rb.infoSummary = summary;
-    ensureActionStack(pane).appendChild(rb.infoEl);
+    mountCard(pane, rb.infoEl, 'stack');
   }
   if (!saucer) { rb.infoEl.style.display = 'none'; return; }
 
@@ -6380,7 +6710,7 @@ function renderVcpInfo(pane, g) {
     vcp.infoEl.appendChild(body);
     vcp.infoBody = body;
     vcp.infoSummary = summary;
-    pane.el.querySelector('.chart-main').appendChild(vcp.infoEl);
+    mountCard(pane, vcp.infoEl, 'corner');
   }
   if (!g) { vcp.infoEl.style.display = 'none'; return; }
 
@@ -6454,6 +6784,12 @@ const DRAW_TOOLBAR_HTML = (() => {
     '<button type="button" class="draw-btn" data-act="undo" title="Undo the last drawing">↶</button>' +
     '<button type="button" class="draw-btn" data-act="hide" title="Hide/show all drawings">👁</button>' +
     '<button type="button" class="draw-btn danger" data-act="clear" title="Delete every drawing on this symbol">🗑</button>' +
+    '<div class="draw-sep"></div>' +
+    // Cards are not a drawing tool, but this toolbar is already the pane's
+    // "what is drawn on my chart" panel, so the switch belongs here rather than
+    // as a ninth control in the header. Glyph and title come from
+    // syncCardModeBtn(), which reads the live mode.
+    '<button type="button" class="draw-btn" data-act="cards"></button>' +
     '<div class="draw-count"></div>';
 })();
 
@@ -6587,6 +6923,10 @@ function wireDrawingTools(pane) {
         btn.classList.toggle('active', pane.drawHidden);
         redrawDrawings(pane);
         break;
+      case 'cards':
+        // Cycles dock -> float -> off. Global, so every pane follows.
+        setCardMode(CARD_MODES[(CARD_MODES.indexOf(cardMode()) + 1) % CARD_MODES.length]);
+        break;
       case 'clear':
         if (pane.drawings.length &&
             confirm(`Delete all ${pane.drawings.length} drawing(s) on ${pane.symbol}?`)) {
@@ -6601,6 +6941,7 @@ function wireDrawingTools(pane) {
   // Reflect the default-on magnet in the UI.
   const mag = tools.querySelector('[data-act="magnet"]');
   if (mag) mag.classList.toggle('active', pane.drawMagnet);
+  syncCardModeBtn(pane);
 
   const pointFrom = (ev) => {
     const r = canvas.getBoundingClientRect();
@@ -6867,8 +7208,11 @@ async function renderFallingWedge(pane) {
       'font:11px -apple-system,"Segoe UI",sans-serif;color:var(--text-chart);' +
       'background:rgba(38,166,154,0.12);border:1px solid rgba(38,166,154,0.5);' +
       'border-radius:6px;padding:5px 9px;line-height:1.5;';
-    const host = pane.patternCanvas && pane.patternCanvas.parentElement;
-    if (host) host.appendChild(fw.infoEl);
+    // Classed and mounted like every other card so the placement switch and the
+    // snapshot can both find it — it used to piggyback on the pattern canvas's
+    // parent, which is the one place the switch does not look.
+    fw.infoEl.className = 'fw-info';
+    mountCard(pane, fw.infoEl, 'corner');
   }
   const rrTxt = (w.rr != null) ? ` · R:R ${w.rr}` : '';
   fw.infoEl.innerHTML =
@@ -6990,7 +7334,7 @@ function renderSbcInfo(pane, d) {
       st.collapsed = !st.collapsed;
       st.infoEl.classList.toggle('collapsed', st.collapsed);
     });
-    ensureActionStack(pane).appendChild(st.infoEl);
+    mountCard(pane, st.infoEl, 'stack');
   }
   const s = d.stats;
   const last = d.events[d.events.length - 1];
@@ -7125,7 +7469,7 @@ function renderPmaxInfo(pane, sig, trail, last, long, col) {
   if (!st.infoEl) {
     st.infoEl = document.createElement('div');
     st.infoEl.className = 'pmax-info';
-    pane.el.querySelector('.chart-main').appendChild(st.infoEl);
+    mountCard(pane, st.infoEl, 'corner');
     // Click the header to collapse to a one-line chip; persist the choice.
     st.infoEl.addEventListener('click', ev => {
       if (!ev.target.closest('.pmax-head')) return;
@@ -7174,6 +7518,24 @@ function renderPmaxInfo(pane, sig, trail, last, long, col) {
       `<div style="margin-top:4px;font-size:9.5px;opacity:.85;">` +
         `Exit when the band flips — a ${long ? 'SELL' : 'BUY'} arrow closes this position.` +
       `</div>` +
+      // B-65 (`pmax_edge.py`) scored PMax for the first time on 2026-09-10 and it
+      // failed, so the card states the result rather than presenting a plan with
+      // nothing behind it — the same move the SVP card made after svp_backtest.py.
+      //
+      // Two distinctions the wording has to keep, because both are the desk's own:
+      //   * p=0.511 is a NULL, not a measured loss. Of the four trailing-stop
+      //     detectors that converged here (Renko -1.01, STAI -1.00, PSAR -0.77,
+      //     PMax -0.55) only B-43r is individually significant, so "no edge" is
+      //     the honest claim and "it loses" is not.
+      //   * B-65 measured the SIGNAL (flip -> 20d forward return), not THIS
+      //     entry/stop/target. The B-41m/B-41p split on the liquidity sweep is
+      //     the precedent: a signal measurement does not transfer to a plan built
+      //     on it, and no one has scored this plan.
+      `<div class="pmax-cav">` +
+        `<b>The flip has no measured edge</b> — B-65: −0.55% @20d, p=0.511 ` +
+        `(n=1,538 flips, daily equity), one of four trailing-stop detectors to ` +
+        `land on nothing. Entry and exit are both that flip; the stop/target ` +
+        `plan itself is unscored. Not advice.</div>` +
     `</div>`;
   st.infoEl.classList.toggle('collapsed', st.collapsed);
   st.infoEl.style.display = 'block';
@@ -7406,7 +7768,7 @@ function renderSVPInfo(pane, r) {
   if (!st.infoEl) {
     st.infoEl = document.createElement('div');
     st.infoEl.className = 'svp-info';
-    pane.el.querySelector('.chart-main').appendChild(st.infoEl);
+    mountCard(pane, st.infoEl, 'corner');
     st.infoEl.addEventListener('click', ev => {
       if (ev.target.closest('.svp-q')) {           // ? toggles the plain-English guide
         st.helpOpen = !st.helpOpen;
@@ -7654,7 +8016,7 @@ function renderGannInfo(pane, r) {
   if (!st.infoEl) {
     st.infoEl = document.createElement('div');
     st.infoEl.className = 'gann-info';
-    pane.el.querySelector('.chart-main').appendChild(st.infoEl);
+    mountCard(pane, st.infoEl, 'corner');
     st.infoEl.addEventListener('click', ev => {
       if (!ev.target.closest('.gann-head')) return;
       st.collapsed = !st.collapsed;
@@ -7863,12 +8225,40 @@ function drawLiquidity(pane) {
     // under the bar pointing up. Naming the direction by what it does to PRICE,
     // not by which pool it took, is the reading error the detector's own
     // docstring warns about.
+    // THE BUY SIGNAL. Drawn only when the SCANNER fires, which gates it on
+    // freshness (max_bars_ago=3). An older sweep keeps its arrow as CONTEXT and
+    // gets no plan: a signal is a claim about now, and the difference between
+    // 'this happened' and 'act on this' is the whole point of the gate.
+    //
+    // There is deliberately NO SELL signal. The bearish sweep is a RISK read whose
+    // B-41m arm never reached significance and which emits target=None, so a SELL
+    // arrow would be a plan nobody measured. Asymmetric evidence, asymmetric UI.
+    // The plan levels, with the MEASUREMENT attached to the stop's own label.
+    // B-41m measured the SIGNAL at +0.51% @20d net; B-41p measured THIS plan at
+    // +0.06R, and found the cause is that a stop exists at all rather than where
+    // it sits. Drawing the stop without that on it would ship a plan the desk has
+    // already measured to return nothing.
+    if (st.data.plan && st.data.plan.stop != null && st.data.plan.target != null) {
+      const pl = st.data.plan;
+      try {
+        st.priceLines.push(pane.series.createPriceLine({
+          price: pl.stop, color: '#ef5350', lineWidth: 1, lineStyle: 2,
+          axisLabelVisible: true, title: 'stop · B-41p: this plan returns +0.06R',
+        }));
+        st.priceLines.push(pane.series.createPriceLine({
+          price: pl.target, color: '#26a69a', lineWidth: 1, lineStyle: 2,
+          axisLabelVisible: true, title: 'target',
+        }));
+      } catch {}
+    }
+    const firedNow = !!(st.data.plan && bullish);
     setPaneMarkers(pane, 'liq', [{
       time: sweep.time,
       position: bullish ? 'belowBar' : 'aboveBar',
       color: bullish ? LIQ_SELLSIDE : LIQ_BUYSIDE,
       shape: bullish ? 'arrowUp' : 'arrowDown',
-      text: `SWEEP ${sweep.level} \u00b7 wick ${Math.round((sweep.wick_ratio || 0) * 100)}%`,
+      text: (firedNow && bullish ? 'BUY · ' : '')
+            + `SWEEP ${sweep.level} · wick ${Math.round((sweep.wick_ratio || 0) * 100)}%`,
     }]);
   } else {
     setPaneMarkers(pane, 'liq', null);
@@ -7951,7 +8341,7 @@ function renderOiWallsInfo(pane, r) {
   if (!st.infoEl) {
     st.infoEl = document.createElement('div');
     st.infoEl.className = 'oiw-info';
-    pane.el.querySelector('.chart-main').appendChild(st.infoEl);
+    mountCard(pane, st.infoEl, 'corner');
     st.infoEl.addEventListener('click', ev => {
       if (!ev.target.closest('.oiw-head')) return;
       st.collapsed = !st.collapsed;
@@ -8263,7 +8653,7 @@ function renderProjInfo(pane, p) {
   if (!pr.infoEl) {
     pr.infoEl = document.createElement('div');
     pr.infoEl.className = 'proj-info';
-    ensureActionStack(pane).appendChild(pr.infoEl);
+    mountCard(pane, pr.infoEl, 'stack');
     // Head-click collapses, same as the other action-stack cards. The state is
     // per-pane (an open pane keeps whatever you set it to) but the choice is
     // saved, so reloads and newly-added panes open the way you left it.
@@ -8491,7 +8881,7 @@ function renderFibInfo(pane, d) {
   if (!st.infoEl) {
     st.infoEl = document.createElement('div');
     st.infoEl.className = 'fib-info';
-    ensureActionStack(pane).appendChild(st.infoEl);
+    mountCard(pane, st.infoEl, 'stack');
     st.infoEl.addEventListener('click', ev => {
       if (!ev.target.closest('.fib-head')) return;
       st.collapsed = !st.collapsed;
@@ -8663,7 +9053,7 @@ function renderReversalInfo(pane, eventsByDate) {
   if (!el) {
     el = document.createElement('div');
     el.className = 'rev-info';
-    pane.el.querySelector('.chart-main').appendChild(el);
+    mountCard(pane, el, 'corner');
   }
   const today = new Date().toISOString().slice(0, 10);
   const tomorrow = new Date(Date.now() + 86400000).toISOString().slice(0, 10);

@@ -47,7 +47,13 @@ HERE = pathlib.Path(__file__).resolve().parent
 #:   NULL          — no measurable effect, adequately powered
 #:   INCONCLUSIVE  — underpowered or aborted; NOT a null
 #:   MIXED         — the signal and the plan disagree, or arms disagree
-VERDICTS = ("POSITIVE", "NEGATIVE", "NULL", "INCONCLUSIVE", "MIXED")
+#:   UNRECORDED    — the study EXISTS and its subjects are known, but no result is
+#:                   written anywhere this index can cite. Added 2026-09-11 while
+#:                   indexing the last 14 files: four of them have no findable
+#:                   write-up. That is the same disease as a stale claim seen from
+#:                   the other side -- a measurement that left no trace -- and it is
+#:                   better surfaced as a labelled state than hidden by a guess.
+VERDICTS = ("POSITIVE", "NEGATIVE", "NULL", "INCONCLUSIVE", "MIXED", "UNRECORDED")
 
 #: item     — the backlog anchor (B-xx), the authoritative write-up
 #: tool     — the bespoke study file, or None when it ran through the shared harness
@@ -133,6 +139,111 @@ STUDIES: tuple[dict, ...] = (
         "headline": "hit-rate WEAK; the lane's edge was traced to a drifting window bug",
         "source": "analyses/Open-Backlog#B-34",
     },
+    {
+        "item": "B-43", "tool": "renko_backtest.py", "date": "2026-08-29",
+        "subjects": ("Renko Flip (structure change)",),
+        "verdict": "NULL",
+        "headline": "flip edge ~0, negative on the long leg, beat buy&hold 0/23",
+        "source": "analyses/Open-Backlog#B-43",
+    },
+    {
+        "item": "B-43r", "tool": "renko_regime_study.py", "date": "2026-09-06",
+        "subjects": ("Renko Flip (structure change)",),
+        "verdict": "NEGATIVE",
+        "headline": "cutting sideways chop made it SIGNIFICANTLY WORSE, not better",
+        "source": "analyses/Open-Backlog#B-43r",
+    },
+    {
+        "item": "B-32", "tool": "regime_backtest.py", "date": "2026-08-26",
+        "subjects": ("opportunity_hub regime gate",),
+        "verdict": "POSITIVE",
+        "headline": "the RISK-OFF throttle's premise held, so B-33 has something to gate on",
+        "source": "analyses/Open-Backlog#B-32",
+    },
+    {
+        "item": "B-55", "tool": "svp_backtest.py", "date": "2026-08-29",
+        "subjects": ("SVP.buildSignal",),
+        "verdict": "NEGATIVE",
+        "headline": "5 of 7 factors sign-inverted, corr -0.041, beat buy&hold 0/8",
+        "source": "analyses/SVP-Signal-Backtest-Design",
+    },
+    {
+        "item": "ADX", "tool": "adx_di_backtest.py", "date": "2026-08-30",
+        "subjects": ("adxdi",),
+        "verdict": "MIXED",
+        "headline": ("the bare DI cross LOSES (-0.93% @10d, p=0.02); the confirmed "
+                     "up-state is positive (+1.82% @60d, p<0.005)"),
+        "source": "concepts/ADX",
+    },
+    {
+        "item": "FVG-fill", "tool": "fvg_fill_study.py", "date": "2026-07-22",
+        "subjects": ("fvg",),
+        "verdict": "NULL",
+        "headline": ("gaps are not magnets: +2.1pp over a width-matched placebo on "
+                     "Any Touch, no speed effect, no width effect"),
+        "source": "concepts/Fair-Value-Gap",
+    },
+    {
+        "item": "evmacd", "tool": "evwma_vwap_macd_backtest.py", "date": "2026-08-20",
+        "subjects": ("evmacd",),
+        "verdict": "NEGATIVE",
+        "headline": "no edge; stop-and-reverse -29% against buy&hold +827%",
+        "source": "analyses/Open-Backlog",
+    },
+    {
+        "item": "FA-2", "tool": "fa2_rahu_kaal_study.py", "date": "2026-08-24",
+        "subjects": ("rahu_kaal",),
+        "verdict": "NULL",
+        "headline": "+0.29bp return (p=0.76); the one p<0.05 range cell is a 15-min stub artifact",
+        "source": "analyses/FA-2-Rahu-Kaal-Measured",
+    },
+    {
+        "item": "FA-2b", "tool": "hora_study.py", "date": "2026-08-24",
+        "subjects": ("hora",),
+        "verdict": "NULL",
+        "headline": ("weekday explains more than hora in every configuration, and the "
+                     "per-lord ordering contradicts the tradition"),
+        "source": "analyses/FA-2-Rahu-Kaal-Measured",
+    },
+    {
+        "item": "SBC-vedha", "tool": "sbc_vedha_backtest.py", "date": "2026-08-17",
+        "subjects": ("sbc_vedha",),
+        "verdict": "NEGATIVE",
+        "headline": "daily-vedha NIFTY event study: clean negative under 5,000x rotation",
+        "source": "analyses/Contra-Strategy-Roadmap",
+    },
+    # ── The four with no findable write-up ────────────────────────────────────
+    # Each RAN or was BUILT to run, and none has a result this index can cite. They
+    # are indexed anyway: the mapping (tool -> subjects) is what CHECK 0 needs, and
+    # UNRECORDED states the gap instead of hiding it behind a guessed verdict.
+    {
+        "item": "B-38", "tool": "funnel_backtest.py", "date": None,
+        "subjects": ("TechnoFunda delete funnel",),
+        "verdict": "UNRECORDED",
+        "headline": "result not written up -- strategies/TechnoFunda-Delete-Funnel has no measured section",
+        "source": "strategies/TechnoFunda-Delete-Funnel",
+    },
+    {
+        "item": "SBC-15m", "tool": "sbc_backtest.py", "date": None,
+        "subjects": ("sbc_reversal_windows",),
+        "verdict": "UNRECORDED",
+        "headline": "15-minute SBC reversal-window cross-check; no result located",
+        "source": "analyses/Astro-Engine-Cross-Check",
+    },
+    {
+        "item": "SBC-muhurat", "tool": "sbc_muhurat_backtest.py", "date": None,
+        "subjects": ("abhijit_muhurat",),
+        "verdict": "UNRECORDED",
+        "headline": "Abhijit Muhurat reversal test; no result located",
+        "source": "analyses/Astro-Engine-Cross-Check",
+    },
+    {
+        "item": "B-30r", "tool": "newmoon_levels_backtest.py", "date": None,
+        "subjects": ("newmoon_levels",),
+        "verdict": "UNRECORDED",
+        "headline": "new-moon highs/lows as S/R vs an adjacent day; no result located",
+        "source": "analyses/Open-Backlog#B-30",
+    },
 )
 
 
@@ -166,6 +277,17 @@ def uncovered_tools(root: pathlib.Path | None = None) -> list[str]:
     """
     claimed = {st["tool"] for st in STUDIES if st.get("tool")}
     return sorted(study_files(root) - claimed)
+
+
+def unrecorded() -> list[dict]:
+    """Studies whose result is not written anywhere this index can cite.
+
+    Reported by `claims_lint` alongside the coverage gaps, for the same reason: a
+    measurement with no write-up is debt, and debt that is not displayed does not
+    get paid. An UNRECORDED entry should either gain a `source` with real numbers
+    or be retired -- what it must not do is sit here looking indexed.
+    """
+    return [st for st in STUDIES if st["verdict"] == "UNRECORDED"]
 
 
 def _self_check() -> list[str]:
@@ -210,6 +332,15 @@ def main() -> int:
     print("  index self-check:", "clean" if not problems else f"{len(problems)} PROBLEM(S)")
     for p in problems:
         print(f"    - {p}")
+
+    unr = unrecorded()
+    print()
+    print(f"  UNRECORDED — indexed, but no citable result: {len(unr)}")
+    for st in unr:
+        print(f"    - {st['item']:<12} {st['tool']}")
+    if unr:
+        print("      A measurement with no write-up is debt. Each should gain a source")
+        print("      with real numbers, or be retired -- not sit here looking indexed.")
 
     gaps = uncovered_tools()
     print()

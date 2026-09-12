@@ -1061,7 +1061,37 @@ def api_liquidity():
             "pool_times":  [t for t in (_t(b) for b in sweep.get("pool_bars", [])) if t],
         }
 
-    return jsonify({"symbol": symbol, "pools": pools_out, "sweep": sweep_out})
+    # THE BUY SIGNAL, and it is the scanner's own -- not a second plan invented for
+    # the chart. `scan_liquidity_sweep` fires only while the sweep is fresh
+    # (max_bars_ago=3), which is the right gate for something drawn as actionable:
+    # an older sweep is context, not a signal.
+    #
+    # Bullish only, deliberately. `scan_liquidity_sweep_bear` is a RISK read whose
+    # B-41m arm never reached significance AND emits target=None, so there is no
+    # measured plan to draw. Rendering a SELL arrow from it would be inventing one.
+    plan = None
+    try:
+        hit = sc.scan_liquidity_sweep(df)
+    except Exception:
+        hit = None
+    if hit:
+        plan = {
+            "side": "BUY",
+            "entry": hit.get("entry"),
+            "stop": hit.get("stop"),
+            "target": hit.get("target"),
+            "score": hit.get("score_base"),
+            "reasons": hit.get("reasons") or [],
+            # Travels with the plan so the chart cannot render it without the
+            # measurement attached. B-41m measured the SIGNAL positive and B-41p
+            # measured THIS PLAN at +0.06R -- both facts, one string.
+            "measured": ("B-41m: signal +0.51% @20d (p=0.005) net of costs. "
+                         "B-41p: this entry/stop/target returns +0.06R -- the stop "
+                         "is what spends the edge, not where it sits."),
+        }
+
+    return jsonify({"symbol": symbol, "pools": pools_out, "sweep": sweep_out,
+                    "plan": plan})
 
 
 @app.route("/api/trendlines")

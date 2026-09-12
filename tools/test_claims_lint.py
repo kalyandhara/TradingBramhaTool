@@ -173,6 +173,40 @@ def test_the_index_reports_its_own_gaps():
     assert isinstance(gaps, list)
 
 
+def test_the_index_covers_every_study_file():
+    """Coverage is now complete, and this is what keeps it complete: adding a study
+    file without indexing it fails here rather than waiting to be noticed."""
+    import named_studies as ns
+    gaps = ns.uncovered_tools()
+    assert not gaps, "study files missing from the index: " + ", ".join(gaps)
+
+
+def test_unrecorded_entries_are_surfaced_not_hidden():
+    """UNRECORDED must stay visible. If it ever stops being reported, a study with
+    no write-up would look indexed and the debt would vanish from view."""
+    import named_studies as ns
+    unr = ns.unrecorded()
+    for st in unr:
+        assert st["verdict"] == "UNRECORDED"
+        assert st["subjects"], f"{st['item']}: UNRECORDED still needs subjects to be checkable"
+    rows = cl._scan_unrecorded_studies()
+    assert len(rows) == len(unr), "the lint must report every UNRECORDED entry"
+
+
+def test_an_unrecorded_study_still_makes_its_subjects_checkable():
+    """The point of indexing a result-less study: CHECK 0 can still use it.
+
+    A scanner claiming "unmeasured" while an UNRECORDED study names it as a subject
+    is still a contradiction worth reporting -- something measured it, even if the
+    numbers were never written down.
+    """
+    import named_studies as ns
+    subjects = ns.by_subject()
+    for st in ns.unrecorded():
+        for subj in st["subjects"]:
+            assert subj in subjects
+
+
 def test_liquidity_sweep_is_actually_in_the_index():
     """Pins the motivating case, so a refactor of the index cannot drop it."""
     import named_studies as ns

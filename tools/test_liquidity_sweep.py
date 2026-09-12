@@ -300,3 +300,33 @@ if __name__ == "__main__":
             traceback.print_exc()
     print(f"\n{len(ALL_TESTS) - failed}/{len(ALL_TESTS)} passed")
     raise SystemExit(1 if failed else 0)
+
+
+# ── why the chart signal is BUY-only (2026-09-12) ──────────────────────────────
+
+def test_the_bull_scanner_emits_a_full_plan():
+    """The chart's BUY signal renders `plan.stop` and `plan.target`, so the scanner
+    has to supply both. If this ever stops being true, the overlay silently draws
+    an entry with no levels."""
+    import inspect
+    src = inspect.getsource(sc.scan_liquidity_sweep)
+    for key in ('"entry"', '"stop"', '"target"'):
+        assert key in src, f"scan_liquidity_sweep no longer emits {key}"
+
+
+def test_the_bear_scanner_emits_no_target_which_is_why_there_is_no_sell_signal():
+    """The asymmetry in the chart overlay is not a UI preference, it is evidence.
+
+    `scan_liquidity_sweep_bear` emits entry and stop but **target=None**, so no R
+    can be computed for it at all, and its B-41m arm never reached significance
+    (-0.16/-0.18/-0.32/-0.56% gross, p 0.11-0.063). Drawing a SELL arrow from it
+    would be shipping a plan nobody measured.
+
+    If a target is ever added AND measured, this test should fail and be replaced
+    by the SELL signal it currently rules out.
+    """
+    import inspect
+    src = inspect.getsource(sc.scan_liquidity_sweep_bear)
+    assert '"target": None' in src or "'target': None" in src, (
+        "the bear scanner now emits a target -- if it has also been MEASURED, the "
+        "chart's BUY-only asymmetry should be revisited")
