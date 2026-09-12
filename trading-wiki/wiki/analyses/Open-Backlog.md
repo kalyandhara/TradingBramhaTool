@@ -612,6 +612,69 @@ if Phase 2 says the data exists.
 
 **Nothing in Phase 3 is hard. Phases 0–2 are where this item actually lives.**
 
+## B-74 · The PMax PLAN has never been scored — the B-41p that PMax never got — **PRE-REGISTERED 2026-09-12, NOT RUN**
+
+Raised while answering a question, not during a review: owner asked what *"the
+band"* means in the PMax card's exit line. Answering it exposed that the card was
+drawing an entry, a ratcheting stop, three R-targets and an exit rule **with
+nothing behind any of it** — and that the gap is structural, not an oversight.
+
+**The asymmetry, named.** [[#B-72]]'s liquidity-sweep overlay ships with BOTH
+measurements attached: **B-41m** scored the signal (+0.51% @20d, p=0.005) and
+**B-41p** scored *that exact entry/stop/target* (+0.06R). PMax has only the first
+half. [[#B-65]] scored the **SIGNAL** — flip → 20d forward return, **−0.55%,
+p=0.511, n=1,538** — and **no one has ever scored the plan the chart draws.** The
+card now says so in as many words; this entry is the thing it points at.
+
+**What the shipped plan actually is**, read off `pmaxSignals` in
+`chart_dashboard.html` rather than from the card's prose:
+
+- **entry** = the flip bar's close
+- **initial stop** = the PMax band *on that bar*, so **R = |entry − stop|**
+- **trail** = the live band, which **ratchets** and never loosens while the trend holds
+- **exit as displayed** = the opposite flip ("exit when the band flips")
+- **targets** = 1R / 2R / 3R markers, with ✓ badges for best excursion since the flip
+
+**PRE-REGISTERED DESIGN — binding, written before any scorer exists.**
+
+  Same panel, harness, universe and baseline as [[#B-65]] (460 names, ~3y daily,
+  entry next open, unconditional baseline, costs at 29bps, symbol-block
+  bootstrap), so every number lands beside the signal measurement rather than in
+  its own frame.
+
+| arm | definition | decides? |
+|---|---|---|
+| **A · SHIPPED** | enter at the flip close, trail the ratcheting band, exit on the opposite flip | **yes** |
+| **B · FROZEN STOP** | same entry, stop held at the flip-bar band (no ratchet), exit on opposite flip or stop | no |
+| **C · TIME ONLY** | same entry, no stop, exit at the 20-day close | no — see below |
+
+- **This entry CANNOT promote PMax, and that is pre-registered.** B-41p's result
+  worked because removing the stop unlocked an edge **the signal already had**
+  (+0.51%, p=0.005). B-65 measured this signal a **null**. There is no edge here
+  to unlock, so a positive arm would be a sample artifact rather than a discovery.
+  Written down now so a positive number cannot be quietly promoted later — the
+  same guard [[#B-65]]'s own state arm carries.
+- **Arm C is not independent evidence.** It is B-65's flip → 20d study expressed
+  in R, and it doubles as a **harness check**: if C does not reproduce −0.55%
+  converted, the harness is wrong, not the finding.
+- **What this DOES decide: whether the card keeps its furniture.** If **A is worse
+  than C with a bootstrap CI excluding zero**, the trail and target lines are
+  drawing a plan that costs the reader money relative to doing nothing, and they
+  are **demoted to context** — the [[#B-70]] move, where a surface that points the
+  wrong way is retired rather than re-tuned. If **A ≈ C**, the furniture stays and
+  the card's existing B-65 caveat is sufficient.
+
+  ABORT   under **200** flips the run is UNDERPOWERED and concludes nothing.
+          Not the risk here: B-65 counted **1,538** on this panel.
+
+**PRIOR: all three arms ≈ 0.** A null signal does not become a plan by having a
+stop attached to it. The value of running this is not discovery — it is closing
+the one gap the card currently admits to in public, and finding out what the
+ratcheting exit **costs** against a flat hold.
+
+**Not ranked yet.** The 2026-09-11 refinement pass predates it; it takes its place
+in the next pass's ordering.
+
 ## Ingested-research additions (2026-08-20)
 
 Four items below (B-28…B-31) come from a batch of trading videos ingested into the
