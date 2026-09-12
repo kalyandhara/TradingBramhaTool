@@ -19,22 +19,34 @@ the roadmap page's own pre-registered v1 table, not a set invented here:
 Factor 5 wired 2026-09-10 (backlog B-22). Two things about it that must not be
 lost, because both are the kind of thing this file has been burned by before:
 
-  * **It ships NOT_CHECKED and stays that way for months.** `pcr.py` refuses to
-    band an index PCR without a baseline of that index's OWN history, and none
-    existed. So this module now STORES one (`pcr_index_history`, written on every
-    compute) and scores the factor only once MIN_PCR_HISTORY observations exist.
-    Until then factor 5 is NOT_CHECKED, is excluded from the composite, and the
-    remaining 80 weight is renormalised to 100 exactly as a stale sector feed
-    already is — i.e. **today's score is unchanged by this wiring.** That is the
-    honest shape of the change: it starts the clock rather than inventing a
-    reading to fill the slot.
-  * **The sign convention is a GUESS and is labelled one.** Higher PCR scores as
-    more bullish (the trend-following read). PCR has no fixed sign — the
-    contrarian read is the exact opposite, and `pcr.py` declines to pick for
-    precisely this reason. B-44r retired GEX outright after measuring that its
-    naive convention was backwards for NSE, so this is a live risk, not a
-    theoretical one. `sign_convention` and `convention_measured: False` ride in
-    the persisted inputs so the eventual test can find them.
+  * **It shipped NOT_CHECKED, and after B-22r it stays NOT_CHECKED permanently
+    — for a different reason.** `pcr.py` refuses to band an index PCR without a
+    baseline of that index's OWN history, and none existed, so this module STORES
+    one (`pcr_index_history`, written on every compute) and originally intended to
+    score once MIN_PCR_HISTORY observations existed. **The measurement arrived
+    before the baseline did** (the archive turned out to be backfillable — see
+    `tools/pcr_backfill.py`) and it was a null, so the factor is now excluded by
+    `PCR_SCORES = False` rather than by the history floor. Either way factor 5 is
+    excluded from the composite and the remaining 80 weight renormalises to 100,
+    exactly as a stale sector feed already does — i.e. **today's score is
+    unchanged by any of this.** The history keeps accumulating regardless, because
+    a future pre-registered test will want it.
+  * **The sign convention WAS a guess. It has now been measured, and it is a
+    NULL — so factor 5 no longer scores.** (B-22r, 2026-09-11,
+    `tools/pcr_sign_study.py`, pre-registered in
+    `wiki/analyses/PCR-Sign-Convention-Pre-Registration.md` before the code was
+    written.) 483 point-in-time sessions, decision horizon 5d, top-vs-bottom
+    tercile: **+0.135%, p=0.58** under a moving-block bootstrap. Both controls
+    passed, so the detector could see a planted effect and still found nothing
+    here. The shipped trend-following direction is **not backwards** (the sign is
+    positive), it is simply **unsupported**.
+
+    Per the pre-registered decision rule, the consequence is automatic and was
+    agreed before the number was known: **the factor reverts to NOT_CHECKED and
+    its weight 20 renormalises away.** It is NOT deleted — a null is not evidence
+    of harm, the standing rule since B-66 — and the PCR level is still reported
+    and still recorded, so it stays visible and re-testable. What it may not do is
+    push a score the desk reads daily on a direction the data cannot support.
 
 MEASURED 2026-09-10 (B-66, `tools/sentiment_factor_edge.py`) — READ THIS BEFORE
 BUILDING ON THE SCORE. Every input above, AND the composite, was tested against
@@ -553,8 +565,28 @@ MIN_PCR_HISTORY = 60
 PCR_LEVEL_SHARE = 0.7
 
 #: Which way a high PCR reads. "trend_following" = high PCR is bullish.
-#: See the module docstring: this is a guess, and B-44r is why that matters.
+#: MEASURED 2026-09-11 (B-22r) and NOT SUPPORTED - see PCR_SCORES below. The
+#: direction is retained because it is what was tested, not because it was shown
+#: to hold; a future test that finds signal needs to know which sign was on trial.
 PCR_SIGN_CONVENTION = "trend_following"
+
+#: Whether factor 5 contributes to the composite at all.
+#:
+#: False since 2026-09-11, and this is a MEASURED decision, not a caution. The
+#: pre-registration fixed the consequence of a null before the study ran: a factor
+#: whose direction cannot be measured does not get to move a number the desk reads.
+#: Flipping this back to True requires a NEW pre-registered test that finds signal
+#: - not a re-reading of the old one, and not a better-looking secondary cell.
+#:
+#: The measurement, so the reason travels with the switch:
+#:   483 point-in-time sessions (2024-09-27 to 2026-09-10), decision horizon 5d,
+#:   top-vs-bottom tercile of the 70/30 blend: delta +0.135%, p_boot 0.58.
+#:   Controls: planted effect detected at p=0.0002; shuffle unremarkable.
+#:   Descriptive-only cells spanned -0.185% to +0.183%, none decisive; the one
+#:   nominally significant cell (1d, p=0.044) is one of twelve tested and was
+#:   pre-registered as non-decisive, so it is reported and not promoted.
+PCR_SCORES = False
+PCR_SIGN_STUDY = "tools/pcr_sign_study.py"
 
 
 def _ensure_pcr_table() -> None:
@@ -650,7 +682,13 @@ def pcr_factor(pcr: float | None, pcr_chg: float | None,
         "n_history": n_hist,
         "min_history": MIN_PCR_HISTORY,
         "sign_convention": PCR_SIGN_CONVENTION,
-        "convention_measured": False,
+        # Measured on 2026-09-11 (B-22r), hence True -- and the verdict was NULL,
+        # which is why `scores` is False. These are two different facts and
+        # collapsing them into one flag is how a null gets quietly forgotten.
+        "convention_measured": True,
+        "sign_verdict": "null",
+        "scores": PCR_SCORES,
+        "study": PCR_SIGN_STUDY,
     }
 
     if pcr is None or not np.isfinite(pcr):
@@ -682,6 +720,25 @@ def pcr_factor(pcr: float | None, pcr_chg: float | None,
         blend = f"{PCR_LEVEL_SHARE:.0%} level / {1 - PCR_LEVEL_SHARE:.0%} slope"
 
     factor = float(np.clip(factor, 0.0, 1.0))
+
+    # The blend is still COMPUTED and still reported -- the level, the percentiles
+    # and the factor are all real and worth looking at. What the B-22r null removes
+    # is its vote: state stays NOT_CHECKED so `_compose` excludes it and the other
+    # four weights renormalise, exactly as they do for a stale feed.
+    if not PCR_SCORES:
+        out.update({
+            "state": NOT_CHECKED,
+            "level_pct": round(level_pct, 1) if level_pct is not None else None,
+            "slope_pct": round(slope_pct, 1) if slope_pct is not None else None,
+            "factor": round(factor, 4),
+            "score": 0.0,
+            "reading": (f"NIFTY PCR {pcr:.2f} — {level_pct:.0f}th pct of {n_hist} "
+                        f"sessions — NOT SCORED: the sign convention was measured "
+                        f"(B-22r, {n_hist} sessions) and found to carry no "
+                        f"direction, so the factor is reported but excluded"),
+        })
+        return out
+
     out.update({
         "state": "OK",
         "level_pct": round(level_pct, 1) if level_pct is not None else None,

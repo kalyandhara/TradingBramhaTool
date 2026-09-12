@@ -59,10 +59,14 @@ def test_missing_pcr_is_not_checked():
     assert out["factor"] is None
 
 
-def test_exactly_at_floor_scores():
+def test_exactly_at_floor_computes_the_factor_but_does_not_score_it():
+    """At the floor the calibration runs; since B-22r measured the sign as a NULL
+    it is reported and EXCLUDED, so the state stays NOT_CHECKED and score is 0."""
     out = si.pcr_factor(1.5, None, _hist([1.0] * si.MIN_PCR_HISTORY))
-    assert out["state"] == "OK"
     assert out["factor"] == 1.0
+    assert out["state"] == si.NOT_CHECKED
+    assert out["score"] == 0.0
+    assert "NOT SCORED" in out["reading"]
 
 
 # ── The calibration itself ───────────────────────────────────────────────────
@@ -70,10 +74,11 @@ def test_exactly_at_floor_scores():
 def test_level_only_when_no_slope_history():
     """No stored pcr_chg → level carries the whole factor, and the reading says so."""
     out = si.pcr_factor(1.5, 0.05, _hist([1.0] * 100))
-    assert out["state"] == "OK"
     assert out["slope_pct"] is None
     assert out["factor"] == 1.0                      # above every stored session
-    assert "level only" in out["blend"]
+    # `blend` is only set on the scoring path, which the B-22r null closed; the
+    # level-only FALLBACK is what this test is about and it still holds.
+    assert out["slope_pct"] is None
 
 
 def test_blend_weights_level_and_slope():
@@ -84,7 +89,8 @@ def test_blend_weights_level_and_slope():
     assert out["level_pct"] == 100.0
     assert out["slope_pct"] == 0.0
     assert out["factor"] == pytest.approx(si.PCR_LEVEL_SHARE)
-    assert out["score"] == pytest.approx(si.PCR_LEVEL_SHARE * si.W_PCR, abs=0.01)
+    # The 70/30 blend is still computed and still correct; it just no longer votes.
+    assert out["score"] == 0.0
 
 
 def test_low_pcr_scores_low_under_the_stated_convention():
@@ -106,14 +112,28 @@ def test_factor_is_bounded():
         assert 0.0 <= f <= 1.0
 
 
-def test_convention_is_flagged_unmeasured_in_every_branch():
-    """The caveat must survive persistence, including on the NOT_CHECKED path —
-    that is the state the factor will be in for its first 60 sessions."""
+def test_convention_verdict_rides_in_every_branch():
+    """The measurement must survive persistence, on every path.
+
+    Before B-22r this asserted `convention_measured is False`. It is now True and
+    the VERDICT is the thing that matters -- two separate facts, because a flag
+    that only says "measured" is how a null gets read as a pass.
+    """
     for out in (si.pcr_factor(1.05, 0.02, _hist([1.0] * 5)),
                 si.pcr_factor(1.05, 0.02, _hist([1.0] * 100)),
                 si.pcr_factor(None, None, _hist([]))):
-        assert out["convention_measured"] is False
+        assert out["convention_measured"] is True
+        assert out["sign_verdict"] == "null"
+        assert out["scores"] is False
         assert out["sign_convention"] == si.PCR_SIGN_CONVENTION
+
+
+def test_the_null_gate_is_what_zeroes_the_score():
+    """Guards the gate itself: if PCR_SCORES is ever flipped back without a new
+    pre-registered test, this is the test that should make someone explain why."""
+    assert si.PCR_SCORES is False, (
+        "factor 5 scores again -- that requires a NEW pre-registered study that "
+        "finds signal, not a re-reading of B-22r")
 
 
 # ── The percentile helper ────────────────────────────────────────────────────

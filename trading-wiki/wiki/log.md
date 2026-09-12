@@ -1,6 +1,15 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-11] measure | B-22r — PCR sign convention pre-registered, then measured NULL
+- **Order first, because it is the point.** The pre-registration was written and **committed before any measurement code existed** (`wiki/analyses/PCR-Sign-Convention-Pre-Registration.md`), fixing the 5d decision horizon, the 200-session floor, the moving-block bootstrap, both controls, and — critically — **what a null would cost the factor**.
+- **The blocker was false.** The item was filed as blocked until December: `MIN_PCR_HISTORY = 60` and the baseline had one row. But `_download_bhavcopy(session, day)` takes an **arbitrary date**, so `tools/pcr_backfill.py` backfilled **543 sessions to 2024-07-03** in one run. Three months of waiting was a property of the assumption, not the data.
+- **Result: NULL.** 483 point-in-time scored sessions, top-vs-bottom tercile of the 70/30 blend at 5d: **+0.135%, p_boot 0.583**. Planted-effect control detected at p=0.0002, shuffle unremarkable — the detector could see, and found nothing.
+- **Not the B-44r outcome.** GEX was measured *inverted* and retired. PCR's shipped trend-following sign came out **positive but insignificant** — nothing to flip, nothing to keep.
+- **This is the first null here that changed what the desk scores.** `PCR_SCORES = False`: factor 5 is computed, reported and recorded but **excluded from the composite**, the other four weights renormalising to 100. B-66 measured four sentiment factors as non-discriminating on 2026-09-10 and **not one was re-weighted**; the difference is that this consequence was agreed before the number was known.
+- The 1d cell (p=0.044) is **reported, not promoted**: one of twelve tested, pre-registered non-decisive, smaller than the cost of trading it.
+- Shipped: `tools/pcr_backfill.py`, `tools/pcr_sign_study.py`, `tools/test_pcr_sign_study.py` (13 tests on the statistics AND the decision rule), `test_sentiment_pcr.py` updated to the new contract.
+
 ## [2026-09-06] build | B-55c screen re-oriented to the CARD's confluence — and the engine's caveat was stale
 - Owner: *"chart tool have better confluence… can we re-orient the screener to that"*. Correct — the card already carries **agreement**, an **invalidation level** and **per-factor plain English**, none of which my structural read had. Duplicating a weaker version of a richer engine is not caution, it is worse tooling.
 - **Now emitted:** `sig_dir/kind/conf`, `bull_w`/`bear_w`, `agreement %`, `n_factors`, the full **factors string in the card's own wording**, `invalidation`, `sig_target`, and the last session's POC/VAL/VAH. Universe: **BUY 109 / SELL 177 / NEUTRAL 214**; agreement=100% on 123 rows; invalidation on 286; target on 178.

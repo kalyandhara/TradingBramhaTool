@@ -7,6 +7,7 @@ created: 2026-08-07
 updated: 2026-09-11
 sources: 0
 related:
+  - analyses/PCR-Sign-Convention-Pre-Registration.md
   - analyses/Open-Backlog-2026-08-02.md
   - analyses/Backtest-Harness.md
   - analyses/OI-Momentum-Gap-Audit.md
@@ -176,7 +177,7 @@ been touched, so nobody has had the chance to desynchronise a summary from them.
 
 ### New item raised by this pass
 
-#### B-22r · The PCR factor's sign convention is unmeasured
+#### ~~B-22r~~ · The PCR factor's sign convention is unmeasured — **MEASURED 2026-09-11: NULL, and the factor lost its vote**
 B-22 shipped `NOT_CHECKED` by construction — no index-PCR baseline existed, so the
 wiring had to *start storing* one, and it changed today's score by zero. That is
 the honest way to ship it. But it leaves a live claim in the code: **factor 5
@@ -193,12 +194,51 @@ is long enough to percentile against — this item's first action is to write do
 convention's author is still in the room. Do not let it ship unmeasured into a
 score the desk reads daily.
 
+---
+
+**CLOSED 2026-09-11. Full design and result:
+[[analyses/PCR-Sign-Convention-Pre-Registration]]** (pre-registration committed
+BEFORE any measurement code was written, deliberately, so the order is on the
+record).
+
+> [!key-insight] The blocker was false, and finding that out cost twenty minutes
+> This item was filed as *blocked until December* — `MIN_PCR_HISTORY = 60`, and the
+> baseline had just started filling. But `_download_bhavcopy(session, day)` takes an
+> **arbitrary date** and NSE's F&O archive is date-templated, so the baseline was
+> **backfillable all along**. `tools/pcr_backfill.py` pulled **543 sessions back to
+> 2024-07-03** in one run. **Three months of waiting turned out to be a property of
+> the assumption, not of the data** — the same lesson as the 2026-09-07 session's
+> counting-first saves, arriving from a different direction.
+
+**The measurement: NULL.** 483 point-in-time scored sessions (floor: 200), decision
+horizon 5d, top-vs-bottom tercile of the 70/30 blend: **+0.135%, p_boot 0.583**.
+Planted-effect control detected at p=0.0002 and the shuffle was unremarkable, so the
+detector could see and still found nothing. **Not the B-44r outcome** — the shipped
+trend-following sign is not backwards, it is merely unsupported, so there is nothing
+to flip.
+
+**And this time the null cost the factor its vote.** `PCR_SCORES = False`: factor 5
+is computed, reported and recorded, but **excluded from the composite**, with the
+other four weights renormalising to 100 — exactly what the module already does for a
+stale sector feed. That consequence was fixed in the pre-registration before the
+number was known, which is the only reason it happened: **B-66 measured four
+sentiment factors as non-discriminating on 2026-09-10 and not one of them was
+re-weighted.** This is the first null on this page that actually changed what the
+desk scores.
+
+The 1d cell came in at p=0.044 and is **reported, not promoted** — one of twelve
+tested, pre-registered as non-decisive, and smaller than the cost of trading it.
+
+**What the desk keeps from a null:** 543 cached sessions, so the next PCR question
+starts with two years of history instead of a three-month wait; and one fewer
+unmeasured assertion inside a number that gets read daily.
+
 ### What is next, ranked
 
 | Rank | Item | Why it is next | Cost |
 |---|---|---|---|
 | ~~1~~ | ~~**B-45 · wire ATR + MFI into `INDICATOR_DEFS`**~~ — **DONE 2026-09-11**, 48 → 50 indicators, with a parity test that found 1,333 zero-volume NIFTY bars | Both series already exist and are already computed; 48 indicators are reachable and these two are not. **No backtest is owed** — exposing an existing series makes no claim about edge — which makes it the only item on the page that is pure progress with zero measurement debt attached. ATR is also the series stop-sizing actually needs. | Hours |
-| 2 | **B-22r · pre-register the PCR sign test** | New, and it is a *clock* item: the pre-registration is worth more written today than written correctly in six weeks. Weight 20 of the sentiment score rests on an unmeasured direction, and B-44r is the precedent for that being backwards. | Small now, blocked later |
+| ~~2~~ | ~~**B-22r · pre-register the PCR sign test**~~ — **DONE 2026-09-11: pre-registered, then the "blocked until December" premise collapsed (the archive is backfillable), so it was also MEASURED — NULL, and factor 5 now scores zero** | New, and it is a *clock* item: the pre-registration is worth more written today than written correctly in six weeks. Weight 20 of the sentiment score rests on an unmeasured direction, and B-44r is the precedent for that being backwards. | Small now, blocked later |
 | 3 | **B-58 · decide QM's fate** | 53 events against a pre-registered floor of 200 is **inconclusive, not null** — and an inconclusive result is the one outcome that does not retire an item. Either extend the universe/era to reach the floor, or retire QM on the recorded prior (*"a liquidity sweep with extra steps"*). Leaving it inconclusive is the worst of the three. | One decision, then maybe one run |
 | 4 | **B-10 · `BSE`, one symbol** | Third consecutive pass carrying a single-symbol item whose diagnosis ("probably our bug") is now weak — 1 of ~1,500. Check whether the exchange files under a different NSE symbol string, then close or retire it. **It costs more to re-read than to fix.** | Minutes |
 | 5 | **B-17 · OBV concept page** | Unchanged from rank 5 last pass. Two shipped surfaces, zero pages; B-60's CMF page is the pattern. | Small |
