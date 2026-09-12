@@ -7490,7 +7490,10 @@ SCANNERS: dict[str, dict] = {
             "bars = confirmed BUY. Fires when the setup (or confirm) is within the "
             "last 5 bars (~a trading week), so it catches signals from earlier in "
             "the week. Carries a swing-low-stop / 2R trade plan "
-            "and a volume-confirmation check. Momentum-reversal read; unmeasured."
+            "and a volume-confirmation check. Momentum-reversal read. MEASURED (B-19, "
+            "2026-09-02): 3,442 signals, +0.63% @20d / +0.56% @60d — POSITIVE "
+            "EDGE but UNSTABLE across walk-forward windows, on the largest "
+            "signal count in the batch."
         ),
         "category": "Entry",
     },
@@ -7764,7 +7767,8 @@ SCANNERS: dict[str, dict] = {
             "resistance location gate is mandatory, and the star's gap "
             "requirement is a parameter (default: the sourced strict reading). "
             "A hit is evidence AGAINST a long, never a confluence vote. "
-            "Unmeasured — not yet through the backtest harness."
+            "MEASURED (B-19): 1,476 signals, −0.46% @20d / −0.82% @60d — BEARISH "
+            "EDGE, the direction a risk flag should point, UNSTABLE across windows."
         ),
         "category": "Risk",
     },
