@@ -524,9 +524,11 @@ html, body {
 /* Every info card (FVG signal, Structure Break Chain, Session VP, PMax, the
    pattern panels, ...) lives in one of three places, chosen by the switch at the
    bottom of the drawing toolbar: docked here, floating over the candles the way
-   they used to, or hidden. Docked is the default. Floating cards cover the price
-   action they describe, and on a wide pane a 260px card is ~12% of the frame,
-   which is the same reason a shared snapshot of one could not be read.
+   they used to, or hidden. FLOATING is the default -- the layout the tool has
+   always had. Docking is offered because a floating card covers the price action
+   it describes, and on a wide pane a 260px card is ~12% of the frame, which is
+   the same reason a shared snapshot of one could not be read; but that is a
+   trade (the dock takes a third of the pane's height) and the reader makes it.
    A wrapping row, so any number of cards line up; capped at a third of the pane
    so the candles keep the room they need, and it scrolls past that. */
 .card-dock {
@@ -2109,15 +2111,21 @@ function saveProjCollapsed(v) { localStorage.setItem(LS_PROJ_COLLAPSED, v ? '1' 
 // the cards behave identically on every pane, so "where do I want my cards" is
 // one answer, not eight. The switch lives at the bottom of the drawing toolbar
 // because that toolbar is already the pane's "what is drawn on my chart" panel.
-const CARD_MODES   = ['dock', 'float', 'off'];
+//
+// The ARRAY ORDER IS THE CYCLE ORDER, and CARD_MODE_UI's titles describe what the
+// NEXT click does -- reorder one and the other has to move with it. First entry
+// is the default for a browser that has never touched the switch: floating, the
+// layout the tool has always had, so nothing moves under a reader who did not
+// ask for it. One click from there docks; a second hides.
+const CARD_MODES   = ['float', 'dock', 'off'];
 const LS_CARD_MODE = 'tb_card_mode';
 let _cardMode = (() => {
   const v = localStorage.getItem(LS_CARD_MODE);
-  return CARD_MODES.includes(v) ? v : 'dock';
+  return CARD_MODES.includes(v) ? v : CARD_MODES[0];
 })();
 function cardMode() { return _cardMode; }
 function setCardMode(mode) {
-  _cardMode = CARD_MODES.includes(mode) ? mode : 'dock';
+  _cardMode = CARD_MODES.includes(mode) ? mode : CARD_MODES[0];
   localStorage.setItem(LS_CARD_MODE, _cardMode);
   panes.forEach(p => {
     try { applyCardMode(p); syncCardModeBtn(p); } catch (e) { console.warn('card mode:', e); }
@@ -2196,15 +2204,16 @@ function applyCardMode(pane) {
   try { redrawPaneOverlays(pane, true); } catch {}
 }
 
+// Titles name the NEXT click, so they follow CARD_MODES' order.
 const CARD_MODE_UI = {
-  dock:  {glyph: '▤', title: 'Cards: docked under the sub-plots — click to float them over the chart'},
-  float: {glyph: '❐', title: 'Cards: floating over the chart — click to hide them'},
-  off:   {glyph: '▭', title: 'Cards: hidden — click to dock them under the sub-plots'},
+  float: {glyph: '❐', title: 'Cards: floating over the chart — click to dock them under the sub-plots'},
+  dock:  {glyph: '▤', title: 'Cards: docked under the sub-plots — click to hide them'},
+  off:   {glyph: '▭', title: 'Cards: hidden — click to float them over the chart'},
 };
 function syncCardModeBtn(pane) {
   const btn = pane.drawTools && pane.drawTools.querySelector('[data-act="cards"]');
   if (!btn) return;
-  const ui = CARD_MODE_UI[cardMode()] || CARD_MODE_UI.dock;
+  const ui = CARD_MODE_UI[cardMode()] || CARD_MODE_UI[CARD_MODES[0]];
   btn.textContent = ui.glyph;
   btn.title = ui.title;
   btn.classList.toggle('active', cardMode() !== 'off');
