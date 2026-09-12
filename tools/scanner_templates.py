@@ -7514,7 +7514,7 @@ SCANNERS: dict[str, dict] = {
             "made a higher low (divergence ≥3 pts), with RSI now rising. Computes "
             "Fibonacci levels (23.6 / 38.2 / 50 / 61.8%) from the swing high between "
             "the two lows; CMP near a fib level boosts score. Card shows CMP / SL "
-            "(below 61.8% fib) / TGT (swing high) with R:R. Unmeasured."
+            "(below 61.8% fib) / TGT (swing high) with R:R. MEASURED (B-19, 2026-09-02): 211 signals, +0.36% @20d / +0.93% @60d, POSITIVE EDGE but flagged UNSTABLE — the sign did not hold across all three walk-forward windows."
         ),
         "category": "Entry",
     },
@@ -7525,7 +7525,7 @@ SCANNERS: dict[str, dict] = {
             "Fires in uptrends (above 200-EMA) when price pulls back to the 50% fib "
             "of the last swing AND forms a hidden divergence (higher price low, lower "
             "RSI low) — a continuation entry, not a reversal. Card shows CMP / SL "
-            "(below 61.8% fib) / TGT (swing high) with R:R. Unmeasured."
+            "(below 61.8% fib) / TGT (swing high) with R:R. MEASURED (B-19) and inconclusive: only 11 signals (−0.10% @20d / −0.08% @60d) — TOO FEW SIGNALS to read either way."
         ),
         "category": "Entry",
     },
@@ -7537,7 +7537,7 @@ SCANNERS: dict[str, dict] = {
             "RSI(14) made a lower high (divergence ≥3 RSI points), with RSI now "
             "already rolling over below the divergence high. RSI at the high must "
             "be ≥40. Score rises with overbought depth (≥65 → +15, ≥55 → +8) and "
-            "divergence magnitude (gap ≥10 pts → +10). Emits short/exit entry. Unmeasured."
+            "divergence magnitude (gap ≥10 pts → +10). Emits short/exit entry. MEASURED (B-19): 403 signals, −0.84% @20d / −1.18% @60d — BEARISH EDGE, the direction a risk flag should point, but UNSTABLE across windows."
         ),
         "category": "Risk",
     },
@@ -7549,7 +7549,7 @@ SCANNERS: dict[str, dict] = {
             "BOTH the fast and slow %R were in the overbought band (≥ -20) and left "
             "it within the last 3 bars = a top/momentum-exhaustion read for exiting "
             "longs or a short bias — NOT a with-trend signal. Adds the SMA50 context "
-            "and a swing-high invalidation. Unmeasured."
+            "and a swing-high invalidation. MEASURED (B-19): 966 signals, −0.65% @20d / −1.21% @60d — BEARISH EDGE, correct direction for an exhaustion/exit read, UNSTABLE across windows."
         ),
         "category": "Risk",
     },
@@ -7561,7 +7561,7 @@ SCANNERS: dict[str, dict] = {
             "band (≤ -80) within the last 3 bars = seller exhaustion / a bottoming "
             "attempt turning up. Carries a swing-low stop and 2R target and flags "
             "whether price has reclaimed SMA50. A turn attempt, not a confirmed "
-            "reversal. Unmeasured."
+            "reversal. MEASURED (B-19): 462 signals, +0.55% @20d / +2.68% @60d — POSITIVE EDGE, the largest 60d figure in the batch, but UNSTABLE across windows and NOT cost-survival-tested the way B-41m's sweep was."
         ),
         "category": "Trend",
     },
@@ -7661,7 +7661,17 @@ SCANNERS: dict[str, dict] = {
             "target the nearest equal-highs pool overhead. Completes the SMC "
             "stack alongside FVG Pullback and Order Block Retest — this is the "
             "event that validates those entries. Built on B-42's equal-level "
-            "labelling. Unmeasured."
+            "labelling. "
+            "MEASURED (B-41m, 2026-09-06) — the desk's best signal result: "
+            "1,400 signals on LIQUID_50, +0.51% @20d (p=0.0053) and +0.91% @60d "
+            "(p=0.0022) NET of ~29bps, hit 57.5%/64.1%, walk-forward sign-stable "
+            "at 10/20/60d. It is the only scanner here whose edge survives costs. "
+            "BUT THE PLAN BELOW DOES NOT HARVEST IT: B-41p measured the shipped "
+            "entry/stop/target at −0.06R against +0.50R for the same signal held "
+            "20 days with NO stop (CI excludes 0), and an ATR stop scored no "
+            "better than the wick stop. It is not where the stop is, it is that "
+            "there is one — the drawdown path is part of the edge. Read the "
+            "SIGNAL as measured and the STOP as a known defect."
         ),
         "category": "Entry",
     },
@@ -7672,7 +7682,13 @@ SCANNERS: dict[str, dict] = {
             "pierced it on the wick, and closed back BELOW it, trapping breakout "
             "buyers. Risk flag rather than a short signal: it marks a name to "
             "avoid or exit, so a negative forward edge is the desired direction. "
-            "Mirror of Liquidity Sweep. Unmeasured."
+            "Mirror of Liquidity Sweep. "
+            "MEASURED (B-41m) and NOT established: 1,471 signals, negative at "
+            "every horizon as a risk flag should be (−0.16/−0.18/−0.32/−0.56% "
+            "gross at 5/10/20/60d) but nothing reaches significance "
+            "(p 0.11/0.19/0.084/0.063). Suggestive, not a result. Known gap: it "
+            "emits entry and stop but target=None, so no R line can be computed "
+            "for it at all."
         ),
         "category": "Risk",
     },
@@ -7686,7 +7702,7 @@ SCANNERS: dict[str, dict] = {
             "resting limit order inside the zone: that fills on the way through "
             "exactly when the gap fails. Wraps detect_fvg_pullback, which "
             "previously existed only as one boolean inside the Early Reversal "
-            "layer and so was never screenable. Unmeasured."
+            "layer and so was never screenable. MEASURED (B-19): 1,731 signals, +0.11% @20d / −0.37% @60d — nominally POSITIVE EDGE at 20d, UNSTABLE, and it turns negative by 60d. Effectively flat."
         ),
         "category": "Entry",
     },
@@ -7702,7 +7718,7 @@ SCANNERS: dict[str, dict] = {
             "(4) FVG (active zone or recent rejection) overlapping the OTE zone — "
             "two independent methods pointing to the same price area. "
             "Stop below OTE zone low; target = 40-bar swing high (BSL proxy). "
-            "Requires all four conditions simultaneously. Unmeasured."
+            "Requires all four conditions simultaneously. MEASURED (B-19): 158 signals, −0.36% @20d / −1.24% @60d — NO EDGE. One of the three independent 'retrace into a level after a structure break' implementations measured negative here (~9,000 signals across all three)."
         ),
         "category": "Entry",
     },
@@ -7733,7 +7749,7 @@ SCANNERS: dict[str, dict] = {
             "broken level (now resistance) from below; (3) the retest failed (close back "
             "under); (4) down-day on ≥1× 20-day average volume. Emits a short-side trade "
             "plan (stop above the breakdown level, target = measured move). Evidence "
-            "AGAINST a long, not a buy signal. Unmeasured."
+            "AGAINST a long, not a buy signal. MEASURED (B-19): 2,880 signals, +0.47% @20d / +1.22% @60d — NO BEARISH EDGE, i.e. it points the WRONG WAY for a risk flag: names it flags went UP on average."
         ),
         "category": "Risk",
     },
