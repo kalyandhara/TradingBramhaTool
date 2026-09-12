@@ -51,16 +51,35 @@ DEFAULT_DAYS = 400
 MIN_BARS = 80
 
 
-def export(symbols: list[str], out_dir: Path, days: int = DEFAULT_DAYS) -> dict:
+def export(symbols: list[str], out_dir: Path, days: int = DEFAULT_DAYS,
+           enforce_liquidity: bool = True) -> dict:
     out_dir.mkdir(parents=True, exist_ok=True)
     ok = thin = failed = 0
     for i, sym in enumerate(symbols, 1):
         try:
-            df = sp.fetch_ohlcv(sym, days=days)
+            # The Rs 1 cr floor is a SCAN filter. It belongs on an --index
+            # sweep, where the point is to exclude what cannot be traded, and
+            # NOT on symbols the caller named: there the export silently
+            # produced no structure for the very names that were asked for.
+            # Same rule as cached_fetch_ohlcv's docstring records for the
+            # dashboard's by-name pages.
+            df = sp.fetch_ohlcv(sym, days=days,
+                                min_turnover=None if enforce_liquidity else 0)
         except Exception:
             failed += 1
             continue
         if df is None or len(df) < MIN_BARS:
+            thin += 1
+            continue
+        # Drop bars with no price BEFORE serialising. Python's json writes bare
+        # `NaN`, which is not valid JSON and which Node refuses to parse — the
+        # runner dies on the whole directory, not just the offending file. This
+        # went unnoticed because the liquidity floor had been excluding exactly
+        # the thin names whose feeds carry gaps; turning the floor off for
+        # named symbols surfaced it immediately.
+        df = df.dropna(subset=[c for c in ("open", "high", "low", "close")
+                               if c in df.columns])
+        if len(df) < MIN_BARS:
             thin += 1
             continue
         idx = pd.to_datetime(df.index)
@@ -72,7 +91,10 @@ def export(symbols: list[str], out_dir: Path, days: int = DEFAULT_DAYS) -> dict:
             for t, (_, r) in zip(idx, df.iterrows())
         ]
         doc = {"symbol": sym, "tf": "1d", "bars": bars}
-        (out_dir / f"{sym}_1d.json").write_text(json.dumps(doc), encoding="utf-8")
+        # allow_nan=False so a future gap raises HERE, named and per-symbol,
+        # instead of writing a file that kills the JS runner on a later pass.
+        (out_dir / f"{sym}_1d.json").write_text(
+            json.dumps(doc, allow_nan=False), encoding="utf-8")
         ok += 1
         if i % 25 == 0:
             print(f"  [{i}/{len(symbols)}] ok={ok} thin={thin} failed={failed}",
@@ -94,8 +116,12 @@ def main() -> int:
     args = ap.parse_args()
 
     syms = args.symbols or nu.symbols(args.index)
-    print(f"exporting {len(syms)} symbols ({args.days}d) -> {args.out}", flush=True)
-    res = export(syms, args.out, args.days)
+    # NAMED symbols are never screened out; an --index sweep still is.
+    by_name = bool(args.symbols)
+    print(f"exporting {len(syms)} symbols ({args.days}d) -> {args.out}"
+          f"{' · liquidity floor OFF (symbols named)' if by_name else ''}",
+          flush=True)
+    res = export(syms, args.out, args.days, enforce_liquidity=not by_name)
     print(f"done: {res['ok']} written, {res['thin']} too thin, "
           f"{res['failed']} failed, of {res['total']}")
     print(f"next: node tools/svp_screen_runner.js --dir {args.out} "

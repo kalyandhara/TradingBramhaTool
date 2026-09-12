@@ -235,20 +235,42 @@ def test_pct_from_ema_defaults_to_20_not_21():
     assert rm.PCT_FROM_EMA_SPAN == 20
 
 
-def test_ema_stack_marks_each_span_and_omits_what_it_cannot_see():
-    """A span with too little history is OMITTED, never marked. Printing 200▼
-    for a name with 120 bars would state something we cannot see."""
+def test_ema_stack_marks_each_span_green_or_red():
     rising = _frame([100.0 + i for i in range(260)])
     full = rm.ema_stack(rising)
     assert full is not None
     for sp in rm.EMA_STACK_SPANS:
         assert str(sp) in full
-    assert "▲" in full                       # a rising series sits above them
+    assert full.count(rm.EMA_DOT_ABOVE) == len(rm.EMA_STACK_SPANS)
+    assert rm.EMA_DOT_BELOW not in full      # a rising series sits above them all
 
+    falling = _frame([400.0 - i for i in range(260)])
+    assert rm.ema_stack(falling).count(rm.EMA_DOT_BELOW) == len(rm.EMA_STACK_SPANS)
+
+
+def test_a_span_it_cannot_compute_is_GREY_not_red_and_not_dropped():
+    """Grey keeps the slot and empties it. Dropping the span collapsed the cell,
+    so a young listing and a name below its 200 EMA produced different-length
+    cells that no longer lined up down the column. Red would be worse still — it
+    would state something we cannot see."""
     short = _frame([100.0 + i for i in range(60)])
     s = rm.ema_stack(short)
-    assert "200" not in s                    # not enough history — omitted
-    assert "10" in s and "20" in s
+    assert "200" + rm.EMA_DOT_UNKNOWN in s   # the slot is kept, and empty
+    assert "200" + rm.EMA_DOT_BELOW not in s
+    # Every span still has a position, so the column scans vertically.
+    assert len(s.split()) == len(rm.EMA_STACK_SPANS)
+
+
+def test_every_span_grey_is_returned_as_nothing_at_all():
+    """A row of empty circles looks like a measurement. An absence should look
+    like an absence.
+
+    Unreachable with the default spans — 12 bars is the function's own floor and
+    the 10-EMA is computable at 12 — so this passes custom spans to reach it,
+    which is also the only way a caller could.
+    """
+    short = _frame([100.0 + i for i in range(30)])
+    assert rm.ema_stack(short, spans=(100, 200)) is None
 
 
 def test_ema_stack_is_none_when_nothing_can_be_computed():

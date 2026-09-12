@@ -1312,6 +1312,8 @@ const INDICATOR_DEFS = [
   {pane:'sub', key:'evmacd',    label:'EVWMA VWAP MACD (30,5,20) + BUY/SELL', group:'Oscillators', color:'#0094ff', alias:'quantnomad elastic volume weighted moving average vwap macd crossover buy sell signal histogram'},
   {pane:'sub', key:'roc',       label:'ROC + RSI Zones (21,5,5,14)', group:'Oscillators',    color:'#2962ff'},
   {pane:'sub', key:'stoch',     label:'Stochastic (14,3,3)',    group:'Oscillators',       color:'#26c6da'},
+  {pane:'sub', key:'mfi',       label:'MFI (14) · volume-weighted RSI', group:'Oscillators', color:'#26a69a', alias:'money flow index volume weighted rsi typical price oversold overbought accumulation'},
+  {pane:'sub', key:'atr',       label:'ATR (14) · Wilder — stop sizing', group:'Oscillators', color:'#ff8a65', alias:'average true range volatility wilder stop size position sizing risk'},
   {pane:'sub', key:'hm',        label:'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', group:'Oscillators', color:'#26a69a', alias:'hilega milega bottom top reversal strength momentum'},
   // Draws on BOTH the price chart and the RSI pane, so selecting it turns RSI
   // on (see applyIndicators) — half the signal lives in the oscillator.
@@ -1898,6 +1900,43 @@ function obvSeries(bars) {
   return out;
 }
 
+// Money Flow Index (14) — volume-weighted RSI on typical price (H+L+C)/3.
+//
+// This is a deliberate LINE-BY-LINE PORT of `_mfi_series`
+// (tools/scanner_templates.py:2366), which already feeds `scan_mfi_oversold`.
+// B-24 is on this page's backlog because two RSI-divergence implementations
+// were allowed to drift apart and disagree; the point of writing this one as a
+// port rather than from the formula is that the chart and the scanner must
+// answer the same question the same way. Anything changed here is owed a
+// matching change there.
+//
+// Two conventions carried over from the Python on purpose:
+//   • the sums are a ROLLING WINDOW SUM over n bars (not Wilder smoothing) —
+//     that is the original Quong/Soudack definition and what the scanner fires on;
+//   • when no bar in the window had a DOWN typical price, negative flow is 0 and
+//     the ratio is undefined. Python yields NaN there and the scanner skips the
+//     bar; here the point is OMITTED, leaving a visible gap. A gap is the honest
+//     rendering — substituting 100 would draw a pinned overbought line that the
+//     scanner does not see.
+function mfiSeries(bars, n = 14) {
+  if (!bars || bars.length < n + 1) return [];
+  const tp = bars.map(b => (b.high + b.low + b.close) / 3);
+  const rmf = bars.map((b, i) => tp[i] * (b.volume || 0));
+  const out = [];
+  for (let i = n; i < bars.length; i++) {
+    let pos = 0, neg = 0;
+    // Window covers the n bars whose direction is defined, matching
+    // rolling(n).sum() over a diff()-derived series in pandas.
+    for (let j = i - n + 1; j <= i; j++) {
+      if (tp[j] > tp[j - 1])      pos += rmf[j];
+      else if (tp[j] < tp[j - 1]) neg += rmf[j];
+    }
+    if (neg === 0) continue;                       // undefined — see note above
+    out.push({time: bars[i].time, value: 100 - 100 / (1 + pos / neg)});
+  }
+  return out;
+}
+
 // ── ROC + RSI Zones — port of "Rate Of Change and rsi zones" Pine v5 ─────────
 // Base ROC = SMA(100*(src-src[length])/src[length], roc_smooth). Layered on
 // top is a second colored line that only appears when both ROC and RSI agree
@@ -2372,31 +2411,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
     // FVG boxes are anchored to time coordinates, so panning/zooming the
     // x-axis (unlike Volume Profile, which only depends on the y-axis) must
     // also trigger a redraw — otherwise the boxes drift away from their bars.
-    if (pane.indicators && pane.indicators.has('fvg')) drawFVG(pane);
-    // Pattern base-zone boxes are time+price anchored — same staleness as FVG.
-    if (pane.indicators &&
-        (pane.indicators.has('vcp') || pane.indicators.has('roundbottom')))
-      drawPatternZones(pane);
-    if (pane.indicators && pane.indicators.has('projection')) drawProjection(pane);
-    // Fibonacci levels are price-anchored, so the y-mapping changing on
-    // pan/zoom stales them for the same reason the volume profile stales.
-    if (pane.indicators && pane.indicators.has('fib')) drawFibonacci(pane);
-    // Volume Profile histogram uses priceToCoordinate — pan/zoom changes
-    // the y-scale mapping, so it needs a redraw on range change too. FVG
-    // is time-anchored; VP is price-scale-anchored. Both stale on zoom
-    // for the same reason (mapping changed) — now both redraw.
-    if (pane.indicators && pane.indicators.has('volprofile')) drawVolumeProfile(pane);
-    // Session VP is both price- AND time-anchored, so it stales on any pan/zoom.
-    if (pane.indicators && pane.indicators.has('svp')) drawSessionVP(pane);
-    if (pane.indicators && pane.indicators.has('deltaprofile')) drawDeltaProfile(pane);
-    // Order-block zones are time+price anchored — same staleness as FVG boxes.
-    if (pane.indicators && pane.indicators.has('orderblock')) drawOrderBlocks(pane);
-    // %R exhaustion background is time-anchored (x-runs) — redraw on pan/zoom.
-    if (pane.indicators && pane.indicators.has('prte')) drawPrteBackground(pane);
-    // User drawings are time+price anchored, so they stale on any pan/zoom for
-    // the same reason every overlay above does. No indicator gate — they are
-    // always on when present.
-    if (pane.drawings && pane.drawings.length) scheduleDrawRedraw(pane);
+    redrawPaneOverlays(pane);
   });
 
   // ── Crosshair sync to sub-pane charts ─────────────────────────────────────
@@ -2897,6 +2912,11 @@ async function copyChartSnapshot(pane) {
   });
   const relayout = (ratioVal) => {
     try { Object.defineProperty(window, 'devicePixelRatio', {configurable: true, get: () => ratioVal}); } catch {}
+    // The app overlays do not read devicePixelRatio through LWC, so they are told
+    // directly. Without this they render at 1x and drawImage stretches them into
+    // the 2x canvas — the candles sharpen and everything drawn ON them does not,
+    // which is what "the snapshot still looks poor" actually was.
+    SNAP_RATIO = (ratioVal > 1) ? ratioVal : 0;
     reflow.forEach(({chart, el}) => {
       const w = el.clientWidth, h = el.clientHeight;
       // Jiggle the width so LWC actually recomputes its bitmap at the new ratio
@@ -2906,7 +2926,13 @@ async function copyChartSnapshot(pane) {
   };
 
   try {
-    if (S > dpr0) relayout(S);   // engage hi-DPI only when it would help
+    if (S > dpr0) {
+      relayout(S);              // engage hi-DPI only when it would help
+      // Re-render the overlays INTO the raised ratio. Synchronous, because the
+      // capture below runs to completion in this turn and a deferred
+      // animation-frame redraw would land after the screenshot.
+      redrawPaneOverlays(pane, true);
+    }
 
     const mainShot = pane.chart.takeScreenshot();
     // Stack sub-panes in the order they appear on screen.
@@ -2999,9 +3025,12 @@ async function copyChartSnapshot(pane) {
     ctx.fillStyle = 'rgba(139,148,158,0.25)';
     ctx.fillRect(0, headerH - hair, totalW, hair);
 
-    // Candle chart + its overlay canvases, drawn at the captured (native) size.
-    // The candles are now sharp at `ratio`; the app overlay canvases keep their
-    // own ratio and are scaled to fit (fine for line/bar overlays).
+    // Candle chart + its overlay canvases, drawn at the captured size.
+    // Both are now rendered AT `ratio`: the candles by Lightweight Charts and the
+    // overlays by sizeOverlay via SNAP_RATIO, so these drawImage calls are 1:1
+    // rather than an upscale. Any overlay that failed to re-render still fits the
+    // same OW/OH box, so a miss degrades to the old soft-but-correct behaviour
+    // instead of a misaligned one.
     let y = headerH;
     const OW = mainShot.width, OH = mainShot.height;
     ctx.drawImage(mainShot, 0, y);
@@ -3083,14 +3112,33 @@ async function copyChartSnapshot(pane) {
     // threw. The composited `out` canvas already holds its pixels by now, so this
     // never affects the image — it only restores the live view.
     if (S > dpr0) {
+      SNAP_RATIO = 0;           // back to the screen's own ratio
       try {
         if (dprDesc) Object.defineProperty(window, 'devicePixelRatio', dprDesc);
         else Object.defineProperty(window, 'devicePixelRatio', {configurable: true, get: () => dpr0});
       } catch {}
       reflow.forEach(({chart, el}) => {
         const w = el.clientWidth, h = el.clientHeight;
-        if (w > 0 && h > 0) { try { chart.resize(w, h, true); } catch {} }
+        // Jiggle on the way BACK too. This used to be a same-size resize, which
+        // LWC treats as a no-op for exactly the reason the engage path above
+        // already documents — so the charts kept the capture's 2x bitmaps until
+        // the next pan. Supersampled and therefore invisible, which is why it
+        // survived.
+        //
+        // Measured after the fix (2026-09-11): the main and time-scale canvases
+        // do return to 1x, but the two 72px PRICE-SCALE canvases stay at 2x —
+        // the width jiggle does not make LWC rebuild those. Left as is: it is
+        // ~0.5 MB per pane and renders slightly sharper, so chasing it would be
+        // churn for no visible gain. Recorded so the next reader who measures
+        // the same thing does not think it is a new leak.
+        if (w > 0 && h > 0) { try { chart.resize(w - 1, h, true); chart.resize(w, h, true); } catch {} }
       });
+      // Put the overlays back at the screen ratio too. A same-size LWC resize
+      // may fire no visible-range change, so nothing else would repaint them and
+      // they would sit at the capture ratio until the next pan — harmless to
+      // look at, but it is capture state leaking into the live view, and the
+      // next reader of this code should not have to work out why.
+      try { redrawPaneOverlays(pane, true); } catch {}
     }
   }
 }
@@ -3169,7 +3217,11 @@ function addDots(pane, color, radius = 1.6) {
 // momentum, and remain informative on any series.
 // mabias joins them: a trend-bias card on a monotonic yield line would read
 // "permanent golden cross" — technically true, decisionally meaningless.
-const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'adxdi', 'stoch', 'elliott', 'mabias', 'rsidiv', 'obvdiv', 'hm', 'evmacd'];
+// 'mfi' joins them for the same reason as 'rsi': a volume-weighted oscillator on
+// a monotonic yield line prints permanent overbought. 'atr' deliberately does
+// NOT — on a cash-equivalent an ATR of ~0 is the TRUE and useful answer, the
+// same reason volume and the MAs stay. Volatility is structural, not momentum.
+const MOMENTUM_KEYS = ['rsi', 'macd', 'obv', 'rs', 'prte', 'adxdi', 'stoch', 'elliott', 'mabias', 'rsidiv', 'obvdiv', 'hm', 'evmacd', 'mfi'];
 
 // Detect liquid-ETF / cash-equivalent behaviour from bar statistics rather
 // than symbol lists — new liquid ETFs launch faster than any hardcoded set
@@ -3251,7 +3303,7 @@ function applyIndicators(pane) {
   // 'volume' is deliberately absent — it is a main-chart overlay now, torn down
   // by removeIndicatorSeries above. A stale volume SUB-pane can still exist from
   // a session saved before the change, so it is swept once here.
-  ['rsi','macd','obv','rs','prte','adxdi','evmacd','roc','stoch','hm'].forEach(key => {
+  ['rsi','macd','obv','rs','prte','adxdi','evmacd','roc','stoch','hm','mfi','atr'].forEach(key => {
     if (!pane.indicators.has(key) && pane.subCharts[key]) removeSubPane(pane, key);
   });
   if (pane.subCharts.volume) removeSubPane(pane, 'volume');
@@ -3984,6 +4036,44 @@ function applyIndicators(pane) {
     pane.subCharts.stoch.dLine.setData(d);
   }
 
+  if (pane.indicators.has('mfi')) {
+    if (!pane.subCharts.mfi) {
+      const sub = addSubPane(pane, 'mfi', 'MFI (14)');
+      sub.mfiLine = sub.chart.addLineSeries({
+        color: '#26a69a', lineWidth: 1.5,
+        priceLineVisible: false, lastValueVisible: true,
+      });
+      // 80 / 50 / 20 — and 20 is not decorative here: it is the exact level
+      // `scan_mfi_oversold` fires a cross-up through (scanner_templates.py:6114),
+      // so the guide line is what the scanner sees, drawn.
+      sub.mfiLine.createPriceLine({price:80, color:'rgba(248,81,73,0.45)',  lineWidth:1, lineStyle:1, axisLabelVisible:false});
+      sub.mfiLine.createPriceLine({price:50, color:'rgba(140,140,140,0.25)',lineWidth:1, lineStyle:2, axisLabelVisible:false});
+      sub.mfiLine.createPriceLine({price:20, color:'rgba(63,185,80,0.45)',  lineWidth:1, lineStyle:1, axisLabelVisible:false});
+      sub.series = sub.mfiLine;   // crosshair sync target
+    }
+    pane.subCharts.mfi.mfiLine.setData(padToBars(mfiSeries(bars, 14), bars));
+  }
+
+  if (pane.indicators.has('atr')) {
+    if (!pane.subCharts.atr) {
+      const sub = addSubPane(pane, 'atr', 'ATR (14)');
+      sub.atrLine = sub.chart.addLineSeries({
+        color: '#ff8a65', lineWidth: 1.5,
+        priceLineVisible: false, lastValueVisible: true,
+      });
+      // No guide lines, on purpose. ATR is in PRICE units, so there is no level
+      // that means the same thing on a ₹50 stock and a ₹5,000 one — any fixed
+      // line here would be a number pretending to be a threshold. Read it as a
+      // series: rising = widening stops, and the last value IS the stop distance
+      // the desk's ATR-based sizing uses.
+      sub.series = sub.atrLine;   // crosshair sync target
+    }
+    // Reuses `atrSeries` — the same Wilder ATR that already backs PMax, Keltner,
+    // Renko and AVWAP in this file. Exposing it is wiring, not a second
+    // implementation, which is the whole reason this item owed no backtest.
+    pane.subCharts.atr.atrLine.setData(padToBars(atrSeries(bars, 14), bars));
+  }
+
   if (pane.indicators.has('volprofile')) {
     // Defer to next animation frame — priceToCoordinate returns null right
     // after setData because LWC hasn't finished recomputing the price scale
@@ -4322,11 +4412,93 @@ function vpWindowBars(pane) {
   return win.length >= 10 ? win : bars;
 }
 
+// Redraw every active app overlay for this pane.
+//
+// Extracted 2026-09-11 from the visible-range subscriber, which was the only
+// caller. The snapshot needs the identical list — it re-renders the overlays at
+// the export ratio rather than upscaling them — and two copies of "which
+// overlays exist" would drift the moment an eleventh one is added. Same reason
+// columns.py (B-63a) exists.
+//
+// `immediate` forces the user-drawing layer to paint synchronously: the normal
+// path defers it to an animation frame, which a capture running to completion in
+// one turn would miss entirely.
+function redrawPaneOverlays(pane, immediate = false) {
+  const has = k => pane.indicators && pane.indicators.has(k);
+  if (has('fvg')) drawFVG(pane);
+  // Pattern base-zone boxes are time+price anchored — same staleness as FVG.
+  if (has('vcp') || has('roundbottom')) drawPatternZones(pane);
+  if (has('projection')) drawProjection(pane);
+  // Fibonacci levels are price-anchored, so the y-mapping changing on
+  // pan/zoom stales them for the same reason the volume profile stales.
+  if (has('fib')) drawFibonacci(pane);
+  // Volume Profile histogram uses priceToCoordinate — pan/zoom changes
+  // the y-scale mapping, so it needs a redraw on range change too. FVG
+  // is time-anchored; VP is price-scale-anchored. Both stale on zoom
+  // for the same reason (mapping changed) — now both redraw.
+  if (has('volprofile')) drawVolumeProfile(pane);
+  // Session VP is both price- AND time-anchored, so it stales on any pan/zoom.
+  if (has('svp')) drawSessionVP(pane);
+  if (has('deltaprofile')) drawDeltaProfile(pane);
+  // Order-block zones are time+price anchored — same staleness as FVG boxes.
+  if (has('orderblock')) drawOrderBlocks(pane);
+  // %R exhaustion background is time-anchored (x-runs) — redraw on pan/zoom.
+  if (has('prte')) drawPrteBackground(pane);
+  // User drawings are time+price anchored, so they stale on any pan/zoom for
+  // the same reason every overlay above does. No indicator gate — they are
+  // always on when present.
+  if (pane.drawings && pane.drawings.length) {
+    if (immediate) redrawDrawings(pane);
+    else scheduleDrawRedraw(pane);
+  }
+}
+
+// ── Overlay canvas sizing (device-pixel aware) ──────────────────────────────
+//
+// Every app overlay — volume profile, SVP, FVG, order blocks, fib, projection,
+// pattern zones, %R tint, delta profile, user drawings — used to size itself
+//
+//     canvas.width = canvas.offsetWidth
+//
+// i.e. ONE backing-store pixel per CSS pixel, regardless of the display. On any
+// HiDPI screen that is a permanently soft overlay sitting on top of candles
+// Lightweight Charts renders at the real device ratio, and in a 2x snapshot it
+// is upscaled by drawImage while the candles are natively sharp. Measured on the
+// running chart 2026-09-11: LWC's own canvases at ratio 1.00 on a ratio-1
+// display, the user-drawing canvas at a STALE 1016x656 buffer stretched across
+// 1313x483 CSS px, and seven inactive overlays still at the HTML default 300x150
+// — which become 1x the moment their indicator is switched on.
+//
+// The fix is one helper, because ten call sites drifting apart is how this got
+// missed in the first place. The backing store is sized in DEVICE pixels and the
+// context is pre-scaled, so **every existing draw call keeps working in CSS
+// pixels** and no drawing code below had to change.
+//
+// SNAP_RATIO lets the snapshot raise the ratio for one capture: the overlays are
+// re-rendered at the export ratio instead of being stretched into it.
+let SNAP_RATIO = 0;
+
+function overlayRatio() {
+  return SNAP_RATIO || window.devicePixelRatio || 1;
+}
+
+function sizeOverlay(canvas) {
+  const W = canvas.offsetWidth, H = canvas.offsetHeight;
+  const r = overlayRatio();
+  // Assigning width/height also CLEARS the canvas and resets its transform,
+  // which is what the old two-liner relied on — so the scale must be applied
+  // after, every time, not once at creation.
+  canvas.width  = Math.round(W * r);
+  canvas.height = Math.round(H * r);
+  const ctx = canvas.getContext('2d');
+  ctx.setTransform(r, 0, 0, r, 0, 0);
+  return {W, H, ctx, ratio: r};
+}
+
 function drawVolumeProfile(pane) {
   const canvas = pane.volCanvas;
   if (!canvas || !pane.bars || pane.bars.length < 10) { pane.vp = null; return; }
-  const W = canvas.width  = canvas.offsetWidth;
-  const H = canvas.height = canvas.offsetHeight;
+  const {W, H} = sizeOverlay(canvas);
   if (W === 0 || H === 0) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
@@ -4444,8 +4616,7 @@ function drawFVG(pane) {
     pane.fvgZones = null;
     return;
   }
-  const W = canvas.width  = canvas.offsetWidth;
-  const H = canvas.height = canvas.offsetHeight;
+  const {W, H} = sizeOverlay(canvas);
   if (W === 0 || H === 0) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
@@ -4542,8 +4713,7 @@ function drawOrderBlocks(pane) {
   const canvas = pane.obCanvas;
   const st = pane.ob;
   if (!canvas || !st || !st.zones) return;
-  const W = canvas.width  = canvas.offsetWidth;
-  const H = canvas.height = canvas.offsetHeight;
+  const {W, H} = sizeOverlay(canvas);
   if (!W || !H) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
@@ -4729,8 +4899,7 @@ function renderPrteOverlay(pane, prte) {
 function drawPrteBackground(pane, prte) {
   const canvas = pane.prteCanvas;
   if (!canvas) return;
-  const W = canvas.width  = canvas.offsetWidth;
-  const H = canvas.height = canvas.offsetHeight;
+  const {W, H} = sizeOverlay(canvas);
   if (!W || !H) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
@@ -5242,8 +5411,7 @@ function renderMABiasInfo(pane, d) {
 function drawPatternZones(pane) {
   const canvas = pane.patternCanvas;
   if (!canvas) return;
-  const W = canvas.width  = canvas.offsetWidth;
-  const H = canvas.height = canvas.offsetHeight;
+  const {W, H} = sizeOverlay(canvas);
   if (W === 0 || H === 0) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
@@ -6297,8 +6465,7 @@ function drawAdapter(pane) {
 function redrawDrawings(pane) {
   const canvas = pane.drawCanvas;
   if (!canvas) return;
-  const W = canvas.width  = canvas.offsetWidth;
-  const H = canvas.height = canvas.offsetHeight;
+  const {W, H} = sizeOverlay(canvas);
   if (W === 0 || H === 0) {
     // Restored drawings paint once at pane creation, and in a multi-chart grid
     // the container can still be 0x0 at that moment. The ResizeObserver hook is
@@ -6438,7 +6605,11 @@ function wireDrawingTools(pane) {
 
   canvas.addEventListener('mousedown', ev => {
     if (ev.button !== 0) return;
-    const W = canvas.width;
+    // offsetWidth, NOT canvas.width: the mouse coordinates below are CSS pixels,
+    // and the backing store is now devicePixelRatio times larger. This was
+    // already wrong whenever the buffer was stale — erase-hit-testing on a
+    // resized pane tested against the old width.
+    const W = canvas.offsetWidth;
 
     if (pane.drawErase) {
       const r = canvas.getBoundingClientRect();
@@ -7080,8 +7251,7 @@ async function refreshDeltaProfile(pane) {
 function drawDeltaProfile(pane) {
   if (!pane.indicators || !pane.indicators.has('deltaprofile')) return;
   const canvas = ensureDpCanvas(pane);
-  const W = canvas.width  = canvas.offsetWidth;
-  const H = canvas.height = canvas.offsetHeight;
+  const {W, H} = sizeOverlay(canvas);
   if (W === 0 || H === 0) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
@@ -7165,8 +7335,7 @@ function drawSessionVP(pane) {
   if (typeof SVP === 'undefined') { console.warn('session_volume_profile.js not loaded'); return; }
   if (!pane.bars || pane.bars.length < 20) return;
   const canvas = ensureSvpCanvas(pane);
-  const W = canvas.width = canvas.offsetWidth;
-  const H = canvas.height = canvas.offsetHeight;
+  const {W, H} = sizeOverlay(canvas);
   if (!W || !H) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
@@ -7890,8 +8059,7 @@ async function renderProjection(pane) {
 function drawProjection(pane) {
   const canvas = pane.projCanvas;
   if (!canvas) return;
-  const W = canvas.width  = canvas.offsetWidth;
-  const H = canvas.height = canvas.offsetHeight;
+  const {W, H} = sizeOverlay(canvas);
   if (W === 0 || H === 0) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);
@@ -8102,8 +8270,7 @@ async function renderFibonacci(pane) {
 function drawFibonacci(pane) {
   const canvas = pane.fibCanvas;
   if (!canvas) return;
-  const W = canvas.width  = canvas.offsetWidth;
-  const H = canvas.height = canvas.offsetHeight;
+  const {W, H} = sizeOverlay(canvas);
   if (W === 0 || H === 0) return;
   const ctx = canvas.getContext('2d');
   ctx.clearRect(0, 0, W, H);

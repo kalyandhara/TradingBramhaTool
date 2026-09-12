@@ -9,10 +9,11 @@ something has to change, the entry changes first and says why.
 
 `sentiment_index._pmax_direction_nifty_1h` returns `factor = 1.0` when PMax
 direction on NIFTY 1H is up and `0.0` when it is down, and that factor is
-multiplied by `W_PMAX_1H = 20` -- a FIFTH of the sentiment score.
+multiplied by `W_PMAX_1H = 15` -- 15% of the sentiment score. (20 of 100 when
+this was written; B-22 re-weighted to 25/20/20/15/20 on 2026-09-11.)
 
 So the assertion is NOT "the up-state earns a positive return". It is that **the
-two states are different**. A factor scoring 20 for up and 0 for down claims to
+two states are different**. A factor scoring 15 for up and 0 for down claims to
 DISCRIMINATE, and the statistic that matches that claim is a SPREAD:
 
     mean(fwd | dir = +1) - mean(fwd | dir = -1)

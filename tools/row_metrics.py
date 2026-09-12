@@ -342,16 +342,34 @@ def pct_from_ema(df: pd.DataFrame, span: int = PCT_FROM_EMA_SPAN) -> Optional[fl
     return round((last / e - 1.0) * 100.0, 2)
 
 
+#: Red / green / grey, matching the dot vocabulary the rest of the dashboard
+#: already speaks (`_TONE_DOT`, and `⚪` as its "unknown" fallback). These are
+#: the only characters that carry their own colour inside an `st.dataframe`
+#: cell: a TextColumn cannot style part of its text, so a coloured glyph is the
+#: whole mechanism, not a decoration on top of one.
+EMA_DOT_ABOVE = "🟢"
+EMA_DOT_BELOW = "🔴"
+EMA_DOT_UNKNOWN = "⚪"
+
+
 def ema_stack(df: pd.DataFrame, spans=EMA_STACK_SPANS) -> Optional[str]:
-    """Price vs each EMA as one glance-width cell, e.g. `10▲ 20▲ 50▲ 200▼`.
+    """Price vs each EMA as one glance-width cell, e.g. `10🟢 20🟢 50🟢 200🔴`.
 
     The best idea on the source table: four facts in the width of one column.
-    Each span reads ▲ when the close is above that EMA and ▼ when below, so a
-    fully-stacked name is four ▲ and a name rolling over shows where it broke.
+    Green where the close is above that EMA, red where below, **grey where the
+    name has too little history for that span to exist**.
 
-    A span with too little history is OMITTED rather than marked — printing
-    `200▼` for a name with 120 bars would state something we cannot see. That
-    makes the cell shorter for young listings, which is the correct signal.
+    ── Why grey rather than omission ──────────────────────────────────────────
+    This previously DROPPED a span it could not compute, on the reasoning that
+    printing `200▼` for a name with 120 bars states something we cannot see.
+    That reasoning still holds — but dropping it also collapsed the cell, so a
+    young listing and a name below its 200 EMA produced different-length cells
+    that no longer lined up down the column, and the reader had to count.
+
+    Grey keeps the SLOT and empties it: four positions always, in the same
+    order, so the column scans vertically and "unknown" is visibly distinct from
+    both "above" and "below" rather than being inferred from a gap. The claim we
+    refuse to make is unchanged — grey asserts nothing about price.
     """
     if df is None or len(df) < 12:
         return None
@@ -363,18 +381,21 @@ def ema_stack(df: pd.DataFrame, spans=EMA_STACK_SPANS) -> Optional[str]:
         return None
     if not np.isfinite(last):
         return None
-    parts = []
+    parts, known = [], 0
     for sp in spans:
-        if len(close) < sp + 2:
-            continue
-        try:
-            e = float(st._ema_series(close, sp).iloc[-1])
-        except (ValueError, IndexError):
-            continue
-        if not np.isfinite(e) or e <= 0:
-            continue
-        parts.append(f"{sp}{'▲' if last >= e else '▼'}")
-    return " ".join(parts) or None
+        dot = EMA_DOT_UNKNOWN
+        if len(close) >= sp + 2:
+            try:
+                e = float(st._ema_series(close, sp).iloc[-1])
+                if np.isfinite(e) and e > 0:
+                    dot = EMA_DOT_ABOVE if last >= e else EMA_DOT_BELOW
+                    known += 1
+            except (ValueError, IndexError):
+                pass
+        parts.append(f"{sp}{dot}")
+    # All four grey is not a reading, it is an absence — return None so the cell
+    # is blank rather than a row of empty circles pretending to be a measurement.
+    return " ".join(parts) if known else None
 
 
 def row(df: pd.DataFrame, ref_date=None) -> dict[str, Any]:

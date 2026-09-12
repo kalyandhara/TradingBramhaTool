@@ -241,3 +241,65 @@ def test_no_duplicate_ids_in_the_registry_literal():
     assert set(checked) == {"COLUMNS", "ALIASES"}, (
         f"this test examined {checked!r} — it must reach BOTH registry dicts, "
         f"or it passes without checking anything.")
+
+
+def test_the_svp_columns_are_structure_only():
+    """The composite they come from measured a clean negative. A tooltip that
+    implied a direction would put it back on the desk's main tables."""
+    hist = C.COLUMNS["svp_hist_8w"].help
+    fac = C.COLUMNS["svp_factors"].help
+    assert "oldest" in hist and "not a forecast" in hist
+    assert "COUNT, never a direction" in fac
+    assert "not more edge" in fac
+    # No tint: a shape sequence has no good/bad axis to colour along.
+    assert C.COLUMNS["svp_hist_8w"].tone is None
+    assert C.COLUMNS["svp_factors"].tone is None
+
+
+# ── autofit ───────────────────────────────────────────────────────────────────
+
+def test_autofit_is_measured_from_content_not_guessed():
+    narrow = C.autofit_width(["1", "2", "3"], "X")
+    wide = C.autofit_width(["a very long cell value indeed"], "X")
+    assert narrow < wide
+
+
+def test_a_column_is_never_narrower_than_its_own_header():
+    """A column narrower than its header is unreadable however short the data."""
+    w = C.autofit_width(["1"], "RS walk (T-30→T0)")
+    assert w > C.autofit_width(["1"], "X")
+
+
+def test_autofit_clamps_both_ends():
+    assert C.autofit_width([""], "") == C.AUTOFIT_MIN_PX
+    assert C.autofit_width(["x" * 500], "x") == C.AUTOFIT_MAX_PX
+
+
+def test_wide_glyphs_count_double():
+    """Eight coloured dots measured as eight narrow characters is exactly how
+    the EMAs column clipped before this existed."""
+    dots = C.autofit_width(["10🟢 20🟢 50🟢 200🔴"], "EMAs")
+    plain = C.autofit_width(["10a 20a 50a 200a"], "EMAs")
+    assert dots > plain
+
+
+def test_blanks_and_nans_do_not_set_the_width():
+    assert C.autofit_width([None, "", "nan", "ab"], "H") == \
+           C.autofit_width(["ab"], "H")
+
+
+def test_configure_df_autofit_sets_integer_widths():
+    df = pd.DataFrame({"symbol": ["VERYLONGSYMBOLNAME"], "close": [1.0]})
+    cfg = C.configure_df(df, autofit=True)
+    assert set(cfg) == {"symbol", "close"}
+    # Streamlit 1.58 takes an int (pixels) for width; that is what makes a
+    # measured fit expressible at all.
+    assert isinstance(C.autofit_width(df["symbol"].tolist(), "Symbol"), int)
+
+
+def test_autofit_does_not_leak_into_the_registry():
+    """The declared width is a statement about the column in general; autofit is
+    about one rendering of it."""
+    before = C.COLUMNS["symbol"].width
+    C.configure_df(pd.DataFrame({"symbol": ["X" * 40]}), autofit=True)
+    assert C.COLUMNS["symbol"].width == before
