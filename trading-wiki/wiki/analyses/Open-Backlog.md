@@ -2068,6 +2068,57 @@ entry/stop/target, PIPELINE_EXCLUDED**, and `Liquidity Sweep` (B-41m, +0.51%
 > unless universe, window, costs and baseline all match** — and the +1.86% mean
 > 20-day return on all bars says most of this window's level is market drift.
 
+═══ AMENDMENT 2026-09-11 — WIDEN THE WINDOW, CHANGE NOTHING ELSE ══════════
+
+**Written and committed BEFORE the re-run**, because the re-run is the move that
+needs a paper trail most: *I already know which way the primary pointed.*
+
+The 2026-09-10 run aborted on power, and its own closing sentence named the two
+ways out: *"either the window widens (more history, or intraday bars where the
+geometry repeats far more often) or B-58 stays unmeasurable."* This takes the
+first. The third option — retire QM on the skeptical prior — is deliberately NOT
+taken, because retiring a pattern for being rare is not the same as retiring it
+for having no edge, and the page should not record the one as the other.
+
+**Why the count was low, and why this fixes it.** The event rate is a property of
+the bar supply, not of the pattern: `cache/cardinality/` holds **743 daily bars
+per name** (the `--years 2` build, +1y warm-up), which is ~3 years. 53 events came
+out of that. The same 460 names carry **up to ~4,700 daily bars** where the full
+history exists, so a deeper cache should clear the floor of 200 on arithmetic
+alone. **Nothing about the detector, the event, the baseline, the horizon, the
+statistic or the pass bar changes** — only how many bars each name brings.
+
+> [!warning] What this amendment is NOT allowed to do, stated so it can be checked
+> **Every parameter stays frozen at its pre-registered value**: event = first
+> in-zone close after `rh.bar + pivot_len`, baseline = within ±2% of a confirmed
+> prior swing low approached from above, horizon 20d, entry next open, statistic
+> `mean(signal) − mean(baseline)`, **pass bar `edge > 0 AND p_rot < 0.05`**, abort
+> below 200 events. The ONLY change is the bar supply.
+>
+> **This is a power fix, and it can only be run once.** The first run reported
+> PRIMARY +0.71% with no computable p. If the wider window is allowed to be
+> re-cut, re-filtered or re-horizoned until that +0.71% acquires a p, the result
+> is not a measurement, it is a search. So: one run, on the frozen design, and
+> whatever it prints is the answer — including a null, which on this page now has
+> teeth (see [[#B-22r]], where a null cost a factor its vote).
+>
+> **The deeper cache is written to a SEPARATE directory** (`cache/cardinality_deep/`).
+> `cache/cardinality/` is the shared panel behind B-43, B-57 and the DIAGNOSTIC
+> arm; overwriting it to serve this item would silently re-cut settled results.
+
+**Two known costs of a deeper window, disclosed up front rather than discovered:**
+
+1. **Survivorship gets worse, not better.** The universe is today's liquid 500,
+   so extending backwards asks *"how did today's survivors behave in 2010"* — a
+   bias that inflates long-horizon returns. It inflates SIGNAL and BASELINE
+   together, which is why this study measures a difference and not a level, but
+   the CONTRAST and HARNESS arms (which baseline against all bars) get less
+   trustworthy, not more. They were already non-decisive.
+2. **Era mixing.** 15 years spans regimes with different volatility and different
+   microstructure. The pre-registered statistic is a pooled difference and stays
+   pooled — splitting by era after the fact would be exactly the search this
+   amendment forbids.
+
 **Deferred, not forgotten: multi-timeframe liquidity ("HTF LQ").**
 `detect_liquidity_pools` takes one `df`. Real HTF liquidity needs a second
 timeframe's pools projected onto the entry chart. That is a bigger build than

@@ -374,14 +374,24 @@ def main() -> int:
     ap.add_argument("--universe", type=int, default=500)
     ap.add_argument("--horizon", type=int, default=HORIZON)
     ap.add_argument("--verify", action="store_true", help="equivalence check only")
+    #: B-58's 2026-09-11 amendment: the 3-year cache yielded 53 events against a
+    #: floor of 200, and the event rate is a property of the BAR SUPPLY, not of the
+    #: pattern. This points the same frozen design at a deeper cache. It is a
+    #: directory switch on purpose - cache/cardinality/ is the shared panel behind
+    #: B-43, B-57 and the DIAGNOSTIC arm, and re-cutting it to serve this item
+    #: would silently move settled results.
+    ap.add_argument("--cache", type=str, default=None,
+                    help="bar cache directory (default: cache/cardinality)")
     args = ap.parse_args()
 
+    cache_dir = Path(args.cache) if args.cache else CACHE
     syms, bhav_date = card.universe(args.universe)
-    paths = [p for p in (CACHE / f"{s}_1d.json" for s in syms) if p.exists()]
+    paths = [p for p in (cache_dir / f"{s}_1d.json" for s in syms) if p.exists()]
     if not paths:
-        sys.exit(f"no cached bars in {CACHE} - run renko_quality_cardinality.py first")
+        sys.exit(f"no cached bars in {cache_dir} - run renko_quality_cardinality.py first")
 
     print(f"B-58 - Quasimodo zone entry vs support retest   (bhavcopy {bhav_date})")
+    print(f"bars from {cache_dir.name}")
     print(f"universe {len(paths)} names | horizon {args.horizon}d | pivot_len {PIVOT_LEN} "
           f"| zone +-{TOL_PCT}% | grab >={MIN_GRAB}% | CHOCH >={MIN_CHOCH}%")
     panel, pstats = build_panel(paths, args.horizon)
