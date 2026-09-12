@@ -169,15 +169,31 @@ CATEGORY_MEMBERS = {
 #: Headline legs the ownership card reads, in display order.
 HEADLINE_LEGS = ("fii", "dii", "mf", "retail", "promoter")
 
+#: NAMESPACE PREFIX IS A WILDCARD, and B-10 is why.
+#:
+#: These facts were matched as `<in-bse-shp:Tag ...>` for a year, because every
+#: filing sampled used that prefix. **`BSE` itself does not** - its filings carry
+#: the identical element names under `in-capmkt:`. The element names come from
+#: SEBI's taxonomy and are what carry the meaning; the PREFIX is a per-document
+#: alias the filer picks, so binding to one was never right, and it failed
+#: silently: no facts matched, `raw` came back empty, `parse_shareholding`
+#: returned None, and the symbol simply had no cache file. One of ~1,500.
+#:
+#: The five-week diagnosis on the backlog ("probably our bug in the symbol
+#: filter") was wrong in both halves - the filter is fine and NSE serves BSE's 22
+#: filings normally. `xbrli:` / `xbrldi:` stay pinned: those are XBRL's own
+#: prefixes, fixed by the spec rather than chosen by the filer.
+_NS = r'[\w.-]+'
+
 _PCT_FACT = re.compile(
-    r'<in-bse-shp:ShareholdingAsAPercentageOfTotalNumberOfShares\s+contextRef="([^"]+)"'
+    r'<' + _NS + r':ShareholdingAsAPercentageOfTotalNumberOfShares\s+contextRef="([^"]+)"'
     r'[^>]*>([\d.eE+-]+)<')
 # Share COUNT, for SR-5's historical cap weighting. `NumberOfFullyPaidUpEquity
 # Shares` and not `NumberOfShares`: the latter is the wider fully-diluted figure
 # (warrants, ESOPs, depository receipts) and on RELIANCE the category counts sum
 # to only 0.983 of it, where they sum to 1.0000 of the fully-paid-up count.
 _SHARES_FACT = re.compile(
-    r'<in-bse-shp:NumberOfFullyPaidUpEquityShares\s+contextRef="([^"]+)"'
+    r'<' + _NS + r':NumberOfFullyPaidUpEquityShares\s+contextRef="([^"]+)"'
     r'[^>]*>([\d.eE+-]+)<')
 _CONTEXT = re.compile(r'<xbrli:context id="([^"]+)">(.*?)</xbrli:context>', re.S)
 _MEMBER = re.compile(r'<xbrldi:explicitMember[^>]*>([^<]+)</xbrldi:explicitMember>')
@@ -186,7 +202,7 @@ _MEMBER = re.compile(r'<xbrldi:explicitMember[^>]*>([^<]+)</xbrldi:explicitMembe
 # 0.79%), i.e. the standard "promoter pledge %". Same per-filing fraction/percent
 # scale as the holding percentages.
 _PLEDGE_PCT_FACT = re.compile(
-    r'<in-bse-shp:EncumberedShareUnderPledgedAsPercentageOfTotalNumberOfShares'
+    r'<' + _NS + r':EncumberedShareUnderPledgedAsPercentageOfTotalNumberOfShares'
     r'\s+contextRef="([^"]+)"[^>]*>([\d.eE+-]+)<')
 
 

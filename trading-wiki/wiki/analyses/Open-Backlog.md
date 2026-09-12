@@ -240,7 +240,7 @@ unmeasured assertion inside a number that gets read daily.
 | ~~1~~ | ~~**B-45 · wire ATR + MFI into `INDICATOR_DEFS`**~~ — **DONE 2026-09-11**, 48 → 50 indicators, with a parity test that found 1,333 zero-volume NIFTY bars | Both series already exist and are already computed; 48 indicators are reachable and these two are not. **No backtest is owed** — exposing an existing series makes no claim about edge — which makes it the only item on the page that is pure progress with zero measurement debt attached. ATR is also the series stop-sizing actually needs. | Hours |
 | ~~2~~ | ~~**B-22r · pre-register the PCR sign test**~~ — **DONE 2026-09-11: pre-registered, then the "blocked until December" premise collapsed (the archive is backfillable), so it was also MEASURED — NULL, and factor 5 now scores zero** | New, and it is a *clock* item: the pre-registration is worth more written today than written correctly in six weeks. Weight 20 of the sentiment score rests on an unmeasured direction, and B-44r is the precedent for that being backwards. | Small now, blocked later |
 | ~~3~~ | ~~**B-58 · decide QM's fate**~~ — **DONE 2026-09-11: widened the window, found the 2026-09-10 verdict was an artifact of `max_swings=15`, re-ran at 5,048 events — FAIL (−0.64%, p=0.120). QM stays geometry** | 53 events against a pre-registered floor of 200 is **inconclusive, not null** — and an inconclusive result is the one outcome that does not retire an item. Either extend the universe/era to reach the floor, or retire QM on the recorded prior (*"a liquidity sweep with extra steps"*). Leaving it inconclusive is the worst of the three. | One decision, then maybe one run |
-| 4 | **B-10 · `BSE`, one symbol** | Third consecutive pass carrying a single-symbol item whose diagnosis ("probably our bug") is now weak — 1 of ~1,500. Check whether the exchange files under a different NSE symbol string, then close or retire it. **It costs more to re-read than to fix.** | Minutes |
+| ~~4~~ | ~~**B-10 · `BSE`, one symbol**~~ — **CLOSED 2026-09-11: a hardcoded XBRL namespace prefix, not the symbol filter. 751 → 752 cached** | Third consecutive pass carrying a single-symbol item whose diagnosis ("probably our bug") is now weak — 1 of ~1,500. Check whether the exchange files under a different NSE symbol string, then close or retire it. **It costs more to re-read than to fix.** | Minutes |
 | 5 | **B-17 · OBV concept page** | Unchanged from rank 5 last pass. Two shipped surfaces, zero pages; B-60's CMF page is the pattern. | Small |
 | ~~6~~ | ~~**Fib rungs (0.886 / 1.13)**~~ — **SETTLED 2026-09-11 by B-58's FAIL: the geometry they serve does not beat a plain support retest, so neither becomes a `buildPlan` default. They stay drawn** | Unchanged and correctly parked: adopting either changes reward-to-risk and therefore the `actionable` flag on plans unrelated to QM. **Changing what a stop means is a measurement, not a default** — so this is gated behind B-58's decision, not independent of it. | Measured, not small |
 
@@ -3826,7 +3826,7 @@ volume window, and the index OI floors were each calibrated on a single day's
 cross-section (or 12 sessions in the index case). All are labelled as such in
 code. **One session is not a distribution** — re-measure before trusting them.
 
-### B-10 · Four Nifty-500 symbols uncached
+### ~~B-10~~ · Four Nifty-500 symbols uncached — **CLOSED 2026-09-11: it was a hardcoded XBRL namespace prefix, not the symbol filter**
 Re-verified 2026-08-07: still **496** symbols cached. `ABBOTINDIA`, `BAYERCROP`,
 `MCX` return *"no filings"* and `BSE` has no cache file, though all four are
 large, liquid and certainly file. First suspect remains the
@@ -3844,6 +3844,56 @@ rewritten since (it sorts on the parsed `date` and dedupes revisions — the old
 recovery. Remaining work is one symbol: check whether `BSE` — the exchange
 itself — is filed under a different NSE symbol string, before touching the
 filter again.
+
+
+**CLOSED 2026-09-11. The five-week diagnosis was wrong in both halves.**
+
+`get_shareholding_filings` was never the problem and NSE was never at fault: the
+API returns **22 filings for `BSE`**, same shape as `RELIANCE`, and the symbol
+filter passes them all. The failure was two layers down, in `parse_shareholding`.
+
+> [!key-insight] The parser was bound to a namespace PREFIX, and the one company it
+> could not read was BSE
+> The fact regexes matched `<in-bse-shp:ShareholdingAsAPercentageOfTotalNumberOfShares`.
+> **BSE's own filings carry the identical element names under `in-capmkt:`.** The
+> element names come from SEBI's taxonomy and are what carry the meaning; the prefix
+> is a per-document alias the filer picks, so binding to one was never right.
+>
+> **It failed in the quietest way available.** No facts matched → `raw` empty →
+> `parse_shareholding` returned `None` → the symbol got no cache file. *One missing
+> file out of ~1,500 looks like a data gap, not a bug* — which is exactly why it
+> survived three re-verification passes and a written diagnosis that pointed at the
+> wrong function. **The item shrank from four symbols to one on its own** (the other
+> three recovered when `get_shareholding_filings` was rewritten), and that shrinkage
+> made the remaining one look even more like an NSE-side quirk.
+
+**Fix:** the prefix is now a wildcard (`[\w.-]+:`) in all three fact regexes, not a
+second hardcoded alias — SEBI has already changed this spelling once (the
+`Catergory` typo recorded in `CATEGORY_MEMBERS`), so the next vintage must not need
+a code change. `xbrli:` / `xbrldi:` stay pinned: those are XBRL's own prefixes,
+fixed by the spec rather than chosen by the filer.
+
+**Result:** `cache/ownership/` goes **751 → 752**. BSE reads 5 quarters, totals
+reconcile, 52 categories parsed on the newest filing. **Regression checked on
+RELIANCE / TCS / HDFCBANK / INFY / ITC: every stored field identical**, so no
+cached symbol moves.
+
+**BSE has no promoter, and that is data rather than a gap.** It is a professionally
+managed exchange — 100% public, no promoter member in the filing at all — so
+`promoter` is `None`. Verified the consumers already guard with
+`isinstance(v, (int, float))` (`dashboard_app`, `hidden_treasures_backtest._n`), so
+it flows through as "no reading" rather than as **0.0**, which would have read as
+*"the promoters sold everything"*. A test pins that contract.
+
+**One observation, deliberately NOT patched:** BSE's `30-JUN-2025` filing states
+public **79.43%** against a total of 100%, where every later quarter states 100%.
+The missing ~20.57% is not reported as a percentage fact anywhere in that document,
+so the parser is faithfully reporting what BSE filed. Inventing the remainder would
+be worse than showing the step. Recorded here so the jump in BSE's public series has
+an explanation attached.
+
+Tests: `tools/test_shareholding_parse.py` (8), covering both prefixes, an unknown
+future prefix, the promoter-less company, and the per-filing percent/fraction scale.
 
 ---
 
