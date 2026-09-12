@@ -474,6 +474,46 @@ checkable — including the motivating case — a scanner
 with **no** verdict file that the index still catches, asserting the finding names
 B-41m — and the guard that an unindexed, genuinely unmeasured scanner stays silent.
 
+## B-72 · A BUY signal on the liquidity-sweep overlay — **BUILT 2026-09-12**
+
+Owner asked whether the sweep overlay ([[#B-68]]) could carry a buy/sell signal. It
+can, and the measured evidence makes the answer **asymmetric** — which is the whole
+design.
+
+**BUY, bullish side only.** `/api/liquidity` now returns the plan
+`scan_liquidity_sweep` already emits — **the scanner's own, not a second plan
+invented for the chart**. That matters for the same reason the pools are not
+recomputed in JS: one definition, one place to be wrong.
+
+**No SELL signal, and that is evidence rather than taste.**
+`scan_liquidity_sweep_bear` is a RISK read whose B-41m arm **never reached
+significance** (−0.16 / −0.18 / −0.32 / −0.56% gross, p 0.11–0.063) and which emits
+**`target=None`**, so no R can be computed for it at all. A SELL arrow would be a
+plan nobody measured. A test pins that reasoning and says what would justify
+revisiting it.
+
+**The signal is gated on the SCANNER firing, not on a sweep existing.**
+`scan_liquidity_sweep` requires the sweep to be ≤ 3 bars old, so an older sweep keeps
+its arrow as CONTEXT and gets no plan. **The difference between "this happened" and
+"act on this" is the gate**, and the marker reflects it: `BUY · SWEEP 320 · wick 85%`
+when fresh, plain `SWEEP 5153 · wick 56%` when not. Verified live on both cases.
+
+> [!warning] The stop is drawn with its own measurement on the label
+> B-41m measured the SIGNAL at **+0.51% @20d (p=0.005) net of costs**. B-41p measured
+> **this exact entry/stop/target at +0.06R**, and found the cause is that a stop
+> exists *at all*, not where it sits — removing it turned −0.059R into **+0.504R**.
+>
+> So the stop line's axis label literally reads **`stop · B-41p: this plan returns
+> +0.06R`**. Drawing a clean stop with no caveat would have shipped, as a chart
+> recommendation, a plan this desk has already measured to return nothing.
+>
+> That is NOT a licence to trade it unstopped: arm C's downside is uncapped where a
+> stopped arm loses at most 1R. A better mean with an unbounded tail is a different
+> risk profile, not a better one.
+
+**No new measurement is owed** — nothing new is claimed. The event was measured, the
+plan was measured, and both numbers now travel with the pixels that draw them.
+
 ## Ingested-research additions (2026-08-20)
 
 Four items below (B-28…B-31) come from a batch of trading videos ingested into the

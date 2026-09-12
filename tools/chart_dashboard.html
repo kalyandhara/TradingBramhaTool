@@ -1334,7 +1334,7 @@ const INDICATOR_DEFS = [
   {key:'falling_wedge', label:'Falling Wedge (converging → breakout)', group:'Price Patterns', color:'#26a69a'},
   {key:'structure_chain', label:'Structure Break Chain (BOS/CHoCH + quality)', group:'Smart Money & Structure', color:'#00e676'},
   {key:'orderblock',   label:'Order Blocks (SMC demand / supply zones)', group:'Smart Money & Structure', color:'#4c9aff', alias:'order block ob smart money smc demand supply zone mitigation institutional'},
-  {key:'liquidity',    label:'Liquidity Pools + Sweep (equal highs/lows · stop run)', group:'Smart Money & Structure', color:'#ff6d00', alias:'liquidity pool sweep stop hunt stop run raid equal highs equal lows resting stops smc trap reclaim'},
+  {key:'liquidity',    label:'Liquidity Pools + Sweep + BUY signal (equal highs/lows · stop run)', group:'Smart Money & Structure', color:'#ff6d00', alias:'liquidity pool sweep stop hunt stop run raid equal highs equal lows resting stops smc trap reclaim'},
   {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab)', group:'Price Patterns', color:'#ba68c8'},
   {key:'projection',   label:'Price Projection (EW + patterns)', group:'Levels & Projection', color:'#4c9aff'},
   {key:'fib',          label:'Fibonacci + Trade Plan (VP + Projection confluence)',
@@ -7863,12 +7863,40 @@ function drawLiquidity(pane) {
     // under the bar pointing up. Naming the direction by what it does to PRICE,
     // not by which pool it took, is the reading error the detector's own
     // docstring warns about.
+    // THE BUY SIGNAL. Drawn only when the SCANNER fires, which gates it on
+    // freshness (max_bars_ago=3). An older sweep keeps its arrow as CONTEXT and
+    // gets no plan: a signal is a claim about now, and the difference between
+    // 'this happened' and 'act on this' is the whole point of the gate.
+    //
+    // There is deliberately NO SELL signal. The bearish sweep is a RISK read whose
+    // B-41m arm never reached significance and which emits target=None, so a SELL
+    // arrow would be a plan nobody measured. Asymmetric evidence, asymmetric UI.
+    // The plan levels, with the MEASUREMENT attached to the stop's own label.
+    // B-41m measured the SIGNAL at +0.51% @20d net; B-41p measured THIS plan at
+    // +0.06R, and found the cause is that a stop exists at all rather than where
+    // it sits. Drawing the stop without that on it would ship a plan the desk has
+    // already measured to return nothing.
+    if (st.data.plan && st.data.plan.stop != null && st.data.plan.target != null) {
+      const pl = st.data.plan;
+      try {
+        st.priceLines.push(pane.series.createPriceLine({
+          price: pl.stop, color: '#ef5350', lineWidth: 1, lineStyle: 2,
+          axisLabelVisible: true, title: 'stop · B-41p: this plan returns +0.06R',
+        }));
+        st.priceLines.push(pane.series.createPriceLine({
+          price: pl.target, color: '#26a69a', lineWidth: 1, lineStyle: 2,
+          axisLabelVisible: true, title: 'target',
+        }));
+      } catch {}
+    }
+    const firedNow = !!(st.data.plan && bullish);
     setPaneMarkers(pane, 'liq', [{
       time: sweep.time,
       position: bullish ? 'belowBar' : 'aboveBar',
       color: bullish ? LIQ_SELLSIDE : LIQ_BUYSIDE,
       shape: bullish ? 'arrowUp' : 'arrowDown',
-      text: `SWEEP ${sweep.level} \u00b7 wick ${Math.round((sweep.wick_ratio || 0) * 100)}%`,
+      text: (firedNow && bullish ? 'BUY · ' : '')
+            + `SWEEP ${sweep.level} · wick ${Math.round((sweep.wick_ratio || 0) * 100)}%`,
     }]);
   } else {
     setPaneMarkers(pane, 'liq', null);
