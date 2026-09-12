@@ -279,12 +279,14 @@ def _scan(paths: list[pathlib.Path], pats: list[str],
 #: This check has no false-positive rate to tune. If it ever fires wrongly, the
 #: verdict file is misnamed, which is worth knowing too.
 #:
-#: SCOPE, stated so it is not mistaken for complete: this cross-references
-#: `cache/b19_verdicts/` ONLY. A scanner measured by a NAMED STUDY rather than
-#: by the B-19 batch leaves no file here -- `Liquidity Sweep` is measured by
-#: B-41m and has no verdict file, so its stale label had to be found by hand.
-#: Extending this to named studies needs a machine-readable index of them,
-#: which does not exist yet.
+#: SCOPE. Two sources, and they cover different halves:
+#:   * `cache/b19_verdicts/` — one file per scanner from the B-19 batch.
+#:   * `named_studies.STUDIES` — the index of every OTHER measurement, built
+#:     2026-09-11 because B-41m measured `Liquidity Sweep` through the shared
+#:     harness and left nothing on disk to associate the two. That is why its
+#:     stale label had to be found by hand.
+#: The index reports its own coverage gaps (CHECK 0b), so a study that is not
+#: indexed is visible rather than silently uncheckable.
 STATE_LABEL = re.compile(r"\bunmeasured\b|\bunvalidated\b|\bnot (?:yet )?measured\b", re.I)
 
 VERDICT_DIR = HERE / "cache" / "b19_verdicts"
@@ -346,6 +348,37 @@ def _verdict_line(name: str, vdir: pathlib.Path | None = None) -> str | None:
     return None
 
 
+def _named_by_subject() -> dict[str, list[dict]]:
+    """The named-study index, or {} if it is unavailable.
+
+    Imported lazily and defensively: this lint must keep working on a tree where
+    `named_studies` is missing or broken, because a lint that dies is a lint that
+    gets removed from the habit.
+    """
+    try:
+        import named_studies
+        return named_studies.by_subject()
+    except Exception:
+        return {}
+
+
+def _scan_uncovered_studies() -> list[tuple[str, int, str]]:
+    """Study files that the named-study index does not claim.
+
+    Not a stale claim — a BLIND SPOT. Each of these is a measurement whose result
+    the lint cannot cross-reference against anything, which is the state every
+    named study was in before 2026-09-11.
+    """
+    try:
+        import named_studies
+        gaps = named_studies.uncovered_tools()
+    except Exception:
+        return []
+    return [("named_studies.py", 0,
+             f"{g} is a study file that no index entry claims — its subjects "
+             f"cannot be checked for stale labels") for g in gaps]
+
+
 def _scan_state_labels(src: pathlib.Path | None = None,
                        vdir: pathlib.Path | None = None) -> list[tuple[str, int, str]]:
     rows: list[tuple[str, int, str]] = []
@@ -353,11 +386,21 @@ def _scan_state_labels(src: pathlib.Path | None = None,
     if not vdir.is_dir():
         return rows
     measured = {f.stem for f in vdir.glob("*.txt") if not f.stem.startswith("_")}
+    named = _named_by_subject()
     for name, lineno, desc in _scanner_descriptions(src):
         if not STATE_LABEL.search(desc):
             continue
         if name.replace(" ", "_") not in measured:
-            continue          # label is accurate — nothing measured it
+            # Not in the B-19 batch — but a NAMED study may still have measured
+            # it. This is the half that let `Liquidity Sweep` sit stale for days.
+            hits = named.get(name)
+            if not hits:
+                continue      # label is accurate — nothing measured it
+            st = hits[0]
+            rows.append(((src or pathlib.Path("scanner_templates.py")).name, lineno,
+                         f"{name!r} claims unmeasured, but {st['item']} measured it "
+                         f"({st['verdict']}): {st.get('headline') or st['source']}"))
+            continue
         verdict = _verdict_line(name, vdir) or "see cache/b19_verdicts/"
         rows.append((( src or pathlib.Path("scanner_templates.py")).name, lineno,
                      f"{name!r} claims unmeasured, but B-19 says: {verdict}"))
@@ -413,12 +456,21 @@ def main(argv: list[str]) -> int:
     print(f"claims_lint — {len(paths)} file(s) under {HERE}")
 
     _report(
-        "0. STATE LABELS CONTRADICTED BY A VERDICT FILE (no judgement needed)",
-        "A scanner describing itself as unmeasured while cache/b19_verdicts/ "
-        "holds its result. Unlike the two checks below, every hit here is "
-        "definitely wrong — the verdict file is ground truth. Paste the numbers "
-        "into the description.",
+        "0. STATE LABELS CONTRADICTED BY A MEASUREMENT (no judgement needed)",
+        "A scanner describing itself as unmeasured while cache/b19_verdicts/ or "
+        "named_studies.STUDIES says otherwise. Unlike the two checks below, every "
+        "hit here is definitely wrong — both sources are ground truth. Paste the "
+        "numbers into the description.",
         _scan_state_labels(),
+    )
+    _report(
+        "0b. STUDY FILES MISSING FROM THE NAMED-STUDY INDEX (a blind spot, not a "
+        "stale claim)",
+        "Each is a measurement whose subjects CHECK 0 cannot cross-reference. "
+        "Index it in named_studies.STUDIES — item, tool, subjects — and its "
+        "scanners become checkable. Expected to be non-empty while the index is "
+        "still being filled in.",
+        _scan_uncovered_studies(),
     )
     _report(
         "1. PROMISSORY CLAIMS (prose that dates itself when a study runs)",

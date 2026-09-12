@@ -402,6 +402,46 @@ BULLISH confluence vote.** A test asserts it stays.
 `tools/test_support_breakdown_retired.py` (6 tests) pins the exclusion, the continued
 registration, the tier, that un-retirement trap, and the description.
 
+## B-71 · The named-study index — closing [[#B-69]]'s stated scope gap — **BUILT 2026-09-11**
+
+B-69 taught `claims_lint` to catch a scanner claiming "Unmeasured." while
+`cache/b19_verdicts/` held its result, and recorded its own limit: **that only works
+for the B-19 batch.** Every other measurement leaves nothing on disk linking a
+subject to a finding. B-41m measured `Liquidity Sweep` at +0.51% @20d **through the
+shared harness** and wrote the result into this page as prose — which is exactly why
+both liquidity-sweep descriptions sat stale for five days and a human had to find
+them.
+
+`tools/named_studies.py` is that missing link: **subjects → the study that measured
+them**, for the measurements outside the batch. CHECK 0 now consults both sources.
+
+> [!key-insight] It is an INDEX, not a results database, and the distinction is the
+> whole design
+> The authoritative numbers stay in the backlog entry each record points at.
+> `headline` is one optional line and `verdict` is a five-value label
+> (POSITIVE / NEGATIVE / NULL / INCONCLUSIVE / MIXED). **Restating full results in the
+> index would create a second place for a figure to go stale**, which is the failure
+> this whole tool exists to reduce — it would have been a lint that rots.
+
+> [!key-insight] The property that stops the index itself rotting
+> `uncovered_tools()` lists every `*_study.py` / `*_backtest.py` in `tools/` that no
+> entry claims, and the lint reports it as **CHECK 0b**. **A new study file is a lint
+> finding until it is indexed.** The index cannot quietly fall behind, because the
+> tree tells on it.
+>
+> That matters more than the seed set. An index maintained by discipline decays; one
+> that reports its own gaps does not.
+
+**Seeded with 11 entries and 14 declared gaps, deliberately.** Entries were written
+only where the mapping was verified against this page in the same session — B-41m,
+B-41p, B-57, B-58, B-22r, B-44, B-44r, B-66, B-59r, B-67, B-34. The remaining 14
+study files are **listed as coverage gaps rather than guessed at**, which is the
+honest state and is visible every run.
+
+Tests: `test_claims_lint.py` grows to 14, including the motivating case — a scanner
+with **no** verdict file that the index still catches, asserting the finding names
+B-41m — and the guard that an unindexed, genuinely unmeasured scanner stays silent.
+
 ## Ingested-research additions (2026-08-20)
 
 Four items below (B-28…B-31) come from a batch of trading videos ingested into the
