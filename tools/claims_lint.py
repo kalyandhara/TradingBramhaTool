@@ -17,7 +17,12 @@ never revisited AFTER it. The wiki gets updated because updating it is the
 deliverable. Code headers and captions do not, because nothing points at them
 when a result lands.
 
-Two checks:
+Three checks:
+
+  0. STATE LABELS — a scanner whose description says "Unmeasured." while a
+     verdict file for that exact scanner sits in `cache/b19_verdicts/`. This is
+     the class checks 1 and 2 are blind to BY DESIGN, and it took ten stale
+     descriptions to notice. See the note above CHECK 3 below.
 
   1. PROMISES  — "unmeasured", "until then", "needs a backtest". These are
      promissory notes. Each one is either still true or was quietly paid off
@@ -253,6 +258,112 @@ def _scan(paths: list[pathlib.Path], pats: list[str],
     return found
 
 
+#: CHECK 3 — a STATE LABEL that was true when written and silently became false.
+#:
+#: The PROMISES list above explains, at length, why bare "unmeasured" is not
+#: matched: this repo uses it as an honest state label and flagging it produced
+#: ~40 correct lines. That reasoning was right and still is.
+#:
+#: What it missed is that the label is CHECKABLE when its subject is a named
+#: scanner, because `cache/b19_verdicts/` is ground truth: a verdict file exists
+#: if and only if B-19 measured that scanner. No vocabulary heuristic, no window,
+#: no judgement — a name either has a verdict or it does not.
+#:
+#: Found 2026-09-11 the expensive way. `Liquidity Sweep` ended its description
+#: with "Unmeasured." while B-41m had measured it at +0.51% @20d (p=0.005), the
+#: only edge on this desk that survives costs. Checking the other eight found ALL
+#: EIGHT stale too — B-19 measured every one on 2026-09-02 and nobody went back to
+#: the text. The worst was `Support Breakdown`, a RISK flag measured at +0.47%
+#: @20d / +1.22% @60d, i.e. pointing the wrong way, described as "Unmeasured."
+#:
+#: This check has no false-positive rate to tune. If it ever fires wrongly, the
+#: verdict file is misnamed, which is worth knowing too.
+#:
+#: SCOPE, stated so it is not mistaken for complete: this cross-references
+#: `cache/b19_verdicts/` ONLY. A scanner measured by a NAMED STUDY rather than
+#: by the B-19 batch leaves no file here -- `Liquidity Sweep` is measured by
+#: B-41m and has no verdict file, so its stale label had to be found by hand.
+#: Extending this to named studies needs a machine-readable index of them,
+#: which does not exist yet.
+STATE_LABEL = re.compile(r"\bunmeasured\b|\bunvalidated\b|\bnot (?:yet )?measured\b", re.I)
+
+VERDICT_DIR = HERE / "cache" / "b19_verdicts"
+
+
+def _scanner_descriptions(path: pathlib.Path | None = None) -> list[tuple[str, int, str]]:
+    """(name, lineno, description) for every entry in scanner_templates.SCANNERS.
+
+    Parsed with `ast` rather than imported, for the same reason the rest of this
+    file parses: importing scanner_templates costs pandas/numpy and can fail for
+    reasons that have nothing to do with linting prose. Implicitly concatenated
+    string literals — which is how every long description is written — fold into a
+    single Constant, so they read back whole.
+    """
+    path = path or HERE / "scanner_templates.py"
+    if not path.exists():
+        return []
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:
+        return []
+    out: list[tuple[str, int, str]] = []
+    for node in ast.walk(tree):
+        # BOTH forms, and the annotated one is the one that matters: the real
+        # registry is written `SCANNERS: dict[str, dict] = {`, which is an
+        # AnnAssign and NOT an Assign. Handling only Assign made this function
+        # return zero descriptions from the only file it exists to read, while
+        # the synthetic test fixture (a plain `SCANNERS = {`) passed. The check
+        # reported "(none)" and that looked exactly like success.
+        if isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        elif isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        else:
+            continue
+        if not (any(getattr(t, "id", None) == "SCANNERS" for t in targets)
+                and isinstance(node.value, ast.Dict)):
+            continue
+        for key, val in zip(node.value.keys, node.value.values):
+            if not (isinstance(key, ast.Constant) and isinstance(key.value, str)):
+                continue
+            if not isinstance(val, ast.Dict):
+                continue
+            for k2, v2 in zip(val.keys, val.values):
+                if (isinstance(k2, ast.Constant) and k2.value == "description"
+                        and isinstance(v2, ast.Constant) and isinstance(v2.value, str)):
+                    out.append((key.value, key.lineno, v2.value))
+    return out
+
+
+def _verdict_line(name: str, vdir: pathlib.Path | None = None) -> str | None:
+    """The scanner's row from the B-19 summary table, so the fix is one paste."""
+    table = (vdir or VERDICT_DIR) / "_summary_table.txt"
+    if not table.exists():
+        return None
+    for line in table.read_text(encoding="utf-8", errors="replace").splitlines():
+        if line.startswith(name + " ") or line.startswith(name + "	"):
+            return re.sub(r"\s+", " ", line).strip()
+    return None
+
+
+def _scan_state_labels(src: pathlib.Path | None = None,
+                       vdir: pathlib.Path | None = None) -> list[tuple[str, int, str]]:
+    rows: list[tuple[str, int, str]] = []
+    vdir = vdir or VERDICT_DIR
+    if not vdir.is_dir():
+        return rows
+    measured = {f.stem for f in vdir.glob("*.txt") if not f.stem.startswith("_")}
+    for name, lineno, desc in _scanner_descriptions(src):
+        if not STATE_LABEL.search(desc):
+            continue
+        if name.replace(" ", "_") not in measured:
+            continue          # label is accurate — nothing measured it
+        verdict = _verdict_line(name, vdir) or "see cache/b19_verdicts/"
+        rows.append((( src or pathlib.Path("scanner_templates.py")).name, lineno,
+                     f"{name!r} claims unmeasured, but B-19 says: {verdict}"))
+    return sorted(rows, key=lambda r: r[1])
+
+
 def _dedupe(rows: list[tuple[str, int, str]]) -> list[tuple[str, int, str]]:
     """One row per (file, line), keeping the longest snippet.
 
@@ -301,6 +412,14 @@ def main(argv: list[str]) -> int:
     paths = _targets(argv)
     print(f"claims_lint — {len(paths)} file(s) under {HERE}")
 
+    _report(
+        "0. STATE LABELS CONTRADICTED BY A VERDICT FILE (no judgement needed)",
+        "A scanner describing itself as unmeasured while cache/b19_verdicts/ "
+        "holds its result. Unlike the two checks below, every hit here is "
+        "definitely wrong — the verdict file is ground truth. Paste the numbers "
+        "into the description.",
+        _scan_state_labels(),
+    )
     _report(
         "1. PROMISSORY CLAIMS (prose that dates itself when a study runs)",
         "Each is either still true, or was paid off in the backlog and the file "

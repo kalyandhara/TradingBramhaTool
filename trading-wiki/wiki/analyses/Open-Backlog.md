@@ -314,6 +314,56 @@ route and runs without the reloader, so a server started before this commit retu
 404 for the new route. Verified on a second instance (`--port 5002`), which is what
 that flag exists for; the live 5001 instance needs a restart to pick it up.
 
+## B-69 · `claims_lint`'s blind spot — a state label that silently went false — **CLOSED 2026-09-11**
+
+Raised by [[#B-68]], which found **ten** scanner descriptions claiming
+"Unmeasured." after B-19 had measured every one. `claims_lint` could not see them,
+**by design**: its own header explains that bare "unmeasured" is NOT matched because
+this repo uses it as an honest state label and flagging it returned ~40 correct
+lines. *"A lint that is mostly right is one you learn to skim."* That reasoning was
+correct and still is.
+
+**What it missed is that the label is CHECKABLE when its subject is a named
+scanner**, because `cache/b19_verdicts/` is ground truth: a verdict file exists if
+and only if B-19 measured that scanner. No vocabulary heuristic, no context window,
+no judgement — a name either has a verdict or it does not. CHECK 0 now reports those,
+with the B-19 summary row attached so the fix is a paste rather than a hunt.
+
+> [!key-insight] Two bugs in the new check, and the SECOND one is the lesson
+> **1. The regex matched nothing.** `` written through a shell heredoc became a
+> literal **backspace byte** (``); the pattern compiled fine and matched
+> nothing. **This repo has hit that exact bug before** — the 2026-09-06 log records
+> it for `un-?backtested`, in this same file. Caught here only because a test
+> asserted the positive case.
+>
+> **2. The check was INERT on the only file it guards, and looked like a pass.**
+> The walk handled `ast.Assign`, but the real registry is written
+> `SCANNERS: dict[str, dict] = {` — an **AnnAssign**. It parsed **zero** descriptions
+> from `scanner_templates.py`, printed "(none)", and that is indistinguishable from
+> success. The synthetic test fixture used a plain `SCANNERS = {` and passed happily.
+>
+> **A check that reports nothing looks exactly like a check that is working.** Both
+> the MFI parity test (B-45) and this one needed a *vacuity guard* before their
+> silence meant anything, and that is now the third time this session the same
+> shape has appeared — after B-58's equivalence check, which agreed because both
+> sides shared a bug.
+
+**It immediately found two more that the manual sweep of B-68 missed** — `HM Buy
+(Hilega Milega)` (**+0.63% @20d**, 3,442 signals, the largest count in the batch)
+and `Bearish Reversal Candle` (−0.46% / −0.82%). Both escaped a hand grep for
+`Unmeasured."`: one is lowercase mid-sentence after a semicolon, the other is
+followed by an em-dash. **The lint beat the human pass on its first real run**,
+which is the argument for it.
+
+**Scope, stated so it is not mistaken for complete:** this cross-references
+`cache/b19_verdicts/` ONLY. A scanner measured by a NAMED STUDY leaves no file
+there — `Liquidity Sweep` is measured by B-41m and has no verdict file, so its stale
+label had to be found by hand in B-68. Extending this to named studies needs a
+machine-readable index of them, which does not exist yet.
+
+`tools/test_claims_lint.py` (9 tests) proves the positive case on synthetic input,
+pins the two correct-silence cases, and guards the vacuity.
+
 ## Ingested-research additions (2026-08-20)
 
 Four items below (B-28…B-31) come from a batch of trading videos ingested into the
