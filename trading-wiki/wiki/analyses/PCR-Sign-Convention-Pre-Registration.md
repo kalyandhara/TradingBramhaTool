@@ -1,7 +1,7 @@
 ---
-title: "PCR Sign Convention — Test Design (pre-registered)"
+title: "PCR Sign Convention — Test Design (pre-registered) — MEASURED NULL"
 category: analysis
-tags: [pcr, sentiment-index, pre-registration, sign-convention, options, backtest, b-22r]
+tags: [pcr, sentiment-index, pre-registration, sign-convention, options, backtest, b-22r, measured-null]
 created: 2026-09-11
 updated: 2026-09-11
 sources: 0
@@ -148,6 +148,82 @@ score 20 points.
   weight is the roadmap's weight-fitting step and is a separate question.
 - A confirmed sign is not an edge claim for the composite sentiment score, which
   [[analyses/Open-Backlog#B-66]] already measured as non-discriminating.
+
+## RESULT — measured 2026-09-11: **NULL**
+
+Run the same day the design above was committed, `tools/pcr_sign_study.py`, against
+543 backfilled sessions.
+
+    panel: 483 scored sessions (2024-09-27 to 2026-09-10)
+           543 cached PCR rows, 0 below the liquidity floor, 60 consumed as warm-up
+
+**Controls first, because they decide whether the result means anything.**
+
+| Control | Result | |
+|---|---|---|
+| Planted effect | delta +3.864%, p = 0.0002 | **PASS** — the detector can see an effect |
+| Shuffle (200 permutations) | mean abs delta 0.154%, 47.5% as extreme as observed | **PASS** |
+
+**Primary — the pre-registered decision horizon, 5d, 70/30 blend:**
+
+| | mean forward 5d |
+|---|---|
+| Top tercile of the factor (n=160) | **−0.005%** |
+| Bottom tercile (n=160) | **−0.139%** |
+| **delta** | **+0.135%**, p_boot **0.583** (Welch t +0.67, p 0.50) |
+
+**483 scored sessions against a pre-registered floor of 200, so this is a null and
+not an underpowered result** — the distinction [[analyses/Open-Backlog#B-58]] earned
+at 53 events.
+
+### The direction is not backwards. It is unsupported.
+
+This is the outcome worth stating precisely, because it is NOT the B-44r outcome
+everyone expected. GEX was measured **inverted** and retired. PCR's shipped
+trend-following sign came out **positive** — the same direction the code assumed —
+and nowhere near significant. So there is nothing to flip, and nothing to keep.
+
+### Descriptive grid — decides nothing, reported in full
+
+| arm | 1d | 5d | 10d | 20d |
+|---|---|---|---|---|
+| blend (70/30) | +0.183% (p 0.044) | **+0.135% (p 0.583)** | +0.008% (p 0.983) | −0.131% (p 0.799) |
+| level only | +0.119% (p 0.201) | +0.004% (p 0.988) | −0.143% (p 0.739) | −0.185% (p 0.761) |
+| slope only | +0.079% (p 0.379) | −0.081% (p 0.606) | +0.161% (p 0.405) | +0.101% (p 0.674) |
+
+**The 1d blend cell is nominally significant at p = 0.044 and is NOT being promoted.**
+It is one of twelve cells tested, it was pre-registered as non-decisive before anyone
+saw it, and at +0.183% it is smaller than the round-trip cost of acting on it. Writing
+that down is the whole reason the grid was pre-registered as descriptive: this is
+exactly the cell a desk goes looking for after a disappointing primary.
+
+Note also what the grid does NOT show: no arm improves on the blend. The 0.7/0.3
+split is not hiding an informative half behind an uninformative one — both halves are
+quiet.
+
+### Consequence applied, exactly as pre-registered
+
+`PCR_SCORES = False` in `sentiment_index.py`. Factor 5 is **computed, reported and
+recorded, but excluded from the composite**; the other four weights renormalise to
+100, which is what the module already does for a stale sector feed. Verified live:
+`--peek` returns the factor with `state: NOT_CHECKED`, `sign_verdict: "null"`,
+`scores: false`, and the composite computes on the remaining weight.
+
+**It is not deleted.** A null is not evidence of harm (the standing rule since
+[[analyses/Open-Backlog#B-66]]), the PCR level is still shown, and the baseline keeps
+filling, so a future pre-registered test has data waiting. Flipping `PCR_SCORES` back
+requires a **new** pre-registered study that finds signal — not a re-reading of this
+one.
+
+### What the desk gained even though the answer was "nothing"
+
+- The **60-session wait was an illusion** and is now permanently gone: 543 sessions
+  are cached, so any future PCR question starts with two years of history instead of
+  a three-month wait.
+- The sentiment index now carries **one fewer unmeasured assertion**. Four of its
+  five factors were measured non-discriminating on 2026-09-10 and kept their weight;
+  this is the first one where the null actually cost the factor its vote, because
+  the consequence was agreed before the number was known.
 
 ## Related Pages
 
