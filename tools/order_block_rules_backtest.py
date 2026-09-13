@@ -35,6 +35,7 @@ import json
 import sys
 import time
 from collections import defaultdict
+from pathlib import Path
 
 import numpy as np
 import pandas as pd
@@ -49,6 +50,11 @@ PIVOT_LEN = 6         # the /api/order_blocks daily default
 MAX_FILL_BARS = 40    # Rule A: how long a pending limit entry stays live
 MAX_HOLD_BARS = 60    # …and how long the filled trade may run
 THIN = 30             # below this, directional-only (harness convention)
+
+# Raw per-run output. cache/, not the tools/ root: each pass writes ~6.5MB and the
+# repo .gitignore swallows *.json, so writing beside the source would pile up
+# invisibly. Same home as pmax_plan_study's cardinality cache.
+OUT_DIR = Path(__file__).resolve().parent / "cache" / "ob_rules"
 
 
 # ── direction-aware plan simulation ──────────────────────────────────────────
@@ -374,5 +380,8 @@ if __name__ == "__main__":
         print(f"\n### {tag}", flush=True)
         res = run(syms, stride=stride, cost_model=cm)
         print(report(res))
-        with open(f"ob_rules_{tag.lower()}.json", "w", encoding="utf-8") as f:
+        OUT_DIR.mkdir(parents=True, exist_ok=True)
+        out = OUT_DIR / f"ob_rules_{tag.lower()}.json"
+        with open(out, "w", encoding="utf-8") as f:
             json.dump(res, f, default=str)
+        print(f"raw results -> {out}", flush=True)
