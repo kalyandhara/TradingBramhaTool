@@ -1,14 +1,22 @@
 ---
-title: "Order Block Rules — Test Design (pre-registered)"
+title: "Order Block Rules — Test Design (pre-registered) — MEASURED: 1 null, 1 inversion, 1 undecidable"
 category: analysis
-tags: [order-blocks, smc, pre-registration, backtest, b-76, target-selection, stacked-bias, rejection-entry]
+tags: [order-blocks, smc, pre-registration, backtest, b-76, target-selection, stacked-bias, rejection-entry, measured-null, inverted-signal]
 created: 2026-09-13
 updated: 2026-09-13
 sources: 0
-related: [analyses/Backtest-Harness, analyses/PCR-Sign-Convention-Pre-Registration, concepts/Order-Blocks, analyses/Open-Backlog]
+related: [analyses/Order-Block-Rules-Measured, analyses/Backtest-Harness, analyses/PCR-Sign-Convention-Pre-Registration, concepts/Order-Blocks, analyses/Open-Backlog]
 ---
 
 # Order Block Rules — Test Design (pre-registered)
+
+> [!done] Measured 2026-09-13 — results in [[analyses/Order-Block-Rules-Measured]]
+> Rule A **null** (ladder collapsed to flat 2R) · Rule B **INVERTED** (gauge retired,
+> B-44r precedent) · Rule C **undecidable at this n** (both markers kept, no claim).
+> Two of the three decision-rule branches below fired exactly as written. The third
+> did not: Rule C's "collapse to one marker" branch was **withheld**, because the
+> test that would have triggered it is too underpowered to justify deleting a
+> distinction — see that page.
 
 **Written before any forward return has been looked at.** B-76 shipped three
 rules onto the Order Block chart overlay in a single session, each chosen from

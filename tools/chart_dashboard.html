@@ -878,19 +878,6 @@ html, body {
 
 /* FVG actionable-signal panel — order 2, right after the MA Bias lens:
    a live signal is read through the bias, then acted on. */
-/* Order-block trend-strength gauge. Same card shell as .fvg-info (and reuses its
-   .fvg-row / .fvg-power / .fvg-why children) — only the head/body class names
-   differ so the two cards collapse independently. */
-.ob-info {
-  order: 6;
-  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
-  padding: 7px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
-  max-width: 260px; display: none;
-}
-.ob-info .ob-head { cursor: pointer; font-weight: 700; user-select: none; }
-.ob-info.collapsed .ob-body { display: none; }
-.ob-info hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
-
 .fvg-info {
   order: 2;
   background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
@@ -5039,7 +5026,8 @@ function drawFVG(pane) {
 // cached per (symbol,tf,lastBar); zones drawn as boxes on obCanvas. Unmitigated
 // (fresh) zones are bold; mitigated ones fade to a dashed faint box (kept for
 // context). Green = bullish demand, red = bearish supply. Fresh zones also draw
-// their server-computed TP/SL rails + R:R (see /api/order_blocks). Redrawn from
+// their server-computed TP/SL rails — a plan MEASURED at ~0R (p=0.76), drawn as
+// the detector's geometry and not as a recommendation. Redrawn from
 // the cached
 // zones on pan/zoom (drawOrderBlocks) so it doesn't re-fetch on every frame.
 function ensureObState(pane) {
@@ -5049,11 +5037,7 @@ function ensureObState(pane) {
 
 function clearOrderBlocks(pane) {
   const st = pane.ob;
-  if (st) {
-    st.zones = null; st.retests = null; st.lastFetchKey = null;
-    // The bias gauge is a DOM card, so clearing the canvas alone would strand it.
-    if (st.biasEl) { st.biasEl.remove(); st.biasEl = null; }
-  }
+  if (st) { st.zones = null; st.retests = null; st.lastFetchKey = null; }
   if (pane.obCanvas) {
     const ctx = pane.obCanvas.getContext('2d');
     ctx.clearRect(0, 0, pane.obCanvas.width, pane.obCanvas.height);
@@ -5190,11 +5174,11 @@ function drawOrderBlocks(pane) {
         ctx.setLineDash([5, 4]);
         ctx.font = 'bold 9px system-ui, sans-serif';
         ctx.textAlign = 'left';
-        // R:R is folded into the SL label rather than drawn as its own tag — a
-        // separate right-aligned tag collides with this one on a narrow zone,
-        // and zones near the right edge are exactly the narrow ones.
+        // No R:R on the label: the target is a flat 2R since the ladder was
+        // measured away (2026-09-13), so the ratio is a constant and printing it
+        // every time would dress a definition up as a finding.
         [[yTgt, '#26a69a', `TP ${z.target}`],
-         [yStop, '#ef5350', `SL ${z.stop} · R:R ${z.rr}`]].forEach(([yy, col, tag]) => {
+         [yStop, '#ef5350', `SL ${z.stop}`]].forEach(([yy, col, tag]) => {
           ctx.strokeStyle = col;
           ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(xEnd, yy); ctx.stroke();
           ctx.fillStyle = col;
@@ -5248,68 +5232,25 @@ function drawOrderBlocks(pane) {
     });
   }
 
-  renderObBias(pane);
 }
 
-// ── Trend-strength gauge (stacked-zone bias) ──────────────────────────────────
-// The SMC read that stacked same-direction zones confirm a stronger institutional
-// lean. Counts LIVE zones only (fresh + mitigated — a violated zone is a level
-// that failed, and counting it would invert the signal it actually gave), and
-// weights fresh ones double since an untouched zone is the stronger evidence.
-// Card, not a canvas badge, so it follows the pane's card-mode like .fvg-info.
-function renderObBias(pane) {
-  const st = pane.ob;
-  if (!st) return;
-  if (!st.biasEl) {
-    st.biasEl = document.createElement('div');
-    st.biasEl.className = 'ob-info';
-    mountCard(pane, st.biasEl, 'stack');
-    st.biasEl.addEventListener('click', ev => {
-      if (!ev.target.closest('.ob-head')) return;
-      st.biasCollapsed = !st.biasCollapsed;
-      st.biasEl.classList.toggle('collapsed', st.biasCollapsed);
-    });
-  }
-  const el = st.biasEl;
-  const live = (st.zones || []).filter(z => z.state !== 'violated');
-  if (!live.length) { el.style.display = 'none'; return; }
-
-  const tally = d => {
-    const zs = live.filter(z => z.dir === d);
-    const fresh = zs.filter(z => z.state === 'fresh').length;
-    return {n: zs.length, fresh, weight: fresh * 2 + (zs.length - fresh)};
-  };
-  const bullT = tally('bull'), bearT = tally('bear');
-  const lean = bullT.weight - bearT.weight;
-  const [label, col] = lean > 0 ? ['BULLISH', '#26a69a']
-                     : lean < 0 ? ['BEARISH', '#ef5350']
-                                : ['BALANCED', '#8b949e'];
-  const stack = Math.max(bullT.n, bearT.n);
-  // "Stacked" is the cheat-sheet claim: >=2 same-side zones and a clear lean.
-  const stacked = stack >= 2 && lean !== 0;
-
-  const row = (name, t) =>
-    `<div class="fvg-row"><span>${name}</span><span>${t.n} zone${t.n === 1 ? '' : 's'}` +
-    `${t.fresh ? ` · ${t.fresh} fresh` : ''}</span></div>`;
-
-  el.innerHTML =
-    `<div class="ob-head"><span class="fvg-badge" style="background:${col}">${label}` +
-    `${stacked ? ` ${stack}×` : ''}</span> <span style="color:var(--text-muted)">▾</span></div>` +
-    `<div class="ob-body">` +
-      row('Demand (bull)', bullT) + row('Supply (bear)', bearT) +
-      `<div class="fvg-power" style="--buy:${Math.round(100 * bullT.weight /
-         Math.max(1, bullT.weight + bearT.weight))}%"></div>` +
-      `<div class="fvg-why">${stacked
-         ? `${stack} stacked ${lean > 0 ? 'demand' : 'supply'} zones — the SMC read is a ` +
-           `stronger institutional lean that way. Fresh zones count double.`
-         : `No meaningful stack: zones are ${lean === 0 ? 'evenly matched' : 'too few'} ` +
-           `to call a bias from stacking alone.`}</div>` +
-      `<hr><div class="proj-disclaimer">Zone count, not a measured edge — ` +
-      `this repo has not backtested stacked-zone bias.</div>` +
-    `</div>`;
-  el.classList.toggle('collapsed', st.biasCollapsed);
-  el.style.display = 'block';
-}
+// ── Trend-strength gauge — RETIRED 2026-09-13 ─────────────────────────────────
+// The .ob-info card tallied live zones per side, weighted fresh ones double, and
+// printed a direction ("BULLISH 3×") on the SMC claim that stacked same-direction
+// zones confirm a stronger institutional lean.
+//
+// It was measured and it pointed the WRONG WAY. Over LIQUID_50 / 1500d, raw 20d
+// forward return was +0.70% after a bullish lean and +2.19% after a bearish one,
+// against a +0.958% baseline — so both sides lost to their direction-matched
+// benchmark (-0.26pp and -1.23pp). Clustered by SYMBOL rather than by bar, which
+// is the honest unit when a lean persists for weeks, the inversion held: bullish
+// -0.373pp negative on 38/50 names, bearish -2.361pp negative on 40/44.
+//
+// Retired outright rather than relabelled, per the GEX precedent in
+// analyses/Open-Backlog#B-44r. A gauge that is confidently backwards is worse
+// than no gauge. The zone boxes themselves are unaffected — they are the
+// detector's own geometry, and only the verdict drawn on top of them was wrong.
+// See analyses/Order-Block-Rules-Measured.
 
 // ── %R exhaustion main-chart overlay (candle arrows + confluence + tint) ──────
 // Extends the %R Trend Exhaustion indicator onto the price chart: the ▲/▼ flips

@@ -913,8 +913,9 @@ def api_order_blocks():
     Each block carries its zone (low/high), BOS/CHOCH label, ATR displacement,
     break-bar volume multiple, and mitigation state — bar indices mapped to
     timestamps, with the box spanning the OB candle to its mitigation bar (or the
-    right edge while still unmitigated), plus an entry/stop/target/rr trade plan on
-    every live zone that clears 1R. {"order_blocks": []} when none exist."""
+    right edge while still unmitigated), plus an entry/stop/target trade plan on
+    every live zone — measured at ~0R, see detect_order_blocks.
+    {"order_blocks": []} when none exist."""
     symbol    = request.args.get("symbol", "").strip().upper()
     timeframe = request.args.get("timeframe", "1d")
     bars_n    = min(int(request.args.get("bars", 300)), 3000)
@@ -963,12 +964,13 @@ def api_order_blocks():
             "vol_x":      b["vol_x"],
             "buy_pct":    b.get("buy_pct", 50.0),
             "sell_pct":   b.get("sell_pct", 50.0),
-            # Trade plan — present only on live zones that clear 1R (see
-            # detect_order_blocks). The overlay draws stop/target lines from these.
+            # Trade plan — present on every live zone (see detect_order_blocks).
+            # The overlay draws stop/target lines from these. No `rr`: the target
+            # is a flat 2R since 2026-09-13, so a ratio would be a constant
+            # dressed up as information.
             "entry":      b.get("entry"),
             "stop":       b.get("stop"),
             "target":     b.get("target"),
-            "rr":         b.get("rr"),
         })
 
     retest_out = []

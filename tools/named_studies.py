@@ -63,6 +63,33 @@ VERDICTS = ("POSITIVE", "NEGATIVE", "NULL", "INCONCLUSIVE", "MIXED", "UNRECORDED
 #: headline — one short line; optional, and never the full result
 STUDIES: tuple[dict, ...] = (
     {
+        "item": "B-76", "tool": "order_block_rules_backtest.py",
+        "date": "2026-09-13",
+        # Subjects are the three OVERLAY rules, deliberately NOT "Order Block
+        # Retest". That scanner was measured separately by the harness (-0.74%
+        # @20d) and naming it here would let CHECK 0 read this study as a verdict
+        # on the scanner, which it is not -- same B-73p0 reasoning.
+        "subjects": ("order block target ladder", "order block stacked-zone bias",
+                     "order block rejection entry"),
+        "verdict": "NEGATIVE",
+        "headline": ("target ladder is a NULL (paired -0.019R / -0.058R vs flat 2R, "
+                     "p=0.76 / 0.26) so it collapsed to 2R; the stacked-zone bias gauge "
+                     "is INVERTED (bullish lean +0.70% vs bearish +2.19% raw @20d, "
+                     "t=-9.05; clustered by symbol -0.373pp on 38/50 and -2.361pp on "
+                     "40/44) and was RETIRED; early vs confirmed retest undecidable "
+                     "(p=0.26, n~175/arm) so no difference is claimed"),
+        "source": "analyses/Order-Block-Rules-Measured",
+    },
+    {
+        "item": "B-76c", "tool": "ob_bias_clustered.py", "date": "2026-09-13",
+        "subjects": ("order block stacked-zone bias",),
+        "verdict": "NEGATIVE",
+        "headline": ("the clustering control B-76's pooled test could not supply: with "
+                     "the SYMBOL as the unit (50 clusters) the inversion holds -- bullish "
+                     "lean -0.373pp negative on 38/50 names, bearish -2.361pp on 40/44"),
+        "source": "analyses/Order-Block-Rules-Measured",
+    },
+    {
         "item": "B-41m", "tool": None, "date": "2026-09-06",
         "subjects": ("Liquidity Sweep", "Liquidity Sweep Bear"),
         "verdict": "MIXED",

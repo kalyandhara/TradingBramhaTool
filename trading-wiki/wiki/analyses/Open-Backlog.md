@@ -5468,6 +5468,61 @@ rows whose stored sector is the empty string — bad data, not an unmapped pair.
 
 
 
+## B-76 · The three order-block overlay rules — **MEASURED 2026-09-13: one null, one INVERSION, one undecidable**
+
+The chart's Order Block overlay gained a trade plan, a stacked-zone bias gauge and
+an early rejection entry in one session, each taken from the conventional SMC
+playbook. [[analyses/Backtest-Harness]] had already measured the **Order Block
+Retest** scanner at **−0.74% @20d**, so three new rules were being drawn as precise
+numbers on top of a substrate already known to be a null.
+
+Pre-registered first ([[analyses/Order-Block-Rules-Pre-Registration]]), results in
+[[analyses/Order-Block-Rules-Measured]]. LIQUID_50 / 1500d, point-in-time, stride 5,
+baseline **+0.958% @20d**.
+
+| Rule | Measured | Consequence |
+|---|---|---|
+| **A** target ladder (opposing zone → displacement → 2R) | **null** — +0.007R / −0.032R / +0.026R, paired Δ p=0.76 and p=0.26 | **ladder collapsed to flat 2R**; `rr` removed from payload and label |
+| **B** stacked-zone bias gauge | **INVERTED** — bullish lean +0.70% vs bearish +2.19% raw @20d, t=−9.05 | **gauge retired outright** |
+| **C** early vs confirmed retest | **undecidable** — t=−1.12, p=0.26 at n≈175/arm | both kept; no difference claimed |
+
+> [!key-insight] The targets differed; the expectancy did not
+> Target-hit rates of **26% / 38% / 34%** prove the ladder's three steps were
+> picking genuinely different distances — and expectancy was flat across all of
+> them anyway. The ladder bought the appearance of structure, not a better exit.
+> Precedent [[#B-74]]: keep the geometry, drop the claim.
+
+**The inversion, and the control that earned the retirement.** Pooled, the bias
+gauge was backwards at p=2.3e−19 — but a stacked lean *persists*, so those 8,948
+observations are nowhere near independent and that p-value could not carry a
+retirement on its own. Re-run with the **symbol as the unit** (50 clusters,
+`tools/ob_bias_clustered.py`), the inversion held: bullish lean **−0.373pp**
+negative on **38/50** names, bearish lean **−2.361pp** negative on **40/44**.
+Mechanism, inferred not tested: in a constructive tape a bearish stack accumulates
+after a run of weakness, i.e. the gauge was most bearish at local bottoms.
+
+Retired, not flipped — the stack count also failed to grade monotonically
+(1× −0.220, 2× −0.373, 3×+ +0.323), so there was no stable structure to invert.
+Same treatment as GEX in [[#B-44r]].
+
+**One decision-rule branch was deliberately WITHHELD.** The pre-registration said
+*"C — no difference ⇒ collapse to one marker"*. The test returned p=0.26 at n≈175
+per arm, which cannot resolve the 0.92pp difference observed. Applying the branch
+would have deleted a distinction on the strength of a test too weak to see it, so
+both markers stay and neither is claimed better. **Recording this because the honest
+failure mode of pre-registration is mechanical application of a branch whose
+precondition — a test with the power to distinguish — was never met.**
+
+**NOT promoted to anything.** The surviving 2R plan is **+0.026R (p=0.76)** —
+indistinguishable from zero — and both retest kinds sit at or below baseline. The
+rails stay drawn as the detector's geometry with the measured number in the code
+header. This is a calibration, not a discovery.
+
+**Still owed:** a regime split on B (does the inversion hold in a flat or falling
+window — the [[#B-74r]] shape), and a wider universe for C if that distinction ever
+becomes load-bearing. Neither blocks the consequences already applied.
+
+
 ## Outcome (fill in later)
 
 ## Related Pages

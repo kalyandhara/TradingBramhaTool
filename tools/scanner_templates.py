@@ -5623,10 +5623,10 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
     side of the zone) are dropped — they are no longer valid order blocks.
 
     Every non-violated zone also carries a trade plan — ``entry`` (the zone edge
-    price retests), ``stop`` just beyond the far side, ``target`` at the nearest
-    still-live opposing zone (falling back to the displacement extension, then
-    2R), and ``rr`` — dropped when it cannot clear 1R. NOTE: the target rule is
-    the conventional SMC playbook, not a measured edge; it has not been backtested.
+    price retests), ``stop`` just beyond the far side, and ``target`` at a flat 2R.
+    MEASURED 2026-09-13 at **~0R (+0.026R, p=0.76, n=270)**: the plan is
+    indistinguishable from zero, and the opposing-zone / displacement target rules
+    it replaced measured no better. See ``analyses/Order-Block-Rules-Measured``.
 
     Returns a list of dicts (bar indices, mapped to timestamps by the caller),
     most-recent last, capped at ``max_blocks``. Bearish is the exact mirror of
@@ -5796,15 +5796,22 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
 
     # ── Trade plan per live zone ─────────────────────────────────────────────
     # Entry at the edge price returns to (demand top / supply bottom), stop just
-    # beyond the far side of the zone, target at the NEAREST still-live opposing
-    # zone — the "next major zone" of the SMC playbook. With nothing opposing in
-    # the way it falls back to the displacement extension, and failing that a flat
-    # 2R. Violated zones get no plan (the level already failed), and anything that
-    # cannot clear 1R is left planless rather than drawn as a bad trade.
-    bull_edges = sorted(b["high"] for b in out
-                        if b["dir"] == "bull" and b["state"] != "violated")
-    bear_edges = sorted(b["low"] for b in out
-                        if b["dir"] == "bear" and b["state"] != "violated")
+    # beyond the far side of the zone, target a flat 2R.
+    #
+    # MEASURED 2026-09-13 — see ``analyses/Order-Block-Rules-Measured``. This was
+    # a three-step ladder: nearest still-live opposing zone, else the displacement
+    # extension, else 2R. All three were measured PAIRED — same zone, same entry,
+    # same stop, only the target varying — over 270 filled plans on LIQUID_50 /
+    # 1500d. Against flat 2R the opposing-zone target came in at **-0.019R
+    # (p=0.76)** and the displacement target at **-0.058R (p=0.26)**. The three
+    # targets are genuinely different distances (target-hit 26.3% / 38.1% / 33.7%)
+    # and expectancy is flat across all of them, so the ladder bought nothing but
+    # the appearance of structure. Collapsed to the simplest rule that measured
+    # the same thing.
+    #
+    # The expectancy itself is **~0R (+0.026R, p=0.76)** — a plan measured
+    # indistinguishable from zero, not a plan with an edge. Nothing here licenses
+    # trading it. ``ext`` stays on the block so that measurement is reproducible.
     for ob in out:
         if ob["state"] == "violated":
             continue
@@ -5814,26 +5821,17 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
             risk = entry - stop
             if risk <= 0:
                 continue
-            above = [p for p in bear_edges if p > entry + risk]
-            target = min(above) if above else max(ob.get("ext", entry),
-                                                  entry + 2.0 * risk)
-            rr = (target - entry) / risk
+            target = entry + 2.0 * risk
         else:
             entry = ob["low"]
             stop = round(ob["high"] * 1.005, 2)
             risk = stop - entry
             if risk <= 0:
                 continue
-            below = [p for p in bull_edges if p < entry - risk]
-            target = max(below) if below else min(ob.get("ext", entry),
-                                                  entry - 2.0 * risk)
-            rr = (entry - target) / risk
-        if rr < 1.0:
-            continue
+            target = entry - 2.0 * risk
         ob["entry"]  = round(entry, 2)
         ob["stop"]   = stop
         ob["target"] = round(target, 2)
-        ob["rr"]     = round(rr, 2)
 
     return out, retests
 
