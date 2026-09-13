@@ -5624,9 +5624,11 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
 
     Every non-violated zone also carries a trade plan — ``entry`` (the zone edge
     price retests), ``stop`` just beyond the far side, and ``target`` at a flat 2R.
-    MEASURED 2026-09-13 at **~0R (+0.026R, p=0.76, n=270)**: the plan is
-    indistinguishable from zero, and the opposing-zone / displacement target rules
-    it replaced measured no better. See ``analyses/Order-Block-Rules-Measured``.
+    MEASURED 2026-09-13 at **-0.095R net of costs** (+0.026R gross, n=271): the
+    plan does not survive its own costs, and the opposing-zone / displacement
+    target rules it replaced measured no better — the displacement target was the
+    only one significantly negative (-0.164R, p=0.037). Drawn as the detector's
+    geometry, not as a recommendation. See ``analyses/Order-Block-Rules-Measured``.
 
     Returns a list of dicts (bar indices, mapped to timestamps by the caller),
     most-recent last, capped at ``max_blocks``. Bearish is the exact mirror of
@@ -5807,11 +5809,13 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
     # targets are genuinely different distances (target-hit 26.3% / 38.1% / 33.7%)
     # and expectancy is flat across all of them, so the ladder bought nothing but
     # the appearance of structure. Collapsed to the simplest rule that measured
-    # the same thing.
+    # the same thing. Net of NSE delivery costs the ordering is unchanged and the
+    # paired deltas stay null (-0.030R p=0.64, -0.069R p=0.19).
     #
-    # The expectancy itself is **~0R (+0.026R, p=0.76)** — a plan measured
-    # indistinguishable from zero, not a plan with an edge. Nothing here licenses
-    # trading it. ``ext`` stays on the block so that measurement is reproducible.
+    # The expectancy itself is **-0.095R net** of costs (+0.026R gross, p=0.27 /
+    # p=0.76) — a plan that does not survive its own costs, let alone carry an
+    # edge. Nothing here licenses trading it. ``ext`` stays on the block so the
+    # measurement is reproducible.
     for ob in out:
         if ob["state"] == "violated":
             continue

@@ -5026,8 +5026,8 @@ function drawFVG(pane) {
 // cached per (symbol,tf,lastBar); zones drawn as boxes on obCanvas. Unmitigated
 // (fresh) zones are bold; mitigated ones fade to a dashed faint box (kept for
 // context). Green = bullish demand, red = bearish supply. Fresh zones also draw
-// their server-computed TP/SL rails — a plan MEASURED at ~0R (p=0.76), drawn as
-// the detector's geometry and not as a recommendation. Redrawn from
+// their server-computed TP/SL rails — a plan MEASURED at -0.095R net of costs
+// (+0.026R gross), drawn as the detector's geometry and not as a recommendation. Redrawn from
 // the cached
 // zones on pan/zoom (drawOrderBlocks) so it doesn't re-fetch on every frame.
 function ensureObState(pane) {
@@ -5242,7 +5242,8 @@ function drawOrderBlocks(pane) {
 // It was measured and it pointed the WRONG WAY. Over LIQUID_50 / 1500d, raw 20d
 // forward return was +0.70% after a bullish lean and +2.19% after a bearish one,
 // against a +0.958% baseline — so both sides lost to their direction-matched
-// benchmark (-0.26pp and -1.23pp). Clustered by SYMBOL rather than by bar, which
+// benchmark (-0.26pp and -1.23pp gross; -0.26pp and -1.84pp net, i.e. costs make
+// the bearish side WORSE). Clustered by SYMBOL rather than by bar, which
 // is the honest unit when a lean persists for weeks, the inversion held: bullish
 // -0.373pp negative on 38/50 names, bearish -2.361pp negative on 40/44.
 //

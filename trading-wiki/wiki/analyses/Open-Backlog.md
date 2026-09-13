@@ -5482,9 +5482,9 @@ baseline **+0.958% @20d**.
 
 | Rule | Measured | Consequence |
 |---|---|---|
-| **A** target ladder (opposing zone → displacement → 2R) | **null** — +0.007R / −0.032R / +0.026R, paired Δ p=0.76 and p=0.26 | **ladder collapsed to flat 2R**; `rr` removed from payload and label |
-| **B** stacked-zone bias gauge | **INVERTED** — bullish lean +0.70% vs bearish +2.19% raw @20d, t=−9.05 | **gauge retired outright** |
-| **C** early vs confirmed retest | **undecidable** — t=−1.12, p=0.26 at n≈175/arm | both kept; no difference claimed |
+| **A** target ladder (opposing zone → displacement → 2R) | **null** — paired Δ p=0.76 gross / 0.64 net; and the surviving 2R plan is **−0.095R NET** (+0.026R gross) | **ladder collapsed to flat 2R**; `rr` removed from payload and label |
+| **B** stacked-zone bias gauge | **INVERTED** — bullish lean +0.70% vs bearish +2.19% raw @20d, t=−9.05 gross / −12.79 net | **gauge retired outright** |
+| **C** early vs confirmed retest | **undecidable** — p=0.26 on *both* cost bases at n≈175/arm | both kept; no difference claimed |
 
 > [!key-insight] The targets differed; the expectancy did not
 > Target-hit rates of **26% / 38% / 34%** prove the ladder's three steps were
@@ -5513,8 +5513,9 @@ both markers stay and neither is claimed better. **Recording this because the ho
 failure mode of pre-registration is mechanical application of a branch whose
 precondition — a test with the power to distinguish — was never met.**
 
-**NOT promoted to anything.** The surviving 2R plan is **+0.026R (p=0.76)** —
-indistinguishable from zero — and both retest kinds sit at or below baseline. The
+**NOT promoted to anything.** The surviving 2R plan is **−0.095R net of costs**
+(+0.026R gross) — flat before costs, negative after them — and both retest kinds
+sit at or below baseline. The
 rails stay drawn as the detector's geometry with the measured number in the code
 header. This is a calibration, not a discovery.
 

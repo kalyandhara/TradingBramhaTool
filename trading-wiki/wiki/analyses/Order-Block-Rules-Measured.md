@@ -20,14 +20,19 @@ decision rule were fixed before any forward return was looked at**, and every
 consequence below was written down in advance of the number that triggered it.
 
 **Universe** `backtest.LIQUID_50`, 1500d daily, stride 5, point-in-time slices,
-entry at next bar's open, pessimistic tie-break. **Baseline @20d = +0.958%** — a
-constructive tape, which is exactly why "edge" means *against that*, not against zero.
+entry at next bar's open, pessimistic tie-break. **Baseline @20d = +0.958% gross /
++0.662% net** (`COST_INDIAN`) — a constructive tape, which is exactly why "edge"
+means *against that*, not against zero.
+
+Both cost bases were run in full. **Net changes no sign and no consequence**, and
+it makes Rule A worse and Rule B's bearish side worse — so every headline below is
+quoted net where net exists, with gross alongside.
 
 ## Headline
 
 | Rule | Claim as shipped | Measured | Consequence applied |
 |---|---|---|---|
-| **A** target ladder | nearest opposing zone beats the fallbacks | **null** — all three ≈ 0R, no separation | **ladder collapsed to flat 2R** |
+| **A** target ladder | nearest opposing zone beats the fallbacks | **null** — no separation between the three; all negative net | **ladder collapsed to flat 2R** |
 | **B** stacked-zone bias | stacked zones confirm the lean | **INVERTED** — points the wrong way, 40/44 names | **gauge retired** |
 | **C** early vs confirmed | they are different entries | **undecidable at this n** | both kept, difference not claimed |
 
@@ -38,14 +43,20 @@ constructive tape, which is exactly why "edge" means *against that*, not against
 374 plans, 270 filled (72% fill rate on a 40-bar limit window). Measured
 **paired** — same zone, same entry, same stop, only the target varying.
 
-| Target rule | R-expectancy | target-hit | stopped |
-|---|---|---|---|
-| nearest opposing zone | **+0.007R** (p=0.94) | 26.3% | 70% |
-| displacement extension | −0.032R (p=0.68) | 38.1% | 61% |
-| flat 2R | +0.026R (p=0.76) | 33.7% | 65% |
+| Target rule | R gross | R **net** | target-hit | stopped |
+|---|---|---|---|---|
+| nearest opposing zone | +0.007R (p=0.94) | **−0.125R** (p=0.22) | 26.2% | 70% |
+| displacement extension | −0.032R (p=0.68) | **−0.164R** (p=0.037) | 38.0% | 61% |
+| flat 2R | +0.026R (p=0.76) | **−0.095R** (p=0.27) | 33.9% | 65% |
 
-Paired against flat 2R: opposing-zone **−0.019R (p=0.76)**, displacement
-**−0.058R (p=0.26)**.
+Paired against flat 2R — gross **−0.019R (p=0.76)** / **−0.058R (p=0.26)**; net
+**−0.030R (p=0.64)** / **−0.069R (p=0.19)**. Null on both cost bases.
+
+> [!warning] Net of costs the plan is not merely flat — it is negative
+> Gross, the surviving 2R plan reads as indistinguishable from zero. Net of NSE
+> delivery costs it is **−0.095R**, and the displacement target it replaced is the
+> only arm significantly negative (−0.164R, p=0.037). A plan that does not survive
+> its own costs is not a plan, and the code header now says so in those words.
 
 > [!key-insight] The targets differ; the expectancy does not
 > Target-hit rates of 26% / 38% / 34% prove the three rules were picking
@@ -59,27 +70,28 @@ the simplest rule (2R) and say why"*). `detect_order_blocks` now sets
 payload and from the chart label: with a flat 2R the ratio is a constant, and
 printing a constant every time dresses a definition up as a finding.
 
-**What this does NOT license.** The surviving plan is **+0.026R, p=0.76** — a plan
-measured *indistinguishable from zero*. The rails stay drawn as the detector's own
-geometry, and the number is now in the code header so the next reader cannot mistake
-it for an edge. This is the [[analyses/Open-Backlog#B-74]] move: keep the geometry,
-drop the claim.
+**What this does NOT license.** The surviving plan is **−0.095R net** (+0.026R
+gross) — flat before costs and negative after them. The rails stay drawn as the
+detector's own geometry, and the number is now in the code header and docstring so
+the next reader cannot mistake it for an edge. This is the
+[[analyses/Open-Backlog#B-74]] move: keep the geometry, drop the claim.
 
 ---
 
 ## Rule B — stacked-zone bias: inverted, and retired
 
-Raw 20-day forward return, against a +0.958% baseline:
+Raw 20-day forward return, against a +0.958% gross / +0.662% net baseline:
 
-| Gauge said | Raw fwd return @20d | n | Edge vs **direction-matched** benchmark |
+| Gauge said | Raw fwd @20d (gross / net) | n | Edge vs **direction-matched** benchmark |
 |---|---|---|---|
-| BULLISH | **+0.696%** | 8,948 | **−0.262pp** (p=4.7e−4) |
-| BEARISH | **+2.186%** | 2,143 | **−1.229pp** (p=9.4e−17) |
+| BULLISH | +0.696% / **+0.398%** | 8,948 / 8,921 | −0.262pp / **−0.264pp** (p=4.2e−4) |
+| BEARISH | +2.186% / **+2.501%** | 2,143 / 2,164 | −1.229pp / **−1.839pp** (p=5.6e−35) |
 
 Direct test of the pre-registered H1 (*bullish lean → higher forward return than
-bearish lean*): **t = −9.05, p = 2.3e−19, difference −1.49pp in the wrong
-direction.** When the gauge said BEARISH, the tape went **up more** than when it
-said BULLISH.
+bearish lean*): **t = −9.05, p = 2.3e−19** gross and **t = −12.79, p = 1.3e−36**
+net, difference **−1.49pp / −2.10pp in the wrong direction.** When the gauge said
+BEARISH, the tape went **up more** than when it said BULLISH — and costs widen the
+gap, because they penalise the (wrong) short side hardest.
 
 ### The control that mattered
 
@@ -114,18 +126,20 @@ relabelled, not inverted-and-kept — **retired**, exactly as GEX was in
 > Flipping an inverted signal is fitting the sign to one window. The stack count
 > also failed to grade monotonically (1× −0.220, 2× −0.373, 3×+ +0.323), so there
 > is no stable structure to invert — only a number that happened to lean the wrong
-> way in this tape.
+> way in this tape. Net, the grading is worse: **1× −0.713, 2× −0.592, 3×+ +0.009** —
+> every bucket at or below zero, and the *largest* stack the least wrong of the three.
 
 ---
 
 ## Rule C — early vs confirmed: undecidable at this sample
 
-| Kind | fwd @20d | edge vs baseline | R | n |
+| Kind | fwd @20d net | edge vs baseline net | R gross / net | n |
 |---|---|---|---|---|
-| early (wick rejection) | −0.103% | −1.061pp (p=0.07) | +0.102R (p=0.45) | 189 |
-| confirmed (cross) | +0.821% | −0.136pp (p=0.82) | −0.052R (p=0.54) | 160 |
+| early (wick rejection) | −0.408% | −1.070pp (p=0.07) | +0.102R / **−0.006R** | 190 |
+| confirmed (cross) | +0.528% | −0.134pp (p=0.82) | −0.052R / **−0.119R** | 160 |
 
-early vs confirmed @20d: **t = −1.12, p = 0.26**.
+early vs confirmed @20d: **t = −1.12, p = 0.26** gross; **t = −1.14, p = 0.26** net.
+The test is stable across cost bases and still cannot separate them.
 
 **This is a failure to reject, not a demonstration of equivalence.** At n≈175 per
 arm the test cannot resolve a difference of the size observed (0.92pp), so the
@@ -156,7 +170,7 @@ pessimistic tie-break.
 ## Action Taken
 
 - ✅ **Rule A ladder collapsed to flat 2R**; `rr` removed from payload and label;
-  the ~0R measurement written into the code header.
+  the **−0.095R net** measurement written into the code header and the docstring.
 - ✅ **Rule B gauge retired outright**, tombstone comment carries the numbers.
 - ⏭ **Rule C left standing, undecided.** Reopen with a wider universe if the
   distinction is ever load-bearing; it is not today.

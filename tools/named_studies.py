@@ -72,12 +72,14 @@ STUDIES: tuple[dict, ...] = (
         "subjects": ("order block target ladder", "order block stacked-zone bias",
                      "order block rejection entry"),
         "verdict": "NEGATIVE",
-        "headline": ("target ladder is a NULL (paired -0.019R / -0.058R vs flat 2R, "
-                     "p=0.76 / 0.26) so it collapsed to 2R; the stacked-zone bias gauge "
-                     "is INVERTED (bullish lean +0.70% vs bearish +2.19% raw @20d, "
-                     "t=-9.05; clustered by symbol -0.373pp on 38/50 and -2.361pp on "
-                     "40/44) and was RETIRED; early vs confirmed retest undecidable "
-                     "(p=0.26, n~175/arm) so no difference is claimed"),
+        "headline": ("target ladder is a NULL (paired -0.019R gross / -0.030R net vs "
+                     "flat 2R, p=0.76 / 0.64) so it collapsed to 2R -- and the surviving "
+                     "2R plan is -0.095R NET of costs; the stacked-zone bias gauge is "
+                     "INVERTED (bullish lean +0.70% vs bearish +2.19% raw @20d, t=-9.05 "
+                     "gross / -12.79 net; clustered by symbol -0.373pp on 38/50 and "
+                     "-2.361pp on 40/44) and was RETIRED; early vs confirmed retest "
+                     "undecidable (p=0.26 both cost bases, n~175/arm) so no difference "
+                     "is claimed"),
         "source": "analyses/Order-Block-Rules-Measured",
     },
     {
