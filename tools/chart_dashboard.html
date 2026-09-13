@@ -878,6 +878,19 @@ html, body {
 
 /* FVG actionable-signal panel — order 2, right after the MA Bias lens:
    a live signal is read through the bias, then acted on. */
+/* Order-block trend-strength gauge. Same card shell as .fvg-info (and reuses its
+   .fvg-row / .fvg-power / .fvg-why children) — only the head/body class names
+   differ so the two cards collapse independently. */
+.ob-info {
+  order: 6;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
+  padding: 7px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
+  max-width: 260px; display: none;
+}
+.ob-info .ob-head { cursor: pointer; font-weight: 700; user-select: none; }
+.ob-info.collapsed .ob-body { display: none; }
+.ob-info hr { border: none; border-top: 1px solid var(--border); margin: 4px 0; }
+
 .fvg-info {
   order: 2;
   background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
@@ -5036,7 +5049,11 @@ function ensureObState(pane) {
 
 function clearOrderBlocks(pane) {
   const st = pane.ob;
-  if (st) { st.zones = null; st.retests = null; st.lastFetchKey = null; }
+  if (st) {
+    st.zones = null; st.retests = null; st.lastFetchKey = null;
+    // The bias gauge is a DOM card, so clearing the canvas alone would strand it.
+    if (st.biasEl) { st.biasEl.remove(); st.biasEl = null; }
+  }
   if (pane.obCanvas) {
     const ctx = pane.obCanvas.getContext('2d');
     ctx.clearRect(0, 0, pane.obCanvas.width, pane.obCanvas.height);
@@ -5189,7 +5206,11 @@ function drawOrderBlocks(pane) {
     }
   });
 
-  // ── Retest signal arrows (BigBeluga-style cross markers) ──────────────
+  // ── Retest markers ────────────────────────────────────────────────────
+  // Two shapes, because they are two different entries (see detect_order_blocks):
+  //   confirmed → solid ✕ (Pine's shape.cross) — price has left the zone.
+  //   early     → hollow diamond — the wick rejection AT the zone, earlier and
+  //               looser, so it must not read as the same signal at a glance.
   if (st.retests && st.retests.length) {
     st.retests.forEach(rt => {
       const xPos = ts.timeToCoordinate(rt.time);
@@ -5197,27 +5218,97 @@ function drawOrderBlocks(pane) {
       const bull = rt.dir === 'bull';
       const yAnchor = pane.series.priceToCoordinate(rt.price);
       if (yAnchor === null) return;
+      const early = rt.kind === 'early';
       const yOff = bull ? 12 : -12;  // below bar for bull, above for bear
       const cx = xPos, cy = yAnchor + yOff;
-
-      // Draw a cross marker (✕ shape, matching Pine's shape.cross)
+      const col = bull ? '0,255,204' : '255,0,127';
       const sz = 5;
-      ctx.strokeStyle = bull ? 'rgba(0,255,204,0.9)' : 'rgba(255,0,127,0.9)';
+
+      ctx.strokeStyle = `rgba(${col},${early ? 0.75 : 0.9})`;
       ctx.lineWidth = 2;
       ctx.beginPath();
-      ctx.moveTo(cx - sz, cy - sz); ctx.lineTo(cx + sz, cy + sz);
-      ctx.moveTo(cx + sz, cy - sz); ctx.lineTo(cx - sz, cy + sz);
+      if (early) {
+        ctx.moveTo(cx, cy - sz); ctx.lineTo(cx + sz, cy);
+        ctx.lineTo(cx, cy + sz); ctx.lineTo(cx - sz, cy);
+        ctx.closePath();
+      } else {
+        ctx.moveTo(cx - sz, cy - sz); ctx.lineTo(cx + sz, cy + sz);
+        ctx.moveTo(cx + sz, cy - sz); ctx.lineTo(cx - sz, cy + sz);
+      }
       ctx.stroke();
 
       // Small label
       ctx.font = 'bold 8px system-ui, sans-serif';
-      ctx.fillStyle = bull ? 'rgba(0,255,204,0.85)' : 'rgba(255,0,127,0.85)';
+      ctx.fillStyle = `rgba(${col},${early ? 0.7 : 0.85})`;
       ctx.textAlign = 'center';
-      const pctLabel = bull ? `B${rt.buy_pct ?? ''}%` : `S${rt.sell_pct ?? ''}%`;
+      const pct = bull ? rt.buy_pct : rt.sell_pct;
+      const pctLabel = (early ? 'rej ' : '') + (bull ? 'B' : 'S') + (pct ?? '') + '%';
       ctx.fillText(pctLabel, cx, cy + (bull ? 14 : -8));
       ctx.textAlign = 'left';
     });
   }
+
+  renderObBias(pane);
+}
+
+// ── Trend-strength gauge (stacked-zone bias) ──────────────────────────────────
+// The SMC read that stacked same-direction zones confirm a stronger institutional
+// lean. Counts LIVE zones only (fresh + mitigated — a violated zone is a level
+// that failed, and counting it would invert the signal it actually gave), and
+// weights fresh ones double since an untouched zone is the stronger evidence.
+// Card, not a canvas badge, so it follows the pane's card-mode like .fvg-info.
+function renderObBias(pane) {
+  const st = pane.ob;
+  if (!st) return;
+  if (!st.biasEl) {
+    st.biasEl = document.createElement('div');
+    st.biasEl.className = 'ob-info';
+    mountCard(pane, st.biasEl, 'stack');
+    st.biasEl.addEventListener('click', ev => {
+      if (!ev.target.closest('.ob-head')) return;
+      st.biasCollapsed = !st.biasCollapsed;
+      st.biasEl.classList.toggle('collapsed', st.biasCollapsed);
+    });
+  }
+  const el = st.biasEl;
+  const live = (st.zones || []).filter(z => z.state !== 'violated');
+  if (!live.length) { el.style.display = 'none'; return; }
+
+  const tally = d => {
+    const zs = live.filter(z => z.dir === d);
+    const fresh = zs.filter(z => z.state === 'fresh').length;
+    return {n: zs.length, fresh, weight: fresh * 2 + (zs.length - fresh)};
+  };
+  const bullT = tally('bull'), bearT = tally('bear');
+  const lean = bullT.weight - bearT.weight;
+  const [label, col] = lean > 0 ? ['BULLISH', '#26a69a']
+                     : lean < 0 ? ['BEARISH', '#ef5350']
+                                : ['BALANCED', '#8b949e'];
+  const stack = Math.max(bullT.n, bearT.n);
+  // "Stacked" is the cheat-sheet claim: >=2 same-side zones and a clear lean.
+  const stacked = stack >= 2 && lean !== 0;
+
+  const row = (name, t) =>
+    `<div class="fvg-row"><span>${name}</span><span>${t.n} zone${t.n === 1 ? '' : 's'}` +
+    `${t.fresh ? ` · ${t.fresh} fresh` : ''}</span></div>`;
+
+  el.innerHTML =
+    `<div class="ob-head"><span class="fvg-badge" style="background:${col}">${label}` +
+    `${stacked ? ` ${stack}×` : ''}</span> <span style="color:var(--text-muted)">▾</span></div>` +
+    `<div class="ob-body">` +
+      row('Demand (bull)', bullT) + row('Supply (bear)', bearT) +
+      `<div class="fvg-power" style="--buy:${Math.round(100 * bullT.weight /
+         Math.max(1, bullT.weight + bearT.weight))}%"></div>` +
+      `<div class="fvg-why">${stacked
+         ? `${stack} stacked ${lean > 0 ? 'demand' : 'supply'} zones — the SMC read is a ` +
+           `stronger institutional lean that way. Fresh zones count double.`
+         : `No meaningful stack: zones are ${lean === 0 ? 'evenly matched' : 'too few'} ` +
+           `to call a bias from stacking alone.`}</div>` +
+      `<hr><div class="proj-disclaimer">Zone count, not a measured edge — ` +
+      `this repo has not backtested stacked-zone bias.</div>` +
+    `</div>`;
+  el.classList.toggle('collapsed', st.biasCollapsed);
+  el.style.display = 'block';
 }
 
 // ── %R exhaustion main-chart overlay (candle arrows + confluence + tint) ──────

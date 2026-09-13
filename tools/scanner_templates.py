@@ -5738,37 +5738,57 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
     out = out[-max_blocks:]
 
     # ── Retest signals ──────────────────────────────────────────────────────
-    # Pine: bullish retest = low crosses above OB top (price reclaims demand),
-    # bearish retest = high crosses below OB bottom (price breaks supply).
-    # Gated by buy%/sell% threshold (default 50%). Only on non-violated zones.
+    # Two entries per zone, and they are NOT the same trade:
+    #   * ``early``     — the rejection itself: a bar whose wick pierced the zone
+    #                     but which CLOSED back outside it, without breaching the
+    #                     far side. Fires at the tap, so it is earlier and looser.
+    #   * ``confirmed`` — Pine's cross: bullish = low crosses above the OB top
+    #                     (price reclaims demand), bearish = high crosses below
+    #                     the OB bottom. Fires after price has left the zone.
+    # Both gated by the buy%/sell% threshold (default 50%), first of each kind
+    # only, on non-violated zones. See ``concepts/Order-Blocks``.
     retests: list[dict] = []
     for ob in out:
         if ob["state"] == "violated":
             continue
-        end = ob["vio_idx"] if ob["vio_idx"] is not None else n
         buy_ratio = ob.get("buy_pct", 50.0) / 100.0
+        side_ratio = buy_ratio if ob["dir"] == "bull" else 1.0 - buy_ratio
+        if side_ratio < 0.5:
+            continue
+        end = ob["vio_idx"] if ob["vio_idx"] is not None else n
+        got_early = got_confirmed = False
         for m in range(ob["break_idx"] + 1, end):
+            lo_m, hi_m, cl_m = float(l.iloc[m]), float(h.iloc[m]), float(c.iloc[m])
             if ob["dir"] == "bull":
-                if buy_ratio < 0.5:
-                    continue
-                prev_low = float(l.iloc[m - 1]) if m > 0 else float(l.iloc[m])
-                cur_low = float(l.iloc[m])
-                if prev_low <= ob["high"] and cur_low > ob["high"]:
-                    retests.append({"dir": "bull", "idx": m,
-                                    "price": ob["high"],
+                if (not got_early and ob["low"] <= lo_m <= ob["high"]
+                        and cl_m > ob["high"]):
+                    retests.append({"dir": "bull", "idx": m, "kind": "early",
+                                    "price": lo_m,
                                     "buy_pct": ob.get("buy_pct", 50.0)})
-                    break
+                    got_early = True
+                if not got_confirmed:
+                    prev_low = float(l.iloc[m - 1]) if m > 0 else lo_m
+                    if prev_low <= ob["high"] and lo_m > ob["high"]:
+                        retests.append({"dir": "bull", "idx": m, "kind": "confirmed",
+                                        "price": ob["high"],
+                                        "buy_pct": ob.get("buy_pct", 50.0)})
+                        got_confirmed = True
             else:
-                sell_ratio = 1.0 - buy_ratio
-                if sell_ratio < 0.5:
-                    continue
-                prev_high = float(h.iloc[m - 1]) if m > 0 else float(h.iloc[m])
-                cur_high = float(h.iloc[m])
-                if prev_high >= ob["low"] and cur_high < ob["low"]:
-                    retests.append({"dir": "bear", "idx": m,
-                                    "price": ob["low"],
+                if (not got_early and ob["low"] <= hi_m <= ob["high"]
+                        and cl_m < ob["low"]):
+                    retests.append({"dir": "bear", "idx": m, "kind": "early",
+                                    "price": hi_m,
                                     "sell_pct": ob.get("sell_pct", 50.0)})
-                    break
+                    got_early = True
+                if not got_confirmed:
+                    prev_high = float(h.iloc[m - 1]) if m > 0 else hi_m
+                    if prev_high >= ob["low"] and hi_m < ob["low"]:
+                        retests.append({"dir": "bear", "idx": m, "kind": "confirmed",
+                                        "price": ob["low"],
+                                        "sell_pct": ob.get("sell_pct", 50.0)})
+                        got_confirmed = True
+            if got_early and got_confirmed:
+                break
 
     # ── Trade plan per live zone ─────────────────────────────────────────────
     # Entry at the edge price returns to (demand top / supply bottom), stop just
