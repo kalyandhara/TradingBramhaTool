@@ -139,7 +139,15 @@ def _bar_at(days, close, on: dt.date):
 
 
 def probe(mcap_max: float = MCAP_MAX_CR, verbose: bool = True,
-          only: list[str] | None = None) -> dict:
+          only: list[str] | None = None, bars_dir: Path | None = None) -> dict:
+    # Which price panel to count against. `cache/cardinality` is the SHARED
+    # large-cap panel behind B-43/B-58/B-65/B-74; `cache/multibagger_bars` is the
+    # small-cap panel this screen's own ceiling implies. A switch rather than a
+    # rewrite, because rewriting the shared panel would move every study standing
+    # on it without touching their code.
+    global BARS
+    if bars_dir is not None:
+        BARS = bars_dir
     own_syms = {os.path.basename(f)[:-5] for f in glob.glob(str(OWN / "*.json"))}
     bar_syms = {os.path.basename(f)[:-8] for f in glob.glob(str(BARS / "*_1d.json"))}
     pit_syms = {os.path.basename(f)[:-5]
@@ -284,8 +292,12 @@ def main() -> None:
     ap.add_argument("--mcap-max", type=float, default=MCAP_MAX_CR,
                     help="market-cap ceiling in Cr (sensitivity check)")
     ap.add_argument("--symbols", nargs="*", help="restrict to these names")
+    ap.add_argument("--smallcap-panel", action="store_true",
+                    help="count against cache/multibagger_bars instead of the "
+                         "shared cache/cardinality panel")
     args = ap.parse_args()
-    probe(args.mcap_max, only=args.symbols)
+    probe(args.mcap_max, only=args.symbols,
+          bars_dir=(HERE / "cache" / "multibagger_bars") if args.smallcap_panel else None)
 
 
 if __name__ == "__main__":
