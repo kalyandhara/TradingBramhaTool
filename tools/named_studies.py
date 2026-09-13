@@ -78,6 +78,21 @@ STUDIES: tuple[dict, ...] = (
         "source": "analyses/Open-Backlog#B-41p",
     },
     {
+        "item": "B-73p0", "tool": "multibagger_conviction_study.py",
+        "date": "2026-09-13",
+        # The subject is the CORE, deliberately NOT "multibagger_candidates".
+        # Naming the screen here would make CHECK 0 read it as measured, and the
+        # study drops four of its seven legs -- the B-65r borrowing error, made
+        # by a lint instead of by prose. The screen stays unmeasured on purpose.
+        "subjects": ("institutional conviction core (FII+DII into small caps)",),
+        "verdict": "NEGATIVE",
+        "headline": ("pooled edge -2.07% @63d / -4.85% @126d vs an equal-length hold "
+                     "of the same name (n=1,112, CIs exclude 0) -- but the sign FLIPS "
+                     "by era (-3.27 / +5.24 / -8.19 @63d), so the honest claim is NO "
+                     "STABLE EDGE; raw returns (+7.0 / +13.4 / +37.7%) are the market's"),
+        "source": "analyses/Open-Backlog#B-73",
+    },
+    {
         "item": "B-74", "tool": "pmax_plan_study.py", "date": "2026-09-12",
         # PMax is a chart indicator, not a registered scanner, so the subject is
         # the component label -- same convention B-58 uses for detect_quasimodo.

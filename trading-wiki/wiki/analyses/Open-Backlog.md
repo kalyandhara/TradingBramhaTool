@@ -723,6 +723,80 @@ is gated on a backfill decision, and the cost is measured, not guessed.
 provably so on this desk's data.** What Phase 0 delivered is the count that says
 which question is answerable, and at what price.
 
+#### Phase 0 · the conviction core **MEASURED 2026-09-13 — NEGATIVE pooled, and the sign FLIPS by era**
+
+Owner authorised the backfill. It ran **178.6 minutes** over 495 names, landing
+**5,169 new quarters** (489 ok, 6 with no filings, 0 errors; 286 names at the full
+20 quarters), alongside a 6-year price panel of 493 small/micro-caps in a cache of
+its own. The pre-registered study then ran on **1,112 events across 397 symbols**,
+median cap **₹7,426 Cr**, window **2022-10-10 → 2026-08-21**. Both deciding cells
+clear the floor of 200 by 5×.
+
+| horizon | n | raw | **edge** | 95% CI on the edge | decides |
+|---|---|---|---|---|---|
+| 63d (~3 mo) | 1,072 | +7.02% | **−2.07%** | [−3.50%, −0.62%] excludes 0 | yes |
+| 126d (~6 mo) | 1,021 | +13.43% | **−4.85%** | [−7.20%, −2.39%] excludes 0 | yes |
+| 252d (~12 mo) | 946 | +37.67% | −1.46% | [−6.07%, +3.14%] includes 0 | no, reported |
+
+> [!key-insight] The raw column is the whole argument for [[#B-74]]'s correction, in one table
+> Raw, this screen looks **excellent**: +7% in three months, +13% in six, **+37.7%
+> in twelve**. Measured against an equal-length window on *the same name*, every
+> one of those is **negative or indistinguishable from zero**. The screen was not
+> picking good windows; it was picking names in a market that rose ~39% per year.
+> **B-74's mis-specified bar was caught a day earlier on a different study, and
+> without that correction this one would have reported a large positive edge and
+> been believed.**
+
+##### The era split changes what may be CLAIMED, and it was not pre-registered
+
+Added after the first run, as description, partition stated first per [[#B-74r]]:
+three chronological windows of equal event count, edge basis.
+
+| win | n (63d) | period | raw | edge | 95% CI |
+|---|---|---|---|---|---|
+| 1 | 357 | 2022-10 → 2023-04 | +5.52% | −3.27% | [−5.82%, −0.69%] excl 0 |
+| 2 | 358 | 2023-04 → 2024-10 | +14.62% | **+5.24%** | [+2.71%, +7.73%] **excl 0** |
+| 3 | 357 | 2024-10 → 2026-06 | +0.92% | **−8.19%** | [−10.58%, −5.78%] excl 0 |
+
+The 126d rows behave the same, more sharply: **−6.52% / +8.63% / −16.69%**, every
+CI excluding zero.
+
+**So the pooled NEGATIVE is an average over a SIGN FLIP.** Window 2 is positive
+with a CI excluding zero; window 3 is severely negative. The defensible claim is
+therefore **not** "institutional buying into small caps underperforms" but:
+
+> **There is no stable edge here. Pooled, the signal underperforms the names' own
+> drift at 3 and 6 months; split by era it changes sign, so any single-period
+> reading of it — positive or negative — is a reading of the period.**
+
+This is [[#B-41w]]'s lesson arriving from the other direction: that study asked
+whether a POSITIVE result survived era-splitting, and it did. Here a **negative**
+one does not survive as a stable claim. **Era-splitting is where results die
+regardless of which sign they carry.**
+
+##### Survivorship, and for once it cuts toward the result
+
+The universe is **TODAY's** Smallcap-250 + Microcap-250 membership, so a name that
+was small in 2022 and **grew out of those indices** by 2026 is absent — and that is
+precisely the outcome this screen hunts. **The winners are the names most likely to
+be missing**, so the true edge is plausibly less negative than measured. Stated and
+not corrected: no free source fixes it, which is `point_in_time_quality`'s own
+recorded caveat. It does not rescue the screen — it bounds how hard the negative
+may be read.
+
+##### What this does NOT say, pre-registered and binding
+
+**Nothing here promotes or condemns `multibagger_candidates`.** This study drops
+**four of its seven legs** and measures months where the word means years. The
+shipped screen stays UNMEASURED and stays a candidate list. The one thing the desk
+may now say is narrower: **the conviction core it is built around does not carry a
+stable 3–6 month edge, and its raw returns are the market's, not the screen's.**
+
+**A wart fixed in the same pass:** the report called the bootstrap twice for one
+quantity, so the table and the decision printed two slightly different intervals
+([−3.50, −0.62] and [−3.52, −0.58]). Both were valid draws, which is exactly why it
+had to go — a reader cannot tell a resampling wobble from a bug. Computed once now.
+
 **Phase 1 — decide the smallcap cadence** (a/b/c above). A decision, not a build.
 
 **Phase 2 — the SME data probe.** Answers whether ask #4 is possible at all before

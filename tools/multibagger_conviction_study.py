@@ -209,6 +209,32 @@ def _boot(rows: list[dict], key: str, rng) -> tuple[float, float]:
     return float(np.percentile(draws, 2.5)), float(np.percentile(draws, 97.5))
 
 
+def era_split(ev: list[dict], h: int, rng, n_eras: int = 3) -> None:
+    """Chronological windows of EQUAL EVENT COUNT, on the edge basis.
+
+    Added AFTER the first run and not part of the pre-registration -- B-74r is
+    the precedent and so is its rule: state the partition, because B-41w's prior
+    once named a "window 2" that mapped onto nothing. This is DESCRIPTION; the
+    pre-registered decision above stands on the pooled number.
+    """
+    rows = sorted([r for r in ev if r.get(f"e{h}") is not None], key=lambda r: r["on"])
+    if len(rows) < n_eras * MIN_EVENTS:
+        print(f"  {h}d era split: {len(rows)} events cannot fill {n_eras} windows "
+              f"of {MIN_EVENTS} — not run")
+        return
+    edges = [round(k * len(rows) / n_eras) for k in range(n_eras + 1)]
+    print(f"  {h}d, by era:")
+    for k in range(n_eras):
+        w = rows[edges[k]:edges[k + 1]]
+        e = float(np.mean([r[f"e{h}"] for r in w]))
+        raw = float(np.mean([r[f"r{h}"] for r in w]))
+        lo, hi = _boot(w, f"e{h}", rng)
+        excl = "EXCLUDES 0" if (lo > 0 or hi < 0) else "includes 0"
+        print(f"    {k + 1}  n={len(w):>4}  {w[0]['on']} -> {w[-1]['on']}  "
+              f"raw {100 * raw:>+7.2f}%  edge {100 * e:>+6.2f}%  "
+              f"[{100 * lo:+.2f}%, {100 * hi:+.2f}%] {excl}")
+
+
 def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("--limit", type=int, default=0)
@@ -216,6 +242,17 @@ def main() -> None:
 
     ev = events(args.limit)
     rng = np.random.default_rng(20260912)
+    # One CI per horizon, computed ONCE and reused by the table and the decision.
+    # The first cut called _boot twice for the same quantity; the generator had
+    # advanced in between, so the report printed two slightly different intervals
+    # for one number ([-3.50,-0.62] and [-3.52,-0.58]). Both were correct draws
+    # and that is exactly why it had to go: a reader cannot tell a resampling
+    # wobble from a bug, and should not have to.
+    _ci: dict[int, tuple[float, float]] = {}
+    for _h in (*HORIZONS_DECIDE, HORIZON_REPORT):
+        _rows = [r for r in ev if r.get(f"e{_h}") is not None]
+        if _rows:
+            _ci[_h] = _boot(_rows, f"e{_h}", rng)
 
     print()
     print("=== B-73 Phase 0 — the institutional-conviction core, scored ===")
@@ -240,7 +277,7 @@ def main() -> None:
             continue
         raw = float(np.mean([r[f"r{h}"] for r in rows]))
         edge = float(np.mean([r[f"e{h}"] for r in rows]))
-        lo, hi = _boot(rows, f"e{h}", rng)
+        lo, hi = _ci[h]
         excl = "EXCLUDES 0" if (lo > 0 or hi < 0) else "includes 0"
         flag = "" if n >= MIN_EVENTS else "  UNDERPOWERED"
         print(f"  {h:>4}d (~{h // 21:>2} months){'':<6}{n:>6}"
@@ -258,7 +295,7 @@ def main() -> None:
             continue
         any_decided = True
         edge = float(np.mean([r[f"e{h}"] for r in rows]))
-        lo, hi = _boot(rows, f"e{h}", rng)
+        lo, hi = _ci[h]
         if lo > 0:
             v = "EDGE — positive and the CI excludes zero"
         elif hi < 0:
@@ -271,6 +308,20 @@ def main() -> None:
         print()
         print("  Pre-registered and binding: NOTHING here promotes the shipped")
         print("  multibagger screen, which requires four legs this study drops.")
+
+    print()
+    print("  ERA SPLIT — description, added after the first run, not in the bar")
+    for h in HORIZONS_DECIDE:
+        era_split(ev, h, rng)
+
+    print()
+    print("  SURVIVORSHIP, and it cuts toward this result. The universe is TODAY'S")
+    print("  Smallcap-250 + Microcap-250 membership, so a name that was small in")
+    print("  2022 and GREW OUT of those indices by 2026 is absent — and that is")
+    print("  exactly the outcome the screen is hunting. The winners are the names")
+    print("  most likely to be missing, so the true edge is plausibly less")
+    print("  negative than the number above. Stated, not corrected: no free data")
+    print("  source fixes it, which is `point_in_time_quality`'s own caveat.")
 
 
 if __name__ == "__main__":

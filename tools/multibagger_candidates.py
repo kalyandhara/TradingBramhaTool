@@ -43,10 +43,21 @@ ceilings, one of them permanent --
     which caps formation dates at ~5 quarters however much ownership history is
     backfilled (and 20 quarters ARE available: that blocker was false, and
     clearing it changed nothing).
-Read every column below as a CANDIDATE LIST, never as a measured edge. The nearby
-question that could be powered -- the institutional-conviction core alone, over
-3-6 months -- is pre-registered in the backlog and deliberately forbidden from
-borrowing the word "multibagger".
+Read every column below as a CANDIDATE LIST, never as a measured edge.
+
+The nearby question that COULD be powered was pre-registered and then MEASURED on
+2026-09-13 (`multibagger_conviction_study.py`, 1,112 events): the
+institutional-conviction core alone -- small cap + rising FII/DII + promoters not
+selling -- returns **-2.07% @63d and -4.85% @126d against an equal-length hold of
+the same name**, while its RAW returns (+7.0% / +13.4%) look excellent because the
+market rose ~39%/yr underneath it. Split by era the sign FLIPS (-3.27 / +5.24 /
+-8.19 @63d), so the honest reading is **no stable edge**, not a reliable negative.
+
+That study is NOT a verdict on this screen and may not be cited as one: it drops
+four of the seven legs below and measures months where "multibagger" means years.
+What it does say is that the conviction leg this screen is built around carries no
+stable 3-6 month edge on its own, and that any raw backtest of a long-only
+small-cap screen in this window is measuring the market.
 
 Promoter pledge % is not reliably scrapable from the public shareholding
 table and is NOT screened here — manually sanity-check pledge levels
