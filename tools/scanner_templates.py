@@ -5622,6 +5622,12 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
     (``mit_idx`` = first such bar). Blocks fully violated (a close beyond the far
     side of the zone) are dropped — they are no longer valid order blocks.
 
+    Every non-violated zone also carries a trade plan — ``entry`` (the zone edge
+    price retests), ``stop`` just beyond the far side, ``target`` at the nearest
+    still-live opposing zone (falling back to the displacement extension, then
+    2R), and ``rr`` — dropped when it cannot clear 1R. NOTE: the target rule is
+    the conventional SMC playbook, not a measured edge; it has not been backtested.
+
     Returns a list of dicts (bar indices, mapped to timestamps by the caller),
     most-recent last, capped at ``max_blocks``. Bearish is the exact mirror of
     bullish. See ``concepts/Order-Blocks``.
@@ -5667,6 +5673,7 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
                                 "low": ob_lo, "high": ob_hi,
                                 "signal": "BOS" if trend == 1 else "CHOCH",
                                 "disp_atr": round(disp / a, 2),
+                                "ext": ob_hi + disp,
                                 "vol_x": _vol_x(vol, i),
                                 "buy_pct": round(buy_ratio * 100, 1),
                                 "sell_pct": round((1 - buy_ratio) * 100, 1)})
@@ -5688,6 +5695,7 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
                                 "low": ob_lo, "high": ob_hi,
                                 "signal": "BOS" if trend == -1 else "CHOCH",
                                 "disp_atr": round(disp / a, 2),
+                                "ext": ob_lo - disp,
                                 "vol_x": _vol_x(vol, i),
                                 "buy_pct": round(buy_ratio * 100, 1),
                                 "sell_pct": round((1 - buy_ratio) * 100, 1)})
@@ -5727,6 +5735,8 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
         ob["vio_idx"] = vio_idx
         out.append(ob)
 
+    out = out[-max_blocks:]
+
     # ── Retest signals ──────────────────────────────────────────────────────
     # Pine: bullish retest = low crosses above OB top (price reclaims demand),
     # bearish retest = high crosses below OB bottom (price breaks supply).
@@ -5760,7 +5770,48 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
                                     "sell_pct": ob.get("sell_pct", 50.0)})
                     break
 
-    return out[-max_blocks:], retests
+    # ── Trade plan per live zone ─────────────────────────────────────────────
+    # Entry at the edge price returns to (demand top / supply bottom), stop just
+    # beyond the far side of the zone, target at the NEAREST still-live opposing
+    # zone — the "next major zone" of the SMC playbook. With nothing opposing in
+    # the way it falls back to the displacement extension, and failing that a flat
+    # 2R. Violated zones get no plan (the level already failed), and anything that
+    # cannot clear 1R is left planless rather than drawn as a bad trade.
+    bull_edges = sorted(b["high"] for b in out
+                        if b["dir"] == "bull" and b["state"] != "violated")
+    bear_edges = sorted(b["low"] for b in out
+                        if b["dir"] == "bear" and b["state"] != "violated")
+    for ob in out:
+        if ob["state"] == "violated":
+            continue
+        if ob["dir"] == "bull":
+            entry = ob["high"]
+            stop = round(ob["low"] * 0.995, 2)
+            risk = entry - stop
+            if risk <= 0:
+                continue
+            above = [p for p in bear_edges if p > entry + risk]
+            target = min(above) if above else max(ob.get("ext", entry),
+                                                  entry + 2.0 * risk)
+            rr = (target - entry) / risk
+        else:
+            entry = ob["low"]
+            stop = round(ob["high"] * 1.005, 2)
+            risk = stop - entry
+            if risk <= 0:
+                continue
+            below = [p for p in bull_edges if p < entry - risk]
+            target = max(below) if below else min(ob.get("ext", entry),
+                                                  entry - 2.0 * risk)
+            rr = (entry - target) / risk
+        if rr < 1.0:
+            continue
+        ob["entry"]  = round(entry, 2)
+        ob["stop"]   = stop
+        ob["target"] = round(target, 2)
+        ob["rr"]     = round(rr, 2)
+
+    return out, retests
 
 
 def _vol_x(vol: pd.Series, i: int, avg_len: int = 20) -> float:

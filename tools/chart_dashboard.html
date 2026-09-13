@@ -5025,7 +5025,9 @@ function drawFVG(pane) {
 // Server-computed (scanner_templates.detect_order_blocks via /api/order_blocks),
 // cached per (symbol,tf,lastBar); zones drawn as boxes on obCanvas. Unmitigated
 // (fresh) zones are bold; mitigated ones fade to a dashed faint box (kept for
-// context). Green = bullish demand, red = bearish supply. Redrawn from the cached
+// context). Green = bullish demand, red = bearish supply. Fresh zones also draw
+// their server-computed TP/SL rails + R:R (see /api/order_blocks). Redrawn from
+// the cached
 // zones on pan/zoom (drawOrderBlocks) so it doesn't re-fetch on every frame.
 function ensureObState(pane) {
   if (!pane.ob) pane.ob = {zones: null, lastFetchKey: null};
@@ -5156,6 +5158,35 @@ function drawOrderBlocks(pane) {
       ctx.fillText(sigLabel, x + 3, y + 9);
     }
     ctx.textAlign = 'left';
+
+    // ── Trade plan: stop-loss + take-profit rails ──────────────────────────
+    // Only fresh zones carry rails — a mitigated zone has already been used, and
+    // striping every historical box would bury the price action. Server sends
+    // entry/stop/target only when the plan clears 1R, so absence = no plan.
+    if (z.state === 'fresh' && z.target != null && z.stop != null) {
+      const yTgt  = pane.series.priceToCoordinate(z.target);
+      const yStop = pane.series.priceToCoordinate(z.stop);
+      const xEnd  = Math.min(W, xR);
+      if (yTgt !== null && yStop !== null) {
+        ctx.save();
+        ctx.lineWidth = 1;
+        ctx.setLineDash([5, 4]);
+        ctx.font = 'bold 9px system-ui, sans-serif';
+        ctx.textAlign = 'left';
+        // R:R is folded into the SL label rather than drawn as its own tag — a
+        // separate right-aligned tag collides with this one on a narrow zone,
+        // and zones near the right edge are exactly the narrow ones.
+        [[yTgt, '#26a69a', `TP ${z.target}`],
+         [yStop, '#ef5350', `SL ${z.stop} · R:R ${z.rr}`]].forEach(([yy, col, tag]) => {
+          ctx.strokeStyle = col;
+          ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(xEnd, yy); ctx.stroke();
+          ctx.fillStyle = col;
+          ctx.fillText(tag, x + 3, yy - 3);
+        });
+        ctx.restore();
+        ctx.textAlign = 'left';
+      }
+    }
   });
 
   // ── Retest signal arrows (BigBeluga-style cross markers) ──────────────
