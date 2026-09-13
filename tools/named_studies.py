@@ -85,7 +85,8 @@ STUDIES: tuple[dict, ...] = (
         "verdict": "NEGATIVE",
         "headline": ("the SHIPPED plan returns -0.50R against an equal-length hold of the "
                      "same stock; a plain 20d hold gives back only -0.15R, and the drawn "
-                     "trail used as a stop is worse again"),
+                     "trail used as a stop is worse again. B-74r: survives era-splitting "
+                     "3/3 (-0.25 / -0.33 / -0.92R), worst in the LOWEST-drift window"),
         "source": "analyses/Open-Backlog#B-74",
     },
     {

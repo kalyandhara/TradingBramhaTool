@@ -745,9 +745,53 @@ B-41p's number on the stop's axis label rather than removing the stop.
 Arm C is B-65's study in R and is itself **−0.145R on edge, CI excluding zero**.
 Every arm loses against the benchmark. The result is a demotion, not a discovery.
 
-**Still owed:** an era split. [[#B-41w]] is the precedent — B-41p's conclusion
-survived era-splitting and that is where results usually die. Nothing here is
-walk-forward.
+### ~~B-74r~~ · Does the demotion hold across eras? — **MEASURED 2026-09-12: YES, 3/3, and it gets WORSE as drift falls**
+
+The one follow-up B-74 left owed. [[#B-41w]] is the precedent and also the source
+of the design rule applied here: its recorded defect was a prior naming *"window
+2"* without naming the partition, so **the partition is named first** — three
+chronological windows of **equal trade count** on the deciding long group, ordered
+by entry date. Not equal bar fractions, not equal calendar spans.
+
+**Registered before the run:** basis is the **EDGE** columns, not raw R — the
+parent study established that raw R inverts this very comparison, so an era split
+on the raw basis would re-inherit the mis-specification. Pass bar: DEMOTE survives
+iff **eA1 < 0** and **eA1 < eC** in **all three** windows.
+
+| win | trades | from | to | eA1 | eC | eC−eA1 | drift | 95% CI on eA1 |
+|---|---|---|---|---|---|---|---|---|
+| 1 | 423 | 2023-12-07 | 2024-12-16 | −0.251 | −0.052 | +0.199 | +0.755 | [−0.394, −0.097] excl 0 |
+| 2 | 423 | 2024-12-16 | 2025-08-12 | −0.325 | −0.037 | +0.289 | +0.707 | [−0.466, −0.178] excl 0 |
+| 3 | 423 | 2025-08-14 | 2026-08-04 | **−0.924** | −0.346 | +0.577 | **+0.442** | [−1.010, −0.834] excl 0 |
+
+**eA1 < 0: 3/3 · eA1 < eC: 3/3 · VERDICT: DEMOTE SURVIVES.** Every window's CI
+excludes zero on its own. The demotion is a property of the plan, not of the
+sample, and B-74's consequence stands as applied.
+
+> [!key-insight] The prior's escape clause was falsified, and backwards
+> B-74r pre-registered the one way DEMOTE could fail: *"a window with no drift at
+> all, where there is little to give back — and in such a window eA1 should
+> approach 0 from below."* **Window 3 is the low-drift window (+0.442R against
+> +0.755/+0.707) and it is by far the WORST (−0.924R).** The relationship runs the
+> other way: the less the window trends, the more the plan costs. That is
+> mechanically sensible after the fact — the plan's loss comes from exiting into
+> the band after price gives part of a run back, and chop makes it give back
+> repeatedly with no run to keep — but it is not what was written down, and the
+> pooled −0.500R is now visibly an average over a widening spread rather than a
+> stable level.
+>
+> The drift column itself was added **after** the first run, to explain the
+> window-3 outlier. It is description, it is not in the pass bar, and it is
+> recorded as post-hoc for the same reason the parent study keeps printing its own
+> mis-specified bar.
+
+**Power caveat, stated before the numbers:** B-41w split **six** years; this panel
+is ~3, so each window is ~1 year and sees one market phase. Three agreeing windows
+here is weaker than three there. **This split can catch era-dependence; it cannot
+certify stability.** What it does establish is that the demotion is not resting on
+one phase.
+
+**Nothing further is owed on B-74.** The item is closed.
 
 **Not ranked yet.** The 2026-09-11 refinement pass predates it; it takes its place
 in the next pass's ordering.

@@ -210,6 +210,7 @@ def _trades_for(sym, doc, band_doc):
         cost_r = (COST_BPS / 10000.0) * 2 * entry / risk
         out.append({
             "symbol": sym, "i": i, "dir": int(d), "bars_held": hold,
+            "t": int(bars[i].get("time") or 0),   # entry bar epoch, for the era split
             "A1": r_a1 - cost_r, "A2": r_a2 - cost_r,
             "B": r_b - cost_r, "C": r_c - cost_r, "mfe": float(mfe),
             # edge = arm minus the equal-length unconditional window
@@ -247,6 +248,108 @@ def _boot_diff(rows, arm, base, rng):
 
 def _boot_level(rows, arm, rng):
     return _boot(rows, lambda r: r[arm], rng)
+
+
+# ═══ B-74r · THE ERA SPLIT ═══════════════════════════════════════════════════
+#
+# B-74 closed with "Still owed: an era split. Nothing here is walk-forward."
+# This is that, and the design below is written BEFORE it was run.
+#
+#   PRECEDENT  B-41w, the only era split this desk has done. Its own recorded
+#              defect was a prior that referenced "window 2" without naming the
+#              partition, so it never mapped onto the study it was predicting
+#              against. The fix it wrote down was: STATE THE PARTITION. Hence:
+#
+#   PARTITION  three chronological windows of EQUAL TRADE COUNT on the deciding
+#              group (longs), ordered by the entry bar's date. NOT equal bar
+#              fractions and NOT equal calendar spans -- B-41w's convention,
+#              named explicitly so a later prior can be tested against it.
+#
+#   BASIS      the EDGE columns (eA1, eC), not raw R. This is not a choice: the
+#              parent study established that raw R flatters a long arm by the
+#              drift it sat through, and that comparing A1 (median 67 bars) to C
+#              (fixed 20) on raw R inverts the verdict. An era split run on the
+#              mis-specified basis would re-inherit the mis-specification.
+#
+#   THE CLAIM UNDER TEST is B-74's verdict, DEMOTE -- not PMax, which B-65
+#              already measured null. Precisely: "the shipped plan is worse than
+#              an equal-length hold of the same stock, and worse than a plain
+#              20-day hold."
+#
+#   PASS BAR   the DEMOTE verdict SURVIVES iff, in ALL THREE windows,
+#                 (i)  eA1 < 0                  -- the plan loses to a hold, and
+#                 (ii) eA1 < eC                 -- it loses to a plain 20d hold.
+#              Any window that breaks either leg makes the verdict ERA-DEPENDENT,
+#              which does not restore the card's furniture but does change what
+#              may be claimed: "measured worse in the sample" rather than "worse".
+#
+#   ABORT      under 200 long trades a window concludes nothing, per the parent
+#              study's floor. Not expected to bind at ~423 per window.
+#
+#   POWER CAVEAT, stated up front. B-41w split SIX years; this panel is ~3, so
+#              the windows are ~1 year each and each sees ONE market phase. Three
+#              windows that agree here is weaker evidence than three that agreed
+#              there, and a single disagreeing window is likelier to be noise.
+#              This split can therefore CATCH an era-dependent result but cannot
+#              certify stability. Said before the numbers, not after.
+#
+#   PRIOR      the verdict holds 3/3. The mechanism B-74 found is not a market
+#              call: the plan exits into the band after price has given part of
+#              the run back, which costs in any window that trends. The honest
+#              risk to it is a window with no drift at all, where there is little
+#              to give back -- and in such a window eA1 should approach 0 from
+#              below rather than turn positive.
+
+
+def _era_split(longs, rng, n_eras=3):
+    """B-74's owed era split: is DEMOTE a property of the sample or of the plan?"""
+    dated = sorted([r for r in longs if r["t"]], key=lambda r: r["t"])
+    if len(dated) < n_eras * MIN_TRADES:
+        print()
+        print(f"  -- ERA SPLIT: {len(dated)} dated long trades cannot fill "
+              f"{n_eras} windows of {MIN_TRADES}. Not run. --")
+        return
+    import datetime as _dt
+
+    def day(ep):
+        return _dt.datetime.utcfromtimestamp(ep).strftime("%Y-%m-%d")
+
+    # equal trade counts, chronological -- the partition named in the header
+    edges = [round(k * len(dated) / n_eras) for k in range(n_eras + 1)]
+    wins = [dated[edges[k]:edges[k + 1]] for k in range(n_eras)]
+
+    print()
+    print("  -- ERA SPLIT (B-74's owed follow-up): equal-trade-count windows, "
+          "EDGE basis --")
+    # The drift column was added AFTER the first run, to explain a window-3
+    # outlier (eA1 -0.924 against -0.251 in window 1). It is DESCRIPTION and it
+    # is not in the pass bar -- recorded as added post-hoc so the order is on the
+    # record, the same way the parent study prints its own mis-specified bar.
+    print(f"  {'win':<5}{'trades':>7}  {'from':<11}{'to':<11}"
+          f"{'eA1':>8}{'eC':>8}{'eC-eA1':>9}{'drift':>8}   95% CI on eA1")
+    holds = []
+    for k, w in enumerate(wins, 1):
+        ea1 = float(np.mean([r["eA1"] for r in w]))
+        ec = float(np.mean([r["eC"] for r in w]))
+        lo_, hi_ = _boot_level(w, "eA1", rng)
+        excl = "EXCLUDES 0" if (lo_ > 0 or hi_ < 0) else "includes 0"
+        holds.append((ea1 < 0, ea1 < ec))
+        bh = float(np.mean([r["bench_hold"] for r in w]))
+        print(f"  {k:<5}{len(w):>7}  {day(w[0]['t']):<11}{day(w[-1]['t']):<11}"
+              f"{ea1:>+8.3f}{ec:>+8.3f}{ec - ea1:>+9.3f}{bh:>+8.3f}   "
+              f"[{lo_:+.3f}, {hi_:+.3f}] {excl}")
+    neg = sum(1 for a, _ in holds if a)
+    beat = sum(1 for _, b in holds if b)
+    print(f"  eA1 < 0: {neg}/{n_eras}    eA1 < eC: {beat}/{n_eras}")
+    survives = neg == n_eras and beat == n_eras
+    print("  VERDICT: " + ("DEMOTE SURVIVES era-splitting - the plan loses to a "
+                           "hold in every window"
+                           if survives else
+                           "ERA-DEPENDENT - the verdict stands for the sample, "
+                           "but not as an unqualified claim"))
+    print("  Power caveat, pre-registered: ~1 year per window on a ~3y panel, one")
+    print("  market phase each. This can catch era-dependence; it cannot certify")
+    print("  stability the way B-41w's six-year split could.")
 
 
 def main():
@@ -367,6 +470,8 @@ def main():
     print("  VERDICT: " + ("DEMOTE - the drawn plan costs against doing nothing"
                            if (e_worse and e_excl) else
                            "KEEP - no significant cost to the drawn plan"))
+
+    _era_split(longs, rng)
 
 
 if __name__ == "__main__":
