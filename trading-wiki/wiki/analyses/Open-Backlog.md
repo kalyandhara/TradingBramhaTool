@@ -600,6 +600,129 @@ concrete item here is **`multibagger_candidates` has never been measured** and i
 ask #1's whole deliverable. One pre-registered event study, the [[#B-22r]] pattern:
 design committed before the scorer runs.
 
+#### Phase 0 · **COUNTED 2026-09-12 — the screen CANNOT be measured as specified, and the ceiling is not a matter of effort**
+
+`tools/multibagger_cardinality.py`, and it is deliberately not the event study.
+Counting first is this desk's own rule, recorded twice in the 2026-09-07 session
+(`renko_quality_cardinality` killed a 40% filter by showing 96% of flips already
+cleared it; the QM detector reported a "pattern" on 73% of names until its pivots
+were made consecutive). **It saved the study again here, plus a ~370-name
+statement refetch.**
+
+**The screen has to be RECONSTRUCTED before it can be scored.** `QUERY` is a live
+screener.in query behind a session cookie returning today's snapshot only, so
+there is no history to replay. Four of its seven legs are reconstructable from
+caches already on disk (market cap from `shares_total` × close, 3y sales growth
+from `pit_quality`, FII+DII change and promoter change from `ownership`); the three
+ratio legs (OPM, ROCE, D/E) need a statement refetch. **The free four were counted
+first, because if they do not leave enough events the refetch is moot.**
+
+| leg, each counted on the survivors above | left | dropped |
+|---|---|---|
+| quarter-pairs in the cache | 2,491 | |
+| priced within 10 days of the filing | 2,410 | 81 |
+| market cap < ₹20,000 Cr | 741 | 1,669 |
+| (FII + DII) change > 1 | 152 | 589 |
+| promoter change > −1 | 122 | 30 |
+| 3y sales CAGR > 15 | **46** | 76 |
+
+Plus **35 events UNKNOWN on growth** — too few published years to evaluate, which
+is not a failure and is never folded into the denominator, per `point_in_time_quality`'s
+three-state rule.
+
+**46 point-in-time events against the desk's floor of 200, and only 10 survive to
+252 days.**
+
+> [!note] The table above is POST-pilot, and the delta is the cleanest proof on this page
+> These counts were 2,330 pairs → **45** events before the 12-name pilot backfill
+> and 2,491 → **46** after it. **161 new quarters of ownership history bought ONE
+> event.** The argument that deep ownership depth cannot rescue this screen was made
+> from the statement-depth arithmetic below; the backfill then demonstrated it by
+> accident. The three ratio legs can only cut further, so they were not fetched.
+**Ask #1 of B-73 cannot be delivered as "measured", and the reason is now
+documented instead of unexamined.**
+
+**The event date is the FILING date, not the quarter end.** A 30-JUN holding change
+becomes public when the pattern is filed, ~3 weeks later; the cache carries
+`filed_on` for exactly this. Forming on the quarter end would be weeks of
+lookahead on a signal whose entire content is the change.
+
+##### Two independent ceilings, and [[#B-22r]]'s lesson applies to only one of them
+
+**1. The universe is the wrong one, and this IS fixable.** The screen wants
+early-stage small caps; the desk's cached panel is large-cap. Of 2,330 priced
+events only **27.8%** fall under the ₹20,000 Cr ceiling and **2.4%** under ₹5,000
+Cr, median cap **₹53,007 Cr**. Only **97** cached names are small enough to be in
+this screen's universe at all.
+
+**2. Annual statement depth is the binding ceiling, and it is NOT fixable.**
+B-22r's lesson — *a blocker that is a property of an assumption rather than of the
+data* — was checked directly, and this time it cut both ways:
+
+> [!key-insight] The ownership blocker was false; the statement blocker is real
+> **Ownership depth was an assumption.** The cache held 5–8 quarters because it was
+> filled with `--quarters 8`, not because NSE stops there. Probed live, the filings
+> master serves **20 quarter-ends back to 2021Q3 for small caps too**, and a pilot
+> backfill of 12 names took **5.4 minutes for 161 new quarters** (~0.45 min/name).
+> Third time this pattern has appeared, after B-22r's PCR archive.
+>
+> **It buys nothing, because the growth leg has no matching depth.** yfinance serves
+> **4 annual columns** (435 of 460 names), so with the 60-day filing lag a
+> point-in-time 3-year sales-growth verdict first exists at a **median 2025-06-15** —
+> **1 name in 200 before 2025-01-01**. Formation dates are capped at ~5 quarters no
+> matter how much ownership history is backfilled. **Deep ownership history against
+> shallow statement history yields nothing**, and that is a vendor limit, not an
+> assumption. Same shape as B-48: the blocker is the FEED.
+
+##### A bug in the probe, found by reading it rather than by a number looking wrong
+
+`searchsorted` on a filing date BEFORE the first cached bar returns index 0, so a
+2021 event was silently priced at the 2023 open of the cache window — **a two-year
+lookahead reported as a valid event**, and one that made the funnel look healthier.
+Now bounded by `PRICE_TOL_DAYS = 10` in both directions. It cost 67 of the pilot's
+209 pairs, correctly. **Nothing in the counts would have looked wrong.**
+
+##### PRE-REGISTERED — the nearby question that CAN be powered, and what it may not claim
+
+Written now, while the design is cheap, per B-22r's clock argument. **Not run:** it
+is gated on a backfill decision, and the cost is measured, not guessed.
+
+  CLAIM     does fresh institutional buying into a SMALL-CAP name beat the
+            benchmark over 3–6 months? The **institutional-conviction core**:
+            market cap < ₹20,000 Cr, (FII+DII) change > 1, promoter change > −1.
+            The growth and ratio legs are DROPPED, because their point-in-time
+            depth does not exist.
+
+  **THIS IS NOT THE MULTIBAGGER SCREEN AND MAY NOT BORROW ITS NAME.** It drops
+  four of seven legs and measures 3–6 months where the word multibagger means
+  years. [[#B-65r]] is the precedent for why this matters: a factor that borrows
+  credibility from a nearby measured claim is the specific error this desk has
+  already made once.
+
+  HORIZONS  63 and 126 trading days. **252 is reported and cannot decide** — 10
+            events today, and the multibagger horizon is unreachable on free data
+            in any case.
+  BASELINE  an equal-length window on the same name, per [[#B-74]]'s correction —
+            a raw return would flatter every long-only screen by the drift it sat
+            through.
+  STATISTIC mean return, symbol-block bootstrap, 29bps, the standing convention.
+  FLOOR     200 events per cell, or it concludes nothing.
+  PRIOR     no edge. [[#B-34]] measured the smallcap conviction lane WEAK
+            (−0.12% @60d, +0.20% @120d) on a closely related signal, and that is
+            the nearest prior this desk owns.
+
+  **THE BACKFILL IT REQUIRES, costed from the pilot, not estimated:** ownership to
+  20 quarters over ~300 small-cap names ≈ **2.3 hours** of paced NSE requests, plus
+  a 5-year daily price refetch for names outside the current 3-year panel.
+  Projected yield from the pilot's measured rates (16% institutional, 70% promoter)
+  is **~600 events** — comfortably powered, and the only version of this question
+  that is. **An owner decision, because it is hours of scraping a rate-limited
+  public endpoint for a question whose registered prior is no edge.**
+
+**Phase 0's honest status: `multibagger_candidates` remains UNMEASURED, and now
+provably so on this desk's data.** What Phase 0 delivered is the count that says
+which question is answerable, and at what price.
+
 **Phase 1 — decide the smallcap cadence** (a/b/c above). A decision, not a build.
 
 **Phase 2 — the SME data probe.** Answers whether ask #4 is possible at all before

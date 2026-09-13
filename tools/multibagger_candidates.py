@@ -31,6 +31,23 @@ Rationale (autopsy of the GARP screen's blind spots):
     insiders out" distribution pattern, without requiring promoters to
     be actively buying (that's too strict a bar for most real cases).
 
+UNMEASURED, and as of 2026-09-12 provably unmeasurable on this desk's free data
+(B-73 Phase 0, `multibagger_cardinality.py`). Nothing below has been scored, and
+that is not for want of trying: reconstructing this QUERY point-in-time leaves
+**45 events against the desk's floor of 200**, and only 9 reach 252 days. Two
+ceilings, one of them permanent --
+  * the cached price/fundamental panel is LARGE-cap (median ~Rs 53,000 Cr; only
+    27.8% of events fall under this screen's own Rs 20,000 Cr ceiling), and
+  * yfinance serves FOUR annual statement columns, so with the 60-day filing lag a
+    point-in-time "Sales growth 3Years" verdict first exists around mid-2025 --
+    which caps formation dates at ~5 quarters however much ownership history is
+    backfilled (and 20 quarters ARE available: that blocker was false, and
+    clearing it changed nothing).
+Read every column below as a CANDIDATE LIST, never as a measured edge. The nearby
+question that could be powered -- the institutional-conviction core alone, over
+3-6 months -- is pre-registered in the backlog and deliberately forbidden from
+borrowing the word "multibagger".
+
 Promoter pledge % is not reliably scrapable from the public shareholding
 table and is NOT screened here — manually sanity-check pledge levels
 before acting on any candidate.
