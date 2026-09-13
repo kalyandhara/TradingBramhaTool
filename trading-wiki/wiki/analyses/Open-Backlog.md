@@ -919,6 +919,71 @@ one phase.
 **Not ranked yet.** The 2026-09-11 refinement pass predates it; it takes its place
 in the next pass's ordering.
 
+## B-75 · A quarterly profit-growth walk on the tables — **RAISED 2026-09-12, SCOPED, NOT STARTED**
+
+Owner's ask: a **Q-on-Q profit growth %** walk column, in the shape of the RS walk
+([[#B-63b]]) — a per-quarter sequence read oldest → newest, so a name whose profit
+growth is decaying reads differently from one that is turning up, without opening
+a second page.
+
+**Scoped the way [[#B-73]] and [[#B-58]] were: counted before proposing.** The count
+changed the design, so it is recorded before any build.
+
+### What already exists
+
+`fundamentals_deep._quarterly_history` already returns per-quarter `revenue`,
+`net_income`, `ebit`, `net_margin`, `opm` and **`profit_yoy`** — so the arithmetic
+is built and this is a column, not an engine. `row_metrics` owns the walk columns
+and `columns.py` owns the registry entry; both are the shipped pattern.
+
+### The count that changes the design
+
+Measured on five names across the cap range (RELIANCE, JAMNAAUTO, SENCO,
+HERITGFOOD, NEOGEN):
+
+| what | result |
+|---|---|
+| quarterly columns yfinance serves | **5–7** |
+| quarters with a computable **YoY** profit | **1–2** |
+| frames with a **missing quarter** | RELIANCE lacks 2025-09-30 |
+
+**A year-over-year walk is impossible: one or two points is not a sequence.** The
+only walk this data supports is the **sequential** one the owner asked for — 5–7
+quarters give 4–6 steps.
+
+> [!warning] And that collides with a decision already recorded in the code
+> `_quarterly_history` uses YoY *on purpose*, and says why: *"sequential comparison
+> would read seasonality as growth."* For an Indian cash-segment book that is not
+> hypothetical — Q3 festive quarters and Q4 year-end push are structural.
+>
+> **So the ask is buildable and the desk's own reasoning says the result is
+> seasonality-exposed.** That is not a reason to refuse it; it is a reason the
+> column must be **labelled as sequential**, must never be read as a growth rate,
+> and must not become an input to anything that votes. The honest framing is the
+> one the RS walk already uses: a **shape**, not a number.
+
+**The gap trap, which the RS walk also hit.** Frames are gapped, so a naive
+sequential walk would compare Dec to Jun and present it as one quarter's change.
+Either mark the gap (the RS walk's `?` convention) or drop the step — **silently
+spanning it is the one option that is wrong**, because it manufactures a number
+nobody can see is wrong.
+
+### Proposed shape, for whoever picks it up
+
+* `row_metrics.profit_qoq_walk(symbol)` → the last 4–6 sequential changes,
+  oldest → newest, with an explicit marker where a quarter is missing.
+* One registry entry in `columns.py`, `text` (it is a sequence), with the
+  seasonality caveat in the **tooltip**, not only in a page caption — the tooltip
+  travels with the column to every table that mounts it.
+* Mounted on the Watchlist and both Scanner Hub tables, the three surfaces
+  [[#B-63b]]'s walk columns already reach.
+* **No backtest owed** — it exposes an existing series and makes no claim about
+  edge, the same footing [[#B-45]] was ranked on. Equally, **no vote, no score, no
+  confluence weight** without a measurement.
+
+**Cost:** small. The arithmetic exists, the walk pattern exists, the mount points
+exist. The judgement above is the expensive half, and it is written down now.
+
 ## Ingested-research additions (2026-08-20)
 
 Four items below (B-28…B-31) come from a batch of trading videos ingested into the

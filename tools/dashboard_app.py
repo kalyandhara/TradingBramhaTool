@@ -1463,8 +1463,8 @@ ui_jobs.render_panel()
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _notes_table(df, key: str, symbol_col: str, *, column_config=None,
-                 page_size: int = 200):
-    """A table whose ONLY editable cell is the note, persisted per symbol.
+                 page_size: int = 200, select_col: str | None = None):
+    """A table whose ONLY editable cells are the note and an optional tick-box.
 
     UI-2 (2026-09-10). Generalises the pattern B-63b proved on the Watchlist so
     the Scanner Hub tables get it too, against ONE note store
@@ -1476,6 +1476,13 @@ def _notes_table(df, key: str, symbol_col: str, *, column_config=None,
     NOT scoped to watchlist membership — a note about a name you are not
     watching is still a note.
 
+    `select_col` adds an editable tick-box as the FIRST column and nothing else:
+    it persists nothing and means nothing here. The caller reads the returned
+    frame and decides what a tick is for — on the Watchlist it is "remove this
+    row". Kept in this helper rather than built beside it because the alternative
+    is a second `st.data_editor` over the same frame, and two editors against one
+    table is the drift `columns.py` exists to stop.
+
     Returns the edited frame so a caller can keep using it.
     """
     import columns as _cols
@@ -1483,11 +1490,23 @@ def _notes_table(df, key: str, symbol_col: str, *, column_config=None,
     work = df.copy()
     work["notes"] = [notes.get(str(sym).strip().upper(), "")
                      for sym in work[symbol_col]]
+    if select_col:
+        # Front of the frame, which RENDERS second: `symbol` is pinned=True in
+        # the registry, so it stays leftmost whatever the column order is, and
+        # the tick lands immediately beside it. That is the placement wanted --
+        # a destructive control at the far right of ~25 columns is a control
+        # aimed at whichever row you happened to scroll to. Verified in the
+        # running dashboard rather than inferred from the insert position.
+        work.insert(0, select_col, False)
     before = dict(zip((str(x).strip().upper() for x in work[symbol_col]),
                       work["notes"]))
 
     cfg = dict(column_config or {})
     cfg.update(_cols.configure("notes"))
+    if select_col:
+        cfg[select_col] = st.column_config.CheckboxColumn(
+            select_col, help="Tick rows, then use the button below the table.",
+            width="small", default=False)
     # `st.data_editor` DOES accept a Styler — its own docs say the styles apply
     # to NON-EDITABLE columns, and here every column except the note is disabled.
     # So the editable table keeps the tint pairs; nothing had to be traded away
@@ -1501,7 +1520,8 @@ def _notes_table(df, key: str, symbol_col: str, *, column_config=None,
     edited = st.data_editor(
         painted, key=key, hide_index=True, width="stretch",
         column_config=cfg, row_height=_cols.ROW_HEIGHT,
-        disabled=[c for c in work.columns if c != "notes"],
+        disabled=[c for c in work.columns
+                  if c != "notes" and c != select_col],
     )
     changed = []
     for sym, note in zip(edited[symbol_col], edited["notes"]):
@@ -6886,8 +6906,35 @@ if current_page == "Watchlist":
         # destroys what you wrote about it, which is the behaviour the old
         # membership-scoped column had.
         _earnings_fill_button(_wl_df["Symbol"], "wl")
-        _notes_table(_wl_df, key="wl_notes_editor", symbol_col="Symbol",
-                     column_config=_wl_cfg)
+        _wl_edited = _notes_table(_wl_df, key="wl_notes_editor",
+                                  symbol_col="Symbol", column_config=_wl_cfg,
+                                  select_col="✕")
+        # Per-row removal, replacing the detached "Remove from watchlist"
+        # dropdown that used to sit under the table. The dropdown made you name
+        # a symbol you were already looking at, and it could only take one.
+        #
+        # Two steps on purpose: ticking does nothing until the button is pressed,
+        # because this is the one destructive control on the page and a
+        # single mis-click on a 25-column grid should not delete a name.
+        _wl_picked = [str(_s).strip().upper()
+                      for _s, _f in zip(_wl_edited["Symbol"], _wl_edited["✕"])
+                      if bool(_f)]
+        if _wl_picked:
+            st.warning(f"**{len(_wl_picked)}** ticked for removal: "
+                       f"{', '.join(_wl_picked[:8])}"
+                       f"{'…' if len(_wl_picked) > 8 else ''}")
+            if st.button(f"✕ Remove {len(_wl_picked)} from watchlist",
+                         key="wl_remove_ticked", type="primary"):
+                for _s in _wl_picked:
+                    db.remove_watchlist_symbol(_s)
+                # Notes are deliberately NOT deleted: `symbol_notes` is keyed by
+                # symbol, not by membership, so re-adding a name brings back what
+                # you wrote about it. That is the behaviour B-63b chose when it
+                # moved notes off `watchlist.notes`, and removal must not quietly
+                # reverse it.
+                st.success(f"Removed {', '.join(_wl_picked)} from the watchlist. "
+                           f"Notes kept.")
+                st.rerun()
         st.caption(
             "**EMA cross (d)** is signed: **+12** = the 10-EMA crossed ABOVE the "
             "20-EMA twelve sessions ago, **−3** = crossed below three sessions "
@@ -6925,15 +6972,15 @@ if current_page == "Watchlist":
             st.caption(f"⚠️ **RS walk:** {_rwx.SURVIVORSHIP_NOTE}")
         st.caption("Descriptions of state, not signals — none of these columns "
                    "has been measured, and none casts a vote anywhere. "
-                   "**Notes is editable** — click a cell, type, press Enter; "
-                   "every other column is read-only.")
+                   "**Notes is editable** — click a cell, type, press Enter — "
+                   "and **✕ ticks a row for removal** (nothing happens until you "
+                   "press the button that appears). Every other column is "
+                   "read-only.")
 
+        # The "Remove from watchlist" dropdown that stood here was replaced by the
+        # in-row ✕ tick above: same action, aimed at the row you are reading, and
+        # able to take more than one name at a time.
         wc1, wc2 = st.columns(2)
-        with wc1:
-            remove_sym = st.selectbox("Remove from watchlist", watch["symbol"])
-            if st.button("Remove"):
-                db.remove_watchlist_symbol(remove_sym)
-                st.success(f"Removed {remove_sym}.")
         with wc2:
             jump_sym = st.selectbox("Send to Stock Analyzer", watch["symbol"], key="wl_jump")
             if st.button("Analyze →", key="wl_analyze"):
