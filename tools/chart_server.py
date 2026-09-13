@@ -980,6 +980,7 @@ def api_order_blocks():
             "dir":   rt["dir"],
             # early = wick rejection at the zone; confirmed = price left the zone.
             "kind":  rt.get("kind", "confirmed"),
+            "ob_idx": rt.get("ob_idx"),
             "time":  t,
             "price": round(rt["price"], 2),
             "buy_pct":  rt.get("buy_pct"),

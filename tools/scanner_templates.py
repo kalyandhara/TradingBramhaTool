@@ -5763,6 +5763,7 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
                 if (not got_early and ob["low"] <= lo_m <= ob["high"]
                         and cl_m > ob["high"]):
                     retests.append({"dir": "bull", "idx": m, "kind": "early",
+                                    "ob_idx": ob["ob_idx"],
                                     "price": lo_m,
                                     "buy_pct": ob.get("buy_pct", 50.0)})
                     got_early = True
@@ -5770,6 +5771,7 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
                     prev_low = float(l.iloc[m - 1]) if m > 0 else lo_m
                     if prev_low <= ob["high"] and lo_m > ob["high"]:
                         retests.append({"dir": "bull", "idx": m, "kind": "confirmed",
+                                    "ob_idx": ob["ob_idx"],
                                         "price": ob["high"],
                                         "buy_pct": ob.get("buy_pct", 50.0)})
                         got_confirmed = True
@@ -5777,6 +5779,7 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
                 if (not got_early and ob["low"] <= hi_m <= ob["high"]
                         and cl_m < ob["low"]):
                     retests.append({"dir": "bear", "idx": m, "kind": "early",
+                                    "ob_idx": ob["ob_idx"],
                                     "price": hi_m,
                                     "sell_pct": ob.get("sell_pct", 50.0)})
                     got_early = True
@@ -5784,6 +5787,7 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
                     prev_high = float(h.iloc[m - 1]) if m > 0 else hi_m
                     if prev_high >= ob["low"] and hi_m < ob["low"]:
                         retests.append({"dir": "bear", "idx": m, "kind": "confirmed",
+                                    "ob_idx": ob["ob_idx"],
                                         "price": ob["low"],
                                         "sell_pct": ob.get("sell_pct", 50.0)})
                         got_confirmed = True
