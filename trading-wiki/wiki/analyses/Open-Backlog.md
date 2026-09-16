@@ -5524,6 +5524,65 @@ window — the [[#B-74r]] shape), and a wider universe for C if that distinction
 becomes load-bearing. Neither blocks the consequences already applied.
 
 
+## B-77 · The daily jobs were never registered — and one of them could not have run — **CLOSED 2026-09-15**
+
+Raised by [[analyses/Design-Review-2026-09-14]] as the review's only P0. Task
+Scheduler held **two** TradingBramha tasks (IntradayUpdate, DailyDigest); the three
+the Scheduler Hub defines held **none**. `daily_opportunities` last ran
+**2026-09-07**, so Home had been ranking week-old names for five sessions.
+
+**The second defect is the one worth keeping, because registering the jobs exposed
+it.** `register_argv` built the Alert Bot's schedule as
+`/sc MINUTE /mo 15 /st 09:15 /et 15:45`, which reads like "every 15 minutes between
+those times" and is not that. **`/sc MINUTE` is a ONE-TIME trigger with a repetition
+attached**: `schtasks` returned SUCCESS, the task showed **Enabled**, the hub showed
+it **🟢 registered** — and `Next Run Time` was **N/A**. It would never have fired
+again. `/et` was silently dropped too (`Repeat: Until: Time: None`).
+
+> [!warning] A registration that succeeds and never runs is worse than one that fails
+> Every surface said green. The single field that said otherwise was one metric on
+> the hub, reading `N/A`, next to three that looked fine. **The bug was visible and
+> unread** — the same shape as [[#B-69]]'s state label, moved from a docstring to a
+> scheduled task.
+
+**Fixed to the form that actually recurs**, verified against a scratch task before
+the code changed: `/sc WEEKLY /d MON,TUE,WED,THU,FRI /st 09:15 /ri 15 /du 0006:30`
+→ next run reported at the following 09:15. Weekday-only is deliberate: NSE is shut
+at the weekend and the previous shape would have been 26 no-op runs a day if it had
+worked at all.
+
+| job | task | next run |
+|---|---|---|
+| Alert Bot | `TradingBramha-AlertWatcher` | Mon–Fri 09:15, every 15 min for 6h30m |
+| Daily Scanner | `TradingBramha-DailyScanner` | daily 16:15 |
+| Opportunity Shortlist | `TradingBramha-OpportunityDaily` | daily 16:20 |
+
+**Verified by running it, not by registering it.** `TradingBramha-OpportunityDaily`
+triggered by hand: universe 500, **576 fetches, 76 candidates**, top 5 stored for
+`2026-09-15`, exit **Last Result 0**. The Home map went from the stale chip to
+today's names on reload.
+
+**Two surfaces gained a warning, both from this failure's own shape:**
+* **Home** — "not today" was a grey caption, which is correct *before* the 16:20 job
+  fires and badly wrong *after* it fails. It now counts the **weekdays strictly
+  between** the stored run and today: one or more is a missed session and renders a
+  **risk-toned chip naming the task**. A Friday run read on Monday counts **zero** —
+  the weekend is not a missed session.
+* **Scheduler Hub** — a registered job whose `next_run` is `N/A` now says so in
+  words, instead of leaving the reader to notice one metric among four.
+
+**Pinned by tests, not by memory** — `tools/test_scheduler_core.py` (12 tests) asserts
+the interval job never emits `/sc MINUTE` or `/mo`, that it recurs weekly on the
+trading days with `/ri` + `/du`, and that `/et` is gone. The duration arithmetic
+covers the market window, a reversed window and malformed input from the hub's own
+text boxes.
+
+**Noted, not fixed — 122 yfinance `401 Invalid Crumb` errors across 576 fetches in
+that run.** The retry path in `data_source` absorbed them and the shortlist came out
+complete, so this is degraded-but-working rather than broken. It belongs in its own
+item if the rate climbs; a scheduled job failing this way would be silent.
+
+
 ## Outcome (fill in later)
 
 ## Related Pages

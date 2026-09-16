@@ -5931,8 +5931,30 @@ def render_action_map() -> None:
         return
 
     if _run != date.today().isoformat():
-        st.caption(f"Newest stored run is **{_run}**, not today - these are that "
-                   f"day's names. Price levels decay; treat them as history.")
+        # A run that is merely "not today" is normal before the 16:20 job fires.
+        # A run with a whole weekday between it and today means the job did NOT
+        # fire — which is how the shortlist silently aged a week (2026-09-07 →
+        # 09-14) while this caption read like a timing note. Count the weekdays
+        # strictly between the two dates: one or more is a missed session, and
+        # that is a red chip naming the job, not a grey caption.
+        try:
+            _missed = len(pd.bdate_range(
+                pd.Timestamp(_run) + pd.Timedelta(days=1),
+                pd.Timestamp(date.today()) - pd.Timedelta(days=1)))
+        except Exception:
+            _missed = 0
+        if _missed >= 1:
+            st.markdown(
+                rs.callout(
+                    f"Shortlist is stale — {_missed} session(s) missed since {_run}.",
+                    "The TradingBramha-OpportunityDaily job did not run. Check it on "
+                    "the Scheduler Hub (Ops) or run the Hub by hand. Price levels "
+                    "decay; these names are history until it does.",
+                    tone="risk"),
+                unsafe_allow_html=True)
+        else:
+            st.caption(f"Newest stored run is **{_run}**, not today - these are that "
+                       f"day's names. Price levels decay; treat them as history.")
 
     # Row 1 - the shortlist, its sectors, its strongest movers
     c1, c2, c3 = st.columns(3)
@@ -7251,6 +7273,20 @@ if current_page == "Scheduler Hub":
                 _m[1].metric("Next run", _stt.get("next_run", "—"))
                 _m[2].metric("Last run", _stt.get("last_run", "—"))
                 _m[3].metric("Last result", _stt.get("last_result", "—"))
+                # "Registered and Enabled" is NOT the same as "will run". A bad
+                # schedule shape registers clean, shows Enabled, and reports no
+                # next run at all — which is how the Alert Bot sat dead while
+                # this panel showed it green (B-77). Say so where it is read.
+                if str(_stt.get("next_run", "")).strip().upper() in ("N/A", "", "—"):
+                    st.markdown(
+                        rs.callout(
+                            "Registered, but it has no next run.",
+                            "Windows accepted the task and reports it Enabled, yet "
+                            "there is no scheduled next fire — so it will not run. "
+                            "Re-register it below; if it comes back N/A the schedule "
+                            "shape is wrong, not the times.",
+                            tone="risk"),
+                        unsafe_allow_html=True)
 
             # Schedule configuration
             if _job.kind == "interval":

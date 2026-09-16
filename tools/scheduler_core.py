@@ -134,16 +134,59 @@ def write_bat(job: JobSpec) -> Path:
 
 
 # ── schtasks command construction ────────────────────────────────────────────
+#: Weekdays an interval job runs on. NSE trades Mon-Fri, so a market-hours bot
+#: has nothing to do at the weekend and the schedule should say so rather than
+#: firing 26 no-op runs every Saturday and Sunday.
+_TRADING_DAYS = "MON,TUE,WED,THU,FRI"
+
+
+def _duration(start: str, end: str) -> str:
+    """`/du` value (HHHH:MM) spanning `start`..`end`, both "HH:MM", same day.
+
+    schtasks expresses a bounded repeating window as a duration, not as an end
+    time — see `register_argv` for why that distinction cost this job its
+    schedule.
+    """
+    try:
+        sh, sm = (int(x) for x in start.split(":"))
+        eh, em = (int(x) for x in end.split(":"))
+    except (ValueError, AttributeError):
+        return "0006:30"
+    mins = (eh * 60 + em) - (sh * 60 + sm)
+    if mins <= 0:                       # end at/before start — treat as a full day
+        mins = 24 * 60 - 1
+    return f"{mins // 60:04d}:{mins % 60:02d}"
+
+
 def register_argv(job: JobSpec, *, time: str | None = None,
                   interval: int | None = None, end: str | None = None) -> list[str]:
-    """Build (do not run) the schtasks /create argv for a job's schedule."""
+    """Build (do not run) the schtasks /create argv for a job's schedule.
+
+    ── Why an interval job is WEEKLY and not MINUTE (fixed 2026-09-15) ──
+    The first version used `/sc MINUTE /mo N /st 09:15 /et 15:45`, which reads
+    like "every N minutes between those times". It is not. `/sc MINUTE` creates a
+    **one-time** trigger with a repetition attached, so the task fires once on the
+    day it is registered and then has **no next run at all** — `schtasks /query`
+    reported `Next Run Time: N/A` on the live AlertWatcher task. `/et` was
+    silently dropped too (`Repeat: Until: Time: None`).
+
+    The form that actually recurs is a WEEKLY trigger on the trading days with
+    `/ri` (repeat interval, minutes) and `/du` (how long to keep repeating):
+    verified to report a real next run at the following 09:15.
+
+    **The failure mode is the dangerous kind** — registration SUCCEEDS, the task
+    is Enabled, and the hub shows it as registered. Only the next-run field says
+    it will never fire, which is why `status()` returns `next_run` and the hub
+    must show it.
+    """
     bat = _scanner_bat() if job.id == "daily_scanner" else job.bat_path
     argv = ["schtasks", "/create", "/f", "/tn", job.task_name, "/tr", str(bat)]
     if job.kind == "interval":
         st = time or job.default_time
         et = end or job.default_end
         mo = int(interval or job.default_interval)
-        argv += ["/sc", "MINUTE", "/mo", str(mo), "/st", st, "/et", et]
+        argv += ["/sc", "WEEKLY", "/d", _TRADING_DAYS, "/st", st,
+                 "/ri", str(mo), "/du", _duration(st, et)]
     else:  # daily
         st = time or job.default_time
         argv += ["/sc", "DAILY", "/st", st]
