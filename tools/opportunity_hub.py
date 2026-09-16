@@ -469,7 +469,8 @@ def tally_evidence(fired: list[str]) -> tuple[list[str], float, list[str]]:
 
 def run_scanner_pipeline(symbols: list[str], fetch_for, *,
                          scanners: list[str] | None = None,
-                         benchmark_df=None, progress_cb=None) -> dict[str, dict]:
+                         benchmark_df=None, progress_cb=None,
+                         attach_pead: bool = True) -> dict[str, dict]:
     """Run every pipeline scanner over `symbols`; return one entry per name hit.
 
     `fetch_for(scanner_name) -> fetch_fn` is deliberately a FACTORY, not a single
@@ -480,6 +481,12 @@ def run_scanner_pipeline(symbols: list[str], fetch_for, *,
     caller supply a per-scanner fetch means that rule is structural on every
     path instead of something each caller has to remember.
 
+    **The factory must answer for a name it does not recognise**, returning the
+    default-window fetch — which is what both shipped callers already do, since
+    each discriminates on the single ``needs_full_history`` flag via
+    ``SCANNERS.get(name, {})``. `DEFAULT_WINDOW` below is the documented way to
+    ask for that frame without naming a scanner.
+
     Each returned value carries:
         scanners     — every scanner that fired, in run order
         families     — the distinct families those scanners belong to
@@ -488,6 +495,9 @@ def run_scanner_pipeline(symbols: list[str], fetch_for, *,
         best_card    — the highest-scoring scanner card, for rendering
         best_scanner — which scanner produced it
         risk_flags   — bearish scanners that also fired (never a vote)
+        pead         — the last-4-quarter post-earnings drift walk, PRESENT ONLY
+                       when one could be measured. Context, never a vote: it is
+                       computed after ranking and nothing scores on it.
     """
     names = list(scanners) if scanners else pipeline_scanners()
     names = [n for n in names if n in sc.SCANNERS]
@@ -528,4 +538,72 @@ def run_scanner_pipeline(symbols: list[str], fetch_for, *,
         h["risk_flags"] = risk
     # A name whose ONLY hit was bearish has no setup to show — drop it rather
     # than render a card with no pattern on it.
-    return {s: h for s, h in hits.items() if h["best_card"] is not None}
+    hits = {s: h for s, h in hits.items() if h["best_card"] is not None}
+
+    # ── The PEAD walk: a LAST stage, over the survivors only ──────────────────
+    # Deliberately after the filter. It is CONTEXT on a shortlisted name, not a
+    # filter and not a vote — nothing below reads `pead` when computing
+    # edge_points, families or rank_score, and adding it here must not change
+    # which names appear or in what order. Running it over the survivors also
+    # keeps it to a few dozen cache lookups instead of the whole universe.
+    if attach_pead:
+        try:
+            _fetch = fetch_for(DEFAULT_WINDOW)
+        except Exception as _exc:
+            # A factory that raises on an unknown name breaks the contract in the
+            # docstring above. The walk is context, so it goes quiet rather than
+            # taking the pipeline down with it.
+            _log.warning("PEAD walk: fetch_for(%r) failed (%s)", DEFAULT_WINDOW, _exc)
+        else:
+            _attach_pead(hits, _fetch)
+    return hits
+
+
+#: Asked of `fetch_for` when a caller wants the DEFAULT-WINDOW frame rather than
+#: a particular scanner's. Deliberately NOT a scanner name.
+#:
+#: The first version of the PEAD walk resolved this frame with
+#: ``next(n for n in sc.SCANNERS if not ...needs_full_history)`` — i.e. whichever
+#: scanner happened to sit first in the registry dict. That worked, and it was
+#: wrong: **registry order is not a contract.** Adding a scanner at the top of
+#: `SCANNERS`, or reordering it, would silently change which scanner's fetch
+#: backed the walk, with nothing to notice. The flag is the only thing
+#: `fetch_for` discriminates on, so the honest way to ask is to say what is
+#: wanted rather than to name a scanner that happens to want the same thing.
+DEFAULT_WINDOW = "__default_window__"
+
+
+def _attach_pead(hits: dict[str, dict], fetch) -> None:
+    """Attach `hit["pead"]` in place; never raises, never fetches earnings.
+
+    `fetch(symbol) -> DataFrame` is the DEFAULT-WINDOW fetch, resolved once by
+    the caller (see `DEFAULT_WINDOW`). Taking the fetch function rather than the
+    factory keeps the registry out of this function entirely — it has no opinion
+    about scanners, which is the whole point after the ordering bug above.
+    Asking for the full-history fetch here would turn a context column into a
+    per-symbol download.
+
+    The earnings side is cache-only by construction (`earnings_reaction` never
+    fetches on a display read), so a name with no cached calendar simply gets no
+    walk.
+
+    A symbol that cannot be walked gets NO `pead` key at all rather than an
+    empty one, so the renderer's "is there a walk" test stays a plain lookup and
+    absent can never be confused with a measured zero.
+    """
+    try:
+        import earnings_reaction as _er
+    except Exception as _exc:                               # pragma: no cover
+        _log.warning("PEAD walk unavailable: %s", _exc)
+        return
+    for sym, h in hits.items():
+        try:
+            df = fetch(sym)
+            if df is None or len(df) == 0:
+                continue
+            walk = _er.pead_walk(sym, df)
+        except Exception as _exc:
+            _log.debug("PEAD walk failed for %s: %s", sym, _exc)
+            continue
+        if walk.get("events"):
+            h["pead"] = walk

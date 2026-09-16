@@ -1,0 +1,30 @@
+# Line endings (B-81)
+#
+# Every commit on this repo printed "LF will be replaced by CRLF the next time
+# Git touches it" for each staged file. Harmless, and it trains you to skim the
+# one place git speaks up — which is the same failure mode `claims_lint` exists
+# to prevent, one layer down.
+#
+# `text=auto` lets git decide per file: normalise to LF in the repository, check
+# out in the platform's native ending. Nothing about the working tree changes on
+# Windows; what stops is the warning and the risk of a whole-file diff the day
+# someone commits from a different machine.
+* text=auto
+
+# Windows batch files are run by cmd.exe, which wants CRLF. The scheduled jobs
+# (scanner_daily, opportunity_daily, alert_watcher, sentiment_daily) are
+# generated with explicit \r\n by `scheduler_core.write_bat` for exactly this
+# reason; pinning it here keeps a checkout from undoing that.
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Leave data and binaries alone. A CSV that git "normalises" is a CSV whose
+# bytes no longer match the hash anything downstream recorded.
+*.csv  -text
+*.xlsx binary
+*.db   binary
+*.png  binary
+*.jpg  binary
+*.epub binary
+*.pdf  binary
+*.zip  binary

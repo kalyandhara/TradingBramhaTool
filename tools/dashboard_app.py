@@ -4627,6 +4627,82 @@ def _render_pipeline_card(hit: dict) -> None:
     card["overall"] = hit.get("overall")
     card["overall_breakdown"] = hit.get("overall_breakdown") or {}
     _render_scanner_card(card, best, header_html=header_html)
+    _render_pead_walk(hit.get("pead"))
+
+
+def _pct_tone(v) -> str:
+    """Colour for a signed per-cent, or the muted token for an absent one."""
+    if v is None:
+        return rs.TOKENS["text_muted"]
+    return rs.TOKENS["good"] if v > 0 else rs.TOKENS["risk"] if v < 0 else         rs.TOKENS["text_body"]
+
+
+def _render_pead_walk(walk: dict | None) -> None:
+    """The last-4-quarter post-earnings drift walk, under the pipeline card.
+
+    A small fixed GRID, not a card and not a dataframe. This is the one shape
+    the cards-not-tables rule does not cover: it is the SAME three measurements
+    repeated over four dates for ONE name, and the whole point is reading down a
+    column to see whether the drift keeps its sign. Four sub-cards would hide
+    exactly that. It stays inside the parent card's column, so the 3-column hit
+    grid is untouched.
+
+    `None` (or a walk with no events) renders NOTHING — no placeholder, no
+    dashes. A name whose calendar this desk does not have should look like a
+    name without the section, not like a name that drifts zero.
+    """
+    if not walk or not walk.get("events"):
+        return
+    _m = rs.TOKENS["text_muted"]
+    _b = rs.TOKENS["text_body"]
+
+    def _cell(v):
+        return (f'<span style="color:{_pct_tone(v)};">'
+                f'{"—" if v is None else f"{v:+.1f}%"}</span>')
+
+    rows = ""
+    for e in walk["events"]:
+        _snap = (f' <span style="color:{_m};" title="event date snapped forward '
+                 f'{e["snapped_days"]}d to the first trading session">*</span>'
+                 if e.get("snapped_days") else "")
+        _run = ("" if e.get("complete") else
+                f' <span style="color:{_m};" title="drift window still running '
+                f'— the frame ends before +20 sessions">…</span>')
+        # The archived-card path (daily_opportunity_cards) round-trips the hit
+        # through JSON, where a `date` becomes a string. Both shapes reach this
+        # renderer, so format the date only when it still is one.
+        _d = e["date"]
+        _d = f"{_d:%Y-%m-%d}" if hasattr(_d, "year") else str(_d)[:10]
+        rows += (f'<tr><td style="color:{_b};padding:1px 8px 1px 0;">'
+                 f'{_d}{_snap}{_run}</td>'
+                 f'<td style="text-align:right;padding:1px 8px;">{_cell(e.get("d1"))}</td>'
+                 f'<td style="text-align:right;padding:1px 8px;">{_cell(e.get("d5"))}</td>'
+                 f'<td style="text-align:right;padding:1px 0 1px 8px;">'
+                 f'{_cell(e.get("d20"))}</td></tr>')
+
+    _cons = walk.get("consistency")
+    _agree = walk.get("agreeable") or 0
+    foot = (f'{_cons}/{_agree} quarters drifted the same way as their reaction bar'
+            if _cons is not None and _agree
+            else 'not enough completed windows to judge consistency')
+
+    st.markdown(
+        f'<div style="margin:-6px 0 10px;padding:7px 10px;border-radius:8px;'
+        f'background:{rs.TOKENS["surface_alt"]};font-size:11.5px;">'
+        f'<div style="color:{_m};margin-bottom:3px;" '
+        f'title="D+1 is the session after the results date — the reaction for a '
+        f'post-close announcement. D+5 and D+20 are the drift FROM the '
+        f'close of that bar, so the reaction itself is not counted as drift.">'
+        f'PEAD walk · last {len(walk["events"])} results</div>'
+        f'<table style="width:100%;border-collapse:collapse;">'
+        f'<tr style="color:{_m};"><td style="padding:1px 8px 1px 0;">results</td>'
+        f'<td style="text-align:right;padding:1px 8px;">D+1</td>'
+        f'<td style="text-align:right;padding:1px 8px;">→+5</td>'
+        f'<td style="text-align:right;padding:1px 0 1px 8px;">→+20</td></tr>'
+        f'{rows}</table>'
+        f'<div style="color:{_m};margin-top:4px;">{foot} · context only, '
+        f'nothing is scored or ranked on it</div></div>',
+        unsafe_allow_html=True)
 
 
 with st.expander("Daily Workflow (IST)"):

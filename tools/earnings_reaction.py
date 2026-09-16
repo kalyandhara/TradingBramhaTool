@@ -238,6 +238,134 @@ def reaction(symbol: str, df: pd.DataFrame, today: Optional[date] = None,
     return out
 
 
+# ══ THE PEAD WALK ════════════════════════════════════════════════════════════
+#
+# `reaction()` above measures ONE event. The walk measures the last four, so the
+# reader can see whether this name drifts after results at all — a single
+# quarter's +8% is a coincidence, four in the same direction is a behaviour.
+#
+# ── THE MEASUREMENT, PINNED ──
+#
+#   D+1     close-to-close return of the session AFTER the event date.
+#           This is the REACTION for a post-close announcement, which the
+#           module docstring records as the common Indian large-cap case. The
+#           walk commits to it — unlike the five-column group, which refuses to
+#           pick — because a per-quarter triplet is four times as wide and the
+#           question here is "does it drift", not "when was it announced".
+#           That commitment is the walk's one real assumption; a name that
+#           announces pre-open will have its reaction sitting in E-DAY instead
+#           and read here as noise, not as drift.
+#
+#   D+5     cumulative close-to-close drift from the D+1 bar's close out five
+#   D+20    (and twenty) further sessions. DRIFT IS MEASURED FROM THE REACTION
+#           BAR'S CLOSE, NOT THE EVENT BAR'S — post-earnings-announcement drift
+#           is by definition what happens AFTER the market has reacted. Folding
+#           the jump into the drift would make every well-received result look
+#           like it drifted, which is the classic way this effect is overstated.
+#
+# ── WHAT IS NOT MEASURED ──
+#
+# No surprise, no estimate, no direction expectation. yfinance's cached events
+# carry no reliable consensus for Indian names, so this is a PRICE walk: what
+# the stock did after each of its last four results. It says nothing about
+# whether the result beat anything.
+#
+# ── UNBACKTESTED ──
+#
+# `consistency` counts agreement; it is NOT a validated signal and nothing in
+# the pipeline scores or ranks on it. It is context on a card.
+
+#: Sessions after the reaction bar that each drift leg spans.
+DRIFT_LEGS = (5, 20)
+
+#: Quarters walked by default. Four is one reporting year — enough for a
+#: pattern to be visible and short enough to fit the ~300-bar frames the
+#: pipeline already holds. A fifth quarter would routinely fall off the front
+#: of those frames and render as a hole in every row.
+WALK_QUARTERS = 4
+
+
+def _drift_from(df: pd.DataFrame, i: int, sessions: int) -> Optional[float]:
+    """Per-cent move from bar `i`'s close to bar `i + sessions`'s close.
+
+    None when the frame ends first — a drift leg that runs past the last bar is
+    INCOMPLETE, not zero, and the difference matters for a result announced
+    three weeks ago whose +20 window is still running.
+    """
+    if i is None or i < 0:
+        return None
+    j = i + sessions
+    if j >= len(df):
+        return None
+    try:
+        base = float(df["close"].iloc[i])
+        end = float(df["close"].iloc[j])
+    except (KeyError, ValueError, IndexError):
+        return None
+    if not base or base != base or end != end:
+        return None
+    return round((end / base - 1.0) * 100.0, 2)
+
+
+def pead_walk(symbol: str, df: pd.DataFrame, *, quarters: int = WALK_QUARTERS,
+              today: Optional[date] = None,
+              use_cache_only: bool = True) -> dict[str, Any]:
+    """The post-earnings drift walk over the last `quarters` results.
+
+    `df` is the daily frame the caller already holds — nothing here downloads
+    anything, for the same reason `reaction()` does not: this feeds a render.
+
+    Returns::
+
+        {"symbol": str,
+         "events": [{"date": date, "snapped_days": int,
+                     "d1": float|None, "d5": float|None, "d20": float|None,
+                     "complete": bool}, ...],   # newest first
+         "consistency": int|None,   # of the events with a measurable d20, how
+                                    # many drifted the SAME WAY as their own d1
+         "measured": int}           # events with a d1 at all
+
+    An empty `events` list is the honest answer for a name with no cached
+    calendar, a stale one (see MAX_EVENT_AGE_DAYS), or a frame too short to
+    reach back a year. Absent renders absent; the caller must not substitute a
+    zero.
+    """
+    today = today or date.today()
+    out: dict[str, Any] = {"symbol": symbol, "events": [],
+                           "consistency": None, "measured": 0}
+    if df is None or df.empty:
+        return out
+
+    past = [ec._as_date(e["date"]) for e in _events(symbol, use_cache_only)]
+    past = sorted((d for d in past if d and d < today), reverse=True)
+    # The same staleness rule `last_earnings` applies. A feed whose newest event
+    # is from 2018 does not get to render a four-quarter walk of 2018 events.
+    if not past or (today - past[0]).days > MAX_EVENT_AGE_DAYS:
+        return out
+
+    for ev in past[:quarters]:
+        i, slip = _bar_index(df, ev)
+        if i is None:
+            continue                     # event outside the frame, or too new
+        d1_i = i + 1
+        row = {"date": ev, "snapped_days": slip,
+               "d1": _close_return(df, d1_i), "complete": False}
+        for leg in DRIFT_LEGS:
+            row[f"d{leg}"] = (_drift_from(df, d1_i, leg)
+                              if row["d1"] is not None else None)
+        row["complete"] = all(row.get(f"d{leg}") is not None for leg in DRIFT_LEGS)
+        out["events"].append(row)
+
+    out["measured"] = sum(1 for r in out["events"] if r["d1"] is not None)
+    agree = [r for r in out["events"]
+             if r["d1"] is not None and r.get("d20") is not None and r["d1"] != 0]
+    if agree:
+        out["consistency"] = sum(1 for r in agree
+                                 if (r["d20"] > 0) == (r["d1"] > 0))
+        out["agreeable"] = len(agree)
+    return out
+
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")

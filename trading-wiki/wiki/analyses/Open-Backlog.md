@@ -5837,6 +5837,73 @@ red / flat thresholds surviving the source swap. Suite 530 → 545.
 omissions) are unchanged — this repaired the feed, not the taxonomy.
 
 
+## B-81 · Land the PEAD walk — **CLOSED 2026-09-16**
+
+The four-quarter post-earnings drift walk had sat uncommitted across a session
+boundary. [[analyses/Design-Review-2026-09-14]] found the measurement itself sound
+— drift taken from the reaction bar, an unfinished window as `None`, a stale
+calendar yielding nothing, all pinned by tests — and flagged three things around
+it.
+
+### The frame was chosen by registry order
+
+`_attach_pead` resolved its frame with
+``next(n for n in sc.SCANNERS if not sc.SCANNERS[n].get("needs_full_history"))``
+— **whichever scanner happened to sit first in the dict.** It worked, and it was
+wrong: adding a scanner at the top of `SCANNERS`, or reordering it, would have
+silently changed which fetch backed the walk, with nothing to notice.
+
+`fetch_for` discriminates on exactly one thing — the `needs_full_history` flag —
+so the honest way to ask is to **say what is wanted** rather than name a scanner
+that happens to want the same thing. Added `oh.DEFAULT_WINDOW`, a sentinel that is
+deliberately *not* a scanner name, and wrote the contract into
+`run_scanner_pipeline`'s docstring: **a factory must answer for a name it does not
+recognise, with the default-window fetch.** Both shipped callers already did,
+since each looks up `SCANNERS.get(name, {})`; a factory that refuses now makes the
+walk go quiet instead of taking a scan of hundreds of names down with it.
+
+`_attach_pead` now takes the **fetch function**, not the factory, so the registry
+is out of it entirely — which is the actual repair, not just a renamed lookup.
+
+### Untested surface
+
+12 tests in `tools/test_pead_attach.py`: that attaching never adds or removes a
+name (it runs after the filter and is context, never a vote), that one symbol's
+failure does not stop the rest, that an empty walk leaves **no key at all**, and
+that the archived card's JSON round-trip returns a date as a **string** while a
+`None` leg stays `None` — "still running" must not render as a value.
+
+### Verified on real stored data, not only on fixtures
+
+The scheduled job's archived cards for 2026-09-15 carry the walk, and the split is
+the designed one:
+
+| name | walk | why |
+|---|---|---|
+| LAURUSLABS | **4 events**, dates back as strings through JSON | newest cached result 54 days old |
+| BODALCHEM | absent | newest cached result **2019-05-21**, 2,675 days |
+| SOLARA | absent | newest cached result **2023-01-25**, 1,330 days |
+| AHCL, ANTELOPUS | absent | no cached calendar at all |
+
+Two of those have calendars and still render nothing — `MAX_EVENT_AGE_DAYS = 400`
+refusing to present a four-quarter walk of 2019 results as current. **Absent
+renders absent**, confirmed on live data rather than asserted.
+
+### `.gitattributes`
+
+Every commit printed *"LF will be replaced by CRLF"* per staged file. Harmless, and
+it trains you to skim the one channel git uses to speak up. `* text=auto` matches
+what the index already holds, so nothing renormalises; `.bat`/`.ps1` are pinned to
+CRLF because cmd.exe wants them and `scheduler_core.write_bat` already emits `
+`
+deliberately; data and binaries are left alone.
+
+**NOT promoted to anything.** The walk is context on a card. Nothing scores, ranks
+or filters on it, `consistency` is not a validated signal, and the attach stage runs
+*after* the survivor filter so it cannot change which names appear or in what order.
+Suite 545 → 557.
+
+
 ## Outcome (fill in later)
 
 ## Related Pages
