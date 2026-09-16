@@ -117,3 +117,72 @@ def test_dev_requirements_are_kept_out_of_the_pipeline_requirements():
     batch interpreter's requirements look bigger than they are."""
     pipeline = (REPO / "tools" / "requirements_pipeline.txt").read_text(encoding="utf-8")
     assert not re.search(r"(?m)^pytest\b", pipeline)
+
+
+# ── the launchers (B-84) ─────────────────────────────────────────────────────
+#
+# This repo ships THREE apps and had a .bat for one of them. The review that
+# raised B-84 said start.bat "launches the older one"; it does not — it launches
+# the SBC/astro dashboard and says so in its own title. The real gap was that the
+# DESK could only be started from .claude/launch.json, i.e. from inside Claude
+# Code. Recorded here because the wrong diagnosis is the more interesting half.
+
+DESK_LAUNCHER = REPO / "start_desk.bat"
+SBC_LAUNCHER = REPO / "start.bat"
+
+
+def _launch_line(bat: pathlib.Path) -> str:
+    """The `start "..." ...` line that actually launches the app.
+
+    Matched on the LAUNCH LINE rather than the whole file on purpose: both
+    launchers now mention the other by name, in a comment and in a "run the other
+    one instead" banner. A whole-file search would read those cross-references as
+    the app being launched — which is how a test ends up asserting the opposite of
+    what it means.
+    """
+    for line in bat.read_text(encoding="utf-8", errors="replace").splitlines():
+        st = line.strip()
+        if st.lower().startswith("start ") and ".py" in st:
+            return st
+    raise AssertionError(f"no launch line found in {bat.name}")
+
+
+def test_each_launcher_targets_a_file_that_exists():
+    for bat, target in ((DESK_LAUNCHER, r"tools\dashboard_app.py"),
+                        (SBC_LAUNCHER, r"tools\dash_trading_dashboard.py")):
+        assert bat.is_file(), bat
+        assert target in _launch_line(bat), bat.name
+        assert (REPO / target.replace("\\", "/")).is_file()
+
+
+def test_the_two_launchers_do_not_launch_the_same_app():
+    """They serve different products on different ports. If these ever converge,
+    one is redundant and should be retired rather than duplicated."""
+    desk, sbc = _launch_line(DESK_LAUNCHER), _launch_line(SBC_LAUNCHER)
+    assert "dash_trading_dashboard" not in desk
+    assert "dashboard_app.py" not in sbc
+    assert desk != sbc
+
+
+@pytest.mark.skipif(not LAUNCH.is_file(), reason="no launch.json in this checkout")
+def test_the_desk_launcher_pins_the_same_python_as_launch_json():
+    """Same drift risk as run_tests.bat: a launcher that starts the desk on a
+    different interpreter than the one it is developed and tested against."""
+    pinned = _bat_var(DESK_LAUNCHER.read_text(encoding="utf-8", errors="replace"),
+                      "PYTHON")
+    assert pathlib.PureWindowsPath(pinned) == pathlib.PureWindowsPath(
+        _launch_python().replace("/", "\\"))
+
+
+def test_the_desk_launcher_uses_the_port_launch_json_serves():
+    cfg = json.loads(LAUNCH.read_text(encoding="utf-8"))
+    port = next(c["port"] for c in cfg["configurations"] if c.get("name") == "dashboard")
+    text = DESK_LAUNCHER.read_text(encoding="utf-8", errors="replace")
+    assert _bat_var(text, "PORT") == str(port)
+
+
+def test_dash_is_declared_now_that_a_launcher_depends_on_it():
+    """Third instance of the undeclared-dependency pattern this repo already
+    records for ephem and lxml: installed on the machine, absent from the project."""
+    req = (REPO / "tools" / "requirements_pipeline.txt").read_text(encoding="utf-8")
+    assert re.search(r"(?m)^dash\b", req)

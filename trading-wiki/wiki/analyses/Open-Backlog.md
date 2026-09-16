@@ -6061,6 +6061,67 @@ fix and **allow the commit**, because a broken hook must not block work.
 Suite 566 → 574.
 
 
+## B-84 · "Two dashboards, and start.bat points at the wrong one" — **the premise was wrong. CLOSED 2026-09-16**
+
+[[analyses/Design-Review-2026-09-14]] raised this as an owner decision: *"retire
+the Dash app or document it as a second product. Point start.bat at the desk
+either way."* Checked before deciding anything, and **both halves of the framing
+were false.**
+
+### There are THREE apps, not two
+
+| app | product | stack | port | launched by | history |
+|---|---|---|---|---|---|
+| `dashboard_app.py` | **the desk** | Streamlit | 8760 | *nothing* — only `.claude/launch.json` | the daily surface |
+| `dash_trading_dashboard.py` | **SBC / astro** | Dash | 8050 | `start.bat` | 3 commits, last **2026-08-18 adding features** |
+| `sbc_app.py` | SBC (earlier) | Streamlit | — | **nothing at all** | **1 commit, 2026-08-16** |
+
+### `start.bat` was never mislabelled
+
+Its title, banner and window name all read *"SBC Dashboard"*, and it launches the
+SBC dashboard. It is doing exactly what it says. **The review read "not the desk"
+as "the wrong one"**, and a second product is not a wrong one.
+
+Nor is the Dash app an older version of the desk. It imports **twelve `sbc_*`
+modules** plus `signal_processing_engine`, `live_movers` and
+`financial_astrology_methods` — and `dashboard_app.py` references **none** of them.
+There is no overlap to retire; it covers a vertical the desk does not have.
+
+> [!key-insight] The real gap was the opposite of the one reported
+> Not "a launcher pointing at the wrong app" but **"the app everyone uses has no
+> launcher at all"**. The desk could only be started from `.claude/launch.json`,
+> i.e. from inside Claude Code. `start_desk.bat` now starts it on :8760, each
+> launcher points at the other in its banner, and neither changes what the other
+> does. Verified by running it: HTTP 200 on :8760, then stopped again.
+
+### The retire candidate is a different file, and it is the owner's call
+
+**`sbc_app.py`** is the dead one: a single commit on 2026-08-16, launched by
+nothing, importing only `sbc_scoring` — and **superseded two days later** by the
+Dash app's SBC tab, which drives the whole `sbc_*` stack. Its own docstring still
+gives a `streamlit run` command nothing else references.
+
+**Not deleted here.** Removing a file is destructive and the evidence, while
+one-sided, is circumstantial: it may be kept deliberately as a lighter standalone
+view. Flagged with the evidence so the decision is one line of reading, not an
+investigation.
+
+### Found in passing, and it is the third time
+
+`dash` was installed on this machine and **declared nowhere** — after `ephem`
+(B-14) and `lxml` (the earnings calendar), in the same file that already records
+both. Declared now. [[#B-83]] hit the identical pattern with `pytest` on the same
+day, which makes four; the shape is always *"installed" is true of a machine, not
+of the project.*
+
+**Tests:** 5 added, asserting each launcher targets a file that exists, that the
+two do not launch the same app, that the desk launcher pins the same interpreter
+and port as `launch.json` (the [[#B-83]] drift risk again), and that `dash` is
+declared. One of them was **wrong on first write** — it searched the whole file
+and so read the new cross-reference banners as the app being launched; it now
+matches the launch line. Suite 574 → 579.
+
+
 ## Outcome (fill in later)
 
 ## Related Pages
