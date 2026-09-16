@@ -5996,6 +5996,71 @@ That number was meaningless while the clock was stopped and is not acted on here
 Suite 557 → 566.
 
 
+## B-83 · 566 tests, one interpreter, and nothing that ran them — **CLOSED 2026-09-16**
+
+Raised by [[analyses/Design-Review-2026-09-14]]. The suite was good and invisible:
+no config, no runner, no CI, and it passed under exactly **one** of the three
+Pythons on this machine.
+
+| interpreter | runs | pytest |
+|---|---|---|
+| `Programs\Python314` | the dashboard (`.claude/launch.json`) | ✅ |
+| `Python\pythoncore-3.14-64` | **the scheduled jobs** (every `.bat`) | ❌ |
+| `hermes-agentenv` | what a bare `python` resolves to | ❌ (no pandas either) |
+
+So `python -m pytest` in a shell was a coin toss, and the one it most often lands
+on cannot import pandas.
+
+### What shipped
+
+* **`pytest.ini`** — the suite ran on *defaults*, not decisions: discovery happened
+  to find `tools/`, and the `prepend` import mode happened to put each test's own
+  directory on `sys.path`, which is the only reason `import scanner_templates`
+  resolves. `testpaths` now bounds discovery, and `norecursedirs` keeps the
+  vendored `breakout_scanner/node_modules` tree out — it found nothing there
+  today; the point is that **a vendored bundle must never be able to fail this
+  project's suite**. `--strict-markers` turns a typo'd marker into an error rather
+  than a test that looks configured and is not.
+* **`run_tests.bat`** — pins the interpreter, passes arguments through, and fails
+  with the install command rather than a traceback when pytest is absent.
+* **`tools/requirements_dev.txt`** — pytest was installed into one Python and
+  **declared nowhere**. That is the `ephem` (B-14) and `lxml` failure a third time:
+  *"installed" true of a machine, not of the project.* Kept separate from
+  `requirements_pipeline.txt` because a scheduled job does not need a test runner.
+* **An opt-in pre-commit hook** (`tools/install_hooks.bat`). Not installed by this
+  session — a hook changes what `git commit` does, and that is the owner's call,
+  not a side effect of a session that happened to touch the test setup.
+
+### `--batch`, and the gap it is there to keep visible
+
+The runner will also run under the **scheduled-job** interpreter. It has no pytest,
+so today it prints the gap and the install line — and that is the useful outcome:
+**the code that runs unattended every evening is never exercised under the
+interpreter that runs it**, and that interpreter carries a *different yfinance*
+(1.6.0 against 1.4.1, see [[analyses/Python-Environments]]). The report is
+deliberately **never a gate**: a dev dependency missing on a second interpreter
+must not fail an otherwise-green run, and a test asserts the exit code is captured
+before the batch report runs.
+
+### The new failure mode a pin creates, and the test for it
+
+Pinning an interpreter invents a fresh way to be wrong: **the pin can drift from
+the one the app actually uses.** That is exactly [[#B-79]]'s environments-page
+defect one layer down — prose naming a source of truth with a hard-coded answer
+beneath it. So a test reads `.claude/launch.json` and asserts `run_tests.bat` and
+the hook both pin the *same* interpreter. If Python moves, the suite says so
+instead of quietly going green on a Python the dashboard never uses.
+
+**Two verifications worth recording.** The `for %%A in (%*)` + delayed-expansion
+idiom for stripping `--batch` **silently passed the literal text `!ARGS!` through
+to pytest** — found by running it, not by reading it; replaced with a `shift` loop
+and `call set`. And the hook's degrade-open branches were tested by pointing them
+at an interpreter with no pytest and at a path that does not exist: both print the
+fix and **allow the commit**, because a broken hook must not block work.
+
+Suite 566 → 574.
+
+
 ## Outcome (fill in later)
 
 ## Related Pages

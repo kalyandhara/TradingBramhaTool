@@ -1,0 +1,45 @@
+#!/bin/sh
+# Trading Bramha pre-commit hook — B-83. OPT-IN: see tools/install_hooks.bat.
+#
+# Runs the suite before a commit is written. ~19s for 566 tests, which is the
+# whole argument for it: the cost is small and the failure it prevents is a
+# commit that does not import.
+#
+# It calls the interpreter directly rather than run_tests.bat because git hooks
+# run under sh here, and one indirection through cmd is one more thing to debug
+# at the moment you are trying to commit.
+#
+# Escape hatch, deliberately easy:
+#     SKIP_TESTS=1 git commit -m "wip"
+# A hook you cannot skip is a hook people uninstall. This prints when skipped, so
+# it is a decision rather than a habit.
+
+if [ -n "$SKIP_TESTS" ]; then
+    echo "pre-commit: SKIP_TESTS set — suite NOT run for this commit."
+    exit 0
+fi
+
+PY="C:/Users/Owner/AppData/Local/Programs/Python/Python314/python.exe"
+
+if [ ! -x "$PY" ]; then
+    echo "pre-commit: test interpreter missing:"
+    echo "  $PY"
+    echo "  Commit allowed. Fix the path in tools/hooks/pre-commit and run_tests.bat."
+    exit 0            # a broken hook must not block work
+fi
+
+if ! "$PY" -c "import pytest" 2>/dev/null; then
+    echo "pre-commit: pytest not installed in the test interpreter."
+    echo "  \"$PY\" -m pip install -r tools/requirements_dev.txt"
+    echo "  Commit allowed."
+    exit 0
+fi
+
+echo "pre-commit: running the suite…"
+if ! PYTHONIOENCODING=utf-8 "$PY" -m pytest; then
+    echo
+    echo "pre-commit: tests FAILED — commit aborted."
+    echo "  Fix them, or commit with:  SKIP_TESTS=1 git commit ..."
+    exit 1
+fi
+exit 0

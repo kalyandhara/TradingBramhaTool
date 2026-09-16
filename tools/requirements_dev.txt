@@ -1,0 +1,30 @@
+# Development-only dependencies — B-83.
+#
+# Kept separate from requirements_pipeline.txt on purpose: that file is what the
+# SCHEDULED JOBS need to run, and a scheduled job does not need a test runner.
+# Mixing them would make the batch interpreter's requirements look larger than
+# they are.
+#
+# Why this file exists at all: pytest was installed into one of this machine's
+# three Pythons and never declared anywhere. That is precisely the failure
+# analyses/Python-Environments records twice already — `ephem` in B-14 and `lxml`
+# for the earnings calendar — where "installed" was true of a machine, not of the
+# project, and the next environment failed in a way that read as missing DATA
+# rather than a missing package. 566 tests that only exist on one machine are the
+# same bug with a wider blast radius.
+#
+# Install into the test interpreter (the one .claude/launch.json runs):
+#   "C:\Users\Owner\AppData\Local\Programs\Python\Python314\python.exe" ^
+#       -m pip install -r tools\requirements_dev.txt
+#
+# `run_tests.bat --batch` will tell you if the scheduled-job interpreter is
+# missing it too.
+
+pytest>=8.0
+
+# Everything the suite imports beyond the pipeline's own requirements is already
+# covered by tools/requirements_pipeline.txt (pandas, numpy, yfinance, requests,
+# lxml, ephem). scipy is optional at runtime — backtest.py falls back to a normal
+# approximation without it (B-39) — but the tests that exercise the significance
+# stack are more useful with it present.
+scipy>=1.17
