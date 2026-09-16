@@ -5752,6 +5752,91 @@ live in `chart_dashboard.html`'s `INDICATOR_DEFS` and would need a JS-side count
 be checkable; not built, and not currently drifted.
 
 
+## B-80 · The verdict degraded by default — **CLOSED 2026-09-15**
+
+Raised by [[analyses/Design-Review-2026-09-14]]. Two independent defects fed the
+same STAND DOWN reading: sentiment was only ever refreshed by hand, so the verdict
+counted its own staleness as a caution; and sector participation had been
+NOT_CHECKED on 8 of 11 indices for weeks.
+
+### The sector half, and the fix that could not be built
+
+The 2026-09-10 pass diagnosed this precisely and deliberately deferred the repair
+to its own commit, recording the design in the docstring:
+
+> *"A correct fix widens the window AND bounds the GAP BETWEEN the two bars it
+> uses… Not done here — it is a behaviour change to a live component."*
+
+**Re-probed before building it, and that plan is unbuildable against today's feed.**
+
+| tickers | rows at `1mo` / `3mo` / `6mo` / `1y` / `max` |
+|---|---|
+| the 8 dark ones (`^CNXAUTO`, `^CNXFMCG`, `^CNXENERGY`, `^CNXMETAL`, `^CNXREALTY`, `^CNXINFRA`, `^CNXCONSUM`, `NIFTY_FIN_SERVICE.NS`) | **1 / 1 / 1 / 1 / 1** — one bar, dated today |
+| `^CNXIT`, `^CNXPHARMA`, `^NSEBANK` | 20 / 64 / 123 / 246 / **4,674** |
+
+**No second bar at any width means no 1-day change at any width.** The window
+could not be widened and there was no gap to bound. On 2026-09-10 `period="3mo"`
+still returned 28 rows for `^CNXAUTO`; the feed degraded further in the five days
+the item sat. **Counting first is the only reason this was found before the fix
+was built rather than after it shipped and quietly did nothing.**
+
+> [!key-insight] A recorded fix is a hypothesis with a date on it
+> The design was right when written and wrong when read. This page's standing
+> lesson is that *items* go stale; this is the first time a **recorded solution**
+> did. Re-probe before building from a plan you did not write today.
+
+**What shipped instead is a source repair, not a redefinition.** NSE publishes
+every index's close and `Change(%)` for the session in one CSV
+(`ind_close_all_DDMMYYYY.csv`), login-free, on the `nsearchives` host
+[[#B-34]]'s constituent fetcher already uses. That is **the same quantity the
+factor always claimed** — the sector index's own 1-day move — taken from the
+exchange that computes it rather than a mirror that stopped carrying it. So no
+pre-registration is owed; a constituent-aggregated substitute *would* have needed
+one, and was not built for exactly that reason.
+
+* `sector_rotation.fetch_nse_index_closes` / `nse_index_changes` — walks back over
+  weekends and holidays, rejects NSE's 200-status HTML holiday page by content
+  rather than status, caches per session date (the published file is immutable).
+* All **11 of 11** tickers map to exact NSE index names — verified against a live
+  download, no fuzzy matching; an unmatched name is omitted, never defaulted to 0.
+* **yfinance is kept as a per-ticker fallback**, and the staleness rule applies to
+  both sources — a file found by walking back over a long shutdown is stale for
+  exactly the reason a stale bar is.
+
+### This one DID move the score, and that is the point
+
+Unlike [[#B-78]], where the null gate kept the factor excluded at any depth, here
+restoring coverage **re-enfranchises a scoring component** (weight 20). That is the
+designed behaviour returning after weeks dark, not a new claim — [[#B-66]] measured
+this factor as non-discriminating and deliberately did **not** demote it.
+
+| | before | after |
+|---|---|---|
+| sector indices scored | 3 / 11, below the floor -> NOT_CHECKED | **11 / 11**, all from NSE |
+| composite | 16.32, coverage **60/100** | **14.51**, coverage **80/100** |
+| band | Strong Sell | Strong Sell |
+
+The drop is the factor doing its job on a broadly red session (1 green / 10 red).
+
+### The refresh half
+
+`sentiment_daily` added to the Scheduler Hub registry
+(`TradingBramha-SentimentDaily`, daily 16:30) and registered. **Not folded into
+`opportunity_daily`**: nothing in that funnel reads sentiment, so coupling them
+would have been a dependency invented for scheduling convenience. Verified by
+running the task — clean exit, 0 errors, and it persisted the 14.51 reading with
+sector at 11/11.
+
+**Tests:** `tools/test_nse_index_closes.py` (15) covers the map's completeness,
+weekend backtracking, the HTML-holiday page, per-session caching, absent-renders-
+absent, the staleness rule on NSE dates, the yfinance fallback covering only what
+NSE did not answer, an NSE exception not taking the factor down, and the green /
+red / flat thresholds surviving the source swap. Suite 530 → 545.
+
+**Residual:** the four NSE sector labels with no index ([[#B-64]]'s deliberate
+omissions) are unchanged — this repaired the feed, not the taxonomy.
+
+
 ## Outcome (fill in later)
 
 ## Related Pages

@@ -88,6 +88,20 @@ JOBS: dict[str, JobSpec] = {
         managed_bat=False,
         default_time="16:15",
     ),
+    "sentiment_daily": JobSpec(
+        id="sentiment_daily",
+        label="Daily Market Sentiment",
+        desc="Recomputes the 0-100 sentiment composite after close and stores it "
+             "in sentiment_history. Home's verdict reads the STORED reading, so "
+             "without this the desk shows a hand-refreshed number and counts its "
+             "own staleness as a caution flag.",
+        task_name="TradingBramha-SentimentDaily",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "sentiment_index.py"}"',
+        # After the shortlist, not before: nothing in the funnel reads sentiment,
+        # so the ordering is free, and running last keeps the heaviest jobs first.
+        default_time="16:30",
+    ),
     "opportunity_daily": JobSpec(
         id="opportunity_daily",
         label="Daily Opportunity Shortlist",
