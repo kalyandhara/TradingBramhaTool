@@ -5,6 +5,8 @@ tags: [dashboard, ui-ux, alerts, workflow, streamlit, requirements]
 created: 2026-06-25
 updated: 2026-06-26
 related: [sources/Minervini-Market360-Dashboard-Video, analyses/VCPBot-Architecture, analyses/Kalyan-Trading-Philosophy, strategies/PMax-Confluence-Strategy]
+timeframe: n/a
+sources: 0
 ---
 
 # Dashboard UX, Alert Taxonomy & Daily Operational Workflow

@@ -5,6 +5,7 @@ tags: [sectors, watchlist, indian-markets, NSE, BSE]
 created: 2026-06-14
 updated: 2026-06-14
 related: [wiki/overview.md, strategies/TechnoFunda-Swing.md]
+sources: 0
 ---
 
 # Sector Watchlists — Indian Markets

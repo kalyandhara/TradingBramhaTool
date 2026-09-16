@@ -103,5 +103,5 @@ None identified — this is a market snapshot, not a methodology source.
 - [[entities/MRPL]] — created (new entity)
 - [[entities/FINOLEXCAB]] — created (new entity)
 - [[entities/GLAND]] — created (new entity)
-- [[wiki/log]] — appended
-- [[wiki/index]] — updated
+- [[log]] — appended
+- [[index]] — updated

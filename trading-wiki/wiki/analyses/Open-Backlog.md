@@ -5892,16 +5892,108 @@ renders absent**, confirmed on live data rather than asserted.
 ### `.gitattributes`
 
 Every commit printed *"LF will be replaced by CRLF"* per staged file. Harmless, and
-it trains you to skim the one channel git uses to speak up. `* text=auto` matches
-what the index already holds, so nothing renormalises; `.bat`/`.ps1` are pinned to
+it trains you to skim the one channel git uses to speak up. `* text=auto` makes
+repository STORAGE uniform (LF) as files are touched; `.bat`/`.ps1` are pinned to
 CRLF because cmd.exe wants them and `scheduler_core.write_bat` already emits `
 `
 deliberately; data and binaries are left alone.
+
+> [!warning] Corrected 2026-09-16, one commit later — the claim was too strong
+> B-81 said this "ends the warning on every commit". **It does not, and B-82's very
+> next commit proved it**: the message reappears for any file a TOOL writes with LF
+> endings, because `text=auto` means the next checkout converts it to CRLF. The
+> warning is informational about the working tree, not about anything being wrong.
+> What `.gitattributes` actually buys is uniform storage and the `.bat`/`.ps1`
+> pinning. A one-off `git add --renormalize .` would settle the remaining mixed
+> storage, and is deliberately NOT done here: it would touch hundreds of files and
+> bury the diff it travelled with. **Recorded rather than quietly left**, because a
+> claim that goes false in one commit is exactly what this page exists to catch.
 
 **NOT promoted to anything.** The walk is context on a card. Nothing scores, ranks
 or filters on it, `consistency` is not a validated signal, and the attach stage runs
 *after* the survivor filter so it cannot change which names appear or in what order.
 Suite 545 → 557.
+
+
+## B-82 · The wiki lint crashed — and its own clock had stopped — **CLOSED 2026-09-16**
+
+Raised by [[analyses/Design-Review-2026-09-14]] as "fix the cp1252 crash, then work
+the list behind it". The crash was the smaller half.
+
+### The clock, which is the finding
+
+`TODAY` was **hardcoded** to `dt.date(2026, 8, 9)` and had stayed there for
+**38 days**. Section 5 does not report "pages 30+ days old" — it reported pages 30+
+days old *as of a date in the past*, drifting further from the truth every day
+nobody edited the line, while **every page updated after 2026-08-09 read as a
+negative age**.
+
+> [!key-insight] The lint that exists to find claims which go false with time contained one
+> In the single line where time enters it. `claims_lint` hunts figures and
+> promises, `wiki_lint` §9 hunts phrases that go false when code ships, and
+> neither could see a frozen constant inside the linter itself. Now
+> `dt.date.today()`, pinned by a test that fails if anyone re-freezes it and a
+> second that asserts **no page reports a negative age** — the symptom, not just
+> the cause.
+
+`ROOT` was likewise an absolute path to one machine; a lint nobody else can run is
+a lint that only ever gets run here. Derived from `__file__` now.
+
+### The crash
+
+No stdout reconfigure, so it died on a circled digit while quoting a roadmap title.
+The vault is full of em dashes and arrows, so this was not exotic — it was what
+happened on this machine without `-X utf8`. Fixed the way `claims_lint` already
+did, and there is a test that runs the lint with `PYTHONIOENCODING=cp1252` rather
+than trusting the fix.
+
+### B-27's actual ask, finally done
+
+`index.md`'s own convention comment has said since 2026-08-07: *"A lint should
+COMPUTE both rather than trust them."* It never did. The counters are hand-written
+in **two** places — frontmatter and the body's `_Last updated: … | Pages: N …` line
+— which is how they drifted to two different wrong numbers before. **Found drifted
+again this pass, and this time it was the dates**: frontmatter said `2026-09-09`,
+the body said `2026-09-14`, and both said 289 against an actual 294.
+
+Two hand-maintained copies of one fact is not a counting problem, it is a second
+source of truth. `--fix-index` writes both from one computation; three tests assert
+the two copies agree with each other and with the vault.
+
+### The hygiene, and what was deliberately refused
+
+| | before | after |
+|---|---|---|
+| index counters | 289 vs 294, two different dates | **computed, OK** |
+| dead links | 33 in 15 pages | **7 in 5 pages** |
+| frontmatter gaps | 30 pages | **17 pages** |
+
+Fixed only where intent was unambiguous: `[[wiki/index]]` / `[[wiki/log]]` (a
+prefix that is not part of any page key), wikilinks pointing at **source files**
+(which can never resolve — now inline code), and four bare tickers whose
+`entities/` pages exist. Also `[[investment-desk-not-trading-system]]`, which was
+a **memory slug that had leaked into a wiki page** as though it were a vault page.
+
+**Refused, and reported instead**, on `wiki_lint`'s own stated rule — *"a wrong
+count written confidently is worse than a known-inconsistent one"*:
+* `timeframe` on **5 strategy pages** — a strategy's horizon is content, and
+  swing-vs-intraday is exactly what a reader would trust.
+* `timeframe` on **8 measurement/other analyses** — arguable either way.
+* The **7 remaining dead links** point at pages that do not exist
+  (`entities/TRENT`, `entities/NIFTY`, `AEGISLOG`,
+  `concepts/Relative-Strength-RS`, `strategies/Sector-Momentum-Map`,
+  `strategies/FIPA-Quality-Momentum`). Creating stubs would be inventing content;
+  an empty page pretends knowledge a dead link at least admits is missing.
+* The **12 orphans** are unchanged. `CLAUDE.md` says orphans should be *flagged*
+  during lint, and flagging is the designed behaviour — linking them means
+  deciding what relates to what.
+
+Dates filled on source pages came from **git history for the file**, derived rather
+than guessed.
+
+**Newly visible now that section 5 works:** 248 pages are 30+ days old, oldest 94d.
+That number was meaningless while the clock was stopped and is not acted on here.
+Suite 557 → 566.
 
 
 ## Outcome (fill in later)

@@ -106,5 +106,5 @@ This is a global supply-chain-reorientation thesis that has been active since 20
 ---
 
 ## Pages Updated
-- [[wiki/log]] — appended
-- [[wiki/index]] — updated
+- [[log]] — appended
+- [[index]] — updated

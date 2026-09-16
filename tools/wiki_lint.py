@@ -21,8 +21,30 @@ Two things this deliberately does NOT do, both learned the hard way on
 from __future__ import annotations
 import io, re, sys, collections, datetime as dt, pathlib
 
-ROOT = pathlib.Path(r"C:\Users\Owner\OneDrive\Documents\Trading\Trading_Bramha\Trading_Bramha\trading-wiki\wiki")
-TODAY = dt.date(2026, 8, 9)
+# Windows consoles default to cp1252 and this lint QUOTES the very prose it
+# scans -- em dashes, arrows, circled digits. It died mid-report on a circled
+# digit in a roadmap title (B-82), which is the same defect `claims_lint`
+# records against itself: a tool that reports on prose must be able to print
+# prose.
+for _s in (sys.stdout, sys.stderr):
+    try:
+        _s.reconfigure(encoding="utf-8", errors="replace")
+    except (AttributeError, ValueError):
+        pass
+
+# Derived, not typed. The absolute path worked on exactly one machine, and a
+# lint nobody else can run is a lint that only ever gets run here.
+ROOT = pathlib.Path(__file__).resolve().parent.parent / "trading-wiki" / "wiki"
+
+#: The stale-page check measures against this.
+#:
+#: It was HARDCODED to `dt.date(2026, 8, 9)` and stayed there for 38 days (B-82).
+#: So section 5 was not reporting "pages 30+ days old" -- it reported pages 30+
+#: days old *as of a date in the past*, drifting further from the truth every day
+#: it was not edited, while every page updated after 2026-08-09 read as a
+#: NEGATIVE age. **The lint that exists to find claims which go false with time
+#: contained one**, in the single line where time enters it.
+TODAY = dt.date.today()
 SPECIAL = {"index", "log", "overview"}
 
 REQUIRED_FM = ("title", "category", "tags", "created", "updated", "sources", "related")
@@ -214,3 +236,57 @@ for k in sorted(hits)[:14]:
     for s in hits[k][:2]:
         print(f"      {s[:150]}")
 print(f"  TOTAL: {len(hits)} pages carry at least one such phrase")
+
+
+# ── 10. --fix-index: COMPUTE the counters instead of trusting them ──────────
+#
+# The index's own convention comment has said this since 2026-08-07:
+#
+#     "A lint should COMPUTE both rather than trust them."
+#
+# It never did, and B-27 stayed open. The counters are written by hand in TWO
+# places -- the frontmatter and the body's `_Last updated: ... | Pages: N ...`
+# line -- which is precisely how they drifted to two DIFFERENT wrong numbers
+# before. Found again on 2026-09-16: the frontmatter said `updated: 2026-09-09`
+# while the body said `_Last updated: 2026-09-14_`, and both said 289 against an
+# actual 294.
+#
+# Two hand-maintained copies of one fact is not a counting problem, it is a
+# second source of truth. This writes both from the same computed values, so
+# they can no longer disagree with each other OR with the vault.
+#
+# Reporting stays the default: `--fix-index` is opt-in because it edits the vault.
+def _fix_index() -> int:
+    idx_path = ROOT / "index.md"
+    txt = io.open(idx_path, encoding="utf-8").read()
+    n_pages, n_src = len(content), src_pages
+    today = TODAY.isoformat()
+
+    new, subs = txt, 0
+    for pat, rep in (
+        (r"(?m)^updated:\s*\d{4}-\d{2}-\d{2}\s*$", f"updated: {today}"),
+        (r"(?m)^pages:\s*\d+\s*$", f"pages: {n_pages}"),
+        (r"(?m)^sources_ingested:\s*\d+\s*$", f"sources_ingested: {n_src}"),
+        (r"_Last updated: \d{4}-\d{2}-\d{2} \| Pages: \d+ \| Sources ingested: \d+_",
+         f"_Last updated: {today} | Pages: {n_pages} | Sources ingested: {n_src}_"),
+    ):
+        new, k = re.subn(pat, rep, new)
+        subs += k
+
+    if subs != 4:
+        print(f"  !! expected 4 substitutions, made {subs} — index header shape "
+              f"changed; NOT written. Fix the shape or this function.")
+        return 1
+    if new == txt:
+        print(f"  index already agrees with the vault "
+              f"({n_pages} pages, {n_src} sources, {today})")
+        return 0
+    io.open(idx_path, "w", encoding="utf-8", newline="\n").write(new)
+    print(f"  index rewritten: pages {n_pages}, sources_ingested {n_src}, "
+          f"updated {today} — frontmatter AND body line, from one computation")
+    return 0
+
+
+if "--fix-index" in sys.argv:
+    head("10. INDEX COUNTERS — COMPUTED AND WRITTEN")
+    _fix_index()

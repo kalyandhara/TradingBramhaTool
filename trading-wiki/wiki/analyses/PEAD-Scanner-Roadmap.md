@@ -6,6 +6,7 @@ created: 2026-07-23
 updated: 2026-08-04
 sources: 2
 related: [analyses/Dashboard-UI-Roadmap, concepts/PEAD, concepts/Pocket-Pivot, concepts/VCP, concepts/ADX, sources/TV-PEAD-Screener-PineScript]
+timeframe: milestone-plan
 ---
 
 # Analysis: PEAD Scanner Roadmap (M5) — Date 2026-07-23

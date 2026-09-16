@@ -8,6 +8,9 @@ fetched: 2026-09-05
 raw: pasted summary (no transcript retained)
 tags: [gex, gamma, options, dealer-positioning, volatility-regime, market-maker, call-wall, put-wall, gamma-flip, premium-selling, iron-condor, us-equities]
 related: [concepts/Gamma-Exposure-GEX, sources/YT-Chris-Kmer-World-Cup-Order-Flow, analyses/Open-Backlog]
+created: 2026-09-05
+updated: 2026-09-05
+sources: 0
 ---
 
 # YT — Gamma Exposure (GEX) primer: dealer hedging, the gamma flip, and strategy by regime

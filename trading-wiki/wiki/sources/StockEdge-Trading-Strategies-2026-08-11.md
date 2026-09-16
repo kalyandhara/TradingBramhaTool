@@ -79,5 +79,5 @@ related:
 ---
 
 ## Pages Updated
-- [[wiki/log]] — appended
-- [[wiki/index]] — updated
+- [[log]] — appended
+- [[index]] — updated

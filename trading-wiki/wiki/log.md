@@ -1,12 +1,21 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-16] lint | B-82 — the wiki lint crashed, and its own clock had stopped 38 days ago
+- **The crash was the smaller half.** `TODAY` was **hardcoded** to `dt.date(2026, 8, 9)`. Section 5 was not reporting "pages 30+ days old" — it reported them *as of a date in the past*, drifting further from the truth every day nobody edited the line, and **every page updated after 2026-08-09 read as a NEGATIVE age**. **The lint that exists to find claims which go false with time contained one**, in the single line where time enters it. Now `dt.date.today()`, pinned by a test that fails if anyone re-freezes it and a second that asserts no page reports a negative age — the symptom, not just the cause.
+- **`ROOT` was an absolute path to one machine.** A lint nobody else can run is a lint that only ever gets run here. Derived from `__file__`.
+- **The crash itself:** no stdout reconfigure, so it died on a circled digit while quoting a roadmap title. Fixed the way `claims_lint` already had been, and tested by running the lint with `PYTHONIOENCODING=cp1252` rather than trusting the fix.
+- **B-27's actual ask, finally done.** `index.md`'s own comment has said since 2026-08-07 that *"a lint should COMPUTE both rather than trust them"*. It never did. **Found drifted again this pass, and this time it was the DATES** — frontmatter `2026-09-09` against a body line saying `2026-09-14`, both claiming 289 pages against an actual 294. Two hand-written copies of one fact is not a counting problem, it is a second source of truth; `--fix-index` now writes both from one computation.
+- **Hygiene: dead links 33 → 7, frontmatter gaps 30 → 17, index counters correct.** Fixed only where intent was unambiguous — the `wiki/index` prefix that matches no page key, wikilinks pointing at **source files** (which can never resolve), four bare tickers whose `entities/` pages exist, and `[[investment-desk-not-trading-system]]`, which was a **memory slug that had leaked into a wiki page** as though it were a vault page.
+- **Refused deliberately, on this lint's own rule that a wrong value written confidently beats nothing:** timeframes on 5 strategy pages (a horizon is content, not metadata) and 8 measurement analyses; the 7 remaining dead links, which point at pages that genuinely do not exist — a stub would pretend knowledge a dead link at least admits is missing; and the 12 orphans, since `CLAUDE.md` asks for them to be *flagged*, and linking them means deciding what relates to what. Missing source-page dates came from **git history for the file**, derived rather than guessed.
+- **Newly visible now the clock runs:** 248 pages are 30+ days old, oldest 94d. Meaningless while the date was frozen; recorded, not acted on. 9 tests; suite 557 → 566.
+
 ## [2026-09-16] build | B-81 — the PEAD walk lands, and the frame stops being chosen by dict order
 - **The defect was real and invisible.** `_attach_pead` resolved its price frame with `next(n for n in sc.SCANNERS if not ...needs_full_history)` — **whichever scanner happened to sit first in the registry**. It worked; adding a scanner at the top of `SCANNERS` would have silently changed which fetch backed the walk. **Registry order is not a contract.**
 - **Fixed by saying what is wanted instead of naming a scanner that happens to want it.** `fetch_for` discriminates on exactly one flag, so `oh.DEFAULT_WINDOW` (deliberately not a scanner name) now asks for the default-window frame, and `run_scanner_pipeline`'s docstring states the contract: **a factory must answer for a name it does not recognise.** Both shipped callers already did. `_attach_pead` now takes the fetch FUNCTION, not the factory, so the registry is out of it entirely — that is the repair, not a renamed lookup.
 - **Verified on real stored data, not fixtures.** The scheduled job's archived cards for 09-15 carry the walk and split exactly as designed: LAURUSLABS renders 4 events (newest result 54 days old) with dates back as **strings** through the JSON archive; BODALCHEM and SOLARA render **nothing despite having cached calendars**, because their newest results are 2019 and 2023 and `MAX_EVENT_AGE_DAYS = 400` refuses to present those as current. **Absent renders absent, confirmed rather than asserted.**
 - **12 tests** cover the stage the review found untested: attaching never adds or removes a name, one symbol's failure does not stop the rest, an empty walk leaves **no key at all**, and a `None` leg survives the round trip as `None` — "still running" must not render as a value.
-- **`.gitattributes` added.** Every commit printed "LF will be replaced by CRLF" per file — harmless, and it trains you to skim the one channel git uses to speak up. `text=auto` matches what the index already holds so nothing renormalises; `.bat`/`.ps1` pinned to CRLF because cmd.exe wants them and `write_bat` already emits `
+- **`.gitattributes` added.** Every commit printed "LF will be replaced by CRLF" per file — harmless, and it trains you to skim the one channel git uses to speak up. `text=auto` makes repository storage uniform (LF) as files are touched; `.bat`/`.ps1` pinned to CRLF because cmd.exe wants them and `write_bat` already emits `
 ` on purpose.
 - **Nothing is promoted.** The walk is context on a card: no score, no rank, no filter, `consistency` unvalidated, and the attach stage runs after the survivor filter so it cannot change which names appear. Suite 545 → 557.
 
@@ -347,7 +356,7 @@
 ## [2026-09-05] ingest | GEX primer (unattributed) - corroboration, one new claim, and a PoC probe
 - Source: pasted video summary, no transcript retained -> [[sources/YT-GEX-Dealer-Hedging-Volatility-Primer]]
 - Pages created: [[sources/YT-GEX-Dealer-Hedging-Volatility-Primer]], [[analyses/GEX-Strategy-Mapping-PoC-Probe]]
-- Pages updated: [[concepts/Gamma-Exposure-GEX]] (sources 1 -> 2), [[wiki/index.md]]
+- Pages updated: [[concepts/Gamma-Exposure-GEX]] (sources 1 -> 2), [[index]]
 - **The PoC already exists and already failed.** The ask was "ingest and probe for a PoC"; `tools/gamma_exposure.py` + `gamma_regime_backtest.py` + 14 tests shipped 2026-08-29 under B-44, and 480 sessions of NIFTY/BANKNIFTY returned a clean null. Ingested as corroboration against that record rather than as new ground.
 - **What the source actually adds:** strategy selection by regime - premium selling in positive gamma, long options in negative gamma. Everything else restates the existing concept page. Filed with a `[!contradiction]` callout because both prescriptions are downstream of the forward-vol split B-44 measured at +0.28 / +0.24 / **-0.40** pp (p_rot 0.84 / 0.83 / 0.67) - a strategy split that exists to harvest a vol spread has nothing to harvest if the spread is absent.
 - **Key insight from the probe:** the cheap decisive test is **RV-IV by regime**, not a strategy backtest. Premium-selling-vs-long-options is economically one number - the variance risk premium - and testing it directly skips strike selection, rolls, spreads and assignment. It is blocked on data, not code: `compute_gex` inverts per-strike IV but never persists it, and `find cache -name "*bhav*"` returns nothing, so backfilling `atm_iv` over 480 sessions means ~480 NSE downloads. Cache the zips during that rebuild and every later question about this data is free.
@@ -791,32 +800,32 @@
 - **Raw file:** `.raw/articles/sarvatobhadra-chakra-market-prediction-2026-08-15.md`
 - **Summary:** [[sources/Sarvatobhadra-Chakra-Market-Prediction-2026-08-15]]
 - **Pages created:** [[concepts/Sarvatobhadra-Chakra]], [[sources/Sarvatobhadra-Chakra-Market-Prediction-2026-08-15]]
-- **Pages updated:** [[wiki/index.md]], [[wiki/log.md]]
+- **Pages updated:** [[index]], [[log]]
 - **Key insight:** SBC's **Reversal Window** concept — specific 10–20 minute intraday windows tied to planetary nakshatra transit switches — is a concrete, testable timing tool. Day of recording: Gold top at 6:58–7:18, Silver reversal at 8:32–8:45, BTC 1,000-point crash at 22:58–23:18 all matched predictions to within tolerance. The **Nama Nakshatra** phonetic mapping makes SBC language-agnostic ("Chandi" = "Silver" same nakshatra). **Resolved contradiction**: the malefic=bearish rule in SBC applies to the macro market day grid; [[concepts/Vedic-Planet-Trading-Aspects]]'s malefic=bullish rule applies to individual stock natal karaka aspects — different frames, not a contradiction.
 
 ## [2026-08-14] ingest | StockEdge Epic Scanner Compilation — 6 community scanners
 - **Source:** Obsidian note `epic stock scanner.md` (Trading_Bramha vault) — screenshot compilation from StockEdge community scanner builder
 - **Pages created:** [[sources/StockEdge-Epic-Scanner-Compilation-2026-08-14]]
-- **Pages updated:** [[wiki/index.md]], [[wiki/log.md]]
+- **Pages updated:** [[index]], [[log]]
 - **Key insight:** Six community-built StockEdge scanners ranging from pure fundamental (10-condition FIPA quality screen) to composite momentum+fundamentals. Common pattern: FIPA quality filter + EMA trend structure + multi-timeframe RS gate + ATH zone. **Lupin Ltd. is the sole Major Stock hitting all 10 conditions of the Cheap Fundamental scanner as of 12 Aug 2026.** Three net-new mechanics worth adopting: (1) `Close within 2% of EMA-50` rest-before-thrust gate (Ashok Daniel), (2) RSI 50–68 band to exclude overbought (Patel Yash), (3) MS1M/MS3M/MS6M ≥ 60–70 momentum score triple-gate.
 
 ## [2026-08-13] ingest | ICT Quick Reference Guide — Liquidity Pools, MSS, FVG, OTE, Execution Blueprint
 - **Source:** User-provided screenshot — ICT (Inner Circle Trader) Quick Reference Guide infographic
 - **Raw file:** `.raw/images/ict-quick-reference-guide-2026-08-13.md`
 - **Pages created:** [[sources/ICT-Quick-Reference-Guide-2026-08-13]], [[concepts/ICT-Methodology]]
-- **Pages updated:** [[wiki/index.md]], [[wiki/log.md]]
+- **Pages updated:** [[index]], [[log]]
 - **Key insight:** ICT adds three net-new primitives to what already exists in the chart tool: (1) BSL/SSL liquidity pool identification (currently zero implementation), (2) displacement qualifier on BOS/CHoCH (our `detect_bos_choch` uses close-above-pivot with no displacement gate — a known ICT objection), (3) OTE Fibonacci zone 61.8–79% (pure Fibonacci, 5 lines). Inducement detection is complex and deprioritized. Recommended build order: displacement gate → OTE zone → BSL/SSL → composite `scan_ict_setup()`.
 
 ## [2026-08-12] ingest | Vedic Planet Trading Aspects + India Independence Chart framework
 - **Source:** User-provided Financial Astrology Course notes — planet aspects, trading bias, degree-matching technique, Reliance Oct 2021 case study
 - **Pages created:** [[concepts/Vedic-Planet-Trading-Aspects]], [[concepts/India-Independence-Chart-Trading]]
-- **Pages updated:** [[wiki/index.md]], [[wiki/log.md]]
+- **Pages updated:** [[index]], [[log]]
 - **Key insight:** Malefics (Saturn/Sun/Rahu/Mars) = bullish; Benefics (Jupiter/Moon/Mercury/Venus) = bearish — the opposite of intuitive. Signal fires when karaka planet hits India D1/D9 sensitive degree AND aspects stock's Rashi AND nakshatra/rashi lords are activated. D9 Lagna at 12° is the single strongest trigger degree. Degree-matching requires 9:15 AM IST chart (not noon); current dashboard uses noon — gap flagged.
 
 ## [2026-08-12] ingest | Jupiter Market Crash Thesis — user-provided historical analysis
 - **Source:** User-provided table: Jupiter position + Shashtashtak Yoga across 10 historical market events (1992–2023) + 4 forward predictions (Jun 2026, Nov 2026, 2027–2032, post-2033)
 - **Pages created:** [[concepts/Jupiter-Market-Crash-Thesis]]
-- **Pages updated:** [[wiki/index.md]]
+- **Pages updated:** [[index]]
 - **Key insight:** Full crash signal = ALL THREE: (1) Jupiter in Ketu's nakshatra (Ashwini/Magha/Mula) + (2) Shashtashtak with Saturn/Sun/Mars + (3) Rahu-Ketu nodal influence. Ketu nakshatra alone is insufficient — 1995, 2003, 2023 were all bullish despite Jupiter being in Ketu's star. **⚠️ RED FLAG: Nov 2026 prediction is a FULL three-factor signal — Jupiter in Leo/Magha (Ketu's star), Rahu-Ketu axis, 8th from Saturn. Identical setup to 1992 (−57%) and 2008 (−64%). ~90 days away from today.**
 
 ## [2026-08-12] ingest | MarketAstroScience — 27 Nakshatras in the Stock Market
@@ -905,7 +914,7 @@
 - ### Fixed: 115 dead wikilinks across 27 files (90 dead refs → 10)
   Almost all were **our own convention being broken**, not missing pages. `CLAUDE.md` says *"always use wiki-relative links"* (`[[concepts/RSI]]`), but 100 links used **bare names** — `[[LuxAlgo]]` ×13, `[[True-Strength-Index-TSI]]` ×10, `[[SuperTrend]]` ×9, `[[DGT]]` ×7 — which resolve to nothing. Plus 11 with a stray `.md` inside the brackets and 4 using a `wiki/` prefix. Repaired mechanically, **only where exactly one page matched the basename**; ambiguous or genuinely-absent targets were left alone, because guessing a target is worse than a dead link. Every resolution was printed and eyeballed before applying.
 - **Side effect worth noting:** fixing bare-name links also cleared **2 orphans** (13 → 11). `entities/DGT` and `entities/Zeiierman` were never really orphaned — they were linked, just unresolvably.
-- **10 dead refs remain, all needing a human decision** (not mechanical): `[[entities/TRENT]]`, `[[entities/NIFTY]]` (entity pages that don't exist — create or delink?), `[[strategies/Sector-Momentum-Map]]`, `[[raw/TV-PEAD-Screener-pine-2026-07-23]]`, three `[[tools/*.py]]` links that should probably be markdown links not wikilinks, and `[[wiki-relative-link]]` which is documentation prose rather than a real link.
+- **10 dead refs remain, all needing a human decision** (not mechanical): `[[entities/TRENT]]`, `[[entities/NIFTY]]` (entity pages that don't exist — create or delink?), `[[strategies/Sector-Momentum-Map]]`, ``raw/TV-PEAD-Screener-pine-2026-07-23``, three `[[tools/*.py]]` links that should probably be markdown links not wikilinks, and `[[wiki-relative-link]]` which is documentation prose rather than a real link.
 - ### Fixed: two stale claims this week's work made false
   **[[analyses/Setup-Intelligence-Panel-2026-07-16]]** said *"volume profile is JS-only, no Python port, `stock_council.py` has no POC/VAH access"* — false since `volume_profile.py` shipped **2026-07-25, nine days after that page was written**, and HVN/LVN was wired 2026-08-09. **[[analyses/Market-Brief-Card]]** said *"FA-2 still needs an intraday store"* — the store was built and FA-2 has since run (null). Both annotated rather than silently rewritten, so the correction and its date travel with the claim.
 - ### Fixed: a genuinely missing source entry
@@ -1675,7 +1684,7 @@
 - **Honest correction on scope:** I'd billed **time-series SUE** as another low-effort win — it is NOT. `scan_pead` is *symbol-blind* (`run_scanner` attaches the symbol only AFTER the fn runs, so it can't fetch EPS), and yfinance `quarterly_income_stmt` gives only ~6 quarters (~1–2 YoY diffs — too thin to z-score). Forcing it = fake precision. SUE stays Phase 3, needs deeper EPS (screener.in) + a plumbing change. Recorded in [[analyses/PEAD-Scanner-Roadmap]] (Absorption table + 2026-07-24 update).
 
 ## [2026-07-23] ingest | TradingView Pine v6 "PEAD Screener" (8-criteria)
-- Source: user-supplied Pine v6 indicator → [[sources/TV-PEAD-Screener-PineScript]] (raw: [[raw/TV-PEAD-Screener-pine-2026-07-23]]). A much more complete PEAD model than our Phase-1 `scan_pead`.
+- Source: user-supplied Pine v6 indicator → [[sources/TV-PEAD-Screener-PineScript]] (raw: `raw/TV-PEAD-Screener-pine-2026-07-23`). A much more complete PEAD model than our Phase-1 `scan_pead`.
 - Created: [[concepts/PEAD]] (the anomaly + surprise/drift/confirmation taxonomy), [[concepts/Pocket-Pivot]] (Morales/Kacher accumulation entry).
 - **Contradiction filed (correction to my own 2026-07-23 claim):** I said "NSE has no free consensus estimate." True of our **Python** sources (yfinance/screener.in), but **NOT of TradingView** — Pine's `request.earnings(…, earnings.estimate)` and `request.financial(…, "SALES_ESTIMATES")` expose consensus, so a TV-hosted screener can compute true SUE/SURGE (subject to TV's NSE coverage, unverified). Corrected in [[analyses/PEAD-Scanner-Roadmap]] + [[sources/TV-PEAD-Screener-PineScript]].
 - **Absorbed into the roadmap** (value/effort table): **time-series SUE** (z-score of YoY EPS change — estimate-FREE, adoptable now → upgrades Phase 3 from crude YoY-growth proxy); **SUV z-score** (raw/log, anti-leak `volume[1]` baseline, clamps → upgrades our `vol_x50d`); **D0 refinement** (argmax volZ×range-expansion ±1d); **pre-D0 volume baseline** (avoid post-earnings contamination); **% from D0 HIGH** + **ATR-drift-from-D0**; **CLV + 3-tier institutional** model; **pocket-pivot** detector; **ADX/DI** (confirms planned filter).
@@ -2512,11 +2521,11 @@
 ## 2026-08-15 — Live Movers EOD
 - Symbols scanned: **40**  ·  Snapshot: `2026-08-15.png`
 - Top 5 by AI-Score:
-  - **INDSWFTLAB** · AI 57.8 · Δ +2.55% · Vol× 0.5 · [[INDSWFTLAB]] (Potential)
-  - **IOLCP** · AI 50.9 · Δ -0.27% · Vol× 0.9 · [[IOLCP]] (Potential)
+  - **INDSWFTLAB** · AI 57.8 · Δ +2.55% · Vol× 0.5 · [[entities/INDSWFTLAB]] (Potential)
+  - **IOLCP** · AI 50.9 · Δ -0.27% · Vol× 0.9 · [[entities/IOLCP]] (Potential)
   - **AEGISLOG** · AI 48.6 · Δ +1.39% · Vol× 0.4 · [[AEGISLOG]] (Growth)
-  - **GLAND** · AI 46.4 · Δ +0.09% · Vol× 0.9 · [[GLAND]] (Growth)
-  - **NRBBEARING** · AI 43.7 · Δ -1.78% · Vol× 0.5 · [[NRBBEARING]] (Growth)
+  - **GLAND** · AI 46.4 · Δ +0.09% · Vol× 0.9 · [[entities/GLAND]] (Growth)
+  - **NRBBEARING** · AI 43.7 · Δ -1.78% · Vol× 0.5 · [[entities/NRBBEARING]] (Growth)
 
 ## [2026-09-09] ingest | ScreeningMantis live site (https://screeningmantis.com)
 - Source: commercial NSE screener product UI — second visit (the 2026-09-07 ingest was one screenshot and produced B-60)

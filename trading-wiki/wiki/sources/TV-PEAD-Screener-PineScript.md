@@ -12,7 +12,7 @@ related: [concepts/PEAD, concepts/Pocket-Pivot, analyses/PEAD-Scanner-Roadmap, c
 
 ## Metadata
 - Type: TradingView Pine v6 `indicator` (Pine Screener–compatible), daily-only.
-- Author: user-supplied; ingested 2026-07-23. Raw copy: [[raw/TV-PEAD-Screener-pine-2026-07-23]].
+- Author: user-supplied; ingested 2026-07-23. Raw copy: `raw/TV-PEAD-Screener-pine-2026-07-23`.
 - Purpose: screen for Post-Earnings Announcement Drift ([[concepts/PEAD]]) candidates via an 8-criteria dashboard + 9-chip banner.
 
 ## Key Takeaways (3–7 bullets)
@@ -40,5 +40,5 @@ Engineering craft worth stealing: daily-only `runtime.error` guard; `isNum_d0(x)
 - **CORRECTION to my 2026-07-23 assessment** in [[analyses/PEAD-Scanner-Roadmap]] that "NSE has no free consensus estimate." That is true of **our Python data sources** (yfinance/screener.in — screener.in returns nothing for "surprise"), but **NOT of the TradingView platform**: Pine's `request.earnings(…, earnings.estimate)` and `request.financial(…, "SALES_ESTIMATES")` expose consensus estimates. So a **TradingView-hosted** PEAD screener CAN compute true SUE/SURGE — *subject to TV's estimate coverage for NSE names, which is unverified and often sparse for Indian mid/small-caps.* Net: the "no true SUE" limit is a property of our pipeline, not of the data universe. Roadmap updated to say so.
 
 ## Pages Updated
-- Created: [[concepts/PEAD]], [[concepts/Pocket-Pivot]], [[raw/TV-PEAD-Screener-pine-2026-07-23]]
+- Created: [[concepts/PEAD]], [[concepts/Pocket-Pivot]], `raw/TV-PEAD-Screener-pine-2026-07-23`
 - Updated: [[analyses/PEAD-Scanner-Roadmap]] (absorbed techniques + contradiction), [[index]], [[log]]

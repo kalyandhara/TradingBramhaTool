@@ -128,9 +128,9 @@ that page.
 | **C** — early and confirmed differ | keep both glyphs; label which is which in measured terms |
 | **C** — no difference | collapse to one marker; two glyphs for one signal is a lie about information content |
 
-**A null on all three is an acceptable and expected outcome.** Per
-[[investment-desk-not-trading-system]] framing, a measured null here is calibration
-of an overlay the desk reads daily, not a failed feature. What is *not* acceptable
+**A null on all three is an acceptable and expected outcome.** This is a research
+desk rather than a trading system, so a measured null here is calibration of an
+overlay the desk reads daily, not a failed feature. What is *not* acceptable
 is leaving three unmeasured rules drawing precise numbers on a chart.
 
 ## Known limitations, stated before the run

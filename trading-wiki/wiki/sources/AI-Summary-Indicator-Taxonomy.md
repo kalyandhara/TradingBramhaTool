@@ -8,6 +8,9 @@ fetched: 2026-08-30
 raw: .raw/transcripts/Indicator-Taxonomy-Use-Cases-2026-08-30.md
 tags: [indicators, taxonomy, oscillators, regime, unvalidated, low-provenance]
 related: [concepts/Indicator-Selection-By-Regime, analyses/Indicator-Coverage-Gap]
+created: 2026-08-30
+updated: 2026-08-30
+sources: 0
 ---
 
 # AI summary — indicator taxonomy & use-cases

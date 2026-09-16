@@ -5,6 +5,7 @@ tags: [risk-management, position-sizing, regime, drawdown, portfolio]
 created: 2026-06-14
 updated: 2026-06-14
 related: [analyses/VCPBot-Architecture.md, concepts/VCP.md, analyses/Kalyan-Trading-Philosophy.md]
+sources: 0
 ---
 
 # VCPBot Risk Management System
