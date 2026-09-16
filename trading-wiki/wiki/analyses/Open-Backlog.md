@@ -5583,6 +5583,87 @@ complete, so this is degraded-but-working rather than broken. It belongs in its 
 item if the rate climbs; a scheduled job failing this way would be silent.
 
 
+## B-78 · Two PCR baselines, and the live one was empty — **CLOSED 2026-09-15**
+
+Raised by [[analyses/Design-Review-2026-09-14]]. [[#B-22r]] backfilled **543
+sessions** to `cache/pcr/nifty_index_pcr.csv` and measured the sign convention on
+them. `--write-db` — the separate, opt-in step that loads that cache into
+`pcr_index_history`, the table the **live factor** ranks against — **was never
+run.** The live table held **one row**, so the dashboard told the reader
+
+> *"only 0 of 60 baseline sessions stored; an index PCR can only be ranked against its own past"*
+
+about a series that was already two years deep.
+
+**This was not a design disagreement.** The pre-registration always intended the
+backfill to land in that table; its warning was about doing it *safely* (historical
+dates only, idempotent per `(date, symbol)`, verify today's reading afterwards), not
+about avoiding it. All three conditions hold. The step was simply never taken, and
+**nothing counted the two stores against each other**, so a month passed.
+
+### The latent bug the fill exposed
+
+`_pcr_nifty` **returns before it records** when a session is illiquid, so the live
+table contains liquid days only — never as a filter anyone wrote, purely as a
+consequence of control flow. The cache deliberately does the opposite: `backfill`
+carries `liquid` *"not filtered on, so the study can apply the production liquidity
+floor itself"*, and `pcr_sign_study` duly applies it.
+
+**`write_db` applied neither.** It wrote the cache verbatim, so it would have put
+sessions into the baseline that the live path could not have produced — and a
+percentile is a statement *about its sample*. Every one of the 543 cached rows
+happened to be liquid, so nothing was corrupted. **The two paths disagreed about
+what the baseline IS, and were one illiquid session away from that being silent and
+permanent.** Fixed to apply production's rule.
+
+### Why filling it was safe, established before it was filled
+
+The obvious fear is that deepening the history **enfranchises a factor B-22r
+measured as a null**. It does not, and the reason is worth stating because it is
+load-bearing: `pcr_factor` sets `state = NOT_CHECKED` **inside** the `if not
+PCR_SCORES` branch, so the composite's `state != NOT_CHECKED` filter excludes it at
+any depth. Proven as a pure function first — same PCR, 1-session history vs
+543-session: both `NOT_CHECKED`, both `score = 0.0`, only `factor` becoming
+computable (0.2554, reported not scored).
+
+Confirmed end-to-end after the write: **composite 16.32 "Strong Sell", coverage
+60/100, `excluded = [sector_performance, pcr_nifty]`** — unchanged.
+
+### What the reader sees now
+
+| | before | after |
+|---|---|---|
+| live table | 1 session | **545** sessions |
+| PCR line | "only 0 of 60 baseline sessions stored" | "NIFTY PCR 1.01 — 61st pct of 544 sessions — NOT SCORED: the sign convention was measured (B-22r) and found to carry no direction" |
+| composite | 16.32, coverage 60/100 | **unchanged** |
+
+The factor stays under **NOT CHECKED** on the verdict, which is correct — it is
+excluded. What changed is that it now says *why* it is excluded (measured, null)
+instead of *falsely* claiming there is no history to rank it against.
+
+> [!key-insight] The fix made a string render for the first time, and it was wrong
+> Because the history had **always** been below `MIN_PCR_HISTORY`, the branch that
+> prints the percentile had **never once executed** on the live surface. Its first
+> appearance read **"61th"**. A dead branch is not a tested branch, and filling the
+> baseline is what turned it on. Fixed with an `_ordinal` helper that handles the
+> 11/12/13 exception, pinned by tests.
+
+### Recurrence
+
+`pcr_backfill` gained `reconcile()` / `--status`, and **every CLI run now prints
+both counts** whether or not it wrote. A cache deeper than the live table names the
+gap and prints the command that closes it. Reporting only; it never writes.
+
+**Tests:** `tools/test_pcr_backfill.py` (10) covers the liquidity rule, idempotence,
+the reconcile gap, and the depth invariant — an existing test pins the null gate
+exactly *at* the floor, this one pins it at 544 sessions, because the fill is what
+moved the history and a depth-dependent regression would not show at 60. Plus 15
+ordinal tests. Suite 490 → 514.
+
+**Not done, and not this item's business:** the `--write-db` step is still manual by
+design. What changed is that skipping it is no longer silent.
+
+
 ## Outcome (fill in later)
 
 ## Related Pages

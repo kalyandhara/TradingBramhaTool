@@ -660,6 +660,18 @@ def _pct_rank(value: float | None, sample) -> float | None:
     return float((arr < value).sum() / arr.size * 100.0)
 
 
+def _ordinal(pct: float) -> str:
+    """`61` -> "61st". The reading is a sentence a person reads every morning.
+
+    Surfaced by B-78: until the baseline was backfilled the history was always
+    below MIN_PCR_HISTORY, so the branch that prints this percentile had never
+    once rendered — and it said "61th" the first time it did.
+    """
+    n = int(round(pct))
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 def pcr_factor(pcr: float | None, pcr_chg: float | None,
                hist: pd.DataFrame) -> dict[str, Any]:
     """Pure calibration: today's NIFTY PCR against its own stored past.
@@ -732,7 +744,7 @@ def pcr_factor(pcr: float | None, pcr_chg: float | None,
             "slope_pct": round(slope_pct, 1) if slope_pct is not None else None,
             "factor": round(factor, 4),
             "score": 0.0,
-            "reading": (f"NIFTY PCR {pcr:.2f} — {level_pct:.0f}th pct of {n_hist} "
+            "reading": (f"NIFTY PCR {pcr:.2f} — {_ordinal(level_pct)} pct of {n_hist} "
                         f"sessions — NOT SCORED: the sign convention was measured "
                         f"(B-22r, {n_hist} sessions) and found to carry no "
                         f"direction, so the factor is reported but excluded"),
@@ -746,8 +758,8 @@ def pcr_factor(pcr: float | None, pcr_chg: float | None,
         "blend": blend,
         "factor": round(factor, 4),
         "score": round(factor * W_PCR, 2),
-        "reading": (f"NIFTY PCR {pcr:.2f} — {level_pct:.0f}th pct of {n_hist} sessions"
-                    + (f", one-day change {pcr_chg:+.2f} ({slope_pct:.0f}th pct)"
+        "reading": (f"NIFTY PCR {pcr:.2f} — {_ordinal(level_pct)} pct of {n_hist} sessions"
+                    + (f", one-day change {pcr_chg:+.2f} ({_ordinal(slope_pct)} pct)"
                        if slope_pct is not None else "")),
     })
     return out
