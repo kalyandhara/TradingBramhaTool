@@ -15,6 +15,11 @@ build/
 *.db
 *.log
 
+# Generated output (B-88). New dated exports land here instead of the repo root,
+# which held 30 xlsx + 19 renders + 5 csv. Readers search BOTH, so files already
+# at the root keep working and nothing had to be moved.
+output/
+
 # Sector rotation outputs
 sector_rotation_*.html
 sector_rotation_*.png

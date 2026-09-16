@@ -6195,6 +6195,89 @@ command, and the mistake, so the next run is comparable.
 > nobody was running for that purpose.
 
 
+## B-87 · The monolith gets a ratchet, not a refactor — **RATCHETED 2026-09-16, extraction still open**
+
+`dashboard_app.py` is 13,846 lines and grows about 500 a week. The item says
+*extract one page per session, ongoing, no big bang* — and **an ongoing item with
+no measurement is a wish.** Nothing noticed the growth because no page body can be
+unit-tested, which is the problem it describes.
+
+### What was deliberately NOT done
+
+Two things, both because the safe-looking version was the dangerous one.
+
+* **No page extraction.** Page bodies live inline under `if current_page == "X":`
+  at module scope and close over module-level state. Moving one is a real refactor
+  of the product's main surface with **no page-level tests to catch a mistake**.
+  Doing it badly to close a P3 item would be the worst trade on this page.
+* **No mass rewrite of the silent exception handlers.** The obvious script —
+  regex `except X:` / `pass` into `except X as e:` + a log line — was written and
+  then **thrown away**. It rewrites exception signatures across 13,846 untested
+  lines to add debug logging: real risk of a shadowed name or a syntax error, in
+  exchange for information nobody is currently missing.
+
+### What shipped instead: numbers that can only go down
+
+`tools/test_monolith_ratchet.py` pins four readings, measured with `ast` rather
+than grep so they are trustworthy enough to gate on:
+
+| reading | today | ceiling |
+|---|---|---|
+| lines | 13,846 | 13,900 |
+| silent handlers (`except: pass` / `continue`) | 11 | 11 |
+| module-level statements | 318 | 320 |
+| raw-HTML renders | ~112 | 120 |
+
+**Every one is a debt, not a target.** They may fall freely; raising one requires
+editing that file and saying why. A sixth test fails if a ceiling drifts far above
+reality, because *a ceiling far above the actual value is not a ratchet, it is
+decoration*.
+
+**The count came from a tool nobody was running for it.** [[#B-86]]'s bandit
+re-run reported **117 silent handlers tree-wide** — 77 `try/except/pass`, 40
+`try/except/continue`. Individually each is a defensible best-effort path; the
+total is not, and that is exactly why the number needs a ceiling rather than an
+argument.
+
+**Still open:** the extraction itself. The destination (`tools/pages/`) is
+documented and deliberately **not created empty** — an empty package is a claim
+that work has started.
+
+---
+
+## B-88 · Generated files out of the repo root — **CLOSED 2026-09-16**
+
+The root held **30 `.xlsx`, 19 sector-rotation renders and 5 `.csv`**, every one
+gitignored and generated. They broke nothing; they buried the docs, which are the
+only things at the root a person is meant to read.
+
+> [!warning] It is not a one-line move, and the reason is in the reader
+> The dashboard **reads these back**: `glob("sector_rotation_*.xlsx")`,
+> `glob("screener_export_*.csv")`, `glob("sector_rotation_orbit_*.html")` and two
+> direct `screener_<today>.xlsx` lookups. **Changing only the writers would leave a
+> year of exports invisible to the surface that lists them** — a tidy-up that
+> silently deletes history from the reader's point of view is worse than the mess.
+
+So `tools/out_paths.py` owns the question: **new files go to `output/`, readers
+search `output/` AND the root, and nothing is moved or deleted.** The root stops
+growing, existing files keep working where they are, and the pile drains on its own
+as old dated files stop being the newest. Six writers and four readers rewired
+across five modules plus the dashboard.
+
+Two details that are decisions rather than defaults:
+* **Sorted by FILENAME, not mtime.** Every one of these names carries a `YYYYMMDD`
+  stamp, and a file copied or restored later would sort wrongly by mtime while its
+  name still says exactly which session produced it.
+* **`resolve()` returns `None`, never a non-existent `Path`** — a phantom path is
+  what turns "no export yet" into a confusing error three calls later.
+
+**Verified against the real tree before committing:** 23 screener workbooks, 7
+sector tables, 7 orbit renders and 1 export CSV all still found, a probe file
+round-tripped through `output/`, and the dashboard boots clean with no errors.
+16 tests, including one that fails if any writer starts targeting the root again.
+Suite 597 → 619.
+
+
 ## Outcome (fill in later)
 
 ## Related Pages

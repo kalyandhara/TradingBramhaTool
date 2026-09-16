@@ -94,6 +94,7 @@ except ImportError:
     sys.exit("Run:  py -3 -m pip install ta")
 
 BASE_DIR = sp.BASE_DIR
+import out_paths as _out
 
 # Sidebar starts collapsed: navigation moved to a horizontal top bar, so the
 # sidebar now holds nothing. Left expandable rather than hidden outright so
@@ -6300,7 +6301,8 @@ if current_page == "Screener":
         "Use this to trigger it manually (~3-4 min for ~200-250 stocks)."
     )
 
-    today_path = BASE_DIR / f"screener_{date.today():%Y%m%d}.xlsx"
+    today_path = (_out.resolve(f"screener_{date.today():%Y%m%d}.xlsx")
+                  or _out.out_path(f"screener_{date.today():%Y%m%d}.xlsx"))
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -7291,7 +7293,8 @@ if current_page == "Other Screeners":
                 "(requires Industry + FII-holding columns, present in screener.in-backed results)."
             )
             if st.button("Pipeline → Sector Rotation"):
-                export_path = BASE_DIR / f"screener_export_{date.today():%Y%m%d}.csv"
+                export_path = _out.out_path(
+                    f"screener_export_{date.today():%Y%m%d}.csv")
                 other_df.to_csv(export_path, index=False)
                 try:
                     with st.spinner("Running sector_rotation + sector_rotation_trail..."):
@@ -7301,8 +7304,9 @@ if current_page == "Other Screeners":
                     st.error(f"Sector rotation pipeline failed: {exc}")
                 else:
                     date_str = date.today().strftime("%Y%m%d")
-                    xlsx_path = BASE_DIR / f"sector_rotation_{date_str}.xlsx"
-                    html_path = BASE_DIR / f"sector_rotation_orbit_{date_str}.html"
+                    xlsx_path = _out.out_path(f"sector_rotation_{date_str}.xlsx")
+                    html_path = _out.out_path(
+                        f"sector_rotation_orbit_{date_str}.html")
                     if xlsx_path.exists():
                         st.dataframe(pd.read_excel(xlsx_path), use_container_width=True)
                     if html_path.exists():
@@ -9770,7 +9774,8 @@ if current_page == "Sector Map":
     if nse_rebuild:
         try:
             with st.spinner("Emitting wide frame from the ownership cache…"):
-                _nse_csv = BASE_DIR / f"nse_ownership_wide_{date.today():%Y%m%d}.csv"
+                _nse_csv = _out.out_path(
+                    f"nse_ownership_wide_{date.today():%Y%m%d}.csv")
                 _wide = ocache.emit_csv(_nse_csv, quarters=8)
             with st.spinner(f"Running the trail over {len(_wide)} symbols…"):
                 secrot_trail.run(_nse_csv)
@@ -9789,7 +9794,7 @@ if current_page == "Sector Map":
 
     # Legacy path — kept working rather than deleted: an existing screener.in
     # export is still a valid input, and `load_wide_export` reads both shapes.
-    export_files = sorted(BASE_DIR.glob("screener_export_*.csv"), reverse=True)
+    export_files = _out.find("screener_export_*.csv")
     col_regen, col_src = st.columns([1, 3])
     with col_regen:
         regen_clicked = st.button(
@@ -9821,7 +9826,7 @@ if current_page == "Sector Map":
             st.rerun()
 
     selected_name = None
-    html_files = sorted(BASE_DIR.glob("sector_rotation_orbit_*.html"), reverse=True)
+    html_files = _out.find("sector_rotation_orbit_*.html")
     if html_files:
         names = [f.name for f in html_files]
         selected_name = st.selectbox(
@@ -9840,14 +9845,14 @@ if current_page == "Sector Map":
         )
 
     # Saved sector rotation table — follow the selected orbit snapshot's date when possible
-    xlsx_files = sorted(BASE_DIR.glob("sector_rotation_*.xlsx"), reverse=True)
+    xlsx_files = _out.find("sector_rotation_*.xlsx")
     if xlsx_files:
         table_path = xlsx_files[0]
         if selected_name:
             # sector_rotation_orbit_YYYYMMDD.html -> sector_rotation_YYYYMMDD.xlsx
             date_suffix = selected_name.replace("sector_rotation_orbit_", "").replace(".html", "")
-            matched = BASE_DIR / f"sector_rotation_{date_suffix}.xlsx"
-            if matched.exists():
+            matched = _out.resolve(f"sector_rotation_{date_suffix}.xlsx")
+            if matched is not None:
                 table_path = matched
         with st.expander("Saved Sector Rotation Table"):
             try:

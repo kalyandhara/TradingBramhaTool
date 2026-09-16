@@ -45,6 +45,7 @@ except ImportError:
     sys.exit("Run:  py -3 -m pip install openpyxl")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+import out_paths as _out
 
 # NSE sectoral index proxies (Yahoo Finance tickers) keyed by screener.in's
 # granular "Industry" label (NOT the broader "Sector" label — screener.in's
@@ -494,7 +495,8 @@ def run(export_path: Path) -> None:
     sector_table["index_1y_return_%"] = index_returns
     sector_table["rotation_bias"] = biases
 
-    out_path = BASE_DIR / f"sector_rotation_{pd.Timestamp.today().strftime('%Y%m%d')}.xlsx"
+    out_path = _out.out_path(
+        f"sector_rotation_{pd.Timestamp.today().strftime('%Y%m%d')}.xlsx")
 
     # Merge into the existing workbook (Rotation Map / Promoter+FII sheets from the
     # other tools may already live here) rather than overwriting the whole file —
