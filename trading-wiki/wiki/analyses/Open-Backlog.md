@@ -6122,6 +6122,79 @@ and so read the new cross-reference banners as the app being launched; it now
 matches the launch line. Suite 574 → 579.
 
 
+## B-85 · One route for the chart modules — **CLOSED 2026-09-16**
+
+17 near-identical routes, one per browser module. **The duplication was not the
+cost.** A running server 404s a module added after it started — observed live on
+2026-09-07 (`/psar.js`) and carried in this page as *"restart the chart server"*
+on two separate sessions. **A restart is not a fix for a routing table that has to
+be edited to learn about a file already on disk.**
+
+> [!warning] The obvious fix was the wrong one, and the count says why
+> A blanket `/<anything>.js` is what this looks like it wants. `tools/` holds
+> **27 `.js` files and the page loads 17.** The other nine are NODE-side:
+> `alert_watcher.js`, the backtest and emit runners, the shared SVP engine.
+> Serving those over HTTP would publish internal tooling, including the shape of
+> the alert delivery config. **Counting the files before writing the route is the
+> only reason that was noticed.**
+
+So the allow-list is read from `chart_dashboard.html`: the page is the authority
+on what the browser needs, and nothing else is reachable. Cached on the page's
+mtime, so adding a module *and its `<script src>` line* works on a running server.
+
+**Verified against the real server, not only the test client.** A probe module was
+404 before its script tag was added and **200 immediately after, with no restart**;
+`alert_watcher.js` and `svp_backtest_runner.js` stayed 404 throughout; `/sw.js`
+keeps its own route because it needs no-cache headers and root scope, and a static
+rule outranks a converter rule in Flask's map. Routes 39 → 23.
+
+18 tests, including every Node script asserted unreachable and three traversal
+probes.
+
+---
+
+## B-86 · The security report was a month stale — **CLOSED 2026-09-16**
+
+Re-ran bandit. **HIGH 2 → 0**: both were `shell=True` calls that no longer exist
+in the code, still being reported by a file dated 2026-08-15.
+
+### The number that ballooned, and why it was not a regression
+
+The first re-run reported **1,134 LOW** against the old report's 53, which reads
+like a collapse. It was `-x` being passed as repeated flags — **bandit takes ONE
+comma-separated list, so the exclusions silently did nothing** — and what it was
+counting was `assert` in a suite that had just grown to 597 tests. A number that
+balloons because the project got *better* is a number nobody reads, which is the
+failure mode `claims_lint` exists to prevent. `bandit.yaml` now records the exact
+command, and the mistake, so the next run is comparable.
+
+**Baseline, tests excluded: HIGH 0 · MEDIUM 4 · LOW 153.**
+
+### All four MEDIUM read, none fixed by a code change
+
+* **B104 bind-all-interfaces** — **ACCEPTED, and the review's recommendation was
+  wrong.** It said default to loopback; that was written without checking what
+  binds here. The chart is a **PWA with installed clients** — the 2026-08-29 cache
+  regression was found precisely because a fix failed to reach one — and **a phone
+  on the same wifi cannot reach 127.0.0.1**. Defaulting to loopback would silently
+  break the surface the PWA exists for. Added `--host` instead, so loopback is one
+  flag away and the exposure is a decision on the record. What makes it tolerable:
+  read-only market endpoints, no credentials, no writes, and [[#B-85]]'s route
+  serving only what the page references.
+* **B608 × 2 in `portfolio_db`** — **false positives, both.** One interpolates
+  column names validated against a whitelist two lines earlier; the other
+  interpolates a run of `?` placeholders for an `IN` clause, the canonical safe
+  form. No user text reaches either string.
+* **B310** — a hardcoded https telegram preview URL. Worth re-reading only if it
+  ever becomes caller-supplied.
+
+> [!key-insight] The most useful number in the report is not a security number
+> **117 of the 153 LOW are silent exception handlers** — 77 `try/except/pass`
+> and 40 `try/except/continue`. That is [[#B-87]]'s "nine silent excepts in
+> `dashboard_app`" measured across the whole tree, and it arrived from a tool
+> nobody was running for that purpose.
+
+
 ## Outcome (fill in later)
 
 ## Related Pages

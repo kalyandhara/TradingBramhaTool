@@ -1,0 +1,74 @@
+# bandit configuration — B-86.
+#
+# Re-run the security scan with:
+#
+#   EX=$(ls tools/test_*.py | tr '\n' ',' | sed 's/,$//')
+#   "C:\Users\Owner\AppData\Local\Python\pythoncore-3.14-64\python.exe" \\
+#       -m bandit -r tools -c bandit.yaml -f json -o bandit_report.json -x "$EX"
+#
+# `-x` takes ONE comma-separated list. Passing repeated `-x file` flags
+# silently excludes nothing, which is how the first re-run reported 1,134 LOW
+# and looked like a regression.
+#
+# (bandit lives in the SCHEDULED-JOB interpreter, not the test one — see
+# analyses/Python-Environments. That is an accident of where it was installed,
+# not a decision.)
+#
+# ── Why the exclusions ──────────────────────────────────────────────────────
+#
+# The 2026-08-15 report carried 53 LOW findings. Re-run on 2026-09-16 it carried
+# **1,157** — and the jump was not a regression, it was B101 `assert_used` firing
+# on every assertion in a suite that had just grown to 579 tests. A number that
+# balloons because the project got BETTER is a number nobody will read, which is
+# the same failure mode `claims_lint` is built to avoid.
+#
+# So tests are excluded, and the vendored bundle with them.
+
+exclude_dirs:
+  - tools/breakout_scanner     # vendored, not ours
+  - tools/cache
+  - tools/logs
+  - tools/pine_scripts
+
+# B101 (assert_used) is the whole point of a test file; excluding the files is
+# cleaner than skipping the check everywhere, because an assert used as a runtime
+# GUARD in shipped code is still worth flagging.
+#
+# bandit has no glob exclude for files, so the test modules go in the `-x` list
+# built by the command above, rather than being duplicated here as a second
+# list to maintain.
+#
+# -- Baseline, 2026-09-16 (tests excluded) ----------------------------------
+#
+#   HIGH 0   MEDIUM 4   LOW 153
+#
+# HIGH went 2 -> 0: both were `shell=True` calls that no longer exist in the
+# code, still being reported by a report a month stale.
+#
+# 117 of the 153 LOW are SILENT EXCEPTION HANDLERS -- 77 `try/except/pass`
+# (B110) and 40 `try/except/continue` (B112). That is not a security number,
+# it is B-87's "nine silent excepts in dashboard_app" measured across the
+# whole tree, and it is the most useful thing in this report.
+
+# ── Standing findings, reviewed 2026-09-16 ──────────────────────────────────
+#
+# Four MEDIUM, no HIGH. Each was read, and none is fixed by a code change:
+#
+#   B104 chart_server.py  "binding to all interfaces"
+#       ACCEPTED, deliberately. The chart is a PWA with installed clients on
+#       phones, and a phone on the same wifi cannot reach 127.0.0.1. Defaulting
+#       to loopback would silently break the surface the PWA exists for. Now a
+#       documented `--host` flag, so loopback is one argument away. What makes
+#       it tolerable: read-only market endpoints, no credentials, no writes, and
+#       a module route that serves only what the page references (B-85).
+#
+#   B608 portfolio_db.py x2  "SQL injection through string construction"
+#       FALSE POSITIVES, both. The first interpolates COLUMN NAMES that are
+#       validated against a whitelist two lines earlier (`unknown column(s)`
+#       raises); the values are parameterised. The second interpolates only a
+#       run of `?` placeholders for an IN clause, which is the canonical safe
+#       form. No user text reaches either string.
+#
+#   B310 telegram_preview_scraper.py  "audit url open for permitted schemes"
+#       Reads a hardcoded https telegram preview URL. Worth re-reading if that
+#       ever becomes caller-supplied.

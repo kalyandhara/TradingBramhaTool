@@ -16,13 +16,14 @@ import asyncio
 import json
 import logging
 import queue
+import re
 import sys
 import threading
 import time
 from collections import deque
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, abort, jsonify, request, send_from_directory
 from flask_sock import Sock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -392,102 +393,66 @@ def pwa_icon_maskable():
     return send_from_directory(HERE, "icon-maskable-512.png", mimetype="image/png")
 
 
-@app.route("/elliott_wave.js")
-def elliott_wave_js():
-    return send_from_directory(HERE, "elliott_wave.js", mimetype="application/javascript")
-
-
-@app.route("/volume_profile.js")
-def volume_profile_js():
-    return send_from_directory(HERE, "volume_profile.js", mimetype="application/javascript")
-
-
-@app.route("/fvg.js")
-def fvg_js():
-    return send_from_directory(HERE, "fvg.js", mimetype="application/javascript")
-
-
-@app.route("/fibonacci.js")
-def fibonacci_js():
-    return send_from_directory(HERE, "fibonacci.js", mimetype="application/javascript")
-
-
-@app.route("/gann.js")
-def gann_js():
-    return send_from_directory(HERE, "gann.js", mimetype="application/javascript")
-
-
-@app.route("/session_volume_profile.js")
-def session_volume_profile_js():
-    return send_from_directory(HERE, "session_volume_profile.js",
-                               mimetype="application/javascript")
-
-
-@app.route("/hm_indicator.js")
-def hm_indicator_js():
-    return send_from_directory(HERE, "hm_indicator.js",
-                               mimetype="application/javascript")
-
-
-@app.route("/supertrend_ai.js")
-def supertrend_ai_js():
-    return send_from_directory(HERE, "supertrend_ai.js",
-                               mimetype="application/javascript")
-
-
-@app.route("/percent_r_trend_exhaustion.js")
-def percent_r_trend_exhaustion_js():
-    return send_from_directory(HERE, "percent_r_trend_exhaustion.js", mimetype="application/javascript")
-
-
-@app.route("/adx_di.js")
-def adx_di_js():
-    return send_from_directory(HERE, "adx_di.js", mimetype="application/javascript")
-
-
-@app.route("/evwma_vwap_macd.js")
-def evwma_vwap_macd_js():
-    return send_from_directory(HERE, "evwma_vwap_macd.js",
-                               mimetype="application/javascript")
-
-
-@app.route("/vwap_mean_reversion.js")
-def vwap_mean_reversion_js():
-    return send_from_directory(HERE, "vwap_mean_reversion.js",
-                               mimetype="application/javascript")
-
-
-@app.route("/psar.js")
-def psar_js():
-    return send_from_directory(HERE, "psar.js", mimetype="application/javascript")
-
-
-@app.route("/renko.js")
-def renko_js():
-    return send_from_directory(HERE, "renko.js", mimetype="application/javascript")
-
-
-@app.route("/obv_divergence.js")
-def obv_divergence_js():
-    return send_from_directory(HERE, "obv_divergence.js",
-                               mimetype="application/javascript")
-
-
-@app.route("/rsi_divergence.js")
-def rsi_divergence_js():
-    return send_from_directory(HERE, "rsi_divergence.js", mimetype="application/javascript")
-
-
-@app.route("/chart_drawings.js")
-def chart_drawings_js():
-    return send_from_directory(HERE, "chart_drawings.js", mimetype="application/javascript")
-
-
 # Bhavcopy is one file per session and every strike-level read comes out of it,
 # so the download is cached process-wide rather than repeated per request. Keyed
 # by nothing but recency: a new session simply replaces it.
 _OPT_CACHE: dict[str, object] = {"raw": None, "date": None, "at": 0.0}
 _OPT_TTL = 30 * 60
+
+
+#: Browser modules are served by ONE route, and the ALLOW-LIST is read from the
+#: page itself (B-85).
+#:
+#: Before this there were 17 near-identical routes, one per module, and the cost
+#: was not the duplication -- it was that a running server 404s a module added
+#: after it started. That was observed live on 2026-09-07 (`/psar.js`) and the
+#: backlog carried "restart the chart server" as an operational note on two
+#: separate sessions. A restart is not a fix for a routing table that has to be
+#: edited to learn about a file already on disk.
+#:
+#: A blanket `/<anything>.js` would have been the obvious move and is WRONG here:
+#: `tools/` also holds nine NODE-side scripts -- `alert_watcher.js`,
+#: `svp_backtest_runner.js`, the emit and backtest runners -- and serving those
+#: over HTTP would publish internal tooling, including the shape of the alert
+#: delivery config. The browser needs exactly what `chart_dashboard.html` asks
+#: for, so the page is the authority and nothing else is reachable.
+#:
+#: Cached on the HTML's mtime, so adding a module and its `<script src>` line
+#: works on a RUNNING server, which is the whole point of the change.
+_MODULE_CACHE: dict[str, object] = {"mtime": None, "names": frozenset()}
+
+
+def _page_modules() -> frozenset:
+    """`{"elliott_wave.js", ...}` — every module `chart_dashboard.html` loads."""
+    page = HERE / "chart_dashboard.html"
+    try:
+        mtime = page.stat().st_mtime
+    except OSError:
+        return frozenset()
+    if _MODULE_CACHE["mtime"] != mtime:
+        try:
+            html = page.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return frozenset()
+        _MODULE_CACHE["names"] = frozenset(
+            re.findall(r'src="/([A-Za-z0-9_]+\.js)"', html))
+        _MODULE_CACHE["mtime"] = mtime
+    return _MODULE_CACHE["names"]
+
+
+@app.route("/<name>.js")
+def chart_module_js(name: str):
+    """Serve a chart module the page actually references, or 404.
+
+    Flask's string converter never matches a `/`, and membership in the page's own
+    list is the real gate, so neither traversal nor a guessed filename reaches
+    disk. The explicit `/sw.js` route above wins over this one: a static rule
+    outranks a converter rule in Flask's map.
+    """
+    fname = f"{name}.js"
+    if fname not in _page_modules():
+        abort(404)
+    return send_from_directory(HERE, fname, mimetype="application/javascript")
 
 
 @app.route("/api/option_levels")
@@ -1469,7 +1434,25 @@ if __name__ == "__main__":
     import argparse as _argparse
     _ap = _argparse.ArgumentParser(description="Trading Bramha chart server")
     _ap.add_argument("--port", type=int, default=5001)
+    # ── Why the default is still 0.0.0.0 (B-86) ──────────────────────────────
+    # bandit flags this as B104, and the design review's recommendation was to
+    # default to loopback. That recommendation was made without checking what
+    # binds here, and it is WRONG for this server: the chart is a PWA -- it ships
+    # a service worker, a manifest and maskable icons, and there are INSTALLED
+    # clients (the 2026-08-29 cache regression was found precisely because a fix
+    # never reached one). A phone on the same wifi cannot reach 127.0.0.1, so
+    # defaulting to loopback would silently break the surface the PWA exists for.
+    #
+    # The finding is therefore ACCEPTED rather than fixed, and made explicit:
+    # `--host 127.0.0.1` is one flag away for anyone who wants it. What makes the
+    # exposure tolerable is the rest of the shape -- read-only market endpoints,
+    # no credentials, no writes, and a module route that serves only what the
+    # page references (B-85) rather than anything in `tools/`.
+    _ap.add_argument("--host", default="0.0.0.0",
+                     help="bind address; use 127.0.0.1 to keep it off the LAN "
+                          "(the installed PWA on a phone then cannot reach it)")
     _args = _ap.parse_args()
     _hl_start()
-    log.info("Chart server → http://localhost:%d", _args.port)
-    app.run(host="0.0.0.0", port=_args.port, debug=False, threaded=True)
+    log.info("Chart server → http://localhost:%d  (bound %s)",
+             _args.port, _args.host)
+    app.run(host=_args.host, port=_args.port, debug=False, threaded=True)
