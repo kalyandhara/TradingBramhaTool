@@ -239,3 +239,133 @@ def test_real_tree_is_clean():
     """
     rows = cl._scan_state_labels()
     assert not rows, "stale state labels: " + "; ".join(r[2] for r in rows)
+
+
+# ── CHECK 3 — counts that disagree with the registry (B-79) ──────────────────
+#
+# Same problem as the docstring at the top of this file: on the current tree this
+# check correctly reports (none), because the three stale counts were fixed before
+# it was written. Its positive case has to be proven on synthetic input.
+
+# Assembled rather than written out, so the stale phrases this fixture needs do
+# not sit as literals in THIS file — where the lint would read them as real
+# findings. A self-test for a linter has to keep its samples out of its own
+# source; the alternative is suppressing the fixture, which would also suppress
+# the positive case below and leave the check silently untested.
+_STALE_TOOLTIP = "24 pattern " + "scanners, run on any universe"
+_STALE_NOTE = "Pages: 99 " + "pages across" + " 7 sidebar " + "groups"
+_B19_RESULT = "B-19 measured 0/41 " + "scanners stable at 20d after costs"
+_CORRECT = "46 pattern " + "scanners, all registered"
+
+COUNT_SRC = (
+    "PAGE_BLURBS = {\n"
+    f'    "Scanner Hub": "{_STALE_TOOLTIP}",\n'
+    "}\n"
+    f'NOTE = "{_STALE_NOTE}"\n'
+    f'RESULT = "{_B19_RESULT}"\n'
+    f'FINE = "{_CORRECT}"\n'
+)
+
+
+@pytest.fixture
+def counted(tmp_path, monkeypatch):
+    """A tree whose registry holds 46 scanners, 23 pages, 5 groups."""
+    src = tmp_path / "dashboard_app.py"
+    src.write_text(COUNT_SRC, encoding="utf-8")
+    monkeypatch.setattr(cl, "HERE", tmp_path)
+    monkeypatch.setattr(cl, "COUNT_REGISTRY", {
+        "scanner": ("registry.py", "SCANNERS", "dict_keys"),
+        "page":    ("registry.py", "PAGE_GROUPS", "sum_of_list_values"),
+        "group":   ("registry.py", "PAGE_GROUPS", "dict_keys"),
+    })
+    (tmp_path / "registry.py").write_text(
+        "SCANNERS: dict[str, dict] = {"
+        + ",".join(f'"s{i}": {{}}' for i in range(46))
+        + "}\n"
+        'PAGE_GROUPS = {"A": ["p1","p2","p3","p4","p5","p6","p7","p8","p9"],'
+        ' "B": ["p10","p11","p12"], "C": ["p13","p14","p15","p16","p17","p18"],'
+        ' "D": ["p19","p20","p21"], "E": ["p22","p23"]}\n',
+        encoding="utf-8")
+    return src
+
+
+def test_it_catches_the_tooltip_that_started_this(counted):
+    """The real B-79 finding: "24 pattern scanners" against a registry of 46."""
+    rows = cl._scan_count_claims([counted])
+    hits = [r for r in rows if "says 24 scanner(s)" in r[2]]
+    assert len(hits) == 1
+    assert "registry holds 46" in hits[0][2]
+
+
+def test_it_catches_a_wrong_page_and_group_count(counted):
+    rows = cl._scan_count_claims([counted])
+    blob = " | ".join(r[2] for r in rows)
+    assert "says 99 page(s), registry holds 23" in blob
+    assert "says 7 group(s), registry holds 5" in blob
+
+
+def test_a_measurement_result_over_a_past_registry_is_NOT_flagged(counted):
+    """"0/41 scanners stable" is B-19's RESULT — true about the run it describes,
+    and rewriting it to 46 when the 47th ships would corrupt a finding.
+
+    This is the precision story for the whole check: without it the lint would
+    demand that every historical result be edited to match today's registry."""
+    rows = cl._scan_count_claims([counted])
+    assert not any("41" in r[2] for r in rows)
+
+
+def test_a_count_that_matches_the_registry_is_silent(counted):
+    rows = cl._scan_count_claims([counted])
+    assert not any("says 46" in r[2] for r in rows)
+
+
+def test_two_claims_on_one_line_are_both_reported(counted):
+    """`_dedupe` keys on (file, line) and would drop the second. "23 pages across
+    5 sidebar groups" is two independent facts that can drift independently."""
+    rows = cl._scan_count_claims([counted])
+    on_note = [r for r in rows if "page(s)" in r[2] or "group(s)" in r[2]]
+    assert len({r[2].split(",")[0] for r in on_note}) == 2
+
+
+@pytest.mark.parametrize("prose", [
+    "aggregate metrics for bars where exactly 1 scanner fired",
+    "need at least 2 valid scanner names",
+    '"7 scanners · 2 families" says six of those seven were reading',
+    "funnel — 42 scanners, 114 candidates rated",
+    "Score = 0.45 x Overall Rating + 0.30 x best scanner score",
+    "trimmed 12 scanners over. `psar.js` ships as an OVERLAY",
+    "Kelly-Criterion reads 4 where the page has 2",
+])
+def test_event_counts_are_not_inventory_claims(counted, prose):
+    """Every one of these was a REAL false positive from the first cut of this
+    check (14 on the shipped tree, all wrong). They count what happened, not what
+    is registered — and `scanner`/`page` are too common here to key on alone."""
+    counted.write_text(f'NOTE = "{prose}"\n', encoding="utf-8")
+    assert cl._scan_count_claims([counted]) == []
+
+
+def test_the_check_is_silent_on_the_real_tree():
+    """The steady state, and the reason the fixtures above exist: every count in
+    the shipped tree agrees with the registry. If this ever fails, something
+    drifted and the fixtures prove the check can see it."""
+    assert cl._scan_count_claims(cl._targets([])) == []
+
+
+def test_the_registry_counts_parse_without_importing_the_modules():
+    """Importing dashboard_app runs a Streamlit app, so this must stay `ast`."""
+    assert cl._count_symbol("scanner_templates.py", "SCANNERS", "dict_keys") == 46
+    assert cl._count_symbol("dashboard_app.py", "PAGE_GROUPS", "dict_keys") == 5
+    assert cl._count_symbol("dashboard_app.py", "PAGE_GROUPS",
+                            "sum_of_list_values") == 23
+
+
+def test_a_missing_registry_file_is_silent_not_an_error(tmp_path, monkeypatch):
+    monkeypatch.setattr(cl, "HERE", tmp_path)
+    assert cl._count_symbol("nope.py", "SCANNERS", "dict_keys") is None
+
+
+def test_a_suppressed_line_is_skipped(counted):
+    counted.write_text(
+        'BLURB = "24 pattern scanners here"  # claims-lint: checked B-79\n',
+        encoding="utf-8")
+    assert cl._scan_count_claims([counted]) == []

@@ -5664,6 +5664,94 @@ ordinal tests. Suite 490 → 514.
 design. What changed is that skipping it is no longer silent.
 
 
+## B-79 · Three state phrases the surface had outlived — **CLOSED 2026-09-15**
+
+Raised by [[analyses/Design-Review-2026-09-14]]. Three claims on the running desk
+were false, and none was a figure, so [[#B-69]]'s `claims_lint` could not see any of
+them. All three were re-verified against code before being touched.
+
+### 1. The research notice understated its own rigour
+
+Every page footed with *"Scanner edges shown as measured come from a single
+backtest window and carry no significance test yet."* Both halves had been false
+for weeks — **B-20a** added the t-test and CI (2026-08-12), **B-21** added
+walk-forward pooling and **B-29** the ~29bps cost model (2026-09-01).
+
+> [!key-insight] The correction is a STRONGER warning, not a softer one
+> The temptation with a stale caveat is to read it as harmlessly over-cautious.
+> It was not. What that measurement actually found was **0 of 41 scanners stable
+> across horizons** ([[#B-19]]) — so the honest sentence warns the reader *more*
+> than the stale one did. **A caveat that understates the work also understates
+> the result.** Now: *"walk-forward and net of Indian delivery costs, with a
+> significance test — and of the 41 scanners measured that way, none was stable
+> across every horizon."* The scanner count is computed.
+
+### 2. "24 pattern scanners", one hover from a tile that said 46
+
+The Scanner Hub's nav tooltip was typed. The registry holds **46**, and the Home
+tile beside it computes `len(sc.SCANNERS)` correctly — so the desk contradicted
+itself on one screen. **No count in the code equals 24**: not the registry (46),
+not the pipeline (41), not non-Risk (40). It was simply true once. Two further
+copies had drifted the same way in `opportunity_daily`'s docstring and a
+`dashboard_app` comment; both now avoid the bare number. The tooltip is computed,
+as is Home's "across 5 sidebar groups".
+
+### 3. The environments page named the wrong interpreter — and contradicted itself
+
+[[analyses/Python-Environments]] existed because **each interpreter had something
+the other lacked**: `streamlit` only in `pythoncore-3.14-64`, `ephem` only in
+`Programs\Python314`. **Re-measured 2026-09-15: both now carry the full stack.**
+The page's working rule therefore named the wrong interpreter for the dashboard,
+and had since `launch.json` switched.
+
+> [!warning] It was self-contradictory, which is worse than merely stale
+> The rule said *"verify dashboard-facing work with the interpreter from
+> `.claude/launch.json`"* and then printed `pythoncore-3.14-64` in a code block
+> beneath it. **The prose named a source of truth and the block hard-coded an
+> answer**, so the moment `launch.json` changed the page disagreed with itself.
+> Rewritten to name the source, not the answer.
+
+**What is still true is narrower and now points the wrong way.** The split is by
+**surface**: dashboard and tests under `Programs\Python314`, scheduled batch jobs
+under `pythoncore-3.14-64`. Only one has `pytest`. And the version skew has
+**inverted** — `yfinance` is **1.6.0** on the interpreter running the *unattended*
+jobs and **1.4.1** where everything is verified, so the nightly shortlist fetches
+through a newer library than any test exercises. `scipy` differs too, and that
+reaches the significance stack ([[#B-39]]).
+
+### The lint extension — CHECK 3, counts against the registry
+
+`claims_lint` gained a check with **ground truth**, the same shape as CHECK 0 and
+deliberately unlike CHECK 2: a count in prose that the code can count and that does
+not match. It fires only on a real mismatch, so the normal output is empty and every
+line is definitely wrong. Registries are read with `ast`, never imported — importing
+`dashboard_app` runs a Streamlit app.
+
+> [!key-insight] The first cut returned 14 hits on the shipped tree and every one was wrong
+> Matching "<N> … scanners|pages" caught *"exactly 1 scanner fired"*, *"42 scanners,
+> 114 candidates rated"*, *"trimmed 12 scanners over"*, `0.30 x best scanner score`
+> (a **decimal** read as a count) and `wiki_lint`'s *"4 pages"* (a different registry
+> entirely). **`scanner` and `page` are among the commonest nouns in this repo and
+> nearly every number near them counts an EVENT, not the inventory.** No blacklist of
+> verbs would have held, so the check was narrowed to noun phrases that only ever
+> denote the whole registry. It catches less and is worth more — the alternative is
+> output you learn to skim, which is the failure `claims_lint` exists to prevent.
+
+**A measurement result over a past registry is deliberately NOT flagged.** *"0/41
+scanners stable"* is true about the run it describes, and rewriting it to 46 when the
+47th ships would corrupt a finding. The existing `CONTEXT` vocabulary already
+separates the two — the regex CHECK 2 uses to decide a number *is* a measurement,
+used here inverted.
+
+**Tests:** 12 added to `tools/test_claims_lint.py`, including all seven real false
+positives as regression cases and a guard that the check stays silent on the shipped
+tree. Suite 514 → 530.
+
+**Residual:** the check covers scanners, pages and sidebar groups. Indicator counts
+live in `chart_dashboard.html`'s `INDICATOR_DEFS` and would need a JS-side count to
+be checkable; not built, and not currently drifted.
+
+
 ## Outcome (fill in later)
 
 ## Related Pages

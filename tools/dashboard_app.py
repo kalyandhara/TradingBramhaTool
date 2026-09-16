@@ -1113,7 +1113,10 @@ PAGE_BLURBS = {
     "Hidden Treasures":     "Small/micro-cap conviction screen — ownership + quality",
     "Screener":             "The core NSE screen with the saved pipeline",
     "Other Screeners":      "Ownership pipeline, sector rotation, bulk data",
-    "Scanner Hub":          "24 pattern scanners, run on any universe",
+    # COMPUTED, not typed. This read "24 pattern scanners" against a registry of  # claims-lint: checked B-79
+    # 46 -- stale since whenever the 25th shipped, and sitting one hover away
+    # from a Home tile that counts the registry correctly (B-79).
+    "Scanner Hub":          f"{len(sc.SCANNERS)} pattern scanners, run on any universe",
     "Breakout Scans":       "External new-high breakout feeds — Chartink or TradingView",
     "High-Growth Screener": "Quality growth names on ROE / ROCE / OPM floors",
     "SVP Structure":        "Volume-profile structure — a bystander lens, not in the pipeline",
@@ -6088,7 +6091,8 @@ if current_page == "Home":
             rs.stat_card("Pattern scanners",
                          str(_n_scanners) if _n_scanners is not None else None,
                          "backtest-measured where marked", tone="info"),
-            rs.stat_card("Pages", str(_n_pages), "across five groups", tone="neutral"),
+            rs.stat_card("Pages", str(_n_pages),
+                          f"across {len(PAGE_GROUPS)} sidebar groups", tone="neutral"),
             rs.stat_card("Last sentiment", _senti_val, _senti_sub, tone=_senti_tone),
         ], cols=3),
         unsafe_allow_html=True,
@@ -6194,8 +6198,17 @@ if current_page == "Home":
         f'ratings on this dashboard are automated outputs computed from historical '
         f'market data and filed disclosures. They are <b>not investment advice</b> and '
         f'not a recommendation to buy, sell or hold. Scanner edges shown as measured '
-        f'come from a single backtest window and carry no significance test yet — '
-        f'treat them as leads, not signals. Nothing here executes trades.'
+        # This said "a single backtest window and no significance test yet" for
+        # five weeks after both became false -- B-20a added the t-test and CI
+        # (2026-08-12), B-21 added walk-forward pooling and B-29 the cost model
+        # (2026-09-01). The correction is not a softening: the honest sentence is
+        # a STRONGER warning than the stale one, because what the measurement
+        # found was 0 of 41 stable (B-19). A caveat that understates the work
+        # also understates the result. (B-79)
+        f'are walk-forward and net of Indian delivery costs, with a significance '
+        f'test — and of the {len(oh.pipeline_scanners())} scanners measured that '
+        f'way, <b>none was stable across every horizon</b>. Treat them as leads, '
+        f'not signals. Nothing here executes trades.'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -7398,7 +7411,7 @@ if current_page == "Opportunity Hub":
     # ── Daily shortlist (stored) ──────────────────────────────────────────────
     # The manual funnel below is five steps and keeps nothing. This runs the same
     # funnel unattended and stores the result, so the daily question is "what did
-    # it like today" rather than "which of 24 scanners should I try".
+    # it like today" rather than "which scanner should I try".
     st.markdown(rs.section("Daily shortlist — stored"), unsafe_allow_html=True)
 
     _dates = db.get_opportunity_run_dates()
