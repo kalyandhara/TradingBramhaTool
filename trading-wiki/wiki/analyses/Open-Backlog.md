@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-09-11
+updated: 2026-09-17
 sources: 0
 related:
   - analyses/PCR-Sign-Convention-Pre-Registration.md
@@ -68,7 +68,7 @@ corrected in place below, each marked with the date.
 | **Counted 2026-09-10** | **B-59 overlap check** (`psar_overlap.js`, 460 names / 322,608 bars) — **PSAR is a SUPERSET, not a subset**: 28,582 flips against PMax 3,396 and STAI 13,050 (8.4× / 2.2×), 68.9% of them uncovered at ±3 bars, while PSAR itself covers 92% of STAI and 70% of PMax at ±10. B-46's zero-unique-cell objection does NOT survive — but it is replaced by a sharper one, since PSAR's whole content is its extra flips. Gate did not close; an edge test on the UNIQUE cells specifically is now owed. PSAR stays a drawn overlay meanwhile |
 | **Measured 2026-09-10** | **B-58** (`quasimodo_study.py`) — **INCONCLUSIVE, UNDERPOWERED**: 53 QM zone entries across 356 names / 3 years against a pre-registered floor of 200, and too few for a rotation p to be computable at all. Not a null; the pattern is too rare to measure to this desk's bar on daily bars in one market. QM stays geometry, PIPELINE_EXCLUDED. Three process catches recorded: the equivalence check aborted on SCOPE (355/355 once windowed), the pre-registered baseline could not contain its own signal (a QM's left shoulder is by definition a broken low), and the HARNESS clause fired but was resolved as uninformative when the panel reproduced B-43's null at −0.05% |
 | **Corrected 2026-09-10 (re-verify)** | **B-3** and **B-19b** bodies said "absent" for four weeks after the ledger closed them; **B-10** is down to one symbol (`BSE`), not four; **B-17** re-verified still absent and now covers two shipped OBV surfaces |
-| **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-26, B-27, B-30, B-31, B-35, B-37, B-28r — **all re-verified open 2026-09-10** except B-10, which shrank to a single symbol. Spot checks: no AVWAP anchor UI (`avwap` appears in `scanner_templates.py` only), no Volume-Profile 80% rule anywhere in `session_volume_profile.js` / `volume_profile.js`, and `sentiment_index.py` still carries **four** weighted factors (30/25/25/20) with the PCR factor 5 a docstring line only — even though `pcr.py` is now consumed by `dashboard_app.py` in three other places, so B-22 is wiring, not a build — **B-22 and B-20 both actioned 2026-09-11, see their rows; `sentiment_index.py` now carries five factors at 25/20/20/15/20** |
+| **Still open** | ~~*superseded — see [[#THE OPEN ROADMAP — refined 2026-09-17]], which is the current list. B-10 and B-27 in this row have since closed.*~~ B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-26, B-27, B-30, B-31, B-35, B-37, B-28r — **all re-verified open 2026-09-10** except B-10, which shrank to a single symbol. Spot checks: no AVWAP anchor UI (`avwap` appears in `scanner_templates.py` only), no Volume-Profile 80% rule anywhere in `session_volume_profile.js` / `volume_profile.js`, and `sentiment_index.py` still carries **four** weighted factors (30/25/25/20) with the PCR factor 5 a docstring line only — even though `pcr.py` is now consumed by `dashboard_app.py` in three other places, so B-22 is wiring, not a build — **B-22 and B-20 both actioned 2026-09-11, see their rows; `sentiment_index.py` now carries five factors at 25/20/20/15/20** |
 | **Open — residual only** | **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
 | **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic), **B-39** (pin `scipy` in requirements / make `backtest.py` scipy-optional — the hard import silently broke the significance stack on Python 3.14) |
 | **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**), ~~**B-41**~~ (**CLOSED 2026-09-02** — `detect_liquidity_pools` + `detect_liquidity_sweep` + both scanners; SMC stack now complete), ~~**B-42**~~ (**CLOSED 2026-09-02**; residual **B-42r** — the pivot_len 5-vs-15 split, to be settled on data). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
@@ -81,6 +81,78 @@ corrected in place below, each marked with the date.
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
 | **Shipped 2026-09-02 (not from the backlog)** | **Trending Stocks page** — `trending_stocks.py` + a Market-Intel page with four lenses: Price Movers (whole-market bhavcopy, turnover-floored), Volume Shockers (reuses `volume_anomaly` **with cause attribution** — the one lens the desk does better than the commercial screener it was modelled on), 52-Week and All-Time High/Low (computed from batched history over a bounded top-N-by-turnover universe, since NSE's UDiFF bhavcopy carries **no 52-week columns** — verified, 34 columns, none a range extreme). Requested from a screenshot of a commercial "Trending Stocks" page. **Deliberately NO "Most Visited" lens** — that is crowd page-view data from a site's own traffic logs, there is no free public feed for retail attention, and a proxy (delivery spikes, rank churn) would measure something else under the same label. Recorded as a decision, not an oversight, the same way the intraday ORB/DOM lane is. Two things the build forced: a **turnover floor**, without which the movers list is almost entirely penny stocks (a ₹3 share moving 19% is arithmetic), and a **cash-equivalent filter** reusing the chart's existing `isLikelyLiquidETF` definition, because a liquid ETF is *permanently* at its all-time high by construction and squatted on the first ATH run. |
 | **Measured 2026-09-02** | **B-19** batch walk-forward on all 41 scanners (LIQUID_50, 3 windows, Indian delivery ~29bps): **0/41 stable** across all horizons; 11 show positive 20d edge but all UNSTABLE; strongest = %R Bottoming (+2.68% @60d, stable @20d+60d), Falling Wedge (+1.58% @60d); **most scanners show negative edge after costs**. 3 too-few-signals (High Tight Flag, Minervini VCP, RSI-Fibo Hidden Div). 3/5 risk scanners show bearish edge. Full table in `tools/cache/b19_verdicts/_summary_table.txt`. |
+
+## THE OPEN ROADMAP — refined 2026-09-17
+
+**Why this section exists.** The status table above is a *history*, and it had
+become the only index of what is open — a "Still open" row that is a comma list
+of sixteen ids, two of them (**B-10**, **B-27**) closed weeks ago and still
+listed. An index you have to fact-check is not an index. This section is the
+opposite shape: **only what is open, one line each, classified by what it is
+waiting on.** The history above is left exactly as it is.
+
+**The classification is the point.** Every open item is waiting on one of three
+things, and they are not interchangeable — the reason items sit for weeks is that
+"needs a decision" and "needs an afternoon" have been living in the same list.
+
+| Class | Meaning | Who unblocks it |
+|---|---|---|
+| **MEASURABLE NOW** | harness and data both exist; nothing to build first | nobody — just run it |
+| **BUILD** | scoped, no open question, only work | a session |
+| **OWNER** | a judgement call this desk cannot make for itself | you |
+
+### MEASURABLE NOW — the harness and the data are already here
+
+Re-verified against the code and the stores on 2026-09-17. **This tier was the
+discovery of the refinement pass:** three of these were filed as if blocked, and
+none of them is.
+
+| # | What is unmeasured | Why it is runnable today |
+|---|---|---|
+| **B-56** | the SVP **structure** BUY/SELL/HOLD signal — built 2026-09-06, never scored, and the prior points AGAINST it (the 2026-08-29 attribution scored its two inputs at −0.67 and −0.71) | `svp_backtest.py` already scores the *composite* through a JS-runner → Python-scorer pattern. The structure signal is a second JS file; the harness shape is proven |
+| **B-8** | mean-reversion **stops**: [[strategies/Quantified-MA-Mean-Reversion]] uses none (stops removed the edge), ForexTester makes 1–2 ATR mandatory. The desk shipped a stop without settling it | `scan_mean_reversion` exists and emits `stop`; `backtest.py` runs it. One entry, two stop policies |
+| **B-9** | the Volume-Profile **80% rule** — a vendor claim with no data behind it | **not blocked on data, which is what the page implied.** `intraday_store` holds **15m bars, 85 sessions, 6 symbols**; 30-min bars aggregate from 15m |
+| **B-42r** | `pivot_len` 5 vs 15 in the market-structure engine — recorded as "to be settled on data" | both settings run today; it is a sweep |
+| **B-21b** | every floor set on 2026-08-07 came from **one session's cross-section** | the floors are labelled in code and the history to re-measure them on is cached |
+| **B-59r2** | PSAR's **unique** flips (68.9% uncovered at ±3) — the edge test the overlap check left owed | `psar_stai_edge.py` already scores PSAR-only cells |
+
+### BUILD — scoped, nothing to decide
+
+| # | What | Size |
+|---|---|---|
+| **B-46** | Ichimoku Cloud — verified still absent (`ichimoku` appears only in `psar.js`) | medium |
+| **B-47** | TPO / Market Profile pane — verified absent | medium |
+| **B-48** | Cumulative volume delta — **answer the DATA question first**, before any indicator | data probe, then medium |
+| **B-6** | retest entries: the desk detects breaks well and retests poorly; `scan_order_block` is the only retest trigger | medium |
+| **B-17** | OBV has no wiki page, and now ships on **two** surfaces | small |
+| **B-87r** | the monolith **extraction** the ratchet is holding the line for | ongoing, one page per session |
+| **B-37** | volume share-card | small |
+
+### OWNER — a judgement, not a task
+
+| # | The decision |
+|---|---|
+| **B-73** | the contra-theme **cadence** |
+| **B-4 / B-12** | AVWAP click-to-anchor — verified no anchor UI exists. Anchor choice is the subjective half of AVWAP; how much UI is worth building is yours |
+| **B-26** | `MIN_PRICE_PCT` is **0.5 against a 0.90 median** — far more permissive than its own comment claims. Deliberately unchanged, because moving it re-grades the whole universe. Decide it on purpose rather than by inheritance |
+| **B-34r2** | whether the red-flag veto is ON by default (it vetoes **100 of 249** on Smallcap-250) |
+| **B-84r** | retire or document the third app — the candidate is named in [[#B-84]] |
+| **B-30 / B-31 / B-35** | parked by choice; unpark or drop |
+| **P2 four** | B-4/12, B-6, B-8, B-9 were "schedule one or mark deferred" as of the design review. **B-8 and B-9 are now scheduled — they are in MEASURABLE NOW above.** |
+
+> [!warning] A specification this page lost
+> **B-8 and B-9 were described here as "both fully specified"** — and they were
+> not. Both were reduced to a bare heading with one shared sentence under them;
+> the actual specifications (the Connors-vs-ForexTester contradiction, the
+> 2-consecutive-30-min-bar traverse claim) survived only in the superseded
+> [[analyses/Open-Backlog-2026-08-02]] snapshot. **A living page that supersedes
+> a snapshot inherits the duty to carry its content**, and this one dropped two
+> specs on the way. Restored below, in their own entries.
+>
+> This is the same failure the page already documents about itself, one level up:
+> it re-verifies STATUSES against code and never re-verified that its own
+> BODIES survived the migration.
+
 
 ## Left open by the 2026-09-07 session — carried forward, re-checked 2026-09-10
 
@@ -1213,8 +1285,30 @@ can now be settled empirically; picking the winner and writing it back to the
 scanners is a follow-up, not a build.
 
 ### B-8 · Stops in mean reversion — the Connors contradiction
+**Body restored 2026-09-17 from [[analyses/Open-Backlog-2026-08-02]]**, which is
+where it had been left behind. What this page carried instead was a bare heading
+and the claim that it was "fully specified" — see the warning in the roadmap.
+
+[[strategies/Quantified-MA-Mean-Reversion]] uses **no stop**, because its own
+backtests found that stops removed the edge. [[sources/ForexTester-Mean-Reversion-Guide]]
+makes **1–2 ATR stops mandatory**. Two sources, one setup, opposite rules.
+
+**And the desk has already taken a side without measuring it.**
+`scan_mean_reversion` ships `stop = session_low × 0.995` with `time_stop: 10`.
+That is not the neutral position; it is the ForexTester answer, adopted by
+inheritance. Run one reversion entry with and without a 2-ATR stop and settle it.
+
 ### B-9 · Volume Profile 80% rule
-Both fully specified, both still taken on faith.
+**Body restored 2026-09-17 from the same snapshot.**
+
+The claim: price entering the value area and holding **2 consecutive 30-minute
+bars** has a ~**80%** chance of a full **VAL→VAH traverse**. A vendor claim with
+no data behind it, and stated precisely enough to be falsified.
+
+**No longer blocked on data.** The snapshot said "testable on NSE 30-min data"
+and nothing followed, which read as a data gap. `intraday_store` now holds
+**15m bars over 85 sessions for 6 symbols** (plus 1h over 751), and 30-minute
+bars aggregate from 15m — so the study is runnable today. Moved to MEASURABLE NOW.
 
 ---
 
