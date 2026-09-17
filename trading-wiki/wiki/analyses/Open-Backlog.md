@@ -126,10 +126,13 @@ none of them is.
 | **B-47** | TPO / Market Profile pane — verified absent | medium |
 | **B-48** | Cumulative volume delta — **answer the DATA question first**, before any indicator | data probe, then medium |
 | **B-6** | retest entries: the desk detects breaks well and retests poorly; `scan_order_block` is the only retest trigger | medium |
+| **B-93 / PR-1** | **Strategy Hub's pattern table shows 20 hardcoded rows with frozen LTP and a computed scoreboard over them** — the only pattern-surface item that currently misleads | small, **P1** |
 | **B-17** | OBV has no wiki page, and now ships on **two** surfaces | small |
 | **B-87r** | the monolith **extraction** the ratchet is holding the line for | ongoing, one page per session |
 | **B-37** | volume share-card | small |
 | **B-91** | VWAP's zero-point cases say **why** — no volume (index spot) vs undefined on daily | small |
+| **B-92** | **Flag & Pole detector, both directions**, emitting entry / stop / pole-projected target | medium |
+| **B-93 / PR-2** | **trade-plan coverage as a visible metric** — only **7 of 31** firing scanners emit entry/stop/target | medium |
 
 ### OWNER — a judgement, not a task
 
@@ -6716,6 +6719,97 @@ reader cannot see and the card is evidence that people expect the line there.
 "no traded volume on this feed (index spot — use the futures chart)" or "session
 VWAP is undefined on daily bars — use Anchored VWAP". Two strings, one `if`.
 Same class as the [[#B-79]] stale-phrase work.
+
+
+---
+
+## Flag & Pole — ingested 2026-09-17, and the gap is the PLAN, not the pattern
+
+Owner supplied a Spider Software card, [[sources/Spider-Software-Flag-Pole-Infographic]]:
+a vertical **pole**, a shallow counter-trend **flag** (channel / wedge /
+triangle), then **entry at the flag break, stop at the far flag boundary, target
+= the pole height projected**. Presented in both directions.
+
+**It makes no numeric claim at all** — no hit rate, no sample. Unlike the VWAP+EMA
+card there is nothing here to falsify: it is a *construction spec*, and should be
+read as one.
+
+### What is here, and what is not
+
+| The card specifies | The desk has | Gap |
+|---|---|---|
+| Bullish pole + flag | `High Tight Flag` — **one extreme variant** (pole ≥90% in ~40 bars, flag ≤25%) | the **general** bull flag is absent |
+| **Inverted** (bearish) flag & pole | — | **entirely absent** |
+| Entry / stop / target from the geometry | HTF emits **none of the three** | absent |
+| Draw it on the chart | `falling_wedge`, `vcp`, `roundbottom`, `harmonic` | **no flag/pole overlay** |
+
+> [!key-insight] The card's whole content is the plan — and 24 of 31 firing scanners have none
+> `scan_high_tight_flag` returns `pattern_type`, `tags`, `reasons`, `score` and
+> **nothing else**. It is not alone. Measured across 60 nifty500 names on
+> 2026-09-17: **31 scanners fired; only 7 emitted a full `entry`/`stop`/`target`.**
+>
+> This is not cosmetic. `backtest._simulate_plan` walks entry → stop/target, so a
+> scanner with no plan **cannot be scored on realised R at all**. Plan coverage is
+> a measurement capability, not a display nicety — which is why it is ranked
+> above the new detector in the roadmap.
+
+**And the one flag detector we have is too rare to measure.** [[#B-19]] lists
+`High Tight Flag` among **three scanners with too few signals** to score. A ≥90%
+pole is the rarest member of the family. That is an argument **for** the general
+version — it would fire often enough to be measurable — not against it.
+
+### B-92 · Flag & Pole detector, both directions, with the levels — **P2**
+
+Build `detect_flag_pole` emitting the card's three levels, bull and bear.
+
+**Justified on COVERAGE, never on expected edge.** [[#B-19]] measured 0 of 41
+scanners stable after costs; a 47th pattern is not expected to break that. It
+closes a named absence and it makes the family measurable.
+
+**The trap, and B-58 is the precedent.** Loosen the pole threshold far enough and
+"flag" becomes "any pullback in an uptrend" — which this desk already has as
+`Pullback Entry`, **measured NEGATIVE** (−0.43% / −1.12%). B-58's quasimodo work
+reported the pattern on **73%** of names until pivots were required to be
+adjacent, which cut it to 44%, with the true count **3%**. **Count the hits
+before trusting the detector**, and publish the count.
+
+Parameters left open on purpose — each is a decision, listed in
+[[analyses/Pattern-Reporting-Enhancement-Roadmap]]: pole size **in ATR** not per
+cent, flag retracement cap, whether contracting volume is required (HTF rejects a
+rising-volume flag outright, and that reasoning is sound — a flag on rising
+volume is distribution into strength), and close-confirmed breakout per this
+desk's convention.
+
+**Scope the bear half as EXIT/AVOID.** Shorting NSE cash for a swing hold is not
+available to most users of this repo — the same scoping [[#B-90]] carries.
+
+### B-93 · Pattern reporting — the page exists, so this is an enhancement roadmap — **PR-1 is P1**
+
+The owner asked for a pattern reporting page, or a roadmap if one exists.
+**Two exist:** **Scanner Hub** (46 scanners on any universe — the real one, and
+nothing about it needs replacing) and **Strategy Hub § Chart Patterns**.
+
+> [!warning] PR-1 — Strategy Hub's pattern table presents frozen numbers as live
+> `_PATTERNS` in `dashboard_app.py` is a **Python literal of 20 tuples**: stock,
+> pattern, bias, publish date, publish price, **LTP and Move %** — all hardcoded.
+>
+> The caption is honest that the detections are third-party and historical. It is
+> **not** honest that the table is **static**: the "LTP ₹" column reads as live,
+> and the footer computes *"N above publish price · M below"* from those frozen
+> numbers — **a scoreboard over data nothing is measuring.**
+>
+> Same class as [[#B-79]]'s stale state phrases, and `claims_lint` cannot see it
+> because the numbers live in a tuple rather than in prose.
+>
+> **Honest minimum:** say the block is a fixed August sample and delete the
+> computed footer. **Better:** recompute LTP from the price cache the rest of the
+> desk already uses, which makes the scoreboard real. Either way it must say which
+> — silently refreshing in place is the [[#B-26]] error.
+
+Full four-rung roadmap in [[analyses/Pattern-Reporting-Enhancement-Roadmap]]:
+**PR-1** the static table (the only rung that fixes something currently
+misleading), **PR-2** trade-plan coverage as a visible metric, **PR-3** the B-92
+detector, **PR-4** the chart overlay.
 
 
 ## Outcome (fill in later)
