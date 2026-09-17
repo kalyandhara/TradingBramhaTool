@@ -110,7 +110,7 @@ none of them is.
 | # | What is unmeasured | Why it is runnable today |
 |---|---|---|
 | ~~**B-56**~~ | ~~the SVP **structure** BUY/SELL/HOLD signal~~ — **MEASURED 2026-09-17 → INVERTED** (spread −1.77%, p_rot 0.041, SELL beat BUY 8 of 8). Mirror deliberately not shipped; stays a bystander. [[analyses/SVP-Structure-Signal-Pre-Registration]] | done — the prior was right |
-| **B-8** | mean-reversion **stops**: [[strategies/Quantified-MA-Mean-Reversion]] uses none (stops removed the edge), ForexTester makes 1–2 ATR mandatory. The desk shipped a stop without settling it | `scan_mean_reversion` exists and emits `stop`; `backtest.py` runs it. One entry, two stop policies |
+| ~~**B-8**~~ | ~~mean-reversion **stops**~~ — **MEASURED 2026-09-17: CONNORS WAS RIGHT, for tight stops.** The shipped session-low stop costs **−1.44pp** vs no stop (p=0.0009, n=145, 20y); 2-ATR costs nothing measurable because it is only touched 17.2% of the time. Stop deliberately unchanged; the number is now in the scanner's own plan output | done |
 | **B-9** | the Volume-Profile **80% rule** — a vendor claim with no data behind it | **not blocked on data, which is what the page implied.** `intraday_store` holds **15m bars, 85 sessions, 6 symbols**; 30-min bars aggregate from 15m |
 | **B-42r** | `pivot_len` 5 vs 15 in the market-structure engine — recorded as "to be settled on data" | both settings run today; it is a sweep |
 | **B-21b** | every floor set on 2026-08-07 came from **one session's cross-section** | the floors are labelled in code and the history to re-measure them on is cached |
@@ -1284,7 +1284,51 @@ fallback to a normal approximation when scipy is absent, mirroring `funnel_backt
 can now be settled empirically; picking the winner and writing it back to the
 scanners is a follow-up, not a build.
 
-### B-8 · Stops in mean reversion — the Connors contradiction
+### B-8 · Stops in mean reversion — the Connors contradiction — **MEASURED 2026-09-17: CONNORS WAS RIGHT**
+
+> [!key-insight] The desk's own stop was costing it 1.44pp per trade
+> `mean_reversion_stop_study.py`, LIQUID_50, ~20 years (5,000 bars/name),
+> **145 non-overlapping signals**, `COST_INDIAN` on every arm.
+>
+> | policy | mean % | median % | win% | stopped% | target% |
+> |---|---|---|---|---|---|
+> | **NO STOP (Connors)** | **+1.28** | +1.65 | 60.7 | 0.0 | 29.0 |
+> | session low ×0.995 (**shipped**) | +0.22 | −1.56 | 32.6 | **65.9** | 19.6 |
+> | 1-ATR (ForexTester) | +0.21 | −2.49 | 42.8 | 51.7 | 22.1 |
+> | 2-ATR (ForexTester) | +1.39 | +1.63 | 60.0 | 17.2 | 29.0 |
+>
+> Paired against NO STOP on the same signals: **shipped −1.44pp (p=0.0009)**,
+> **1-ATR −1.07pp (p=0.021)**, **2-ATR +0.11pp (p=0.64)**.
+>
+> **Both sources are right, about different stops.** Connors' claim — that stops
+> remove the edge — holds for TIGHT ones. ForexTester's 2-ATR is
+> indistinguishable from no stop at all, and the reason is in the table: it is
+> only touched **17.2%** of the time, so it barely binds. The contradiction was
+> never really a contradiction; it was two stop widths under one word.
+>
+> **The desk's shipped stop is the tightest of the three and the worst.** It is
+> hit on **two trades in three** and cuts the win rate from 60.7% to 32.6% — it
+> is cutting mean-reversion trades exactly where mean reversion is about to
+> happen, which is the failure mode Connors described.
+
+**The stop was NOT removed, and that is deliberate.** The pre-registered
+consequence was to record the finding and surface the number, not to silently
+change a plan. Three reasons it stands as a decision rather than an oversight:
+
+1. **145 signals is below the desk's 200 floor** ([[#B-58]]'s precedent). p=0.0009
+   is strong, but the sample is not, and the verdict prints **PROVISIONAL** for
+   exactly that reason.
+2. **"No stop" is not "no risk control".** The scanner's `time_stop: 10` bounds
+   the trade in TIME. Removing the price stop converts a bounded loss into a
+   gap-exposed one, and this study measured return, not drawdown or ruin.
+3. **2-ATR is the interesting middle** and it is what a follow-up should test as
+   the default — it keeps a bound while costing nothing measurable.
+
+**What a reader of the scanner should know now:** the plan's stop is tight enough
+that it fires on most trades, and on this evidence it costs return rather than
+saving it.
+
+### B-8 · original specification
 **Body restored 2026-09-17 from [[analyses/Open-Backlog-2026-08-02]]**, which is
 where it had been left behind. What this page carried instead was a bare heading
 and the claim that it was "fully specified" — see the warning in the roadmap.

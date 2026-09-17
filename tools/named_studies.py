@@ -224,6 +224,14 @@ STUDIES: tuple[dict, ...] = (
         "source": "analyses/SVP-Signal-Backtest-Design",
     },
     {
+        "item": "B-8", "tool": "mean_reversion_stop_study.py", "date": "2026-09-17",
+        "subjects": ("Mean Reversion (Connors RSI2)",),
+        "verdict": "MIXED",
+        "headline": ("the shipped session-low stop costs -1.44pp vs no stop "
+                     "(p=0.0009, n=145); 2-ATR costs nothing measurable"),
+        "source": "analyses/Open-Backlog#B-8",
+    },
+    {
         "item": "B-56", "tool": "svp_structure_backtest.py", "date": "2026-09-17",
         "subjects": ("SVPSTRUCT.read",),
         "verdict": "NEGATIVE",
