@@ -110,7 +110,7 @@ none of them is.
 | # | What is unmeasured | Why it is runnable today |
 |---|---|---|
 | ~~**B-56**~~ | ~~the SVP **structure** BUY/SELL/HOLD signal~~ — **MEASURED 2026-09-17 → INVERTED** (spread −1.77%, p_rot 0.041, SELL beat BUY 8 of 8). Mirror deliberately not shipped; stays a bystander. [[analyses/SVP-Structure-Signal-Pre-Registration]] | done — the prior was right |
-| ~~**B-8**~~ | ~~mean-reversion **stops**~~ — **MEASURED 2026-09-17: CONNORS WAS RIGHT, for tight stops.** The shipped session-low stop costs **−1.44pp** vs no stop (p=0.0009, n=145, 20y); 2-ATR costs nothing measurable because it is only touched 17.2% of the time. Stop deliberately unchanged; the number is now in the scanner's own plan output | done |
+| ~~**B-8**~~ | ~~mean-reversion **stops**~~ — **MEASURED 2026-09-17: CONNORS WAS RIGHT, for tight stops.** The shipped session-low stop costs **−0.64pp** vs no stop (p=0.0086, **n=742**, 300 names, 20y); 2-ATR costs nothing measurable because it is only touched 24.7% of the time. Stop deliberately unchanged; the number is now in the scanner's own plan output | done |
 | ~~**B-9**~~ | ~~the Volume-Profile **80% rule**~~ — **MEASURED 2026-09-17: FALSIFIED.** 45.5% (95% CI 37.3–54.0, n=134) against a claimed 80%. Lift over base −4.1pp, p=0.422, explicitly NOT claimed | done — and it was never blocked on data |
 | ~~**B-42r**~~ | ~~`pivot_len` 5 vs 15~~ — **MEASURED 2026-09-17: the two settings agree on `state` only 29.6%** of the time (199 names), and 17.6% read DOWNTREND in the scanners against UPTREND on the chart. **Promoted to an OWNER decision** — see below | measured; the decision is yours |
 | **B-21b** | every floor set on 2026-08-07 came from **one session's cross-section** | the floors are labelled in code and the history to re-measure them on is cached |
@@ -1287,38 +1287,56 @@ scanners is a follow-up, not a build.
 
 ### B-8 · Stops in mean reversion — the Connors contradiction — **MEASURED 2026-09-17: CONNORS WAS RIGHT**
 
-> [!key-insight] The desk's own stop was costing it 1.44pp per trade
-> `mean_reversion_stop_study.py`, LIQUID_50, ~20 years (5,000 bars/name),
-> **145 non-overlapping signals**, `COST_INDIAN` on every arm.
+> [!key-insight] The desk's own stop costs it 0.64pp per trade
+> `mean_reversion_stop_study.py`, **300 nifty500 names**, ~20 years (5,000
+> bars/name), **742 non-overlapping signals** — above the desk's 200 floor —
+> `COST_INDIAN` on every arm.
 >
 > | policy | mean % | median % | win% | stopped% | target% |
 > |---|---|---|---|---|---|
-> | **NO STOP (Connors)** | **+1.28** | +1.65 | 60.7 | 0.0 | 29.0 |
-> | session low ×0.995 (**shipped**) | +0.22 | −1.56 | 32.6 | **65.9** | 19.6 |
-> | 1-ATR (ForexTester) | +0.21 | −2.49 | 42.8 | 51.7 | 22.1 |
-> | 2-ATR (ForexTester) | +1.39 | +1.63 | 60.0 | 17.2 | 29.0 |
+> | **NO STOP (Connors)** | **+0.47** | +1.28 | 55.5 | 0.0 | 32.5 |
+> | session low ×0.995 (**shipped**) | −0.15 | −1.85 | 30.1 | **68.1** | 21.2 |
+> | 1-ATR (ForexTester) | +0.07 | −3.05 | 40.8 | 52.7 | 26.8 |
+> | 2-ATR (ForexTester) | +0.33 | +0.84 | 53.1 | 24.7 | 31.4 |
 >
-> Paired against NO STOP on the same signals: **shipped −1.44pp (p=0.0009)**,
-> **1-ATR −1.07pp (p=0.021)**, **2-ATR +0.11pp (p=0.64)**.
+> Paired against NO STOP on the same signals: **shipped −0.64pp (p=0.0086)**,
+> 1-ATR −0.40pp (p=0.082), 2-ATR −0.14pp (p=0.370). Only the shipped stop is
+> significant.
 >
 > **Both sources are right, about different stops.** Connors' claim — that stops
 > remove the edge — holds for TIGHT ones. ForexTester's 2-ATR is
 > indistinguishable from no stop at all, and the reason is in the table: it is
-> only touched **17.2%** of the time, so it barely binds. The contradiction was
+> only touched **24.7%** of the time, so it barely binds. The contradiction was
 > never really a contradiction; it was two stop widths under one word.
 >
 > **The desk's shipped stop is the tightest of the three and the worst.** It is
-> hit on **two trades in three** and cuts the win rate from 60.7% to 32.6% — it
-> is cutting mean-reversion trades exactly where mean reversion is about to
-> happen, which is the failure mode Connors described.
+> hit on **more than two trades in three** and cuts the win rate from 55.5% to
+> 30.1% — it is closing mean-reversion trades exactly where mean reversion is
+> about to happen, which is the failure mode Connors described.
+
+> [!warning] The narrow basket overstated the effect by more than double
+> This was first run on **LIQUID_50 only (145 signals)** and read **−1.44pp at
+> p=0.0009**. Widened to 300 names and 742 signals, the same test reads
+> **−0.64pp at p=0.0086**.
+>
+> **The direction replicated on 5× the sample and the policy ordering is
+> identical** — shipped worst, then 1-ATR, then 2-ATR ≈ no stop, with stop-hit
+> rates in the same order. **The size did not replicate.** 1-ATR also lost
+> significance (p=0.021 → 0.082), which is what a real-but-smaller effect looks
+> like when the basket stops being 50 of the most liquid names on the exchange.
+>
+> The setup itself is weaker off the large caps too: NO STOP falls from +1.28% to
+> +0.47%. **Cite −0.64pp.** The first number was not wrong, it was narrow — and
+> the difference between those two is the reason the provisional label existed.
 
 **The stop was NOT removed, and that is deliberate.** The pre-registered
 consequence was to record the finding and surface the number, not to silently
-change a plan. Three reasons it stands as a decision rather than an oversight:
+change a plan. Two reasons it stands as a decision rather than an oversight
+(the third, the sample floor, was retired by the wide run):
 
-1. **145 signals is below the desk's 200 floor** ([[#B-58]]'s precedent). p=0.0009
-   is strong, but the sample is not, and the verdict prints **PROVISIONAL** for
-   exactly that reason.
+1. **The effect is real but modest.** −0.64pp on a setup whose unconditional
+   return is +0.47% is most of the edge, but it is a fraction of a per cent and
+   it shrank by more than half when the basket widened.
 2. **"No stop" is not "no risk control".** The scanner's `time_stop: 10` bounds
    the trade in TIME. Removing the price stop converts a bounded loss into a
    gap-exposed one, and this study measured return, not drawdown or ruin.

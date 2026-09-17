@@ -243,8 +243,9 @@ STUDIES: tuple[dict, ...] = (
         "item": "B-8", "tool": "mean_reversion_stop_study.py", "date": "2026-09-17",
         "subjects": ("Mean Reversion (Connors RSI2)",),
         "verdict": "MIXED",
-        "headline": ("the shipped session-low stop costs -1.44pp vs no stop "
-                     "(p=0.0009, n=145); 2-ATR costs nothing measurable"),
+        "headline": ("the shipped session-low stop costs -0.64pp vs no stop "
+                     "(p=0.0086, n=742, 300 names); 2-ATR costs nothing "
+                     "measurable; LIQUID_50 alone had read -1.44pp"),
         "source": "analyses/Open-Backlog#B-8",
     },
     {

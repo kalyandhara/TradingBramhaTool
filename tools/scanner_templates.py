@@ -4669,26 +4669,33 @@ def scan_mean_reversion(df: pd.DataFrame,
 
     ── THE STOP IS MEASURED, AND IT COSTS RETURN (B-8, 2026-09-17) ────────────
     `mean_reversion_stop_study.py` ran this setup's own signals under four stop
-    policies over ~20 years of LIQUID_50 (145 non-overlapping signals, Indian
-    delivery costs on every arm):
+    policies over ~20 years, Indian delivery costs on every arm. Headline figures
+    are the WIDE run (300 nifty500 names, **742 non-overlapping signals**, above
+    the desk's 200 floor):
 
-        NO STOP              +1.28%   stopped  0.0%   win 60.7%
-        session low x0.995   +0.22%   stopped 65.9%   win 32.6%   <- this one
-        1-ATR                +0.21%   stopped 51.7%   win 42.8%
-        2-ATR                +1.39%   stopped 17.2%   win 60.0%
+        NO STOP              +0.47%   stopped  0.0%   win 55.5%
+        session low x0.995   -0.15%   stopped 68.1%   win 30.1%   <- this one
+        1-ATR                +0.07%   stopped 52.7%   win 40.8%
+        2-ATR                +0.33%   stopped 24.7%   win 53.1%
 
-    Paired on the same signals, **this stop costs -1.44pp versus no stop at all
-    (p=0.0009)**; 2-ATR costs nothing measurable (+0.11pp, p=0.64) because it is
-    only touched 17.2% of the time. The tight stop fires on two trades in three
-    and halves the win rate — it cuts mean-reversion trades exactly where the
-    reversion was about to happen, which is what Connors' sources claimed and
-    what this desk had adopted the opposite of by inheritance.
+    Paired on the same signals, **this stop costs -0.64pp versus no stop at all
+    (p=0.0086)**. 1-ATR costs -0.40pp (p=0.082) and 2-ATR -0.14pp (p=0.370) —
+    neither significant, and 2-ATR is nearly free because it is only touched 24.7%
+    of the time. The tight stop fires on more than two trades in three and cuts
+    the win rate from 55.5% to 30.1%: it closes mean-reversion trades exactly
+    where the reversion was about to happen, which is what Connors' sources
+    claimed and what this desk had adopted the opposite of by inheritance.
 
-    **It is deliberately UNCHANGED.** 145 signals is below the desk's 200-signal
-    floor, `time_stop` already bounds the trade in time, and removing a price stop
-    trades a bounded loss for a gap-exposed one — which this study did not
-    measure. The number is recorded here so the next reader chooses on purpose.
-    2-ATR is the candidate a follow-up should test as the default.
+    **The narrow basket overstated it, and that is worth knowing.** On LIQUID_50
+    alone (145 signals) the same test read -1.44pp at p=0.0009 — more than double
+    the effect. The DIRECTION replicated on 5x the sample and the policy ordering
+    is identical; the SIZE did not. Cite -0.64pp.
+
+    **It is deliberately UNCHANGED.** `time_stop` already bounds the trade in
+    time, and removing a price stop trades a bounded loss for a gap-exposed one —
+    which this study did not measure. The number is recorded here so the next
+    reader chooses on purpose. 2-ATR is the candidate a follow-up should test as
+    the default: it keeps a bound and costs nothing measurable.
 
     Unlike the trend-following scanners, ``vol_x50d`` is intentionally ignored:
     mean-reversion entries often happen on low volume (exhaustion, not expansion).
@@ -4770,9 +4777,9 @@ def scan_mean_reversion(df: pd.DataFrame,
         f"Trade plan — entry {entry:.0f} · stop {stop:.0f} · T1 {target1:.0f} (SMA20) "
         f"· T2 {target2:.0f} · R:R to T1 = {rr1}",
         "⚠ The stop is MEASURED and it costs return (B-8): this session-low stop "
-        "fires on 66% of trades and gave -1.44pp vs no stop at all (p=0.0009, 145 "
-        "signals, 20y). A 2-ATR stop cost nothing measurable. Kept unchanged — it "
-        "bounds the loss, which the study did not score.",
+        "fires on 68% of trades and gave -0.64pp vs no stop at all (p=0.009, 742 "
+        "signals, 300 names, 20y). A 2-ATR stop cost nothing measurable. Kept "
+        "unchanged — it bounds the loss, which the study did not score.",
     ]
 
     return {
