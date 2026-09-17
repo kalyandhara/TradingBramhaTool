@@ -13633,43 +13633,25 @@ if current_page == "Strategy Hub":
     # ── 1. Chart Patterns ─────────────────────────────────────────────────────
     with st.container(border=True):
         st.markdown("#### Chart Patterns  ·  Major Stocks")
-        st.caption("Past detections from StockEdge (EOD, AI + Human hybrid). "
-                   "Outcome = LTP vs published price point.")
+        st.caption(
+            "**Detections are a fixed sample** captured from StockEdge in August "
+            "2026 (EOD, AI + Human hybrid) \u2014 a record of what a third party "
+            "called and when, not a live feed. **The prices are live:** LTP is "
+            "fetched from the same batched source the rest of the desk uses, and "
+            "Move % is derived from it rather than stored (PR-1)."
+        )
 
         import pandas as pd
+        import pattern_reports as _pr
 
-        _PATTERNS = [
-            # (Stock, Pattern, Bias, Published, Pub Price, LTP, Move%)
-            ("CE Info Systems",      "Double Top",          "Bearish",  "04 Aug", 1231.95, 1013.30, -17.7),
-            ("Zee Entertainment",    "Double Top",          "Bearish",  "03 Aug",  118.35,   91.56, -22.6),
-            ("Supreme Petrochem",    "Double Top",          "Bearish",  "29 Jul",  788.00,  685.25, -13.0),
-            ("Gallantt Ispat",       "Bearish Flag",        "Bearish",  "21 Jul",  618.50,  593.50,  -4.0),
-            ("Hero MotoCorp",        "Falling Channel",     "Bearish",  "20 Jul", 4942.38, 5865.50, +18.7),
-            ("Mahindra & Mahindra",  "Falling Channel",     "Bearish",  "21 Jul", 3172.73, 3460.10,  +9.1),
-            ("PNB Housing Finance",  "Rising Wedge",        "Bearish",  "23 Jul", 1073.38, 1142.10,  +6.4),
-            ("Pine Labs",            "Double Top",          "Bearish",  "16 Jul",  164.40,  167.58,  +1.9),
-            ("Muthoot Finance",      "Falling Wedge",       "Bearish",  "21 Jul", 3068.97, 2915.90,  -5.0),
-            ("Jubilant FoodWorks",   "Double Bottom",       "Bullish",  "27 Jul",  408.55,  488.20, +19.5),
-            ("Sapphire Foods",       "Sym. Triangle",       "Bullish",  "27 Jul",  182.94,  236.02, +29.0),
-            ("LTM Ltd.",             "Sym. Triangle",       "Bullish",  "28 Jul", 4192.58, 4850.00, +15.7),
-            ("Piramal Pharma",       "Sym. Triangle",       "Bullish",  "17 Jul",  177.18,  214.19, +20.9),
-            ("RR Kabel",             "Sym. Triangle",       "Bullish",  "22 Jul", 2386.29, 2812.80, +17.9),
-            ("Clean Science & Tech", "Sym. Triangle",       "Bullish",  "20 Jul",  756.03,  810.00,  +7.1),
-            ("Hyundai Motor India",  "Ascending Triangle",  "Bullish",  "31 Jul", 2064.80, 2200.00,  +6.5),
-            ("CRISIL",               "Ascending Triangle",  "Bullish",  "21 Jul", 4250.00, 4480.80,  +5.4),
-            ("Blue Star",            "Sym. Triangle",       "Neutral",  "03 Aug",    None,    None, -13.0),
-            ("Zee Entertainment",    "Sym. Triangle",       "Neutral",  "27 Jul",    None,    None, -15.3),
-            ("Supreme Petrochem",    "Falling Channel",     "Bearish",  "27 Jul",    None,    None,  -9.0),
-        ]
-
-        _pat_df = pd.DataFrame(_PATTERNS, columns=[
-            "Stock", "Pattern", "Bias", "Published", "Pub Price ₹", "LTP ₹", "Move %",
-        ])
-
-        def _bias_badge(b: str) -> str:
-            colors = {"Bullish": "#2e7d32", "Bearish": "#c62828", "Neutral": "#5c6bc0"}
-            return f'<span style="background:{colors.get(b,"#666")};color:#fff;' \
-                   f'border-radius:4px;padding:1px 6px;font-size:11px;">{b}</span>'
+        _pat_px = _pr.cached_prices()
+        _pat_df = pd.DataFrame(_pr.build_rows(_pat_px), columns=list(_pr.COLUMNS))
+        # A None in an object-dtype column renders as the literal string "None".
+        # Coercing makes it NaN, which renders as an EMPTY cell -- an absent
+        # reading must look absent, not like a value. Same fix the Watchlist
+        # applies to its own numeric columns.
+        for _c in ("Pub Price ₹", "LTP ₹", "Move %"):
+            _pat_df[_c] = pd.to_numeric(_pat_df[_c], errors="coerce")
 
         _pat_filter = st.radio(
             "Filter", ["All", "Bullish", "Bearish", "Neutral"],
@@ -13682,25 +13664,41 @@ if current_page == "Strategy Hub":
             use_container_width=True,
             hide_index=True,
             column_config={
+                # The symbol is shown, not hidden: it is what the price was
+                # fetched against, so a reader can check the name-to-ticker
+                # mapping rather than trust it.
+                "Symbol":      st.column_config.TextColumn("Symbol", width="small"),
                 "Stock":       st.column_config.TextColumn("Stock", width="medium"),
                 "Pattern":     st.column_config.TextColumn("Pattern", width="medium"),
                 "Published":   st.column_config.TextColumn("Published", width="small"),
-                # "Pub Price ₹" stays inline — a singleton, used only here.
-                # "LTP ₹" is the shared `close`, and adopting it drops the ₹
-                # glyph from the cells: the format is part of the definition and
-                # every other table on the desk prints LTP without it.
+                # "Pub Price ₹" stays inline — a singleton, used only here. Blank
+                # means the source published no price point, so the row carries a
+                # detection but cannot carry a move.
+                # "Pub Price ₹" stays inline -- a singleton, used only here.
+                #
+                # The three price-less rows render a grey "None" in these
+                # columns, not an empty cell. That is STREAMLIT's missing-value
+                # placeholder, not our data: the values are verified NaN
+                # (float64) before they reach the grid, and dropping the printf
+                # format does not change it. Tested both ways on the running
+                # page rather than assumed. The caption under the table names
+                # the three rows and why they cannot carry a move, which is
+                # where the explanation belongs; the same placeholder shows up
+                # on the Watchlist's SVP column and is tracked separately.
                 "Pub Price ₹": st.column_config.NumberColumn("Pub Price ₹", format="₹%.2f"),
                 **_cols_mod().configure("LTP ₹"),
-                "Move %":      st.column_config.NumberColumn("Move %", format="%.1f%%"),
+                "Move %":      st.column_config.NumberColumn("Move %", format="%+.1f%%"),
             },
         )
-        _total = len(_pat_view)
-        _bull_pats = (_pat_view["Move %"] > 0).sum()
-        _bear_pats = (_pat_view["Move %"] < 0).sum()
+        _sb = _pr.scoreboard(_pat_view.to_dict("records"))
+        _unpriced = len(_pr.symbols()) - len(_pat_px)
         st.caption(
-            f"{_total} pattern(s) shown · "
-            f"**{_bull_pats}** above publish price · **{_bear_pats}** below · "
-            f"Major Stocks filter · activeness-status=200"
+            f"**{_sb['above']}** above publish price · **{_sb['below']}** below · "
+            f"scored on **{_sb['scored']} of {_sb['total']}** shown"
+            + (f" \u2014 {_sb['total'] - _sb['scored']} have no publish price, so they "
+               f"carry a detection but no move" if _sb['scored'] < _sb['total'] else "")
+            + (f" · {_unpriced} symbol(s) could not be priced" if _unpriced else "")
+            + " · Major Stocks filter · activeness-status=200"
         )
 
     # ── 2. Trading Strategies ─────────────────────────────────────────────────

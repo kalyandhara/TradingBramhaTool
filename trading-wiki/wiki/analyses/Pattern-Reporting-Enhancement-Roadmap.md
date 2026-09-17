@@ -113,12 +113,65 @@ that fixes something currently misleading.**
 
 | # | Rung | Why it is at this rank | Size |
 |---|---|---|---|
-| **PR-1** | **Strategy Hub's pattern table must stop presenting frozen numbers as live.** Either recompute LTP/Move from the price cache, or label the block as a fixed historical sample and drop the computed scoreboard | the only item where the surface currently misleads | small |
+| ~~**PR-1**~~ | ~~Strategy Hub's pattern table presents frozen numbers as live~~ — **DONE 2026-09-17**: LTP recomputed from the batched price source, Move % derived, scoreboard reports its denominator | one row was counted on the wrong side of its own scoreboard | done |
+| **PR-1b** | **"Trading Strategies · Live Counts" is also frozen** — `_STRATEGIES` is a literal, its caption says "as of 11 Aug 2026", and "Net: 20 bullish vs 2 bearish" is computed over it, under a heading that says **Live** | same defect, larger claim; needs a source decision | owner |
 | **PR-2** | **Trade-plan coverage as a first-class, visible metric.** Show which scanners carry `entry`/`stop`/`target`; treat a plan as part of a scanner's definition | unlocks R-based scoring for 24 scanners; absence currently invisible | medium |
 | **PR-3** | **The Flag & Pole detector, both directions** ([[analyses/Open-Backlog#B-92]]) — emitting the card's three levels | closes a named absence; the bear half is total | medium |
 | **PR-4** | **A flag/pole chart overlay**, after PR-3 | `falling_wedge` / `vcp` / `roundbottom` set the precedent; no point drawing before detecting | small |
 
-### PR-1, stated precisely
+### PR-1 — DONE 2026-09-17, by the second route
+
+**The prices are recomputed.** `tools/pattern_reports.py` owns the roster; the
+dashboard block is now a thin call. The detections stay frozen — pattern, bias,
+publish date and publish price are a record of what a third party called and
+when, and rewriting those would invent detections this desk never made. **Only
+LTP moves, and Move % is DERIVED from it rather than stored**, so the printed
+move and the printed prices can never disagree again.
+
+> [!key-insight] It was not merely stale — one row was on the wrong side of its own scoreboard
+> | | publish | frozen LTP | live LTP |
+> |---|---|---|---|
+> | **SPLPETRO** | 788.00 | 685.25 (**−13.0%**) | 807.00 (**+2.4%**) |
+> | MAPMYINDIA | 1231.95 | 1013.30 (−17.7%) | 889.80 (−27.8%) |
+> | ZEEL | 118.35 | 91.56 (−22.6%) | 78.31 (−33.8%) |
+>
+> Supreme Petrochem was being counted as **below** its publish price while it was
+> trading **above** it. The frozen footer read **12 above / 8 below over 20**; the
+> live one reads **12 above / 5 below, scored on 17 of 20** — and it now says the
+> denominator, because three detections have no publish price and therefore
+> cannot carry a move at all.
+
+**Three things this pass got right only because they were checked on the running
+page, not reasoned about:**
+
+1. **The symbol is pinned per row, never fuzzy-matched.** The closest name matches
+   on this very roster include **INFY for "CE Info Systems"** (correct:
+   MAPMYINDIA) and **M&MFIN for "Mahindra & Mahindra"**. A mis-resolved symbol
+   shows another company's price under this company's name — worse than the
+   frozen number it replaces. The symbol is now a visible column so a reader can
+   check the mapping rather than trust it.
+2. **A scoreboard bug the unit tests could not see.** `scoreboard` filtered on
+   `is not None`, but a `None` becomes a float **NaN** on the way through a
+   DataFrame, and NaN *is not* None — so the price-less rows counted as SCORED
+   while falling out of both arms. The live footer read *"12 above, 5 below,
+   scored on 20 of 20"*. Fixed, and the regression test now goes through a
+   DataFrame because that is what the dashboard actually does.
+3. **The three price-less rows render a grey "None", not an empty cell** — and
+   that is Streamlit's missing-value placeholder, not our data. The values are
+   verified NaN before they reach the grid, and removing the printf format does
+   not change it; both were tested on the running page. The caption names those
+   rows and why they cannot carry a move. The same placeholder appears on the
+   Watchlist's SVP column and is tracked separately.
+
+**Still frozen, and now the larger one:** the block immediately below is titled
+**"Trading Strategies · Live Counts"** and its caption says *"Counts as of 11 Aug
+2026"*. `_STRATEGIES` is another hardcoded literal, and the *"Net: 20 bullish
+signals vs 2 bearish"* line is computed over those frozen counts — the identical
+defect PR-1 just fixed, under a heading that asserts **"Live"**. Raised as
+**PR-1b**; it needs a source decision first, since there is no obvious live feed
+for a third party's strategy-scan counts.
+
+### PR-1's original statement, kept for the record
 
 The honest minimum is **one caption change and one deletion**: say the block is a
 **fixed sample captured in August**, and remove the "N above / M below" footer,
