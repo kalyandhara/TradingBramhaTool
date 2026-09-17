@@ -115,6 +115,8 @@ none of them is.
 | ~~**B-42r**~~ | ~~`pivot_len` 5 vs 15~~ — **MEASURED 2026-09-17: the two settings agree on `state` only 29.6%** of the time (199 names), and 17.6% read DOWNTREND in the scanners against UPTREND on the chart. **Promoted to an OWNER decision** — see below | measured; the decision is yours |
 | **B-21b** | every floor set on 2026-08-07 came from **one session's cross-section** | the floors are labelled in code and the history to re-measure them on is cached |
 | **B-59r2** | PSAR's **unique** flips (68.9% uncovered at ±3) — the edge test the overlap check left owed | `psar_stai_edge.py` already scores PSAR-only cells |
+| **B-89** | **`mabias`** — a 9/20 EMA-cross verdict ladder shipping LONG/SHORT badges on the chart, **never scored** | the state-scoring harness exists; [[analyses/SVP-Structure-Signal-Pre-Registration]] is the template |
+| **B-90** | the **VWAP+EMA agreement state** from the owner's card | `intraday_store` already holds 15m bars, 85 sessions, 6 names — no new data |
 
 ### BUILD — scoped, nothing to decide
 
@@ -127,6 +129,7 @@ none of them is.
 | **B-17** | OBV has no wiki page, and now ships on **two** surfaces | small |
 | **B-87r** | the monolith **extraction** the ratchet is holding the line for | ongoing, one page per session |
 | **B-37** | volume share-card | small |
+| **B-91** | VWAP's zero-point cases say **why** — no volume (index spot) vs undefined on daily | small |
 
 ### OWNER — a judgement, not a task
 
@@ -6597,6 +6600,122 @@ left), B-34r2, B-32r/[[#B-21b]]/[[#B-26]], B-35/B-31/B-30 (parked),
 [[#B-46]]/[[#B-47]]/[[#B-48]], B-87's extraction, and the four August P2 items
 B-4/12, B-6, B-8, B-9 — all of which need either an owner decision or a
 measurement, not a session.
+
+
+---
+
+## VWAP + EMA — validated against a Spider Software infographic, 2026-09-17
+
+Owner brought a "Trading with VWAP & EMA" card: **SHORT when price closes below
+both VWAP and EMA, exit when it closes above both**, plus the note *"for indices
+VWAP is applicable only on futures charts, not spot"*. Validated against what
+actually ships. Three new items fall out: **B-89, B-90, B-91.**
+
+### What is already here, and in one respect it is better than the card
+
+| The card says | The desk has | Verdict |
+|---|---|---|
+| VWAP on the chart | `vwap` — **session VWAP, intraday-only** | **present, and stricter** |
+| EMA on the chart | `ema9 / ema20 / ema50 / ema200` | present |
+| "indices: futures only, not spot" | a **volume guard**, not a symbol list | **present, better founded** |
+| EMA cross BUY/SELL | `mabias` — 9/20 arrows, 50/200 GC/DC, verdict card | **present, and richer** |
+| price below BOTH -> SHORT | — | **ABSENT -> B-90** |
+
+> [!key-insight] The index caveat is handled by measuring the data, not by naming the instrument
+> The card states a rule about *instruments* ("indices are futures-only"). The
+> desk enforces the underlying *fact*: `vwapSeries` accumulates only where volume
+> exists (`if (cumVol > 0)`), so a feed with no traded volume gets no line.
+>
+> **Verified both ends, 2026-09-17.** `^NSEI` carries **zero volume on all 2,125
+> stored 15-minute bars**; RELIANCE.NS carries real volume on 2,119 of 2,121. And
+> driven directly in the browser on synthetic bars: `vwapSeries` returns **25
+> points with volume, 0 points with zero volume, and 0 points on `1d`**.
+>
+> That is the card's caveat, generalised — it holds for any volume-less feed, not
+> just Indian index spot, and it cannot go stale when an exchange changes what it
+> publishes. The in-code comment records that an earlier version fell back to
+> `b.close`, which drew **VWAP as the price line** on a volume-less feed: "the
+> most convincing way possible to be wrong."
+>
+> The daily guard is stronger than anything on the card and is measured: on daily
+> RELIANCE bars session VWAP equalled `(H+L+C)/3` on **24 of 24** — a typical-price
+> line wearing a VWAP label — so daily draws nothing and Anchored VWAP covers it.
+
+### The card's actual rule is NOT implemented, and the near neighbours point down
+
+The card is a **trend-following state agreement**: price on the same side of both
+lines. The two VWAP scanners are neither.
+
+* `scan_vwap_reclaim` (B-40) — uses **rolling n-day** VWAP plus `close > EMA-50`
+  as a trend gate, which is the closest thing here. But it is an **event**
+  (reclaim / pullback), **long-only**, and its VWAP is not the session VWAP the
+  card draws.
+* `scan_vwap_mean_reversion` (B-40m) — two-sided, but the **opposite thesis**:
+  it trades the stretch *away* from the mean snapping back, where the card trades
+  continuation away from it.
+
+**The prior is not neutral, and it is already on this page.** The nearest measured
+relatives both failed:
+
+| Rule | Verdict |
+|---|---|
+| `evmacd` — EVWMA/**VWAP** MACD cross | **NEGATIVE**: no edge; stop-and-reverse **-29%** against buy&hold **+827%** |
+| ADX/DI bare cross | **the bare DI cross LOSES** (-0.93% @10d, p=0.02) |
+| all 41 scanners, walk-forward | **0 of 41 stable** after costs (B-19) |
+
+Two lagging averages crossed and read as a state is the same shape of construct.
+That is a reason to **pre-register before measuring**, not a reason to skip it.
+
+**And the card is a SHORT rule.** This repo already records that shorting NSE cash
+for a swing hold is not available to most of its users, so even a working version
+is an **exit and avoid** signal for a cash book, not an entry. Scope it that way.
+
+### B-89 · `mabias` ships an EMA-cross verdict on the chart and nothing has scored it — **P1**
+
+The card asks whether EMA-cross BUY/SELL is adopted. **It is** — and it is
+considerably more careful than the card: 9/20 cross arrows, 50/200 golden/death
+markers, volume-grading of the trigger bar, a whipsaw veto, a braided-MA chop
+gate, an extension-distrust tier, and a five-way verdict ladder
+(`LONG / SHORT / CHOP / COUNTER-TREND / MIXED`).
+
+**It has never been measured.** No entry in `named_studies`, no study file. It is
+chart-only — `mabias` appears in no module outside `chart_dashboard.html`, casts
+no confluence vote and is not in `SCANNERS` — so the exposure is bounded. But a
+**verdict badge that says LONG or SHORT on the screen is a recommendation**, and
+this desk closed exactly that class of debt for [[#B-56]] on 2026-09-17.
+
+**First step:** pre-register, then score the `verdict` as a STATE with a rotation
+p-value ([[analyses/SVP-Structure-Signal-Pre-Registration]] is the template —
+same shape, same autocorrelation problem). The ladder makes this cheap and
+informative: `CHOP` and `COUNTER-TREND` are falsifiable on their own, and if the
+chop gates carry no information the ladder collapses to a bare 9/20 cross, which
+the ADX/DI result already suggests is a loser.
+
+### B-90 · The VWAP+EMA agreement state — measure BEFORE building — **P2**
+
+The card's rule, stated so it can be argued with: **price closes on the same side
+of session VWAP and the EMA**. Intraday only, because that is where session VWAP
+is defined — and `intraday_store` already holds 15m bars over ~85 sessions for six
+names, so this needs **no new data**, the same discovery that unblocked [[#B-9]].
+
+**Do not build a scanner first.** The honest order is the one [[#B-59]] set: score
+the state, with the skeptical prior above written down, and build only on a pass.
+Baseline matters more than hit rate here — "price below both averages" selects
+downtrends, so it will look right in any falling window without carrying
+information. **Frame it as an EXIT/AVOID rule for a cash book**, not an entry.
+
+### B-91 · VWAP draws nothing on index spot and does not say why — **P3, small**
+
+The behaviour is correct and the label is half-right. `VWAP (session · intraday
+only)` warns about the **timeframe** and says nothing about **volume**, so on
+`^NSEI` intraday a user turns VWAP on and gets **silence** — no line, no reason.
+Absent renders absent, which is the desk's rule, but this absence has a cause the
+reader cannot see and the card is evidence that people expect the line there.
+
+**First step:** when a selected VWAP yields zero points, say which guard fired —
+"no traded volume on this feed (index spot — use the futures chart)" or "session
+VWAP is undefined on daily bars — use Anchored VWAP". Two strings, one `if`.
+Same class as the [[#B-79]] stale-phrase work.
 
 
 ## Outcome (fill in later)
