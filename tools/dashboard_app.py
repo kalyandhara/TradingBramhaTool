@@ -5057,6 +5057,15 @@ def _hub_price_button(symbols, key: str, label: str) -> None:
         st.rerun()
 
 
+# B-75's four helpers live in `profit_walk_ui` rather than here. They are new
+# UI code, and the B-87 ratchet's rule is that new UI code does not land in this
+# file. `_pw()` is the whole of its footprint here: the call sites go straight
+# through it, so mounting the column costs this file one function, not five.
+def _pw():
+    import profit_walk_ui as _pwu
+    return _pwu
+
+
 def _wl_rs_mom(df):
     """The RAW weighted trailing return behind `rs_walk`'s percentile.
 
@@ -6999,6 +7008,7 @@ if current_page == "Watchlist":
         # autofit=True: widths measured from the values in THIS frame rather
         # than the registry's general-case small/medium/large. At ~25 columns
         # the three guesses cost more screen than they save.
+        _wl_df = _pw().attach(_wl_df, "Symbol", "wl")
         _wl_cfg = _cols.configure_df(
             _wl_df, autofit=True,
             overrides={"close": {"label": f"LTP ({date.today():%d %b})"}})
@@ -7019,6 +7029,8 @@ if current_page == "Watchlist":
         # destroys what you wrote about it, which is the behaviour the old
         # membership-scoped column had.
         _earnings_fill_button(_wl_df["Symbol"], "wl")
+        _pw().fill_button(_wl_df["Symbol"], "wl", "Watchlist",
+                          fetch=cached_fundamentals_deep)
         _wl_edited = _notes_table(_wl_df, key="wl_notes_editor",
                                   symbol_col="Symbol", column_config=_wl_cfg,
                                   select_col="✕")
@@ -8884,8 +8896,11 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                 # UI-2: notes are editable here and stored per SYMBOL, so a note
                 # written on the Hub is the same note the Watchlist shows.
                 _sum_df = _hub_enrich(_sum_df, "Top Symbol", "summary")
+                _sum_df = _pw().attach(_sum_df, "Top Symbol", "summary")
                 _hub_price_button(_sum_df["Top Symbol"], "summary", "Summary")
                 _earnings_fill_button(_sum_df["Top Symbol"], "hub_summary")
+                _pw().fill_button(_sum_df["Top Symbol"], "summary", "Summary",
+                                  fetch=cached_fundamentals_deep)
                 _notes_table(
                     _sum_df, key="hub_summary_notes", symbol_col="Top Symbol",
                     column_config={**_chart_family_colcfg(),
@@ -9014,8 +9029,11 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                     _conf_df = _conf_df.drop(columns=["rs_walk"])
                 _conf_df = _with_chart_family(_conf_df, "Symbol")
                 _conf_df = _hub_enrich(_conf_df, "Symbol", "confluence")
+                _conf_df = _pw().attach(_conf_df, "Symbol", "confluence")
                 _hub_price_button(_conf_df["Symbol"], "confluence", "Confluence")
                 _earnings_fill_button(_conf_df["Symbol"], "hub_conf")
+                _pw().fill_button(_conf_df["Symbol"], "confluence", "Confluence",
+                                  fetch=cached_fundamentals_deep)
                 _conf_colcfg = {
                     **_chart_family_colcfg(),
                     **_cols_mod().configure_df(_conf_df, autofit=True),

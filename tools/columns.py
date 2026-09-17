@@ -255,6 +255,20 @@ COLUMNS: dict[str, ColSpec] = {
         "one population over time. '?' = the name lacked history that far back, "
         "which is not the same as ranking weak.",
         "text", width="medium", tone="rank"),
+    "profit_qoq_walk": ColSpec(
+        "Profit walk (QoQ)",
+        "Net profit change from one quarter to the NEXT one, per cent, oldest "
+        "first — 4-6 steps. SEQUENTIAL, not year-on-year, and that is a "
+        "limitation not a preference: yfinance serves 5-7 quarterly columns and "
+        "only 1-2 of them have a year-ago match, so a YoY walk would be one or "
+        "two points. Read it as a SHAPE — decaying vs turning up — never as a "
+        "growth rate: a festive Q3 or a year-end Q4 push shows up here as "
+        "growth, because sequential comparison cannot tell seasonality from it. "
+        "'?' = the frame skipped a quarter, so that step is not bridged. "
+        "'L' = the earlier quarter was a loss, and a percentage off a loss base "
+        "reads a shrinking loss as growth. Blank = no quarterly history. "
+        "Nothing here votes or scores.",
+        "text", width="medium"),
     # ── session volume profile (read-only, from the JS screen file) ───────────
     # STRUCTURE ONLY. The SVP composite score and its BUY/SELL direction were
     # measured on 2026-08-29 as a clean negative (corr -0.041, deciles

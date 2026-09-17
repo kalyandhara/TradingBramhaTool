@@ -84,7 +84,25 @@ and the four August P2 items B-4/12, B-6, B-8, B-9 — schedule one or mark defe
 This session: B-77, B-81, B-79. This week: B-78, B-80, B-83, B-82. Pending owner:
 B-84, B-73 cadence, the August P2 four.
 
-## Outcome (fill in later)
+## Outcome — 2026-09-16
+
+**All twelve items raised here are closed** (B-77…B-88), plus B-75, the one
+carried-forward item that was ready rather than blocked. Three of the twelve did
+not close the way they were written, and those are the useful ones:
+
+* **B-84's premise was wrong.** There are three apps, not two, and `start.bat`
+  was never pointing at the wrong one. The retire candidate is a different file
+  and remains the owner's call.
+* **B-87 became a ratchet, not an extraction** — and it earned its keep
+  immediately: the very next change (B-75) tripped it, and the code moved out of
+  the monolith instead of into it.
+* **B-82 found its own clock had stopped**, which was a bigger finding than the
+  encoding crash it was raised for.
+
+**What is left is not a session's work.** Everything under "carried forward"
+needs either an owner decision (B-73's cadence, the Dash app's retirement, the
+four August P2 items) or a measurement (B-56's pre-registered test, B-87's
+extraction). None of it is blocked on code.
 
 ## Related Pages
 

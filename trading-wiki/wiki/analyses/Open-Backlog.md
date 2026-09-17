@@ -993,7 +993,7 @@ one phase.
 **Not ranked yet.** The 2026-09-11 refinement pass predates it; it takes its place
 in the next pass's ordering.
 
-## B-75 · A quarterly profit-growth walk on the tables — **RAISED 2026-09-12, SCOPED, NOT STARTED**
+## B-75 · A quarterly profit-growth walk on the tables — **SCOPED 2026-09-12, BUILT 2026-09-16** *(outcome below)*
 
 Owner's ask: a **Q-on-Q profit growth %** walk column, in the shape of the RS walk
 ([[#B-63b]]) — a per-quarter sequence read oldest → newest, so a name whose profit
@@ -6276,6 +6276,63 @@ sector tables, 7 orbit renders and 1 export CSV all still found, a probe file
 round-tripped through `output/`, and the dashboard boots clean with no errors.
 16 tests, including one that fails if any writer starts targeting the root again.
 Suite 597 → 619.
+
+
+---
+
+## B-75 · The quarterly profit walk — **BUILT 2026-09-16**
+
+The last of the twelve-item design-review batch that did not need an owner
+decision. Scoped on 2026-09-12 with the count already taken, so nothing about the
+design changed on contact: **yfinance serves 5-7 quarterly columns, of which only
+1-2 carry a year-ago match.** A YoY walk is one or two points and is not a
+sequence, so the sequential walk is the only walk this data supports.
+
+That collides with a decision already in the code — `_quarterly_history` uses YoY
+*on purpose*, saying "sequential comparison would read seasonality as growth" —
+and the collision is **not resolved, it is labelled**. The column is published as
+a SHAPE, the tooltip says in as many words that a festive Q3 shows up here as
+growth, and nothing about it votes, scores or enters a confluence weight. No
+backtest is owed because no claim is made.
+
+### The three ways this column could have lied
+
+| | What a naive version does | What it does |
+|---|---|---|
+| **Gapped quarter** | bridges Sep→Mar and prints it as one quarter | `?`, the same convention `rs_walk.format_walk` already uses |
+| **Loss base** | −100 → −10 computes as **+90%**, reads as growth | `L` — the denominator was a loss, which is the fact worth carrying |
+| **Missing figure** | prints `?`, which the reader takes for a calendar hole | the step is dropped; an absent row is not a gapped quarter |
+
+Each is a test. The gap case is not hypothetical: **RELIANCE's frame is missing
+2025-09-30**, and the live column reads `+39 → ? → -9 → +23` rather than bridging
+it. On the running Watchlist, PINELABS reads `L → ? → +40 → -67` and MOBIKWIK
+`L → L → +8 → +74` — both of which a percentage-off-a-loss version would have
+printed as growth.
+
+### Behind a button, and not in the monolith
+
+The walk reads `derive_fundamentals` — four yfinance calls per symbol, on tables
+that carry eighty names — so it follows the pattern the pledge and price columns
+already set: a button fills a per-table session cache, and **a table that was
+never filled does not get the column at all.** A column of blanks would read as
+"no quarterly history for any of these", which is false.
+
+The four helpers were written into `dashboard_app.py` first, and **[[#B-87]]'s
+ratchet failed the build** — 13,930 lines against its 13,900, 323 module
+statements against 320. That is the ratchet working as designed on the first
+change after it landed. They moved to `tools/profit_walk_ui.py`, which left one
+import shim in the monolith and made the module testable without Streamlit.
+
+Mounted on the Watchlist and both Scanner Hub tables. Engine in
+`row_metrics.profit_qoq_steps` / `format_profit_walk`, registry entry in
+`columns.py`, 12 tests, suite 619 → 631, verified on the running page.
+
+**Carried forward from the design review, still open:** [[#B-73]] (needs the
+cadence decision), B-76 residuals, [[#B-56]] (the only built-but-unscored signal
+left), B-34r2, B-32r/[[#B-21b]]/[[#B-26]], B-35/B-31/B-30 (parked),
+[[#B-46]]/[[#B-47]]/[[#B-48]], B-87's extraction, and the four August P2 items
+B-4/12, B-6, B-8, B-9 — all of which need either an owner decision or a
+measurement, not a session.
 
 
 ## Outcome (fill in later)
