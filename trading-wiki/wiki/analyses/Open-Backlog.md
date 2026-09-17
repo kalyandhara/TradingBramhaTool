@@ -112,7 +112,7 @@ none of them is.
 | ~~**B-56**~~ | ~~the SVP **structure** BUY/SELL/HOLD signal~~ — **MEASURED 2026-09-17 → INVERTED** (spread −1.77%, p_rot 0.041, SELL beat BUY 8 of 8). Mirror deliberately not shipped; stays a bystander. [[analyses/SVP-Structure-Signal-Pre-Registration]] | done — the prior was right |
 | ~~**B-8**~~ | ~~mean-reversion **stops**~~ — **MEASURED 2026-09-17: CONNORS WAS RIGHT, for tight stops.** The shipped session-low stop costs **−1.44pp** vs no stop (p=0.0009, n=145, 20y); 2-ATR costs nothing measurable because it is only touched 17.2% of the time. Stop deliberately unchanged; the number is now in the scanner's own plan output | done |
 | ~~**B-9**~~ | ~~the Volume-Profile **80% rule**~~ — **MEASURED 2026-09-17: FALSIFIED.** 45.5% (95% CI 37.3–54.0, n=134) against a claimed 80%. Lift over base −4.1pp, p=0.422, explicitly NOT claimed | done — and it was never blocked on data |
-| **B-42r** | `pivot_len` 5 vs 15 in the market-structure engine — recorded as "to be settled on data" | both settings run today; it is a sweep |
+| ~~**B-42r**~~ | ~~`pivot_len` 5 vs 15~~ — **MEASURED 2026-09-17: the two settings agree on `state` only 29.6%** of the time (199 names), and 17.6% read DOWNTREND in the scanners against UPTREND on the chart. **Promoted to an OWNER decision** — see below | measured; the decision is yours |
 | **B-21b** | every floor set on 2026-08-07 came from **one session's cross-section** | the floors are labelled in code and the history to re-measure them on is cached |
 | **B-59r2** | PSAR's **unique** flips (68.9% uncovered at ±3) — the edge test the overlap check left owed | `psar_stai_edge.py` already scores PSAR-only cells |
 
@@ -137,6 +137,7 @@ none of them is.
 | **B-26** | `MIN_PRICE_PCT` is **0.5 against a 0.90 median** — far more permissive than its own comment claims. Deliberately unchanged, because moving it re-grades the whole universe. Decide it on purpose rather than by inheritance |
 | **B-34r2** | whether the red-flag veto is ON by default (it vetoes **100 of 249** on Smallcap-250) |
 | **B-84r** | retire or document the third app — the candidate is named in [[#B-84]] |
+| **B-42r** | which `pivot_len` IS "structure" — 5 (scanners) or 15 (chart). Measured 2026-09-17 at **29.6% agreement on `state`**, with 17.6% of names reading *opposite* directions. Cannot be unified quietly: it re-grades most names |
 | **B-30 / B-31 / B-35** | parked by choice; unpark or drop |
 | **P2 four** | B-4/12, B-6, B-8, B-9 were "schedule one or mark deferred" as of the design review. **B-8 and B-9 are now scheduled — they are in MEASURABLE NOW above.** |
 
@@ -4722,10 +4723,43 @@ lesson):
    CHOCH *down* the previous session. That disagreement is the earliest honest
    warning structure is turning, and it is the most useful field on the object.
 
-**Residual → B-42r:** the `pivot_len` split (5 in the scanners, 15 on the chart
-and in the shared read) is untouched and documented in-module. "Structure" is
-still coarser on the chart than in the scanners. Settle it on data — the same
-`--wf` harness B-19 used — not by inheritance. Also unbuilt: consuming the read
+**Residual → B-42r — MEASURED 2026-09-17, and it is worse than "coarser".**
+
+> [!warning] The chart and the scanners agree on the headline state 29.6% of the time
+> `pivot_len_agreement.py`, 199 nifty500 names, both settings on the same frame:
+>
+> | field | agree |
+> |---|---|
+> | **`state`** (the word a reader sees) | **29.6%** |
+> | `agreement` (is structure turning) | 35.2% |
+> | `zone` (premium/discount) | 57.3% |
+> | `trend_from_breaks` | 68.3% |
+> | median \|zone_pct\| gap | **42.5 pp** |
+>
+> Most common disagreement: **DOWNTREND in the scanners against UPTREND on the
+> chart, on 17.6% of names.** Not coarser — **opposite**. A reader comparing the
+> chart to a scanner hit is comparing two definitions under one word.
+
+**This was measured as an AGREEMENT test, not an edge sweep, on purpose.** The
+original note said to settle it with the `--wf` harness. That would have been the
+wrong first move twice over: **B-19 already measured these scanners at 0 of 41
+stable after costs**, so sweeping `pivot_len` for the best forward return would be
+parameter-fitting on detectors with no established edge; and `pivot_len` is a
+*definition* rather than a signal — it decides what counts as a swing, so the
+question is whether the two are the same reading, which needs no forward return at
+all. This is the **[[#B-59]] precedent applied**: the first measurement owed was an
+overlap check, not an edge test.
+
+**Promoted from residual to an OWNER decision.** It cannot be quietly unified:
+changing either default silently re-grades live output (the [[#B-26]] lesson), and
+at 29.6% agreement it would move most names. What "structure" means at each
+timeframe is a judgement. Mitigation already in place: every read carries its own
+`params.pivot_len`, so a consumer can always say which definition produced the
+word — and the number is now in the module note instead of an open question.
+
+**Still unbuilt** (unchanged): consuming the read as an actual *filter* inside the
+trend/pullback/SMC scanners, which is a detection change and was out of B-42's
+additive scope. Also unbuilt: consuming the read
 as an actual *filter* inside the trend/pullback/SMC scanners, which is a
 detection change and so was out of this item's additive scope.
 
@@ -5010,7 +5044,7 @@ true only on paper.
 
 **Next (updated 2026-09-02):**
 
-1. **B-42r** — settle the `pivot_len` 5-vs-15 split on data (harness, not taste).
+1. ~~**B-42r**~~ — **MEASURED 2026-09-17: 29.6% agreement on `state`.** Now an owner decision, not a task.
 2. **B-32r** — recalibrate regime floors with walk-forward (now unblocked).
 3. **B-28r** — the option-OI event studies, now that the levels are on the chart:
    the **short-straddle break → short-cover rally** (the wall being *pierced* is

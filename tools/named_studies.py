@@ -224,6 +224,14 @@ STUDIES: tuple[dict, ...] = (
         "source": "analyses/SVP-Signal-Backtest-Design",
     },
     {
+        "item": "B-42r", "tool": "pivot_len_agreement.py", "date": "2026-09-17",
+        "subjects": ("read_market_structure",),
+        "verdict": "MIXED",
+        "headline": ("pivot_len 5 and 15 agree on state only 29.6% of 199 names; "
+                     "17.6% read DOWNTREND vs UPTREND -- opposite, not coarser"),
+        "source": "analyses/Open-Backlog#B-42r",
+    },
+    {
         "item": "B-9", "tool": "value_area_traverse_study.py", "date": "2026-09-17",
         "subjects": ("volume-profile value-area traverse",),
         "verdict": "NEGATIVE",

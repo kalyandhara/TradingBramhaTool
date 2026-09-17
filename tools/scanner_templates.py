@@ -2586,11 +2586,27 @@ def detect_structure_chain(df: pd.DataFrame, pivot_len: int = 15,
 # changes behaviour, and `read_market_structure` is the one primitive a consumer
 # should call when it wants "what is structure doing right now".
 #
-# Known open question (B-42r): `detect_bos_choch`/`detect_support_breakdown`
-# default to pivot_len=5 while `detect_structure_chain` and the chart overlay use
-# 15, so "structure" is coarser on the chart than in the scanners. Deliberately
-# NOT unified here — changing either default silently re-grades live output (the
-# B-26 lesson). Settle it on data, not by inheritance.
+# B-42r, MEASURED 2026-09-17 (`pivot_len_agreement.py`, 199 nifty500 names):
+# `detect_bos_choch`/`detect_support_breakdown` default to pivot_len=5 while
+# `detect_structure_chain`, `read_market_structure` and the chart overlay use 15,
+# and the two readings AGREE ON `state` ONLY 29.6% OF THE TIME.
+#
+#     agree on state               29.6%
+#     agree on agreement           35.2%
+#     agree on zone                57.3%
+#     agree on trend_from_breaks   68.3%
+#     median |zone_pct| gap        42.5 pp
+#
+# The largest single disagreement is DOWNTREND (scanners) against UPTREND
+# (chart) on 17.6% of names — not coarser, OPPOSITE. So this was never a tidying
+# question: the chart and the scanners describe different structures, and a
+# reader comparing them is comparing two definitions under one word.
+#
+# Still deliberately NOT unified. Changing either default silently re-grades live
+# output (the B-26 lesson), and at 29.6% agreement the change would move most
+# names — which makes it an OWNER decision about what "structure" means at each
+# timeframe, not a default to tidy. Every read carries its own `params.pivot_len`,
+# so a consumer can always say which definition produced the word.
 # ─────────────────────────────────────────────────────────────────────────────
 
 def label_swing_sequence(swings: list[dict], tol_pct: float = 0.0) -> list[dict]:
