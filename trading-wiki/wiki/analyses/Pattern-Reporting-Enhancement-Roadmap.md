@@ -114,7 +114,8 @@ that fixes something currently misleading.**
 | # | Rung | Why it is at this rank | Size |
 |---|---|---|---|
 | ~~**PR-1**~~ | ~~Strategy Hub's pattern table presents frozen numbers as live~~ — **DONE 2026-09-17**: LTP recomputed from the batched price source, Move % derived, scoreboard reports its denominator | one row was counted on the wrong side of its own scoreboard | done |
-| **PR-1b** | **"Trading Strategies · Live Counts" is also frozen** — `_STRATEGIES` is a literal, its caption says "as of 11 Aug 2026", and "Net: 20 bullish vs 2 bearish" is computed over it, under a heading that says **Live** | same defect, larger claim; needs a source decision | owner |
+| ~~**PR-1b**~~ | ~~"Trading Strategies · Live Counts" is also frozen~~ — **DONE 2026-09-17**: the heading no longer says Live, and the computed "Net" line is gone | the heading was the boldest claim on the page and the one thing never true | done |
+| **PR-1c** | **"Fundamental Scores · Top Picks" is the third frozen literal** — `_FS_DATA` carries `ltp` and `ltp_chg`, under a caption saying *"computed from the last fundamental data pull"* | same defect again; scores need a source decision, but the LTP half is the PR-1 fix verbatim | owner |
 | **PR-2** | **Trade-plan coverage as a first-class, visible metric.** Show which scanners carry `entry`/`stop`/`target`; treat a plan as part of a scanner's definition | unlocks R-based scoring for 24 scanners; absence currently invisible | medium |
 | **PR-3** | **The Flag & Pole detector, both directions** ([[analyses/Open-Backlog#B-92]]) — emitting the card's three levels | closes a named absence; the bear half is total | medium |
 | **PR-4** | **A flag/pole chart overlay**, after PR-3 | `falling_wedge` / `vcp` / `roundbottom` set the precedent; no point drawing before detecting | small |
@@ -170,6 +171,41 @@ signals vs 2 bearish"* line is computed over those frozen counts — the identic
 defect PR-1 just fixed, under a heading that asserts **"Live"**. Raised as
 **PR-1b**; it needs a source decision first, since there is no obvious live feed
 for a third party's strategy-scan counts.
+
+### PR-1b — DONE 2026-09-17, the owner's call
+
+Owner chose the honest-minimum route here rather than finding a source, and it
+was the right call: unlike LTP there is no live feed for a third party's
+strategy-scan counts, so the only options were to stop claiming they were live or
+to stop showing them.
+
+**Three edits.** The heading `Trading Strategies · Live Counts` becomes
+`· Snapshot`. The caption now opens with *"A fixed snapshot from 11 Aug 2026, not
+a live count — these scans are a third party's and nothing on this desk re-runs
+them"*, and separates what is a record (the descriptions and horizons) from what
+is a dated observation (the counts). And the **`Net: 20 bullish signals vs 2
+bearish · bullish skew in strategy engine is consistent`** line is deleted
+outright — it summed the frozen counts and read as a finding about the market
+when it was a finding about a literal.
+
+**The page header was corrected too**, because PR-1 had made it wrong in the
+other direction: it said `Snapshot: 11 Aug 2026` over everything, while the
+pattern block is now live-priced. It reads
+`Chart patterns (detections 11 Aug 2026, prices live) · trading strategies +
+fundamental scores (11 Aug 2026 snapshot)` — one date per claim.
+
+> [!warning] PR-1c — a third frozen literal in the same page, found while doing this
+> `_FS_DATA` under **"Fundamental Scores · Top Picks"** carries hardcoded `ltp`
+> and `ltp_chg`, beneath a caption reading *"Scores computed from the last
+> fundamental data pull"*. That is the same defect a third time.
+>
+> Not fixed, and not bundled in: the **LTP half is the PR-1 fix verbatim** and
+> could be done today, but the **scores** need a source decision — whether they
+> are recomputed from `fundamentals_deep` or relabelled as a dated sample. That is
+> an owner call, exactly as PR-1 and PR-1b were.
+>
+> **Three for three.** Every hardcoded block on this page presented itself as
+> current. That is the pattern worth naming, not the individual rows.
 
 ### PR-1's original statement, kept for the record
 

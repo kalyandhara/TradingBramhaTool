@@ -1,6 +1,14 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-17] fix | PR-1b — the heading said "Live" over a literal dated five weeks earlier
+- Owner's call, and the honest-minimum route was the right one: unlike LTP there is **no live feed for a third party's strategy-scan counts**, so the only options were to stop claiming they were live or to stop showing them.
+- **Heading** `Trading Strategies · Live Counts` → `· Snapshot`. **Caption** now opens *"A fixed snapshot from 11 Aug 2026, not a live count — these scans are a third party's and nothing on this desk re-runs them"*, and separates what is a RECORD (descriptions, horizons) from what is a DATED OBSERVATION (the counts).
+- **The `Net: 20 bullish signals vs 2 bearish · bullish skew in strategy engine is consistent` line is deleted.** It summed the frozen counts above it and read as a finding about the market; it was a finding about a literal. A scoreboard is only worth printing when something is measuring it.
+- **The page header was corrected in the other direction too** — PR-1 had made it wrong by fixing the patterns: it said `Snapshot: 11 Aug 2026` over everything while the pattern block is now live-priced. Now `Chart patterns (detections 11 Aug 2026, prices live) · trading strategies + fundamental scores (11 Aug 2026 snapshot)` — **one date per claim**.
+- **PR-1c raised, found while doing this: a THIRD frozen literal on the same page.** `_FS_DATA` under "Fundamental Scores · Top Picks" carries hardcoded `ltp` and `ltp_chg` beneath a caption saying *"Scores computed from the last fundamental data pull"*. The LTP half is the PR-1 fix verbatim; the scores need a source decision. Left as an owner call rather than bundled in.
+- **Three for three** — every hardcoded block on this page presented itself as current. That is the pattern worth naming, not the individual rows.
+
 ## [2026-09-17] build | PR-1 — the pattern table is priced live, and one row had been on the wrong side of its own scoreboard
 - Owner picked the better of the two routes: **recompute LTP from the price cache** rather than relabel the block as a fixed sample.
 - **It was not merely stale.** `SPLPETRO` published at 788.00 carried a frozen LTP of 685.25 (**−13.0%**) while it actually trades at **807.00 (+2.4%)** — so the footer was counting it as *below* its publish price when it was *above*. `MAPMYINDIA` −17.7% → −27.8%, `ZEEL` −22.6% → −33.8%. Frozen footer: **12 above / 8 below over 20**. Live: **12 above / 5 below, scored on 17 of 20** — and it now states the denominator.

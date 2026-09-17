@@ -13621,7 +13621,8 @@ if current_page == "Strategy Hub":
     st.markdown(
         f"<h2 style='margin-bottom:2px;'>Strategy Hub</h2>"
         f"<div style='font-size:12px;color:{rs.TOKENS['text_muted']};margin-bottom:16px;'>"
-        f"Snapshot: {_SNAP_DATE} · Chart patterns + trading strategies + fundamental scores"
+        f"Chart patterns (detections {_SNAP_DATE}, prices live) · "
+        f"trading strategies + fundamental scores ({_SNAP_DATE} snapshot)"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -13703,10 +13704,15 @@ if current_page == "Strategy Hub":
 
     # ── 2. Trading Strategies ─────────────────────────────────────────────────
     with st.container(border=True):
-        st.markdown("#### Trading Strategies  ·  Live Counts")
+        # "Live Counts" until 2026-09-17, over a hardcoded literal dated 11 Aug
+        # (PR-1b). The heading was the boldest claim on the page and the one
+        # thing here that was never true.
+        st.markdown("#### Trading Strategies  ·  Snapshot")
         st.caption(
-            "Predefined combination scans re-run EOD by 7 PM. "
-            f"Counts as of {_SNAP_DATE}."
+            f"**A fixed snapshot from {_SNAP_DATE}, not a live count** — these "
+            "scans are a third party's and nothing on this desk re-runs them. "
+            "The descriptions and horizons are a record of what each scan is; "
+            "the stock counts are what it returned on that date."
         )
 
         _STRATEGIES = [
@@ -13754,13 +13760,10 @@ if current_page == "Strategy Hub":
                     unsafe_allow_html=True,
                 )
 
-        _bull_total = sum(s[3] for s in _STRATEGIES if s[2] == "Bullish")
-        _bear_total = sum(s[3] for s in _STRATEGIES if s[2] == "Bearish")
-        st.caption(
-            f"Net: **{_bull_total} bullish** signals vs **{_bear_total} bearish** · "
-            f"Bullish skew in strategy engine is consistent — chart patterns are "
-            f"backward-looking; strategies are forward-looking EOD signals."
-        )
+        # The "Net: N bullish vs M bearish · bullish skew is consistent" line was
+        # removed 2026-09-17 (PR-1b). It summed the frozen counts above and read
+        # as a finding about the market; it was a finding about a literal. A
+        # scoreboard is only worth printing when something is measuring it.
 
     # ── 3. Fundamental Scores ─────────────────────────────────────────────────
     with st.container(border=True):
