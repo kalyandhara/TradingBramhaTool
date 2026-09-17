@@ -109,7 +109,7 @@ none of them is.
 
 | # | What is unmeasured | Why it is runnable today |
 |---|---|---|
-| **B-56** | the SVP **structure** BUY/SELL/HOLD signal — built 2026-09-06, never scored, and the prior points AGAINST it (the 2026-08-29 attribution scored its two inputs at −0.67 and −0.71) | `svp_backtest.py` already scores the *composite* through a JS-runner → Python-scorer pattern. The structure signal is a second JS file; the harness shape is proven |
+| ~~**B-56**~~ | ~~the SVP **structure** BUY/SELL/HOLD signal~~ — **MEASURED 2026-09-17 → INVERTED** (spread −1.77%, p_rot 0.041, SELL beat BUY 8 of 8). Mirror deliberately not shipped; stays a bystander. [[analyses/SVP-Structure-Signal-Pre-Registration]] | done — the prior was right |
 | **B-8** | mean-reversion **stops**: [[strategies/Quantified-MA-Mean-Reversion]] uses none (stops removed the edge), ForexTester makes 1–2 ATR mandatory. The desk shipped a stop without settling it | `scan_mean_reversion` exists and emits `stop`; `backtest.py` runs it. One entry, two stop policies |
 | **B-9** | the Volume-Profile **80% rule** — a vendor claim with no data behind it | **not blocked on data, which is what the page implied.** `intraday_store` holds **15m bars, 85 sessions, 6 symbols**; 30-min bars aggregate from 15m |
 | **B-42r** | `pivot_len` 5 vs 15 in the market-structure engine — recorded as "to be settled on data" | both settings run today; it is a sweep |
@@ -4184,7 +4184,32 @@ prop-desk toolset converges on. See [[concepts/Order-Flow]].
 > stack that could plausibly supply trade-side data; establish whether it does, and whether
 > any NSE path exists, first.
 
-### B-56 · Structural BUY/SELL/HOLD from POC · HVN/LVN · shape series — **BUILT 2026-09-06, PRE-REGISTERED TEST PENDING**
+### B-56 · Structural BUY/SELL/HOLD from POC · HVN/LVN · shape series — **BUILT 2026-09-06, MEASURED 2026-09-17 → INVERTED**
+
+> [!warning] MEASURED 2026-09-17 — the read is backwards, and the mirror was NOT shipped
+> 8 symbols, ~4,600 bars each, 36,829 rows. At the pre-registered primary horizon
+> (20 sessions): **BUY +0.99% · SELL +2.75% · spread −1.77% · p_rot 0.041**, with
+> both floors cleared (4,576 BUY / 2,876 SELL against 200 each) and **SELL beating
+> BUY in 8 of 8 symbols** — the consistency is the stronger evidence.
+>
+> The control passed: **HOLD sat −0.146pp from baseline**, so the rules are not
+> just selecting unusual bars.
+>
+> **Every arm is positive** (BUY +0.99, SELL +2.75, HOLD +0.95, base +1.10)
+> because the window is a rising market, so "SELL is followed by a bigger bounce"
+> is the signature of **mean reversion**, not of a short signal. The rules seem to
+> find a pullback and put the wrong label on it. Flipping them would fit a label
+> to a bull-market artifact, so per the pre-registered decision table the mirror
+> is a **new hypothesis owing its own test**, not a shipped change.
+>
+> Nothing deleted. The engine stays, the levels keep drawing, the HVN/LVN role
+> naming stays. **Still a bystander: no vote, no score, no confluence weight** —
+> and the SVP screen's caption now says all of this on the page.
+>
+> Full design and result: [[analyses/SVP-Structure-Signal-Pre-Registration]].
+> **This was the last built-but-unmeasured signal on the desk.**
+
+**Original entry, kept because the build reasoning is still correct:**
 
 Owner's push-back, and it was right: retiring the SVP *composite* does not retire
 structural inference from volume profile. `tools/svp_structure_signal.js` is a

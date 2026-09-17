@@ -224,6 +224,14 @@ STUDIES: tuple[dict, ...] = (
         "source": "analyses/SVP-Signal-Backtest-Design",
     },
     {
+        "item": "B-56", "tool": "svp_structure_backtest.py", "date": "2026-09-17",
+        "subjects": ("SVPSTRUCT.read",),
+        "verdict": "NEGATIVE",
+        "headline": ("INVERTED: SELL +2.75% vs BUY +0.99% @20d, spread -1.77% "
+                     "p_rot 0.041, 8 of 8 symbols; mirror deliberately not shipped"),
+        "source": "analyses/SVP-Structure-Signal-Pre-Registration",
+    },
+    {
         "item": "ADX", "tool": "adx_di_backtest.py", "date": "2026-08-30",
         "subjects": ("adxdi",),
         "verdict": "MIXED",

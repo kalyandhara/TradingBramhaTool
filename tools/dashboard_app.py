@@ -11589,8 +11589,10 @@ if current_page == "SVP Structure":
                          "on the screen as on the chart."),
                 "struct_read": st.column_config.TextColumn(
                     "struct", help="The SECOND construction (svp_structure_signal.js) "
-                                   "— POC migration + HVN/LVN roles. Kept alongside "
-                                   "so B-56 can test both against each other."),
+                                   "— POC migration + HVN/LVN roles. MEASURED 2026-09-17 "
+                                   "(B-56) and INVERTED: SELL days beat BUY days by "
+                                   "1.77pp at 20 sessions, 8 of 8 symbols. Shown as "
+                                   "structure, never as a direction to trade."),
                 "migration_frac": st.column_config.NumberColumn(
                     "mig", format="%.2f",
                     help="Fraction of session-to-session POC steps agreeing in "
@@ -11645,11 +11647,19 @@ if current_page == "SVP Structure":
             "(`svp_structure_signal.js`) — POC migration, HVN/LVN roles and the "
             "shape series, as named boolean rules with no weights, so a "
             "disagreement is about a stated rule rather than a number nobody can "
-            "decompose. It does NOT use the confluence score. It is **unmeasured**, "
-            "and the prior evidence points against it: `sequence` attributed at "
-            "−0.67 and `va` at −0.71 in the 2026-08-29 study, and those are exactly "
-            "the inputs it uses. **B-56 is the pre-registered test.** Nothing here "
-            "reaches the pipeline until that runs."
+            "decompose. It does NOT use the confluence score.\n\n"
+            "**MEASURED 2026-09-17 (B-56), and it came out INVERTED.** Over 8 "
+            "liquid daily names and ~4,600 bars each, SELL days were followed by "
+            "**+2.75%** at 20 sessions against BUY days' **+0.99%** — a spread of "
+            "**−1.77%**, p_rot 0.041, and SELL beat BUY in **8 of 8** symbols. "
+            "The read is backwards from its own hypothesis.\n\n"
+            "**The mirror was NOT shipped, on purpose.** The pre-registration "
+            "fixed that consequence before the run: a significant inversion on a "
+            "skeptical prior is a reason to re-read the construction, not to flip "
+            "the labels — and the window is a rising market, so \"SELL is "
+            "followed by a bounce\" is what a mean-reversion artifact looks like. "
+            "Flipping it would be a new hypothesis owing its own test. **This "
+            "stays a bystander: no vote, no score, no confluence weight.**"
         )
         st.caption(
             "`sweep` and `exh` are the only two of seven factor families that "
