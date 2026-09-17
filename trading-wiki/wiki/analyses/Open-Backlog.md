@@ -111,7 +111,7 @@ none of them is.
 |---|---|---|
 | ~~**B-56**~~ | ~~the SVP **structure** BUY/SELL/HOLD signal~~ — **MEASURED 2026-09-17 → INVERTED** (spread −1.77%, p_rot 0.041, SELL beat BUY 8 of 8). Mirror deliberately not shipped; stays a bystander. [[analyses/SVP-Structure-Signal-Pre-Registration]] | done — the prior was right |
 | ~~**B-8**~~ | ~~mean-reversion **stops**~~ — **MEASURED 2026-09-17: CONNORS WAS RIGHT, for tight stops.** The shipped session-low stop costs **−1.44pp** vs no stop (p=0.0009, n=145, 20y); 2-ATR costs nothing measurable because it is only touched 17.2% of the time. Stop deliberately unchanged; the number is now in the scanner's own plan output | done |
-| **B-9** | the Volume-Profile **80% rule** — a vendor claim with no data behind it | **not blocked on data, which is what the page implied.** `intraday_store` holds **15m bars, 85 sessions, 6 symbols**; 30-min bars aggregate from 15m |
+| ~~**B-9**~~ | ~~the Volume-Profile **80% rule**~~ — **MEASURED 2026-09-17: FALSIFIED.** 45.5% (95% CI 37.3–54.0, n=134) against a claimed 80%. Lift over base −4.1pp, p=0.422, explicitly NOT claimed | done — and it was never blocked on data |
 | **B-42r** | `pivot_len` 5 vs 15 in the market-structure engine — recorded as "to be settled on data" | both settings run today; it is a sweep |
 | **B-21b** | every floor set on 2026-08-07 came from **one session's cross-section** | the floors are labelled in code and the history to re-measure them on is cached |
 | **B-59r2** | PSAR's **unique** flips (68.9% uncovered at ±3) — the edge test the overlap check left owed | `psar_stai_edge.py` already scores PSAR-only cells |
@@ -1342,7 +1342,56 @@ makes **1–2 ATR stops mandatory**. Two sources, one setup, opposite rules.
 That is not the neutral position; it is the ForexTester answer, adopted by
 inheritance. Run one reversion entry with and without a 2-ATR stop and settle it.
 
-### B-9 · Volume Profile 80% rule
+### B-9 · Volume Profile 80% rule — **MEASURED 2026-09-17: FALSIFIED (45.5%, not 80%)**
+
+> [!warning] The claim is off by a factor close to two, and it was never blocked on data
+> `value_area_traverse_study.py`, 6 symbols × 84 sessions = **504 sessions**,
+> prior session's value area, 30-minute bars aggregated from the stored 15s.
+>
+> | | |
+> |---|---|
+> | traverse after a 2-bar hold | **45.5%** (61/134) |
+> | 95% CI (Wilson) | **37.3% – 54.0%** |
+> | base rate, no hold required | 49.6% (178/359) |
+> | lift | −4.1pp (p=0.422) |
+> | **the claim** | **80%** |
+>
+> **80% lies far outside the interval**, so the claim is falsified on one
+> proportion — no control needed for that part.
+>
+> **The lift is NOT claimed.** −4.1pp at p=0.422 is nothing, and the study says so
+> in as many words. "Worse than doing nothing" is a stronger statement than "not
+> 80%" and must not ride in on the first one's significance. The 15-minute
+> sensitivity check agrees on both counts (41.3%, lift −8.9pp, p=0.056).
+
+**Not blocked on data, which is the process finding.** The snapshot said "testable
+on NSE 30-min data" and nothing followed, which read as a gap. `intraday_store`
+already held 15-minute bars over ~85 sessions for six liquid names, and 30-minute
+bars aggregate from them. Counting what is already stored beat waiting — the same
+finding as [[analyses/PCR-Sign-Convention-Pre-Registration]]'s "blocked until
+December" premise, which was also false.
+
+> [!key-insight] A test caught a bug that moved the headline number
+> The first run reported **40.6%**. `resample("30min")` snaps to the hour, and
+> **NSE opens at 09:15**, so every session's first "30-minute bar" held a single
+> 15-minute bar and the whole sequence was offset from there. Anchoring the
+> resample on the session's own first timestamp moved the hit rate to **45.5%**.
+>
+> The conclusion is unchanged — 80% was never in reach either way — but a
+> 5-point swing from a one-line alignment bug is a reminder that **an intraday
+> study's bar boundaries are part of its method, not an implementation detail.**
+> The test that caught it was written because the fixture looked wrong, not
+> because the bug was suspected.
+
+**Recorded, not claimed:** entries from ABOVE traverse at 56.1% (n=66) against
+35.3% from below (n=68). Unregistered and unexplained; it is the kind of asymmetry
+that deserves its own hypothesis rather than a footnote conclusion.
+
+**Coverage note:** ^NSEI arms **zero** times in 84 sessions — the index rarely
+leaves its prior value area and returns in this pattern at all. The rule is a
+single-stock construct on this evidence.
+
+### B-9 · original specification
 **Body restored 2026-09-17 from the same snapshot.**
 
 The claim: price entering the value area and holding **2 consecutive 30-minute

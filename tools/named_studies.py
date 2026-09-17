@@ -224,6 +224,14 @@ STUDIES: tuple[dict, ...] = (
         "source": "analyses/SVP-Signal-Backtest-Design",
     },
     {
+        "item": "B-9", "tool": "value_area_traverse_study.py", "date": "2026-09-17",
+        "subjects": ("volume-profile value-area traverse",),
+        "verdict": "NEGATIVE",
+        "headline": ("the 80% rule traverses 45.5% of the time (95% CI 37.3-54.0, "
+                     "n=134); lift over base -4.1pp p=0.422, not claimed"),
+        "source": "analyses/Open-Backlog#B-9",
+    },
+    {
         "item": "B-8", "tool": "mean_reversion_stop_study.py", "date": "2026-09-17",
         "subjects": ("Mean Reversion (Connors RSI2)",),
         "verdict": "MIXED",
