@@ -55,6 +55,7 @@ import harmonic_patterns as hp
 import sentiment_index as senti
 import market_verdict as mvd
 import index_strip as istrip
+import breadth_strip as bstrip
 import block_deal_intel as bdi
 import deal_infographic as dinf
 import nse_oi_momentum as oim
@@ -3919,6 +3920,15 @@ if _senti_reading and _senti_reading.get("reading_date"):
             f"Sentiment reading is {_senti_age} day(s) old "
             f"(dated {_senti_reading['reading_date']})")
 verdict = mvd.build_verdict(_senti_reading, portfolio_summary, _stale_flags)
+
+# ── Breadth strip — the market's internals, under the index charts ───────────
+# Home only, same reasoning as the index strip. Placed here rather than next to
+# it because it needs `_senti_reading`, which owns both the Adv/Decl counts and
+# the sentiment score — reading them from the same object is what keeps this
+# strip and the verdict card below it from disagreeing about the same market.
+if current_page == "Home":
+    bstrip.render(_senti_reading)
+
 
 _vfg, _ = rs.tone_colors(verdict["tone"])
 
