@@ -8233,6 +8233,7 @@ if current_page == "Delete Funnel":
 if current_page == "Scanner Hub":
     st.subheader("Scanner Hub")
     st.caption("Pre-built pattern scanners — choose a scanner, select a universe, run.")
+    __import__("scanner_plans").render()      # PR-2 · trade-plan coverage census
 
 
     # ── Scanner card grid (full-width, replaces left panel) ──────────────────

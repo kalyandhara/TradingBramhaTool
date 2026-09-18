@@ -116,7 +116,7 @@ that fixes something currently misleading.**
 | ~~**PR-1**~~ | ~~Strategy Hub's pattern table presents frozen numbers as live~~ — **DONE 2026-09-17**: LTP recomputed from the batched price source, Move % derived, scoreboard reports its denominator | one row was counted on the wrong side of its own scoreboard | done |
 | ~~**PR-1b**~~ | ~~"Trading Strategies · Live Counts" is also frozen~~ — **DONE 2026-09-17**: the heading no longer says Live, and the computed "Net" line is gone | the heading was the boldest claim on the page and the one thing never true | done |
 | **PR-1c** | **"Fundamental Scores · Top Picks" is the third frozen literal** — `_FS_DATA` carries `ltp` and `ltp_chg`, under a caption saying *"computed from the last fundamental data pull"* | same defect again; scores need a source decision, but the LTP half is the PR-1 fix verbatim | owner |
-| **PR-2** | **Trade-plan coverage as a first-class, visible metric.** Show which scanners carry `entry`/`stop`/`target`; treat a plan as part of a scanner's definition | unlocks R-based scoring for 24 scanners; absence currently invisible | medium |
+| ~~**PR-2**~~ | ~~Trade-plan coverage as a first-class, visible metric~~ — **DONE 2026-09-17**: censused, surfaced on Scanner Hub, and ratcheted. **14 of 45 observed scanners carry a plan; 31 do not** | the census is the baseline a test now asserts against | done |
 | **PR-3** | **The Flag & Pole detector, both directions** ([[analyses/Open-Backlog#B-92]]) — emitting the card's three levels | closes a named absence; the bear half is total | medium |
 | **PR-4** | **A flag/pole chart overlay**, after PR-3 | `falling_wedge` / `vcp` / `roundbottom` set the precedent; no point drawing before detecting | small |
 
@@ -218,6 +218,56 @@ of the desk already uses, at which point the scoreboard becomes real.
 **Do not silently refresh the numbers in place.** Whichever route is taken, the
 block should say which it is — the [[analyses/Open-Backlog#B-26]] lesson about
 changing what a displayed number means.
+
+### PR-2 — DONE 2026-09-17
+
+`tools/scanner_plans.py` censuses every registered scanner point-in-time, caches
+the result as a **committed record**, renders it on the Scanner Hub, and a test
+ratchets it.
+
+**The measurement, firmer than the estimate that motivated this rung.** 45
+nifty500 names, every 25th bar, 45 of 46 scanners observed:
+
+| state | count |
+|---|---|
+| **FULL** — every hit carried entry, stop and target | **14** |
+| **PARTIAL** — some hits did, some did not | **0** |
+| **NONE** — fired, never carried a full plan | **31** |
+| **UNSEEN** — never fired; nothing claimed | 1 |
+
+> [!key-insight] PARTIAL came back empty, and that changes the shape of the work
+> Every scanner **either always emits a plan or never does**. A plan is a property
+> of the SCANNER, not of the individual hit.
+>
+> So this is **31 scanners to fix, not 31 scattered gaps** — and fixing one fixes
+> every hit it will ever produce. It also means the census is cheap to trust: a
+> scanner's state will not flicker between runs on sampling luck.
+
+**Four states, because three would lie.** A scanner that never fired has not been
+shown to lack a plan. Collapsing `UNSEEN` into `NONE` is the FR-4 mistake —
+NOT_CHECKED reading as a verdict — and here it would make that mistake about the
+whole registry at once. The surface says so in as many words.
+
+**The ratchet, and the thing that nearly made it decoration.** `MIN_FULL_PLAN_SCANNERS
+= 14` may rise freely and may not fall without someone editing the line and saying
+why; a second test fails if a scanner is registered but missing from the census,
+because otherwise a new planless scanner would simply not appear rather than
+lowering the count.
+
+The census first landed in `tools/cache/`, which is **gitignored** — so on any
+fresh checkout `load()` returned None and the ratchet **silently skipped**. That is
+[[analyses/Open-Backlog#B-87]]'s own lesson in a new costume: a ceiling nothing
+asserts against is decoration. It now lives at `tools/scanner_plan_coverage.json`
+with an explicit `.gitignore` negation, which also makes it **diffable** — a
+scanner losing its plan shows up as a line in a review rather than as a number
+nobody re-ran.
+
+**What this unlocks, and what it does not.** `_simulate_plan` walks entry →
+stop/target, so those 31 scanners cannot be scored on realised R at all today.
+Giving them plans is the follow-up; **this rung only makes the gap visible and
+stops it widening.** No scanner gained a plan in this pass, and none should have
+— inventing a stop for 31 detectors in one commit is exactly the kind of change
+that needs measuring one at a time.
 
 ### PR-3, the parameters that decide whether it is a detector or noise
 

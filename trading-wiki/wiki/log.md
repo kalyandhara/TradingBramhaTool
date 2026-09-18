@@ -1,6 +1,15 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-17] build | PR-2 — trade-plan coverage, censused, surfaced and ratcheted
+- **The number that motivated the rung, measured properly.** 45 nifty500 names, every 25th bar, point-in-time, 45 of 46 scanners observed: **FULL 14 · PARTIAL 0 · NONE 31 · UNSEEN 1**. So **14 of 45 observed scanners hand you `entry`/`stop`/`target`; 31 do not.**
+- **Why it is a measurement capability and not a display nicety:** `backtest._simulate_plan` walks entry → stop/target bar by bar, so a scanner with no plan **cannot be scored on realised R at all** — only on raw forward return, which says nothing about whether the trade was survivable.
+- **PARTIAL came back EMPTY, and that changes the shape of the work.** Every scanner either always emits a plan or never does — a plan is a property of the **scanner**, not of the hit. So this is **31 scanners to fix, not 31 scattered gaps**, and fixing one fixes every hit it will ever produce. It also means the census will not flicker between runs on sampling luck.
+- **Four states, because three would lie.** A scanner that never fired has NOT been shown to lack a plan; collapsing `UNSEEN` into `NONE` is the FR-4 mistake of letting NOT_CHECKED read as a verdict — and here it would make that mistake about the whole registry at once. The surface says so on the page.
+- **The ratchet nearly shipped as decoration.** The census first landed in `tools/cache/`, which is **gitignored**, so on a fresh checkout `load()` returned None and the ratchet **silently skipped**. That is [[analyses/Open-Backlog#B-87]]'s own lesson in a new costume. It now lives at `tools/scanner_plan_coverage.json` behind an explicit `.gitignore` negation — committed, and **diffable**, so a scanner losing its plan shows up as a line in a review.
+- **A second test closes the other hole:** a scanner registered but absent from the census fails, because otherwise a new planless scanner would simply not appear rather than lowering the count.
+- **No scanner gained a plan in this pass, and none should have.** Inventing a stop for 31 detectors in one commit is exactly the kind of change that needs measuring one at a time. This rung makes the gap visible and stops it widening. Suite 685 → 703.
+
 ## [2026-09-17] fix | PR-1b — the heading said "Live" over a literal dated five weeks earlier
 - Owner's call, and the honest-minimum route was the right one: unlike LTP there is **no live feed for a third party's strategy-scan counts**, so the only options were to stop claiming they were live or to stop showing them.
 - **Heading** `Trading Strategies · Live Counts` → `· Snapshot`. **Caption** now opens *"A fixed snapshot from 11 Aug 2026, not a live count — these scans are a third party's and nothing on this desk re-runs them"*, and separates what is a RECORD (descriptions, horizons) from what is a DATED OBSERVATION (the counts).
