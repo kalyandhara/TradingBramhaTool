@@ -32,7 +32,12 @@ APP = pathlib.Path(__file__).resolve().parent / "dashboard_app.py"
 #: Measured 2026-09-16. Lower these when work lands; never raise them silently.
 MAX_LINES = 13_900          # actual 13,846
 MAX_SILENT_HANDLERS = 11    # actual 11 — `except: pass` / `except: continue`
-MAX_MODULE_STATEMENTS = 320  # actual 318
+# Raised 320 -> 322 on 2026-09-18 for the Home index strip. The two statements
+# are `import index_strip` and the two-line `if current_page == "Home"` call
+# site; the fetch, the cards and the figures all live in tools/index_strip.py.
+# A feature that adds a module and one call site is what this ratchet is meant
+# to encourage, which is why this raise is recorded rather than silent.
+MAX_MODULE_STATEMENTS = 322  # actual 322
 MAX_RAW_HTML_RENDERS = 120  # actual ~112 `unsafe_allow_html=True`
 
 

@@ -54,6 +54,7 @@ import india_market_intel as imi
 import harmonic_patterns as hp
 import sentiment_index as senti
 import market_verdict as mvd
+import index_strip as istrip
 import block_deal_intel as bdi
 import deal_infographic as dinf
 import nse_oi_momentum as oim
@@ -3877,6 +3878,15 @@ _ov_cards = [
         tone="warn" if triggered_count else "neutral"),
 ]
 st.markdown(rs.strip(_ov_cards, cols=5), unsafe_allow_html=True)
+
+# ── Index strip — the four headline indices, intraday ─────────────────────────
+# Home only. It is context for the verdict directly below it, and on the working
+# pages (Scanner Hub, Stock Analyzer, ...) four charts above the fold would push
+# the thing the reader actually navigated to off the first screen. The fetch,
+# the cards and the figures all live in index_strip.py — this file only says
+# WHERE the strip goes.
+if current_page == "Home":
+    istrip.render()
 
 # ── Regime + today's verdict — ONE card ───────────────────────────────────────
 _show_regime = current_page != "Scanner Hub"  # hidden on Scanner Hub
