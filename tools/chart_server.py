@@ -775,6 +775,61 @@ def api_falling_wedge():
     return jsonify({"symbol": symbol, "falling_wedge": fw})
 
 
+@app.route("/api/flag_pole")
+def api_flag_pole():
+    """Flag & pole geometry for the chart overlay (B-92 / PR-4).
+
+    See `flag_pole.detect_flag_pole` and
+    `analyses/Pattern-Reporting-Enhancement-Roadmap`. Returns BOTH directions so
+    the overlay can draw whichever exists without a second round trip — they are
+    mutually exclusive in practice but nothing guarantees it, and asking the
+    client to choose would put the detector's logic in two places.
+
+    Bar indices are mapped to chart timestamps here, as every other overlay route
+    does. {"bull": null, "bear": null} when nothing qualifies.
+    """
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+
+    import flag_pole as fpm
+    need = fpm.WINDOW + fpm.ATR_N
+    if df is None or len(df) < need:
+        # Say WHY rather than returning a bare null: an overlay that silently
+        # draws nothing on a short frame is indistinguishable from one that
+        # found no pattern, and the two need different reactions from the user.
+        return jsonify({"symbol": symbol, "bull": None, "bear": None,
+                        "note": f"needs {need} bars, has {0 if df is None else len(df)}"})
+
+    def _t(idx):
+        if idx is None or idx < 0 or idx >= len(bars):
+            return None
+        return int(bars[idx]["time"])
+
+    out = {"symbol": symbol, "bull": None, "bear": None}
+    for d in ("bull", "bear"):
+        g = fpm.detect_flag_pole(df, direction=d)
+        if g is None:
+            continue
+        out[d] = {
+            **{k: g[k] for k in (
+                "direction", "pole_low", "pole_high", "pole_bars", "pole_atr",
+                "pole_monotonicity", "flag_bars", "flag_high", "flag_low",
+                "retrace", "vol_contract", "broken", "entry", "stop",
+                "target", "rr", "atr")},
+            "pole_t0": _t(g["pole_start"]), "pole_t1": _t(g["pole_end"]),
+            "flag_t0": _t(g["flag_start"]), "flag_t1": _t(g["flag_end"]),
+            "last_t":  _t(len(df) - 1),
+        }
+    return jsonify(out)
+
+
 @app.route("/api/structure_chain")
 def api_structure_chain():
     """Market-structure break chain for the chart overlay — SBC-4. See

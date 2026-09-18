@@ -1,6 +1,16 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-17] build | PR-4 — the flag & pole on the chart, and the roadmap closes
+- `/api/flag_pole` + an inline overlay in `chart_dashboard.html`, modelled on the `falling_wedge` pair. Registered as **Flag & Pole + measured-move plan (both directions)** under Price Patterns.
+- **Draws the pole** as a thick line sloping the way the thrust went, **the flag** as its two boundaries, and **all three plan levels as price lines** — `FP trigger`, `FP stop`, `FP target` — so they extend to the right edge where a trade is actually managed. Marker reads `FLAG BREAK` or `FLAG`; a corner card carries the geometry.
+- **The card says what the target is:** *"Target = pole height projected — a measured move, not a forecast. UNMEASURED."* The same sentence the scanner card carries, in the place someone would act on it.
+- **"No pattern" and "could not look" are different answers.** A frame shorter than `WINDOW + ATR_N` cannot be evaluated; a bare null would read as *"there is no flag here"*, which the server is in no position to claim. The route returns a `note` naming how many bars it needed and had, the overlay prints it, and a test pins the distinction.
+- **Verified on the running chart.** APARINDS carried a live bull flag — pole 6.99×ATR/13b, flag 24b retracing 46%, vol dried 41%, trigger 18331.36 / stop 16015 / target 23496.42 at R:R 2.23 — all three price lines visible with axis labels, no console errors, clean teardown on toggle-off. **Price lines are removed through the candle series that owns them**, or they survive a teardown and stack up on the next draw.
+- The **bear path was exercised directly** with a synthetic payload, since no live bear flag existed in the sample at the time: ▼ arrow, mirrored levels, and an honest "vol ROSE 20%" rather than hiding a flag that expanded on volume.
+- Four route tests, including that bar indices arrive as chart **timestamps** rather than indices — the one transformation this route owns. Suite 723 → 727.
+- **The pattern-reporting roadmap is now closed except PR-1c**, which is an owner decision about where the Fundamental Scores block's numbers should come from, not a build.
+
 ## [2026-09-17] build | PR-3 / B-92 — Flag & Pole, both directions, and the count caught an impossible breakout
 - `tools/flag_pole.py` + two registered cards (**Flag & Pole**, **Inverted Flag & Pole**), both emitting the owner's card's three levels: **entry at the flag break, stop at the far flag boundary, target = the pole height projected**. Registry **46 → 48**; the PR-2 plan ratchet rose **14 → 16** behind them, which is the ratchet working in the direction it is meant to.
 - **The count found a bug no "does it detect a flag" test would have.** The first `--count` returned **189 patterns and `broken 0`** — not one breakout ever. The flag boundary was the max high over the whole flag **including the live bar**, and the breakout test asked whether that bar's CLOSE exceeded it. A close cannot exceed its own bar's high, so the condition was **unsatisfiable by construction**. Counting before claiming is exactly what B-58 asked for, and it paid here.

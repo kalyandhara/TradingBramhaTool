@@ -111,6 +111,10 @@ bear side does not exist in any form.**
 Four rungs, ordered by *reader harm*, not by build size. **PR-1 is the only one
 that fixes something currently misleading.**
 
+> [!note] Status 2026-09-17: PR-1, PR-1b, PR-2, PR-3 and PR-4 are DONE.
+> What remains is **PR-1c**, which is an owner decision about where the
+> Fundamental Scores block's numbers should come from — not a build.
+
 | # | Rung | Why it is at this rank | Size |
 |---|---|---|---|
 | ~~**PR-1**~~ | ~~Strategy Hub's pattern table presents frozen numbers as live~~ — **DONE 2026-09-17**: LTP recomputed from the batched price source, Move % derived, scoreboard reports its denominator | one row was counted on the wrong side of its own scoreboard | done |
@@ -118,7 +122,7 @@ that fixes something currently misleading.**
 | **PR-1c** | **"Fundamental Scores · Top Picks" is the third frozen literal** — `_FS_DATA` carries `ltp` and `ltp_chg`, under a caption saying *"computed from the last fundamental data pull"* | same defect again; scores need a source decision, but the LTP half is the PR-1 fix verbatim | owner |
 | ~~**PR-2**~~ | ~~Trade-plan coverage as a first-class, visible metric~~ — **DONE 2026-09-17**: censused, surfaced on Scanner Hub, and ratcheted. **14 of 45 observed scanners carry a plan; 31 do not** | the census is the baseline a test now asserts against | done |
 | ~~**PR-3**~~ | ~~The Flag & Pole detector, both directions~~ — **DONE 2026-09-17**: `tools/flag_pole.py`, two registered scanners, both carrying a full plan. Registry 46 → 48, plan ratchet 14 → 16 | closed a named absence; the bear half was total | done |
-| **PR-4** | **A flag/pole chart overlay**, after PR-3 | `falling_wedge` / `vcp` / `roundbottom` set the precedent; no point drawing before detecting | small |
+| ~~**PR-4**~~ | ~~A flag/pole chart overlay~~ — **DONE 2026-09-17**: `/api/flag_pole` + an inline overlay drawing the pole, the flag and all three plan levels, both directions | the roadmap is now closed except PR-1c | done |
 
 ### PR-1 — DONE 2026-09-17, by the second route
 
@@ -206,6 +210,48 @@ fundamental scores (11 Aug 2026 snapshot)` — one date per claim.
 >
 > **Three for three.** Every hardcoded block on this page presented itself as
 > current. That is the pattern worth naming, not the individual rows.
+
+### PR-4 — DONE 2026-09-17, and the roadmap closes
+
+`/api/flag_pole` in `chart_server.py` plus an inline overlay in
+`chart_dashboard.html`, modelled on the `falling_wedge` pair. Registered as
+**Flag & Pole + measured-move plan (both directions)** under Price Patterns.
+
+**What it draws.** The pole as a thick line sloping the way the thrust went; the
+flag as its two boundaries; and the three plan levels as **price lines**, so they
+extend to the right edge where a trade would actually be managed — `FP trigger`,
+`FP stop` and `FP target`, each with its axis label. A marker reads `FLAG BREAK`
+when broken and `FLAG` when not, and a corner card carries the geometry.
+
+**The card says what the target is.** *"Target = pole height projected — a
+measured move, **not a forecast**. UNMEASURED."* The same sentence the scanner
+card carries, in the place someone would actually act on it.
+
+**Both directions in one response.** The route returns `bull` and `bear`
+together. They are mutually exclusive in practice but nothing guarantees it, and
+asking the client to choose would put the detector's logic in two places.
+
+> [!key-insight] "No pattern" and "could not look" are different answers
+> A frame shorter than `WINDOW + ATR_N` cannot be evaluated at all. Returning a
+> bare `null` for it would read as *"there is no flag here"* — a claim the server
+> is in no position to make.
+>
+> The route returns a `note` saying how many bars it needed and how many it got,
+> and the overlay prints it on the card instead of drawing nothing. A test pins
+> the distinction, because it is the kind that quietly disappears in a refactor.
+
+**Verified on the running chart, not reasoned about.** APARINDS carried a live
+bull flag: pole 6.99×ATR over 13 bars, flag 24 bars retracing 46%, volume dried
+41%, trigger 18331.36 / stop 16015 / target 23496.42 at R:R 2.23 — all three price
+lines visible with their labels, no console errors, and a clean teardown on
+toggle-off (series, price lines and card all removed; price lines are removed
+through the candle series that owns them, or they survive and stack on the next
+draw). The bear path was exercised directly with a synthetic payload, since no
+live bear flag existed in the sample at the time: it renders the ▼ arrow, the
+mirrored levels and an honest "vol ROSE 20%".
+
+**Four route tests**, including that a real pattern's bar indices arrive as chart
+**timestamps** rather than indices — the one transformation this route owns.
 
 ### PR-1's original statement, kept for the record
 

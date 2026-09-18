@@ -1377,6 +1377,7 @@ const INDICATOR_DEFS = [
   {key:'vcp',          label:'VCP Coiling',               group:'Price Patterns', color:'#26c6da'},
   {key:'trendlines',   label:'Trendlines (supply/demand)', group:'Smart Money & Structure', color:'#ff9800'},
   {key:'falling_wedge', label:'Falling Wedge (converging → breakout)', group:'Price Patterns', color:'#26a69a'},
+  {key:'flag_pole',     label:'Flag & Pole + measured-move plan (both directions)', group:'Price Patterns', color:'#4c9aff', alias:'flag pole bull flag bear flag inverted continuation measured move pennant consolidation breakout'},
   {key:'structure_chain', label:'Structure Break Chain (BOS/CHoCH + quality)', group:'Smart Money & Structure', color:'#00e676'},
   {key:'orderblock',   label:'Order Blocks (SMC demand / supply zones)', group:'Smart Money & Structure', color:'#4c9aff', alias:'order block ob smart money smc demand supply zone mitigation institutional'},
   {key:'liquidity',    label:'Liquidity Pools + Sweep + BUY signal (equal highs/lows · stop run)', group:'Smart Money & Structure', color:'#ff6d00', alias:'liquidity pool sweep stop hunt stop run raid equal highs equal lows resting stops smc trap reclaim'},
@@ -3700,6 +3701,7 @@ function applyIndicators(pane) {
   // Tear down Trendlines overlay if deselected
   if (!pane.indicators.has('trendlines') && pane.tl) clearTrendlines(pane);
   if (!pane.indicators.has('falling_wedge') && pane.fw) clearFallingWedge(pane);
+  if (!pane.indicators.has('flag_pole') && pane.flagPole) clearFlagPole(pane);
   // Tear down the Structure Break Chain overlay if deselected
   if (!pane.indicators.has('structure_chain') && pane.sbc) clearStructureChain(pane);
   // Tear down PMax flip markers + trade levels if deselected
@@ -4515,6 +4517,11 @@ function applyIndicators(pane) {
   // ── Falling Wedge overlay (server-side detection, see scanner_templates.py) ──
   if (pane.indicators.has('falling_wedge')) {
     renderFallingWedge(pane);
+  }
+
+  // ── Flag & Pole (server-side detection, see tools/flag_pole.py) ─────────────
+  if (pane.indicators.has('flag_pole')) {
+    renderFlagPole(pane);
   }
 
   // ── Structure Break Chain (server-side detection, see scanner_templates.py) ──
@@ -7205,6 +7212,160 @@ async function renderTrendlines(pane) {
 }
 
 // ── Falling Wedge overlay ─────────────────────────────────────────────────────
+// ── Flag & Pole ──────────────────────────────────────────────────────────────
+// Backed by /api/flag_pole (tools/flag_pole.py, B-92 / PR-4). Draws the pole as a
+// thick line, the flag as its two boundaries, and the three PLAN levels as price
+// lines: trigger, stop (the far flag boundary) and the pole-height target.
+//
+// Both directions are drawn when both exist. They are mutually exclusive in
+// practice, but nothing guarantees it, and hiding one would be a decision the
+// detector never made.
+//
+// THE TARGET IS A PROJECTION, NOT A FORECAST, and the card says so. Nothing here
+// is backtested; B-19 measured 0 of 41 scanners stable after costs.
+const FP_COLORS = {bull: '#26a69a', bear: '#ef5350'};
+
+function ensureFlagPoleState(pane) {
+  if (!pane.flagPole) pane.flagPole = {series: [], priceLines: [], infoEl: null, lastFetchKey: null};
+  return pane.flagPole;
+}
+
+function clearFlagPole(pane) {
+  const fp = pane.flagPole;
+  if (!fp) return;
+  (fp.series || []).forEach(sr => { try { pane.chart.removeSeries(sr); } catch {} });
+  fp.series = [];
+  // Price lines belong to the candle series, not the chart, so they are removed
+  // through their owner or they survive a teardown and stack up on the next draw.
+  (fp.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  fp.priceLines = [];
+  if (fp.infoEl) { try { fp.infoEl.remove(); } catch {}; fp.infoEl = null; }
+  setPaneMarkers(pane, 'flagPole', null);
+  fp.lastFetchKey = null;
+}
+
+async function renderFlagPole(pane) {
+  const fp = ensureFlagPoleState(pane);
+  if (!pane.bars || !pane.bars.length) return;
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  if (fp.lastFetchKey === key) return;
+  fp.lastFetchKey = key;
+
+  let data = null;
+  try {
+    const barCount = TF_BARS[pane.tf] || 300;
+    const url = `${SERVER}/api/flag_pole?symbol=${encodeURIComponent(pane.symbol)}` +
+                `&timeframe=${pane.tf}&bars=${barCount}`;
+    const res = await fetch(url);
+    if (res.ok) data = await res.json();
+  } catch (e) { console.warn('flag_pole fetch failed:', e); }
+
+  // Guard against a stale response landing after a toggle-off or symbol switch.
+  if (!pane.indicators.has('flag_pole')) return;
+  if (paneFetchKey(pane) !== key) return;
+
+  clearFlagPole(pane);
+  fp.lastFetchKey = key;
+  if (!data) return;
+
+  const found = ['bull', 'bear'].map(d => data[d]).filter(Boolean);
+  if (!found.length) {
+    // Absent renders absent -- but say WHY when the frame was simply too short,
+    // because "no pattern" and "could not look" are different answers.
+    if (data.note) showFlagPoleCard(pane, null, data.note);
+    return;
+  }
+
+  const markers = [];
+  found.forEach(g => {
+    const col = FP_COLORS[g.direction] || '#4c9aff';
+    const seg = (pts, width, dashed) => {
+      const sr = pane.chart.addLineSeries({
+        color: col, lineWidth: width, lineStyle: dashed ? 2 : 0,
+        priceLineVisible: false, lastValueVisible: false,
+        crosshairMarkerVisible: false, autoscaleInfoProvider: () => null,
+      });
+      sr.setData(pts);
+      fp.series.push(sr);
+    };
+
+    // The pole, drawn low->high for a bull and high->low for a bear so the line
+    // slopes the way the thrust did.
+    if (g.pole_t0 != null && g.pole_t1 != null) {
+      const a = g.direction === 'bull' ? g.pole_low : g.pole_high;
+      const b = g.direction === 'bull' ? g.pole_high : g.pole_low;
+      seg([{time: g.pole_t0, value: a}, {time: g.pole_t1, value: b}], 3, false);
+    }
+    // The flag: both boundaries, flat across the consolidation.
+    if (g.flag_t0 != null && g.flag_t1 != null) {
+      seg([{time: g.flag_t0, value: g.flag_high}, {time: g.flag_t1, value: g.flag_high}], 1, true);
+      seg([{time: g.flag_t0, value: g.flag_low},  {time: g.flag_t1, value: g.flag_low}],  1, true);
+    }
+
+    // The plan. Price lines rather than segments so they extend to the right edge
+    // where a trade would actually be managed.
+    const pl = (price, colour, title, style) => {
+      try {
+        fp.priceLines.push(pane.series.createPriceLine({
+          price: price, color: colour, lineWidth: 1, lineStyle: style,
+          axisLabelVisible: true, title: title,
+        }));
+      } catch {}
+    };
+    const tag = g.direction === 'bull' ? '' : ' \u25bc';
+    pl(g.entry,  col,        `FP trigger${tag}`, 0);
+    pl(g.stop,   '#f85149',  `FP stop${tag}`,    2);
+    pl(g.target, '#3fb950',  `FP target${tag}`,  2);
+
+    const t = g.broken ? (g.flag_t1 != null ? g.last_t : null) : g.flag_t1;
+    if (t != null) {
+      markers.push(g.direction === 'bull'
+        ? {time: t, position: 'belowBar', color: col,
+           shape: g.broken ? 'arrowUp' : 'circle',
+           text: g.broken ? 'FLAG BREAK' : 'FLAG'}
+        : {time: t, position: 'aboveBar', color: col,
+           shape: g.broken ? 'arrowDown' : 'circle',
+           text: g.broken ? 'FLAG BREAK \u25bc' : 'FLAG \u25bc'});
+    }
+  });
+  if (markers.length) setPaneMarkers(pane, 'flagPole', markers);
+  showFlagPoleCard(pane, found, null);
+}
+
+function showFlagPoleCard(pane, found, note) {
+  const fp = ensureFlagPoleState(pane);
+  if (!fp.infoEl) {
+    fp.infoEl = document.createElement('div');
+    fp.infoEl.style.cssText =
+      'position:absolute;left:8px;bottom:8px;z-index:9;pointer-events:none;' +
+      'font:11px -apple-system,"Segoe UI",sans-serif;color:var(--text-chart);' +
+      'background:rgba(76,154,255,0.12);border:1px solid rgba(76,154,255,0.5);' +
+      'border-radius:6px;padding:5px 9px;line-height:1.5;';
+    fp.infoEl.className = 'flagpole-info';
+    mountCard(pane, fp.infoEl, 'corner');
+  }
+  if (note) {
+    fp.infoEl.innerHTML = `<b>Flag &amp; Pole</b> — not computed: ${note}`;
+    return;
+  }
+  const rows = (found || []).map(g => {
+    const vc = g.vol_contract == null ? 'vol n/a'
+      : (g.vol_contract > 0
+          ? `vol dried ${(g.vol_contract * 100).toFixed(0)}%`
+          : `vol ROSE ${(-g.vol_contract * 100).toFixed(0)}%`);
+    const arrow = g.direction === 'bull' ? '\u25b2' : '\u25bc';
+    return `${arrow} pole <b>${g.pole_atr}\u00d7ATR</b>/${g.pole_bars}b · ` +
+           `flag ${g.flag_bars}b retrace <b>${(g.retrace * 100).toFixed(0)}%</b> · ${vc}<br>` +
+           `&nbsp;&nbsp;${g.broken ? '<b>BROKEN</b>' : 'watch'} — ` +
+           `trigger ${g.entry} · stop ${g.stop} · target ${g.target} (R:R ${g.rr})`;
+  });
+  fp.infoEl.innerHTML =
+    '<b>Flag &amp; Pole</b><br>' + rows.join('<br>') +
+    '<br><span style="opacity:0.75">Target = pole height projected — a measured ' +
+    'move, <b>not a forecast</b>. UNMEASURED.</span>';
+}
+
 // Backed by /api/falling_wedge (scanner_templates.detect_falling_wedge_geometry,
 // concepts/Falling-Wedge.md). Draws the two converging downward trendlines (green),
 // a translucent fill between them (painted by drawPatternZones from pane.fw.poly),

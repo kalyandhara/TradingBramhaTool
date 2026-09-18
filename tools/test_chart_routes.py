@@ -152,3 +152,74 @@ def test_the_bind_is_configurable_and_its_default_is_explained():
     assert '"--host"' in src
     assert "host=_args.host" in src
     assert "PWA" in src.split('"--host"')[0][-1200:]
+
+# ── /api/flag_pole (B-92 / PR-4) ─────────────────────────────────────────────
+#
+# The overlay is inline in `chart_dashboard.html`, so it needs no allow-list
+# entry -- but the API it reads does need to behave. What matters here is that a
+# short frame and a genuine no-pattern are DISTINGUISHABLE: an overlay that draws
+# nothing in both cases gives the reader no way to tell "there is no flag" from
+# "I could not look", and those want different reactions.
+
+def test_flag_pole_requires_a_symbol(client):
+    r = client.get("/api/flag_pole")
+    assert r.status_code == 400
+
+
+def test_flag_pole_returns_both_directions(client, monkeypatch):
+    """Both keys are always present, so the client never has to guess."""
+    import flag_pole as fpm
+    monkeypatch.setattr(cs, "_bars_to_df", lambda bars: None)
+    monkeypatch.setattr(cs.ds, "detect_source",
+                        lambda sym: type("S", (), {"get_ohlcv": staticmethod(lambda *a: [])})())
+    r = client.get("/api/flag_pole?symbol=TEST")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert "bull" in body and "bear" in body
+
+
+def test_a_short_frame_says_why_rather_than_reporting_no_pattern(client, monkeypatch):
+    """"No pattern" and "could not look" must not be the same answer.
+
+    A bare null on a short frame reads as "there is no flag here", which is a
+    claim the server is in no position to make.
+    """
+    import pandas as pd
+    import flag_pole as fpm
+    short = pd.DataFrame({"open": [1.0] * 10, "high": [1.0] * 10,
+                          "low": [1.0] * 10, "close": [1.0] * 10,
+                          "volume": [1.0] * 10})
+    monkeypatch.setattr(cs, "_bars_to_df", lambda bars: short)
+    monkeypatch.setattr(cs.ds, "detect_source",
+                        lambda sym: type("S", (), {"get_ohlcv": staticmethod(lambda *a: [])})())
+    body = client.get("/api/flag_pole?symbol=TEST").get_json()
+    assert body["bull"] is None and body["bear"] is None
+    assert "note" in body
+    assert str(fpm.WINDOW + fpm.ATR_N) in body["note"]
+
+
+def test_a_real_pattern_carries_its_plan_and_mapped_times(client, monkeypatch):
+    import numpy as np
+    import pandas as pd
+
+    # A clean bull flag & pole, the same shape test_flag_pole.py builds.
+    base = [100.0] * 120
+    up = list(np.linspace(100.0, 120.0, 11))[1:]
+    flag = list(np.linspace(120.0, 114.0, 6))
+    closes = np.array(base + up + flag + [flag[-1]], float)
+    frame = pd.DataFrame({"open": closes, "high": closes * 1.005,
+                          "low": closes * 0.995, "close": closes,
+                          "volume": np.full(len(closes), 1e6)})
+    bars = [{"time": 1_700_000_000 + i * 86400} for i in range(len(closes))]
+    monkeypatch.setattr(cs, "_bars_to_df", lambda b: frame)
+    monkeypatch.setattr(cs.ds, "detect_source",
+                        lambda sym: type("S", (), {"get_ohlcv": staticmethod(lambda *a: bars)})())
+
+    g = client.get("/api/flag_pole?symbol=TEST").get_json()["bull"]
+    assert g is not None
+    for k in ("entry", "stop", "target", "rr"):
+        assert g[k] is not None
+    # Bar indices must arrive as CHART TIMESTAMPS, not as indices.
+    for k in ("pole_t0", "pole_t1", "flag_t0", "flag_t1", "last_t"):
+        assert g[k] >= 1_700_000_000
+    assert g["pole_t0"] < g["pole_t1"] < g["flag_t0"] <= g["flag_t1"]
