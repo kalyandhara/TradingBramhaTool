@@ -114,6 +114,7 @@ none of them is.
 | ~~**B-9**~~ | ~~the Volume-Profile **80% rule**~~ — **MEASURED 2026-09-17: FALSIFIED.** 45.5% (95% CI 37.3–54.0, n=134) against a claimed 80%. Lift over base −4.1pp, p=0.422, explicitly NOT claimed | done — and it was never blocked on data |
 | ~~**B-42r**~~ | ~~`pivot_len` 5 vs 15~~ — **MEASURED 2026-09-17: the two settings agree on `state` only 29.6%** of the time (199 names), and 17.6% read DOWNTREND in the scanners against UPTREND on the chart. **Promoted to an OWNER decision** — see below | measured; the decision is yours |
 | **B-94** | **an outside letter’s option-chain levels have never been checked against our own** — [[sources/Bramesh-NIFTY-Gann-1x3-Higher-High-2026-09-18]] printed max pain **23,300**, call wall **23,500**, put wall **23,100** for 2026-09-18 | `tools/option_chain.py` already computes max pain + OI walls for indices (IDO) from the F&O bhavcopy, with the one-expiry rule enforced. **Nothing to build** — it is a run and a diff, and it scores a source’s reliability against a tool that exists |
+| **B-97** | **nothing has ever scored whether `pivot_d` and `pivot_w` AGREE** — the desk has printed both side by side since B-63b and never asked | both columns already compute in `row_metrics.build_row`; the state-scoring harness and the **rotation p-value** exist. The prior says it matters: **B-42r found `pivot_len` 5 vs 15 agreed on `state` only 29.6%**, 17.6% reading opposite directions. **Run this BEFORE B-96** adds three more timeframes that may disagree with each other. From [[sources/Bramesh-TradingView-Gann-Scanners-Product-Line]] |
 | **B-21b** | every floor set on 2026-08-07 came from **one session's cross-section** | the floors are labelled in code and the history to re-measure them on is cached |
 | **B-59r2** | PSAR's **unique** flips (68.9% uncovered at ±3) — the edge test the overlap check left owed | `psar_stai_edge.py` already scores PSAR-only cells |
 | **B-89** | **`mabias`** — a 9/20 EMA-cross verdict ladder shipping LONG/SHORT badges on the chart, **never scored** | the state-scoring harness exists; [[analyses/SVP-Structure-Signal-Pre-Registration]] is the template |
@@ -134,6 +135,8 @@ none of them is.
 | **B-91** | VWAP's zero-point cases say **why** — no volume (index spot) vs undefined on daily | small |
 | ~~**B-92**~~ | ~~Flag & Pole detector, both directions~~ — **BUILT 2026-09-17**, both cards carry a full plan; counting first caught a breakout condition that was unsatisfiable by construction | done |
 | **B-95** | **FII / client participant-wise F&O long:short ratios** — the “88% short is squeeze fuel” claim from [[sources/Bramesh-NIFTY-Gann-1x3-Higher-High-2026-09-18]]. **Probe the DATA first:** nothing here reads NSE’s participant-wise OI (`FII` in the toolchain is a *shareholder-name* classifier in `block_deal_intel.py`; the F&O bhavcopy carries contract OI, not the participant split). If the file is fetchable → pre-register, then measure **with rotation p-values**, because this is an autocorrelated STATE series and a t-test here manufactures significance (known null: p=0.031 Welch vs 0.32 rotation). Needs a control too — extremes cluster in falling markets by construction. See [[concepts/Participant-Positioning-FII-DII]] | data probe, then medium |
+| **B-96** | **monthly / quarterly / yearly pivot zones** — `row_metrics.pivot_levels()` already accepts any frame (*"Feed it a weekly-resampled frame to get weekly pivots"*) and `timeframe_board.py` already resamples to `ME`/`2QE`/`YE` from one download. **The only two call sites in all of `tools/` are `pivot_d` and `pivot_w`** (`row_metrics.py:510-511`, grep-verified). No new data, no new arithmetic — a composition of two things already built. From [[sources/Bramesh-TradingView-Gann-Scanners-Product-Line]], where the idea of looking past one timeframe sells for ₹6,666/month | small |
+| **B-98** | **a calendar-anchored reference level** — the January high/low, i.e. a **yearly opening-range breakout**. Nothing in `tools/` holds a calendar anchor (no `opening_range`, no year-open). **The only construct on that product page that is fully specified, reproducible and measurable on cached daily history**: an anchor rule, a state (above/below/inside) and an event (first close outside). Natural partner for **B-4/B-12** — anchor choice is the unsolved subjective half of Anchored VWAP, and **a calendar anchor needs no UI and no judgement**. Build the detector, then **pre-register before measuring** (B-92’s shape: the EVENT is the first close outside, not every bar of the state). From [[sources/Bramesh-TradingView-Gann-Scanners-Product-Line]] | small, then a pre-registration |
 | **B-93 / PR-2** | **trade-plan coverage as a visible metric** — only **7 of 31** firing scanners emit entry/stop/target | medium |
 
 ### OWNER — a judgement, not a task
@@ -1138,6 +1141,97 @@ nobody can see is wrong.
 
 **Cost:** small. The arithmetic exists, the walk pattern exists, the mount points
 exist. The judgement above is the expensive half, and it is written down now.
+
+## Ingested-research additions (2026-09-18) — B-96 / B-97 / B-98
+
+From [[sources/Bramesh-TradingView-Gann-Scanners-Product-Line]] — five paid TradingView Gann scanners, **₹24,330/month for the set**,
+all closed-source Pine, all capped at 40 symbols, and across five products **not one
+backtest, win rate, sample size or losing example**. Read the way the ScreeningMantis
+tables were: as a **catalogue of constructs to check against our own**, never as evidence.
+
+**Nothing worth buying. Three ideas worth stealing — and none of them is a Gann idea.**
+
+What was **declined**, with the reason:
+
+* **"Vibration", square/cube numbers, 180°/360°/540°/720° extensions** — unfalsifiable
+  as sold. No anchor rule, no scaling, no construction. Same verdict as
+  [[concepts/Gann-Angles-And-Trend-Change-Levels]]: *a level you cannot derive is a level
+  you cannot backtest*, and paying for it does not change that.
+* **"Institutional Floor"** — the **200 EMA**, renamed. The page says so itself.
+* **"Time-cycle averages"** — a moving average with a longer lookback.
+* **FRESH / NEAR state labels** — **already shipped as [[#B-63]]b**, and ours is better:
+  it prints the **age** (`ema_cross_age`, `bo_date`, the RS-rank walk) rather than a
+  two-state flag. Their 0.5% proximity band is also looser than `row_metrics.PIVOT_NEAR`
+  at **0.15%**.
+* **The drift table** (distance to level, absolute and %) — the arithmetic a `pivot_zone`
+  label exists to remove.
+* **The 40-symbol cap** — a Pine platform limit, not a design choice. B-92 ran across
+  **248 names**. Nothing here inherits it.
+
+> [!key-insight] Two of the three came from noticing something this desk already had and
+> was not using
+> B-96 is a composition of `pivot_levels()` and `timeframe_board`'s resampling — both
+> shipped, never combined. B-97 is a question about two columns that have printed side by
+> side since B-63b and were never compared. **Neither needed the source to invent
+> anything**; the source's only contribution was to make the absence visible. That is the
+> honest value of reading a competitor's feature list, and it is worth more than the
+> ₹2.92 lakh/year the list is attached to.
+
+### B-96 · higher-timeframe pivot zones — **BUILD, small**
+
+`pivot_levels()` is frame-agnostic by design; its docstring already invites this. Add
+`pivot_m` / `pivot_q` / `pivot_y` alongside `pivot_d` / `pivot_w`, resampling with the
+period-END anchors `timeframe_board.RESAMPLE` already uses so a partial current period
+shows as a partial bar rather than being dropped.
+
+**Two things to get right, both of which this desk has been bitten by before:**
+
+1. **A yearly pivot needs a PRIOR yearly bar.** `pivot_levels` reads `iloc[-2]`, so a name
+   listed inside the window has none — it must return `None`, not a pivot computed from a
+   stub. Precedent: `timeframe_board`'s `MIN_BARS` refusal, and PR-1c's *"Hyundai correctly
+   reports 2 rather than pretending to four"*.
+2. **Absent must render absent** (FR-4). A missing yearly pivot must not read as a verdict.
+
+### B-97 · do the pivot timeframes agree? — **MEASURABLE NOW, run it FIRST**
+
+No build at all: `pivot_d` and `pivot_w` both compute today. Score the agreement rate on
+`state` across the universe, the way [[#B-42r]] scored `pivot_len` 5 vs 15.
+
+**Use a rotation p-value.** A pivot zone is a slow, autocorrelated **state series**, not an
+event — the same trap recorded in [[concepts/Participant-Positioning-FII-DII]] and measured
+in B-56 (`gamma_regime_backtest._rotation_p`: a known null printed **p=0.031** under Welch
+and **0.32** under rotation).
+
+**Why this runs before B-96:** if daily and weekly already disagree as badly as `pivot_len`
+5 vs 15 did (29.6%), then adding monthly, quarterly and yearly produces **five columns that
+contradict each other**, and B-96 ships a confusion rather than a perspective. The
+agreement rate is the number that decides how B-96 should present itself.
+
+### B-98 · the calendar-anchored range — **BUILD then PRE-REGISTER**
+
+The January high/low, stripped of the branding, is a **yearly opening-range breakout**. It
+is the only construct on that page that can be reproduced here, because unlike every Gann
+level it states its anchor.
+
+Verified absent: no `opening_range`, no year-open reference anywhere in `tools/`.
+
+**Scope, deliberately narrow:**
+* Anchor = the first calendar month's high/low (the rule the source states — **use theirs
+  rather than tuning one**, so the test is of their claim and not of our fitting).
+* State = above / inside / below. Event = **the first close outside**.
+* Pre-register before measuring, on B-92's shape: **the EVENT is the transition, not every
+  bar of the state**, or the harness counts something nobody trades. Signal floor 200 per
+  direction, per the B-58 precedent.
+* Expect a **momentum confound**, exactly as B-92 has unresolved: a name above its January
+  range has been rising all year by construction. **The control belongs in the
+  pre-registration this time, not in the write-up afterwards.**
+
+**The prior is skeptical and goes on the record now:** B-19 found **0 of 41 scanners stable
+after costs**, and this desk's nearest existing construct — `Breakout` — is already
+measured. A yearly range is a 12-month lookback breakout with a calendar anchor; the anchor
+is the only novel part, and it is novel for **convenience**, not for any stated mechanism.
+
+---
 
 ## Ingested-research additions (2026-08-20)
 
