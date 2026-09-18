@@ -7530,6 +7530,13 @@ def detect_quasimodo(df: pd.DataFrame, pivot_len: int = 5,
     }
 
 
+# B-92 / PR-3. The flag & pole detector lives in its own module because it is
+# self-contained geometry with its own CLI and its own `--count`, and this file
+# is already 8.5k lines. The two cards below are thin wrappers over it, the same
+# split `scan_falling_wedge` uses over `detect_falling_wedge_geometry`.
+import flag_pole as _fp
+
+
 SCANNERS: dict[str, dict] = {
     "Shallow Flip (Renko, bounded correction)": {
         "fn": scan_shallow_flip,
@@ -7920,6 +7927,33 @@ SCANNERS: dict[str, dict] = {
             "consolidation breakouts (Close > period high, above EMA50, Volume "
             "> 2L, range gate per duration). Each stock is reported at the "
             "longest duration it cleared; results table sorts longest first."
+        ),
+        "category": "Pattern",
+    },
+    "Flag & Pole": {
+        "fn": _fp.scan_flag_pole,
+        "description": (
+            "Proportionate bull continuation: a pole of ≥4× ATR in ≤15 bars, then a "
+            "flag retracing ≤50% of it in 3–25 bars, then a close above the flag "
+            "high. The general case of High Tight Flag, which demands a ≥90% pole "
+            "and was one of three scanners B-19 could not score for too few "
+            "signals. Emits the card's three levels — entry at the flag break, stop "
+            "at the far flag boundary, target = the POLE HEIGHT PROJECTED. That "
+            "target is a measured move, NOT a forecast. Counted before claiming: "
+            "present on 5.1% of bars, BROKEN OUT on 0.45%. UNMEASURED — no "
+            "backtest, and B-19 found 0 of 41 scanners stable after costs."
+        ),
+        "category": "Pattern",
+    },
+    "Inverted Flag & Pole": {
+        "fn": _fp.scan_inverted_flag_pole,
+        "description": (
+            "The bear mirror, and the first bear continuation detector on this desk. "
+            "Down pole ≥4× ATR, shallow bounce retracing ≤50%, close below the flag "
+            "low. **Read it as EXIT / AVOID, not as an entry** — shorting NSE cash "
+            "for a swing hold is not available to most users here, so the useful "
+            "meaning is 'do not be long', the same scoping B-90 carries. Present on "
+            "3.3% of bars, broken out on 0.32%. UNMEASURED."
         ),
         "category": "Pattern",
     },

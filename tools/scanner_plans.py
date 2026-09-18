@@ -10,9 +10,10 @@ raw forward return, which says nothing about whether the trade the scanner
 implies was survivable. So plan coverage decides what the harness can even ask.
 
 Censused 2026-09-17 over 45 nifty500 names, every 25th bar, point-in-time:
-**45 of 46 registered scanners fired, and 14 of them carry a full
+**47 of 48 registered scanners fired, and 16 of them carry a full
 `entry`/`stop`/`target`. Thirty-one do not.** That number is why this rung
-outranks building a 47th pattern.
+outranked building a 47th pattern — and when PR-3 did build one, it arrived with
+a plan and the floor rose behind it (14 → 16).
 
 **PARTIAL came back empty, and that is a finding.** Every scanner either always
 emits a plan or never does — a plan is a property of the SCANNER, not of the

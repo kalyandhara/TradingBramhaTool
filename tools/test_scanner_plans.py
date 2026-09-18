@@ -163,7 +163,11 @@ def test_probe_skips_a_symbol_whose_fetch_fails():
 #:
 #: It is a DEBT, not a target: most registered scanners hand the reader a name
 #: and no levels, and `_simulate_plan` cannot score any of them on realised R.
-MIN_FULL_PLAN_SCANNERS = 14
+#:
+#: 14 -> 16 on 2026-09-17 when PR-3 added `Flag & Pole` and `Inverted Flag &
+#: Pole`, both FULL. That is the ratchet working in the direction it is supposed
+#: to: new detectors arrive with a plan, and the floor rises behind them.
+MIN_FULL_PLAN_SCANNERS = 16
 
 
 def _census():

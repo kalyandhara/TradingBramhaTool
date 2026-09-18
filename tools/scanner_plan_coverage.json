@@ -51,7 +51,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 41,
+   "fired": 42,
    "with_plan": 0
   },
   "Bearish Reversal Candle": {
@@ -135,6 +135,15 @@
    "fired": 8,
    "with_plan": 8
   },
+  "Flag & Pole": {
+   "fields": {
+    "entry": 66,
+    "stop": 66,
+    "target": 66
+   },
+   "fired": 66,
+   "with_plan": 66
+  },
   "HM Buy (Hilega Milega)": {
    "fields": {
     "entry": 243,
@@ -180,6 +189,15 @@
    "fired": 23,
    "with_plan": 0
   },
+  "Inverted Flag & Pole": {
+   "fields": {
+    "entry": 48,
+    "stop": 48,
+    "target": 48
+   },
+   "fired": 48,
+   "with_plan": 48
+  },
   "Liquidity Sweep": {
    "fields": {
     "entry": 53,
@@ -191,11 +209,11 @@
   },
   "Liquidity Sweep Bear": {
    "fields": {
-    "entry": 89,
-    "stop": 89,
+    "entry": 88,
+    "stop": 88,
     "target": 0
    },
-   "fired": 89,
+   "fired": 88,
    "with_plan": 0
   },
   "MFI Oversold Recovery": {
@@ -245,12 +263,12 @@
   },
   "Order Block Retest": {
    "fields": {
-    "entry": 96,
-    "stop": 96,
-    "target": 96
+    "entry": 95,
+    "stop": 95,
+    "target": 95
    },
-   "fired": 96,
-   "with_plan": 96
+   "fired": 95,
+   "with_plan": 95
   },
   "PEAD Drift": {
    "fields": {

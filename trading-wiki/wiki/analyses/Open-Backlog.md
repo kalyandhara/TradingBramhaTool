@@ -131,7 +131,7 @@ none of them is.
 | **B-87r** | the monolith **extraction** the ratchet is holding the line for | ongoing, one page per session |
 | **B-37** | volume share-card | small |
 | **B-91** | VWAP's zero-point cases say **why** — no volume (index spot) vs undefined on daily | small |
-| **B-92** | **Flag & Pole detector, both directions**, emitting entry / stop / pole-projected target | medium |
+| ~~**B-92**~~ | ~~Flag & Pole detector, both directions~~ — **BUILT 2026-09-17**, both cards carry a full plan; counting first caught a breakout condition that was unsatisfiable by construction | done |
 | **B-93 / PR-2** | **trade-plan coverage as a visible metric** — only **7 of 31** firing scanners emit entry/stop/target | medium |
 
 ### OWNER — a judgement, not a task
@@ -6758,7 +6758,28 @@ read as one.
 pole is the rarest member of the family. That is an argument **for** the general
 version — it would fire often enough to be measurable — not against it.
 
-### B-92 · Flag & Pole detector, both directions, with the levels — **P2**
+### B-92 · Flag & Pole detector, both directions, with the levels — **BUILT 2026-09-17**
+
+> [!key-insight] BUILT — and counting first caught a bug that made breakouts impossible
+> `tools/flag_pole.py`, two registered cards (**Flag & Pole**, **Inverted Flag &
+> Pole**), both emitting entry / stop / pole-projected target. Registry 46 → 48;
+> the PR-2 plan ratchet rose **14 → 16** behind them.
+>
+> **The first `--count` returned 189 patterns and `broken 0`.** The flag boundary
+> included the live bar, so `close > flag_high` was unsatisfiable by construction.
+> The boundary is now formed strictly before the bar that breaks it.
+>
+> **Counts, published:** bull present on **5.1%** of bars (broken out on 0.45%),
+> bear 3.3% (0.32%). A flag that has not broken is a WATCH, so the actionable rate
+> is the second number. The "any pullback" trap named before the build did not open.
+>
+> **Coverage, concrete:** on the same sample `High Tight Flag` fired **4** times
+> against this detector's **66**. HTF is unchanged and still registered.
+>
+> **UNMEASURED**, and both cards say so. Justified on coverage; B-19's 0-of-41
+> stands. Full write-up: [[analyses/Pattern-Reporting-Enhancement-Roadmap]].
+
+**Original scoping, kept because the reasoning still holds:**
 
 Build `detect_flag_pole` emitting the card's three levels, bull and bear.
 

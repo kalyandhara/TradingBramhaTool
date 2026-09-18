@@ -117,7 +117,7 @@ that fixes something currently misleading.**
 | ~~**PR-1b**~~ | ~~"Trading Strategies · Live Counts" is also frozen~~ — **DONE 2026-09-17**: the heading no longer says Live, and the computed "Net" line is gone | the heading was the boldest claim on the page and the one thing never true | done |
 | **PR-1c** | **"Fundamental Scores · Top Picks" is the third frozen literal** — `_FS_DATA` carries `ltp` and `ltp_chg`, under a caption saying *"computed from the last fundamental data pull"* | same defect again; scores need a source decision, but the LTP half is the PR-1 fix verbatim | owner |
 | ~~**PR-2**~~ | ~~Trade-plan coverage as a first-class, visible metric~~ — **DONE 2026-09-17**: censused, surfaced on Scanner Hub, and ratcheted. **14 of 45 observed scanners carry a plan; 31 do not** | the census is the baseline a test now asserts against | done |
-| **PR-3** | **The Flag & Pole detector, both directions** ([[analyses/Open-Backlog#B-92]]) — emitting the card's three levels | closes a named absence; the bear half is total | medium |
+| ~~**PR-3**~~ | ~~The Flag & Pole detector, both directions~~ — **DONE 2026-09-17**: `tools/flag_pole.py`, two registered scanners, both carrying a full plan. Registry 46 → 48, plan ratchet 14 → 16 | closed a named absence; the bear half was total | done |
 | **PR-4** | **A flag/pole chart overlay**, after PR-3 | `falling_wedge` / `vcp` / `roundbottom` set the precedent; no point drawing before detecting | small |
 
 ### PR-1 — DONE 2026-09-17, by the second route
@@ -268,6 +268,66 @@ Giving them plans is the follow-up; **this rung only makes the gap visible and
 stops it widening.** No scanner gained a plan in this pass, and none should have
 — inventing a stop for 31 detectors in one commit is exactly the kind of change
 that needs measuring one at a time.
+
+### PR-3 — DONE 2026-09-17
+
+`tools/flag_pole.py` — `detect_flag_pole` plus two registered cards, **Flag &
+Pole** and **Inverted Flag & Pole**. Both emit the card's three levels, so the
+plan ratchet rose **14 → 16** behind them; the registry is **46 → 48**.
+
+> [!key-insight] The count found a bug that no "does it detect a flag" test would have
+> The first `--count` returned **189 patterns and `broken 0`** — not one breakout,
+> ever.
+>
+> The flag boundary was the max high over the whole flag **including the live
+> bar**, and the breakout test asked whether that bar's *close* exceeded it. A
+> close cannot exceed its own bar's high, so the condition was **unsatisfiable by
+> construction**. The detector would have shipped finding flags and never once
+> saying one had broken.
+>
+> Counting first is what caught it, exactly as B-58 intended — and the fix is a
+> better rule anyway: the boundary is now formed strictly **before** the bar that
+> breaks it, so it does not move under the trade once set. A test pins that the
+> trigger is identical in the watch and broken cases.
+
+**The counts, published as promised.** 60 names, every 15th bar, 2,216 evaluated:
+
+| | present | of bars | of symbols | broken out |
+|---|---|---|---|---|
+| bull | 114 | **5.1%** | 52/60 | 10 (**0.45%** of bars) |
+| bear | 74 | **3.3%** | 41/60 | 7 (0.32%) |
+
+**Read those two columns differently.** The pattern being *present* on 5% of bars
+is a WATCH state — a flag that has not broken is not a signal. What is actionable
+is the **broken-out** rate of **0.45%**, which is selective. Neither number is
+"any pullback in an uptrend": the trap named before the build did not open.
+
+**The coverage argument, made concrete.** On the same 45-name plan census,
+`High Tight Flag` fired **4** times; `Flag & Pole` fired **66** and the inverted
+half **48**. The rare cousin stays registered and unchanged — this does not
+replace it — but the family is now measurable, which is the whole justification.
+**Justified on coverage, never on edge**: B-19's 0-of-41 stands, and both cards
+say UNMEASURED in their own reasons.
+
+**Three parameter decisions, each recorded in the module:**
+* **Pole in ATR (≥4× in ≤15 bars), not per cent** — one threshold means one thing
+  across a universe of different volatilities.
+* **Flag retrace capped at 50%**, the loose end of the classic 38-50% range.
+  Tightening it is what made HTF unmeasurable, so it is the one gate deliberately
+  left wide.
+* **Volume contraction measured, NOT gated.** HTF rejects a rising-volume flag and
+  its reasoning is sound — that is distribution into strength — but enforcing it
+  costs the signals this detector exists to provide. `vol_contract` is reported so
+  a later test can ask whether it matters instead of assuming it. A test pins that
+  a rising-volume flag is still detected.
+
+**The bear half is scoped as EXIT / AVOID**, not entry, in the docstring, the
+registry description and a test — shorting NSE cash for a swing hold is not
+available to most users here.
+
+**What is still owed:** a measurement. The target is the pole height projected and
+is labelled a projection rather than a forecast; nothing about either card has
+been backtested, and neither votes in confluence.
 
 ### PR-3, the parameters that decide whether it is a detector or noise
 
