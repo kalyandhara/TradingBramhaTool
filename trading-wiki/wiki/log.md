@@ -1,6 +1,16 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-17] build | PR-1c — the last frozen block computed, and one number deliberately not recreated
+- `tools/fundamental_panel.py`. Sector, market cap, profit CAGR, PE, the PE band, LTP and the day change all come from `fundamentals_deep` + `fundamental_score` at load. The six NAMES stay a fixed August watch list — nothing re-picks them — and the caption says so.
+- **The /100 shield was NOT recomputed, because this desk decided not to have one.** `fundamental_score`'s docstring: *"There is no overall /100 here... a fourth number badged 'Overall' would be read as a competing master score."* It emits business quality as a WORD specifically so it cannot be mistaken for one. The frozen `🛡 81 /100` is exactly the number that decision forbids, so **recomputing it would have meant inventing it.**
+- **Replaced by the two readings the scorer does produce** — business quality and entry price, separately. More informative, not less: *"a good business at a bad price is the single most common way a fundamentals page misleads."* **CRISIL is that case today: GOOD QUALITY 74 at a STRETCHED entry 42**, which one number badged 81 cannot express. A test pins that no `overall` field can return under another name.
+- **The frozen row printed a PE for a company with no earnings.** **Piramal Pharma's TTM EPS is −2.4**, so its PE is undefined — yet the literal showed **PE 62.0×**, a **40–95× band** and a score of 59/100. That is worse than PR-1's SPLPETRO case: that number was stale, this one was never meaningful at any price. The panel now reads **"no PE — not profitable on TTM earnings"**, and the band skips any year whose EPS is not positive.
+- **Two labels corrected.** "EPS 3Y CAGR" → **"Profit CAGR 3Y"**, because that is what is computed and the two differ by dilution. "PE 3Y range" → **"PE at N year-ends"** with N shown — a true range needs EPS at every point in time; Hyundai correctly reports **2** rather than pretending to four, having listed in 2024.
+- **Coverage is on the surface**: each row shows how many of the scorer's 17 inputs resolved (CRISIL 16/17, Piramal 13/17), so a confident-looking verdict built on half the inputs cannot pass for a complete one.
+- Monolith **13,881 → 13,784** lines — the ~100-line block became one call, rendering in the module per B-87. 15 tests; suite 727 → 742.
+- **The pattern-reporting roadmap is now fully closed.** The remaining debt is elsewhere: **B-92's detector has never been measured**, and that is a pre-registration and a run, the same shape as B-56.
+
 ## [2026-09-17] build | PR-4 — the flag & pole on the chart, and the roadmap closes
 - `/api/flag_pole` + an inline overlay in `chart_dashboard.html`, modelled on the `falling_wedge` pair. Registered as **Flag & Pole + measured-move plan (both directions)** under Price Patterns.
 - **Draws the pole** as a thick line sloping the way the thrust went, **the flag** as its two boundaries, and **all three plan levels as price lines** — `FP trigger`, `FP stop`, `FP target` — so they extend to the right edge where a trade is actually managed. Marker reads `FLAG BREAK` or `FLAG`; a corner card carries the geometry.

@@ -13766,110 +13766,13 @@ if current_page == "Strategy Hub":
         # as a finding about the market; it was a finding about a literal. A
         # scoreboard is only worth printing when something is measuring it.
 
-    # ── 3. Fundamental Scores ─────────────────────────────────────────────────
+    # ── 3. Fundamentals (PR-1c) ───────────────────────────────────────────────
+    # Was `_FS_DATA`, a literal of six rows carrying a /100 shield, an EPS CAGR,
+    # a PE band, LTP and day change -- all hardcoded under a caption claiming the
+    # scores were "computed from the last fundamental data pull". It printed a
+    # PE of 62x for Piramal Pharma, whose TTM EPS is -2.4: not stale, meaningless.
     with st.container(border=True):
-        st.markdown("#### Fundamental Scores  ·  Top Picks")
-        st.caption(
-            "Scores computed from the last fundamental data pull. "
-            "Shield color: green ≥ 70 · amber 50–69 · red < 50."
-        )
-
-        _FS_DATA = [
-            # (stock, sector, mcap_cr, fund_score, eps_cagr_3y, pe_min, pe_max, pe_now, ltp, ltp_chg)
-            ("DCM Shriram",    "Chemicals",      9_800,  75, -2.15,  12.1, 28.4, 14.2, 1143.50, +1.2),
-            ("Vedanta",        "Metals",        1_52_000, 72, +16.10, 6.3, 18.7,  9.1,  465.80, +0.8),
-            ("Jubilant FW",    "Consumer",      12_500,  68, +8.40,  32.0, 58.2, 41.0,  488.20, +2.1),
-            ("CRISIL",         "Financials",    32_400,  81, +11.20, 28.5, 45.0, 36.8, 4480.80, +0.4),
-            ("Hyundai India",  "Auto",         1_20_000, 65, +4.50,  18.0, 32.0, 22.1, 2200.00, +0.6),
-            ("Piramal Pharma", "Pharma",        14_200,  59, -1.80,  40.0, 95.0, 62.0,  214.19, +3.2),
-        ]
-
-        def _shield_color(score: int) -> str:
-            if score >= 70:
-                return "#2e7d32"
-            if score >= 50:
-                return "#e65100"
-            return "#c62828"
-
-        def _pe_bar_html(pe_min, pe_max, pe_now, width=90) -> str:
-            if pe_max <= pe_min:
-                return "—"
-            pct = max(0.0, min(1.0, (pe_now - pe_min) / (pe_max - pe_min)))
-            filled = int(pct * width)
-            marker = filled
-            return (
-                f'<div style="position:relative;width:{width}px;height:8px;'
-                f'background:#e0e0e0;border-radius:4px;display:inline-block;">'
-                f'<div style="width:{filled}px;height:8px;background:#1565c0;'
-                f'border-radius:4px;"></div>'
-                f'<div style="position:absolute;top:-2px;left:{marker}px;'
-                f'width:3px;height:12px;background:#ff6f00;border-radius:2px;"></div>'
-                f'</div><span style="font-size:10px;margin-left:5px;">{pe_now:.1f}x</span>'
-            )
-
-        for (_fstock, _fsec, _fmcap, _fscore, _feps, _fpe_min, _fpe_max, _fpe_now,
-             _fltp, _fchg) in _FS_DATA:
-            _sc = _shield_color(_fscore)
-            _chg_color = "#2e7d32" if _fchg >= 0 else "#c62828"
-            _chg_sign  = "+" if _fchg >= 0 else ""
-            _eps_color = "#2e7d32" if _feps >= 0 else "#c62828"
-
-            fc1, fc2, fc3, fc4, fc5, fc6 = st.columns([2.5, 1.2, 1.0, 1.8, 1.8, 1.2])
-            with fc1:
-                st.markdown(
-                    f'<div style="padding-top:4px;font-weight:600;">{_fstock}</div>'
-                    f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
-                    f'{_fsec} · ₹{_fmcap/100:,.0f}Cr MCap</div>',
-                    unsafe_allow_html=True,
-                )
-            with fc2:
-                st.markdown(
-                    f'<div style="padding-top:4px;">'
-                    f'<span style="background:{_sc};color:#fff;border-radius:6px;'
-                    f'padding:3px 10px;font-weight:700;font-size:13px;">🛡 {_fscore}</span>'
-                    f'<span style="font-size:10px;color:{rs.TOKENS["text_muted"]};'
-                    f'margin-left:4px;">/100</span></div>',
-                    unsafe_allow_html=True,
-                )
-            with fc3:
-                st.markdown(
-                    f'<div style="padding-top:6px;font-size:12px;">'
-                    f'<span style="color:{_eps_color};font-weight:600;">'
-                    f'{_chg_sign if _feps >= 0 else ""}{_feps:.2f}%</span>'
-                    f'<br><span style="font-size:10px;color:{rs.TOKENS["text_muted"]};">'
-                    f'EPS 3Y CAGR</span></div>',
-                    unsafe_allow_html=True,
-                )
-            with fc4:
-                st.markdown(
-                    f'<div style="padding-top:8px;">'
-                    f'{_pe_bar_html(_fpe_min, _fpe_max, _fpe_now)}</div>'
-                    f'<div style="font-size:10px;color:{rs.TOKENS["text_muted"]};">'
-                    f'PE 3Y range {_fpe_min:.0f}–{_fpe_max:.0f}x</div>',
-                    unsafe_allow_html=True,
-                )
-            with fc5:
-                st.markdown(
-                    f'<div style="padding-top:4px;font-size:14px;font-weight:700;">'
-                    f'₹{_fltp:,.2f}</div>'
-                    f'<div style="font-size:11px;color:{_chg_color};">'
-                    f'{_chg_sign}{_fchg:.2f}% today</div>',
-                    unsafe_allow_html=True,
-                )
-            with fc6:
-                _qs_url = f"?nav=analyze&symbol={_fstock.replace(' ','%20').split()[0].upper()}"
-                st.markdown(
-                    f'<div style="padding-top:6px;">'
-                    f'<a href="{_qs_url}" target="_self" style="font-size:11px;">'
-                    f'Analyze ↗</a></div>',
-                    unsafe_allow_html=True,
-                )
-
-            st.markdown(
-                f'<hr style="border:none;border-top:1px solid {rs.TOKENS["border"]};'
-                f'margin:4px 0;">',
-                unsafe_allow_html=True,
-            )
+        __import__("fundamental_panel").render(rs.TOKENS)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -111,15 +111,15 @@ bear side does not exist in any form.**
 Four rungs, ordered by *reader harm*, not by build size. **PR-1 is the only one
 that fixes something currently misleading.**
 
-> [!note] Status 2026-09-17: PR-1, PR-1b, PR-2, PR-3 and PR-4 are DONE.
-> What remains is **PR-1c**, which is an owner decision about where the
-> Fundamental Scores block's numbers should come from — not a build.
+> [!note] Status 2026-09-17: every rung is DONE — PR-1, PR-1b, PR-1c, PR-2, PR-3, PR-4.
+> The remaining debt is not on this roadmap: **B-92's detector has never been
+> measured**, and that is a pre-registration and a run, the same shape as B-56.
 
 | # | Rung | Why it is at this rank | Size |
 |---|---|---|---|
 | ~~**PR-1**~~ | ~~Strategy Hub's pattern table presents frozen numbers as live~~ — **DONE 2026-09-17**: LTP recomputed from the batched price source, Move % derived, scoreboard reports its denominator | one row was counted on the wrong side of its own scoreboard | done |
 | ~~**PR-1b**~~ | ~~"Trading Strategies · Live Counts" is also frozen~~ — **DONE 2026-09-17**: the heading no longer says Live, and the computed "Net" line is gone | the heading was the boldest claim on the page and the one thing never true | done |
-| **PR-1c** | **"Fundamental Scores · Top Picks" is the third frozen literal** — `_FS_DATA` carries `ltp` and `ltp_chg`, under a caption saying *"computed from the last fundamental data pull"* | same defect again; scores need a source decision, but the LTP half is the PR-1 fix verbatim | owner |
+| ~~**PR-1c**~~ | ~~"Fundamental Scores · Top Picks" is the third frozen literal~~ — **DONE 2026-09-17**: every number computed from `fundamentals_deep` + `fundamental_score`. The /100 shield was **not** recomputed, because this desk deliberately has no overall score | it printed a 62× PE for a loss-making company | done |
 | ~~**PR-2**~~ | ~~Trade-plan coverage as a first-class, visible metric~~ — **DONE 2026-09-17**: censused, surfaced on Scanner Hub, and ratcheted. **14 of 45 observed scanners carry a plan; 31 do not** | the census is the baseline a test now asserts against | done |
 | ~~**PR-3**~~ | ~~The Flag & Pole detector, both directions~~ — **DONE 2026-09-17**: `tools/flag_pole.py`, two registered scanners, both carrying a full plan. Registry 46 → 48, plan ratchet 14 → 16 | closed a named absence; the bear half was total | done |
 | ~~**PR-4**~~ | ~~A flag/pole chart overlay~~ — **DONE 2026-09-17**: `/api/flag_pole` + an inline overlay drawing the pole, the flag and all three plan levels, both directions | the roadmap is now closed except PR-1c | done |
@@ -252,6 +252,61 @@ mirrored levels and an honest "vol ROSE 20%".
 
 **Four route tests**, including that a real pattern's bar indices arrive as chart
 **timestamps** rather than indices — the one transformation this route owns.
+
+### PR-1c — DONE 2026-09-17, and one thing deliberately NOT recomputed
+
+`tools/fundamental_panel.py`. Every number now comes from `fundamentals_deep` +
+`fundamental_score` at load: sector, market cap, profit CAGR, PE, the PE band,
+LTP and the day change. The six NAMES stay a fixed August watch list — nothing
+re-picks them — and the caption says exactly that.
+
+> [!key-insight] The /100 shield was not recomputed, because this desk decided not to have one
+> The owner asked to recompute the scores. The honest answer to part of that
+> request is **"that number should not exist"**, and the reason is already written
+> down in `fundamental_score`'s own docstring:
+>
+> *"There is no overall /100 here. The dashboard already carries the M1 technical
+> Overall Rating, the council verdict, and Setup Intelligence; a fourth number
+> badged 'Overall' would be read as a competing master score."*
+>
+> It emits business quality as a **word** specifically *"so it cannot be mistaken
+> for a fourth Overall Rating"*. The frozen block's `🛡 81 /100` is precisely the
+> number that decision forbids. **Recomputing it would have meant inventing it.**
+>
+> So the shield is replaced by the two readings the scorer does produce —
+> **business quality** and **entry price**, scored separately. Strictly more
+> informative, and the split exists because *"a good business at a bad price is
+> the single most common way a fundamentals page misleads."* CRISIL is that case
+> today: **GOOD QUALITY 74 at a STRETCHED entry 42**, which one number badged 81
+> cannot express. A test pins that no `overall` field can come back under another
+> name.
+
+> [!warning] The frozen row printed a PE for a company with no earnings
+> **Piramal Pharma's TTM EPS is −2.4** — it is loss-making, so its PE is
+> undefined. The frozen literal printed **PE 62.0×** and a **40–95× band**, plus
+> a fundamental score of 59/100.
+>
+> That is worse than the SPLPETRO case PR-1 found. SPLPETRO's number was stale;
+> this one was never meaningful at any price. The panel now reads
+> **"no PE — not profitable on TTM earnings"**, and `pe_at_year_ends` skips any
+> year whose EPS is not positive rather than producing a band point from it.
+
+**Two labels corrected on the way:**
+* **"EPS 3Y CAGR" → "Profit CAGR 3Y"**, because `profit_cagr_3y` is what is
+  computed. The two differ by dilution, which the same payload measures
+  separately. A profit CAGR under an EPS label is a small lie that compounds on
+  any name that issued stock.
+* **"PE 3Y range" → "PE at N year-ends"**, with N shown. A true range needs EPS
+  at every point in time; what exists is EPS at each annual period end. Hyundai
+  correctly reports **2** year-ends rather than pretending to four — it listed in
+  2024.
+
+**Coverage is on the surface.** Each row shows how many of the scorer's 17 metric
+inputs resolved (CRISIL 16/17, Piramal 13/17), so a confident-looking verdict
+built on half the inputs cannot pass for a complete one.
+
+**The monolith shrank** 13,881 → 13,784 lines: the ~100-line frozen block became
+one call, with the rendering in the module (the B-87 rule). 15 tests.
 
 ### PR-1's original statement, kept for the record
 
