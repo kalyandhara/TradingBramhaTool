@@ -45,6 +45,36 @@ instead of assuming it.
 
 **Close-confirmed breakout**, per this desk's convention.
 
+── MEASURED 2026-09-17 (B-92) ──────────────────────────────────────
+248 names, 1,189 bull and 979 bear breakouts. `flag_pole_edge.py`; full write-up
+in `analyses/Flag-Pole-Pre-Registration`.
+
+    BULL   edge +0.71% @20d, p=0.0499   PASS, and MARGINAL -- on the threshold
+           nothing at 5d/10d (p~0.86); +2.03% @60d (p=0.003)
+           plan: target 36.8% / stop 51.6% / avg +0.36R
+
+    BEAR   edge +1.33% @20d, p=0.0005   INVERTED -- breakdowns went UP
+           plan: target 8.6% / stop 77.8% / avg -0.44R
+
+**The plan beat the entry on the bull side.** 36.8% of trades reach a target two
+to three times the risk, so it pays +0.36R while losing more often than it wins --
+which is what a measured move is supposed to do, and the part of the card that
+held up best.
+
+**The volume gate was NOT added.** Claim C asked whether `vol_contract` separates
+winners, since HTF rejects a rising-volume flag as distribution into strength. It
+does not: flags on RISING volume returned 3.52% against 2.38% for flags that dried
+up. The subgroup is small (126 against 1,063) and was pre-registered as
+non-decisive, so this reads as "no support for gating", NOT "rising volume is
+better". Measuring the field rather than gating on it was the right call.
+
+**The confound that is NOT resolved.** This fires only after a >=4 ATR thrust, so
+its population is momentum names, and an every-bar baseline does not control for
+that. Nothing at 5d/10d against +2.03% at 60d is the shape a trend confound would
+produce. A momentum-matched control is the next test and was not pre-registered
+here; until it runs, the bull edge is "not distinguishable from being in strong
+names".
+
 ── The plan, and what the target is not ──────────────────────────────────────
 Entry, stop and target are all derived from the pattern's own geometry — none is
 a number someone picked. The target is the pole height projected from the
@@ -269,9 +299,18 @@ def _card(df: pd.DataFrame, direction: str) -> Optional[dict[str, Any]]:
             f"{state} — trigger {g['entry']}",
             f"Trade plan — entry {g['entry']} · stop {g['stop']} (far flag boundary) "
             f"· target {g['target']} · R:R {g['rr']}",
-            "Target is the POLE HEIGHT PROJECTED from the trigger — a measured "
-            "move, not a forecast. UNMEASURED: this detector has no backtest, and "
-            "B-19 found 0 of 41 scanners stable after costs.",
+            ("Target is the POLE HEIGHT PROJECTED from the trigger — a measured "
+             "move, not a forecast. MEASURED 2026-09-17 (B-92): the bull breakout "
+             "edges +0.71% at 20d (p=0.0499, n=1,189) — a MARGINAL pass — and its "
+             "plan pays +0.36R while losing more often than it wins. No "
+             "confluence vote; a momentum confound is unresolved."
+             if bull else
+             "Target is the POLE HEIGHT PROJECTED from the trigger — a measured "
+             "move, not a forecast. MEASURED 2026-09-17 (B-92) and INVERTED: 979 "
+             "breakdowns were followed by +1.33% MORE than baseline at 20 "
+             "sessions (p=0.0005), and this plan hit its target 8.6% of the time "
+             "against a 77.8% stop rate (−0.44R). STRUCTURE only — not a short, "
+             "and on this evidence not an exit signal either."),
         ],
         "score_base": round(min(100.0, 40 + g["pole_atr"] * 6
                                 + (1 - g["retrace"]) * 30), 1),

@@ -7939,9 +7939,17 @@ SCANNERS: dict[str, dict] = {
             "and was one of three scanners B-19 could not score for too few "
             "signals. Emits the card's three levels — entry at the flag break, stop "
             "at the far flag boundary, target = the POLE HEIGHT PROJECTED. That "
-            "target is a measured move, NOT a forecast. Counted before claiming: "
-            "present on 5.1% of bars, BROKEN OUT on 0.45%. UNMEASURED — no "
-            "backtest, and B-19 found 0 of 41 scanners stable after costs."
+            "target is a measured move, NOT a forecast. Present on 5.1% of bars, "
+            "BROKEN OUT on 0.45%. **MEASURED 2026-09-17 (B-92), 1,189 breakouts "
+            "on 248 names: edge +0.71% at 20 sessions, p=0.0499 — a PASS by the "
+            "pre-registered rule, and a MARGINAL one sitting on the threshold.** "
+            "Nothing at 5 or 10 days (p≈0.86). The PLAN did better than the "
+            "entry: target hit 36.8% against a 51.6% stop rate, avg +0.36R — it "
+            "loses more often than it wins and still pays, which is what a "
+            "measured move is supposed to do. **No confluence vote**: one test "
+            "buys visibility, not authority, and a momentum confound is "
+            "unresolved (it fires only after a 4×ATR thrust). See "
+            "analyses/Flag-Pole-Pre-Registration."
         ),
         "category": "Pattern",
     },
@@ -7953,7 +7961,17 @@ SCANNERS: dict[str, dict] = {
             "low. **Read it as EXIT / AVOID, not as an entry** — shorting NSE cash "
             "for a swing hold is not available to most users here, so the useful "
             "meaning is 'do not be long', the same scoping B-90 carries. Present on "
-            "3.3% of bars, broken out on 0.32%. UNMEASURED."
+            "3.3% of bars, broken out on 0.32%. **MEASURED 2026-09-17 (B-92) and "
+            "INVERTED — do not trade it in either direction.** 979 breakdowns "
+            "on 248 names: the stock went UP +1.33% MORE than baseline at 20 "
+            "sessions (p=0.0005), and the plan hit its target only 8.6% of the "
+            "time against a 77.8% stop rate, avg −0.44R. A bear flag breaking "
+            "down was followed by strength. **The mirror was NOT shipped** — a "
+            "significant inversion is a reason to re-read the construction, not "
+            "to flip the label, and the window is a market that rose. Kept as "
+            "STRUCTURE only: it marks a down thrust that paused, which is worth "
+            "seeing, but on this evidence it is neither a short nor an exit "
+            "signal. See analyses/Flag-Pole-Pre-Registration."
         ),
         "category": "Pattern",
     },

@@ -249,6 +249,14 @@ STUDIES: tuple[dict, ...] = (
         "source": "analyses/Open-Backlog#B-8",
     },
     {
+        "item": "B-92", "tool": "flag_pole_edge.py", "date": "2026-09-17",
+        "subjects": ("Flag & Pole", "Inverted Flag & Pole"),
+        "verdict": "MIXED",
+        "headline": ("bull +0.71% @20d p=0.0499 (marginal pass), plan +0.36R on a "
+                     "36.8% target rate; bear INVERTED +1.33% p=0.0005"),
+        "source": "analyses/Flag-Pole-Pre-Registration",
+    },
+    {
         "item": "B-56", "tool": "svp_structure_backtest.py", "date": "2026-09-17",
         "subjects": ("SVPSTRUCT.read",),
         "verdict": "NEGATIVE",

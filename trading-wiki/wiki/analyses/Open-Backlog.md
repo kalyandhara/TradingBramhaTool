@@ -6758,7 +6758,39 @@ read as one.
 pole is the rarest member of the family. That is an argument **for** the general
 version — it would fire often enough to be measurable — not against it.
 
-### B-92 · Flag & Pole detector, both directions, with the levels — **BUILT 2026-09-17**
+### B-92 · Flag & Pole detector — **BUILT + MEASURED 2026-09-17: bull marginal pass, bear INVERTED**
+
+> [!warning] MEASURED — 248 names, 1,189 bull and 979 bear breakouts
+> **BULL: edge +0.71% at 20 sessions, p = 0.0499.** A PASS by the pre-registered
+> rule and **marginal in the most literal sense** — it sits on the fourth decimal
+> of its own threshold. Nothing at 5 or 10 days (p ≈ 0.86); +2.03% at 60 days.
+>
+> **BEAR: edge +1.33% at 20 sessions, p = 0.0005 — INVERTED.** Breakdowns were
+> followed by the stock going UP more than baseline. **The mirror was not
+> shipped**; the card now says STRUCTURE only, and its earlier exit/avoid framing
+> is retired — a breakdown followed by strength is not a reason to get out.
+>
+> **The PLAN beat the entry, and that is the best thing here.** Bull: target hit
+> **36.8%** against a 51.6% stop rate, **avg +0.36R** — it loses more often than
+> it wins and still pays, which is what a measured move is supposed to do. Bear:
+> target 8.6% / stop 77.8% / −0.44R.
+>
+> **The volume gate was NOT added.** The question PR-3 deferred instead of
+> assuming: flags on RISING volume returned 3.52% against 2.38% for flags that
+> dried up, so HTF's gate would have removed the better subgroup. Pre-registered
+> as non-decisive and the subgroup is small (126 vs 1,063), so it reads as **no
+> support for gating**, not "rising volume is better".
+>
+> **The confound is NOT resolved.** This fires only after a ≥4×ATR thrust, so its
+> population is momentum names, and an every-bar baseline does not control for
+> that. Nothing at 5d/10d against +2.03% at 60d is the shape a trend confound
+> produces. **A momentum-matched control is the next test** and needs its own
+> pre-registration; until it runs, the bull edge is not distinguishable from being
+> in strong names.
+>
+> Full design and result: [[analyses/Flag-Pole-Pre-Registration]].
+
+**Build entry, kept because the reasoning still holds:**
 
 > [!key-insight] BUILT — and counting first caught a bug that made breakouts impossible
 > `tools/flag_pole.py`, two registered cards (**Flag & Pole**, **Inverted Flag &

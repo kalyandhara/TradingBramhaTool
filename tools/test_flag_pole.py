@@ -204,12 +204,29 @@ def test_both_cards_are_registered_and_emit_a_full_plan():
         assert spl.has_plan(hit), f"{name} fired without a full entry/stop/target"
 
 
-def test_the_card_says_the_target_is_a_projection():
+def test_the_card_says_the_target_is_a_projection_and_carries_its_measurement():
+    """The card must state what the target IS and what the test FOUND.
+
+    It said UNMEASURED until 2026-09-17. It now carries the number instead, and
+    still says it does not vote -- a marginal pass buys visibility, not authority.
+    """
     hit = fp.scan_flag_pole(_bull(breakout=True))
     assert hit
     blob = " ".join(hit["reasons"])
     assert "PROJECTED" in blob and "not a forecast" in blob
-    assert "UNMEASURED" in blob
+    assert "MEASURED" in blob and "p=0.0499" in blob
+    assert "MARGINAL" in blob
+    assert "No confluence vote" in blob
+
+
+def test_the_bear_card_says_it_was_measured_and_inverted():
+    """The pre-registered consequence: the inversion goes on the surface."""
+    hit = fp.scan_inverted_flag_pole(_bear(breakout=True))
+    assert hit
+    blob = " ".join(hit["reasons"])
+    assert "INVERTED" in blob
+    assert "STRUCTURE only" in blob
+    assert "not a short" in blob
 
 
 def test_the_bear_card_is_scoped_as_exit_not_entry():

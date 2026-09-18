@@ -1,7 +1,7 @@
 ---
-title: "Flag & Pole — Test Design (pre-registered)"
+title: "Flag & Pole — Test Design (pre-registered) — BULL MARGINAL PASS, BEAR INVERTED"
 category: analysis
-tags: [flag-and-pole, pre-registration, continuation, measured-move, backtest, b-92]
+tags: [flag-and-pole, pre-registration, continuation, measured-move, backtest, b-92, measured-inverted, marginal-pass]
 timeframe: swing
 created: 2026-09-17
 updated: 2026-09-17
@@ -93,6 +93,13 @@ crossunders. Its plan is walked with the mirror rule (stop above, target below).
 cash for a swing hold is unavailable to most users of this repo. A positive result
 on the bear side means "do not be long", not "go short".
 
+> [!warning] Superseded by this page's own result — added 2026-09-17 after the run
+> The exit/avoid framing assumed the bear half would at worst be uninformative.
+> **It came back INVERTED**: breakdowns were followed by strength (+1.33%,
+> p=0.0005). So it is not an exit signal either — acting on it would have meant
+> selling into recoveries. The framing above is kept as written, because a
+> pre-registration edited after its result is worthless, and corrected here.
+
 ## Floor
 
 **200 signals per direction.** Below it, that direction is reported
@@ -126,9 +133,110 @@ result is a new hypothesis needing its own pre-registration and its own window.
 `nse_universe` nifty500, daily bars, walked point-in-time — each evaluation sees
 `df.iloc[:t+1]` only. Universe size and window are recorded with the result.
 
-## RESULT
+## RESULT — measured 2026-09-17: **bull MARGINAL PASS, bear INVERTED**
 
-*(empty on purpose until the run)*
+`flag_pole_edge.py`, **248 nifty500 names**, daily bars walked point-in-time at
+stride 1, 58,718 baseline observations. **1,189 bull and 979 bear breakouts** —
+both directions clear the 200 floor comfortably, so neither is underpowered.
+
+### A — edge
+
+| | h | n | signal % | baseline % | **edge** | hit % | p |
+|---|---|---|---|---|---|---|---|
+| **BULL** | 5 | 1,189 | 0.25 | 0.22 | +0.03 | 47.0 | 0.886 |
+| | 10 | 1,189 | 0.79 | 0.74 | +0.05 | 51.6 | 0.859 |
+| | **20** | **1,189** | **2.50** | **1.79** | **+0.71** | **54.6** | **0.0499** |
+| | 60 | 1,189 | 8.11 | 6.09 | +2.03 | 60.6 | 0.003 |
+| **BEAR** | 5 | 979 | 0.50 | 0.22 | +0.28 | 51.3 | 0.163 |
+| | 10 | 979 | 1.66 | 0.74 | +0.91 | 56.3 | 0.0009 |
+| | **20** | **979** | **3.12** | **1.79** | **+1.33** | **59.0** | **0.0005** |
+| | 60 | 979 | 7.34 | 6.09 | +1.25 | 61.9 | 0.072 |
+
+**BULL = PASS, and it is marginal in the most literal sense: p = 0.0499 against a
+pre-registered threshold of 0.05.** The rule was fixed in advance and the number
+clears it, so the verdict is PASS — but a result sitting on the fourth decimal of
+its own threshold should be read as "not distinguishable from nothing by much",
+and a slightly different universe or window would flip it.
+
+**BEAR = INVERTED, and this one is not marginal.** Bear-flag breakdowns were
+followed by the stock rising **+1.33% MORE than baseline** at 20 sessions,
+p = 0.0005. The pre-registered consequence applies: **the mirror was not shipped.**
+
+### B — the measured move, and it is the part that held up
+
+| | target hit | stop hit | timeout | avg R | median bars |
+|---|---|---|---|---|---|
+| **BULL** | **36.8%** | 51.6% | 11.6% | **+0.36R** | 16 |
+| **BEAR** | 8.6% | **77.8%** | 13.6% | **−0.44R** | 14 |
+
+> [!key-insight] The bull plan loses more often than it wins and still pays
+> 36.8% of bull trades reach a target two to three times the risk, against a
+> 51.6% stop rate — so expectancy is **+0.36R** despite a losing hit rate.
+>
+> **That is what a measured move is supposed to do**, and it is the strongest
+> thing in this result. The card's plan geometry — stop at the far flag boundary,
+> target at the projected pole — is better supported than the entry it is
+> attached to.
+>
+> On the bear side the same geometry collapses: the target is reached **1 time in
+> 12** while the stop fires on more than three trades in four.
+
+### C — volume, the question B-92 deferred rather than assumed
+
+When PR-3 chose to **measure** `vol_contract` instead of gating on it, it wrote
+that "a later test can ask whether it matters instead of assuming it". Asked:
+
+| | n | mean @20d |
+|---|---|---|
+| flag volume **dried up** | 1,063 | 2.38% |
+| flag volume **ROSE** | 126 | **3.52%** |
+
+`High Tight Flag` rejects a rising-volume flag outright, on the reasoning that it
+is distribution into strength. **On this evidence that gate would have removed the
+better-performing subgroup.**
+
+**Stated carefully, because it was pre-registered as non-decisive:** 126 against
+1,063 is a small and unbalanced subgroup, and this cannot rescue or strengthen
+claim A. The honest reading is **"no support for adding a volume gate"**, not
+"rising volume is better". Measuring the field rather than gating on it was the
+right call, and the gate stays off.
+
+### The confound this test does NOT resolve
+
+**The detector fires only after a ≥4×ATR thrust**, so its population is momentum
+names by construction. The every-bar baseline controls for the market's drift over
+the same bars; it does **not** control for being in a strong name.
+
+The shape of the bull result is exactly what a trend confound would produce:
+**nothing at 5 and 10 days (p ≈ 0.86), then +2.03% at 60 days.** A breakout whose
+effect only appears after three months is not behaving like a breakout.
+
+**A momentum-matched control was not pre-registered here and has not been run.**
+Until it does, the honest statement is that the bull edge is **not distinguishable
+from simply being in strong names**. That control is the next test, and it needs
+its own pre-registration.
+
+### Consequences applied, exactly as pre-registered
+
+* **Bull:** the card's UNMEASURED line is replaced by the numbers. **No confluence
+  vote** — one test buys visibility, not authority, and this one is marginal.
+* **Bear:** the inversion is on the surface. The registry entry now reads
+  *"MEASURED and INVERTED — do not trade it in either direction"*, and the card
+  calls it **STRUCTURE only**: it marks a down thrust that paused, which is worth
+  seeing, but on this evidence it is **neither a short nor an exit signal**. Its
+  earlier exit/avoid framing is retired — a breakdown followed by strength is not
+  a reason to get out.
+* **Nothing deleted.** Both detectors stay, the chart keeps drawing them, the
+  levels stay.
+* **The gates were not tuned.** No parameter moved after seeing this.
+
+### Where this sits
+
+B-19 found **0 of 41 scanners stable after costs**. This does not overturn that:
+one marginal pass at a single horizon, with an unresolved confound, on a detector
+whose degenerate form (`Pullback Entry`) measured negative. What it adds is a
+**plan that pays** — the first thing on this desk to show positive expectancy
+from its own stated geometry rather than from its entry.
 
 ## Related Pages
 
