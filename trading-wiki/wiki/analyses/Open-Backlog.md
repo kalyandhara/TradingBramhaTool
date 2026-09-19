@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-09-17
+updated: 2026-09-19
 sources: 0
 related:
   - analyses/PCR-Sign-Convention-Pre-Registration.md
@@ -82,7 +82,81 @@ corrected in place below, each marked with the date.
 | **Shipped 2026-09-02 (not from the backlog)** | **Trending Stocks page** — `trending_stocks.py` + a Market-Intel page with four lenses: Price Movers (whole-market bhavcopy, turnover-floored), Volume Shockers (reuses `volume_anomaly` **with cause attribution** — the one lens the desk does better than the commercial screener it was modelled on), 52-Week and All-Time High/Low (computed from batched history over a bounded top-N-by-turnover universe, since NSE's UDiFF bhavcopy carries **no 52-week columns** — verified, 34 columns, none a range extreme). Requested from a screenshot of a commercial "Trending Stocks" page. **Deliberately NO "Most Visited" lens** — that is crowd page-view data from a site's own traffic logs, there is no free public feed for retail attention, and a proxy (delivery spikes, rank churn) would measure something else under the same label. Recorded as a decision, not an oversight, the same way the intraday ORB/DOM lane is. Two things the build forced: a **turnover floor**, without which the movers list is almost entirely penny stocks (a ₹3 share moving 19% is arithmetic), and a **cash-equivalent filter** reusing the chart's existing `isLikelyLiquidETF` definition, because a liquid ETF is *permanently* at its all-time high by construction and squatted on the first ATH run. |
 | **Measured 2026-09-02** | **B-19** batch walk-forward on all 41 scanners (LIQUID_50, 3 windows, Indian delivery ~29bps): **0/41 stable** across all horizons; 11 show positive 20d edge but all UNSTABLE; strongest = %R Bottoming (+2.68% @60d, stable @20d+60d), Falling Wedge (+1.58% @60d); **most scanners show negative edge after costs**. 3 too-few-signals (High Tight Flag, Minervini VCP, RSI-Fibo Hidden Div). 3/5 risk scanners show bearish edge. Full table in `tools/cache/b19_verdicts/_summary_table.txt`. |
 
-## THE OPEN ROADMAP — refined 2026-09-17
+## Re-verification 2026-09-19
+
+**Read this section, then the roadmap below it. Everything further down the page
+is history.** The three tier tables in the next section are the only current
+list of what is open; they have been corrected in place by this pass and each
+correction is dated in the row itself.
+
+**What this pass did.** Every open item in the roadmap below was re-read against
+the **code**, not against the previous pass — the method the 2026-08-27,
+2026-09-10 and 2026-09-11 passes used. `tools/claims_lint.py` was run first:
+CHECK 0 (state labels contradicted by a measurement), CHECK 0b (studies missing
+from the index) and CHECK 3 (counts disagreeing with the registry) are all
+**clean**, which is the first time all three have been. CHECK 0c is not, and
+that became [[#B-99]].
+
+### What had moved
+
+| Item | The page said | The code says | 
+|---|---|---|
+| **B-93 / PR-1** | open, "the only pattern-surface item that currently misleads" | **shipped 2026-09-17** — three commits, the same day this table was refined |
+| **B-93 / PR-2** | open, "only 7 of 31 firing scanners emit entry/stop/target" | **shipped 2026-09-17** as `scanner_plans.py`, and the census **corrected the ratio to 14 of 45** — so the row was stale in its build status *and* in its number |
+| **B-17** | open BUILD item | **closed 2026-09-11**, and the 2026-09-11 pass recorded that closure **twice** |
+| **B-37** | "volume share-card", not started | **scaffold built** — renderer, canvas, deriving factory and invariant verifier all exist; three wiring steps left, named in the file's own header |
+| **B-87r** | "ongoing, one page per session" | **96 lines of headroom** on the 13,900-line ratchet, and the statement ratchet raised 320 → 324 rather than lowered |
+| **B-59r2** | MEASURABLE NOW | **contested** — struck as discharged on 2026-09-11, re-raised here on 2026-09-17, and the two counts do not match |
+
+### What was checked and is still accurately open
+
+`ichimoku` appears only in a `psar.js` comment (**B-46**); no TPO source outside
+the vendored bundle (**B-47**); nothing matches `cumulative_volume_delta`/`cvd`
+(**B-48**); no `opening_range`, `year_open` or calendar anchor anywhere
+(**B-98**); `pivot_levels()` still has exactly **two** call sites, `pivot_d` and
+`pivot_w` (**B-96**, confirming the grep this page already claimed); no pivot
+agreement study exists (**B-97**); `mabias` ships in `chart_dashboard.html` and
+is scored nowhere (**B-89**); no VWAP+EMA agreement state (**B-90**);
+`participant` appears only in `gamma_exposure.py`, an unrelated use (**B-95**);
+`max_pain` and `oi_walls` both exist in `option_chain.py`, so **B-94** is a run
+and a diff exactly as claimed; `MIN_PRICE_PCT = 0.5` unchanged (**B-26**);
+`veto_critical: bool = True` unchanged (**B-34r2**); `tools/sbc_app.py` still
+present (**B-84r**).
+
+### The finding, and it is not the same one as last time
+
+Previous passes explained drift two ways: *"an item is only re-read when it is
+worked"* (2026-09-10) and *"ranked tables that paraphrase item bodies are a
+second source of truth"* (2026-09-11). **Neither explains this pass.** Three of
+the six items that moved — B-93/PR-1, B-93/PR-2, B-59r2 — were listed as open by
+a table **refined on the same day the work shipped or the day after the debt was
+struck**. The drift is no longer in the old unworked items; it is in the newest
+table, written by the session that was doing the work.
+
+**The rule that produces it:** a refinement pass reads the *page* to build its
+summary, and the page has not yet been updated by the work that session is
+simultaneously committing. The summary is therefore written against a snapshot
+that is already stale by the time it is saved. **A roadmap table written in the
+same session as the work it summarises will be wrong about that work** — which
+argues for writing the tier tables from `git log` and grep at the *start* of a
+session, never from the page at the end of one.
+
+### Ranked, after the corrections
+
+| Rank | Item | Why |
+|---|---|---|
+| 1 | **B-97** | MEASURABLE NOW, nothing to build, and it **gates B-96** — the page already says run it first, and B-42r's 29.6% agreement is the prior that makes it worth running |
+| 2 | **B-94** | a run and a diff against a tool that exists, and it scores an outside source's reliability. Cheapest real answer on the page |
+| 3 | **B-87r** | 96 lines of headroom is not "ongoing" any more, it is a deadline |
+| 4 | **B-99** | four measurements already paid for and not written down |
+| 5 | **B-96** | small, composed of two built things — but **only after B-97** |
+| — | **B-59r2** | re-read the two counts before running anything; it may already be done |
+
+Nothing was closed by this pass that the code did not show closed, and nothing
+was invented.
+
+
+## THE OPEN ROADMAP — refined 2026-09-17, corrected 2026-09-19
 
 **Why this section exists.** The status table above is a *history*, and it had
 become the only index of what is open — a "Still open" row that is a comma list
@@ -116,7 +190,7 @@ none of them is.
 | **B-94** | **an outside letter’s option-chain levels have never been checked against our own** — [[sources/Bramesh-NIFTY-Gann-1x3-Higher-High-2026-09-18]] printed max pain **23,300**, call wall **23,500**, put wall **23,100** for 2026-09-18 | `tools/option_chain.py` already computes max pain + OI walls for indices (IDO) from the F&O bhavcopy, with the one-expiry rule enforced. **Nothing to build** — it is a run and a diff, and it scores a source’s reliability against a tool that exists |
 | **B-97** | **nothing has ever scored whether `pivot_d` and `pivot_w` AGREE** — the desk has printed both side by side since B-63b and never asked | both columns already compute in `row_metrics.build_row`; the state-scoring harness and the **rotation p-value** exist. The prior says it matters: **B-42r found `pivot_len` 5 vs 15 agreed on `state` only 29.6%**, 17.6% reading opposite directions. **Run this BEFORE B-96** adds three more timeframes that may disagree with each other. From [[sources/Bramesh-TradingView-Gann-Scanners-Product-Line]] |
 | **B-21b** | every floor set on 2026-08-07 came from **one session's cross-section** | the floors are labelled in code and the history to re-measure them on is cached |
-| **B-59r2** | PSAR's **unique** flips (68.9% uncovered at ±3) — the edge test the overlap check left owed | `psar_stai_edge.py` already scores PSAR-only cells |
+| **B-59r2** | ~~PSAR's **unique** flips (68.9% uncovered at ±3) — the edge test the overlap check left owed~~ — **CONTESTED 2026-09-19, see [[#Re-verification 2026-09-19]]. The 2026-09-11 pass struck this debt as already discharged by [[#B-59r]], and this table re-raised it six days later. The counts do not settle it: B-59r scored 8,576 PSAR-not-STAI flips, while "68.9% uncovered" is ~19,693 flips uncovered by *either* twin. Cheap to resolve, and it is a re-read before it is a run** | `psar_stai_edge.py` already scores PSAR-only cells |
 | **B-89** | **`mabias`** — a 9/20 EMA-cross verdict ladder shipping LONG/SHORT badges on the chart, **never scored** | the state-scoring harness exists; [[analyses/SVP-Structure-Signal-Pre-Registration]] is the template |
 | **B-90** | the **VWAP+EMA agreement state** from the owner's card | `intraday_store` already holds 15m bars, 85 sessions, 6 names — no new data |
 
@@ -128,16 +202,17 @@ none of them is.
 | **B-47** | TPO / Market Profile pane — verified absent | medium |
 | **B-48** | Cumulative volume delta — **answer the DATA question first**, before any indicator | data probe, then medium |
 | **B-6** | retest entries: the desk detects breaks well and retests poorly; `scan_order_block` is the only retest trigger | medium |
-| **B-93 / PR-1** | **Strategy Hub's pattern table shows 20 hardcoded rows with frozen LTP and a computed scoreboard over them** — the only pattern-surface item that currently misleads | small, **P1** |
-| **B-17** | OBV has no wiki page, and now ships on **two** surfaces | small |
-| **B-87r** | the monolith **extraction** the ratchet is holding the line for | ongoing, one page per session |
-| **B-37** | volume share-card | small |
-| **B-91** | VWAP's zero-point cases say **why** — no volume (index spot) vs undefined on daily | small |
+| ~~**B-93 / PR-1**~~ | ~~Strategy Hub's pattern table shows 20 hardcoded rows with frozen LTP~~ — **BUILT 2026-09-17** (`a884f11` priced the table live and caught one row on the wrong side of its own scoreboard, `e7b1741` fixed a "Live" heading over a five-week-old literal, `dc7a10e` computed the fundamentals block). Listed open by a table refined the *same day* it shipped | done |
+| ~~**B-17**~~ | ~~OBV has no wiki page, and now ships on **two** surfaces~~ — **CLOSED 2026-09-11** ([[concepts/On-Balance-Volume]], `8b29158`). The 2026-09-11 pass recorded this closure **twice** and this table still carried it open six days later | done |
+| **B-87r** | the monolith **extraction** the ratchet is holding the line for. **Newly urgent 2026-09-19: `dashboard_app.py` is 13,804 lines against a 13,900 ratchet — 96 lines of headroom**, and the module-statement ratchet has been raised twice (320 → 324) rather than lowered. The next page-sized feature will hit the wall | ongoing, one page per session |
+| **B-37** | volume share-card. **Status corrected 2026-09-19: NOT "not started" — a scaffold exists** (`opportunity_report.py`: `VolumeStock`, the deriving `volume_stock()` factory, `verify_volume_stock()`, `demo_volume_story()`, the 1200×675 `VS_DARK` canvas). Its own header names the three steps left: wire `volume_fetcher` for the raw inputs, a top-RVOL picker, and the "Share this" button | small — three wiring steps, not a build |
+| **B-91** | VWAP's zero-point cases say **why** — no volume (index spot) vs undefined on daily. **Re-verified open 2026-09-19:** `chart_dashboard.html:1338` still reads `VWAP (session · intraday only)` and no guard names the reason. (The similar string in `vwap_mean_reversion.js:184` is a different surface and does not close this) | small |
 | ~~**B-92**~~ | ~~Flag & Pole detector, both directions~~ — **BUILT 2026-09-17**, both cards carry a full plan; counting first caught a breakout condition that was unsatisfiable by construction | done |
 | **B-95** | **FII / client participant-wise F&O long:short ratios** — the “88% short is squeeze fuel” claim from [[sources/Bramesh-NIFTY-Gann-1x3-Higher-High-2026-09-18]]. **Probe the DATA first:** nothing here reads NSE’s participant-wise OI (`FII` in the toolchain is a *shareholder-name* classifier in `block_deal_intel.py`; the F&O bhavcopy carries contract OI, not the participant split). If the file is fetchable → pre-register, then measure **with rotation p-values**, because this is an autocorrelated STATE series and a t-test here manufactures significance (known null: p=0.031 Welch vs 0.32 rotation). Needs a control too — extremes cluster in falling markets by construction. See [[concepts/Participant-Positioning-FII-DII]] | data probe, then medium |
 | **B-96** | **monthly / quarterly / yearly pivot zones** — `row_metrics.pivot_levels()` already accepts any frame (*"Feed it a weekly-resampled frame to get weekly pivots"*) and `timeframe_board.py` already resamples to `ME`/`2QE`/`YE` from one download. **The only two call sites in all of `tools/` are `pivot_d` and `pivot_w`** (`row_metrics.py:510-511`, grep-verified). No new data, no new arithmetic — a composition of two things already built. From [[sources/Bramesh-TradingView-Gann-Scanners-Product-Line]], where the idea of looking past one timeframe sells for ₹6,666/month | small |
 | **B-98** | **a calendar-anchored reference level** — the January high/low, i.e. a **yearly opening-range breakout**. Nothing in `tools/` holds a calendar anchor (no `opening_range`, no year-open). **The only construct on that product page that is fully specified, reproducible and measurable on cached daily history**: an anchor rule, a state (above/below/inside) and an event (first close outside). Natural partner for **B-4/B-12** — anchor choice is the unsolved subjective half of Anchored VWAP, and **a calendar anchor needs no UI and no judgement**. Build the detector, then **pre-register before measuring** (B-92’s shape: the EVENT is the first close outside, not every bar of the state). From [[sources/Bramesh-TradingView-Gann-Scanners-Product-Line]] | small, then a pre-registration |
-| **B-93 / PR-2** | **trade-plan coverage as a visible metric** — only **7 of 31** firing scanners emit entry/stop/target | medium |
+| ~~**B-93 / PR-2**~~ | ~~trade-plan coverage as a visible metric — only **7 of 31** firing scanners emit entry/stop/target~~ — **BUILT 2026-09-17** (`7385a9b`): `tools/scanner_plans.py` + its cache, rendered from `dashboard_app.py:8256`. **The census also corrected the number this row states — 14 of 45, not 7 of 31** | done |
+| **B-99** | **four indexed studies ran and left no citable result** — `claims_lint` CHECK 0c, clean on every other check: **B-38** (`funnel_backtest.py`), **SBC-15m** (`sbc_backtest.py`), **SBC-muhurat** (`sbc_muhurat_backtest.py`), **B-30r** (`newmoon_levels_backtest.py`). This is the stale-claim disease inverted — a measurement with no write-up is debt, and each should gain a source with real numbers or be retired. Raised 2026-09-19 | small each, and mostly transcription |
 
 ### OWNER — a judgement, not a task
 
@@ -180,7 +255,7 @@ reconstructed from the commit log.
 | 4 | **B-57 · secondaries** | [[#B-57]] | The primary FAILED (−0.25%, p_rot=0.714) and that is settled. Unrun: the 60d horizon, the quality gate tightened from a sign test to a top-quartile OCF rank, and `depth_from_flip` as the depth definition. All were pre-registered as non-decisive, so they describe rather than rescue. |
 | 5 | **B-58 residual · multi-timeframe liquidity** | [[#B-58]] | "HTF LQ" from the source chart. `detect_liquidity_pools` takes one `df` — single timeframe. Bigger build, own entry when picked up. **Naming trap:** `HTF` in this repo means **High Tight Flag**, not higher timeframe, so grepping for it gives false confidence the feature exists. |
 | ~~6~~ | ~~**B-60 · sector money-flow heatmap**~~ | [[#B-60]] | **BUILT 2026-09-07** — `money_flow.py` + 18 tests, on Sector Map and Home, verified in the running dashboard. Ships as a view; unmeasured. |
-| 7 | **Fib rungs are drawn, not wired** | `fibonacci.js` | 0.886 and 1.13 exist as levels but do NOT feed `buildPlan`: 0.886 is entry-ineligible without `{deepEntry:true}`, and 1.13 never becomes the stop. Adopting either changes reward-to-risk — and therefore the `actionable` flag — on plans unrelated to QM. **Changing what a stop means is a measurement, not a default.** |
+| ~~7~~ | ~~**Fib rungs are drawn, not wired**~~ — **SETTLED 2026-09-11** by B-58's FAIL: the geometry they serve does not beat a plain support retest, so neither becomes a `buildPlan` default and **they stay drawn on purpose**. Code re-verified unchanged 2026-09-19, which is the settled state, not an open one | `fibonacci.js` | 0.886 and 1.13 exist as levels but do NOT feed `buildPlan`: 0.886 is entry-ineligible without `{deepEntry:true}`, and 1.13 never becomes the stop. Adopting either changes reward-to-risk — and therefore the `actionable` flag — on plans unrelated to QM. **Changing what a stop means is a measurement, not a default.** |
 
 > [!note] The one thing worth carrying forward from this session's method
 > Twice, counting BEFORE measuring saved a week. `renko_quality_cardinality.py`
@@ -188,6 +263,11 @@ reconstructed from the commit log.
 > detector's first version reported a "pattern" on 73% of names until the pivots
 > were required to be consecutive. **A filter that admits almost everything is not
 > a filter, and that is cheaper to discover by counting than by backtesting.**
+
+**Status of that table on 2026-09-19:** rows 2, 3, 6 and 7 are closed or
+settled; **rows 1 (chart-server restart), 4 (B-57 secondaries) and 5 (B-58
+residual · multi-timeframe liquidity) are still open and untouched**, all three
+re-verified this pass.
 
 **Status of that table on 2026-09-10:** rows 2 and 3 were **run this session**
 ([[#B-58]] — inconclusive for lack of events, not a null; [[#B-59]] — PSAR is a
@@ -201,6 +281,11 @@ MEASUREMENTS owed, not builds.** That is the standing shape of this backlog — 
 desk builds faster than it measures.
 
 ## Refinement pass 2026-09-10 — what is actually next
+> [!note] Superseded — history, not a list
+> Kept for its reasoning and its "not promoted, and why" notes. The current
+> ranking is [[#Ranked, after the corrections]]. Do not pick work from the
+> ranked table below: B-10, B-17, B-58, B-22 and the Fib rungs in it have all
+> since closed or settled.
 
 Ranked by *what the desk cannot currently answer*, not by size. No new items were
 invented in this pass; this is the existing page, sorted.
@@ -225,6 +310,11 @@ astro nulls.
 
 
 ## Refinement pass 2026-09-11 — re-verified against code, and one item was owed to itself
+> [!note] Superseded — history, not a list
+> Kept for its correction narrative and the B-22r result in full. The current
+> ranking is [[#Ranked, after the corrections]]. **Its adjudication of B-59r2
+> is the one still live** — it struck the PSAR unique-cell debt as discharged,
+> and the 2026-09-17 table re-raised it; see [[#Re-verification 2026-09-19]].
 
 Same method as 2026-09-10: every item ranked below was re-read against the
 **code**, not against the previous pass. Nothing new was invented. What follows is
