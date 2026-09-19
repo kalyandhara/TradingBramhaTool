@@ -239,6 +239,79 @@ def symbol_map(universe: str = "nifty500") -> dict[str, str]:
     return out
 
 
+#: The universe the monthly cache is BUILT from. `niftytotalmarket` is the
+#: broadest list NSE publishes as a CSV (~750 names), so it is the one that
+#: makes a screener hit most likely to come back with a label. Narrower lists
+#: are subsets of it and add nothing to the map.
+CACHE_UNIVERSE = "niftytotalmarket"
+
+
+def _db():
+    """portfolio_db, imported lazily — this module must stay importable on a
+    machine with no database (the CLI below is a pure vocabulary report)."""
+    import portfolio_db as _pdb
+    return _pdb
+
+
+def refresh_cache(universe: str = CACHE_UNIVERSE,
+                  period: str | None = None) -> int:
+    """Fetch NSE's constituent list and write this month's map. Rows written.
+
+    The one place that pays a network cost. Everything on the render path goes
+    through `lookup`, which reads what this wrote.
+    """
+    pdb = _db()
+    pdb.init_db()
+    m = symbol_map(universe)
+    if not m:
+        log.warning("refresh_cache: NSE returned no constituents for %s", universe)
+        return 0
+    # A label NSE emits that this module does not recognise is stored AS ITSELF,
+    # not dropped and not coerced. `coverage()` is what surfaces it as a number;
+    # silently discarding it here would make the hole invisible on the one page
+    # that exists to show holes.
+    return pdb.save_sector_map(m, universe=universe, source="nse", period=period)
+
+
+def lookup(symbols=None, period: str | None = None,
+           universe: str = CACHE_UNIVERSE, refresh: bool = False) -> dict:
+    """`{SYMBOL: canonical_sector_or_None}` — the desk's one sector accessor.
+
+    Reads the monthly cache and refills it on a MISS, so the first render of a
+    new month pays one NSE fetch and every render after it pays none. Pass
+    `symbols` to narrow the result; omit it for the whole stored map.
+
+    A symbol the cache has never seen (a listing outside NSE's broadest index,
+    or a scanner hit from another source) is absent from the returned dict
+    rather than present with a guessed label. Callers render that as BLANK —
+    "no NSE macro sector for this name", which is the honest reading and the
+    same one `cap_bucket` gives a name in none of its four index buckets.
+    """
+    try:
+        # The import itself is inside the try: portfolio_db pulls in pandas, and
+        # "the database module would not import" must degrade the same way "the
+        # database was unreadable" does.
+        pdb = _db()
+        pdb.init_db()
+        have = pdb.get_sector_map(period=period)
+        if refresh or not have:
+            refresh_cache(universe=universe, period=period)
+            have = pdb.get_sector_map(period=period)
+    except Exception as e:                                    # pragma: no cover
+        # A screener table must still render when the cache is unreachable. A
+        # missing sector column is a smaller failure than a blank page.
+        log.warning("sector lookup unavailable: %s", e)
+        return {}
+    if symbols is None:
+        return have
+    out = {}
+    for sym in symbols:
+        s_ = str(sym).strip().upper()
+        if s_ in have:
+            out[s_] = have[s_]
+    return out
+
+
 def coverage(universe: str = "nifty500") -> dict[str, Any]:
     """How much of the universe carries a canonical sector, and what is unknown.
 
@@ -262,7 +335,17 @@ def main() -> int:
     logging.basicConfig(level=logging.WARNING)
     ap = argparse.ArgumentParser(description="Canonical sector vocabulary (B-64)")
     ap.add_argument("--universe", default="nifty500")
+    ap.add_argument("--refresh-cache", action="store_true",
+                    help=f"fetch and store this month's map for {CACHE_UNIVERSE}")
     args = ap.parse_args()
+
+    if args.refresh_cache:
+        n = refresh_cache()
+        import portfolio_db as _pdb
+        print(f"sector_map: wrote {n} rows for {_pdb.current_period()} "
+              f"({CACHE_UNIVERSE}); periods stored: "
+              f"{', '.join(_pdb.sector_map_periods()) or 'none'}")
+        return 0
 
     c = coverage(args.universe)
     print(f"Canonical sectors — {c['universe']}: {c['symbols']} symbols, "

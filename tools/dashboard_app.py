@@ -5054,10 +5054,9 @@ def _hub_enrich(df, symbol_col: str, key: str):
             vals = [px.get(s, {}).get(col) for s in syms]
             if any(v is not None for v in vals):
                 df[col] = vals
-    # Cap beside the symbol; it is identity, not a measurement.
-    order = [symbol_col, "cap_bucket"] + [c for c in df.columns
-                                          if c not in (symbol_col, "cap_bucket")]
-    return df[order]
+    # Cap and Sector beside the symbol; both are identity, not measurements.
+    import sector_column as _sc
+    return _sc.attach(df, symbol_col)
 
 
 def _hub_price_button(symbols, key: str, label: str) -> None:
@@ -5303,7 +5302,9 @@ def _darvas_rows_table(df, key_prefix: str):
         st.info("No name clears both conditions in this session. "
                 "That is a normal reading — the scan is meant to be quiet.")
         return
-    out = _with_chart_family(df.copy(), "symbol")
+    import sector_column as _sc
+    out = _sc.attach(df.copy(), "symbol")
+    out = _with_chart_family(out, "symbol")
     import columns as _cols
     cfg = dict(_chart_family_colcfg())
     # One definition per column (B-63a). `multiple` resolves to the shared
@@ -5791,7 +5792,8 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
             if df is None or df.empty:
                 st.info("Nothing qualifies in this session.")
                 return
-            out = df.copy()
+            import sector_column as _sc
+            out = _sc.attach(df.copy(), "symbol")
             out = _with_chart_family(out, "symbol")
             import columns as _cols
             colcfg = dict(_chart_family_colcfg())
@@ -6265,8 +6267,14 @@ if current_page == "Home":
         # load. This is the roster; the scored view is one click away.
         _wl_out = _wl.rename(columns={"symbol": "Symbol", "added_date": "Added",
                                       "notes": "Notes"})
+        # Sector rides along even on this deliberately un-enriched roster: it
+        # costs no fetch (the month's map is already cached), which is the whole
+        # reason "Home must not fetch on load" does not exclude it.
+        import sector_column as _sc
+        _wl_out = _sc.attach(_wl_out, "Symbol")
         _wl_out = _with_chart_family(_wl_out, "Symbol")
         _wl_cfg = dict(_chart_family_colcfg())
+        _wl_cfg.update(_cols_mod().configure("sector"))
         _wl_cfg["Symbol"] = st.column_config.TextColumn("Symbol", width="small")
         _wl_cfg["Added"] = st.column_config.TextColumn("Added", width="small")
         _wl_cfg["Notes"] = st.column_config.TextColumn("Notes", width="medium")
@@ -7002,8 +7010,11 @@ if current_page == "Watchlist":
         # not, so the page you keep open all day was the one page with no way to
         # open a chart. Placed beside the identity columns rather than appended,
         # because at ~25 columns "appended" means "behind a horizontal scroll".
+        import sector_column as _sc
+        _wl_df = _sc.attach(_wl_df, "Symbol")
         _wl_df = _with_chart_family(_wl_df, "Symbol")
-        _head = ["Symbol"] + (["cap_bucket"] if "cap_bucket" in _wl_df.columns else [])             + _CHART_FAMILY_COLS
+        _head = ["Symbol"] + [c for c in ("cap_bucket", "sector")
+                              if c in _wl_df.columns] + _CHART_FAMILY_COLS
         _wl_df = _wl_df[_head + [c for c in _wl_df.columns if c not in _head]]
         # A symbol whose history failed to load contributes only Symbol/Notes,
         # which leaves the numeric columns as object dtype holding None — and
@@ -7020,7 +7031,8 @@ if current_page == "Watchlist":
         if not _wl_walk and "rs_walk" in _wl_df.columns:
             _wl_df = _wl_df.drop(columns=["rs_walk"])
         for _c in ("pivot_d", "pivot_w", "bo_date", "rs_walk", "minervini",
-                   "technofunda", "ema_stack", "cap_bucket", "svp_hist_8w"):
+                   "technofunda", "ema_stack", "cap_bucket", "sector",
+                   "svp_hist_8w"):
             if _c in _wl_df.columns:
                 _wl_df[_c] = _wl_df[_c].where(_wl_df[_c].notna(), "")
         if _wl_ref is None and not _wl_df.empty:
@@ -10884,12 +10896,18 @@ if current_page == "SVP Structure":
         # Same action-icon family every other table on this desk carries, so a row
         # here reaches the chart, the analyzer and the watchlist without retyping
         # a symbol into another page.
+        import sector_column as _sc
+        _show = _sc.attach(_show, "symbol")
         _show = _with_chart_family(_show, "symbol")
         st.dataframe(
             _show,
             use_container_width=True, hide_index=True,
             column_config={
                 **_chart_family_colcfg(),
+                # This table builds its config by hand, so the shared `sector`
+                # definition is merged in rather than re-typed — one id, one
+                # label, one tooltip (B-63a).
+                **_cols_mod().configure("sector"),
                 "sig_dir": st.column_config.TextColumn(
                     "card", help="The chart card's confluence direction. Carried as "
                                  "DATA to be tested, never as a ranking key — it "

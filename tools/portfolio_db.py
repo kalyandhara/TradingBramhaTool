@@ -187,6 +187,37 @@ def init_db() -> None:
         # nothing. Added here rather than in the CREATE so existing databases
         # migrate instead of keeping the old shape silently.
         _add_missing_columns(conn, "rs_rank_walk", {"in_universe": "INTEGER"})
+        # Symbol -> canonical NSE macro sector (B-64, tools/sectors.py), cached
+        # by CALENDAR MONTH. A CACHE, not a journal: every row is recomputable
+        # from NSE's constituent CSV, so a missing period costs one fetch rather
+        # than a hole in a record.
+        #
+        # Monthly because that is the rate the underlying fact changes. NSE
+        # reconstitutes its indices semi-annually and reclassifies a name's macro
+        # sector rarely; the 7-day fetch cache `sectors.symbol_map` already has is
+        # about the CSV going stale, not about the sector moving. Keeping the
+        # period in the key means a table rendered in September and the same table
+        # rendered in October are each labelled with the vocabulary that was true
+        # when they were drawn, instead of both being retro-labelled by today's.
+        #
+        # `sector` is NULLABLE on purpose and NULL means UNMAPPED, never
+        # "Unknown" as a 23rd bucket — the same rule sectors.from_yahoo holds by
+        # returning None rather than a nearest guess.
+        conn.executescript(
+            """
+            CREATE TABLE IF NOT EXISTS sector_map (
+                symbol TEXT NOT NULL,
+                universe TEXT NOT NULL,
+                sector TEXT,
+                source TEXT NOT NULL,
+                period TEXT NOT NULL,
+                created_at TEXT NOT NULL,
+                UNIQUE(symbol, universe, period)
+            );
+            CREATE INDEX IF NOT EXISTS idx_sector_map_period
+                ON sector_map(period, universe);
+            """
+        )
         conn.commit()
     finally:
         conn.close()
@@ -246,6 +277,112 @@ def get_rs_walk(run_date: str | None = None,
         return {r[0]: {"t30": r[1], "t15": r[2], "t5": r[3], "t0": r[4],
                        "in_universe": bool(r[5]), "run_date": run_date}
                 for r in cur.fetchall()}
+    finally:
+        conn.close()
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Sector map — the desk's monthly symbol -> canonical sector cache
+# ──────────────────────────────────────────────────────────────────────────────
+
+def current_period(when: "date | None" = None) -> str:
+    """The cache bucket a date falls in: `YYYY-MM`."""
+    return (when or date.today()).strftime("%Y-%m")
+
+
+def save_sector_map(mapping: dict, universe: str = "nifty500",
+                    source: str = "nse", period: str | None = None) -> int:
+    """Upsert `{symbol: sector}` into one period. Returns rows written.
+
+    MERGE, not delete-and-replace, for the reason `save_rs_walk` documents: two
+    callers write this table with different symbol sets (the universe fetch
+    writes constituents, a by-name lookup writes guests), and a wholesale
+    replace meant whichever ran last silently dropped the other's rows.
+
+    A None value is STORED rather than skipped. "We looked and NSE has no macro
+    sector for this name" and "we never looked" are different facts, and only
+    storing the first lets `get_sector_map` tell them apart — otherwise every
+    unmapped name is re-fetched on every render forever.
+    """
+    period = period or current_period()
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_connection()
+    try:
+        rows = [(str(sym).strip().upper(), universe,
+                 (str(sec).strip() or None) if sec else None,
+                 source, period, now)
+                for sym, sec in mapping.items() if str(sym).strip()]
+        conn.executemany(
+            "INSERT OR REPLACE INTO sector_map"
+            " (symbol, universe, sector, source, period, created_at)"
+            " VALUES (?, ?, ?, ?, ?, ?)", rows)
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def get_sector_map(universe: str | None = None, period: str | None = None,
+                   symbols=None) -> dict:
+    """`{SYMBOL: sector_or_None}` for a period — THIS month unless told otherwise.
+
+    `universe=None` merges every universe stored for the period. That is the
+    form the dashboard wants: a screener hit can be any listed name, and asking
+    "which universe was this cached under" at render time would make a table's
+    sector column depend on which list the page happened to think it was showing.
+    A symbol present under two universes carries the same NSE label in both, so
+    the merge has nothing to resolve.
+
+    Returns `{}` when the period is empty, which the caller reads as a cache MISS
+    and refills — distinct from a dict of Nones, which is a period that was
+    fetched and genuinely had no label for those names.
+    """
+    period = period or current_period()
+    sql = "SELECT symbol, sector FROM sector_map WHERE period = ?"
+    args: list = [period]
+    if universe:
+        sql += " AND universe = ?"
+        args.append(universe)
+    if symbols is not None:
+        syms = [str(s).strip().upper() for s in symbols if str(s).strip()]
+        if not syms:
+            return {}
+        sql += f" AND symbol IN ({','.join('?' * len(syms))})"
+        args.extend(syms)
+    conn = get_connection()
+    try:
+        return {r[0]: r[1] for r in conn.execute(sql, args).fetchall()}
+    finally:
+        conn.close()
+
+
+def sector_map_periods() -> list:
+    """Stored periods, newest first — what the cache actually holds."""
+    conn = get_connection()
+    try:
+        return [r[0] for r in conn.execute(
+            "SELECT DISTINCT period FROM sector_map ORDER BY period DESC")]
+    finally:
+        conn.close()
+
+
+def prune_sector_map(keep: int = 6) -> int:
+    """Drop all but the `keep` newest periods. Returns rows deleted.
+
+    The history is worth something (it is how a reclassification becomes
+    visible), but not unboundedly — this is a cache of a fact anyone can refetch.
+    """
+    periods = sector_map_periods()
+    if len(periods) <= keep:
+        return 0
+    drop = periods[keep:]
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            f"DELETE FROM sector_map WHERE period IN ({','.join('?' * len(drop))})",
+            drop)
+        conn.commit()
+        return cur.rowcount
     finally:
         conn.close()
 
