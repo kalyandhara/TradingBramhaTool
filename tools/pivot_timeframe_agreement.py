@@ -203,6 +203,38 @@ def verdict(s: dict) -> tuple[str, str, str]:
     return band, contra, why
 
 
+# ══ ROBUSTNESS CHECK — added 2026-09-19, AFTER the primary run ═══════════════
+#
+# Declared as post-hoc, because it is. The primary run is a ONE-DATE
+# cross-section (the design above, unchanged), and its label distribution came
+# back badly skewed: 50% of names at `R1` on daily against 40% at `PP-S1` on
+# weekly. That is exactly what a snapshot taken three sessions into a bounce off
+# a seven-week decline would look like — price above yesterday's pivot and below
+# last week's — which would inflate disagreement by construction rather than
+# because the two columns mean different things.
+#
+# B-74r is the precedent: "does the demotion hold across eras?" is a question
+# the desk asks of its own findings. This re-runs the identical statistic on
+# past as-of dates by truncating the same frames, so nothing new is downloaded
+# and nothing in the design moves. The primary number is NOT restated by it.
+def as_of_pairs(hist: dict, syms: list[str], asof, days: int
+                ) -> list[tuple[str, str]]:
+    """The same read, with every frame truncated to `asof`."""
+    out = []
+    for sym in syms:
+        df = hist.get(sym)
+        if df is None or len(df) < 60:
+            continue
+        df = df.rename(columns={c: c.lower() for c in df.columns})
+        cut = df[df.index <= asof]
+        if len(cut) < 60:
+            continue
+        p = read_pair(cut.tail(days))
+        if p is not None:
+            out.append(p)
+    return out
+
+
 def main() -> int:
     try:
         sys.stdout.reconfigure(encoding="utf-8", errors="replace")
@@ -212,6 +244,9 @@ def main() -> int:
         description="B-97 · do pivot_d and pivot_w agree?")
     ap.add_argument("--symbols", type=int, default=500)
     ap.add_argument("--days", type=int, default=800)
+    ap.add_argument("--across-dates", type=int, default=0, metavar="N",
+                    help="post-hoc robustness check: re-run the same statistic "
+                         "on N past month-end dates (see the ROBUSTNESS block)")
     a = ap.parse_args()
 
     import nse_universe as nu
@@ -263,6 +298,36 @@ def main() -> int:
 
     band, contra, why = verdict(s)
     print(f"\nVERDICT: {band}   ·   opposite-side flag: {contra}\n  {why}")
+
+    if a.across_dates:
+        import pandas as pd
+        print(f"\n── ROBUSTNESS (post-hoc): the same statistic on "
+              f"{a.across_dates} past month-ends ──")
+        print(f"{'as-of':<12} {'n':>4} {'zone%':>7} {'side%':>7} "
+              f"{'opp%':>7} {'lift(side)':>11}")
+        anchor = max(df.index.max() for df in hist.values() if df is not None)
+        dates = pd.date_range(end=anchor, periods=a.across_dates + 1,
+                              freq="ME")[:-1]
+        rows = []
+        for d in dates:
+            ps = as_of_pairs(hist, syms, d, a.days)
+            if len(ps) < 30:
+                continue
+            si = summarise(ps)
+            rows.append(si)
+            print(f"{d.date()!s:<12} {si['n']:>4} {si['zone_pct']:>6.1f}% "
+                  f"{si['side_pct']:>6.1f}% {si['opposite_pct']:>6.1f}% "
+                  f"{si['lift_side']:>+10.1f}")
+        if rows:
+            sides = sorted(r["side_pct"] for r in rows)
+            opps = sorted(r["opposite_pct"] for r in rows)
+            mid = len(sides) // 2
+            print(f"\n  median side agreement {sides[mid]:.1f}%  "
+                  f"(range {sides[0]:.1f}–{sides[-1]:.1f})")
+            print(f"  median opposite       {opps[mid]:.1f}%  "
+                  f"(range {opps[0]:.1f}–{opps[-1]:.1f})")
+            print(f"  the primary run reads {s['side_pct']:.1f}% side / "
+                  f"{s['opposite_pct']:.1f}% opposite")
     return 0
 
 

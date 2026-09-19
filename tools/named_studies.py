@@ -224,6 +224,18 @@ STUDIES: tuple[dict, ...] = (
         "source": "analyses/SVP-Signal-Backtest-Design",
     },
     {
+        "item": "B-97", "tool": "pivot_timeframe_agreement.py",
+        "date": "2026-09-19",
+        "subjects": ("pivot_d", "pivot_w", "pivot_zone"),
+        "verdict": "MIXED",
+        "headline": ("daily and weekly pivot zones put a name on the same side "
+                     "of the pivot 53.9% of 499 names (chance 41.8%, lift "
+                     "+12.1) and on OPPOSITE sides 37.9%; median across 29 "
+                     "month-ends 64.0% side / 27.3% opposite -- two readings, "
+                     "not one in two resolutions"),
+        "source": "analyses/Open-Backlog#B-97",
+    },
+    {
         "item": "B-42r", "tool": "pivot_len_agreement.py", "date": "2026-09-17",
         "subjects": ("read_market_structure",),
         "verdict": "MIXED",

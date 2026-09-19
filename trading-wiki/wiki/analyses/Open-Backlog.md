@@ -145,11 +145,11 @@ session, never from the page at the end of one.
 
 | Rank | Item | Why |
 |---|---|---|
-| 1 | **B-97** | MEASURABLE NOW, nothing to build, and it **gates B-96** — the page already says run it first, and B-42r's 29.6% agreement is the prior that makes it worth running |
+| ~~1~~ | ~~**B-97**~~ | **RUN 2026-09-19 → TWO DIFFERENT READINGS.** It did its job as a gate: B-96 is re-scoped, not unblocked |
 | 2 | **B-94** | a run and a diff against a tool that exists, and it scores an outside source's reliability. Cheapest real answer on the page |
 | 3 | **B-87r** | 96 lines of headroom is not "ongoing" any more, it is a deadline |
 | 4 | **B-99** | four measurements already paid for and not written down |
-| 5 | **B-96** | small, composed of two built things — but **only after B-97** |
+| 5 | **B-96** | **no longer "composed of two built things"** — B-97 turned it into a presentation decision (govern, or print the agreement). Rank unchanged, size is not |
 | — | **B-59r2** | re-read the two counts before running anything; it may already be done |
 
 Nothing was closed by this pass that the code did not show closed, and nothing
@@ -188,7 +188,7 @@ none of them is.
 | ~~**B-9**~~ | ~~the Volume-Profile **80% rule**~~ — **MEASURED 2026-09-17: FALSIFIED.** 45.5% (95% CI 37.3–54.0, n=134) against a claimed 80%. Lift over base −4.1pp, p=0.422, explicitly NOT claimed | done — and it was never blocked on data |
 | ~~**B-42r**~~ | ~~`pivot_len` 5 vs 15~~ — **MEASURED 2026-09-17: the two settings agree on `state` only 29.6%** of the time (199 names), and 17.6% read DOWNTREND in the scanners against UPTREND on the chart. **Promoted to an OWNER decision** — see below | measured; the decision is yours |
 | **B-94** | **an outside letter’s option-chain levels have never been checked against our own** — [[sources/Bramesh-NIFTY-Gann-1x3-Higher-High-2026-09-18]] printed max pain **23,300**, call wall **23,500**, put wall **23,100** for 2026-09-18 | `tools/option_chain.py` already computes max pain + OI walls for indices (IDO) from the F&O bhavcopy, with the one-expiry rule enforced. **Nothing to build** — it is a run and a diff, and it scores a source’s reliability against a tool that exists |
-| **B-97** | **nothing has ever scored whether `pivot_d` and `pivot_w` AGREE** — the desk has printed both side by side since B-63b and never asked | both columns already compute in `row_metrics.build_row`; the state-scoring harness and the **rotation p-value** exist. The prior says it matters: **B-42r found `pivot_len` 5 vs 15 agreed on `state` only 29.6%**, 17.6% reading opposite directions. **Run this BEFORE B-96** adds three more timeframes that may disagree with each other. From [[sources/Bramesh-TradingView-Gann-Scanners-Product-Line]] |
+| ~~**B-97**~~ | ~~nothing has ever scored whether `pivot_d` and `pivot_w` AGREE~~ — **MEASURED 2026-09-19: they agree on the SIDE of the pivot 53.9% of 499 names (chance 41.8%, lift +12.1) and read OPPOSITE sides 37.9%. Median across 29 month-ends: 64.0% side / 27.3% opposite. Both pre-registered bands fail — TWO DIFFERENT READINGS + CONTRADICTION. Agreement is above chance at every date, so the columns are not independent; the shared part is just far smaller than two adjacent columns imply. [[#B-97]]** | done — and it re-scoped B-96 |
 | **B-21b** | every floor set on 2026-08-07 came from **one session's cross-section** | the floors are labelled in code and the history to re-measure them on is cached |
 | **B-59r2** | ~~PSAR's **unique** flips (68.9% uncovered at ±3) — the edge test the overlap check left owed~~ — **CONTESTED 2026-09-19, see [[#Re-verification 2026-09-19]]. The 2026-09-11 pass struck this debt as already discharged by [[#B-59r]], and this table re-raised it six days later. The counts do not settle it: B-59r scored 8,576 PSAR-not-STAI flips, while "68.9% uncovered" is ~19,693 flips uncovered by *either* twin. Cheap to resolve, and it is a re-read before it is a run** | `psar_stai_edge.py` already scores PSAR-only cells |
 | **B-89** | **`mabias`** — a 9/20 EMA-cross verdict ladder shipping LONG/SHORT badges on the chart, **never scored** | the state-scoring harness exists; [[analyses/SVP-Structure-Signal-Pre-Registration]] is the template |
@@ -209,7 +209,7 @@ none of them is.
 | **B-91** | VWAP's zero-point cases say **why** — no volume (index spot) vs undefined on daily. **Re-verified open 2026-09-19:** `chart_dashboard.html:1338` still reads `VWAP (session · intraday only)` and no guard names the reason. (The similar string in `vwap_mean_reversion.js:184` is a different surface and does not close this) | small |
 | ~~**B-92**~~ | ~~Flag & Pole detector, both directions~~ — **BUILT 2026-09-17**, both cards carry a full plan; counting first caught a breakout condition that was unsatisfiable by construction | done |
 | **B-95** | **FII / client participant-wise F&O long:short ratios** — the “88% short is squeeze fuel” claim from [[sources/Bramesh-NIFTY-Gann-1x3-Higher-High-2026-09-18]]. **Probe the DATA first:** nothing here reads NSE’s participant-wise OI (`FII` in the toolchain is a *shareholder-name* classifier in `block_deal_intel.py`; the F&O bhavcopy carries contract OI, not the participant split). If the file is fetchable → pre-register, then measure **with rotation p-values**, because this is an autocorrelated STATE series and a t-test here manufactures significance (known null: p=0.031 Welch vs 0.32 rotation). Needs a control too — extremes cluster in falling markets by construction. See [[concepts/Participant-Positioning-FII-DII]] | data probe, then medium |
-| **B-96** | **monthly / quarterly / yearly pivot zones** — `row_metrics.pivot_levels()` already accepts any frame (*"Feed it a weekly-resampled frame to get weekly pivots"*) and `timeframe_board.py` already resamples to `ME`/`2QE`/`YE` from one download. **The only two call sites in all of `tools/` are `pivot_d` and `pivot_w`** (`row_metrics.py:510-511`, grep-verified). No new data, no new arithmetic — a composition of two things already built. From [[sources/Bramesh-TradingView-Gann-Scanners-Product-Line]], where the idea of looking past one timeframe sells for ₹6,666/month | small |
+| **B-96** | **monthly / quarterly / yearly pivot zones** — `row_metrics.pivot_levels()` already accepts any frame (*"Feed it a weekly-resampled frame to get weekly pivots"*) and `timeframe_board.py` already resamples to `ME`/`2QE`/`YE` from one download. **The only two call sites in all of `tools/` are `pivot_d` and `pivot_w`** (`row_metrics.py:510-511`, grep-verified). No new data, no new arithmetic — a composition of two things already built. From [[sources/Bramesh-TradingView-Gann-Scanners-Product-Line]], where the idea of looking past one timeframe sells for ₹6,666/month | **no longer small — B-97 re-scoped it 2026-09-19.** At 37.9% opposite today and 27.3% at the median, five peer columns would routinely contradict each other with nothing saying which governs. B-96 must either name a governing timeframe or print the AGREEMENT as the reading (a "3 of 5 above" state, B-42's `agreement` shape). The second is the better fit, and it is a design task, not a composition |
 | **B-98** | **a calendar-anchored reference level** — the January high/low, i.e. a **yearly opening-range breakout**. Nothing in `tools/` holds a calendar anchor (no `opening_range`, no year-open). **The only construct on that product page that is fully specified, reproducible and measurable on cached daily history**: an anchor rule, a state (above/below/inside) and an event (first close outside). Natural partner for **B-4/B-12** — anchor choice is the unsolved subjective half of Anchored VWAP, and **a calendar anchor needs no UI and no judgement**. Build the detector, then **pre-register before measuring** (B-92’s shape: the EVENT is the first close outside, not every bar of the state). From [[sources/Bramesh-TradingView-Gann-Scanners-Product-Line]] | small, then a pre-registration |
 | ~~**B-93 / PR-2**~~ | ~~trade-plan coverage as a visible metric — only **7 of 31** firing scanners emit entry/stop/target~~ — **BUILT 2026-09-17** (`7385a9b`): `tools/scanner_plans.py` + its cache, rendered from `dashboard_app.py:8256`. **The census also corrected the number this row states — 14 of 45, not 7 of 31** | done |
 | **B-99** | **four indexed studies ran and left no citable result** — `claims_lint` CHECK 0c, clean on every other check: **B-38** (`funnel_backtest.py`), **SBC-15m** (`sbc_backtest.py`), **SBC-muhurat** (`sbc_muhurat_backtest.py`), **B-30r** (`newmoon_levels_backtest.py`). This is the stale-claim disease inverted — a measurement with no write-up is debt, and each should gain a source with real numbers or be retired. Raised 2026-09-19 | small each, and mostly transcription |
@@ -1282,10 +1282,78 @@ shows as a partial bar rather than being dropped.
    reports 2 rather than pretending to four"*.
 2. **Absent must render absent** (FR-4). A missing yearly pivot must not read as a verdict.
 
-### B-97 · do the pivot timeframes agree? — **MEASURABLE NOW, run it FIRST**
+### B-97 · do the pivot timeframes agree? — **MEASURED 2026-09-19: NO. They agree on the SIDE of the pivot 53.9% of the time and read OPPOSITE sides 37.9%**
+
+**Result first.** `tools/pivot_timeframe_agreement.py`, 499 of 500 NIFTY 500 names (one
+excluded — could not produce both reads):
+
+| | observed | chance | lift |
+|---|---|---|---|
+| zone agreement (7 labels) | **25.9%** | 17.9% | +7.9 |
+| **SIDE agreement** (above / at / below the pivot) | **53.9%** | 41.8% | **+12.1** |
+| **opposite sides** (one ABOVE, one BELOW) | **37.9%** | — | — |
+
+Against the bands fixed before the run: **TWO DIFFERENT READINGS** (side < 70%) and the
+opposite-side flag reads **CONTRADICTION** (≥ 20%). **Worse than the prior.** B-42r found
+`pivot_len` 5 vs 15 agreeing 29.6% on `state` with **17.6%** opposite; daily vs weekly
+pivots read opposite **37.9%** of the time, more than double that.
+
+**The robustness check, and it is why this is a finding rather than a snapshot.** The
+primary run's label distribution came back badly skewed — 249 of 499 names at `R1` on
+daily against 199 at `PP-S1` on weekly — which is exactly what a cross-section taken three
+sessions into a bounce off a seven-week decline looks like: above yesterday's pivot, below
+last week's. Taken alone it would have inflated disagreement by construction. Re-run on
+**29 past month-ends** (2024-03 → 2026-07, same frames truncated, nothing re-downloaded):
+
+* **median side agreement 64.0%** (range 50.1 – 91.0)
+* **median opposite 27.3%** (range 5.6 – 39.0)
+* **22 of 29 dates clear the 20% contradiction threshold**; only **5 of 29** reach the 70%
+  "real but narrow" band and only one (2026-03-31, 91.0%) is cosmetic.
+
+So the primary date is at the disagreeable end of the range but **not an outlier, and the
+verdict does not depend on it** — the median date still fails both bands. Today was
+declared post-hoc in the file and is not restated as the headline.
+
+**What the lift says, and it is the half that is easy to miss.** Agreement is above chance
+at every single date (+4.2 to +32.3, median ≈ +16). These two columns are **not
+independent** — they carry real shared information. The finding is not "the weekly column
+is noise"; it is that the shared part is far smaller than a reader scanning two adjacent
+columns would assume.
+
+**The two high-agreement dates are the mechanism.** 2025-02-28 (87.3%) and 2026-03-31
+(91.0%) are the dates where nearly everything sat on one side, which is what a strong
+trending month does to both timeframes at once. Agreement is a function of the tape, not a
+property of the columns.
+
+#### What this decides for [[#B-96]]
+
+B-97 was run first precisely so this question could be answered before three more columns
+existed, and the answer is now on the record: **B-96 must not print five peer columns.**
+At 37.9% opposite today and 27.3% at the median, a reader scanning five timeframes will
+routinely see three say one thing and two the other, with nothing on the surface saying
+which governs. Concretely, B-96 must either
+
+1. **name a governing timeframe** and render the others as context subordinate to it, or
+2. **print the agreement itself** — a single "3 of 5 above" state, the way B-42's
+   `agreement` field collapses CONFIRMED / UNDECIDED — so the split is the reading rather
+   than something the reader has to notice.
+
+Option 2 is the better fit for this desk, because it makes the disagreement legible
+instead of leaving it as five facts in a row. **Either way B-96 is no longer "small".**
+
+#### Design notes (the file is the pre-registration, committed before the run)
 
 No build at all: `pivot_d` and `pivot_w` both compute today. Score the agreement rate on
 `state` across the universe, the way [[#B-42r]] scored `pivot_len` 5 vs 15.
+
+> [!note] What happened to "use a rotation p-value"
+> The instruction below was written for scoring a state against forward returns, and this
+> study scores no returns — applied literally it would have tested nothing. What survives
+> is the part that bites: **a raw agreement rate is mostly base rate.** The statistic is
+> therefore agreement **lift over a cross-sectional rotation baseline** that holds both
+> label distributions fixed, which is the same correction [[#B-59]]'s v2 re-run applied
+> when its raw coverage turned out to be mostly chance. Reported with the raw rate, never
+> instead of it.
 
 **Use a rotation p-value.** A pivot zone is a slow, autocorrelated **state series**, not an
 event — the same trap recorded in [[concepts/Participant-Positioning-FII-DII]] and measured
