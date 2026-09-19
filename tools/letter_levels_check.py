@@ -111,6 +111,42 @@ def verdict(marks: list[str]) -> tuple[str, str]:
             f"{exact} exact, {within} of 3 within one strike")
 
 
+# ══ SECONDARY — added 2026-09-19, AFTER the primary run ══════════════════════
+#
+# Declared post-hoc, because it is. The primary came back with max pain EXACT
+# and BOTH walls MISS, which is a strange shape: a max pain that lands on the
+# same strike is strong evidence the author read the same chain with the same
+# definition, and that makes two badly-missed walls look like a DEFINITIONAL
+# gap rather than a data gap.
+#
+# The obvious candidate: `oi_walls` ranks the WHOLE chain, so on 2026-09-17 it
+# returns 24,500 (10.4M) for calls and 22,000 (10.9M) for puts — strikes 5%
+# away, which are far-OTM weekly inventory rather than anything defending a
+# level. Most published "OI walls" are near-the-money.
+#
+# **This tests exactly one alternative, and it is not a swept parameter.**
+# `option_chain.NEAR_STRIKES` already exists in the module (10 strikes each
+# side, for its own "near" summary) and was written long before this letter.
+# Trying window sizes until one fit would be fitting the source's number; using
+# the constant the module already had is a test of a hypothesis.
+def near_window_walls(raw, expiry: str) -> dict[str, float | None]:
+    """Walls re-ranked inside the module's own ±NEAR_STRIKES window."""
+    ch = oc.load_chain(raw, "NIFTY", expiry=expiry)
+    if not ch:
+        return {"call": None, "put": None}
+    df, spot = ch.get("strikes"), ch.get("spot")
+    if df is None or df.empty or not spot:
+        return {"call": None, "put": None}
+    n = oc.NEAR_STRIKES
+    above = sorted(df[df["strike"] >= spot]["strike"])[:n]
+    below = sorted(df[df["strike"] <= spot]["strike"])[-n:]
+    w = df[df["strike"].isin(set(above) | set(below))]
+    c = w[w["strike"] >= spot].nlargest(1, "call_oi")
+    p = w[w["strike"] <= spot].nlargest(1, "put_oi")
+    return {"call": float(c["strike"].iloc[0]) if not c.empty else None,
+            "put": float(p["strike"].iloc[0]) if not p.empty else None}
+
+
 def read(raw, expiry: str, trade_date) -> dict | None:
     return oc.read_levels("NIFTY", expiry=expiry, walls=3, raw=raw,
                           trade_date=trade_date)
@@ -167,6 +203,18 @@ def main() -> int:
             print(f"      put wall  {pw!s:>9}  vs {LETTER['put_wall']:,.0f}  {marks[2]}")
             if star == "*":
                 primary_marks = marks
+
+    # Secondary, post-hoc: the same walls inside the module's own near window.
+    day = dt.datetime.fromisoformat(PRIMARY_SESSION)
+    raw = oi._download_bhavcopy(session, day)
+    if raw is not None:
+        nw = near_window_walls(raw, NEAR_EXPIRY)
+        print(f"\n── SECONDARY (post-hoc): walls re-ranked inside the module's "
+              f"own ±{oc.NEAR_STRIKES}-strike window, {PRIMARY_SESSION} ──")
+        print(f"      call wall {nw['call']!s:>9}  vs "
+              f"{LETTER['call_wall']:,.0f}  {classify(nw['call'], LETTER['call_wall'])}")
+        print(f"      put wall  {nw['put']!s:>9}  vs "
+              f"{LETTER['put_wall']:,.0f}  {classify(nw['put'], LETTER['put_wall'])}")
 
     if not primary_marks:
         print("\nVERDICT: INCONCLUSIVE — the primary session did not read.")

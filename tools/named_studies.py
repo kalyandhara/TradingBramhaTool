@@ -224,6 +224,17 @@ STUDIES: tuple[dict, ...] = (
         "source": "analyses/SVP-Signal-Backtest-Design",
     },
     {
+        "item": "B-94", "tool": "letter_levels_check.py", "date": "2026-09-19",
+        "subjects": ("max_pain", "oi_walls", "read_levels"),
+        "verdict": "MIXED",
+        "headline": ("an outside letter's NIFTY max pain 23,300 reproduces "
+                     "EXACTLY on the 2026-09-17 chain; its call wall 23,500 "
+                     "reproduces only inside a +-10-strike window (ours ranks "
+                     "the whole chain and returns 24,500); its put wall 23,100 "
+                     "is our #8 put strike against 23,000's 80%-larger OI"),
+        "source": "analyses/Open-Backlog#B-94",
+    },
+    {
         "item": "B-97", "tool": "pivot_timeframe_agreement.py",
         "date": "2026-09-19",
         "subjects": ("pivot_d", "pivot_w", "pivot_zone"),
