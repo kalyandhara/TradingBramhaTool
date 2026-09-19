@@ -30,16 +30,20 @@ import pytest
 APP = pathlib.Path(__file__).resolve().parent / "dashboard_app.py"
 
 #: Measured 2026-09-16. Lower these when work lands; never raise them silently.
-MAX_LINES = 13_900          # actual 13,846
+MAX_LINES = 13_150          # actual 13,108 — B-87r lowered this from 13,900
+                            # when Astro Timing moved to tools/desk_pages/
 MAX_SILENT_HANDLERS = 11    # actual 11 — `except: pass` / `except: continue`
-# Raised 320 -> 324 on 2026-09-18 for the two Home strips: the index charts and
-# the breadth bars. Each contributed exactly two statements — an import and its
-# `if current_page == "Home"` call site — while the fetches, the cards and the
-# figures live in tools/index_strip.py and tools/breadth_strip.py. A feature
-# that arrives as a module plus one call site is what this ratchet is meant to
-# encourage, which is why these raises are recorded rather than silent.
-MAX_MODULE_STATEMENTS = 324  # actual 324
-MAX_RAW_HTML_RENDERS = 120  # actual ~112 `unsafe_allow_html=True`
+# 320 -> 324 on 2026-09-18 for the two Home strips (index charts, breadth bars),
+# each an import plus one call site while the real code went into its own module.
+#
+# 324 -> 325 on 2026-09-19 for B-87r, and this is the LAST raise this mechanism
+# needs. Extracting Astro Timing added `import desk_pages` and one dispatch
+# block, but the dispatch is shared: it routes EVERY future extracted page. So
+# the next page removes its `if current_page == "..."` block and adds nothing,
+# taking this number to 324, then 323, then 322 — the ratchet now falls with
+# each extraction instead of creeping up, which is what B-87 installed it for.
+MAX_MODULE_STATEMENTS = 325  # actual 325, and the next extraction lowers it
+MAX_RAW_HTML_RENDERS = 108  # actual 102 — lowered from 120 by the same move
 
 
 @pytest.fixture(scope="module")
