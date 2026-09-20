@@ -179,13 +179,22 @@ def test_probe_skips_a_symbol_whose_fetch_fails():
 #:       644/644 hits were being counted as planless, accurately: nothing could
 #:       be scored from a plan the R-simulator cannot see.
 #:
-#: `VCP Coiling` moved NONE -> PARTIAL in the same pass (588/1570). It is tier
-#: `weak`, i.e. already measured, so its coarse 3-window gates were left exactly
-#: as they were and `detect_vcp_geometry`'s plan is attached only where that
-#: stricter detector agrees. Replacing the gates would have changed the hit set
-#: and invalidated a recorded number. PARTIAL is the honest reading, and this
-#: ratchet deliberately does not count it.
-MIN_FULL_PLAN_SCANNERS = 19
+#: 19 -> 20 later the same day, when `VCP Coiling` had its coarse three-window
+#: gates REPLACED by the strict `detect_vcp_geometry` pivot walk (owner's call,
+#: made with the cost stated). Every hit now carries a pivot-anchored plan:
+#: 4201/4201, NONE -> FULL.
+#:
+#: This one is not a free point, and the ratchet should not be read as if it
+#: were. The swap discarded B-19's measurement of the old detector — a STABLE
+#: NEGATIVE edge over 1,951 signals, the sign holding at all four horizons in all
+#: three windows — so `VCP Coiling` went from `weak` back to `unmeasured`, and
+#: its confluence weight ROSE 0.25 -> 0.5 as a result. It also fires 2.7x more
+#: often (1570 -> 4201 hits), four fifths of it WATCH. The verdict file moved to
+#: cache/b19_verdicts/_superseded/ rather than being deleted.
+#:
+#: So: +1 here means "the harness can now score it", not "it got better". It is
+#: an unmeasured detector where a measured one used to be.
+MIN_FULL_PLAN_SCANNERS = 20
 
 
 def _census():

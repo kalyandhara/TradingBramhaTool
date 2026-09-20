@@ -594,68 +594,98 @@ def _enrich_pead(results: list[dict]) -> list[dict]:
 
 
 def scan_vcp(df: pd.DataFrame) -> dict | None:
-    """Volatility contraction: three successive 10-day ranges each tighter than the last."""
-    if len(df) < 35:
-        return None
-    close = df["close"]
-    last = float(close.iloc[-1])
-    sma50 = _sma(close, 50)
-    if np.isnan(sma50) or last < sma50:
-        return None
+    """VCP coiling — the STRICT pivot-based detector (`detect_vcp_geometry`).
 
-    def _range_pct(window: pd.DataFrame) -> float:
-        lo = float(window["low"].min())
-        hi = float(window["high"].max())
-        return (hi - lo) / lo * 100 if lo > 0 else float("inf")
+    ── What changed, and what it cost ─────────────────────────────────────────
+    Until 2026-09-19 this scanner was a coarse three-window range check: are the
+    last three 10-day ranges each tighter than the last, by at least 20% overall,
+    with price above its SMA50. That test fired on anything narrowing, whether or
+    not the narrowing had the shape of a base, and it emitted no pivot, no
+    contraction ladder and no trade plan.
 
-    r0 = _range_pct(df.tail(10))
-    r1 = _range_pct(df.iloc[-20:-10])
-    r2 = _range_pct(df.iloc[-30:-20])
-    if not (r2 > r1 > r0):
+    It now delegates to `detect_vcp_geometry`, which walks confirmed swing pivots
+    and requires an actual base: 2-4 contractions, each tighter than the last by
+    a tolerance, a real pivot to break, and a volume dry-up on the right side.
+    Same detector the chart overlay draws, so the card and the chart can no
+    longer disagree about whether a name is coiling.
+
+    **This invalidated a measurement, deliberately and on request.** B-19
+    (2026-09-02, batch walk-forward over 41 scanners, LIQUID_50, 3 windows,
+    Indian delivery ~29bps) placed "VCP Coiling" in the WEAK tier. That reading
+    describes the three-window test above, which no longer exists. It does not
+    transfer to a different detector with a different hit set, so the scanner has
+    been moved back to `unmeasured` in `opportunity_hub` rather than keeping a
+    number it no longer earns.
+
+    Three consequences worth stating plainly, none of them hidden. Measured
+    2026-09-19 on 110 NSE names x 3 evaluation cuts, old gates vs new:
+
+      * **The hit sets barely overlap, and the new one is BIGGER.** 13 old-only,
+        16 shared, 63 new-only — 29 hits become 79, a 2.7x INCREASE. The strict
+        detector is stricter about SHAPE (it demands a real base with a pivot),
+        not about frequency: the old three-window test needed the narrowing to
+        land in the last 30 bars, so it missed most bases while admitting
+        narrowings that were not bases at all. Do not read "strict" as "quieter".
+      * **Four fifths of those hits are WATCH** (63 WATCH / 7 WEAK BUY / 6 READY
+        / 3 BUY) — a valid base that is not near its pivot yet. That is the
+        honest meaning of "coiling", but it does mean the Scanner Hub now shows
+        many more VCP cards, most of which are not actionable today.
+      * **Its confluence weight goes UP, 0.25 -> 0.5**, because `unmeasured`
+        ("plausible, unproven") outranks `weak` ("measured at or below the
+        baseline"). Replacing a measured detector with an unmeasured one makes it
+        vote twice as heavily while the desk knows less about it. That is the
+        tier system being honest rather than generous, and it is the price of the
+        swap until someone re-measures.
+
+    Score is `_base_quality` — the SAME 0-100 base score `scan_base_formation`
+    uses, not a second definition invented here.
+    """
+    g = detect_vcp_geometry(df)
+    if g is None:
         return None
-    contraction = (r2 - r0) / r2 * 100
-    if contraction < 20:
+    contractions = g.get("contractions") or []
+    if not contractions:
         return None
-    vol_recent = float(df["volume"].tail(10).mean())
-    vol_prior = float(df["volume"].iloc[-30:-10].mean())
+    depths = [c["depth_pct"] for c in contractions]
+    base_q, base_depth = _base_quality(
+        g["pivot"], g["base_low"], depths[-1], g["n_contractions"],
+        g["vol_confirmed"], g["vol_drying"])
+
+    tags = [f"{g['n_contractions']} contractions", f"footprint {g['footprint']}",
+            g["verdict"]]
+    if g["vol_confirmed"]:
+        tags.append("volume dried")
+    if g["vol_expansion"]:
+        tags.append("volume expanding")
+    if g["risk_reward"]:
+        tags.append(f"R:R {g['risk_reward']}")
+
     reasons = [
-        f"Ranges contracting: {r2:.1f}% → {r1:.1f}% → {r0:.1f}% (last 30 days)",
-        f"{contraction:.0f}% total volatility contraction — classic VCP signature",
+        f"{g['n_contractions']} contractions tightening {g['footprint']} "
+        f"over ~{g['base_weeks']} weeks",
+        f"Pivot {g['pivot']}, base low {g['base_low']} "
+        f"({base_depth:.1f}% deep) — {g['dist_to_pivot_pct']}% from the pivot",
+        ("Volume dried into the right side" if g["vol_confirmed"]
+         else "Volume has NOT dried on the right side — the coil is not confirmed"),
+        f"Base quality {base_q:.0f}/100",
     ]
-    if vol_recent < vol_prior:
-        reasons.append("Volume drying on contraction — institutional absorption, not selling")
-    out = {
+    reasons.append(
+        "NOT MEASURED. This is the strict pivot detector as of 2026-09-19; "
+        "B-19's weak-tier reading described the previous three-window range "
+        "test and does not carry over to this hit set.")
+
+    return {
         "pattern_type": "VCP Coiling",
-        "tags": [f"{contraction:.0f}% contraction", "VCP"],
+        "tags": tags,
         "reasons": reasons,
-        "score": round(contraction, 2),
+        "score": round(base_q, 2),
+        # Top level for the measurement harness, geometry for the chart overlay
+        # and /api/vcp — see test_plan_visibility.py for the rule.
+        "entry": g["entry"],
+        "stop": g["stop"],
+        "target": g["target"],
+        "geometry": g,
     }
-    # A plan, where the measurement harness can see it — but WITHOUT touching
-    # which hits fire. This scanner is tier `weak`, meaning it has been measured;
-    # swapping its coarse 3-window test for `detect_vcp_geometry`'s stricter
-    # pivot walk would change the hit set and silently invalidate that recorded
-    # number, which is the same reason `detect_bullish_reversal_structure` was
-    # left alone when the full-spec Double Bottom landed.
-    #
-    # So the geometry detector is consulted as an ADD-ON: every hit above still
-    # fires, and the ones the stricter detector also recognises gain an
-    # entry/stop/target that `backtest.py` can R-simulate. Measured 2026-09-19
-    # on 110 NSE names: the two agree on 16 of 29 hits (55%), so this scanner is
-    # expected to read PARTIAL in the plan census rather than FULL — an honest
-    # reading, and better than the 0/N it reported while carrying no plan at all.
-    #
-    # Only computed on a HIT, so the pivot walk costs nothing on the scans that
-    # do not fire.
-    try:
-        _g = detect_vcp_geometry(df)
-    except Exception:                                      # pragma: no cover
-        _g = None
-    if _g and all(_g.get(k) is not None for k in ("entry", "stop", "target")):
-        out["entry"]  = _g["entry"]
-        out["stop"]   = _g["stop"]
-        out["target"] = _g["target"]
-        out["geometry"] = _g
-    return out
 
 
 def detect_vcp_geometry(df: pd.DataFrame, window: int = 90,
@@ -8314,7 +8344,22 @@ SCANNERS: dict[str, dict] = {
     },
     "VCP Coiling": {
         "fn": scan_vcp,
-        "description": "Volatility contraction pattern with drying volume — coiling before move",
+        "description": (
+            "Volatility contraction base, detected by the STRICT pivot walk "
+            "(`detect_vcp_geometry`, concepts/VCP.md): 2-4 contractions each "
+            "tighter than the last, a real pivot to break, and a volume dry-up "
+            "on the right side. Emits the pivot, the contraction footprint "
+            "(Minervini WW notation) and a full entry/stop/target — the same "
+            "geometry the chart overlay draws, so card and chart cannot "
+            "disagree. Score is the shared 0-100 base quality. "
+            "NOT MEASURED as of 2026-09-19: this replaced a coarse three-window "
+            "range test on request, and B-19's weak-tier reading measured THAT "
+            "detector, not this one. The hit sets barely overlap — 13 old-only, "
+            "16 shared, 63 new-only on 110 names — and the new one fires 2.7x "
+            "MORE often, four fifths of it WATCH (a valid base not yet near its "
+            "pivot). The old number does not transfer, so the scanner moved back "
+            "to `unmeasured` rather than keep a result it no longer earns."
+        ),
         "category": "Pattern",
     },
     "Minervini VCP (valchak)": {

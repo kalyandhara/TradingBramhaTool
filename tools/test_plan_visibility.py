@@ -134,44 +134,78 @@ def test_double_bottom_emits_a_visible_plan():
     assert sp.has_plan(hit)
 
 
-# ── VCP is the one that is NOT the same fix ──────────────────────────────────
+# ── VCP: the gates WERE replaced, on request, and it cost a measurement ──────
 
-def test_vcp_keeps_its_own_firing_criteria():
-    """`scan_vcp` is tier `weak`, which means it HAS been measured. Its plan now
-    comes from `detect_vcp_geometry`, a stricter pivot-based detector — attached
-    as an ADD-ON, never as a replacement for the gates.
+def test_vcp_delegates_to_the_strict_detector():
+    """`scan_vcp` no longer owns a hit rule. It fires exactly when
+    `detect_vcp_geometry` sees a base — one detector, so the Scanner Hub card
+    and the /api/vcp chart overlay can no longer disagree about a name.
 
-    Swapping the criteria would change the hit set and silently invalidate a
-    recorded measurement, which is the same reason the loose
-    `detect_bullish_reversal_structure` was left alone. So this pins the coarse
-    3-window range test as the thing that decides whether VCP fires.
+    The coarse three-window range test it used to carry is gone, not bypassed.
     """
     import inspect
     src = inspect.getsource(S.scan_vcp)
-    # The gates, still ahead of any geometry call.
-    gate = src.index("if not (r2 > r1 > r0):")
-    addon = src.index("detect_vcp_geometry")
-    assert gate < addon, "the geometry detector must not gate which hits fire"
-    assert "if contraction < 20:" in src
+    assert "detect_vcp_geometry(df)" in src
+    for gone in ("if not (r2 > r1 > r0):", "if contraction < 20:", "_range_pct"):
+        assert gone not in src, f"the old coarse gate {gone!r} is still deciding hits"
+
+    for df in _frames():
+        assert (S.scan_vcp(df) is None) == (S.detect_vcp_geometry(df) is None)
 
 
-def test_vcp_attaches_a_plan_only_when_the_stricter_detector_agrees():
-    """55% agreement measured on 110 NSE names (2026-09-19), so VCP is expected
-    to read PARTIAL in the plan census. A hit the geometry detector does not
-    recognise carries NO plan rather than a guessed one."""
+def test_vcp_lost_its_measured_tier_with_its_old_detector():
+    """B-19 measured the three-window test. That detector no longer exists, so
+    the tier it earned does not transfer.
+
+    This is the test that would fail if someone re-added `VCP Coiling` to
+    MEASURED_WEAK_SCANNERS without re-running the measurement — which would be
+    the cheap move and the wrong one.
+    """
+    import opportunity_hub as oh
+    assert "VCP Coiling" not in oh.MEASURED_WEAK_SCANNERS
+    assert oh.scanner_tier("VCP Coiling") == "unmeasured"
+    assert "NOT MEASURED" in S.SCANNERS["VCP Coiling"]["description"]
+
+
+def test_the_swap_raised_vcps_confluence_weight():
+    """Pinned because it is counter-intuitive and easy to lose track of:
+    replacing a measured detector with an unmeasured one makes it vote MORE.
+    `unmeasured` is 0.5 ("plausible, unproven"), `weak` was 0.25 ("measured, and
+    it was not good"). Not a bug — but it should not go unnoticed either."""
+    import opportunity_hub as oh
+    assert oh.scanner_weight("VCP Coiling") == oh.WEIGHT_UNMEASURED
+    assert oh.WEIGHT_UNMEASURED > oh.WEIGHT_WEAK
+
+
+def test_vcp_now_emits_a_plan_on_every_hit():
+    """It reported NONE in the plan census while the coarse gates carried no
+    plan at all. Delegating gives every hit a pivot-anchored entry/stop/target."""
+    fired = 0
     for df in _frames():
         hit = S.scan_vcp(df)
         if hit is None:
             continue
-        geo = S.detect_vcp_geometry(df)
-        if geo is None:
-            assert not sp.has_plan(hit), "a plan appeared with no geometry behind it"
-        else:
-            assert sp.has_plan(hit)
+        fired += 1
+        assert sp.has_plan(hit)
+    if not fired:
+        pytest.skip("no coil in the fixtures on this build")
+
+
+def test_vcp_scores_with_the_shared_base_quality_not_a_new_definition():
+    """One id, one definition. `scan_base_formation` already scores a base
+    0-100; a second VCP-only scoring function would be the drift `columns.py`
+    and the scanner registry both exist to stop."""
+    import inspect
+    src = inspect.getsource(S.scan_vcp)
+    assert "_base_quality(" in src
+    for df in _frames():
+        hit = S.scan_vcp(df)
+        if hit:
+            assert 0.0 <= hit["score"] <= 100.0
 
 
 def test_vcp_still_returns_its_card_fields():
-    """The add-on must not disturb what the Scanner Hub already renders."""
+    """The swap must not disturb what the Scanner Hub already renders."""
     for df in _frames():
         hit = S.scan_vcp(df)
         if hit is None:

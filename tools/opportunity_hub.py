@@ -385,10 +385,23 @@ MEASURED_EDGE_SCANNERS: tuple[str, ...] = (
 #: PIPELINE_EXCLUDED — it measured significantly negative, and a weak weight still
 #: counts toward FULL_CONFLUENCE, so 0.25 was not low enough. This list is for
 #: scanners that still vote; a scanner that must not vote belongs in the exclusion.
+#: `VCP Coiling` LEFT this list on 2026-09-19. Its weak tier came from B-19
+#: (2026-09-02), which measured the coarse three-window range test that
+#: `scan_vcp` used to be. That scanner now delegates to `detect_vcp_geometry`,
+#: a stricter pivot-based detector whose hit set barely overlaps the old one
+#: (measured 2026-09-19 on 110 names x 3 cuts: 13 old-only, 16 shared, 63
+#: new-only), so B-19's reading describes a detector that no longer exists.
+#: Keeping the number would be the cheaper option and the wrong one.
+#:
+#: Note what this costs: it moves to `unmeasured`, which weighs 0.5 against
+#: weak's 0.25 — so the swap makes it vote TWICE AS HEAVILY on confluence while
+#: knowing LESS about it. That is the tier system being honest rather than
+#: generous ("plausible, unproven" really does outrank "measured and it was not
+#: good"), but it is a live consequence, not a bookkeeping detail. Re-measuring
+#: the new detector is the only thing that settles it.
 MEASURED_WEAK_SCANNERS: tuple[str, ...] = (
     "Order Block Retest",
     "RSI 60-40 Setup",
-    "VCP Coiling",
     "Structural Breakout",
     "VWAP Mean Reversion",
 )

@@ -407,12 +407,12 @@
   },
   "VCP Coiling": {
    "fields": {
-    "entry": 588,
-    "stop": 588,
-    "target": 588
+    "entry": 4201,
+    "stop": 4201,
+    "target": 4201
    },
-   "fired": 1570,
-   "with_plan": 588
+   "fired": 4201,
+   "with_plan": 4201
   },
   "VWAP Mean Reversion": {
    "fields": {
