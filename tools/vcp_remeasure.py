@@ -78,7 +78,9 @@ CLI:
 from __future__ import annotations
 
 import argparse
+import datetime as _dt
 import io
+import os
 import sys
 
 #: Pooled OOS signals below which no tier moves. B-19 called three scanners
@@ -224,6 +226,33 @@ def main() -> int:
     print("\nThe R-simulation is NOT part of this verdict — see the module "
           "docstring: ~80% of hits are WATCH, whose entry is a pivot that may "
           "never have been reached.")
+
+    # Write the verdict file in the SAME format and location B-19 used. This is
+    # not bookkeeping: `claims_lint` treats a file in `cache/b19_verdicts/` as
+    # proof the named scanner was measured, so without this the lint would keep
+    # believing VCP Coiling is unmeasured and would not catch the next stale
+    # "NOT MEASURED" description anywhere in the tree. Writing it restores that
+    # guard, which the swap had temporarily switched off.
+    try:
+        from backtest import format_walk_forward
+        out_dir = os.path.join(os.path.dirname(__file__), "cache", "b19_verdicts")
+        os.makedirs(out_dir, exist_ok=True)
+        path = os.path.join(out_dir, "VCP_Coiling.txt")
+        header = "\n".join([
+            f"=== B-19r(VCP) re-measurement, {_dt.date.today().isoformat()} ===",
+            "Detector: the STRICT pivot walk (detect_vcp_geometry), which",
+            "replaced the coarse three-window range test on 2026-09-19.",
+            "Bands pre-registered in tools/vcp_remeasure.py BEFORE this ran.",
+            f"VERDICT: {verdict}",
+            "The retired detector's reading is in _superseded/VCP_Coiling.txt -",
+            "a DIFFERENT hit set, so it is context and not a paired comparison.",
+            "", "",
+        ])
+        with io.open(path, "w", encoding="utf-8") as fh:
+            fh.write(header + format_walk_forward(res))
+        print(f"verdict file -> {path}")
+    except Exception as e:                                   # pragma: no cover
+        print(f"[warn] could not write the verdict file: {e}")
     return 0
 
 

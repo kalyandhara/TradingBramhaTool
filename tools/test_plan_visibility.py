@@ -153,28 +153,56 @@ def test_vcp_delegates_to_the_strict_detector():
         assert (S.scan_vcp(df) is None) == (S.detect_vcp_geometry(df) is None)
 
 
-def test_vcp_lost_its_measured_tier_with_its_old_detector():
+def test_vcp_was_re_measured_rather_than_inheriting_a_tier():
     """B-19 measured the three-window test. That detector no longer exists, so
-    the tier it earned does not transfer.
+    the tier it earned did not transfer — the scanner went to `unmeasured` and
+    was re-run (B-19r) against bands pre-registered before the run.
 
-    This is the test that would fail if someone re-added `VCP Coiling` to
-    MEASURED_WEAK_SCANNERS without re-running the measurement — which would be
-    the cheap move and the wrong one.
+    It is WEAK again by MEASUREMENT, not by inheritance. This fails if someone
+    restores the tier with no verdict file behind it, which would be the cheap
+    move and the wrong one.
+    """
+    import pathlib
+    import opportunity_hub as oh
+    assert oh.scanner_tier("VCP Coiling") == "weak"
+    assert "VCP Coiling" in oh.MEASURED_WEAK_SCANNERS
+    desc = S.SCANNERS["VCP Coiling"]["description"]
+    assert "NOT MEASURED" not in desc
+    assert "B-19r" in desc, "the description must name the run that earned the tier"
+
+    # The verdict file is claims_lint's ground truth. Without it the lint goes
+    # quiet about this scanner and the next stale description slips through.
+    vdir = pathlib.Path(S.__file__).resolve().parent / "cache" / "b19_verdicts"
+    if vdir.is_dir():
+        assert (vdir / "VCP_Coiling.txt").is_file(), (
+            "re-measured but no verdict file — claims_lint has no ground truth")
+
+
+def test_vcps_weight_came_back_down_after_the_re_measurement():
+    """The round trip, pinned: 0.25 -> 0.50 -> 0.25.
+
+    Dropping the inherited tier moved it to `unmeasured`, which weighs MORE than
+    `weak` ("plausible, unproven" outranks "measured and it was not good"), so
+    between the swap and B-19r it voted twice as heavily on confluence while the
+    desk knew less about it. That window is closed; this keeps it closed.
     """
     import opportunity_hub as oh
-    assert "VCP Coiling" not in oh.MEASURED_WEAK_SCANNERS
-    assert oh.scanner_tier("VCP Coiling") == "unmeasured"
-    assert "NOT MEASURED" in S.SCANNERS["VCP Coiling"]["description"]
+    assert oh.scanner_weight("VCP Coiling") == oh.WEIGHT_WEAK
+    assert oh.WEIGHT_UNMEASURED > oh.WEIGHT_WEAK    # why the gap mattered
 
 
-def test_the_swap_raised_vcps_confluence_weight():
-    """Pinned because it is counter-intuitive and easy to lose track of:
-    replacing a measured detector with an unmeasured one makes it vote MORE.
-    `unmeasured` is 0.5 ("plausible, unproven"), `weak` was 0.25 ("measured, and
-    it was not good"). Not a bug — but it should not go unnoticed either."""
-    import opportunity_hub as oh
-    assert oh.scanner_weight("VCP Coiling") == oh.WEIGHT_UNMEASURED
-    assert oh.WEIGHT_UNMEASURED > oh.WEIGHT_WEAK
+def test_the_retired_detectors_verdict_was_kept_not_deleted():
+    """A superseded measurement is still a real result. It moved aside so the
+    lint would stop applying it to a detector it never measured."""
+    import pathlib
+    vdir = pathlib.Path(S.__file__).resolve().parent / "cache" / "b19_verdicts"
+    if not vdir.is_dir():
+        pytest.skip("no local B-19 verdict cache (tools/cache is gitignored)")
+    old_file = vdir / "_superseded" / "VCP_Coiling.txt"
+    if old_file.is_file():
+        body = old_file.read_text(encoding="utf-8", errors="replace")
+        assert "SUPERSEDED" in body
+        assert "1951" in body, "the retired reading should still be legible"
 
 
 def test_vcp_now_emits_a_plan_on_every_hit():

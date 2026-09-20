@@ -385,24 +385,34 @@ MEASURED_EDGE_SCANNERS: tuple[str, ...] = (
 #: PIPELINE_EXCLUDED — it measured significantly negative, and a weak weight still
 #: counts toward FULL_CONFLUENCE, so 0.25 was not low enough. This list is for
 #: scanners that still vote; a scanner that must not vote belongs in the exclusion.
-#: `VCP Coiling` LEFT this list on 2026-09-19. Its weak tier came from B-19
-#: (2026-09-02), which measured the coarse three-window range test that
-#: `scan_vcp` used to be. That scanner now delegates to `detect_vcp_geometry`,
-#: a stricter pivot-based detector whose hit set barely overlaps the old one
-#: (measured 2026-09-19 on 110 names x 3 cuts: 13 old-only, 16 shared, 63
-#: new-only), so B-19's reading describes a detector that no longer exists.
-#: Keeping the number would be the cheaper option and the wrong one.
+#: `VCP Coiling` left this list and came back on 2026-09-19, and the round trip
+#: is worth reading rather than just the destination.
 #:
-#: Note what this costs: it moves to `unmeasured`, which weighs 0.5 against
-#: weak's 0.25 — so the swap makes it vote TWICE AS HEAVILY on confluence while
-#: knowing LESS about it. That is the tier system being honest rather than
-#: generous ("plausible, unproven" really does outrank "measured and it was not
-#: good"), but it is a live consequence, not a bookkeeping detail. Re-measuring
-#: the new detector is the only thing that settles it.
+#: It left because its weak tier came from B-19 (2026-09-02), which measured the
+#: coarse three-window range test that `scan_vcp` used to be. That detector was
+#: replaced by `detect_vcp_geometry`'s strict pivot walk, and B-19's number does
+#: not describe a different hit set (the two agreed on 16 of 29 hits on a
+#: 110-name check). Keeping it would have been the cheaper option and the wrong
+#: one, so the scanner went back to `unmeasured` — which RAISED its weight from
+#: 0.25 to 0.50, because "plausible, unproven" outranks "measured and it was not
+#: good". It held that unearned 0.50 for exactly as long as it took to re-run.
+#:
+#: It came back because B-19r(VCP) re-measured the NEW detector through the same
+#: harness (LIQUID_50, 3 windows, Indian delivery) against bands pre-registered
+#: before the run: 3,233 OOS signals, +0.13% @20d, -0.22% @60d. It fails the bar
+#: the way B-19's headline warned about — @20d is positive but NOT sign-stable
+#: (windows +0.62*/+0.09/-0.28, only the first significant), and @60d is stable
+#: and NEGATIVE. Positive on one horizon, not reproducible across windows.
+#:
+#: So the swap bought a harness-scoreable plan, one detector instead of two that
+#: disagreed, and 2.7x more hits — and no edge. VCP Coiling is a context lens
+#: under either detector. Verdict file: cache/b19_verdicts/VCP_Coiling.txt; the
+#: retired detector's is beside it in _superseded/.
 MEASURED_WEAK_SCANNERS: tuple[str, ...] = (
     "Order Block Retest",
     "RSI 60-40 Setup",
     "Structural Breakout",
+    "VCP Coiling",
     "VWAP Mean Reversion",
 )
 

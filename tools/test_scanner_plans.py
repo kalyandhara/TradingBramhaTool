@@ -192,8 +192,11 @@ def test_probe_skips_a_symbol_whose_fetch_fails():
 #: often (1570 -> 4201 hits), four fifths of it WATCH. The verdict file moved to
 #: cache/b19_verdicts/_superseded/ rather than being deleted.
 #:
-#: So: +1 here means "the harness can now score it", not "it got better". It is
-#: an unmeasured detector where a measured one used to be.
+#: So: +1 here means "the harness can now score it", not "it got better". The
+#: new detector has since been re-measured on its own terms (B-19r, bands
+#: pre-registered first): 3,233 OOS signals, +0.13% @20d but NOT sign-stable,
+#: -0.22% @60d and stable negative -> WEAK, back to 0.25. The swap bought a
+#: scoreable plan and one detector instead of two, and no edge.
 MIN_FULL_PLAN_SCANNERS = 20
 
 

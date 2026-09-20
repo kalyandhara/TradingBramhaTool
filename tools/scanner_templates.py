@@ -609,13 +609,16 @@ def scan_vcp(df: pd.DataFrame) -> dict | None:
     Same detector the chart overlay draws, so the card and the chart can no
     longer disagree about whether a name is coiling.
 
-    **This invalidated a measurement, deliberately and on request.** B-19
-    (2026-09-02, batch walk-forward over 41 scanners, LIQUID_50, 3 windows,
-    Indian delivery ~29bps) placed "VCP Coiling" in the WEAK tier. That reading
-    describes the three-window test above, which no longer exists. It does not
-    transfer to a different detector with a different hit set, so the scanner has
-    been moved back to `unmeasured` in `opportunity_hub` rather than keeping a
-    number it no longer earns.
+    **This invalidated a measurement, deliberately and on request — and the
+    replacement has since been measured.** B-19 (2026-09-02) placed "VCP Coiling"
+    in the WEAK tier on the three-window test above. That reading did not
+    transfer to a different detector with a different hit set, so the scanner
+    went back to `unmeasured` and was re-run: B-19r(VCP), same harness, bands
+    pre-registered first. 3,233 OOS signals, +0.13% @20d, -0.22% @60d — @20d
+    positive but NOT sign-stable (+0.62*/+0.09/-0.28), @60d stable and negative.
+    WEAK again, by measurement rather than by inheritance, so it sits back at
+    0.25. The swap bought a scoreable plan and one detector instead of two, and
+    no edge.
 
     Three consequences worth stating plainly, none of them hidden. Measured
     2026-09-19 on 110 NSE names x 3 evaluation cuts, old gates vs new:
@@ -630,12 +633,12 @@ def scan_vcp(df: pd.DataFrame) -> dict | None:
         / 3 BUY) — a valid base that is not near its pivot yet. That is the
         honest meaning of "coiling", but it does mean the Scanner Hub now shows
         many more VCP cards, most of which are not actionable today.
-      * **Its confluence weight goes UP, 0.25 -> 0.5**, because `unmeasured`
-        ("plausible, unproven") outranks `weak` ("measured at or below the
-        baseline"). Replacing a measured detector with an unmeasured one makes it
-        vote twice as heavily while the desk knows less about it. That is the
-        tier system being honest rather than generous, and it is the price of the
-        swap until someone re-measures.
+      * **Its confluence weight went 0.25 -> 0.5 -> 0.25.** Dropping the
+        inherited tier moved it to `unmeasured`, which outranks `weak`
+        ("plausible, unproven" beats "measured and it was not good"), so between
+        the swap and B-19r it voted twice as heavily while the desk knew less
+        about it. The re-measurement closed that window and put it back at 0.25.
+        Recorded because that intermediate state is the part a diff hides.
 
     Score is `_base_quality` — the SAME 0-100 base score `scan_base_formation`
     uses, not a second definition invented here.
@@ -670,9 +673,9 @@ def scan_vcp(df: pd.DataFrame) -> dict | None:
         f"Base quality {base_q:.0f}/100",
     ]
     reasons.append(
-        "NOT MEASURED. This is the strict pivot detector as of 2026-09-19; "
-        "B-19's weak-tier reading described the previous three-window range "
-        "test and does not carry over to this hit set.")
+        "MEASURED WEAK (B-19r, 2026-09-19): +0.13% @20d but not sign-stable, "
+        "-0.22% @60d and stable negative, over 3,233 OOS signals. Read it as "
+        "context, not as a trigger.")
 
     return {
         "pattern_type": "VCP Coiling",
@@ -8352,13 +8355,15 @@ SCANNERS: dict[str, dict] = {
             "(Minervini WW notation) and a full entry/stop/target — the same "
             "geometry the chart overlay draws, so card and chart cannot "
             "disagree. Score is the shared 0-100 base quality. "
-            "NOT MEASURED as of 2026-09-19: this replaced a coarse three-window "
-            "range test on request, and B-19's weak-tier reading measured THAT "
-            "detector, not this one. The hit sets barely overlap — 13 old-only, "
-            "16 shared, 63 new-only on 110 names — and the new one fires 2.7x "
-            "MORE often, four fifths of it WATCH (a valid base not yet near its "
-            "pivot). The old number does not transfer, so the scanner moved back "
-            "to `unmeasured` rather than keep a result it no longer earns."
+            "MEASURED WEAK (B-19r, 2026-09-19): re-run through B-19's own "
+            "harness after the detector swap, against bands pre-registered "
+            "before the run - 3,233 OOS signals, +0.13% @20d, -0.22% @60d. It "
+            "fails the bar the way B-19's headline warned about: @20d is "
+            "positive but NOT sign-stable (windows +0.62*/+0.09/-0.28, only the "
+            "first significant) and @60d is stable and NEGATIVE. A context "
+            "lens, not a trigger. The retired three-window detector measured "
+            "-0.59%/-1.07% on a DIFFERENT hit set; that is context, not a "
+            "paired comparison."
         ),
         "category": "Pattern",
     },
