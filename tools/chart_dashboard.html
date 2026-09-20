@@ -469,17 +469,31 @@ html, body {
 .snap-toast.show { opacity: 1; }
 
 /* ── Chart body & sub-panes ───────────────────────────────────────────────── */
+/* The body SCROLLS rather than squeezing. Every sub-plot used to come out of
+   the main chart's height -- add ADX to a pane that already had RSI, MACD and
+   volume and the candles were down to their 100px floor. Sub-plots now keep
+   their own height and the stack simply grows past the bottom of the pane,
+   where a scrollbar carries it; the candles never pay for an indicator the
+   reader switched on (2026-09-20). */
 .chart-body {
-  flex: 1; display: flex; flex-direction: column; min-height: 0; overflow: hidden;
+  flex: 1; display: flex; flex-direction: column; min-height: 0;
+  overflow-y: auto; overflow-x: hidden; overscroll-behavior: contain;
+  scrollbar-width: thin;
 }
+.chart-body::-webkit-scrollbar { width: 9px; }
+.chart-body::-webkit-scrollbar-thumb { background: var(--border); border-radius: 5px; }
+.chart-body::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 .chart-main {
   /* min-height gives the candlestick chart a hard floor so it can't be
      collapsed to zero by a stack of sub-pane indicators. Previously with
      flex:1 + min-height:0, a pane with 6 sub-panes (6×100=600px fixed)
      in a g4 layout would leave chart-main at 0px and show only sub-panes.
      100px is the same as one sub-pane — enough to see candles even when
-     everything is squeezed. */
-  flex: 1 1 auto; min-height: 100px; position: relative; overflow: hidden;
+     everything is squeezed. Now that .chart-body scrolls, the floor is a real
+     working height (260px) rather than a last-resort 100px, and `1 0 auto`
+     means the chart still GROWS to fill a pane with few sub-plots but never
+     shrinks to pay for one. */
+  flex: 1 0 auto; min-height: 260px; position: relative; overflow: hidden;
 }
 /* ── Drawing toolbar (user annotations — see chart_drawings.js) ────────────── */
 /* Floats over the left edge of the chart, the way TradingView's does. It sits
@@ -512,12 +526,12 @@ html, body {
 /* Crosshair while armed makes it obvious the next click draws rather than pans. */
 .chart-main.drawing { cursor: crosshair; }
 
-/* Sub-panes must be allowed to shrink so the main chart's min-height wins.
-   Individual sub-pane min-height keeps oscillators still readable when
-   space is tight; below that they overflow-scroll rather than disappear. */
-.sub-panes { display: flex; flex-direction: column; flex-shrink: 1; min-height: 0; overflow: hidden; }
+/* Sub-panes keep their full height and extend the scrolling body downwards.
+   They used to shrink so the main chart's min-height could win, which meant
+   every extra indicator made ALL of them shorter until none was readable. */
+.sub-panes { display: flex; flex-direction: column; flex: 0 0 auto; }
 .sub-pane {
-  height: 100px; min-height: 50px; flex-shrink: 1;
+  height: 100px; min-height: 100px; flex: 0 0 100px;
   position: relative; border-top: 1px solid var(--border-soft); overflow: hidden;
 }
 /* ── Card dock — the info cards, stapled under the sub-plots ───────────────── */
@@ -532,11 +546,29 @@ html, body {
    A wrapping row, so any number of cards line up; capped at a third of the pane
    so the candles keep the room they need, and it scrolls past that. */
 .card-dock {
-  flex: 0 0 auto; display: flex; flex-direction: row; flex-wrap: wrap;
-  align-items: flex-start; gap: 6px; padding: 6px 8px;
-  max-height: 34%; overflow-y: auto; overscroll-behavior: contain;
+  /* FIXED height, not content-sized: the whole point of the dock is that the
+     candles keep the same frame whether one card is up or eight. A wrapping
+     band grew a row at a time and each row came straight out of .chart-main
+     (the TBZ case, 2026-09-20: the readout band ate a third of the pane).
+     So the dock is one non-wrapping row of a chosen height, and extra cards
+     scroll sideways instead of pushing the chart up. `resize: vertical` lets
+     a reader trade chart height for card height deliberately, which is the
+     only way that trade should ever happen. */
+  flex: 0 0 auto; display: flex; flex-direction: row; flex-wrap: nowrap;
+  align-items: stretch; gap: 6px; padding: 6px 8px;
+  height: var(--dock-h, 190px); min-height: 80px; max-height: 70%;
+  resize: vertical; overflow: auto; overscroll-behavior: contain;
   border-top: 1px solid var(--border); background: var(--bg-pane-header);
+  scrollbar-width: thin;
 }
+/* Visible scrollbars — the strip is meant to be scrolled, so an overlay
+   scrollbar that only appears mid-gesture hides the fact that there are more
+   cards to the right. */
+.card-dock::-webkit-scrollbar { height: 9px; width: 9px; }
+.card-dock::-webkit-scrollbar-thumb {
+  background: var(--border); border-radius: 5px;
+}
+.card-dock::-webkit-scrollbar-thumb:hover { background: var(--text-muted); }
 /* A dock holding only hidden cards must take no space at all, or a bare 13px
    strip sits under the sub-plots. `.empty` is maintained by watchDock(). */
 .card-dock.empty, .card-dock[hidden] { display: none; }
@@ -550,7 +582,11 @@ html, body {
    claiming the whole row. */
 .card-dock > * {
   position: relative !important; transform: none !important; margin: 0 !important;
-  flex: 0 0 auto; max-width: 360px !important; max-height: none !important;
+  flex: 0 0 auto; width: auto; max-width: 360px !important;
+  /* A card taller than the strip scrolls INSIDE itself rather than stretching
+     the strip — Session VP and Gann are several times the height of a chip,
+     and one verbose card must not decide the dock's height for all of them. */
+  max-height: 100% !important; overflow-y: auto; overscroll-behavior: contain;
   z-index: auto !important;
   top: auto !important; right: auto !important; bottom: auto !important; left: auto !important;
 }
@@ -2161,9 +2197,13 @@ const CARD_MODES   = ['float', 'dock', 'off'];
 // chosen `dock` back then keeps it as the default for panes that have no stored
 // mode of their own. Never written any more.
 const LS_CARD_MODE = 'tb_card_mode';
+// 'dock' rather than CARD_MODES[0] ('float'): floating cards cover the price
+// action they describe, and the dock no longer costs the chart anything that
+// grows with the card count (fixed-height strip, see .card-dock). A stored
+// choice still wins — this is only the default for a pane that never chose.
 function defaultCardMode() {
   const v = localStorage.getItem(LS_CARD_MODE);
-  return CARD_MODES.includes(v) ? v : CARD_MODES[0];
+  return CARD_MODES.includes(v) ? v : 'dock';
 }
 function cardMode(pane) {
   return (pane && CARD_MODES.includes(pane.cardMode)) ? pane.cardMode : defaultCardMode();
@@ -2175,15 +2215,19 @@ function setCardMode(pane, mode) {
   try { applyCardMode(pane); syncCardModeBtn(pane); } catch (e) { console.warn('card mode:', e); }
 }
 
-// One flow strip per pane, after .sub-panes — i.e. the bottom of the chart body.
+// One flow strip per pane, a SIBLING of .chart-body rather than a child of it.
+// The body scrolls now (sub-plots extend past the bottom of the pane), and a
+// dock inside it would scroll away with them — the cards are a permanent
+// readout, not another row of the chart stack, so they stay pinned to the
+// bottom edge of the pane while the chart column scrolls behind them.
 function ensureCardDock(pane) {
-  const body = pane.el.querySelector('.chart-body');
-  if (!body) return null;
-  let dock = body.querySelector(':scope > .card-dock');
+  const host = pane.el;
+  if (!host) return null;
+  let dock = host.querySelector(':scope > .card-dock');
   if (!dock) {
     dock = document.createElement('div');
     dock.className = 'card-dock empty';
-    body.appendChild(dock);
+    host.appendChild(dock);
     pane._syncDock = watchDock(dock);
   }
   return dock;
@@ -3144,6 +3188,10 @@ async function renderPanelBand(pane, scale, cssW) {
     clone.style.boxSizing = 'border-box';
     clone.style.width = Math.ceil(r.width) + 'px';
     clone.style.flex = '0 0 auto';
+    // In the dock a card is height-capped and scrolls inside itself; a shared
+    // image has no scrollbar, so the clone must render its full content.
+    clone.style.maxHeight = 'none';
+    clone.style.overflow = 'visible';
     wrap.appendChild(clone);
   });
 
