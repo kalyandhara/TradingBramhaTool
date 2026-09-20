@@ -1,0 +1,180 @@
+"""A plan the measurement harness cannot see is not a plan — B-64r2.
+
+`backtest.py` reads a hit's trade plan from `hit["entry"/"stop"/"target"]`
+(backtest.py:354) and `scanner_plans.has_plan` checks the same three keys. A
+scanner that tucks its plan inside `geometry` hands a complete, correct
+entry/stop/target to the chart card and to a human reading it, and hands the
+R-simulator nothing.
+
+That is not a formatting preference. The registry's whole tier system —
+`measured` / `weak` / `unmeasured` — is downstream of whether the harness can
+score a scanner at all, so an invisible plan is the difference between a
+scanner that can earn a measurement and one that is permanently stuck at
+`unmeasured`.
+
+Found because `Double Bottom` shipped with the same shape, which made the plan
+census read it as planless. `Rounding Bottom` had been carrying an invisible
+plan on 39/39 hits since it was written.
+
+The general test below is the point of the file: it asserts the RULE rather
+than the three instances, so the next detector that returns a `geometry` payload
+cannot reintroduce the gap quietly.
+"""
+from __future__ import annotations
+
+import numpy as np
+import pandas as pd
+import pytest
+
+import scanner_plans as sp
+import scanner_templates as S
+
+PLAN = ("entry", "stop", "target")
+
+
+def _frames():
+    """Shapes chosen to fire the pattern scanners, not random walks — a random
+    walk fires almost none of them and would make this file vacuously green."""
+    out = []
+    # A saucer that actually clears `scan_rounding_bottom`'s gates: a 28%
+    # decline (inside its 12-40% band), a shallow rounded trough, and an
+    # orderly recovery back through the rim. Tuned by search rather than by
+    # eye — an untuned saucer shape simply does not fire, and a skipped test
+    # guards nothing.
+    px = (list(np.linspace(100, 72, 28))
+          + list(72 + 1.5 * np.sin(np.linspace(0, np.pi, 12)))
+          + list(np.linspace(72, 104, 30)))
+    px = [100.0] * (95 - len(px)) + px
+    out.append(np.array(px, float))
+    # A double bottom: decline, low, rally to a neckline, low, break.
+    px = (list(np.linspace(100, 72, 60)) + list(np.linspace(72, 70, 10))
+          + list(np.linspace(70, 80, 20)) + list(np.linspace(80, 70, 20))
+          + list(np.linspace(70, 84, 14)) + [84.0, 84.5, 85.0])
+    out.append(np.array(px, float))
+    # A coil: uptrend into three tightening ranges.
+    base = list(np.linspace(60, 100, 120))
+    coil = []
+    for amp in (6.0, 3.0, 1.2):
+        coil += list(100 + amp * np.sin(np.linspace(0, 2 * np.pi, 10)))
+    out.append(np.array(base + coil, float))
+    return [pd.DataFrame({"open": c, "high": c * 1.012, "low": c * 0.988,
+                          "close": c, "volume": np.full(len(c), 1e6)})
+            for c in out]
+
+
+def _hits():
+    """(scanner_name, hit) for every scanner that fires on the fixtures."""
+    found = []
+    for name, meta in S.SCANNERS.items():
+        for df in _frames():
+            for cut in (len(df), len(df) - 12):
+                try:
+                    h = meta["fn"](df.iloc[:cut])
+                except Exception:
+                    continue
+                if isinstance(h, dict):
+                    found.append((name, h))
+    return found
+
+
+# ── the rule ──────────────────────────────────────────────────────────────────
+
+def test_no_scanner_hides_a_complete_plan_inside_its_geometry():
+    """If `geometry` carries all three plan fields, the top level must too.
+
+    This is the guard. A new detector that returns a geometry payload gets this
+    for free, and a regression names the scanner rather than showing up months
+    later as an unexplained 0/N in the plan census.
+    """
+    offenders = []
+    for name, hit in _hits():
+        g = hit.get("geometry")
+        if not isinstance(g, dict):
+            continue
+        if all(g.get(k) is not None for k in PLAN) and not sp.has_plan(hit):
+            offenders.append(name)
+    assert not offenders, (
+        "these scanners emit a plan the R-simulator cannot see: "
+        + ", ".join(sorted(set(offenders))))
+
+
+def test_a_surfaced_plan_agrees_with_the_geometry_it_came_from():
+    """Two copies of one plan must not drift — the chart card reads geometry and
+    the harness reads the top level, and they describe the same trade."""
+    for name, hit in _hits():
+        g = hit.get("geometry")
+        if not isinstance(g, dict) or not sp.has_plan(hit):
+            continue
+        for k in PLAN:
+            if g.get(k) is not None:
+                assert hit[k] == g[k], f"{name}: {k} disagrees with geometry"
+
+
+# ── the three instances, named so a failure is legible ───────────────────────
+
+def _first_hit(fn):
+    for df in _frames():
+        h = fn(df)
+        if h:
+            return h
+    return None
+
+
+def test_rounding_bottom_emits_a_visible_plan():
+    hit = _first_hit(S.scan_rounding_bottom)
+    if hit is None:
+        pytest.skip("no saucer in the fixtures on this build")
+    assert sp.has_plan(hit)
+
+
+def test_double_bottom_emits_a_visible_plan():
+    hit = _first_hit(S.scan_double_bottom)
+    if hit is None:
+        pytest.skip("no double bottom in the fixtures on this build")
+    assert sp.has_plan(hit)
+
+
+# ── VCP is the one that is NOT the same fix ──────────────────────────────────
+
+def test_vcp_keeps_its_own_firing_criteria():
+    """`scan_vcp` is tier `weak`, which means it HAS been measured. Its plan now
+    comes from `detect_vcp_geometry`, a stricter pivot-based detector — attached
+    as an ADD-ON, never as a replacement for the gates.
+
+    Swapping the criteria would change the hit set and silently invalidate a
+    recorded measurement, which is the same reason the loose
+    `detect_bullish_reversal_structure` was left alone. So this pins the coarse
+    3-window range test as the thing that decides whether VCP fires.
+    """
+    import inspect
+    src = inspect.getsource(S.scan_vcp)
+    # The gates, still ahead of any geometry call.
+    gate = src.index("if not (r2 > r1 > r0):")
+    addon = src.index("detect_vcp_geometry")
+    assert gate < addon, "the geometry detector must not gate which hits fire"
+    assert "if contraction < 20:" in src
+
+
+def test_vcp_attaches_a_plan_only_when_the_stricter_detector_agrees():
+    """55% agreement measured on 110 NSE names (2026-09-19), so VCP is expected
+    to read PARTIAL in the plan census. A hit the geometry detector does not
+    recognise carries NO plan rather than a guessed one."""
+    for df in _frames():
+        hit = S.scan_vcp(df)
+        if hit is None:
+            continue
+        geo = S.detect_vcp_geometry(df)
+        if geo is None:
+            assert not sp.has_plan(hit), "a plan appeared with no geometry behind it"
+        else:
+            assert sp.has_plan(hit)
+
+
+def test_vcp_still_returns_its_card_fields():
+    """The add-on must not disturb what the Scanner Hub already renders."""
+    for df in _frames():
+        hit = S.scan_vcp(df)
+        if hit is None:
+            continue
+        assert hit["pattern_type"] == "VCP Coiling"
+        assert "score" in hit and "reasons" in hit and "tags" in hit

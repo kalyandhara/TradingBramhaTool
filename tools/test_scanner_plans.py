@@ -167,7 +167,25 @@ def test_probe_skips_a_symbol_whose_fetch_fails():
 #: 14 -> 16 on 2026-09-17 when PR-3 added `Flag & Pole` and `Inverted Flag &
 #: Pole`, both FULL. That is the ratchet working in the direction it is supposed
 #: to: new detectors arrive with a plan, and the floor rises behind them.
-MIN_FULL_PLAN_SCANNERS = 16
+#:
+#: 16 -> 19 on 2026-09-19 (B-64r2), and only ONE of the three is a new detector:
+#:
+#:   +1  RSI-Fibo Hidden Divergence — already FULL, simply UNSEEN in the last
+#:       census (it fired on none of those symbols). Nothing changed about it.
+#:   +1  Double Bottom — the new scanner, arriving with a plan.
+#:   +1  Rounding Bottom — NOT new. It had been emitting a complete
+#:       entry/stop/target on every hit since it was written, inside its
+#:       `geometry` payload, where `backtest.py` and `has_plan` do not look.
+#:       644/644 hits were being counted as planless, accurately: nothing could
+#:       be scored from a plan the R-simulator cannot see.
+#:
+#: `VCP Coiling` moved NONE -> PARTIAL in the same pass (588/1570). It is tier
+#: `weak`, i.e. already measured, so its coarse 3-window gates were left exactly
+#: as they were and `detect_vcp_geometry`'s plan is attached only where that
+#: stricter detector agrees. Replacing the gates would have changed the hit set
+#: and invalidated a recorded number. PARTIAL is the honest reading, and this
+#: ratchet deliberately does not count it.
+MIN_FULL_PLAN_SCANNERS = 19
 
 
 def _census():

@@ -624,12 +624,38 @@ def scan_vcp(df: pd.DataFrame) -> dict | None:
     ]
     if vol_recent < vol_prior:
         reasons.append("Volume drying on contraction — institutional absorption, not selling")
-    return {
+    out = {
         "pattern_type": "VCP Coiling",
         "tags": [f"{contraction:.0f}% contraction", "VCP"],
         "reasons": reasons,
         "score": round(contraction, 2),
     }
+    # A plan, where the measurement harness can see it — but WITHOUT touching
+    # which hits fire. This scanner is tier `weak`, meaning it has been measured;
+    # swapping its coarse 3-window test for `detect_vcp_geometry`'s stricter
+    # pivot walk would change the hit set and silently invalidate that recorded
+    # number, which is the same reason `detect_bullish_reversal_structure` was
+    # left alone when the full-spec Double Bottom landed.
+    #
+    # So the geometry detector is consulted as an ADD-ON: every hit above still
+    # fires, and the ones the stricter detector also recognises gain an
+    # entry/stop/target that `backtest.py` can R-simulate. Measured 2026-09-19
+    # on 110 NSE names: the two agree on 16 of 29 hits (55%), so this scanner is
+    # expected to read PARTIAL in the plan census rather than FULL — an honest
+    # reading, and better than the 0/N it reported while carrying no plan at all.
+    #
+    # Only computed on a HIT, so the pivot walk costs nothing on the scans that
+    # do not fire.
+    try:
+        _g = detect_vcp_geometry(df)
+    except Exception:                                      # pragma: no cover
+        _g = None
+    if _g and all(_g.get(k) is not None for k in ("entry", "stop", "target")):
+        out["entry"]  = _g["entry"]
+        out["stop"]   = _g["stop"]
+        out["target"] = _g["target"]
+        out["geometry"] = _g
+    return out
 
 
 def detect_vcp_geometry(df: pd.DataFrame, window: int = 90,
@@ -1890,8 +1916,22 @@ def scan_rounding_bottom(df: pd.DataFrame, window: int = 90,
         "target": round(target, 2),
         "risk_reward": risk_reward,
     }
+    # The plan is emitted at the TOP LEVEL as well as inside `geometry`, because
+    # that is where the measurement harness looks: `backtest.py` reads
+    # `hit.get("entry"/"stop"/"target")` and `scanner_plans.has_plan` checks the
+    # same three keys. Until this line existed, every Rounding Bottom hit carried
+    # a complete entry/stop/target that the R-simulator could not see, and the
+    # plan census scored the scanner as planless on 39/39 hits — accurately, in
+    # that nothing could be scored from it.
+    #
+    # Additive, never a move: the chart overlay and /api/rounding_bottom both
+    # read the geometry payload, and every existing reader keeps working.
     return {"pattern_type": "Rounding Bottom", "tags": tags,
-            "reasons": reasons, "score": score, "geometry": geometry}
+            "reasons": reasons, "score": score,
+            "entry": geometry["entry"],
+            "stop": geometry["stop"],
+            "target": geometry["target"],
+            "geometry": geometry}
 
 
 def compute_pre_breakout_conviction(df: pd.DataFrame) -> dict | None:
@@ -8023,8 +8063,24 @@ def scan_double_bottom(df: pd.DataFrame):
         reasons.append("No prior double bottom in range has resolved yet, so "
                        "this name has no follow-through record.")
 
-    return {"pattern_type": "Double Bottom", "tags": tags,
-            "reasons": reasons, "score": score, "geometry": d}
+    return {
+        "pattern_type": "Double Bottom", "tags": tags,
+        "reasons": reasons, "score": score,
+        # The plan is emitted at the TOP LEVEL as well as inside `geometry`,
+        # because that is where the measurement harness looks: `backtest.py`
+        # reads `hit.get("entry"/"stop"/"target")` and `scanner_plans.has_plan`
+        # checks the same three keys. A plan nested only in `geometry` is
+        # readable by a human on the chart card and invisible to the R-simulator
+        # — which is why the plan census scores `Rounding Bottom` and
+        # `VCP Coiling` as having NO plan despite both emitting one on every hit.
+        # Duplicated rather than moved: the chart overlay and /api/double_bottom
+        # both read the geometry payload, and this scanner is not the place to
+        # change that convention for the others.
+        "entry": d["entry"],
+        "stop": d["stop"],
+        "target": d["target"],
+        "geometry": d,
+    }
 
 
 SCANNERS: dict[str, dict] = {

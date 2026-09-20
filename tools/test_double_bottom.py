@@ -428,3 +428,31 @@ def test_sloppier_bottoms_score_below_matched_ones():
     clean = _geo(_double_bottom(left=70.0, right=70.0))["parts"]["structure"]
     sloppy = _geo(_double_bottom(left=70.0, right=70.9))["parts"]["structure"]
     assert clean > sloppy
+
+
+# ── the plan must be where the MEASUREMENT harness looks ─────────────────────
+
+def test_the_plan_is_emitted_at_the_top_level_not_only_in_geometry():
+    """`backtest.py` reads hit["entry"/"stop"/"target"] and
+    `scanner_plans.has_plan` checks the same three keys. A plan nested only in
+    `geometry` is readable by a human on the chart card and invisible to the
+    R-simulator — which is exactly why the plan census scores Rounding Bottom
+    and VCP Coiling as planless despite both emitting a plan on every hit.
+
+    This scanner is `unmeasured`, and the only route out of that is a harness
+    that can score it. So this is not a formatting preference; it is the
+    difference between measurable and permanently unmeasurable.
+    """
+    import scanner_plans as sp
+    r = _hit(_double_bottom())
+    assert sp.has_plan(r), "the census would score this scanner as planless"
+    for k in ("entry", "stop", "target"):
+        assert r[k] == r["geometry"][k], f"{k} disagrees with the geometry payload"
+
+
+def test_the_geometry_payload_keeps_its_own_copy():
+    """The chart overlay and /api/double_bottom both read geometry; surfacing
+    the plan at the top level must not move it out from under them."""
+    g = _geo(_double_bottom())
+    for k in ("entry", "stop", "target", "risk_reward", "verdict"):
+        assert k in g
