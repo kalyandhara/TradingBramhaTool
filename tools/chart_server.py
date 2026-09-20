@@ -661,6 +661,83 @@ def api_rounding_bottom():
     return jsonify({"symbol": symbol, "saucer": saucer})
 
 
+@app.route("/api/double_bottom")
+def api_double_bottom():
+    """Double Bottom geometry for chart overlay rendering. Runs the same
+    detector as the Scanner Hub's "Double Bottom" card (see
+    scanner_templates.scan_double_bottom + concepts/Reversal-Chart-Patterns.md,
+    ported from sources/AGPro-Reversal-Pattern-Quality-Scanner-Pine.md).
+    Returns {"double_bottom": null} when no confirmed pattern is live — the
+    client hides the overlay in that case.
+
+    Two numbers ride out separately and must stay that way on the wire as well
+    as in the detector: `quality`/`grade` describe the SHAPE, `follow_through`
+    describes whether this symbol has been honouring these breaks. The source
+    page's warning is that a textbook A-grade shape can sit on a poor real
+    follow-through rate, so the client renders both rather than one blended
+    number."""
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    # The detector needs enough bars for two CONFIRMED pivots (8 each side)
+    # plus the pattern width plus the break; below that it returns None anyway.
+    if df is None or len(df) < 90:
+        return jsonify({"symbol": symbol, "double_bottom": None})
+
+    hit = sc.scan_double_bottom(df)
+    if not hit or "geometry" not in hit:
+        return jsonify({"symbol": symbol, "double_bottom": None})
+
+    g = hit["geometry"]
+
+    # Bar indices -> unix timestamps, same convention as /api/rounding_bottom:
+    # the detector stays index-based (simpler to test) and the wire format uses
+    # timestamps (what LightweightCharts needs).
+    def _t(idx):
+        if idx is None or idx < 0 or idx >= len(bars):
+            return None
+        return int(bars[idx]["time"])
+
+    dbl = {
+        "neckline":        g["neckline"],
+        "left_time":       _t(g["left_bar_idx"]),
+        "left_low":        g["left_low"],
+        "right_time":      _t(g["right_bar_idx"]),
+        "right_low":       g["right_low"],
+        "neck_time":       _t(g["neck_bar_idx"]),
+        "breakout_time":   _t(g["breakout_bar_idx"]),
+        "last_time":       int(bars[-1]["time"]),
+        "state":           g["state"],
+        "quality":         g["quality"],
+        "grade":           g["grade"],
+        "parts":           g["parts"],
+        "eq_pct":          g["eq_pct"],
+        "pullback_pct":    g["pullback_pct"],
+        "width_bars":      g["width_bars"],
+        "atrs_past":       g["atrs_past"],
+        "breakout_vol_x":  g["breakout_vol_x"],
+        "extended_pct":    g["extended_pct"],
+        "bars_since_break": g["bars_since_break"],
+        # Descriptive history for THIS symbol, always with its sample size.
+        "follow_through":  g["follow_through"],
+        "score":           hit["score"],
+        "reasons":         hit.get("reasons", []),
+        # Actionable trade plan — see detect_double_bottom for the derivation.
+        "verdict":         g["verdict"],
+        "entry":           g["entry"],
+        "stop":            g["stop"],
+        "target":          g["target"],
+        "risk_reward":     g["risk_reward"],
+    }
+    return jsonify({"symbol": symbol, "double_bottom": dbl})
+
+
 @app.route("/api/vcp")
 def api_vcp():
     """VCP (Volatility Contraction Pattern) coiling geometry for chart

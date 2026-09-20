@@ -542,7 +542,7 @@ html, body {
 .card-dock.empty, .card-dock[hidden] { display: none; }
 /* In float mode a card is absolutely positioned to a chart corner; in the dock it
    is a flow child of a row. RELATIVE, not static, and for the same reason
-   `.action-stack > *` is relative: .rb-info and .vcp-info hang their collapse
+   `.action-stack > *` is relative: .rb-info, .db-info and .vcp-info hang their collapse
    chevron on an absolutely positioned child, which needs the card itself to be
    the containing block or it flies to the nearest positioned ancestor.
    !important is needed for the falling-wedge card, which positions itself in an
@@ -663,6 +663,33 @@ html, body {
   white-space: nowrap; display: none;
 }
 .rb-info.collapsed .rb-info-summary { display: inline-block; }
+
+/* ── Double Bottom info overlay ───────────────────────────────────────────── */
+/* Same collapse-and-persist card as .rb-info — the two are siblings in the
+   stack and a reader toggling between them should not have to relearn the
+   widget. Pink rather than the saucer's gold so the two reversal overlays stay
+   distinguishable when both are on. */
+.db-info {
+  order: 0;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
+  padding: 6px 22px 6px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
+  max-width: 240px; display: none;
+}
+.db-info b { color: #f778ba; }
+.db-info-toggle {
+  position: absolute; top: 2px; right: 4px; cursor: pointer;
+  font-size: 11px; line-height: 1; color: var(--text-muted);
+  padding: 2px 4px; user-select: none;
+}
+.db-info-toggle:hover { color: var(--text-chart); }
+.db-info.collapsed .db-info-body { display: none; }
+.db-info.collapsed { padding: 2px 22px 2px 8px; max-width: none; width: auto; }
+.db-info.collapsed .db-info-toggle { top: 0; }
+.db-info-summary {
+  font-size: 10.5px; font-weight: 600; color: #f778ba;
+  white-space: nowrap; display: none;
+}
+.db-info.collapsed .db-info-summary { display: inline-block; }
 
 /* ── VCP Coiling info overlay ─────────────────────────────────────────────── */
 /* Anchored bottom-center. It used to hold top-center, but that slot went to
@@ -1374,6 +1401,7 @@ const INDICATOR_DEFS = [
   {key:'elliott',      label:'Elliott Wave (1-5, A-B-C)', group:'Levels & Projection', color:'#00e5ff'},
   {key:'fvg',          label:'Fair Value Gap + Buy/Sell signal (FPV)', group:'Smart Money & Structure', color:'#26a69a'},
   {key:'roundbottom',  label:'Rounding Bottom (saucer)',  group:'Price Patterns', color:'#ffab40'},
+  {key:'doublebottom', label:'Double Bottom (neckline + quality grade)', group:'Price Patterns', color:'#f778ba', alias:'double bottom W pattern reversal neckline retest agpro quality grade follow through'},
   {key:'vcp',          label:'VCP Coiling',               group:'Price Patterns', color:'#26c6da'},
   {key:'trendlines',   label:'Trendlines (supply/demand)', group:'Smart Money & Structure', color:'#ff9800'},
   {key:'falling_wedge', label:'Falling Wedge (converging → breakout)', group:'Price Patterns', color:'#26a69a'},
@@ -2089,6 +2117,10 @@ const LS_RB_COLLAPSED = 'tb_rb_collapsed';
 function loadRbCollapsed() { return localStorage.getItem(LS_RB_COLLAPSED) !== '0'; }
 function saveRbCollapsed(v) { localStorage.setItem(LS_RB_COLLAPSED, v ? '1' : '0'); }
 // VCP info panel — same collapse-and-persist model as the other overlays.
+const LS_DB_COLLAPSED = 'tb_db_collapsed';
+function loadDbCollapsed() { return localStorage.getItem(LS_DB_COLLAPSED) !== '0'; }
+function saveDbCollapsed(v) { localStorage.setItem(LS_DB_COLLAPSED, v ? '1' : '0'); }
+
 const LS_VCP_COLLAPSED = 'tb_vcp_collapsed';
 function loadVcpCollapsed() { return localStorage.getItem(LS_VCP_COLLAPSED) !== '0'; }
 function saveVcpCollapsed(v) { localStorage.setItem(LS_VCP_COLLAPSED, v ? '1' : '0'); }
@@ -2546,7 +2578,8 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
         if (pane && pane.indicators && pane.indicators.has('fvg'))
           drawFVG(pane);
         if (pane && pane.indicators &&
-            (pane.indicators.has('vcp') || pane.indicators.has('roundbottom')))
+            (pane.indicators.has('vcp') || pane.indicators.has('roundbottom') ||
+             pane.indicators.has('doublebottom')))
           drawPatternZones(pane);
         if (pane && pane.indicators && pane.indicators.has('projection'))
           drawProjection(pane);
@@ -3696,6 +3729,8 @@ function applyIndicators(pane) {
   if (pane.obvdiv && !pane.indicators.has('obvdiv')) clearObvDivergence(pane);
   // Tear down Rounding Bottom overlay if deselected
   if (!pane.indicators.has('roundbottom') && pane.rb) clearRoundingBottom(pane);
+  // Tear down Double Bottom overlay if deselected
+  if (!pane.indicators.has('doublebottom') && pane.db) clearDoubleBottom(pane);
   // Tear down VCP overlay if deselected
   if (!pane.indicators.has('vcp') && pane.vcp) clearVCP(pane);
   // Tear down Trendlines overlay if deselected
@@ -4501,6 +4536,11 @@ function applyIndicators(pane) {
     renderRoundingBottom(pane);
   }
 
+  // ── Double Bottom overlay (server-side detection, see scanner_templates.py) ─
+  if (pane.indicators.has('doublebottom')) {
+    renderDoubleBottom(pane);
+  }
+
   // ── VCP Coiling overlay (server-side detection, see scanner_templates.py) ────
   if (pane.indicators.has('vcp')) {
     renderVCP(pane);
@@ -4658,7 +4698,7 @@ function resetPaneVisuals(pane) {
   // drawn against an hourly axis — the same unmappable-coordinate throw as
   // above. Tear them down; applyIndicators() re-renders each against the new
   // timeframe once the bars land (their fetch keys include pane.tf).
-  [clearElliottWave, clearRoundingBottom, clearVCP, clearTrendlines,
+  [clearElliottWave, clearRoundingBottom, clearDoubleBottom, clearVCP, clearTrendlines,
    clearFallingWedge, clearStructureChain, clearHarmonic, clearProjection,
    clearFibonacci, clearReversalCalendar, clearMABias, clearPmaxTrade,
    clearFVGSignals, clearOrderBlocks, clearPrteOverlay,
@@ -4792,7 +4832,7 @@ function redrawPaneOverlays(pane, immediate = false) {
   const has = k => pane.indicators && pane.indicators.has(k);
   if (has('fvg')) drawFVG(pane);
   // Pattern base-zone boxes are time+price anchored — same staleness as FVG.
-  if (has('vcp') || has('roundbottom')) drawPatternZones(pane);
+  if (has('vcp') || has('roundbottom') || has('doublebottom')) drawPatternZones(pane);
   if (has('projection')) drawProjection(pane);
   // Fibonacci levels are price-anchored, so the y-mapping changing on
   // pan/zoom stales them for the same reason the volume profile stales.
@@ -5876,6 +5916,9 @@ function drawPatternZones(pane) {
   if (pane.indicators && pane.indicators.has('roundbottom'))
     box(pane.rb && pane.rb.baseZone,
         'rgba(255,171,64,0.10)', 'rgba(255,171,64,0.6)', 'Rounding base');
+  if (pane.indicators && pane.indicators.has('doublebottom'))
+    box(pane.db && pane.db.baseZone,
+        'rgba(247,120,186,0.10)', 'rgba(247,120,186,0.6)', 'Double bottom');
 
   // Falling-wedge translucent fill — a quadrilateral between the two converging
   // trendlines (upper-left → upper-right → lower-right → lower-left). Poly is
@@ -6627,6 +6670,254 @@ function renderRbInfo(pane, saucer) {
   if (rb.infoBody) rb.infoBody.innerHTML = html;
   else             rb.infoEl.innerHTML   = html;
   rb.infoEl.style.display = 'block';
+}
+
+// ── Double Bottom overlay ─────────────────────────────────────────────────────
+// Server-side detection (see chart_server.py::api_double_bottom + Python
+// scanner_templates.scan_double_bottom + concepts/Reversal-Chart-Patterns.md,
+// ported from sources/AGPro-Reversal-Pattern-Quality-Scanner-Pine.md). The chart
+// draws what the server returns: a dashed neckline, the two bottoms joined by a
+// line so the "W" is visible as a shape rather than inferred from two markers,
+// entry/stop/target reference lines, and an info chip.
+//
+// The chip shows the quality grade and the follow-through rate as TWO separate
+// figures. That is deliberate and matches the detector: quality grades the
+// shape, follow-through is this symbol's own record on its own past double
+// bottoms. The source page's warning is that a textbook A-grade shape can sit
+// on a poor real follow-through rate, so blending them into one number would
+// hide the single most useful disagreement on the card.
+function ensureDbState(pane) {
+  if (!pane.db) {
+    pane.db = {
+      neckLine:   null,        // dashed horizontal at the neckline
+      wLine:      null,        // left bottom → neckline → right bottom, the "W"
+      entryLine:  null,
+      stopLine:   null,
+      targetLine: null,
+      infoEl:   null,
+      infoBody: null,
+      infoSummary: null,
+      collapsed: loadDbCollapsed(),
+      lastFetchKey: null,      // symbol+tf+lastBarTime — skip refetch when unchanged
+    };
+  }
+  return pane.db;
+}
+
+function clearDoubleBottom(pane) {
+  if (!pane.db) return;
+  ['neckLine', 'wLine', 'entryLine', 'stopLine', 'targetLine'].forEach(k => {
+    if (pane.db[k]) {
+      try { pane.chart.removeSeries(pane.db[k]); } catch {}
+      pane.db[k] = null;
+    }
+  });
+  setPaneMarkers(pane, 'doublebottom', null);
+  if (pane.db.infoEl) pane.db.infoEl.style.display = 'none';
+  pane.db.baseZone = null;
+  pane.db.lastFetchKey = null;
+  drawPatternZones(pane);
+}
+
+async function renderDoubleBottom(pane) {
+  const db = ensureDbState(pane);
+  if (!pane.bars || !pane.bars.length) return;
+  const lastBar = pane.bars[pane.bars.length - 1];
+  const key = `${pane.symbol}:${pane.tf}:${lastBar.time}`;
+  if (db.lastFetchKey === key) return;      // no new data since last call
+  db.lastFetchKey = key;
+
+  let dbl = null;
+  try {
+    const barCount = TF_BARS[pane.tf] || 300;
+    const url = `${SERVER}/api/double_bottom?symbol=${encodeURIComponent(pane.symbol)}` +
+                `&timeframe=${pane.tf}&bars=${barCount}`;
+    const res = await fetch(url);
+    if (res.ok) dbl = (await res.json()).double_bottom || null;
+  } catch (e) {
+    console.warn('double_bottom fetch failed:', e);
+  }
+
+  // If the response came back after the user toggled the indicator off, or
+  // after a symbol/tf change (fetchKey has been reset), don't render.
+  if (!pane.indicators.has('doublebottom')) return;
+  const stillCurrentKey = paneFetchKey(pane);
+  if (stillCurrentKey !== key) return;
+
+  if (!dbl) {
+    clearDoubleBottom(pane);
+    renderDbInfo(pane, null);
+    return;
+  }
+
+  // Reference lines span the pattern window only, so they stay out of unrelated
+  // history. All autoscale-excluded for the same reason the saucer's are: a
+  // measured-move target well above the candles would otherwise stretch the
+  // y-axis and squash the pattern it is describing.
+  const fromTime = dbl.left_time || pane.bars[0].time;
+  const toTime   = dbl.last_time || pane.bars[pane.bars.length - 1].time;
+  // Base-zone footprint box: pattern window (x) × bottoms→neckline (y).
+  db.baseZone = {start: fromTime, end: toTime,
+                 low: Math.min(dbl.left_low, dbl.right_low), high: dbl.neckline};
+
+  const ensureLine = (k, opts) => {
+    if (!db[k]) db[k] = pane.chart.addLineSeries({
+      priceLineVisible: false, lastValueVisible: true, crosshairMarkerVisible: false,
+      autoscaleInfoProvider: () => null,
+      ...opts,
+    });
+    return db[k];
+  };
+
+  ensureLine('neckLine', {color: '#f778ba', lineWidth: 2, lineStyle: 3, title: 'Neckline'})
+    .setData([{time: fromTime, value: dbl.neckline}, {time: toTime, value: dbl.neckline}]);
+
+  // The W itself. Drawn only when all three anchor times mapped — on a
+  // timeframe switch a stale index can map to null, and a line with a null
+  // time throws inside LightweightCharts rather than silently skipping.
+  if (dbl.left_time && dbl.neck_time && dbl.right_time &&
+      dbl.left_time < dbl.neck_time && dbl.neck_time < dbl.right_time) {
+    ensureLine('wLine', {color: '#f778ba', lineWidth: 1, lineStyle: 0, title: ''})
+      .setData([
+        {time: dbl.left_time,  value: dbl.left_low},
+        {time: dbl.neck_time,  value: dbl.neckline},
+        {time: dbl.right_time, value: dbl.right_low},
+      ]);
+  }
+
+  if (Number.isFinite(dbl.entry)) {
+    ensureLine('entryLine', {color: '#26c6da', lineWidth: 1, lineStyle: 0, title: 'Entry'})
+      .setData([{time: fromTime, value: dbl.entry},  {time: toTime, value: dbl.entry}]);
+  }
+  if (Number.isFinite(dbl.stop)) {
+    ensureLine('stopLine', {color: '#f85149', lineWidth: 1, lineStyle: 0, title: 'Stop'})
+      .setData([{time: fromTime, value: dbl.stop},   {time: toTime, value: dbl.stop}]);
+  }
+  if (Number.isFinite(dbl.target)) {
+    ensureLine('targetLine', {color: '#3fb950', lineWidth: 1, lineStyle: 0, title: 'Target'})
+      .setData([{time: fromTime, value: dbl.target}, {time: toTime, value: dbl.target}]);
+  }
+
+  // Markers: a circle under each bottom, an arrow at the neckline break.
+  // setPaneMarkers so this composes with the Elliott Wave / Reversal Calendar
+  // marker sources instead of overwriting them.
+  const markers = [];
+  if (dbl.left_time) {
+    markers.push({time: dbl.left_time, position: 'belowBar', color: '#f778ba',
+                  shape: 'circle', size: 1.2, text: 'B1'});
+  }
+  if (dbl.right_time) {
+    markers.push({time: dbl.right_time, position: 'belowBar', color: '#f778ba',
+                  shape: 'circle', size: 1.2, text: 'B2'});
+  }
+  if (dbl.breakout_time) {
+    markers.push({
+      time: dbl.breakout_time,
+      position: 'belowBar',
+      // Green only when volume confirmed the break; otherwise the pattern's own
+      // pink, so the marker never asserts participation the tape did not show.
+      color: (dbl.breakout_vol_x >= 1.2) ? '#3fb950' : '#f778ba',
+      shape: 'arrowUp',
+      size: 1.4,
+      text: (dbl.breakout_vol_x >= 1.2) ? 'Neckline ✓' : 'Neckline',
+    });
+  }
+  setPaneMarkers(pane, 'doublebottom', markers);
+
+  renderDbInfo(pane, dbl);
+  drawPatternZones(pane);
+}
+
+function renderDbInfo(pane, dbl) {
+  const db = ensureDbState(pane);
+  if (!db.infoEl) {
+    db.infoEl = document.createElement('div');
+    db.infoEl.className = 'db-info';
+    if (db.collapsed) db.infoEl.classList.add('collapsed');
+    const summary = document.createElement('span');
+    summary.className = 'db-info-summary';
+    const body = document.createElement('div');
+    body.className = 'db-info-body';
+    const toggle = document.createElement('span');
+    toggle.className = 'db-info-toggle';
+    toggle.textContent = db.collapsed ? '▸' : '×';
+    toggle.title = db.collapsed ? 'Show Double Bottom info' : 'Collapse';
+    toggle.addEventListener('click', (e) => {
+      e.stopPropagation();
+      const nowCollapsed = !db.infoEl.classList.contains('collapsed');
+      db.infoEl.classList.toggle('collapsed', nowCollapsed);
+      db.collapsed = nowCollapsed;
+      toggle.textContent = nowCollapsed ? '▸' : '×';
+      toggle.title      = nowCollapsed ? 'Show Double Bottom info' : 'Collapse';
+      saveDbCollapsed(nowCollapsed);
+    });
+    db.infoEl.appendChild(summary);
+    db.infoEl.appendChild(toggle);
+    db.infoEl.appendChild(body);
+    db.infoBody = body;
+    db.infoSummary = summary;
+    mountCard(pane, db.infoEl, 'stack');
+  }
+  if (!dbl) { db.infoEl.style.display = 'none'; return; }
+
+  // EXTENDED is grey, not red: the pattern is real and the read is "you are
+  // late", not "this is a sell". Red stays reserved for active sell signals.
+  const verdictColor = ({
+    'BUY':                '#3fb950',
+    'BUY (retest hold)':  '#3fb950',
+    'WEAK BUY':           '#f0883e',
+    'EXTENDED (no room)': '#8b949e',
+  })[dbl.verdict] || '#8b949e';
+
+  db.infoSummary.innerHTML =
+    `<span style="color:${verdictColor}">DB: ${dbl.verdict}</span> · ${dbl.grade}`;
+
+  const rr = Number.isFinite(dbl.risk_reward) ? `${dbl.risk_reward}×` : '—';
+  const ft = dbl.follow_through;
+
+  let html =
+    `<b style="color:${verdictColor}">${dbl.verdict}</b>` +
+    ` · <span style="color:var(--text-muted)">R:R ${rr}</span>` +
+    `<div style="margin-top:3px;font-family:'Courier New',monospace;font-size:10px">` +
+      `<span style="color:#26c6da">Entry ₹${dbl.entry.toFixed(2)}</span> · ` +
+      `<span style="color:#f85149">Stop ₹${dbl.stop.toFixed(2)}</span> · ` +
+      `<span style="color:#3fb950">Target ₹${dbl.target.toFixed(2)}</span>` +
+    `</div>` +
+    `<hr style="border-color:#30363d;margin:4px 0;">` +
+    `State: <b>${dbl.state}</b> · Grade <b>${dbl.grade}</b> (${dbl.quality}/10)` +
+    `<br>Neckline ₹${dbl.neckline.toFixed(2)} · Bottoms ±${dbl.eq_pct}% ` +
+    `· Depth ${dbl.pullback_pct}%` +
+    `<br>Width ${dbl.width_bars} bars · Break ${dbl.atrs_past} ATR past neckline`;
+
+  if (dbl.verdict === 'EXTENDED (no room)') {
+    html += `<br><i style="color:#d29922">⚠ Already ${dbl.extended_pct}% past the ` +
+            `neckline — the measured move is mostly spent</i>`;
+  } else if (dbl.breakout_vol_x !== null && dbl.breakout_vol_x < 1.2) {
+    html += `<br><i style="color:#d29922">⚠ Neckline cleared on ${dbl.breakout_vol_x}× ` +
+            `volume — no participation yet</i>`;
+  }
+
+  // Follow-through is rendered as its own block, ALWAYS with n. A bare "100%"
+  // off two prior patterns reads as a measurement when it is an anecdote, and
+  // this is descriptive history for one symbol — never a forward claim.
+  html += `<hr style="border-color:#30363d;margin:4px 0;">`;
+  if (ft) {
+    const ftColor = ft.n >= 5 ? '#c9d1d9' : '#8b949e';
+    html += `<span style="color:${ftColor}">Follow-through: <b>${ft.follows}/${ft.n}</b> ` +
+            `(${ft.rate}%) moved ${ft.atr_mult}+ ATR within ${ft.horizon} bars</span>` +
+            `<br><i style="color:var(--text-muted)">This name's own past double ` +
+            `bottoms. Descriptive on n=${ft.n}, not a forward claim.</i>`;
+  } else {
+    html += `<i style="color:var(--text-muted)">No prior double bottom on this name ` +
+            `has resolved — no follow-through record.</i>`;
+  }
+
+  html += `<br><i style="color:var(--text-muted)">Shape quality and follow-through ` +
+          `are separate readings: a textbook grade can sit on a poor record.</i>`;
+
+  if (db.infoBody) db.infoBody.innerHTML = html;
+  else             db.infoEl.innerHTML   = html;
+  db.infoEl.style.display = 'block';
 }
 
 // ── VCP Coiling overlay ───────────────────────────────────────────────────────

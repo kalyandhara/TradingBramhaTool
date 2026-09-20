@@ -206,6 +206,7 @@ SCANNER_FAMILIES: dict[str, tuple[str, ...]] = {
         "IPO-Base Breakout",
     ),
     "Reversal": (
+        "Double Bottom",
         "Falling Wedge",
         "Harmonic Reversal (XABCD)",
         "Rounding Bottom",

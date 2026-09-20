@@ -354,7 +354,8 @@ def test_the_check_is_silent_on_the_real_tree():
 def test_the_registry_counts_parse_without_importing_the_modules():
     """Importing dashboard_app runs a Streamlit app, so this must stay `ast`."""
     # 46 -> 48 on 2026-09-17 (PR-3 added Flag & Pole + Inverted Flag & Pole).
-    assert cl._count_symbol("scanner_templates.py", "SCANNERS", "dict_keys") == 48
+    # 48 -> 49 on 2026-09-19 (B-64r2 added Double Bottom, the AGPro port).
+    assert cl._count_symbol("scanner_templates.py", "SCANNERS", "dict_keys") == 49
     assert cl._count_symbol("dashboard_app.py", "PAGE_GROUPS", "dict_keys") == 5
     assert cl._count_symbol("dashboard_app.py", "PAGE_GROUPS",
                             "sum_of_list_values") == 23

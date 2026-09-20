@@ -7537,6 +7537,496 @@ def detect_quasimodo(df: pd.DataFrame, pivot_len: int = 5,
 import flag_pole as _fp
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Double Bottom — the AGPro Reversal Pattern Quality Scanner, ported
+# ------------------------------------------------------------------------------
+# sources/AGPro-Reversal-Pattern-Quality-Scanner-Pine.md called this port "a
+# stronger building block for the 'early buy sign at scale' goal than anything
+# discussed so far this session" and it was never built — the recommendation sat
+# in the source page and reached neither the backlog nor the code.
+#
+# ── Why this exists next to `detect_bullish_reversal_structure` ───────────────
+# That function is ALSO a double-bottom detector against the same spec, and it
+# stays. It is a deliberately loose SUB-SIGNAL of `scan_early_reversal` (one tag
+# among several), and Early Reversal has been measured. Tightening it in place
+# would silently change a scanner whose numbers are already on record, which is
+# the one thing a registry of measured scanners must not do. So the loose one
+# keeps its job and this is the full-spec standalone. What the spec adds:
+#
+#   equality 1.4% (not 3%)       pattern-width gate 10-90 bars
+#   ATR break buffer             time symmetry
+#   5-factor weighted quality    volume contraction + breakout expansion
+#   letter grade                 breakout strength in ATRs
+#   retest / confirmed states    follow-through proof
+#
+# ── The neckline-flatness term is ABSENT, not forgotten ───────────────────────
+# AGPro's structure score is "symmetry + time symmetry + neckline flatness". For
+# Head & Shoulders the neckline is the average of two troughs, so flatness is the
+# gap between them and means something. For a Double Bottom the neckline is a
+# SINGLE pivot high — there is no second point to be flat against. The term has
+# nothing to measure here, so structure is bottom-equality + time-symmetry
+# renormalised, rather than a third component invented to fill the slot.
+#
+# ── The cooldown is moot here, and that is an adaptation not an omission ──────
+# The Pine script re-scans every bar to paint a live overlay, so it needs a
+# same-region cooldown and a per-type gap to stop drawing the same reversal
+# pocket twice. This runs once per symbol per scan and returns ONE dict, so
+# "do not emit the same pocket twice" is structural rather than a rule to enforce.
+#
+# ── Follow-through proof is reported and NEVER scored ─────────────────────────
+# The wiki calls it the standout idea and also names the trap: "a pattern can be
+# a textbook 'A' grade shape with a 30% real follow-through rate on that name".
+# Quality describes the SHAPE; follow-through describes whether this symbol has
+# been honouring these breaks. Folding the second into the first would destroy
+# exactly the disagreement that makes it worth reading, so they are two numbers.
+# It is always reported WITH its sample size, because on a year of daily bars a
+# name typically yields 1-3 past patterns and a bare "67%" off n=3 reads as a
+# measurement when it is an anecdote.
+#
+# NOT MEASURED. No forward edge is claimed for this scanner; it registers as
+# `unmeasured` (0.5 edge points) like every new arrival, and the follow-through
+# number is descriptive history for one name, not a backtest of the scanner.
+# ──────────────────────────────────────────────────────────────────────────────
+
+#: AGPro v2.2 defaults, kept at the source's values so a disagreement with the
+#: script is a real disagreement and not a silently retuned parameter.
+DB_PIVOT_LEN = 8            # symmetric lookback/lookforward for a swing pivot
+DB_EQ_TOL_PCT = 1.4         # how "double" the two bottoms must be
+DB_MIN_PULLBACK_PCT = 2.0   # neckline must sit this far above the bottoms
+DB_MIN_BARS = 10            # pattern width floor — rejects noise-sized shapes
+DB_MAX_BARS = 90            # and ceiling — rejects multi-year structures
+DB_ATR_BUFFER = 0.15        # a close must clear the neckline by this many ATRs
+DB_FOLLOW_HORIZON = 12      # bars after confirmation at which a break is graded
+DB_FOLLOW_ATR = 0.75        # move, in ATRs, that counts as follow-through
+#: 5-factor quality weights (AGPro v2.2, unchanged).
+DB_WEIGHTS = {"structure": 0.28, "depth": 0.22, "volume": 0.18,
+              "breakout": 0.17, "context": 0.15}
+
+
+def _db_pivot_lows(low: np.ndarray, pivot_len: int) -> list[int]:
+    """Bars that are the minimum of a symmetric `pivot_len` window.
+
+    The last `pivot_len` bars can never appear: confirming a pivot needs that
+    many bars of hindsight. That lag is inherent to any pivot method — the wiki
+    page names it as a tradeoff rather than a flaw — and `scan_darvas_box` and
+    `scan_vcp` already carry the same one.
+    """
+    out = []
+    n = len(low)
+    for i in range(pivot_len, n - pivot_len):
+        if low[i] == low[i - pivot_len:i + pivot_len + 1].min():
+            out.append(i)
+    return out
+
+
+def _db_pivot_highs(high: np.ndarray, pivot_len: int) -> list[int]:
+    """Mirror of `_db_pivot_lows` — the neckline candidates."""
+    out = []
+    n = len(high)
+    for i in range(pivot_len, n - pivot_len):
+        if high[i] == high[i - pivot_len:i + pivot_len + 1].max():
+            out.append(i)
+    return out
+
+
+def _db_bucket(value: float, table: tuple) -> float:
+    """First `score` whose `threshold` the value clears; 0.0 if it clears none.
+
+    AGPro scores its components in buckets rather than on a line, and the buckets
+    are kept because a linear rescale would be a different scoring function
+    wearing the source's weights.
+    """
+    for threshold, score in table:
+        if value >= threshold:
+            return score
+    return 0.0
+
+
+def _db_candidates(df: pd.DataFrame, pivot_len: int, eq_tol_pct: float,
+                   min_pullback_pct: float, min_bars: int, max_bars: int,
+                   atr_buffer: float) -> list:
+    """Every confirmed double bottom in the frame, oldest first.
+
+    Returns geometry only — no scoring — because two callers want different
+    things from it: the live read wants the most recent one scored in full, and
+    the follow-through proof wants all the OLD ones graded and nothing else.
+    """
+    n = len(df)
+    low = df["low"].to_numpy(dtype=float)
+    high = df["high"].to_numpy(dtype=float)
+    close = df["close"].to_numpy(dtype=float)
+    atr = _atr_series(df).to_numpy(dtype=float)
+
+    lows = _db_pivot_lows(low, pivot_len)
+    highs = _db_pivot_highs(high, pivot_len)
+    if len(lows) < 2 or not highs:
+        return []
+
+    out = []
+    for a in range(len(lows) - 1):
+        for b in range(a + 1, len(lows)):
+            i1, i2 = lows[a], lows[b]
+            width = i2 - i1
+            if width < min_bars:
+                continue
+            if width > max_bars:
+                break                      # lows[b] only moves further away
+
+            b1, b2 = low[i1], low[i2]
+            mean_b = (b1 + b2) / 2.0
+            if mean_b <= 0:
+                continue
+            eq_pct = abs(b1 - b2) / mean_b * 100.0
+            if eq_pct > eq_tol_pct:
+                continue
+
+            between = [h for h in highs if i1 < h < i2]
+            if not between:
+                continue
+            neck_idx = max(between, key=lambda h: high[h])   # highest pivot = neckline
+            neck = high[neck_idx]
+            if neck <= 0:
+                continue
+            pullback_pct = (neck - min(b1, b2)) / neck * 100.0
+            if pullback_pct < min_pullback_pct:
+                continue
+
+            # Confirmation: the FIRST close after the second bottom that clears
+            # the neckline by the ATR buffer. Touching it is not a break — that
+            # buffer is the whole reason the spec quotes an ATR multiple.
+            brk = None
+            for j in range(i2 + 1, n):
+                a_j = atr[j]
+                if not np.isfinite(a_j) or a_j <= 0:
+                    continue
+                if close[j] > neck + atr_buffer * a_j:
+                    brk = j
+                    break
+            if brk is None:
+                continue
+
+            leg1, leg2 = neck_idx - i1, i2 - neck_idx
+            out.append({
+                "left_idx": int(i1), "right_idx": int(i2),
+                "neck_idx": int(neck_idx), "break_idx": int(brk),
+                "left_low": float(b1), "right_low": float(b2),
+                "neckline": float(neck),
+                "eq_pct": float(eq_pct),
+                "pullback_pct": float(pullback_pct),
+                "width": int(width),
+                "time_sym": (float(min(leg1, leg2)) / max(leg1, leg2)
+                             if max(leg1, leg2) else 0.0),
+                "break_close": float(close[brk]),
+                "break_atr": float(atr[brk]),
+            })
+
+    # Dedup on the LEFT bottom: one left low can pair with several later lows
+    # inside the tolerance, and those are the same reversal pocket described
+    # three ways. Keep the widest (most developed) shape per left bottom.
+    best = {}
+    for c in out:
+        prev = best.get(c["left_idx"])
+        if prev is None or c["width"] > prev["width"]:
+            best[c["left_idx"]] = c
+    return sorted(best.values(), key=lambda c: c["break_idx"])
+
+
+def _db_follow_through(df: pd.DataFrame, cands: list,
+                       horizon: int = DB_FOLLOW_HORIZON,
+                       atr_mult: float = DB_FOLLOW_ATR):
+    """This symbol's own recent record on its own double bottoms.
+
+    Each past confirmation is graded EXACTLY ONCE, at a fixed horizon: did close
+    rise at least `atr_mult` ATRs — measured at confirmation time, not today —
+    above the confirmation close? A break too recent to have reached its horizon
+    is unresolved and is counted neither way; grading it early would score the
+    newest and most interesting signals as failures by construction.
+
+    Returns None when nothing has resolved. `n` rides along with `rate` on
+    purpose: see the section header.
+    """
+    close = df["close"].to_numpy(dtype=float)
+    n = len(df)
+    resolved = follows = 0
+    for c in cands:
+        j = c["break_idx"]
+        if j + horizon >= n:
+            continue                      # not yet gradeable
+        a = c["break_atr"]
+        if not np.isfinite(a) or a <= 0:
+            continue
+        resolved += 1
+        if close[j + horizon] - c["break_close"] >= atr_mult * a:
+            follows += 1
+    if resolved == 0:
+        return None
+    return {"rate": round(100.0 * follows / resolved, 1),
+            "n": resolved, "follows": follows,
+            "horizon": horizon, "atr_mult": atr_mult}
+
+
+def _db_quality(df: pd.DataFrame, c: dict) -> dict:
+    """AGPro's 5-factor weighted quality, 1-10, with its letter grade.
+
+    Every component is 0-10 and the weights are the source's. Returned with the
+    parts exposed rather than as one number, because "A+ shape, weak volume" is
+    the read that makes the score worth having.
+    """
+    high = df["high"].to_numpy(dtype=float)
+    low = df["low"].to_numpy(dtype=float)
+    close = df["close"].to_numpy(dtype=float)
+    vol = df["volume"].to_numpy(dtype=float) if "volume" in df.columns else None
+
+    # 1. STRUCTURE — bottom equality + time symmetry. Neckline flatness is
+    #    absent by construction; see the section header.
+    eq_score = max(0.0, 10.0 * (1.0 - c["eq_pct"] / max(DB_EQ_TOL_PCT, 1e-9)))
+    sym_score = 10.0 * max(0.0, min(1.0, c["time_sym"]))
+    structure = (eq_score + sym_score) / 2.0
+
+    # 2. DEPTH — a deeper pullback to the neckline is a higher-conviction shape.
+    depth = _db_bucket(c["pullback_pct"],
+                       ((5.0, 10.0), (4.0, 8.5), (3.0, 7.0), (2.0, 5.5)))
+
+    # 3. VOLUME — contraction through the pattern's OWN formation window, then
+    #    expansion on the break. The two-sided signature VCP documents.
+    volume = 5.0
+    vol_ratio = None
+    brk_vol_x = None
+    if vol is not None:
+        seg = vol[c["left_idx"]:c["right_idx"] + 1]
+        if len(seg) >= 4:
+            half = len(seg) // 2
+            first, second = seg[:half].mean(), seg[half:].mean()
+            if first > 0:
+                vol_ratio = float(second / first)
+                # Negated so the shared bucket helper's ">=" reads the right way
+                # round: a LOWER second-half ratio is the better score.
+                volume = _db_bucket(-vol_ratio,
+                                    ((-0.70, 10.0), (-0.85, 8.0),
+                                     (-1.00, 6.0), (-1.20, 4.0)))
+                if volume == 0.0:
+                    volume = 2.0
+        j = c["break_idx"]
+        base = vol[max(0, j - 20):j]
+        if len(base) > 0 and base.mean() > 0:
+            brk_vol_x = float(vol[j] / base.mean())
+            if brk_vol_x >= 1.5:
+                volume += 1.5
+            elif brk_vol_x >= 1.2:
+                volume += 0.8
+        volume = min(10.0, volume)
+
+    # 4. BREAKOUT STRENGTH — how many ATRs past the neckline the break closed.
+    atrs_past = ((c["break_close"] - c["neckline"]) / c["break_atr"]
+                 if c["break_atr"] > 0 else 0.0)
+    breakout = _db_bucket(atrs_past,
+                          ((1.00, 10.0), (0.75, 8.5), (0.50, 7.0),
+                           (0.30, 5.0), (0.15, 3.5)))
+
+    # 5. EXHAUSTION CONTEXT — how stretched the pattern's low was below EMA(34),
+    #    plus how decisively the confirmation bar closed within its own range.
+    ema34 = _ema_series(df["close"], 34).to_numpy(dtype=float)
+    deep = min(c["left_low"], c["right_low"])
+    ref = ema34[c["right_idx"]] if np.isfinite(ema34[c["right_idx"]]) else None
+    stretch_score = 5.0
+    if ref and ref > 0:
+        stretch_pct = (ref - deep) / ref * 100.0
+        stretch_score = _db_bucket(stretch_pct,
+                                   ((12.0, 10.0), (8.0, 8.0), (5.0, 6.5),
+                                    (2.0, 5.0), (0.0, 3.5)))
+    j = c["break_idx"]
+    rng = high[j] - low[j]
+    close_pos = ((close[j] - low[j]) / rng) if rng > 0 else 0.5
+    # float() rather than leaving a numpy scalar: this payload is persisted as
+    # JSON on the opportunity cards, and while float64 happens to subclass float
+    # its integer cousin does not — casting at the boundary keeps the next
+    # component that returns an np.int64 from discovering that the hard way.
+    context = float((stretch_score + 10.0 * close_pos) / 2.0)
+
+    parts = {"structure": structure, "depth": depth, "volume": volume,
+             "breakout": breakout, "context": context}
+    q = float(sum(parts[k] * w for k, w in DB_WEIGHTS.items()))
+    q = max(1.0, min(10.0, q))
+    grade = ("S" if q >= 9 else "A+" if q >= 8 else "A" if q >= 7
+             else "B" if q >= 6 else "C" if q >= 4.5 else "D")
+    return {"quality": round(q, 1), "grade": grade,
+            "parts": {k: round(v, 1) for k, v in parts.items()},
+            "atrs_past": round(atrs_past, 2),
+            "vol_contraction": round(vol_ratio, 2) if vol_ratio else None,
+            "breakout_vol_x": round(brk_vol_x, 2) if brk_vol_x else None}
+
+
+def detect_double_bottom(df: pd.DataFrame, window: int = 260,
+                         pivot_len: int = DB_PIVOT_LEN,
+                         eq_tol_pct: float = DB_EQ_TOL_PCT,
+                         min_pullback_pct: float = DB_MIN_PULLBACK_PCT,
+                         min_bars: int = DB_MIN_BARS,
+                         max_bars: int = DB_MAX_BARS,
+                         atr_buffer: float = DB_ATR_BUFFER,
+                         max_bars_since_break: int = 20):
+    """Full-spec Double Bottom geometry, quality score and follow-through record.
+
+    `window` must hold the pattern plus both pivot confirmations plus the break;
+    the source page flags that pivot methods need meaningfully more history than
+    the oscillator signals already built, so the default is a year of daily bars.
+
+    Returns None when no confirmed pattern is recent enough to be actionable. A
+    break older than `max_bars_since_break` is history rather than a setup — it
+    still counts toward the follow-through record, it just does not fire.
+    """
+    need = max(window // 3, pivot_len * 4 + min_bars + 10)
+    if df is None or len(df) < need or "volume" not in df.columns:
+        return None
+    w = df.tail(window).reset_index(drop=True)
+    off = len(df) - len(w)
+    n = len(w)
+
+    cands = _db_candidates(w, pivot_len, eq_tol_pct, min_pullback_pct,
+                           min_bars, max_bars, atr_buffer)
+    if not cands:
+        return None
+    follow = _db_follow_through(w, cands)
+
+    c = cands[-1]                                   # most recent confirmed break
+    bars_since = n - 1 - c["break_idx"]
+    if bars_since > max_bars_since_break:
+        return None
+
+    close = w["close"].to_numpy(dtype=float)
+    low = w["low"].to_numpy(dtype=float)
+    last = float(close[-1])
+    neck = c["neckline"]
+    if last <= neck:
+        return None                                 # gave the neckline back
+
+    # STATE. The lesson's own sequence is break, then retest, then hold, and the
+    # retest is the entry the trading plan actually names — so it is a state
+    # rather than a footnote.
+    #
+    # A retest requires price to have LEFT the neckline first. Checking only
+    # "did a low come back within 1%" marks a slow grind straight up off the
+    # break as a retest, because the early bars of that grind are still inside
+    # the band — caught on a synthetic where price ran 70 -> 84 and never once
+    # pulled back. That mislabel is not cosmetic: it swaps the pattern-low stop
+    # for the much tighter neckline stop on a trade that never earned it.
+    band = neck * 1.01
+    away = neck + 0.5 * float(_atr_series(w).to_numpy(dtype=float)[c["break_idx"]])
+    retested = False
+    left_it = False
+    for j in range(c["break_idx"], n):
+        # Tested BEFORE `left_it` is updated for this bar, so "left, then came
+        # back" is always two different bars. Folding both into one if/elif made
+        # the answer depend on which branch ran first, and a wide bar that dips
+        # to the neckline and closes strongly above — a textbook retest-and-
+        # reclaim — took the "left" branch and never counted as a retest.
+        if left_it and low[j] <= band:
+            retested = True
+            break
+        if close[j] >= away:
+            left_it = True
+    state = "Retest hold" if (retested and bars_since >= 2) else "Confirmed"
+
+    q = _db_quality(w, c)
+
+    # TRADE PLAN. Target is the classic measured move — pattern height projected
+    # off the neckline, the same projection `scan_rounding_bottom` uses. The stop
+    # sits under the pattern low, which is the level that makes the shape wrong.
+    height = neck - min(c["left_low"], c["right_low"])
+    atr_now = float(_atr_series(w).to_numpy(dtype=float)[-1])
+    entry = last
+    stop = min(c["left_low"], c["right_low"]) - 0.5 * atr_now
+    # A retest that already held gives a tighter and more honest invalidation:
+    # back below the neckline means the break failed, and waiting for the
+    # pattern low would sit through the whole failure to find that out.
+    if state == "Retest hold":
+        stop = max(stop, neck * 0.98)
+    target = neck + height
+    risk, reward = entry - stop, target - entry
+    rr = round(reward / risk, 2) if risk > 0 else None
+    # How far past the neckline price already sits. A measured-move target is
+    # FIXED by the pattern's own height, so every bar of extension spends the
+    # trade's reward without touching its risk — the same "a plan with no room
+    # is not a plan" problem MIN_SWEEP_RR was added for. The hit is still
+    # reported (the pattern is real and worth seeing) but it stops calling
+    # itself a buy.
+    extended_pct = (entry - neck) / neck * 100.0 if neck > 0 else 0.0
+    if rr is not None and rr < MIN_SWEEP_RR:
+        verdict = "EXTENDED (no room)"
+    elif state == "Retest hold":
+        verdict = "BUY (retest hold)"
+    elif (q["breakout_vol_x"] or 0) >= 1.2:
+        verdict = "BUY"
+    else:
+        verdict = "WEAK BUY"
+
+    return {
+        "state": state,
+        "neckline": round(neck, 2),
+        "left_low": round(c["left_low"], 2),
+        "right_low": round(c["right_low"], 2),
+        "eq_pct": round(c["eq_pct"], 2),
+        "pullback_pct": round(c["pullback_pct"], 1),
+        "width_bars": c["width"],
+        "time_sym": round(c["time_sym"], 2),
+        "bars_since_break": bars_since,
+        "extended_pct": round(extended_pct, 1),
+        # Absolute bar indices into the CALLER's frame, matching the convention
+        # `scan_rounding_bottom`'s geometry payload set for the chart endpoint.
+        "left_bar_idx": off + c["left_idx"],
+        "right_bar_idx": off + c["right_idx"],
+        "neck_bar_idx": off + c["neck_idx"],
+        "breakout_bar_idx": off + c["break_idx"],
+        "follow_through": follow,
+        "verdict": verdict,
+        "entry": round(entry, 2),
+        "stop": round(stop, 2),
+        "target": round(target, 2),
+        "risk_reward": rr,
+        **q,
+    }
+
+
+def scan_double_bottom(df: pd.DataFrame):
+    """Scanner Hub wrapper — confirmed Double Bottom, AGPro quality graded."""
+    d = detect_double_bottom(df)
+    if d is None:
+        return None
+    score = int(round(d["quality"] * 10))
+    if score < 55:
+        return None                                  # D and low-C shapes are noise
+
+    tags = [f"Grade {d['grade']} ({d['quality']}/10)", d["state"],
+            f"neckline {d['neckline']}", f"bottoms ±{d['eq_pct']}%"]
+    if d["breakout_vol_x"]:
+        tags.append(f"{d['breakout_vol_x']}x break vol")
+    ft = d["follow_through"]
+    if ft:
+        # ALWAYS with n — a bare rate off n=2 reads as a measurement.
+        tags.append(f"follow-through {ft['rate']:.0f}% (n={ft['n']})")
+    if d["risk_reward"]:
+        tags.append(f"R:R {d['risk_reward']}")
+
+    reasons = [
+        f"Two lows within {d['eq_pct']}% of each other, {d['width_bars']} bars apart",
+        f"Neckline {d['neckline']} sits {d['pullback_pct']}% above the bottoms",
+        f"Break closed {d['atrs_past']} ATR past the neckline",
+        "Quality {}/10 (grade {}): ".format(d["quality"], d["grade"]) +
+        ", ".join(f"{k} {v}" for k, v in d["parts"].items()),
+    ]
+    if ft:
+        reasons.append(
+            f"This name's own record on its last {ft['n']} double bottoms: "
+            f"{ft['follows']}/{ft['n']} moved {ft['atr_mult']}+ ATR within "
+            f"{ft['horizon']} bars. Descriptive history on a small sample, "
+            f"never a forward claim.")
+    else:
+        reasons.append("No prior double bottom in range has resolved yet, so "
+                       "this name has no follow-through record.")
+
+    return {"pattern_type": "Double Bottom", "tags": tags,
+            "reasons": reasons, "score": score, "geometry": d}
+
+
 SCANNERS: dict[str, dict] = {
     "Shallow Flip (Renko, bounded correction)": {
         "fn": scan_shallow_flip,
@@ -7991,6 +8481,31 @@ SCANNERS: dict[str, dict] = {
             "bases and neckline reversals pressing or clearing the ceiling with an "
             "ATR-scaled buffer; Approaching / Confirmed / Retest states, weekly-confirm "
             "bonus (SwingEdge Structural Breakout ingest)"
+        ),
+        "category": "Pattern",
+    },
+    "Double Bottom": {
+        "fn": scan_double_bottom,
+        "description": (
+            "Confirmed Double Bottom, ported from the AGPro Reversal Pattern "
+            "Quality Scanner (sources/AGPro-Reversal-Pattern-Quality-Scanner-Pine.md, "
+            "concepts/Reversal-Chart-Patterns.md) at the source's own parameters: "
+            "two swing lows within 1.4% of each other, 10-90 bars apart, a "
+            "neckline pivot at least 2% above them, and a close clearing that "
+            "neckline by 0.15x ATR — touching it is not a break. Graded S/A+/A/B/C "
+            "on AGPro's 5-factor weighted quality (structure .28, depth .22, volume "
+            ".18, breakout strength .17, exhaustion context .15), which scores the "
+            "SHAPE and nothing else. Separately it reports FOLLOW-THROUGH: this "
+            "symbol's own past double bottoms, each graded once at 12 bars against "
+            "a 0.75x ATR move, always printed with its sample size because the "
+            "typical n is 1-3. The two numbers are kept apart on purpose — the "
+            "source page's own warning is that a textbook A-grade shape can sit on "
+            "a 30% real follow-through rate for that name. States: Confirmed, or "
+            "Retest hold once price has come back to the neckline and held, which "
+            "is the entry the pattern's trading plan actually names. NOT MEASURED "
+            "— no forward edge is claimed, it scores as `unmeasured`, and the "
+            "follow-through figure is descriptive history for one symbol rather "
+            "than a backtest of the scanner."
         ),
         "category": "Pattern",
     },

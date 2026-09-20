@@ -223,3 +223,112 @@ def test_a_real_pattern_carries_its_plan_and_mapped_times(client, monkeypatch):
     for k in ("pole_t0", "pole_t1", "flag_t0", "flag_t1", "last_t"):
         assert g[k] >= 1_700_000_000
     assert g["pole_t0"] < g["pole_t1"] < g["flag_t0"] <= g["flag_t1"]
+
+
+# ── /api/double_bottom (B-64r2) ──────────────────────────────────────────────
+#
+# The overlay is inline in `chart_dashboard.html`, so it needs no allow-list
+# entry -- but the wire contract does need to hold. Two things matter here that
+# are specific to this pattern:
+#
+#   * the four anchor bars must arrive as CHART TIMESTAMPS in pattern order, or
+#     the client draws a "W" with its legs crossed (or throws on a null time);
+#   * `quality` and `follow_through` must arrive as SEPARATE fields. The source
+#     page's warning is that a textbook A-grade shape can sit on a poor real
+#     follow-through rate, so a server that blended them would destroy the one
+#     disagreement the card exists to show.
+
+def _db_frame():
+    """A textbook double bottom: decline, low, rally to the neckline, low, break."""
+    import numpy as np
+    import pandas as pd
+    px = (list(np.linspace(100, 72, 60)) + list(np.linspace(72, 70, 10))
+          + list(np.linspace(70, 80, 20)) + list(np.linspace(80, 70, 20))
+          + list(np.linspace(70, 84, 14)) + [84.0, 84.5, 85.0])
+    c = np.array(px, float)
+    return pd.DataFrame({"open": c, "high": c * 1.01, "low": c * 0.99,
+                         "close": c, "volume": np.full(len(c), 1e6)})
+
+
+def _mount(monkeypatch, frame):
+    bars = [{"time": 1_700_000_000 + i * 86400} for i in range(len(frame))]
+    monkeypatch.setattr(cs, "_bars_to_df", lambda b: frame)
+    monkeypatch.setattr(cs.ds, "detect_source",
+                        lambda sym: type("S", (), {"get_ohlcv": staticmethod(lambda *a: bars)})())
+    return bars
+
+
+def test_double_bottom_requires_a_symbol(client):
+    r = client.get("/api/double_bottom")
+    assert r.status_code == 400
+
+
+def test_double_bottom_returns_null_when_there_is_no_pattern(client, monkeypatch):
+    import numpy as np
+    import pandas as pd
+    c = np.linspace(50.0, 120.0, 200)      # pure uptrend
+    frame = pd.DataFrame({"open": c, "high": c * 1.01, "low": c * 0.99,
+                          "close": c, "volume": np.full(len(c), 1e6)})
+    _mount(monkeypatch, frame)
+    body = client.get("/api/double_bottom?symbol=TEST").get_json()
+    assert body["double_bottom"] is None
+
+
+def test_a_short_frame_returns_null_rather_than_raising(client, monkeypatch):
+    import numpy as np
+    import pandas as pd
+    c = np.linspace(70.0, 80.0, 30)
+    frame = pd.DataFrame({"open": c, "high": c * 1.01, "low": c * 0.99,
+                          "close": c, "volume": np.full(len(c), 1e6)})
+    _mount(monkeypatch, frame)
+    r = client.get("/api/double_bottom?symbol=TEST")
+    assert r.status_code == 200
+    assert r.get_json()["double_bottom"] is None
+
+
+def test_the_anchor_bars_arrive_as_timestamps_in_pattern_order(client, monkeypatch):
+    """Indices would draw the W against the wrong bars; out-of-order times would
+    cross its legs, and a null time throws inside LightweightCharts."""
+    _mount(monkeypatch, _db_frame())
+    g = client.get("/api/double_bottom?symbol=TEST").get_json()["double_bottom"]
+    assert g is not None
+    for k in ("left_time", "neck_time", "right_time", "breakout_time", "last_time"):
+        assert g[k] is not None and g[k] >= 1_700_000_000
+    assert g["left_time"] < g["neck_time"] < g["right_time"] < g["breakout_time"]
+    assert g["breakout_time"] <= g["last_time"]
+
+
+def test_the_wire_carries_a_full_trade_plan(client, monkeypatch):
+    _mount(monkeypatch, _db_frame())
+    g = client.get("/api/double_bottom?symbol=TEST").get_json()["double_bottom"]
+    for k in ("verdict", "entry", "stop", "target", "risk_reward"):
+        assert g[k] is not None
+    assert g["stop"] < g["entry"] < g["target"]
+
+
+def test_quality_and_follow_through_stay_separate_fields(client, monkeypatch):
+    """A blended number would hide the disagreement the card exists to show."""
+    _mount(monkeypatch, _db_frame())
+    g = client.get("/api/double_bottom?symbol=TEST").get_json()["double_bottom"]
+    assert "quality" in g and "grade" in g
+    assert "follow_through" in g
+    ft = g["follow_through"]
+    if ft is not None:
+        # The sample size must travel WITH the rate, or the client cannot say
+        # how thin the evidence is -- and the typical n here is 1-3.
+        assert "n" in ft and "rate" in ft and "follows" in ft
+
+
+def test_the_geometry_the_client_draws_matches_the_scanner_card(client, monkeypatch):
+    """One detector, two surfaces. If the endpoint re-derived anything, the
+    chart and the Scanner Hub could disagree about the same pattern."""
+    import scanner_templates as sc
+    frame = _db_frame()
+    _mount(monkeypatch, frame)
+    g = client.get("/api/double_bottom?symbol=TEST").get_json()["double_bottom"]
+    hit = sc.scan_double_bottom(frame)
+    assert hit is not None
+    for k in ("neckline", "left_low", "right_low", "quality", "grade",
+              "state", "verdict", "entry", "stop", "target"):
+        assert g[k] == hit["geometry"][k]
+    assert g["score"] == hit["score"]
