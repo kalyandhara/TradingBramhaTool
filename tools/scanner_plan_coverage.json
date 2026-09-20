@@ -396,6 +396,15 @@
    "fired": 2760,
    "with_plan": 2760
   },
+  "Symmetrical Triangle (bilateral)": {
+   "fields": {
+    "entry": 0,
+    "stop": 0,
+    "target": 0
+   },
+   "fired": 32,
+   "with_plan": 0
+  },
   "Triple-RS 52W Cross": {
    "fields": {
     "entry": 0,

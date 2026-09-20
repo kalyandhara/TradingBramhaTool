@@ -29,6 +29,7 @@ pass, or here as a fail. So:
     PARTIAL   some hits carried a full plan and some did not
     NONE      it fired, and no hit ever carried a full plan
     UNSEEN    it never fired in this sample — nothing is claimed
+    BILATERAL it publishes both legs and no single plan, ON PURPOSE (B-101)
 
 **PARTIAL is worth its own state.** A plan you get on some hits and not others is
 harder to use than one you never get, because the reader cannot tell which kind
@@ -69,6 +70,26 @@ PLAN_FIELDS = ("entry", "stop", "target")
 WARMUP = 220
 
 FULL, PARTIAL, NONE, UNSEEN = "FULL", "PARTIAL", "NONE", "UNSEEN"
+
+#: A fifth state, for a scanner that emits no `entry`/`stop`/`target` BY DESIGN
+#: rather than by omission (B-101). A bilateral pattern — a symmetrical triangle
+#: — does not know its direction, so it publishes both legs (`up_*` / `down_*`)
+#: and no unqualified triple. Counting that as NONE would put it on the list of
+#: things to fix, and the fix would be to pick a direction the pattern does not
+#: have; the file's own argument for why UNSEEN is not NONE applies here word for
+#: word. It is excluded from `observed`, so it can neither flatter nor damage the
+#: coverage ratio it has no opinion about.
+BILATERAL = "BILATERAL"
+
+#: Scanner names this applies to. Read from the registry's `category` rather than
+#: hard-coded, so a second bilateral scanner is covered the day it is registered.
+def _bilateral_names() -> set[str]:
+    try:
+        import scanner_templates as sc
+        return {n for n, spec in sc.SCANNERS.items()
+                if spec.get("category") == "Neutral"}
+    except Exception:
+        return set()
 
 
 def has_plan(hit: dict[str, Any] | None) -> bool:
@@ -141,9 +162,11 @@ def probe(symbols: Iterable[str], fetch_fn: Callable[[str], Any],
             "stride": stride, "scanners": agg}
 
 
-def classify(entry: dict[str, Any]) -> str:
-    """FULL / PARTIAL / NONE / UNSEEN for one scanner's counts."""
+def classify(entry: dict[str, Any], name: str | None = None) -> str:
+    """FULL / PARTIAL / NONE / UNSEEN / BILATERAL for one scanner's counts."""
     fired, with_plan = entry.get("fired", 0), entry.get("with_plan", 0)
+    if name is not None and name in _bilateral_names():
+        return BILATERAL if fired else UNSEEN
     if not fired:
         return UNSEEN
     if with_plan == fired:
@@ -155,9 +178,10 @@ def classify(entry: dict[str, Any]) -> str:
 
 def summarise(result: dict) -> dict:
     """Counts per state, plus the scanner lists behind them."""
-    out: dict[str, list[str]] = {FULL: [], PARTIAL: [], NONE: [], UNSEEN: []}
+    out: dict[str, list[str]] = {FULL: [], PARTIAL: [], NONE: [], UNSEEN: [],
+                                 BILATERAL: []}
     for name, e in result.get("scanners", {}).items():
-        out[classify(e)].append(name)
+        out[classify(e, name)].append(name)
     for k in out:
         out[k].sort()
     return {
@@ -175,10 +199,10 @@ def rows(result: dict) -> list[dict[str, Any]]:
     getting levels for", and burying that under the healthy rows would make the
     page a reassurance rather than a census.
     """
-    order = {NONE: 0, PARTIAL: 1, UNSEEN: 2, FULL: 3}
+    order = {NONE: 0, PARTIAL: 1, UNSEEN: 2, BILATERAL: 3, FULL: 4}
     out = []
     for name, e in result.get("scanners", {}).items():
-        state = classify(e)
+        state = classify(e, name)
         fired = e.get("fired", 0)
         out.append({
             "Scanner": name,
@@ -213,6 +237,8 @@ STATE_HELP = {
     FULL:    "every observed hit carried entry, stop and target",
     PARTIAL: "some hits carried a full plan and some did not — check the row",
     NONE:    "it fired, and no hit ever carried a full plan",
+    BILATERAL: ("it publishes BOTH legs and no single plan, on purpose — the "
+                "pattern does not know its direction (B-101)"),
     UNSEEN:  "never fired in the census — nothing is claimed either way",
 }
 
@@ -271,7 +297,8 @@ def render(expanded: bool = False) -> None:
             f"Census: **{res['symbols_used']} symbols**, every "
             f"{res['stride']}th bar, point-in-time. "
             f"FULL {c[FULL]} · PARTIAL {c[PARTIAL]} · NONE {c[NONE]} · "
-            f"UNSEEN {c[UNSEEN]} of {s['total']} registered. "
+            f"UNSEEN {c[UNSEEN]} · BILATERAL {c[BILATERAL]} of {s['total']} "
+            f"registered. "
             f"**UNSEEN is not a verdict** — those scanners never fired in the "
             f"sample, so nothing is claimed about them."
         )
@@ -316,7 +343,7 @@ def main() -> int:
               f"{r['With plan']:>8}{pct:>7}")
     c = s["counts"]
     print(f"\nFULL {c[FULL]} · PARTIAL {c[PARTIAL]} · NONE {c[NONE]} · "
-          f"UNSEEN {c[UNSEEN]}  (of {s['total']})")
+          f"UNSEEN {c[UNSEEN]} · BILATERAL {c[BILATERAL]}  (of {s['total']})")
     print(f"{c[FULL]} of {s['observed']} OBSERVED scanners carry a full plan.")
     return 0
 

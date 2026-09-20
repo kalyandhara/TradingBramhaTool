@@ -4223,6 +4223,11 @@ _TIER_CHIP = {
     "unmeasured": ("neutral", "",   "never backtested — plausible but unproven, half weight"),
     "weak":       ("warn",    "~ ", "measured AT OR BELOW a random-entry baseline — quarter weight"),
     "risk":       ("risk",    "⚠ ", "BEARISH read on the same chart — never counts as confluence"),
+    # B-101. Deliberately NOT the risk tone: this is not a bearish read, it is
+    # the absence of a direction, and colouring it red would make a coil look
+    # like a warning.
+    "neutral":    ("neutral", "⚖ ", "BILATERAL — direction unknown until it breaks; "
+                                    "never counts as confluence either way"),
 }
 
 

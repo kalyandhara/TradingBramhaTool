@@ -83,7 +83,10 @@ def test_summarise_partitions_every_scanner_exactly_once():
     res = _result(A=(10, 10), B=(10, 5), C=(10, 0), D=(0, 0))
     s = sp.summarise(res)
     assert s["total"] == 4
-    assert s["counts"] == {sp.FULL: 1, sp.PARTIAL: 1, sp.NONE: 1, sp.UNSEEN: 1}
+    # BILATERAL (B-101) partitions with the rest and is empty here: these
+    # fixture names are not registered, so none of them is a Neutral scanner.
+    assert s["counts"] == {sp.FULL: 1, sp.PARTIAL: 1, sp.NONE: 1, sp.UNSEEN: 1,
+                           sp.BILATERAL: 0}
     assert s["observed"] == 3          # UNSEEN is not an observation
 
 

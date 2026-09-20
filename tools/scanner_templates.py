@@ -6195,6 +6195,307 @@ def scan_falling_wedge(df: pd.DataFrame, window: int = 60,
     }
 
 
+def detect_symmetrical_triangle_geometry(df: pd.DataFrame, window: int = 90,
+                                         touch_tol: float = 0.015) -> dict | None:
+    """Symmetrical-triangle (BILATERAL) detection core → geometry dict, or None.
+
+    B-101. The registry had no bilateral pattern: on a textbook symmetrical
+    triangle exactly one scanner gave a real read (VCP Coiling) and it emitted an
+    **upward-only** plan, on a pattern whose defining property is that the
+    direction is unknown until it confirms. `detect_falling_wedge_geometry`
+    correctly declines — both its lines must fall — so the converging-trendline
+    geometry was absent rather than mis-specified.
+
+    Deliberately close in shape to the falling-wedge core (same pivots, same
+    regression fit, same containment/touch/volume tests), because the geometry IS
+    the same geometry and two detectors drifting apart is how the wedge's own
+    tolerances would stop meaning anything. **Three things differ, and they are
+    the whole point:**
+
+    1. **The slopes oppose.** Upper falls, lower rises. A wedge's lines both fall.
+    2. **Neither side may be flat.** A flat top with rising lows is an ASCENDING
+       triangle and a flat base with falling highs is a DESCENDING one; both are
+       directional patterns, and an ascending triangle already fires nine
+       scanners here. Admitting them would make this detector a duplicate vote
+       for a bullish base rather than the missing neutral state.
+    3. **No single trade plan is returned.** Both legs are, as `up_*` / `down_*`,
+       and `direction` is the string ``bilateral``. Callers that want one
+       direction have to choose one on purpose — there is no `entry` key to pick
+       up by accident, which is exactly the VCP failure this exists to not repeat.
+
+    Returns trendline endpoints as **bar indices into the passed df** (+ prices)
+    so a chart overlay can map them to timestamps, the apex, the breakout state,
+    a 0-100 confidence, the metric surface, and BOTH legs.
+    """
+    if df is None or len(df) < window:
+        return None
+    n = window
+    off = len(df) - n                            # abs bar index of the window's first bar
+    w = df.tail(window).reset_index(drop=True)
+    high = w["high"].to_numpy(float)
+    low = w["low"].to_numpy(float)
+    close = w["close"].to_numpy(float)
+    n = len(w)
+    last = float(close[-1])
+    if last <= 0:
+        return None
+
+    # 1) Swing pivots (look-back 1) — the wedge core's convention, kept.
+    sh = [(i, high[i]) for i in range(1, n - 1) if high[i] > high[i - 1] and high[i] > high[i + 1]]
+    sl = [(i, low[i]) for i in range(1, n - 1) if low[i] < low[i - 1] and low[i] < low[i + 1]]
+    if len(sh) < 2 or len(sl) < 2:
+        return None
+
+    hx = np.array([p[0] for p in sh[-3:]], float); hy = np.array([p[1] for p in sh[-3:]], float)
+    lx = np.array([p[0] for p in sl[-3:]], float); ly = np.array([p[1] for p in sl[-3:]], float)
+    su, iu = np.polyfit(hx, hy, 1)
+    slo, il = np.polyfit(lx, ly, 1)
+
+    def u(x): return iu + su * x
+    def lo(x): return il + slo * x
+
+    # 2) Geometric validation — the bilateral shape.
+    if not (su < 0 and slo > 0):                 # highs must fall AND lows must rise
+        return None
+    # Flatness gate. Express each slope as the move it makes across the window as
+    # a fraction of price, so the threshold means the same thing on a ₹40 stock
+    # and a ₹4,000 one. Below 1.5% of price across the window a line is flat
+    # enough to be a horizontal boundary, which makes the pattern ascending or
+    # descending — directional, and someone else's job.
+    up_travel = abs(su) * n / last
+    lo_travel = abs(slo) * n / last
+    if up_travel < 0.015 or lo_travel < 0.015:
+        return None
+    # Symmetry. A triangle whose lows rise five times faster than its highs fall
+    # is an ascending triangle wearing a small downtilt; 1:3 either way is the
+    # loosest reading that still leaves the direction genuinely open.
+    ratio = up_travel / lo_travel
+    if not (1 / 3 <= ratio <= 3):
+        return None
+
+    x0 = int(min(hx.min(), lx.min()))            # oldest fitted swing (bar index)
+    x1 = n - 1                                   # current bar (last)
+    if (x1 - x0) < 20:                           # a triangle must span real time
+        return None
+    gap_old = u(x0) - lo(x0)
+    gap_now = u(x1) - lo(x1)
+    if gap_old <= 0 or gap_now <= 0 or gap_now >= gap_old:   # must be open + converging
+        return None
+    conv_ratio = (gap_old - gap_now) / gap_old
+    if conv_ratio < 0.20:                        # opposed slopes converge by
+        return None                              # construction — demand real coiling
+
+    tu = sum(1 for i, p in sh if abs(p - u(i)) <= touch_tol * p)
+    tl = sum(1 for i, p in sl if abs(p - lo(i)) <= touch_tol * p)
+    if tu < 2 or tl < 2:
+        return None
+
+    inside = 0
+    for i in range(n):
+        if high[i] <= u(i) * (1 + touch_tol) and low[i] >= lo(i) * (1 - touch_tol):
+            inside += 1
+    containment = inside / n
+    if containment < 0.55:                       # lines don't bound price → not a triangle
+        return None
+
+    # 3) The apex, and how far into it price has coiled. The textbook reading is
+    # that a triangle resolves between half and three-quarters of the way to the
+    # apex; drifting into the tip is the pattern dying rather than firing, and a
+    # reader deciding whether to keep watching wants that number, not a verdict.
+    denom = su - slo
+    apex_x = (il - iu) / denom if denom else float("inf")     # u(x) == lo(x)
+    bars_to_apex = apex_x - x1
+    if bars_to_apex <= 0:                        # already past the apex — the lines
+        return None                              # have crossed; there is no triangle left
+    apex_progress = (x1 - x0) / (apex_x - x0) if apex_x > x0 else 1.0
+
+    # Volume behaviour — a real coil dries up into the apex. Same construction as
+    # the wedge: exclude the last bar so a breakout spike can't mask the dry-up.
+    vol_arr = w["volume"].to_numpy(float) if "volume" in w.columns else np.zeros(n)
+    third = max(5, n // 3)
+    vol_early = float(np.mean(vol_arr[:third])) if third else 0.0
+    vol_late = (float(np.mean(vol_arr[-third - 1:-1])) if n > third + 1
+                else float(np.mean(vol_arr[-third:])))
+    vol_trend = (vol_late / vol_early) if vol_early > 0 else 1.0
+    if vol_trend > 1.30:                         # volume RISING into the apex → not a coil
+        return None
+    vol_dry = vol_trend <= 0.90
+
+    last_piv = max(sh[-1][0], sl[-1][0])
+    recency = max(0.0, 1.0 - (n - 1 - last_piv) / window)
+    touch_score = min(1.0, (tu + tl) / 6.0)                  # 2+2 → .67, 3+3 → 1.0
+    conv_score = min(1.0, conv_ratio / 0.6)
+    # Symmetry scores highest at 1:1 and decays to 0 at the 1:3 / 3:1 edges.
+    sym_score = max(0.0, 1.0 - abs(np.log(ratio)) / np.log(3.0))
+    vol_score = min(1.0, max(0.0, (1.0 - vol_trend) / 0.30))  # 0.70×→1.0, ≥1.0×→0
+    # Apex position scores the 50-75% band full and falls away on both sides —
+    # too early is not yet a coil, too late is a coil that failed to resolve.
+    if apex_progress < 0.5:
+        apex_score = max(0.0, apex_progress / 0.5)
+    elif apex_progress <= 0.75:
+        apex_score = 1.0
+    else:
+        apex_score = max(0.0, (1.0 - apex_progress) / 0.25)
+    # Weights: containment .24 · convergence .20 · touches .16 · symmetry .14
+    #          · apex position .12 · volume-dry-up .10 · recency .04  (sum 1.0).
+    conf = 100.0 * (0.24 * containment + 0.20 * conv_score + 0.16 * touch_score +
+                    0.14 * sym_score + 0.12 * apex_score + 0.10 * vol_score +
+                    0.04 * recency)
+
+    # 4) State. Both breakout directions are first-class; neither is preferred,
+    # and "coiling" is a legitimate terminal state rather than a near-miss, so
+    # (unlike the wedge) nothing is rejected for sitting in the middle. A
+    # bilateral pattern has nowhere it is "supposed" to be.
+    u_now, l_now = u(x1), lo(x1)
+    pos = (last - l_now) / (u_now - l_now) if u_now > l_now else 0.5
+    if last > u_now:
+        state, state_lbl, bonus = "breakout-up", "Breakout ↑", 8.0
+    elif last < l_now:
+        state, state_lbl, bonus = "breakout-down", "Breakout ↓", 8.0
+    elif (u_now - last) / u_now <= 0.005:
+        state, state_lbl, bonus = "pre-breakout-up", "Near upper line", 4.0
+    elif (last - l_now) / l_now <= 0.005:
+        state, state_lbl, bonus = "pre-breakout-down", "Near lower line", 4.0
+    else:
+        state, state_lbl, bonus = "coiling", "Coiling", 0.0
+    conf = min(100.0, conf + bonus)
+
+    # 5) BOTH legs. The measured move is the triangle's height at its widest,
+    # projected from whichever line price leaves — the same arithmetic as the
+    # wedge, applied twice because there are two ways out. Each leg stops on the
+    # far line: a break that comes straight back through the coil is the failure
+    # case for that leg, whichever side it happened on.
+    up_entry = round(u_now, 2)
+    up_stop = round(l_now * 0.995, 2)
+    up_target = round(up_entry + gap_old, 2)
+    down_entry = round(l_now, 2)
+    down_stop = round(u_now * 1.005, 2)
+    down_target = round(max(0.01, down_entry - gap_old), 2)
+    if up_entry <= up_stop or down_stop <= down_entry:
+        return None
+    up_rr = (up_target - up_entry) / (up_entry - up_stop)
+    down_rr = (down_entry - down_target) / (down_stop - down_entry)
+
+    vol20 = float(w["volume"].tail(20).mean()) if "volume" in w.columns else 0.0
+    vol_last = float(w["volume"].iloc[-1]) if "volume" in w.columns else 0.0
+    vol_x = vol_last / vol20 if vol20 > 0 else 0.0
+
+    return {
+        # Trendline endpoints as bar indices into the passed df (+ prices).
+        "upper_x0": off + x0, "upper_y0": round(u(x0), 2),
+        "upper_x1": off + x1, "upper_y1": round(u_now, 2),
+        "lower_x0": off + x0, "lower_y0": round(lo(x0), 2),
+        "lower_x1": off + x1, "lower_y1": round(l_now, 2),
+        "apex_x": off + apex_x, "apex_y": round(u(apex_x), 2),
+        "bars_to_apex": int(round(bars_to_apex)), "apex_progress": round(apex_progress, 3),
+        "breakout_bar": off + x1, "last_close": round(last, 2),
+        # Scalars for the card text + metric surface.
+        "upper_slope": su, "lower_slope": slo, "symmetry_ratio": round(ratio, 2),
+        "gap_old": gap_old, "gap_now": gap_now, "conv_ratio": conv_ratio,
+        "containment": containment, "touches_h": tu, "touches_l": tl,
+        "vol_trend": vol_trend, "vol_dry": vol_dry, "vol_x": vol_x,
+        "pos_in_range": round(pos, 3),
+        "state": state, "state_label": state_lbl, "confidence": conf,
+        "u_now": u_now, "l_now": l_now,
+        # BOTH legs, and no bare `entry`/`stop`/`target` — see the docstring.
+        "direction": "bilateral",
+        "up_entry": up_entry, "up_stop": up_stop, "up_target": up_target, "up_rr": up_rr,
+        "down_entry": down_entry, "down_stop": down_stop, "down_target": down_target,
+        "down_rr": down_rr,
+    }
+
+
+def scan_symmetrical_triangle(df: pd.DataFrame, window: int = 90,
+                              touch_tol: float = 0.015) -> dict | None:
+    """Symmetrical triangle — converging OPPOSED trendlines → direction unknown.
+
+    The desk's first BILATERAL card (B-101). Thin wrapper over
+    ``detect_symmetrical_triangle_geometry``: cleans the frame, runs the core,
+    formats the card.
+
+    The card carries ``direction: "bilateral"`` and ``neutral: True``, and
+    deliberately omits ``entry``/``stop``/``target``. Both legs are published as
+    ``up_*`` / ``down_*`` so a reader gets the levels, but nothing downstream can
+    mistake the pattern for a long setup by reading a key it expected to be
+    there. `opportunity_hub.NEUTRAL_SCANNERS` stops it voting in confluence for
+    the same reason: a coil is not evidence for a side.
+    """
+    if df is None:
+        return None
+    df = _clean_ohlc(df)
+    g = detect_symmetrical_triangle_geometry(df, window, touch_tol)
+    if g is None:
+        return None
+    conv_ratio, containment = g["conv_ratio"], g["containment"]
+    tu, tl = g["touches_h"], g["touches_l"]
+    vol_trend, vol_dry, vol_x = g["vol_trend"], g["vol_dry"], g["vol_x"]
+    state, state_lbl = g["state"], g["state_label"]
+    last = g["last_close"]
+    u_now, l_now = g["u_now"], g["l_now"]
+
+    reasons = [
+        f"Symmetrical triangle — falling highs ({g['upper_slope']:.2f}/bar) meeting "
+        f"rising lows ({g['lower_slope']:.2f}/bar), symmetry {g['symmetry_ratio']:.2f}:1",
+        f"Gap narrowed {conv_ratio * 100:.0f}% (widest {g['gap_old']:.0f} → now {g['gap_now']:.0f})",
+        f"{tu} upper / {tl} lower touches · containment {containment * 100:.0f}%",
+        f"Apex {g['bars_to_apex']} bars out — {g['apex_progress'] * 100:.0f}% of the way in "
+        f"(the textbook resolution band is 50-75%)",
+        {"breakout-up":        f"Broke UP — close {last:.0f} cleared the upper line {u_now:.0f}",
+         "breakout-down":      f"Broke DOWN — close {last:.0f} lost the lower line {l_now:.0f}",
+         "pre-breakout-up":    f"Coiled against the upper line {u_now:.0f} (within 0.5%)",
+         "pre-breakout-down":  f"Coiled against the lower line {l_now:.0f} (within 0.5%)",
+         "coiling":            f"Coiling — {last:.0f} inside {l_now:.0f}-{u_now:.0f}, "
+                               f"no side has taken it"}[state],
+        # The whole reason this scanner exists gets stated on every card, because
+        # the reader's habit — built by every other pattern here — is to read a
+        # pattern hit as a reason to buy.
+        "⚖ BILATERAL — the direction is NOT known until one line breaks. This is "
+        "not a buy signal and does not vote in confluence.",
+        f"If it breaks UP — entry {g['up_entry']:.0f} · stop {g['up_stop']:.0f} · "
+        f"target {g['up_target']:.0f} (measured move, R:R {g['up_rr']:.1f})",
+        f"If it breaks DOWN — entry {g['down_entry']:.0f} · stop {g['down_stop']:.0f} · "
+        f"target {g['down_target']:.0f} (measured move, R:R {g['down_rr']:.1f}) — "
+        "a trim/avoid read on a long-only desk, not a short recommendation",
+    ]
+    reasons.append(
+        f"Volume drying into the apex ({vol_trend:.2f}× early-window) — healthy coil"
+        if vol_dry else
+        f"⚠ Volume flat/rising into the apex ({vol_trend:.2f}× early-window) — weaker coil")
+    if vol_x >= 1.5 and state.startswith("breakout"):
+        reasons.append(f"Break volume {vol_x:.1f}× 20-day average — expansion on the move")
+
+    return {
+        "pattern_type": f"Symmetrical Triangle · {state_lbl}",
+        "tags": ["Symmetrical Triangle", "BILATERAL", state_lbl,
+                 f"Sym {g['symmetry_ratio']:.1f}:1", f"Contain {containment * 100:.0f}%",
+                 f"Conv {conv_ratio * 100:.0f}%", f"Apex {g['bars_to_apex']}b",
+                 ("Vol dry↓" if vol_dry else "Vol flat")],
+        "reasons": reasons,
+        "score_base": round(g["confidence"], 1),
+        "rs_raw": _rs_raw(df),
+        # NO entry/stop/target — see the docstring. Both legs, explicitly sided.
+        "direction": "bilateral",
+        "neutral": True,
+        "up_entry": g["up_entry"], "up_stop": g["up_stop"], "up_target": g["up_target"],
+        "down_entry": g["down_entry"], "down_stop": g["down_stop"],
+        "down_target": g["down_target"],
+        "vol_x50d": round(vol_x, 2),
+        # Metric surface.
+        "containment_pct": round(containment * 100, 1),
+        "convergence_pct": round(conv_ratio * 100, 1),
+        "symmetry_ratio": g["symmetry_ratio"],
+        "touches_h": tu,
+        "touches_l": tl,
+        "bars_to_apex": g["bars_to_apex"],
+        "apex_progress_pct": round(g["apex_progress"] * 100, 1),
+        "vol_trend": round(vol_trend, 2),
+        "vol_dry": vol_dry,
+        # A triangle that has not resolved by the apex is done as a pattern —
+        # that, not a horizon, is when the measured-move premise expires.
+        "time_stop": max(5, g["bars_to_apex"]),
+    }
+
+
 def scan_ema50_coil(df: pd.DataFrame) -> dict | None:
     """EMA-50 coiled-spring breakout — Ashok Daniel StockEdge scanner.
 
@@ -8684,6 +8985,21 @@ SCANNERS: dict[str, dict] = {
             "/ Forming in the upper half) with a measured-move entry/stop/target."
         ),
         "category": "Pattern",
+    },
+    "Symmetrical Triangle (bilateral)": {
+        "fn": scan_symmetrical_triangle,
+        "description": (
+            "Symmetrical triangle — falling highs meeting RISING lows over the last "
+            "90 bars, fitted by regression through the swing pivots, ≥2 touches per "
+            "side, neither line flat (a flat side makes it an ascending or descending "
+            "triangle, which are directional and covered elsewhere). "
+            "**BILATERAL: the direction is unknown until one line breaks.** The card "
+            "publishes BOTH legs (up_entry/up_stop/up_target and down_*) and no bare "
+            "entry/stop/target, and the hit does NOT vote in confluence — a coil is "
+            "not evidence for a side. Reports the apex distance and how far into the "
+            "50-75% textbook resolution band price has coiled. (B-101.)"
+        ),
+        "category": "Neutral",
     },
     "Harmonic Reversal (XABCD)": {
         "fn": scan_harmonic_reversal,

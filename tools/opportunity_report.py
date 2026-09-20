@@ -60,6 +60,7 @@ TIER_LABEL = {
     "weak":       "measured, no edge",
     "unmeasured": "unmeasured",
     "risk":       "bearish",
+    "neutral":    "bilateral — no direction",
 }
 
 DISCLAIMER = ("Automated research output, not investment advice and not a buy "

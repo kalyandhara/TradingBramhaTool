@@ -244,6 +244,24 @@ FAMILY_ORDER: tuple[str, ...] = tuple(SCANNER_FAMILIES.keys())
 #: to it.
 RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "Support Breakdown", "RSI Divergence Bear", "%R Exhaustion Sell")
 
+#: BILATERAL scanners — the neutral state (B-101). These RUN and are worth
+#: seeing: a coil that is about to resolve is exactly the thing to have on a
+#: watchlist. But a hit is evidence for NEITHER side, so like a risk flag it
+#: carries zero weight and joins no family.
+#:
+#: This is a THIRD state, not a re-labelled risk flag, and the difference is not
+#: cosmetic. A risk hit is evidence AGAINST the name — it argues for skipping it.
+#: A bilateral hit argues for nothing; it says the direction is not yet knowable.
+#: Folding it into RISK_SCANNERS would have been the cheap way to stop it voting
+#: and would have printed "risk flag: Symmetrical Triangle" on a pattern that is
+#: not bearish, which is the same species of lie as VCP's upward-only plan on a
+#: coil (the very thing B-101 was raised about).
+#:
+#: `tally_evidence` must skip these explicitly. Its fall-through gives an
+#: UNMAPPED non-risk scanner its own family of one — the honest default for a
+#: new directional scanner, and exactly wrong here.
+NEUTRAL_SCANNERS: tuple[str, ...] = ("Symmetrical Triangle (bilateral)",)
+
 #: Registry entries the pipeline must not run.
 #: "Zero-Debt Quality PEAD" declares ``fn = scan_pead`` — the IDENTICAL function
 #: as "PEAD Drift". It only differs when routed through ``run_quality_pead()``
@@ -438,6 +456,8 @@ def scanner_tier(name: str) -> str:
     harness actually knows about this scanner. Drives both weight and colour."""
     if name in RISK_SCANNERS:
         return "risk"
+    if name in NEUTRAL_SCANNERS:
+        return "neutral"
     if name in MEASURED_EDGE_SCANNERS:
         return "measured"
     if name in MEASURED_WEAK_SCANNERS:
@@ -448,7 +468,8 @@ def scanner_tier(name: str) -> str:
 def scanner_weight(name: str) -> float:
     """Edge points a hit from this scanner is worth before family capping."""
     return {"measured": WEIGHT_MEASURED, "weak": WEIGHT_WEAK,
-            "unmeasured": WEIGHT_UNMEASURED, "risk": 0.0}[scanner_tier(name)]
+            "unmeasured": WEIGHT_UNMEASURED, "risk": 0.0,
+            "neutral": 0.0}[scanner_tier(name)]
 
 
 def pipeline_scanners() -> list[str]:
@@ -485,7 +506,8 @@ def tally_evidence(fired: list[str]) -> tuple[list[str], float, list[str]]:
     # An unmapped, non-risk scanner still deserves a vote — count it as its own
     # family of one rather than dropping the evidence on the floor.
     for n in fired:
-        if scanner_family(n) is None and n not in RISK_SCANNERS:
+        if (scanner_family(n) is None and n not in RISK_SCANNERS
+                and n not in NEUTRAL_SCANNERS):
             families.append(n)
             best_per_family[n] = scanner_weight(n)
     return families, round(sum(best_per_family.values()), 2), risk
