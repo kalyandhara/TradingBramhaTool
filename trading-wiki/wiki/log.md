@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-21] fix | B-105 — the bearish scanner stops voting, and the invariant is now registry-wide
+- **One line:** `Liquidity Sweep Bear` added to `opportunity_hub.RISK_SCANNERS`. It shipped as `category: "Risk"` and was never in the tuple, so `scanner_tier()` read `unmeasured` and `tally_evidence`'s unmapped fall-through counted a breakdown detector as **0.5 points FOR the name**.
+- **The test is the deliverable.** `test_support_breakdown_retired.py` asserted exactly this for ONE scanner — *"removing this from RISK_SCANNERS would let it vote FOR a name"* — and did not generalise. `tools/test_risk_scanner_invariants.py` now asserts it over the **whole registry, in both directions**, plus the same invariant for `category == "Neutral"` / `NEUTRAL_SCANNERS` (B-101). **Mutation-checked:** restoring the broken tuple in memory makes it fail with the right message. 17 tests; suite **967 passed**.
+- **Blast radius counted, not guessed:** the stored shortlist holds **2 affected rows, both QUADFUTURE** (09-19, 09-20). **5 families / 2.50 pts → 4 / 2.00** and **6 / 2.75 → 5 / 2.25**; risk flags gain `Liquidity Sweep Bear`. **Confluence is 100% either way** — both cleared `FULL_CONFLUENCE` on bullish evidence alone — so **no ranking moved**. What moved: those notes had been listing a bearish detector among the "independent families" supporting the name, one clause away from warning about a different bearish one.
+- **Stored rows left as they were run.** They are a record of what the desk said that day; rewriting them to match today's code is the one thing a run-date store must not do.
+
 ## [2026-09-21] audit | Every page and screener against the owner's six-stage pipeline — and a bearish scanner voting bullish
 - **The ask:** organise the app against the reference model **SCAN → SIGNAL → PLAN → RISK → MONITOR → VERDICT**, and assess where each page and screener sits. Filed as `analyses/Pipeline-Alignment-Audit` + **B-105…B-109**. Counted against the code: **23 pages** in 5 nav groups, **50 scanners**, 45 in the confluence pipeline.
 - **The desk is front-heavy.** SCAN has **nine** surfaces (the "Screening" group is 9 of 23 pages); SIGNAL has six. **37 of 50 scanners are unmeasured and carry 85% of the available vote weight** (18.5 of 21.75 points before family capping) against 2 measured ones.

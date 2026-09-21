@@ -152,7 +152,7 @@ Two verdicts, two vocabularies, two altitudes:
 score and confluence and stops there. The final call the reference model reserves
 for the human is made on a page that shows a rank, not a verdict ([[#B-109]]).
 
-## The one thing that is actually broken
+## The one thing that was actually broken — FIXED 2026-09-21
 
 `Liquidity Sweep Bear` is registered `category: "Risk"`, runs in the pipeline —
 and **is not in `RISK_SCANNERS`**, so it does not raise a risk flag. It falls
@@ -166,9 +166,18 @@ Downside Risk          cat=Risk  tier=risk        weight=0.0
                        → families=[]  points=0     riskflags=['Downside Risk']
 ```
 
-A bearish detector is currently **evidence FOR** a name. This is the exact
-failure `test_support_breakdown_retired.py` was written to prevent for a
-different scanner ([[#B-105]]).
+A bearish detector was **evidence FOR** a name. This is the exact failure
+`test_support_breakdown_retired.py` was written to prevent for a different
+scanner — per-scanner, so it did not generalise.
+
+**Fixed the same day** ([[#B-105]]): one line in `RISK_SCANNERS`, and
+`tools/test_risk_scanner_invariants.py` now holds the invariant over the whole
+registry in both directions (plus the matching one for `Neutral` /
+`NEUTRAL_SCANNERS`). Blast radius was counted rather than assumed: **2 stored
+shortlist rows, both QUADFUTURE** — 5 families / 2.50 points → 4 / 2.00, and
+6 / 2.75 → 5 / 2.25. Both were already at 100% confluence on their bullish
+evidence alone, so **no ranking moved**; what moved is that the note stops
+listing a bearish detector among the families supporting the name.
 
 ## What this audit does NOT recommend
 

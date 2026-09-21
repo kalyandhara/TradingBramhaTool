@@ -242,7 +242,16 @@ FAMILY_ORDER: tuple[str, ...] = tuple(SCANNER_FAMILIES.keys())
 #: still listed and runnable in the Scanner Hub. Dropping it here would re-label a
 #: retired bearish scanner as "unmeasured", which is the opposite of what happened
 #: to it.
-RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "Support Breakdown", "RSI Divergence Bear", "%R Exhaustion Sell")
+#: "Liquidity Sweep Bear" joined 2026-09-21 (B-105), and its absence is the
+#: reason `test_risk_scanner_invariants.py` now exists. It shipped registered as
+#: `category: "Risk"` and was never added here, so `scanner_tier()` read it as
+#: `unmeasured`, `scanner_family()` found no family, and `tally_evidence`'s
+#: fall-through — the branch that deliberately gives an unmapped NON-risk scanner
+#: its own family of one — counted a BEARISH detector as a 0.5 vote FOR the name.
+#: Verified live before the fix: `families=['Liquidity Sweep Bear'] points=0.5
+#: riskflags=[]`. The category field had said which side it was on the whole time;
+#: nothing was ambiguous, the two lists had simply drifted apart.
+RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "Support Breakdown", "RSI Divergence Bear", "%R Exhaustion Sell", "Liquidity Sweep Bear")
 
 #: BILATERAL scanners — the neutral state (B-101). These RUN and are worth
 #: seeing: a coil that is about to resolve is exactly the thing to have on a
