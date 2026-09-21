@@ -1,6 +1,14 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-21] fix | B-106 — the risk number stops reading entry prices, and the math leaves the monolith
+- **The bug:** capital-at-risk was `(entry_price − stop_loss) × qty` — **initial** risk, frozen at entry, on a page of live prices. It fed Home's card AND `market_verdict`'s 6% caution flag, so the throttle on the whole desk was reading the day each position was opened.
+- **Both numbers now exist, and neither pretends to be the other.** `capital_at_risk_pct` keeps its key and its meaning (initial); `open_risk_pct` = `(last − stop) × qty` answers the question a caution flag is actually asking. The card shows OPEN with the initial on the sub-line, because **the gap is the read** — how much of the original risk the book has retired.
+- **Three things fell out of doing it properly.** A stop above the live price floors at **zero, not negative** — otherwise one winner nets off two losers' real exposure. A position with **no stop** has unbounded risk, cannot be summed, and now raises its own caution rather than scoring as zero (the precise inversion of the truth). An **unpriced** position is counted and said out loud instead of skipped.
+- **The math left `dashboard_app`.** `tools/portfolio_risk.py` is pure — frames and a price lookup in, numbers out — because the old version could not be tested at all: importing the monolith runs the app. 21 tests.
+- **The ratchet caught me, and it was right.** The first cut added four module-level assignments for the card's sub-line; `test_monolith_ratchet` failed at 329/325. Rather than raise the ceiling, the card's three-way logic moved into `prisk.risk_card` (tested) and the call inlined with a walrus. **Net module-statement cost: zero.**
+- Verified in the running dashboard — Home renders, no server errors. Suite **988 passed**.
+
 ## [2026-09-21] fix | B-105 — the bearish scanner stops voting, and the invariant is now registry-wide
 - **One line:** `Liquidity Sweep Bear` added to `opportunity_hub.RISK_SCANNERS`. It shipped as `category: "Risk"` and was never in the tuple, so `scanner_tier()` read `unmeasured` and `tally_evidence`'s unmapped fall-through counted a breakdown detector as **0.5 points FOR the name**.
 - **The test is the deliverable.** `test_support_breakdown_retired.py` asserted exactly this for ONE scanner — *"removing this from RISK_SCANNERS would let it vote FOR a name"* — and did not generalise. `tools/test_risk_scanner_invariants.py` now asserts it over the **whole registry, in both directions**, plus the same invariant for `category == "Neutral"` / `NEUTRAL_SCANNERS` (B-101). **Mutation-checked:** restoring the broken tuple in memory makes it fail with the right message. 17 tests; suite **967 passed**.

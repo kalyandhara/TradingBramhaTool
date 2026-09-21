@@ -61,6 +61,7 @@ import block_deal_intel as bdi
 import deal_infographic as dinf
 import nse_oi_momentum as oim
 import browser_cookie_helper as bch
+import portfolio_risk as prisk
 import stock_council as council
 import fundamentals_deep as fdeep
 import fundamental_score as fscore
@@ -3707,41 +3708,26 @@ def build_chart(symbol: str, df: pd.DataFrame, ew: dict,
 
 
 def compute_portfolio_summary() -> dict:
-    """Live P&L + capital-at-risk over all open positions. Cheap to call repeatedly —
-    cached_fetch_ohlcv handles the network-call caching underneath."""
+    """Live P&L + BOTH risk numbers over all open positions. Cheap to call
+    repeatedly — cached_fetch_ohlcv handles the network-call caching underneath.
+
+    The arithmetic lives in `portfolio_risk`, not here (B-106). It used to be
+    inline and it computed risk from `entry_price - stop_loss`: INITIAL risk,
+    frozen at entry, on a page showing live prices. Being inside this file also
+    meant it could not be tested, because importing this module runs the app.
+    """
     open_pos = db.get_open_positions()
     total_capital = float(db.get_setting("total_capital", "0") or 0)
 
-    if open_pos.empty:
-        return dict(invested=0.0, current_value=0.0, pl=0.0, pl_pct=0.0,
-                     capital_at_risk_pct=0.0, total_capital=total_capital,
-                     day_pl_pct=0.0, open_count=0)
-
-    invested = 0.0
-    current_value = 0.0
-    risk_amount = 0.0
-    day_pl = 0.0
-    for _, pos in open_pos.iterrows():
-        df = cached_fetch_ohlcv(pos["symbol"], enforce_liquidity=False)
+    def _price(symbol: str):
+        df = cached_fetch_ohlcv(symbol, enforce_liquidity=False)
         if df is None or df.empty:
-            continue
+            return None
         last = float(df["close"].iloc[-1])
         prev = float(df["close"].iloc[-2]) if len(df) > 1 else last
-        qty = float(pos["quantity"])
-        invested += pos["entry_price"] * qty
-        current_value += last * qty
-        day_pl += (last - prev) * qty
-        if pos["stop_loss"] is not None and not pd.isna(pos["stop_loss"]):
-            risk_amount += max(0.0, pos["entry_price"] - pos["stop_loss"]) * qty
+        return last, prev
 
-    pl = current_value - invested
-    pl_pct = (pl / invested * 100) if invested else 0.0
-    day_pl_pct = (day_pl / current_value * 100) if current_value else 0.0
-    capital_at_risk_pct = (risk_amount / total_capital * 100) if total_capital else 0.0
-
-    return dict(invested=invested, current_value=current_value, pl=pl, pl_pct=pl_pct,
-                 capital_at_risk_pct=capital_at_risk_pct, total_capital=total_capital,
-                 day_pl_pct=day_pl_pct, open_count=len(open_pos))
+    return prisk.summarise(open_pos, _price, total_capital)
 
 
 def check_alert(alert: pd.Series, portfolio_summary: dict) -> tuple[bool, str]:
@@ -3845,7 +3831,7 @@ def _tone_signed(v, *, good_when_positive=True):
     return "good" if up == good_when_positive else "risk"
 
 
-_cap_risk = portfolio_summary["capital_at_risk_pct"]
+
 _ov_cards = [
     rs.stat_card(
         "Nifty 50",
@@ -3868,12 +3854,16 @@ _ov_cards = [
         tone=_tone_signed(portfolio_summary["pl"])),
     # Capital at risk is caution-only: more of it is never good news, so it
     # cannot read green. Amber past the same 6% the verdict engine flags.
+    # OPEN risk (live price vs stop), not the initial risk this showed until
+    # 2026-09-21 — see `portfolio_risk` / B-106. Value, sub-line and tone all come
+    # from `prisk.risk_card`, which is tested; the same logic written here would
+    # not be. The walrus keeps it inside THIS statement rather than adding a
+    # module-level assignment the monolith ratchet would rightly count.
     rs.stat_card(
         "Capital at Risk",
-        fmt_pct(_cap_risk).replace("+", ""),
-        f"caution above {mvd.CAPITAL_AT_RISK_CAUTION_PCT:.0f}%",
-        tone=("risk" if (_cap_risk or 0) > mvd.CAPITAL_AT_RISK_CAUTION_PCT
-              else "neutral")),
+        fmt_pct((_rc := prisk.risk_card(
+            portfolio_summary, mvd.CAPITAL_AT_RISK_CAUTION_PCT))[0]).replace("+", ""),
+        _rc[1], tone=_rc[2]),
     rs.stat_card(
         "Alerts Triggered", f"{triggered_count}/{len(active_alerts)}",
         "active alerts firing",

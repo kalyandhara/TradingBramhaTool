@@ -119,11 +119,15 @@ does not change the council's suggested size, and the max-trades cap is never
 checked against open positions. Same word, two numbers, no reconciliation
 ([[#B-107]]).
 
-**And the one live risk number is measured from the wrong price.**
-`compute_portfolio_summary` computes capital-at-risk as
-`(entry_price − stop_loss) × qty` — **initial** risk, frozen at entry. A position
-up 30% with a raised stop still reports its day-one risk, and a position under
-water with an untouched stop under-reports. The number on Home is not open risk
+**And the one live risk number was measured from the wrong price — FIXED
+2026-09-21.** `compute_portfolio_summary` computed capital-at-risk as
+`(entry_price − stop_loss) × qty`: **initial** risk, frozen at entry. A position
+up 30% with a raised stop still reported its day-one risk; one under water with
+an untouched stop under-reported. `tools/portfolio_risk.py` now returns both —
+initial under its original key, `open_risk_pct` for the live question — and the
+card and the 6% flag read the open one, with the retired share on the sub-line.
+Positions with **no stop** (unbounded risk, not in the number) and **unpriced**
+positions now raise their own cautions instead of quietly reading as safety
 ([[#B-106]]).
 
 ## Stage 5 — MONITOR
