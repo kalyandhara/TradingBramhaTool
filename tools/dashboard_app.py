@@ -11451,9 +11451,22 @@ if current_page == "India Market Intel":
         "confirmed working via reverse-engineered public APIs — no login needed. Rows marked "
         "**NEW** appeared since the last time you refreshed this page (these feeds have no "
         "history endpoint, so this isn't a true day-over-day diff — just 'new since last check'). "
-        "Corporate announcements aren't wired up yet — the whole-market feed is very high volume "
-        "without a watchlist filter to scope it to."
+        "**Corporate filings are now wired up** (below) — the whole-market feed IS high volume, "
+        "which is why it is bucketed and de-noised rather than left raw: 1,262 filings over four "
+        "days reduce to 226 material ones."
     )
+
+    # ── Material corporate filings, market-wide (B-111) ───────────────────────
+    # The stream this page said was "not wired up because it is high volume".
+    # Bucketing is the answer to the volume; the render lives in the module so a
+    # test can reach the classification, which is the part that decides what a
+    # reader is told is material.
+    import nse_filings_feed as _ff
+
+    st.markdown("#### Material corporate filings")
+    _ff.render(days=st.select_slider("Window (days)", [1, 2, 3, 5, 7], value=2,
+                                     key="mi_filing_days"), key="mi")
+    st.divider()
 
     # ── Deal Intelligence (CEAVET) ────────────────────────────────────────────
     # The tables below are complete and say nothing at a glance: 190 deal rows
