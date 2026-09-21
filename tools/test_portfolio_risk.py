@@ -189,3 +189,139 @@ def test_an_unpriced_position_says_the_number_is_understated():
 def test_an_empty_book_falls_back_to_the_threshold_line():
     _, sub, tone = prisk.risk_card({}, caution_pct=6.0)
     assert "caution above 6%" in sub and tone == "neutral"
+
+
+# ── EXPOSURE (B-107) ──────────────────────────────────────────────────────────
+def test_exposure_measures_against_capital_not_against_the_book():
+    """40% 'of what I have deployed' flatters a book that is mostly cash. The
+    question a concentration number answers is what happens to the ACCOUNT."""
+    pos = _positions([("A", 100, 10, 90), ("B", 100, 10, 90)])
+    e = prisk.exposure(pos, _prices({"A": (100, 100), "B": (100, 100)}),
+                       total_capital=10_000)
+    assert e["deployed_pct"] == pytest.approx(20.0)      # 2,000 of 10,000
+    assert e["largest_pct"] == pytest.approx(10.0)       # not 50% of the book
+    assert e["cash_pct"] == pytest.approx(80.0)
+
+
+def test_largest_and_top3_pick_the_biggest_positions():
+    pos = _positions([("A", 100, 10, None), ("B", 100, 50, None),
+                      ("C", 100, 20, None), ("D", 100, 5, None)])
+    e = prisk.exposure(pos, _prices({s: (100, 100) for s in "ABCD"}),
+                       total_capital=100_000)
+    assert e["largest_symbol"] == "B"
+    assert e["largest_pct"] == pytest.approx(5.0)        # 5,000 / 100,000
+    assert e["top3_pct"] == pytest.approx(8.0)           # B + C + A
+
+
+def test_sector_concentration_sums_by_sector():
+    pos = _positions([("A", 100, 10, None), ("B", 100, 10, None),
+                      ("C", 100, 10, None)])
+    e = prisk.exposure(pos, _prices({s: (100, 100) for s in "ABC"}),
+                       total_capital=10_000,
+                       sectors={"A": "Banks", "B": "Banks", "C": "Pharma"})
+    assert e["by_sector"]["Banks"] == pytest.approx(20.0)
+    assert e["largest_sector"] == "Banks"
+
+
+def test_an_unmapped_symbol_is_not_invented_into_a_sector():
+    """The same rule `sector_column` holds: a blank is honest, 'Other' is not."""
+    pos = _positions([("A", 100, 10, None), ("MYSTERY", 100, 10, None)])
+    e = prisk.exposure(pos, _prices({"A": (100, 100), "MYSTERY": (100, 100)}),
+                       total_capital=10_000, sectors={"A": "Banks"})
+    assert e["by_sector"] == {"Banks": 10.0}
+    assert e["unmapped_pct"] == pytest.approx(10.0)
+    assert "Other" not in e["by_sector"]
+
+
+def test_exposure_falls_back_to_share_of_book_without_capital():
+    pos = _positions([("A", 100, 10, None), ("B", 100, 30, None)])
+    e = prisk.exposure(pos, _prices({"A": (100, 100), "B": (100, 100)}),
+                       total_capital=0)
+    assert e["largest_pct"] == pytest.approx(75.0)       # 3,000 of 4,000
+
+
+def test_exposure_of_an_empty_book_is_all_cash():
+    e = prisk.exposure(pd.DataFrame(), _prices({}), total_capital=10_000)
+    assert e["deployed_pct"] == 0.0 and e["cash_pct"] == 100.0
+
+
+def test_exposure_counts_unpriced_positions():
+    pos = _positions([("A", 100, 10, None), ("GONE", 100, 10, None)])
+    e = prisk.exposure(pos, _prices({"A": (100, 100)}), total_capital=10_000)
+    assert e["unpriced"] == 1 and e["n_positions"] == 2
+
+
+# ── SIZING RECONCILIATION (B-107) ─────────────────────────────────────────────
+def test_a_stand_down_day_takes_the_size_to_zero():
+    """'No size, no exceptions' — the verdict's own words. Before this, the
+    council's suggested size ignored the verdict entirely."""
+    r = prisk.reconcile_size(20.0, {"verdict": "STAND DOWN", "size_pct": 0,
+                                    "max_trades": 0}, open_count=0)
+    assert r["size_pct"] == 0.0 and r["throttled"] is True
+
+
+def test_a_selective_day_halves_the_size_and_says_which_rule_did_it():
+    r = prisk.reconcile_size(20.0, {"verdict": "SELECTIVE", "size_pct": 50,
+                                    "max_trades": 2}, open_count=0)
+    assert r["size_pct"] == 10.0 and r["raw_size_pct"] == 20.0
+    note = prisk.size_note(r)
+    assert "10.0%" in note and "SELECTIVE" in note and "20.0%" in note
+
+
+def test_a_normal_day_leaves_the_council_number_alone():
+    r = prisk.reconcile_size(20.0, {"verdict": "TRADE", "size_pct": 100,
+                                    "max_trades": 3}, open_count=0)
+    assert r["size_pct"] == 20.0 and r["throttled"] is False
+    assert "scaled" not in prisk.size_note(r)
+
+
+def test_the_trade_cap_is_checked_against_open_positions():
+    """The cap existed and was displayed; nothing ever compared it to the book."""
+    r = prisk.reconcile_size(20.0, {"verdict": "SELECTIVE", "size_pct": 50,
+                                    "max_trades": 2}, open_count=2)
+    assert r["at_cap"] is True and r["slots_left"] == 0
+    assert "at today's cap" in prisk.size_note(r)
+
+
+def test_slots_left_counts_down():
+    r = prisk.reconcile_size(20.0, {"verdict": "TRADE", "size_pct": 100,
+                                    "max_trades": 3}, open_count=1)
+    assert r["slots_left"] == 2 and r["at_cap"] is False
+
+
+def test_size_and_cap_fail_separately():
+    """A halved size still lets you take the trade; being at the cap does not.
+    Reporting them as one number would lose that."""
+    r = prisk.reconcile_size(20.0, {"verdict": "SELECTIVE", "size_pct": 50,
+                                    "max_trades": 2}, open_count=5)
+    assert r["size_pct"] == 10.0          # still sized
+    assert r["at_cap"] is True            # and still not allowed
+
+
+def test_no_council_size_stays_none_rather_than_becoming_zero():
+    """A card with no size (no stop, so no risk-based size) must not read as
+    'size zero' once the multiplier is applied to it."""
+    r = prisk.reconcile_size(None, {"verdict": "TRADE", "size_pct": 100}, 0)
+    assert r["size_pct"] is None and prisk.size_note(r) == ""
+
+
+def test_a_missing_verdict_does_not_throttle():
+    r = prisk.reconcile_size(20.0, None, open_count=0)
+    assert r["size_pct"] == 20.0 and r["throttled"] is False
+    assert r["slots_left"] is None and r["at_cap"] is False
+
+
+def test_the_exposure_strip_renders_and_says_what_it_does_not_judge():
+    cards, caps = prisk.exposure_strip(prisk.exposure(
+        _positions([("A", 100, 10, None)]), _prices({"A": (100, 100)}),
+        total_capital=10_000, sectors={"A": "Banks"}))
+    assert "Deployed" in cards and "Largest sector" in cards
+    assert any("Banks 10.0%" in c for c in caps)
+    assert any("yours to set" in c for c in caps)
+
+
+def test_the_exposure_strip_warns_when_a_position_could_not_be_priced():
+    cards, caps = prisk.exposure_strip(prisk.exposure(
+        _positions([("A", 100, 10, None), ("GONE", 100, 10, None)]),
+        _prices({"A": (100, 100)}), total_capital=10_000))
+    assert any("understated" in c for c in caps)

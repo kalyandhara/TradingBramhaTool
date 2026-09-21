@@ -99,12 +99,12 @@ and here it sits off to one side — [[#B-109]].
 
 The reference model names four components. What is shipped:
 
-| Component | Status |
+| Component | Status (updated 2026-09-21) |
 |---|---|
-| **Position size** | **partial, and DOUBLE-DEFINED** — see below |
-| **Exposure** | **absent.** No concentration, sector-exposure or correlation metric anywhere |
-| **Drawdown** | **absent.** Nothing tracks peak-to-trough on the portfolio or on closed trades |
-| **Max loss** | **partial.** `CAPITAL_AT_RISK_CAUTION_PCT = 6%` is a caution flag on Home, not a limit anything enforces |
+| **Position size** | **RECONCILED (B-107).** The council's per-trade size now passes through the market verdict's multiplier, and the max-trades cap is checked against the open book. Both numbers already existed; they had never met |
+| **Exposure** | **BUILT (B-107).** Deployed %, largest position, top-3 and sector concentration on the Portfolio page — measured against total capital, and with no thresholds, because what counts as too concentrated is the owner's call |
+| **Drawdown** | **still absent, and the blocker is DATA** — there is no equity-history table at all, so it is either reconstructed from positions + cached prices or snapshotted daily from today ([[#B-110]]) |
+| **Max loss** | **still a flag, not a limit,** and deliberately so: enforcing it means refusing to show something, which is a policy decision rather than a missing feature |
 
 **Position size is defined twice, in two different units, under one label:**
 
@@ -114,10 +114,12 @@ The reference model names four components. What is shipped:
 * `stock_council.RISK_PER_TRADE_PCT = 2.0` — a *per-trade* size derived from the
   stop distance, shown as "Suggested size" on two research pages.
 
-**Neither knows the other exists.** A STAND DOWN day ("no size, no exceptions")
-does not change the council's suggested size, and the max-trades cap is never
-checked against open positions. Same word, two numbers, no reconciliation
-([[#B-107]]).
+**Neither knew the other existed** until 2026-09-21: a STAND DOWN day ("no size,
+no exceptions") did not change the council's suggested size, and the max-trades
+cap was never checked against open positions. `prisk.reconcile_size` now applies
+one to the other and the card names the rule that moved the number. Size and cap
+are still reported separately, because they fail differently — a halved size
+still lets you take the trade; being at the cap does not ([[#B-107]]).
 
 **And the one live risk number was measured from the wrong price — FIXED
 2026-09-21.** `compute_portfolio_summary` computed capital-at-risk as

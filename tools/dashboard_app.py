@@ -3381,8 +3381,16 @@ def render_council(bundle, bull, bear, card) -> None:
                            for i, (t, r) in enumerate(zip(card.targets, card.rr)))
         lines.append(f"**Targets** {tgt}")
     if card.size_pct is not None and card.verdict != "AVOID":
-        lines.append(f"**Suggested size** {card.size_pct}% of capital "
-                     f"(at {council.RISK_PER_TRADE_PCT}% risk rule)  ·  **Horizon** {card.horizon}")
+        # B-107: the per-trade size now passes through the MARKET verdict's
+        # throttle before it is shown. The two numbers both already existed —
+        # `council.RISK_PER_TRADE_PCT` sizing off the stop, and the verdict's
+        # 0/50/100% multiplier plus its max-trades cap — and never met, so a
+        # STAND DOWN day ("no size, no exceptions") left this line unchanged.
+        # `verdict` and `portfolio_summary` are module-level and computed on
+        # every page render, well before any council card is drawn.
+        _rec = prisk.reconcile_size(card.size_pct, verdict,
+                                    portfolio_summary.get("open_count", 0))
+        lines.append(f"{prisk.size_note(_rec)}  ·  **Horizon** {card.horizon}")
     lines.append(f"🟢 **Bull's best:** {card.bull_top}")
     lines.append(f"🔴 **Bear's best:** {card.bear_top}")
     lines.append(f"🧭 {card.regime_note}")
@@ -6799,6 +6807,27 @@ if current_page == "Portfolio":
     if open_pos.empty:
         st.info("No open positions.")
     else:
+        # ── Exposure (B-107) — the component the reference pipeline names and
+        # the desk did not have. It REPORTS and does not judge: every threshold
+        # here would be a statement about risk appetite, which is the owner's to
+        # make once and deliberately, not a default smuggled in by a card.
+        import sector_column as _sc
+
+        def _last_px(sym: str):
+            _d = cached_fetch_ohlcv(sym, enforce_liquidity=False)
+            if _d is None or _d.empty:
+                return None
+            return float(_d["close"].iloc[-1]), 0.0     # prev close unused here
+
+        _exp = prisk.exposure(open_pos, _last_px,
+                              portfolio_summary["total_capital"],
+                              sectors=_sc.symbol_sectors(
+                                  open_pos["symbol"].tolist()))
+        _cards, _caps = prisk.exposure_strip(_exp)
+        st.markdown(_cards, unsafe_allow_html=True)
+        for _c in _caps:
+            st.caption(_c)
+
         rows = []
         for _, pos in open_pos.iterrows():
             df = cached_fetch_ohlcv(pos["symbol"], enforce_liquidity=False)

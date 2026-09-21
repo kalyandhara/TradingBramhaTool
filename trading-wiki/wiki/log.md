@@ -1,6 +1,15 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-21] build | B-107 — the two size numbers finally meet, and exposure exists
+- **Sizing, reconciled.** `prisk.reconcile_size` multiplies the council's per-trade size by the market verdict's 0/50/100% multiplier and checks `max_trades` against the open book. The council card now names the rule that moved the number: *"12.0% at the per-trade risk rule, scaled to 50% by today's SELECTIVE verdict · 1 of 2 trade slot(s) left"*. **No new rule was invented** — both numbers already existed and had never met, so a STAND DOWN day ("no size, no exceptions") left the suggested size untouched.
+- **Size and cap stay SEPARATE**, because they fail differently: a halved size still lets you take the trade, being at the cap does not. Folding them into one number would lose that.
+- **Exposure, built** — the component the reference pipeline names and the desk did not have. Deployed %, largest position, top-3, sector concentration, on the Portfolio page. Measured against **total capital, not the deployed book**: a share of what is deployed flatters a book that is mostly cash, and the question is what happens to the ACCOUNT when one name gaps. An unmapped symbol is counted as unmapped, never bucketed into "Other".
+- **It reports and does not judge.** No thresholds: what counts as too concentrated is risk appetite, and that is a decision the owner makes once and deliberately — not a default smuggled in by whoever wrote the function. The caption says so on the page.
+- **Verified end-to-end on real prices through a throwaway COPY of the DB** (the owner's data untouched): open risk 0.00% against an initial 0.50%, 100% retired, and the one stopless position correctly outranking the retired-risk note; deployed 38.9%, largest HDFCBANK 22.2%, Banks 22.2%, unmapped 4.3%.
+- **The line ratchet caught the first cut** (13,169 vs 13,150) and the ceiling did not move: the whole exposure block moved into `prisk.exposure_strip`, leaving four lines on the page. 36 tests; suite **1,005 passed**.
+- **Drawdown split out as B-110**, because its blocker is DATA and not arithmetic: there is no equity-history table at all. Reconstruct from positions + cached prices to have a number now, snapshot daily so it stops depending on a reconstruction — and say which one any published number is.
+
 ## [2026-09-21] fix | B-106 — the risk number stops reading entry prices, and the math leaves the monolith
 - **The bug:** capital-at-risk was `(entry_price − stop_loss) × qty` — **initial** risk, frozen at entry, on a page of live prices. It fed Home's card AND `market_verdict`'s 6% caution flag, so the throttle on the whole desk was reading the day each position was opened.
 - **Both numbers now exist, and neither pretends to be the other.** `capital_at_risk_pct` keeps its key and its meaning (initial); `open_risk_pct` = `(last − stop) × qty` answers the question a caution flag is actually asking. The card shows OPEN with the initial on the sub-line, because **the gap is the read** — how much of the original risk the book has retired.
