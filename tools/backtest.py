@@ -147,7 +147,8 @@ def _to_float(x) -> float | None:
 def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
                    stop: float, target: float, max_bars: int,
                    time_stop: float | None = None,
-                   cost_model: CostModel | None = None) -> dict | None:
+                   cost_model: CostModel | None = None,
+                   side: str = "long") -> dict | None:
     """Stop-or-target-first walk forward from ``entry_idx`` (the entry bar).
 
     Conservative tie-break: if a single bar's range spans BOTH the stop and the
@@ -161,38 +162,85 @@ def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
     is the measurement horizon rather than a decision, and the two are reported
     as different outcomes so a deliberate exit is never read as a stalled one.
 
-    Returns None when the plan cannot be simulated long-only — a short-side plan
-    (stop above entry) or a degenerate one. The caller counts these rather than
-    letting them vanish: a scanner whose plans are all unsimulatable must not
-    look like a scanner with no plans.
+    ``side`` is ``long`` or ``short`` (B-102). This was long-only until
+    2026-09-20, and the cost of that was not a missing feature but a SILENT one:
+    a short-side plan returned None and was counted as "unsimulatable", so a
+    bearish scanner's R-block read as zero measurable plans rather than as a
+    measurement nobody had built. Three studies had already written their own
+    mirror to get around it (``flag_pole_edge.walk_plan``,
+    ``order_block_rules_backtest.simulate``, and the stop study) — three chances
+    for the pessimistic tie-break to drift apart.
+
+    The short side is the exact MIRROR, never a sign flip applied to a long
+    result: the stop is ABOVE the entry and is hit on ``high``, the target is
+    BELOW and is hit on ``low``, and R is ``entry - exit``. A sign flip would
+    have scored the short against the long's own stop/target ordering and
+    credited the wrong bar.
+
+    Returns None only for a DEGENERATE plan — one whose risk is zero or points
+    the wrong way for the side it declares (a "long" whose stop sits above its
+    entry is not a long, it is a typo). The caller counts those rather than
+    letting them vanish.
     """
-    risk = entry - stop
+    short = str(side).lower() in ("short", "bear", "bearish", "down")
+    risk = (stop - entry) if short else (entry - stop)
     if risk <= 0:
         return None
     cm = cost_model or COST_GROSS
     n = len(df)
+    if entry_idx >= n:
+        return None
     high = df["high"].to_numpy(dtype=float)
     low = df["low"].to_numpy(dtype=float)
     close = df["close"].to_numpy(dtype=float)
 
+    def _r(exit_px: float) -> float:
+        gross = (entry - exit_px) if short else (exit_px - entry)
+        return (gross - entry * cm.round_trip_pct(entry, exit_px) / 100.0) / risk
+
     horizon = max_bars if time_stop is None else min(max_bars, int(time_stop))
     end = min(n - 1, entry_idx + horizon)
     for i in range(entry_idx, end + 1):
-        hit_stop = low[i] <= stop
-        hit_tgt = high[i] >= target
+        hit_stop = (high[i] >= stop) if short else (low[i] <= stop)
+        hit_tgt = (low[i] <= target) if short else (high[i] >= target)
         if hit_stop:
-            cost = entry * cm.round_trip_pct(entry, stop) / 100.0
-            return {"outcome": "stop", "r": (stop - entry - cost) / risk,
-                    "bars": i - entry_idx}
+            return {"outcome": "stop", "r": _r(stop), "bars": i - entry_idx}
         if hit_tgt:
-            cost = entry * cm.round_trip_pct(entry, target) / 100.0
-            return {"outcome": "target", "r": (target - entry - cost) / risk,
-                    "bars": i - entry_idx}
-    exit_px = close[end]
-    cost = entry * cm.round_trip_pct(entry, exit_px) / 100.0
+            return {"outcome": "target", "r": _r(target), "bars": i - entry_idx}
     timed_out = time_stop is not None and (end - entry_idx) >= horizon
     return {"outcome": "time" if timed_out else "open",
-            "r": (exit_px - entry - cost) / risk, "bars": end - entry_idx}
+            "r": _r(float(close[end])), "bars": end - entry_idx}
+
+
+def absolute_move(df: pd.DataFrame, entry_idx: int, horizon: int,
+                  cost_model: CostModel | None = None) -> float | None:
+    """|forward move| over ``horizon`` bars, in percent, net of a round trip.
+
+    The measurement a BILATERAL pattern needs (B-102, for B-101's symmetrical
+    triangle). A coil claims no direction, so a directional edge near zero is
+    what it SHOULD produce and grading it on one says nothing about whether the
+    detector works. What a coil DOES claim is expansion: that price is about to
+    leave a range it has been compressing inside. That claim is directionless,
+    and this is its unit.
+
+    Entry is the NEXT bar's open, exit the close ``horizon`` bars later — the
+    same timing every other signal in this file uses, so a coil and a breakout
+    are measured on the same clock. Costs are subtracted from the absolute move
+    rather than added to it: a move has to beat the round trip to be worth
+    anything, whichever way it went. The caller applies this identically to
+    signal and baseline bars, which is what keeps the comparison fair.
+    """
+    close = df["close"].to_numpy(dtype=float)
+    openp = (df["open"].to_numpy(dtype=float) if "open" in df.columns else close)
+    t = entry_idx
+    if t + 1 + horizon > len(close) - 1:
+        return None
+    entry = float(openp[t + 1])
+    if entry <= 0:
+        return None
+    exit_px = float(close[t + 1 + horizon])
+    cm = cost_model or COST_GROSS
+    return abs((exit_px / entry - 1.0) * 100.0) - cm.round_trip_pct(entry, exit_px)
 
 
 def _resolve_cost(cost_bps: float = 0,
@@ -357,15 +405,21 @@ def backtest_scanner(scanner_name: str,
                 tgt_p = _to_float(tgt[0] if isinstance(tgt, (list, tuple)) and tgt else tgt)
                 if entry_p and stop_p and tgt_p:
                     n_plans += 1
+                    # The SIDE is read off the plan's own geometry (B-102). A stop
+                    # ABOVE the entry is a short — there is no other way to read
+                    # it — so a bearish scanner's plans are now simulated instead
+                    # of counted as unsimulatable. Inferring from the levels beats
+                    # trusting a `direction` key most cards do not carry.
+                    _side = "short" if stop_p > entry_p else "long"
                     r = _simulate_plan(df, entry_idx, entry_p, stop_p, tgt_p,
                                        max_h, _to_float(hit.get("time_stop")),
-                                       cost_model=cm)
+                                       cost_model=cm, side=_side)
                     if r:
                         r_results.append(r)
                     else:
-                        # Long-only simulator: short-side and degenerate plans are
-                        # counted, not dropped, so the report can say how much of
-                        # the plan coverage it could actually measure.
+                        # Degenerate plans (zero risk) are counted, not dropped,
+                        # so the report can say how much of the plan coverage it
+                        # could actually measure.
                         n_plans_unsimulated += 1
 
             t += min_gap        # de-dup: skip ahead after a recorded signal
