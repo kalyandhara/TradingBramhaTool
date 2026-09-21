@@ -938,6 +938,21 @@ html, body {
 .sbc-row { display: flex; justify-content: space-between; gap: 10px; }
 .sbc-row span:last-child { font-variant-numeric: tabular-nums; font-weight: 600; }
 .sbc-note { color: var(--text-muted); font-size: 9.5px; }
+/* The READ block — the card's own plain-English summary, above the numbers.
+   It exists because the terse version was misread by a careful reader: "CHOCH
+   STRONG ✗" was taken to mean "not strong" (the ✗ is the FAILED flag, and the
+   quality label right next to it said STRONG), and "fail window 3b" — a
+   SETTING — was read as an observation that the break "barely held for 3 bars".
+   Both readings are reasonable from the glyphs alone, which is the argument for
+   spelling it out rather than for expecting the reader to try harder. */
+.sbc-read { margin: 0 0 5px; padding-bottom: 5px; border-bottom: 1px solid var(--border); }
+.sbc-read b { color: var(--text-chart); }
+.sbc-verdict { font-weight: 700; display: block; margin-bottom: 2px; }
+.sbc-bullet { color: var(--text-secondary); font-size: 10px; display: block; }
+/* Settings are printed apart from results, because printing them together is
+   what invited the second misreading above. */
+.sbc-settings { color: var(--text-muted); font-size: 9.5px; margin-top: 4px;
+                padding-top: 4px; border-top: 1px dashed var(--border); }
 
 /* FVG actionable-signal panel — order 2, right after the MA Bias lens:
    a live signal is read through the bias, then acted on. */
@@ -7900,6 +7915,88 @@ async function renderStructureChain(pane) {
   renderSbcInfo(pane, d);
 }
 
+// ── The Structure Break Chain card, in English ───────────────────────────────
+// The card used to print six rows of numbers and a formula. Everything a reader
+// needs was there and none of it said what it MEANT, so the two things that
+// matter most — did the last break hold, and is this structure trending or
+// flipping — had to be inferred from glyphs. Two of those inferences were made
+// wrong in front of me, which is the whole reason this function exists.
+//
+// It is DESCRIPTIVE. It says what the structure did; it never says what to do,
+// and no threshold here has been measured against forward returns.
+const SBC_THRESH = {
+  // Average completed-chain length: how many breaks run the same way before the
+  // structure turns. 1-2 is a market changing its mind almost every event.
+  chainChoppy: 2.0,
+  chainTrending: 3.0,
+  // Share of all breaks that failed inside the fail window.
+  failHigh: 0.30,
+  failLow: 0.15,
+};
+
+function sbcReading(s, last) {
+  const total = (s.total_bos || 0) + (s.total_choch || 0);
+  const failRate = total ? (s.failed_count || 0) / total : 0;
+  const avg = s.avg_chain;
+  const dirTxt = last.direction === 'up' ? 'upward' : 'downward';
+
+  // 1. What the last event WAS — quality and survival are separate facts, and
+  //    the compact card ran them together as "STRONG ✗".
+  const strength = last.quality === 'STRONG' ? 'a decisive break'
+                 : last.quality === 'NORMAL' ? 'an ordinary break'
+                 : 'a shallow break';
+  const held = last.failed
+    ? `and it did <b>NOT hold</b> — price came back through ${last.level} inside ${s.fail_win} bars`
+    : 'and it has held so far';
+  const what = last.type === 'CHOCH'
+    ? `Last event: a <b>character change</b> ${dirTxt} through ${last.level}`
+    : `Last event: a <b>continuation break</b> ${dirTxt} through ${last.level}`;
+
+  // 2. What KIND of market these events happened in.
+  let env, envWhy;
+  if (avg == null) {
+    env = 'not enough completed chains to judge the environment';
+    envWhy = '';
+  } else if (avg < SBC_THRESH.chainChoppy) {
+    env = 'choppy';
+    envWhy = `chains average ${avg} breaks before the structure turns`;
+  } else if (avg < SBC_THRESH.chainTrending) {
+    env = 'mixed';
+    envWhy = `chains average ${avg} breaks (longest ${s.max_chain})`;
+  } else {
+    env = 'trending';
+    envWhy = `chains average ${avg} breaks, longest ${s.max_chain}`;
+  }
+
+  const failTxt = !total ? ''
+    : failRate >= SBC_THRESH.failHigh
+      ? `<b>${Math.round(failRate * 100)}% of breaks failed</b> (${s.failed_count} of ${total}) — levels are being taken and given back`
+      : failRate <= SBC_THRESH.failLow
+        ? `${Math.round(failRate * 100)}% of breaks failed (${s.failed_count} of ${total}) — breaks mostly stick`
+        : `${Math.round(failRate * 100)}% of breaks failed (${s.failed_count} of ${total})`;
+
+  // 3. The bottom line. Deliberately about CONFIRMATION, not about direction:
+  //    a failed break in a choppy tape is a statement about evidence, and the
+  //    card has no business turning that into a trade.
+  const shift = last.type === 'CHOCH';
+  let verdict, tone;
+  if (last.failed) {
+    verdict = shift ? 'Trend change NOT confirmed — the CHoCH failed'
+                    : 'Continuation NOT confirmed — the break failed';
+    tone = 'bad';
+  } else if (last.quality === 'WEAK' || env === 'choppy') {
+    verdict = shift ? 'Trend change is TENTATIVE' : 'Break held, but weakly';
+    tone = 'warn';
+  } else {
+    verdict = shift ? 'Trend change confirmed so far' : 'Trend continuing';
+    tone = 'good';
+  }
+  return {verdict, tone,
+          lines: [`${what} — ${strength} (quality ${last.quality}), ${held}.`,
+                  `Environment: <b>${env}</b>${envWhy ? ' — ' + envWhy : ''}.`,
+                  failTxt].filter(Boolean)};
+}
+
 function renderSbcInfo(pane, d) {
   const st = ensureSbcState(pane);
   if (!st.infoEl) {
@@ -7931,17 +8028,41 @@ function renderSbcInfo(pane, d) {
   st.infoHead.innerHTML =
     `<span style="color:${trendCol}">Structure ${trendTxt}</span>` +
     `<span class="sbc-chain" style="background:${trendCol}">chain ${s.chain}</span>`;
+  const read = sbcReading(s, last);
+  const readCol = read.tone === 'bad' ? `rgb(${SBC_BEAR})`
+                : read.tone === 'good' ? `rgb(${SBC_BULL})` : '#ffab40';
   st.infoBody.innerHTML =
-    `<div class="sbc-row"><span>Last event</span>` +
+    `<div class="sbc-read">` +
+      `<span class="sbc-verdict" style="color:${readCol}">${read.verdict}` +
+      ` · ${s.last_bars_ago} bars ago</span>` +
+      read.lines.map(l => `<span class="sbc-bullet">${l}</span>`).join('') +
+    `</div>` +
+    // The numbers stay: the reading is a summary of them, not a replacement,
+    // and a reader who disagrees with the wording needs the inputs to argue.
+    `<div class="sbc-row" title="What broke, how cleanly, and whether it held. ` +
+      `✗ means the break FAILED — it is not the quality label."><span>Last event</span>` +
       `<span style="color:${lastCol}">${last.type} ${last.quality}` +
-      `${last.failed ? ' ✗' : ''} · ${s.last_bars_ago}b ago</span></div>` +
-    `<div class="sbc-row"><span>Level broken</span><span>${last.level}</span></div>` +
-    `<div class="sbc-row"><span>BOS / CHoCH</span><span>${s.total_bos} / ${s.total_choch}</span></div>` +
-    `<div class="sbc-row"><span>Chain max / avg</span>` +
+      `${last.failed ? ' ✗ failed' : ''}</span></div>` +
+    `<div class="sbc-row" title="The swing level this event broke through."><span>Level broken</span>` +
+      `<span>${last.level}</span></div>` +
+    `<div class="sbc-row" title="BOS continues the current direction; CHoCH reverses it. ` +
+      `Many CHoCHs relative to BOSs means the structure keeps turning.">` +
+      `<span>BOS / CHoCH</span><span>${s.total_bos} / ${s.total_choch}</span></div>` +
+    `<div class="sbc-row" title="Breaks that ran the same way before the structure turned — ` +
+      `longest run, and the average across completed chains.">` +
+      `<span>Chain max / avg</span>` +
       `<span>${s.max_chain} / ${s.avg_chain != null ? s.avg_chain : '—'}</span></div>` +
-    `<div class="sbc-row"><span>Failed breaks</span><span>${s.failed_count}</span></div>` +
-    `<div class="sbc-note">pivot ${s.pivot_len} · ${s.confirm}-confirmed · fail window ${s.fail_win}b` +
-    `<br>quality = 0.6·dist/ATR + 0.4·body/ATR; opacity shows it</div>`;
+    `<div class="sbc-row" title="Breaks that reversed back through their own level inside the ` +
+      `fail window — fakeouts and liquidity grabs."><span>Failed breaks</span>` +
+      `<span>${s.failed_count} of ${(s.total_bos || 0) + (s.total_choch || 0)}</span></div>` +
+    // SETTINGS, labelled as settings. "fail window 3b" printed beside the
+    // results was read as "it only held for 3 bars"; it is the detector's own
+    // watch period and says nothing about this event.
+    `<div class="sbc-settings">Settings — pivot ${s.pivot_len} · ${s.confirm}-confirmed · ` +
+      `fail window ${s.fail_win}b (how long a break is watched, not how long it lasted)` +
+      `<br>quality = 0.6·dist/ATR + 0.4·body/ATR → STRONG ≥0.75 · NORMAL ≥0.35 · else WEAK; ` +
+      `opacity shows it` +
+      `<br><i>Describes structure only. Unmeasured: no forward-return study backs these words.</i></div>`;
 }
 
 // ── PMax trade overlay (flip markers + live position levels) ──────────────────
