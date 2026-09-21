@@ -301,7 +301,19 @@ def backtest_scanner(scanner_name: str,
             continue
         if df is None or df.empty:
             continue
+        # Keep the DATES before the reset throws them away. Every scanner here
+        # works in bar offsets, so the positional index is what the rest of this
+        # loop needs — but the market model joins to the benchmark BY DATE, and
+        # after `reset_index(drop=True)` there are no dates left to join on.
+        # The guard below used to read `hasattr(df.index, "date")`, which is
+        # False for the RangeIndex this line produces, so the whole alpha/beta
+        # block was unreachable: `alpha_avg` and `alpha_ttest` came back None on
+        # every run, including the five dashboard call sites that pass a
+        # benchmark. Nothing errored and nothing said so (B-104).
+        _dates = df.index if isinstance(df.index, pd.DatetimeIndex) else None
         df = df.dropna(subset=["high", "low", "close", "volume"]).reset_index(drop=True)
+        if _dates is not None and len(_dates) != len(df):
+            _dates = None          # NaN rows were dropped; the alignment is gone
         n = len(df)
         if n < warmup + max_h + 2:
             continue
@@ -356,13 +368,14 @@ def backtest_scanner(scanner_name: str,
             if entry_b > 0:
                 # ── market-model beta from the 60-bar pre-signal window ──────
                 _beta: float | None = None
-                if bench_close is not None and hasattr(df.index, "date"):
+                if bench_close is not None and _dates is not None:
                     try:
-                        _sym_px = df["close"].iloc[max(0, t - 60): t + 1]
+                        _lo = max(0, t - 60)
+                        _sym_px = pd.Series(close[_lo: t + 1], index=_dates[_lo: t + 1])
                         _sym_r = _sym_px.pct_change().dropna()
                         # Align benchmark returns to the same dates
                         _b_px = bench_close.reindex(_sym_r.index, method="nearest",
-                                                     tolerance=pd.Timedelta("2d"))
+                                                     tolerance=pd.Timedelta("2D"))
                         _b_r = _b_px.pct_change().dropna()
                         _both = pd.concat([_sym_r, _b_r], axis=1).dropna()
                         if len(_both) >= 20:
@@ -380,10 +393,10 @@ def backtest_scanner(scanner_name: str,
                     sig_ret[h].append(sr)
 
                     # Market return for the same forward window (by date index)
-                    if bench_close is not None and hasattr(df.index, "date"):
+                    if bench_close is not None and _dates is not None:
                         try:
-                            _entry_date = df.index[entry_idx]
-                            _exit_date = df.index[min(entry_idx + h, len(df) - 1)]
+                            _entry_date = _dates[entry_idx]
+                            _exit_date = _dates[min(entry_idx + h, len(df) - 1)]
                             _b_entry = float(bench_close.asof(_entry_date))
                             _b_exit = float(bench_close.asof(_exit_date))
                             _mr = (_b_exit / _b_entry - 1.0) * 100.0
