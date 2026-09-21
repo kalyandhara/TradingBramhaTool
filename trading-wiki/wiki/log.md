@@ -1,6 +1,15 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-21] measure | B-48 — the CVD data question, answered before the indicator: FAIL
+- **B-48's instruction was *"answer the DATA question first, before any indicator"*, and it was right.** A true cumulative volume delta needs the aggressor side of each trade. The desk has OHLCV bars (5m/15m for 87 sessions, 1h for three years) and **no tick or bid/ask feed** — so only a PROXY is computable: sign the bar's volume by the bar's direction, which is what every package shipping "CVD" on OHLC data does, usually silently.
+- **The probe asked the only decidable question: is the proxy a property of the MARKET or of the BAR SIZE?** Pass bar pre-committed in code before the run — ≥90% sign agreement between 5m and 15m session totals, r ≥ 0.90.
+- **Result: 75.6% agreement, r=0.80, over 435 symbol-sessions.** FAIL. One session in four changes its mind about who was in control when the bar size changes (**28 of 87 on ICICIBANK**), and the coarser bars do not merely re-sign the day — they **inflate** it **1.4–1.8×**, because aggregation hides the intra-bar reversals that cancel at finer resolution.
+- **The two conventional proxies disagree with each other on 26% of sessions on the SAME bars** (73.8% agreement). The unstated choice of formula moves the answer about as much as the timeframe does.
+- **One correction made before publishing:** the first run read 79.7% because it included `^NSEI`, which has **no volume** — every delta zero, every session trivially "agreeing", 87 free sessions of 100%. A symbol that cannot have a volume delta is not evidence that volume deltas are stable. Excluding it cost four points of headline.
+- **The indicator was NOT built, and that is the deliverable.** Three options are written up — drop it · ship it as a named bar-size-explicit *delta proxy* with the 76% on the card · buy a tick feed — and **none is chosen**, because the probe was asked whether the data supports the indicator, not which compromise to make.
+- `analyses/CVD-Data-Probe`, indexed in `named_studies` as NEGATIVE. 13 tests. Suite **1,026 passed**.
+
 ## [2026-09-21] build | B-109 — the plan reaches the page a name is chosen from, and the ratchet made me extract a page to fit it
 - **Chosen over B-110 by the data, not by taste.** Drawdown's subject is the portfolio, and the portfolio is **empty — zero positions, ever**. B-109's subjects are 660 stored shortlist rows and a 19-name watchlist, so it is the one with something to be right about.
 - **`tools/plan_on_demand.py`** puts a *Plan a name from this list* picker on the Opportunity Hub. One shortlisted name → the full council card: BUY/WATCH/AVOID, entry, stop, three targets with R:R, invalidations, horizon, and the size **already scaled by today's market verdict** (the B-107 work paying off immediately).

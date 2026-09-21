@@ -63,6 +63,20 @@ VERDICTS = ("POSITIVE", "NEGATIVE", "NULL", "INCONCLUSIVE", "MIXED", "UNRECORDED
 #: headline — one short line; optional, and never the full result
 STUDIES: tuple[dict, ...] = (
     {
+        "item": "B-48", "tool": "cvd_data_probe.py", "date": "2026-09-21",
+        # Subject is the DATA, not a scanner: nothing in SCANNERS computes a
+        # delta, and the point of the probe was to stop something from being
+        # built that would have.
+        "subjects": ("cumulative volume delta",),
+        "verdict": "NEGATIVE",
+        "headline": ("a true CVD is not computable without tick/bid-ask data, and the "
+                     "OHLC proxy is bar-size dependent: 75.6% sign agreement and r=0.80 "
+                     "between 5m and 15m session totals over 435 symbol-sessions, "
+                     "against a pre-committed 90%/0.90. The two conventional proxies "
+                     "disagree with EACH OTHER on 26% of the same bars"),
+        "source": "analyses/CVD-Data-Probe",
+    },
+    {
         "item": "B-101", "tool": "bilateral_expansion_study.py",
         "date": "2026-09-20",
         "subjects": ("Symmetrical Triangle (bilateral)",),
