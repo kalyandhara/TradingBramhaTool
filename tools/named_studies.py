@@ -63,6 +63,21 @@ VERDICTS = ("POSITIVE", "NEGATIVE", "NULL", "INCONCLUSIVE", "MIXED", "UNRECORDED
 #: headline — one short line; optional, and never the full result
 STUDIES: tuple[dict, ...] = (
     {
+        "item": "B-101", "tool": "bilateral_expansion_study.py",
+        "date": "2026-09-20",
+        "subjects": ("Symmetrical Triangle (bilateral)",),
+        # INCONCLUSIVE, not NULL, and the distinction is the whole point of the
+        # pre-registered floor: 28 coils is not enough to claim "no effect".
+        "verdict": "INCONCLUSIVE",
+        "headline": ("28 coils over 146 names -- under the pre-registered floor of 200, "
+                     "so no verdict is claimed. All four horizons lean positive "
+                     "(+1.02/+1.63/+1.72/+4.47pp |move| vs baseline) and none is "
+                     "significant (p 0.19/0.10/0.20/0.07). The up-share is 29.2% (7 up, "
+                     "17 down, 4 undecidable), which the pre-registration only lets us "
+                     "read at n>=200 -- noted, not claimed"),
+        "source": "analyses/Bilateral-Expansion-Pre-Registration",
+    },
+    {
         "item": "B-76", "tool": "order_block_rules_backtest.py",
         "date": "2026-09-13",
         # Subjects are the three OVERLAY rules, deliberately NOT "Order Block
