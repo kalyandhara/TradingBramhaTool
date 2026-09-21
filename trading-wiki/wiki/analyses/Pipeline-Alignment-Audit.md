@@ -90,10 +90,14 @@ Two independent planners, and they do not meet:
   entry, stop, up to 3 targets with R:R, horizon, invalidations, and a suggested
   size. It renders on **Stock Analyzer** and **Predictive Analysis** only.
 
-**The gap is positional, not technical.** The full trade card exists; it is just
-not reachable from the pages where a name is chosen (Opportunity Hub, Scanner
-Hub, Watchlist). The reference model has PLAN sitting between SIGNAL and RISK,
-and here it sits off to one side — [[#B-109]].
+**The gap was positional, not technical — CLOSED for the Opportunity Hub on
+2026-09-21.** The full trade card existed; it simply was not reachable from the
+page a name is chosen from. `plan_on_demand` now puts a picker there: one name,
+on demand, rendering the same council card with the size already scaled by
+today's market verdict. **A click-through rather than a column, because the
+pipeline puts PLAN after the reader has chosen** — and a ranked list where every
+row carries a full plan is not a shortlist any more ([[#B-109]]). Scanner Hub and
+Watchlist still have no planner.
 
 ## Stage 4 — RISK — the thin stage
 
@@ -154,9 +158,13 @@ Two verdicts, two vocabularies, two altitudes:
 * **Name** — BUY / WATCH / AVOID from the council (Stock Analyzer, Predictive
   Analysis).
 
-**The page a reader acts from — Opportunity Hub — carries neither.** It ranks by
-score and confluence and stops there. The final call the reference model reserves
-for the human is made on a page that shows a rank, not a verdict ([[#B-109]]).
+**The page a reader acts from — Opportunity Hub — carried neither until
+2026-09-21.** It ranks by score and confluence; the per-name verdict now arrives
+with the on-demand plan (BUY / WATCH / AVOID, with its invalidations), so the
+final call the reference model reserves for the human is at least made with one
+in front of them ([[#B-109]]). The two vocabularies still differ, and that is the
+part nobody has decided: a market that says SELECTIVE and a name that says BUY
+are not the same sentence.
 
 ## The one thing that was actually broken — FIXED 2026-09-21
 

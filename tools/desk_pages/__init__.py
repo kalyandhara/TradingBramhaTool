@@ -58,6 +58,7 @@ import importlib
 #: page label (exactly as the nav writes it) -> module name in this package.
 PAGES: dict[str, str] = {
     "Astro Timing": "astro_timing",
+    "Telegram Signals": "telegram_signals",
 }
 
 
