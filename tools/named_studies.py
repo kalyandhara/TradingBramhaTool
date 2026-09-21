@@ -63,6 +63,20 @@ VERDICTS = ("POSITIVE", "NEGATIVE", "NULL", "INCONCLUSIVE", "MIXED", "UNRECORDED
 #: headline — one short line; optional, and never the full result
 STUDIES: tuple[dict, ...] = (
     {
+        "item": "B-114", "tool": "sbc_reading_backtest.py", "date": "2026-09-21",
+        "subjects": ("structure break chain reading",),
+        "verdict": "INCONCLUSIVE",
+        "headline": ("BSE only: 41 events, 32 held vs 9 FAILED -- held breaks beat "
+                     "failed ones by +7.1/+12.7/+16.1/+15.8pp at 5/10/20/60d "
+                     "(p 0.064/0.009/0.039/0.064), and the failed bucket is 9 against "
+                     "a pre-registered floor of 30, so nothing is claimed. The first "
+                     "run was an ARTIFACT (41 held / 0 failed): `failed` resolves in "
+                     "the bars AFTER a break, so at the break bar it is always False. "
+                     "Neither secondary ladder ranks -- warn beats good, WEAK beats "
+                     "STRONG"),
+        "source": "analyses/SBC-Reading-BSE",
+    },
+    {
         "item": "B-48", "tool": "cvd_data_probe.py", "date": "2026-09-21",
         # Subject is the DATA, not a scanner: nothing in SCANNERS computes a
         # delta, and the point of the probe was to stop something from being

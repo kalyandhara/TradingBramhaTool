@@ -1,0 +1,295 @@
+#!/usr/bin/env python3
+"""sbc_reading_backtest.py — does the Structure Break Chain card's READING hold up?
+
+The card added a plain-English verdict on 2026-09-21 ("Trend change NOT confirmed
+— the CHoCH failed", "Trend continuing", …) and shipped with a footer admitting
+no forward-return study backed any of it. This is that study.
+
+── PRE-REGISTERED. Thresholds fixed in this file before the first run ────────
+**The claim under test is the card's own core distinction**: a break that HELD
+means something different from a break that FAILED. If the words are worth
+printing, the two buckets should separate.
+
+    PRIMARY   direction-signed forward return at h = 20, HELD events vs FAILED
+              events, COST_INDIAN on both. Passes only if HELD > FAILED with
+              p < 0.05 AND the sign holds at 5 / 10 / 60.
+    FLOOR     >= 30 events per bucket. Below that the answer is INCONCLUSIVE —
+              never NULL, and never a pass. (B-101's lesson, at a smaller scale:
+              its 28-signal run leaned positive on all four horizons and the
+              powered re-run killed every one of them.)
+    SECONDARY the three verdict TONES (good / warn / bad) in rank order, and the
+              quality label (STRONG / NORMAL / WEAK). Description only when the
+              primary fails — no subgroup rescues a failed primary.
+
+── The prior is skeptical and on the record ─────────────────────────────────
+B-19 measured 0 of 41 scanners stable after costs. B-56 measured this desk's
+OTHER structure read (SVP) as INVERTED. Market-structure labels have not paid
+here yet, and one symbol cannot change that: **a single name cannot reach the
+floor**, so a single-name run is a description of that name, not a finding
+about the method. That is stated before the numbers rather than after them.
+
+── Point-in-time, like everything else here ─────────────────────────────────
+`detect_structure_chain` is handed `df.iloc[:t+1]` and an event counts only when
+it is confirmed ON bar t, so nothing is scored on a break the detector could not
+have seen yet. Entry is the NEXT bar's open, the desk convention.
+
+CLI:
+    py -3 -X utf8 tools/sbc_reading_backtest.py --symbol BSE
+    py -3 -X utf8 tools/sbc_reading_backtest.py --universe nifty500 --symbols 150
+"""
+from __future__ import annotations
+
+import argparse
+import io
+import json
+import sys
+from pathlib import Path
+from typing import Any
+
+import numpy as np
+import pandas as pd
+
+if __name__ == "__main__":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8")
+
+import backtest as bt
+import scanner_templates as sc
+
+HERE = Path(__file__).resolve().parent
+OUT_DIR = HERE / "cache" / "sbc_reading"
+
+HORIZONS = (5, 10, 20, 60)
+PRIMARY_H = 20
+WARMUP = 220
+MIN_PER_BUCKET = 30          # below this: INCONCLUSIVE, never NULL
+
+#: Mirrors `SBC_THRESH` in chart_dashboard.html. Duplicated deliberately — the
+#: alternative is the study importing a constant out of an HTML file — and
+#: pinned by `test_sbc_reading_backtest.py` so the two cannot drift silently.
+CHAIN_CHOPPY, CHAIN_TRENDING = 2.0, 3.0
+
+
+def verdict_tone(stats: dict, last: dict) -> tuple[str, str]:
+    """The card's verdict and tone for one event — a port of `sbcReading`.
+
+    Returns (tone, verdict). Kept in lockstep with the JS by test, because a
+    study that scores a DIFFERENT sentence from the one the reader sees is
+    measuring nothing anybody will ever act on.
+    """
+    avg = stats.get("avg_chain")
+    env_choppy = avg is not None and avg < CHAIN_CHOPPY
+    shift = last["type"] == "CHOCH"
+    if last["failed"]:
+        return "bad", ("Trend change NOT confirmed — the CHoCH failed" if shift
+                       else "Continuation NOT confirmed — the break failed")
+    if last["quality"] == "WEAK" or env_choppy:
+        return "warn", ("Trend change is TENTATIVE" if shift
+                        else "Break held, but weakly")
+    return "good", ("Trend change confirmed so far" if shift
+                    else "Trend continuing")
+
+
+def _signed_fwd(df: pd.DataFrame, t: int, h: int, direction: str,
+                cm) -> float | None:
+    """Direction-signed forward return in %, net of a round trip.
+
+    Signed by the EVENT's direction so a downward break that precedes a fall
+    scores positive — otherwise every bearish event would read as an inverted
+    bullish one, which is the mistake B-76's bias gauge made.
+    """
+    close = df["close"].to_numpy(float)
+    openp = (df["open"].to_numpy(float) if "open" in df.columns else close)
+    if t + 1 + h > len(close) - 1:
+        return None
+    entry = float(openp[t + 1])
+    if entry <= 0:
+        return None
+    exit_px = float(close[t + 1 + h])
+    raw = (exit_px / entry - 1.0) * 100.0
+    if direction == "down":
+        raw = -raw
+    return raw - cm.round_trip_pct(entry, exit_px)
+
+
+#: Bars to wait after a break before reading the card. NOT a tunable — it is
+#: the detector's own `fail_win`, and the reason it exists here is a measurement
+#: artifact the first run walked straight into:
+#:
+#: `failed` is decided by what price does in the bars AFTER the break, so at the
+#: break bar it is ALWAYS False. Scoring events at their own bar therefore
+#: produced 41 held and 0 failed on BSE — against 11 failures the card shows on
+#: the same history — and the "held vs failed" comparison had nothing to compare.
+#: The label is only knowable once the window closes, so that is when the card is
+#: read and that is where entry goes.
+FAIL_WIN = 3
+
+
+def walk(df: pd.DataFrame, cm=None, stride: int = 1) -> list[dict]:
+    """Every structural event in one symbol, scored as a reader could act on it.
+
+    Two bars matter and they are different: the break is CONFIRMED at ``t``, and
+    its held/failed label is SETTLED at ``t + FAIL_WIN``. The card is read at the
+    second, and entry is the next bar's open after that — because a verdict that
+    depends on three bars of hindsight cannot be acted on before those bars.
+    """
+    cm = cm or bt.COST_INDIAN
+    df = df.dropna(subset=["high", "low", "close"]).reset_index(drop=True)
+    out: list[dict] = []
+    max_h = max(HORIZONS)
+    for t in range(WARMUP, len(df) - max_h - FAIL_WIN - 2, stride):
+        sub = df.iloc[:t + 1]
+        try:
+            d = sc.detect_structure_chain(sub)
+        except Exception:
+            continue
+        if not d or not d.get("events"):
+            continue
+        last = d["events"][-1]
+        # FRESH events only: the break must be confirmed on this very bar, or
+        # the same event would be re-scored on every bar it stays the latest.
+        if last["bar"] != len(sub) - 1:
+            continue
+        # Re-read the SAME event once its window has closed — this is the card
+        # the reader actually sees, labels and all.
+        read_at = t + FAIL_WIN
+        try:
+            d2 = sc.detect_structure_chain(df.iloc[:read_at + 1])
+        except Exception:
+            continue
+        if not d2:
+            continue
+        ev = next((e for e in d2["events"] if e["bar"] == t), None)
+        if ev is None:                      # the event did not survive re-detection
+            continue
+        tone, verdict = verdict_tone(d2["stats"], ev)
+        row = {"t": t, "read_at": read_at, "type": ev["type"],
+               "direction": ev["direction"], "quality": ev["quality"],
+               "failed": bool(ev["failed"]), "tone": tone, "verdict": verdict}
+        for h in HORIZONS:
+            row[f"r{h}"] = _signed_fwd(df, read_at, h, ev["direction"], cm)
+        out.append(row)
+    return out
+
+
+def _arm(a: list[float], b: list[float]) -> dict[str, Any]:
+    a = [x for x in a if x is not None]
+    b = [x for x in b if x is not None]
+    if len(a) < 2 or len(b) < 2:
+        return {"n_a": len(a), "n_b": len(b), "diff": None, "p": None}
+    t_val, p_val = bt._ttest_ind(np.asarray(a, float), np.asarray(b, float))
+    return {"n_a": len(a), "n_b": len(b),
+            "mean_a": round(float(np.mean(a)), 3),
+            "mean_b": round(float(np.mean(b)), 3),
+            "diff": round(float(np.mean(a) - np.mean(b)), 3),
+            "t": round(float(t_val), 3), "p": round(float(p_val), 4)}
+
+
+def analyse(rows: list[dict]) -> dict[str, Any]:
+    held = [r for r in rows if not r["failed"]]
+    failed = [r for r in rows if r["failed"]]
+    primary = {str(h): _arm([r[f"r{h}"] for r in held],
+                            [r[f"r{h}"] for r in failed]) for h in HORIZONS}
+    by_tone = {}
+    for tone in ("good", "warn", "bad"):
+        vals = [r[f"r{PRIMARY_H}"] for r in rows
+                if r["tone"] == tone and r[f"r{PRIMARY_H}"] is not None]
+        by_tone[tone] = {"n": len(vals),
+                         "mean": round(float(np.mean(vals)), 3) if vals else None}
+    by_quality = {}
+    for q in ("STRONG", "NORMAL", "WEAK"):
+        vals = [r[f"r{PRIMARY_H}"] for r in rows
+                if r["quality"] == q and r[f"r{PRIMARY_H}"] is not None]
+        by_quality[q] = {"n": len(vals),
+                         "mean": round(float(np.mean(vals)), 3) if vals else None}
+    res = {"n_events": len(rows), "n_held": len(held), "n_failed": len(failed),
+           "primary": primary, "by_tone": by_tone, "by_quality": by_quality}
+    res["verdict"] = verdict_of(res)
+    return res
+
+
+def verdict_of(res: dict) -> str:
+    """The pre-registered bar, applied mechanically."""
+    if min(res["n_held"], res["n_failed"]) < MIN_PER_BUCKET:
+        return (f"INCONCLUSIVE — {res['n_held']} held / {res['n_failed']} failed, "
+                f"under the pre-registered floor of {MIN_PER_BUCKET} per bucket")
+    p = res["primary"][str(PRIMARY_H)]
+    if p["diff"] is None:
+        return "INCOMPLETE"
+    diffs = [res["primary"][str(h)]["diff"] for h in HORIZONS]
+    if p["diff"] > 0 and p["p"] < 0.05 and all(d is not None and d > 0 for d in diffs):
+        return (f"POSITIVE — a break that HELD beat one that failed by "
+                f"{p['diff']:+.2f}pp @{PRIMARY_H}d (p={p['p']:.3f})")
+    if p["diff"] < 0 and p["p"] < 0.05:
+        return (f"INVERTED — a FAILED break beat one that held by "
+                f"{-p['diff']:+.2f}pp @{PRIMARY_H}d (p={p['p']:.3f})")
+    return "NULL — held and failed breaks are not separable at the pre-registered bar"
+
+
+def report(res: dict, label: str) -> str:
+    L = [f"SBC card reading — {label}", "",
+         f"{res['n_events']} structural events · {res['n_held']} held · "
+         f"{res['n_failed']} failed", "",
+         "PRIMARY — direction-signed forward return, HELD vs FAILED (net of costs)",
+         f"{'h':>4}{'n held':>8}{'n fail':>8}{'held %':>9}{'fail %':>9}{'diff':>9}{'p':>8}"]
+    for h in HORIZONS:
+        m = res["primary"][str(h)]
+        if m["diff"] is None:
+            L.append(f"{h:>4}{m['n_a']:>8}{m['n_b']:>8}{'—':>9}")
+            continue
+        L.append(f"{h:>4}{m['n_a']:>8}{m['n_b']:>8}{m['mean_a']:>9.2f}"
+                 f"{m['mean_b']:>9.2f}{m['diff']:>+9.2f}{m['p']:>8.3f}")
+    L += ["", f"By card verdict tone (@{PRIMARY_H}d, signed):"]
+    for tone, m in res["by_tone"].items():
+        L.append(f"   {tone:<5} n={m['n']:<4} "
+                 + (f"{m['mean']:+.2f}%" if m["mean"] is not None else "—"))
+    L += ["", f"By quality label (@{PRIMARY_H}d, signed):"]
+    for q, m in res["by_quality"].items():
+        L.append(f"   {q:<7} n={m['n']:<4} "
+                 + (f"{m['mean']:+.2f}%" if m["mean"] is not None else "—"))
+    L += ["", f"VERDICT: {res['verdict']}"]
+    return "\n".join(L)
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser(description="SBC card reading — forward test")
+    ap.add_argument("--symbol", default=None)
+    ap.add_argument("--universe", default=None)
+    ap.add_argument("--symbols", type=int, default=150)
+    ap.add_argument("--days", type=int, default=2500)
+    ap.add_argument("--stride", type=int, default=1)
+    a = ap.parse_args()
+
+    import screener_pipeline as sp
+    if a.universe:
+        import nse_universe as nu
+        syms = list(nu.symbols(a.universe))[:a.symbols]
+        label = f"{a.universe}[:{a.symbols}]"
+    else:
+        syms = [a.symbol or "BSE"]
+        label = syms[0]
+
+    rows: list[dict] = []
+    for i, sym in enumerate(syms, 1):
+        if len(syms) > 1:
+            print(f"  [{i}/{len(syms)}] {sym}", end="\r", flush=True)
+        try:
+            df = sp.fetch_ohlcv(sym, days=a.days)
+        except Exception:
+            continue
+        if df is None or getattr(df, "empty", True):
+            continue
+        rows += [{**r, "symbol": sym} for r in walk(df, stride=a.stride)]
+    if len(syms) > 1:
+        print()
+
+    res = analyse(rows)
+    res["label"] = label
+    OUT_DIR.mkdir(parents=True, exist_ok=True)
+    (OUT_DIR / f"{label.replace('[', '_').replace(']', '').replace(':', '')}.json"
+     ).write_text(json.dumps(res, indent=1, sort_keys=True), encoding="utf-8")
+    print(report(res, label))
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

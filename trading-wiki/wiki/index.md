@@ -1,12 +1,12 @@
 ---
 title: "Wiki Index"
 updated: 2026-09-21
-pages: 308
+pages: 309
 sources_ingested: 117
 ---
 
 # Trading Wiki — Index
-_Last updated: 2026-09-21 | Pages: 308 | Sources ingested: 117_
+_Last updated: 2026-09-21 | Pages: 309 | Sources ingested: 117_
 <!-- Counting convention, stated because these two counters silently drifted to
      TWO DIFFERENT wrong numbers before 2026-08-07 (see B-27 in
      analyses/Open-Backlog.md): "Pages" = every .md under wiki/ EXCLUDING the
@@ -255,6 +255,7 @@ _Last updated: 2026-09-21 | Pages: 308 | Sources ingested: 117_
 ## Analyses
 | Page | Date | Topic |
 |------|------|-------|
+| [SBC-Reading-BSE](analyses/SBC-Reading-BSE.md) | 2026-09-21 | **B-114: the Structure Break Chain card's new plain-English verdict, forward-tested on BSE — INCONCLUSIVE, and the first run was measuring an artifact.** 41 events in 9.5 years: 32 held, 9 failed. Held breaks beat failed ones by +7.1/+12.7/+16.1/+15.8pp at 5/10/20/60d (p 0.064/0.009/0.039/0.064) — and it is still INCONCLUSIVE at 9 events against a floor of 30, on B-101's precedent. **The artifact:** the first run read 41 held / 0 failed, because `failed` resolves in the bars AFTER a break and is always False at the break bar; the study now reads the card once the window closes, which is also the only honest trading assumption. **Neither secondary ladder ranks** — warn beats good, WEAK beats STRONG — so the held/failed binary is the part worth powering, not the quality score |
 | [CVD-Data-Probe](analyses/CVD-Data-Probe.md) | 2026-09-21 | **B-48: the data question, asked before the indicator — and the answer is FAIL.** A true cumulative volume delta needs the aggressor side of each trade; the desk has OHLCV bars and no tick or bid/ask feed. The computable PROXY was tested against a pre-committed bar (≥90% sign agreement between 5m and 15m session totals, r ≥ 0.90) and returned **75.6% and r=0.80 over 435 symbol-sessions** — one session in four flips side with the bar size, and coarse bars inflate the total 1.4-1.8×. The two conventional proxies disagree with each other on **26%** of the same bars. `^NSEI` (no volume) was excluded after the first run read 79.7% on 87 trivially-agreeing sessions. **The indicator was not built, and that is the finding** |
 | [Pipeline-Alignment-Audit](analyses/Pipeline-Alignment-Audit.md) | 2026-09-21 | **Every page and screener mapped against the owner's SCAN → SIGNAL → PLAN → RISK → MONITOR → VERDICT model — the desk is front-heavy.** 23 pages, 50 scanners, counted against the code. SCAN has **nine** surfaces; SIGNAL has six, and **37 of the 50 scanners are unmeasured, carrying 85% of the vote weight** before family capping. PLAN exists twice and neither copy reaches the page a name is chosen from (20 of 49 scanners emit entry/stop/target; the rich council card renders on two research pages only). **RISK is the thin stage and the model puts it at the centre**: exposure and drawdown do not exist, max-loss is a flag rather than a limit, and position size is defined TWICE in different units under one label (market multiplier 0/50/100% vs a 2%-per-trade rule) with neither aware of the other. VERDICT exists at two altitudes with two vocabularies and is absent from Opportunity Hub. **One live bug found while mapping: `Liquidity Sweep Bear` is category Risk, is not in RISK_SCANNERS, and casts a 0.5 BULLISH confluence vote** (B-105). Raised B-105…B-109 |
 | [Yearly-Opening-Range-Pre-Registration](analyses/Yearly-Opening-Range-Pre-Registration.md) | 2026-09-20 | **B-98: the January high/low as an anchor — pre-registered, and the base rate came first.** Chosen over Anchored VWAP because a calendar anchor has no subjective half. Counted before any forward return: **972 symbol-years, the range breaks in 971 (99.9%)**, median 7 sessions after January, 42% inside five. A construct firing on 99.9% of symbol-years selects nothing, so it will NOT be a shortlist scanner whatever its edge — the design changed before the run. Tests the break's DIRECTION (primary, h=60), the STATE quarterly, and whether the break HELD, **with the by-year test deciding** (every name breaks in the same weeks of the same year, so 971 signals are ~10 independent ones). Measurement still to run |
