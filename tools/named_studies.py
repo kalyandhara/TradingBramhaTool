@@ -66,15 +66,18 @@ STUDIES: tuple[dict, ...] = (
         "item": "B-101", "tool": "bilateral_expansion_study.py",
         "date": "2026-09-20",
         "subjects": ("Symmetrical Triangle (bilateral)",),
-        # INCONCLUSIVE, not NULL, and the distinction is the whole point of the
-        # pre-registered floor: 28 coils is not enough to claim "no effect".
-        "verdict": "INCONCLUSIVE",
-        "headline": ("28 coils over 146 names -- under the pre-registered floor of 200, "
-                     "so no verdict is claimed. All four horizons lean positive "
-                     "(+1.02/+1.63/+1.72/+4.47pp |move| vs baseline) and none is "
-                     "significant (p 0.19/0.10/0.20/0.07). The up-share is 29.2% (7 up, "
-                     "17 down, 4 undecidable), which the pre-registration only lets us "
-                     "read at n>=200 -- noted, not claimed"),
+        # Two runs. The first (28 coils) was INCONCLUSIVE by its own floor; the
+        # second (270) is powered and settles it. The pair is kept because the
+        # underpowered run is the argument for the floor.
+        "verdict": "NULL",
+        "headline": ("270 coils over 482 names, ~10y: a coil precedes an ORDINARY move "
+                     "-- +0.32/-0.01/+0.23/-0.74pp |move| vs baseline at 5/10/20/60d, "
+                     "p 0.27-0.98, sign not stable. The apex 50-75% band carries nothing "
+                     "(in-band expands slightly LESS at every horizon, p 0.37-0.79). The "
+                     "BILATERAL framing SURVIVES its falsifier: 42.7% up-share (105/141/"
+                     "24 undecidable), inside the pre-committed 40-60%. The first run's "
+                     "28-signal lean (+1.02 to +4.47pp) and its 29.2% up-share were both "
+                     "noise, and the pre-registered floor is why neither was claimed"),
         "source": "analyses/Bilateral-Expansion-Pre-Registration",
     },
     {

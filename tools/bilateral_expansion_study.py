@@ -23,9 +23,19 @@ that is `backtest.absolute_move` (B-102), and this file is the walk around it.
 B and C are reported as description when A fails. That is the multiple-
 comparisons rule the page fixed in advance.
 
+── The power extension (B-103) ───────────────────────────────────────────────
+The first run (2026-09-20, 150 names × ~900 sessions) returned **28 signals
+against the floor of 200** and therefore INCONCLUSIVE. Widening the sample is the
+remedy the pre-registration itself prescribed for exactly that outcome, so
+`--symbols` and `--days` exist to run the SAME analysis plan over more data. What
+must not change is the plan: event, primary, horizons, pass bar and the claim-C
+falsifier all stay as registered, and a run that reaches the floor reports
+whatever it finds. Each run writes its own file under `cache/bilateral_expansion/`
+so a later, wider run never overwrites the record of an earlier one.
+
 CLI:
-    py -3 -X utf8 tools/bilateral_expansion_study.py --run [--symbols 150]
-    py -3 -X utf8 tools/bilateral_expansion_study.py            # print the cache
+    py -3 -X utf8 tools/bilateral_expansion_study.py --run [--symbols 150] [--days 900]
+    py -3 -X utf8 tools/bilateral_expansion_study.py            # print the newest run
 """
 from __future__ import annotations
 
@@ -48,7 +58,19 @@ import backtest as bt
 import scanner_templates as sc
 
 HERE = Path(__file__).resolve().parent
-OUT = HERE / "cache" / "bilateral_expansion" / "result.json"
+OUT_DIR = HERE / "cache" / "bilateral_expansion"
+
+
+def _out_path(symbols: int, days: int) -> "Path":
+    """One file per sample, named for it. A wider run is a SECOND result, not a
+    replacement — overwriting would erase the underpowered run the wider one is
+    supposed to be compared against."""
+    return OUT_DIR / f"result_{symbols}x{days}.json"
+
+
+def _newest() -> "Path | None":
+    runs = sorted(OUT_DIR.glob("result_*.json"), key=lambda p: p.stat().st_mtime)
+    return runs[-1] if runs else None
 
 HORIZONS = (5, 10, 20, 60)
 PRIMARY_H = 20
@@ -242,23 +264,29 @@ def main() -> int:
     ap = argparse.ArgumentParser(description="B-101/B-102 — bilateral expansion test")
     ap.add_argument("--run", action="store_true", help="measure and cache")
     ap.add_argument("--symbols", type=int, default=150)
+    ap.add_argument("--days", type=int, default=900)
     a = ap.parse_args()
 
     if a.run:
         import nse_universe as nu
         import screener_pipeline as sp
         syms = list(nu.symbols("nifty500"))[:a.symbols]
-        res = run(syms, lambda s: sp.fetch_ohlcv(s, days=900),
+        res = run(syms, lambda s: sp.fetch_ohlcv(s, days=a.days),
                   progress=lambda i, n, s: print(f"  [{i}/{n}] {s}", end="\r", flush=True))
+        res["symbols_requested"] = a.symbols
+        res["days"] = a.days
         print()
-        OUT.parent.mkdir(parents=True, exist_ok=True)
-        OUT.write_text(json.dumps(res, indent=1, sort_keys=True), encoding="utf-8")
-        print(f"cached -> {OUT}\n")
+        out = _out_path(a.symbols, a.days)
+        out.parent.mkdir(parents=True, exist_ok=True)
+        out.write_text(json.dumps(res, indent=1, sort_keys=True), encoding="utf-8")
+        print(f"cached -> {out}\n")
     else:
-        if not OUT.exists():
+        newest = _newest()
+        if newest is None:
             print("No result cached. Run with --run.")
             return 1
-        res = json.loads(OUT.read_text(encoding="utf-8"))
+        print(f"({newest.name})\n")
+        res = json.loads(newest.read_text(encoding="utf-8"))
     print(report(res))
     return 0
 

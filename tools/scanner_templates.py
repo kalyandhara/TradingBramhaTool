@@ -6330,6 +6330,15 @@ def detect_symmetrical_triangle_geometry(df: pd.DataFrame, window: int = 90,
     vol_score = min(1.0, max(0.0, (1.0 - vol_trend) / 0.30))  # 0.70×→1.0, ≥1.0×→0
     # Apex position scores the 50-75% band full and falls away on both sides —
     # too early is not yet a coil, too late is a coil that failed to resolve.
+    #
+    # MEASURED 2026-09-20 (B-101/B-103, 270 coils): the band predicts NOTHING about
+    # how far price then moves — in-band coils expand slightly LESS at every
+    # horizon (p 0.37-0.79). The weight stays because what it encodes is
+    # STRUCTURAL, not predictive: a coil at 99% of its apex has boundaries a few
+    # rupees apart, and every one of the 24 undecidable resolutions in that run
+    # came from there. It is scoring how much triangle is left, which is a fact
+    # about the shape. It is NOT scoring an edge, and nothing here should be
+    # rewritten to imply it is.
     if apex_progress < 0.5:
         apex_score = max(0.0, apex_progress / 0.5)
     elif apex_progress <= 0.75:
@@ -6439,7 +6448,8 @@ def scan_symmetrical_triangle(df: pd.DataFrame, window: int = 90,
         f"Gap narrowed {conv_ratio * 100:.0f}% (widest {g['gap_old']:.0f} → now {g['gap_now']:.0f})",
         f"{tu} upper / {tl} lower touches · containment {containment * 100:.0f}%",
         f"Apex {g['bars_to_apex']} bars out — {g['apex_progress'] * 100:.0f}% of the way in "
-        f"(the textbook resolution band is 50-75%)",
+        f"(textbook band 50-75% — MEASURED 2026-09-20: in-band coils expand no more "
+        f"than the rest, p 0.37-0.79, so read this as position, not edge)",
         {"breakout-up":        f"Broke UP — close {last:.0f} cleared the upper line {u_now:.0f}",
          "breakout-down":      f"Broke DOWN — close {last:.0f} lost the lower line {l_now:.0f}",
          "pre-breakout-up":    f"Coiled against the upper line {u_now:.0f} (within 0.5%)",
@@ -8997,7 +9007,12 @@ SCANNERS: dict[str, dict] = {
             "publishes BOTH legs (up_entry/up_stop/up_target and down_*) and no bare "
             "entry/stop/target, and the hit does NOT vote in confluence — a coil is "
             "not evidence for a side. Reports the apex distance and how far into the "
-            "50-75% textbook resolution band price has coiled. (B-101.)"
+            "50-75% textbook resolution band price has coiled. **MEASURED 2026-09-20 "
+            "(B-101/B-103): NULL.** Over 270 coils in ~10 years of nifty500, a coil "
+            "precedes an ORDINARY move (+0.32/-0.01/+0.23/-0.74pp |move| vs baseline "
+            "at 5/10/20/60d, p 0.27-0.98) -- it is context, not a trade. The bilateral "
+            "framing itself SURVIVED its pre-registered falsifier: 42.7% up-share, "
+            "inside the 40-60% band. See analyses/Bilateral-Expansion-Pre-Registration."
         ),
         "category": "Neutral",
     },

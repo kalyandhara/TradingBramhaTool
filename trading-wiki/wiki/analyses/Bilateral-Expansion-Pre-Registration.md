@@ -1,7 +1,7 @@
 ---
-title: "Bilateral Expansion — Test Design (pre-registered) — INCONCLUSIVE, UNDERPOWERED"
+title: "Bilateral Expansion — Test Design (pre-registered) — NULL, and the framing SURVIVES"
 category: analysis
-tags: [symmetrical-triangle, bilateral, pre-registration, volatility-expansion, backtest, b-101, b-102, inconclusive, underpowered]
+tags: [symmetrical-triangle, bilateral, pre-registration, volatility-expansion, backtest, b-101, b-102, b-103, measured-null, framing-survives]
 timeframe: swing
 created: 2026-09-20
 updated: 2026-09-20
@@ -110,7 +110,11 @@ The result goes into [[analyses/Open-Backlog]] under B-101 and into
 `named_studies.STUDIES` regardless of which way it lands, with the n and the
 p-values, so CHECK 0c cannot see a study that ran and left no trace.
 
-## Result — 2026-09-20: INCONCLUSIVE (28 signals against a floor of 200)
+## Run 1 — 2026-09-20: INCONCLUSIVE (28 signals against a floor of 200)
+
+**Superseded by run 2 below, and kept because it is the reason run 2 exists.**
+Every number here is what an underpowered sample looks like, including one
+that looked like a finding and was not.
 
 Run: `tools/bilateral_expansion_study.py --run --symbols 150`, 146 usable names,
 ~900 sessions, stride 5, `COST_INDIAN` on both arms.
@@ -158,3 +162,70 @@ answerable from daily bars at all.
 blocks**: the full nifty500 over about four years, or a wider universe over the
 same window. That is a runnable extension of this exact protocol, and the
 analysis plan above does not change when it runs — only the sample does.
+
+## Run 2 — 2026-09-20 (B-103): POWERED, and the answer is NULL
+
+Run: `--symbols 500 --days 2500`. **482 usable names, ~10 years, 270 coils** —
+above the floor of 200, so this run gets a verdict. Same protocol, same analysis
+plan, same file; only the sample changed.
+
+### A — expansion (primary): NULL
+
+| h | n | coil \|move\| | baseline | edge | p |
+|---|---|---|---|---|---|
+| 5 | 270 | 4.44% | 4.12% | +0.32 | 0.265 |
+| 10 | 270 | 5.83% | 5.84% | **−0.01** | 0.980 |
+| 20 | 270 | 8.66% | 8.43% | +0.23 | 0.652 |
+| 60 | 270 | 15.19% | 15.93% | **−0.74** | 0.396 |
+
+**A coil precedes an ordinary move.** Not a bigger one, not a smaller one. The
+edge at h = 10 is one hundredth of a percentage point on 270 signals, and the
+sign is not even stable across horizons. This is a NULL that is adequately
+powered, which is a result rather than an absence of one — and it is a different
+statement from the registered prior, which expected coils to precede *smaller*
+moves. That prior is not supported either.
+
+**Run 1's lean was noise, and this is what the floor was for.** All four of its
+horizons leaned positive (+1.02 to +4.47pp) and three would have been tempting to
+write up. At n = 270 they collapse to ±0.3pp. Nothing was retracted, because the
+pre-registered floor stopped it being claimed in the first place.
+
+### B — the apex band: carries nothing
+
+| h | in-band (n=73) | outside (n=197) | p |
+|---|---|---|---|
+| 5 | 4.06% | 4.58% | 0.367 |
+| 10 | 5.45% | 5.96% | 0.494 |
+| 20 | 8.00% | 8.90% | 0.371 |
+| 60 | 14.81% | 15.33% | 0.790 |
+
+With a failed primary this is description, not a finding — but it is well-powered
+description and it points one way at every horizon: coils inside the textbook
+50–75% band expand **slightly less**, never more. **The card's inherited
+"textbook resolution band" line has no measured expansion edge behind it**, and
+the card now says so rather than implying one.
+
+Note precisely what this does and does not test. It tests whether in-band coils
+*move more*. It does **not** test whether they *resolve more often* — that is a
+different measurement, and nothing here licenses a claim about it either way.
+
+### C — is it actually bilateral? YES, the framing survives
+
+**up 105 · down 141 · 24 undecidable — a 42.7% up-share**, inside the 40–60%
+band pre-committed as the falsifier. **The falsifier does not fire, at a sample
+that could have fired it.** The "no direction" framing is kept on evidence rather
+than on taste, and `Symmetrical Triangle (bilateral)` stays a non-voting neutral
+card.
+
+**Run 1's 29.2% was noise.** It is the single most valuable thing in this pair of
+runs: the number that looked most like a discovery at n = 24 is the one the
+powered sample killed. Had it been acted on, the card would have been rewritten
+as a bearish pattern on 24 resolutions.
+
+### What this means for the scanner
+
+It stays registered, running, visible, and **non-voting** — and now with a
+measured reason rather than a structural one. A detector that fires 270 times in
+a decade and predicts an ordinary-sized move is not a trade; it is context, which
+is what a non-voting card is for. The remaining honest use is what the card
+already does: name both levels and refuse to pick a side.
