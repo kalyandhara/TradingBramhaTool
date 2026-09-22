@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-21] measure | B-115 — held breaks DO beat doing nothing, by about 0.8pp, and a sign error nearly said the opposite
+- **The arm B-114 deliberately did not claim.** Pre-registered and committed BEFORE the run (`26f3fda`) so the baseline could not be chosen to flatter the +1.28pp: every eligible bar in the SAME names and window, same entry/exit timing, same costs. Up-direction only — a long-only desk's alternative is owning it, not shorting it.
+- **1,545 up-held breaks vs 261,121 eligible bars: +0.21 / +0.31 / +0.82 / +0.75pp** at 5/10/20/60d, **p=0.006 at h=20**, sign positive at all four → **POSITIVE as written**. Clustered by symbol: **130 names, mean +0.67pp, median +0.36pp, 75/130 positive (58%), p=0.0297.**
+- **Read thinly, because it is thin.** Only h=20 clears 0.05 on its own; the clustered p is 0.0297 against B-114's 0.0015; mean above median says a minority of names carry more than their share. **B-114's +1.28pp therefore splits roughly in two** — about +0.8pp of "held is better than average" and the rest from "failed is worse than average". Both real, neither large.
+- **A sign error caught before it was written down.** The first report printed *"held down-breaks fell −0.94%"*. They did not fall: the stored return is signed by the event's DIRECTION, so −0.94 on a down event means the name **rose 0.94%** — against a random bar's +1.47%. **A held DOWN break is an underperformance read, not a decline.** The report now prints raw returns with the gap, and a test pins the wording so "fell" cannot reappear for a number that rose.
+- Suite **1,071 passed**. The card keeps describing structure rather than proposing trades, and the quality ladder is still unranked.
+
 ## [2026-09-21] measure | B-114 powered — the SBC card's wording is POSITIVE at 150 names, and BSE alone was 12x too big
 - **The fast walk came first, and was diffed before it was trusted.** `walk_fast` runs ONE `detect_structure_chain` pass per symbol instead of two per bar, rebuilding the card's stats from the event prefix. `--validate` ran both walks on BSE and compared every field: **41 events, IDENTICAL** — type, direction, quality, failed flag, verdict tone and all four forward returns. A fast path that is not diffed against the slow one is a rewrite with a result attached.
 - **150 nifty500 names, ~10 years: 4,608 events — 2,525 held, 2,083 failed.** A break that HELD beat one that FAILED by **+0.35 / +0.86 / +1.28 / +0.96pp** at 5/10/20/60d, direction-signed, net of Indian delivery costs. p<0.001 at the primary horizon, sign holding at all four → **POSITIVE at the bar written down before the run.**

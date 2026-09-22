@@ -414,13 +414,19 @@ def baseline_report(res: dict) -> str:
                   f"mean {c['mean_diff']:+.2f}pp · median {c['median_diff']:+.2f}pp · "
                   f"{c['symbols_positive']}/{c['n_symbols']} positive "
                   f"({c['share_positive']:.0%}) · p={c['p']:.4f}"]
-    L += ["", "DOWN side — description only (a long-only desk does not short it):"]
+    L += ["", "DOWN side — description only (a long-only desk does not short it).",
+          "   Printed RAW, not direction-signed: the first cut of this line said "
+          "'fell -0.94%' when the name had actually RISEN 0.94%, because the stored "
+          "value is signed by the event's direction. An underperformance read is not "
+          "a decline, and the two must not be printed in the same words."]
     for h in HORIZONS:
         d = res["down_side"][str(h)]
         if d["mean_signed"] is None:
             continue
-        L.append(f"   @{h}d: held down-breaks fell {d['mean_signed']:+.2f}% "
-                 f"(signed) vs a random bar's {d['baseline_mean']:+.2f}% drift")
+        raw = -d["mean_signed"]          # stored signed; undo it for display
+        L.append(f"   @{h}d: after a held DOWN break the name returned "
+                 f"{raw:+.2f}% vs a random bar's {d['baseline_mean']:+.2f}% "
+                 f"→ {raw - d['baseline_mean']:+.2f}pp")
     L += ["", f"VERDICT: {res['verdict']}"]
     return "\n".join(L)
 

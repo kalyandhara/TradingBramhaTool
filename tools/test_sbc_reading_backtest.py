@@ -169,3 +169,25 @@ def test_a_failure_outside_the_read_window_is_not_used():
     usable = bool(ev["failed"]) and (ev["failed_bar"] is None
                                      or ev["failed_bar"] <= read_at)
     assert usable is False
+
+
+# ── B-115: the sign convention, which the first report got wrong ──────────────
+def test_the_down_side_is_printed_raw_not_signed():
+    """Stored returns are signed BY THE EVENT'S DIRECTION, so a down event's
+    +0.94 stored as -0.94 means the name ROSE. The first cut of the baseline
+    report printed "fell -0.94%" for exactly that case. An underperformance read
+    is not a decline and must not borrow its words."""
+    res = {"n_up_held": 1545, "n_baseline_bars": 261121,
+           "primary": {str(h): {"diff": 0.5, "p": 0.01, "mean_a": 2.0, "mean_b": 1.5}
+                       for h in sbcb.HORIZONS},
+           "clustered": {}, "verdict": "POSITIVE — test fixture",
+           "down_side": {str(h): {"n": 980, "mean_signed": -0.936,
+                                  "baseline_mean": 1.469} for h in sbcb.HORIZONS}}
+    out = sbcb.baseline_report(res)
+    # Check the DATA lines, not the note that explains the old mistake — the
+    # note necessarily quotes the wrong wording in order to warn about it.
+    data = [l for l in out.splitlines() if l.strip().startswith("@")]
+    assert data, "expected per-horizon down-side lines"
+    assert any("+0.94%" in l for l in data)     # the RAW return: the name rose
+    assert not any("fell" in l for l in data)
+    assert any("-0.53pp" in l for l in data)    # and it underperformed by half a point

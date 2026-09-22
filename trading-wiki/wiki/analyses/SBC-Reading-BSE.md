@@ -1,7 +1,7 @@
 ---
-title: "SBC card reading — POSITIVE at 150 names, and BSE alone was 12x too big"
+title: "SBC card reading — POSITIVE, and it still beats doing nothing (barely)"
 category: analysis
-tags: [structure-break-chain, choch, bos, market-structure, backtest, bse, b-114, measured-positive, clustered]
+tags: [structure-break-chain, choch, bos, market-structure, backtest, bse, b-114, b-115, measured-positive, clustered, baseline]
 timeframe: swing
 created: 2026-09-21
 updated: 2026-09-21
@@ -176,3 +176,73 @@ this desk that is neither null nor inverted.
 Live-data wobble, noted for honesty: two runs an hour apart returned 4,607 and
 4,608 events (+1.29pp and +1.28pp). yfinance re-served the frames slightly
 differently. Nothing here should be quoted past two significant figures.
+
+## Run 3 (B-115) — held breaks vs DOING NOTHING
+
+Run 2 answered "is a held break different from a failed one?" It never asked the
+question a reader actually has: **is a held break different from just owning the
+stock?** A two-bucket difference can be entirely a statement about the failed
+side being bad.
+
+Pre-registered and committed before the run (`26f3fda`): the baseline is **every
+eligible bar in the same names and window**, same entry/exit timing, same costs.
+Up-direction only, because this desk is long-only and "do nothing" means "own it
+anyway" — scoring the short side would grade a trade the desk does not take.
+
+**1,545 up-direction held breaks against 261,121 eligible bars:**
+
+| h | held | baseline | **edge** | p |
+|---|---|---|---|---|
+| 5 | +0.27% | +0.05% | +0.21 | 0.183 |
+| 10 | +0.83% | +0.52% | +0.31 | 0.139 |
+| 20 | +2.29% | +1.47% | **+0.82** | **0.006** |
+| 60 | +6.14% | +5.40% | +0.75 | 0.194 |
+
+**Clustered (symbol as the unit): 130 symbols · mean +0.67pp · median +0.36pp ·
+75/130 positive (58%) · p = 0.0297.**
+
+**Verdict: POSITIVE at the pre-registered bar** — positive at h = 20 with
+p < 0.05 and the sign holding at 5 / 10 / 60.
+
+### Read it thinly, because it is thin
+
+* **Only h = 20 is individually significant.** 5, 10 and 60 are all positive and
+  none of them clears p = 0.05. The pass came from a criterion that asked for
+  *sign stability* plus significance at the primary — which is what was written
+  down, and it is a weaker thing than four significant horizons.
+* **The clustered p is 0.0297, not 0.0015.** Run 2's two-bucket difference was
+  the stronger result; measured against doing nothing, the same events are less
+  impressive.
+* **Mean +0.67 against median +0.36** says a minority of names carry more than
+  their share. 58% positive is a majority, not a consensus.
+* **So B-114's +1.28pp splits roughly in two**: about +0.8pp of "held is better
+  than average" and the rest from "failed is worse than average". Both sides are
+  real; neither is large.
+
+### The down side, and a sign error worth recording
+
+Description only — a long-only desk does not short it — and the first version of
+this line was **wrong in a way worth keeping on the record**. It printed *"held
+down-breaks fell −0.94%"*. They did not fall. The stored return is signed by the
+event's direction, so −0.94 for a down event means the name **rose 0.94%**:
+
+| h | after a held DOWN break | random bar | gap |
+|---|---|---|---|
+| 5 | +0.03% | +0.05% | −0.02pp |
+| 10 | −0.05% | +0.52% | −0.57pp |
+| 20 | **+0.94%** | +1.47% | −0.53pp |
+| 60 | **+4.77%** | +5.40% | −0.63pp |
+
+**A held downward break is an UNDERPERFORMANCE read, not a decline.** The name
+still goes up; it goes up about half a point less over 20 sessions. As an "avoid"
+signal that is weak, and it is not tested. The report now prints raw returns with
+the gap, and a test pins the wording so "fell" cannot reappear for a number that
+rose.
+
+## Where this leaves the card
+
+The card's held/failed wording is measured twice now: the two buckets differ
+(B-114), and the held side genuinely beats owning the same bars (B-115) — by
+about **0.8pp over 20 sessions, net of costs, on 58% of names**. That is a real
+effect and a small one, and the card should keep describing structure rather than
+proposing trades. The quality ladder remains unranked and remains decoration.
