@@ -71,6 +71,8 @@
      substituted for RSI, so there is one divergence implementation, not two.
      MUST load after rsi_divergence.js: it delegates to RSIDIV.compute. -->
 <script src="/obv_divergence.js"></script>
+<!-- Simple Volume with Pocket Pivots — colours the four bars that mean something and greys the rest. Independent implementation from a published description; see simple_volume.js -->
+<script src="/simple_volume.js"></script>
 
 <!-- User drawing tools (trend line / horizontal ray / zone / text / Fib).
      Lightweight Charts ships none of these, so chart_drawings.js is the pure
@@ -987,6 +989,17 @@ html, body {
 }
 .ind-legend .leg-more { color: var(--text-muted); }
 
+/* ── Simple Volume card ────────────────────────────────────────────────────── */
+/* order 6 — after the structure card: this is context about participation, not
+   a trigger. Reuses .sbc-row / .sbc-note so the two read as one family. */
+.svol-info {
+  order: 6;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
+  padding: 7px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
+  max-width: 250px; display: none;
+}
+.svol-info .svol-head { font-weight: 700; margin-bottom: 3px; }
+
 /* ── Structure Break Chain card ───────────────────────────────────────────── */
 /* order 5 — trailing the actionable cards: structure state is context for the
    signals above it, not a trigger of its own. Same collapse-on-head-click
@@ -1513,6 +1526,7 @@ const INDICATOR_DEFS = [
   {key:'obvdiv',    label:'OBV Divergence (regular + hidden)', group:'Oscillators', color:'#00bd6f', alias:'obv divergence on balance volume accumulation distribution luxalgo volume divergence'},
   // ── Volume ──────────────────────────────────────────────────────────────────
   {key:'volume',     label:'Volume',                 group:'Volume',            color:'#888888'},
+  {key:'simplevol',  label:'Simple Volume (Pocket Pivots — PPV / dry / above-average)', group:'Volume', color:'#2f81f7'},
   {key:'volprofile', label:'Volume Profile (POC/VA/HVN/LVN)', group:'Volume',  color:'#9aa4af'},
   {key:'svp',        label:'Session Volume Profile HD (D/P/B/I + Accum/Distrib)', group:'Volume', color:'#26c6da'},
   // Real taker side, not an estimate from bar internals — see drawDeltaProfile.
@@ -2037,6 +2051,56 @@ function macdCalc(bars, fast = 12, slow = 26, signal = 9) {
   const sigTimes = new Set(signalLine.map(p => p.time));
   return {macd: macdLine.filter(p => sigTimes.has(p.time)), signal: signalLine, hist};
 }
+
+// The card. Small on purpose: the whole point of this indicator is that the
+// COLOUR is the reading, so the panel adds only what colour cannot say — how
+// far above its own average today is, and whether pocket pivots are clustering,
+// which is the "institutional accumulation" tell the author describes.
+const SVOL_LABEL = {
+  ppv: 'Pocket Pivot', up: 'Above average (up)', down: 'Above average (down)',
+  dry: 'Dry — a fifth of average', noise: 'Unremarkable',
+};
+
+function renderSimpleVolumeCard(pane) {
+  const st = pane.svolStats;
+  let box = pane.el.querySelector('.svol-info');
+  if (!st) { if (box) box.style.display = 'none'; return; }
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'svol-info';
+    mountCard(pane, box, 'stack');
+  }
+  box.style.display = 'block';
+  const col = (SVOL.colors[st.kind] || SVOL.colors.noise);
+  const rv = st.rvol == null ? '—' : `${st.rvol.toFixed(0)}%`;
+  box.innerHTML =
+    `<div class="svol-head" style="color:${col}">Volume — ${SVOL_LABEL[st.kind]}</div>` +
+    `<div class="sbc-row"><span>RVol (vs ${SVOL.maLen}-day avg)</span>` +
+      `<span>${rv}</span></div>` +
+    `<div class="sbc-row"><span>Average</span><span>` +
+      `${st.ma == null ? '—' : fmtVol(st.ma)}</span></div>` +
+    `<div class="sbc-row"><span>Pocket pivots (20b)</span><span>${st.ppv20}</span></div>` +
+    `<div class="sbc-row"><span>Dry bars (20b)</span><span>${st.dry20}</span></div>` +
+    `<div class="sbc-note">Blue = up-day volume above every down day of the last ` +
+      `${SVOL.ppvLen}; green/red = above average; orange = dry. Grey is noise by ` +
+      `design.<br><i>Unmeasured: no forward-return study backs these colours ` +
+      `on this desk.</i></div>`;
+}
+
+function fmtVol(v) {
+  if (v == null) return '—';
+  if (v >= 1e7) return (v / 1e7).toFixed(2) + ' Cr';
+  if (v >= 1e5) return (v / 1e5).toFixed(2) + ' L';
+  if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
+  return String(Math.round(v));
+}
+
+// ── Simple Volume with Pocket Pivots ────────────────────────────────────────
+// The rules live in /simple_volume.js (a pure computation module, testable under
+// node like fvg.js and obv_divergence.js). These are the two call points.
+const SVOL = window.SimpleVolume ? window.SimpleVolume.DEFAULTS : {maLen: 50, ppvLen: 10, dryFrac: 5, colors: {}};
+const classifySimpleVolume = (bars, cfg) => window.SimpleVolume.classify(bars, cfg);
+const simpleVolumeStats = rows => window.SimpleVolume.stats(rows);
 
 function volumeBarSeries(bars) {
   // Colored like the candlesticks themselves (up/down by bar direction).
@@ -3893,6 +3957,13 @@ function applyIndicators(pane) {
   if (!pane.indicators.has('liquidity') && pane.liq) clearLiquidity(pane);
   // Clear the %R exhaustion main-chart overlay (arrows + tint) if deselected.
   if (!pane.indicators.has('prte') && (pane.prteData || pane._markerSrcs?.prte)) clearPrteOverlay(pane);
+  // Tear down the Simple Volume card if deselected (the histogram itself is
+  // removed by the generic series teardown).
+  if (!pane.indicators.has('simplevol')) {
+    pane.svolStats = null;
+    const b = pane.el.querySelector('.svol-info');
+    if (b) b.style.display = 'none';
+  }
   // Tear down MA Bias card + cross markers if deselected
   if (!pane.indicators.has('mabias') && pane.maBias) clearMABias(pane);
   // Tear down Elliott Wave overlay if deselected
@@ -3987,6 +4058,23 @@ function applyIndicators(pane) {
         pane.indSeries[key] = vs;
         break;
       }
+      case 'simplevol': {
+        // Same overlay-scale mechanism as `volume` (see above) — it is the same
+        // histogram, read differently. Given its own scale id so the two can be
+        // shown together without one rescaling the other, which is the state a
+        // reader ends up in while deciding whether they prefer the colours.
+        const sv = pane.chart.addHistogramSeries({
+          priceScaleId: 'simplevol',
+          priceFormat: {type: 'volume'},
+          priceLineVisible: false,
+          lastValueVisible: false,
+        });
+        try {
+          sv.priceScale().applyOptions({scaleMargins: {top: 0.80, bottom: 0}});
+        } catch {}
+        pane.indSeries[key] = sv;
+        break;
+      }
       case 'bollinger':
         pane.indSeries[key] = [
           addLine(pane, def.color, 1),
@@ -4072,6 +4160,16 @@ function applyIndicators(pane) {
       case 'ema200': s.setData(emaSeries(bars, 200)); break;
       case 'vwap':   s.setData(vwapSeries(bars, pane.tf)); break;
       case 'volume': s.setData(volumeBarSeries(bars)); break;
+      case 'simplevol': {
+        const rows = classifySimpleVolume(bars);
+        s.setData(rows.map(r => ({time: r.time, value: r.value, color: r.color})));
+        // Stash the reading for the card. The classification is the expensive
+        // part and the card must never recompute it differently from the bars
+        // the reader is looking at.
+        pane.svolStats = simpleVolumeStats(rows);
+        renderSimpleVolumeCard(pane);
+        break;
+      }
       case 'avwap':  s.setData(anchoredVwapSeries(bars, lastSwingLowIdx(bars))); break;
       case 'bollinger': {
         const {mid, upper, lower} = bollingerSeries(bars, 20, 2);
