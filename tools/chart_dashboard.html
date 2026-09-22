@@ -213,10 +213,11 @@ html, body {
   display: flex; align-items: center; gap: 5px; flex-shrink: 0;
   padding: 4px 8px; background: var(--bg-pane-header);
   border-bottom: 1px solid var(--border-soft); z-index: 5;
-  /* Without this the row is as wide as its content and the overflow is simply
-     invisible past the pane edge — which is how the price went missing rather
-     than wrapping or shrinking. */
-  min-width: 0; overflow: hidden;
+  /* min-width:0 is what lets the children shrink instead of overflowing the
+     pane, which is how the price went missing. NOT overflow:hidden — the
+     INDICATORS popover is an absolutely-positioned child of this row, and
+     clipping the row clipped the popover to its search box (2026-09-22). */
+  min-width: 0;
 }
 /* ── The price must survive a narrow pane (8-chart grid) ───────────────────── */
 /* MEASURED, after a first guess blamed the company name: at an 8-chart layout a
