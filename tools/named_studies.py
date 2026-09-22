@@ -65,8 +65,15 @@ STUDIES: tuple[dict, ...] = (
     {
         "item": "B-114", "tool": "sbc_reading_backtest.py", "date": "2026-09-21",
         "subjects": ("structure break chain reading",),
-        "verdict": "INCONCLUSIVE",
-        "headline": ("BSE only: 41 events, 32 held vs 9 FAILED -- held breaks beat "
+        "verdict": "POSITIVE",
+        "headline": ("150 names, 4,608 events (2,525 held / 2,083 failed): a break that "
+                     "HELD beat one that FAILED by +1.28pp @20d, p<0.001 pooled -- and it "
+                     "SURVIVES clustering (symbol as the unit: 133 names, mean +1.37pp, "
+                     "median +1.04pp, 79/133 positive, p=0.0015). The graded quality score "
+                     "does NOT rank on the same data (NORMAL -0.37% sits below WEAK "
+                     "+0.52%), so the binary carries it. NOT tested against a do-nothing "
+                     "baseline. BSE alone had said +16.05pp -- twelve times the powered "
+                     "number, which is the floor's whole argument. Earlier BSE-only run: 41 events, 32 held vs 9 FAILED -- held breaks beat "
                      "failed ones by +7.1/+12.7/+16.1/+15.8pp at 5/10/20/60d "
                      "(p 0.064/0.009/0.039/0.064), and the failed bucket is 9 against "
                      "a pre-registered floor of 30, so nothing is claimed. The first "

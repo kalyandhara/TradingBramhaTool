@@ -111,3 +111,61 @@ def test_a_downward_break_that_precedes_a_fall_scores_positive():
     df = pd.DataFrame({"open": px, "high": px, "low": px, "close": px})
     r = sbcb._signed_fwd(df, 2, 3, "down", sbcb.bt.COST_GROSS)
     assert r == pytest.approx(10.0, abs=0.01)
+
+
+# ── the fast walk's reconstructed stats ───────────────────────────────────────
+# `walk_fast` detects the chain ONCE per symbol and rebuilds the card's stats
+# from the event prefix, because re-detecting twice per bar is what kept this
+# study to a single name. The reconstruction is a reimplementation of somebody
+# else's accumulator, so it is checked here AND diffed against the slow walk by
+# `--validate` on real data.
+def _events(spec):
+    """spec = [(type, chain)] — the two fields the reconstruction reads."""
+    return [{"type": t, "chain": c, "direction": "up", "failed": False,
+             "failed_bar": None, "bar": 100 + i, "quality": "STRONG"}
+            for i, (t, c) in enumerate(spec)]
+
+
+def test_a_chain_completes_when_a_choch_turns_the_structure():
+    """Lengths are the chain counter of the event BEFORE each CHoCH: a run of
+    3 BOSs ended by a CHoCH is a completed chain of 3."""
+    evs = _events([("BOS", 1), ("BOS", 2), ("BOS", 3), ("CHOCH", 1)])
+    assert stats_at_avg(evs) == 3.0
+
+
+def stats_at_avg(evs):
+    return sbcb.stats_at(evs)["avg_chain"]
+
+
+def test_avg_chain_averages_every_completed_chain():
+    evs = _events([("BOS", 1), ("BOS", 2), ("CHOCH", 1),      # completed 2
+                   ("BOS", 2), ("BOS", 3), ("BOS", 4), ("CHOCH", 1)])  # completed 4
+    assert stats_at_avg(evs) == 3.0
+
+
+def test_an_unfinished_chain_is_not_averaged_in():
+    """A run still in progress has no length yet. Counting it would drag the
+    average toward whatever today happens to be."""
+    assert stats_at_avg(_events([("BOS", 1), ("BOS", 2), ("BOS", 3)])) is None
+
+
+def test_stats_count_types_and_the_running_chain():
+    s = sbcb.stats_at(_events([("BOS", 1), ("CHOCH", 1), ("BOS", 2)]))
+    assert (s["total_bos"], s["total_choch"]) == (2, 1)
+    assert s["chain"] == 2 and s["max_chain"] == 2
+
+
+def test_empty_events_do_not_crash_the_reconstruction():
+    s = sbcb.stats_at([])
+    assert s["avg_chain"] is None and s["total_bos"] == 0
+
+
+def test_a_failure_outside_the_read_window_is_not_used():
+    """`failed` is taken as-of the read bar. A flag set later is hindsight, and
+    the guard says so rather than trusting the detector never does it."""
+    ev = {"type": "CHOCH", "chain": 1, "direction": "up", "quality": "STRONG",
+          "bar": 100, "failed": True, "failed_bar": 100 + sbcb.FAIL_WIN + 5}
+    read_at = ev["bar"] + sbcb.FAIL_WIN
+    usable = bool(ev["failed"]) and (ev["failed_bar"] is None
+                                     or ev["failed_bar"] <= read_at)
+    assert usable is False

@@ -1,7 +1,7 @@
 ---
-title: "SBC card reading — BSE Ltd: INCONCLUSIVE, and the first run was measuring an artifact"
+title: "SBC card reading — POSITIVE at 150 names, and BSE alone was 12x too big"
 category: analysis
-tags: [structure-break-chain, choch, bos, market-structure, backtest, bse, b-114, inconclusive]
+tags: [structure-break-chain, choch, bos, market-structure, backtest, bse, b-114, measured-positive, clustered]
 timeframe: swing
 created: 2026-09-21
 updated: 2026-09-21
@@ -12,7 +12,7 @@ related:
   - concepts/Market-Structure-CHOCH-BOS.md
 ---
 
-# SBC card reading — BSE Ltd
+# SBC card reading — BSE, then the universe
 
 The Structure Break Chain card started printing a plain-English verdict on
 2026-09-21 ("Trend change NOT confirmed — the CHoCH failed", "Trend
@@ -102,3 +102,77 @@ clears 30 — roughly 5–8 names' worth of history at BSE's rate of 9 failures 
 2,400 sessions, so a 150-name run would be comfortable. The study takes
 `--universe`; what it needs first is a faster walk, because it currently
 re-detects the chain twice per bar.
+
+## Run 2 — 150 nifty500 names: POSITIVE, and it survives clustering
+
+The same protocol, same pre-registered bar, 150 names × ~10 years. `walk_fast`
+made it runnable: one `detect_structure_chain` pass per symbol instead of two per
+bar, **validated against the slow walk on BSE first — 41 events, every field
+identical**, because a fast path that is not diffed against the slow one is a
+rewrite with a result attached.
+
+**4,608 events · 2,525 held · 2,083 failed** — both buckets far past the floor.
+
+| h | held | failed | **diff** | p (pooled) |
+|---|---|---|---|---|
+| 5 | +0.15% | −0.20% | +0.35 | 0.065 |
+| 10 | +0.53% | −0.34% | **+0.86** | 0.001 |
+| 20 | +1.04% | −0.24% | **+1.28** | 0.000 |
+| 60 | +1.91% | +0.95% | +0.96 | 0.146 |
+
+**Verdict: POSITIVE** — positive at h = 20 with p < 0.05 and the sign holding at
+5 / 10 / 60, which is exactly what was written down before the run.
+
+### The clustering control, because the pooled p is not believable on its own
+
+4,608 events over 150 names are not 4,608 independent observations: events inside
+one symbol share its trend, and events across symbols share the same market days.
+So the same test with **the SYMBOL as the unit** — one (held − failed) difference
+per name, tested across names:
+
+> **133 symbols · mean +1.37pp · median +1.04pp · 79 of 133 positive (59%) ·
+> p = 0.0015**
+
+It survives. Mean and median agree, which rules out a handful of names carrying
+it, and 59% positive is a modest but real majority.
+
+### What the powered run does to BSE's number
+
+**BSE alone said +16.05pp at h = 20. Across 150 names the same measurement is
++1.28pp — the same direction, one twelfth the size.** That is the entire argument
+for the floor, restated in one line: a 9-event bucket did not lie about the
+direction, it lied about the magnitude by a factor of twelve.
+
+### The secondaries still do not rank — on ten times the data
+
+| verdict tone | n | mean @20d | | quality | n | mean @20d |
+|---|---|---|---|---|---|---|
+| good | 1,297 | +0.97% | | STRONG | 1,686 | **+1.33%** |
+| warn | 1,228 | **+1.12%** | | NORMAL | 1,844 | **−0.37%** |
+| bad | 2,083 | −0.24% | | WEAK | 1,078 | +0.52% |
+
+`warn` still beats `good`, and `NORMAL` still sits **below** `WEAK`. On 4,608
+events that is no longer a small-sample wobble: **the graded quality score is not
+ranking anything.** What carries the result is the binary — did price come back
+through the level — and the `0.6·dist/ATR + 0.4·body/ATR` formula the card prints
+is, so far, decoration.
+
+## What this licenses, precisely
+
+**Does**: the card's held/failed wording is now backed by a measurement rather
+than by nothing, and the footer can say so. This is the first structure read on
+this desk that is neither null nor inverted.
+
+**Does NOT**:
+
+* **It is held-vs-failed, not held-vs-doing-nothing.** No baseline arm was
+  pre-registered and none was run, so nothing here says a held break beats buying
+  the same bars blind. That is the obvious next test and it is not this one.
+* **It is not a trade.** +1.28pp over 20 sessions, net of costs, on a two-bucket
+  difference, with 59% of names positive.
+* **It says nothing about the quality score**, which the same run shows is not
+  ordering outcomes.
+
+Live-data wobble, noted for honesty: two runs an hour apart returned 4,607 and
+4,608 events (+1.29pp and +1.28pp). yfinance re-served the frames slightly
+differently. Nothing here should be quoted past two significant figures.

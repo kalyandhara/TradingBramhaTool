@@ -171,6 +171,115 @@ def walk(df: pd.DataFrame, cm=None, stride: int = 1) -> list[dict]:
     return out
 
 
+def stats_at(events: list[dict]) -> dict[str, Any]:
+    """The card's stats as they stood after ``events`` — no look-ahead.
+
+    Reconstructed from the event prefix rather than re-detected, which is the
+    whole point of the fast walk. Only the fields the verdict reads have to be
+    right, and `avg_chain` is the one that decides anything; the rest are carried
+    so the row is self-describing.
+
+    A chain COMPLETES when a CHoCH turns the structure, and its length is the
+    chain counter of the event immediately before that CHoCH — the same quantity
+    `detect_structure_chain` averages. Validated against the detector itself by
+    `--validate`, which is the only reason to trust a reimplementation of
+    somebody else's accumulator.
+    """
+    if not events:
+        return {"avg_chain": None, "max_chain": 0, "total_bos": 0,
+                "total_choch": 0, "failed_count": 0, "chain": 0, "trend": 0}
+    completed = [events[i - 1]["chain"] for i in range(1, len(events))
+                 if events[i]["type"] == "CHOCH"]
+    last = events[-1]
+    return {
+        "avg_chain": round(sum(completed) / len(completed), 1) if completed else None,
+        "completed_chains": len(completed),
+        "max_chain": max(e["chain"] for e in events),
+        "chain": last["chain"],
+        "trend": 1 if last["direction"] == "up" else -1,
+        "total_bos": sum(1 for e in events if e["type"] == "BOS"),
+        "total_choch": sum(1 for e in events if e["type"] == "CHOCH"),
+        "failed_count": sum(1 for e in events if e["failed"]),
+    }
+
+
+def walk_fast(df: pd.DataFrame, cm=None) -> list[dict]:
+    """The same measurement as `walk`, with ONE detection pass per symbol.
+
+    `walk` re-detects the entire chain twice on every bar, which is minutes per
+    symbol and hours per universe — it is why B-114 could only ever be run on one
+    name. The detector walks forward and never looks back, so the events it
+    reports for bars <= T are the events a run that STOPPED at T would report;
+    that is the assumption this path rests on, and `--validate` checks it against
+    the slow walk rather than asserting it.
+
+    The `failed` flag is knowable at `bar + fail_win` and not before, so it is
+    taken as-of the read bar exactly as the slow walk does.
+    """
+    cm = cm or bt.COST_INDIAN
+    df = df.dropna(subset=["high", "low", "close"]).reset_index(drop=True)
+    try:
+        d = sc.detect_structure_chain(df)
+    except Exception:
+        return []
+    if not d or not d.get("events"):
+        return []
+    max_h = max(HORIZONS)
+    out: list[dict] = []
+    for k, ev in enumerate(d["events"]):
+        t = ev["bar"]
+        read_at = t + FAIL_WIN
+        if t < WARMUP or read_at + 1 + max_h > len(df) - 1:
+            continue
+        # Failure inside the window is visible at the read bar; anything later
+        # would be hindsight and is not used. (`detect_structure_chain` only ever
+        # sets it inside the window, so this is a guard, not a filter.)
+        failed = bool(ev["failed"]) and (ev.get("failed_bar") is None
+                                         or ev["failed_bar"] <= read_at)
+        seen = [{**e, "failed": bool(e["failed"]) and
+                 (e.get("failed_bar") is None or e["failed_bar"] <= read_at)}
+                for e in d["events"][:k + 1]]
+        tone, verdict = verdict_tone(stats_at(seen), {**ev, "failed": failed})
+        row = {"t": t, "read_at": read_at, "type": ev["type"],
+               "direction": ev["direction"], "quality": ev["quality"],
+               "failed": failed, "tone": tone, "verdict": verdict}
+        for h in HORIZONS:
+            row[f"r{h}"] = _signed_fwd(df, read_at, h, ev["direction"], cm)
+        out.append(row)
+    return out
+
+
+def validate(df: pd.DataFrame, label: str = "") -> bool:
+    """Run BOTH walks and report every disagreement. Returns True when identical.
+
+    A fast path that is not checked against the slow one is a rewrite with a
+    result attached, and this repo has a rule about believing those.
+    """
+    slow, fast = walk(df), walk_fast(df)
+    ok = True
+    print(f"validate {label}: slow {len(slow)} events · fast {len(fast)} events")
+    if len(slow) != len(fast):
+        ok = False
+    by_t = {r["t"]: r for r in fast}
+    for r in slow:
+        f = by_t.get(r["t"])
+        if f is None:
+            print(f"  MISSING in fast: bar {r['t']} {r['type']}")
+            ok = False
+            continue
+        for key in ("type", "direction", "quality", "failed", "tone"):
+            if r[key] != f[key]:
+                print(f"  bar {r['t']} {key}: slow={r[key]} fast={f[key]}")
+                ok = False
+        for h in HORIZONS:
+            a, b = r[f"r{h}"], f[f"r{h}"]
+            if (a is None) != (b is None) or (a is not None and abs(a - b) > 1e-9):
+                print(f"  bar {r['t']} r{h}: slow={a} fast={b}")
+                ok = False
+    print("  IDENTICAL" if ok else "  MISMATCH")
+    return ok
+
+
 def _arm(a: list[float], b: list[float]) -> dict[str, Any]:
     a = [x for x in a if x is not None]
     b = [x for x in b if x is not None]
@@ -181,6 +290,43 @@ def _arm(a: list[float], b: list[float]) -> dict[str, Any]:
             "mean_a": round(float(np.mean(a)), 3),
             "mean_b": round(float(np.mean(b)), 3),
             "diff": round(float(np.mean(a) - np.mean(b)), 3),
+            "t": round(float(t_val), 3), "p": round(float(p_val), 4)}
+
+
+def by_symbol(rows: list[dict], h: int = PRIMARY_H) -> dict[str, Any]:
+    """The clustering control the pooled t-test cannot supply.
+
+    4,607 events over 150 names are not 4,607 independent observations: events
+    inside one symbol share its trend, and events across symbols share the same
+    market days. A pooled p-value over them is the most overstated number this
+    study can print — the same objection B-98's pre-registration raised against
+    itself, and the one `ob_bias_clustered` (B-76c) was written to answer for the
+    order-block gauge.
+
+    So: one (held − failed) difference per SYMBOL, then a one-sample test across
+    symbols. The unit becomes the name, and 150 names are far closer to
+    independent than 4,607 events are.
+    """
+    per: list[float] = []
+    wins = 0
+    for sym in {r.get("symbol") for r in rows}:
+        mine = [r for r in rows if r.get("symbol") == sym]
+        held = [r[f"r{h}"] for r in mine if not r["failed"] and r[f"r{h}"] is not None]
+        fail = [r[f"r{h}"] for r in mine if r["failed"] and r[f"r{h}"] is not None]
+        if len(held) < 3 or len(fail) < 3:        # a name with no comparison
+            continue
+        d = float(np.mean(held) - np.mean(fail))
+        per.append(d)
+        wins += int(d > 0)
+    if len(per) < 10:
+        return {"n_symbols": len(per), "mean_diff": None, "p": None}
+    arr = np.asarray(per, float)
+    t_val, p_val = bt._ttest_1samp(arr, 0.0)
+    return {"n_symbols": len(per),
+            "mean_diff": round(float(arr.mean()), 3),
+            "median_diff": round(float(np.median(arr)), 3),
+            "symbols_positive": wins,
+            "share_positive": round(wins / len(per), 3),
             "t": round(float(t_val), 3), "p": round(float(p_val), 4)}
 
 
@@ -202,7 +348,8 @@ def analyse(rows: list[dict]) -> dict[str, Any]:
         by_quality[q] = {"n": len(vals),
                          "mean": round(float(np.mean(vals)), 3) if vals else None}
     res = {"n_events": len(rows), "n_held": len(held), "n_failed": len(failed),
-           "primary": primary, "by_tone": by_tone, "by_quality": by_quality}
+           "primary": primary, "by_tone": by_tone, "by_quality": by_quality,
+           "clustered": by_symbol(rows)}
     res["verdict"] = verdict_of(res)
     return res
 
@@ -238,6 +385,17 @@ def report(res: dict, label: str) -> str:
             continue
         L.append(f"{h:>4}{m['n_a']:>8}{m['n_b']:>8}{m['mean_a']:>9.2f}"
                  f"{m['mean_b']:>9.2f}{m['diff']:>+9.2f}{m['p']:>8.3f}")
+    c = res.get("clustered") or {}
+    if c.get("mean_diff") is not None:
+        L += ["", f"CLUSTERED — one (held − failed) difference per SYMBOL, "
+                  f"tested across names (@{PRIMARY_H}d):",
+              f"   {c['n_symbols']} symbols · mean {c['mean_diff']:+.2f}pp · "
+              f"median {c['median_diff']:+.2f}pp · "
+              f"{c['symbols_positive']}/{c['n_symbols']} positive "
+              f"({c['share_positive']:.0%}) · p={c['p']:.4f}"]
+    elif c:
+        L += ["", f"CLUSTERED — only {c.get('n_symbols', 0)} symbols had both "
+                  f"buckets; not tested"]
     L += ["", f"By card verdict tone (@{PRIMARY_H}d, signed):"]
     for tone, m in res["by_tone"].items():
         L.append(f"   {tone:<5} n={m['n']:<4} "
@@ -257,6 +415,10 @@ def main() -> int:
     ap.add_argument("--symbols", type=int, default=150)
     ap.add_argument("--days", type=int, default=2500)
     ap.add_argument("--stride", type=int, default=1)
+    ap.add_argument("--fast", action="store_true",
+                    help="one detection pass per symbol (validated against --slow)")
+    ap.add_argument("--validate", action="store_true",
+                    help="run both walks on the symbol and diff them")
     a = ap.parse_args()
 
     import screener_pipeline as sp
@@ -278,12 +440,23 @@ def main() -> int:
             continue
         if df is None or getattr(df, "empty", True):
             continue
-        rows += [{**r, "symbol": sym} for r in walk(df, stride=a.stride)]
+        if a.validate:
+            validate(df, sym)
+            continue
+        _w = walk_fast if (a.fast or a.universe) else walk
+        rows += [{**r, "symbol": sym} for r in
+                 (_w(df) if _w is walk_fast else _w(df, stride=a.stride))]
     if len(syms) > 1:
         print()
 
+    if a.validate:
+        return 0
     res = analyse(rows)
     res["label"] = label
+    # Keep the rows. The next question asked of this run should not cost another
+    # walk over 150 symbols, and an aggregate cannot answer a question nobody
+    # thought of when it was written.
+    res["rows"] = [{k: v for k, v in r.items() if k != "verdict"} for r in rows]
     OUT_DIR.mkdir(parents=True, exist_ok=True)
     (OUT_DIR / f"{label.replace('[', '_').replace(']', '').replace(':', '')}.json"
      ).write_text(json.dumps(res, indent=1, sort_keys=True), encoding="utf-8")
