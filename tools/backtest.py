@@ -260,6 +260,7 @@ def backtest_scanner(scanner_name: str,
                      benchmark_df: "pd.DataFrame | None" = None,
                      cost_bps: float = 0,
                      cost_model: CostModel | None = None,
+                     signal_mode: str = "all",
                      _record_frac: "tuple[float, float] | None" = None) -> dict:
     """Replay ``scanner_name`` over ``symbols`` and return aggregate metrics.
 
@@ -267,7 +268,17 @@ def backtest_scanner(scanner_name: str,
     delivery costs, ``FlatCost(bps)`` for a flat haircut).  Overrides ``cost_bps``
     when given.  Costs are applied to BOTH signal and baseline returns so the
     edge comparison is fair.
+
+    ``signal_mode`` — ``all`` (every bar the scanner returns a hit, de-duplicated
+    by ``min_gap``) or ``fresh`` (only the bar a hit APPEARS, i.e. the previous
+    evaluated bar had none). **The default stays ``all`` on purpose**: every
+    number this desk has published came through that path, and flipping the
+    default would silently redefine 44 verdicts rather than re-measure them.
+    The mode is reported in the result so no figure is ever quoted without it
+    (B-120).
     """
+    if signal_mode not in ("all", "fresh"):
+        raise ValueError(f"signal_mode must be 'all' or 'fresh', got {signal_mode!r}")
     spec = sc.SCANNERS.get(scanner_name)
     if spec is None:
         return {"error": f"unknown scanner '{scanner_name}'"}
@@ -350,6 +361,7 @@ def backtest_scanner(scanner_name: str,
         # Signals: walk the record window, feed point-in-time slices.
         # Scanner sees df.iloc[:t+1] (full lookback); only the record range counts.
         t = rec_start
+        prev_hit = False            # B-120: was the PREVIOUS evaluated bar a hit?
         while t < rec_end and t <= last_eval:
             if stride > 1 and (t - warmup) % stride != 0:
                 t += 1
@@ -359,8 +371,24 @@ def backtest_scanner(scanner_name: str,
             except Exception:
                 hit = None
             if not hit:
+                prev_hit = False
                 t += 1
                 continue
+
+            # B-120 — a persisting STATE is not a new signal every bar. Most
+            # detectors here describe a condition that stays true for a while:
+            # `scan_flag_pole` fires on runs of ~4 consecutive bars (longest
+            # measured 8), so "all" mode enters the same breakout four times at
+            # four different prices. That is defensible for an EDGE question
+            # ("do bars in this state outperform?") and indefensible for a PLAN
+            # question ("was the stated target reachable from the stated
+            # entry?") — which is why every study that cared wrote its own
+            # freshness rule (flag_pole_edge, bilateral_expansion, sbc_reading).
+            if signal_mode == "fresh" and prev_hit:
+                prev_hit = True
+                t += 1
+                continue
+            prev_hit = True
 
             n_signals += 1
             entry_idx = t + 1
@@ -435,13 +463,18 @@ def backtest_scanner(scanner_name: str,
                         # could actually measure.
                         n_plans_unsimulated += 1
 
-            t += min_gap        # de-dup: skip ahead after a recorded signal
+            # In "all" mode min_gap IS the de-duplication. In "fresh" mode the
+            # transition rule already did it, and skipping ahead would throw
+            # away a genuine new break that happens within min_gap bars.
+            t += 1 if signal_mode == "fresh" else min_gap
 
-    return _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list,
-                      r_results, n_signals, n_symbols_used, total_bars,
-                      n_plans, n_plans_unsimulated,
-                      mkt_ret=mkt_ret, alpha_ret=alpha_ret,
-                      cost_model=cm)
+    out = _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list,
+                     r_results, n_signals, n_symbols_used, total_bars,
+                     n_plans, n_plans_unsimulated,
+                     mkt_ret=mkt_ret, alpha_ret=alpha_ret,
+                     cost_model=cm)
+    out["signal_mode"] = signal_mode
+    return out
 
 
 def walk_forward_scanner(scanner_name: str,
@@ -573,6 +606,9 @@ def walk_forward_scanner(scanner_name: str,
         "windows": windows,
         "pooled": pooled,
         "plans": plans,
+        # Reported, never assumed: a hit rate from "all" and one from "fresh"
+        # answer different questions, so the number never travels without it.
+        "signal_mode": (windows[0].get("signal_mode", "all") if windows else "all"),
         "stability": {
             "per_horizon": stability_per_h,
             "all_stable": all_stable,
@@ -623,8 +659,13 @@ def format_walk_forward(result: dict) -> str:
     """Human-readable report for walk_forward_scanner."""
     lines = []
     cost_note = result.get("cost_label", "GROSS")
+    mode = result.get("signal_mode", "all")
     lines.append(f"=== Walk-Forward: {result['scanner']} "
-                 f"({result['n_windows']} windows, {cost_note}) ===")
+                 f"({result['n_windows']} windows, {cost_note}, "
+                 f"signals={mode}) ===")
+    if mode == "fresh":
+        lines.append("signals: FRESH only — a state that persists counts ONCE, "
+                     "on the bar it appears (B-120)")
     lines.append("")
 
     horizons = list(result["pooled"]["horizons"].keys())
