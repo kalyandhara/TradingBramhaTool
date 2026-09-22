@@ -368,11 +368,21 @@ def test_it_joins_the_reversal_family_rather_than_voting_alone():
     assert oh.scanner_family("Double Bottom") == "Reversal"
 
 
-def test_it_arrives_unmeasured_and_claims_no_edge():
+def test_it_was_measured_and_demoted_rather_than_left_unmeasured():
+    """It shipped unmeasured on 2026-09-19 and was measured on 2026-09-21 as a
+    by-product of B-116: 1,519 OOS signals, negative at every horizon in every
+    window. The tier is mechanical — "measured at or below a random-entry
+    baseline" is exactly what `weak` means — so the weight halves.
+
+    This test used to assert the opposite. It was not wrong then and it is not
+    being relaxed now: the state changed, and `claims_lint` CHECK 0 caught the
+    description still saying NOT MEASURED within minutes of the run."""
     import opportunity_hub as oh
-    assert oh.scanner_tier("Double Bottom") == "unmeasured"
-    assert oh.scanner_weight("Double Bottom") == oh.WEIGHT_UNMEASURED
-    assert "NOT MEASURED" in S.SCANNERS["Double Bottom"]["description"]
+    assert oh.scanner_tier("Double Bottom") == "weak"
+    assert oh.scanner_weight("Double Bottom") == oh.WEIGHT_WEAK
+    desc = S.SCANNERS["Double Bottom"]["description"]
+    assert "NOT MEASURED" not in desc
+    assert "1,519" in desc and "NO EDGE" in desc
 
 
 def test_the_loose_early_reversal_detector_is_left_alone():

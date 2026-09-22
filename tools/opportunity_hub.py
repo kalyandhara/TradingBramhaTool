@@ -435,7 +435,23 @@ MEASURED_EDGE_SCANNERS: tuple[str, ...] = (
 #: disagreed, and 2.7x more hits — and no edge. VCP Coiling is a context lens
 #: under either detector. Verdict file: cache/b19_verdicts/VCP_Coiling.txt; the
 #: retired detector's is beside it in _superseded/.
+#: "Double Bottom" joined 2026-09-21, measured as a BY-PRODUCT of B-116 plumbing
+#: the plan scoreboard through the walk-forward path: 1,519 OOS signals over
+#: LIQUID_50, -0.17 / -0.26 / -0.61 / -1.58% at 5/10/20/60d, sign consistent in
+#: all three windows at every horizon, p<0.05 in four window-horizons. It is
+#: measured at-or-below a random-entry baseline, which is what this tier means,
+#: so the weight drops 0.50 -> 0.25.
+#:
+#: NOT excluded, though the VWAP Reclaim precedent (measured significantly
+#: negative -> PIPELINE_EXCLUDED) is the obvious next step and is the owner's
+#: call: the same run that produced this number also showed the shared harness
+#: has no notion of a FRESH signal (B-120), and a detector whose state persists
+#: for several bars has its events counted several times. That doubt cuts
+#: against trusting the magnitude, not against demoting on the sign — 1,519
+#: signals negative at every horizon in every window is not a rounding error.
+#: Re-measure under B-120's freshness rule before deciding exclusion.
 MEASURED_WEAK_SCANNERS: tuple[str, ...] = (
+    "Double Bottom",
     "Order Block Retest",
     "RSI 60-40 Setup",
     "Structural Breakout",

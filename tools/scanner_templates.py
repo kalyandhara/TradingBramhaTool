@@ -8919,10 +8919,16 @@ SCANNERS: dict[str, dict] = {
             "source page's own warning is that a textbook A-grade shape can sit on "
             "a 30% real follow-through rate for that name. States: Confirmed, or "
             "Retest hold once price has come back to the neckline and held, which "
-            "is the entry the pattern's trading plan actually names. NOT MEASURED "
-            "— no forward edge is claimed, it scores as `unmeasured`, and the "
-            "follow-through figure is descriptive history for one symbol rather "
-            "than a backtest of the scanner."
+            "is the entry the pattern's trading plan actually names. **MEASURED "
+            "2026-09-21 (B-116 run): NO EDGE, and stably negative** — 1,519 OOS "
+            "signals over LIQUID_50, three walk-forward windows, Indian delivery "
+            "costs: -0.17 / -0.26 / -0.61 / -1.58% at 5/10/20/60d, with the sign "
+            "consistent in all three windows at every horizon and p<0.05 in four "
+            "window-horizons. It was measured as a by-product of plumbing the "
+            "plan scoreboard through the walk-forward path, and the number is "
+            "recorded here rather than left in a cache file nobody reads. The "
+            "follow-through figure remains descriptive history for one symbol "
+            "rather than a backtest of the scanner."
         ),
         "category": "Pattern",
     },
