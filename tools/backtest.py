@@ -551,11 +551,28 @@ def walk_forward_scanner(scanner_name: str,
     else:
         verdict = "UNSTABLE — edge sign inconsistent at every horizon"
 
+    # B-116 — carry the TRADE PLAN's own scoreboard out of the walk-forward path.
+    # `_aggregate` has always built this per window (target_hits, stop_hits,
+    # win_rate, avg_R, expectancy_R) and `format_report` has always printed it,
+    # but `walk_forward_scanner` dropped it on the floor — so the B-19 batch,
+    # which runs through here, computed target-vs-stop for 44 scanners and threw
+    # it away 44 times. Every saved verdict in cache/b19_verdicts/ shows edges
+    # and stability and not one R line.
+    #
+    # Pooled by SUMMING counts rather than averaging rates: three windows with
+    # 4, 40 and 400 plans are not three equal opinions about a hit rate.
+    # `_aggregate` stores it under "r_metrics". Reading "r_block" here (the
+    # local variable's name inside `_aggregate`) silently pooled nothing and the
+    # report printed no line at all — a wrong key that looks exactly like "this
+    # scanner has no plans". The end-to-end test exists because of it.
+    plans = _pool_r_blocks([w.get("r_metrics") for w in windows])
+
     return {
         "scanner": scanner_name,
         "n_windows": n_windows,
         "windows": windows,
         "pooled": pooled,
+        "plans": plans,
         "stability": {
             "per_horizon": stability_per_h,
             "all_stable": all_stable,
@@ -568,6 +585,37 @@ def walk_forward_scanner(scanner_name: str,
             "gap": degradation,
         },
         "cost_label": cm.label,
+    }
+
+
+def _pool_r_blocks(blocks: "list[dict | None]") -> dict | None:
+    """Sum the per-window plan scoreboards into one, or None when there are none.
+
+    Counts sum; rates are recomputed from the sums. Averaging three windows'
+    win rates would give a 4-plan window the same say as a 400-plan one, which
+    is the error this function exists to not make.
+    """
+    blocks = [b for b in blocks if b and int(b.get("n_with_plan") or 0) > 0]
+    if not blocks:
+        seen = 0
+        return {"n_with_plan": 0, "plans_seen": seen} if seen else None
+    n = sum(int(b["n_with_plan"]) for b in blocks)
+    tgt = sum(int(b.get("target_hits") or 0) for b in blocks)
+    stp = sum(int(b.get("stop_hits") or 0) for b in blocks)
+    opn = sum(int(b.get("open_exits") or 0) for b in blocks)
+    tme = sum(int(b.get("time_exits") or 0) for b in blocks)
+    # avg_R weighted by the plans behind it, for the same reason.
+    tot_r = sum(float(b.get("avg_R") or 0.0) * int(b["n_with_plan"]) for b in blocks)
+    return {
+        "n_with_plan": n,
+        "target_hits": tgt, "stop_hits": stp,
+        "open_exits": opn, "time_exits": tme,
+        "target_rate": round(tgt / n, 3),
+        "stop_rate": round(stp / n, 3),
+        "win_rate": round(tgt / n, 3),
+        "avg_R": round(tot_r / n, 3),
+        "plans_seen": sum(int(b.get("plans_seen") or 0) for b in blocks),
+        "plans_unsimulated": sum(int(b.get("plans_unsimulated") or 0) for b in blocks),
     }
 
 
@@ -615,6 +663,24 @@ def format_walk_forward(result: dict) -> str:
         lines.append(f"degradation @{deg['ref_horizon']}d: "
                      f"pooled {deg['pooled_edge']:+.2f} vs best-window "
                      f"{deg['best_window_edge']:+.2f} (gap {deg['gap']:+.2f})")
+
+    # The plan's own scoreboard. An edge says the SIGNAL preceded a move; this
+    # says whether the TARGET the card prints was reachable before the stop —
+    # a different claim, and the one a reader acts on (B-116).
+    pl = result.get("plans") or {}
+    if pl.get("n_with_plan"):
+        lines.append("")
+        lines.append(
+            f"plan (target vs stop): {pl['n_with_plan']} simulated · "
+            f"target {pl['target_rate']:.1%} · stop {pl['stop_rate']:.1%} · "
+            f"open {pl['open_exits']} · timed out {pl['time_exits']} · "
+            f"avg {pl['avg_R']:+.2f}R")
+        if pl.get("plans_unsimulated"):
+            lines.append(f"  ({pl['plans_unsimulated']} plans could not be "
+                         f"simulated — degenerate levels)")
+    elif pl.get("plans_seen"):
+        lines.append("")
+        lines.append(f"plan: {pl['plans_seen']} seen, none simulatable")
 
     lines.append(f"  (* = p<0.05 two-tailed)")
     return "\n".join(lines)
