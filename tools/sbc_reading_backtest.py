@@ -280,6 +280,151 @@ def validate(df: pd.DataFrame, label: str = "") -> bool:
     return ok
 
 
+# ── B-115 — the do-nothing baseline ──────────────────────────────────────────
+# B-114 compared two BUCKETS of structural events and found a real difference
+# (+1.28pp @20d, clustered p=0.0015). It never asked whether a held break beats
+# simply owning the same bars, and a two-bucket difference can be entirely a
+# statement about the FAILED side being bad. This is that arm.
+#
+# PRE-REGISTERED, fixed here before it was run:
+#
+#   BASELINE   every eligible bar in the SAME names and the SAME window the
+#              events came from, with the same entry/exit timing (entry at the
+#              next bar's open, exit at the close h bars later) and the same
+#              COST_INDIAN round trip. Not a market index, not a subset — the
+#              same bars, treated identically.
+#   PRIMARY    UP-direction HELD breaks vs that baseline at h = 20. Passes only
+#              with a positive edge, p < 0.05, and the sign holding at 5/10/60.
+#              Up-direction only, because this desk is long-only and "do nothing"
+#              means "own it anyway"; a short-side comparison would be scoring a
+#              trade the desk does not take.
+#   CLUSTERED  the same edge with the SYMBOL as the unit, as in B-114. The
+#              pooled p is not believable on its own and never was.
+#   FLOOR      >= 200 up-held events, or INCONCLUSIVE.
+#   SECONDARY  DOWN-direction held breaks, as description only: does the name
+#              fall further than a random bar drifts? An avoid read, not a short.
+BASELINE_MIN_N = 200
+
+
+def baseline_returns(df: pd.DataFrame, cm=None, stride: int = 1) -> dict[int, list]:
+    """Every eligible bar's forward return, same timing and costs as an event."""
+    cm = cm or bt.COST_INDIAN
+    df = df.dropna(subset=["high", "low", "close"]).reset_index(drop=True)
+    out: dict[int, list] = {h: [] for h in HORIZONS}
+    max_h = max(HORIZONS)
+    for t in range(WARMUP, len(df) - max_h - FAIL_WIN - 2, stride):
+        for h in HORIZONS:
+            v = _signed_fwd(df, t, h, "up", cm)     # unsigned: "up" leaves it raw
+            if v is not None:
+                out[h].append(v)
+    return out
+
+
+def baseline_arm(rows: list[dict], fetch_fn, stride: int = 1) -> dict[str, Any]:
+    """Held breaks vs owning the same bars — pooled and clustered by symbol."""
+    syms = sorted({r["symbol"] for r in rows})
+    base: dict[int, list] = {h: [] for h in HORIZONS}
+    per_symbol: list[float] = []
+    wins = 0
+
+    for i, sym in enumerate(syms, 1):
+        print(f"  [{i}/{len(syms)}] {sym}", end="\r", flush=True)
+        try:
+            df = fetch_fn(sym)
+        except Exception:
+            continue
+        if df is None or getattr(df, "empty", True):
+            continue
+        b = baseline_returns(df, stride=stride)
+        for h in HORIZONS:
+            base[h] += b[h]
+        mine = [r[f"r{PRIMARY_H}"] for r in rows
+                if r["symbol"] == sym and r["direction"] == "up"
+                and not r["failed"] and r[f"r{PRIMARY_H}"] is not None]
+        if len(mine) >= 3 and len(b[PRIMARY_H]) >= 30:
+            d = float(np.mean(mine) - np.mean(b[PRIMARY_H]))
+            per_symbol.append(d)
+            wins += int(d > 0)
+    print()
+
+    def _held(direction: str, h: int) -> list[float]:
+        return [r[f"r{h}"] for r in rows if r["direction"] == direction
+                and not r["failed"] and r[f"r{h}"] is not None]
+
+    primary = {str(h): _arm(_held("up", h), base[h]) for h in HORIZONS}
+    # The down side is described, not tested: on a long-only desk the
+    # alternative to a bearish read is not a short, it is not being there.
+    down = {str(h): {"n": len(_held("down", h)),
+                     "mean_signed": (round(float(np.mean(_held("down", h))), 3)
+                                     if _held("down", h) else None),
+                     "baseline_mean": (round(float(np.mean(base[h])), 3)
+                                       if base[h] else None)}
+            for h in HORIZONS}
+    clustered = {}
+    if len(per_symbol) >= 10:
+        arr = np.asarray(per_symbol, float)
+        t_val, p_val = bt._ttest_1samp(arr, 0.0)
+        clustered = {"n_symbols": len(per_symbol),
+                     "mean_diff": round(float(arr.mean()), 3),
+                     "median_diff": round(float(np.median(arr)), 3),
+                     "symbols_positive": wins,
+                     "share_positive": round(wins / len(per_symbol), 3),
+                     "t": round(float(t_val), 3), "p": round(float(p_val), 4)}
+
+    res = {"n_up_held": len(_held("up", PRIMARY_H)),
+           "n_baseline_bars": len(base[PRIMARY_H]),
+           "primary": primary, "clustered": clustered, "down_side": down}
+    res["verdict"] = baseline_verdict(res)
+    return res
+
+
+def baseline_verdict(res: dict) -> str:
+    if res["n_up_held"] < BASELINE_MIN_N:
+        return (f"INCONCLUSIVE — {res['n_up_held']} up-held events, under the "
+                f"pre-registered floor of {BASELINE_MIN_N}")
+    p = res["primary"][str(PRIMARY_H)]
+    if p.get("diff") is None:
+        return "INCOMPLETE"
+    diffs = [res["primary"][str(h)]["diff"] for h in HORIZONS]
+    if p["diff"] > 0 and p["p"] < 0.05 and all(d is not None and d > 0 for d in diffs):
+        return (f"POSITIVE — a held upward break beat owning the same bars by "
+                f"{p['diff']:+.2f}pp @{PRIMARY_H}d (p={p['p']:.3f})")
+    if p["diff"] < 0 and p["p"] < 0.05:
+        return (f"NEGATIVE — a held upward break did WORSE than owning the same "
+                f"bars by {p['diff']:+.2f}pp @{PRIMARY_H}d (p={p['p']:.3f})")
+    return ("NULL — a held upward break is not separable from owning the same "
+            "bars at the pre-registered bar")
+
+
+def baseline_report(res: dict) -> str:
+    L = ["SBC held breaks vs DOING NOTHING (B-115)", "",
+         f"{res['n_up_held']} up-direction held breaks vs "
+         f"{res['n_baseline_bars']:,} eligible bars in the same names/window", "",
+         f"{'h':>4}{'held %':>10}{'baseline %':>12}{'edge':>9}{'p':>8}"]
+    for h in HORIZONS:
+        m = res["primary"][str(h)]
+        if m.get("diff") is None:
+            L.append(f"{h:>4}{'—':>10}")
+            continue
+        L.append(f"{h:>4}{m['mean_a']:>10.2f}{m['mean_b']:>12.2f}"
+                 f"{m['diff']:>+9.2f}{m['p']:>8.3f}")
+    c = res.get("clustered") or {}
+    if c:
+        L += ["", f"CLUSTERED (symbol as the unit, @{PRIMARY_H}d): {c['n_symbols']} symbols · "
+                  f"mean {c['mean_diff']:+.2f}pp · median {c['median_diff']:+.2f}pp · "
+                  f"{c['symbols_positive']}/{c['n_symbols']} positive "
+                  f"({c['share_positive']:.0%}) · p={c['p']:.4f}"]
+    L += ["", "DOWN side — description only (a long-only desk does not short it):"]
+    for h in HORIZONS:
+        d = res["down_side"][str(h)]
+        if d["mean_signed"] is None:
+            continue
+        L.append(f"   @{h}d: held down-breaks fell {d['mean_signed']:+.2f}% "
+                 f"(signed) vs a random bar's {d['baseline_mean']:+.2f}% drift")
+    L += ["", f"VERDICT: {res['verdict']}"]
+    return "\n".join(L)
+
+
 def _arm(a: list[float], b: list[float]) -> dict[str, Any]:
     a = [x for x in a if x is not None]
     b = [x for x in b if x is not None]
@@ -419,9 +564,23 @@ def main() -> int:
                     help="one detection pass per symbol (validated against --slow)")
     ap.add_argument("--validate", action="store_true",
                     help="run both walks on the symbol and diff them")
+    ap.add_argument("--baseline", default=None, metavar="CACHED_JSON",
+                    help="B-115: held breaks vs owning the same bars, from a cached run")
     a = ap.parse_args()
 
     import screener_pipeline as sp
+
+    if a.baseline:
+        cached = json.loads((OUT_DIR / a.baseline).read_text(encoding="utf-8"))
+        res = baseline_arm(cached["rows"],
+                           lambda s_: sp.fetch_ohlcv(s_, days=a.days),
+                           stride=a.stride)
+        (OUT_DIR / f"baseline_{a.baseline}").write_text(
+            json.dumps({k: v for k, v in res.items()}, indent=1, sort_keys=True),
+            encoding="utf-8")
+        print(baseline_report(res))
+        return 0
+
     if a.universe:
         import nse_universe as nu
         syms = list(nu.symbols(a.universe))[:a.symbols]
