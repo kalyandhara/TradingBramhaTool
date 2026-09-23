@@ -122,3 +122,49 @@ def test_all_unfilled_pools_to_a_report_not_to_none():
                                  "plans_unfilled": 4}])
     assert pooled is not None
     assert pooled["plans_seen"] == 4 and pooled["plans_unfilled"] == 4
+
+
+def test_harmonic_plans_are_never_inverted_on_real_bars():
+    """The property, not the source text: on cached bars, every Harmonic card's
+    stop and target sit on OPPOSITE sides of its entry."""
+    import screener_pipeline as sp
+    import scanner_templates as sc
+    fn = sc.SCANNERS["Harmonic Reversal (XABCD)"]["fn"]
+    checked = 0
+    for sym in ("360ONE.NS", "ABB.NS", "ACC.NS"):
+        try:
+            df = sp.fetch_ohlcv(sym, days=1500)
+        except Exception:
+            continue
+        if df is None or len(df) < 300:
+            continue
+        for t in range(250, len(df) - 1, 7):
+            c = fn(df.iloc[:t + 1])
+            if not c:
+                continue
+            e, st, tg = c["entry"], c["stop"], c["target"]
+            assert (st < e < tg) or (tg < e < st), (sym, t, e, st, tg)
+            checked += 1
+    if not checked:
+        pytest.skip("no cached bars")
+
+
+# ── B-124 findings: inverted plans and fills past the target ─────────────────
+
+def test_a_target_on_the_stop_side_is_degenerate_not_scored():
+    """Harmonic Butterfly/Crab put the stop beyond X while D sat beyond X, so a
+    bullish plan's stop was ABOVE its entry, the side was read as short, and its
+    target was behind it -- every 'target hit' booked a loss."""
+    df = _frame([SIGNAL] + [(100, 101, 99, 100)] * 5)
+    assert bt._simulate_plan(df, 1, 100.0, 95.0, 90.0, 5) is None
+    assert bt._simulate_plan(df, 1, 100.0, 105.0, 110.0, 5, side="short") is None
+
+
+def test_pooling_keeps_fills_past_the_target():
+    pooled = bt._pool_r_blocks([
+        {"n_with_plan": 0, "plans_seen": 3, "plans_fill_past_target": 3},
+        {"n_with_plan": 2, "plans_seen": 3, "plans_fill_past_target": 1,
+         "target_hits": 1, "stop_hits": 1, "open_exits": 0, "time_exits": 0,
+         "positive_rate": 50.0, "avg_R": 0.0},
+    ])
+    assert pooled["plans_fill_past_target"] == 4

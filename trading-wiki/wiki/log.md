@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-23] void + fix | B-124 run 1 voided by its own control — Harmonic's stops were on the profit side (B-129)
+- **Run 1 said trails beat the fixed plan on Harmonic by +0.6R at p<0.0001.** The control said otherwise before the verdict could be recorded: −0.90R on a scanner published at +0.25R. Under the OLD fill model, 138 "target hits" booked losses and 77 trades lost more than 3R, which a stop cannot do.
+- **Cause**: `harmonic_patterns.py` put every stop at X ± 0.5%, but Butterfly and Crab complete with D BEYOND X, so a bullish stop sat above its entry. The harness read the side off the stop and scored them as shorts. 37 of 149 cards. The trails won by escaping a broken control.
+- **Fixed** (stop beyond the more extreme of X and D; property test on real bars) and **guarded in the harness** so no scanner can do it silently again: a target on the stop side is degenerate; a fill already past the target is counted, not booked as a losing target hit.
+- **The registered run is being repeated unchanged.** Run 1's JSON is kept as `_run1_invalid`. **B-129 filed P1**: Harmonic's +0.25R plan and possibly its +0.67% edge — the reason it is one of only two measured-positive scanners — were measured on these plans.
+- **Today's pattern, stated once**: three controls failed today (B-116 via B-92, the fill check, and this) and each time the failing control was right and the harness was wrong. Every one was caught because a known number was checked BEFORE the new one was believed.
+
 ## [2026-09-23] build + measure | B-121 built; B-116 finally explained — the harness was trading WATCH cards
 - **B-121 built**: `fill_model` = assumed (default, unchanged) / market / touch, with unfilled orders and fills-through-stop counted rather than simulated. 11 tests, gap direction mutation-checked. Two silent losses in the plan pooler fixed on the way, one of them pre-existing (`seen = 0 … if seen else None` — always None).
 - **It did not explain B-116.** Flag & Pole under each fill: assumed −0.43R, market −1.13R with 316 of 1,555 fills already past the stop, touch +0.22R with 756 orders never filled. None is B-92's +0.36R.

@@ -1,12 +1,12 @@
 ---
 title: "Wiki Index"
-updated: 2026-09-22
+updated: 2026-09-23
 pages: 310
 sources_ingested: 118
 ---
 
 # Trading Wiki — Index
-_Last updated: 2026-09-22 | Pages: 310 | Sources ingested: 118_
+_Last updated: 2026-09-23 | Pages: 310 | Sources ingested: 118_
 <!-- Counting convention, stated because these two counters silently drifted to
      TWO DIFFERENT wrong numbers before 2026-08-07 (see B-27 in
      analyses/Open-Backlog.md): "Pages" = every .md under wiki/ EXCLUDING the

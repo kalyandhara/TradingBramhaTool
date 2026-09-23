@@ -349,6 +349,13 @@ def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
     risk = (stop - entry) if short else (entry - stop)
     if risk <= 0:
         return None
+    # A target on the STOP side of the entry is not a plan either (B-124): the
+    # side is read off the stop, so an inverted stop turns a long into a "short"
+    # whose target is then behind it, and every "target hit" books a loss.
+    # Harmonic Butterfly/Crab cards did exactly this for a quarter of their
+    # hits. Degenerate -> None -> counted as unsimulated, never scored.
+    if (target >= entry) if short else (target <= entry):
+        return None
     cm = cost_model or COST_GROSS
     n = len(df)
     if entry_idx >= n:
@@ -485,6 +492,7 @@ def backtest_scanner(scanner_name: str,
         raise ValueError(f"fill_model must be one of {FILL_MODELS}, got {fill_model!r}")
     n_unfilled = 0          # orders that never traded -- not trades, not dropped
     n_fill_through = 0      # filled at or beyond the stop: no risk left to measure
+    n_fill_past_target = 0  # filled at or beyond the target: nothing left to make
     slip_pct: list[float] = []   # adverse gap between the card's entry and the fill
     # B-124 hooks. `keep_trades` returns every simulated trade keyed by
     # (symbol, signal bar) so two exit arms can be PAIRED on identical entries
@@ -673,6 +681,15 @@ def backtest_scanner(scanner_name: str,
                         continue
                     f_idx, f_px = fill["idx"], fill["px"]
                     through = (f_px >= stop_p) if _side == "short" else (f_px <= stop_p)
+                    # Filled already PAST the target: the move the card projected
+                    # happened before the order did. Scoring it would book a
+                    # "target hit" at a price worse than the fill -- a loss with a
+                    # winner's label (B-124). Counted beside fill-through-stop.
+                    past_tgt = (f_px <= tgt_p) if _side == "short" else (f_px >= tgt_p)
+                    if past_tgt and not through:
+                        n_fill_past_target += 1
+                        t += 1 if signal_mode == "fresh" else min_gap
+                        continue
                     if through:
                         n_fill_through += 1
                         t += 1 if signal_mode == "fresh" else min_gap
@@ -714,13 +731,14 @@ def backtest_scanner(scanner_name: str,
     if keep_trades:
         out["trades"] = trades
     rb = out.get("r_metrics")
-    if isinstance(rb, dict) or n_unfilled or n_fill_through:
+    if isinstance(rb, dict) or n_unfilled or n_fill_through or n_fill_past_target:
         rb = rb if isinstance(rb, dict) else {"n_with_plan": 0,
                                               "plans_seen": int(n_plans)}
         # Counted, never dropped: a fill model that silently shrank the sample
         # would look like a cleaner result rather than a smaller one.
         rb["plans_unfilled"] = int(n_unfilled)
         rb["plans_fill_through_stop"] = int(n_fill_through)
+        rb["plans_fill_past_target"] = int(n_fill_past_target)
         rb["avg_slippage_pct"] = (round(float(np.mean(slip_pct)), 3)
                                   if slip_pct else None)
         out["r_metrics"] = rb
@@ -889,6 +907,7 @@ def _pool_r_blocks(blocks: "list[dict | None]") -> dict | None:
     raw = [b for b in blocks if b]
     unf = sum(int(b.get("plans_unfilled") or 0) for b in raw)
     fth = sum(int(b.get("plans_fill_through_stop") or 0) for b in raw)
+    fpt = sum(int(b.get("plans_fill_past_target") or 0) for b in raw)
     blocks = [b for b in raw if int(b.get("n_with_plan") or 0) > 0]
     if not blocks:
         # This used to read `seen = 0 ... if seen else None` -- always None, so a
@@ -899,6 +918,7 @@ def _pool_r_blocks(blocks: "list[dict | None]") -> dict | None:
             return None
         return {"n_with_plan": 0, "plans_seen": seen,
                 "plans_unfilled": unf, "plans_fill_through_stop": fth,
+                "plans_fill_past_target": fpt,
                 "plans_unsimulated": sum(int(b.get("plans_unsimulated") or 0)
                                          for b in raw)}
     n = sum(int(b["n_with_plan"]) for b in blocks)
@@ -917,6 +937,7 @@ def _pool_r_blocks(blocks: "list[dict | None]") -> dict | None:
         "target_hits": tgt, "stop_hits": stp,
         "open_exits": opn, "time_exits": tme, "trail_exits": trl,
         "plans_unfilled": unf, "plans_fill_through_stop": fth,
+        "plans_fill_past_target": fpt,
         "positive_rate": round(pos / n, 3),
         "target_rate": round(tgt / n, 3),
         "stop_rate": round(stp / n, 3),

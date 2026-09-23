@@ -160,14 +160,22 @@ def detect_last_pattern(df: pd.DataFrame, max_age_bars: int = 10,
 
         # Trade plan
         ad = abs(d - a)
-        buffer = 0.005 * abs(x)  # 0.5% beyond X
+        buffer = 0.005 * abs(x)  # 0.5% beyond the invalidation point
+        # The invalidation point is the MORE EXTREME of X and D. For Gartley and
+        # Bat, D completes inside XA and X is beyond it. For Butterfly and Crab,
+        # D completes BEYOND X (AD/XA 1.27-1.618), so a stop "beyond X" sat on the
+        # PROFIT side of the entry -- above a bullish entry, below a bearish one.
+        # Found 2026-09-23 (B-124): ~a quarter of Harmonic cards carried that
+        # inverted plan, the harness inferred the side from it and scored them as
+        # trades in the wrong direction. Anchoring past D for extensions is the
+        # standard practice for those two patterns.
         if bullish:
-            stop = x - buffer
+            stop = min(x, d) - buffer
             t1 = d + 0.382 * ad
             t2 = d + 0.618 * ad
             t3 = d + 1.0 * ad
         else:
-            stop = x + buffer
+            stop = max(x, d) + buffer
             t1 = d - 0.382 * ad
             t2 = d - 0.618 * ad
             t3 = d - 1.0 * ad
