@@ -390,8 +390,15 @@ def core_scanners() -> list[str]:
     return [n for n in sc.SCANNERS if n not in COVERED_SCANNERS]
 
 
-#: Measured to BEAT a random-entry baseline (wiki/analyses/Backtest-Harness):
-#: Falling Wedge +0.74% @20d (+0.14R), Harmonic Reversal +0.67% (+0.25R).
+#: Measured to BEAT a random-entry baseline (wiki/analyses/Backtest-Harness).
+#: RE-MEASURED 2026-09-23 (B-128 / B-129, LIQUID_50, 3 windows, 29bps):
+#:   Falling Wedge -- CONFIRMED breakouts +1.37% @20d, +1.98% @60d, stable at
+#:     10/20/60d; forming / pre-breakout cards -0.27%. The tier stands, and the
+#:     old +0.74% was a dilution of it.
+#:   Harmonic Reversal -- the pooled +0.88% @20d is NOT evidence for the
+#:     thesis: bullish-only +1.07% but UNSTABLE at every horizon; bearish
+#:     patterns scored as longs +0.72% (the short thesis FAILS). Kept here
+#:     pending the owner's call on demotion -- see Open-Backlog B-129.
 MEASURED_EDGE_SCANNERS: tuple[str, ...] = (
     "Falling Wedge",
     "Harmonic Reversal (XABCD)",

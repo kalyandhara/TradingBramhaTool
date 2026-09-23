@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-23] build + measure | B-128 contract + B-129 re-measure — one measured-positive tier strengthened, one lost its evidence
+- **B-128 built**: `actionable: False` keeps a card's levels and removes its trade; the harness counts those plans instead of simulating them. Set on Flag & Pole, Falling Wedge, VCP Coiling, Rounding Bottom, Double Bottom. An audit test over every scanner fails if a card that calls itself a watch carries an actionable plan.
+- **The audit's first two "passes" were skips**: it looked up `RELIANCE.NS` where the cache stores `RELIANCE`. The B-129 property test committed an hour earlier had the same bug and had been skipping too. A skip reads as a pass unless it is reported; both now run on real bars.
+- **How much of each plan sample was watch-only**: Flag & Pole 90%, VCP 74%, Double Bottom 71%, Rounding Bottom 65%, Falling Wedge 44%. Plan R moves accordingly (Flag & Pole −0.42 → +0.65R; VCP −0.46 → −0.18R); signal edges barely move, as they should.
+- **Falling Wedge, split by state**: confirmed breakouts **+1.37% @20d / +1.98% @60d, stable at 10/20/60d**; forming / pre-breakout **−0.27%**. The published +0.74% was a dilution. The tier stands on firmer ground than before.
+- **Harmonic, split by direction**: the harness scores every hit as a long, so bearish patterns were always inside the edge. Bullish only +1.07% but UNSTABLE everywhere; bearish-as-long +0.72%, i.e. the short thesis FAILS. The pooled +0.88% is not evidence for either. **Recommended demotion to the weak tier; left to the owner**, and the code comment now says so instead of the old figures.
+
 ## [2026-09-23] measure | B-124 — no trailing exit beats the fixed plan; the prior held
 - **Registered run repeated unchanged on fixed code** (run 1 void, B-129). 300 names, fresh, next-open fill, 29bps, paired on identical entries, clustered by symbol, α = 0.05/6.
 - **Falling Wedge**: ATR trail +0.13R (p=0.058), structure −0.07R, EMA20 −0.10R → NO DIFFERENCE ×3. **Harmonic**: ATR −0.07R, structure −0.10R → NO DIFFERENCE; **EMA20 −0.23R, p=0.0003 → TRAIL WORSE**.
