@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-23] build + measure | B-121 built; B-116 finally explained — the harness was trading WATCH cards
+- **B-121 built**: `fill_model` = assumed (default, unchanged) / market / touch, with unfilled orders and fills-through-stop counted rather than simulated. 11 tests, gap direction mutation-checked. Two silent losses in the plan pooler fixed on the way, one of them pre-existing (`seen = 0 … if seen else None` — always None).
+- **It did not explain B-116.** Flag & Pole under each fill: assumed −0.43R, market −1.13R with 316 of 1,555 fills already past the stop, touch +0.22R with 756 orders never filled. None is B-92's +0.36R.
+- **A suspicion about B-92 itself, checked and refuted before publishing**: its `abs(entry − stop)` risk would score a gap-through-stop as +1R. It happened once in 713 trades. B-92 stands.
+- **The cause, with a control**: `flag_pole._card` attaches a plan to every detected flag including `WATCH — unbroken`, and the harness trades every card. Broken cards only, market fill: **33.8% / 54.0% / +0.26R** vs B-92's simulator on the same names **34.6% / 53.2% / +0.29R**. Reproduced. That is the third diagnosis of this discrepancy; the first two (event runs, fill model) were each wrong, and each wrongness is recorded where it was published.
+- **B-128 filed, P1**: Falling Wedge — one of the desk's only two measured-positive scanners — also attaches plans to `forming` and `pre-breakout` cards. Every plan number the harness has produced may blend actionable and watch-only cards. The fix is a contract (`actionable` key, harness skips non-actionable plans, an audit test over every scanner), then a re-measure split by state.
+
 ## [2026-09-23] fix | B-127 — the two trailing lines that said nothing now say what is known
 - **PMax needed nothing, and the filing missed why**: its card already carried B-65 and B-74, and B-74 IS an exit measurement (−0.50R vs holding). It is the one trail on the chart that was measured as an exit.
 - **SuperTrend AI and PSAR had no card at all**, which is worse than the "cards say too little" the row described. Each now gets a status card: measured as a signal with no edge (B-59r figures), never measured as an exit, B-124 testing that now. STAI's also says its 0–10 strength is in-sample. One `TRAIL_STATUS` table to update when B-124 reports.
