@@ -1,6 +1,10 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-23] fix | B-127 — the two trailing lines that said nothing now say what is known
+- **PMax needed nothing, and the filing missed why**: its card already carried B-65 and B-74, and B-74 IS an exit measurement (−0.50R vs holding). It is the one trail on the chart that was measured as an exit.
+- **SuperTrend AI and PSAR had no card at all**, which is worse than the "cards say too little" the row described. Each now gets a status card: measured as a signal with no edge (B-59r figures), never measured as an exit, B-124 testing that now. STAI's also says its 0–10 strength is in-sample. One `TRAIL_STATUS` table to update when B-124 reports.
+
 ## [2026-09-23] build | B-123 — the harness can measure a moving stop, and nearly lost every one it measured
 - **Built**: `exit_model` on `_simulate_plan`, threaded through `backtest_scanner` / `walk_forward_scanner` and the report header like `signal_mode`: `fixed` (default, bit-for-bit unchanged) · `atr_trail:k` (Chandelier) · `ema_close:n` · `structure:p` (close through the last confirmed swing — a CHoCH). 18 tests: ratchet-only, no exit on a level the same bar set, close-based EMA/structure, pivots only once confirmed, shorts mirror, unknown model raises. Target dropped under a trail, and the result says so.
 - **The silent empty, caught on the first smoke run**: the R block tallied target/stop/open/time, so every `trail` exit would have disappeared, and win rate (= target hit) is 0% by construction without a target. Added `trail_exits`, `positive_rate` (R>0), `r_p90`; pooled; a test makes the five outcomes sum to n.

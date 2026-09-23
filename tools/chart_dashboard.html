@@ -1000,6 +1000,15 @@ html, body {
   max-width: 250px; display: none;
 }
 .svol-info .svol-head { font-weight: 700; margin-bottom: 3px; }
+/* B-127: SuperTrend AI / PSAR status. Same family, one step later in the stack --
+   it annotates a line rather than reading the bar. */
+.trail-status {
+  order: 7;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 5px;
+  padding: 7px 9px; font-size: 10.5px; line-height: 1.5; color: var(--text-chart);
+  max-width: 260px; display: none;
+}
+.trail-status .svol-head { font-weight: 700; margin-bottom: 3px; }
 
 /* ── Structure Break Chain card ───────────────────────────────────────────── */
 /* order 5 — trailing the actionable cards: structure state is context for the
@@ -2094,6 +2103,52 @@ function fmtVol(v) {
   if (v >= 1e5) return (v / 1e5).toFixed(2) + ' L';
   if (v >= 1e3) return (v / 1e3).toFixed(1) + 'K';
   return String(Math.round(v));
+}
+
+// ── Trailing-line status (B-127) ────────────────────────────────────────────
+// SuperTrend AI and PSAR each draw a ratcheting line under price that reads, to
+// anyone who has used a trading platform, as "put your stop here". Neither had a
+// card, so nothing on the chart said what the desk actually knows: both were
+// measured as SIGNALS (B-59r) and carried no edge, and neither has ever been
+// measured as an EXIT. PMax is not here -- its card already states B-65 and
+// B-74, and B-74 did score its trail as an exit.
+//
+// When B-124 reports, these strings are the one place to update, and
+// claims_lint will hold them to the backlog like every other cited figure.
+const TRAIL_STATUS = {
+  stai: {
+    title: 'SuperTrend AI — the line is not a measured stop',
+    body: 'As a <b>signal</b>: measured, no edge — B-59r, flips where only ' +
+          'SuperTrend AI fired −1.00% @20d (p=0.150, n=1,909); where it agreed ' +
+          'with PSAR, +0.16% (p=0.820) ≈ the market. The 0–10 strength on each ' +
+          'arrow is scored on the same chart it is drawn on, so it is not evidence. ' +
+          '<br>As an <b>exit</b>: <b>never measured</b>. Using the line as a ' +
+          'trailing stop is untested on this desk (B-124 is testing trail exits now).',
+  },
+  psar: {
+    title: 'Parabolic SAR — the dots are not a measured stop',
+    body: 'As a <b>signal</b>: measured, no edge — B-59r, flips where only PSAR ' +
+          'fired −0.77% @20d (p=0.053, n=8,576), which is a null, not a measured ' +
+          'loss. <br>As an <b>exit</b>: <b>never measured</b>. Wilder built SAR ' +
+          'as a stop, and that is exactly the use nobody here has tested ' +
+          '(B-124 is testing trail exits now).',
+  },
+};
+
+function renderTrailStatusCard(pane, key) {
+  const cls = 'trail-status-' + key;
+  let box = pane.el.querySelector('.' + cls);
+  const on = pane.indicators instanceof Set && pane.indicators.has(key);
+  if (!on) { if (box) box.style.display = 'none'; return; }
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'trail-status ' + cls;
+    mountCard(pane, box, 'stack');
+  }
+  const t = TRAIL_STATUS[key];
+  box.innerHTML = `<div class="svol-head">${t.title}</div>` +
+                  `<div class="sbc-note">${t.body}</div>`;
+  box.style.display = 'block';
 }
 
 // ── Simple Volume with Pocket Pivots ────────────────────────────────────────
@@ -3958,6 +4013,9 @@ function applyIndicators(pane) {
   if (!pane.indicators.has('liquidity') && pane.liq) clearLiquidity(pane);
   // Clear the %R exhaustion main-chart overlay (arrows + tint) if deselected.
   if (!pane.indicators.has('prte') && (pane.prteData || pane._markerSrcs?.prte)) clearPrteOverlay(pane);
+  // B-127 status cards go with their line.
+  renderTrailStatusCard(pane, 'stai');
+  renderTrailStatusCard(pane, 'psar');
   // Tear down the Simple Volume card if deselected (the histogram itself is
   // removed by the generic series teardown).
   if (!pane.indicators.has('simplevol')) {
@@ -4238,6 +4296,7 @@ function applyIndicators(pane) {
              text: 'BUY ' + sig.strength}
           : {time: sig.time, position: 'aboveBar', color: '#f23645', shape: 'arrowDown',
              text: 'SELL ' + sig.strength}));
+        renderTrailStatusCard(pane, 'stai');
         break;
       }
       case 'psar': {
@@ -4251,6 +4310,7 @@ function applyIndicators(pane) {
         // arrows, and a third set on the same pane would read as three
         // independent confirmations of one idea. B-46's objection to a PSAR
         // signal stands until the overlap check it asks for has been run.
+        renderTrailStatusCard(pane, 'psar');
         break;
       }
       case 'renko': {
