@@ -172,6 +172,69 @@ def parse_exit_model(spec: str | None) -> tuple[str, float | None]:
     return name, val
 
 
+#: Fill models (B-121). ``assumed`` is the pre-B-121 behaviour and the default,
+#: for the same reason ``fixed`` is: every published R came through it.
+FILL_MODELS = ("assumed", "market", "touch")
+FILL_MAX_WAIT = 5
+
+
+def resolve_fill(df: pd.DataFrame, signal_idx: int, entry: float, side: str,
+                 fill_model: str = "assumed",
+                 max_wait: int = FILL_MAX_WAIT) -> dict:
+    """Where, and at what price, the card's entry would actually have filled.
+
+    Before B-121 the harness simply assumed the card's ``entry`` filled on the
+    bar after the signal, at that price, whether or not price ever traded there.
+    Sampled on RELIANCE, `scan_flag_pole` returned entry 1469.68 on a bar that
+    closed 1441.30 -- 2% above the market -- and the simulation credited the fill
+    and measured the stop from it. ``order_block_rules_backtest.pending_limit_fill``
+    already knew better; this brings that reasoning into the shared harness.
+
+    * ``assumed`` -- the old behaviour: bar ``signal_idx+1``, at ``entry``.
+    * ``market``  -- bar ``signal_idx+1``, at its OPEN. What acting on the card
+      the next morning actually gets, whatever the card's number says.
+    * ``touch``   -- the card's entry is an ORDER, and its type is read off where
+      it sits relative to the signal bar's close. A long entry above the close is
+      a BUY-STOP (fills when high reaches it; a gap through fills at the worse
+      open); below the close it is a BUY-LIMIT (fills when low reaches it; a gap
+      through fills at the better open). Shorts mirror. Waits ``max_wait`` bars,
+      then the order is CANCELLED -- an unfilled order is a trade that did not
+      happen, and it is counted, never simulated.
+
+    Returns ``{"status": "filled", "idx", "px"}`` or ``{"status": "unfilled"}``.
+    """
+    if fill_model not in FILL_MODELS:
+        raise ValueError(f"fill_model must be one of {FILL_MODELS}, got {fill_model!r}")
+    n = len(df)
+    nxt = signal_idx + 1
+    if nxt >= n:
+        return {"status": "unfilled"}
+    if fill_model == "assumed":
+        return {"status": "filled", "idx": nxt, "px": float(entry)}
+    openp = df["open"].to_numpy(dtype=float)
+    if fill_model == "market":
+        return {"status": "filled", "idx": nxt, "px": float(openp[nxt])}
+    high = df["high"].to_numpy(dtype=float)
+    low = df["low"].to_numpy(dtype=float)
+    ref = float(df["close"].to_numpy(dtype=float)[signal_idx])
+    short = str(side).lower() in ("short", "bear", "bearish", "down")
+    # A stop order sits on the side price must MOVE TO; a limit on the side it
+    # must come BACK to.
+    stop_order = (entry <= ref) if short else (entry >= ref)
+    for i in range(nxt, min(n, nxt + max_wait)):
+        if short:
+            if stop_order and low[i] <= entry:
+                return {"status": "filled", "idx": i, "px": float(min(entry, openp[i]))}
+            if not stop_order and high[i] >= entry:
+                return {"status": "filled", "idx": i, "px": float(max(entry, openp[i]))}
+        else:
+            if stop_order and high[i] >= entry:
+                return {"status": "filled", "idx": i, "px": float(max(entry, openp[i]))}
+            if not stop_order and low[i] <= entry:
+                return {"status": "filled", "idx": i, "px": float(min(entry, openp[i]))}
+    return {"status": "unfilled"}
+
+
 _EXIT_SERIES_CACHE: dict = {}
 
 
@@ -395,6 +458,9 @@ def backtest_scanner(scanner_name: str,
                      cost_model: CostModel | None = None,
                      signal_mode: str = "all",
                      exit_model: str | None = None,
+                     fill_model: str = "assumed",
+                     honor_time_stop: bool = True,
+                     keep_trades: bool = False,
                      _record_frac: "tuple[float, float] | None" = None) -> dict:
     """Replay ``scanner_name`` over ``symbols`` and return aggregate metrics.
 
@@ -415,6 +481,18 @@ def backtest_scanner(scanner_name: str,
         raise ValueError(f"signal_mode must be 'all' or 'fresh', got {signal_mode!r}")
     _em, _ep = parse_exit_model(exit_model)          # raises on a typo, up front
     exit_tag = "fixed" if _em == "fixed" else f"{_em}:{_ep:g}"
+    if fill_model not in FILL_MODELS:              # same: fail before the work
+        raise ValueError(f"fill_model must be one of {FILL_MODELS}, got {fill_model!r}")
+    n_unfilled = 0          # orders that never traded -- not trades, not dropped
+    n_fill_through = 0      # filled at or beyond the stop: no risk left to measure
+    slip_pct: list[float] = []   # adverse gap between the card's entry and the fill
+    # B-124 hooks. `keep_trades` returns every simulated trade keyed by
+    # (symbol, signal bar) so two exit arms can be PAIRED on identical entries
+    # and clustered by symbol. `honor_time_stop=False` lets a moving-stop arm run
+    # to the measurement horizon instead of the card's own time stop -- the
+    # B-123 smoke showed the card's time stop ending 26-39 of 127 trades under
+    # every trail, capping exactly the tail a trail is for.
+    trades: list[dict] = []
     spec = sc.SCANNERS.get(scanner_name)
     if spec is None:
         return {"error": f"unknown scanner '{scanner_name}'"}
@@ -588,12 +666,31 @@ def backtest_scanner(scanner_name: str,
                     # of counted as unsimulatable. Inferring from the levels beats
                     # trusting a `direction` key most cards do not carry.
                     _side = "short" if stop_p > entry_p else "long"
-                    r = _simulate_plan(df, entry_idx, entry_p, stop_p, tgt_p,
-                                       max_h, _to_float(hit.get("time_stop")),
+                    fill = resolve_fill(df, t, entry_p, _side, fill_model)
+                    if fill["status"] != "filled":
+                        n_unfilled += 1
+                        t += 1 if signal_mode == "fresh" else min_gap
+                        continue
+                    f_idx, f_px = fill["idx"], fill["px"]
+                    through = (f_px >= stop_p) if _side == "short" else (f_px <= stop_p)
+                    if through:
+                        n_fill_through += 1
+                        t += 1 if signal_mode == "fresh" else min_gap
+                        continue
+                    slip_pct.append(((f_px - entry_p) if _side == "long"
+                                     else (entry_p - f_px)) / entry_p * 100.0)
+                    _ts = _to_float(hit.get("time_stop"))
+                    if not honor_time_stop and _em != "fixed":
+                        _ts = None
+                    r = _simulate_plan(df, f_idx, f_px, stop_p, tgt_p,
+                                       max_h, _ts,
                                        cost_model=cm, side=_side,
                                        exit_model=exit_model)
                     if r:
                         r_results.append(r)
+                        if keep_trades:
+                            trades.append({"symbol": sym, "t": int(t),
+                                           "side": _side, **r})
                     else:
                         # Degenerate plans (zero risk) are counted, not dropped,
                         # so the report can say how much of the plan coverage it
@@ -612,6 +709,21 @@ def backtest_scanner(scanner_name: str,
                      cost_model=cm)
     out["signal_mode"] = signal_mode
     out["exit_model"] = exit_tag
+    out["fill_model"] = fill_model
+    out["honor_time_stop"] = bool(honor_time_stop)
+    if keep_trades:
+        out["trades"] = trades
+    rb = out.get("r_metrics")
+    if isinstance(rb, dict) or n_unfilled or n_fill_through:
+        rb = rb if isinstance(rb, dict) else {"n_with_plan": 0,
+                                              "plans_seen": int(n_plans)}
+        # Counted, never dropped: a fill model that silently shrank the sample
+        # would look like a cleaner result rather than a smaller one.
+        rb["plans_unfilled"] = int(n_unfilled)
+        rb["plans_fill_through_stop"] = int(n_fill_through)
+        rb["avg_slippage_pct"] = (round(float(np.mean(slip_pct)), 3)
+                                  if slip_pct else None)
+        out["r_metrics"] = rb
     return out
 
 
@@ -748,6 +860,7 @@ def walk_forward_scanner(scanner_name: str,
         # answer different questions, so the number never travels without it.
         "signal_mode": (windows[0].get("signal_mode", "all") if windows else "all"),
         "exit_model": (windows[0].get("exit_model", "fixed") if windows else "fixed"),
+        "fill_model": (windows[0].get("fill_model", "assumed") if windows else "assumed"),
         "stability": {
             "per_horizon": stability_per_h,
             "all_stable": all_stable,
@@ -770,10 +883,24 @@ def _pool_r_blocks(blocks: "list[dict | None]") -> dict | None:
     win rates would give a 4-plan window the same say as a 400-plan one, which
     is the error this function exists to not make.
     """
-    blocks = [b for b in blocks if b and int(b.get("n_with_plan") or 0) > 0]
+    # Unfilled / fill-through counts come from EVERY window (B-121): a window
+    # where no order filled has n_with_plan 0 and is dropped below, and its
+    # unfilled orders would otherwise vanish with it.
+    raw = [b for b in blocks if b]
+    unf = sum(int(b.get("plans_unfilled") or 0) for b in raw)
+    fth = sum(int(b.get("plans_fill_through_stop") or 0) for b in raw)
+    blocks = [b for b in raw if int(b.get("n_with_plan") or 0) > 0]
     if not blocks:
-        seen = 0
-        return {"n_with_plan": 0, "plans_seen": seen} if seen else None
+        # This used to read `seen = 0 ... if seen else None` -- always None, so a
+        # run where plans were SEEN but none simulated (or, since B-121, none
+        # FILLED) pooled to nothing and the report printed no plan line at all.
+        seen = sum(int(b.get("plans_seen") or 0) for b in raw)
+        if not (seen or unf or fth):
+            return None
+        return {"n_with_plan": 0, "plans_seen": seen,
+                "plans_unfilled": unf, "plans_fill_through_stop": fth,
+                "plans_unsimulated": sum(int(b.get("plans_unsimulated") or 0)
+                                         for b in raw)}
     n = sum(int(b["n_with_plan"]) for b in blocks)
     tgt = sum(int(b.get("target_hits") or 0) for b in blocks)
     stp = sum(int(b.get("stop_hits") or 0) for b in blocks)
@@ -789,6 +916,7 @@ def _pool_r_blocks(blocks: "list[dict | None]") -> dict | None:
         "n_with_plan": n,
         "target_hits": tgt, "stop_hits": stp,
         "open_exits": opn, "time_exits": tme, "trail_exits": trl,
+        "plans_unfilled": unf, "plans_fill_through_stop": fth,
         "positive_rate": round(pos / n, 3),
         "target_rate": round(tgt / n, 3),
         "stop_rate": round(stp / n, 3),
@@ -806,7 +934,8 @@ def format_walk_forward(result: dict) -> str:
     mode = result.get("signal_mode", "all")
     lines.append(f"=== Walk-Forward: {result['scanner']} "
                  f"({result['n_windows']} windows, {cost_note}, "
-                 f"signals={mode}, exit={result.get('exit_model', 'fixed')}) ===")
+                 f"signals={mode}, exit={result.get('exit_model', 'fixed')}, "
+                 f"fill={result.get('fill_model', 'assumed')}) ===")
     if result.get("exit_model", "fixed") != "fixed":
         lines.append(f"exit: {result['exit_model']} -- a MOVING stop, target "
                      "dropped; plan R is not comparable to a fixed-exit run (B-123)")
@@ -865,12 +994,18 @@ def format_walk_forward(result: dict) -> str:
             + (f"trailed out {pl['trail_exits']} · " if pl.get("trail_exits") else "")
             + f"R>0 {pl.get('positive_rate', 0):.1%} · "
             f"avg {pl['avg_R']:+.2f}R")
+        if pl.get("plans_unfilled") or pl.get("plans_fill_through_stop"):
+            lines.append(f"  ({pl.get('plans_unfilled', 0)} orders never filled, "
+                         f"{pl.get('plans_fill_through_stop', 0)} filled through "
+                         f"the stop -- counted, not simulated; B-121)")
         if pl.get("plans_unsimulated"):
             lines.append(f"  ({pl['plans_unsimulated']} plans could not be "
                          f"simulated — degenerate levels)")
     elif pl.get("plans_seen"):
         lines.append("")
-        lines.append(f"plan: {pl['plans_seen']} seen, none simulatable")
+        lines.append(f"plan: {pl['plans_seen']} seen, none simulatable"
+                     + (f" ({pl['plans_unfilled']} never filled)"
+                        if pl.get("plans_unfilled") else ""))
 
     lines.append(f"  (* = p<0.05 two-tailed)")
     return "\n".join(lines)

@@ -199,3 +199,51 @@ def test_pooling_counts_trail_exits_and_the_exit_neutral_win_rate():
     counted = (pooled["target_hits"] + pooled["stop_hits"] + pooled["open_exits"]
                + pooled["time_exits"] + pooled["trail_exits"])
     assert counted == pooled["n_with_plan"]
+
+
+# ── B-124 hooks ──────────────────────────────────────────────────────────────
+
+def _stub_frame(n=320):
+    rng = np.random.default_rng(7)
+    c = 100 + np.cumsum(rng.normal(0.1, 1.0, n))
+    return pd.DataFrame({"open": c, "high": c + 1, "low": c - 1, "close": c,
+                         "volume": np.full(n, 1e6)})
+
+
+@pytest.fixture
+def stub_scanner(monkeypatch):
+    """Fires every 25th bar with a 1-ATR-ish plan and a 3-bar time stop."""
+    import scanner_templates as sc
+
+    def fn(df):
+        if len(df) % 25:
+            return None
+        last = float(df["close"].iloc[-1])
+        return {"entry": last, "stop": last - 3, "target": last + 30, "time_stop": 3}
+    monkeypatch.setitem(sc.SCANNERS, "_stub_b124", {"fn": fn})
+    return "_stub_b124"
+
+
+def test_trades_are_kept_and_pair_across_exit_arms(stub_scanner):
+    df = _stub_frame()
+    kw = dict(fetch_fn=lambda s: df, keep_trades=True, fill_model="market",
+              signal_mode="fresh")
+    a = bt.backtest_scanner(stub_scanner, ["X", "Y"], **kw)
+    b = bt.backtest_scanner(stub_scanner, ["X", "Y"], exit_model="atr_trail:3", **kw)
+    ka = {(x["symbol"], x["t"]) for x in a["trades"]}
+    kb = {(x["symbol"], x["t"]) for x in b["trades"]}
+    assert ka and ka == kb                       # identical entries, pairable
+    assert {x["symbol"] for x in a["trades"]} == {"X", "Y"}
+
+
+def test_honor_time_stop_false_frees_only_the_moving_arms(stub_scanner):
+    df = _stub_frame()
+    kw = dict(fetch_fn=lambda s: df, keep_trades=True, fill_model="market",
+              honor_time_stop=False)
+    fixed = bt.backtest_scanner(stub_scanner, ["X"], **kw)
+    trail = bt.backtest_scanner(stub_scanner, ["X"], exit_model="atr_trail:3", **kw)
+    # fixed still obeys the card: nothing runs past 3 bars
+    assert max(x["bars"] for x in fixed["trades"]) <= 3
+    # the trail arm is released to the horizon
+    assert max(x["bars"] for x in trail["trades"]) > 3
+    assert trail["honor_time_stop"] is False
