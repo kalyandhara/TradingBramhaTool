@@ -1,6 +1,11 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-23] gap analysis | exit / risk management vs the LuxAlgo exit list — B-123…B-127
+- **Covered already**: sizing + fixed/ATR SL-TP (`portfolio_risk.py`, `scanner_plans.py`) ≈ Risk Management Tool; PMax / SuperTrend AI / PSAR trails ≈ ATR Stop / Chandelier; SBC structure, `fvg.js`, `fibonacci.js` are the parts of the structure/FVG/Fib trails.
+- **The actual gap is one layer down**: `_simulate_plan` knows fixed stop, fixed target and time stop — nothing that moves. So no trailing exit on the desk has ever been measured AS AN EXIT by the harness (PMax's trail was scored once by a one-off study, B-74). Adding eight more trails would add eight more unmeasured lines.
+- **Filed**: B-123 `exit_model` in the harness (P1, pair with B-121's fill model) → B-124 pre-registered bake-off on the measured-positive setups only (fixed vs ATR trail vs structure vs EMA-close, tail as well as mean) → B-125 Statistical Trailing Stop only if a trail wins → B-126 Market-Structure/FVG/Fib trails declined as compositions, Sigmoid/k-NN declined outright → B-127 chart trail cards say "unmeasured as an exit" now.
+
 ## [2026-09-23] backlog | B-122 — the no-supply screener, and why five of its six parts already exist
 - **Asked for**: a screener for stocks with very little supply, from a pasted debate (*new high = no trapped sellers; volume says whether supply is arriving; buy new-high + no-supply + demand, WAIT if supply shows; exit when it returns*) plus a Pine sketch of entry and exit modules.
 - **Coverage check before filing, and it changed the ask.** The NEW-HIGH leg is on the desk five times over (`52-Week High Leaders`, `ATH Breakout`, `Momentum Continuation`, `Stage 2`, `Near Pivot`), already collapsed into ONE family because they read one fact, and that family measured at-or-below a random-entry baseline. A sixth new-high scanner is a sixth vote for the same fact. **The one leg nobody has built is the supply read** — has selling appeared since the high — and every existing scanner reads volume the other way round, as confirmation (ATH Breakout *requires* ≥1.3× median; the debate says that same bar means WAIT).
