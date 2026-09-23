@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-23] build | B-123 — the harness can measure a moving stop, and nearly lost every one it measured
+- **Built**: `exit_model` on `_simulate_plan`, threaded through `backtest_scanner` / `walk_forward_scanner` and the report header like `signal_mode`: `fixed` (default, bit-for-bit unchanged) · `atr_trail:k` (Chandelier) · `ema_close:n` · `structure:p` (close through the last confirmed swing — a CHoCH). 18 tests: ratchet-only, no exit on a level the same bar set, close-based EMA/structure, pivots only once confirmed, shorts mirror, unknown model raises. Target dropped under a trail, and the result says so.
+- **The silent empty, caught on the first smoke run**: the R block tallied target/stop/open/time, so every `trail` exit would have disappeared, and win rate (= target hit) is 0% by construction without a target. Added `trail_exits`, `positive_rate` (R>0), `r_p90`; pooled; a test makes the five outcomes sum to n.
+- **The ratchet test was mutation-checked**: making the trail follow the latest candidate down fails it. It passed first time, which is why it was checked.
+- **Correction to B-123 as filed**: the ATR trail is not close-based — once ratcheted it rests as an intraday stop, like Chandelier. Only EMA and structure exits are close-based.
+- **Smoke, not a result**: Falling Wedge on 25 names, 127 plans, all accounted for under each model. The one thing it taught: the card's `time_stop` ended 26–39 trades under every trail, capping the tail a trail is for. B-124 has to pre-register whether trail arms keep it.
+
 ## [2026-09-23] gap analysis | exit / risk management vs the LuxAlgo exit list — B-123…B-127
 - **Covered already**: sizing + fixed/ATR SL-TP (`portfolio_risk.py`, `scanner_plans.py`) ≈ Risk Management Tool; PMax / SuperTrend AI / PSAR trails ≈ ATR Stop / Chandelier; SBC structure, `fvg.js`, `fibonacci.js` are the parts of the structure/FVG/Fib trails.
 - **The actual gap is one layer down**: `_simulate_plan` knows fixed stop, fixed target and time stop — nothing that moves. So no trailing exit on the desk has ever been measured AS AN EXIT by the harness (PMax's trail was scored once by a one-off study, B-74). Adding eight more trails would add eight more unmeasured lines.

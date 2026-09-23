@@ -144,11 +144,90 @@ def _to_float(x) -> float | None:
         return None
 
 
+#: Exit models `_simulate_plan` understands (B-123). ``fixed`` is the default and
+#: is the pre-B-123 behaviour bit for bit, so no published R changes. The others
+#: MOVE the stop, which the harness could not express before -- every trailing
+#: stop on the chart (PMax, SuperTrend AI, PSAR) had never been measured as an
+#: exit by this harness.
+EXIT_MODELS = ("fixed", "atr_trail", "ema_close", "structure")
+_EXIT_DEFAULTS = {"atr_trail": 3.0, "ema_close": 20, "structure": 5}
+
+
+def parse_exit_model(spec: str | None) -> tuple[str, float | None]:
+    """``"atr_trail:3"`` -> ``("atr_trail", 3.0)``; ``None``/``"fixed"`` -> fixed.
+
+    Unknown names RAISE rather than falling back to ``fixed`` -- a typo that
+    silently measured the fixed plan would publish the control as the treatment
+    (the same rule ``signal_mode`` follows)."""
+    if spec is None:
+        return "fixed", None
+    name, _, arg = str(spec).strip().lower().partition(":")
+    if name not in EXIT_MODELS:
+        raise ValueError(f"exit_model must be one of {EXIT_MODELS}, got {spec!r}")
+    if name == "fixed":
+        return name, None
+    val = float(arg) if arg else float(_EXIT_DEFAULTS[name])
+    if val <= 0:
+        raise ValueError(f"exit_model parameter must be positive, got {spec!r}")
+    return name, val
+
+
+_EXIT_SERIES_CACHE: dict = {}
+
+
+def _exit_series(df: pd.DataFrame, name: str, param: float) -> dict:
+    """Per-bar series an exit model reads, computed once per (frame, model).
+
+    Every value at index ``i`` uses bars ``<= i`` only. How a model consumes
+    them is decided in `_simulate_plan`, where the lookahead argument is made."""
+    key = (id(df), len(df), name, param)
+    hit = _EXIT_SERIES_CACHE.get(key)
+    if hit is not None:
+        return hit
+    if len(_EXIT_SERIES_CACHE) > 64:
+        _EXIT_SERIES_CACHE.clear()
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+    close = df["close"].astype(float)
+    out: dict = {}
+    if name == "atr_trail":
+        # Chandelier's own lookback (22), Wilder smoothing.
+        prev = close.shift(1)
+        tr = pd.concat([high - low, (high - prev).abs(), (low - prev).abs()],
+                       axis=1).max(axis=1)
+        out["atr"] = tr.ewm(alpha=1.0 / 22, adjust=False).mean().to_numpy()
+    elif name == "ema_close":
+        out["ema"] = close.ewm(span=int(param), adjust=False).mean().to_numpy()
+    elif name == "structure":
+        # A swing low at j needs `p` bars on EACH side, so it is only KNOWN at
+        # bar j+p. `swing_low[i]` is the latest swing low confirmed by bar i --
+        # reading the pivot at j would be lookahead by p bars.
+        p = int(param)
+        hv, lv = high.to_numpy(), low.to_numpy()
+        n = len(df)
+        known_low = np.full(n, np.nan)
+        known_high = np.full(n, np.nan)
+        last_l = last_h = np.nan
+        for i in range(n):
+            j = i - p
+            if j - p >= 0:
+                if lv[j] == lv[j - p:j + p + 1].min():
+                    last_l = lv[j]
+                if hv[j] == hv[j - p:j + p + 1].max():
+                    last_h = hv[j]
+            known_low[i] = last_l
+            known_high[i] = last_h
+        out["swing_low"], out["swing_high"] = known_low, known_high
+    _EXIT_SERIES_CACHE[key] = out
+    return out
+
+
 def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
                    stop: float, target: float, max_bars: int,
                    time_stop: float | None = None,
                    cost_model: CostModel | None = None,
-                   side: str = "long") -> dict | None:
+                   side: str = "long",
+                   exit_model: str | None = None) -> dict | None:
     """Stop-or-target-first walk forward from ``entry_idx`` (the entry bar).
 
     Conservative tie-break: if a single bar's range spans BOTH the stop and the
@@ -181,7 +260,28 @@ def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
     the wrong way for the side it declares (a "long" whose stop sits above its
     entry is not a long, it is a typo). The caller counts those rather than
     letting them vanish.
+
+    ``exit_model`` (B-123) -- ``fixed`` (default, unchanged), ``atr_trail:k``
+    (Chandelier: extreme since entry - k*ATR22), ``ema_close:n`` (close through
+    EMA n), ``structure:p`` (close through the latest CONFIRMED swing low/high,
+    pivot length p -- the CHoCH that ends a long). Rules every moving model obeys:
+
+    * **The initial stop still defines R and still fires intraday.** A trail can
+      only TIGHTEN from it, never loosen -- ratchet-only.
+    * **Model exits are CLOSE-based**, filled at that close. Touch-based trails
+      are whippier ([[concepts/Capital-Management-Methods]]), and a close rule is
+      the one a daily-bar trader can actually follow. The ATR trail, once it has
+      ratcheted, is enforced as a resting stop (intraday), like Chandelier.
+    * **The ATR trail used on bar i is computed from bars <= i-1.** Swing pivots
+      already carry their p-bar confirmation delay. No bar exits on a level it
+      helped set.
+    * **The fixed target is DROPPED.** Letting winners run is the whole case for
+      a trail; capping it at the card's target would measure a fixed plan with a
+      tighter stop. The result carries ``target_used: False`` so it is visible.
+
+    Outcomes add ``trail`` (a moving stop closed the trade).
     """
+    model, param = parse_exit_model(exit_model)
     short = str(side).lower() in ("short", "bear", "bearish", "down")
     risk = (stop - entry) if short else (entry - stop)
     if risk <= 0:
@@ -200,16 +300,49 @@ def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
 
     horizon = max_bars if time_stop is None else min(max_bars, int(time_stop))
     end = min(n - 1, entry_idx + horizon)
+
+    if model == "fixed":
+        for i in range(entry_idx, end + 1):
+            hit_stop = (high[i] >= stop) if short else (low[i] <= stop)
+            hit_tgt = (low[i] <= target) if short else (high[i] >= target)
+            if hit_stop:
+                return {"outcome": "stop", "r": _r(stop), "bars": i - entry_idx}
+            if hit_tgt:
+                return {"outcome": "target", "r": _r(target), "bars": i - entry_idx}
+        timed_out = time_stop is not None and (end - entry_idx) >= horizon
+        return {"outcome": "time" if timed_out else "open",
+                "r": _r(float(close[end])), "bars": end - entry_idx}
+
+    ser = _exit_series(df, model, param)
+    tag = f"{model}:{param:g}"
+    extra = {"exit_model": tag, "target_used": False}
+    live = stop          # ratchets from the initial stop, never loosens
+    extreme = entry      # highest high (long) / lowest low (short) since entry
     for i in range(entry_idx, end + 1):
-        hit_stop = (high[i] >= stop) if short else (low[i] <= stop)
-        hit_tgt = (low[i] <= target) if short else (high[i] >= target)
-        if hit_stop:
-            return {"outcome": "stop", "r": _r(stop), "bars": i - entry_idx}
-        if hit_tgt:
-            return {"outcome": "target", "r": _r(target), "bars": i - entry_idx}
+        # 1. The resting stop, intraday, at the level in force coming INTO bar i.
+        if (high[i] >= live) if short else (low[i] <= live):
+            return {"outcome": "stop" if live == stop else "trail",
+                    "r": _r(live), "bars": i - entry_idx, **extra}
+        # 2. The model's close-based exit on this bar.
+        lvl = None
+        if model == "ema_close":
+            lvl = ser["ema"][i]
+        elif model == "structure":
+            lvl = ser["swing_high"][i] if short else ser["swing_low"][i]
+        if lvl is not None and not np.isnan(lvl) and (
+                (close[i] > lvl) if short else (close[i] < lvl)):
+            return {"outcome": "trail", "r": _r(float(close[i])),
+                    "bars": i - entry_idx, **extra}
+        # 3. Ratchet for the NEXT bar, from information through bar i.
+        if model == "atr_trail":
+            extreme = min(extreme, low[i]) if short else max(extreme, high[i])
+            a = ser["atr"][i]
+            if not np.isnan(a):
+                cand = extreme + param * a if short else extreme - param * a
+                live = min(live, cand) if short else max(live, cand)
     timed_out = time_stop is not None and (end - entry_idx) >= horizon
     return {"outcome": "time" if timed_out else "open",
-            "r": _r(float(close[end])), "bars": end - entry_idx}
+            "r": _r(float(close[end])), "bars": end - entry_idx, **extra}
 
 
 def absolute_move(df: pd.DataFrame, entry_idx: int, horizon: int,
@@ -261,6 +394,7 @@ def backtest_scanner(scanner_name: str,
                      cost_bps: float = 0,
                      cost_model: CostModel | None = None,
                      signal_mode: str = "all",
+                     exit_model: str | None = None,
                      _record_frac: "tuple[float, float] | None" = None) -> dict:
     """Replay ``scanner_name`` over ``symbols`` and return aggregate metrics.
 
@@ -279,6 +413,8 @@ def backtest_scanner(scanner_name: str,
     """
     if signal_mode not in ("all", "fresh"):
         raise ValueError(f"signal_mode must be 'all' or 'fresh', got {signal_mode!r}")
+    _em, _ep = parse_exit_model(exit_model)          # raises on a typo, up front
+    exit_tag = "fixed" if _em == "fixed" else f"{_em}:{_ep:g}"
     spec = sc.SCANNERS.get(scanner_name)
     if spec is None:
         return {"error": f"unknown scanner '{scanner_name}'"}
@@ -454,7 +590,8 @@ def backtest_scanner(scanner_name: str,
                     _side = "short" if stop_p > entry_p else "long"
                     r = _simulate_plan(df, entry_idx, entry_p, stop_p, tgt_p,
                                        max_h, _to_float(hit.get("time_stop")),
-                                       cost_model=cm, side=_side)
+                                       cost_model=cm, side=_side,
+                                       exit_model=exit_model)
                     if r:
                         r_results.append(r)
                     else:
@@ -474,6 +611,7 @@ def backtest_scanner(scanner_name: str,
                      mkt_ret=mkt_ret, alpha_ret=alpha_ret,
                      cost_model=cm)
     out["signal_mode"] = signal_mode
+    out["exit_model"] = exit_tag
     return out
 
 
@@ -609,6 +747,7 @@ def walk_forward_scanner(scanner_name: str,
         # Reported, never assumed: a hit rate from "all" and one from "fresh"
         # answer different questions, so the number never travels without it.
         "signal_mode": (windows[0].get("signal_mode", "all") if windows else "all"),
+        "exit_model": (windows[0].get("exit_model", "fixed") if windows else "fixed"),
         "stability": {
             "per_horizon": stability_per_h,
             "all_stable": all_stable,
@@ -640,12 +779,17 @@ def _pool_r_blocks(blocks: "list[dict | None]") -> dict | None:
     stp = sum(int(b.get("stop_hits") or 0) for b in blocks)
     opn = sum(int(b.get("open_exits") or 0) for b in blocks)
     tme = sum(int(b.get("time_exits") or 0) for b in blocks)
+    trl = sum(int(b.get("trail_exits") or 0) for b in blocks)
+    # positive_rate is stored in PERCENT per window; pool it by plan count.
+    pos = sum(float(b.get("positive_rate") or 0.0) / 100.0 * int(b["n_with_plan"])
+              for b in blocks)
     # avg_R weighted by the plans behind it, for the same reason.
     tot_r = sum(float(b.get("avg_R") or 0.0) * int(b["n_with_plan"]) for b in blocks)
     return {
         "n_with_plan": n,
         "target_hits": tgt, "stop_hits": stp,
-        "open_exits": opn, "time_exits": tme,
+        "open_exits": opn, "time_exits": tme, "trail_exits": trl,
+        "positive_rate": round(pos / n, 3),
         "target_rate": round(tgt / n, 3),
         "stop_rate": round(stp / n, 3),
         "win_rate": round(tgt / n, 3),
@@ -662,7 +806,10 @@ def format_walk_forward(result: dict) -> str:
     mode = result.get("signal_mode", "all")
     lines.append(f"=== Walk-Forward: {result['scanner']} "
                  f"({result['n_windows']} windows, {cost_note}, "
-                 f"signals={mode}) ===")
+                 f"signals={mode}, exit={result.get('exit_model', 'fixed')}) ===")
+    if result.get("exit_model", "fixed") != "fixed":
+        lines.append(f"exit: {result['exit_model']} -- a MOVING stop, target "
+                     "dropped; plan R is not comparable to a fixed-exit run (B-123)")
     if mode == "fresh":
         lines.append("signals: FRESH only — a state that persists counts ONCE, "
                      "on the bar it appears (B-120)")
@@ -715,6 +862,8 @@ def format_walk_forward(result: dict) -> str:
             f"plan (target vs stop): {pl['n_with_plan']} simulated · "
             f"target {pl['target_rate']:.1%} · stop {pl['stop_rate']:.1%} · "
             f"open {pl['open_exits']} · timed out {pl['time_exits']} · "
+            + (f"trailed out {pl['trail_exits']} · " if pl.get("trail_exits") else "")
+            + f"R>0 {pl.get('positive_rate', 0):.1%} · "
             f"avg {pl['avg_R']:+.2f}R")
         if pl.get("plans_unsimulated"):
             lines.append(f"  ({pl['plans_unsimulated']} plans could not be "
@@ -845,6 +994,15 @@ def _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list, r_results,
             "stop_hits": int(np.sum([x["outcome"] == "stop" for x in r_results])),
             "open_exits": int(np.sum([x["outcome"] == "open" for x in r_results])),
             "time_exits": int(np.sum([x["outcome"] == "time" for x in r_results])),
+            # B-123. A moving stop closes trades as "trail", which none of the
+            # four counts above sees -- without this key those exits silently
+            # vanish from the tallies. And under a trail there IS no target, so
+            # win_rate (= target hit) reads 0% by construction; `positive_rate`
+            # (R > 0) is the win rate that means the same thing under every
+            # exit model, and `r_p90` is the right tail a trail exists to fatten.
+            "trail_exits": int(np.sum([x["outcome"] == "trail" for x in r_results])),
+            "positive_rate": round(float(np.mean(rs > 0) * 100), 1),
+            "r_p90": round(float(np.percentile(rs, 90)), 2),
             # Plan coverage. Without these two a scanner whose plans are all
             # short-side would report an empty R block indistinguishable from one
             # that emits no plans at all.
@@ -916,7 +1074,9 @@ def format_report(result: dict) -> str:
         lines.append(f"trade-plan R: n={r['n_with_plan']} win%={r['win_rate']} "
                      f"expectancy={r['expectancy_R']}R "
                      f"(target={r['target_hits']}/stop={r['stop_hits']}"
-                     f"/time={r.get('time_exits', 0)}/open={r['open_exits']})")
+                     f"/time={r.get('time_exits', 0)}/open={r['open_exits']}"
+                     + (f"/trail={r['trail_exits']}" if r.get("trail_exits") else "")
+                     + ")")
         # Plan coverage. A scanner can emit plans on every signal and still have
         # half of them unsimulatable (short-side); quoting the expectancy without
         # saying what fraction it was measured on is the partial-result habit.
