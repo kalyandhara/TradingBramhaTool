@@ -315,6 +315,9 @@ def _card(df: pd.DataFrame, direction: str) -> Optional[dict[str, Any]]:
         "score_base": round(min(100.0, 40 + g["pole_atr"] * 6
                                 + (1 - g["retrace"]) * 30), 1),
         "entry": g["entry"], "stop": g["stop"], "target": g["target"],
+        # B-128: an unbroken flag is a WATCH. The levels stay on the card (the
+        # reader wants the trigger) but the harness must not trade it.
+        "actionable": bool(g["broken"]),
         "flag_pole": g,
     }
 

@@ -131,7 +131,7 @@ def test_harmonic_plans_are_never_inverted_on_real_bars():
     import scanner_templates as sc
     fn = sc.SCANNERS["Harmonic Reversal (XABCD)"]["fn"]
     checked = 0
-    for sym in ("360ONE.NS", "ABB.NS", "ACC.NS"):
+    for sym in ("360ONE", "ABB", "ACC"):
         try:
             df = sp.fetch_ohlcv(sym, days=1500)
         except Exception:

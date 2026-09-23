@@ -493,6 +493,7 @@ def backtest_scanner(scanner_name: str,
     n_unfilled = 0          # orders that never traded -- not trades, not dropped
     n_fill_through = 0      # filled at or beyond the stop: no risk left to measure
     n_fill_past_target = 0  # filled at or beyond the target: nothing left to make
+    n_not_actionable = 0    # plans on cards that declare themselves not a trade (B-128)
     slip_pct: list[float] = []   # adverse gap between the card's entry and the fill
     # B-124 hooks. `keep_trades` returns every simulated trade keyed by
     # (symbol, signal bar) so two exit arms can be PAIRED on identical entries
@@ -666,7 +667,14 @@ def backtest_scanner(scanner_name: str,
                 stop_p = _to_float(hit.get("stop"))
                 tgt = hit.get("target")
                 tgt_p = _to_float(tgt[0] if isinstance(tgt, (list, tuple)) and tgt else tgt)
-                if entry_p and stop_p and tgt_p:
+                if entry_p and stop_p and tgt_p and hit.get("actionable") is False:
+                    # B-128. The card says its state is not a trade -- a flag not
+                    # yet broken, a wedge still forming. Its SIGNAL return above
+                    # stays measured (that is the pattern); its PLAN is counted
+                    # and never simulated. Before this, Flag & Pole's plan R was
+                    # -0.43 with WATCH cards traded and +0.26 without them.
+                    n_not_actionable += 1
+                elif entry_p and stop_p and tgt_p:
                     n_plans += 1
                     # The SIDE is read off the plan's own geometry (B-102). A stop
                     # ABOVE the entry is a short — there is no other way to read
@@ -731,7 +739,8 @@ def backtest_scanner(scanner_name: str,
     if keep_trades:
         out["trades"] = trades
     rb = out.get("r_metrics")
-    if isinstance(rb, dict) or n_unfilled or n_fill_through or n_fill_past_target:
+    if (isinstance(rb, dict) or n_unfilled or n_fill_through or n_fill_past_target
+            or n_not_actionable):
         rb = rb if isinstance(rb, dict) else {"n_with_plan": 0,
                                               "plans_seen": int(n_plans)}
         # Counted, never dropped: a fill model that silently shrank the sample
@@ -739,6 +748,7 @@ def backtest_scanner(scanner_name: str,
         rb["plans_unfilled"] = int(n_unfilled)
         rb["plans_fill_through_stop"] = int(n_fill_through)
         rb["plans_fill_past_target"] = int(n_fill_past_target)
+        rb["plans_not_actionable"] = int(n_not_actionable)
         rb["avg_slippage_pct"] = (round(float(np.mean(slip_pct)), 3)
                                   if slip_pct else None)
         out["r_metrics"] = rb
@@ -908,17 +918,19 @@ def _pool_r_blocks(blocks: "list[dict | None]") -> dict | None:
     unf = sum(int(b.get("plans_unfilled") or 0) for b in raw)
     fth = sum(int(b.get("plans_fill_through_stop") or 0) for b in raw)
     fpt = sum(int(b.get("plans_fill_past_target") or 0) for b in raw)
+    nna = sum(int(b.get("plans_not_actionable") or 0) for b in raw)
     blocks = [b for b in raw if int(b.get("n_with_plan") or 0) > 0]
     if not blocks:
         # This used to read `seen = 0 ... if seen else None` -- always None, so a
         # run where plans were SEEN but none simulated (or, since B-121, none
         # FILLED) pooled to nothing and the report printed no plan line at all.
         seen = sum(int(b.get("plans_seen") or 0) for b in raw)
-        if not (seen or unf or fth):
+        if not (seen or unf or fth or nna):
             return None
         return {"n_with_plan": 0, "plans_seen": seen,
                 "plans_unfilled": unf, "plans_fill_through_stop": fth,
                 "plans_fill_past_target": fpt,
+                "plans_not_actionable": nna,
                 "plans_unsimulated": sum(int(b.get("plans_unsimulated") or 0)
                                          for b in raw)}
     n = sum(int(b["n_with_plan"]) for b in blocks)
@@ -938,6 +950,7 @@ def _pool_r_blocks(blocks: "list[dict | None]") -> dict | None:
         "open_exits": opn, "time_exits": tme, "trail_exits": trl,
         "plans_unfilled": unf, "plans_fill_through_stop": fth,
         "plans_fill_past_target": fpt,
+        "plans_not_actionable": nna,
         "positive_rate": round(pos / n, 3),
         "target_rate": round(tgt / n, 3),
         "stop_rate": round(stp / n, 3),
@@ -1015,6 +1028,9 @@ def format_walk_forward(result: dict) -> str:
             + (f"trailed out {pl['trail_exits']} · " if pl.get("trail_exits") else "")
             + f"R>0 {pl.get('positive_rate', 0):.1%} · "
             f"avg {pl['avg_R']:+.2f}R")
+        if pl.get("plans_not_actionable"):
+            lines.append(f"  ({pl['plans_not_actionable']} plans on WATCH / forming "
+                         f"cards -- counted, not traded; B-128)")
         if pl.get("plans_unfilled") or pl.get("plans_fill_through_stop"):
             lines.append(f"  ({pl.get('plans_unfilled', 0)} orders never filled, "
                          f"{pl.get('plans_fill_through_stop', 0)} filled through "

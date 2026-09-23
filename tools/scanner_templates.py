@@ -687,6 +687,10 @@ def scan_vcp(df: pd.DataFrame) -> dict | None:
         "entry": g["entry"],
         "stop": g["stop"],
         "target": g["target"],
+        # B-128: WATCH is "valid but not near the pivot" -- no trade. READY is
+        # the card saying PLACE the order (entry = pivot trigger), so it counts;
+        # fill_model="touch" scores it honestly as a buy-stop.
+        "actionable": g["verdict"] in ("BUY", "WEAK BUY", "READY"),
         "geometry": g,
     }
 
@@ -1944,6 +1948,9 @@ def scan_rounding_bottom(df: pd.DataFrame, window: int = 90,
         "score": score,
         # Actionable trade plan
         "verdict": verdict,
+        # B-128: "Approaching rim" is WATCH only -- the scanner's own comment
+        # says no entry until the buffer-close above the rim.
+        "actionable": verdict != "WATCH",
         "entry": round(entry, 2),
         "stop": round(stop, 2),
         "target": round(target, 2),
@@ -1964,6 +1971,7 @@ def scan_rounding_bottom(df: pd.DataFrame, window: int = 90,
             "entry": geometry["entry"],
             "stop": geometry["stop"],
             "target": geometry["target"],
+            "actionable": geometry["actionable"],
             "geometry": geometry}
 
 
@@ -6181,6 +6189,10 @@ def scan_falling_wedge(df: pd.DataFrame, window: int = 60,
         "entry": entry,
         "stop": stop,
         "target": target,
+        # B-128: only a CONFIRMED break is a trade. "forming" and "pre-breakout"
+        # keep their levels for the reader, but the harness must not fill them.
+        "actionable": state == "confirmed",
+        "state": state,
         "vol_x50d": round(vol_x, 2),
         # FW-2 metric surface.
         "containment_pct": round(containment * 100, 1),
@@ -8423,6 +8435,8 @@ def scan_double_bottom(df: pd.DataFrame):
         "entry": d["entry"],
         "stop": d["stop"],
         "target": d["target"],
+        # B-128: "EXTENDED (no room)" is the card saying do not chase.
+        "actionable": d.get("verdict") != "EXTENDED (no room)",
         "geometry": d,
     }
 
