@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-23] measure | B-124 — no trailing exit beats the fixed plan; the prior held
+- **Registered run repeated unchanged on fixed code** (run 1 void, B-129). 300 names, fresh, next-open fill, 29bps, paired on identical entries, clustered by symbol, α = 0.05/6.
+- **Falling Wedge**: ATR trail +0.13R (p=0.058), structure −0.07R, EMA20 −0.10R → NO DIFFERENCE ×3. **Harmonic**: ATR −0.07R, structure −0.10R → NO DIFFERENCE; **EMA20 −0.23R, p=0.0003 → TRAIL WORSE**.
+- **5 ties, 1 loss, 0 wins.** The ATR trail does fatten the tail (Falling Wedge r_p90 2.0 → 2.9R) and pays for it in hit rate (40% → 28%); on these entries it nets out. Tight close-based exits just cut winners (EMA20 held 3.6 bars on average) — B-8's finding again, from a different direction.
+- **Consequences**: B-125 (Statistical Trailing Stop) closes unbuilt on its own pre-stated condition; the SuperTrend AI / PSAR cards now say the trail CLASS was measured and gave no gain. The LuxAlgo exit list that started this thread is answered: on this desk's two best setups, a smarter exit is not where the edge is.
+
 ## [2026-09-23] void + fix | B-124 run 1 voided by its own control — Harmonic's stops were on the profit side (B-129)
 - **Run 1 said trails beat the fixed plan on Harmonic by +0.6R at p<0.0001.** The control said otherwise before the verdict could be recorded: −0.90R on a scanner published at +0.25R. Under the OLD fill model, 138 "target hits" booked losses and 77 trades lost more than 3R, which a stop cannot do.
 - **Cause**: `harmonic_patterns.py` put every stop at X ± 0.5%, but Butterfly and Crab complete with D BEYOND X, so a bullish stop sat above its entry. The harness read the side off the stop and scored them as shorts. 37 of 149 cards. The trails won by escaping a broken control.
