@@ -59,6 +59,7 @@ import importlib
 PAGES: dict[str, str] = {
     "Astro Timing": "astro_timing",
     "Telegram Signals": "telegram_signals",
+    "SVP Structure": "svp_structure",
 }
 
 

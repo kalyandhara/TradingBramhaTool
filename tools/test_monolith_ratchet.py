@@ -30,9 +30,8 @@ import pytest
 APP = pathlib.Path(__file__).resolve().parent / "dashboard_app.py"
 
 #: Measured 2026-09-16. Lower these when work lands; never raise them silently.
-MAX_LINES = 12_800          # actual 12,785 — B-87r's SECOND page (Telegram
-                            # Signals) plus `_paginated_df` moving to `ui_tables`
-                            # when Astro Timing moved to tools/desk_pages/
+MAX_LINES = 12_750          # actual 12,713 — B-87r's THIRD page (SVP Structure)
+                            # moved to tools/desk_pages/svp_structure.py
 MAX_SILENT_HANDLERS = 11    # actual 11 — `except: pass` / `except: continue`
 # 320 -> 324 on 2026-09-18 for the two Home strips (index charts, breadth bars),
 # each an import plus one call site while the real code went into its own module.
@@ -43,10 +42,8 @@ MAX_SILENT_HANDLERS = 11    # actual 11 — `except: pass` / `except: continue`
 # the next page removes its `if current_page == "..."` block and adds nothing,
 # taking this number to 324, then 323, then 322 — the ratchet now falls with
 # each extraction instead of creeping up, which is what B-87 installed it for.
-MAX_MODULE_STATEMENTS = 324  # actual 324 — and it FELL, which is what the
-                             # dispatch was paid for once: extracting a page now
-                             # deletes an `if` block and adds nothing
-MAX_RAW_HTML_RENDERS = 108  # actual 102 — lowered from 120 by the same move
+MAX_MODULE_STATEMENTS = 324  # actual 324 — SVP Structure extracted, −1 from 325
+MAX_RAW_HTML_RENDERS = 106  # actual 104 — SVP Structure's callout moved out
 
 
 @pytest.fixture(scope="module")
