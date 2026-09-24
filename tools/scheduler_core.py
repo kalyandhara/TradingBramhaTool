@@ -23,10 +23,12 @@ CLI (read-only unless you pass register/remove/run):
 """
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -138,9 +140,9 @@ def write_bat(job: JobSpec) -> Path:
         f'echo ===== %DATE% %TIME% -- {job.id} starting ===== >> "%LOG%"\r\n'
         f'{job.command} >> "%LOG%" 2>&1\r\n'
         "if errorlevel 1 (\r\n"
-        '    echo ***** FAILED ***** >> "%LOG%"\r\n'
+        f'    echo ***** FAILED at %DATE% %TIME% ***** >> "%LOG%"\r\n'
         ") else (\r\n"
-        '    echo ----- ok ----- >> "%LOG%"\r\n'
+        f'    echo ----- ok at %DATE% %TIME% ----- >> "%LOG%"\r\n'
         ")\r\n"
     )
     job.bat_path.write_text(src, encoding="utf-8")
@@ -270,6 +272,135 @@ def tail_log(job: JobSpec, n: int = 40) -> str:
         return f"(log read error: {e})"
 
 
+# ── Run history ──────────────────────────────────────────────────────────────
+_START_RE = re.compile(
+    r"=====\s+\w+\s+(\d{2}/\d{2}/\d{4})\s+(\d{1,2}:\d{2}:\d{2}\.\d+)\s+--\s+(\S+)\s+starting\s+=====",
+)
+_START_RE2 = re.compile(
+    r"=====\s+\w+\s+(\d{2}/\d{2}/\d{4})\s+(\d{1,2}:\d{2}:\d{2}\.\d+)\s+.+?\s+starting\s+=====",
+)
+_END_OK = re.compile(r"-----\s+ok(?:\s+at\s+\w+\s+(\d{2}/\d{2}/\d{4})\s+(\d{1,2}:\d{2}:\d{2}\.\d+))?\s*-----")
+_END_FAIL = re.compile(r"\*{5}\s+FAILED(?:\s+at\s+\w+\s+(\d{2}/\d{2}/\d{4})\s+(\d{1,2}:\d{2}:\d{2}\.\d+))?\s*\*{5}")
+
+
+def _parse_dt(date_s: str, time_s: str) -> datetime | None:
+    try:
+        return datetime.strptime(f"{date_s} {time_s.split('.')[0]}", "%m/%d/%Y %H:%M:%S")
+    except (ValueError, IndexError):
+        return None
+
+
+@dataclass
+class RunRecord:
+    job: str
+    started: datetime | None
+    outcome: str          # "ok" | "FAILED" | "running"
+    ended: datetime | None = None
+    duration_s: float | None = None
+
+
+def parse_run_history(job: JobSpec, *, max_runs: int = 200) -> list[RunRecord]:
+    """Parse the log file into a list of run records, newest first."""
+    p = job.log_path if job.managed_bat else (
+        _scanner_bat().with_suffix(".log") if job.id == "daily_scanner"
+        else HERE / f"{job.id}.log")
+    if job.id == "daily_scanner":
+        p = HERE / "scanner_daily.log"
+    if not p.exists():
+        return []
+
+    text = p.read_text(encoding="utf-8", errors="replace")
+    runs: list[RunRecord] = []
+    current_start: datetime | None = None
+    current_job: str = job.id
+
+    for line in text.splitlines():
+        m = _START_RE.match(line.strip())
+        if m:
+            if current_start is not None:
+                runs.append(RunRecord(job=current_job, started=current_start,
+                                      outcome="running"))
+            current_start = _parse_dt(m.group(1), m.group(2))
+            current_job = m.group(3)
+            continue
+        if not m:
+            m2 = _START_RE2.match(line.strip())
+            if m2:
+                if current_start is not None:
+                    runs.append(RunRecord(job=current_job, started=current_start,
+                                          outcome="running"))
+                current_start = _parse_dt(m2.group(1), m2.group(2))
+                continue
+
+        m_ok = _END_OK.search(line.strip())
+        m_fail = _END_FAIL.search(line.strip())
+        if m_ok and current_start is not None:
+            ended = _parse_dt(m_ok.group(1), m_ok.group(2)) if m_ok.group(1) else None
+            dur = (ended - current_start).total_seconds() if ended and current_start else None
+            runs.append(RunRecord(job=current_job, started=current_start,
+                                  outcome="ok", ended=ended, duration_s=dur))
+            current_start = None
+        elif m_fail and current_start is not None:
+            ended = _parse_dt(m_fail.group(1), m_fail.group(2)) if m_fail.group(1) else None
+            dur = (ended - current_start).total_seconds() if ended and current_start else None
+            runs.append(RunRecord(job=current_job, started=current_start,
+                                  outcome="FAILED", ended=ended, duration_s=dur))
+            current_start = None
+
+    if current_start is not None:
+        runs.append(RunRecord(job=current_job, started=current_start,
+                              outcome="running"))
+
+    runs.reverse()
+    return runs[:max_runs]
+
+
+def run_summary(job: JobSpec) -> dict:
+    """Summary stats for a job's run history."""
+    runs = parse_run_history(job)
+    if not runs:
+        return {"total": 0, "instrumented": False}
+    ok = sum(1 for r in runs if r.outcome == "ok")
+    failed = sum(1 for r in runs if r.outcome == "FAILED")
+    durations = [r.duration_s for r in runs if r.duration_s is not None]
+    first = runs[-1].started
+    last = runs[0].started
+    return {
+        "total": len(runs),
+        "ok": ok,
+        "failed": failed,
+        "running": sum(1 for r in runs if r.outcome == "running"),
+        "first_run": first.isoformat() if first else None,
+        "last_run": last.isoformat() if last else None,
+        "median_duration_s": sorted(durations)[len(durations)//2] if durations else None,
+        "instrumented": True,
+    }
+
+
+def all_run_summaries() -> dict[str, dict]:
+    return {jid: run_summary(j) for jid, j in JOBS.items()}
+
+
+# ── Orphan detection ────────────────────────────────────────────────────────
+def orphan_tasks() -> list[str]:
+    """List TradingBramha-* scheduled tasks not in JOBS."""
+    try:
+        res = subprocess.run(
+            ["schtasks", "/query", "/fo", "CSV", "/nh"],
+            capture_output=True, text=True, shell=False, timeout=10)
+    except Exception:
+        return []
+    known = {j.task_name for j in JOBS.values()}
+    orphans = []
+    for line in res.stdout.splitlines():
+        parts = line.strip().strip('"').split('","')
+        if parts and parts[0].startswith("\\TradingBramha-"):
+            name = parts[0].lstrip("\\")
+            if name not in known:
+                orphans.append(name)
+    return orphans
+
+
 # ── CLI (read-only unless you ask otherwise) ─────────────────────────────────
 def _main(argv: list[str]) -> None:
     if not argv or argv[0] == "list":
@@ -277,6 +408,15 @@ def _main(argv: list[str]) -> None:
             print(f"{jid:16} [{j.kind:8}] {j.label}  ->  {j.task_name}")
         return
     cmd = argv[0]
+    if cmd == "orphans":
+        o = orphan_tasks()
+        print(f"Orphan tasks: {o}" if o else "No orphan TradingBramha-* tasks.")
+        return
+    if cmd == "summaries":
+        for jid, s in all_run_summaries().items():
+            print(f"  {jid:20} total={s['total']:3}  ok={s.get('ok',0):3}  "
+                  f"failed={s.get('failed',0)}  last={s.get('last_run','?')}")
+        return
     job = JOBS.get(argv[1]) if len(argv) > 1 else None
     if not job:
         print(f"unknown job; try: {', '.join(JOBS)}"); return
@@ -294,9 +434,20 @@ def _main(argv: list[str]) -> None:
         print(run_now(job))
     elif cmd == "log":
         print(tail_log(job))
+    elif cmd == "history":
+        runs = parse_run_history(job, max_runs=30)
+        if not runs:
+            print(f"  (no runs recorded for {job.id})")
+        for r in runs:
+            dt = r.started.strftime("%Y-%m-%d %H:%M") if r.started else "?"
+            dur = f" ({r.duration_s:.0f}s)" if r.duration_s else ""
+            print(f"  {dt}  {r.outcome}{dur}")
+        s = run_summary(job)
+        print(f"\n  total={s['total']}  ok={s.get('ok',0)}  failed={s.get('failed',0)}"
+              f"  median_dur={s.get('median_duration_s', '?')}s")
     else:
         print("commands: list | status | writebat | registerargv | log | "
-              "register | remove | run <job>")
+              "history | summaries | orphans | register | remove | run <job>")
 
 
 if __name__ == "__main__":

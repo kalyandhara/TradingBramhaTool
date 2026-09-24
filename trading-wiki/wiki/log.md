@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-23] build | B-113 scheduler run history — parser, duration tracking, orphan detection
+- `parse_run_history()` and `run_summary()`: parse log markers into structured run records (job, started, outcome, ended, duration). Newest first, capped at 200.
+- `write_bat` now stamps `%DATE% %TIME%` on the ok/FAILED line so duration is computable going forward; old runs show `duration=None` honestly.
+- `orphan_tasks()`: finds `TradingBramha-*` scheduled tasks not in JOBS. Found one: `TradingBramha-IntradayUpdate`.
+- CLI: `history <job>`, `summaries`, `orphans`. Current state: alert_watcher 144 runs (all ok), daily_scanner 4, sentiment_daily 6, opportunity_daily 5.
+- 11 tests, all pass. Managed `.bat` files regenerated.
+
 ## [2026-09-23] build + measure | B-122 No-Supply scanner — clean negative
 - **Python port** of `simple_volume.js` → `simple_volume.py` with bar-for-bar parity test (5 symbols, all pass).
 - **Scanner** `scan_no_supply`: gates on the Trend/Momentum family (52W High Leaders, Stage 2, Momentum Continuation, ADX Trend) + zero red bars + at least one pocket pivot in the last 10 sessions. A filter, not a trigger — no entry/stop/target, no confluence vote. 3 of 24 cached symbols fire.
