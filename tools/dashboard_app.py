@@ -5939,6 +5939,80 @@ def _action_card(col, title: str, blurb: str, rows: list, target_page,
             st.markdown(cells, unsafe_allow_html=True)
 
 
+def _render_institutional_volume(key_prefix: str) -> None:
+    """PPV bars with RVOL >= 5x in the last 5 trading sessions."""
+    t = rs.TOKENS
+    st.markdown(
+        f'<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
+        f'text-transform:uppercase;color:{t["text_muted"]};padding-top:6px;">'
+        f'Institutional volume (last 5 sessions &middot; PPV &ge; 5x RVOL)'
+        f'</div>',
+        unsafe_allow_html=True)
+    st.caption("Pocket pivot bars where volume exceeded 5x the 50-day average. "
+               "Context, not a signal — measured edge is zero (ppv_edge_study).")
+
+    sk = f"{key_prefix}_data"
+    if sk not in st.session_state:
+        if st.button("Scan nifty500", key=f"{key_prefix}_run",
+                     use_container_width=False):
+            with st.spinner("Scanning ~500 names..."):
+                try:
+                    import institutional_volume_scan as ivs
+                    st.session_state[sk] = ivs.scan()
+                except Exception as e:
+                    st.error(f"Scan failed: {e}")
+                    return
+            st.rerun()
+        return
+
+    df = st.session_state[sk]
+    if df is None or (hasattr(df, "empty") and df.empty):
+        st.info("No PPV bars with RVOL >= 5x found in the last 5 sessions.")
+        if st.button("Rescan", key=f"{key_prefix}_rescan"):
+            del st.session_state[sk]
+            st.rerun()
+        return
+
+    rows_html = ""
+    for _, r in df.iterrows():
+        chg_color = t["good"] if r["change_pct"] >= 0 else t["risk"]
+        chg_sign = "+" if r["change_pct"] >= 0 else ""
+        chart_link = f"/chart?symbol={r['symbol']}.NS"
+        rows_html += (
+            f'<tr>'
+            f'<td style="font-weight:700;white-space:nowrap;">'
+            f'<a href="{chart_link}" target="_blank" '
+            f'style="color:{t["text"]};text-decoration:none;">{r["symbol"]}</a></td>'
+            f'<td style="color:{t["text_muted"]};">{r["date"]}</td>'
+            f'<td style="text-align:right;">{r["close"]:,.2f}</td>'
+            f'<td style="text-align:right;color:{chg_color};font-weight:600;">'
+            f'{chg_sign}{r["change_pct"]:.1f}%</td>'
+            f'<td style="text-align:right;font-weight:700;color:{t["accent"]};">'
+            f'{r["rvol"]:.1f}x</td>'
+            f'<td style="color:{t["text_muted"]};font-size:11px;">{r["sector"]}</td>'
+            f'</tr>'
+        )
+
+    st.markdown(
+        f'<table style="width:100%;border-collapse:collapse;font-size:12.5px;">'
+        f'<thead><tr style="border-bottom:1px solid {t["border"]};'
+        f'font-size:10.5px;color:{t["text_muted"]};text-transform:uppercase;'
+        f'letter-spacing:.05em;">'
+        f'<th style="text-align:left;padding:4px 8px;">Symbol</th>'
+        f'<th style="text-align:left;padding:4px 8px;">Date</th>'
+        f'<th style="text-align:right;padding:4px 8px;">Close</th>'
+        f'<th style="text-align:right;padding:4px 8px;">Chg%</th>'
+        f'<th style="text-align:right;padding:4px 8px;">RVOL</th>'
+        f'<th style="text-align:left;padding:4px 8px;">Sector</th>'
+        f'</tr></thead>'
+        f'<tbody style="line-height:2.0;">{rows_html}</tbody></table>',
+        unsafe_allow_html=True)
+
+    if st.button("Rescan", key=f"{key_prefix}_rescan2"):
+        del st.session_state[sk]
+        st.rerun()
+
+
 def render_action_map() -> None:
     """The card grid. Reads stored state only - no network, no scan."""
     t = rs.TOKENS
@@ -6148,6 +6222,13 @@ if current_page == "Home":
 
     # ── The action map — stored state only, so it costs nothing on load ──────
     render_action_map()
+    st.write("")
+
+    # ── Institutional volume (PPV >= 5x RVOL, last 5 sessions) ───────────────
+    # Context, not a signal: ppv_edge_study.py showed no forward-return edge at
+    # any RVOL threshold. This answers "where did institutions show up" — a
+    # screen, not an alert.
+    _render_institutional_volume("home_iv")
     st.write("")
 
     # Home used to be a card grid of every page. It is now a working surface: the

@@ -1,6 +1,15 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-23] build | B-100 oi_walls near-strike window
+- `oi_walls()` gains `near_strikes` param — limits ranking to N nearest strikes per side, excluding far-OTM inventory.
+- `read_levels()` defaults to `NEAR_STRIKES=10`; response includes `wall_window` field.
+- 3 new tests (29 total). Backward compatible — callers without `near_strikes` get whole-chain ranking.
+
+## [2026-09-23] build | B-91 VWAP zero-point tooltip
+- Indicator label keeps short form; `whyIntraday` property adds a `title` tooltip explaining the two cases (daily = typical price, zero-volume = undefined).
+- No code logic changed — `vwapSeries` already returns [] for non-intraday.
+
 ## [2026-09-23] build | B-113 scheduler run history — parser, duration tracking, orphan detection
 - `parse_run_history()` and `run_summary()`: parse log markers into structured run records (job, started, outcome, ended, duration). Newest first, capped at 200.
 - `write_bat` now stamps `%DATE% %TIME%` on the ok/FAILED line so duration is computable going forward; old runs show `duration=None` honestly.

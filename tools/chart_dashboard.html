@@ -1505,7 +1505,8 @@ const INDICATOR_DEFS = [
   {key:'ema20',     label:'EMA (20)',          group:'Moving Averages', color:'#00bd6f'},
   {key:'ema50',     label:'EMA (50)',          group:'Moving Averages', color:'#9c27b0'},
   {key:'ema200',    label:'EMA (200)',         group:'Moving Averages', color:'#e91e63'},
-  {key:'vwap',      label:'VWAP (session · intraday only)', group:'Moving Averages', color:'#ffd60a'},
+  {key:'vwap',      label:'VWAP (session · intraday only)',  group:'Moving Averages', color:'#ffd60a',
+    whyIntraday:'Daily: each bar IS its own session → VWAP = typical price. Zero-volume feeds (index spot): undefined.'},
   {key:'avwap',     label:'Anchored VWAP (last major swing low)', group:'Moving Averages', color:'#ff8a65'},
   {key:'vwmr',      label:'VWAP Mean Reversion ±σ bands + BUY/SELL', group:'Moving Averages', color:'#7c4dff', alias:'vwap mean reversion revert band deviation sigma volume confirmation buy sell signal'},
   {key:'mabias',    label:'MA Bias (9/20 cross · 50/200 regime) + card',
@@ -1617,7 +1618,7 @@ function renderIndicatorPanel() {
         <label class="ind-row" data-search="${hay}" data-fam="${g}">
           <input type="checkbox" class="ind-chk" data-key="${d.key}">
           <span class="ind-swatch" style="background:${d.color}"></span>
-          <span class="ind-name">${d.label}</span>
+          <span class="ind-name"${d.whyIntraday ? ` title="${d.whyIntraday}"` : ''}>${d.label}</span>
           ${where}
         </label>`;
     });
@@ -2722,6 +2723,28 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
   const indBtn     = el.querySelector('.ind-btn');
   const indPanel   = el.querySelector('.ind-panel');
   const snapBtn    = el.querySelector('.snap-btn');
+  const chartBody  = el.querySelector('.chart-body');
+
+  // ── Right-click drag to scroll vertically ─────────────────────────────────
+  {
+    let dragging = false, startY = 0, startScroll = 0;
+    chartBody.addEventListener('contextmenu', e => e.preventDefault());
+    chartBody.addEventListener('mousedown', e => {
+      if (e.button !== 2) return;
+      dragging = true; startY = e.clientY; startScroll = chartBody.scrollTop;
+      e.preventDefault();
+      chartBody.style.cursor = 'grabbing';
+    });
+    window.addEventListener('mousemove', e => {
+      if (!dragging) return;
+      chartBody.scrollTop = startScroll - (e.clientY - startY);
+    });
+    window.addEventListener('mouseup', e => {
+      if (e.button !== 2 || !dragging) return;
+      dragging = false;
+      chartBody.style.cursor = '';
+    });
+  }
 
   // ── LWC chart ──────────────────────────────────────────────────────────────
   const chart = LightweightCharts.createChart(chartMain, {
@@ -2908,10 +2931,10 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
     }
   };
 
-  pane.navigateToHistory = function(idx) {
-    if (idx < 0 || idx >= this.chartHistory.length) return;
-    this.historyIdx = idx;
-    const entry = this.chartHistory[idx];
+  pane.navigateToHistory = function(histIdx) {
+    if (histIdx < 0 || histIdx >= this.chartHistory.length) return;
+    this.historyIdx = histIdx;
+    const entry = this.chartHistory[histIdx];
     symIn.value = entry.symbol;
     tfSel.value = entry.tf;
     ctypeSel.value = entry.chartType;
@@ -2923,6 +2946,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
     applyPriceStyle(this);
     applyIndicators(this);
     loadData(idx);
+    savePaneCfg();
     updateNavButtons();
   };
 
