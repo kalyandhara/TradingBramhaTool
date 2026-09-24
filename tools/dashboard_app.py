@@ -6031,40 +6031,31 @@ def _render_institutional_volume(key_prefix: str) -> None:
             st.rerun()
         return
 
-    rows_html = ""
-    for _, r in df.iterrows():
-        chg_color = t["good"] if r["change_pct"] >= 0 else t["risk"]
-        chg_sign = "+" if r["change_pct"] >= 0 else ""
-        chart_link = f"/chart?symbol={r['symbol']}.NS"
-        rows_html += (
-            f'<tr>'
-            f'<td style="font-weight:700;white-space:nowrap;">'
-            f'<a href="{chart_link}" target="_blank" '
-            f'style="color:{t["text"]};text-decoration:none;">{r["symbol"]}</a></td>'
-            f'<td style="color:{t["text_muted"]};">{r["date"]}</td>'
-            f'<td style="text-align:right;">{r["close"]:,.2f}</td>'
-            f'<td style="text-align:right;color:{chg_color};font-weight:600;">'
-            f'{chg_sign}{r["change_pct"]:.1f}%</td>'
-            f'<td style="text-align:right;font-weight:700;color:{t["accent"]};">'
-            f'{r["rvol"]:.1f}x</td>'
-            f'<td style="color:{t["text_muted"]};font-size:11px;">{r["sector"]}</td>'
-            f'</tr>'
-        )
+    import columns as _cols
+    import sector_column as _sc
 
-    st.markdown(
-        f'<table style="width:100%;border-collapse:collapse;font-size:12.5px;">'
-        f'<thead><tr style="border-bottom:1px solid {t["border"]};'
-        f'font-size:10.5px;color:{t["text_muted"]};text-transform:uppercase;'
-        f'letter-spacing:.05em;">'
-        f'<th style="text-align:left;padding:4px 8px;">Symbol</th>'
-        f'<th style="text-align:left;padding:4px 8px;">Date</th>'
-        f'<th style="text-align:right;padding:4px 8px;">Close</th>'
-        f'<th style="text-align:right;padding:4px 8px;">Chg%</th>'
-        f'<th style="text-align:right;padding:4px 8px;">RVOL</th>'
-        f'<th style="text-align:left;padding:4px 8px;">Sector</th>'
-        f'</tr></thead>'
-        f'<tbody style="line-height:2.0;">{rows_html}</tbody></table>',
-        unsafe_allow_html=True)
+    out = df.copy()
+    out = out.rename(columns={"change_pct": "chg_pct"})
+    out = _sc.attach(out, "symbol")
+    out = _with_chart_family(out, "symbol")
+
+    display_cols = ["symbol", "date", "close", "chg_pct", "rvol",
+                    "sector"] + _CHART_FAMILY_COLS
+    out = out[[c for c in display_cols if c in out.columns]]
+
+    cfg = dict(_chart_family_colcfg())
+    cfg.update(_cols.configure_df(out))
+
+    def _chg_color(v):
+        if v is None or pd.isna(v):
+            return ""
+        return (f"color:{t['good']};font-weight:600" if v > 0
+                else f"color:{t['risk']};font-weight:600" if v < 0
+                else "")
+
+    styled = out.style.map(_chg_color, subset=["chg_pct"])
+    st.dataframe(styled, width="stretch", hide_index=True,
+                 column_config=cfg, key=f"{key_prefix}_tbl")
 
     if st.button("Rescan", key=f"{key_prefix}_rescan2"):
         del st.session_state[sk]
