@@ -8511,6 +8511,225 @@ def scan_no_supply(df: pd.DataFrame, supply_window: int = 10) -> dict | None:
     }
 
 
+# ---------------------------------------------------------------------------
+# 20 EMA Base Setup — low supply + steady demand composite
+# ---------------------------------------------------------------------------
+
+_EMA_BASE_PERIOD = 20
+_EMA_BASE_LOOKBACK = 20       # bars to evaluate the base window
+_EMA_BASE_MIN_BARS = 60
+
+
+def _swing_lows(lows: np.ndarray, radius: int = 3) -> list[tuple[int, float]]:
+    """Return (index, value) of confirmed swing lows with the given half-width."""
+    out = []
+    for i in range(radius, len(lows) - radius):
+        if lows[i] == lows[i - radius:i + radius + 1].min():
+            out.append((i, float(lows[i])))
+    return out
+
+
+def scan_ema_base_setup(df: pd.DataFrame) -> dict | None:
+    """Composite 20 EMA base: low supply + steady demand.
+
+    Five-point checklist (each scored 0-20, total 0-100):
+      1. Small candles staying above the 20 EMA
+      2. Volume drying up on red (down) candles
+      3. Range compression near the 20 EMA
+      4. Higher lows forming at or above the 20 EMA
+      5. Breakout volume expansion (or imminent)
+    """
+    if len(df) < _EMA_BASE_MIN_BARS or "volume" not in df.columns:
+        return None
+
+    close = df["close"].astype(float)
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+    opn = df["open"].astype(float)
+    volume = df["volume"].astype(float)
+
+    ema20 = _ema_series(close, _EMA_BASE_PERIOD)
+    last = float(close.iloc[-1])
+    ema_now = float(ema20.iloc[-1])
+
+    # Must be above 200 SMA (Stage filter) and above the 20 EMA now
+    sma200 = _sma(close, 200)
+    if not np.isnan(sma200) and last < sma200:
+        return None
+    if last < ema_now * 0.99:
+        return None
+
+    # Work on the last N bars as the "base window"
+    W = _EMA_BASE_LOOKBACK
+    w_close = close.iloc[-W:]
+    w_high = high.iloc[-W:]
+    w_low = low.iloc[-W:]
+    w_open = opn.iloc[-W:]
+    w_vol = volume.iloc[-W:]
+    w_ema = ema20.iloc[-W:]
+
+    atr_s = _atr_series(df, 14)
+    atr_now = float(atr_s.iloc[-1])
+    if atr_now <= 0:
+        return None
+
+    reasons = []
+    scores = [0.0] * 5
+
+    # ── 1. Small candles above 20 EMA ──
+    bodies = (w_close - w_open).abs()
+    avg_body = float(bodies.mean())
+    body_ratio = avg_body / atr_now
+    closes_above = int((w_close.values >= w_ema.values * 0.995).sum())
+    no_wide_red = int(((w_close < w_open) & (bodies > atr_now * 1.5)).sum()) == 0
+
+    s1 = 0.0
+    if body_ratio < 0.5:
+        s1 += 10.0
+    elif body_ratio < 0.7:
+        s1 += 6.0
+    s1 += min(10.0, closes_above / W * 10.0)
+    if not no_wide_red:
+        s1 *= 0.5
+    scores[0] = round(min(20.0, s1), 1)
+    reasons.append(
+        f"Avg body {body_ratio:.2f}× ATR, {closes_above}/{W} closes above EMA20"
+        + ("" if no_wide_red else " ⚠ wide red bar(s)"))
+
+    # ── 2. Volume dries up on red candles ──
+    red_mask = w_close < w_open
+    red_vol = float(w_vol[red_mask].mean()) if red_mask.any() else 0.0
+    vol_20d_avg = float(volume.tail(20).mean())
+    red_vol_ratio = red_vol / vol_20d_avg if vol_20d_avg > 0 else 1.0
+
+    s2 = 0.0
+    if red_vol_ratio < 0.5:
+        s2 = 20.0
+    elif red_vol_ratio < 0.7:
+        s2 = 14.0
+    elif red_vol_ratio < 0.9:
+        s2 = 8.0
+    scores[1] = round(s2, 1)
+    reasons.append(f"Red-candle vol {red_vol_ratio:.2f}× avg — "
+                   + ("sellers absent" if red_vol_ratio < 0.7
+                      else "moderate supply" if red_vol_ratio < 0.9
+                      else "supply present"))
+
+    # ── 3. Range compression ──
+    recent_range = float(w_high.tail(10).max() - w_low.tail(10).min())
+    prior_range = float(high.iloc[-W - 10:-W].max() - low.iloc[-W - 10:-W].min()) if len(df) >= W + 10 else recent_range
+    compression = 1.0 - (recent_range / prior_range) if prior_range > 0 else 0.0
+    range_vs_atr = recent_range / (atr_now * 10) if atr_now > 0 else 1.0
+
+    s3 = 0.0
+    if compression > 0.4:
+        s3 += 12.0
+    elif compression > 0.2:
+        s3 += 7.0
+    if range_vs_atr < 0.6:
+        s3 += 8.0
+    elif range_vs_atr < 0.8:
+        s3 += 4.0
+    scores[2] = round(min(20.0, s3), 1)
+    reasons.append(f"Range compressed {compression * 100:.0f}% vs prior window"
+                   + (", squeeze" if compression > 0.4 else ""))
+
+    # ── 4. Higher lows at/above the 20 EMA ──
+    lows_arr = low.iloc[-40:].values.astype(float)
+    ema_arr = ema20.iloc[-40:].values.astype(float)
+    swings = _swing_lows(lows_arr, radius=3)
+    hl_count = 0
+    at_ema_count = 0
+    for i, (idx, val) in enumerate(swings):
+        if i > 0 and val > swings[i - 1][1]:
+            hl_count += 1
+        if idx < len(ema_arr) and val >= ema_arr[idx] * 0.98:
+            at_ema_count += 1
+
+    s4 = 0.0
+    if hl_count >= 3:
+        s4 += 12.0
+    elif hl_count >= 2:
+        s4 += 8.0
+    elif hl_count >= 1:
+        s4 += 4.0
+    if at_ema_count >= 2:
+        s4 += 8.0
+    elif at_ema_count >= 1:
+        s4 += 4.0
+    scores[3] = round(min(20.0, s4), 1)
+    reasons.append(f"{hl_count} higher low(s), {at_ema_count} swing low(s) at EMA20")
+
+    # ── 5. Breakout volume expansion (or imminent) ──
+    last_vol = float(volume.iloc[-1])
+    vol_ratio = last_vol / vol_20d_avg if vol_20d_avg > 0 else 1.0
+    hi_20d = float(high.iloc[-21:-1].max())
+    broke_out = last > hi_20d
+    near_breakout = (hi_20d - last) / hi_20d * 100 < 3.0 if hi_20d > 0 else False
+
+    s5 = 0.0
+    if broke_out and vol_ratio >= 1.5:
+        s5 = 20.0
+    elif broke_out and vol_ratio >= 1.2:
+        s5 = 14.0
+    elif broke_out:
+        s5 = 8.0
+    elif near_breakout and vol_ratio >= 1.2:
+        s5 = 10.0
+    elif near_breakout:
+        s5 = 6.0
+    scores[4] = round(s5, 1)
+    if broke_out:
+        reasons.append(f"Breakout on {vol_ratio:.1f}× volume — "
+                       + ("confirmed" if vol_ratio >= 1.5 else "watch volume"))
+    elif near_breakout:
+        reasons.append(f"Within 3% of breakout ({hi_20d:.0f}), vol {vol_ratio:.1f}×")
+    else:
+        reasons.append(f"{(hi_20d - last) / hi_20d * 100:.1f}% from breakout level")
+
+    total = round(sum(scores), 1)
+    if total < 40:
+        return None
+
+    tags = []
+    if scores[0] >= 14:
+        tags.append("Tight candles")
+    if scores[1] >= 14:
+        tags.append("Vol dry-up")
+    if scores[2] >= 14:
+        tags.append("Squeeze")
+    if scores[3] >= 14:
+        tags.append("HL ladder")
+    if broke_out and vol_ratio >= 1.5:
+        tags.append("Breakout confirmed")
+    elif near_breakout:
+        tags.append("Near breakout")
+
+    swing_low_stop = float(low.iloc[-10:].min())
+    risk = last - swing_low_stop
+    target = last + 2 * risk if risk > 0 else None
+
+    return {
+        "pattern_type": "20 EMA Base Setup",
+        "tags": tags,
+        "reasons": reasons,
+        "score": total,
+        "scores_detail": {
+            "candle_quality": scores[0],
+            "volume_dryup": scores[1],
+            "range_compression": scores[2],
+            "higher_lows": scores[3],
+            "breakout_volume": scores[4],
+        },
+        "stop": round(swing_low_stop, 2),
+        "target": round(target, 2) if target else None,
+        "risk_reward": round(2 * risk / risk, 1) if risk > 0 else None,
+        "ema20": round(ema_now, 2),
+        "breakout_level": round(hi_20d, 2),
+        "rs_raw": _rs_raw(df),
+    }
+
+
 SCANNERS: dict[str, dict] = {
     "Shallow Flip (Renko, bounded correction)": {
         "fn": scan_shallow_flip,
@@ -9223,6 +9442,19 @@ SCANNERS: dict[str, dict] = {
             "5 sessions; (6) RSI < 80 anti-chase gate. One RS failure disqualifies."
         ),
         "category": "Momentum",
+    },
+    "20 EMA Base Setup": {
+        "fn": scan_ema_base_setup,
+        "description": (
+            "Low supply + steady demand at the 20 EMA — the Minervini/O'Neil/VPA "
+            "tape-reader base. Five-point composite (each 0-20, total 0-100): "
+            "(1) small candles staying above the 20 EMA, (2) volume drying up on "
+            "red candles specifically, (3) range compression / squeeze, (4) higher "
+            "lows forming at the EMA, (5) breakout volume expansion. Fires at "
+            "score ≥ 40 with a swing-low stop / 2R target. UNMEASURED — no backtest "
+            "yet; treat as an attention list, not a trigger."
+        ),
+        "category": "Entry",
     },
 }
 
