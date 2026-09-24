@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-23] build + measure | B-122 No-Supply scanner — clean negative
+- **Python port** of `simple_volume.js` → `simple_volume.py` with bar-for-bar parity test (5 symbols, all pass).
+- **Scanner** `scan_no_supply`: gates on the Trend/Momentum family (52W High Leaders, Stage 2, Momentum Continuation, ADX Trend) + zero red bars + at least one pocket pivot in the last 10 sessions. A filter, not a trigger — no entry/stop/target, no confluence vote. 3 of 24 cached symbols fire.
+- **Registry**: `No-Supply (new high + clean volume)`, category Momentum, Trend/Momentum family. Unmeasured, weight 0.
+- **Gate-vs-no-gate study** (pre-registered, paired by symbol, Bonferroni α=0.05/3): 24 symbols, 8,580 signals, 1,728 gated (20%). @10d −0.118% (p=0.79), @20d +0.157% (p=0.25), @60d +0.789% (p=0.25). **NO DIFFERENCE at any horizon.** The supply filter selects a subset but not a better one — another calibrated null for the desk.
+
 ## [2026-09-23] decision | Harmonic demoted to the weak tier, bullish only (owner, B-129)
 - The scanner drops bearish patterns: their short thesis failed (+0.72% @20d when scored long). The chart overlay still draws both.
 - Tier 1.0 → 0.25 in `opportunity_hub`: the bullish-only edge (+1.07% @20d) is unstable across windows, which is what the weak tier means until it re-earns more.

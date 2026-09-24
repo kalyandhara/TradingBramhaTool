@@ -8448,6 +8448,69 @@ def scan_double_bottom(df: pd.DataFrame):
     }
 
 
+# ---------------------------------------------------------------------------
+# No-Supply (B-122) — a FILTER on the Trend/Momentum new-high family.
+# ---------------------------------------------------------------------------
+def scan_no_supply(df: pd.DataFrame, supply_window: int = 10) -> dict | None:
+    """No-Supply screen: new-high stock with zero red bars in the Simple Volume read.
+
+    Gate: the stock must fire at least one of the Trend/Momentum family scanners
+    (52W High Leaders, Stage 2, Momentum Continuation, ADX Trend).
+    Supply read: zero 'down' (red) bars in the last *supply_window* bars of the
+    Simple Volume classification. Demand: at least one pocket pivot in the window.
+
+    This is a SCREEN, not a trade trigger — no entry/stop/target. The thesis is
+    that a new-high stock with no supply (no above-average down days) and visible
+    demand (a pocket pivot) is in the cleanest part of its move.
+    """
+    if len(df) < 60:
+        return None
+    gate_hits = []
+    for name, fn in [
+        ("52W High Leaders", scan_52w_high_leaders),
+        ("Stage 2 Uptrend", scan_stage2_uptrend),
+        ("Momentum Continuation", scan_momentum_continuation),
+        ("ADX Trend Confirmation", scan_adx_trend_confirmation),
+    ]:
+        if fn(df) is not None:
+            gate_hits.append(name)
+    if not gate_hits:
+        return None
+
+    import simple_volume as _sv
+    sv = _sv.classify(df, ma_len=50, ppv_len=10, dry_frac=5)
+    ns = _sv.no_supply_window(sv, window=supply_window)
+    if ns["has_supply"]:
+        return None
+    if not ns["has_demand"]:
+        return None
+
+    st = _sv.stats(sv)
+    reasons = [
+        f"New-high gate: {', '.join(gate_hits)}",
+        f"No supply — zero red (above-MA down) bars in the last {supply_window} sessions",
+        f"{ns['ppv_count']} pocket pivot(s) in the window — demand visible",
+    ]
+    if ns["dry_count"] > 0:
+        reasons.append(f"{ns['dry_count']} dry bar(s) — volume contracting into the move")
+    if st and st["rvol"] is not None:
+        reasons.append(f"Relative volume {st['rvol']:.0f}% of 50-day average")
+
+    return {
+        "pattern_type": "No-Supply (new high + clean volume)",
+        "tags": ["No Supply", f"{ns['ppv_count']} PPV",
+                 f"{ns['dry_count']} dry", *gate_hits[:2]],
+        "reasons": reasons,
+        "score_base": round(30.0 + ns["ppv_count"] * 10 + ns["dry_count"] * 5, 1),
+        "rs_raw": _rs_raw(df),
+        "supply_window": supply_window,
+        "red_count": ns["red_count"],
+        "ppv_count": ns["ppv_count"],
+        "dry_count": ns["dry_count"],
+        "gate_scanners": gate_hits,
+    }
+
+
 SCANNERS: dict[str, dict] = {
     "Shallow Flip (Renko, bounded correction)": {
         "fn": scan_shallow_flip,
@@ -8625,6 +8688,23 @@ SCANNERS: dict[str, dict] = {
     "Momentum Continuation": {
         "fn": scan_momentum_continuation,
         "description": "Strong uptrends near 20-day highs with intact MA stack",
+        "category": "Momentum",
+    },
+    "No-Supply (new high + clean volume)": {
+        "fn": scan_no_supply,
+        "description": (
+            "FILTER on the Trend/Momentum new-high family: fires when a stock "
+            "that qualifies on at least one new-high scanner (52W High Leaders, "
+            "Stage 2, Momentum Continuation, ADX Trend) also shows ZERO red "
+            "(above-MA down) bars and at least one pocket pivot in the last 10 "
+            "sessions — the Simple Volume 'no supply + demand' read. A screen, "
+            "not a trade trigger: no entry/stop/target, no confluence vote. The "
+            "thesis is that a new-high stock with no selling pressure visible in "
+            "volume is in the cleanest part of its move. UNMEASURED — ships at "
+            "weight 0 until the gate-vs-no-gate study (B-122) says whether the "
+            "supply filter adds anything to the family. Built from the Python "
+            "port of simple_volume.js with bar-for-bar parity."
+        ),
         "category": "Momentum",
     },
     "PEAD Drift": {
