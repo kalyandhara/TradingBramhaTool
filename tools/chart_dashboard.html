@@ -1517,6 +1517,7 @@ const INDICATOR_DEFS = [
   {key:'pmax',      label:'PMax (EMA10, ATR10 × 3) + signals', group:'Trend & Bands', color:'#26a69a'},
   {key:'stai',      label:'SuperTrend AI (adaptive factor via K-means) + signals', group:'Trend & Bands', color:'#00bcd4', alias:'supertrend ai luxalgo adaptive clustering kmeans trend trailing stop'},
   {key:'psar',      label:'Parabolic SAR (0.02, 0.20)', group:'Trend & Bands', color:'#ffa726', alias:'parabolic sar stop and reverse wilder trailing stop dots psar'},
+  {key:'atrtrail',  label:'ATR Trailing Stop (14, 3×) + flips', group:'Trend & Bands', color:'#fdd835', alias:'atr trailing stop chandelier exit volatility stop long short'},
   {key:'renko',     label:'Renko structure on candles (ATR brick) + flips', group:'Trend & Bands', color:'#ab47bc', alias:'renko brick noiseless noise free time independent price sampled staircase brick size atr flip devendra'},
   // ── Sub-pane oscillators ────────────────────────────────────────────────────
   {pane:'sub', key:'rsi',       label:'RSI (14)',               group:'Oscillators',       color:'#7b61ff'},
@@ -1916,6 +1917,41 @@ function pmaxSeries(bars, atrLen = 10, atrMult = 3.0, maLen = 10) {
   return out;
 }
 
+// ── ATR Trailing Stop (Long / Short selectable) ───────────────────────────
+// The classic Wilder-style trailing stop: in an uptrend the stop ratchets UP
+// at close − mult × ATR(n); it never lowers until price closes below it, which
+// flips to a downtrend where the stop ratchets DOWN at close + mult × ATR(n).
+// Unlike PMax (which trails an EMA of hl2) this trails raw price — the stop is
+// always a fixed ATR-multiple away from the highest/lowest close since the last
+// flip, which is the definition most "ATR Trailing Stop" TradingView scripts use.
+function atrTrailSeries(bars, atrLen = 14, mult = 3.0) {
+  if (!bars || bars.length < atrLen + 2) return {rows: [], flips: []};
+  const atr = atrSeries(bars, atrLen);
+  const atrByTime = new Map(atr.map(a => [a.time, a.value]));
+  const rows = [], flips = [];
+  let dir = 1;
+  let longStop = null, shortStop = null;
+  for (let i = 0; i < bars.length; i++) {
+    const b = bars[i];
+    const a = atrByTime.get(b.time);
+    if (a === undefined) continue;
+    const band = mult * a;
+    let ls = b.close - band;
+    let ss = b.close + band;
+    if (longStop !== null && b.close > longStop)   ls = Math.max(ls, longStop);
+    if (shortStop !== null && b.close < shortStop) ss = Math.min(ss, shortStop);
+    const prevDir = dir;
+    if      (dir === -1 && b.close > (shortStop ?? ss)) dir = 1;
+    else if (dir ===  1 && b.close < (longStop  ?? ls)) dir = -1;
+    const stop = dir === 1 ? ls : ss;
+    rows.push({time: b.time, stop, dir});
+    if (prevDir !== dir) flips.push({time: b.time, dir});
+    longStop  = ls;
+    shortStop = ss;
+  }
+  return {rows, flips};
+}
+
 // PMax trade signals — a flip of `dir` IS the reversal, and that's the only
 // actionable event the indicator produces. The two colored lines alone don't
 // say where the flip happened or what to risk, so this turns each flip into an
@@ -2127,6 +2163,14 @@ const TRAIL_STATUS = {
           'B-124 swapped the fixed plan for ATR / structure / EMA trails on the ' +
           'two best setups: 5 ties, 1 trail <b>worse</b>, none better. A trailing ' +
           'stop is not an edge here.',
+  },
+  atrtrail: {
+    title: 'ATR Trailing Stop — unmeasured',
+    body: 'A Wilder-style trailing stop at close ± mult × ATR(14). The stop ratchets ' +
+          'toward price and never moves away until a close crosses it, which flips the ' +
+          'direction. <b>Not measured as a signal or an exit.</b> PMax and STAI are the ' +
+          'same family (ATR-based trailing stop) and both measured null as signals ' +
+          '(B-59r). This overlay is for <b>visual stop placement</b>, not a trade trigger.',
   },
   psar: {
     title: 'Parabolic SAR — the dots are not a measured stop',
@@ -4212,6 +4256,14 @@ function applyIndicators(pane) {
           addDots(pane, '#f23645'),   // short — dots trail ABOVE price
         ];
         break;
+      case 'atrtrail':
+        // ATR Trailing Stop: one switching line, green below price (uptrend), red
+        // above (downtrend). Same two-series colour-switch as PMax/STAI.
+        pane.indSeries[key] = [
+          addLine(pane, '#fdd835', 2),  // up-trend (below price, yellow-gold)
+          addLine(pane, '#f23645', 2),  // down-trend (above price, red)
+        ];
+        break;
       case 'renko':
         // The Renko grid as a STAIRCASE over the candles — stepped, because the brick
         // close only changes when a brick completes, and a smooth line between those
@@ -4338,6 +4390,23 @@ function applyIndicators(pane) {
         // independent confirmations of one idea. B-46's objection to a PSAR
         // signal stands until the overlap check it asks for has been run.
         renderTrailStatusCard(pane, 'psar');
+        break;
+      }
+      case 'atrtrail': {
+        const at = atrTrailSeries(bars, 14, 3.0);
+        const atUp = [], atDn = [];
+        at.rows.forEach(r => {
+          if (r.dir === 1) atUp.push({time: r.time, value: r.stop});
+          else             atDn.push({time: r.time, value: r.stop});
+        });
+        s[0].setData(padToBars(atUp, bars));
+        s[1].setData(padToBars(atDn, bars));
+        setPaneMarkers(pane, 'atrtrail', at.flips.map(f => f.dir === 1
+          ? {time: f.time, position: 'belowBar', color: '#fdd835', shape: 'arrowUp',
+             text: 'BUY'}
+          : {time: f.time, position: 'aboveBar', color: '#f23645', shape: 'arrowDown',
+             text: 'SELL'}));
+        renderTrailStatusCard(pane, 'atrtrail');
         break;
       }
       case 'renko': {
