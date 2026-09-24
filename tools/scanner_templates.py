@@ -4363,6 +4363,13 @@ def scan_harmonic_reversal(df: pd.DataFrame) -> dict | None:
     except ImportError:
         return None
     h = hp.detect_last_pattern(df)
+    # BULLISH ONLY (owner decision 2026-09-23, B-129). Bearish patterns scored
+    # as longs returned +0.72% @20d -- the stock ROSE after the bearish setup,
+    # so the short thesis fails, as Inverted Flag & Pole's did in B-92. A long-
+    # only desk has no use for a failing short signal in its confluence. The
+    # chart's harmonic overlay reads the detector directly and still draws both.
+    if h is not None and h.get("direction") != "bullish":
+        return None
     if h is None:
         return None
     t = h["trade"]
@@ -9039,9 +9046,12 @@ SCANNERS: dict[str, dict] = {
     "Harmonic Reversal (XABCD)": {
         "fn": scan_harmonic_reversal,
         "description": (
-            "Fibonacci XABCD harmonic patterns (Gartley, Bat, Butterfly, Crab) "
-            "completing at D within the last 10 bars, filtered to R:R ≥ 1.5 to T2. "
-            "Trade plan: entry at D, stop beyond X, targets at 0.382 / 0.618 / 1.0 of AD."
+            "BULLISH Fibonacci XABCD harmonic patterns (Gartley, Bat, Butterfly, "
+            "Crab) completing at D within the last 10 bars, filtered to R:R ≥ 1.5 "
+            "to T2. Trade plan: entry at D, stop beyond the lower of X and D, "
+            "targets at 0.382 / 0.618 / 1.0 of AD. MEASURED WEAK (B-129, "
+            "2026-09-23): bullish-only +1.07% @20d but unstable across windows; "
+            "bearish patterns dropped because their short thesis failed."
         ),
         "category": "Pattern",
     },

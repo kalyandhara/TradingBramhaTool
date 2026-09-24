@@ -395,13 +395,9 @@ def core_scanners() -> list[str]:
 #:   Falling Wedge -- CONFIRMED breakouts +1.37% @20d, +1.98% @60d, stable at
 #:     10/20/60d; forming / pre-breakout cards -0.27%. The tier stands, and the
 #:     old +0.74% was a dilution of it.
-#:   Harmonic Reversal -- the pooled +0.88% @20d is NOT evidence for the
-#:     thesis: bullish-only +1.07% but UNSTABLE at every horizon; bearish
-#:     patterns scored as longs +0.72% (the short thesis FAILS). Kept here
-#:     pending the owner's call on demotion -- see Open-Backlog B-129.
+#:   Harmonic Reversal -- DEMOTED to the weak tier below (owner, B-129).
 MEASURED_EDGE_SCANNERS: tuple[str, ...] = (
     "Falling Wedge",
-    "Harmonic Reversal (XABCD)",
 )
 
 #: Measured and found AT OR BELOW that baseline. Kept for coverage and context,
@@ -459,6 +455,12 @@ MEASURED_EDGE_SCANNERS: tuple[str, ...] = (
 #: Re-measure under B-120's freshness rule before deciding exclusion.
 MEASURED_WEAK_SCANNERS: tuple[str, ...] = (
     "Double Bottom",
+    # B-129, owner decision 2026-09-23: its measured-edge tier rested on a pooled
+    # +0.88% @20d that mixed a failing SHORT thesis (bearish patterns +0.72% when
+    # scored long) with an unstable long one (bullish-only +1.07%, positive in 2
+    # of 3 windows at every horizon). Now bullish-only in the scanner, and 0.25
+    # here until a bullish-only re-measure earns more.
+    "Harmonic Reversal (XABCD)",
     "Order Block Retest",
     "RSI 60-40 Setup",
     "Structural Breakout",

@@ -1,6 +1,11 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-23] decision | Harmonic demoted to the weak tier, bullish only (owner, B-129)
+- The scanner drops bearish patterns: their short thesis failed (+0.72% @20d when scored long). The chart overlay still draws both.
+- Tier 1.0 → 0.25 in `opportunity_hub`: the bullish-only edge (+1.07% @20d) is unstable across windows, which is what the weak tier means until it re-earns more.
+- **Falling Wedge is now the only scanner the desk weights as measured-positive**, and B-128 made its case stronger (confirmed breakouts +1.37% @20d, stable at 10/20/60d).
+
 ## [2026-09-23] build + measure | B-128 contract + B-129 re-measure — one measured-positive tier strengthened, one lost its evidence
 - **B-128 built**: `actionable: False` keeps a card's levels and removes its trade; the harness counts those plans instead of simulating them. Set on Flag & Pole, Falling Wedge, VCP Coiling, Rounding Bottom, Double Bottom. An audit test over every scanner fails if a card that calls itself a watch carries an actionable plan.
 - **The audit's first two "passes" were skips**: it looked up `RELIANCE.NS` where the cache stores `RELIANCE`. The B-129 property test committed an hour earlier had the same bug and had been skipping too. A skip reads as a pass unless it is reported; both now run on real bars.

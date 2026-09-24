@@ -168,3 +168,32 @@ def test_pooling_keeps_fills_past_the_target():
          "positive_rate": 50.0, "avg_R": 0.0},
     ])
     assert pooled["plans_fill_past_target"] == 4
+
+
+# ── B-129 owner decision: Harmonic is bullish-only and weak-tier ─────────────
+
+def test_harmonic_scanner_drops_bearish_patterns(monkeypatch):
+    import harmonic_patterns as hp
+    fake = {"direction": "bearish", "pattern": "Bat", "age_bars": 1,
+            "ratios": __import__("collections").defaultdict(lambda: 1.0),
+            "trade": {"entry": 100, "stop": 105, "targets": [95, 90, 85],
+                      "rr_to_t2": 2.0}}
+    monkeypatch.setattr(hp, "detect_last_pattern", lambda df: fake)
+    df = pd.DataFrame({"open": [1.0] * 80, "high": [1.0] * 80,
+                       "low": [1.0] * 80, "close": [1.0] * 80,
+                       "volume": [1.0] * 80})
+    assert sc_fn()(df) is None
+    fake["direction"] = "bullish"
+    fake["trade"].update({"stop": 95, "targets": [105, 110, 115]})
+    assert sc_fn()(df) is not None
+
+
+def sc_fn():
+    import scanner_templates as sc
+    return sc.SCANNERS["Harmonic Reversal (XABCD)"]["fn"]
+
+
+def test_harmonic_is_weak_tier_not_measured_edge():
+    import opportunity_hub as oh
+    assert "Harmonic Reversal (XABCD)" not in oh.MEASURED_EDGE_SCANNERS
+    assert oh.scanner_tier("Harmonic Reversal (XABCD)") == "weak"
