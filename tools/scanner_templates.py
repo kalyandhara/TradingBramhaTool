@@ -8730,6 +8730,43 @@ def scan_ema_base_setup(df: pd.DataFrame) -> dict | None:
     }
 
 
+def _enrich_ema_base(results: list[dict]) -> list[dict]:
+    """Annotate EMA base hits with upcoming earnings dates."""
+    try:
+        import earnings_calendar as ec
+    except Exception:
+        return results
+
+    from datetime import date as _date
+
+    today = _date.today()
+    for hit in results:
+        sym = hit.get("symbol")
+        if not sym:
+            continue
+        try:
+            cal = ec.fetch_earnings(sym)
+        except Exception:
+            continue
+        if not cal or not cal.get("events"):
+            continue
+        future = [e for e in cal["events"]
+                  if e.get("date") and e["date"] >= today.isoformat()]
+        if not future:
+            continue
+        nxt = min(future, key=lambda e: e["date"])
+        earn_date = _date.fromisoformat(nxt["date"])
+        days_away = (earn_date - today).days
+        hit["next_earn"] = nxt["date"]
+        hit["days_to_earn"] = days_away
+        if days_away <= 30:
+            hit["tags"] = hit.get("tags", []) + ["Earnings catalyst"]
+            hit["reasons"] = hit.get("reasons", []) + [
+                f"Results in {days_away}d ({nxt['date']}) — "
+                "quiet base + upcoming catalyst"]
+    return results
+
+
 SCANNERS: dict[str, dict] = {
     "Shallow Flip (Renko, bounded correction)": {
         "fn": scan_shallow_flip,
@@ -9455,6 +9492,7 @@ SCANNERS: dict[str, dict] = {
             "yet; treat as an attention list, not a trigger."
         ),
         "category": "Entry",
+        "enrich": _enrich_ema_base,
     },
 }
 

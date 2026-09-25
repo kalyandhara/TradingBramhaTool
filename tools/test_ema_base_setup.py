@@ -86,3 +86,52 @@ def test_high_red_volume_penalises():
 
 def test_description_says_unmeasured():
     assert "UNMEASURED" in sc.SCANNERS[NAME]["description"]
+
+
+def test_enrich_hook_is_registered():
+    assert "enrich" in sc.SCANNERS[NAME]
+    assert callable(sc.SCANNERS[NAME]["enrich"])
+
+
+def test_enrich_adds_earnings_tag(monkeypatch):
+    """When earnings are within 30 days, the enrichment tags the hit."""
+    from datetime import date, timedelta
+
+    fake_date = (date.today() + timedelta(days=15)).isoformat()
+    fake_cal = {
+        "symbol": "TEST",
+        "events": [{"date": fake_date, "reported": None,
+                     "estimate": None, "surprise_pct": None}],
+    }
+
+    import types
+    fake_ec = types.ModuleType("earnings_calendar")
+    fake_ec.fetch_earnings = lambda sym, use_cache=True: fake_cal
+    monkeypatch.setitem(__import__("sys").modules, "earnings_calendar", fake_ec)
+
+    hits = [{"symbol": "TEST", "tags": ["Tight candles"], "reasons": ["test"]}]
+    enriched = sc._enrich_ema_base(hits)
+    assert enriched[0]["days_to_earn"] == 15
+    assert "Earnings catalyst" in enriched[0]["tags"]
+
+
+def test_enrich_skips_distant_earnings(monkeypatch):
+    """Earnings > 30 days away should not add the catalyst tag."""
+    from datetime import date, timedelta
+
+    fake_date = (date.today() + timedelta(days=60)).isoformat()
+    fake_cal = {
+        "symbol": "TEST",
+        "events": [{"date": fake_date, "reported": None,
+                     "estimate": None, "surprise_pct": None}],
+    }
+
+    import types
+    fake_ec = types.ModuleType("earnings_calendar")
+    fake_ec.fetch_earnings = lambda sym, use_cache=True: fake_cal
+    monkeypatch.setitem(__import__("sys").modules, "earnings_calendar", fake_ec)
+
+    hits = [{"symbol": "TEST", "tags": [], "reasons": []}]
+    enriched = sc._enrich_ema_base(hits)
+    assert enriched[0].get("days_to_earn") == 60
+    assert "Earnings catalyst" not in enriched[0]["tags"]
