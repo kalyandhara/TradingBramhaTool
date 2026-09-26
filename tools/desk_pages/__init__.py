@@ -61,6 +61,8 @@ PAGES: dict[str, str] = {
     "Telegram Signals": "telegram_signals",
     "SVP Structure": "svp_structure",
     "Scheduler Hub": "scheduler_hub",
+    "Other Screeners": "other_screeners",
+    "Pipeline Log": "pipeline_log",
 }
 
 
