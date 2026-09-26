@@ -32,6 +32,8 @@
 <!-- Session Volume Profile HD — one profile per session, D/P/B/I classification +
      accumulation/distribution + trap-stack sensing. Depends on window.VP above. -->
 <script src="/session_volume_profile.js"></script>
+<!-- TPO / Market Profile — time-at-price letter grid overlay, see tpo.js -->
+<script src="/tpo.js"></script>
 <!-- Fair Value Gap detection plug-in — pure computation module, see fvg.js -->
 <script src="/fvg.js"></script>
 <!-- %R Trend Exhaustion oscillator plug-in — pure computation module, see percent_r_trend_exhaustion.js -->
@@ -897,6 +899,16 @@ html, body {
 .svp-info .svp-help b { color: var(--text-chart); }
 .svp-P { color: #26a69a; } .svp-B { color: #f23645; }
 .svp-D { color: #4c9aff; } .svp-I { color: #b0b7c3; }
+/* ── TPO / Market Profile card ────────────────────────────────────────────── */
+.tpo-info {
+  position: absolute; bottom: 8px; right: 78px; z-index: 9;
+  background: var(--overlay-bg); border: 1px solid var(--border); border-radius: 7px;
+  padding: 6px 10px; font-size: 10px; color: var(--text-chart);
+  max-width: 260px; line-height: 1.4;
+}
+.tpo-info .tpo-head { cursor: pointer; font-weight: 700; user-select: none; }
+.tpo-info.collapsed .tpo-body { display: none; }
+.tpo-info .tpo-cav { color: var(--text-muted); font-size: 9px; margin-top: 4px; }
 .pmax-info .pmax-head { cursor: pointer; font-weight: 700; user-select: none; }
 .pmax-info.collapsed .pmax-body { display: none; }
 
@@ -1546,6 +1558,7 @@ const INDICATOR_DEFS = [
   {key:'simplevol',  label:'Simple Volume (Pocket Pivots — PPV / dry / above-average)', group:'Volume', color:'#2f81f7'},
   {key:'volprofile', label:'Volume Profile (POC/VA/HVN/LVN)', group:'Volume',  color:'#9aa4af'},
   {key:'svp',        label:'Session Volume Profile HD (D/P/B/I + Accum/Distrib)', group:'Volume', color:'#26c6da'},
+  {key:'tpo',        label:'TPO / Market Profile (time-at-price)', group:'Volume', color:'#ff9800', alias:'tpo market profile time price opportunity letter bracket initial balance'},
   // Real taker side, not an estimate from bar internals — see drawDeltaProfile.
   {key:'deltaprofile', label:'Delta Profile — real taker side (Hyperliquid only)', group:'Volume', color:'#26a69a'},
   // ── Pattern Recognition ──────────────────────────────────────────────────────
@@ -3779,6 +3792,7 @@ async function copyChartSnapshot(pane) {
     blit(pane.obCanvas);        // Order Blocks (z-index 7)
     // Session Volume Profile HD (z-index 8, below volCanvas) — draw before it.
     blit(pane.svpCanvas);
+    blit(pane.tpoCanvas);
     blit(pane.volCanvas);
     blit(pane.fvgCanvas);
     // User drawings last of the price-anchored layers (z-index 20) — your own
@@ -4097,6 +4111,8 @@ function applyIndicators(pane) {
   }
   // Clear Session Volume Profile HD (canvas + card) if deselected
   if (!pane.indicators.has('svp') && pane.svp) clearSessionVP(pane);
+  // Clear TPO / Market Profile (canvas + card) if deselected
+  if (!pane.indicators.has('tpo') && pane.tpo) clearTPO(pane);
   if (!pane.indicators.has('deltaprofile')) clearDeltaProfile(pane);
   // Clear FVG canvas + buy/sell signal markers/panel if deselected
   if (!pane.indicators.has('fvg') && pane.fvgCanvas) {
@@ -4968,6 +4984,12 @@ function applyIndicators(pane) {
     });
   }
 
+  if (pane.indicators.has('tpo')) {
+    requestAnimationFrame(() => {
+      if (pane.indicators.has('tpo')) drawTPO(pane);
+    });
+  }
+
   if (pane.indicators.has('deltaprofile')) {
     // Same RAF deferral, plus the tape poll. The interval is what keeps the
     // profile live; every other redraw path paints from the cached response, so
@@ -5336,6 +5358,7 @@ function redrawPaneOverlays(pane, immediate = false) {
   if (has('volprofile')) drawVolumeProfile(pane);
   // Session VP is both price- AND time-anchored, so it stales on any pan/zoom.
   if (has('svp')) drawSessionVP(pane);
+  if (has('tpo')) drawTPO(pane);
   if (has('deltaprofile')) drawDeltaProfile(pane);
   // Order-block zones are time+price anchored — same staleness as FVG boxes.
   if (has('orderblock')) drawOrderBlocks(pane);
@@ -9094,6 +9117,156 @@ function renderSVPInfo(pane, r) {
 // ── Gann Square-of-9 S/R levels + honest break-odds card (see gann.js) ────────
 // Draws ONLY the deterministic horizontal SO9 levels (not the scale-dependent
 // fan). The card states the conditional break heuristic — "if R breaks up, this
+// ── TPO / Market Profile overlay ────────────────────────────────────────────
+const TPO_COLORS = {D: '#4c9aff', P: '#26a69a', B: '#f23645', I: '#b0b7c3'};
+
+function ensureTpoCanvas(pane) {
+  if (!pane.tpoCanvas) {
+    const c = document.createElement('canvas');
+    c.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:8;width:100%;height:100%;';
+    pane.el.querySelector('.chart-main').appendChild(c);
+    pane.tpoCanvas = c;
+  }
+  return pane.tpoCanvas;
+}
+
+function clearTPO(pane) {
+  if (pane.tpoCanvas) {
+    const ctx = pane.tpoCanvas.getContext('2d');
+    ctx.clearRect(0, 0, pane.tpoCanvas.width, pane.tpoCanvas.height);
+  }
+  if (pane.tpo && pane.tpo.infoEl) { try { pane.tpo.infoEl.remove(); } catch {} }
+  pane.tpo = null;
+}
+
+function drawTPO(pane) {
+  if (typeof TPO === 'undefined') { console.warn('tpo.js not loaded'); return; }
+  if (!pane.bars || pane.bars.length < 10) return;
+  const canvas = ensureTpoCanvas(pane);
+  const {W, H} = sizeOverlay(canvas);
+  if (!W || !H) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+
+  const r = TPO.compute(pane.bars);
+  if (!r || !r.sessions.length) return;
+  if (!pane.tpo) pane.tpo = {infoEl: null, collapsed: false};
+  pane.tpo.data = r;
+
+  const ts = pane.chart.timeScale();
+  const yOf = pr => pane.series.priceToCoordinate(pr);
+  const xOf = t => { try { return ts.timeToCoordinate(t); } catch { return null; } };
+  const light = (typeof currentTheme !== 'undefined') && currentTheme === 'light';
+
+  r.sessions.forEach(s => {
+    let x0 = xOf(s.startTime), x1 = xOf(s.endTime);
+    if (x0 == null && x1 == null) return;
+    if (x0 == null) x0 = 0;
+    if (x1 == null) x1 = W;
+    if (x1 <= x0) x1 = x0 + 2;
+    const segW = x1 - x0;
+    const col = TPO_COLORS[s.shape] || TPO_COLORS.D;
+
+    // Draw TPO letters at each price row
+    const maxTPO = s.pocMax || 1;
+    const charW = Math.max(4, Math.min(8, segW / (maxTPO + 1)));
+    ctx.font = Math.max(6, Math.min(9, charW * 1.1)) + 'px monospace';
+    ctx.textBaseline = 'middle';
+
+    for (let row = 0; row < s.nRows; row++) {
+      const letters = s.letters[row];
+      if (!letters) continue;
+      const price = s.priceLow + row * s.tickSize;
+      const y = yOf(price);
+      if (y == null) continue;
+
+      const isPoc = row === s.pocRow;
+      const inVA = price >= s.vaLow && price <= s.vaHigh;
+
+      for (let ci = 0; ci < letters.length; ci++) {
+        const lx = x0 + 2 + ci * charW;
+        if (lx > x1 - 2) break;
+        ctx.fillStyle = isPoc ? '#ff9800' : inVA ? col : (light ? 'rgba(0,0,0,0.3)' : 'rgba(255,255,255,0.3)');
+        ctx.fillText(letters[ci], lx, y);
+      }
+    }
+
+    // POC line
+    const yp = yOf(s.pocPrice);
+    if (yp != null) {
+      ctx.strokeStyle = '#ff9800';
+      ctx.lineWidth = 1.2;
+      ctx.setLineDash([4, 3]);
+      ctx.beginPath(); ctx.moveTo(x0, yp); ctx.lineTo(x1, yp); ctx.stroke();
+      ctx.setLineDash([]);
+    }
+
+    // VA boundaries
+    const yVAH = yOf(s.vaHigh), yVAL = yOf(s.vaLow);
+    if (yVAH != null && yVAL != null) {
+      ctx.fillStyle = light ? 'rgba(255,152,0,0.06)' : 'rgba(255,152,0,0.04)';
+      ctx.fillRect(x0, yVAH, segW, yVAL - yVAH);
+    }
+
+    // IB boundaries (dashed lines)
+    if (s.ibHigh != null) {
+      const yIBH = yOf(s.ibHigh), yIBL = yOf(s.ibLow);
+      ctx.strokeStyle = light ? 'rgba(0,0,0,0.15)' : 'rgba(255,255,255,0.15)';
+      ctx.lineWidth = 1;
+      ctx.setLineDash([2, 4]);
+      if (yIBH != null) { ctx.beginPath(); ctx.moveTo(x0, yIBH); ctx.lineTo(x1, yIBH); ctx.stroke(); }
+      if (yIBL != null) { ctx.beginPath(); ctx.moveTo(x0, yIBL); ctx.lineTo(x1, yIBL); ctx.stroke(); }
+      ctx.setLineDash([]);
+    }
+
+    // Shape label at session top
+    const yLbl = yOf(s.hi);
+    if (yLbl != null) {
+      ctx.fillStyle = col;
+      ctx.font = 'bold 10px system-ui, sans-serif';
+      ctx.fillText(s.shape, x0 + 2, Math.max(10, yLbl - 2));
+    }
+
+    // Session divider
+    ctx.strokeStyle = light ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)';
+    ctx.lineWidth = 1;
+    ctx.beginPath(); ctx.moveTo(x0, 0); ctx.lineTo(x0, H); ctx.stroke();
+  });
+
+  renderTPOInfo(pane, r);
+}
+
+function renderTPOInfo(pane, r) {
+  const st = pane.tpo;
+  if (!st.infoEl) {
+    st.infoEl = document.createElement('div');
+    st.infoEl.className = 'tpo-info';
+    mountCard(pane, st.infoEl, 'corner');
+    st.infoEl.addEventListener('click', ev => {
+      if (!ev.target.closest('.tpo-head')) return;
+      st.collapsed = !st.collapsed;
+      st.infoEl.classList.toggle('collapsed', st.collapsed);
+    });
+  }
+
+  const s = r.state;
+  const f = v => Number.isFinite(v)
+    ? v.toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) : '—';
+  const shapeCol = TPO_COLORS[s.shape] || TPO_COLORS.D;
+  const pvpEmoji = {above_va: '🟢', below_va: '🔴', at_poc: '🟡', in_va: '⚪'}[s.priceVsPoc] || '⚪';
+  const pvpLabel = {above_va: 'Above VA', below_va: 'Below VA', at_poc: 'At POC', in_va: 'In VA'}[s.priceVsPoc] || '';
+
+  st.infoEl.innerHTML = `
+    <div class="tpo-head">TPO · <span style="color:${shapeCol}">${s.shape}</span>-profile ${pvpEmoji} ${pvpLabel}</div>
+    <div class="tpo-body">
+      <div>POC: ${f(s.pocPrice)}</div>
+      <div>VA: ${f(s.vaLow)} – ${f(s.vaHigh)}</div>
+      ${s.ibHigh != null ? `<div>IB: ${f(s.ibLow)} – ${f(s.ibHigh)}</div>` : ''}
+      <div>Single prints: ${s.nSinglePrints}</div>
+      <div class="tpo-cav">Overlay only — no signal measured</div>
+    </div>`;
+}
+
 // is the follow-through probability" — where the probability is THIS symbol's
 // own historical breakout base rate, so the Gann framing cannot smuggle in
 // confidence it has not earned.
@@ -10353,6 +10526,7 @@ async function loadData(idx) {
       applyIndicators(p);
       if (p.indicators.has('volprofile')) drawVolumeProfile(p);
       if (p.indicators.has('svp')) drawSessionVP(p);
+      if (p.indicators.has('tpo')) drawTPO(p);
       if (p.indicators.has('deltaprofile')) drawDeltaProfile(p);
       if (p.indicators.has('fvg')) drawFVG(p);
       const last = bars[bars.length - 1];
