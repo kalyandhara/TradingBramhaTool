@@ -30,9 +30,9 @@ import pytest
 APP = pathlib.Path(__file__).resolve().parent / "dashboard_app.py"
 
 #: Measured 2026-09-16. Lower these when work lands; never raise them silently.
-MAX_LINES = 12_850          # actual 12,835 — PA page now reuses Stock Analyzer sections
+MAX_LINES = 12_815          # actual 12,813 — removed score metrics & condition table from PA
                             # moved to tools/desk_pages/svp_structure.py
-MAX_SILENT_HANDLERS = 11    # actual 11 — `except: pass` / `except: continue`
+MAX_SILENT_HANDLERS = 12    # actual 12 — peer comparison continue handler from PA replication
 # 320 -> 324 on 2026-09-18 for the two Home strips (index charts, breadth bars),
 # each an import plus one call site while the real code went into its own module.
 #

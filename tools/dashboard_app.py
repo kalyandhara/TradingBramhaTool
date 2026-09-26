@@ -9604,28 +9604,6 @@ if current_page == "Predictive Analysis":
                 render_fundamental_signals(fscore.score_all(pa_fund, _pa_deep))
                 render_ownership_flow(pa_sym)
 
-                pa_mv, pa_mv_conds = sp.score_minervini(pa_df, nifty_df=pa_bench)
-                pa_tf, pa_tf_conds = sp.score_technofunda(pa_df)
-                pa_cs, pa_cs_conds, pa_rs_pct, _ = _compute_canslim(pa_df, pa_bench)
-                pa_ew = ew_module.analyze_ew(pa_df)
-
-                _sc1, _sc2, _sc3, _sc4, _sc5 = st.columns(5)
-                _sc1.metric("Minervini", f"{pa_mv}/8")
-                _sc2.metric("TechnoFunda", f"{pa_tf}/6")
-                _sc3.metric("Total", f"{pa_mv + pa_tf}/14")
-                _sc4.metric("EW Confidence", f"{pa_ew['confidence']}%")
-                _sc5.metric("CANSLIM (RS)", f"{pa_cs}/4",
-                            delta=f"{pa_rs_pct:+.1f}% vs Nifty",
-                            delta_color="normal")
-
-                st.info(
-                    f"**Wave Position:** {pa_ew['wave_pos']}  |  "
-                    f"**Extension Risk:** {pa_ew['ext_risk']}  |  "
-                    f"**OWL:** {pa_ew['owl_signal']}  |  **PTF:** {pa_ew['ptf_signal']}  \n"
-                    f"{pa_ew['note']}"
-                )
-
-                render_condition_table(pa_mv_conds, pa_tf_conds, pa_cs_conds)
                 render_momentum_meter(pa_df)
                 render_timeframe_board(pa_sym, pa_df)
 
