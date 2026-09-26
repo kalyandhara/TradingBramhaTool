@@ -943,6 +943,41 @@ def get_latest_scanner_run() -> tuple[str, str, list[dict]]:
         conn.close()
 
 
+def get_symbol_patterns(symbol: str, run_date: str | None = None) -> list[str]:
+    """Return distinct pattern_type strings detected for *symbol* on *run_date*.
+
+    When *run_date* is None the latest date in the cache is used.  Searches
+    across ALL scanners so the card shows every pattern, not just the one the
+    left panel loaded.
+    """
+    import json as _json
+    conn = get_connection()
+    try:
+        _ensure_scanner_cache_table(conn)
+        if run_date is None:
+            row = conn.execute(
+                "SELECT MAX(run_date) FROM scanner_run_cache"
+            ).fetchone()
+            if not row or not row[0]:
+                return []
+            run_date = row[0]
+        rows = conn.execute(
+            "SELECT card_json FROM scanner_run_cache "
+            "WHERE symbol = ? AND run_date = ?",
+            (symbol.upper(), run_date),
+        ).fetchall()
+        seen: set[str] = set()
+        out: list[str] = []
+        for (blob,) in rows:
+            pt = _json.loads(blob).get("pattern_type", "")
+            if pt and pt not in seen:
+                seen.add(pt)
+                out.append(pt)
+        return out
+    finally:
+        conn.close()
+
+
 def delete_scanner_run(scanner_name: str, run_date: str) -> None:
     """Remove a single cached run (e.g. to force a fresh fetch)."""
     conn = get_connection()

@@ -9440,6 +9440,66 @@ if current_page == "Predictive Analysis":
                     unsafe_allow_html=True,
                 )
 
+                # ── B-130: Stock Summary Card ────────────────────────────
+                try:
+                    _pa_close = pa_df["close"]
+                    _pa_price = float(_pa_close.iloc[-1])
+                    _pa_win = _pa_close.tail(252)
+                    _pa_lo52, _pa_hi52 = float(_pa_win.min()), float(_pa_win.max())
+                    _pa_tail = _pa_close.tail(60)
+                    _pa_marks = []
+                    if len(_pa_tail) >= 20:
+                        _pa_sup, _pa_res = float(_pa_tail.min()), float(_pa_tail.max())
+                        if _pa_sup < _pa_price:
+                            _pa_marks.append((_pa_sup, f"Sup {_pa_sup:,.0f}"))
+                        if _pa_res > _pa_price:
+                            _pa_marks.append((_pa_res, f"Res {_pa_res:,.0f}"))
+                    _pa_spectrum = rs.range_spectrum(_pa_lo52, _pa_hi52, _pa_price, marks=_pa_marks)
+                    _pa_pct_from_high = (_pa_price / _pa_hi52 - 1) * 100 if _pa_hi52 else 0
+                    _pa_mv, _pa_conds = sp.score_minervini(pa_df, nifty_df=pa_bench)
+                    _pa_stage_label = (
+                        "Stage-2 ideal band" if _pa_mv >= 6 else
+                        "Stage-2 emerging" if _pa_mv >= 4 else
+                        "Stage-1 base" if _pa_mv >= 2 else
+                        "Stage-3/4 caution"
+                    )
+                    _pa_stage_color = (
+                        "#16a34a" if _pa_mv >= 6 else
+                        "#65a30d" if _pa_mv >= 4 else
+                        "#d97706" if _pa_mv >= 2 else
+                        "#dc2626"
+                    )
+                    _pa_cond_chips = "".join(
+                        f'<span style="background:{"#dcfce7" if v else "#fef2f2"};'
+                        f'color:{"#166534" if v else "#991b1b"};border-radius:4px;'
+                        f'padding:1px 6px;font-size:10px;margin:1px 2px;'
+                        f'display:inline-block;">{"✓" if v else "✗"} {k.split(" ",1)[1]}</span>'
+                        for k, v in _pa_conds.items()
+                    )
+                    _pa_patterns = db.get_symbol_patterns(pa_sym)
+                    _pa_pat_chips = "".join(
+                        f'<span style="background:#fef3c7;color:#92400e;border-radius:4px;'
+                        f'padding:2px 8px;font-size:11px;margin:2px 3px;'
+                        f'display:inline-block;font-weight:600;">{p}</span>'
+                        for p in _pa_patterns
+                    ) if _pa_patterns else '<span style="color:#9ca3af;font-size:11px;">No patterns detected in latest scan</span>'
+                    st.markdown(rs.card(
+                        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+                        f'<div><span style="font-size:22px;font-weight:700;">₹{_pa_price:,.2f}</span>'
+                        f'<span style="color:#6b7280;font-size:12px;margin-left:8px;">'
+                        f'{_pa_pct_from_high:+.1f}% from 52W high</span></div>'
+                        f'<span style="background:{_pa_stage_color};color:#fff;border-radius:6px;'
+                        f'padding:3px 10px;font-size:12px;font-weight:700;">'
+                        f'{_pa_stage_label} ({_pa_mv}/8)</span></div>'
+                        f'{_pa_spectrum}'
+                        f'<div style="margin-top:8px;">{_pa_cond_chips}</div>'
+                        f'<div style="margin-top:10px;"><b style="font-size:12px;color:#374151;">'
+                        f'Detected Patterns</b><div style="margin-top:4px;">{_pa_pat_chips}</div></div>',
+                        title="Stock Summary",
+                    ), unsafe_allow_html=True)
+                except Exception:
+                    pass
+
                 # Annotated chart — the Chart Tool iframe carries every overlay the
                 # user has enabled there (M2 base zones, harmonic, trendlines, M3
                 # price projection, MA Bias, …). Indicator selection persists in
