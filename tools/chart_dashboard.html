@@ -9994,6 +9994,15 @@ function renderProjInfo(pane, p) {
       `<hr>` +
       `<div style="color:var(--text-chart)">${p.reasoning}</div>` +
       inval +
+      (p.nearby_levels && p.nearby_levels.length
+        ? `<hr><div style="font-size:10px;color:var(--text-muted)">` +
+          `<b>Levels in the way</b> (nearest to target first):<br>` +
+          p.nearby_levels.map(l =>
+            `<span style="color:${Math.abs(l.dist_pct) < 1 ? '#ef5350' : 'var(--text-chart)'}">` +
+            `₹${l.price.toFixed(2)} — ${l.source} (${l.dist_pct > 0 ? '+' : ''}${l.dist_pct.toFixed(1)}% from target)</span>`
+          ).join('<br>') +
+          `</div>`
+        : `<hr><div style="font-size:10px;color:var(--text-muted)">No structural level between price and target — open air.</div>`) +
       `<hr>` +
       `<div class="proj-disclaimer">Indicative model projection from Elliott Wave + pattern ` +
       `measured-moves — not investment advice. Verify against your own analysis.</div>` +
