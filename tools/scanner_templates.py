@@ -8767,6 +8767,175 @@ def _enrich_ema_base(results: list[dict]) -> list[dict]:
     return results
 
 
+def scan_breakout_retest(df: pd.DataFrame, lookback: int = 120,
+                         cluster_tol_pct: float = 2.0, min_touches: int = 3,
+                         min_base_bars: int = 15, atr_len: int = 14) -> dict | None:
+    """Breakout-retest entry (B-6): resistance broken, price pulled back to the
+    level, and is now holding above it — classic "resistance becomes support".
+
+    The desk detects breaks well (structural breakout, VCP, wedge, flag, cup)
+    and retests poorly: `scan_order_block` is the only retest trigger, and it
+    is SMC-specific. This scanner is the GENERAL retest detector — it works on
+    any horizontal resistance cluster, regardless of the pattern that formed the
+    base.
+
+    Stages:
+      1. Find the resistance ceiling: cluster of daily highs within `cluster_tol_pct`
+         of the ceiling, with ≥ `min_touches` touches, over at least `min_base_bars`.
+      2. Confirm breakout: a close above level + 0.25×ATR buffer, 5–30 bars ago.
+      3. Detect pullback: after the breakout bar, the low dipped back within 1.5%
+         of the resistance level (price came back to "test" the old resistance).
+      4. Confirm retest hold: current close is above the resistance level.
+      5. Not extended: current close is within 4×ATR of the level (anti-chase).
+
+    Emits entry (current close), stop (below the level − 0.5×ATR), target
+    (level + pattern height or 2R, whichever is larger).
+    """
+    if df is None or len(df) < min_base_bars + 30:
+        return None
+    if "volume" not in df.columns:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < min_base_bars + 30:
+        return None
+
+    h = df["high"].to_numpy(dtype=float)
+    l = df["low"].to_numpy(dtype=float)
+    c = df["close"].to_numpy(dtype=float)
+    v = df["volume"].to_numpy(dtype=float)
+    n = len(df)
+    w0 = max(0, n - lookback)
+
+    atr = _atr_series(df, atr_len)
+    a = float(atr.iloc[-1])
+    if pd.isna(a) or a <= 0:
+        return None
+
+    # Stage 1: find resistance ceiling in the window BEFORE the breakout zone.
+    # The breakout must be recent (last 30 bars), so the ceiling is built from
+    # bars before that.
+    ceil_end = max(w0 + min_base_bars, n - 30)
+    if ceil_end <= w0:
+        return None
+    level = float(h[w0:ceil_end].max())
+    tol = cluster_tol_pct / 100
+    touch_idx = [i for i in range(w0, ceil_end) if h[i] >= level * (1 - tol)]
+    touches = len(touch_idx)
+    if touches < min_touches:
+        return None
+
+    base_start = touch_idx[0]
+    base_bars = ceil_end - base_start
+    if base_bars < min_base_bars:
+        return None
+
+    buffer = 0.25 * a
+
+    # Stage 2: find the breakout bar — first close above level + buffer after
+    # the ceiling window, within the last 30 bars.
+    breakout_bar = None
+    for i in range(ceil_end, n):
+        if c[i] > level + buffer:
+            breakout_bar = i
+            break
+    if breakout_bar is None:
+        return None
+    bars_since_break = n - 1 - breakout_bar
+    if bars_since_break < 2 or bars_since_break > 30:
+        return None
+
+    # Stage 3: pullback — after the breakout, the low came back near the level.
+    post_break_low = float(l[breakout_bar + 1:].min())
+    pullback_depth = (post_break_low - level) / level
+    if pullback_depth > 0.015:
+        return None  # never came back to the level
+    if post_break_low < level * (1 - tol):
+        return None  # fell too far below — the level didn't hold
+
+    # Stage 4: current close above the level (the retest is holding).
+    last_close = float(c[-1])
+    if last_close < level:
+        return None
+
+    # Stage 5: anti-chase — not too extended.
+    if last_close > level + 4 * a:
+        return None
+
+    # ── Trade plan ──────────────────────────────────────────────────────────
+    entry = round(last_close, 2)
+    stop = round(level - 0.5 * a, 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+    pattern_height = level - float(l[base_start:ceil_end].min())
+    target = round(max(level + pattern_height, entry + 2.0 * risk), 2)
+    rr = round((target - entry) / risk, 1)
+
+    # ── Volume check ────────────────────────────────────────────────────────
+    vol50 = pd.Series(v).rolling(50).mean()
+    v50_at_break = float(vol50.iloc[breakout_bar]) if not pd.isna(vol50.iloc[breakout_bar]) else 0.0
+    breakout_vol_ok = v50_at_break > 0 and float(v[breakout_bar]) >= 1.3 * v50_at_break
+    vol20 = float(df["volume"].tail(20).mean())
+    vol_x = float(df["volume"].iloc[-1]) / vol20 if vol20 > 0 else 0.0
+
+    # Pullback should be on LOW volume (supply drying up at the retest).
+    pullback_bars = v[breakout_bar + 1:]
+    avg_pullback_vol = float(pullback_bars.mean()) if len(pullback_bars) else 0
+    dry_pullback = avg_pullback_vol < v50_at_break * 0.8 if v50_at_break > 0 else False
+
+    # ── Score (0-100) ───────────────────────────────────────────────────────
+    score = 30.0
+    score += min(15.0, touches * 3.0)                       # more touches = stronger level
+    score += 15.0 if breakout_vol_ok else 0.0               # volume on breakout
+    score += 10.0 if dry_pullback else 0.0                  # low volume pullback
+    prox = max(0.0, 1.0 - abs(last_close - level) / (2 * a))  # closer to level = better
+    score += 15.0 * prox                                    # proximity to retest level
+    score += 5.0 if rr >= 2.0 else 0.0                      # decent R:R
+    score += 10.0 if bars_since_break <= 15 else 5.0        # freshness
+    score = round(min(100.0, score), 1)
+
+    if score < 55:
+        return None
+
+    base_weeks = base_bars // 5
+    tags = ["Breakout Retest", f"{touches} touches", f"{base_weeks}w base"]
+    if breakout_vol_ok:
+        tags.append("Vol ✓")
+    if dry_pullback:
+        tags.append("Dry pullback")
+    reasons = [
+        f"Resistance ₹{level:.0f} — {touches} touches within {cluster_tol_pct}% "
+        f"over a {base_weeks}-week base",
+        f"Breakout {bars_since_break} bars ago"
+        + (f" on {v[breakout_bar] / v50_at_break:.1f}× 50d volume" if breakout_vol_ok
+           else " — breakout volume unconfirmed"),
+        f"Pullback to ₹{post_break_low:.0f} ({pullback_depth * 100:+.1f}% from level)"
+        + (" — supply drying up on the retest" if dry_pullback
+           else " — retest volume not low"),
+        f"Holding above ₹{level:.0f} — old resistance acting as new support",
+        f"Trade plan — entry {entry:.0f} · stop {stop:.0f} · target {target:.0f} "
+        f"(R:R {rr}×)",
+    ]
+
+    return {
+        "pattern_type": "Breakout Retest",
+        "tags": tags,
+        "reasons": reasons,
+        "score": round(score, 1),
+        "rs_raw": _rs_raw(df),
+        "entry": entry,
+        "stop": stop,
+        "target": target,
+        "vol_x50d": round(vol_x, 2),
+        "breakout_vol_ok": breakout_vol_ok,
+        "dry_pullback": dry_pullback,
+        "level": round(level, 2),
+        "touches": touches,
+        "bars_since_break": bars_since_break,
+        "time_stop": 12,
+    }
+
+
 SCANNERS: dict[str, dict] = {
     "Shallow Flip (Renko, bounded correction)": {
         "fn": scan_shallow_flip,
@@ -8841,6 +9010,20 @@ SCANNERS: dict[str, dict] = {
             "closed below since), and fires when price is retesting it now and "
             "holding above the zone low. Carries a structured entry/stop/target "
             "(stop below the zone, target at the displacement extension or 2R)."
+        ),
+        "category": "Entry",
+    },
+    "Breakout Retest": {
+        "fn": scan_breakout_retest,
+        "description": (
+            "General breakout-retest entry (B-6): finds a multi-touch horizontal "
+            "resistance cluster, confirms a recent breakout above it, detects the "
+            "pullback to the level, and fires when price is holding above it — "
+            "old resistance acting as new support. Works across any pattern that "
+            "formed the base (VCP, wedge, flag, cup, flat base). Carries a "
+            "structured entry/stop/target (stop below the level, target at "
+            "pattern height or 2R). UNMEASURED — not yet through the backtest "
+            "harness; treat as an attention list, not a trigger."
         ),
         "category": "Entry",
     },
