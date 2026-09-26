@@ -9403,12 +9403,22 @@ if current_page == "Predictive Analysis":
                             st.session_state["pa_symbol"] = _ws
 
     with pa_left:
-        mcol1, mcol2 = st.columns([3, 1])
-        pa_manual = mcol1.text_input("Any symbol", key="pa_manual",
-                                     placeholder="e.g. TITAN",
-                                     label_visibility="collapsed")
-        if mcol2.button("Go", key="pa_go", use_container_width=True) and pa_manual.strip():
-            st.session_state["pa_symbol"] = pa_manual.strip().upper()
+        if _SYMSEARCH is not None:
+            _pa_pick = _SYMSEARCH(options=_symbol_payload(),
+                                  placeholder="Search symbol…",
+                                  key="pa_symsearch", default=None)
+            if isinstance(_pa_pick, dict) and _pa_pick.get("symbol"):
+                if _pa_pick.get("n") != st.session_state.get("_pa_pick_n"):
+                    st.session_state["_pa_pick_n"] = _pa_pick["n"]
+                    st.session_state["pa_symbol"] = _pa_pick["symbol"].strip().upper()
+                    st.rerun()
+        else:
+            mcol1, mcol2 = st.columns([3, 1])
+            pa_manual = mcol1.text_input("Any symbol", key="pa_manual",
+                                         placeholder="e.g. TITAN",
+                                         label_visibility="collapsed")
+            if mcol2.button("Go", key="pa_go", use_container_width=True) and pa_manual.strip():
+                st.session_state["pa_symbol"] = pa_manual.strip().upper()
 
     with pa_main:
         pa_sym = st.session_state.get("pa_symbol")

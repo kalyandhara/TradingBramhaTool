@@ -1,6 +1,18 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-09-26] ingest | SMC Top-Down Analysis infographic
+- Created concept page: `concepts/SMC-Top-Down-Analysis.md`
+- Created source page: `sources/Infographic-SMC-Top-Down-Analysis.md`
+- Three-TF execution workflow (4H bias → 1H POI → 5M entry). Instantiation of ICT methodology.
+- 3/5 chart components ship (structure chain, order blocks, FVGs); BSL/SSL + OTE gaps already logged in ICT page.
+
+## [2026-09-26] ingest | Supertrend & EMA Crossover infographic
+- Created concept page: `concepts/Supertrend-EMA-Crossover.md`
+- Created source page: `sources/Infographic-Supertrend-EMA-Crossover.md`
+- Dual-confirmation strategy (ST 10,3 + EMA 20/50 cross). Both indicators already ship; ST AI flip measured negative (B-44). No build needed.
+- Cross-linked to existing `SuperTrend`, `Indicator-Selection-By-Regime`, `Indicator-Coverage-Gap`
+
 ## [2026-09-23] build | B-100 oi_walls near-strike window
 - `oi_walls()` gains `near_strikes` param — limits ranking to N nearest strikes per side, excluding far-OTM inventory.
 - `read_levels()` defaults to `NEAR_STRIKES=10`; response includes `wall_window` field.
