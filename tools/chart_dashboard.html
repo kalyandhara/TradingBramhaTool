@@ -53,6 +53,10 @@
      role); an overlay makes no claim and votes in nothing. Dots are causal — the
      dot for bar i uses nothing from bar i. -->
 <script src="/psar.js"></script>
+<!-- Ichimoku Kinko Hyo — five-line equilibrium overlay, see ichimoku.js.
+     B-46. Overlay only: the TK cross, Kumo breakout and Chikou confirmation are
+     unmeasured and deliberately not drawn as signals. -->
+<script src="/ichimoku.js"></script>
 <!-- Fibonacci levels + confluence trade plan — pure computation module, see fibonacci.js.
      Loaded AFTER elliott_wave.js and volume_profile.js: it reads EW.computeZigzag for
      swing anchoring and VP.findConfluence for level scoring. -->
@@ -1517,6 +1521,7 @@ const INDICATOR_DEFS = [
   {key:'pmax',      label:'PMax (EMA10, ATR10 × 3) + signals', group:'Trend & Bands', color:'#26a69a'},
   {key:'stai',      label:'SuperTrend AI (adaptive factor via K-means) + signals', group:'Trend & Bands', color:'#00bcd4', alias:'supertrend ai luxalgo adaptive clustering kmeans trend trailing stop'},
   {key:'psar',      label:'Parabolic SAR (0.02, 0.20)', group:'Trend & Bands', color:'#ffa726', alias:'parabolic sar stop and reverse wilder trailing stop dots psar'},
+  {key:'ichimoku',  label:'Ichimoku Cloud (9, 26, 52)', group:'Trend & Bands', color:'#e040fb', alias:'ichimoku kinko hyo cloud kumo tenkan kijun senkou chikou span equilibrium'},
   {key:'atrtrail',  label:'ATR Trailing Stop (14, 3×) + flips', group:'Trend & Bands', color:'#fdd835', alias:'atr trailing stop chandelier exit volatility stop long short'},
   {key:'renko',     label:'Renko structure on candles (ATR brick) + flips', group:'Trend & Bands', color:'#ab47bc', alias:'renko brick noiseless noise free time independent price sampled staircase brick size atr flip devendra'},
   // ── Sub-pane oscillators ────────────────────────────────────────────────────
@@ -2196,6 +2201,32 @@ function renderTrailStatusCard(pane, key) {
   const t = TRAIL_STATUS[key];
   box.innerHTML = `<div class="svol-head">${t.title}</div>` +
                   `<div class="sbc-note">${t.body}</div>`;
+  box.style.display = 'block';
+}
+
+// ── Ichimoku Cloud card ─────────────────────────────────────────────────────
+function renderIchimokuCard(pane, ik) {
+  const cls = 'ichimoku-status';
+  let box = pane.el.querySelector('.' + cls);
+  const on = pane.indicators instanceof Set && pane.indicators.has('ichimoku');
+  if (!on) { if (box) box.style.display = 'none'; return; }
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'trail-status ' + cls;
+    mountCard(pane, box, 'stack');
+  }
+  const st = ik.state;
+  const lines = ['<div class="svol-head">Ichimoku (9, 26, 52)</div>'];
+  if (st) {
+    const cloud = st.priceVsCloud === 'above' ? '🟢 Above cloud'
+                : st.priceVsCloud === 'below' ? '🔴 Below cloud'
+                : st.priceVsCloud === 'inside' ? '🟡 Inside cloud' : '—';
+    const tk = st.tkCross === 'bullish' ? 'Tenkan > Kijun'
+             : st.tkCross === 'bearish' ? 'Tenkan < Kijun' : 'flat';
+    lines.push(`<div class="sbc-note">${cloud} · ${tk}</div>`);
+    lines.push('<div class="sbc-note" style="opacity:0.6">Overlay only — no signal measured</div>');
+  }
+  box.innerHTML = lines.join('');
   box.style.display = 'block';
 }
 
@@ -4256,6 +4287,18 @@ function applyIndicators(pane) {
           addDots(pane, '#f23645'),   // short — dots trail ABOVE price
         ];
         break;
+      case 'ichimoku':
+        // Ichimoku: Tenkan (conversion), Kijun (base), Senkou A, Senkou B, Chikou.
+        // The cloud (kumo) is drawn as two semi-transparent area series — one for
+        // bullish cloud (A > B, green tint) and one for bearish (B > A, red tint).
+        pane.indSeries[key] = [
+          addLine(pane, '#2962ff', 1),    // [0] Tenkan-sen (conversion, blue)
+          addLine(pane, '#f23645', 1),    // [1] Kijun-sen  (base, red)
+          addLine(pane, '#26a69a', 1, 2), // [2] Senkou A   (leading A, green dashed)
+          addLine(pane, '#ef5350', 1, 2), // [3] Senkou B   (leading B, red dashed)
+          addLine(pane, '#9aa4af', 1, 2), // [4] Chikou Span (lagging, grey dashed)
+        ];
+        break;
       case 'atrtrail':
         // ATR Trailing Stop: one switching line, green below price (uptrend), red
         // above (downtrend). Same two-series colour-switch as PMax/STAI.
@@ -4390,6 +4433,19 @@ function applyIndicators(pane) {
         // independent confirmations of one idea. B-46's objection to a PSAR
         // signal stands until the overlap check it asks for has been run.
         renderTrailStatusCard(pane, 'psar');
+        break;
+      }
+      case 'ichimoku': {
+        const ik = ICHIMOKU.compute(bars);
+        s[0].setData(padToBars(ik.tenkan, bars));
+        s[1].setData(padToBars(ik.kijun, bars));
+        // Senkou A/B extend past the last bar. padToBars pads to the main grid;
+        // points beyond the grid are appended as-is, and lightweight-charts
+        // renders them as projected whitespace points to the right.
+        s[2].setData(ik.senkouA);
+        s[3].setData(ik.senkouB);
+        s[4].setData(padToBars(ik.chikou, bars));
+        renderIchimokuCard(pane, ik);
         break;
       }
       case 'atrtrail': {
