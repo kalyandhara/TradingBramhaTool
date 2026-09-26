@@ -919,6 +919,30 @@ def get_scanner_run_dates(scanner_name: str) -> list[str]:
         conn.close()
 
 
+def get_latest_scanner_run() -> tuple[str, str, list[dict]]:
+    """Return (scanner_name, run_date, cards) for the most recent cached run
+    across ALL scanners.  Returns ('', '', []) when the cache is empty."""
+    import json as _json
+    conn = get_connection()
+    try:
+        _ensure_scanner_cache_table(conn)
+        row = conn.execute(
+            "SELECT scanner_name, run_date FROM scanner_run_cache "
+            "ORDER BY run_date DESC, id DESC LIMIT 1",
+        ).fetchone()
+        if not row:
+            return ("", "", [])
+        name, date = row
+        cards = conn.execute(
+            "SELECT card_json FROM scanner_run_cache "
+            "WHERE scanner_name = ? AND run_date = ? ORDER BY id",
+            (name, date),
+        ).fetchall()
+        return (name, date, [_json.loads(r[0]) for r in cards])
+    finally:
+        conn.close()
+
+
 def delete_scanner_run(scanner_name: str, run_date: str) -> None:
     """Remove a single cached run (e.g. to force a fresh fetch)."""
     conn = get_connection()

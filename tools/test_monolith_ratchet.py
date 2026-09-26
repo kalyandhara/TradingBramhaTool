@@ -30,7 +30,7 @@ import pytest
 APP = pathlib.Path(__file__).resolve().parent / "dashboard_app.py"
 
 #: Measured 2026-09-16. Lower these when work lands; never raise them silently.
-MAX_LINES = 12_750          # actual 12,713 — B-87r's THIRD page (SVP Structure)
+MAX_LINES = 12_600          # actual 12,590 — B-87r's FOURTH page (Scheduler Hub)
                             # moved to tools/desk_pages/svp_structure.py
 MAX_SILENT_HANDLERS = 11    # actual 11 — `except: pass` / `except: continue`
 # 320 -> 324 on 2026-09-18 for the two Home strips (index charts, breadth bars),
@@ -42,8 +42,8 @@ MAX_SILENT_HANDLERS = 11    # actual 11 — `except: pass` / `except: continue`
 # the next page removes its `if current_page == "..."` block and adds nothing,
 # taking this number to 324, then 323, then 322 — the ratchet now falls with
 # each extraction instead of creeping up, which is what B-87 installed it for.
-MAX_MODULE_STATEMENTS = 324  # actual 324 — SVP Structure extracted, −1 from 325
-MAX_RAW_HTML_RENDERS = 106  # actual 104 — SVP Structure's callout moved out
+MAX_MODULE_STATEMENTS = 323  # actual 323 — Scheduler Hub extracted, −1 from 324
+MAX_RAW_HTML_RENDERS = 104  # actual 102 — Scheduler Hub's callout moved out
 
 
 @pytest.fixture(scope="module")

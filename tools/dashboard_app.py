@@ -3824,7 +3824,7 @@ if current_page == "Home":
     istrip.render()
 
 # ── Regime + today's verdict — ONE card ───────────────────────────────────────
-_show_regime = current_page != "Scanner Hub"  # hidden on Scanner Hub
+_show_regime = current_page == "Home"
 # These were two stacked cards and between them they owned most of the first
 # screen on every page. They are now one, because they are one thought: the
 # regime is the CONTEXT and the verdict is the DECISION taken in it, and the
@@ -7463,120 +7463,6 @@ if current_page == "Pipeline Log":
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Scheduler Hub — manage batch jobs as Windows Scheduled Tasks. Generalises the
-# Scanner Hub's one-off scheduler panel (scheduler_core.JOBS registry). Star job:
-# the live Alert Bot (alert_watcher.js), run every N min during market hours.
-# ──────────────────────────────────────────────────────────────────────────────
-if current_page == "Scheduler Hub":
-    import json as _sched_json
-    import scheduler_core as sched
-
-    st.subheader("Scheduler Hub")
-    st.caption(
-        "Batch jobs registered as Windows Scheduled Tasks. **Register / Remove / "
-        "Run now change persistent OS scheduled tasks.** The Alert Bot runs the live "
-        "SVP / indicator signal engine each interval during market hours and fires on "
-        "pattern-buildup transitions."
-    )
-    st.info(
-        "Jobs read live bars from the chart server (http://127.0.0.1:5001) and the "
-        "dashboard cache — keep the chart server running during market hours so the "
-        "Alert Bot has data.", icon="ℹ️",
-    )
-
-    for _jid, _job in sched.JOBS.items():
-        _stt = sched.status(_job)
-        _reg = _stt.get("registered")
-        with st.container(border=True):
-            _hdr = st.columns([3, 1])
-            _hdr[0].markdown(f"### {_job.label}")
-            _hdr[0].caption(_job.desc)
-            _hdr[1].markdown(f"**{'🟢 registered' if _reg else '⚪ not registered'}**")
-            _hdr[1].caption(f"`{_job.task_name}`")
-
-            if _reg:
-                _m = st.columns(4)
-                _m[0].metric("State", _stt.get("state", "—"))
-                _m[1].metric("Next run", _stt.get("next_run", "—"))
-                _m[2].metric("Last run", _stt.get("last_run", "—"))
-                _m[3].metric("Last result", _stt.get("last_result", "—"))
-                # "Registered and Enabled" is NOT the same as "will run". A bad
-                # schedule shape registers clean, shows Enabled, and reports no
-                # next run at all — which is how the Alert Bot sat dead while
-                # this panel showed it green (B-77). Say so where it is read.
-                if str(_stt.get("next_run", "")).strip().upper() in ("N/A", "", "—"):
-                    st.markdown(
-                        rs.callout(
-                            "Registered, but it has no next run.",
-                            "Windows accepted the task and reports it Enabled, yet "
-                            "there is no scheduled next fire — so it will not run. "
-                            "Re-register it below; if it comes back N/A the schedule "
-                            "shape is wrong, not the times.",
-                            tone="risk"),
-                        unsafe_allow_html=True)
-
-            # Schedule configuration
-            if _job.kind == "interval":
-                _c = st.columns(3)
-                _v_st = _c[0].text_input("Start (HH:MM)", value=_job.default_time, key=f"sch_{_jid}_st")
-                _v_et = _c[1].text_input("End (HH:MM)", value=_job.default_end, key=f"sch_{_jid}_et")
-                _v_mo = _c[2].number_input("Every N min", 1, 240, int(_job.default_interval), key=f"sch_{_jid}_mo")
-                _sched_kw = dict(time=_v_st, end=_v_et, interval=int(_v_mo))
-            else:
-                _c = st.columns(3)
-                _v_t = _c[0].text_input("Run time (HH:MM)", value=_job.default_time, key=f"sch_{_jid}_t")
-                _sched_kw = dict(time=_v_t)
-
-            _b = st.columns(4)
-            if _b[0].button("Register / Update", key=f"sch_{_jid}_reg", type="primary"):
-                _ok, _msg = sched.register(_job, **_sched_kw)
-                if _ok:
-                    st.success(_msg); st.rerun()
-                else:
-                    st.error(_msg)
-                    st.code(" ".join(sched.register_argv(_job, **_sched_kw)), language="bat")
-                    st.caption("If it's a permissions error, run the command above in an elevated terminal.")
-            if _b[1].button("Run now", key=f"sch_{_jid}_run", disabled=not _reg):
-                _ok, _msg = sched.run_now(_job)
-                (st.success if _ok else st.error)(_msg)
-            if _b[2].button("Remove", key=f"sch_{_jid}_del", disabled=not _reg):
-                _ok, _msg = sched.remove(_job)
-                (st.success if _ok else st.warning)(_msg); st.rerun()
-
-            with st.expander("Log tail", expanded=False):
-                st.code(sched.tail_log(_job, 40), language=None)
-
-            # Alert-bot specifics: config summary, delivery status, recent alerts.
-            if _jid == "alert_watcher":
-                _cfg_path = sched.HERE / "alert_config.json"
-                try:
-                    _cfg = _sched_json.loads(_cfg_path.read_text(encoding="utf-8"))
-                except Exception:
-                    _cfg = {}
-                _delivery = _cfg.get("delivery", [])
-                if not _delivery or _delivery == ["log"]:
-                    st.warning(
-                        "Delivery is **dry-run** (log only) — no email/Telegram channel wired "
-                        "yet. Fired alerts go to `tools/cache/alerts/alerts.jsonl`.", icon="⚠️",
-                    )
-                _watch = _cfg.get("watch", [])
-                if _watch:
-                    st.caption("Watchlist: " + " · ".join(f"{w.get('symbol')}·{w.get('tf')}" for w in _watch)
-                               + "   |   Rules: " + ", ".join(r.get("id", "?") for r in _cfg.get("rules", [])))
-                _feed = sched.HERE / "cache" / "alerts" / "alerts.jsonl"
-                if _feed.exists():
-                    _rows = [r for r in _feed.read_text(encoding="utf-8").splitlines() if r.strip()][-10:]
-                    if _rows:
-                        with st.expander(f"Recent alerts ({len(_rows)})", expanded=False):
-                            for _r in reversed(_rows):
-                                try:
-                                    _a = _sched_json.loads(_r)
-                                    st.markdown(f"- `{_a.get('ts','')}` — **{_a.get('headline','')}**")
-                                except Exception:
-                                    pass
-
-
-# ──────────────────────────────────────────────────────────────────────────────
 # Opportunity Hub — top-down Sector→Industry→Stock→Pattern→Entry funnel (Phase 1)
 # Composition of shipped pieces: sector/industry strength is derived bottom-up
 # from constituents' momentum (opportunity_hub.py), then the EXISTING Scanner Hub
@@ -9429,6 +9315,14 @@ if current_page == "Predictive Analysis":
     with pa_left:
         hits = st.session_state.get("hub_results") or []
         ran_for = st.session_state.get("hub_scanner_ran", "")
+
+        # Auto-load from DB when no in-session results exist.
+        if not hits:
+            _db_name, _db_date, _db_cards = db.get_latest_scanner_run()
+            if _db_cards:
+                hits = _db_cards
+                ran_for = f"{_db_name} ({_db_date})"
+
         ranked = sorted(
             hits,
             key=lambda h: (h.get("overall") is not None, h.get("overall") or 0),
@@ -9436,8 +9330,8 @@ if current_page == "Predictive Analysis":
         )
         st.markdown("**Candidates**")
         if not ranked:
-            st.info("No Scanner Hub results in this session — run a scanner there "
-                    "first, or type a symbol below.")
+            st.info("No scanner results found — run a scanner in the Scanner Hub, "
+                    "or type a symbol below.")
         else:
             st.caption(f"{len(ranked)} from **{ran_for}** · ranked by Overall Rating")
             for h in ranked[:30]:
@@ -9456,6 +9350,33 @@ if current_page == "Predictive Analysis":
                 with vcol:
                     if st.button("→", key=f"pa_view_{_sym}", help=f"Analyze {_sym}"):
                         st.session_state["pa_symbol"] = _sym
+
+        # ── Watchlist as candidates ──────────────────────────────────────
+        _pa_wl = db.get_watchlist()
+        if _pa_wl is not None and not _pa_wl.empty:
+            _scanner_syms = {h["symbol"] for h in ranked} if ranked else set()
+            _wl_only = _pa_wl[~_pa_wl["symbol"].isin(_scanner_syms)]
+            if not _wl_only.empty:
+                st.divider()
+                st.markdown(f"**♥ Watchlist** ({len(_wl_only)})")
+                for _, _wr in _wl_only.iterrows():
+                    _ws = _wr["symbol"]
+                    _wbc, _wvc = st.columns([4, 1])
+                    with _wbc:
+                        _wn = _wr.get("notes") or ""
+                        _wn_html = (f' <span style="font-size:10.5px;color:#888;">'
+                                    f'{_wn}</span>') if _wn else ""
+                        st.markdown(
+                            f'<div style="display:flex;align-items:center;padding:3px 0;">'
+                            f'<b style="color:#3a2a1e;margin-right:8px;">{_ws}</b>'
+                            f'<span style="background:#e8f5e9;color:#2e7d32;padding:1px 8px;'
+                            f'border-radius:99px;font-size:10.5px;">watchlist</span>'
+                            f'{_wn_html}</div>',
+                            unsafe_allow_html=True,
+                        )
+                    with _wvc:
+                        if st.button("→", key=f"pa_wl_{_ws}", help=f"Analyze {_ws}"):
+                            st.session_state["pa_symbol"] = _ws
 
         st.divider()
         mcol1, mcol2 = st.columns([3, 1])
