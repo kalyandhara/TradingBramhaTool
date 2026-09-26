@@ -9444,7 +9444,7 @@ if current_page == "Predictive Analysis":
                 # user has enabled there (M2 base zones, harmonic, trendlines, M3
                 # price projection, MA Bias, …). Indicator selection persists in
                 # the Chart Tool's own localStorage, so it survives reloads.
-                render_chart_tool(pa_sym, height=720)
+                render_chart_tool(pa_sym, height=1080)
 
                 # Setup Intelligence + Council — same engine as the Stock Analyzer.
                 st.divider()
