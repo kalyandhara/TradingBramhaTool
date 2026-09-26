@@ -28,6 +28,9 @@ from __future__ import annotations
 
 import logging
 
+import numpy as np
+import pandas as pd
+
 import ew_module
 import scanner_templates as sc
 import harmonic_patterns as hp
@@ -246,6 +249,28 @@ def nearby_levels(target: float, current: float, df, direction: str = "up") -> l
     ]
 
 
+def target_atr_distance(target: float, current: float, df,
+                        atr_period: int = 14) -> float | None:
+    """Return target distance expressed as multiples of ATR.
+
+    A value of 2.5 means the target is 2.5× the recent average true range
+    away from the current price.  Returns None when inputs are insufficient.
+    """
+    if target is None or current is None or df is None or len(df) < atr_period + 1:
+        return None
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+    close = df["close"].astype(float)
+    prev_close = close.shift(1)
+    tr = np.maximum(high - low,
+                    np.maximum(np.abs(high - prev_close),
+                               np.abs(low - prev_close)))
+    atr = float(tr.iloc[-atr_period:].mean())
+    if atr <= 0:
+        return None
+    return round(abs(target - current) / atr, 2)
+
+
 def compute_projection(df, timeframe: str = "1d") -> dict | None:
     """Return the best forward projection for `df`, or None if nothing confident.
 
@@ -325,4 +350,6 @@ def compute_projection(df, timeframe: str = "1d") -> dict | None:
         "nearby_levels": nearby_levels(
             primary["price"], current, df, primary["direction"],
         ),
+        # B-117: target distance in ATR multiples — fact, not veto.
+        "target_atr": target_atr_distance(primary["price"], current, df),
     }

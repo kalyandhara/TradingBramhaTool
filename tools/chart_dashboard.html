@@ -9982,6 +9982,9 @@ function renderProjInfo(pane, p) {
     ? `<span style="color:#3fb950"> · ${p.confluence_count} methods agree</span>` : '';
   const inval = (p.invalidation != null)
     ? `<br><span style="color:var(--text-muted)">Invalidation (stop): ₹${p.invalidation.toFixed(2)}</span>` : '';
+  const atrDist = (p.target_atr != null)
+    ? `<br><span style="color:${p.target_atr > 5 ? '#ef5350' : p.target_atr > 3 ? '#f0883e' : 'var(--text-chart)'}">` +
+      `Target distance: ${p.target_atr.toFixed(1)}× ATR</span>` : '';
 
   pr.infoEl.innerHTML =
     `<div class="proj-head" style="margin-bottom:3px;" title="Click to collapse / expand">` +
@@ -9994,6 +9997,7 @@ function renderProjInfo(pane, p) {
       `<hr>` +
       `<div style="color:var(--text-chart)">${p.reasoning}</div>` +
       inval +
+      atrDist +
       (p.nearby_levels && p.nearby_levels.length
         ? `<hr><div style="font-size:10px;color:var(--text-muted)">` +
           `<b>Levels in the way</b> (nearest to target first):<br>` +
