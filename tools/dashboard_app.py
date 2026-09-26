@@ -9440,141 +9440,142 @@ if current_page == "Predictive Analysis":
                     unsafe_allow_html=True,
                 )
 
-                # ── B-130: Stock Summary Card ────────────────────────────
-                try:
-                    _pa_close = pa_df["close"]
-                    _pa_price = float(_pa_close.iloc[-1])
-                    _pa_win = _pa_close.tail(252)
-                    _pa_lo52, _pa_hi52 = float(_pa_win.min()), float(_pa_win.max())
-                    _pa_tail = _pa_close.tail(60)
-                    _pa_marks = []
-                    if len(_pa_tail) >= 20:
-                        _pa_sup, _pa_res = float(_pa_tail.min()), float(_pa_tail.max())
-                        if _pa_sup < _pa_price:
-                            _pa_marks.append((_pa_sup, f"Sup {_pa_sup:,.0f}"))
-                        if _pa_res > _pa_price:
-                            _pa_marks.append((_pa_res, f"Res {_pa_res:,.0f}"))
-                    _pa_spectrum = rs.range_spectrum(_pa_lo52, _pa_hi52, _pa_price, marks=_pa_marks)
-                    _pa_pct_from_high = (_pa_price / _pa_hi52 - 1) * 100 if _pa_hi52 else 0
-                    _pa_mv, _pa_conds = sp.score_minervini(pa_df, nifty_df=pa_bench)
-                    _pa_stage_label = (
-                        "Stage-2 ideal band" if _pa_mv >= 6 else
-                        "Stage-2 emerging" if _pa_mv >= 4 else
-                        "Stage-1 base" if _pa_mv >= 2 else
-                        "Stage-3/4 caution"
-                    )
-                    _pa_stage_color = (
-                        "#16a34a" if _pa_mv >= 6 else
-                        "#65a30d" if _pa_mv >= 4 else
-                        "#d97706" if _pa_mv >= 2 else
-                        "#dc2626"
-                    )
-                    _pa_cond_chips = "".join(
-                        f'<span style="background:{"#dcfce7" if v else "#fef2f2"};'
-                        f'color:{"#166534" if v else "#991b1b"};border-radius:4px;'
-                        f'padding:1px 6px;font-size:10px;margin:1px 2px;'
-                        f'display:inline-block;">{"✓" if v else "✗"} {k.split(" ",1)[1]}</span>'
-                        for k, v in _pa_conds.items()
-                    )
-                    _pa_patterns = db.get_symbol_patterns(pa_sym)
-                    _pa_pat_chips = "".join(
-                        f'<span style="background:#fef3c7;color:#92400e;border-radius:4px;'
-                        f'padding:2px 8px;font-size:11px;margin:2px 3px;'
-                        f'display:inline-block;font-weight:600;">{p}</span>'
-                        for p in _pa_patterns
-                    ) if _pa_patterns else '<span style="color:#9ca3af;font-size:11px;">No patterns detected in latest scan</span>'
-                    st.markdown(rs.card(
-                        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
-                        f'<div><span style="font-size:22px;font-weight:700;">₹{_pa_price:,.2f}</span>'
-                        f'<span style="color:#6b7280;font-size:12px;margin-left:8px;">'
-                        f'{_pa_pct_from_high:+.1f}% from 52W high</span></div>'
-                        f'<span style="background:{_pa_stage_color};color:#fff;border-radius:6px;'
-                        f'padding:3px 10px;font-size:12px;font-weight:700;">'
-                        f'{_pa_stage_label} ({_pa_mv}/8)</span></div>'
-                        f'{_pa_spectrum}'
-                        f'<div style="margin-top:8px;">{_pa_cond_chips}</div>'
-                        f'<div style="margin-top:10px;"><b style="font-size:12px;color:#374151;">'
-                        f'Detected Patterns</b><div style="margin-top:4px;">{_pa_pat_chips}</div></div>',
-                        title="Stock Summary",
-                    ), unsafe_allow_html=True)
-                except Exception:
-                    pass
-
-                # ── B-131: Smart Money Flow Card ─────────────────────────
-                try:
-                    import money_flow as _mf
-                    _smf_df = pa_df.tail(60).copy()
-                    _smf_close = _smf_df["close"].values
-                    _smf_open = _smf_df["open"].values
-                    _smf_vol = _smf_df["volume"].values
-                    _smf_avg_vol = float(_smf_df["volume"].mean())
-                    _smf_bars = []
-                    _smf_acc, _smf_dist = 0, 0
-                    for i in range(len(_smf_df)):
-                        c, o, v = float(_smf_close[i]), float(_smf_open[i]), float(_smf_vol[i])
-                        if c > o and v > _smf_avg_vol:
-                            _smf_bars.append("#16a34a")
-                            _smf_acc += 1
-                        elif c < o and v > _smf_avg_vol:
-                            _smf_bars.append("#dc2626")
-                            _smf_dist += 1
+                # ── B-130 + B-131: Stock Summary & Smart Money Flow ──────
+                _card_l, _card_r = st.columns(2)
+                with _card_l:
+                    try:
+                        _pa_close = pa_df["close"]
+                        _pa_price = float(_pa_close.iloc[-1])
+                        _pa_win = _pa_close.tail(252)
+                        _pa_lo52, _pa_hi52 = float(_pa_win.min()), float(_pa_win.max())
+                        _pa_tail = _pa_close.tail(60)
+                        _pa_marks = []
+                        if len(_pa_tail) >= 20:
+                            _pa_sup, _pa_res = float(_pa_tail.min()), float(_pa_tail.max())
+                            if _pa_sup < _pa_price:
+                                _pa_marks.append((_pa_sup, f"Sup {_pa_sup:,.0f}"))
+                            if _pa_res > _pa_price:
+                                _pa_marks.append((_pa_res, f"Res {_pa_res:,.0f}"))
+                        _pa_spectrum = rs.range_spectrum(_pa_lo52, _pa_hi52, _pa_price, marks=_pa_marks)
+                        _pa_pct_from_high = (_pa_price / _pa_hi52 - 1) * 100 if _pa_hi52 else 0
+                        _pa_mv, _pa_conds = sp.score_minervini(pa_df, nifty_df=pa_bench)
+                        _pa_stage_label = (
+                            "Stage-2 ideal band" if _pa_mv >= 6 else
+                            "Stage-2 emerging" if _pa_mv >= 4 else
+                            "Stage-1 base" if _pa_mv >= 2 else
+                            "Stage-3/4 caution"
+                        )
+                        _pa_stage_color = (
+                            "#16a34a" if _pa_mv >= 6 else
+                            "#65a30d" if _pa_mv >= 4 else
+                            "#d97706" if _pa_mv >= 2 else
+                            "#dc2626"
+                        )
+                        _pa_cond_chips = "".join(
+                            f'<span style="background:{"#dcfce7" if v else "#fef2f2"};'
+                            f'color:{"#166534" if v else "#991b1b"};border-radius:4px;'
+                            f'padding:1px 6px;font-size:10px;margin:1px 2px;'
+                            f'display:inline-block;">{"✓" if v else "✗"} {k.split(" ",1)[1]}</span>'
+                            for k, v in _pa_conds.items()
+                        )
+                        _pa_patterns = db.get_symbol_patterns(pa_sym)
+                        _pa_pat_chips = "".join(
+                            f'<span style="background:#fef3c7;color:#92400e;border-radius:4px;'
+                            f'padding:2px 8px;font-size:11px;margin:2px 3px;'
+                            f'display:inline-block;font-weight:600;">{p}</span>'
+                            for p in _pa_patterns
+                        ) if _pa_patterns else '<span style="color:#9ca3af;font-size:11px;">No patterns detected in latest scan</span>'
+                        st.markdown(rs.card(
+                            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+                            f'<div><span style="font-size:22px;font-weight:700;">₹{_pa_price:,.2f}</span>'
+                            f'<span style="color:#6b7280;font-size:12px;margin-left:8px;">'
+                            f'{_pa_pct_from_high:+.1f}% from 52W high</span></div>'
+                            f'<span style="background:{_pa_stage_color};color:#fff;border-radius:6px;'
+                            f'padding:3px 10px;font-size:12px;font-weight:700;">'
+                            f'{_pa_stage_label} ({_pa_mv}/8)</span></div>'
+                            f'{_pa_spectrum}'
+                            f'<div style="margin-top:8px;">{_pa_cond_chips}</div>'
+                            f'<div style="margin-top:10px;"><b style="font-size:12px;color:#374151;">'
+                            f'Detected Patterns</b><div style="margin-top:4px;">{_pa_pat_chips}</div></div>',
+                            title="Stock Summary",
+                        ), unsafe_allow_html=True)
+                    except Exception:
+                        pass
+                with _card_r:
+                    try:
+                        import money_flow as _mf
+                        _smf_df = pa_df.tail(60).copy()
+                        _smf_close = _smf_df["close"].values
+                        _smf_open = _smf_df["open"].values
+                        _smf_vol = _smf_df["volume"].values
+                        _smf_avg_vol = float(_smf_df["volume"].mean())
+                        _smf_bars = []
+                        _smf_acc, _smf_dist = 0, 0
+                        for i in range(len(_smf_df)):
+                            c, o, v = float(_smf_close[i]), float(_smf_open[i]), float(_smf_vol[i])
+                            if c > o and v > _smf_avg_vol:
+                                _smf_bars.append("#16a34a")
+                                _smf_acc += 1
+                            elif c < o and v > _smf_avg_vol:
+                                _smf_bars.append("#dc2626")
+                                _smf_dist += 1
+                            else:
+                                _smf_bars.append("#9ca3af")
+                        _smf_n = len(_smf_bars)
+                        if _smf_acc > _smf_dist * 1.5:
+                            _smf_verdict, _smf_vc = "Strong accumulation", "#16a34a"
+                        elif _smf_acc > _smf_dist:
+                            _smf_verdict, _smf_vc = "Mild accumulation", "#65a30d"
+                        elif _smf_dist > _smf_acc * 1.5:
+                            _smf_verdict, _smf_vc = "Strong distribution", "#dc2626"
+                        elif _smf_dist > _smf_acc:
+                            _smf_verdict, _smf_vc = "Mild distribution", "#ea580c"
                         else:
-                            _smf_bars.append("#9ca3af")
-                    _smf_n = len(_smf_bars)
-                    if _smf_acc > _smf_dist * 1.5:
-                        _smf_verdict, _smf_vc = "Strong accumulation", "#16a34a"
-                    elif _smf_acc > _smf_dist:
-                        _smf_verdict, _smf_vc = "Mild accumulation", "#65a30d"
-                    elif _smf_dist > _smf_acc * 1.5:
-                        _smf_verdict, _smf_vc = "Strong distribution", "#dc2626"
-                    elif _smf_dist > _smf_acc:
-                        _smf_verdict, _smf_vc = "Mild distribution", "#ea580c"
-                    else:
-                        _smf_verdict, _smf_vc = "Neutral", "#6b7280"
-                    _smf_bar_w = max(1, int(100 / max(_smf_n, 1)))
-                    _smf_strip = "".join(
-                        f'<div style="flex:1;height:32px;background:{c};'
-                        f'margin-right:1px;border-radius:1px;"></div>'
-                        for c in _smf_bars
-                    )
-                    _smf_obv = _mf.obv(pa_df)
-                    _smf_obv_tail = _smf_obv.tail(60).values
-                    _smf_obv_min, _smf_obv_max = float(min(_smf_obv_tail)), float(max(_smf_obv_tail))
-                    _smf_obv_range = _smf_obv_max - _smf_obv_min or 1
-                    _smf_obv_pts = []
-                    for idx, val in enumerate(_smf_obv_tail):
-                        x = idx / max(len(_smf_obv_tail) - 1, 1) * 200
-                        y = 40 - (float(val) - _smf_obv_min) / _smf_obv_range * 38
-                        _smf_obv_pts.append(f"{x:.1f},{y:.1f}")
-                    _smf_obv_line = " ".join(_smf_obv_pts)
-                    _smf_obv_trend = "rising" if float(_smf_obv_tail[-1]) > float(_smf_obv_tail[0]) else "falling"
-                    _smf_obv_color = "#16a34a" if _smf_obv_trend == "rising" else "#dc2626"
-                    _smf_cmf = _mf.cmf(pa_df, n=21)
-                    _smf_cmf_str = f"{_smf_cmf:+.3f}" if _smf_cmf is not None else "n/a"
-                    _smf_cmf_color = "#16a34a" if (_smf_cmf or 0) > 0 else "#dc2626" if (_smf_cmf or 0) < 0 else "#6b7280"
-                    st.markdown(rs.card(
-                        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
-                        f'<span style="font-weight:700;color:{_smf_vc};">{_smf_verdict}</span>'
-                        f'<span style="font-size:12px;color:#6b7280;">'
-                        f'{_smf_acc} acc · {_smf_dist} dist · {_smf_n - _smf_acc - _smf_dist} neutral'
-                        f' (last {_smf_n} sessions)</span></div>'
-                        f'<div style="display:flex;align-items:flex-end;height:32px;">{_smf_strip}</div>'
-                        f'<div style="display:flex;gap:20px;margin-top:12px;align-items:center;">'
-                        f'<div style="flex:1;"><b style="font-size:11px;color:#374151;">'
-                        f'OBV Trend <span style="color:{_smf_obv_color};">({_smf_obv_trend})</span></b>'
-                        f'<svg width="200" height="42" viewBox="0 0 200 42" style="display:block;margin-top:2px;">'
-                        f'<polyline points="{_smf_obv_line}" fill="none" stroke="{_smf_obv_color}" '
-                        f'stroke-width="1.5" stroke-linejoin="round"/></svg></div>'
-                        f'<div style="text-align:center;"><b style="font-size:11px;color:#374151;">CMF (21)</b>'
-                        f'<div style="font-size:20px;font-weight:700;color:{_smf_cmf_color};">'
-                        f'{_smf_cmf_str}</div></div></div>'
-                        f'<div style="margin-top:8px;font-size:10px;color:#9ca3af;">'
-                        f'Session flow is a bar-level heuristic (close vs open + above-average volume) '
-                        f'— not institutional delivery data, not measured against forward returns.</div>',
-                        title="Smart Money Flow",
-                    ), unsafe_allow_html=True)
-                except Exception:
-                    pass
+                            _smf_verdict, _smf_vc = "Neutral", "#6b7280"
+                        _smf_bar_w = max(1, int(100 / max(_smf_n, 1)))
+                        _smf_strip = "".join(
+                            f'<div style="flex:1;height:32px;background:{c};'
+                            f'margin-right:1px;border-radius:1px;"></div>'
+                            for c in _smf_bars
+                        )
+                        _smf_obv = _mf.obv(pa_df)
+                        _smf_obv_tail = _smf_obv.tail(60).values
+                        _smf_obv_min, _smf_obv_max = float(min(_smf_obv_tail)), float(max(_smf_obv_tail))
+                        _smf_obv_range = _smf_obv_max - _smf_obv_min or 1
+                        _smf_obv_pts = []
+                        for idx, val in enumerate(_smf_obv_tail):
+                            x = idx / max(len(_smf_obv_tail) - 1, 1) * 200
+                            y = 40 - (float(val) - _smf_obv_min) / _smf_obv_range * 38
+                            _smf_obv_pts.append(f"{x:.1f},{y:.1f}")
+                        _smf_obv_line = " ".join(_smf_obv_pts)
+                        _smf_obv_trend = "rising" if float(_smf_obv_tail[-1]) > float(_smf_obv_tail[0]) else "falling"
+                        _smf_obv_color = "#16a34a" if _smf_obv_trend == "rising" else "#dc2626"
+                        _smf_cmf = _mf.cmf(pa_df, n=21)
+                        _smf_cmf_str = f"{_smf_cmf:+.3f}" if _smf_cmf is not None else "n/a"
+                        _smf_cmf_color = "#16a34a" if (_smf_cmf or 0) > 0 else "#dc2626" if (_smf_cmf or 0) < 0 else "#6b7280"
+                        st.markdown(rs.card(
+                            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+                            f'<span style="font-weight:700;color:{_smf_vc};">{_smf_verdict}</span>'
+                            f'<span style="font-size:12px;color:#6b7280;">'
+                            f'{_smf_acc} acc · {_smf_dist} dist · {_smf_n - _smf_acc - _smf_dist} neutral'
+                            f' (last {_smf_n} sessions)</span></div>'
+                            f'<div style="display:flex;align-items:flex-end;height:32px;">{_smf_strip}</div>'
+                            f'<div style="display:flex;gap:20px;margin-top:12px;align-items:center;">'
+                            f'<div style="flex:1;"><b style="font-size:11px;color:#374151;">'
+                            f'OBV Trend <span style="color:{_smf_obv_color};">({_smf_obv_trend})</span></b>'
+                            f'<svg width="100%" height="42" viewBox="0 0 200 42" style="display:block;margin-top:2px;">'
+                            f'<polyline points="{_smf_obv_line}" fill="none" stroke="{_smf_obv_color}" '
+                            f'stroke-width="1.5" stroke-linejoin="round"/></svg></div>'
+                            f'<div style="text-align:center;"><b style="font-size:11px;color:#374151;">CMF (21)</b>'
+                            f'<div style="font-size:20px;font-weight:700;color:{_smf_cmf_color};">'
+                            f'{_smf_cmf_str}</div></div></div>'
+                            f'<div style="margin-top:8px;font-size:10px;color:#9ca3af;">'
+                            f'Session flow is a bar-level heuristic (close vs open + above-average volume) '
+                            f'— not institutional delivery data, not measured against forward returns.</div>',
+                            title="Smart Money Flow",
+                        ), unsafe_allow_html=True)
+                    except Exception:
+                        pass
 
                 # Annotated chart — the Chart Tool iframe carries every overlay the
                 # user has enabled there (M2 base zones, harmonic, trendlines, M3
@@ -9594,6 +9595,55 @@ if current_page == "Predictive Analysis":
                 )
                 with st.expander("Council drill-down (Bull / Bear / Judge)"):
                     render_council(pa_bundle, pa_bull, pa_bear, pa_card)
+
+                # ── Reused Stock Analyzer sections ───────────────────────
+                st.divider()
+                with st.spinner("Fetching fundamentals & statements…"):
+                    _pa_deep = cached_fundamentals_deep(pa_sym)
+                render_fundamental_header(pa_sym, pa_df, pa_fund, _pa_deep)
+                render_fundamental_signals(fscore.score_all(pa_fund, _pa_deep))
+                render_ownership_flow(pa_sym)
+
+                pa_mv, pa_mv_conds = sp.score_minervini(pa_df, nifty_df=pa_bench)
+                pa_tf, pa_tf_conds = sp.score_technofunda(pa_df)
+                pa_cs, pa_cs_conds, pa_rs_pct, _ = _compute_canslim(pa_df, pa_bench)
+                pa_ew = ew_module.analyze_ew(pa_df)
+
+                _sc1, _sc2, _sc3, _sc4, _sc5 = st.columns(5)
+                _sc1.metric("Minervini", f"{pa_mv}/8")
+                _sc2.metric("TechnoFunda", f"{pa_tf}/6")
+                _sc3.metric("Total", f"{pa_mv + pa_tf}/14")
+                _sc4.metric("EW Confidence", f"{pa_ew['confidence']}%")
+                _sc5.metric("CANSLIM (RS)", f"{pa_cs}/4",
+                            delta=f"{pa_rs_pct:+.1f}% vs Nifty",
+                            delta_color="normal")
+
+                st.info(
+                    f"**Wave Position:** {pa_ew['wave_pos']}  |  "
+                    f"**Extension Risk:** {pa_ew['ext_risk']}  |  "
+                    f"**OWL:** {pa_ew['owl_signal']}  |  **PTF:** {pa_ew['ptf_signal']}  \n"
+                    f"{pa_ew['note']}"
+                )
+
+                render_condition_table(pa_mv_conds, pa_tf_conds, pa_cs_conds)
+                render_momentum_meter(pa_df)
+                render_timeframe_board(pa_sym, pa_df)
+
+                with st.expander("Fundamental history"):
+                    render_fundamental_history(_pa_deep)
+                with st.expander("Peer comparison"):
+                    render_peer_comparison(pa_sym)
+                with st.expander("Red flags"):
+                    _pa_rf = cached_red_flags(pa_sym)
+                    render_red_flags(_pa_rf)
+                with st.expander("Scenario analysis"):
+                    render_scenarios(scen.build(_pa_deep), _pa_deep)
+                with st.expander("Conference calls"):
+                    render_concalls(cached_concalls(pa_sym))
+
+                if st.button("Add to Watchlist", key="pa_wl"):
+                    db.add_watchlist_symbol(pa_sym, "From Predictive Analysis")
+                    st.success(f"{pa_sym} added to watchlist.")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
