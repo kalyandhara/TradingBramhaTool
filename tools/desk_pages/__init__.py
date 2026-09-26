@@ -63,6 +63,7 @@ PAGES: dict[str, str] = {
     "Scheduler Hub": "scheduler_hub",
     "Other Screeners": "other_screeners",
     "Pipeline Log": "pipeline_log",
+    "High-Growth Screener": "high_growth_screener",
 }
 
 

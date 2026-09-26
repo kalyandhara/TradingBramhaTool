@@ -30,7 +30,7 @@ import pytest
 APP = pathlib.Path(__file__).resolve().parent / "dashboard_app.py"
 
 #: Measured 2026-09-16. Lower these when work lands; never raise them silently.
-MAX_LINES = 12_700          # actual 12,689 — Other Screeners + Pipeline Log extracted
+MAX_LINES = 12_550          # actual 12,527 — High-Growth Screener extracted + link helpers to ui_tables
 MAX_SILENT_HANDLERS = 12    # actual 12 — peer comparison continue handler from PA replication
 # 320 -> 324 on 2026-09-18 for the two Home strips (index charts, breadth bars),
 # each an import plus one call site while the real code went into its own module.
@@ -41,7 +41,7 @@ MAX_SILENT_HANDLERS = 12    # actual 12 — peer comparison continue handler fro
 # the next page removes its `if current_page == "..."` block and adds nothing,
 # taking this number to 324, then 323, then 322 — the ratchet now falls with
 # each extraction instead of creeping up, which is what B-87 installed it for.
-MAX_MODULE_STATEMENTS = 321  # actual 321 — Other Screeners + Pipeline Log extracted, −2
+MAX_MODULE_STATEMENTS = 320  # actual 320 — High-Growth Screener extracted, −1
 MAX_RAW_HTML_RENDERS = 106  # actual 105 — B-130 Stock Summary Card (+1 render)
 
 

@@ -12,8 +12,34 @@ comes from, and when pagination kicks in.
 """
 from __future__ import annotations
 
+from urllib.parse import quote
+
 import pandas as pd
 import streamlit as st
+
+DASHBOARD_BASE = "http://localhost:8501"
+
+
+def analyze_url(sym) -> str | None:
+    s = str(sym).strip().upper().replace(".NS", "")
+    if not s or s.startswith("^"):
+        return None
+    return f"{DASHBOARD_BASE}/?nav=analyze&symbol={quote(s, safe='')}"
+
+
+def analyze_colcfg() -> "st.column_config.LinkColumn":
+    return st.column_config.LinkColumn(
+        "Analyze", help="Open the 3-POV Council analysis in a new tab",
+        display_text="Analyze ↗", width="small",
+    )
+
+
+def with_analyze_col(df, symbol_col: str, after: str | None = "Chart"):
+    out = df.copy()
+    urls = out[symbol_col].map(analyze_url)
+    pos = (out.columns.get_loc(after) + 1) if (after in out.columns) else len(out.columns)
+    out.insert(pos, "Analyze", urls)
+    return out
 
 def paginated_df(df: "pd.DataFrame", key: str, page_size: int = 25,
                   tint: bool = True, **kwargs) -> None:
