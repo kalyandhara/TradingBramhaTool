@@ -9500,6 +9500,82 @@ if current_page == "Predictive Analysis":
                 except Exception:
                     pass
 
+                # ── B-131: Smart Money Flow Card ─────────────────────────
+                try:
+                    import money_flow as _mf
+                    _smf_df = pa_df.tail(60).copy()
+                    _smf_close = _smf_df["close"].values
+                    _smf_open = _smf_df["open"].values
+                    _smf_vol = _smf_df["volume"].values
+                    _smf_avg_vol = float(_smf_df["volume"].mean())
+                    _smf_bars = []
+                    _smf_acc, _smf_dist = 0, 0
+                    for i in range(len(_smf_df)):
+                        c, o, v = float(_smf_close[i]), float(_smf_open[i]), float(_smf_vol[i])
+                        if c > o and v > _smf_avg_vol:
+                            _smf_bars.append("#16a34a")
+                            _smf_acc += 1
+                        elif c < o and v > _smf_avg_vol:
+                            _smf_bars.append("#dc2626")
+                            _smf_dist += 1
+                        else:
+                            _smf_bars.append("#9ca3af")
+                    _smf_n = len(_smf_bars)
+                    if _smf_acc > _smf_dist * 1.5:
+                        _smf_verdict, _smf_vc = "Strong accumulation", "#16a34a"
+                    elif _smf_acc > _smf_dist:
+                        _smf_verdict, _smf_vc = "Mild accumulation", "#65a30d"
+                    elif _smf_dist > _smf_acc * 1.5:
+                        _smf_verdict, _smf_vc = "Strong distribution", "#dc2626"
+                    elif _smf_dist > _smf_acc:
+                        _smf_verdict, _smf_vc = "Mild distribution", "#ea580c"
+                    else:
+                        _smf_verdict, _smf_vc = "Neutral", "#6b7280"
+                    _smf_bar_w = max(1, int(100 / max(_smf_n, 1)))
+                    _smf_strip = "".join(
+                        f'<div style="flex:1;height:32px;background:{c};'
+                        f'margin-right:1px;border-radius:1px;"></div>'
+                        for c in _smf_bars
+                    )
+                    _smf_obv = _mf.obv(pa_df)
+                    _smf_obv_tail = _smf_obv.tail(60).values
+                    _smf_obv_min, _smf_obv_max = float(min(_smf_obv_tail)), float(max(_smf_obv_tail))
+                    _smf_obv_range = _smf_obv_max - _smf_obv_min or 1
+                    _smf_obv_pts = []
+                    for idx, val in enumerate(_smf_obv_tail):
+                        x = idx / max(len(_smf_obv_tail) - 1, 1) * 200
+                        y = 40 - (float(val) - _smf_obv_min) / _smf_obv_range * 38
+                        _smf_obv_pts.append(f"{x:.1f},{y:.1f}")
+                    _smf_obv_line = " ".join(_smf_obv_pts)
+                    _smf_obv_trend = "rising" if float(_smf_obv_tail[-1]) > float(_smf_obv_tail[0]) else "falling"
+                    _smf_obv_color = "#16a34a" if _smf_obv_trend == "rising" else "#dc2626"
+                    _smf_cmf = _mf.cmf(pa_df, n=21)
+                    _smf_cmf_str = f"{_smf_cmf:+.3f}" if _smf_cmf is not None else "n/a"
+                    _smf_cmf_color = "#16a34a" if (_smf_cmf or 0) > 0 else "#dc2626" if (_smf_cmf or 0) < 0 else "#6b7280"
+                    st.markdown(rs.card(
+                        f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+                        f'<span style="font-weight:700;color:{_smf_vc};">{_smf_verdict}</span>'
+                        f'<span style="font-size:12px;color:#6b7280;">'
+                        f'{_smf_acc} acc · {_smf_dist} dist · {_smf_n - _smf_acc - _smf_dist} neutral'
+                        f' (last {_smf_n} sessions)</span></div>'
+                        f'<div style="display:flex;align-items:flex-end;height:32px;">{_smf_strip}</div>'
+                        f'<div style="display:flex;gap:20px;margin-top:12px;align-items:center;">'
+                        f'<div style="flex:1;"><b style="font-size:11px;color:#374151;">'
+                        f'OBV Trend <span style="color:{_smf_obv_color};">({_smf_obv_trend})</span></b>'
+                        f'<svg width="200" height="42" viewBox="0 0 200 42" style="display:block;margin-top:2px;">'
+                        f'<polyline points="{_smf_obv_line}" fill="none" stroke="{_smf_obv_color}" '
+                        f'stroke-width="1.5" stroke-linejoin="round"/></svg></div>'
+                        f'<div style="text-align:center;"><b style="font-size:11px;color:#374151;">CMF (21)</b>'
+                        f'<div style="font-size:20px;font-weight:700;color:{_smf_cmf_color};">'
+                        f'{_smf_cmf_str}</div></div></div>'
+                        f'<div style="margin-top:8px;font-size:10px;color:#9ca3af;">'
+                        f'Session flow is a bar-level heuristic (close vs open + above-average volume) '
+                        f'— not institutional delivery data, not measured against forward returns.</div>',
+                        title="Smart Money Flow",
+                    ), unsafe_allow_html=True)
+                except Exception:
+                    pass
+
                 # Annotated chart — the Chart Tool iframe carries every overlay the
                 # user has enabled there (M2 base zones, harmonic, trendlines, M3
                 # price projection, MA Bias, …). Indicator selection persists in

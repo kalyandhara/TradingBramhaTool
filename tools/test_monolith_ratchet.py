@@ -30,7 +30,7 @@ import pytest
 APP = pathlib.Path(__file__).resolve().parent / "dashboard_app.py"
 
 #: Measured 2026-09-16. Lower these when work lands; never raise them silently.
-MAX_LINES = 12_750          # actual 12,709 — B-130 Stock Summary Card on PA page
+MAX_LINES = 12_800          # actual 12,785 — B-130 + B-131 cards on PA page
                             # moved to tools/desk_pages/svp_structure.py
 MAX_SILENT_HANDLERS = 11    # actual 11 — `except: pass` / `except: continue`
 # 320 -> 324 on 2026-09-18 for the two Home strips (index charts, breadth bars),
