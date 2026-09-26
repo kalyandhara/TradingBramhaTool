@@ -9303,6 +9303,28 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
 # See wiki/analyses/Dashboard-UI-Roadmap.md §Milestone 4.
 # ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Predictive Analysis":
+    # Override the global 1440px cap — this page needs the full viewport for the
+    # chart iframe, same reason TradingView uses edge-to-edge layout.
+    st.markdown(
+        """<style>
+        [data-testid="stMainBlockContainer"] {
+            max-width: 100% !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }
+        /* Scrollable candidates panel */
+        .pa-candidates {
+            max-height: calc(100vh - 180px);
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+        .pa-candidates::-webkit-scrollbar { width: 5px; }
+        .pa-candidates::-webkit-scrollbar-thumb {
+            background: #d4c8b8; border-radius: 4px;
+        }
+        </style>""",
+        unsafe_allow_html=True,
+    )
     st.subheader("Predictive Analysis")
     st.caption(
         "One screen: ranked candidates (left) → annotated chart + ratings + setup "
@@ -9310,9 +9332,11 @@ if current_page == "Predictive Analysis":
         "the chart carries the pattern overlays and price projection from the Chart Tool."
     )
 
-    pa_left, pa_main = st.columns([1, 2.6], gap="medium")
+    pa_left, pa_main = st.columns([1, 3.5], gap="medium")
 
     with pa_left:
+        _pa_scroll = st.container(height=680)
+    with _pa_scroll:
         hits = st.session_state.get("hub_results") or []
         ran_for = st.session_state.get("hub_scanner_ran", "")
 
@@ -9378,7 +9402,7 @@ if current_page == "Predictive Analysis":
                         if st.button("→", key=f"pa_wl_{_ws}", help=f"Analyze {_ws}"):
                             st.session_state["pa_symbol"] = _ws
 
-        st.divider()
+    with pa_left:
         mcol1, mcol2 = st.columns([3, 1])
         pa_manual = mcol1.text_input("Any symbol", key="pa_manual",
                                      placeholder="e.g. TITAN",
@@ -9420,7 +9444,7 @@ if current_page == "Predictive Analysis":
                 # user has enabled there (M2 base zones, harmonic, trendlines, M3
                 # price projection, MA Bias, …). Indicator selection persists in
                 # the Chart Tool's own localStorage, so it survives reloads.
-                render_chart_tool(pa_sym)
+                render_chart_tool(pa_sym, height=720)
 
                 # Setup Intelligence + Council — same engine as the Stock Analyzer.
                 st.divider()
