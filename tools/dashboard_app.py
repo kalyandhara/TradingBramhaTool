@@ -9488,6 +9488,12 @@ if current_page == "Sector Map":
     import sector_indices_table as _sit
     _sit.render()
     st.divider()
+    import sector_ranking as _srk
+    _srk.render()
+    st.divider()
+    import sector_rs_leadership as _rsl
+    _rsl.render()
+    st.divider()
 
     # Money flow first: it answers "where is money going" from the constituents
     # themselves, and needs no sector-index fetch, so it renders before the RRG
