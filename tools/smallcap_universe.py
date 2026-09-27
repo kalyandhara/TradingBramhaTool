@@ -128,8 +128,8 @@ def _fetch_index_csv(kind: str) -> list[dict] | None:
         out = []
         for row in csv.DictReader(io.StringIO(r.text)):
             sym = (row.get("Symbol") or "").strip()
-            if not sym:
-                continue
+            if not sym or sym.upper().startswith("DUMMY"):
+                continue    # NSE placeholder row during a corporate action
             out.append({
                 "symbol": sym,
                 "name": (row.get("Company Name") or "").strip(),
