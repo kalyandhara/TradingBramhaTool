@@ -52,6 +52,7 @@ try:
     import sbc_aspects as sbca
     import sbc_confluence as sbccf
     import sbc_hora as sbch
+    import sbc_forecast as sbcf
     HAS_SBC = True
 except ImportError as e:
     print(f"Warning: Could not import SBC modules: {e}")
@@ -1877,6 +1878,118 @@ class TradingDashboard:
                             'fontStyle': 'italic'}),
         ], style=panel_style)
 
+    def _sbc_panel_styles(self):
+        return ({'backgroundColor': self._SBC_PANEL,
+                 'border': '1px solid #2a2550', 'borderRadius': '12px',
+                 'padding': '14px 18px', 'marginBottom': '14px'},
+                {'color': self._SBC_GOLD, 'letterSpacing': '.1em',
+                 'fontSize': '13px', 'textTransform': 'uppercase',
+                 'marginBottom': '8px'})
+
+    def _sbc_monthly_heatmap(self, start):
+        """Sector x trading-day net vedha for the next 30 days + lunar strip.
+
+        Ported from SBC_Tool (sbc/monthly_heatmap.py) onto our engine; the
+        cell value is the Broad Vedha Pressure net, so today's column matches
+        that panel.
+        """
+        panel_style, h_style = self._sbc_panel_styles()
+        dim = self._SBC_DIM
+        days = sbcf.monthly_heatmap(start, days=30)
+        sectors = list(days[0].nets) if days else []
+        x = [f"{d.day:%d %b}" for d in days]
+        z = [[d.nets[s] for d in days] for s in sectors]
+        hover = [[f"{s} · {d.day:%a %d %b}<br>net {d.nets[s]:+.1f}"
+                  f"<br>Moon {d.moon_nakshatra} · {d.tithi_name}"
+                  + (f"<br>{', '.join(d.events)}" if d.events else "")
+                  + (f"<br>Bhadra {d.bhadra}" if d.bhadra else "")
+                  for d in days] for s in sectors]
+        fig = go.Figure(go.Heatmap(
+            z=z, x=x, y=sectors, zmin=-3, zmax=3, zmid=0,
+            colorscale=[[0, '#c0392b'], [0.5, '#1a1640'], [1, '#27ae60']],
+            text=hover, hoverinfo='text', xgap=1, ygap=1,
+            colorbar={'title': 'net', 'thickness': 10,
+                      'tickfont': {'color': dim}}))
+        # lunar / bhadra strip as markers above the grid
+        marks = [(i, ('🌕' if 'Purnima' in d.events else
+                      '🌑' if 'Amavasya' in d.events else
+                      'E' if 'Ekadashi' in d.events else
+                      'A' if 'Ashtami' in d.events else '')
+                  + (' ⚠' if d.bhadra else ''))
+                 for i, d in enumerate(days)]
+        for i, m in marks:
+            if m:
+                fig.add_annotation(x=x[i], y=1.0, yref='paper', yanchor='bottom',
+                                   text=m, showarrow=False,
+                                   font={'size': 11, 'color': '#e8d9a0'})
+        fig.update_layout(
+            height=40 + 24 * len(sectors), margin={'l': 10, 'r': 10, 't': 26, 'b': 10},
+            paper_bgcolor='rgba(0,0,0,0)', plot_bgcolor='rgba(0,0,0,0)',
+            font={'color': '#cfc9f0', 'size': 11},
+            xaxis={'side': 'bottom', 'tickangle': -45},
+            yaxis={'autorange': 'reversed'})
+        return html.Div([
+            html.Div('30-Day Sector Vedha Heatmap', style=h_style),
+            html.P('Net vedha on each sector’s nama-nakshatra at 12:00 IST, trading '
+                   'days only. Strip above: 🌕 Purnima · 🌑 Amavasya · E Ekadashi · '
+                   'A Ashtami · ⚠ Bhadra inside market hours. Hover for detail.',
+                   style={'color': dim, 'fontSize': '12px', 'marginBottom': '4px'}),
+            dcc.Graph(figure=fig, config={'displayModeBar': False}),
+            html.Div('Watch calendar, not a forecast — sector vedha has no validated '
+                     'timing edge (see backtest).',
+                     style={'color': dim, 'fontSize': '11px', 'fontStyle': 'italic'}),
+        ], style=panel_style)
+
+    def _sbc_crash_signatures(self, day):
+        """Planetary crash signatures (SBC_Tool crash_analyzer) with the
+        out-of-sample result stated next to the score."""
+        panel_style, h_style = self._sbc_panel_styles()
+        gold, red, green, dim = (self._SBC_GOLD, self._SBC_RED,
+                                 self._SBC_GREEN, self._SBC_DIM)
+        a = sbcf.crash_analysis(day)
+        bcol = {'CRASH RISK': red, 'CORRECTION RISK': '#e08a3c',
+                'ELEVATED': gold}.get(a.band, green)
+        rows = []
+        for key, (on, detail) in a.signatures.items():
+            w, desc = sbcf.CRASH_SIGNATURES[key]
+            rows.append(html.Tr([
+                html.Td('●' if on else '○', style={'color': red if on else dim,
+                                                   'padding': '3px 8px'}),
+                html.Td(desc, style={'color': '#cfc9f0' if on else dim,
+                                     'padding': '3px 8px'}),
+                html.Td(detail, style={'color': dim, 'padding': '3px 8px'}),
+                html.Td(f'+{w * 100:.0f}', style={'color': red if on else dim,
+                                                  'padding': '3px 8px',
+                                                  'textAlign': 'right'}),
+            ]))
+        return html.Div([
+            html.Div('Crash Signatures', style=h_style),
+            html.Div([
+                html.Span(f'{a.score:.0f}', style={'fontSize': '30px',
+                                                   'fontWeight': '800', 'color': bcol}),
+                html.Span(f'   {a.band}', style={'color': bcol, 'fontWeight': '700'}),
+                html.Span('   bands: 20 elevated · 35 correction · 60 crash',
+                          style={'color': dim, 'fontSize': '11px'}),
+            ]),
+            html.Table(rows, style={'width': '100%', 'fontSize': '12px',
+                                    'borderCollapse': 'collapse', 'marginTop': '6px'}),
+            html.Div([
+                html.Span('⚠ Failed out-of-sample. ',
+                          style={'color': red, 'fontWeight': '600', 'fontSize': '11px'}),
+                html.Span(sbcf.OOS_RESULT, style={'color': dim, 'fontSize': '11px'}),
+            ], style={'marginTop': '10px', 'borderTop': '1px solid #2a2550',
+                      'paddingTop': '8px'}),
+        ], style={**panel_style, 'borderLeft': f'3px solid {bcol}'})
+
+    def _sbc_weekly_commentary(self, start):
+        panel_style, h_style = self._sbc_panel_styles()
+        return html.Div([
+            html.Div('Week Ahead', style=h_style),
+            html.Pre(sbcf.weekly_commentary(start), style={
+                'color': '#cfc9f0', 'fontSize': '12px', 'whiteSpace': 'pre-wrap',
+                'fontFamily': 'Consolas, monospace', 'margin': 0}),
+        ], style=panel_style)
+
     def _render_sbc(self, selected_date, granularity,
                     birth_date=None, birth_time=None,
                     birth_lat=None, birth_lon=None, view='chakra',
@@ -2151,7 +2264,17 @@ class TradingDashboard:
                                         'verticalAlign': 'top'}),
             ]),
             chakra_panel, natal_panel, gpanel,
-            self._sbc_sector_stress(vedas), spanel, nama_panel, disclaimer,
+            self._sbc_sector_stress(vedas),
+            self._sbc_monthly_heatmap(now_ist.date()),
+            html.Div([
+                html.Div(self._sbc_weekly_commentary(now_ist.date()),
+                         style={'width': '49%', 'display': 'inline-block',
+                                'verticalAlign': 'top', 'paddingRight': '1%'}),
+                html.Div(self._sbc_crash_signatures(now_ist.date()),
+                         style={'width': '50%', 'display': 'inline-block',
+                                'verticalAlign': 'top'}),
+            ]),
+            spanel, nama_panel, disclaimer,
         ], style={'backgroundColor': self._SBC_BG, 'padding': '16px',
                   'borderRadius': '12px', 'fontFamily': 'Segoe UI, sans-serif'})
 

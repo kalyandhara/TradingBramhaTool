@@ -116,63 +116,16 @@ DASHBOARD_BASE = uit.DASHBOARD_BASE
 _analyze_url = uit.analyze_url
 
 
-def _chart_url(sym) -> str | None:
-    """Deep-link that opens the multi-chart tool (chart_server on :5001) on `sym`.
-    Bare NSE tickers are the norm across this app — add .NS so yfinance resolves;
-    indices (leading ^) and already-suffixed symbols pass through."""
-    s = str(sym).strip().upper()
-    if not s:
-        return None
-    tkr = s if ("." in s or s.startswith("^")) else f"{s}.NS"
-    return f"http://localhost:5001/?symbol={quote(tkr, safe='^')}&tf=1d"
-
-
+_chart_url = uit.chart_url
 _analyze_colcfg = uit.analyze_colcfg
 _with_analyze_col = uit.with_analyze_col
 
-
-# ── Chart-icon family for dataframes ──────────────────────────────────────────
-# st.dataframe cells can't render the card's HTML action-icon row, so the same
-# family (in-app Chart 👁 / Analyze ↗ + TradingView / Screener / Google Finance)
-# is surfaced as a set of LinkColumns. display_text keeps a word alongside the
-# emoji — emoji-ONLY display_text triggers Streamlit's spurious edit-pencil bug.
-_CHART_FAMILY_COLS = ["Chart", "Analyze", "TView", "Screener", "GFin"]
-
-
-def _chart_family_urls(sym) -> dict[str, "str | None"]:
-    s = str(sym).strip().upper().replace(".NS", "")
-    if not s or s.startswith("^"):
-        return {c: None for c in _CHART_FAMILY_COLS}
-    return {
-        "Chart":    _chart_url(sym),
-        "Analyze":  _analyze_url(sym),
-        "TView":    f"https://www.tradingview.com/chart/?symbol=NSE%3A{s}",
-        "Screener": f"https://www.screener.in/company/{s}/consolidated/",
-        "GFin":     f"https://www.google.com/finance/quote/{s}:NSE",
-    }
-
-
-def _with_chart_family(df, symbol_col: str):
-    """Return a copy of df with the card's chart-icon family appended as
-    LinkColumns, keyed off the symbols in `symbol_col`."""
-    out = df.copy()
-    fam = [_chart_family_urls(s) for s in out[symbol_col]]
-    for c in _CHART_FAMILY_COLS:
-        out[c] = [f[c] for f in fam]
-    return out
-
-
-def _chart_family_colcfg() -> dict:
-    """The family's config, now from the shared registry (B-63a).
-
-    The frame's columns are Title-Case (`Chart`, `TView`) because
-    `_with_chart_family` has always written them that way and many callers read
-    those names; `columns.py` ids are lower-case. The mapping happens here once,
-    rather than renaming columns under every reader.
-    """
-    import columns as _cols
-    cfg = _cols.configure(*_cols.CHART_FAMILY)
-    return {c: cfg[i] for c, i in zip(_CHART_FAMILY_COLS, _cols.CHART_FAMILY)}
+# Chart-icon family for dataframes lives in ui_tables so extracted pages can use
+# it without importing this module (which would re-run the whole app).
+_CHART_FAMILY_COLS = uit.CHART_FAMILY_COLS
+_chart_family_urls = uit.chart_family_urls
+_with_chart_family = uit.with_chart_family
+_chart_family_colcfg = uit.chart_family_colcfg
 
 
 # ── Shareable "copy as card" for Telegram / social ────────────────────────────
@@ -4101,7 +4054,7 @@ def _scanner_stats_html(card: dict) -> str:
     return (f'<div style="margin:8px 0 4px 0;">{stats}{risk_html}</div>')
 
 
-def _card_action_links(sym: str) -> str:
+def _card_action_links(sym: str, analyze: bool = True) -> str:
     """Analyze + chart icons as anchors INSIDE a card's HTML.
 
     st.link_button can only be placed after a card, which costs a full Streamlit
@@ -4119,7 +4072,7 @@ def _card_action_links(sym: str) -> str:
             f'">{glyph}</a>')
 
     parts = []
-    _an = _analyze_url(sym)
+    _an = _analyze_url(sym) if analyze else None
     if _an:
         parts.append(icon(_an, "↗", "Analyze — open the 3-POV Council in a new tab"))
     _ch = _chart_url(sym)
@@ -5936,7 +5889,7 @@ def _company_names() -> dict:
 
 
 def _action_card(col, title: str, blurb: str, rows: list, target_page,
-                 key: str, *, empty: str = "") -> None:
+                 key: str, *, empty: str = "", tickers: bool = False) -> None:
     """One card: heading + View link, a one-line blurb, then up to three rows.
 
     `rows` is [(bold line, muted sub-line)] - usually (symbol, company), but the
@@ -5967,6 +5920,15 @@ def _action_card(col, title: str, blurb: str, rows: list, target_page,
                     f'<div style="font-size:11.5px;color:{t["absent"]};'
                     f'font-style:italic;padding:10px 0 4px;">'
                     f'{empty or "No stored data."}</div>', unsafe_allow_html=True)
+                return
+            if tickers:
+                for a, b in rows[:3]:
+                    _sub = str(b).replace("&middot;", "·")
+                    if st.button(f"**{a}** :gray[{_sub}]", key=f"am_{key}_{a}",
+                                 type="tertiary", help=f"Open {a} in Predictive Analysis"):
+                        st.session_state["pa_symbol"] = a
+                        st.session_state["current_page"] = "Predictive Analysis"
+                        st.rerun()
                 return
             cells = "".join(
                 f'<div style="background:{t["surface_alt"]};border-radius:6px;'
@@ -6117,7 +6079,7 @@ def render_action_map() -> None:
                   for _, r in _df.sort_values("rank").head(3).iterrows()]
     _action_card(c1, "Today's shortlist",
                  "Ranked across every scanner by the stored daily run.",
-                 _rank_rows, "Opportunity Hub", "rank")
+                 _rank_rows, "Opportunity Hub", "rank", tickers=True)
 
     _sec_rows = []
     if "sector" in _df.columns:
@@ -6137,7 +6099,7 @@ def render_action_map() -> None:
                      if pd.notna(r.get("momentum"))]
     _action_card(c3, "Strongest momentum",
                  "IBD-style weighted trailing return, highest first.",
-                 _mom_rows, "Opportunity Hub", "mom")
+                 _mom_rows, "Opportunity Hub", "mom", tickers=True)
 
     # Row 2 - rating, confluence, what actually fired
     c4, c5, c6 = st.columns(3)
@@ -6149,7 +6111,7 @@ def render_action_map() -> None:
                      if pd.notna(r.get("overall_rating"))]
     _action_card(c4, "Highest rated",
                  "The M1 technical Overall Rating - a different lens from the "
-                 "shortlist score.", _rat_rows, "Predictive Analysis", "rat")
+                 "shortlist score.", _rat_rows, "Predictive Analysis", "rat", tickers=True)
 
     _conf_rows = []
     if "confluence" in _df.columns:
@@ -6159,7 +6121,7 @@ def render_action_map() -> None:
     _action_card(c5, "Most confluence",
                  "Most scanners firing on one name. Measured co-fire lift is "
                  "significant only at 60d - a lead, not an edge.",
-                 _conf_rows, "Scanner Hub", "conf")
+                 _conf_rows, "Scanner Hub", "conf", tickers=True)
 
     _tally = {}
     for _sc in _df.get("scanners", pd.Series(dtype=str)).dropna():
@@ -6322,9 +6284,14 @@ if current_page == "Home":
         import sector_column as _sc
         _wl_out = _sc.attach(_wl_out, "Symbol")
         _wl_out = _with_chart_family(_wl_out, "Symbol")
+        _wl_out["Symbol"] = _wl_out.pop("Analyze")
+        _wl_out = _wl_out[["Symbol"] + [c for c in _wl_out.columns if c != "Symbol"]]
         _wl_cfg = dict(_chart_family_colcfg())
+        _wl_cfg.pop("Analyze", None)
         _wl_cfg.update(_cols_mod().configure("sector"))
-        _wl_cfg["Symbol"] = st.column_config.TextColumn("Symbol", width="small")
+        _wl_cfg["Symbol"] = st.column_config.LinkColumn(
+            "Symbol", width="small", display_text=r"symbol=([^&]+)",
+            help="Click the ticker to analyze it (opens in a new tab)")
         _wl_cfg["Added"] = st.column_config.TextColumn("Added", width="small")
         _wl_cfg["Notes"] = st.column_config.TextColumn("Notes", width="medium")
         _wl_sel = st.dataframe(_wl_out, width="stretch", hide_index=True,
@@ -7535,14 +7502,14 @@ if current_page == "Opportunity Hub":
                         f'<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
                         f'<span class="tb-mono" style="font-size:15px;font-weight:700;'
                         f'color:{rs.TOKENS["text_muted"]};">#{int(row["rank"])}</span>'
-                        f'<b style="font-size:15px;">{_sym}</b>'
+                        f'{uit.ticker_link(_sym)}'
                         f'{_rating_badge_html({"overall": _rt, "overall_breakdown": {}})}'
                         f'<span class="tb-chip" style="background:{rs.TOKENS["surface_alt"]};'
                         f'color:{rs.TOKENS["text_body"]};">score {row["score"]:.1f}</span>'
                         f'{_confluence_chips(int(row["confluence"]), _fam_of(row))}'
                         f'<span style="margin-left:auto;display:inline-flex;'
                         f'align-items:center;gap:8px;">{_plan}'
-                        f'{_card_action_links(_sym)}</span></div>'
+                        f'{_card_action_links(_sym, analyze=False)}</span></div>'
                         f'<div class="tb-micro" style="margin-top:5px;">'
                         f'{row.get("industry") or "—"} · {row.get("sector") or "—"}</div>'
                         f'{_chips}'

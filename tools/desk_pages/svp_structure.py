@@ -6,11 +6,9 @@ block as it stood, dedented one level and wrapped in `render()`. Nothing was
 renamed, reordered or improved in the move, for the reason the first extraction
 recorded — a move and an edit in one commit is a move you cannot verify.
 
-Three helpers from `dashboard_app` are lazy-imported inside `render()`:
-`_with_chart_family`, `_chart_family_colcfg`, `_cols_mod`. All three are pure
-functions that build URL columns and Streamlit column configs; they carry no
-page state. A future extraction can lift them to a shared module (they have 16
-call sites across the monolith), but that is a refactor, not part of this move.
+The chart-family helpers come from `ui_tables`, NOT `dashboard_app`: importing
+the monolith from a page re-executes the whole app (nav bar included) inside
+this render and crashes on duplicate widget keys.
 """
 from __future__ import annotations
 
@@ -24,9 +22,9 @@ import report_style as rs
 
 
 def render() -> None:
-    import dashboard_app as _app
-    _with_chart_family = _app._with_chart_family
-    _chart_family_colcfg = _app._chart_family_colcfg
+    import ui_tables as _uit
+    _with_chart_family = _uit.with_chart_family
+    _chart_family_colcfg = _uit.chart_family_colcfg
 
     import columns as _cols_registry
     def _cols_mod():

@@ -27,6 +27,61 @@ def analyze_url(sym) -> str | None:
     return f"{DASHBOARD_BASE}/?nav=analyze&symbol={quote(s, safe='')}"
 
 
+def chart_url(sym) -> str | None:
+    """Deep-link that opens the multi-chart tool (chart_server on :5001) on `sym`."""
+    s = str(sym).strip().upper()
+    if not s:
+        return None
+    tkr = s if ("." in s or s.startswith("^")) else f"{s}.NS"
+    return f"http://localhost:5001/?symbol={quote(tkr, safe='^')}&tf=1d"
+
+
+#: The chart-icon family as dataframe LinkColumns (Title-Case column names).
+CHART_FAMILY_COLS = ["Chart", "Analyze", "TView", "Screener", "GFin"]
+
+
+def chart_family_urls(sym) -> dict[str, "str | None"]:
+    s = str(sym).strip().upper().replace(".NS", "")
+    if not s or s.startswith("^"):
+        return {c: None for c in CHART_FAMILY_COLS}
+    return {
+        "Chart":    chart_url(sym),
+        "Analyze":  analyze_url(sym),
+        "TView":    f"https://www.tradingview.com/chart/?symbol=NSE%3A{s}",
+        "Screener": f"https://www.screener.in/company/{s}/consolidated/",
+        "GFin":     f"https://www.google.com/finance/quote/{s}:NSE",
+    }
+
+
+def with_chart_family(df, symbol_col: str):
+    """Copy of df with the chart-icon family appended, keyed off `symbol_col`."""
+    out = df.copy()
+    fam = [chart_family_urls(s) for s in out[symbol_col]]
+    for c in CHART_FAMILY_COLS:
+        out[c] = [f[c] for f in fam]
+    return out
+
+
+def chart_family_colcfg() -> dict:
+    """Column config for the family, mapped from the `columns` registry ids."""
+    import columns as _cols
+    cfg = _cols.configure(*_cols.CHART_FAMILY)
+    return {c: cfg[i] for c, i in zip(CHART_FAMILY_COLS, _cols.CHART_FAMILY)}
+
+
+def ticker_link(sym, size: int = 15) -> str:
+    """The ticker itself as the Analyze link, for tickers inside HTML cards."""
+    import report_style as rs
+    t = rs.TOKENS
+    href = analyze_url(sym)
+    if not href:
+        return f'<b style="font-size:{size}px;">{sym}</b>'
+    return (f'<a href="{href}" target="_blank" rel="noopener" '
+            f'title="Analyze {sym} — opens in a new tab" '
+            f'style="font-size:{size}px;font-weight:700;color:{t["text"]};'
+            f'text-decoration:none;border-bottom:1px dotted {t["border"]};">{sym}</a>')
+
+
 def analyze_colcfg() -> "st.column_config.LinkColumn":
     return st.column_config.LinkColumn(
         "Analyze", help="Open the 3-POV Council analysis in a new tab",

@@ -40,6 +40,17 @@ def test_every_registered_page_imports_and_has_render():
             f"{label} -> desk_pages.{mod_name} has no callable render()")
 
 
+def test_no_page_imports_the_monolith():
+    """Importing dashboard_app from a page re-runs the whole app inside the
+    page's render and crashes on duplicate widget keys (SVP Structure did)."""
+    for mod_name in desk_pages.PAGES.values():
+        tree = ast.parse((HERE / "desk_pages" / f"{mod_name}.py").read_text(encoding="utf-8"))
+        for n in ast.walk(tree):
+            names = ([a.name for a in n.names] if isinstance(n, ast.Import)
+                     else [n.module or ""] if isinstance(n, ast.ImportFrom) else [])
+            assert "dashboard_app" not in names, f"desk_pages/{mod_name}.py imports dashboard_app"
+
+
 def test_handles_is_exact_not_fuzzy():
     assert desk_pages.handles("Astro Timing")
     assert not desk_pages.handles("astro timing")   # the nav's exact label wins
