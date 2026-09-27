@@ -327,7 +327,7 @@ def render() -> None:
                 list(channels.items()),
                 columns=['Channel', 'Signal Count']
             ).sort_values('Signal Count', ascending=False)
-            st.dataframe(channel_df, use_container_width=True, hide_index=True)
+            st.dataframe(channel_df, width="stretch", hide_index=True)
 
         # By strategy breakdown
         st.subheader("Signals by Strategy")
@@ -342,4 +342,4 @@ def render() -> None:
                 list(strategies.items()),
                 columns=['Strategy', 'Signal Count']
             ).sort_values('Signal Count', ascending=False)
-            st.dataframe(strategy_df, use_container_width=True, hide_index=True)
+            st.dataframe(strategy_df, width="stretch", hide_index=True)

@@ -109,10 +109,10 @@ def render() -> None:
     st.markdown("**Advance/decline net flow** — (advancing − declining turnover) ÷ group "
                 "turnover, % · newest first")
     st.dataframe(g["ad"].style.background_gradient(cmap="RdYlGn", vmin=-60, vmax=60, axis=None)
-                 .format("{:+.0f}", na_rep="—"), use_container_width=True, height=h)
+                 .format("{:+.0f}", na_rep="—"), width="stretch", height=h)
     st.markdown(f"**Turnover vs own history** — session turnover ÷ the group's trailing "
                 f"{BASELINE}-session average · newest first")
     st.dataframe(g["rel"].style.background_gradient(cmap="Blues", vmin=0.5, vmax=2.0, axis=None)
-                 .format("{:.2f}×", na_rep="—"), use_container_width=True, height=h)
+                 .format("{:.2f}×", na_rep="—"), width="stretch", height=h)
     st.caption(f"{len(g['ad'])} groups · {g['universe']} · rows sorted by today's A/D net flow. "
                + tsh.TURNOVER_NOTE + " A view, not a signal — unmeasured.")

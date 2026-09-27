@@ -181,7 +181,7 @@ def render() -> None:
     st.caption(f"{len(table)} NSE sectoral/thematic indices · as of {as_of(hist)} · "
                "sorted by RS rank today")
     st.dataframe(
-        table.drop(columns=["Bars"]), hide_index=True, use_container_width=True,
+        table.drop(columns=["Bars"]), hide_index=True, width="stretch",
         height=min(38 + 35 * len(table), 720),
         column_config={
             "Price": st.column_config.NumberColumn(format="₹%.1f"),

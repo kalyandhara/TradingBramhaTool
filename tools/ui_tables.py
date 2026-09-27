@@ -133,7 +133,7 @@ def paginated_df(df: "pd.DataFrame", key: str, page_size: int = 25,
 
     n = len(df)
     if n <= page_size:
-        st.dataframe(_paint(df), use_container_width=True, hide_index=True, **kwargs)
+        st.dataframe(_paint(df), width="stretch", hide_index=True, **kwargs)
         return
     n_pages = (n + page_size - 1) // page_size
     _pk = f"_pg_{key}"
@@ -159,6 +159,6 @@ def paginated_df(df: "pd.DataFrame", key: str, page_size: int = 25,
             st.rerun()
     start = (st.session_state[_pk] - 1) * page_size
     end = min(start + page_size, n)
-    st.dataframe(_paint(df.iloc[start:end]), use_container_width=True,
+    st.dataframe(_paint(df.iloc[start:end]), width="stretch",
                  hide_index=True, **kwargs)
     st.caption(f"Page {st.session_state[_pk]}/{n_pages} · rows {start + 1}–{end} of {n}")

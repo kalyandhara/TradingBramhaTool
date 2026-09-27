@@ -232,7 +232,7 @@ def render(days: int = 1, key: str = "filings") -> None:
         "When": r["when"][:11], "Symbol": r["symbol"], "Bucket": r["bucket"],
         "Amount (as filed)": r["amount"] or "—",
         "What": r["headline"], "Filing": r["pdf"] or None,
-    } for r in shown]), use_container_width=True, hide_index=True,
+    } for r in shown]), width="stretch", hide_index=True,
         column_config={"Filing": st.column_config.LinkColumn(
             "Filing", display_text="PDF ↗")})
     st.caption("A NEWS FEED, not a signal — no entry, stop or target, and no "

@@ -42,7 +42,7 @@ def render() -> None:
         analysis_date = st.date_input("Analysis Date", value=date.today())
     with col_share:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        _gen_card = st.button("📷 Share Card", use_container_width=True,
+        _gen_card = st.button("📷 Share Card", width="stretch",
                               help="Generate a weekly astro infographic and copy PNG to clipboard")
 
     ai = at.AstroIndicators(city=city)
@@ -117,7 +117,7 @@ def render() -> None:
     display_df = weekly[display_cols].copy()
     display_df.columns = ['Date', 'Lunar Phase', 'Illumination %', 'Market Intensity', 'Sunrise', 'Sunset']
 
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width="stretch", hide_index=True)
 
     # ── Nakshatra Sector Forecast ──────────────────────────────────────────────
     st.subheader("Nakshatra Sector Forecast — 7-Day Forward")
@@ -164,7 +164,7 @@ def render() -> None:
 
         st.dataframe(
             _nk_df.style.apply(_nk_row_style, axis=1),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -394,7 +394,6 @@ def render() -> None:
             _PILImage = None
         import io as _io
         import base64 as _b64
-        import streamlit.components.v1 as _components
         if _PILImage is None:
             pass
         else:
@@ -562,17 +561,17 @@ def render() -> None:
             _b64_str   = _b64.b64encode(_png_bytes).decode()
 
             st.image(img, caption="Weekly Astro Card — copy or download below",
-                     use_container_width=False, width=540)
+                     width=540)
 
             st.download_button(
                 label="⬇ Download PNG",
                 data=_png_bytes,
                 file_name=f"trading_bramha_astro_{analysis_date.strftime('%Y%m%d')}.png",
                 mime="image/png",
-                use_container_width=False,
+                width="content",
             )
 
-            _components.html(f"""
+            st.iframe(f"""
             <button onclick="copyCard()" style="
                 background:#ea580c;color:#fff;border:none;border-radius:8px;
                 padding:8px 20px;font-size:14px;font-weight:700;cursor:pointer;">
@@ -639,7 +638,7 @@ def render() -> None:
         height=500
     )
 
-    st.plotly_chart(fig_astro, use_container_width=True)
+    st.plotly_chart(fig_astro, width="stretch")
 
     # AstroHora integration section
     st.subheader("AstroHora Chart Data Integration")

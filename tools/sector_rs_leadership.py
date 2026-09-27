@@ -97,7 +97,7 @@ def render() -> None:
     cc = st.column_config
     st.dataframe(
         df.style.background_gradient(cmap="RdYlGn", subset=["change"], vmin=-10, vmax=10),
-        hide_index=True, use_container_width=True, height=min(38 + 35 * len(df), 720),
+        hide_index=True, width="stretch", height=min(38 + 35 * len(df), 720),
         column_config={
             "group": cc.TextColumn("Group"),
             "stocks": cc.NumberColumn("Stocks"),

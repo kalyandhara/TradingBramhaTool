@@ -98,7 +98,7 @@ def render(shortlist, *, run_council: Callable[[str], Any],
         sym = c1.selectbox("Name", symbols, key=f"plan_pick_{key}",
                            label_visibility="collapsed")
         go = c2.button("Build plan", key=f"plan_go_{key}", type="primary",
-                       use_container_width=True)
+                       width="stretch")
         if not go:
             return
         with st.spinner(f"Running the council on {sym}…"):

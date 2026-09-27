@@ -279,7 +279,7 @@ def render(expanded: bool = False) -> None:
         import pandas as pd
         df = pd.DataFrame(rows(res))
         st.dataframe(
-            df, use_container_width=True, hide_index=True,
+            df, width="stretch", hide_index=True,
             column_config={
                 "Scanner":   st.column_config.TextColumn("Scanner", width="medium"),
                 "Plan":      st.column_config.TextColumn("Plan", width="small"),

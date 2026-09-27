@@ -137,7 +137,7 @@ def render() -> None:
                 "Analyze": uit.analyze_colcfg(),
             }
             st.dataframe(
-                df_hg_res[keep_hg], use_container_width=True, hide_index=True,
+                df_hg_res[keep_hg], width="stretch", hide_index=True,
                 column_config=col_cfg_hg,
             )
             st.caption(

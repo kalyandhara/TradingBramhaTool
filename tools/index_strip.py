@@ -208,7 +208,7 @@ def render() -> None:
             if q.bars is None or q.bars.empty:
                 st.markdown(absent_html(q), unsafe_allow_html=True)
             else:
-                st.plotly_chart(mini_figure(q), use_container_width=True,
+                st.plotly_chart(mini_figure(q), width="stretch",
                                 config={"displayModeBar": False},
                                 key=f"idxstrip_{q.symbol}")
     st.caption(

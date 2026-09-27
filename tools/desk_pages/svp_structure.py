@@ -144,7 +144,7 @@ def render() -> None:
         _show = _with_chart_family(_show, "symbol")
         st.dataframe(
             _show,
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
             column_config={
                 **_chart_family_colcfg(),
                 # This table builds its config by hand, so the shared `sector`

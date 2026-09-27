@@ -145,7 +145,7 @@ def render() -> None:
                 st.success(f"All snapshots refreshed — {len(_bad)} failed."
                            if _bad else "All snapshots refreshed.")
         if st.button("↻ Refresh all now (in-app)", key="snap_run_all",
-                     use_container_width=True,
+                     width="stretch",
                      disabled=ui_jobs.get_queue().is_active(_snap_all_label),
                      help="Runs every snapshot in this session's background queue — "
                           "the same work the scheduled task does, without schtasks."):
@@ -174,4 +174,4 @@ def render() -> None:
             "KB": round(_m.nbytes / 1024) if _m and _m.nbytes else None,
             "Error": (_m.error or "") if _m else "",
         })
-    st.dataframe(pd.DataFrame(_snap_rows), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(_snap_rows), hide_index=True, width="stretch")

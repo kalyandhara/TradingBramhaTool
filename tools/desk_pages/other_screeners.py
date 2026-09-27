@@ -5,7 +5,6 @@ from datetime import date
 
 import pandas as pd
 import streamlit as st
-import streamlit.components.v1 as components
 
 import browser_cookie_helper as bch
 import multibagger_candidates as mb
@@ -97,7 +96,7 @@ def render() -> None:
     other_df = st.session_state.get("other_screener_df")
     other_kind = st.session_state.get("other_screener_kind")
     if other_df is not None and other_kind == choice:
-        st.dataframe(other_df, use_container_width=True, hide_index=True)
+        st.dataframe(other_df, width="stretch", hide_index=True)
         st.download_button(
             "Download CSV", data=other_df.to_csv(index=False).encode("utf-8"),
             file_name=f"{choice.lower().replace(' ', '_')}_{date.today():%Y%m%d}.csv",
@@ -127,8 +126,8 @@ def render() -> None:
                     html_path = _out.out_path(
                         f"sector_rotation_orbit_{date_str}.html")
                     if xlsx_path.exists():
-                        st.dataframe(pd.read_excel(xlsx_path), use_container_width=True)
+                        st.dataframe(pd.read_excel(xlsx_path), width="stretch")
                     if html_path.exists():
-                        components.html(
-                            html_path.read_text(encoding="utf-8"), height=700, scrolling=True
+                        st.iframe(
+                            html_path.read_text(encoding="utf-8"), height=700
                         )

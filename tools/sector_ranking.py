@@ -162,7 +162,7 @@ def render() -> None:
                                      vmin=-2.0, vmax=2.0)
                 .background_gradient(cmap="RdYlGn", subset=["chg_d", "chg_w"],
                                      vmin=-3.0, vmax=3.0),
-        hide_index=True, use_container_width=True,
+        hide_index=True, width="stretch",
         height=min(38 + 35 * len(df), 720),
         column_config={
             "sector": cc.TextColumn("Sector"),
