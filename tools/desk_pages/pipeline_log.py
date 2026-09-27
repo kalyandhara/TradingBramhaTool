@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 import streamlit as st
-import scheduler_pipeline as sp
+import screener_pipeline as sp
 
 
 def render() -> None:

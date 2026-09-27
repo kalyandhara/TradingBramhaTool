@@ -9485,6 +9485,10 @@ if current_page == "Predictive Analysis":
 if current_page == "Sector Map":
     st.subheader("Sector Map")
 
+    import sector_indices_table as _sit
+    _sit.render()
+    st.divider()
+
     # Money flow first: it answers "where is money going" from the constituents
     # themselves, and needs no sector-index fetch, so it renders before the RRG
     # block that is gated behind a button.
@@ -10540,7 +10544,7 @@ if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chart
 # %R Trend Exhaustion signal)
 # ──────────────────────────────────────────────────────────────────────────────
 # SVP Structure — EXTRACTED to tools/desk_pages/svp_structure.py (B-87r).
-# Dispatched by the dpages.handles(current_page) block above.
+# Dispatched by the desk_pages registry block above.
 
 
 

@@ -12,7 +12,7 @@ import multibagger_candidates as mb
 import nse_shareholding_fetch as nse
 import out_paths as _out
 import promoter_profit_surprise as pps
-import scheduler_pipeline as sp
+import screener_pipeline as sp
 import screener_scraper as ss
 import sector_rotation as secrot
 import sector_rotation_trail as secrot_trail
