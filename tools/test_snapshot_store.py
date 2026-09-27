@@ -131,3 +131,30 @@ def test_gap_volume_scan_shape_matches_page():
     assert [h["Symbol"] for h in hits] == ["GAP"]
     assert set(hits[0]) == {"Symbol", "Gap %", "Vol × 20d Avg", "Close"}
     assert hits[0]["Gap %"] == 5.0 and hits[0]["Vol × 20d Avg"] == 5.0
+
+
+# ── empty-result guards: a fetch that yields nothing must fail the run ────────
+def test_market_health_all_empty_raises(monkeypatch):
+    import types
+    mh = types.SimpleNamespace(fetch_indices=lambda: (pd.DataFrame(), pd.DataFrame()),
+                               load_basket=lambda syms, f: {})
+    sp = types.SimpleNamespace(fetch_bhavcopy_top_volume=lambda n: [],
+                               fetch_ohlcv=lambda s, days=260: None)
+    monkeypatch.setitem(sys.modules, "market_health", mh)
+    monkeypatch.setitem(sys.modules, "screener_pipeline", sp)
+    with pytest.raises(RuntimeError, match="no index or basket"):
+        reg.produce_market_health()
+    # a basket alone is enough to be a real run
+    mh.load_basket = lambda syms, f: {"X": pd.DataFrame({"close": [1.0]})}
+    assert reg.produce_market_health()["basket_frames"]
+
+
+def test_finviz_all_none_raises(monkeypatch):
+    import types
+    blank = pd.DataFrame({"index": ["DOW"], "last": [None], "chg_pct": [None]})
+    fvz = types.SimpleNamespace(fetch_index_snapshot=lambda: blank, fetch_breadth=lambda: {})
+    monkeypatch.setitem(sys.modules, "finviz_sentiment", fvz)
+    with pytest.raises(RuntimeError, match="finviz returned no"):
+        reg.produce_finviz()
+    fvz.fetch_breadth = lambda: {"adv": 1200, "dec": 800}
+    assert reg.produce_finviz()["breadth"]["adv"] == 1200
