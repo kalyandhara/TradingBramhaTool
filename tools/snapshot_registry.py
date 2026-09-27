@@ -110,6 +110,8 @@ def produce_sector_money_flow() -> dict:
     grid = _mf.sector_grid("nifty500", n=21)
     if grid.get("error"):
         raise RuntimeError(grid["error"])
+    if _empty(grid.get("rows")):
+        raise RuntimeError("no sector had price data (every constituent fetch failed)")
     return grid
 
 
@@ -195,7 +197,8 @@ def produce_finviz() -> dict:
 
 def produce_tv_scan() -> dict:
     import tv_screener as tvs
-    df = tvs.fetch_brkoutgeek(min_chg=2.0, min_rel_vol=1.5, min_price_vol_inr=1.0 * 1e7)
+    df = tvs.fetch_brkoutgeek(min_chg=2.0, min_rel_vol=1.5, min_price_vol_inr=1.0 * 1e7,
+                              raise_on_error=True)          # empty = truly no matches
     return {"df": df, "params": {"min_chg": 2.0, "min_rel_vol": 1.5, "min_tv_cr": 1.0}}
 
 
@@ -249,10 +252,14 @@ def produce_insider_trading() -> dict:
 
 
 def gap_volume_scan(universe: list[str], fetch_ohlcv: Callable, *,
-                    gap_pct: float, vol_mult: float) -> list[dict]:
+                    gap_pct: float, vol_mult: float,
+                    stats: dict | None = None) -> list[dict]:
     """Gap & volume hits over `universe`. Lifted from the India Market Intel
-    page so the headless job and the page share one scan."""
+    page so the headless job and the page share one scan. `stats`, if given,
+    receives {"scanned": n} — symbols that had a usable frame — so a caller can
+    tell "no hits" from "nothing could be fetched"."""
     hits = []
+    scanned = 0
     for sym in universe:
         try:
             df = fetch_ohlcv(f"{sym}.NS", days=40)
@@ -260,6 +267,7 @@ def gap_volume_scan(universe: list[str], fetch_ohlcv: Callable, *,
             continue
         if df is None or len(df) < 21:
             continue
+        scanned += 1
         close_col = "close" if "close" in df.columns else "Close"
         open_col = "open" if "open" in df.columns else "Open"
         vol_col = "volume" if "volume" in df.columns else "Volume"
@@ -277,6 +285,8 @@ def gap_volume_scan(universe: list[str], fetch_ohlcv: Callable, *,
                 "Vol × 20d Avg": round(vol_ratio, 2),
                 "Close": round(float(df[close_col].iloc[-1]), 2),
             })
+    if stats is not None:
+        stats["scanned"] = scanned
     return sorted(hits, key=lambda h: abs(h["Gap %"]) + h["Vol × 20d Avg"], reverse=True)
 
 
@@ -284,9 +294,15 @@ def produce_gap_volume() -> dict:
     import screener_pipeline as sp
     p = GAP_VOLUME_DEFAULTS
     universe = sp.fetch_bhavcopy_top_volume(p["top_n"])
+    if not universe:
+        raise RuntimeError("no universe (bhavcopy top-volume list is empty)")
+    stats: dict = {}
     hits = gap_volume_scan(universe, sp.fetch_ohlcv,
-                           gap_pct=p["gap_pct"], vol_mult=p["vol_mult"])
-    return {"hits": hits, "universe_n": len(universe), "params": dict(p)}
+                           gap_pct=p["gap_pct"], vol_mult=p["vol_mult"], stats=stats)
+    if not stats.get("scanned"):
+        raise RuntimeError(f"no OHLCV could be fetched for any of {len(universe)} symbols")
+    return {"hits": hits, "universe_n": len(universe),
+            "scanned_n": stats["scanned"], "params": dict(p)}
 
 
 def produce_market_brief() -> dict:
@@ -303,7 +319,12 @@ def produce_market_brief() -> dict:
                        "inputs": json.loads(row["inputs_json"])}
     except Exception:                                 # noqa: BLE001
         reading = None
-    return mbrief.build_brief(include_breadth=True, sentiment=reading)
+    model = mbrief.build_brief(include_breadth=True, sentiment=reading)
+    qm = model.get("quotes_meta") or {}
+    quotes = model.get("quotes") or []
+    if qm.get("error") or (quotes and qm.get("missing", 0) >= len(quotes)):
+        raise RuntimeError(qm.get("error") or "every index quote is missing")
+    return model
 
 
 # ── registry ──────────────────────────────────────────────────────────────────
