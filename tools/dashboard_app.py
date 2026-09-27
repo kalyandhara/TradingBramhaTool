@@ -3352,7 +3352,8 @@ def _volume_profile(df: pd.DataFrame, n_bins: int = 50):
 CHART_TOOL_PORT = 5001
 
 
-def render_chart_tool(symbol: str, height: int = 620, caption: bool = True) -> bool:
+def render_chart_tool(symbol: str, height: int = 620, caption: bool = True,
+                      query: str = "") -> bool:
     """Embed the Chart Tool for `symbol`; returns whether it rendered.
 
     Extracted from the Predictive Analysis page (M4) when the Stock Analyzer
@@ -3371,7 +3372,8 @@ def render_chart_tool(symbol: str, height: int = 620, caption: bool = True) -> b
         )
         return False
     components.iframe(
-        f"http://localhost:{CHART_TOOL_PORT}/?symbol={chart_sym}&tf=1d",
+        f"http://localhost:{CHART_TOOL_PORT}/?symbol={chart_sym}&tf=1d"
+        + (f"&{query}" if query else ""),
         height=height,
     )
     if caption:
@@ -9205,20 +9207,13 @@ if current_page == "Predictive Analysis":
             st.caption(f"{len(ranked)} from **{ran_for}** · ranked by Overall Rating")
             for h in ranked[:30]:
                 _sym = h["symbol"]
-                bcol, vcol = st.columns([4, 1])
-                with bcol:
-                    st.markdown(
-                        f'<div style="display:flex;align-items:center;padding:3px 0;">'
-                        f'{_rating_badge_html(h)}'
-                        f'<b style="color:#3a2a1e;margin-right:8px;">{_sym}</b>'
-                        f'<span style="background:#fff1e0;color:#c2410c;padding:1px 8px;'
-                        f'border-radius:99px;font-size:10.5px;">'
-                        f'{h.get("pattern_type", ran_for)}</span></div>',
-                        unsafe_allow_html=True,
-                    )
-                with vcol:
-                    if st.button("→", key=f"pa_view_{_sym}", help=f"Analyze {_sym}"):
-                        st.session_state["pa_symbol"] = _sym
+                rcol, tcol, pcol = st.columns([1.2, 1.8, 3.0], gap="small",
+                                              vertical_alignment="center")
+                rcol.markdown(_rating_badge_html(h), unsafe_allow_html=True)
+                if tcol.button(f"**{_sym}**", key=f"pa_view_{_sym}", type="tertiary",
+                               help=f"Analyze {_sym}"):
+                    st.session_state["pa_symbol"] = _sym
+                pcol.badge(str(h.get("pattern_type", ran_for)), color="orange")
 
         # ── Watchlist as candidates ──────────────────────────────────────
         _pa_wl = db.get_watchlist()
@@ -9230,22 +9225,13 @@ if current_page == "Predictive Analysis":
                 st.markdown(f"**♥ Watchlist** ({len(_wl_only)})")
                 for _, _wr in _wl_only.iterrows():
                     _ws = _wr["symbol"]
-                    _wbc, _wvc = st.columns([4, 1])
-                    with _wbc:
-                        _wn = _wr.get("notes") or ""
-                        _wn_html = (f' <span style="font-size:10.5px;color:#888;">'
-                                    f'{_wn}</span>') if _wn else ""
-                        st.markdown(
-                            f'<div style="display:flex;align-items:center;padding:3px 0;">'
-                            f'<b style="color:#3a2a1e;margin-right:8px;">{_ws}</b>'
-                            f'<span style="background:#e8f5e9;color:#2e7d32;padding:1px 8px;'
-                            f'border-radius:99px;font-size:10.5px;">watchlist</span>'
-                            f'{_wn_html}</div>',
-                            unsafe_allow_html=True,
-                        )
-                    with _wvc:
-                        if st.button("→", key=f"pa_wl_{_ws}", help=f"Analyze {_ws}"):
-                            st.session_state["pa_symbol"] = _ws
+                    _wtc, _wnc = st.columns([1.9, 3.7], gap="small",
+                                            vertical_alignment="center")
+                    if _wtc.button(f"**{_ws}**", key=f"pa_wl_{_ws}", type="tertiary",
+                                   help=f"Analyze {_ws}"):
+                        st.session_state["pa_symbol"] = _ws
+                    _wn = _wr.get("notes") or ""
+                    _wnc.badge(f"watchlist · {_wn}" if _wn else "watchlist", color="green")
 
     with pa_left:
         if _SYMSEARCH is not None:
@@ -9436,7 +9422,11 @@ if current_page == "Predictive Analysis":
                 # user has enabled there (M2 base zones, harmonic, trendlines, M3
                 # price projection, MA Bias, …). Indicator selection persists in
                 # the Chart Tool's own localStorage, so it survives reloads.
-                render_chart_tool(pa_sym, height=1080)
+                import pa_chart_focus as _pcf
+                _ctx, _note = _pcf.render_pin_bar(pa_sym)
+                st.caption(_note)
+                render_chart_tool(pa_sym, height=1080, query=_pcf.chart_query(
+                    pa_sym, _ctx, st.session_state.get("pa_pins", [])))
 
                 # Setup Intelligence + Council — same engine as the Stock Analyzer.
                 st.divider()

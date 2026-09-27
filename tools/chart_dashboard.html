@@ -2436,8 +2436,16 @@ let retryTimer = null;
 let retryDelay = 2000;
 
 // ── Persistence ───────────────────────────────────────────────────────────────
-const LS_COUNT = 'tb_chart_count';
-const LS_PANES = 'tb_pane_cfg';
+// `?layout=<name>` gives an embedding page its own pane layout, so a dashboard
+// that drives panes 2+ never overwrites the standalone tool's saved layout.
+// A new namespace starts from a copy of the default one, keeping indicators.
+const LAYOUT_NS = (new URLSearchParams(location.search).get('layout') || '').replace(/[^\w-]/g, '');
+const LS_COUNT = LAYOUT_NS ? `tb_chart_count_${LAYOUT_NS}` : 'tb_chart_count';
+const LS_PANES = LAYOUT_NS ? `tb_pane_cfg_${LAYOUT_NS}` : 'tb_pane_cfg';
+if (LAYOUT_NS && localStorage.getItem(LS_PANES) === null) {
+  const base = localStorage.getItem('tb_pane_cfg');
+  if (base) localStorage.setItem(LS_PANES, base);
+}
 // Elliott Wave info panel collapse preference — global (not per-pane) because
 // the panel behaves identically on every pane and the user's preference
 // (visible or hidden) applies universally. Default: collapsed.
@@ -10765,11 +10773,19 @@ cntSel.addEventListener('change', () => {
   const cfg = loadPaneCfg();
   cfg[0] = Object.assign({}, cfg[0] || {}, {symbol: sym});
   if (tf) cfg[0].tf = tf;
+  // ?compare=A,B,C fills panes 2.. in order; ?charts=N sets the pane count.
+  const compare = (params.get('compare') || '').split(',').map(s => s.trim().toUpperCase()).filter(Boolean);
+  compare.slice(0, 7).forEach((s, k) => {
+    cfg[k + 1] = Object.assign({}, cfg[k + 1] || {}, {symbol: s});
+    if (tf) cfg[k + 1].tf = tf;
+  });
   localStorage.setItem(LS_PANES, JSON.stringify(cfg));
+  const n = parseInt(params.get('charts') || '', 10);
+  if (n >= 1 && n <= 8) { saveCount(n); cntSel.value = String(n); }
   document.title = `${display} — Trading Bramha`;
 })();
 
-buildGrid(saved);
+buildGrid(parseInt(cntSel.value, 10) || saved);
 connectWS();
 </script>
 </body>
