@@ -135,6 +135,13 @@ def _write_cache(index: str, rows: list[dict]) -> None:
 _MEMO: dict[str, list[dict]] = {}
 
 
+def _is_placeholder(symbol: str) -> bool:
+    """NSE's index CSVs carry DUMMY<TICKER> rows while a corporate action is
+    pending (e.g. DUMMYHEG during HEG's split). They are not tradeable and
+    every downstream fetch of them 404s, so drop them at the source."""
+    return symbol.upper().startswith("DUMMY")
+
+
 def fetch_constituents(index: str = "nifty500",
                        use_cache: bool = True) -> list[dict]:
     """[{symbol, name, industry, isin}] for an NSE index. [] if unreachable.
@@ -177,7 +184,7 @@ def fetch_constituents(index: str = "nifty500",
         }
         for _, row in df.iterrows()
     ]
-    rows = [r for r in rows if r["symbol"]]
+    rows = [r for r in rows if r["symbol"] and not _is_placeholder(r["symbol"])]
     if rows:
         _write_cache(index, rows)
         _MEMO[index] = rows
