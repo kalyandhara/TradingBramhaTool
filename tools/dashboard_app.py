@@ -7357,6 +7357,11 @@ if current_page == "Scheduler Hub":
         "Alert Bot has data.", icon="ℹ️",
     )
 
+    if not sched.SCHTASKS_AVAILABLE:
+        st.warning(
+            f"{sched.UNAVAILABLE_MSG} The page is read-only here; "
+            "the in-app **↻ Refresh all now** below still works.", icon="⚠️")
+
     for _jid, _job in sched.JOBS.items():
         _stt = sched.status(_job)
         _reg = _stt.get("registered")
@@ -7387,7 +7392,8 @@ if current_page == "Scheduler Hub":
                 _sched_kw = dict(time=_v_t)
 
             _b = st.columns(4)
-            if _b[0].button("Register / Update", key=f"sch_{_jid}_reg", type="primary"):
+            if _b[0].button("Register / Update", key=f"sch_{_jid}_reg", type="primary",
+                            disabled=not sched.SCHTASKS_AVAILABLE):
                 _ok, _msg = sched.register(_job, **_sched_kw)
                 if _ok:
                     st.success(_msg); st.rerun()

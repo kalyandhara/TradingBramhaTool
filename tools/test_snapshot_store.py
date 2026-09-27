@@ -158,3 +158,18 @@ def test_finviz_all_none_raises(monkeypatch):
         reg.produce_finviz()
     fvz.fetch_breadth = lambda: {"adv": 1200, "dec": 800}
     assert reg.produce_finviz()["breadth"]["adv"] == 1200
+
+
+# ── scheduler_core must not crash where schtasks does not exist ───────────────
+def test_scheduler_status_without_schtasks(monkeypatch):
+    import subprocess
+    import scheduler_core as sc
+
+    def boom(*a, **k):
+        raise FileNotFoundError("schtasks")
+    monkeypatch.setattr(subprocess, "run", boom)
+    job = next(iter(sc.JOBS.values()))
+    assert sc.status(job) == {"registered": False}
+    ok, msg = sc.register(job)
+    assert not ok and "not available" in msg
+    assert sc.run_now(job)[0] is False and sc.remove(job)[0] is False
