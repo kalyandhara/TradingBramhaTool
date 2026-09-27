@@ -154,8 +154,11 @@ class TradingDashboard:
                     html.Label('Select City:'),
                     dcc.Dropdown(
                         id='astro-city-select',
+                        # `at` is only bound when the module import succeeded;
+                        # fall back to a bare default so the app still starts.
                         options=[{'label': city, 'value': city}
-                                for city in list(at.AstroIndicators.CITIES.keys())],
+                                for city in (list(at.AstroIndicators.CITIES.keys())
+                                             if HAS_MODULES else ['Mumbai'])],
                         value='Mumbai'
                     )
                 ], style={'width': '30%', 'display': 'inline-block', 'marginRight': '10%'}),
@@ -492,7 +495,9 @@ class TradingDashboard:
 
                 for i in range(30):
                     d_temp = d + timedelta(days=i)
-                    dates_list.append(d_temp.strftime('%m-%d'))
+                    # real date objects: a '%m-%d' string gets parsed by Plotly
+                    # as a YY-MM date and lands the axis in 2010
+                    dates_list.append(d_temp)
                     lunar = astro.get_lunar_phase(d_temp)
                     illumination_list.append(lunar['illumination'])
                     timing_temp = astro.get_trading_timing(d_temp)
