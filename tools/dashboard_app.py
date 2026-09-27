@@ -255,7 +255,7 @@ def _render_copy_card(card_html: str, plain_text: str, key: str) -> None:
     plain_js = _json.dumps(plain_text)
     n_rows = card_html.count('border-top:1px solid')
     height = 150 + min(n_rows, 60) * 24
-    components.html(
+    st.iframe(
         f"""
         <div id="tbcard-{key}">{card_html}</div>
         <div style="margin-top:10px;">
@@ -296,7 +296,6 @@ def _render_copy_card(card_html: str, plain_text: str, key: str) -> None:
         </script>
         """,
         height=height,
-        scrolling=True,
     )
 
 
@@ -331,7 +330,7 @@ def _render_copy_plain(text: str, key: str) -> None:
     n_lines = text.count("\n") + 1
     ta_h = min(n_lines, 40) * 18 + 20
     height = ta_h + 70
-    components.html(
+    st.iframe(
         f"""
         <textarea id="tbpl-{key}" readonly
           style="width:100%;box-sizing:border-box;height:{ta_h}px;
@@ -368,7 +367,6 @@ def _render_copy_plain(text: str, key: str) -> None:
         </script>
         """,
         height=height,
-        scrolling=True,
     )
 
 
@@ -378,7 +376,7 @@ st.markdown(rs.report_css(), unsafe_allow_html=True)
 
 # ── Widget chrome ─────────────────────────────────────────────────────────────
 # Streamlit exposes no Python API for how a button LOOKS — `type=` picks
-# primary/secondary and `use_container_width=` stretches it, and that is the whole
+# primary/secondary and `width="stretch"` stretches it, and that is the whole
 # surface. Everything else is CSS, and the hook is that Streamlit stamps stable
 # `data-testid` attributes on its widgets: stBaseButton-secondary,
 # stBaseButton-primary, stPopoverButton. Targeting those is the supported-ish way
@@ -921,22 +919,22 @@ def _auth_check(username: str, password: str) -> bool:
 def _signin_control() -> None:
     """Ribbon sign-in popover. Renders the form, or who is signed in."""
     if st.session_state.get("logged_in"):
-        with st.popover("● Signed in", use_container_width=True):
+        with st.popover("● Signed in", width="stretch"):
             st.caption(f"Signed in as **{st.session_state.get('auth_user', 'user')}**. "
                        "Sign-in is optional — no page is gated on it today.")
-            if st.button("Sign out", key="tb_signout", use_container_width=True):
+            if st.button("Sign out", key="tb_signout", width="stretch"):
                 st.session_state["logged_in"] = False
                 st.session_state.pop("auth_user", None)
                 st.rerun()
         return
 
-    with st.popover("Sign in", use_container_width=True):
+    with st.popover("Sign in", width="stretch"):
         st.caption("Optional — everything is browsable without it. Signing in "
                    "only records who you are for now.")
         with st.form("tb_login_form", border=False):
             _un = st.text_input("Username", placeholder="Enter username")
             _pw = st.text_input("Password", placeholder="Enter password", type="password")
-            if st.form_submit_button("Sign in →", use_container_width=True,
+            if st.form_submit_button("Sign in →", width="stretch",
                                      type="primary"):
                 if _auth_check(_un, _pw):
                     st.session_state["logged_in"] = True
@@ -1285,7 +1283,7 @@ with _nav[0]:
     )
 
 with _nav[1]:
-    if st.button("Home", key="nav_Home", use_container_width=True,
+    if st.button("Home", key="nav_Home", width="stretch",
                  type="primary" if st.session_state["current_page"] == "Home" else "secondary"):
         st.session_state["current_page"] = "Home"
         st.rerun()
@@ -1293,11 +1291,11 @@ with _nav[1]:
 for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
     with _nav[2 + _i]:
         _active_here = st.session_state["current_page"] in _gpages
-        with st.popover(f"{_gname} ▾", use_container_width=True,
+        with st.popover(f"{_gname} ▾", width="stretch",
                         type="primary" if _active_here else "secondary"):
             for _p in _gpages:
                 _is_active = st.session_state["current_page"] == _p
-                if st.button(_p, key=f"nav_{_p}", use_container_width=True,
+                if st.button(_p, key=f"nav_{_p}", width="stretch",
                              help=PAGE_BLURBS.get(_p),
                              type="primary" if _is_active else "secondary"):
                     st.session_state["current_page"] = _p
@@ -1386,7 +1384,7 @@ st.markdown(
 #
 # It finds the box by its aria-label rather than a generated key, because
 # Streamlit's element keys are not stable selectors.
-components.html(
+st.iframe(
     """
     <script>
     (function () {
@@ -1438,7 +1436,7 @@ components.html(
     })();
     </script>
     """,
-    height=0,
+    height=1,    # st.iframe rejects 0; a 1px frame is as invisible as the old 0px one
 )
 
 current_page = st.session_state["current_page"]
@@ -1578,7 +1576,7 @@ def _paginated_df(df: "pd.DataFrame", key: str, page_size: int = 25,
 
     n = len(df)
     if n <= page_size:
-        st.dataframe(_paint(df), use_container_width=True, hide_index=True, **kwargs)
+        st.dataframe(_paint(df), width="stretch", hide_index=True, **kwargs)
         return
     n_pages = (n + page_size - 1) // page_size
     _pk = f"_pg_{key}"
@@ -1604,7 +1602,7 @@ def _paginated_df(df: "pd.DataFrame", key: str, page_size: int = 25,
             st.rerun()
     start = (st.session_state[_pk] - 1) * page_size
     end = min(start + page_size, n)
-    st.dataframe(_paint(df.iloc[start:end]), use_container_width=True,
+    st.dataframe(_paint(df.iloc[start:end]), width="stretch",
                  hide_index=True, **kwargs)
     st.caption(f"Page {st.session_state[_pk]}/{n_pages} · rows {start + 1}–{end} of {n}")
 
@@ -2073,7 +2071,7 @@ def snapshot_panel(name: str, *, key: str, compact: bool = False,
     last_meta = snapstore.latest_meta(name)          # may be an error row
     c1, c2 = st.columns([1, 4] if not compact else [1, 3])
     with c1:
-        if st.button(button_label, key=f"{key}_snap_refresh", use_container_width=True,
+        if st.button(button_label, key=f"{key}_snap_refresh", width="stretch",
                      disabled=running,
                      help=help or f"Recompute {spec.label} now (runs in the "
                                   f"background; the page stays live)."):
@@ -2202,7 +2200,7 @@ def render_condition_table(mv_conds: dict, tf_conds: dict,
         rows += [{"Strategy": "CANSLIM", "Condition": k,
                   "Pass": ("✅" if v else "❌") if v is not None else "—"}
                  for k, v in canslim_conds.items()]
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
 
 _VERDICT_STYLE = {
@@ -2216,7 +2214,7 @@ def _render_thesis(title: str, thesis, accent: str) -> None:
     st.markdown(f"**{title} — conviction {thesis.conviction}/10**")
     rows = [{"Pillar": p.name, "Score": f"{p.score:.0f}/100",
              "Weight": p.weight, "Reasoning": p.reason} for p in thesis.pillars]
-    st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
     if thesis.breakers:
         st.caption("⚠️ Thesis-breakers: " + "; ".join(thesis.breakers))
 
@@ -2494,7 +2492,7 @@ def render_timeframe_board(symbol: str, df: "pd.DataFrame") -> None:
         c1, c2 = st.columns([1, 4])
         with c1:
             if st.button("Show 6 horizons", key=f"btn_{key}",
-                         use_container_width=True):
+                         width="stretch"):
                 st.session_state[key] = True
                 st.rerun()
         with c2:
@@ -2547,7 +2545,7 @@ def render_timeframe_board(symbol: str, df: "pd.DataFrame") -> None:
                                   showlegend=bool(p.lines),
                                   legend=dict(font=dict(size=9), orientation="h",
                                               y=-0.22))
-                st.plotly_chart(fig, use_container_width=True,
+                st.plotly_chart(fig, width="stretch",
                                 key=f"tf_{symbol}_{p.name}")
                 if p.note:
                     st.caption(p.note)
@@ -2672,7 +2670,7 @@ def render_peer_comparison(anchor: str) -> None:
     if not st.session_state.get(key):
         c1, c2 = st.columns([1, 4])
         with c1:
-            if st.button("Compare peers", key=f"btn_{key}", use_container_width=True):
+            if st.button("Compare peers", key=f"btn_{key}", width="stretch"):
                 st.session_state[key] = True
                 st.rerun()
         with c2:
@@ -2832,7 +2830,7 @@ def render_peer_comparison(anchor: str) -> None:
     with rc1:
         try:
             st.plotly_chart(pcmp.radar_figure(df, med, anchor, compare=compare),
-                            use_container_width=True,
+                            width="stretch",
                             key=f"peer_radar_{anchor}")
         except Exception as exc:
             st.warning(f"Radar unavailable: {exc}")
@@ -3167,7 +3165,7 @@ def render_fundamental_history(deep: dict) -> None:
                 "OPM":         "—" if a.get("opm") is None else f"{a['opm']:.1f}%",
                 "EPS":         "—" if a.get("eps") is None else f"{a['eps']:,.2f}",
             })
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
 
     if quarters:
         n = len(quarters)
@@ -3493,7 +3491,7 @@ def render_council(bundle, bull, bear, card) -> None:
         skip = {"minervini_conds", "technofunda_conds", "fundamentals"}
         fact_rows = [{"Metric": k, "Value": (f"{v:,.2f}" if isinstance(v, float) else str(v))}
                      for k, v in bundle.facts.items() if k not in skip]
-        st.dataframe(pd.DataFrame(fact_rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(fact_rows), width="stretch", hide_index=True)
         if bundle.has_fundamentals:
             fu = bundle.facts.get("fundamentals", {})
             st.caption("Fundamentals (yfinance): "
@@ -3526,7 +3524,7 @@ def render_chart_tool(symbol: str, height: int = 620, caption: bool = True) -> b
 
     Extracted from the Predictive Analysis page (M4) when the Stock Analyzer
     became a second caller — two copies of the port probe would have drifted.
-    The probe matters: `components.iframe` against a dead port renders a silent
+    The probe matters: `st.iframe` against a dead port renders a silent
     blank rectangle, so the page has to say what's wrong instead.
     """
     chart_sym = symbol if ("." in symbol or symbol.startswith("^")) else f"{symbol}.NS"
@@ -3539,7 +3537,7 @@ def render_chart_tool(symbol: str, height: int = 620, caption: bool = True) -> b
             "annotated chart here."
         )
         return False
-    components.iframe(
+    st.iframe(
         f"http://localhost:{CHART_TOOL_PORT}/?symbol={chart_sym}&tf=1d",
         height=height,
     )
@@ -4596,26 +4594,26 @@ def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -
     with _b1:
         if st.button("★", key=f"sc_s_{sym}_{scanner_name}_{_kseq}",
                      help=f"Save {sym} to scanner hits",
-                     use_container_width=True):
+                     width="stretch"):
             db.save_scanner_hit(sym, scanner_name, card.get("pattern_type", ""))
             st.toast(f"★ Saved {sym_clean}")
     with _b2:
         if st.button("♥", key=f"sc_wl_{sym}_{scanner_name}_{_kseq}",
                      help=f"Add {sym_clean} to Watchlist",
-                     use_container_width=True):
+                     width="stretch"):
             db.add_watchlist_symbol(sym_clean, f"Scanner Hub — {scanner_name}")
             st.toast(f"♥ {sym_clean} → Watchlist")
     with _b3:
         if st.button("↗", key=f"sc_an_{sym}_{scanner_name}_{_kseq}",
                      help=f"Open {sym_clean} in Stock Analyzer",
-                     use_container_width=True):
+                     width="stretch"):
             st.session_state["current_page"] = "Stock Analyzer"
             st.session_state["sa_symbol_override"] = sym_clean
             st.rerun()
     with _b4:
         if st.button("⊕", key=f"sc_ro_{sym}_{scanner_name}_{_kseq}",
                      help=f"Add {sym_clean} to Analyzer Roster (batch queue)",
-                     use_container_width=True):
+                     width="stretch"):
             roster = st.session_state.setdefault("sa_roster", [])
             if sym_clean not in roster:
                 roster.append(sym_clean)
@@ -4639,10 +4637,10 @@ def _render_export_controls(model: dict, key: str) -> None:
     c1, c2, c3 = st.columns([1, 1, 2])
     with c1:
         want_pdf = st.button("📄 Build detailed PDF", key=f"{key}_pdf_go",
-                             use_container_width=True)
+                             width="stretch")
     with c2:
         want_png = st.button("🖼 Build share card", key=f"{key}_png_go",
-                             use_container_width=True)
+                             width="stretch")
     with c3:
         card_top = st.slider("Names on the card", 3, 15, 8, key=f"{key}_top",
                              help="The PDF always contains every name; this "
@@ -4794,7 +4792,7 @@ def _money_flow_window(key_prefix: str, *, compact: bool = False):
         else:
             st.dataframe(
                 pos[["sector", cols[0], "trend"]],
-                hide_index=True, use_container_width=True,
+                hide_index=True, width="stretch",
                 column_config={
                     cols[0]: st.column_config.NumberColumn("CMF today", format="%.3f"),
                     "trend": st.column_config.TextColumn("Trend"),
@@ -4811,7 +4809,7 @@ def _money_flow_window(key_prefix: str, *, compact: bool = False):
     styled = show.style.background_gradient(
         cmap="RdYlGn", subset=cols, vmin=-clip, vmax=clip
     ).format({c: "{:.3f}" for c in cols}, na_rep="—")
-    st.dataframe(styled, hide_index=True, use_container_width=True)
+    st.dataframe(styled, hide_index=True, width="stretch")
 
     st.caption(
         f"**CMF({grid['n']})** per sector — money-flow volume summed across "
@@ -5213,7 +5211,7 @@ def _turnover_share_window(key_prefix: str = "tsh_page"):
         cmap="RdYlGn", subset=["d_share_d", "d_share_w"], vmin=-3.0, vmax=3.0
     )  # numbers are formatted by columns.py, not here — one formatter, not two
     st.dataframe(
-        styled, hide_index=True, use_container_width=True,
+        styled, hide_index=True, width="stretch",
         column_config=_cols_mod().configure_df(show))
 
     st.caption(
@@ -5343,7 +5341,7 @@ def _darvas_rows_table(df, key_prefix: str):
     with _wc1:
         if st.button(f"♥ Add {len(_picked) or ''} to watchlist".replace("  ", " "),
                      key=f"{key_prefix}_addwl", disabled=not _picked,
-                     use_container_width=True, type="primary" if _picked else "secondary"):
+                     width="stretch", type="primary" if _picked else "secondary"):
             for _s in _picked:
                 db.add_watchlist_symbol(_s, "Volume Shockers · Darvas")
             st.toast(f"♥ {len(_picked)} → Watchlist")
@@ -5661,11 +5659,11 @@ if current_page == "Hidden Treasures":
 
                     _b1, _b2 = st.columns(2)
                     with _b1:
-                        if st.button("♥ Watchlist", key=f"ht_wl_{_sym}", use_container_width=True):
+                        if st.button("♥ Watchlist", key=f"ht_wl_{_sym}", width="stretch"):
                             db.add_watchlist_symbol(_sym, "Hidden Treasures")
                             st.toast(f"♥ {_sym} → Watchlist")
                     with _b2:
-                        if st.button("↗ Analyze", key=f"ht_an_{_sym}", use_container_width=True):
+                        if st.button("↗ Analyze", key=f"ht_an_{_sym}", width="stretch"):
                             st.session_state["current_page"] = "Stock Analyzer"
                             st.session_state["sa_symbol_override"] = _sym
                             st.rerun()
@@ -5984,7 +5982,7 @@ def _action_card(col, title: str, blurb: str, rows: list, target_page,
                     f'{title}</div>', unsafe_allow_html=True)
             with _h2:
                 if target_page and st.button("View", key=f"am_{key}",
-                                             use_container_width=True):
+                                             width="stretch"):
                     st.session_state["current_page"] = target_page
                     st.rerun()
             st.markdown(
@@ -6034,7 +6032,7 @@ def render_action_map() -> None:
             f'&#9679; Where the action is today{_date_bit}</div>',
             unsafe_allow_html=True)
     with _hdr_r:
-        if st.button("Open full map", key="am_full", use_container_width=True):
+        if st.button("Open full map", key="am_full", width="stretch"):
             st.session_state["current_page"] = "Opportunity Hub"
             st.rerun()
 
@@ -6144,16 +6142,16 @@ if current_page == "Home":
     _cta1, _cta2, _cta3, _cta4 = st.columns([1.15, 1, 1, 3])
     with _cta1:
         if st.button("Open screener dashboard", key="home_cta_screen",
-                     type="primary", use_container_width=True):
+                     type="primary", width="stretch"):
             st.session_state["current_page"] = "Opportunity Hub"
             st.rerun()
     with _cta2:
         if st.button("View top movers", key="home_cta_movers",
-                     use_container_width=True):
+                     width="stretch"):
             st.session_state["home_trending_open"] = True
             st.rerun()
     with _cta3:
-        if st.button("Scanner Hub", key="home_cta_hub", use_container_width=True):
+        if st.button("Scanner Hub", key="home_cta_hub", width="stretch"):
             st.session_state["current_page"] = "Scanner Hub"
             st.rerun()
     st.markdown(
@@ -6226,7 +6224,7 @@ if current_page == "Home":
     if not st.session_state.get(_tr_key):
         _tc_a, _tc_b = st.columns([1, 4])
         with _tc_a:
-            if st.button("Load", key="home_trending_btn", use_container_width=True):
+            if st.button("Load", key="home_trending_btn", width="stretch"):
                 st.session_state[_tr_key] = True
                 st.rerun()
         with _tc_b:
@@ -6271,14 +6269,14 @@ if current_page == "Home":
         _h1, _h2, _h3 = st.columns([1, 1, 2])
         with _h1:
             if st.button(f"Remove {len(_wl_pick) or ''}".strip(), key="home_wl_rm",
-                         disabled=not _wl_pick, use_container_width=True):
+                         disabled=not _wl_pick, width="stretch"):
                 for _s in _wl_pick:
                     db.remove_watchlist_symbol(_s)
                 st.toast(f"Removed {len(_wl_pick)}")
                 st.rerun()
         with _h2:
             if st.button("Open Watchlist →", key="home_wl_open",
-                         use_container_width=True):
+                         width="stretch"):
                 st.session_state["current_page"] = "Watchlist"
                 st.rerun()
         with _h3:
@@ -6408,7 +6406,7 @@ if current_page == "Stock Analyzer":
         for _mi, _m in enumerate(_sa_matches):
             with _mc[_mi % 4]:
                 if st.button(f"{_m['display']}", key=f"tb_match_{_m['display']}",
-                             use_container_width=True,
+                             width="stretch",
                              help=_m.get("name") or _m["display"]):
                     st.session_state["selected_symbol"] = _m["display"]
                     st.session_state["last_analyzed"] = _m["display"]
@@ -6450,7 +6448,7 @@ if current_page == "Stock Analyzer":
             for _ri, _rsym in enumerate(_sa_roster):
                 with _rc[_ri % 6]:
                     if st.button(_rsym, key=f"roster_pick_{_rsym}",
-                                 use_container_width=True,
+                                 width="stretch",
                                  help=f"Analyze {_rsym}"):
                         st.session_state["selected_symbol"] = _rsym
                         st.session_state["last_analyzed"] = _rsym
@@ -6521,7 +6519,7 @@ if current_page == "Stock Analyzer":
                 "◀ Prev",
                 key="sa_prev",
                 disabled=_at_start,
-                use_container_width=True,
+                width="stretch",
                 help=(screener_symbols[_cur_idx - 1] if _cur_idx > 0 else ""),
             ):
                 _prev = screener_symbols[_cur_idx - 1]
@@ -6539,7 +6537,7 @@ if current_page == "Stock Analyzer":
                 "Next ▶",
                 key="sa_next",
                 disabled=_at_end,
-                use_container_width=True,
+                width="stretch",
                 help=(screener_symbols[_cur_idx + 1] if not _at_end else ""),
             ):
                 _next = screener_symbols[_cur_idx + 1]
@@ -6683,7 +6681,7 @@ if current_page == "Stock Analyzer":
                                     harmonic=harmonic, height=sa_chart_h,
                                     price_share=(sa_price_share / 100.0
                                                  if sa_price_share else None)),
-                        use_container_width=True)
+                        width="stretch")
                 # Harmonic lives on the Chart Tool's own indicator menu, so the
                 # checkbox above would be a second switch for the same overlay —
                 # it stays with the chart it drives.
@@ -6699,7 +6697,7 @@ if current_page == "Stock Analyzer":
                     st.plotly_chart(
                         build_chart(symbol, df, ew, nifty_df=nifty_df,
                                     height=sa_chart_h),
-                        use_container_width=True)
+                        width="stretch")
 
                 # ── Side-by-side: condition table (left) + chart preview (right) ──
                 sa_cond_col, sa_chart_col = st.columns([1, 1.4], gap="medium")
@@ -6714,7 +6712,7 @@ if current_page == "Stock Analyzer":
                         f"&tf=1d"
                     )
                     st.markdown("**Chart preview**")
-                    st.components.v1.iframe(_chart_inline_url, height=460, scrolling=False)
+                    st.iframe(_chart_inline_url, height=460)
                     st.caption(
                         f"[Open full chart ↗]({_chart_inline_url}) · "
                         "Chart Tool must be running on :5001"
@@ -7287,7 +7285,7 @@ if current_page == "Other Screeners":
     other_df = st.session_state.get("other_screener_df")
     other_kind = st.session_state.get("other_screener_kind")
     if other_df is not None and other_kind == choice:
-        st.dataframe(other_df, use_container_width=True, hide_index=True)
+        st.dataframe(other_df, width="stretch", hide_index=True)
         st.download_button(
             "Download CSV", data=other_df.to_csv(index=False).encode("utf-8"),
             file_name=f"{choice.lower().replace(' ', '_')}_{date.today():%Y%m%d}.csv",
@@ -7315,10 +7313,10 @@ if current_page == "Other Screeners":
                     xlsx_path = BASE_DIR / f"sector_rotation_{date_str}.xlsx"
                     html_path = BASE_DIR / f"sector_rotation_orbit_{date_str}.html"
                     if xlsx_path.exists():
-                        st.dataframe(pd.read_excel(xlsx_path), use_container_width=True)
+                        st.dataframe(pd.read_excel(xlsx_path), width="stretch")
                     if html_path.exists():
-                        components.html(
-                            html_path.read_text(encoding="utf-8"), height=700, scrolling=True
+                        st.iframe(
+                            html_path.read_text(encoding="utf-8"), height=700
                         )
 
 
@@ -7461,7 +7459,7 @@ if current_page == "Scheduler Hub":
                 st.success(f"All snapshots refreshed — {len(_bad)} failed."
                            if _bad else "All snapshots refreshed.")
         if st.button("↻ Refresh all now (in-app)", key="snap_run_all",
-                     use_container_width=True,
+                     width="stretch",
                      disabled=ui_jobs.get_queue().is_active(_snap_all_label),
                      help="Runs every snapshot in this session's background queue — "
                           "the same work the scheduled task does, without schtasks."):
@@ -7490,7 +7488,7 @@ if current_page == "Scheduler Hub":
             "KB": round(_m.nbytes / 1024) if _m and _m.nbytes else None,
             "Error": (_m.error or "") if _m else "",
         })
-    st.dataframe(pd.DataFrame(_snap_rows), hide_index=True, use_container_width=True)
+    st.dataframe(pd.DataFrame(_snap_rows), hide_index=True, width="stretch")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7841,7 +7839,7 @@ if current_page == "Opportunity Hub":
             if sr.empty:
                 st.info("No sector has ≥3 constituents in this universe — widen it.")
             else:
-                st.dataframe(sr, use_container_width=True, hide_index=True,
+                st.dataframe(sr, width="stretch", hide_index=True,
                              column_config=_pct_cols)
                 _pos = sr[sr["avg_momentum"] > 0]["sector"].head(3).tolist()
                 _def_sec = _pos or sr["sector"].head(3).tolist()
@@ -7854,7 +7852,7 @@ if current_page == "Opportunity Hub":
                     st.markdown("#### 3 · Right Industry")
                     sub = tbl[tbl["sector"].isin(sel_sectors)]
                     ir = oh.rank_groups(sub, "industry", min_constituents=1)
-                    st.dataframe(ir, use_container_width=True, hide_index=True,
+                    st.dataframe(ir, width="stretch", hide_index=True,
                                  column_config=_pct_cols)
                     _def_ind = (ir[ir["avg_momentum"] > 0]["industry"].tolist()
                                 or ir["industry"].tolist())
@@ -8111,16 +8109,16 @@ def _render_funnel_survivor(result) -> None:
             st.markdown(f"- **{o.fid} {o.label}** — {o.reason}")
     b1, b2, b3 = st.columns(3)
     with b1:
-        if st.button("♥ Watchlist", key=f"df_wl_{sym}", use_container_width=True):
+        if st.button("♥ Watchlist", key=f"df_wl_{sym}", width="stretch"):
             db.add_watchlist_symbol(sym, "Delete Funnel survivor")
             st.toast(f"♥ {sym} → Watchlist")
     with b2:
-        if st.button("↗ Analyze", key=f"df_an_{sym}", use_container_width=True):
+        if st.button("↗ Analyze", key=f"df_an_{sym}", width="stretch"):
             st.session_state["current_page"] = "Stock Analyzer"
             st.session_state["sa_symbol_override"] = sym
             st.rerun()
     with b3:
-        if st.button("⊕ Roster", key=f"df_ro_{sym}", use_container_width=True):
+        if st.button("⊕ Roster", key=f"df_ro_{sym}", width="stretch"):
             roster = st.session_state.setdefault("sa_roster", [])
             if sym not in roster:
                 roster.append(sym)
@@ -8217,7 +8215,7 @@ if current_page == "Delete Funnel":
             _remaining -= _killed
             _rows.append({"Filter": f"{_fid} {_label}", "Deleted here": _killed,
                           "Left": _remaining})
-        st.dataframe(pd.DataFrame(_rows), hide_index=True, use_container_width=True)
+        st.dataframe(pd.DataFrame(_rows), hide_index=True, width="stretch")
 
         if _fr.survivors:
             st.markdown(rs.section(f"Survivors ({len(_fr.survivors)})"),
@@ -8242,7 +8240,7 @@ if current_page == "Delete Funnel":
                     _drows.append({"Symbol": _s, "Deleted at": _r.deleted_at,
                                    "Reason": _kill.reason if _kill else "—"})
                 st.dataframe(pd.DataFrame(_drows), hide_index=True,
-                             use_container_width=True)
+                             width="stretch")
 
     # ── Backtest the price legs — the part of the claim that IS testable ───────
     with st.expander("Backtest the price legs (F6 ∧ F7 ∧ F8)"):
@@ -8375,7 +8373,7 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                         key=f"hub_run_now_{_cname}",
                         help=f"Select and run {_cname}",
                         type="primary" if _is_sel else "secondary",
-                        use_container_width=True,
+                        width="stretch",
                     ):
                         st.session_state["hub_scanner"] = _cname
                         _hub_run_immediately = _cname
@@ -8492,7 +8490,7 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
             )
             _col_load, _col_del = st.columns(2)
             if _col_load.button("Load from cache", key="hub_cache_load", type="primary",
-                                use_container_width=True):
+                                width="stretch"):
                 _cached = db.get_scanner_run(selected_scanner, _load_date)
                 if _cached:
                     st.session_state["hub_results"] = _cached
@@ -8502,20 +8500,20 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                 else:
                     st.warning("Cache entry is empty — run the scanner to populate it.")
             if _col_del.button("Delete this cache entry", key="hub_cache_del",
-                               use_container_width=True):
+                               width="stretch"):
                 db.delete_scanner_run(selected_scanner, _load_date)
                 st.rerun()
 
     _run_single = (
         (hub_mode == "Single scanner" and st.button(
-            "Run Scanner", type="primary", key="hub_run", use_container_width=True))
+            "Run Scanner", type="primary", key="hub_run", width="stretch"))
         or (_hub_run_immediately is not None)
     )
     if _hub_run_immediately:
         selected_scanner = _hub_run_immediately
     _run_pipeline = hub_mode == "Pipeline — all scanners" and st.button(
         "Run All Scanners", type="primary", key="hub_run_pipeline",
-        use_container_width=True,
+        width="stretch",
         help="Runs every pipeline scanner in sequence and saves hits to the "
              "scanner_run_cache fact table in the database.",
     )
@@ -9262,14 +9260,14 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                         if st.button("⏮", key="hub_pg_first",
                                      disabled=_page == 0,
                                      help="First page",
-                                     use_container_width=True):
+                                     width="stretch"):
                             st.session_state[_pg_key] = 0
                             st.rerun()
                     with _pc2:
                         if st.button("◀", key="hub_pg_prev",
                                      disabled=_page == 0,
                                      help="Previous page",
-                                     use_container_width=True):
+                                     width="stretch"):
                             st.session_state[_pg_key] = _page - 1
                             st.rerun()
                     with _pc3:
@@ -9285,14 +9283,14 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                         if st.button("▶", key="hub_pg_next",
                                      disabled=_page >= _total_pages - 1,
                                      help="Next page",
-                                     use_container_width=True):
+                                     width="stretch"):
                             st.session_state[_pg_key] = _page + 1
                             st.rerun()
                     with _pc5:
                         if st.button("⏭", key="hub_pg_last",
                                      disabled=_page >= _total_pages - 1,
                                      help="Last page",
-                                     use_container_width=True):
+                                     width="stretch"):
                             st.session_state[_pg_key] = _total_pages - 1
                             st.rerun()
 
@@ -9351,7 +9349,7 @@ if current_page == "Predictive Analysis":
         pa_manual = mcol1.text_input("Any symbol", key="pa_manual",
                                      placeholder="e.g. TITAN",
                                      label_visibility="collapsed")
-        if mcol2.button("Go", key="pa_go", use_container_width=True) and pa_manual.strip():
+        if mcol2.button("Go", key="pa_go", width="stretch") and pa_manual.strip():
             st.session_state["pa_symbol"] = pa_manual.strip().upper()
 
     with pa_main:
@@ -9480,7 +9478,7 @@ if current_page == "Sector Map":
                     fig_hm.update_layout(
                         height=420, margin=dict(t=4, l=0, r=0, b=0),
                     )
-                    st.plotly_chart(fig_hm, use_container_width=True)
+                    st.plotly_chart(fig_hm, width="stretch")
 
                     # Sorted table — with an "Open ↗" Chart column that opens
                     # each sector index in the multi-chart tool (`^` and `.NS`
@@ -9493,7 +9491,7 @@ if current_page == "Sector Map":
                         if _name_to_ticker.get(n) else None
                     ))
                     st.dataframe(
-                        tbl, use_container_width=True, hide_index=True,
+                        tbl, width="stretch", hide_index=True,
                         column_config={
                             "Chart": st.column_config.LinkColumn(
                                 "Chart", help="Open in Chart Tool",
@@ -9595,7 +9593,7 @@ if current_page == "Sector Map":
                         annotations=annotations,
                         margin=dict(t=20, l=60, r=20, b=60),
                     )
-                    st.plotly_chart(fig_rq, use_container_width=True)
+                    st.plotly_chart(fig_rq, width="stretch")
 
             # ── SR-6: Relative Rotation Graph ─────────────────────────────────
             # The quadrant above plots 1Y vs 1M *absolute* return, so in a market
@@ -9701,7 +9699,7 @@ if current_page == "Sector Map":
                                zeroline=False),
                     annotations=_ann, showlegend=False,
                 )
-                st.plotly_chart(fig_rrg, use_container_width=True)
+                st.plotly_chart(fig_rrg, width="stretch")
 
                 _by_q = {}
                 for s in rrg_res["sectors"]:
@@ -9890,7 +9888,7 @@ if current_page == "Sector Map":
             help="Newest first. Each file is a dated snapshot from a past pipeline run.",
         )
         selected_html = BASE_DIR / selected_name
-        components.html(selected_html.read_text(encoding="utf-8"), height=740, scrolling=True)
+        st.iframe(selected_html.read_text(encoding="utf-8"), height=740)
     else:
         st.info(
             "No orbit chart found yet. "
@@ -9935,7 +9933,7 @@ if current_page == "Astro Timing":
         analysis_date = st.date_input("Analysis Date", value=date.today())
     with col_share:
         st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        _gen_card = st.button("📷 Share Card", use_container_width=True,
+        _gen_card = st.button("📷 Share Card", width="stretch",
                               help="Generate a weekly astro infographic and copy PNG to clipboard")
 
     ai = at.AstroIndicators(city=city)
@@ -10010,7 +10008,7 @@ if current_page == "Astro Timing":
     display_df = weekly[display_cols].copy()
     display_df.columns = ['Date', 'Lunar Phase', 'Illumination %', 'Market Intensity', 'Sunrise', 'Sunset']
 
-    st.dataframe(display_df, use_container_width=True, hide_index=True)
+    st.dataframe(display_df, width="stretch", hide_index=True)
 
     # ── Nakshatra Sector Forecast ──────────────────────────────────────────────
     st.subheader("Nakshatra Sector Forecast — 7-Day Forward")
@@ -10057,7 +10055,7 @@ if current_page == "Astro Timing":
 
         st.dataframe(
             _nk_df.style.apply(_nk_row_style, axis=1),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
         )
 
@@ -10287,7 +10285,6 @@ if current_page == "Astro Timing":
             _PILImage = None
         import io as _io
         import base64 as _b64
-        import streamlit.components.v1 as _components
         if _PILImage is None:
             pass
         else:
@@ -10455,17 +10452,17 @@ if current_page == "Astro Timing":
             _b64_str   = _b64.b64encode(_png_bytes).decode()
 
             st.image(img, caption="Weekly Astro Card — copy or download below",
-                     use_container_width=False, width=540)
+                     width=540)
 
             st.download_button(
                 label="⬇ Download PNG",
                 data=_png_bytes,
                 file_name=f"trading_bramha_astro_{analysis_date.strftime('%Y%m%d')}.png",
                 mime="image/png",
-                use_container_width=False,
+                width="content",
             )
 
-            _components.html(f"""
+            st.iframe(f"""
             <button onclick="copyCard()" style="
                 background:#ea580c;color:#fff;border:none;border-radius:8px;
                 padding:8px 20px;font-size:14px;font-weight:700;cursor:pointer;">
@@ -10532,7 +10529,7 @@ if current_page == "Astro Timing":
         height=500
     )
 
-    st.plotly_chart(fig_astro, use_container_width=True)
+    st.plotly_chart(fig_astro, width="stretch")
 
     # AstroHora integration section
     st.subheader("AstroHora Chart Data Integration")
@@ -10934,7 +10931,7 @@ if current_page == "Telegram Signals":
                 list(channels.items()),
                 columns=['Channel', 'Signal Count']
             ).sort_values('Signal Count', ascending=False)
-            st.dataframe(channel_df, use_container_width=True, hide_index=True)
+            st.dataframe(channel_df, width="stretch", hide_index=True)
 
         # By strategy breakdown
         st.subheader("Signals by Strategy")
@@ -10949,7 +10946,7 @@ if current_page == "Telegram Signals":
                 list(strategies.items()),
                 columns=['Strategy', 'Signal Count']
             ).sort_values('Signal Count', ascending=False)
-            st.dataframe(strategy_df, use_container_width=True, hide_index=True)
+            st.dataframe(strategy_df, width="stretch", hide_index=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11027,7 +11024,7 @@ if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chart
         st.markdown("**Breakout Timeframe**")
         for bk_name in _CK_SCANNERS:
             lbl = f"{bk_name}  ({_CK_SCANNERS[bk_name]['lookback']})"
-            if st.button(lbl, key=f"ck_sel_{bk_name}", use_container_width=True):
+            if st.button(lbl, key=f"ck_sel_{bk_name}", width="stretch"):
                 st.session_state["ck_scanner"] = bk_name
                 st.session_state.pop("ck_results", None)
 
@@ -11044,9 +11041,8 @@ if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chart
         # ── Copy scan clause to clipboard ──────────────────────────────────
         if full_clause:
             # Use a JS snippet injected via st.components to copy to clipboard
-            import streamlit.components.v1 as _components
             safe = full_clause.replace("\\", "\\\\").replace("`", "\\`")
-            _components.html(
+            st.iframe(
                 f"""
                 <button onclick="navigator.clipboard.writeText(`{safe}`)
                   .then(()=>this.textContent='✓ Copied!')
@@ -11192,7 +11188,7 @@ if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chart
 
             st.dataframe(
                 df_res[keep],
-                use_container_width=True,
+                width="stretch",
                 hide_index=True,
                 column_config=col_cfg,
             )
@@ -11408,7 +11404,7 @@ if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chart
                        "Dist to Trigger %", "RSI", "Pledge/CF Check"]
             st.dataframe(
                 df_pb_res[[c for c in keep_pb if c in df_pb_res.columns]],
-                use_container_width=True, hide_index=True, column_config=col_cfg_pb,
+                width="stretch", hide_index=True, column_config=col_cfg_pb,
             )
 
 
@@ -11488,7 +11484,7 @@ if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chart
             tv_cfg["Turnover ₹"] = st.column_config.NumberColumn("Turnover ₹", format="%.0f")
         if "Mkt Cap ₹" in view.columns:
             tv_cfg["Mkt Cap ₹"] = st.column_config.NumberColumn("Mkt Cap ₹", format="%.0f")
-        st.dataframe(view, use_container_width=True, hide_index=True, column_config=tv_cfg)
+        st.dataframe(view, width="stretch", hide_index=True, column_config=tv_cfg)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11607,7 +11603,7 @@ if current_page == "SVP Structure":
         _show = _with_chart_family(_show, "symbol")
         st.dataframe(
             _show,
-            use_container_width=True, hide_index=True,
+            width="stretch", hide_index=True,
             column_config={
                 **_chart_family_colcfg(),
                 "sig_dir": st.column_config.TextColumn(
@@ -11840,7 +11836,7 @@ if current_page == "High-Growth Screener":
                 "Analyze": _analyze_colcfg(),
             }
             st.dataframe(
-                df_hg_res[keep_hg], use_container_width=True, hide_index=True,
+                df_hg_res[keep_hg], width="stretch", hide_index=True,
                 column_config=col_cfg_hg,
             )
             st.caption(
@@ -11998,7 +11994,7 @@ if current_page == "Market Sentiment":
             ))
             fig.update_layout(height=280, margin=dict(l=20, r=20, t=20, b=20),
                               paper_bgcolor="rgba(0,0,0,0)")
-            st.plotly_chart(fig, use_container_width=True)
+            st.plotly_chart(fig, width="stretch")
 
         with chip_col:
             st.markdown(
@@ -12046,7 +12042,7 @@ if current_page == "Market Sentiment":
         })
         st.dataframe(
             pd.DataFrame(rows),
-            hide_index=True, use_container_width=True,
+            hide_index=True, width="stretch",
             column_config={
                 "Fill %": st.column_config.ProgressColumn(
                     "Fill", format="%.0f%%", min_value=0.0, max_value=100.0,
@@ -12067,7 +12063,7 @@ if current_page == "Market Sentiment":
                 ))
                 st.dataframe(
                     sec_df,
-                    hide_index=True, use_container_width=True,
+                    hide_index=True, width="stretch",
                     column_config={
                         "chart": st.column_config.LinkColumn(
                             "Chart", help="Open in Chart Tool",
@@ -12100,7 +12096,7 @@ if current_page == "Market Sentiment":
                 xaxis=dict(title=""),
                 paper_bgcolor="rgba(0,0,0,0)", plot_bgcolor="rgba(0,0,0,0)",
             )
-            st.plotly_chart(fig_h, use_container_width=True)
+            st.plotly_chart(fig_h, width="stretch")
 
     # ── Global Context — Finviz (US market snapshot) ──────────────────────────
     st.markdown("---")
@@ -12155,7 +12151,7 @@ if current_page == "Market Sentiment":
             br_rows.append({"Metric": "BULL signals", "Pct": fvz_br["bull_pct"], "Count": None})
             br_rows.append({"Metric": "BEAR signals", "Pct": fvz_br["bear_pct"], "Count": None})
         if br_rows:
-            st.dataframe(pd.DataFrame(br_rows), hide_index=True, use_container_width=True,
+            st.dataframe(pd.DataFrame(br_rows), hide_index=True, width="stretch",
                          column_config={
                              "Pct": st.column_config.ProgressColumn(
                                  "Pct", format="%.1f%%", min_value=0, max_value=100),
@@ -12175,7 +12171,7 @@ if current_page == "Market Sentiment":
                 if df_sig.empty:
                     st.info("No rows returned.")
                 else:
-                    st.dataframe(df_sig, hide_index=True, use_container_width=True)
+                    st.dataframe(df_sig, hide_index=True, width="stretch")
         except Exception as e:
             st.error(f"Signal fetch failed: {e}")
 
@@ -12231,7 +12227,7 @@ if current_page == "Market Sentiment":
                 }).sort_values("OI (total)", ascending=False).reset_index(drop=True)
                 st.dataframe(
                     _basis_display,
-                    hide_index=True, use_container_width=True,
+                    hide_index=True, width="stretch",
                     column_config={
                         "Basis %": st.column_config.NumberColumn("Basis %", format="%.3f%%"),
                     },
@@ -12339,7 +12335,7 @@ if current_page == "Market Sentiment":
                     "Constituents": s["constituents"],
                     "% Green": round(s["pct_green"], 0),
                 } for s in br["sectors"]]),
-                hide_index=True, use_container_width=True,
+                hide_index=True, width="stretch",
             )
 
     # ── Panchang: the almanac block. Optional — the market half above renders
@@ -12428,7 +12424,7 @@ if current_page == "Market Sentiment":
                     "Phase": h["phase"],
                     "Now": "◀" if cur and h["index"] == cur["index"] else "",
                 } for h in pan["hora_sequence"]]),
-                hide_index=True, use_container_width=True, height=320,
+                hide_index=True, width="stretch", height=320,
             )
 
     # Disclaimer belongs to the whole card, so it sits outside the astro block —
@@ -12579,7 +12575,7 @@ if current_page == "India Market Intel":
                 "Analyze":     _deal_analyze_url(r),
             } for r in _ceavet])
             st.dataframe(
-                _tbl, use_container_width=True, hide_index=True,
+                _tbl, width="stretch", hide_index=True,
                 column_config={
                     "Chart": st.column_config.LinkColumn(
                         "Chart", help="Open in Chart Tool",
@@ -12874,7 +12870,7 @@ if current_page == "India Market Intel":
             df_gv_res = _with_analyze_col(df_gv_res, "Symbol", after="Chart")
             st.caption(f"{len(df_gv_res)} stocks flagged")
             st.dataframe(
-                df_gv_res, use_container_width=True, hide_index=True,
+                df_gv_res, width="stretch", hide_index=True,
                 column_config={
                     "Chart": st.column_config.LinkColumn("Chart", display_text="Open Chart", width="small"),
                     "Analyze": _analyze_colcfg(),
@@ -12924,14 +12920,13 @@ if current_page == "India Market Intel":
                 # Height scales with the row count: a fixed iframe either clips a
                 # 70-scrip day or leaves a void on a 5-scrip one.
                 _rows = _board.get("n_symbols", 0)
-                components.html(_html, height=min(4200, 620 + 26 * _rows),
-                                scrolling=True)
+                st.iframe(_html, height=min(4200, 620 + 26 * _rows))
                 _stem = f"deal_board_{date.today():%Y%m%d}"
                 _dl1, _dl2, _dl3 = st.columns([1, 1, 2])
                 with _dl1:
                     st.download_button(
                         "⬇ HTML", data=_html, file_name=f"{_stem}.html",
-                        mime="text/html", key="imi_db_dl", use_container_width=True)
+                        mime="text/html", key="imi_db_dl", width="stretch")
                 # PNG is rendered on demand, not with every board: it launches
                 # headless Chromium (~2-4s). Rendering it here rather than in the
                 # browser means the image is produced by the SAME engine that
@@ -12939,7 +12934,7 @@ if current_page == "India Market Intel":
                 # would ship a subtly different picture.
                 with _dl2:
                     if st.button("🖼 Render image", key="imi_db_png",
-                                 use_container_width=True):
+                                 width="stretch"):
                         with st.spinner("Rendering PNG…"):
                             try:
                                 st.session_state["imi_deal_board_png"] =                                     dinf.render_png(_html)
@@ -12953,7 +12948,7 @@ if current_page == "India Market Intel":
                             f"⬇ Download image (PNG · {len(_png) / 1e6:.1f} MB)",
                             data=_png, file_name=f"{_stem}.png", mime="image/png",
                             key="imi_db_dlpng", type="primary",
-                            use_container_width=True)
+                            width="stretch")
                 st.caption(
                     f"{_board.get('n_deals', 0)} deal rows · {_board.get('n_symbols', 0)} "
                     f"scrips ({_board.get('n_index', 0)} index / "
@@ -13098,7 +13093,7 @@ if current_page == "OI Momentum":
             _lc1, _lc2 = st.columns([1, 3])
             with _lc1:
                 if st.button(f"📐 Check levels ({len(_view)})", key="oim_lvl_go",
-                             use_container_width=True):
+                             width="stretch"):
                     _prog = st.progress(0.0, text="Fetching price history…")
                     _new = {}
                     for _i, _r in enumerate(_view, 1):
@@ -13175,7 +13170,7 @@ if current_page == "OI Momentum":
             } for r in _view])
             _tbl = _with_analyze_col(_tbl, "Symbol", after="Chart")
             st.dataframe(
-                _tbl, use_container_width=True, hide_index=True,
+                _tbl, width="stretch", hide_index=True,
                 column_config={
                     "Chart": st.column_config.LinkColumn(
                         "Chart", display_text="📈 Open", width="small"),
@@ -13282,7 +13277,7 @@ if current_page == "OI Momentum":
                             st.link_button(
                                 "📈 Chart", url=_oi_chart_url(r["symbol"]),
                                 help="Open in Chart Tool",
-                                use_container_width=True,
+                                width="stretch",
                             )
                         with _h3:
                             _au = _analyze_url(r["symbol"])
@@ -13290,7 +13285,7 @@ if current_page == "OI Momentum":
                                 st.link_button(
                                     "↗ Analyze", url=_au,
                                     help="Open the 3-POV Council analysis in a new tab",
-                                    use_container_width=True,
+                                    width="stretch",
                                 )
                         st.write(r["detail"])
                         st.caption(
@@ -13366,7 +13361,7 @@ if current_page == "OI Momentum":
                                      if r.get("rvol") is not None else None),
                         "Series OI": int(r["oi"]),
                     } for r in _idx_recs]),
-                    use_container_width=True, hide_index=True,
+                    width="stretch", hide_index=True,
                     column_config=_cols_mod().configure("Price %", "OI %", "RVol"),
                 )
                 st.caption(
@@ -13405,7 +13400,7 @@ if current_page == "OI Momentum":
                         "Option OI": int(x["total_oi"]),
                         "Readable": "yes" if x["liquid"] else "too thin",
                     } for x in _idx_recs]),
-                    use_container_width=True, hide_index=True,
+                    width="stretch", hide_index=True,
                 )
                 st.caption(
                     "**No sentiment band is shown here, on purpose.** A stock's "
@@ -13640,7 +13635,7 @@ if current_page == "Strategy Hub":
 
         st.dataframe(
             _pat_view.drop(columns=["Bias"]),
-            use_container_width=True,
+            width="stretch",
             hide_index=True,
             column_config={
                 "Stock":       st.column_config.TextColumn("Stock", width="medium"),
