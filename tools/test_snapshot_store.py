@@ -173,3 +173,69 @@ def test_scheduler_status_without_schtasks(monkeypatch):
     ok, msg = sc.register(job)
     assert not ok and "not available" in msg
     assert sc.run_now(job)[0] is False and sc.remove(job)[0] is False
+
+
+# ── "fetched nothing" fails; "scanned, found nothing" is a valid run ──────────
+def test_gap_volume_distinguishes_no_data_from_no_hits(monkeypatch):
+    import types
+    calm_idx = pd.date_range("2026-08-01", periods=25, freq="B")
+    calm = pd.DataFrame({"open": 100.0, "close": 100.0, "volume": 1000}, index=calm_idx)
+    sp = types.SimpleNamespace(fetch_bhavcopy_top_volume=lambda n: ["A", "B"],
+                               fetch_ohlcv=lambda s, days=40: None)
+    monkeypatch.setitem(sys.modules, "screener_pipeline", sp)
+    with pytest.raises(RuntimeError, match="no OHLCV"):
+        reg.produce_gap_volume()
+    sp.fetch_bhavcopy_top_volume = lambda n: []
+    with pytest.raises(RuntimeError, match="no universe"):
+        reg.produce_gap_volume()
+    sp.fetch_bhavcopy_top_volume = lambda n: ["A", "B"]
+    sp.fetch_ohlcv = lambda s, days=40: calm
+    out = reg.produce_gap_volume()
+    assert out["hits"] == [] and out["scanned_n"] == 2
+
+
+def test_tv_scan_raises_when_unreachable(monkeypatch):
+    import types
+    def fetch(**kw):
+        if kw.get("raise_on_error"):
+            raise RuntimeError("TradingView scan unreachable: boom")
+        return pd.DataFrame()
+    monkeypatch.setitem(sys.modules, "tv_screener", types.SimpleNamespace(fetch_brkoutgeek=fetch))
+    with pytest.raises(RuntimeError, match="unreachable"):
+        reg.produce_tv_scan()
+
+
+def test_tv_screener_empty_vs_raise(monkeypatch):
+    import tv_screener as tvs
+    def post(*a, **k):
+        raise ConnectionError("down")
+    monkeypatch.setattr(tvs.requests, "post", post)
+    assert tvs.fetch_brkoutgeek().empty                       # page behaviour unchanged
+    with pytest.raises(RuntimeError, match="unreachable"):
+        tvs.fetch_brkoutgeek(raise_on_error=True)
+
+
+def test_sector_money_flow_empty_rows_raises(monkeypatch):
+    import types
+    mf = types.SimpleNamespace(sector_grid=lambda u, n: {"error": None, "rows": pd.DataFrame()})
+    monkeypatch.setitem(sys.modules, "money_flow", mf)
+    with pytest.raises(RuntimeError, match="no sector had price data"):
+        reg.produce_sector_money_flow()
+    mf.sector_grid = lambda u, n: {"error": None, "rows": pd.DataFrame({"sector": ["IT"]})}
+    assert len(reg.produce_sector_money_flow()["rows"]) == 1
+
+
+def test_market_brief_all_quotes_missing_raises(monkeypatch):
+    import types
+    def brief(missing):
+        q = [{"ticker": "^NSEI", "missing": missing}, {"ticker": "^NSEBANK", "missing": missing}]
+        return {"quotes": q, "quotes_meta": {"error": None, "missing": 2 if missing else 0}}
+    senti = types.SimpleNamespace(history=lambda days=1: pd.DataFrame())
+    monkeypatch.setitem(sys.modules, "sentiment_index", senti)
+    monkeypatch.setitem(sys.modules, "market_brief",
+                        types.SimpleNamespace(build_brief=lambda **k: brief(True)))
+    with pytest.raises(RuntimeError, match="every index quote is missing"):
+        reg.produce_market_brief()
+    monkeypatch.setitem(sys.modules, "market_brief",
+                        types.SimpleNamespace(build_brief=lambda **k: brief(False)))
+    assert len(reg.produce_market_brief()["quotes"]) == 2
