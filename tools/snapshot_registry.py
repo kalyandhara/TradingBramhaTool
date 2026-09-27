@@ -79,6 +79,11 @@ def _yf_frame(ticker: str, period: str = "2y"):
     return df
 
 
+
+def _empty(df) -> bool:
+    """True for None or an empty frame/series (helpers return either on failure)."""
+    return df is None or getattr(df, "empty", False)
+
 def produce_sector_index_data() -> dict:
     """The sector index frames + the NIFTY benchmark, 2y daily. Feeds the
     heatmap, rotation quadrant, RRG and the shareable card."""
@@ -170,13 +175,22 @@ def produce_market_health() -> dict:
     nifty, vix = mh.fetch_indices()
     symbols = sp.fetch_bhavcopy_top_volume(MH_BASKET_SIZE)
     frames = mh.load_basket(symbols, lambda s: sp.fetch_ohlcv(s, days=260))
+    # A run where every source came back empty is a failed run, not an "ok"
+    # snapshot of nothing — it must not overwrite the last good payload.
+    if _empty(nifty) and _empty(vix) and not frames:
+        raise RuntimeError("no index or basket data could be fetched")
     return {"nifty": nifty, "vix": vix, "basket_frames": frames,
             "basket_requested": len(symbols)}
 
 
 def produce_finviz() -> dict:
     import finviz_sentiment as fvz
-    return {"indices": fvz.fetch_index_snapshot(), "breadth": fvz.fetch_breadth()}
+    indices, breadth = fvz.fetch_index_snapshot(), fvz.fetch_breadth()
+    has_index = (not _empty(indices) and "last" in getattr(indices, "columns", [])
+                 and indices["last"].notna().any())
+    if not has_index and not breadth:
+        raise RuntimeError("finviz returned no index quotes and no breadth")
+    return {"indices": indices, "breadth": breadth}
 
 
 def produce_tv_scan() -> dict:
