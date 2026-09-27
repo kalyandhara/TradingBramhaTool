@@ -110,7 +110,7 @@ with left:
             "Motion": "Rx" if ps.retrograde else "D",
             "Nature": ps.nature,
         })
-    st.dataframe(rows, hide_index=True, use_container_width=True)
+    st.dataframe(rows, hide_index=True, width="stretch")
 
 with right:
     st.markdown('<div class="sbc-h">Reversal Windows (IST)</div>',
