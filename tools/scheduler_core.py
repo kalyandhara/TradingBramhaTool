@@ -101,6 +101,20 @@ JOBS: dict[str, JobSpec] = {
                 f'--universe 500 --top 100',
         default_time="16:20",
     ),
+    "snapshot_refresh": JobSpec(
+        id="snapshot_refresh",
+        label="Report Snapshot Refresh",
+        desc="Recomputes every registered report snapshot (Sector Map index data, "
+             "money flow, turnover share, volume shockers, sentiment, market "
+             "health, Finviz, TradingView scan, deals, gap & volume, market brief) "
+             "after the close and stores each in the snapshots table with its run "
+             "timestamp. Pages load the stored snapshot on open; ↻ refreshes on "
+             "demand. One failing snapshot is logged and skipped. ~5-10 min.",
+        task_name="TradingBramha-SnapshotRefresh",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "snapshot_refresh.py"}" --all',
+        default_time="16:30",
+    ),
 }
 
 
