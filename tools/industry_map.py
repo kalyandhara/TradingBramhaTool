@@ -73,9 +73,11 @@ def load(symbols: list[str], *, refresh: bool = False, workers: int = 2,
     missing = [s for s in symbols if s not in data]
     if missing:
         with ThreadPoolExecutor(max_workers=workers) as ex:
-            for sym, cls in zip(missing, ex.map(fetch, missing)):
+            for i, (sym, cls) in enumerate(zip(missing, ex.map(fetch, missing)), 1):
                 if cls:
                     data[sym] = cls
+                if i % 25 == 0:
+                    _write(data)
         _write(data)
     return {s: data[s] for s in symbols if s in data}
 

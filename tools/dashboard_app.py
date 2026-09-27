@@ -9494,6 +9494,9 @@ if current_page == "Sector Map":
     import sector_rs_leadership as _rsl
     _rsl.render()
     st.divider()
+    import sector_turnover_heatmap as _tah
+    _tah.render()
+    st.divider()
 
     # Money flow first: it answers "where is money going" from the constituents
     # themselves, and needs no sector-index fetch, so it renders before the RRG
