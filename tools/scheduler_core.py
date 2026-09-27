@@ -117,6 +117,20 @@ JOBS: dict[str, JobSpec] = {
                 f'--universe 500 --top 100',
         default_time="16:20",
     ),
+    "snapshot_refresh": JobSpec(
+        id="snapshot_refresh",
+        label="Report Snapshot Refresh",
+        desc="Recomputes every registered report snapshot (Sector Map index data, "
+             "money flow, turnover share, volume shockers, sentiment, market "
+             "health, Finviz, TradingView scan, deals, gap & volume, market brief) "
+             "after the close and stores each in the snapshots table with its run "
+             "timestamp. Pages load the stored snapshot on open; ↻ refreshes on "
+             "demand. One failing snapshot is logged and skipped. ~5-10 min.",
+        task_name="TradingBramha-SnapshotRefresh",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "snapshot_refresh.py"}" --all',
+        default_time="16:30",
+    ),
 }
 
 
@@ -212,28 +226,42 @@ def register_argv(job: JobSpec, *, time: str | None = None,
 
 
 # ── Actions (each shells out to schtasks) ────────────────────────────────────
+SCHTASKS_AVAILABLE = shutil.which("schtasks") is not None
+UNAVAILABLE_MSG = ("Windows Task Scheduler (schtasks) is not available on this "
+                   "machine — jobs can't be registered here.")
+
+
+def _schtasks(argv: list[str]) -> subprocess.CompletedProcess:
+    """Run a schtasks command; on a machine without schtasks (Linux/macOS, or a
+    trimmed Windows) return a failed result instead of raising, so the hub
+    page renders read-only rather than crashing at the first status() call."""
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, shell=False)
+    except (FileNotFoundError, OSError) as e:
+        return subprocess.CompletedProcess(argv, 127, stdout="",
+                                           stderr=f"{UNAVAILABLE_MSG} ({e})")
+
+
 def register(job: JobSpec, **kw) -> tuple[bool, str]:
     """CREATE/replace the scheduled task. Persistent OS change — user-triggered."""
     if job.managed_bat:
         write_bat(job)
     argv = register_argv(job, **kw)
-    res = subprocess.run(argv, capture_output=True, text=True, shell=False)
+    res = _schtasks(argv)
     if res.returncode == 0:
         return True, (res.stdout or "").strip() or "Task registered."
     return False, (res.stderr or res.stdout or "schtasks failed").strip()
 
 
 def remove(job: JobSpec) -> tuple[bool, str]:
-    res = subprocess.run(["schtasks", "/delete", "/f", "/tn", job.task_name],
-                         capture_output=True, text=True, shell=False)
+    res = _schtasks(["schtasks", "/delete", "/f", "/tn", job.task_name])
     if res.returncode == 0:
         return True, "Task removed."
     return False, (res.stderr or res.stdout or "not found").strip()
 
 
 def run_now(job: JobSpec) -> tuple[bool, str]:
-    res = subprocess.run(["schtasks", "/run", "/tn", job.task_name],
-                         capture_output=True, text=True, shell=False)
+    res = _schtasks(["schtasks", "/run", "/tn", job.task_name])
     if res.returncode == 0:
         return True, "Triggered."
     return False, (res.stderr or res.stdout or "run failed").strip()
@@ -241,10 +269,7 @@ def run_now(job: JobSpec) -> tuple[bool, str]:
 
 def status(job: JobSpec) -> dict:
     """Read-only. Returns {registered, state, next_run, last_run, last_result}."""
-    res = subprocess.run(
-        ["schtasks", "/query", "/tn", job.task_name, "/fo", "LIST", "/v"],
-        capture_output=True, text=True, shell=False,
-    )
+    res = _schtasks(["schtasks", "/query", "/tn", job.task_name, "/fo", "LIST", "/v"])
     if res.returncode != 0:
         return {"registered": False}
     fields: dict[str, str] = {}

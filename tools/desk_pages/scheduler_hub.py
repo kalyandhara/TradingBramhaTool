@@ -8,10 +8,15 @@ from __future__ import annotations
 
 import json
 
+import pandas as pd
 import streamlit as st
 
+import portfolio_db as db
 import report_style as rs
 import scheduler_core as sched
+import snapshot_registry as snapreg
+import snapshot_store as snapstore
+import ui_jobs
 
 
 def render() -> None:
@@ -27,6 +32,11 @@ def render() -> None:
         "dashboard cache — keep the chart server running during market hours so the "
         "Alert Bot has data.", icon="ℹ️",
     )
+
+    if not sched.SCHTASKS_AVAILABLE:
+        st.warning(
+            f"{sched.UNAVAILABLE_MSG} The page is read-only here; "
+            "the in-app **↻ Refresh all now** below still works.", icon="⚠️")
 
     for _jid, _job in sched.JOBS.items():
         _stt = sched.status(_job)
@@ -67,7 +77,8 @@ def render() -> None:
                 _sched_kw = dict(time=_v_t)
 
             _b = st.columns(4)
-            if _b[0].button("Register / Update", key=f"sch_{_jid}_reg", type="primary"):
+            if _b[0].button("Register / Update", key=f"sch_{_jid}_reg", type="primary",
+                            disabled=not sched.SCHTASKS_AVAILABLE):
                 _ok, _msg = sched.register(_job, **_sched_kw)
                 if _ok:
                     st.success(_msg); st.rerun()
@@ -112,3 +123,55 @@ def render() -> None:
                                     st.markdown(f"- `{_a.get('ts','')}` — **{_a.get('headline','')}**")
                                 except Exception:
                                     pass
+
+    # ── Report snapshots — what the Snapshot Refresh job writes ───────────────
+    st.divider()
+    st.markdown("### Report snapshots")
+    st.caption(
+        "Every on-demand report the pages load on open, with its last stored run. "
+        "The **Report Snapshot Refresh** task above rewrites them after the close; "
+        "each page's ↻ recomputes one on demand; the app also fills in any that "
+        "are older than the last close when it starts (toggle below)."
+    )
+    _sf_c1, _sf_c2 = st.columns([1, 3])
+    with _sf_c1:
+        _snap_all_label = "Refresh · all report snapshots"
+        _snap_all_done = ui_jobs.get_queue().take_result(_snap_all_label)
+        if _snap_all_done is not None:
+            if _snap_all_done.status == "error":
+                st.error(f"Snapshot run failed: {_snap_all_done.error}")
+            else:
+                _bad = [m for m in (_snap_all_done.result or []) if not m.ok]
+                st.success(f"All snapshots refreshed — {len(_bad)} failed."
+                           if _bad else "All snapshots refreshed.")
+        if st.button("↻ Refresh all now (in-app)", key="snap_run_all",
+                     use_container_width=True,
+                     disabled=ui_jobs.get_queue().is_active(_snap_all_label),
+                     help="Runs every snapshot in this session's background queue — "
+                          "the same work the scheduled task does, without schtasks."):
+            ui_jobs.submit_unique(_snap_all_label, snapreg.run_all,
+                                  progress_kw="progress")
+            st.rerun()
+    with _sf_c2:
+        _fill_on = (db.get_setting("snapshot_startup_fill", "1") or "1") == "1"
+        _fill_new = st.checkbox(
+            "Fill stale snapshots in the background when the app starts",
+            value=_fill_on, key="snap_startup_fill")
+        if _fill_new != _fill_on:
+            db.set_setting("snapshot_startup_fill", "1" if _fill_new else "0")
+
+    _ov = {m.name: m for m in snapstore.overview()}
+    _snap_rows = []
+    for _spec in snapreg.ordered():
+        _m = _ov.get(_spec.name)
+        _snap_rows.append({
+            "Snapshot": _spec.label, "Page": _spec.page,
+            "Last run": _m.run_at.replace("T", " ") if _m else "never",
+            "Status": ("—" if _m is None else
+                       "⚠ stale" if snapstore.is_stale(_m if _m.ok else None) and _m.ok else
+                       "✅ ok" if _m.ok else "❌ error"),
+            "Secs": round(_m.elapsed) if _m else None,
+            "KB": round(_m.nbytes / 1024) if _m and _m.nbytes else None,
+            "Error": (_m.error or "") if _m else "",
+        })
+    st.dataframe(pd.DataFrame(_snap_rows), hide_index=True, use_container_width=True)

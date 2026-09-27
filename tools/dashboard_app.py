@@ -85,6 +85,8 @@ import price_levels as plv
 import rrg as rrg_mod
 import ownership_cache as ocache
 import concalls
+import snapshot_store as snapstore
+import snapshot_registry as snapreg
 
 # The M1 rating lives in rating.py so the headless daily Opportunity Hub job
 # scores with the SAME code the interactive Hub shows. Aliased to the old
@@ -1882,20 +1884,117 @@ def cached_fetch_safe_symbols(sessionid: str, max_pledge_pct: float = 5.0) -> se
     return ss.fetch_fundamental_safe_symbols(sessionid, max_pledge_pct=max_pledge_pct)
 
 
-# Unique NSE sector index tickers and their display labels
-SECTOR_DISPLAY_NAMES = {
-    "^NSEBANK":            "Banking",
-    "NIFTY_FIN_SERVICE.NS": "Fin Services",
-    "^CNXIT":              "IT / Telecom",
-    "^CNXPHARMA":          "Pharma",
-    "^CNXAUTO":            "Auto",
-    "^CNXFMCG":            "FMCG / Chem",
-    "^CNXMETAL":           "Metals",
-    "^CNXREALTY":          "Realty",
-    "^CNXINFRA":           "Infra",
-    "^CNXENERGY":          "Energy",
-    "^CNXCONSUM":          "Cons. Durables",
-}
+# Unique NSE sector index tickers and their display labels — owned by
+# snapshot_registry so the headless snapshot job and the page fetch the same set.
+SECTOR_DISPLAY_NAMES = snapreg.SECTOR_DISPLAY_NAMES
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Persisted report snapshots (snapshot_store / snapshot_registry)
+# ------------------------------------------------------------------------------
+# Every "generate on demand" surface that used to live in session state now
+# loads the LAST STORED run on page open, shows when it ran, and refreshes on
+# demand through the per-session job queue (so a click never blocks the page).
+# The scheduled job (Scheduler Hub → Report Snapshot Refresh) rewrites them
+# after the close; a start-up thread fills in any that are stale.
+# ──────────────────────────────────────────────────────────────────────────────
+@st.cache_data(show_spinner=False, max_entries=64)
+def _snapshot_payload(name: str, run_at: str):
+    """Unpickle once per (name, run_at): a refresh changes run_at, busting it."""
+    return snapstore.load_latest(name)[1]
+
+
+def snapshot_get(name: str):
+    """(meta, payload) of the newest OK snapshot, or (None, None)."""
+    meta = snapstore.latest_meta(name, ok_only=True)
+    if meta is None:
+        return None, None
+    return meta, _snapshot_payload(name, meta.run_at)
+
+
+def _snapshot_job_label(name: str) -> str:
+    return f"Refresh · {snapreg.SNAPSHOTS[name].label}"
+
+
+def snapshot_refresh(name: str) -> bool:
+    """Queue a recompute of `name` on the session job queue. False if one is
+    already queued/running."""
+    return ui_jobs.submit_unique(_snapshot_job_label(name), snapreg.run_one, name) is not None
+
+
+def snapshot_panel(name: str, *, key: str, compact: bool = False,
+                   button_label: str = "↻ Refresh now", help: str | None = None):
+    """Last-run badge + refresh button for one snapshot. Returns (meta, payload).
+
+    Consumes a finished refresh job for this snapshot (toast / error) so the
+    outcome is shown exactly once, then reads the newest stored run.
+    """
+    spec = snapreg.SNAPSHOTS[name]
+    label = _snapshot_job_label(name)
+    q = ui_jobs.get_queue()
+    done = q.take_result(label)
+    if done is not None:
+        if done.status == "error":
+            st.error(f"{spec.label}: refresh failed — {done.error}")
+        elif done.result is not None and not done.result.ok:
+            st.error(f"{spec.label}: refresh failed — {done.result.error}")
+        else:
+            st.toast(f"✅ {spec.label} refreshed")
+            if name == "sentiment":
+                cached_latest_sentiment.clear()
+
+    meta, payload = snapshot_get(name)
+    running = q.is_active(label)
+    last_meta = snapstore.latest_meta(name)          # may be an error row
+    c1, c2 = st.columns([1, 4] if not compact else [1, 3])
+    with c1:
+        if st.button(button_label, key=f"{key}_snap_refresh", use_container_width=True,
+                     disabled=running,
+                     help=help or f"Recompute {spec.label} now (runs in the "
+                                  f"background; the page stays live)."):
+            snapshot_refresh(name)
+            st.rerun()
+    with c2:
+        bits = []
+        if running:
+            bits.append("⏳ refreshing in the background…")
+        if meta is None:
+            bits.append("**No stored run yet** — press ↻ or wait for the scheduled "
+                        "Report Snapshot Refresh (Scheduler Hub).")
+        else:
+            when = meta.run_at_dt.strftime("%d %b %Y %H:%M")
+            stale = snapstore.is_stale(meta)
+            bits.append(f"Last run **{when}**" + (" · ⚠ older than the last close"
+                                                  if stale else "") +
+                        (f" · {meta.elapsed:.0f}s" if meta.elapsed >= 1 else ""))
+        if last_meta is not None and last_meta.error and (
+                meta is None or last_meta.run_at >= meta.run_at):
+            bits.append(f"⚠ last attempt failed: {last_meta.error}")
+        st.caption(" · ".join(bits))
+    return meta, payload
+
+
+@st.cache_resource(show_spinner=False)
+def _snapshot_startup_fill() -> list[str]:
+    """Once per process: recompute, in a daemon thread, every snapshot whose
+    stored run is older than the last close. Non-blocking; Home still opens
+    instantly and shows whatever is stored until the thread lands."""
+    import threading
+    if (db.get_setting("snapshot_startup_fill", "1") or "1") != "1":
+        return []
+    names = [s.name for s in snapreg.ordered()
+             if snapstore.is_stale(snapstore.latest_meta(s.name, ok_only=True))]
+    if names:
+        threading.Thread(target=snapreg.run_all, args=(names,),
+                         name="snapshot-startup-fill", daemon=True).start()
+    return names
+
+
+try:
+    _snapshot_startup_fill()
+except Exception:                                    # noqa: BLE001 — never block the app
+    pass
+
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -4640,18 +4739,16 @@ def _money_flow_window(key_prefix: str, *, compact: bool = False):
 
     if compact:
         st.markdown("#### 💸 Sector money flow · positive today")
-        if not st.session_state.get(f"{key_prefix}_ran", False):
-            if st.button("Run sector money-flow scan", key=f"{key_prefix}_run",
-                         type="primary"):
-                st.session_state[f"{key_prefix}_ran"] = True
-                st.rerun()
-            st.caption("Not run yet — Home never fetches on load.")
-            return
     else:
         st.markdown("#### 💸 Sector money flow · Chaikin Money Flow")
 
-    with st.spinner("Computing sector money flow…"):
-        grid = _sector_money_flow()
+    # Stored snapshot (scheduled refresh / ↻). Home shows the last run on load
+    # and never computes here — the refresh is a background job.
+    _mf_meta, grid = snapshot_panel("sector_money_flow", key=key_prefix,
+                                    compact=compact)
+    if grid is None:
+        st.info("No stored money-flow run yet — press ↻ to compute it in the background.")
+        return
     if grid.get("error"):
         st.warning(f"Sector money flow unavailable: {grid['error']}")
         return
@@ -5079,8 +5176,10 @@ def _turnover_share_window(key_prefix: str = "tsh_page"):
     """Render the sector turnover-share rotation grid."""
     st.markdown("#### 🔄 Sector rotation · share of market turnover")
 
-    with st.spinner("Computing turnover share…"):
-        grid = _sector_turnover_share()
+    _ts_meta, grid = snapshot_panel("sector_turnover_share", key=key_prefix)
+    if grid is None:
+        st.info("No stored turnover-share run yet — press ↻ to compute it in the background.")
+        return
     if grid.get("error"):
         st.warning(f"Turnover share unavailable: {grid['error']}")
         return
@@ -5135,8 +5234,8 @@ def _turnover_share_window(key_prefix: str = "tsh_page"):
 # move in either direction. The knobs are exposed because the reference scan's
 # 2x/5% are conventions, not measured thresholds.
 #
-# Home must stay cheap to open, so the scan runs only when asked: the button
-# flips a session flag, the cached result is reused for 30 minutes after that.
+# Home must stay cheap to open, so nothing is fetched here: the window reads the
+# STORED volume-shockers snapshot and only ↻ (a background job) recomputes it.
 # ──────────────────────────────────────────────────────────────────────────────
 
 @st.cache_data(ttl=900, show_spinner=False)
@@ -5159,6 +5258,25 @@ def _darvas_volume(top_n: int, vol_mult: float, move_pct: float, min_turnover_cr
     _r.setdefault("trade_date", None)
     if not _r.get("trade_date"):
         _r["trade_date"] = _trend_bhav()[1]
+    return _r
+
+
+@st.cache_data(ttl=1800, show_spinner=False)
+def _darvas_from_snapshot(run_at: str, top_n: int, vol_mult: float, move_pct: float,
+                          min_turnover_cr: float):
+    """The Darvas scan at non-default thresholds, off the STORED bhavcopy frame
+    (`run_at` keys the cache to the snapshot, so a refresh recomputes)."""
+    import trending_stocks as _ts
+    _, payload = snapstore.load_latest("volume_shockers")
+    bhav = None if payload is None else payload.get("bhav")
+    if bhav is None:
+        return {"error": "no stored bhavcopy frame", "rows": None}
+    _r = _ts.darvas_volume_shockers(
+        bhav, top_n=top_n, vol_mult=vol_mult, move_pct=move_pct,
+        min_turnover=float(min_turnover_cr) * 1e7)
+    _r.setdefault("trade_date", None)
+    if not _r.get("trade_date"):
+        _r["trade_date"] = payload.get("bhav_date")
     return _r
 
 
@@ -5222,7 +5340,9 @@ def _darvas_rows_table(df, key_prefix: str):
 def _darvas_window(key_prefix: str, *, compact: bool = False):
     """Render the Volume Shockers (Darvas) window.
 
-    `compact` is the Home mounting: no sliders, scan runs on click only.
+    `compact` is the Home mounting: no sliders, the stored snapshot at the
+    default thresholds. Both mountings read the persisted snapshot; ↻ queues a
+    background recompute (see snapshot_panel).
     """
     st.markdown("#### 📊 Volume Shockers · Darvas")
     st.caption(
@@ -5235,40 +5355,17 @@ def _darvas_window(key_prefix: str, *, compact: bool = False):
     # thousand shares (SURYALA: 3,061). The floor defaults to 0 here for parity —
     # raise it when you want a list you can actually take size in.
 
-    def _refresh():
-        """Drop the cached bhavcopy AND the cached scan, then re-run.
-
-        Both, not just the scan: the scan is a pure function of the bhavcopy, so
-        clearing it alone would recompute the same numbers off the same cached
-        frame and look broken during the hour after the close, which is exactly
-        when a refresh is worth pressing.
-        """
-        _trend_bhav.clear()
-        _darvas_volume.clear()
-        st.session_state[f"{key_prefix}_refreshed"] = datetime.now().strftime("%H:%M:%S")
-        st.rerun()
+    # The scan reads the STORED volume-shockers snapshot: the bhavcopy frame
+    # plus the default-threshold result. Default sliders → the stored result,
+    # no compute; any other setting re-runs the scan off the stored bhavcopy.
+    _vs_meta, _vs_payload = snapshot_panel("volume_shockers", key=key_prefix,
+                                           compact=compact)
+    if _vs_payload is None:
+        st.info("No stored volume-shocker run yet — press ↻ to scan in the background.")
+        return
 
     if compact:
         _top, _mult, _move, _minto = 60, 2.0, 5.0, 0.0
-        _go = st.session_state.get(f"{key_prefix}_ran", False)
-        if not _go:
-            if st.button("Run volume shocker scan", key=f"{key_prefix}_run",
-                         type="primary"):
-                st.session_state[f"{key_prefix}_ran"] = True
-                st.rerun()
-            st.caption("Not run yet — Home never fetches on load.")
-            return
-        _rc1, _rc2 = st.columns([1, 4])
-        with _rc1:
-            if st.button("↻ Refresh", key=f"{key_prefix}_refresh",
-                         use_container_width=True,
-                         help="Re-download the bhavcopy and re-run the scan. "
-                              "Results are cached for 30 minutes otherwise."):
-                _refresh()
-        with _rc2:
-            _last = st.session_state.get(f"{key_prefix}_refreshed")
-            st.caption(f"Refreshed at **{_last}**." if _last else
-                       "Cached for 30 minutes — press ↻ for a fresh pull.")
     else:
         _c1, _c2, _c3, _c4 = st.columns(4)
         with _c1:
@@ -5290,20 +5387,15 @@ def _darvas_window(key_prefix: str, *, compact: bool = False):
                                           "(it applies none). Raise it to drop names "
                                           "whose 5% move is arithmetic on 3,000 shares.")
 
-    if not compact:
-        _rc1, _rc2 = st.columns([1, 4])
-        with _rc1:
-            if st.button("↻ Refresh", key=f"{key_prefix}_refresh",
-                         use_container_width=True,
-                         help="Re-download the bhavcopy and re-run the scan."):
-                _refresh()
-        with _rc2:
-            _last = st.session_state.get(f"{key_prefix}_refreshed")
-            st.caption(f"Refreshed at **{_last}**." if _last else
-                       "Cached for 30 minutes — press ↻ for a fresh pull.")
-
-    with st.spinner("Scanning the bhavcopy, then 10-day volume history…"):
-        _res = _darvas_volume(int(_top), float(_mult), float(_move), float(_minto))
+    _dp = _vs_payload.get("default_params") or {}
+    if (int(_top), float(_mult), float(_move), float(_minto)) == (
+            _dp.get("top_n"), _dp.get("vol_mult"), _dp.get("move_pct"),
+            _dp.get("min_turnover_cr")):
+        _res = _vs_payload["default"]
+    else:
+        with st.spinner("Re-scanning the stored bhavcopy at these thresholds…"):
+            _res = _darvas_from_snapshot(_vs_meta.run_at, int(_top), float(_mult),
+                                         float(_move), float(_minto))
 
     if _res.get("error"):
         st.warning(f"Scan unavailable: {_res['error']}")
@@ -5629,7 +5721,15 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
                "**Attention lists, not signals** — a move or a spike is a *question* "
                "(\"why did this happen?\"), not a position.")
 
-    _tr_bhav, _tr_date = _trend_bhav()
+    # Stored snapshot first (scheduled / ↻): at the page defaults every lens
+    # reads the stored run and nothing is fetched. Move a slider and that lens
+    # computes live, exactly as before.
+    _tr_meta, _tr_snap = snapshot_panel("trending", key=key_prefix)
+    _TR_DEFAULTS = (15, 200, 5.0)
+    if _tr_snap is not None:
+        _tr_bhav, _tr_date = True, _tr_snap.get("bhav_date")
+    else:
+        _tr_bhav, _tr_date = _trend_bhav()
     if _tr_bhav is None:
         st.error("No NSE bhavcopy reachable — markets may be closed or the feed is down.")
     else:
@@ -5647,7 +5747,25 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
                                         help="Without a floor the movers list is almost "
                                              "entirely penny stocks: a ₹3 share moving "
                                              "19% is arithmetic, not information.")
-        st.caption(f"Session **{_tr_date or '—'}** · {len(_tr_bhav):,} EQ rows")
+        _at_defaults = (_tr_snap is not None
+                        and (int(_tr_top), int(_tr_uni), float(_tr_minto)) == _TR_DEFAULTS)
+        st.caption(f"Session **{_tr_date or '—'}**"
+                   + (" · stored snapshot" if _at_defaults else
+                      " · live compute (sliders off default)" if _tr_snap is not None
+                      else f" · {len(_tr_bhav):,} EQ rows"))
+
+        def _lens_movers():
+            return (_tr_snap["movers"] if _at_defaults
+                    else _trend_movers(_tr_top, float(_tr_minto) * 1e7))
+
+        def _lens_volume():
+            if _at_defaults and _tr_snap.get("volume") is not None:
+                return _tr_snap["volume"]
+            return _trend_volume(_tr_top)
+
+        def _lens_extremes():
+            return (_tr_snap["extremes"] if _at_defaults
+                    else _trend_extremes(_tr_uni, _tr_top, 2.0))
 
         # The Volume Shockers tab is dropped on Home, where `_darvas_window` is
         # already rendered above this section — the same lens twice on one screen
@@ -5697,7 +5815,7 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
             st.dataframe(out, width="stretch", hide_index=True, column_config=colcfg)
 
         with _t_mv:
-            _mv = _trend_movers(_tr_top, float(_tr_minto) * 1e7)
+            _mv = _lens_movers()
             st.caption(f"**{_mv['n_filtered']:,}** of {_mv['n_universe']:,} names clear "
                        f"the ₹{_tr_minto:.0f} Cr turnover floor.")
             # Three disclosures, all of which were missing when the list was
@@ -5733,7 +5851,7 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
 
         def _render_anomaly_spikes():
             with st.spinner("Attributing volume spikes to a cause…"):
-                _vol = _trend_volume(_tr_top)
+                _vol = _lens_volume()
             if _vol.get("error"):
                 st.warning(f"Volume scan unavailable: {_vol['error']}")
             else:
@@ -5823,7 +5941,7 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
         _ext = None
         with _t_52:
             with st.spinner(f"Computing 52-week extremes over the top {_tr_uni} names…"):
-                _ext = _trend_extremes(_tr_uni, _tr_top, 2.0)
+                _ext = _lens_extremes()
             _w = _ext["week52"]
             st.caption(f"{_w['n_scanned']} of the top {_ext['universe_n']} by turnover, "
                        f"within {_w['near_pct']}% of the extreme"
@@ -5836,7 +5954,7 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
 
         with _t_ath:
             with st.spinner(f"Computing all-time extremes over the top {_tr_uni} names…"):
-                _ext = _ext or _trend_extremes(_tr_uni, _tr_top, 2.0)
+                _ext = _ext or _lens_extremes()
             _a = _ext["alltime"]
             st.caption(f"{_a['n_scanned']} of the top {_ext['universe_n']} by turnover, "
                        f"within {_a['near_pct']}% of the extreme"
@@ -6247,6 +6365,10 @@ if current_page == "Home":
     # minutes-long wait on the landing page.
     st.markdown("#### 📈 What moved today")
     _tr_key = "home_trending_open"
+    if _tr_key not in st.session_state:
+        # Open by default when a stored run exists — showing a snapshot costs
+        # no fetch, which is the only thing Home ever refused to do on load.
+        st.session_state[_tr_key] = snapstore.latest_meta("trending", ok_only=True) is not None
     if not st.session_state.get(_tr_key):
         _tc_a, _tc_b = st.columns([1, 4])
         with _tc_a:
@@ -7272,8 +7394,6 @@ if current_page == "Alerts":
         if dc2.button("Delete"):
             db.delete_alert(del_id)
             st.success(f"Deleted alert #{del_id}.")
-
-
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -9466,17 +9586,21 @@ if current_page == "Sector Map":
     _turnover_share_window("tsh_page")
     st.divider()
 
-    if st.button("Fetch / Refresh Sector Data", type="primary"):
-        cached_fetch_sector_data.clear()
-        with st.spinner("Fetching sector index data from yfinance…"):
-            st.session_state["sector_data"] = cached_fetch_sector_data()
+    # Sector index frames come from the stored snapshot (yfinance, 2y daily,
+    # written by the scheduled refresh or the ↻ button) — the page opens with
+    # the last run instead of an empty prompt.
+    st.markdown("#### Sector index data")
+    _sd_meta, _sd_payload = snapshot_panel("sector_index_data", key="sm_sector",
+                                           button_label="↻ Refresh sector data")
 
-    if "sector_data" not in st.session_state:
-        st.info("Click **Fetch / Refresh Sector Data** to load live sector index data.")
+    if _sd_payload is None:
+        st.info("No sector index snapshot stored yet — press **↻ Refresh sector "
+                "data** to fetch it now (runs in the background).")
     else:
-        sector_data: dict = st.session_state["sector_data"]
+        sector_data: dict = _sd_payload.get("sector_data") or {}
+        _sd_bench = _sd_payload.get("benchmark")
         if not sector_data:
-            st.warning("No sector index data could be fetched — check your internet connection.")
+            st.warning("The stored snapshot holds no sector index data — refresh it.")
         else:
             # ── Row 1: heatmap + rotation quadrant ────────────────────────────
             hm_col, rq_col = st.columns(2)
@@ -9660,7 +9784,7 @@ if current_page == "Sector Map":
                 rrg_window = st.slider("Z-score window", 8, 30, rrg_mod.DEFAULT_WINDOW,
                                        key="sm_rrg_window")
 
-            rrg_bench = cached_fetch_benchmark()
+            rrg_bench = _sd_bench if _sd_bench is not None else cached_fetch_benchmark()
             rrg_res = rrg_mod.compute(
                 sector_data, SECTOR_DISPLAY_NAMES, rrg_bench,
                 freq="W" if rrg_freq == "Weekly" else "D",
@@ -10458,7 +10582,11 @@ if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chart
     tv_min_tv  = tv_c3.number_input("Min Turnover ₹ (Cr)", 0.0, 500.0, 1.0, step=0.5,
                                     key="tv_min_tv", help="Traded turnover today")
 
-    if st.button("🔄 Refresh TradingView scan", type="primary", key="tv_refresh"):
+    # Stored snapshot at the default thresholds; the button below runs the scan
+    # live at whatever thresholds are set and shows that until the next rerun.
+    _tv_meta, _tv_snap = snapshot_panel("tv_scan", key="tv",
+                                        button_label="↻ Refresh (defaults)")
+    if st.button("Run scan at these thresholds", key="tv_refresh"):
         with st.spinner("Fetching TradingView scan…"):
             df_tv = tvs.fetch_brkoutgeek(
                 min_chg=tv_min_chg,
@@ -10468,8 +10596,13 @@ if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chart
             st.session_state["tv_scan_df"] = df_tv
 
     df_tv = st.session_state.get("tv_scan_df")
+    if df_tv is None and _tv_snap is not None:
+        df_tv = _tv_snap.get("df")
+        _tvp = _tv_snap.get("params") or {}
+        st.caption(f"Stored scan at min chg {_tvp.get('min_chg')}% · rel vol "
+                   f"{_tvp.get('min_rel_vol')} · turnover ₹{_tvp.get('min_tv_cr')} Cr.")
     if df_tv is None:
-        st.info("Click **Refresh** to run the scan.")
+        st.info("No stored scan yet — press ↻ or run it at your thresholds.")
     elif df_tv.empty:
         st.warning("No hits at these thresholds.")
     else:
@@ -10548,22 +10681,13 @@ if current_page == "Market Sentiment":
         icon="⚠️",
     )
 
-    col_run, col_peek = st.columns([1, 3])
-    with col_run:
-        run_now = st.button("Refresh Sentiment", type="primary", key="senti_run")
+    # The reading is computed by the sentiment snapshot job (scheduled / ↻) and
+    # persisted by sentiment_index itself; this page only ever READS the newest
+    # persisted row. The panel busts the overview ribbon's cache on completion.
+    snapshot_panel("sentiment", key="senti", button_label="↻ Refresh sentiment")
 
     reading = None
-    if run_now:
-        with st.spinner("Computing sentiment…"):
-            try:
-                reading = senti.compute_sentiment(persist=True)
-                # The overview ribbon reads this through a 5-minute cache. Without
-                # an explicit bust, refreshing here leaves the verdict above still
-                # flagging a stale reading that no longer exists.
-                cached_latest_sentiment.clear()
-            except Exception as e:
-                st.error(f"Sentiment compute failed: {e}")
-    else:
+    if True:
         # Show today's persisted reading if it exists, otherwise the newest row.
         try:
             hist = senti.history(days=1)
@@ -10583,26 +10707,22 @@ if current_page == "Market Sentiment":
     # ABOVE the composite because it answers the prior question: the index score
     # says how the tape feels, this says whether you are allowed to trade at all.
     st.markdown(rs.section("Filter A — market health gate"), unsafe_allow_html=True)
-    _mh_head_l, _mh_head_r = st.columns([3, 1])
-    with _mh_head_r:
-        if st.button("Run basket checks", key="mh_basket_run", use_container_width=True,
-                     help=f"Fetches {MH_BASKET_SIZE} liquid names to measure "
-                          f"'breakouts working' and 'leaders strong'. Takes ~30-60s; "
-                          f"cached 30 min."):
-            st.session_state["mh_basket_on"] = True
+    _mh_meta, _mh_snap = snapshot_panel(
+        "market_health", key="mh_basket", button_label="↻ Refresh basket",
+        help=f"Fetches {MH_BASKET_SIZE} liquid names to measure 'breakouts working' "
+             f"and 'leaders strong', plus NIFTY / VIX. ~30-60s, in the background.")
 
     _mh_frames = _mh_requested = None
-    if st.session_state.get("mh_basket_on"):
-        with st.spinner(f"Fetching {MH_BASKET_SIZE} names for the basket conditions…"):
-            try:
-                _mh_frames, _mh_requested = cached_health_basket(MH_BASKET_SIZE)
-            except Exception as _e:
-                st.warning(f"Basket fetch failed — the two stock-level conditions "
-                           f"stay unmeasured. ({_e})")
-    try:
-        _mh_nifty, _mh_vix = cached_health_indices()
-    except Exception:
-        _mh_nifty = _mh_vix = None
+    _mh_nifty = _mh_vix = None
+    if _mh_snap is not None:
+        _mh_frames = _mh_snap.get("basket_frames")
+        _mh_requested = _mh_snap.get("basket_requested")
+        _mh_nifty, _mh_vix = _mh_snap.get("nifty"), _mh_snap.get("vix")
+    if _mh_nifty is None:
+        try:
+            _mh_nifty, _mh_vix = cached_health_indices()
+        except Exception:
+            _mh_nifty = _mh_vix = None
 
     _gate = mh.evaluate(nifty_df=_mh_nifty, vix_df=_mh_vix,
                         sentiment_reading=reading, basket_frames=_mh_frames,
@@ -10788,17 +10908,10 @@ if current_page == "Market Sentiment":
         "Scraped live from finviz.com — US breadth and signal tables. Adds "
         "risk-on/risk-off context to complement the NIFTY reading above."
     )
-    if st.button("🔄 Refresh Finviz snapshot", key="finviz_refresh"):
-        try:
-            import finviz_sentiment as fvz
-            with st.spinner("Fetching finviz data…"):
-                st.session_state["fvz_indices"] = fvz.fetch_index_snapshot()
-                st.session_state["fvz_breadth"] = fvz.fetch_breadth()
-        except Exception as e:
-            st.error(f"Finviz fetch failed: {e}")
-
-    fvz_idx = st.session_state.get("fvz_indices")
-    fvz_br  = st.session_state.get("fvz_breadth", {})
+    _fvz_meta, _fvz_snap = snapshot_panel("finviz", key="finviz",
+                                          button_label="↻ Refresh Finviz")
+    fvz_idx = None if _fvz_snap is None else _fvz_snap.get("indices")
+    fvz_br  = {} if _fvz_snap is None else (_fvz_snap.get("breadth") or {})
 
     if fvz_idx is not None and not fvz_idx.empty:
         # 4 index chips
@@ -10949,27 +11062,10 @@ if current_page == "Market Sentiment":
         "market outcomes in this repo."
     )
 
-    mb_col1, mb_col2 = st.columns([1, 3])
-    with mb_col1:
-        brief_go = st.button("Build brief", type="primary", key="brief_go")
-    with mb_col2:
-        want_breadth = st.checkbox(
-            "Include sector breadth (500 constituents, ~6s)",
-            value=True, key="brief_breadth",
-        )
-
-    if brief_go:
-        import market_brief as mbrief
-        with st.spinner("Fetching global cues, breadth and panchang…"):
-            try:
-                st.session_state["brief_model"] = mbrief.build_brief(
-                    include_breadth=want_breadth,
-                    sentiment=reading,          # reuse THIS page's reading
-                )
-            except Exception as exc:
-                st.error(f"Brief build failed: {type(exc).__name__}: {exc}")
-
-    model = st.session_state.get("brief_model")
+    # Built by the market_brief snapshot (with sector breadth, on the persisted
+    # sentiment reading — the same row this page shows above).
+    _brief_meta, model = snapshot_panel("market_brief", key="brief",
+                                        button_label="↻ Rebuild brief")
     if model:
         import market_brief as mbrief
         pan = model.get("panchang")
@@ -11423,26 +11519,13 @@ if current_page == "India Market Intel":
 
     with intel_tabs[0]:
         min_val_bulk = st.slider("Highlight bulk deals above (₹ Lakh)", 5, 500, 50, step=5, key="imi_bulk_min")
-        if st.button("🔄 Refresh Bulk Deals", key="imi_bulk_refresh"):
-            with st.spinner("Fetching BSE + NSE bulk deals…"):
-                try:
-                    bse_bulk = imi.fetch_bse_bulk_deals()
-                    bse_bulk = imi.mark_new_rows(
-                        bse_bulk, "bse_bulk", ["DEAL_DATE", "SCRIP_CODE", "CLIENT_NAME", "QUANTITY", "PRICE"]
-                    ) if not bse_bulk.empty else bse_bulk
-                except Exception as exc:
-                    bse_bulk = pd.DataFrame()
-                    st.warning(f"BSE bulk deals fetch failed: {exc}")
-                try:
-                    nse_bulk = imi.fetch_nse_bulk_deals()
-                    nse_bulk = imi.mark_new_rows(
-                        nse_bulk, "nse_bulk", ["Date", "Symbol", "Client Name", "Quantity Traded"]
-                    ) if not nse_bulk.empty else nse_bulk
-                except Exception as exc:
-                    nse_bulk = pd.DataFrame()
-                    st.warning(f"NSE bulk deals fetch failed: {exc}")
-                st.session_state["imi_bulk_bse"] = bse_bulk
-                st.session_state["imi_bulk_nse"] = nse_bulk
+        _bulk_meta, _bulk_snap = snapshot_panel("bulk_deals", key="imi_bulk",
+                                                button_label="↻ Refresh bulk deals")
+        if _bulk_snap is not None:
+            st.session_state["imi_bulk_bse"] = _bulk_snap.get("bse", pd.DataFrame())
+            st.session_state["imi_bulk_nse"] = _bulk_snap.get("nse", pd.DataFrame())
+            for _ex, _err in (_bulk_snap.get("errors") or {}).items():
+                st.warning(f"{_ex.upper()} bulk deals fetch failed in the stored run: {_err}")
 
         st.markdown("**BSE**")
         _highlight_deals(st.session_state.get("imi_bulk_bse", pd.DataFrame()),
@@ -11453,26 +11536,13 @@ if current_page == "India Market Intel":
 
     with intel_tabs[1]:
         min_val_block = st.slider("Highlight block deals above (₹ Lakh)", 5, 2000, 100, step=25, key="imi_block_min")
-        if st.button("🔄 Refresh Block Deals", key="imi_block_refresh"):
-            with st.spinner("Fetching BSE + NSE block deals…"):
-                try:
-                    bse_block = imi.fetch_bse_block_deals()
-                    bse_block = imi.mark_new_rows(
-                        bse_block, "bse_block", ["DEAL_DATE", "SCRIP_CODE", "CLIENT_NAME", "QUANTITY", "PRICE"]
-                    ) if not bse_block.empty else bse_block
-                except Exception as exc:
-                    bse_block = pd.DataFrame()
-                    st.warning(f"BSE block deals fetch failed: {exc}")
-                try:
-                    nse_block = imi.fetch_nse_block_deals()
-                    nse_block = imi.mark_new_rows(
-                        nse_block, "nse_block", ["Date", "Symbol", "Client Name", "Quantity Traded"]
-                    ) if not nse_block.empty else nse_block
-                except Exception as exc:
-                    nse_block = pd.DataFrame()
-                    st.warning(f"NSE block deals fetch failed: {exc}")
-                st.session_state["imi_block_bse"] = bse_block
-                st.session_state["imi_block_nse"] = nse_block
+        _block_meta, _block_snap = snapshot_panel("block_deals", key="imi_block",
+                                                  button_label="↻ Refresh block deals")
+        if _block_snap is not None:
+            st.session_state["imi_block_bse"] = _block_snap.get("bse", pd.DataFrame())
+            st.session_state["imi_block_nse"] = _block_snap.get("nse", pd.DataFrame())
+            for _ex, _err in (_block_snap.get("errors") or {}).items():
+                st.warning(f"{_ex.upper()} block deals fetch failed in the stored run: {_err}")
 
         st.markdown("**BSE**")
         _highlight_deals(st.session_state.get("imi_block_bse", pd.DataFrame()),
@@ -11485,7 +11555,13 @@ if current_page == "India Market Intel":
         ins_col1, ins_col2 = st.columns(2)
         ins_from = ins_col1.date_input("From", value=date.today() - timedelta(days=7), key="imi_ins_from")
         ins_to = ins_col2.date_input("To", value=date.today(), key="imi_ins_to")
-        if st.button("🔄 Refresh Insider Trading", key="imi_ins_refresh"):
+        _ins_meta, _ins_snap = snapshot_panel("insider_trading", key="imi_ins",
+                                              button_label="↻ Refresh (last 7 days)")
+        if _ins_snap is not None and "imi_insider" not in st.session_state:
+            st.session_state["imi_insider"] = _ins_snap.get("df")
+            st.caption(f"Stored range {_ins_snap.get('from')} → {_ins_snap.get('to')}; "
+                       "pick other dates and fetch to override for this session.")
+        if st.button("Fetch this date range", key="imi_ins_refresh"):
             with st.spinner("Fetching BSE insider trading (SEBI PIT disclosures)…"):
                 try:
                     ins_df = imi.fetch_bse_insider_trading(
@@ -11502,7 +11578,7 @@ if current_page == "India Market Intel":
 
         ins_results = st.session_state.get("imi_insider")
         if ins_results is None:
-            st.info("Pick a date range and click **Refresh Insider Trading**.")
+            st.info("No stored run yet — press ↻, or pick a date range and fetch it.")
         elif ins_results.empty:
             st.info("No insider trading disclosures in this date range.")
         else:
@@ -11576,47 +11652,30 @@ if current_page == "India Market Intel":
         gv_gap_pct = gv_col2.slider("Min gap %", 1.0, 15.0, 3.0, step=0.5, key="imi_gv_gap")
         gv_vol_mult = gv_col3.slider("Min volume × 20d avg", 1.0, 10.0, 2.0, step=0.5, key="imi_gv_vol")
 
-        if st.button("🔄 Run Gap & Volume Scan", type="primary", key="imi_gv_run"):
+        _gv_meta, _gv_snap = snapshot_panel("gap_volume", key="imi_gv",
+                                            button_label="↻ Refresh (defaults)")
+        if st.button("Run scan at these thresholds", type="primary", key="imi_gv_run"):
             with st.spinner("Loading market universe…"):
                 try:
                     gv_universe = cached_fetch_bhavcopy_universe(gv_top_n)
                 except Exception as exc:
                     gv_universe = []
                     st.error(f"Bhavcopy fetch failed: {exc}")
-
-            gv_hits = []
             with st.spinner(f"Scanning {len(gv_universe)} symbols for gaps/volume…"):
-                for sym in gv_universe:
-                    try:
-                        df_gv = cached_fetch_ohlcv(f"{sym}.NS", days=40)
-                    except Exception:
-                        continue
-                    if df_gv is None or len(df_gv) < 21:
-                        continue
-                    close_col = "close" if "close" in df_gv.columns else "Close"
-                    open_col = "open" if "open" in df_gv.columns else "Open"
-                    vol_col = "volume" if "volume" in df_gv.columns else "Volume"
-                    prev_close = float(df_gv[close_col].iloc[-2])
-                    today_open = float(df_gv[open_col].iloc[-1])
-                    if prev_close <= 0:
-                        continue
-                    gap_pct = (today_open - prev_close) / prev_close * 100
-                    vol_avg20 = float(df_gv[vol_col].iloc[-21:-1].mean())
-                    vol_today = float(df_gv[vol_col].iloc[-1])
-                    vol_ratio = vol_today / vol_avg20 if vol_avg20 > 0 else 0
-                    if abs(gap_pct) >= gv_gap_pct or vol_ratio >= gv_vol_mult:
-                        gv_hits.append({
-                            "Symbol": sym, "Gap %": round(gap_pct, 2),
-                            "Vol × 20d Avg": round(vol_ratio, 2),
-                            "Close": round(float(df_gv[close_col].iloc[-1]), 2),
-                        })
-            st.session_state["imi_gv_results"] = sorted(
-                gv_hits, key=lambda h: abs(h["Gap %"]) + h["Vol × 20d Avg"], reverse=True
-            )
+                # One scan, shared with the headless snapshot job.
+                st.session_state["imi_gv_results"] = snapreg.gap_volume_scan(
+                    gv_universe, cached_fetch_ohlcv,
+                    gap_pct=gv_gap_pct, vol_mult=gv_vol_mult)
 
         gv_results = st.session_state.get("imi_gv_results")
+        if gv_results is None and _gv_snap is not None:
+            gv_results = _gv_snap.get("hits")
+            _gvp = _gv_snap.get("params") or {}
+            st.caption(f"Stored scan: top {_gvp.get('top_n')} by traded value · "
+                       f"gap ≥ {_gvp.get('gap_pct')}% or volume ≥ {_gvp.get('vol_mult')}× "
+                       f"20d avg · {_gv_snap.get('universe_n', 0)} names.")
         if gv_results is None:
-            st.info("Click **Run Gap & Volume Scan**.")
+            st.info("No stored scan yet — press ↻ or run it at your thresholds.")
         elif not gv_results:
             st.info("No stocks met the gap/volume thresholds — try loosening them.")
         else:
