@@ -545,6 +545,21 @@ html, body {
 /* Collapsed sub-plot: only its label strip stays, so the reader can park an
    oscillator without losing it from the chart (and from the saved config). */
 .sub-pane.collapsed, .sub-panes.user-sized > .sub-pane.collapsed { height: 20px !important; min-height: 20px; flex: 0 0 20px !important; }
+/* Drag handle on the top edge of every sub-plot after the first: moves height
+   between it and the sub-plot above. In the automatic layout it sets both
+   sub-plots' pixel heights; in the user-sized stack the same numbers act as
+   flex weights, so the stack total stays where the main splitter put it.
+   Double-click resets the pair. Persisted per pane (subSizes). */
+.sub-pane-handle {
+  position: absolute; top: 0; left: 0; right: 0; height: 6px; z-index: 12;
+  cursor: row-resize; touch-action: none; user-select: none;
+}
+.sub-pane-handle::after {
+  content: ''; position: absolute; left: 50%; top: 1px; width: 28px; height: 2px;
+  margin-left: -14px; border-radius: 2px; background: var(--border); opacity: 0; transition: opacity .12s;
+}
+.sub-pane-handle:hover::after, .sub-pane-handle.dragging::after { opacity: 1; background: var(--accent); }
+.sub-pane:first-child > .sub-pane-handle, .sub-pane.collapsed > .sub-pane-handle { display: none; }
 .sub-pane.collapsed > .tv-lightweight-charts, .sub-pane.collapsed > canvas { display: none; }
 /* Per-sub-plot controls (collapse / remove), top-right, faded until hovered. */
 .sub-pane-ctl {
@@ -2280,7 +2295,7 @@ function saveCount(n)  { localStorage.setItem(LS_COUNT, String(n)); }
 function loadPaneCfg() { try { return JSON.parse(localStorage.getItem(LS_PANES)||'{}'); } catch { return {}; } }
 function savePaneCfg() {
   const c = {};
-  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...p.indicators], rangePreset:p.rangePreset, chartType:p.chartType, cardMode:p.cardMode, subStackH:p.subStackH || null, collapsedSubs:[...(p.collapsedSubs || [])]}; });
+  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...p.indicators], rangePreset:p.rangePreset, chartType:p.chartType, cardMode:p.cardMode, subStackH:p.subStackH || null, collapsedSubs:[...(p.collapsedSubs || [])], subSizes:p.subSizes || {}}; });
   localStorage.setItem(LS_PANES, JSON.stringify(c));
 }
 
@@ -2411,7 +2426,7 @@ function buildGrid(count) {
     const cfg  = saved[i] || {};
     const sym  = cfg.symbol || def.symbol;
     const tf   = cfg.tf     || def.tf;
-    const pane = makePane(i, sym, tf, cfg.indicators || [], cfg.rangePreset, cfg.chartType, cfg.cardMode, cfg.subStackH, cfg.collapsedSubs);
+    const pane = makePane(i, sym, tf, cfg.indicators || [], cfg.rangePreset, cfg.chartType, cfg.cardMode, cfg.subStackH, cfg.collapsedSubs, cfg.subSizes);
     grid.appendChild(pane.el);
     panes.push(pane);
     // Stagger loads to avoid hammering the server
@@ -2420,7 +2435,7 @@ function buildGrid(count) {
 }
 
 // ── Pane factory ──────────────────────────────────────────────────────────────
-function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChartType, savedCardMode, savedSubStackH, savedCollapsedSubs) {
+function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChartType, savedCardMode, savedSubStackH, savedCollapsedSubs, savedSubSizes) {
   savedIndicators = savedIndicators || [];
   const chartType = savedChartType || 'candles';
   const el = document.createElement('div');
@@ -2635,6 +2650,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
     // Double-click → back to the automatic per-indicator heights.
     splitter.addEventListener('dblclick', () => {
       pane.subStackH = null;
+      pane.subSizes = {};
       applySubStack(pane);
       try { savePaneCfg(); } catch {}
     });
@@ -2651,6 +2667,8 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
                  // User-dragged height (px) of the sub-plot stack; null = automatic.
                  subStackH: (Number.isFinite(+savedSubStackH) && +savedSubStackH > 0) ? +savedSubStackH : null,
                  collapsedSubs: new Set(Array.isArray(savedCollapsedSubs) ? savedCollapsedSubs : []),
+                 // Per-sub-plot size (px, or flex weight once the stack is user-sized).
+                 subSizes: (savedSubSizes && typeof savedSubSizes === 'object') ? Object.assign({}, savedSubSizes) : {},
                  indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas, projCanvas,
                  fibCanvas, obCanvas, prteCanvas,
                  drawCanvas, drawTools,
@@ -4767,6 +4785,7 @@ function addSubPane(pane, key, labelText, height) {
   // most oscillators, but full-range ones like %R need more vertical room
   // to be readable. CSS flex-shrink still applies when space is tight.
   if (height) el.style.height = height + 'px';
+  el.dataset.defH = height ? height + 'px' : '';
   el.dataset.key = key;
   container.appendChild(el);
 
@@ -4790,6 +4809,51 @@ function addSubPane(pane, key, labelText, height) {
   ctl.appendChild(collapseBtn);
   ctl.appendChild(closeBtn);
   el.appendChild(ctl);
+
+  // Drag handle on the top edge — resizes this sub-plot against the one above.
+  const handle = document.createElement('div');
+  handle.className = 'sub-pane-handle';
+  handle.title = 'Drag to resize against the sub-plot above · double-click to reset';
+  el.appendChild(handle);
+  let hdrag = null;
+  handle.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+    const prev = el.previousElementSibling;
+    if (!prev || !prev.classList.contains('sub-pane') || prev.classList.contains('collapsed')) return;
+    // Freeze every sibling at its current size first, so only the pair moves.
+    if (!pane.subSizes) pane.subSizes = {};
+    Array.from(container.children).forEach(c => {
+      if (c.dataset.key && !c.classList.contains('collapsed')) pane.subSizes[c.dataset.key] = Math.round(c.getBoundingClientRect().height);
+    });
+    hdrag = { y0: ev.clientY, hA: prev.getBoundingClientRect().height, hB: el.getBoundingClientRect().height, prevKey: prev.dataset.key };
+    handle.classList.add('dragging');
+    try { handle.setPointerCapture(ev.pointerId); } catch {}
+    ev.preventDefault(); ev.stopPropagation();
+  });
+  handle.addEventListener('pointermove', ev => {
+    if (!hdrag) return;
+    const MIN = 36;
+    const dy = Math.max(MIN - hdrag.hA, Math.min(hdrag.hB - MIN, ev.clientY - hdrag.y0));
+    pane.subSizes[hdrag.prevKey] = Math.round(hdrag.hA + dy);
+    pane.subSizes[key] = Math.round(hdrag.hB - dy);
+    applySubStack(pane);
+  });
+  const endHdrag = () => {
+    if (!hdrag) return;
+    hdrag = null;
+    handle.classList.remove('dragging');
+    try { savePaneCfg(); } catch {}
+  };
+  handle.addEventListener('pointerup', endHdrag);
+  handle.addEventListener('pointercancel', endHdrag);
+  handle.addEventListener('lostpointercapture', endHdrag);
+  handle.addEventListener('dblclick', ev => {
+    ev.stopPropagation();
+    const prev = el.previousElementSibling;
+    if (pane.subSizes) { delete pane.subSizes[key]; if (prev && prev.dataset.key) delete pane.subSizes[prev.dataset.key]; }
+    applySubStack(pane);
+    try { savePaneCfg(); } catch {}
+  });
   const syncCollapseBtn = () => {
     const c = pane.collapsedSubs && pane.collapsedSubs.has(key);
     el.classList.toggle('collapsed', !!c);
@@ -4855,13 +4919,34 @@ function applySubStack(pane) {
   if (!stack) return;
   const n = stack.children.length;
   if (splitter) splitter.hidden = n === 0;
-  if (pane.subStackH && n) {
+  const userSized = !!(pane.subStackH && n);
+  if (userSized) {
     stack.classList.add('user-sized');
     stack.style.height = pane.subStackH + 'px';
   } else {
     stack.classList.remove('user-sized');
     stack.style.height = '';
   }
+  const sizes = pane.subSizes || {};
+  // In the user-sized stack an unsized sub-plot takes the average weight of the
+  // sized ones, so a reset pair sits at a normal height beside its siblings
+  // instead of at flex-grow 1 next to weights in the hundreds.
+  const sizedVals = Array.from(stack.children).map(c => sizes[c.dataset.key]).filter(v => v > 0);
+  const avgW = sizedVals.length ? sizedVals.reduce((a, b) => a + b, 0) / sizedVals.length : 0;
+  Array.from(stack.children).forEach(c => {
+    const sz = sizes[c.dataset.key];
+    if (userSized) {
+      // Height is owned by the !important flex rule; the size is a weight.
+      c.style.height = '';
+      c.style.flexGrow = (sz > 0) ? String(sz) : (avgW ? String(Math.round(avgW)) : '');
+    } else {
+      c.style.flexGrow = '';
+      // A dragged px height replaces the indicator's default; leave the default alone otherwise.
+      if (sz > 0) { c.style.height = sz + 'px'; c.style.minHeight = '36px'; }
+      else if (c.dataset.userSized) { c.style.height = c.dataset.defH || ''; c.style.minHeight = ''; }
+      c.dataset.userSized = (sz > 0) ? '1' : '';
+    }
+  });
 }
 
 // Turn an indicator off from its sub-plot's × button — the same path as
@@ -4875,6 +4960,7 @@ function removeIndicatorByKey(pane, key) {
   drop.forEach(k => {
     pane.indicators.delete(k);
     if (pane.collapsedSubs) pane.collapsedSubs.delete(k);
+    if (pane.subSizes) delete pane.subSizes[k];
     const chk = pane.el.querySelector(`.ind-panel .ind-chk[data-key="${k}"]`);
     if (chk) chk.checked = false;
   });
