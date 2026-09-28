@@ -23,7 +23,19 @@
   'use strict';
 
   // Tools that need two anchor points before they are complete.
-  const TWO_POINT = new Set(['trend', 'rect', 'fib']);
+  const TWO_POINT = new Set(['trend', 'rect', 'fib', 'gannfan']);
+  // Gann fan: the drag sets the 1×1 line (p1 = anchor pivot, p2 = a point on
+  // the 1×1), which makes the scale — price units per bar, the free parameter
+  // gann.js refuses to guess — an explicit user choice. The other rays are
+  // fixed multiples of that slope. Drawing only: no odds are attached.
+  const GANN_RAYS = [
+    {k: 1 / 8, label: '1×8'}, {k: 1 / 4, label: '1×4'}, {k: 1 / 3, label: '1×3'},
+    {k: 1 / 2, label: '1×2'}, {k: 1, label: '1×1'},
+    {k: 2, label: '2×1'}, {k: 3, label: '3×1'}, {k: 4, label: '4×1'}, {k: 8, label: '8×1'},
+  ];
+  // Gann time cycles: calendar days from the anchor bar. Quarters and thirds
+  // of a year plus 144 (12²) — the set a Gann time chart usually carries.
+  const GANN_CYCLE_DAYS = [91, 121, 144, 182, 242, 274, 365];
 
   // Fibonacci retracement levels. 0 and 1 are the anchors themselves; the rest
   // are the retracements traders actually watch. 0.618 is the "golden pocket"
@@ -138,7 +150,7 @@
     if (x1 == null || y1 == null) return null;
     if (!TWO_POINT.has(d.type)) {
       // A horizontal ray has one anchor and runs to the right edge; the text
-      // note is anchored at its point.
+      // note is anchored at its point; a time-cycle set is anchored at its bar.
       return {x1: x1, y1: y1, x2: (d.type === 'hline' ? width : x1), y2: y1};
     }
     const x2 = adapter.toX(d.p2.t);
@@ -154,8 +166,11 @@
       const p = project(d, adapter, width);
       if (!p) continue;
       let hit = false;
-      if (d.type === 'trend' || d.type === 'hline') {
+      if (d.type === 'trend' || d.type === 'hline' || d.type === 'gannfan') {
+        // The fan is grabbed on its 1×1 segment (anchor → the dragged point).
         hit = _distToSegment(px, py, p.x1, p.y1, p.x2, p.y2) <= HIT_PX;
+      } else if (d.type === 'gcycle') {
+        hit = Math.abs(px - p.x1) <= HIT_PX;
       } else if (d.type === 'rect' || d.type === 'fib') {
         const lo = Math.min(p.x1, p.x2), hi = Math.max(p.x1, p.x2);
         const t = Math.min(p.y1, p.y2), b = Math.max(p.y1, p.y2);
@@ -188,6 +203,8 @@
     rect:  '#ab47bc',
     text:  '#eaeff7',
     fib:   '#26c6da',
+    gannfan: '#c9a227',
+    gcycle:  '#7e57c2',
   };
 
   function _color(d) { return d.color || DEFAULT_COLORS[d.type] || '#42a5f5'; }
@@ -280,6 +297,58 @@
         ctx.stroke();
         ctx.setLineDash([]);
         ctx.globalAlpha = 1;
+      } else if (d.type === 'gannfan') {
+        // Rays from the anchor. Slope of the 1×1 in px comes from the dragged
+        // point, so every ray is a pixel multiple of it and keeps its angle
+        // across zoom exactly as the underlying price-per-bar ratio implies.
+        const dx = p.x2 - p.x1;
+        if (Math.abs(dx) >= 1) {
+          const dir = dx > 0 ? 1 : -1;
+          const slope = (p.y2 - p.y1) / dx;                 // px per px on the 1×1
+          const xEnd = dir > 0 ? width : 0;
+          GANN_RAYS.forEach(r => {
+            const m = slope * r.k;
+            const yEnd = p.y1 + m * (xEnd - p.x1);
+            const main = r.k === 1;
+            ctx.globalAlpha = isPreview ? 0.7 : (main ? 1 : 0.55);
+            ctx.lineWidth = main ? 2 : 1;
+            ctx.beginPath();
+            ctx.moveTo(p.x1, p.y1);
+            ctx.lineTo(xEnd, yEnd);
+            ctx.stroke();
+            // Label where the ray leaves the pane (clamped to the pane's height).
+            const ly = Math.max(10, Math.min(height - 4, yEnd));
+            ctx.fillText(r.label, dir > 0 ? width - 26 : 4, ly);
+          });
+          ctx.globalAlpha = 1;
+          ctx.lineWidth = 1.5;
+          ctx.fillText('Gann fan · drawing only', p.x1 + 6, p.y1 - 6);
+        }
+      } else if (d.type === 'gcycle') {
+        // Verticals at calendar-day offsets from the anchor bar. The adapter
+        // may provide toXDate (a date → x that also extrapolates past the last
+        // bar); without it, only offsets that land on a bar are drawn.
+        ctx.setLineDash([3, 4]);
+        ctx.lineWidth = 1;
+        ctx.globalAlpha = isPreview ? 0.7 : 0.8;
+        ctx.beginPath();
+        ctx.moveTo(p.x1, 0);
+        ctx.lineTo(p.x1, height);
+        ctx.stroke();
+        ctx.fillText('T0', p.x1 + 3, 12);
+        GANN_CYCLE_DAYS.forEach(days => {
+          const t = d.p1.t + days * 86400;
+          const x = adapter.toXDate ? adapter.toXDate(t) : adapter.toX(t);
+          if (x == null || x < 0 || x > width) return;
+          ctx.beginPath();
+          ctx.moveTo(x, 0);
+          ctx.lineTo(x, height);
+          ctx.stroke();
+          ctx.fillText(`${days}d`, x + 3, 12);
+        });
+        ctx.setLineDash([]);
+        ctx.globalAlpha = 1;
+        ctx.fillText('Gann time cycles · drawing only', p.x1 + 3, height - 6);
       } else if (d.type === 'text') {
         ctx.fillStyle = opts.textColor || col;
         ctx.font = '12px system-ui, -apple-system, Segoe UI, sans-serif';
@@ -312,5 +381,6 @@
     make, isComplete, load, save, storageKey, snap,
     hitTest, project, render,
     TWO_POINT, FIB_LEVELS, DEFAULT_COLORS, MIN_DRAG_PX,
+    GANN_RAYS, GANN_CYCLE_DAYS,
   };
 })(window);
