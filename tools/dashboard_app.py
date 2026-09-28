@@ -3458,6 +3458,66 @@ def _volume_profile(df: pd.DataFrame, n_bins: int = 50):
 
 
 CHART_TOOL_PORT = 5001
+CHART_SERVER_LOG = Path(__file__).resolve().parent / "logs" / "chart_server.log"
+
+
+def _chart_server_up(timeout: float = 0.4) -> bool:
+    try:
+        socket.create_connection(("127.0.0.1", CHART_TOOL_PORT), timeout=timeout).close()
+        return True
+    except OSError:
+        return False
+
+
+@st.cache_resource(show_spinner=False)
+def _chart_server_autostart() -> str:
+    """Once per Streamlit process: bring up the Chart Tool (chart_server.py on
+    :5001) if nothing is listening there, so `streamlit run dashboard_app.py`
+    is the only command needed.
+
+    The child is detached (own process group / session), so Ctrl-C in the
+    Streamlit console does not take the chart down — the installed PWA on a
+    phone keeps working, and the next desk start finds it already up. Turn the
+    behaviour off with the `chart_server_autostart` setting = "0". Output goes
+    to tools/logs/chart_server.log; the probe warning in render_chart_tool
+    points there when the port stays closed (e.g. Flask not installed).
+    """
+    if _chart_server_up():
+        return "already running"
+    if (db.get_setting("chart_server_autostart", "1") or "1") != "1":
+        return "disabled"
+    import os
+    import subprocess
+    import time as _time
+    script = Path(__file__).resolve().parent / "chart_server.py"
+    if not script.is_file():
+        return "chart_server.py not found"
+    CHART_SERVER_LOG.parent.mkdir(parents=True, exist_ok=True)
+    log_fh = open(CHART_SERVER_LOG, "ab")                 # noqa: SIM115 — child owns it
+    kw: dict = {"stdout": log_fh, "stderr": subprocess.STDOUT, "stdin": subprocess.DEVNULL,
+                "cwd": str(script.parent)}
+    if os.name == "nt":
+        kw["creationflags"] = (subprocess.CREATE_NEW_PROCESS_GROUP
+                               | getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    else:
+        kw["start_new_session"] = True
+    try:
+        proc = subprocess.Popen([sys.executable, str(script)], **kw)
+    except Exception as e:                                # noqa: BLE001
+        return f"launch failed: {e}"
+    for _ in range(40):                                   # ≤ 8 s for Flask to bind
+        if _chart_server_up(0.2):
+            return f"started (pid {proc.pid})"
+        if proc.poll() is not None:
+            return f"exited with code {proc.returncode} — see {CHART_SERVER_LOG}"
+        _time.sleep(0.2)
+    return f"launched (pid {proc.pid}), port not open yet"
+
+
+try:
+    _chart_server_autostart()
+except Exception:                                         # noqa: BLE001 — never block the desk
+    pass
 
 
 def render_chart_tool(symbol: str, height: int = 620, caption: bool = True,
@@ -3470,13 +3530,12 @@ def render_chart_tool(symbol: str, height: int = 620, caption: bool = True,
     blank rectangle, so the page has to say what's wrong instead.
     """
     chart_sym = symbol if ("." in symbol or symbol.startswith("^")) else f"{symbol}.NS"
-    try:
-        socket.create_connection(("127.0.0.1", CHART_TOOL_PORT), timeout=0.4).close()
-    except OSError:
+    if not _chart_server_up():
+        _auto = _chart_server_autostart()
         st.warning(
-            f"Chart Tool server (port {CHART_TOOL_PORT}) is not running — start it "
-            "with `start.bat` (or `py tools/chart_server.py`) to embed the "
-            "annotated chart here."
+            f"Chart Tool server (port {CHART_TOOL_PORT}) is not running — the desk "
+            f"tried to start it on launch ({_auto}). Check `{CHART_SERVER_LOG}` "
+            "or start it by hand with `py tools/chart_server.py`."
         )
         return False
     st.iframe(
