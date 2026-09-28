@@ -15,6 +15,7 @@ all of them after the close.
 | `volume_shockers` | Home | Darvas volume shockers (bhavcopy + default-threshold result) |
 | `trending` | Home | price movers, volume shockers, 52-week / all-time extremes |
 | `institutional_volume` | Home | pocket-pivot bars with volume ≥ 5x the 50-day average, last 5 sessions (nifty500) |
+| `cpr_vp_scan` | Home | CPR × Volume Profile confluence over the top-turnover names (setups on the last bar; context, not a signal) |
 | `sentiment` | Market Sentiment | composite reading (also persisted by sentiment_index) |
 | `market_health` | Market Sentiment | NIFTY / VIX + 60-name basket for the health gate |
 | `finviz` | Market Sentiment | US index chips + breadth |
