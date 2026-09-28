@@ -574,6 +574,14 @@ html, body {
 }
 .sub-pane-btn:hover { border-color: var(--border); color: var(--text-primary); }
 .sub-pane-btn.danger:hover { border-color: #ef5350; color: #ef5350; }
+/* Reorder grip: drag it to move the sub-plot up or down the stack. */
+.sub-pane-btn.grip { cursor: grab; font-size: 11px; letter-spacing: -1px; }
+.sub-pane-btn.grip:active, .sub-pane.reordering .sub-pane-btn.grip { cursor: grabbing; }
+.sub-pane.reordering { opacity: .55; }
+.sub-pane.reordering .sub-pane-ctl { opacity: 1; }
+/* Insertion marker — a 2px accent line on the edge the drop would land on. */
+.sub-pane.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.sub-pane.drop-after  { box-shadow: inset 0 -2px 0 var(--accent); }
 /* ── Card dock — the info cards, stapled under the sub-plots ───────────────── */
 /* Every info card (FVG signal, Structure Break Chain, Session VP, PMax, the
    pattern panels, ...) lives in one of three places, chosen by the switch at the
@@ -2295,7 +2303,7 @@ function saveCount(n)  { localStorage.setItem(LS_COUNT, String(n)); }
 function loadPaneCfg() { try { return JSON.parse(localStorage.getItem(LS_PANES)||'{}'); } catch { return {}; } }
 function savePaneCfg() {
   const c = {};
-  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...p.indicators], rangePreset:p.rangePreset, chartType:p.chartType, cardMode:p.cardMode, subStackH:p.subStackH || null, collapsedSubs:[...(p.collapsedSubs || [])], subSizes:p.subSizes || {}}; });
+  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...p.indicators], rangePreset:p.rangePreset, chartType:p.chartType, cardMode:p.cardMode, subStackH:p.subStackH || null, collapsedSubs:[...(p.collapsedSubs || [])], subSizes:p.subSizes || {}, subOrder:p.subOrder || []}; });
   localStorage.setItem(LS_PANES, JSON.stringify(c));
 }
 
@@ -2426,7 +2434,7 @@ function buildGrid(count) {
     const cfg  = saved[i] || {};
     const sym  = cfg.symbol || def.symbol;
     const tf   = cfg.tf     || def.tf;
-    const pane = makePane(i, sym, tf, cfg.indicators || [], cfg.rangePreset, cfg.chartType, cfg.cardMode, cfg.subStackH, cfg.collapsedSubs, cfg.subSizes);
+    const pane = makePane(i, sym, tf, cfg.indicators || [], cfg.rangePreset, cfg.chartType, cfg.cardMode, cfg.subStackH, cfg.collapsedSubs, cfg.subSizes, cfg.subOrder);
     grid.appendChild(pane.el);
     panes.push(pane);
     // Stagger loads to avoid hammering the server
@@ -2435,7 +2443,7 @@ function buildGrid(count) {
 }
 
 // ── Pane factory ──────────────────────────────────────────────────────────────
-function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChartType, savedCardMode, savedSubStackH, savedCollapsedSubs, savedSubSizes) {
+function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChartType, savedCardMode, savedSubStackH, savedCollapsedSubs, savedSubSizes, savedSubOrder) {
   savedIndicators = savedIndicators || [];
   const chartType = savedChartType || 'candles';
   const el = document.createElement('div');
@@ -2683,6 +2691,8 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
                  collapsedSubs: new Set(Array.isArray(savedCollapsedSubs) ? savedCollapsedSubs : []),
                  // Per-sub-plot size (px, or flex weight once the stack is user-sized).
                  subSizes: (savedSubSizes && typeof savedSubSizes === 'object') ? Object.assign({}, savedSubSizes) : {},
+                 // User-chosen top-to-bottom order of sub-plot keys; unknown keys go last.
+                 subOrder: Array.isArray(savedSubOrder) ? savedSubOrder.slice() : [],
                  indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas, projCanvas,
                  fibCanvas, obCanvas, prteCanvas,
                  drawCanvas, drawTools,
@@ -4801,7 +4811,13 @@ function addSubPane(pane, key, labelText, height) {
   if (height) el.style.height = height + 'px';
   el.dataset.defH = height ? height + 'px' : '';
   el.dataset.key = key;
-  container.appendChild(el);
+  // Honour the user's saved order: insert before the first sibling that should
+  // come after this one; keys the user never ordered land at the bottom.
+  const order = pane.subOrder || [];
+  const rank = k => { const i = order.indexOf(k); return i < 0 ? Infinity : i; };
+  const myRank = rank(key);
+  const before = Array.from(container.children).find(c => rank(c.dataset.key) > myRank);
+  if (before) container.insertBefore(el, before); else container.appendChild(el);
 
   const labelEl = document.createElement('div');
   labelEl.className = 'sub-pane-label';
@@ -4820,9 +4836,60 @@ function addSubPane(pane, key, labelText, height) {
   closeBtn.className = 'sub-pane-btn danger';
   closeBtn.textContent = '×';
   closeBtn.title = 'Remove this sub-plot (turns the indicator off)';
+  const grip = document.createElement('button');
+  grip.type = 'button';
+  grip.className = 'sub-pane-btn grip';
+  grip.textContent = '⋮⋮';
+  grip.title = 'Drag to reorder this sub-plot';
+  ctl.appendChild(grip);
   ctl.appendChild(collapseBtn);
   ctl.appendChild(closeBtn);
   el.appendChild(ctl);
+
+  // Drag-to-reorder. The grip captures the pointer; on every move the sub-plot
+  // under the cursor is found by its rect and an insertion marker is drawn on
+  // its top or bottom half; the move happens on drop. The DOM order IS the
+  // order (snapshots and layout read it), and it is written to pane.subOrder
+  // on drop so re-adding indicators and reloads keep it.
+  let rdrag = false, dropTarget = null, dropAfter = false;
+  const clearDrop = () => { if (dropTarget) { dropTarget.classList.remove('drop-before', 'drop-after'); dropTarget = null; } };
+  grip.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+    if (container.children.length < 2) return;
+    rdrag = true;
+    el.classList.add('reordering');
+    try { grip.setPointerCapture(ev.pointerId); } catch {}
+    ev.preventDefault(); ev.stopPropagation();
+  });
+  grip.addEventListener('pointermove', ev => {
+    if (!rdrag) return;
+    const y = ev.clientY;
+    const sibs = Array.from(container.children).filter(c => c !== el);
+    const over = sibs.find(c => { const r = c.getBoundingClientRect(); return y >= r.top && y <= r.bottom; });
+    clearDrop();
+    if (!over) return;
+    const r = over.getBoundingClientRect();
+    const after = y > r.top + r.height / 2;
+    // Marker only while dragging: moving the element live would shift every
+    // sibling under the cursor and the drop would oscillate one slot short.
+    dropTarget = over; dropAfter = after;
+    over.classList.add(after ? 'drop-after' : 'drop-before');
+  });
+  const endRdrag = () => {
+    if (!rdrag) return;
+    rdrag = false;
+    if (dropTarget) {
+      if (dropAfter) container.insertBefore(el, dropTarget.nextSibling);
+      else           container.insertBefore(el, dropTarget);
+    }
+    clearDrop();
+    el.classList.remove('reordering');
+    pane.subOrder = Array.from(container.children).map(c => c.dataset.key);
+    try { savePaneCfg(); } catch {}
+  };
+  grip.addEventListener('pointerup', endRdrag);
+  grip.addEventListener('pointercancel', endRdrag);
+  grip.addEventListener('lostpointercapture', endRdrag);
 
   // Drag handle on the top edge — resizes this sub-plot against the one above.
   const handle = document.createElement('div');
