@@ -520,6 +520,68 @@ html, body {
   height: 100px; min-height: 50px; flex-shrink: 1;
   position: relative; border-top: 1px solid var(--border-soft); overflow: hidden;
 }
+/* ── User-adjustable split between the price chart and the sub-plot stack ──
+   With five or more oscillators the default 100px-each stack eats most of the
+   pane and the candles are squeezed to their 100px floor. The splitter under
+   the price chart lets the reader drag the boundary; the stack then becomes a
+   fixed-height block (`.sub-panes.user-sized`) and its sub-plots share that
+   height equally instead of each demanding its own 100px. Double-click resets
+   to the automatic layout. Persisted per pane in localStorage (subStackH). */
+.pane-splitter {
+  flex: 0 0 6px; position: relative; cursor: row-resize; z-index: 12;
+  background: var(--bg-pane-header); border-top: 1px solid var(--border-soft);
+  touch-action: none; user-select: none;
+}
+.pane-splitter::after {
+  content: ''; position: absolute; left: 50%; top: 2px; width: 36px; height: 2px;
+  margin-left: -18px; border-radius: 2px; background: var(--border);
+  opacity: .7; transition: background .12s, opacity .12s;
+}
+.pane-splitter:hover::after, .pane-splitter.dragging::after { background: var(--accent); opacity: 1; }
+.pane-splitter.dragging { background: var(--bg-input); }
+.pane-splitter[hidden] { display: none; }
+.sub-panes.user-sized { flex: 0 0 auto; }
+.sub-panes.user-sized > .sub-pane { height: auto !important; flex: 1 1 0; min-height: 36px; }
+/* Collapsed sub-plot: only its label strip stays, so the reader can park an
+   oscillator without losing it from the chart (and from the saved config). */
+.sub-pane.collapsed, .sub-panes.user-sized > .sub-pane.collapsed { height: 20px !important; min-height: 20px; flex: 0 0 20px !important; }
+/* Drag handle on the top edge of every sub-plot after the first: moves height
+   between it and the sub-plot above. In the automatic layout it sets both
+   sub-plots' pixel heights; in the user-sized stack the same numbers act as
+   flex weights, so the stack total stays where the main splitter put it.
+   Double-click resets the pair. Persisted per pane (subSizes). */
+.sub-pane-handle {
+  position: absolute; top: 0; left: 0; right: 0; height: 6px; z-index: 12;
+  cursor: row-resize; touch-action: none; user-select: none;
+}
+.sub-pane-handle::after {
+  content: ''; position: absolute; left: 50%; top: 1px; width: 28px; height: 2px;
+  margin-left: -14px; border-radius: 2px; background: var(--border); opacity: 0; transition: opacity .12s;
+}
+.sub-pane-handle:hover::after, .sub-pane-handle.dragging::after { opacity: 1; background: var(--accent); }
+.sub-pane:first-child > .sub-pane-handle, .sub-pane.collapsed > .sub-pane-handle { display: none; }
+.sub-pane.collapsed > .tv-lightweight-charts, .sub-pane.collapsed > canvas { display: none; }
+/* Per-sub-plot controls (collapse / remove), top-right, faded until hovered. */
+.sub-pane-ctl {
+  position: absolute; top: 2px; right: 76px; z-index: 11; display: flex; gap: 2px;
+  opacity: .35; transition: opacity .12s;
+}
+.sub-pane:hover .sub-pane-ctl, .sub-pane.collapsed .sub-pane-ctl { opacity: 1; }
+.sub-pane-btn {
+  width: 16px; height: 16px; display: flex; align-items: center; justify-content: center;
+  background: var(--bg-pane-header); border: 1px solid var(--border-soft); border-radius: 3px;
+  color: var(--text-secondary); font-size: 10px; line-height: 1; cursor: pointer; padding: 0; outline: none;
+}
+.sub-pane-btn:hover { border-color: var(--border); color: var(--text-primary); }
+.sub-pane-btn.danger:hover { border-color: #ef5350; color: #ef5350; }
+/* Reorder grip: drag it to move the sub-plot up or down the stack. */
+.sub-pane-btn.grip { cursor: grab; font-size: 11px; letter-spacing: -1px; }
+.sub-pane-btn.grip:active, .sub-pane.reordering .sub-pane-btn.grip { cursor: grabbing; }
+.sub-pane.reordering { opacity: .55; }
+.sub-pane.reordering .sub-pane-ctl { opacity: 1; }
+/* Insertion marker — a 2px accent line on the edge the drop would land on. */
+.sub-pane.drop-before { box-shadow: inset 0 2px 0 var(--accent); }
+.sub-pane.drop-after  { box-shadow: inset 0 -2px 0 var(--accent); }
 /* ── Card dock — the info cards, stapled under the sub-plots ───────────────── */
 /* Every info card (FVG signal, Structure Break Chain, Session VP, PMax, the
    pattern panels, ...) lives in one of three places, chosen by the switch at the
@@ -2241,7 +2303,7 @@ function saveCount(n)  { localStorage.setItem(LS_COUNT, String(n)); }
 function loadPaneCfg() { try { return JSON.parse(localStorage.getItem(LS_PANES)||'{}'); } catch { return {}; } }
 function savePaneCfg() {
   const c = {};
-  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...p.indicators], rangePreset:p.rangePreset, chartType:p.chartType, cardMode:p.cardMode}; });
+  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...p.indicators], rangePreset:p.rangePreset, chartType:p.chartType, cardMode:p.cardMode, subStackH:p.subStackH || null, collapsedSubs:[...(p.collapsedSubs || [])], subSizes:p.subSizes || {}, subOrder:p.subOrder || []}; });
   localStorage.setItem(LS_PANES, JSON.stringify(c));
 }
 
@@ -2372,7 +2434,7 @@ function buildGrid(count) {
     const cfg  = saved[i] || {};
     const sym  = cfg.symbol || def.symbol;
     const tf   = cfg.tf     || def.tf;
-    const pane = makePane(i, sym, tf, cfg.indicators || [], cfg.rangePreset, cfg.chartType, cfg.cardMode);
+    const pane = makePane(i, sym, tf, cfg.indicators || [], cfg.rangePreset, cfg.chartType, cfg.cardMode, cfg.subStackH, cfg.collapsedSubs, cfg.subSizes, cfg.subOrder);
     grid.appendChild(pane.el);
     panes.push(pane);
     // Stagger loads to avoid hammering the server
@@ -2381,7 +2443,7 @@ function buildGrid(count) {
 }
 
 // ── Pane factory ──────────────────────────────────────────────────────────────
-function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChartType, savedCardMode) {
+function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChartType, savedCardMode, savedSubStackH, savedCollapsedSubs, savedSubSizes, savedSubOrder) {
   savedIndicators = savedIndicators || [];
   const chartType = savedChartType || 'candles';
   const el = document.createElement('div');
@@ -2418,11 +2480,12 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
     </div>
     <div class="range-row">${RANGE_PRESETS.map(p =>
       `<button type="button" class="range-btn" data-range="${p.label}">${p.label}</button>`
-    ).join('')}<span class="range-sep"></span><input type="date" class="goto-date" title="Go to date — jump the chart to a specific date"><button type="button" class="range-btn goto-btn" title="Jump the chart to the selected date">Go&nbsp;to</button></div>
+    ).join('')}<span class="range-sep"></span><input type="date" class="goto-date" title="Go to date — jump the chart to a specific date"><button type="button" class="range-btn goto-btn" title="Jump the chart to the selected date">Go&nbsp;to</button><span class="range-sep subs-sep" hidden></span><button type="button" class="range-btn subs-toggle-btn" title="Collapse or expand every sub-plot at once" hidden>▾ Collapse all</button></div>
     <div class="chart-body">
       <div class="chart-main">
         <div class="loading-msg">Loading…</div>
       </div>
+      <div class="pane-splitter" title="Drag to resize sub-plots · double-click to reset" hidden></div>
       <div class="sub-panes"></div>
     </div>`;
 
@@ -2557,6 +2620,64 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
   });
   resizeObs.observe(chartMain);
 
+  // ── Sub-plot splitter: drag the boundary between candles and oscillators ──
+  // Wired here (before the pane object exists) via a closure; the handlers read
+  // `pane` lazily, and `pane` is const-hoisted in this scope below.
+  const splitter = el.querySelector('.pane-splitter');
+  if (splitter) {
+    let drag = null;
+    splitter.addEventListener('pointerdown', ev => {
+      if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+      const stack = el.querySelector('.sub-panes');
+      if (!stack || !stack.children.length) return;
+      drag = { y0: ev.clientY, h0: stack.getBoundingClientRect().height };
+      splitter.classList.add('dragging');
+      try { splitter.setPointerCapture(ev.pointerId); } catch {}
+      ev.preventDefault();
+    });
+    splitter.addEventListener('pointermove', ev => {
+      if (!drag) return;
+      const body = el.querySelector('.chart-body');
+      const dock = body.querySelector(':scope > .card-dock');
+      const dockH = (dock && dock.offsetParent) ? dock.getBoundingClientRect().height : 0;
+      // Keep the candles at their 100px floor and every sub-plot at least a label strip.
+      const maxH = Math.max(40, body.getBoundingClientRect().height - 100 - splitter.offsetHeight - dockH);
+      const h = Math.round(Math.min(maxH, Math.max(40, drag.h0 - (ev.clientY - drag.y0))));
+      pane.subStackH = h;
+      applySubStack(pane);
+    });
+    const endDrag = () => {
+      if (!drag) return;
+      drag = null;
+      splitter.classList.remove('dragging');
+      try { savePaneCfg(); } catch {}
+    };
+    splitter.addEventListener('pointerup', endDrag);
+    splitter.addEventListener('pointercancel', endDrag);
+    splitter.addEventListener('lostpointercapture', endDrag);
+    // Double-click → back to the automatic per-indicator heights.
+    splitter.addEventListener('dblclick', () => {
+      pane.subStackH = null;
+      pane.subSizes = {};
+      applySubStack(pane);
+      try { savePaneCfg(); } catch {}
+    });
+  }
+
+  // ── Collapse all / expand all sub-plots ───────────────────────────────────
+  const subsToggle = el.querySelector('.subs-toggle-btn');
+  if (subsToggle) subsToggle.addEventListener('click', () => {
+    const keys = Object.keys(pane.subCharts);
+    if (!keys.length) return;
+    if (!pane.collapsedSubs) pane.collapsedSubs = new Set();
+    // Any sub-plot still open → collapse everything; all closed → expand everything.
+    const collapseAll = keys.some(k => !pane.collapsedSubs.has(k));
+    keys.forEach(k => { if (collapseAll) pane.collapsedSubs.add(k); else pane.collapsedSubs.delete(k); });
+    keys.forEach(k => { const sub = pane.subCharts[k]; if (sub && sub.syncCollapse) sub.syncCollapse(); });
+    applySubStack(pane);
+    try { savePaneCfg(); } catch {}
+  });
+
   // ── Pane object ────────────────────────────────────────────────────────────
   const pane = { idx, el, chart, series, resizeObs, symbol, tf,
                  lastPrice: null, openPrice: null, prevClose: null, dataSource: null,
@@ -2565,6 +2686,13 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
                  chartType,
                  rangePreset: savedRangePreset || DEFAULT_RANGE_PRESET,
                  cardMode: CARD_MODES.includes(savedCardMode) ? savedCardMode : defaultCardMode(),
+                 // User-dragged height (px) of the sub-plot stack; null = automatic.
+                 subStackH: (Number.isFinite(+savedSubStackH) && +savedSubStackH > 0) ? +savedSubStackH : null,
+                 collapsedSubs: new Set(Array.isArray(savedCollapsedSubs) ? savedCollapsedSubs : []),
+                 // Per-sub-plot size (px, or flex weight once the stack is user-sized).
+                 subSizes: (savedSubSizes && typeof savedSubSizes === 'object') ? Object.assign({}, savedSubSizes) : {},
+                 // User-chosen top-to-bottom order of sub-plot keys; unknown keys go last.
+                 subOrder: Array.isArray(savedSubOrder) ? savedSubOrder.slice() : [],
                  indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas, projCanvas,
                  fibCanvas, obCanvas, prteCanvas,
                  drawCanvas, drawTools,
@@ -3208,7 +3336,9 @@ async function copyChartSnapshot(pane) {
   // at 19px: the buy-side/sell-side line labels overlapped into one blur).
   const AXIS_K  = Math.min(1.25, UI_K);
   const dprDesc = Object.getOwnPropertyDescriptor(window, 'devicePixelRatio');
-  const subEls  = Array.from(pane.el.querySelectorAll('.sub-pane'));
+  // Collapsed sub-plots are a bare label strip on screen, so they stay out of
+  // the snapshot too — their chart is hidden and would capture as a sliver.
+  const subEls  = Array.from(pane.el.querySelectorAll('.sub-pane:not(.collapsed)'));
   const reflow  = [{chart: pane.chart, el: chartMain}];
   subEls.forEach(subEl => {
     const sub = pane.subCharts[subEl.dataset.key];
@@ -4679,13 +4809,151 @@ function addSubPane(pane, key, labelText, height) {
   // most oscillators, but full-range ones like %R need more vertical room
   // to be readable. CSS flex-shrink still applies when space is tight.
   if (height) el.style.height = height + 'px';
+  el.dataset.defH = height ? height + 'px' : '';
   el.dataset.key = key;
-  container.appendChild(el);
+  // Honour the user's saved order: insert before the first sibling that should
+  // come after this one; keys the user never ordered land at the bottom.
+  const order = pane.subOrder || [];
+  const rank = k => { const i = order.indexOf(k); return i < 0 ? Infinity : i; };
+  const myRank = rank(key);
+  const before = Array.from(container.children).find(c => rank(c.dataset.key) > myRank);
+  if (before) container.insertBefore(el, before); else container.appendChild(el);
 
   const labelEl = document.createElement('div');
   labelEl.className = 'sub-pane-label';
   labelEl.textContent = labelText || key;
   el.appendChild(labelEl);
+
+  // Per-sub-plot controls: collapse to a label strip, or remove (= untick the
+  // indicator) without opening the INDICATORS panel and hunting for the row.
+  const ctl = document.createElement('div');
+  ctl.className = 'sub-pane-ctl';
+  const collapseBtn = document.createElement('button');
+  collapseBtn.type = 'button';
+  collapseBtn.className = 'sub-pane-btn collapse';
+  const closeBtn = document.createElement('button');
+  closeBtn.type = 'button';
+  closeBtn.className = 'sub-pane-btn danger';
+  closeBtn.textContent = '×';
+  closeBtn.title = 'Remove this sub-plot (turns the indicator off)';
+  const grip = document.createElement('button');
+  grip.type = 'button';
+  grip.className = 'sub-pane-btn grip';
+  grip.textContent = '⋮⋮';
+  grip.title = 'Drag to reorder this sub-plot';
+  ctl.appendChild(grip);
+  ctl.appendChild(collapseBtn);
+  ctl.appendChild(closeBtn);
+  el.appendChild(ctl);
+
+  // Drag-to-reorder. The grip captures the pointer; on every move the sub-plot
+  // under the cursor is found by its rect and an insertion marker is drawn on
+  // its top or bottom half; the move happens on drop. The DOM order IS the
+  // order (snapshots and layout read it), and it is written to pane.subOrder
+  // on drop so re-adding indicators and reloads keep it.
+  let rdrag = false, dropTarget = null, dropAfter = false;
+  const clearDrop = () => { if (dropTarget) { dropTarget.classList.remove('drop-before', 'drop-after'); dropTarget = null; } };
+  grip.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+    if (container.children.length < 2) return;
+    rdrag = true;
+    el.classList.add('reordering');
+    try { grip.setPointerCapture(ev.pointerId); } catch {}
+    ev.preventDefault(); ev.stopPropagation();
+  });
+  grip.addEventListener('pointermove', ev => {
+    if (!rdrag) return;
+    const y = ev.clientY;
+    const sibs = Array.from(container.children).filter(c => c !== el);
+    const over = sibs.find(c => { const r = c.getBoundingClientRect(); return y >= r.top && y <= r.bottom; });
+    clearDrop();
+    if (!over) return;
+    const r = over.getBoundingClientRect();
+    const after = y > r.top + r.height / 2;
+    // Marker only while dragging: moving the element live would shift every
+    // sibling under the cursor and the drop would oscillate one slot short.
+    dropTarget = over; dropAfter = after;
+    over.classList.add(after ? 'drop-after' : 'drop-before');
+  });
+  const endRdrag = () => {
+    if (!rdrag) return;
+    rdrag = false;
+    if (dropTarget) {
+      if (dropAfter) container.insertBefore(el, dropTarget.nextSibling);
+      else           container.insertBefore(el, dropTarget);
+    }
+    clearDrop();
+    el.classList.remove('reordering');
+    pane.subOrder = Array.from(container.children).map(c => c.dataset.key);
+    try { savePaneCfg(); } catch {}
+  };
+  grip.addEventListener('pointerup', endRdrag);
+  grip.addEventListener('pointercancel', endRdrag);
+  grip.addEventListener('lostpointercapture', endRdrag);
+
+  // Drag handle on the top edge — resizes this sub-plot against the one above.
+  const handle = document.createElement('div');
+  handle.className = 'sub-pane-handle';
+  handle.title = 'Drag to resize against the sub-plot above · double-click to reset';
+  el.appendChild(handle);
+  let hdrag = null;
+  handle.addEventListener('pointerdown', ev => {
+    if (ev.button !== 0 && ev.pointerType === 'mouse') return;
+    const prev = el.previousElementSibling;
+    if (!prev || !prev.classList.contains('sub-pane') || prev.classList.contains('collapsed')) return;
+    // Freeze every sibling at its current size first, so only the pair moves.
+    if (!pane.subSizes) pane.subSizes = {};
+    Array.from(container.children).forEach(c => {
+      if (c.dataset.key && !c.classList.contains('collapsed')) pane.subSizes[c.dataset.key] = Math.round(c.getBoundingClientRect().height);
+    });
+    hdrag = { y0: ev.clientY, hA: prev.getBoundingClientRect().height, hB: el.getBoundingClientRect().height, prevKey: prev.dataset.key };
+    handle.classList.add('dragging');
+    try { handle.setPointerCapture(ev.pointerId); } catch {}
+    ev.preventDefault(); ev.stopPropagation();
+  });
+  handle.addEventListener('pointermove', ev => {
+    if (!hdrag) return;
+    const MIN = 36;
+    const dy = Math.max(MIN - hdrag.hA, Math.min(hdrag.hB - MIN, ev.clientY - hdrag.y0));
+    pane.subSizes[hdrag.prevKey] = Math.round(hdrag.hA + dy);
+    pane.subSizes[key] = Math.round(hdrag.hB - dy);
+    applySubStack(pane);
+  });
+  const endHdrag = () => {
+    if (!hdrag) return;
+    hdrag = null;
+    handle.classList.remove('dragging');
+    try { savePaneCfg(); } catch {}
+  };
+  handle.addEventListener('pointerup', endHdrag);
+  handle.addEventListener('pointercancel', endHdrag);
+  handle.addEventListener('lostpointercapture', endHdrag);
+  handle.addEventListener('dblclick', ev => {
+    ev.stopPropagation();
+    const prev = el.previousElementSibling;
+    if (pane.subSizes) { delete pane.subSizes[key]; if (prev && prev.dataset.key) delete pane.subSizes[prev.dataset.key]; }
+    applySubStack(pane);
+    try { savePaneCfg(); } catch {}
+  });
+  const syncCollapseBtn = () => {
+    const c = pane.collapsedSubs && pane.collapsedSubs.has(key);
+    el.classList.toggle('collapsed', !!c);
+    collapseBtn.textContent = c ? '▸' : '▾';
+    collapseBtn.title = c ? 'Expand this sub-plot' : 'Collapse this sub-plot to its label';
+  };
+  collapseBtn.addEventListener('click', ev => {
+    ev.stopPropagation();
+    if (!pane.collapsedSubs) pane.collapsedSubs = new Set();
+    if (pane.collapsedSubs.has(key)) pane.collapsedSubs.delete(key); else pane.collapsedSubs.add(key);
+    syncCollapseBtn();
+    applySubStack(pane);   // keeps the "Collapse all / Expand all" label in step
+    try { savePaneCfg(); } catch {}
+  });
+  closeBtn.addEventListener('click', ev => {
+    ev.stopPropagation();
+    removeIndicatorByKey(pane, key);
+  });
+  syncCollapseBtn();
 
   const subChart = LightweightCharts.createChart(el, {
     width:  el.clientWidth  || 300,
@@ -4709,8 +4977,9 @@ function addSubPane(pane, key, labelText, height) {
     } catch {}
   }, 60);
 
-  const sub = {chart: subChart, el, ro, label: labelEl, series: null};
+  const sub = {chart: subChart, el, ro, label: labelEl, series: null, syncCollapse: syncCollapseBtn};
   pane.subCharts[key] = sub;
+  applySubStack(pane);
   return sub;
 }
 
@@ -4721,6 +4990,74 @@ function removeSubPane(pane, key) {
   try { sub.chart.remove(); } catch {}
   sub.el.remove();
   delete pane.subCharts[key];
+  applySubStack(pane);
+}
+
+// Apply the user's chosen sub-plot stack height (or the automatic layout) and
+// show the splitter only while there is something below the candles to resize.
+function applySubStack(pane) {
+  const stack = pane.el.querySelector('.sub-panes');
+  const splitter = pane.el.querySelector('.pane-splitter');
+  if (!stack) return;
+  const n = stack.children.length;
+  if (splitter) splitter.hidden = n === 0;
+  const toggle = pane.el.querySelector('.subs-toggle-btn');
+  const toggleSep = pane.el.querySelector('.subs-sep');
+  if (toggle) {
+    toggle.hidden = n === 0;
+    if (toggleSep) toggleSep.hidden = n === 0;
+    const anyOpen = Array.from(stack.children).some(c => !c.classList.contains('collapsed'));
+    toggle.textContent = anyOpen ? '▾ Collapse all' : '▸ Expand all';
+  }
+  const userSized = !!(pane.subStackH && n);
+  if (userSized) {
+    stack.classList.add('user-sized');
+    stack.style.height = pane.subStackH + 'px';
+  } else {
+    stack.classList.remove('user-sized');
+    stack.style.height = '';
+  }
+  const sizes = pane.subSizes || {};
+  // In the user-sized stack an unsized sub-plot takes the average weight of the
+  // sized ones, so a reset pair sits at a normal height beside its siblings
+  // instead of at flex-grow 1 next to weights in the hundreds.
+  const sizedVals = Array.from(stack.children).map(c => sizes[c.dataset.key]).filter(v => v > 0);
+  const avgW = sizedVals.length ? sizedVals.reduce((a, b) => a + b, 0) / sizedVals.length : 0;
+  Array.from(stack.children).forEach(c => {
+    const sz = sizes[c.dataset.key];
+    if (userSized) {
+      // Height is owned by the !important flex rule; the size is a weight.
+      c.style.height = '';
+      c.style.flexGrow = (sz > 0) ? String(sz) : (avgW ? String(Math.round(avgW)) : '');
+    } else {
+      c.style.flexGrow = '';
+      // A dragged px height replaces the indicator's default; leave the default alone otherwise.
+      if (sz > 0) { c.style.height = sz + 'px'; c.style.minHeight = '36px'; }
+      else if (c.dataset.userSized) { c.style.height = c.dataset.defH || ''; c.style.minHeight = ''; }
+      c.dataset.userSized = (sz > 0) ? '1' : '';
+    }
+  });
+}
+
+// Turn an indicator off from its sub-plot's × button — the same path as
+// unticking it in the INDICATORS panel, so the checkbox, the "On this chart"
+// count and the saved config all stay in step. Companion overlays that only
+// make sense with their oscillator (RSI / OBV divergence) go with it.
+function removeIndicatorByKey(pane, key) {
+  const drop = [key];
+  if (key === 'rsi') drop.push('rsidiv');
+  if (key === 'obv') drop.push('obvdiv');
+  drop.forEach(k => {
+    pane.indicators.delete(k);
+    if (pane.collapsedSubs) pane.collapsedSubs.delete(k);
+    if (pane.subSizes) delete pane.subSizes[k];
+    const chk = pane.el.querySelector(`.ind-panel .ind-chk[data-key="${k}"]`);
+    if (chk) chk.checked = false;
+  });
+  applyIndicators(pane);
+  try { savePaneCfg(); } catch {}
+  if (pane._refreshIndActiveCount) pane._refreshIndActiveCount();
+  if (pane._filterIndicators) pane._filterIndicators();
 }
 
 // ── Volume Profile canvas overlay ─────────────────────────────────────────────
