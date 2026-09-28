@@ -1972,6 +1972,64 @@ def snapshot_panel(name: str, *, key: str, compact: bool = False,
     return meta, payload
 
 
+# ── "→ Predictive Analysis": hand a whole table over as the candidate set ────
+# Any table (Home's institutional-volume and volume-shocker lists, the
+# Watchlist) can push its symbols to Research › Predictive Analysis for a
+# side-by-side read. The list persists in the settings table so it is still
+# there after a restart, until replaced or cleared on the PA page.
+_PA_SENT_KEY = "pa_sent_candidates"
+
+
+def _pa_sent_load() -> dict | None:
+    if _PA_SENT_KEY in st.session_state:
+        return st.session_state[_PA_SENT_KEY]
+    raw = db.get_setting(_PA_SENT_KEY, "") or ""
+    try:
+        data = json.loads(raw) if raw else None
+    except Exception:                                    # noqa: BLE001
+        data = None
+    st.session_state[_PA_SENT_KEY] = data
+    return data
+
+
+def _pa_sent_save(data: dict | None) -> None:
+    st.session_state[_PA_SENT_KEY] = data
+    db.set_setting(_PA_SENT_KEY, json.dumps(data) if data else "")
+
+
+def _pa_send_button(key: str, source: str, df, symbol_col: str,
+                    note_fn=None, *, label: str | None = None) -> None:
+    """One button under a table: make its symbols the Predictive Analysis
+    candidate list (replacing the previous sent list) and jump there."""
+    if df is None or getattr(df, "empty", True) or symbol_col not in df.columns:
+        return
+    items, seen = [], set()
+    for i in range(len(df)):
+        row = df.iloc[i]
+        sym = str(row[symbol_col]).strip().upper()
+        if not sym or sym in seen:
+            continue
+        seen.add(sym)
+        note = ""
+        if note_fn is not None:
+            try:
+                note = str(note_fn(row) or "")
+            except Exception:                            # noqa: BLE001
+                note = ""
+        items.append({"symbol": sym, "note": note})
+    if not items:
+        return
+    if st.button(label or f"→ Predictive Analysis ({len(items)})", key=f"{key}_to_pa",
+                 help=f"Open Research › Predictive Analysis with these {len(items)} "
+                      f"names as the candidate list for a side-by-side read."):
+        _pa_sent_save({"source": source,
+                       "sent_at": datetime.now().isoformat(timespec="minutes"),
+                       "items": items})
+        st.session_state["pa_symbol"] = items[0]["symbol"]
+        st.session_state["current_page"] = "Predictive Analysis"
+        st.rerun()
+
+
 @st.cache_resource(show_spinner=False)
 def _snapshot_startup_fill() -> list[str]:
     """Once per process: recompute, in a daemon thread, every snapshot whose
@@ -5320,7 +5378,15 @@ def _darvas_rows_table(df, key_prefix: str):
         _rows = []
     _picked = [str(df.iloc[i]["symbol"]) for i in _rows if i < len(df)]
 
-    _wc1, _wc2 = st.columns([1, 3])
+    _wc1, _wc3, _wc2 = st.columns([1, 1, 2])
+    with _wc3:
+        _pa_send_button(key_prefix, "Volume Shockers · Darvas", df, "symbol",
+                        note_fn=lambda r: " · ".join(
+                            x for x in (
+                                f"{r.get('multiple')}x vol" if r.get("multiple") is not None else "",
+                                f"{float(r.get('chg_pct') or 0):+.1f}%" if r.get("chg_pct") is not None else "",
+                                str(r.get("dir") or ""),
+                            ) if x))
     with _wc1:
         if st.button(f"♥ Add {len(_picked) or ''} to watchlist".replace("  ", " "),
                      key=f"{key_prefix}_addwl", disabled=not _picked,
@@ -6068,26 +6134,17 @@ def _render_institutional_volume(key_prefix: str) -> None:
     st.caption("Pocket pivot bars where volume exceeded 5x the 50-day average. "
                "Context, not a signal — measured edge is zero (ppv_edge_study).")
 
-    sk = f"{key_prefix}_data"
-    if sk not in st.session_state:
-        if st.button("Scan nifty500", key=f"{key_prefix}_run",
-                     width="content"):
-            with st.spinner("Scanning ~500 names..."):
-                try:
-                    import institutional_volume_scan as ivs
-                    st.session_state[sk] = ivs.scan()
-                except Exception as e:
-                    st.error(f"Scan failed: {e}")
-                    return
-            st.rerun()
+    # Stored snapshot (written by the 16:30 job or ↻); the ~500-name scan
+    # never runs on page load.
+    _iv_meta, _iv_snap = snapshot_panel("institutional_volume", key=key_prefix,
+                                        compact=True, button_label="↻ Rescan nifty500")
+    if _iv_snap is None:
+        st.info("No stored scan yet — press ↻ to scan nifty500 in the background.")
         return
 
-    df = st.session_state[sk]
+    df = _iv_snap.get("df")
     if df is None or (hasattr(df, "empty") and df.empty):
         st.info("No PPV bars with RVOL >= 5x found in the last 5 sessions.")
-        if st.button("Rescan", key=f"{key_prefix}_rescan"):
-            del st.session_state[sk]
-            st.rerun()
         return
 
     import columns as _cols
@@ -6116,9 +6173,9 @@ def _render_institutional_volume(key_prefix: str) -> None:
     st.dataframe(styled, width="stretch", hide_index=True,
                  column_config=cfg, key=f"{key_prefix}_tbl")
 
-    if st.button("Rescan", key=f"{key_prefix}_rescan2"):
-        del st.session_state[sk]
-        st.rerun()
+    _pa_send_button(key_prefix, "Institutional volume · PPV ≥ 5x RVOL", out, "symbol",
+                    note_fn=lambda r: f"{r.get('rvol', '')}x rvol · "
+                                      f"{float(r.get('chg_pct') or 0):+.1f}% · {r.get('date', '')}")
 
 
 def render_action_map() -> None:
@@ -7224,6 +7281,8 @@ if current_page == "Watchlist":
         _wl_edited = _notes_table(_wl_df, key="wl_notes_editor",
                                   symbol_col="Symbol", column_config=_wl_cfg,
                                   select_col="✕")
+        _pa_send_button("wl", "Watchlist", _wl_df, "Symbol",
+                        note_fn=lambda r: str(r.get("Notes") or r.get("notes") or "watchlist"))
         # Per-row removal, replacing the detached "Remove from watchlist"
         # dropdown that used to sit under the table. The dropdown made you name
         # a symbol you were already looking at, and it could only take one.
@@ -9260,8 +9319,10 @@ if current_page == "Predictive Analysis":
     st.subheader("Predictive Analysis")
     st.caption(
         "One screen: ranked candidates (left) → annotated chart + ratings + setup "
-        "intelligence (right). Candidates come from the last **Scanner Hub** run; "
-        "the chart carries the pattern overlays and price projection from the Chart Tool."
+        "intelligence (right). Candidates come from the last **Scanner Hub** run, "
+        "from any table sent here with **→ Predictive Analysis**, and from the "
+        "Watchlist; the chart carries the pattern overlays and price projection "
+        "from the Chart Tool."
     )
 
     pa_left, pa_main = st.columns([1, 3.5], gap="medium")
@@ -9300,10 +9361,35 @@ if current_page == "Predictive Analysis":
                     st.session_state["pa_symbol"] = _sym
                 pcol.badge(str(h.get("pattern_type", ran_for)), color="orange")
 
+        # ── A table sent here with "→ Predictive Analysis" ───────────────
+        _pa_sent = _pa_sent_load()
+        if _pa_sent and _pa_sent.get("items"):
+            st.divider()
+            _sh1, _sh2 = st.columns([4, 1], vertical_alignment="center")
+            _sh1.markdown(f"**📤 {_pa_sent.get('source', 'Sent list')}** "
+                          f"({len(_pa_sent['items'])})")
+            _sh1.caption("sent " + str(_pa_sent.get("sent_at", ""))[:16].replace("T", " "))
+            if _sh2.button("✕", key="pa_sent_clear", type="tertiary",
+                           help="Clear this sent list"):
+                _pa_sent_save(None)
+                st.rerun()
+            for _it in _pa_sent["items"][:60]:
+                _ss = _it["symbol"]
+                _stc, _snc = st.columns([1.9, 3.7], gap="small",
+                                        vertical_alignment="center")
+                if _stc.button(f"**{_ss}**", key=f"pa_sent_{_ss}", type="tertiary",
+                               help=f"Analyze {_ss}"):
+                    st.session_state["pa_symbol"] = _ss
+                _snc.badge(str(_it.get("note") or _pa_sent.get("source", "")),
+                           color="blue")
+
         # ── Watchlist as candidates ──────────────────────────────────────
         _pa_wl = db.get_watchlist()
         if _pa_wl is not None and not _pa_wl.empty:
             _scanner_syms = {h["symbol"] for h in ranked} if ranked else set()
+            # …and not already listed in the sent block above
+            if _pa_sent and _pa_sent.get("items"):
+                _scanner_syms |= {it["symbol"] for it in _pa_sent["items"]}
             _wl_only = _pa_wl[~_pa_wl["symbol"].isin(_scanner_syms)]
             if not _wl_only.empty:
                 st.divider()

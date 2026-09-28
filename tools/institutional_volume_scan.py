@@ -73,8 +73,13 @@ def _batch_download(symbols: list[str]) -> dict[str, pd.DataFrame]:
 def scan(symbols: list[str] | None = None,
          rvol_min: float = RVOL_THRESHOLD,
          window: int = WINDOW_DAYS,
-         top_n: int = TOP_N) -> pd.DataFrame:
+         top_n: int = TOP_N,
+         raise_on_no_data: bool = False) -> pd.DataFrame:
     """Scan for recent PPV bars with high RVOL.
+
+    An empty frame means "no qualifying bars" OR "nothing could be fetched";
+    callers that must tell them apart (the snapshot job) pass
+    raise_on_no_data=True.
 
     Returns a DataFrame with columns:
       symbol, date, close, change_pct, rvol, volume, ma50_vol, sector
@@ -85,10 +90,14 @@ def scan(symbols: list[str] | None = None,
     if symbols is None:
         symbols = _universe()
     if not symbols:
+        if raise_on_no_data:
+            raise RuntimeError("no universe (nifty500 constituents unavailable)")
         return pd.DataFrame()
 
     hists = _batch_download(symbols)
     if not hists:
+        if raise_on_no_data:
+            raise RuntimeError(f"no price history could be downloaded for {len(symbols)} symbols")
         return pd.DataFrame()
 
     try:
