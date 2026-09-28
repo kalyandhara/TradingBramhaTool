@@ -74,12 +74,16 @@ def main(argv: list[str] | None = None) -> int:
 
     t0 = time.time()
     metas = reg.run_all(names, progress=lambda s: print("…", s, flush=True))
-    failed = [m for m in metas if not m.ok]
+    # A failed attempt on a day that already has a good run is annotated onto
+    # that row (status stays ok, `error` is set) so pages keep the good data —
+    # but it is still a failed run and the summary must say so.
+    failed = [m for m in metas if not m.ok or m.error]
     pruned = store.prune(args.prune_days)
     print(f"done in {time.time() - t0:.0f}s — {len(metas) - len(failed)} ok, "
           f"{len(failed)} failed, {pruned} old rows pruned")
     for m in failed:
-        print(f"  FAILED {m.name}: {m.error}")
+        kept = "  (today's earlier good run kept)" if m.ok else ""
+        print(f"  FAILED {m.name}: {m.error}{kept}")
     return 1 if failed and len(failed) == len(metas) else 0
 
 
