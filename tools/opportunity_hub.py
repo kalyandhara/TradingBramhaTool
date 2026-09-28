@@ -192,6 +192,7 @@ SCANNER_FAMILIES: dict[str, tuple[str, ...]] = {
         "Stage 2 Uptrend",
         "ATH Breakout (all-time high)",
         "ADX Trend Confirmation",
+        "No-Supply (new high + clean volume)",
     ),
     "Base/Contraction": (
         "VCP Coiling",
@@ -206,6 +207,7 @@ SCANNER_FAMILIES: dict[str, tuple[str, ...]] = {
         "IPO-Base Breakout",
     ),
     "Reversal": (
+        "Double Bottom",
         "Falling Wedge",
         "Harmonic Reversal (XABCD)",
         "Rounding Bottom",
@@ -216,6 +218,7 @@ SCANNER_FAMILIES: dict[str, tuple[str, ...]] = {
         "Pullback Entry",
         "Near Pivot",
         "Order Block Retest",
+        "Breakout Retest",
         "RSI 60-40 Setup",
         "RSI Divergence Bull",
         "Candlestick Patterns",
@@ -241,7 +244,34 @@ FAMILY_ORDER: tuple[str, ...] = tuple(SCANNER_FAMILIES.keys())
 #: still listed and runnable in the Scanner Hub. Dropping it here would re-label a
 #: retired bearish scanner as "unmeasured", which is the opposite of what happened
 #: to it.
-RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "Support Breakdown", "RSI Divergence Bear", "%R Exhaustion Sell")
+#: "Liquidity Sweep Bear" joined 2026-09-21 (B-105), and its absence is the
+#: reason `test_risk_scanner_invariants.py` now exists. It shipped registered as
+#: `category: "Risk"` and was never added here, so `scanner_tier()` read it as
+#: `unmeasured`, `scanner_family()` found no family, and `tally_evidence`'s
+#: fall-through — the branch that deliberately gives an unmapped NON-risk scanner
+#: its own family of one — counted a BEARISH detector as a 0.5 vote FOR the name.
+#: Verified live before the fix: `families=['Liquidity Sweep Bear'] points=0.5
+#: riskflags=[]`. The category field had said which side it was on the whole time;
+#: nothing was ambiguous, the two lists had simply drifted apart.
+RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "Support Breakdown", "RSI Divergence Bear", "%R Exhaustion Sell", "Liquidity Sweep Bear")
+
+#: BILATERAL scanners — the neutral state (B-101). These RUN and are worth
+#: seeing: a coil that is about to resolve is exactly the thing to have on a
+#: watchlist. But a hit is evidence for NEITHER side, so like a risk flag it
+#: carries zero weight and joins no family.
+#:
+#: This is a THIRD state, not a re-labelled risk flag, and the difference is not
+#: cosmetic. A risk hit is evidence AGAINST the name — it argues for skipping it.
+#: A bilateral hit argues for nothing; it says the direction is not yet knowable.
+#: Folding it into RISK_SCANNERS would have been the cheap way to stop it voting
+#: and would have printed "risk flag: Symmetrical Triangle" on a pattern that is
+#: not bearish, which is the same species of lie as VCP's upward-only plan on a
+#: coil (the very thing B-101 was raised about).
+#:
+#: `tally_evidence` must skip these explicitly. Its fall-through gives an
+#: UNMAPPED non-risk scanner its own family of one — the honest default for a
+#: new directional scanner, and exactly wrong here.
+NEUTRAL_SCANNERS: tuple[str, ...] = ("Symmetrical Triangle (bilateral)",)
 
 #: Registry entries the pipeline must not run.
 #: "Zero-Debt Quality PEAD" declares ``fn = scan_pead`` — the IDENTICAL function
@@ -362,11 +392,14 @@ def core_scanners() -> list[str]:
     return [n for n in sc.SCANNERS if n not in COVERED_SCANNERS]
 
 
-#: Measured to BEAT a random-entry baseline (wiki/analyses/Backtest-Harness):
-#: Falling Wedge +0.74% @20d (+0.14R), Harmonic Reversal +0.67% (+0.25R).
+#: Measured to BEAT a random-entry baseline (wiki/analyses/Backtest-Harness).
+#: RE-MEASURED 2026-09-23 (B-128 / B-129, LIQUID_50, 3 windows, 29bps):
+#:   Falling Wedge -- CONFIRMED breakouts +1.37% @20d, +1.98% @60d, stable at
+#:     10/20/60d; forming / pre-breakout cards -0.27%. The tier stands, and the
+#:     old +0.74% was a dilution of it.
+#:   Harmonic Reversal -- DEMOTED to the weak tier below (owner, B-129).
 MEASURED_EDGE_SCANNERS: tuple[str, ...] = (
     "Falling Wedge",
-    "Harmonic Reversal (XABCD)",
 )
 
 #: Measured and found AT OR BELOW that baseline. Kept for coverage and context,
@@ -384,11 +417,56 @@ MEASURED_EDGE_SCANNERS: tuple[str, ...] = (
 #: PIPELINE_EXCLUDED — it measured significantly negative, and a weak weight still
 #: counts toward FULL_CONFLUENCE, so 0.25 was not low enough. This list is for
 #: scanners that still vote; a scanner that must not vote belongs in the exclusion.
+#: `VCP Coiling` left this list and came back on 2026-09-19, and the round trip
+#: is worth reading rather than just the destination.
+#:
+#: It left because its weak tier came from B-19 (2026-09-02), which measured the
+#: coarse three-window range test that `scan_vcp` used to be. That detector was
+#: replaced by `detect_vcp_geometry`'s strict pivot walk, and B-19's number does
+#: not describe a different hit set (the two agreed on 16 of 29 hits on a
+#: 110-name check). Keeping it would have been the cheaper option and the wrong
+#: one, so the scanner went back to `unmeasured` — which RAISED its weight from
+#: 0.25 to 0.50, because "plausible, unproven" outranks "measured and it was not
+#: good". It held that unearned 0.50 for exactly as long as it took to re-run.
+#:
+#: It came back because B-19r(VCP) re-measured the NEW detector through the same
+#: harness (LIQUID_50, 3 windows, Indian delivery) against bands pre-registered
+#: before the run: 3,233 OOS signals, +0.13% @20d, -0.22% @60d. It fails the bar
+#: the way B-19's headline warned about — @20d is positive but NOT sign-stable
+#: (windows +0.62*/+0.09/-0.28, only the first significant), and @60d is stable
+#: and NEGATIVE. Positive on one horizon, not reproducible across windows.
+#:
+#: So the swap bought a harness-scoreable plan, one detector instead of two that
+#: disagreed, and 2.7x more hits — and no edge. VCP Coiling is a context lens
+#: under either detector. Verdict file: cache/b19_verdicts/VCP_Coiling.txt; the
+#: retired detector's is beside it in _superseded/.
+#: "Double Bottom" joined 2026-09-21, measured as a BY-PRODUCT of B-116 plumbing
+#: the plan scoreboard through the walk-forward path: 1,519 OOS signals over
+#: LIQUID_50, -0.17 / -0.26 / -0.61 / -1.58% at 5/10/20/60d, sign consistent in
+#: all three windows at every horizon, p<0.05 in four window-horizons. It is
+#: measured at-or-below a random-entry baseline, which is what this tier means,
+#: so the weight drops 0.50 -> 0.25.
+#:
+#: NOT excluded, though the VWAP Reclaim precedent (measured significantly
+#: negative -> PIPELINE_EXCLUDED) is the obvious next step and is the owner's
+#: call: the same run that produced this number also showed the shared harness
+#: has no notion of a FRESH signal (B-120), and a detector whose state persists
+#: for several bars has its events counted several times. That doubt cuts
+#: against trusting the magnitude, not against demoting on the sign — 1,519
+#: signals negative at every horizon in every window is not a rounding error.
+#: Re-measure under B-120's freshness rule before deciding exclusion.
 MEASURED_WEAK_SCANNERS: tuple[str, ...] = (
+    "Double Bottom",
+    # B-129, owner decision 2026-09-23: its measured-edge tier rested on a pooled
+    # +0.88% @20d that mixed a failing SHORT thesis (bearish patterns +0.72% when
+    # scored long) with an unstable long one (bullish-only +1.07%, positive in 2
+    # of 3 windows at every horizon). Now bullish-only in the scanner, and 0.25
+    # here until a bullish-only re-measure earns more.
+    "Harmonic Reversal (XABCD)",
     "Order Block Retest",
     "RSI 60-40 Setup",
-    "VCP Coiling",
     "Structural Breakout",
+    "VCP Coiling",
     "VWAP Mean Reversion",
 )
 
@@ -414,6 +492,8 @@ def scanner_tier(name: str) -> str:
     harness actually knows about this scanner. Drives both weight and colour."""
     if name in RISK_SCANNERS:
         return "risk"
+    if name in NEUTRAL_SCANNERS:
+        return "neutral"
     if name in MEASURED_EDGE_SCANNERS:
         return "measured"
     if name in MEASURED_WEAK_SCANNERS:
@@ -424,7 +504,8 @@ def scanner_tier(name: str) -> str:
 def scanner_weight(name: str) -> float:
     """Edge points a hit from this scanner is worth before family capping."""
     return {"measured": WEIGHT_MEASURED, "weak": WEIGHT_WEAK,
-            "unmeasured": WEIGHT_UNMEASURED, "risk": 0.0}[scanner_tier(name)]
+            "unmeasured": WEIGHT_UNMEASURED, "risk": 0.0,
+            "neutral": 0.0}[scanner_tier(name)]
 
 
 def pipeline_scanners() -> list[str]:
@@ -461,7 +542,8 @@ def tally_evidence(fired: list[str]) -> tuple[list[str], float, list[str]]:
     # An unmapped, non-risk scanner still deserves a vote — count it as its own
     # family of one rather than dropping the evidence on the floor.
     for n in fired:
-        if scanner_family(n) is None and n not in RISK_SCANNERS:
+        if (scanner_family(n) is None and n not in RISK_SCANNERS
+                and n not in NEUTRAL_SCANNERS):
             families.append(n)
             best_per_family[n] = scanner_weight(n)
     return families, round(sum(best_per_family.values()), 2), risk
@@ -469,7 +551,8 @@ def tally_evidence(fired: list[str]) -> tuple[list[str], float, list[str]]:
 
 def run_scanner_pipeline(symbols: list[str], fetch_for, *,
                          scanners: list[str] | None = None,
-                         benchmark_df=None, progress_cb=None) -> dict[str, dict]:
+                         benchmark_df=None, progress_cb=None,
+                         attach_pead: bool = True) -> dict[str, dict]:
     """Run every pipeline scanner over `symbols`; return one entry per name hit.
 
     `fetch_for(scanner_name) -> fetch_fn` is deliberately a FACTORY, not a single
@@ -480,6 +563,12 @@ def run_scanner_pipeline(symbols: list[str], fetch_for, *,
     caller supply a per-scanner fetch means that rule is structural on every
     path instead of something each caller has to remember.
 
+    **The factory must answer for a name it does not recognise**, returning the
+    default-window fetch — which is what both shipped callers already do, since
+    each discriminates on the single ``needs_full_history`` flag via
+    ``SCANNERS.get(name, {})``. `DEFAULT_WINDOW` below is the documented way to
+    ask for that frame without naming a scanner.
+
     Each returned value carries:
         scanners     — every scanner that fired, in run order
         families     — the distinct families those scanners belong to
@@ -488,6 +577,9 @@ def run_scanner_pipeline(symbols: list[str], fetch_for, *,
         best_card    — the highest-scoring scanner card, for rendering
         best_scanner — which scanner produced it
         risk_flags   — bearish scanners that also fired (never a vote)
+        pead         — the last-4-quarter post-earnings drift walk, PRESENT ONLY
+                       when one could be measured. Context, never a vote: it is
+                       computed after ranking and nothing scores on it.
     """
     names = list(scanners) if scanners else pipeline_scanners()
     names = [n for n in names if n in sc.SCANNERS]
@@ -528,4 +620,72 @@ def run_scanner_pipeline(symbols: list[str], fetch_for, *,
         h["risk_flags"] = risk
     # A name whose ONLY hit was bearish has no setup to show — drop it rather
     # than render a card with no pattern on it.
-    return {s: h for s, h in hits.items() if h["best_card"] is not None}
+    hits = {s: h for s, h in hits.items() if h["best_card"] is not None}
+
+    # ── The PEAD walk: a LAST stage, over the survivors only ──────────────────
+    # Deliberately after the filter. It is CONTEXT on a shortlisted name, not a
+    # filter and not a vote — nothing below reads `pead` when computing
+    # edge_points, families or rank_score, and adding it here must not change
+    # which names appear or in what order. Running it over the survivors also
+    # keeps it to a few dozen cache lookups instead of the whole universe.
+    if attach_pead:
+        try:
+            _fetch = fetch_for(DEFAULT_WINDOW)
+        except Exception as _exc:
+            # A factory that raises on an unknown name breaks the contract in the
+            # docstring above. The walk is context, so it goes quiet rather than
+            # taking the pipeline down with it.
+            _log.warning("PEAD walk: fetch_for(%r) failed (%s)", DEFAULT_WINDOW, _exc)
+        else:
+            _attach_pead(hits, _fetch)
+    return hits
+
+
+#: Asked of `fetch_for` when a caller wants the DEFAULT-WINDOW frame rather than
+#: a particular scanner's. Deliberately NOT a scanner name.
+#:
+#: The first version of the PEAD walk resolved this frame with
+#: ``next(n for n in sc.SCANNERS if not ...needs_full_history)`` — i.e. whichever
+#: scanner happened to sit first in the registry dict. That worked, and it was
+#: wrong: **registry order is not a contract.** Adding a scanner at the top of
+#: `SCANNERS`, or reordering it, would silently change which scanner's fetch
+#: backed the walk, with nothing to notice. The flag is the only thing
+#: `fetch_for` discriminates on, so the honest way to ask is to say what is
+#: wanted rather than to name a scanner that happens to want the same thing.
+DEFAULT_WINDOW = "__default_window__"
+
+
+def _attach_pead(hits: dict[str, dict], fetch) -> None:
+    """Attach `hit["pead"]` in place; never raises, never fetches earnings.
+
+    `fetch(symbol) -> DataFrame` is the DEFAULT-WINDOW fetch, resolved once by
+    the caller (see `DEFAULT_WINDOW`). Taking the fetch function rather than the
+    factory keeps the registry out of this function entirely — it has no opinion
+    about scanners, which is the whole point after the ordering bug above.
+    Asking for the full-history fetch here would turn a context column into a
+    per-symbol download.
+
+    The earnings side is cache-only by construction (`earnings_reaction` never
+    fetches on a display read), so a name with no cached calendar simply gets no
+    walk.
+
+    A symbol that cannot be walked gets NO `pead` key at all rather than an
+    empty one, so the renderer's "is there a walk" test stays a plain lookup and
+    absent can never be confused with a measured zero.
+    """
+    try:
+        import earnings_reaction as _er
+    except Exception as _exc:                               # pragma: no cover
+        _log.warning("PEAD walk unavailable: %s", _exc)
+        return
+    for sym, h in hits.items():
+        try:
+            df = fetch(sym)
+            if df is None or len(df) == 0:
+                continue
+            walk = _er.pead_walk(sym, df)
+        except Exception as _exc:
+            _log.debug("PEAD walk failed for %s: %s", sym, _exc)
+            continue
+        if walk.get("events"):
+            h["pead"] = walk

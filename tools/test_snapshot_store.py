@@ -239,3 +239,31 @@ def test_market_brief_all_quotes_missing_raises(monkeypatch):
     monkeypatch.setitem(sys.modules, "market_brief",
                         types.SimpleNamespace(build_brief=lambda **k: brief(False)))
     assert len(reg.produce_market_brief()["quotes"]) == 2
+
+
+def test_institutional_volume_no_data_vs_no_hits(monkeypatch):
+    import types
+    def scan(raise_on_no_data=False, **kw):
+        if raise_on_no_data:
+            raise RuntimeError("no universe (nifty500 constituents unavailable)")
+        return pd.DataFrame()
+    ivs = types.SimpleNamespace(scan=scan, RVOL_THRESHOLD=5.0, WINDOW_DAYS=5, TOP_N=10)
+    monkeypatch.setitem(sys.modules, "institutional_volume_scan", ivs)
+    with pytest.raises(RuntimeError, match="no universe"):
+        reg.produce_institutional_volume()
+    ivs.scan = lambda raise_on_no_data=False, **kw: pd.DataFrame()   # scanned, no hits
+    out = reg.produce_institutional_volume()
+    assert out["df"].empty and out["params"]["rvol_min"] == 5.0
+    assert "institutional_volume" in reg.SNAPSHOTS
+
+
+def test_scan_raise_on_no_data_flag(monkeypatch):
+    import institutional_volume_scan as ivs
+    monkeypatch.setattr(ivs, "_universe", lambda: [])
+    assert ivs.scan().empty
+    with pytest.raises(RuntimeError, match="no universe"):
+        ivs.scan(raise_on_no_data=True)
+    monkeypatch.setattr(ivs, "_universe", lambda: ["A"])
+    monkeypatch.setattr(ivs, "_batch_download", lambda syms: {})
+    with pytest.raises(RuntimeError, match="no price history"):
+        ivs.scan(raise_on_no_data=True)

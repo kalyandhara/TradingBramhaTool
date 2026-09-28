@@ -34,6 +34,7 @@ from ta.volatility import AverageTrueRange
 import screener_pipeline as sp
 import scanner_templates as sc
 import volume_profile as vp
+import cpr_vp
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -317,6 +318,15 @@ def gather_evidence(
         F["vp_at_lvn"] = pos["at_lvn"]
         F["vp_lvn_above_pct"] = pos["lvn_above_pct"]
         F["vp_lvn_below_pct"] = pos["lvn_below_pct"]
+
+    # ── CPR × Volume Profile (2026-09-28) — the two level systems finally meet.
+    # Which CPR level sits inside a profile node, where the close sits against
+    # the band, and the playbook setups on the last bar. Context, not a signal:
+    # see cpr_vp.py's header. Best-effort like the profile read above.
+    try:
+        F["cpr_vp"] = cpr_vp.read(df.dropna(subset=["open", "high", "low", "close", "volume"]))
+    except Exception:
+        F["cpr_vp"] = None
 
     # ── RSI 60-40 with-trend setup (reuses the scanner, so the panel and the
     # Scanner Hub can never disagree about whether the setup is live) ──
@@ -719,6 +729,16 @@ def setup_intelligence(b: EvidenceBundle, bull: Thesis, bear: Thesis,
             "below_value":  ("Below value", "bad"),
         }.get(vp_zone, ("Unclear", "neutral"))
         chips.append(("Value-area location", loc_label, loc_tone))
+    cv = F.get("cpr_vp")
+    if cv:
+        cpr_label, cpr_tone = {
+            "above_tc": ("Above TC", "good"),
+            "inside":   ("Inside CPR", "neutral"),
+            "below_bc": ("Below BC", "bad"),
+        }[cv["position"]]
+        if cv["cpr_in_hvn"]:
+            cpr_label += " · in HVN"
+        chips.append(("CPR", cpr_label, cpr_tone))
 
     bulls: list[str] = []
     risks: list[str] = []
@@ -887,6 +907,37 @@ def setup_intelligence(b: EvidenceBundle, bull: Thesis, bear: Thesis,
             bulls.append(
                 f"Low-volume node {lvn_above:.1f}% overhead with no HVN in front of "
                 f"it — thin air above; breakouts traverse an LVN quickly.")
+
+    # ── CPR × Volume Profile confluence (2026-09-28) ──
+    # The playbook: a CPR level inside a high-volume node is a decision zone
+    # worth more than either alone; the setups are what the LAST bar did there.
+    # Descriptions, unmeasured — the SVP composite from the same family scored
+    # negative, so none of this is a BUY/SELL.
+    cv = F.get("cpr_vp")
+    if cv:
+        lv = cv["levels"]
+        conf = cpr_vp.confluence_text(cv)
+        if cv["cpr_in_hvn"]:
+            (bulls if cv["position"] == "above_tc" else risks).append(
+                f"CPR band (₹{lv['bc']:.0f}–₹{lv['tc']:.0f}) sits inside a high-volume "
+                f"node ({conf}) — "
+                + ("price is holding above a volume-backed pivot; the band is the "
+                   "natural stop reference." if cv["position"] == "above_tc" else
+                   "heavy prior business right at today's pivot; expect a fight here "
+                   "rather than a clean move."))
+        elif cv["cpr_in_lvn"]:
+            risks.append(
+                f"CPR band (₹{lv['bc']:.0f}–₹{lv['tc']:.0f}) sits in a low-volume node — "
+                f"a pivot in thin air; moves through it tend to be fast either way.")
+        if cv["band"] == "narrow":
+            bulls.append(
+                f"Narrow CPR ({cv['width_pct']:.2f}% of price) — compressed value; "
+                f"a trending session is more likely than a range day.")
+        for name in cv["setups"]:
+            text = cpr_vp.SETUP_LABELS[name]
+            rv = f" (RVOL {cv['rvol']:.1f}x)" if cv.get("rvol") else ""
+            (bulls if name in cpr_vp.BULLISH else risks).append(
+                f"CPR × profile setup: {text}{rv} — last bar only, unmeasured.")
 
     # ── Fundamentals (only when yfinance actually returned them) ──
     if b.has_fundamentals:

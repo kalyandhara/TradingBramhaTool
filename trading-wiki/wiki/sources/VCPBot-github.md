@@ -7,6 +7,7 @@ updated: 2026-06-14
 author: blacckbeard4
 url: https://github.com/blacckbeard4/VCPBot
 related: [concepts/VCP.md, strategies/TechnoFunda-Swing.md, analyses/VCPBot-Architecture.md]
+sources: 0
 ---
 
 # VCPBot — GitHub Repository

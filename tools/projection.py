@@ -26,9 +26,17 @@ Anti-overtrust guardrails (per wiki/analyses/Dashboard-UI-Roadmap.md M3):
 
 from __future__ import annotations
 
+import logging
+
+import numpy as np
+import pandas as pd
+
 import ew_module
 import scanner_templates as sc
 import harmonic_patterns as hp
+import row_metrics as rm
+
+_log = logging.getLogger(__name__)
 
 # Confidence floors. A primary below MEDIUM_FLOOR is treated as "Low" → hidden.
 HIGH_FLOOR = 66
@@ -176,6 +184,93 @@ def _harmonic_candidate(df, timeframe):
     }
 
 
+def nearby_levels(target: float, current: float, df, direction: str = "up") -> list[dict]:
+    """Collect structural levels between *current* and *target* that could
+    block the projected move, sorted by distance from target (nearest first).
+
+    Sources: swing highs/lows from ``detect_structure_chain``, daily floor
+    pivots from ``row_metrics.pivot_levels``.  Each returned dict carries
+    ``price``, ``source`` (human label), and ``dist_pct`` (signed distance
+    from the target as a percentage of target price — negative means the
+    level sits BEFORE the target, positive means BEYOND it).
+
+    Returns at most 3 levels.  An empty list means open air.
+    """
+    if target is None or current is None or df is None or len(df) < 30:
+        return []
+
+    going_up = direction == "up"
+    lo, hi = (current, target) if going_up else (target, current)
+
+    raw: list[tuple[float, str]] = []
+
+    try:
+        chain = sc.detect_structure_chain(df, pivot_len=15)
+        for sw in chain.get("swings", []):
+            lvl = float(sw["level"])
+            kind = sw.get("kind", "")
+            if lo < lvl < hi:
+                label = "Swing high" if kind == "high" else "Swing low"
+                raw.append((lvl, label))
+    except Exception:
+        pass
+
+    try:
+        pivots = rm.pivot_levels(df)
+        if pivots:
+            for name, lvl in pivots.items():
+                if lo < lvl < hi:
+                    tag = {"pp": "Pivot", "r1": "R1", "s1": "S1",
+                           "bc": "CPR bottom", "tc": "CPR top"}.get(name, name)
+                    raw.append((lvl, tag))
+    except Exception:
+        pass
+
+    if not raw:
+        return []
+
+    seen: set[float] = set()
+    unique: list[tuple[float, str]] = []
+    for price, src in raw:
+        rounded = round(price, 2)
+        if rounded not in seen:
+            seen.add(rounded)
+            unique.append((rounded, src))
+
+    unique.sort(key=lambda x: abs(x[0] - target))
+
+    return [
+        {
+            "price": p,
+            "source": src,
+            "dist_pct": round((p - target) / target * 100.0, 2),
+        }
+        for p, src in unique[:3]
+    ]
+
+
+def target_atr_distance(target: float, current: float, df,
+                        atr_period: int = 14) -> float | None:
+    """Return target distance expressed as multiples of ATR.
+
+    A value of 2.5 means the target is 2.5× the recent average true range
+    away from the current price.  Returns None when inputs are insufficient.
+    """
+    if target is None or current is None or df is None or len(df) < atr_period + 1:
+        return None
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+    close = df["close"].astype(float)
+    prev_close = close.shift(1)
+    tr = np.maximum(high - low,
+                    np.maximum(np.abs(high - prev_close),
+                               np.abs(low - prev_close)))
+    atr = float(tr.iloc[-atr_period:].mean())
+    if atr <= 0:
+        return None
+    return round(abs(target - current) / atr, 2)
+
+
 def compute_projection(df, timeframe: str = "1d") -> dict | None:
     """Return the best forward projection for `df`, or None if nothing confident.
 
@@ -249,4 +344,12 @@ def compute_projection(df, timeframe: str = "1d") -> dict | None:
              "confidence": c["confidence"], "reasoning": c["reasoning"]}
             for c in sorted(candidates, key=lambda c: -c["confidence"])
         ],
+        # B-118: structural levels between current price and target that could
+        # block the projected move.  Distance is from the TARGET, not from
+        # current — a small negative means "just before you get there".
+        "nearby_levels": nearby_levels(
+            primary["price"], current, df, primary["direction"],
+        ),
+        # B-117: target distance in ATR multiples — fact, not veto.
+        "target_atr": target_atr_distance(primary["price"], current, df),
     }

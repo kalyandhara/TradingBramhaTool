@@ -5,6 +5,8 @@ tags: [python, tooling, sectors, FII, DII, institutional-flow, architecture]
 created: 2026-06-20
 updated: 2026-06-20
 related: [strategies/Sector-Liquidity-Rotation.md, strategies/Screener-Queries.md, analyses/Sector-Watchlist.md]
+timeframe: n/a
+sources: 0
 ---
 
 # Sector Rotation Tool Architecture — sector_rotation.py

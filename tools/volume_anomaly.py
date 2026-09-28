@@ -221,9 +221,64 @@ def match_announcements(anns: list[dict], spike_date: datetime,
         if any(k in blob for k in REACTIVE_SUBJECTS):
             continue
         if any(k in blob for k in MATERIAL_SUBJECTS):
+            # 160 used to truncate mid-number — SAMBHV's warrant count sat at
+            # character 158. The headline builder does its own trimming.
             hits.append({"date": raw, "subject": subj,
-                         "detail": str(a.get("detail") or "")[:160]})
+                         "detail": str(a.get("detail") or "")[:400]})
     return hits
+
+
+#: The boilerplate every NSE announcement text opens with. Stripping it is the
+#: difference between "Sambhv Steel Tubes Limited has informed the Exchange about
+#: the general updates relating to the proposed preferential issue of 8,695,400
+#: fully convertible warrants" and the only part a reader needs.
+_BOILERPLATE = re.compile(
+    r"^\s*(?:the\s+)?(?:company|[\w&.\-' ]{2,60}?(?:limited|ltd\.?|corporation|corp\.?))?"
+    r"\s*has\s+(?:informed|submitted|intimated)\s+"
+    r"(?:(?:to\s+)?the\s+exchange\s*)?"
+    r"(?:about|regarding|that|a\s+copy\s+of|the)?\s*[:\-]?\s*",
+    re.I)
+
+#: A detail line that only repeats its own category tells the reader nothing the
+#: category did not. Compared after normalising case and punctuation.
+def _informative(detail: str, subject: str) -> bool:
+    d = re.sub(r"[^a-z0-9 ]", " ", detail.lower()).split()
+    s_ = re.sub(r"[^a-z0-9 ]", " ", subject.lower()).split()
+    if not d:
+        return False
+    if len(d) <= len(s_) + 1 and set(d) <= set(s_) | {"general", "updates", "update"}:
+        return False
+    return True
+
+
+def filing_headline(subject: str, detail: str, max_len: int = 160) -> str:
+    """The most informative line available for one filing (B-51r).
+
+    NSE's `desc` is a CATEGORY — and for a third of filings it is the useless
+    "General Updates", which is what this module printed until 2026-09-21. The
+    same payload carries `attchmntText`, whose first sentence is often the actual
+    event: *"the proposed preferential issue of 8,695,400 fully convertible
+    warrants"* against a `desc` of "General Updates". Checked against the
+    2026-09-21 card, that single field is the "why" for SAMBHV.
+
+    The amounts in the attachment PDF (order-book totals, contract values) are
+    still not here — those need the file itself, which nothing parses.
+
+    Returns `"Category — the specific bit"`, or just the category when the text
+    adds nothing to it.
+    """
+    subject = (subject or "").strip()
+    body = _BOILERPLATE.sub("", (detail or "").strip()).strip(" .:-")
+    # NSE often opens the text by repeating the category verbatim. Saying it
+    # twice in one line is how a 130-character budget gets spent on nothing.
+    if subject and body.lower().startswith(subject.lower()):
+        body = body[len(subject):].strip(" .:-")
+    if not body or not _informative(body, subject):
+        return subject or "filing"
+    body = body[0].upper() + body[1:] if body else body
+    if len(body) > max_len:
+        body = body[:max_len].rsplit(" ", 1)[0] + "…"
+    return f"{subject} — {body}" if subject else body
 
 
 def classify_cause(announcements: list[dict], churn: dict[str, Any],
@@ -233,7 +288,9 @@ def classify_cause(announcements: list[dict], churn: dict[str, Any],
     reasons: list[str] = []
     if announcements:
         for a in announcements[:3]:
-            reasons.append(f"filing {a['date']}: {a['subject']}")
+            reasons.append(
+                f"filing {a['date']}: "
+                f"{filing_headline(a.get('subject', ''), a.get('detail', ''))}")
         return CORPORATE_ACTION, reasons
 
     share = churn.get("churn_share")

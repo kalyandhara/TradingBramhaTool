@@ -8,6 +8,8 @@ fetched: 2026-07-12
 created: 2026-07-12
 raw: .raw/transcripts/YT-Kaushik-Akkiwakar-TSI-Momentum-2026-07-12.md
 tags: [momentum, indicator, tsi, supertrend, point-and-figure]
+updated: 2026-08-09
+sources: 0
 ---
 
 # YT — Kaushik Akkiwakar: True Strength Index (TSI) for Momentum

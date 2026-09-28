@@ -6,6 +6,7 @@ tags: [contra, turnaround, opm, margin, pead, quarterly, unvalidated]
 created: 2026-08-31
 updated: 2026-08-31
 related: [concepts/PEAD, concepts/Mean-Reversion, concepts/Stage-Analysis, analyses/Open-Backlog, concepts/FPV-Flow-Price-Volume-Ownership]
+sources: 0
 ---
 
 # Margin Inflection (contra screening)

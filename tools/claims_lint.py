@@ -419,6 +419,133 @@ def _scan_state_labels(src: pathlib.Path | None = None,
     return sorted(rows, key=lambda r: r[1])
 
 
+#: CHECK 3 — a COUNT in prose that disagrees with a registry the code can count.
+#:
+#: Found 2026-09-14 (B-79): the Scanner Hub's nav tooltip said "24 pattern
+#: scanners" against a registry of 46 — stale since whenever the 25th shipped, and
+#: sitting ONE HOVER away from a Home tile that counts `len(sc.SCANNERS)` correctly.
+#: Two more copies had drifted the same way in `opportunity_daily`'s docstring.
+#:
+#: This is the same SHAPE as CHECK 0 and deliberately not like CHECK 2: there is
+#: ground truth, so no human judgement is required and the check fires only on a
+#: real mismatch. A count that agrees with the registry is silent, so the output
+#: is empty in the normal case and every line is definitely wrong — the property
+#: that keeps a lint worth reading.
+#:
+#: WHY MEASUREMENT VOCABULARY DISQUALIFIES A HIT, which is the whole precision
+#: story. "0/41 scanners stable after costs" is B-19's RESULT: a true statement
+#: about a past run over the 41 scanners that existed then, and it must NOT be
+#: rewritten to 46 when the 47th ships. A historical result is not a stale
+#: inventory claim, and the CONTEXT vocabulary already separates them — the same
+#: regex CHECK 2 uses to decide a number IS a measurement, used here inverted.
+#: PRECISION, built the same empirical way as FIGURE_EXCLUDE. The first cut
+#: matched "<N> ... scanners|pages" with up to two adjectives between, and
+#: returned **14 hits on the real tree, every one wrong**:
+#:
+#:   "exactly 1 scanner fired" · "at least 2 valid scanner names" ·
+#:   "7 scanners · 2 families" · "42 scanners, 114 candidates rated" ·
+#:   "trimmed 12 scanners over" · "0.30 x best scanner score" (a DECIMAL read as
+#:   a count) · wiki_lint's "4 pages" (wiki pages, a different registry entirely)
+#:
+#: The lesson is that `scanner` and `page` are among the commonest nouns in this
+#: repo, and nearly every number near them counts an EVENT — how many fired, how
+#: many were rated, how many a study trimmed — not the inventory. No blacklist of
+#: verbs was going to hold.
+#:
+#: So the check is keyed on noun phrases that only ever denote the WHOLE
+#: registry. It catches less and is worth more: the alternative is a check whose
+#: output you learn to skim, which is the failure this file exists to prevent.
+#: The lookbehind additionally kills `0.30 x` and `0/41`.
+COUNT_CLAIMS = [
+    (r"(?<![.\d/])\b(\d{1,3})\s+pattern\s+scanners?\b",   "scanner"),
+    (r"(?<![.\d/])\bof\s+(\d{1,3})\s+scanners?\b",        "scanner"),
+    (r"(?<![.\d/])\b(\d{1,3})\s+sidebar\s+groups?\b",     "group"),
+    (r"(?<![.\d/])\b(\d{1,3})\s+pages?\s+across\b",       "page"),
+]
+
+#: Noun → (module, symbol, how to count it). Parsed with `ast`, never imported,
+#: for the reason the rest of this file parses: importing `dashboard_app` runs a
+#: Streamlit app.
+COUNT_REGISTRY = {
+    "scanner":  ("scanner_templates.py", "SCANNERS", "dict_keys"),
+    "page":     ("dashboard_app.py", "PAGE_GROUPS", "sum_of_list_values"),
+    "group":    ("dashboard_app.py", "PAGE_GROUPS", "dict_keys"),
+}
+
+
+def _count_symbol(fname: str, symbol: str, how: str) -> int | None:
+    """Size of a module-level dict literal, without importing the module."""
+    path = HERE / fname
+    if not path.exists():
+        return None
+    try:
+        tree = ast.parse(path.read_text(encoding="utf-8", errors="replace"))
+    except SyntaxError:
+        return None
+    for node in ast.walk(tree):
+        # Both plain and annotated assignment — `SCANNERS: dict[str, dict] = {`
+        # is an AnnAssign, and handling only Assign is the exact bug recorded
+        # above `_scanner_descriptions`.
+        if isinstance(node, ast.AnnAssign):
+            targets = [node.target]
+        elif isinstance(node, ast.Assign):
+            targets = list(node.targets)
+        else:
+            continue
+        if not (any(getattr(t, "id", None) == symbol for t in targets)
+                and isinstance(node.value, ast.Dict)):
+            continue
+        if how == "dict_keys":
+            return len(node.value.keys)
+        if how == "sum_of_list_values":
+            total = 0
+            for v in node.value.values:
+                if isinstance(v, (ast.List, ast.Tuple)):
+                    total += len(v.elts)
+            return total
+    return None
+
+
+def _scan_count_claims(paths: list[pathlib.Path]) -> list[tuple[str, int, str]]:
+    """Prose counts that disagree with what the registry actually holds."""
+    actual: dict[str, int | None] = {}
+    for noun, (fname, symbol, how) in COUNT_REGISTRY.items():
+        actual[noun] = _count_symbol(fname, symbol, how)
+
+    rx = [(re.compile(p, re.I), noun) for p, noun in COUNT_CLAIMS]
+    seen: set[tuple[str, int, int, str]] = set()
+    rows: list[tuple[str, int, str]] = []
+    for path in paths:
+        if not path.exists():
+            continue
+        skip = _suppressed(path)
+        for lineno, end, text in _prose(path):
+            if any(n in skip for n in range(lineno, end + 1)):
+                continue
+            for r, noun in rx:
+                for m in r.finditer(text):
+                    claimed = int(m.group(1))
+                    real = actual.get(noun)
+                    if real is None or claimed == real:
+                        continue
+                    lo = max(0, m.start() - 55)
+                    window = text[lo:m.end() + 55]
+                    if CONTEXT.search(window):
+                        continue      # a measurement RESULT, not an inventory claim
+                    # Keyed on the NOUN as well as the line: "23 pages across 5
+                    # sidebar groups" is two independent claims on one line, and
+                    # `_dedupe` (file, line) would silently drop the second.
+                    key = (path.name, lineno, claimed, noun)
+                    if key in seen:
+                        continue
+                    seen.add(key)
+                    snip = re.sub(r"\s+", " ", window.replace("\n", " ")).strip()
+                    rows.append((path.name, lineno,
+                                 f"says {claimed} {noun}(s), registry holds "
+                                 f"{real} — {snip}"))
+    return sorted(rows)
+
+
 def _dedupe(rows: list[tuple[str, int, str]]) -> list[tuple[str, int, str]]:
     """One row per (file, line), keeping the longest snippet.
 
@@ -491,6 +618,14 @@ def main(argv: list[str]) -> int:
         "measurement with no write-up is debt; each should gain a source with real "
         "numbers or be retired.",
         _scan_unrecorded_studies(),
+    )
+    _report(
+        "3. COUNTS THAT DISAGREE WITH THE REGISTRY (no judgement needed)",
+        "A number in prose that the code can count and that does not match. Like "
+        "CHECK 0, every hit is definitely wrong. A measurement RESULT over a past "
+        "registry (\"0/41 scanners stable\") is deliberately NOT flagged — it is "
+        "true about the run it describes.",
+        _scan_count_claims(paths),
     )
     _report(
         "1. PROMISSORY CLAIMS (prose that dates itself when a study runs)",

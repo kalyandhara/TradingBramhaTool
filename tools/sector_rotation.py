@@ -25,6 +25,7 @@ Steps:
 Run manually:  py -3 tools/sector_rotation.py path/to/export.csv
 """
 
+import io
 import sys
 import time
 from pathlib import Path
@@ -44,6 +45,7 @@ except ImportError:
     sys.exit("Run:  py -3 -m pip install openpyxl")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+import out_paths as _out
 
 # NSE sectoral index proxies (Yahoo Finance tickers) keyed by screener.in's
 # granular "Industry" label (NOT the broader "Sector" label — screener.in's
@@ -242,6 +244,157 @@ def aggregate_by_sector(df: pd.DataFrame) -> pd.DataFrame:
     return grouped.sort_values("fii_rotation_score", ascending=False).reset_index()
 
 
+# ══ NSE index closes — the daily all-indices file (B-80) ═════════════════════
+#
+# WHY THIS EXISTS. `sentiment_index._sector_perf` scored the 1-day change of the
+# eleven sector indices from yfinance, and **8 of the 11 went dark**. Probed
+# 2026-09-15, and the shape matters:
+#
+#   ^CNXAUTO, ^CNXCONSUM, ^CNXENERGY, ^CNXFMCG, ^CNXINFRA, ^CNXMETAL,
+#   ^CNXREALTY, NIFTY_FIN_SERVICE.NS
+#       -> exactly ONE row at EVERY period, `1mo` through `max`, dated today.
+#   ^CNXIT, ^CNXPHARMA, ^NSEBANK
+#       -> full history (4,674 rows at `max`).
+#
+# **The previously-recorded fix — "widen the window AND bound the gap between the
+# two bars" — is invalid against this feed.** It was written on 2026-09-10 when
+# `period="3mo"` still returned 28 rows for ^CNXAUTO. There is no longer a second
+# bar at any width, so no window and no gap bound can produce a 1-day change.
+# Counting first is the only reason that was found before it was built.
+#
+# THIS SOURCE IS NOT A SUBSTITUTE MEASUREMENT. NSE publishes every index's close
+# and `Change(%)` for the session in one CSV, on the same `nsearchives` host
+# `nse_universe` already uses, login-free. It is the SAME quantity the factor
+# always claimed — the sector index's own 1-day move — taken from the exchange
+# that computes it rather than from a mirror that stopped carrying it. That is
+# why this is a repair and not a redefinition needing its own pre-registration.
+NSE_INDEX_CLOSE_URL = (
+    "https://nsearchives.nseindia.com/content/indices/ind_close_all_{ddmmyyyy}.csv")
+
+NSE_HEADERS = {
+    "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
+    "Accept": "text/csv,*/*",
+    "Referer": "https://www.nseindia.com/",
+}
+
+#: Ticker -> the exact `Index Name` string in NSE's file. Verified against a live
+#: download on 2026-09-15: all eleven match exactly, no fuzzy matching, and an
+#: unmatched name is reported rather than guessed at.
+NSE_INDEX_NAMES = {
+    "^NSEBANK":             "Nifty Bank",
+    "NIFTY_FIN_SERVICE.NS": "Nifty Financial Services",
+    "^CNXIT":               "Nifty IT",
+    "^CNXPHARMA":           "Nifty Pharma",
+    "^CNXAUTO":             "Nifty Auto",
+    "^CNXFMCG":             "Nifty FMCG",
+    "^CNXMETAL":            "Nifty Metal",
+    "^CNXREALTY":           "Nifty Realty",
+    "^CNXENERGY":           "Nifty Energy",
+    "^CNXINFRA":            "Nifty Infrastructure",
+    "^CNXCONSUM":           "Nifty India Consumption",
+}
+
+_NSE_CACHE_DIR = Path(__file__).resolve().parent / "cache" / "nse_indices"
+
+#: Calendar days to walk back looking for a session file. NSE publishes nothing
+#: on weekends or holidays, so "no file for today" is the normal Sunday state and
+#: must not read as an outage. Six matches `sentiment_index.MAX_STALE_DAYS`, so a
+#: file this walk accepts is one that component would also accept.
+NSE_INDEX_MAX_BACKTRACK = 6
+
+
+def _nse_index_cache(day) -> Path:
+    return _NSE_CACHE_DIR / f"ind_close_all_{day.isoformat()}.csv"
+
+
+def fetch_nse_index_closes(day=None, *, session=None,
+                           max_backtrack: int = NSE_INDEX_MAX_BACKTRACK):
+    """NSE's all-indices close file for the latest session at or before `day`.
+
+    Returns ``(DataFrame, session_date)`` or ``(None, None)``. Disk-cached per
+    session date — the file is immutable once published, so a cached one is never
+    refetched and a backtest of this path costs nothing.
+
+    Walks back over weekends and holidays rather than treating a missing file as
+    failure, and returns the date it actually got so the CALLER can age it. This
+    function deliberately does not decide what is too stale; that rule belongs to
+    the component doing the scoring.
+    """
+    import requests
+    from datetime import date as _date, timedelta
+
+    day = day or _date.today()
+    sess = session or requests.Session()
+    if session is None:
+        sess.headers.update(NSE_HEADERS)
+
+    for back in range(max_backtrack + 1):
+        d = day - timedelta(days=back)
+        if d.weekday() >= 5:            # NSE publishes nothing at the weekend
+            continue
+        cached = _nse_index_cache(d)
+        if cached.exists():
+            try:
+                return pd.read_csv(cached), d
+            except Exception:
+                pass                    # corrupt cache — refetch below
+        url = NSE_INDEX_CLOSE_URL.format(ddmmyyyy=d.strftime("%d%m%Y"))
+        try:
+            r = sess.get(url, timeout=20)
+        except Exception:
+            continue
+        # A holiday returns an HTML error page with status 200, so the content
+        # type and a size floor are the real test, not the status code.
+        if r.status_code != 200 or len(r.content) < 500:
+            continue
+        if b"Index Name" not in r.content[:2000]:
+            continue
+        try:
+            df = pd.read_csv(io.BytesIO(r.content))
+        except Exception:
+            continue
+        try:
+            _NSE_CACHE_DIR.mkdir(parents=True, exist_ok=True)
+            cached.write_bytes(r.content)
+        except Exception:
+            pass                        # caching is best-effort
+        return df, d
+    return None, None
+
+
+def nse_index_changes(day=None, *, session=None):
+    """``{ticker: {"chg_pct", "close", "index_date", "name"}}`` for the eleven.
+
+    Empty dict when no session file could be had. A ticker whose index name is
+    absent from the file is simply left out — reported as unavailable by the
+    caller rather than silently defaulted to zero, which is the whole point of
+    the NOT_CHECKED convention this desk uses.
+    """
+    df, sess_date = fetch_nse_index_closes(day, session=session)
+    if df is None or sess_date is None:
+        return {}
+    try:
+        by_name = {str(n).strip(): row for n, row in
+                   zip(df["Index Name"], df.to_dict("records"))}
+    except KeyError:
+        return {}
+    out: dict[str, dict] = {}
+    for tkr, name in NSE_INDEX_NAMES.items():
+        row = by_name.get(name)
+        if row is None:
+            continue
+        try:
+            chg = float(row["Change(%)"])
+            close = float(row["Closing Index Value"])
+        except (KeyError, TypeError, ValueError):
+            continue
+        if chg != chg or close != close:          # NaN on a non-trading row
+            continue
+        out[tkr] = {"chg_pct": round(chg, 2), "close": close,
+                    "index_date": sess_date.isoformat(), "name": name}
+    return out
+
+
 def fetch_sector_index_1y_return(ticker: str) -> float | None:
     try:
         df = yf.download(ticker, period="1y", interval="1d", progress=False, auto_adjust=True)
@@ -342,7 +495,8 @@ def run(export_path: Path) -> None:
     sector_table["index_1y_return_%"] = index_returns
     sector_table["rotation_bias"] = biases
 
-    out_path = BASE_DIR / f"sector_rotation_{pd.Timestamp.today().strftime('%Y%m%d')}.xlsx"
+    out_path = _out.out_path(
+        f"sector_rotation_{pd.Timestamp.today().strftime('%Y%m%d')}.xlsx")
 
     # Merge into the existing workbook (Rotation Map / Promoter+FII sheets from the
     # other tools may already live here) rather than overwriting the whole file —

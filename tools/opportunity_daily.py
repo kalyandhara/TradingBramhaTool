@@ -5,12 +5,13 @@ opportunity_daily.py — the Opportunity Hub, run headlessly once a day.
 Why this exists
 ---------------
 The interactive Hub is a five-step funnel: pick a universe, build it, choose
-leading sectors, choose leading industries, pick ONE of 24 scanners, then scan.
+leading sectors, choose leading industries, pick ONE of the pipeline scanners,
+then scan.
 It is powerful and almost impossible to run the same way twice — and nothing
 persists, so every session starts from an empty screen and yesterday's shortlist
 is gone. This module makes the same funnel a single unattended run that ends in
 a stored top-N list, so the question becomes "what did the funnel like today"
-instead of "which of 24 scanners should I try".
+instead of "which scanner should I try".
 
 The funnel, unchanged
 ---------------------

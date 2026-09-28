@@ -30,6 +30,7 @@ Verdict Calibration before trusting the ladder with size.
 from __future__ import annotations
 
 from typing import Any
+import portfolio_risk as prisk
 
 # A component votes "favorable" at/above this share of its own weight, and
 # "caution" at/below the lower one. The dead band between them is a real
@@ -144,11 +145,21 @@ def build_verdict(reading: dict[str, Any] | None,
 
     # Portfolio heat and calendar risk are caution-only by design.
     if portfolio:
-        car = portfolio.get("capital_at_risk_pct")
+        # OPEN risk when the summary carries it, initial risk when it does not
+        # (B-106). The flag asks "how much is still at stake if every stop fills
+        # today?", and until 2026-09-21 it was answering with what the book
+        # risked on the days the positions were opened.
+        car = prisk.live_risk_pct(portfolio)
         if car is not None and float(car) > CAPITAL_AT_RISK_CAUTION_PCT:
             caution.append(
                 f"Capital at risk already {float(car):.1f}% "
                 f"(over {CAPITAL_AT_RISK_CAUTION_PCT:.0f}%)")
+        # A position with no stop is not in `car` at all — its risk is unbounded,
+        # so it cannot be summed. Silence here would read as safety.
+        if int(portfolio.get("no_stop_count") or 0):
+            n = int(portfolio["no_stop_count"])
+            caution.append(f"{n} open position(s) with NO STOP — risk unbounded "
+                           f"and not counted in the number above")
     for extra in (extra_cautions or []):
         if extra:
             caution.append(extra)

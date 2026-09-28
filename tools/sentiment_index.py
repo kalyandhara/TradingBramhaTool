@@ -296,13 +296,23 @@ def _sector_perf() -> dict[str, Any]:
     for the 8 affected indices.** The component has therefore been reporting
     NOT_CHECKED for weeks against a feed that was quietly recovering.
 
-    **The fix is not simply a wider window.** With ``period="3mo"`` those tickers
-    return two bars, but the previous one can be many sessions old, and computing
-    a change across that gap and printing it as "today's move" is precisely the
-    trap the paragraph above warns about. A correct fix widens the window AND
-    bounds the GAP BETWEEN the two bars it uses, the way ``MAX_STALE_DAYS`` bounds
-    the age of the last one. Not done here — it is a behaviour change to a live
-    component and belongs in its own commit.
+    **FIXED 2026-09-15 (B-80) — and the fix recorded above turned out to be
+    unbuildable.** That plan was "widen the window AND bound the gap between the
+    two bars". Re-probed before building it, and the feed had degraded further:
+    the eight now return **exactly ONE row at every period from ``1mo`` to
+    ``max``**, dated today. **No second bar at any width means no 1-day change at
+    any width** — no window and no gap bound can recover it. Counting first is the
+    only reason that was discovered before it was built rather than after.
+
+    The component now reads NSE's own all-indices close file
+    (``sector_rotation.nse_index_changes``), which carries every index's
+    ``Change(%)`` for the session, login-free, on the host ``nse_universe``
+    already uses. **This is the same quantity, not a substitute measurement** —
+    the sector index's own 1-day move, taken from the exchange that computes it
+    instead of a mirror that stopped carrying it — which is why it is a repair
+    rather than a redefinition needing its own pre-registration. Coverage went
+    3/11 -> **11/11**. yfinance is kept as a per-ticker fallback for a day the NSE
+    archive is unreachable, and the staleness rule applies to both sources.
 
     The lesson, recorded because it is the second time in one session: **verifying
     through a different code path than the one that ships proves nothing about the
@@ -325,7 +335,56 @@ def _sector_perf() -> dict[str, Any]:
     stale: list[dict[str, Any]] = []
     missing: list[str] = []
 
+    def _tally(chg_pct: float) -> str:
+        nonlocal greens, reds, flats
+        if chg_pct > 0.05:
+            greens += 1
+            return "green"
+        if chg_pct < -0.05:
+            reds += 1
+            return "red"
+        flats += 1
+        return "flat"
+
+    # ── Source 1: NSE's own all-indices close file (B-80) ────────────────────
+    # Preferred because it is the exchange that COMPUTES these indices, and
+    # because 8 of the 11 yfinance tickers now return a single row at every
+    # period from `1mo` to `max` — no second bar means no 1-day change at any
+    # window width, which is why the 2026-09-10 "widen the window and bound the
+    # gap" plan could not be built as written. Same quantity, better source.
+    nse: dict[str, dict] = {}
+    try:
+        nse = secrot.nse_index_changes()
+    except Exception as e:                                  # pragma: no cover
+        log.debug("NSE index closes unavailable: %s", e)
+
     for tkr in tickers:
+        rec = nse.get(tkr)
+        if not rec:
+            continue
+        try:
+            bar = datetime.strptime(rec["index_date"], "%Y-%m-%d").date()
+        except (KeyError, ValueError):
+            continue
+        age_days = (today - bar).days
+        # The SAME age rule the yfinance path applies. A session file found by
+        # walking back over a long holiday is stale for exactly the reason a
+        # stale yfinance bar is, and must be reported as such rather than
+        # silently scored because it came from a nicer source.
+        if age_days > MAX_STALE_DAYS:
+            stale.append({"ticker": tkr, "last_bar": bar.isoformat(),
+                          "age_days": age_days, "source": "nse"})
+            continue
+        chg_pct = float(rec["chg_pct"])
+        details.append({"ticker": tkr, "chg_pct": round(chg_pct, 2),
+                        "color": _tally(chg_pct), "last_bar": bar.isoformat(),
+                        "source": "nse"})
+
+    # ── Source 2: yfinance, for whatever NSE did not answer ──────────────────
+    # Kept rather than deleted: it is the fallback for a day NSE's archive is
+    # unreachable, and it costs nothing when NSE answered for every ticker.
+    done = {d["ticker"] for d in details} | {s["ticker"] for s in stale}
+    for tkr in [t for t in tickers if t not in done]:
         try:
             # 1mo, not 10d: a frozen ticker must return enough history for its
             # last bar to be VISIBLE and datable, rather than collapsing to one
@@ -345,22 +404,25 @@ def _sector_perf() -> dict[str, Any]:
             age_days = (today - last_date).days
             if age_days > MAX_STALE_DAYS:
                 stale.append({"ticker": tkr, "last_bar": last_date.isoformat(),
-                              "age_days": age_days})
+                              "age_days": age_days, "source": "yfinance"})
                 continue
 
             prev, last = float(hist["Close"].iloc[-2]), float(hist["Close"].iloc[-1])
             chg_pct = (last / prev - 1) * 100 if prev > 0 else 0.0
-            if chg_pct > 0.05:  flat = False; greens += 1; color = "green"
-            elif chg_pct < -0.05: flat = False; reds += 1;  color = "red"
-            else:                 flat = True;  flats += 1;  color = "flat"
             details.append({"ticker": tkr, "chg_pct": round(chg_pct, 2),
-                            "color": color, "last_bar": last_date.isoformat()})
+                            "color": _tally(chg_pct),
+                            "last_bar": last_date.isoformat(),
+                            "source": "yfinance"})
         except Exception as e:
             log.debug("Sector %s fetch failed: %s", tkr, e)
             missing.append(tkr)
 
     scored = greens + reds + flats
     coverage = scored / n_expected if n_expected else 0.0
+
+    by_source: dict[str, int] = {}
+    for d in details:
+        by_source[d.get("source", "?")] = by_source.get(d.get("source", "?"), 0) + 1
 
     out: dict[str, Any] = {
         "n_expected": n_expected, "n_scored": scored,
@@ -369,6 +431,9 @@ def _sector_perf() -> dict[str, Any]:
         "stale": stale, "missing": missing,
         "greens": greens, "reds": reds, "flats": flats,
         "details": details,
+        # Which feed each scored index came from. Recorded because the whole of
+        # B-80 was a source failure that looked like a data absence for weeks.
+        "by_source": by_source,
     }
 
     if coverage < COVERAGE_FLOOR:
@@ -660,6 +725,18 @@ def _pct_rank(value: float | None, sample) -> float | None:
     return float((arr < value).sum() / arr.size * 100.0)
 
 
+def _ordinal(pct: float) -> str:
+    """`61` -> "61st". The reading is a sentence a person reads every morning.
+
+    Surfaced by B-78: until the baseline was backfilled the history was always
+    below MIN_PCR_HISTORY, so the branch that prints this percentile had never
+    once rendered — and it said "61th" the first time it did.
+    """
+    n = int(round(pct))
+    suffix = "th" if 10 <= n % 100 <= 20 else {1: "st", 2: "nd", 3: "rd"}.get(n % 10, "th")
+    return f"{n}{suffix}"
+
+
 def pcr_factor(pcr: float | None, pcr_chg: float | None,
                hist: pd.DataFrame) -> dict[str, Any]:
     """Pure calibration: today's NIFTY PCR against its own stored past.
@@ -732,7 +809,7 @@ def pcr_factor(pcr: float | None, pcr_chg: float | None,
             "slope_pct": round(slope_pct, 1) if slope_pct is not None else None,
             "factor": round(factor, 4),
             "score": 0.0,
-            "reading": (f"NIFTY PCR {pcr:.2f} — {level_pct:.0f}th pct of {n_hist} "
+            "reading": (f"NIFTY PCR {pcr:.2f} — {_ordinal(level_pct)} pct of {n_hist} "
                         f"sessions — NOT SCORED: the sign convention was measured "
                         f"(B-22r, {n_hist} sessions) and found to carry no "
                         f"direction, so the factor is reported but excluded"),
@@ -746,8 +823,8 @@ def pcr_factor(pcr: float | None, pcr_chg: float | None,
         "blend": blend,
         "factor": round(factor, 4),
         "score": round(factor * W_PCR, 2),
-        "reading": (f"NIFTY PCR {pcr:.2f} — {level_pct:.0f}th pct of {n_hist} sessions"
-                    + (f", one-day change {pcr_chg:+.2f} ({slope_pct:.0f}th pct)"
+        "reading": (f"NIFTY PCR {pcr:.2f} — {_ordinal(level_pct)} pct of {n_hist} sessions"
+                    + (f", one-day change {pcr_chg:+.2f} ({_ordinal(slope_pct)} pct)"
                        if slope_pct is not None else "")),
     })
     return out

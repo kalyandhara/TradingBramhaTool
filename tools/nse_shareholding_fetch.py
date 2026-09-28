@@ -65,6 +65,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import nse_universe as nseu
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+import out_paths as _out
 
 HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
@@ -636,7 +637,8 @@ if __name__ == "__main__":
     if df.empty:
         sys.exit("No data fetched — check pipeline.log-style output above for per-symbol failures.")
 
-    out_path = BASE_DIR / f"nse_fii_change_{datetime.today().strftime('%Y%m%d')}.csv"
+    out_path = _out.out_path(
+        f"nse_fii_change_{datetime.today().strftime('%Y%m%d')}.csv")
     df.to_csv(out_path, index=False)
     print(f"Saved -> {out_path}")
     print(f"\nFetched {len(df)}/{len(symbols)} symbols successfully.")

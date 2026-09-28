@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
 """
 harmonic_patterns.py
-Fibonacci-ratio harmonic pattern detection (Gartley, Bat, Butterfly, Crab).
+Fibonacci-ratio harmonic pattern detection (Gartley, Bat, Butterfly, Crab) plus
+the four-point AB=CD / Alternate AB=CD family (CD = 1.0 / 1.272 / 1.618 × AB).
 
 Pipeline:
   1. ATR-scaled ZigZag → alternating swing pivots (H/L).
@@ -39,6 +40,13 @@ PATTERNS: dict[str, dict] = {
     },
 }
 TOL = 0.06  # ±6% tolerance on single-value ratio targets
+
+# ── AB=CD (four-point) spec ───────────────────────────────────────────────────
+# The XABCD family above needs five pivots. The AB=CD family needs four: an
+# impulse AB, a retracement BC (0.382–0.886 of AB) and a CD leg that measures
+# AB × 1.0 ("AB=CD"), 1.272 or 1.618 ("Alternate AB=CD"). D is the completion.
+ABCD_BC_AB = (0.382, 0.886)
+ABCD_CD_AB = {"AB=CD": 1.0, "Alt AB=CD 1.272": 1.272, "Alt AB=CD 1.618": 1.618}
 
 
 # ── ZigZag pivot detection (ATR-scaled) ──────────────────────────────────────
@@ -130,44 +138,106 @@ def _match_ratios(x, a, b, c, d, bullish: bool) -> dict | None:
     return None
 
 
+def _match_abcd(a, b, c, d) -> dict | None:
+    """Four-point AB=CD / Alternate AB=CD. Bullish when D is a low (A high, B
+    low, C high, D low); the caller passes the direction from the pivot kinds."""
+    ab = abs(b - a)
+    bc = abs(c - b)
+    cd = abs(d - c)
+    if ab == 0 or bc == 0:
+        return None
+    r_bc_ab = bc / ab
+    r_cd_ab = cd / ab
+    r_cd_bc = cd / bc
+    if not _in(r_bc_ab, ABCD_BC_AB):
+        return None
+    for name, target in ABCD_CD_AB.items():
+        if _in(r_cd_ab, target):
+            return {"pattern": name,
+                    "ratios": {"BC/AB": round(r_bc_ab, 3), "CD/AB": round(r_cd_ab, 3),
+                               "CD/BC": round(r_cd_bc, 3)}}
+    return None
+
+
 # ── Public API ───────────────────────────────────────────────────────────────
 def detect_last_pattern(df: pd.DataFrame, max_age_bars: int = 10,
                          atr_mult: float = 2.0) -> dict | None:
     """Return the most recent harmonic pattern whose D pivot is within max_age_bars.
     None if no valid pattern completes near the current bar."""
     pivots = find_pivots(df, atr_mult=atr_mult)
-    if len(pivots) < 5:
+    if len(pivots) < 4:
         return None
 
     last_bar = len(df) - 1
-    # Iterate 5-pivot windows from newest backward
-    for end in range(len(pivots) - 1, 3, -1):
-        window = pivots[end - 4:end + 1]
-        kinds = "".join(p[2] for p in window)
-        d_idx = window[-1][0]
+    # Iterate windows from newest backward: the 5-pivot XABCD family first,
+    # then the 4-pivot AB=CD family on the same D pivot. XABCD wins when both
+    # match because it constrains one more leg.
+    for end in range(len(pivots) - 1, 2, -1):
+        d_idx = pivots[end][0]
         if last_bar - d_idx > max_age_bars:
             break  # older windows will only be worse
-        if kinds == "LHLHL":
-            bullish = True
-        elif kinds == "HLHLH":
-            bullish = False
-        else:
-            continue
-        x, a, b, c, d = [p[1] for p in window]
-        m = _match_ratios(x, a, b, c, d, bullish)
+        m = None
+        if end >= 4:
+            window = pivots[end - 4:end + 1]
+            kinds = "".join(p[2] for p in window)
+            if kinds in ("LHLHL", "HLHLH"):
+                bullish = kinds == "LHLHL"
+                x, a, b, c, d = [p[1] for p in window]
+                m = _match_ratios(x, a, b, c, d, bullish)
         if m is None:
-            continue
+            window = pivots[end - 3:end + 1]
+            kinds = "".join(p[2] for p in window)
+            if kinds not in ("HLHL", "LHLH"):
+                continue
+            bullish = kinds == "HLHL"
+            a, b, c, d = [p[1] for p in window]
+            m = _match_abcd(a, b, c, d)
+            if m is None:
+                continue
+            m["direction"] = "bullish" if bullish else "bearish"
+            # Trade plan: entry at D, stop just beyond D (there is no X), targets
+            # at 0.382 / 0.618 of CD and the C pivot (a full CD retrace).
+            cd = abs(d - c)
+            buffer = 0.005 * abs(d)
+            if bullish:
+                stop, t1, t2, t3 = d - buffer, d + 0.382 * cd, d + 0.618 * cd, c
+            else:
+                stop, t1, t2, t3 = d + buffer, d - 0.382 * cd, d - 0.618 * cd, c
+            risk = abs(d - stop)
+            rr = round(abs(t2 - d) / risk, 2) if risk > 0 else 0.0
+            m.update({
+                "points": {
+                    "A": {"idx": window[0][0], "price": a},
+                    "B": {"idx": window[1][0], "price": b},
+                    "C": {"idx": window[2][0], "price": c},
+                    "D": {"idx": window[3][0], "price": d},
+                },
+                "trade": {"entry": round(d, 2), "stop": round(stop, 2),
+                          "targets": [round(t1, 2), round(t2, 2), round(t3, 2)],
+                          "risk": round(risk, 2), "rr_to_t2": rr},
+                "age_bars": int(last_bar - d_idx),
+            })
+            return m
+        x, a, b, c, d = [p[1] for p in window]
 
         # Trade plan
         ad = abs(d - a)
-        buffer = 0.005 * abs(x)  # 0.5% beyond X
+        buffer = 0.005 * abs(x)  # 0.5% beyond the invalidation point
+        # The invalidation point is the MORE EXTREME of X and D. For Gartley and
+        # Bat, D completes inside XA and X is beyond it. For Butterfly and Crab,
+        # D completes BEYOND X (AD/XA 1.27-1.618), so a stop "beyond X" sat on the
+        # PROFIT side of the entry -- above a bullish entry, below a bearish one.
+        # Found 2026-09-23 (B-124): ~a quarter of Harmonic cards carried that
+        # inverted plan, the harness inferred the side from it and scored them as
+        # trades in the wrong direction. Anchoring past D for extensions is the
+        # standard practice for those two patterns.
         if bullish:
-            stop = x - buffer
+            stop = min(x, d) - buffer
             t1 = d + 0.382 * ad
             t2 = d + 0.618 * ad
             t3 = d + 1.0 * ad
         else:
-            stop = x + buffer
+            stop = max(x, d) + buffer
             t1 = d - 0.382 * ad
             t2 = d - 0.618 * ad
             t3 = d - 1.0 * ad

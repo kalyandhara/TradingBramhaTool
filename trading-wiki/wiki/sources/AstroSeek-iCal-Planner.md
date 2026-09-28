@@ -65,7 +65,7 @@ Rare and useful: the tool supports multiple ayanamsas so Vedic-oriented users ca
 - Multiple Galactic Center anchors (mid-Mula, 0° Sag / 0° Cap variants)
 - J2000 / J1900 / B1950 astronomical epochs
 
-For our stack, **Lahiri sidereal** is the one that matches the Vedic yoga / nakshatra logic already in [[tools/yoga_dates.py]] and [[tools/reversal_calendar.py]] (implied by our existing infra).
+For our stack, **Lahiri sidereal** is the one that matches the Vedic yoga / nakshatra logic already in `tools/yoga_dates.py` and `tools/reversal_calendar.py` (implied by our existing infra).
 
 ## Actionable Insights
 

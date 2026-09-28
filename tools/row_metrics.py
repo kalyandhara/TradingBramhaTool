@@ -398,6 +398,104 @@ def ema_stack(df: pd.DataFrame, spans=EMA_STACK_SPANS) -> Optional[str]:
     return " ".join(parts) if known else None
 
 
+# ── the quarterly profit shape ────────────────────────────────────────────────
+# B-75. A SEQUENTIAL walk, and the word matters: `fundamentals_deep` computes
+# profit growth year-over-year on purpose, because "sequential comparison would
+# read seasonality as growth". That reasoning is not withdrawn here. The count
+# is what forces the choice — yfinance serves 5-7 quarterly columns, of which
+# only 1-2 have a year-ago match, so a YoY walk is one or two points and is not
+# a sequence at all. The sequential walk is the only walk this data supports.
+#
+# So it is published as a SHAPE, never as a growth rate: decaying reads
+# differently from turning up, and that comparison survives seasonality even
+# where the individual step does not. Nothing here votes, scores, or enters a
+# confluence weight, and it owes no backtest because it makes no claim.
+
+#: A sequential step must span roughly one quarter. Anything outside this is a
+#: gap in the frame, not a quarter of growth -- see `_QOQ_GAP`.
+QOQ_MIN_DAYS, QOQ_MAX_DAYS = 60, 130
+
+#: The frame skipped a quarter, so the step spans more than one. Printed rather
+#: than bridged: silently spanning a gap manufactures a number nobody can see is
+#: wrong. Same reasoning as `rs_walk.format_walk`'s '?'.
+_QOQ_GAP = "?"
+
+#: The BASE quarter was a loss (or zero), so a percentage is not defined -- a
+#: loss shrinking from -100 to -10 computes as +90%, which reads as growth. The
+#: letter says "the denominator was a loss", which is the fact worth carrying.
+_QOQ_LOSS_BASE = "L"
+
+#: Steps shown. 5-7 quarterly columns give 4-6 steps; the cap keeps the cell
+#: from growing without bound if a frame ever carries more.
+QOQ_MAX_STEPS = 6
+
+
+def _qoq_days(newer: Any, older: Any) -> Optional[int]:
+    try:
+        return int((pd.Timestamp(newer) - pd.Timestamp(older)).days)
+    except (TypeError, ValueError):
+        return None
+
+
+def profit_qoq_steps(quarters: list[dict[str, Any]],
+                     max_steps: int = QOQ_MAX_STEPS) -> list[dict[str, Any]]:
+    """Sequential profit change per quarter, OLDEST FIRST.
+
+    Takes `fundamentals_deep.derive_fundamentals(...)["quarters"]`, which is
+    newest-first and carries `period` (ISO date) and `net_income`.
+
+    Each step is `{"period", "pct", "flag"}` where `flag` is None for a computed
+    step, `"gap"` where the frame skipped a quarter, and `"loss_base"` where the
+    earlier quarter was not positive. A step whose either end is missing is
+    dropped entirely rather than flagged: an absent row is not a gapped quarter,
+    and the two should not read alike.
+    """
+    if not quarters:
+        return []
+    rows = list(reversed(quarters))            # oldest first, the reading order
+    steps: list[dict[str, Any]] = []
+    for prev, cur in zip(rows, rows[1:]):
+        p, c = prev.get("net_income"), cur.get("net_income")
+        if p is None or c is None:
+            continue
+        days = _qoq_days(cur.get("period"), prev.get("period"))
+        if days is None or not (QOQ_MIN_DAYS <= days <= QOQ_MAX_DAYS):
+            steps.append({"period": cur.get("period"), "pct": None, "flag": "gap"})
+            continue
+        if p <= 0:
+            steps.append({"period": cur.get("period"), "pct": None,
+                          "flag": "loss_base"})
+            continue
+        steps.append({"period": cur.get("period"),
+                      "pct": round((c / p - 1) * 100, 1), "flag": None})
+    return steps[-max_steps:] if max_steps else steps
+
+
+def format_profit_walk(steps: list[dict[str, Any]]) -> Optional[str]:
+    """`"+12 → -5 → ? → +8"`, oldest first, per cent, sequential.
+
+    None when there is nothing to show, so the cell renders absent rather than
+    as an empty walk — absent and flat are different readings.
+    """
+    if not steps:
+        return None
+    parts = []
+    for s in steps:
+        if s.get("flag") == "gap":
+            parts.append(_QOQ_GAP)
+        elif s.get("flag") == "loss_base":
+            parts.append(_QOQ_LOSS_BASE)
+        else:
+            parts.append(f"{s['pct']:+.0f}")
+    return " → ".join(parts)
+
+
+def profit_qoq_walk(quarters: list[dict[str, Any]],
+                    max_steps: int = QOQ_MAX_STEPS) -> Optional[str]:
+    """The `profit_qoq_walk` cell for one symbol, from its quarterly history."""
+    return format_profit_walk(profit_qoq_steps(quarters, max_steps))
+
+
 def row(df: pd.DataFrame, ref_date=None) -> dict[str, Any]:
     """Every column above for one symbol, ready to drop into a table row."""
     x = ema_cross_age(df)

@@ -274,3 +274,74 @@ def main() -> int:
 
 if __name__ == "__main__":
     raise SystemExit(main())
+
+
+# ── the filing headline (B-51r, 2026-09-21) ───────────────────────────────────
+# NSE's `desc` is a CATEGORY, and for a large share of filings it is the useless
+# "General Updates" — which is all this module printed until now. The same
+# payload already carried `attchmntText`, whose first sentence is often the event
+# itself. Every string below is a REAL one from the 21-Sep-2026 feed.
+def test_the_headline_recovers_the_number_the_category_hid():
+    """SAMBHV, 17-Sep-2026. The card's "86.95 lakh warrants proposed at ₹115"
+    was in data this module already fetched, behind a `desc` of "General
+    Updates"."""
+    out = va.filing_headline(
+        "General Updates",
+        "The Company has informed about the general updates relating to the "
+        "proposed preferential issue of 8,695,400 fully convertible warrants "
+        "at Rs.115 each")
+    assert "8,695,400" in out and "115" in out
+    assert out.startswith("General Updates — ")
+
+
+def test_the_boilerplate_prefix_is_stripped():
+    """"<Company> has informed the Exchange about" is on every row and carries
+    nothing. It is pure budget spent on nothing."""
+    out = va.filing_headline(
+        "General Updates",
+        "Gujarat Themis Biosyn Limited has informed the Exchange about Acquisition")
+    assert out == "General Updates — Acquisition"
+
+
+def test_a_repeated_category_is_not_printed_twice():
+    """WELCORP, 20-Sep-2026: the text opens by repeating its own category."""
+    out = va.filing_headline(
+        "Bagging/Receiving of orders/contracts",
+        "Welspun Corp Limited has informed the Exchange about "
+        "Bagging/Receiving of orders/contracts: Large order win announced by "
+        "the Company s associate Company viz. East Pipes Integrated Company "
+        "for Industry, KSA")
+    assert out.count("Bagging/Receiving") == 1
+    assert "East Pipes" in out
+
+
+def test_a_detail_that_only_repeats_the_category_is_dropped():
+    """TEGA, 11-Sep-2026. Adding " — General Updates" to "General Updates" is
+    worse than saying nothing, because it looks like information."""
+    assert va.filing_headline(
+        "General Updates",
+        "Tega Industries Limited has informed the Exchange about General Updates"
+    ) == "General Updates"
+
+
+def test_an_empty_detail_falls_back_to_the_category():
+    assert va.filing_headline("Credit Rating", "") == "Credit Rating"
+    assert va.filing_headline("", "") == "filing"
+
+
+def test_a_long_headline_is_trimmed_on_a_word_boundary():
+    out = va.filing_headline("Updates", "X Limited has informed the Exchange "
+                                        "about " + "word " * 80, max_len=40)
+    assert len(out) < 80 and out.endswith("…")
+
+
+def test_the_cause_line_now_carries_the_headline():
+    """The reason string is what the reader actually sees, on the card and in
+    the CLI. It printed the category alone until 2026-09-21."""
+    anns = [{"date": "17-Sep-2026 17:45:31", "subject": "General Updates",
+             "detail": "The Company has informed about the general updates "
+                       "relating to the proposed preferential issue of "
+                       "8,695,400 fully convertible warrants at Rs.115 each"}]
+    cause, reasons = va.classify_cause(anns, {}, 0)
+    assert cause == va.CORPORATE_ACTION
+    assert "8,695,400" in reasons[0]

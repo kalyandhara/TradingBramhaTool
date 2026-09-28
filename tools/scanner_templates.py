@@ -594,41 +594,104 @@ def _enrich_pead(results: list[dict]) -> list[dict]:
 
 
 def scan_vcp(df: pd.DataFrame) -> dict | None:
-    """Volatility contraction: three successive 10-day ranges each tighter than the last."""
-    if len(df) < 35:
-        return None
-    close = df["close"]
-    last = float(close.iloc[-1])
-    sma50 = _sma(close, 50)
-    if np.isnan(sma50) or last < sma50:
-        return None
+    """VCP coiling — the STRICT pivot-based detector (`detect_vcp_geometry`).
 
-    def _range_pct(window: pd.DataFrame) -> float:
-        lo = float(window["low"].min())
-        hi = float(window["high"].max())
-        return (hi - lo) / lo * 100 if lo > 0 else float("inf")
+    ── What changed, and what it cost ─────────────────────────────────────────
+    Until 2026-09-19 this scanner was a coarse three-window range check: are the
+    last three 10-day ranges each tighter than the last, by at least 20% overall,
+    with price above its SMA50. That test fired on anything narrowing, whether or
+    not the narrowing had the shape of a base, and it emitted no pivot, no
+    contraction ladder and no trade plan.
 
-    r0 = _range_pct(df.tail(10))
-    r1 = _range_pct(df.iloc[-20:-10])
-    r2 = _range_pct(df.iloc[-30:-20])
-    if not (r2 > r1 > r0):
+    It now delegates to `detect_vcp_geometry`, which walks confirmed swing pivots
+    and requires an actual base: 2-4 contractions, each tighter than the last by
+    a tolerance, a real pivot to break, and a volume dry-up on the right side.
+    Same detector the chart overlay draws, so the card and the chart can no
+    longer disagree about whether a name is coiling.
+
+    **This invalidated a measurement, deliberately and on request — and the
+    replacement has since been measured.** B-19 (2026-09-02) placed "VCP Coiling"
+    in the WEAK tier on the three-window test above. That reading did not
+    transfer to a different detector with a different hit set, so the scanner
+    went back to `unmeasured` and was re-run: B-19r(VCP), same harness, bands
+    pre-registered first. 3,233 OOS signals, +0.13% @20d, -0.22% @60d — @20d
+    positive but NOT sign-stable (+0.62*/+0.09/-0.28), @60d stable and negative.
+    WEAK again, by measurement rather than by inheritance, so it sits back at
+    0.25. The swap bought a scoreable plan and one detector instead of two, and
+    no edge.
+
+    Three consequences worth stating plainly, none of them hidden. Measured
+    2026-09-19 on 110 NSE names x 3 evaluation cuts, old gates vs new:
+
+      * **The hit sets barely overlap, and the new one is BIGGER.** 13 old-only,
+        16 shared, 63 new-only — 29 hits become 79, a 2.7x INCREASE. The strict
+        detector is stricter about SHAPE (it demands a real base with a pivot),
+        not about frequency: the old three-window test needed the narrowing to
+        land in the last 30 bars, so it missed most bases while admitting
+        narrowings that were not bases at all. Do not read "strict" as "quieter".
+      * **Four fifths of those hits are WATCH** (63 WATCH / 7 WEAK BUY / 6 READY
+        / 3 BUY) — a valid base that is not near its pivot yet. That is the
+        honest meaning of "coiling", but it does mean the Scanner Hub now shows
+        many more VCP cards, most of which are not actionable today.
+      * **Its confluence weight went 0.25 -> 0.5 -> 0.25.** Dropping the
+        inherited tier moved it to `unmeasured`, which outranks `weak`
+        ("plausible, unproven" beats "measured and it was not good"), so between
+        the swap and B-19r it voted twice as heavily while the desk knew less
+        about it. The re-measurement closed that window and put it back at 0.25.
+        Recorded because that intermediate state is the part a diff hides.
+
+    Score is `_base_quality` — the SAME 0-100 base score `scan_base_formation`
+    uses, not a second definition invented here.
+    """
+    g = detect_vcp_geometry(df)
+    if g is None:
         return None
-    contraction = (r2 - r0) / r2 * 100
-    if contraction < 20:
+    contractions = g.get("contractions") or []
+    if not contractions:
         return None
-    vol_recent = float(df["volume"].tail(10).mean())
-    vol_prior = float(df["volume"].iloc[-30:-10].mean())
+    depths = [c["depth_pct"] for c in contractions]
+    base_q, base_depth = _base_quality(
+        g["pivot"], g["base_low"], depths[-1], g["n_contractions"],
+        g["vol_confirmed"], g["vol_drying"])
+
+    tags = [f"{g['n_contractions']} contractions", f"footprint {g['footprint']}",
+            g["verdict"]]
+    if g["vol_confirmed"]:
+        tags.append("volume dried")
+    if g["vol_expansion"]:
+        tags.append("volume expanding")
+    if g["risk_reward"]:
+        tags.append(f"R:R {g['risk_reward']}")
+
     reasons = [
-        f"Ranges contracting: {r2:.1f}% → {r1:.1f}% → {r0:.1f}% (last 30 days)",
-        f"{contraction:.0f}% total volatility contraction — classic VCP signature",
+        f"{g['n_contractions']} contractions tightening {g['footprint']} "
+        f"over ~{g['base_weeks']} weeks",
+        f"Pivot {g['pivot']}, base low {g['base_low']} "
+        f"({base_depth:.1f}% deep) — {g['dist_to_pivot_pct']}% from the pivot",
+        ("Volume dried into the right side" if g["vol_confirmed"]
+         else "Volume has NOT dried on the right side — the coil is not confirmed"),
+        f"Base quality {base_q:.0f}/100",
     ]
-    if vol_recent < vol_prior:
-        reasons.append("Volume drying on contraction — institutional absorption, not selling")
+    reasons.append(
+        "MEASURED WEAK (B-19r, 2026-09-19): +0.13% @20d but not sign-stable, "
+        "-0.22% @60d and stable negative, over 3,233 OOS signals. Read it as "
+        "context, not as a trigger.")
+
     return {
         "pattern_type": "VCP Coiling",
-        "tags": [f"{contraction:.0f}% contraction", "VCP"],
+        "tags": tags,
         "reasons": reasons,
-        "score": round(contraction, 2),
+        "score": round(base_q, 2),
+        # Top level for the measurement harness, geometry for the chart overlay
+        # and /api/vcp — see test_plan_visibility.py for the rule.
+        "entry": g["entry"],
+        "stop": g["stop"],
+        "target": g["target"],
+        # B-128: WATCH is "valid but not near the pivot" -- no trade. READY is
+        # the card saying PLACE the order (entry = pivot trigger), so it counts;
+        # fill_model="touch" scores it honestly as a buy-stop.
+        "actionable": g["verdict"] in ("BUY", "WEAK BUY", "READY"),
+        "geometry": g,
     }
 
 
@@ -1885,13 +1948,31 @@ def scan_rounding_bottom(df: pd.DataFrame, window: int = 90,
         "score": score,
         # Actionable trade plan
         "verdict": verdict,
+        # B-128: "Approaching rim" is WATCH only -- the scanner's own comment
+        # says no entry until the buffer-close above the rim.
+        "actionable": verdict != "WATCH",
         "entry": round(entry, 2),
         "stop": round(stop, 2),
         "target": round(target, 2),
         "risk_reward": risk_reward,
     }
+    # The plan is emitted at the TOP LEVEL as well as inside `geometry`, because
+    # that is where the measurement harness looks: `backtest.py` reads
+    # `hit.get("entry"/"stop"/"target")` and `scanner_plans.has_plan` checks the
+    # same three keys. Until this line existed, every Rounding Bottom hit carried
+    # a complete entry/stop/target that the R-simulator could not see, and the
+    # plan census scored the scanner as planless on 39/39 hits — accurately, in
+    # that nothing could be scored from it.
+    #
+    # Additive, never a move: the chart overlay and /api/rounding_bottom both
+    # read the geometry payload, and every existing reader keeps working.
     return {"pattern_type": "Rounding Bottom", "tags": tags,
-            "reasons": reasons, "score": score, "geometry": geometry}
+            "reasons": reasons, "score": score,
+            "entry": geometry["entry"],
+            "stop": geometry["stop"],
+            "target": geometry["target"],
+            "actionable": geometry["actionable"],
+            "geometry": geometry}
 
 
 def compute_pre_breakout_conviction(df: pd.DataFrame) -> dict | None:
@@ -2586,11 +2667,27 @@ def detect_structure_chain(df: pd.DataFrame, pivot_len: int = 15,
 # changes behaviour, and `read_market_structure` is the one primitive a consumer
 # should call when it wants "what is structure doing right now".
 #
-# Known open question (B-42r): `detect_bos_choch`/`detect_support_breakdown`
-# default to pivot_len=5 while `detect_structure_chain` and the chart overlay use
-# 15, so "structure" is coarser on the chart than in the scanners. Deliberately
-# NOT unified here — changing either default silently re-grades live output (the
-# B-26 lesson). Settle it on data, not by inheritance.
+# B-42r, MEASURED 2026-09-17 (`pivot_len_agreement.py`, 199 nifty500 names):
+# `detect_bos_choch`/`detect_support_breakdown` default to pivot_len=5 while
+# `detect_structure_chain`, `read_market_structure` and the chart overlay use 15,
+# and the two readings AGREE ON `state` ONLY 29.6% OF THE TIME.
+#
+#     agree on state               29.6%
+#     agree on agreement           35.2%
+#     agree on zone                57.3%
+#     agree on trend_from_breaks   68.3%
+#     median |zone_pct| gap        42.5 pp
+#
+# The largest single disagreement is DOWNTREND (scanners) against UPTREND
+# (chart) on 17.6% of names — not coarser, OPPOSITE. So this was never a tidying
+# question: the chart and the scanners describe different structures, and a
+# reader comparing them is comparing two definitions under one word.
+#
+# Still deliberately NOT unified. Changing either default silently re-grades live
+# output (the B-26 lesson), and at 29.6% agreement the change would move most
+# names — which makes it an OWNER decision about what "structure" means at each
+# timeframe, not a default to tidy. Every read carries its own `params.pivot_len`,
+# so a consumer can always say which definition produced the word.
 # ─────────────────────────────────────────────────────────────────────────────
 
 def label_swing_sequence(swings: list[dict], tol_pct: float = 0.0) -> list[dict]:
@@ -4266,6 +4363,13 @@ def scan_harmonic_reversal(df: pd.DataFrame) -> dict | None:
     except ImportError:
         return None
     h = hp.detect_last_pattern(df)
+    # BULLISH ONLY (owner decision 2026-09-23, B-129). Bearish patterns scored
+    # as longs returned +0.72% @20d -- the stock ROSE after the bearish setup,
+    # so the short thesis fails, as Inverted Flag & Pole's did in B-92. A long-
+    # only desk has no use for a failing short signal in its confluence. The
+    # chart's harmonic overlay reads the detector directly and still draws both.
+    if h is not None and h.get("direction") != "bullish":
+        return None
     if h is None:
         return None
     t = h["trade"]
@@ -4651,6 +4755,36 @@ def scan_mean_reversion(df: pd.DataFrame,
     session low) and the target is a partial reversion to the 20-day SMA (T1) or
     full reversion plus a buffer (T2 = 20-SMA × 1.01).
 
+    ── THE STOP IS MEASURED, AND IT COSTS RETURN (B-8, 2026-09-17) ────────────
+    `mean_reversion_stop_study.py` ran this setup's own signals under four stop
+    policies over ~20 years, Indian delivery costs on every arm. Headline figures
+    are the WIDE run (300 nifty500 names, **742 non-overlapping signals**, above
+    the desk's 200 floor):
+
+        NO STOP              +0.47%   stopped  0.0%   win 55.5%
+        session low x0.995   -0.15%   stopped 68.1%   win 30.1%   <- this one
+        1-ATR                +0.07%   stopped 52.7%   win 40.8%
+        2-ATR                +0.33%   stopped 24.7%   win 53.1%
+
+    Paired on the same signals, **this stop costs -0.64pp versus no stop at all
+    (p=0.0086)**. 1-ATR costs -0.40pp (p=0.082) and 2-ATR -0.14pp (p=0.370) —
+    neither significant, and 2-ATR is nearly free because it is only touched 24.7%
+    of the time. The tight stop fires on more than two trades in three and cuts
+    the win rate from 55.5% to 30.1%: it closes mean-reversion trades exactly
+    where the reversion was about to happen, which is what Connors' sources
+    claimed and what this desk had adopted the opposite of by inheritance.
+
+    **The narrow basket overstated it, and that is worth knowing.** On LIQUID_50
+    alone (145 signals) the same test read -1.44pp at p=0.0009 — more than double
+    the effect. The DIRECTION replicated on 5x the sample and the policy ordering
+    is identical; the SIZE did not. Cite -0.64pp.
+
+    **It is deliberately UNCHANGED.** `time_stop` already bounds the trade in
+    time, and removing a price stop trades a bounded loss for a gap-exposed one —
+    which this study did not measure. The number is recorded here so the next
+    reader chooses on purpose. 2-ATR is the candidate a follow-up should test as
+    the default: it keeps a bound and costs nothing measurable.
+
     Unlike the trend-following scanners, ``vol_x50d`` is intentionally ignored:
     mean-reversion entries often happen on low volume (exhaustion, not expansion).
     """
@@ -4730,6 +4864,10 @@ def scan_mean_reversion(df: pd.DataFrame,
         f"⚠ 200-SMA slope {slope_pct:+.2f}% — marginal regime; watch for trend change",
         f"Trade plan — entry {entry:.0f} · stop {stop:.0f} · T1 {target1:.0f} (SMA20) "
         f"· T2 {target2:.0f} · R:R to T1 = {rr1}",
+        "⚠ The stop is MEASURED and it costs return (B-8): this session-low stop "
+        "fires on 68% of trades and gave -0.64pp vs no stop at all (p=0.009, 742 "
+        "signals, 300 names, 20y). A 2-ATR stop cost nothing measurable. Kept "
+        "unchanged — it bounds the loss, which the study did not score.",
     ]
 
     return {
@@ -5622,6 +5760,14 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
     (``mit_idx`` = first such bar). Blocks fully violated (a close beyond the far
     side of the zone) are dropped — they are no longer valid order blocks.
 
+    Every non-violated zone also carries a trade plan — ``entry`` (the zone edge
+    price retests), ``stop`` just beyond the far side, and ``target`` at a flat 2R.
+    MEASURED 2026-09-13 at **-0.095R net of costs** (+0.026R gross, n=271): the
+    plan does not survive its own costs, and the opposing-zone / displacement
+    target rules it replaced measured no better — the displacement target was the
+    only one significantly negative (-0.164R, p=0.037). Drawn as the detector's
+    geometry, not as a recommendation. See ``analyses/Order-Block-Rules-Measured``.
+
     Returns a list of dicts (bar indices, mapped to timestamps by the caller),
     most-recent last, capped at ``max_blocks``. Bearish is the exact mirror of
     bullish. See ``concepts/Order-Blocks``.
@@ -5667,6 +5813,7 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
                                 "low": ob_lo, "high": ob_hi,
                                 "signal": "BOS" if trend == 1 else "CHOCH",
                                 "disp_atr": round(disp / a, 2),
+                                "ext": ob_hi + disp,
                                 "vol_x": _vol_x(vol, i),
                                 "buy_pct": round(buy_ratio * 100, 1),
                                 "sell_pct": round((1 - buy_ratio) * 100, 1)})
@@ -5688,6 +5835,7 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
                                 "low": ob_lo, "high": ob_hi,
                                 "signal": "BOS" if trend == -1 else "CHOCH",
                                 "disp_atr": round(disp / a, 2),
+                                "ext": ob_lo - disp,
                                 "vol_x": _vol_x(vol, i),
                                 "buy_pct": round(buy_ratio * 100, 1),
                                 "sell_pct": round((1 - buy_ratio) * 100, 1)})
@@ -5727,40 +5875,107 @@ def detect_order_blocks(df: pd.DataFrame, pivot_len: int = 5,
         ob["vio_idx"] = vio_idx
         out.append(ob)
 
+    out = out[-max_blocks:]
+
     # ── Retest signals ──────────────────────────────────────────────────────
-    # Pine: bullish retest = low crosses above OB top (price reclaims demand),
-    # bearish retest = high crosses below OB bottom (price breaks supply).
-    # Gated by buy%/sell% threshold (default 50%). Only on non-violated zones.
+    # Two entries per zone, and they are NOT the same trade:
+    #   * ``early``     — the rejection itself: a bar whose wick pierced the zone
+    #                     but which CLOSED back outside it, without breaching the
+    #                     far side. Fires at the tap, so it is earlier and looser.
+    #   * ``confirmed`` — Pine's cross: bullish = low crosses above the OB top
+    #                     (price reclaims demand), bearish = high crosses below
+    #                     the OB bottom. Fires after price has left the zone.
+    # Both gated by the buy%/sell% threshold (default 50%), first of each kind
+    # only, on non-violated zones. See ``concepts/Order-Blocks``.
     retests: list[dict] = []
     for ob in out:
         if ob["state"] == "violated":
             continue
-        end = ob["vio_idx"] if ob["vio_idx"] is not None else n
         buy_ratio = ob.get("buy_pct", 50.0) / 100.0
+        side_ratio = buy_ratio if ob["dir"] == "bull" else 1.0 - buy_ratio
+        if side_ratio < 0.5:
+            continue
+        end = ob["vio_idx"] if ob["vio_idx"] is not None else n
+        got_early = got_confirmed = False
         for m in range(ob["break_idx"] + 1, end):
+            lo_m, hi_m, cl_m = float(l.iloc[m]), float(h.iloc[m]), float(c.iloc[m])
             if ob["dir"] == "bull":
-                if buy_ratio < 0.5:
-                    continue
-                prev_low = float(l.iloc[m - 1]) if m > 0 else float(l.iloc[m])
-                cur_low = float(l.iloc[m])
-                if prev_low <= ob["high"] and cur_low > ob["high"]:
-                    retests.append({"dir": "bull", "idx": m,
-                                    "price": ob["high"],
+                if (not got_early and ob["low"] <= lo_m <= ob["high"]
+                        and cl_m > ob["high"]):
+                    retests.append({"dir": "bull", "idx": m, "kind": "early",
+                                    "ob_idx": ob["ob_idx"],
+                                    "price": lo_m,
                                     "buy_pct": ob.get("buy_pct", 50.0)})
-                    break
+                    got_early = True
+                if not got_confirmed:
+                    prev_low = float(l.iloc[m - 1]) if m > 0 else lo_m
+                    if prev_low <= ob["high"] and lo_m > ob["high"]:
+                        retests.append({"dir": "bull", "idx": m, "kind": "confirmed",
+                                    "ob_idx": ob["ob_idx"],
+                                        "price": ob["high"],
+                                        "buy_pct": ob.get("buy_pct", 50.0)})
+                        got_confirmed = True
             else:
-                sell_ratio = 1.0 - buy_ratio
-                if sell_ratio < 0.5:
-                    continue
-                prev_high = float(h.iloc[m - 1]) if m > 0 else float(h.iloc[m])
-                cur_high = float(h.iloc[m])
-                if prev_high >= ob["low"] and cur_high < ob["low"]:
-                    retests.append({"dir": "bear", "idx": m,
-                                    "price": ob["low"],
+                if (not got_early and ob["low"] <= hi_m <= ob["high"]
+                        and cl_m < ob["low"]):
+                    retests.append({"dir": "bear", "idx": m, "kind": "early",
+                                    "ob_idx": ob["ob_idx"],
+                                    "price": hi_m,
                                     "sell_pct": ob.get("sell_pct", 50.0)})
-                    break
+                    got_early = True
+                if not got_confirmed:
+                    prev_high = float(h.iloc[m - 1]) if m > 0 else hi_m
+                    if prev_high >= ob["low"] and hi_m < ob["low"]:
+                        retests.append({"dir": "bear", "idx": m, "kind": "confirmed",
+                                    "ob_idx": ob["ob_idx"],
+                                        "price": ob["low"],
+                                        "sell_pct": ob.get("sell_pct", 50.0)})
+                        got_confirmed = True
+            if got_early and got_confirmed:
+                break
 
-    return out[-max_blocks:], retests
+    # ── Trade plan per live zone ─────────────────────────────────────────────
+    # Entry at the edge price returns to (demand top / supply bottom), stop just
+    # beyond the far side of the zone, target a flat 2R.
+    #
+    # MEASURED 2026-09-13 — see ``analyses/Order-Block-Rules-Measured``. This was
+    # a three-step ladder: nearest still-live opposing zone, else the displacement
+    # extension, else 2R. All three were measured PAIRED — same zone, same entry,
+    # same stop, only the target varying — over 270 filled plans on LIQUID_50 /
+    # 1500d. Against flat 2R the opposing-zone target came in at **-0.019R
+    # (p=0.76)** and the displacement target at **-0.058R (p=0.26)**. The three
+    # targets are genuinely different distances (target-hit 26.3% / 38.1% / 33.7%)
+    # and expectancy is flat across all of them, so the ladder bought nothing but
+    # the appearance of structure. Collapsed to the simplest rule that measured
+    # the same thing. Net of NSE delivery costs the ordering is unchanged and the
+    # paired deltas stay null (-0.030R p=0.64, -0.069R p=0.19).
+    #
+    # The expectancy itself is **-0.095R net** of costs (+0.026R gross, p=0.27 /
+    # p=0.76) — a plan that does not survive its own costs, let alone carry an
+    # edge. Nothing here licenses trading it. ``ext`` stays on the block so the
+    # measurement is reproducible.
+    for ob in out:
+        if ob["state"] == "violated":
+            continue
+        if ob["dir"] == "bull":
+            entry = ob["high"]
+            stop = round(ob["low"] * 0.995, 2)
+            risk = entry - stop
+            if risk <= 0:
+                continue
+            target = entry + 2.0 * risk
+        else:
+            entry = ob["low"]
+            stop = round(ob["high"] * 1.005, 2)
+            risk = stop - entry
+            if risk <= 0:
+                continue
+            target = entry - 2.0 * risk
+        ob["entry"]  = round(entry, 2)
+        ob["stop"]   = stop
+        ob["target"] = round(target, 2)
+
+    return out, retests
 
 
 def _vol_x(vol: pd.Series, i: int, avg_len: int = 20) -> float:
@@ -5981,6 +6196,10 @@ def scan_falling_wedge(df: pd.DataFrame, window: int = 60,
         "entry": entry,
         "stop": stop,
         "target": target,
+        # B-128: only a CONFIRMED break is a trade. "forming" and "pre-breakout"
+        # keep their levels for the reader, but the harness must not fill them.
+        "actionable": state == "confirmed",
+        "state": state,
         "vol_x50d": round(vol_x, 2),
         # FW-2 metric surface.
         "containment_pct": round(containment * 100, 1),
@@ -5992,6 +6211,317 @@ def scan_falling_wedge(df: pd.DataFrame, window: int = 60,
         # B-5: wedge breakouts extend fast or fail; 20 bars (4 weeks) captures
         # the initial impulse — beyond that the measured-move premise is stale.
         "time_stop": 20,
+    }
+
+
+def detect_symmetrical_triangle_geometry(df: pd.DataFrame, window: int = 90,
+                                         touch_tol: float = 0.015) -> dict | None:
+    """Symmetrical-triangle (BILATERAL) detection core → geometry dict, or None.
+
+    B-101. The registry had no bilateral pattern: on a textbook symmetrical
+    triangle exactly one scanner gave a real read (VCP Coiling) and it emitted an
+    **upward-only** plan, on a pattern whose defining property is that the
+    direction is unknown until it confirms. `detect_falling_wedge_geometry`
+    correctly declines — both its lines must fall — so the converging-trendline
+    geometry was absent rather than mis-specified.
+
+    Deliberately close in shape to the falling-wedge core (same pivots, same
+    regression fit, same containment/touch/volume tests), because the geometry IS
+    the same geometry and two detectors drifting apart is how the wedge's own
+    tolerances would stop meaning anything. **Three things differ, and they are
+    the whole point:**
+
+    1. **The slopes oppose.** Upper falls, lower rises. A wedge's lines both fall.
+    2. **Neither side may be flat.** A flat top with rising lows is an ASCENDING
+       triangle and a flat base with falling highs is a DESCENDING one; both are
+       directional patterns, and an ascending triangle already fires nine
+       scanners here. Admitting them would make this detector a duplicate vote
+       for a bullish base rather than the missing neutral state.
+    3. **No single trade plan is returned.** Both legs are, as `up_*` / `down_*`,
+       and `direction` is the string ``bilateral``. Callers that want one
+       direction have to choose one on purpose — there is no `entry` key to pick
+       up by accident, which is exactly the VCP failure this exists to not repeat.
+
+    Returns trendline endpoints as **bar indices into the passed df** (+ prices)
+    so a chart overlay can map them to timestamps, the apex, the breakout state,
+    a 0-100 confidence, the metric surface, and BOTH legs.
+    """
+    if df is None or len(df) < window:
+        return None
+    n = window
+    off = len(df) - n                            # abs bar index of the window's first bar
+    w = df.tail(window).reset_index(drop=True)
+    high = w["high"].to_numpy(float)
+    low = w["low"].to_numpy(float)
+    close = w["close"].to_numpy(float)
+    n = len(w)
+    last = float(close[-1])
+    if last <= 0:
+        return None
+
+    # 1) Swing pivots (look-back 1) — the wedge core's convention, kept.
+    sh = [(i, high[i]) for i in range(1, n - 1) if high[i] > high[i - 1] and high[i] > high[i + 1]]
+    sl = [(i, low[i]) for i in range(1, n - 1) if low[i] < low[i - 1] and low[i] < low[i + 1]]
+    if len(sh) < 2 or len(sl) < 2:
+        return None
+
+    hx = np.array([p[0] for p in sh[-3:]], float); hy = np.array([p[1] for p in sh[-3:]], float)
+    lx = np.array([p[0] for p in sl[-3:]], float); ly = np.array([p[1] for p in sl[-3:]], float)
+    su, iu = np.polyfit(hx, hy, 1)
+    slo, il = np.polyfit(lx, ly, 1)
+
+    def u(x): return iu + su * x
+    def lo(x): return il + slo * x
+
+    # 2) Geometric validation — the bilateral shape.
+    if not (su < 0 and slo > 0):                 # highs must fall AND lows must rise
+        return None
+    # Flatness gate. Express each slope as the move it makes across the window as
+    # a fraction of price, so the threshold means the same thing on a ₹40 stock
+    # and a ₹4,000 one. Below 1.5% of price across the window a line is flat
+    # enough to be a horizontal boundary, which makes the pattern ascending or
+    # descending — directional, and someone else's job.
+    up_travel = abs(su) * n / last
+    lo_travel = abs(slo) * n / last
+    if up_travel < 0.015 or lo_travel < 0.015:
+        return None
+    # Symmetry. A triangle whose lows rise five times faster than its highs fall
+    # is an ascending triangle wearing a small downtilt; 1:3 either way is the
+    # loosest reading that still leaves the direction genuinely open.
+    ratio = up_travel / lo_travel
+    if not (1 / 3 <= ratio <= 3):
+        return None
+
+    x0 = int(min(hx.min(), lx.min()))            # oldest fitted swing (bar index)
+    x1 = n - 1                                   # current bar (last)
+    if (x1 - x0) < 20:                           # a triangle must span real time
+        return None
+    gap_old = u(x0) - lo(x0)
+    gap_now = u(x1) - lo(x1)
+    if gap_old <= 0 or gap_now <= 0 or gap_now >= gap_old:   # must be open + converging
+        return None
+    conv_ratio = (gap_old - gap_now) / gap_old
+    if conv_ratio < 0.20:                        # opposed slopes converge by
+        return None                              # construction — demand real coiling
+
+    tu = sum(1 for i, p in sh if abs(p - u(i)) <= touch_tol * p)
+    tl = sum(1 for i, p in sl if abs(p - lo(i)) <= touch_tol * p)
+    if tu < 2 or tl < 2:
+        return None
+
+    inside = 0
+    for i in range(n):
+        if high[i] <= u(i) * (1 + touch_tol) and low[i] >= lo(i) * (1 - touch_tol):
+            inside += 1
+    containment = inside / n
+    if containment < 0.55:                       # lines don't bound price → not a triangle
+        return None
+
+    # 3) The apex, and how far into it price has coiled. The textbook reading is
+    # that a triangle resolves between half and three-quarters of the way to the
+    # apex; drifting into the tip is the pattern dying rather than firing, and a
+    # reader deciding whether to keep watching wants that number, not a verdict.
+    denom = su - slo
+    apex_x = (il - iu) / denom if denom else float("inf")     # u(x) == lo(x)
+    bars_to_apex = apex_x - x1
+    if bars_to_apex <= 0:                        # already past the apex — the lines
+        return None                              # have crossed; there is no triangle left
+    apex_progress = (x1 - x0) / (apex_x - x0) if apex_x > x0 else 1.0
+
+    # Volume behaviour — a real coil dries up into the apex. Same construction as
+    # the wedge: exclude the last bar so a breakout spike can't mask the dry-up.
+    vol_arr = w["volume"].to_numpy(float) if "volume" in w.columns else np.zeros(n)
+    third = max(5, n // 3)
+    vol_early = float(np.mean(vol_arr[:third])) if third else 0.0
+    vol_late = (float(np.mean(vol_arr[-third - 1:-1])) if n > third + 1
+                else float(np.mean(vol_arr[-third:])))
+    vol_trend = (vol_late / vol_early) if vol_early > 0 else 1.0
+    if vol_trend > 1.30:                         # volume RISING into the apex → not a coil
+        return None
+    vol_dry = vol_trend <= 0.90
+
+    last_piv = max(sh[-1][0], sl[-1][0])
+    recency = max(0.0, 1.0 - (n - 1 - last_piv) / window)
+    touch_score = min(1.0, (tu + tl) / 6.0)                  # 2+2 → .67, 3+3 → 1.0
+    conv_score = min(1.0, conv_ratio / 0.6)
+    # Symmetry scores highest at 1:1 and decays to 0 at the 1:3 / 3:1 edges.
+    sym_score = max(0.0, 1.0 - abs(np.log(ratio)) / np.log(3.0))
+    vol_score = min(1.0, max(0.0, (1.0 - vol_trend) / 0.30))  # 0.70×→1.0, ≥1.0×→0
+    # Apex position scores the 50-75% band full and falls away on both sides —
+    # too early is not yet a coil, too late is a coil that failed to resolve.
+    #
+    # MEASURED 2026-09-20 (B-101/B-103, 270 coils): the band predicts NOTHING about
+    # how far price then moves — in-band coils expand slightly LESS at every
+    # horizon (p 0.37-0.79). The weight stays because what it encodes is
+    # STRUCTURAL, not predictive: a coil at 99% of its apex has boundaries a few
+    # rupees apart, and every one of the 24 undecidable resolutions in that run
+    # came from there. It is scoring how much triangle is left, which is a fact
+    # about the shape. It is NOT scoring an edge, and nothing here should be
+    # rewritten to imply it is.
+    if apex_progress < 0.5:
+        apex_score = max(0.0, apex_progress / 0.5)
+    elif apex_progress <= 0.75:
+        apex_score = 1.0
+    else:
+        apex_score = max(0.0, (1.0 - apex_progress) / 0.25)
+    # Weights: containment .24 · convergence .20 · touches .16 · symmetry .14
+    #          · apex position .12 · volume-dry-up .10 · recency .04  (sum 1.0).
+    conf = 100.0 * (0.24 * containment + 0.20 * conv_score + 0.16 * touch_score +
+                    0.14 * sym_score + 0.12 * apex_score + 0.10 * vol_score +
+                    0.04 * recency)
+
+    # 4) State. Both breakout directions are first-class; neither is preferred,
+    # and "coiling" is a legitimate terminal state rather than a near-miss, so
+    # (unlike the wedge) nothing is rejected for sitting in the middle. A
+    # bilateral pattern has nowhere it is "supposed" to be.
+    u_now, l_now = u(x1), lo(x1)
+    pos = (last - l_now) / (u_now - l_now) if u_now > l_now else 0.5
+    if last > u_now:
+        state, state_lbl, bonus = "breakout-up", "Breakout ↑", 8.0
+    elif last < l_now:
+        state, state_lbl, bonus = "breakout-down", "Breakout ↓", 8.0
+    elif (u_now - last) / u_now <= 0.005:
+        state, state_lbl, bonus = "pre-breakout-up", "Near upper line", 4.0
+    elif (last - l_now) / l_now <= 0.005:
+        state, state_lbl, bonus = "pre-breakout-down", "Near lower line", 4.0
+    else:
+        state, state_lbl, bonus = "coiling", "Coiling", 0.0
+    conf = min(100.0, conf + bonus)
+
+    # 5) BOTH legs. The measured move is the triangle's height at its widest,
+    # projected from whichever line price leaves — the same arithmetic as the
+    # wedge, applied twice because there are two ways out. Each leg stops on the
+    # far line: a break that comes straight back through the coil is the failure
+    # case for that leg, whichever side it happened on.
+    up_entry = round(u_now, 2)
+    up_stop = round(l_now * 0.995, 2)
+    up_target = round(up_entry + gap_old, 2)
+    down_entry = round(l_now, 2)
+    down_stop = round(u_now * 1.005, 2)
+    down_target = round(max(0.01, down_entry - gap_old), 2)
+    if up_entry <= up_stop or down_stop <= down_entry:
+        return None
+    up_rr = (up_target - up_entry) / (up_entry - up_stop)
+    down_rr = (down_entry - down_target) / (down_stop - down_entry)
+
+    vol20 = float(w["volume"].tail(20).mean()) if "volume" in w.columns else 0.0
+    vol_last = float(w["volume"].iloc[-1]) if "volume" in w.columns else 0.0
+    vol_x = vol_last / vol20 if vol20 > 0 else 0.0
+
+    return {
+        # Trendline endpoints as bar indices into the passed df (+ prices).
+        "upper_x0": off + x0, "upper_y0": round(u(x0), 2),
+        "upper_x1": off + x1, "upper_y1": round(u_now, 2),
+        "lower_x0": off + x0, "lower_y0": round(lo(x0), 2),
+        "lower_x1": off + x1, "lower_y1": round(l_now, 2),
+        "apex_x": off + apex_x, "apex_y": round(u(apex_x), 2),
+        "bars_to_apex": int(round(bars_to_apex)), "apex_progress": round(apex_progress, 3),
+        "breakout_bar": off + x1, "last_close": round(last, 2),
+        # Scalars for the card text + metric surface.
+        "upper_slope": su, "lower_slope": slo, "symmetry_ratio": round(ratio, 2),
+        "gap_old": gap_old, "gap_now": gap_now, "conv_ratio": conv_ratio,
+        "containment": containment, "touches_h": tu, "touches_l": tl,
+        "vol_trend": vol_trend, "vol_dry": vol_dry, "vol_x": vol_x,
+        "pos_in_range": round(pos, 3),
+        "state": state, "state_label": state_lbl, "confidence": conf,
+        "u_now": u_now, "l_now": l_now,
+        # BOTH legs, and no bare `entry`/`stop`/`target` — see the docstring.
+        "direction": "bilateral",
+        "up_entry": up_entry, "up_stop": up_stop, "up_target": up_target, "up_rr": up_rr,
+        "down_entry": down_entry, "down_stop": down_stop, "down_target": down_target,
+        "down_rr": down_rr,
+    }
+
+
+def scan_symmetrical_triangle(df: pd.DataFrame, window: int = 90,
+                              touch_tol: float = 0.015) -> dict | None:
+    """Symmetrical triangle — converging OPPOSED trendlines → direction unknown.
+
+    The desk's first BILATERAL card (B-101). Thin wrapper over
+    ``detect_symmetrical_triangle_geometry``: cleans the frame, runs the core,
+    formats the card.
+
+    The card carries ``direction: "bilateral"`` and ``neutral: True``, and
+    deliberately omits ``entry``/``stop``/``target``. Both legs are published as
+    ``up_*`` / ``down_*`` so a reader gets the levels, but nothing downstream can
+    mistake the pattern for a long setup by reading a key it expected to be
+    there. `opportunity_hub.NEUTRAL_SCANNERS` stops it voting in confluence for
+    the same reason: a coil is not evidence for a side.
+    """
+    if df is None:
+        return None
+    df = _clean_ohlc(df)
+    g = detect_symmetrical_triangle_geometry(df, window, touch_tol)
+    if g is None:
+        return None
+    conv_ratio, containment = g["conv_ratio"], g["containment"]
+    tu, tl = g["touches_h"], g["touches_l"]
+    vol_trend, vol_dry, vol_x = g["vol_trend"], g["vol_dry"], g["vol_x"]
+    state, state_lbl = g["state"], g["state_label"]
+    last = g["last_close"]
+    u_now, l_now = g["u_now"], g["l_now"]
+
+    reasons = [
+        f"Symmetrical triangle — falling highs ({g['upper_slope']:.2f}/bar) meeting "
+        f"rising lows ({g['lower_slope']:.2f}/bar), symmetry {g['symmetry_ratio']:.2f}:1",
+        f"Gap narrowed {conv_ratio * 100:.0f}% (widest {g['gap_old']:.0f} → now {g['gap_now']:.0f})",
+        f"{tu} upper / {tl} lower touches · containment {containment * 100:.0f}%",
+        f"Apex {g['bars_to_apex']} bars out — {g['apex_progress'] * 100:.0f}% of the way in "
+        f"(textbook band 50-75% — MEASURED 2026-09-20: in-band coils expand no more "
+        f"than the rest, p 0.37-0.79, so read this as position, not edge)",
+        {"breakout-up":        f"Broke UP — close {last:.0f} cleared the upper line {u_now:.0f}",
+         "breakout-down":      f"Broke DOWN — close {last:.0f} lost the lower line {l_now:.0f}",
+         "pre-breakout-up":    f"Coiled against the upper line {u_now:.0f} (within 0.5%)",
+         "pre-breakout-down":  f"Coiled against the lower line {l_now:.0f} (within 0.5%)",
+         "coiling":            f"Coiling — {last:.0f} inside {l_now:.0f}-{u_now:.0f}, "
+                               f"no side has taken it"}[state],
+        # The whole reason this scanner exists gets stated on every card, because
+        # the reader's habit — built by every other pattern here — is to read a
+        # pattern hit as a reason to buy.
+        "⚖ BILATERAL — the direction is NOT known until one line breaks. This is "
+        "not a buy signal and does not vote in confluence.",
+        f"If it breaks UP — entry {g['up_entry']:.0f} · stop {g['up_stop']:.0f} · "
+        f"target {g['up_target']:.0f} (measured move, R:R {g['up_rr']:.1f})",
+        f"If it breaks DOWN — entry {g['down_entry']:.0f} · stop {g['down_stop']:.0f} · "
+        f"target {g['down_target']:.0f} (measured move, R:R {g['down_rr']:.1f}) — "
+        "a trim/avoid read on a long-only desk, not a short recommendation",
+    ]
+    reasons.append(
+        f"Volume drying into the apex ({vol_trend:.2f}× early-window) — healthy coil"
+        if vol_dry else
+        f"⚠ Volume flat/rising into the apex ({vol_trend:.2f}× early-window) — weaker coil")
+    if vol_x >= 1.5 and state.startswith("breakout"):
+        reasons.append(f"Break volume {vol_x:.1f}× 20-day average — expansion on the move")
+
+    return {
+        "pattern_type": f"Symmetrical Triangle · {state_lbl}",
+        "tags": ["Symmetrical Triangle", "BILATERAL", state_lbl,
+                 f"Sym {g['symmetry_ratio']:.1f}:1", f"Contain {containment * 100:.0f}%",
+                 f"Conv {conv_ratio * 100:.0f}%", f"Apex {g['bars_to_apex']}b",
+                 ("Vol dry↓" if vol_dry else "Vol flat")],
+        "reasons": reasons,
+        "score_base": round(g["confidence"], 1),
+        "rs_raw": _rs_raw(df),
+        # NO entry/stop/target — see the docstring. Both legs, explicitly sided.
+        "direction": "bilateral",
+        "neutral": True,
+        "up_entry": g["up_entry"], "up_stop": g["up_stop"], "up_target": g["up_target"],
+        "down_entry": g["down_entry"], "down_stop": g["down_stop"],
+        "down_target": g["down_target"],
+        "vol_x50d": round(vol_x, 2),
+        # Metric surface.
+        "containment_pct": round(containment * 100, 1),
+        "convergence_pct": round(conv_ratio * 100, 1),
+        "symmetry_ratio": g["symmetry_ratio"],
+        "touches_h": tu,
+        "touches_l": tl,
+        "bars_to_apex": g["bars_to_apex"],
+        "apex_progress_pct": round(g["apex_progress"] * 100, 1),
+        "vol_trend": round(vol_trend, 2),
+        "vol_dry": vol_dry,
+        # A triangle that has not resolved by the apex is done as a pattern —
+        # that, not a horizon, is when the measured-move premise expires.
+        "time_stop": max(5, g["bars_to_apex"]),
     }
 
 
@@ -7403,6 +7933,1009 @@ def detect_quasimodo(df: pd.DataFrame, pivot_len: int = 5,
     }
 
 
+# B-92 / PR-3. The flag & pole detector lives in its own module because it is
+# self-contained geometry with its own CLI and its own `--count`, and this file
+# is already 8.5k lines. The two cards below are thin wrappers over it, the same
+# split `scan_falling_wedge` uses over `detect_falling_wedge_geometry`.
+import flag_pole as _fp
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Double Bottom — the AGPro Reversal Pattern Quality Scanner, ported
+# ------------------------------------------------------------------------------
+# sources/AGPro-Reversal-Pattern-Quality-Scanner-Pine.md called this port "a
+# stronger building block for the 'early buy sign at scale' goal than anything
+# discussed so far this session" and it was never built — the recommendation sat
+# in the source page and reached neither the backlog nor the code.
+#
+# ── Why this exists next to `detect_bullish_reversal_structure` ───────────────
+# That function is ALSO a double-bottom detector against the same spec, and it
+# stays. It is a deliberately loose SUB-SIGNAL of `scan_early_reversal` (one tag
+# among several), and Early Reversal has been measured. Tightening it in place
+# would silently change a scanner whose numbers are already on record, which is
+# the one thing a registry of measured scanners must not do. So the loose one
+# keeps its job and this is the full-spec standalone. What the spec adds:
+#
+#   equality 1.4% (not 3%)       pattern-width gate 10-90 bars
+#   ATR break buffer             time symmetry
+#   5-factor weighted quality    volume contraction + breakout expansion
+#   letter grade                 breakout strength in ATRs
+#   retest / confirmed states    follow-through proof
+#
+# ── The neckline-flatness term is ABSENT, not forgotten ───────────────────────
+# AGPro's structure score is "symmetry + time symmetry + neckline flatness". For
+# Head & Shoulders the neckline is the average of two troughs, so flatness is the
+# gap between them and means something. For a Double Bottom the neckline is a
+# SINGLE pivot high — there is no second point to be flat against. The term has
+# nothing to measure here, so structure is bottom-equality + time-symmetry
+# renormalised, rather than a third component invented to fill the slot.
+#
+# ── The cooldown is moot here, and that is an adaptation not an omission ──────
+# The Pine script re-scans every bar to paint a live overlay, so it needs a
+# same-region cooldown and a per-type gap to stop drawing the same reversal
+# pocket twice. This runs once per symbol per scan and returns ONE dict, so
+# "do not emit the same pocket twice" is structural rather than a rule to enforce.
+#
+# ── Follow-through proof is reported and NEVER scored ─────────────────────────
+# The wiki calls it the standout idea and also names the trap: "a pattern can be
+# a textbook 'A' grade shape with a 30% real follow-through rate on that name".
+# Quality describes the SHAPE; follow-through describes whether this symbol has
+# been honouring these breaks. Folding the second into the first would destroy
+# exactly the disagreement that makes it worth reading, so they are two numbers.
+# It is always reported WITH its sample size, because on a year of daily bars a
+# name typically yields 1-3 past patterns and a bare "67%" off n=3 reads as a
+# measurement when it is an anecdote.
+#
+# NOT MEASURED. No forward edge is claimed for this scanner; it registers as
+# `unmeasured` (0.5 edge points) like every new arrival, and the follow-through
+# number is descriptive history for one name, not a backtest of the scanner.
+# ──────────────────────────────────────────────────────────────────────────────
+
+#: AGPro v2.2 defaults, kept at the source's values so a disagreement with the
+#: script is a real disagreement and not a silently retuned parameter.
+DB_PIVOT_LEN = 8            # symmetric lookback/lookforward for a swing pivot
+DB_EQ_TOL_PCT = 1.4         # how "double" the two bottoms must be
+DB_MIN_PULLBACK_PCT = 2.0   # neckline must sit this far above the bottoms
+DB_MIN_BARS = 10            # pattern width floor — rejects noise-sized shapes
+DB_MAX_BARS = 90            # and ceiling — rejects multi-year structures
+DB_ATR_BUFFER = 0.15        # a close must clear the neckline by this many ATRs
+DB_FOLLOW_HORIZON = 12      # bars after confirmation at which a break is graded
+DB_FOLLOW_ATR = 0.75        # move, in ATRs, that counts as follow-through
+#: 5-factor quality weights (AGPro v2.2, unchanged).
+DB_WEIGHTS = {"structure": 0.28, "depth": 0.22, "volume": 0.18,
+              "breakout": 0.17, "context": 0.15}
+
+
+def _db_pivot_lows(low: np.ndarray, pivot_len: int) -> list[int]:
+    """Bars that are the minimum of a symmetric `pivot_len` window.
+
+    The last `pivot_len` bars can never appear: confirming a pivot needs that
+    many bars of hindsight. That lag is inherent to any pivot method — the wiki
+    page names it as a tradeoff rather than a flaw — and `scan_darvas_box` and
+    `scan_vcp` already carry the same one.
+    """
+    out = []
+    n = len(low)
+    for i in range(pivot_len, n - pivot_len):
+        if low[i] == low[i - pivot_len:i + pivot_len + 1].min():
+            out.append(i)
+    return out
+
+
+def _db_pivot_highs(high: np.ndarray, pivot_len: int) -> list[int]:
+    """Mirror of `_db_pivot_lows` — the neckline candidates."""
+    out = []
+    n = len(high)
+    for i in range(pivot_len, n - pivot_len):
+        if high[i] == high[i - pivot_len:i + pivot_len + 1].max():
+            out.append(i)
+    return out
+
+
+def _db_bucket(value: float, table: tuple) -> float:
+    """First `score` whose `threshold` the value clears; 0.0 if it clears none.
+
+    AGPro scores its components in buckets rather than on a line, and the buckets
+    are kept because a linear rescale would be a different scoring function
+    wearing the source's weights.
+    """
+    for threshold, score in table:
+        if value >= threshold:
+            return score
+    return 0.0
+
+
+def _db_candidates(df: pd.DataFrame, pivot_len: int, eq_tol_pct: float,
+                   min_pullback_pct: float, min_bars: int, max_bars: int,
+                   atr_buffer: float) -> list:
+    """Every confirmed double bottom in the frame, oldest first.
+
+    Returns geometry only — no scoring — because two callers want different
+    things from it: the live read wants the most recent one scored in full, and
+    the follow-through proof wants all the OLD ones graded and nothing else.
+    """
+    n = len(df)
+    low = df["low"].to_numpy(dtype=float)
+    high = df["high"].to_numpy(dtype=float)
+    close = df["close"].to_numpy(dtype=float)
+    atr = _atr_series(df).to_numpy(dtype=float)
+
+    lows = _db_pivot_lows(low, pivot_len)
+    highs = _db_pivot_highs(high, pivot_len)
+    if len(lows) < 2 or not highs:
+        return []
+
+    out = []
+    for a in range(len(lows) - 1):
+        for b in range(a + 1, len(lows)):
+            i1, i2 = lows[a], lows[b]
+            width = i2 - i1
+            if width < min_bars:
+                continue
+            if width > max_bars:
+                break                      # lows[b] only moves further away
+
+            b1, b2 = low[i1], low[i2]
+            mean_b = (b1 + b2) / 2.0
+            if mean_b <= 0:
+                continue
+            eq_pct = abs(b1 - b2) / mean_b * 100.0
+            if eq_pct > eq_tol_pct:
+                continue
+
+            between = [h for h in highs if i1 < h < i2]
+            if not between:
+                continue
+            neck_idx = max(between, key=lambda h: high[h])   # highest pivot = neckline
+            neck = high[neck_idx]
+            if neck <= 0:
+                continue
+            pullback_pct = (neck - min(b1, b2)) / neck * 100.0
+            if pullback_pct < min_pullback_pct:
+                continue
+
+            # Confirmation: the FIRST close after the second bottom that clears
+            # the neckline by the ATR buffer. Touching it is not a break — that
+            # buffer is the whole reason the spec quotes an ATR multiple.
+            brk = None
+            for j in range(i2 + 1, n):
+                a_j = atr[j]
+                if not np.isfinite(a_j) or a_j <= 0:
+                    continue
+                if close[j] > neck + atr_buffer * a_j:
+                    brk = j
+                    break
+            if brk is None:
+                continue
+
+            leg1, leg2 = neck_idx - i1, i2 - neck_idx
+            out.append({
+                "left_idx": int(i1), "right_idx": int(i2),
+                "neck_idx": int(neck_idx), "break_idx": int(brk),
+                "left_low": float(b1), "right_low": float(b2),
+                "neckline": float(neck),
+                "eq_pct": float(eq_pct),
+                "pullback_pct": float(pullback_pct),
+                "width": int(width),
+                "time_sym": (float(min(leg1, leg2)) / max(leg1, leg2)
+                             if max(leg1, leg2) else 0.0),
+                "break_close": float(close[brk]),
+                "break_atr": float(atr[brk]),
+            })
+
+    # Dedup on the LEFT bottom: one left low can pair with several later lows
+    # inside the tolerance, and those are the same reversal pocket described
+    # three ways. Keep the widest (most developed) shape per left bottom.
+    best = {}
+    for c in out:
+        prev = best.get(c["left_idx"])
+        if prev is None or c["width"] > prev["width"]:
+            best[c["left_idx"]] = c
+    return sorted(best.values(), key=lambda c: c["break_idx"])
+
+
+def _db_follow_through(df: pd.DataFrame, cands: list,
+                       horizon: int = DB_FOLLOW_HORIZON,
+                       atr_mult: float = DB_FOLLOW_ATR):
+    """This symbol's own recent record on its own double bottoms.
+
+    Each past confirmation is graded EXACTLY ONCE, at a fixed horizon: did close
+    rise at least `atr_mult` ATRs — measured at confirmation time, not today —
+    above the confirmation close? A break too recent to have reached its horizon
+    is unresolved and is counted neither way; grading it early would score the
+    newest and most interesting signals as failures by construction.
+
+    Returns None when nothing has resolved. `n` rides along with `rate` on
+    purpose: see the section header.
+    """
+    close = df["close"].to_numpy(dtype=float)
+    n = len(df)
+    resolved = follows = 0
+    for c in cands:
+        j = c["break_idx"]
+        if j + horizon >= n:
+            continue                      # not yet gradeable
+        a = c["break_atr"]
+        if not np.isfinite(a) or a <= 0:
+            continue
+        resolved += 1
+        if close[j + horizon] - c["break_close"] >= atr_mult * a:
+            follows += 1
+    if resolved == 0:
+        return None
+    return {"rate": round(100.0 * follows / resolved, 1),
+            "n": resolved, "follows": follows,
+            "horizon": horizon, "atr_mult": atr_mult}
+
+
+def _db_quality(df: pd.DataFrame, c: dict) -> dict:
+    """AGPro's 5-factor weighted quality, 1-10, with its letter grade.
+
+    Every component is 0-10 and the weights are the source's. Returned with the
+    parts exposed rather than as one number, because "A+ shape, weak volume" is
+    the read that makes the score worth having.
+    """
+    high = df["high"].to_numpy(dtype=float)
+    low = df["low"].to_numpy(dtype=float)
+    close = df["close"].to_numpy(dtype=float)
+    vol = df["volume"].to_numpy(dtype=float) if "volume" in df.columns else None
+
+    # 1. STRUCTURE — bottom equality + time symmetry. Neckline flatness is
+    #    absent by construction; see the section header.
+    eq_score = max(0.0, 10.0 * (1.0 - c["eq_pct"] / max(DB_EQ_TOL_PCT, 1e-9)))
+    sym_score = 10.0 * max(0.0, min(1.0, c["time_sym"]))
+    structure = (eq_score + sym_score) / 2.0
+
+    # 2. DEPTH — a deeper pullback to the neckline is a higher-conviction shape.
+    depth = _db_bucket(c["pullback_pct"],
+                       ((5.0, 10.0), (4.0, 8.5), (3.0, 7.0), (2.0, 5.5)))
+
+    # 3. VOLUME — contraction through the pattern's OWN formation window, then
+    #    expansion on the break. The two-sided signature VCP documents.
+    volume = 5.0
+    vol_ratio = None
+    brk_vol_x = None
+    if vol is not None:
+        seg = vol[c["left_idx"]:c["right_idx"] + 1]
+        if len(seg) >= 4:
+            half = len(seg) // 2
+            first, second = seg[:half].mean(), seg[half:].mean()
+            if first > 0:
+                vol_ratio = float(second / first)
+                # Negated so the shared bucket helper's ">=" reads the right way
+                # round: a LOWER second-half ratio is the better score.
+                volume = _db_bucket(-vol_ratio,
+                                    ((-0.70, 10.0), (-0.85, 8.0),
+                                     (-1.00, 6.0), (-1.20, 4.0)))
+                if volume == 0.0:
+                    volume = 2.0
+        j = c["break_idx"]
+        base = vol[max(0, j - 20):j]
+        if len(base) > 0 and base.mean() > 0:
+            brk_vol_x = float(vol[j] / base.mean())
+            if brk_vol_x >= 1.5:
+                volume += 1.5
+            elif brk_vol_x >= 1.2:
+                volume += 0.8
+        volume = min(10.0, volume)
+
+    # 4. BREAKOUT STRENGTH — how many ATRs past the neckline the break closed.
+    atrs_past = ((c["break_close"] - c["neckline"]) / c["break_atr"]
+                 if c["break_atr"] > 0 else 0.0)
+    breakout = _db_bucket(atrs_past,
+                          ((1.00, 10.0), (0.75, 8.5), (0.50, 7.0),
+                           (0.30, 5.0), (0.15, 3.5)))
+
+    # 5. EXHAUSTION CONTEXT — how stretched the pattern's low was below EMA(34),
+    #    plus how decisively the confirmation bar closed within its own range.
+    ema34 = _ema_series(df["close"], 34).to_numpy(dtype=float)
+    deep = min(c["left_low"], c["right_low"])
+    ref = ema34[c["right_idx"]] if np.isfinite(ema34[c["right_idx"]]) else None
+    stretch_score = 5.0
+    if ref and ref > 0:
+        stretch_pct = (ref - deep) / ref * 100.0
+        stretch_score = _db_bucket(stretch_pct,
+                                   ((12.0, 10.0), (8.0, 8.0), (5.0, 6.5),
+                                    (2.0, 5.0), (0.0, 3.5)))
+    j = c["break_idx"]
+    rng = high[j] - low[j]
+    close_pos = ((close[j] - low[j]) / rng) if rng > 0 else 0.5
+    # float() rather than leaving a numpy scalar: this payload is persisted as
+    # JSON on the opportunity cards, and while float64 happens to subclass float
+    # its integer cousin does not — casting at the boundary keeps the next
+    # component that returns an np.int64 from discovering that the hard way.
+    context = float((stretch_score + 10.0 * close_pos) / 2.0)
+
+    parts = {"structure": structure, "depth": depth, "volume": volume,
+             "breakout": breakout, "context": context}
+    q = float(sum(parts[k] * w for k, w in DB_WEIGHTS.items()))
+    q = max(1.0, min(10.0, q))
+    grade = ("S" if q >= 9 else "A+" if q >= 8 else "A" if q >= 7
+             else "B" if q >= 6 else "C" if q >= 4.5 else "D")
+    return {"quality": round(q, 1), "grade": grade,
+            "parts": {k: round(v, 1) for k, v in parts.items()},
+            "atrs_past": round(atrs_past, 2),
+            "vol_contraction": round(vol_ratio, 2) if vol_ratio else None,
+            "breakout_vol_x": round(brk_vol_x, 2) if brk_vol_x else None}
+
+
+def detect_double_bottom(df: pd.DataFrame, window: int = 260,
+                         pivot_len: int = DB_PIVOT_LEN,
+                         eq_tol_pct: float = DB_EQ_TOL_PCT,
+                         min_pullback_pct: float = DB_MIN_PULLBACK_PCT,
+                         min_bars: int = DB_MIN_BARS,
+                         max_bars: int = DB_MAX_BARS,
+                         atr_buffer: float = DB_ATR_BUFFER,
+                         max_bars_since_break: int = 20):
+    """Full-spec Double Bottom geometry, quality score and follow-through record.
+
+    `window` must hold the pattern plus both pivot confirmations plus the break;
+    the source page flags that pivot methods need meaningfully more history than
+    the oscillator signals already built, so the default is a year of daily bars.
+
+    Returns None when no confirmed pattern is recent enough to be actionable. A
+    break older than `max_bars_since_break` is history rather than a setup — it
+    still counts toward the follow-through record, it just does not fire.
+    """
+    need = max(window // 3, pivot_len * 4 + min_bars + 10)
+    if df is None or len(df) < need or "volume" not in df.columns:
+        return None
+    w = df.tail(window).reset_index(drop=True)
+    off = len(df) - len(w)
+    n = len(w)
+
+    cands = _db_candidates(w, pivot_len, eq_tol_pct, min_pullback_pct,
+                           min_bars, max_bars, atr_buffer)
+    if not cands:
+        return None
+    follow = _db_follow_through(w, cands)
+
+    c = cands[-1]                                   # most recent confirmed break
+    bars_since = n - 1 - c["break_idx"]
+    if bars_since > max_bars_since_break:
+        return None
+
+    close = w["close"].to_numpy(dtype=float)
+    low = w["low"].to_numpy(dtype=float)
+    last = float(close[-1])
+    neck = c["neckline"]
+    if last <= neck:
+        return None                                 # gave the neckline back
+
+    # STATE. The lesson's own sequence is break, then retest, then hold, and the
+    # retest is the entry the trading plan actually names — so it is a state
+    # rather than a footnote.
+    #
+    # A retest requires price to have LEFT the neckline first. Checking only
+    # "did a low come back within 1%" marks a slow grind straight up off the
+    # break as a retest, because the early bars of that grind are still inside
+    # the band — caught on a synthetic where price ran 70 -> 84 and never once
+    # pulled back. That mislabel is not cosmetic: it swaps the pattern-low stop
+    # for the much tighter neckline stop on a trade that never earned it.
+    band = neck * 1.01
+    away = neck + 0.5 * float(_atr_series(w).to_numpy(dtype=float)[c["break_idx"]])
+    retested = False
+    left_it = False
+    for j in range(c["break_idx"], n):
+        # Tested BEFORE `left_it` is updated for this bar, so "left, then came
+        # back" is always two different bars. Folding both into one if/elif made
+        # the answer depend on which branch ran first, and a wide bar that dips
+        # to the neckline and closes strongly above — a textbook retest-and-
+        # reclaim — took the "left" branch and never counted as a retest.
+        if left_it and low[j] <= band:
+            retested = True
+            break
+        if close[j] >= away:
+            left_it = True
+    state = "Retest hold" if (retested and bars_since >= 2) else "Confirmed"
+
+    q = _db_quality(w, c)
+
+    # TRADE PLAN. Target is the classic measured move — pattern height projected
+    # off the neckline, the same projection `scan_rounding_bottom` uses. The stop
+    # sits under the pattern low, which is the level that makes the shape wrong.
+    height = neck - min(c["left_low"], c["right_low"])
+    atr_now = float(_atr_series(w).to_numpy(dtype=float)[-1])
+    entry = last
+    stop = min(c["left_low"], c["right_low"]) - 0.5 * atr_now
+    # A retest that already held gives a tighter and more honest invalidation:
+    # back below the neckline means the break failed, and waiting for the
+    # pattern low would sit through the whole failure to find that out.
+    if state == "Retest hold":
+        stop = max(stop, neck * 0.98)
+    target = neck + height
+    risk, reward = entry - stop, target - entry
+    rr = round(reward / risk, 2) if risk > 0 else None
+    # How far past the neckline price already sits. A measured-move target is
+    # FIXED by the pattern's own height, so every bar of extension spends the
+    # trade's reward without touching its risk — the same "a plan with no room
+    # is not a plan" problem MIN_SWEEP_RR was added for. The hit is still
+    # reported (the pattern is real and worth seeing) but it stops calling
+    # itself a buy.
+    extended_pct = (entry - neck) / neck * 100.0 if neck > 0 else 0.0
+    if rr is not None and rr < MIN_SWEEP_RR:
+        verdict = "EXTENDED (no room)"
+    elif state == "Retest hold":
+        verdict = "BUY (retest hold)"
+    elif (q["breakout_vol_x"] or 0) >= 1.2:
+        verdict = "BUY"
+    else:
+        verdict = "WEAK BUY"
+
+    return {
+        "state": state,
+        "neckline": round(neck, 2),
+        "left_low": round(c["left_low"], 2),
+        "right_low": round(c["right_low"], 2),
+        "eq_pct": round(c["eq_pct"], 2),
+        "pullback_pct": round(c["pullback_pct"], 1),
+        "width_bars": c["width"],
+        "time_sym": round(c["time_sym"], 2),
+        "bars_since_break": bars_since,
+        "extended_pct": round(extended_pct, 1),
+        # Absolute bar indices into the CALLER's frame, matching the convention
+        # `scan_rounding_bottom`'s geometry payload set for the chart endpoint.
+        "left_bar_idx": off + c["left_idx"],
+        "right_bar_idx": off + c["right_idx"],
+        "neck_bar_idx": off + c["neck_idx"],
+        "breakout_bar_idx": off + c["break_idx"],
+        "follow_through": follow,
+        "verdict": verdict,
+        "entry": round(entry, 2),
+        "stop": round(stop, 2),
+        "target": round(target, 2),
+        "risk_reward": rr,
+        **q,
+    }
+
+
+def scan_double_bottom(df: pd.DataFrame):
+    """Scanner Hub wrapper — confirmed Double Bottom, AGPro quality graded."""
+    d = detect_double_bottom(df)
+    if d is None:
+        return None
+    score = int(round(d["quality"] * 10))
+    if score < 55:
+        return None                                  # D and low-C shapes are noise
+
+    tags = [f"Grade {d['grade']} ({d['quality']}/10)", d["state"],
+            f"neckline {d['neckline']}", f"bottoms ±{d['eq_pct']}%"]
+    if d["breakout_vol_x"]:
+        tags.append(f"{d['breakout_vol_x']}x break vol")
+    ft = d["follow_through"]
+    if ft:
+        # ALWAYS with n — a bare rate off n=2 reads as a measurement.
+        tags.append(f"follow-through {ft['rate']:.0f}% (n={ft['n']})")
+    if d["risk_reward"]:
+        tags.append(f"R:R {d['risk_reward']}")
+
+    reasons = [
+        f"Two lows within {d['eq_pct']}% of each other, {d['width_bars']} bars apart",
+        f"Neckline {d['neckline']} sits {d['pullback_pct']}% above the bottoms",
+        f"Break closed {d['atrs_past']} ATR past the neckline",
+        "Quality {}/10 (grade {}): ".format(d["quality"], d["grade"]) +
+        ", ".join(f"{k} {v}" for k, v in d["parts"].items()),
+    ]
+    if ft:
+        reasons.append(
+            f"This name's own record on its last {ft['n']} double bottoms: "
+            f"{ft['follows']}/{ft['n']} moved {ft['atr_mult']}+ ATR within "
+            f"{ft['horizon']} bars. Descriptive history on a small sample, "
+            f"never a forward claim.")
+    else:
+        reasons.append("No prior double bottom in range has resolved yet, so "
+                       "this name has no follow-through record.")
+
+    return {
+        "pattern_type": "Double Bottom", "tags": tags,
+        "reasons": reasons, "score": score,
+        # The plan is emitted at the TOP LEVEL as well as inside `geometry`,
+        # because that is where the measurement harness looks: `backtest.py`
+        # reads `hit.get("entry"/"stop"/"target")` and `scanner_plans.has_plan`
+        # checks the same three keys. A plan nested only in `geometry` is
+        # readable by a human on the chart card and invisible to the R-simulator
+        # — which is why the plan census scores `Rounding Bottom` and
+        # `VCP Coiling` as having NO plan despite both emitting one on every hit.
+        # Duplicated rather than moved: the chart overlay and /api/double_bottom
+        # both read the geometry payload, and this scanner is not the place to
+        # change that convention for the others.
+        "entry": d["entry"],
+        "stop": d["stop"],
+        "target": d["target"],
+        # B-128: "EXTENDED (no room)" is the card saying do not chase.
+        "actionable": d.get("verdict") != "EXTENDED (no room)",
+        "geometry": d,
+    }
+
+
+# ---------------------------------------------------------------------------
+# No-Supply (B-122) — a FILTER on the Trend/Momentum new-high family.
+# ---------------------------------------------------------------------------
+def scan_no_supply(df: pd.DataFrame, supply_window: int = 10) -> dict | None:
+    """No-Supply screen: new-high stock with zero red bars in the Simple Volume read.
+
+    Gate: the stock must fire at least one of the Trend/Momentum family scanners
+    (52W High Leaders, Stage 2, Momentum Continuation, ADX Trend).
+    Supply read: zero 'down' (red) bars in the last *supply_window* bars of the
+    Simple Volume classification. Demand: at least one pocket pivot in the window.
+
+    This is a SCREEN, not a trade trigger — no entry/stop/target. The thesis is
+    that a new-high stock with no supply (no above-average down days) and visible
+    demand (a pocket pivot) is in the cleanest part of its move.
+    """
+    if len(df) < 60:
+        return None
+    gate_hits = []
+    for name, fn in [
+        ("52W High Leaders", scan_52w_high_leaders),
+        ("Stage 2 Uptrend", scan_stage2_uptrend),
+        ("Momentum Continuation", scan_momentum_continuation),
+        ("ADX Trend Confirmation", scan_adx_trend_confirmation),
+    ]:
+        if fn(df) is not None:
+            gate_hits.append(name)
+    if not gate_hits:
+        return None
+
+    import simple_volume as _sv
+    sv = _sv.classify(df, ma_len=50, ppv_len=10, dry_frac=5)
+    ns = _sv.no_supply_window(sv, window=supply_window)
+    if ns["has_supply"]:
+        return None
+    if not ns["has_demand"]:
+        return None
+
+    st = _sv.stats(sv)
+    reasons = [
+        f"New-high gate: {', '.join(gate_hits)}",
+        f"No supply — zero red (above-MA down) bars in the last {supply_window} sessions",
+        f"{ns['ppv_count']} pocket pivot(s) in the window — demand visible",
+    ]
+    if ns["dry_count"] > 0:
+        reasons.append(f"{ns['dry_count']} dry bar(s) — volume contracting into the move")
+    if st and st["rvol"] is not None:
+        reasons.append(f"Relative volume {st['rvol']:.0f}% of 50-day average")
+
+    return {
+        "pattern_type": "No-Supply (new high + clean volume)",
+        "tags": ["No Supply", f"{ns['ppv_count']} PPV",
+                 f"{ns['dry_count']} dry", *gate_hits[:2]],
+        "reasons": reasons,
+        "score_base": round(30.0 + ns["ppv_count"] * 10 + ns["dry_count"] * 5, 1),
+        "rs_raw": _rs_raw(df),
+        "supply_window": supply_window,
+        "red_count": ns["red_count"],
+        "ppv_count": ns["ppv_count"],
+        "dry_count": ns["dry_count"],
+        "gate_scanners": gate_hits,
+    }
+
+
+# ---------------------------------------------------------------------------
+# 20 EMA Base Setup — low supply + steady demand composite
+# ---------------------------------------------------------------------------
+
+_EMA_BASE_PERIOD = 20
+_EMA_BASE_LOOKBACK = 20       # bars to evaluate the base window
+_EMA_BASE_MIN_BARS = 60
+
+
+def _swing_lows(lows: np.ndarray, radius: int = 3) -> list[tuple[int, float]]:
+    """Return (index, value) of confirmed swing lows with the given half-width."""
+    out = []
+    for i in range(radius, len(lows) - radius):
+        if lows[i] == lows[i - radius:i + radius + 1].min():
+            out.append((i, float(lows[i])))
+    return out
+
+
+def scan_ema_base_setup(df: pd.DataFrame) -> dict | None:
+    """Composite 20 EMA base: low supply + steady demand.
+
+    Five-point checklist (each scored 0-20, total 0-100):
+      1. Small candles staying above the 20 EMA
+      2. Volume drying up on red (down) candles
+      3. Range compression near the 20 EMA
+      4. Higher lows forming at or above the 20 EMA
+      5. Breakout volume expansion (or imminent)
+    """
+    if len(df) < _EMA_BASE_MIN_BARS or "volume" not in df.columns:
+        return None
+
+    close = df["close"].astype(float)
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+    opn = df["open"].astype(float)
+    volume = df["volume"].astype(float)
+
+    ema20 = _ema_series(close, _EMA_BASE_PERIOD)
+    last = float(close.iloc[-1])
+    ema_now = float(ema20.iloc[-1])
+
+    # Must be above 200 SMA (Stage filter) and above the 20 EMA now
+    sma200 = _sma(close, 200)
+    if not np.isnan(sma200) and last < sma200:
+        return None
+    if last < ema_now * 0.99:
+        return None
+
+    # Work on the last N bars as the "base window"
+    W = _EMA_BASE_LOOKBACK
+    w_close = close.iloc[-W:]
+    w_high = high.iloc[-W:]
+    w_low = low.iloc[-W:]
+    w_open = opn.iloc[-W:]
+    w_vol = volume.iloc[-W:]
+    w_ema = ema20.iloc[-W:]
+
+    atr_s = _atr_series(df, 14)
+    atr_now = float(atr_s.iloc[-1])
+    if atr_now <= 0:
+        return None
+
+    reasons = []
+    scores = [0.0] * 5
+
+    # ── 1. Small candles above 20 EMA ──
+    bodies = (w_close - w_open).abs()
+    avg_body = float(bodies.mean())
+    body_ratio = avg_body / atr_now
+    closes_above = int((w_close.values >= w_ema.values * 0.995).sum())
+    no_wide_red = int(((w_close < w_open) & (bodies > atr_now * 1.5)).sum()) == 0
+
+    s1 = 0.0
+    if body_ratio < 0.5:
+        s1 += 10.0
+    elif body_ratio < 0.7:
+        s1 += 6.0
+    s1 += min(10.0, closes_above / W * 10.0)
+    if not no_wide_red:
+        s1 *= 0.5
+    scores[0] = round(min(20.0, s1), 1)
+    reasons.append(
+        f"Avg body {body_ratio:.2f}× ATR, {closes_above}/{W} closes above EMA20"
+        + ("" if no_wide_red else " ⚠ wide red bar(s)"))
+
+    # ── 2. Volume dries up on red candles ──
+    red_mask = w_close < w_open
+    red_vol = float(w_vol[red_mask].mean()) if red_mask.any() else 0.0
+    vol_20d_avg = float(volume.tail(20).mean())
+    red_vol_ratio = red_vol / vol_20d_avg if vol_20d_avg > 0 else 1.0
+
+    s2 = 0.0
+    if red_vol_ratio < 0.5:
+        s2 = 20.0
+    elif red_vol_ratio < 0.7:
+        s2 = 14.0
+    elif red_vol_ratio < 0.9:
+        s2 = 8.0
+    scores[1] = round(s2, 1)
+    reasons.append(f"Red-candle vol {red_vol_ratio:.2f}× avg — "
+                   + ("sellers absent" if red_vol_ratio < 0.7
+                      else "moderate supply" if red_vol_ratio < 0.9
+                      else "supply present"))
+
+    # ── 3. Range compression ──
+    recent_range = float(w_high.tail(10).max() - w_low.tail(10).min())
+    prior_range = float(high.iloc[-W - 10:-W].max() - low.iloc[-W - 10:-W].min()) if len(df) >= W + 10 else recent_range
+    compression = 1.0 - (recent_range / prior_range) if prior_range > 0 else 0.0
+    range_vs_atr = recent_range / (atr_now * 10) if atr_now > 0 else 1.0
+
+    s3 = 0.0
+    if compression > 0.4:
+        s3 += 12.0
+    elif compression > 0.2:
+        s3 += 7.0
+    if range_vs_atr < 0.6:
+        s3 += 8.0
+    elif range_vs_atr < 0.8:
+        s3 += 4.0
+    scores[2] = round(min(20.0, s3), 1)
+    reasons.append(f"Range compressed {compression * 100:.0f}% vs prior window"
+                   + (", squeeze" if compression > 0.4 else ""))
+
+    # ── 4. Higher lows at/above the 20 EMA ──
+    lows_arr = low.iloc[-40:].values.astype(float)
+    ema_arr = ema20.iloc[-40:].values.astype(float)
+    swings = _swing_lows(lows_arr, radius=3)
+    hl_count = 0
+    at_ema_count = 0
+    for i, (idx, val) in enumerate(swings):
+        if i > 0 and val > swings[i - 1][1]:
+            hl_count += 1
+        if idx < len(ema_arr) and val >= ema_arr[idx] * 0.98:
+            at_ema_count += 1
+
+    s4 = 0.0
+    if hl_count >= 3:
+        s4 += 12.0
+    elif hl_count >= 2:
+        s4 += 8.0
+    elif hl_count >= 1:
+        s4 += 4.0
+    if at_ema_count >= 2:
+        s4 += 8.0
+    elif at_ema_count >= 1:
+        s4 += 4.0
+    scores[3] = round(min(20.0, s4), 1)
+    reasons.append(f"{hl_count} higher low(s), {at_ema_count} swing low(s) at EMA20")
+
+    # ── 5. Breakout volume expansion (or imminent) ──
+    last_vol = float(volume.iloc[-1])
+    vol_ratio = last_vol / vol_20d_avg if vol_20d_avg > 0 else 1.0
+    hi_20d = float(high.iloc[-21:-1].max())
+    broke_out = last > hi_20d
+    near_breakout = (hi_20d - last) / hi_20d * 100 < 3.0 if hi_20d > 0 else False
+
+    s5 = 0.0
+    if broke_out and vol_ratio >= 1.5:
+        s5 = 20.0
+    elif broke_out and vol_ratio >= 1.2:
+        s5 = 14.0
+    elif broke_out:
+        s5 = 8.0
+    elif near_breakout and vol_ratio >= 1.2:
+        s5 = 10.0
+    elif near_breakout:
+        s5 = 6.0
+    scores[4] = round(s5, 1)
+    if broke_out:
+        reasons.append(f"Breakout on {vol_ratio:.1f}× volume — "
+                       + ("confirmed" if vol_ratio >= 1.5 else "watch volume"))
+    elif near_breakout:
+        reasons.append(f"Within 3% of breakout ({hi_20d:.0f}), vol {vol_ratio:.1f}×")
+    else:
+        reasons.append(f"{(hi_20d - last) / hi_20d * 100:.1f}% from breakout level")
+
+    total = round(sum(scores), 1)
+    if total < 40:
+        return None
+
+    tags = []
+    if scores[0] >= 14:
+        tags.append("Tight candles")
+    if scores[1] >= 14:
+        tags.append("Vol dry-up")
+    if scores[2] >= 14:
+        tags.append("Squeeze")
+    if scores[3] >= 14:
+        tags.append("HL ladder")
+    if broke_out and vol_ratio >= 1.5:
+        tags.append("Breakout confirmed")
+    elif near_breakout:
+        tags.append("Near breakout")
+
+    swing_low_stop = float(low.iloc[-10:].min())
+    risk = last - swing_low_stop
+    target = last + 2 * risk if risk > 0 else None
+
+    return {
+        "pattern_type": "20 EMA Base Setup",
+        "tags": tags,
+        "reasons": reasons,
+        "score": total,
+        "scores_detail": {
+            "candle_quality": scores[0],
+            "volume_dryup": scores[1],
+            "range_compression": scores[2],
+            "higher_lows": scores[3],
+            "breakout_volume": scores[4],
+        },
+        "stop": round(swing_low_stop, 2),
+        "target": round(target, 2) if target else None,
+        "risk_reward": round(2 * risk / risk, 1) if risk > 0 else None,
+        "ema20": round(ema_now, 2),
+        "breakout_level": round(hi_20d, 2),
+        "rs_raw": _rs_raw(df),
+    }
+
+
+def _enrich_ema_base(results: list[dict]) -> list[dict]:
+    """Annotate EMA base hits with upcoming earnings dates."""
+    try:
+        import earnings_calendar as ec
+    except Exception:
+        return results
+
+    from datetime import date as _date
+
+    today = _date.today()
+    for hit in results:
+        sym = hit.get("symbol")
+        if not sym:
+            continue
+        try:
+            cal = ec.fetch_earnings(sym)
+        except Exception:
+            continue
+        if not cal or not cal.get("events"):
+            continue
+        future = [e for e in cal["events"]
+                  if e.get("date") and e["date"] >= today.isoformat()]
+        if not future:
+            continue
+        nxt = min(future, key=lambda e: e["date"])
+        earn_date = _date.fromisoformat(nxt["date"])
+        days_away = (earn_date - today).days
+        hit["next_earn"] = nxt["date"]
+        hit["days_to_earn"] = days_away
+        if days_away <= 30:
+            hit["tags"] = hit.get("tags", []) + ["Earnings catalyst"]
+            hit["reasons"] = hit.get("reasons", []) + [
+                f"Results in {days_away}d ({nxt['date']}) — "
+                "quiet base + upcoming catalyst"]
+    return results
+
+
+def scan_breakout_retest(df: pd.DataFrame, lookback: int = 120,
+                         cluster_tol_pct: float = 2.0, min_touches: int = 3,
+                         min_base_bars: int = 15, atr_len: int = 14) -> dict | None:
+    """Breakout-retest entry (B-6): resistance broken, price pulled back to the
+    level, and is now holding above it — classic "resistance becomes support".
+
+    The desk detects breaks well (structural breakout, VCP, wedge, flag, cup)
+    and retests poorly: `scan_order_block` is the only retest trigger, and it
+    is SMC-specific. This scanner is the GENERAL retest detector — it works on
+    any horizontal resistance cluster, regardless of the pattern that formed the
+    base.
+
+    Stages:
+      1. Find the resistance ceiling: cluster of daily highs within `cluster_tol_pct`
+         of the ceiling, with ≥ `min_touches` touches, over at least `min_base_bars`.
+      2. Confirm breakout: a close above level + 0.25×ATR buffer, 5–30 bars ago.
+      3. Detect pullback: after the breakout bar, the low dipped back within 1.5%
+         of the resistance level (price came back to "test" the old resistance).
+      4. Confirm retest hold: current close is above the resistance level.
+      5. Not extended: current close is within 4×ATR of the level (anti-chase).
+
+    Emits entry (current close), stop (below the level − 0.5×ATR), target
+    (level + pattern height or 2R, whichever is larger).
+    """
+    if df is None or len(df) < min_base_bars + 30:
+        return None
+    if "volume" not in df.columns:
+        return None
+    df = _clean_ohlc(df)
+    if len(df) < min_base_bars + 30:
+        return None
+
+    h = df["high"].to_numpy(dtype=float)
+    l = df["low"].to_numpy(dtype=float)
+    c = df["close"].to_numpy(dtype=float)
+    v = df["volume"].to_numpy(dtype=float)
+    n = len(df)
+    w0 = max(0, n - lookback)
+
+    atr = _atr_series(df, atr_len)
+    a = float(atr.iloc[-1])
+    if pd.isna(a) or a <= 0:
+        return None
+
+    # Stage 1: find resistance ceiling in the window BEFORE the breakout zone.
+    # The breakout must be recent (last 30 bars), so the ceiling is built from
+    # bars before that.
+    ceil_end = max(w0 + min_base_bars, n - 30)
+    if ceil_end <= w0:
+        return None
+    level = float(h[w0:ceil_end].max())
+    tol = cluster_tol_pct / 100
+    touch_idx = [i for i in range(w0, ceil_end) if h[i] >= level * (1 - tol)]
+    touches = len(touch_idx)
+    if touches < min_touches:
+        return None
+
+    base_start = touch_idx[0]
+    base_bars = ceil_end - base_start
+    if base_bars < min_base_bars:
+        return None
+
+    buffer = 0.25 * a
+
+    # Stage 2: find the breakout bar — first close above level + buffer after
+    # the ceiling window, within the last 30 bars.
+    breakout_bar = None
+    for i in range(ceil_end, n):
+        if c[i] > level + buffer:
+            breakout_bar = i
+            break
+    if breakout_bar is None:
+        return None
+    bars_since_break = n - 1 - breakout_bar
+    if bars_since_break < 2 or bars_since_break > 30:
+        return None
+
+    # Stage 3: pullback — after the breakout, the low came back near the level.
+    post_break_low = float(l[breakout_bar + 1:].min())
+    pullback_depth = (post_break_low - level) / level
+    if pullback_depth > 0.015:
+        return None  # never came back to the level
+    if post_break_low < level * (1 - tol):
+        return None  # fell too far below — the level didn't hold
+
+    # Stage 4: current close above the level (the retest is holding).
+    last_close = float(c[-1])
+    if last_close < level:
+        return None
+
+    # Stage 5: anti-chase — not too extended.
+    if last_close > level + 4 * a:
+        return None
+
+    # ── Trade plan ──────────────────────────────────────────────────────────
+    entry = round(last_close, 2)
+    stop = round(level - 0.5 * a, 2)
+    risk = entry - stop
+    if risk <= 0:
+        return None
+    pattern_height = level - float(l[base_start:ceil_end].min())
+    target = round(max(level + pattern_height, entry + 2.0 * risk), 2)
+    rr = round((target - entry) / risk, 1)
+
+    # ── Volume check ────────────────────────────────────────────────────────
+    vol50 = pd.Series(v).rolling(50).mean()
+    v50_at_break = float(vol50.iloc[breakout_bar]) if not pd.isna(vol50.iloc[breakout_bar]) else 0.0
+    breakout_vol_ok = v50_at_break > 0 and float(v[breakout_bar]) >= 1.3 * v50_at_break
+    vol20 = float(df["volume"].tail(20).mean())
+    vol_x = float(df["volume"].iloc[-1]) / vol20 if vol20 > 0 else 0.0
+
+    # Pullback should be on LOW volume (supply drying up at the retest).
+    pullback_bars = v[breakout_bar + 1:]
+    avg_pullback_vol = float(pullback_bars.mean()) if len(pullback_bars) else 0
+    dry_pullback = avg_pullback_vol < v50_at_break * 0.8 if v50_at_break > 0 else False
+
+    # ── Score (0-100) ───────────────────────────────────────────────────────
+    score = 30.0
+    score += min(15.0, touches * 3.0)                       # more touches = stronger level
+    score += 15.0 if breakout_vol_ok else 0.0               # volume on breakout
+    score += 10.0 if dry_pullback else 0.0                  # low volume pullback
+    prox = max(0.0, 1.0 - abs(last_close - level) / (2 * a))  # closer to level = better
+    score += 15.0 * prox                                    # proximity to retest level
+    score += 5.0 if rr >= 2.0 else 0.0                      # decent R:R
+    score += 10.0 if bars_since_break <= 15 else 5.0        # freshness
+    score = round(min(100.0, score), 1)
+
+    if score < 55:
+        return None
+
+    base_weeks = base_bars // 5
+    tags = ["Breakout Retest", f"{touches} touches", f"{base_weeks}w base"]
+    if breakout_vol_ok:
+        tags.append("Vol ✓")
+    if dry_pullback:
+        tags.append("Dry pullback")
+    reasons = [
+        f"Resistance ₹{level:.0f} — {touches} touches within {cluster_tol_pct}% "
+        f"over a {base_weeks}-week base",
+        f"Breakout {bars_since_break} bars ago"
+        + (f" on {v[breakout_bar] / v50_at_break:.1f}× 50d volume" if breakout_vol_ok
+           else " — breakout volume unconfirmed"),
+        f"Pullback to ₹{post_break_low:.0f} ({pullback_depth * 100:+.1f}% from level)"
+        + (" — supply drying up on the retest" if dry_pullback
+           else " — retest volume not low"),
+        f"Holding above ₹{level:.0f} — old resistance acting as new support",
+        f"Trade plan — entry {entry:.0f} · stop {stop:.0f} · target {target:.0f} "
+        f"(R:R {rr}×)",
+    ]
+
+    return {
+        "pattern_type": "Breakout Retest",
+        "tags": tags,
+        "reasons": reasons,
+        "score": round(score, 1),
+        "rs_raw": _rs_raw(df),
+        "entry": entry,
+        "stop": stop,
+        "target": target,
+        "vol_x50d": round(vol_x, 2),
+        "breakout_vol_ok": breakout_vol_ok,
+        "dry_pullback": dry_pullback,
+        "level": round(level, 2),
+        "touches": touches,
+        "bars_since_break": bars_since_break,
+        "time_stop": 12,
+    }
+
+
 SCANNERS: dict[str, dict] = {
     "Shallow Flip (Renko, bounded correction)": {
         "fn": scan_shallow_flip,
@@ -7477,6 +9010,20 @@ SCANNERS: dict[str, dict] = {
             "closed below since), and fires when price is retesting it now and "
             "holding above the zone low. Carries a structured entry/stop/target "
             "(stop below the zone, target at the displacement extension or 2R)."
+        ),
+        "category": "Entry",
+    },
+    "Breakout Retest": {
+        "fn": scan_breakout_retest,
+        "description": (
+            "General breakout-retest entry (B-6): finds a multi-touch horizontal "
+            "resistance cluster, confirms a recent breakout above it, detects the "
+            "pullback to the level, and fires when price is holding above it — "
+            "old resistance acting as new support. Works across any pattern that "
+            "formed the base (VCP, wedge, flag, cup, flat base). Carries a "
+            "structured entry/stop/target (stop below the level, target at "
+            "pattern height or 2R). UNMEASURED — not yet through the backtest "
+            "harness; treat as an attention list, not a trigger."
         ),
         "category": "Entry",
     },
@@ -7582,6 +9129,23 @@ SCANNERS: dict[str, dict] = {
         "description": "Strong uptrends near 20-day highs with intact MA stack",
         "category": "Momentum",
     },
+    "No-Supply (new high + clean volume)": {
+        "fn": scan_no_supply,
+        "description": (
+            "FILTER on the Trend/Momentum new-high family: fires when a stock "
+            "that qualifies on at least one new-high scanner (52W High Leaders, "
+            "Stage 2, Momentum Continuation, ADX Trend) also shows ZERO red "
+            "(above-MA down) bars and at least one pocket pivot in the last 10 "
+            "sessions — the Simple Volume 'no supply + demand' read. A screen, "
+            "not a trade trigger: no entry/stop/target, no confluence vote. The "
+            "thesis is that a new-high stock with no selling pressure visible in "
+            "volume is in the cleanest part of its move. UNMEASURED — ships at "
+            "weight 0 until the gate-vs-no-gate study (B-122) says whether the "
+            "supply filter adds anything to the family. Built from the Python "
+            "port of simple_volume.js with bar-for-bar parity."
+        ),
+        "category": "Momentum",
+    },
     "PEAD Drift": {
         "fn": scan_pead,
         "enrich": _enrich_pead,
@@ -7634,7 +9198,24 @@ SCANNERS: dict[str, dict] = {
     },
     "VCP Coiling": {
         "fn": scan_vcp,
-        "description": "Volatility contraction pattern with drying volume — coiling before move",
+        "description": (
+            "Volatility contraction base, detected by the STRICT pivot walk "
+            "(`detect_vcp_geometry`, concepts/VCP.md): 2-4 contractions each "
+            "tighter than the last, a real pivot to break, and a volume dry-up "
+            "on the right side. Emits the pivot, the contraction footprint "
+            "(Minervini WW notation) and a full entry/stop/target — the same "
+            "geometry the chart overlay draws, so card and chart cannot "
+            "disagree. Score is the shared 0-100 base quality. "
+            "MEASURED WEAK (B-19r, 2026-09-19): re-run through B-19's own "
+            "harness after the detector swap, against bands pre-registered "
+            "before the run - 3,233 OOS signals, +0.13% @20d, -0.22% @60d. It "
+            "fails the bar the way B-19's headline warned about: @20d is "
+            "positive but NOT sign-stable (windows +0.62*/+0.09/-0.28, only the "
+            "first significant) and @60d is stable and NEGATIVE. A context "
+            "lens, not a trigger. The retired three-window detector measured "
+            "-0.59%/-1.07% on a DIFFERENT hit set; that is context, not a "
+            "paired comparison."
+        ),
         "category": "Pattern",
     },
     "Minervini VCP (valchak)": {
@@ -7796,6 +9377,51 @@ SCANNERS: dict[str, dict] = {
         ),
         "category": "Pattern",
     },
+    "Flag & Pole": {
+        "fn": _fp.scan_flag_pole,
+        "description": (
+            "Proportionate bull continuation: a pole of ≥4× ATR in ≤15 bars, then a "
+            "flag retracing ≤50% of it in 3–25 bars, then a close above the flag "
+            "high. The general case of High Tight Flag, which demands a ≥90% pole "
+            "and was one of three scanners B-19 could not score for too few "
+            "signals. Emits the card's three levels — entry at the flag break, stop "
+            "at the far flag boundary, target = the POLE HEIGHT PROJECTED. That "
+            "target is a measured move, NOT a forecast. Present on 5.1% of bars, "
+            "BROKEN OUT on 0.45%. **MEASURED 2026-09-17 (B-92), 1,189 breakouts "
+            "on 248 names: edge +0.71% at 20 sessions, p=0.0499 — a PASS by the "
+            "pre-registered rule, and a MARGINAL one sitting on the threshold.** "
+            "Nothing at 5 or 10 days (p≈0.86). The PLAN did better than the "
+            "entry: target hit 36.8% against a 51.6% stop rate, avg +0.36R — it "
+            "loses more often than it wins and still pays, which is what a "
+            "measured move is supposed to do. **No confluence vote**: one test "
+            "buys visibility, not authority, and a momentum confound is "
+            "unresolved (it fires only after a 4×ATR thrust). See "
+            "analyses/Flag-Pole-Pre-Registration."
+        ),
+        "category": "Pattern",
+    },
+    "Inverted Flag & Pole": {
+        "fn": _fp.scan_inverted_flag_pole,
+        "description": (
+            "The bear mirror, and the first bear continuation detector on this desk. "
+            "Down pole ≥4× ATR, shallow bounce retracing ≤50%, close below the flag "
+            "low. **Read it as EXIT / AVOID, not as an entry** — shorting NSE cash "
+            "for a swing hold is not available to most users here, so the useful "
+            "meaning is 'do not be long', the same scoping B-90 carries. Present on "
+            "3.3% of bars, broken out on 0.32%. **MEASURED 2026-09-17 (B-92) and "
+            "INVERTED — do not trade it in either direction.** 979 breakdowns "
+            "on 248 names: the stock went UP +1.33% MORE than baseline at 20 "
+            "sessions (p=0.0005), and the plan hit its target only 8.6% of the "
+            "time against a 77.8% stop rate, avg −0.44R. A bear flag breaking "
+            "down was followed by strength. **The mirror was NOT shipped** — a "
+            "significant inversion is a reason to re-read the construction, not "
+            "to flip the label, and the window is a market that rose. Kept as "
+            "STRUCTURE only: it marks a down thrust that paused, which is worth "
+            "seeing, but on this evidence it is neither a short nor an exit "
+            "signal. See analyses/Flag-Pole-Pre-Registration."
+        ),
+        "category": "Pattern",
+    },
     "High Tight Flag": {
         "fn": scan_high_tight_flag,
         "description": (
@@ -7812,6 +9438,37 @@ SCANNERS: dict[str, dict] = {
             "bases and neckline reversals pressing or clearing the ceiling with an "
             "ATR-scaled buffer; Approaching / Confirmed / Retest states, weekly-confirm "
             "bonus (SwingEdge Structural Breakout ingest)"
+        ),
+        "category": "Pattern",
+    },
+    "Double Bottom": {
+        "fn": scan_double_bottom,
+        "description": (
+            "Confirmed Double Bottom, ported from the AGPro Reversal Pattern "
+            "Quality Scanner (sources/AGPro-Reversal-Pattern-Quality-Scanner-Pine.md, "
+            "concepts/Reversal-Chart-Patterns.md) at the source's own parameters: "
+            "two swing lows within 1.4% of each other, 10-90 bars apart, a "
+            "neckline pivot at least 2% above them, and a close clearing that "
+            "neckline by 0.15x ATR — touching it is not a break. Graded S/A+/A/B/C "
+            "on AGPro's 5-factor weighted quality (structure .28, depth .22, volume "
+            ".18, breakout strength .17, exhaustion context .15), which scores the "
+            "SHAPE and nothing else. Separately it reports FOLLOW-THROUGH: this "
+            "symbol's own past double bottoms, each graded once at 12 bars against "
+            "a 0.75x ATR move, always printed with its sample size because the "
+            "typical n is 1-3. The two numbers are kept apart on purpose — the "
+            "source page's own warning is that a textbook A-grade shape can sit on "
+            "a 30% real follow-through rate for that name. States: Confirmed, or "
+            "Retest hold once price has come back to the neckline and held, which "
+            "is the entry the pattern's trading plan actually names. **MEASURED "
+            "2026-09-21 (B-116 run): NO EDGE, and stably negative** — 1,519 OOS "
+            "signals over LIQUID_50, three walk-forward windows, Indian delivery "
+            "costs: -0.17 / -0.26 / -0.61 / -1.58% at 5/10/20/60d, with the sign "
+            "consistent in all three windows at every horizon and p<0.05 in four "
+            "window-horizons. It was measured as a by-product of plumbing the "
+            "plan scoreboard through the walk-forward path, and the number is "
+            "recorded here rather than left in a cache file nobody reads. The "
+            "follow-through figure remains descriptive history for one symbol "
+            "rather than a backtest of the scanner."
         ),
         "category": "Pattern",
     },
@@ -7885,12 +9542,35 @@ SCANNERS: dict[str, dict] = {
         ),
         "category": "Pattern",
     },
+    "Symmetrical Triangle (bilateral)": {
+        "fn": scan_symmetrical_triangle,
+        "description": (
+            "Symmetrical triangle — falling highs meeting RISING lows over the last "
+            "90 bars, fitted by regression through the swing pivots, ≥2 touches per "
+            "side, neither line flat (a flat side makes it an ascending or descending "
+            "triangle, which are directional and covered elsewhere). "
+            "**BILATERAL: the direction is unknown until one line breaks.** The card "
+            "publishes BOTH legs (up_entry/up_stop/up_target and down_*) and no bare "
+            "entry/stop/target, and the hit does NOT vote in confluence — a coil is "
+            "not evidence for a side. Reports the apex distance and how far into the "
+            "50-75% textbook resolution band price has coiled. **MEASURED 2026-09-20 "
+            "(B-101/B-103): NULL.** Over 270 coils in ~10 years of nifty500, a coil "
+            "precedes an ORDINARY move (+0.32/-0.01/+0.23/-0.74pp |move| vs baseline "
+            "at 5/10/20/60d, p 0.27-0.98) -- it is context, not a trade. The bilateral "
+            "framing itself SURVIVED its pre-registered falsifier: 42.7% up-share, "
+            "inside the 40-60% band. See analyses/Bilateral-Expansion-Pre-Registration."
+        ),
+        "category": "Neutral",
+    },
     "Harmonic Reversal (XABCD)": {
         "fn": scan_harmonic_reversal,
         "description": (
-            "Fibonacci XABCD harmonic patterns (Gartley, Bat, Butterfly, Crab) "
-            "completing at D within the last 10 bars, filtered to R:R ≥ 1.5 to T2. "
-            "Trade plan: entry at D, stop beyond X, targets at 0.382 / 0.618 / 1.0 of AD."
+            "BULLISH Fibonacci XABCD harmonic patterns (Gartley, Bat, Butterfly, "
+            "Crab) completing at D within the last 10 bars, filtered to R:R ≥ 1.5 "
+            "to T2. Trade plan: entry at D, stop beyond the lower of X and D, "
+            "targets at 0.382 / 0.618 / 1.0 of AD. MEASURED WEAK (B-129, "
+            "2026-09-23): bullish-only +1.07% @20d but unstable across windows; "
+            "bearish patterns dropped because their short thesis failed."
         ),
         "category": "Pattern",
     },
@@ -7982,6 +9662,20 @@ SCANNERS: dict[str, dict] = {
             "5 sessions; (6) RSI < 80 anti-chase gate. One RS failure disqualifies."
         ),
         "category": "Momentum",
+    },
+    "20 EMA Base Setup": {
+        "fn": scan_ema_base_setup,
+        "description": (
+            "Low supply + steady demand at the 20 EMA — the Minervini/O'Neil/VPA "
+            "tape-reader base. Five-point composite (each 0-20, total 0-100): "
+            "(1) small candles staying above the 20 EMA, (2) volume drying up on "
+            "red candles specifically, (3) range compression / squeeze, (4) higher "
+            "lows forming at the EMA, (5) breakout volume expansion. Fires at "
+            "score ≥ 40 with a swing-low stop / 2R target. UNMEASURED — no backtest "
+            "yet; treat as an attention list, not a trigger."
+        ),
+        "category": "Entry",
+        "enrich": _enrich_ema_base,
     },
 }
 

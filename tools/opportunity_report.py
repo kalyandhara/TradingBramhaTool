@@ -60,6 +60,7 @@ TIER_LABEL = {
     "weak":       "measured, no edge",
     "unmeasured": "unmeasured",
     "risk":       "bearish",
+    "neutral":    "bilateral — no direction",
 }
 
 DISCLAIMER = ("Automated research output, not investment advice and not a buy "
@@ -1110,6 +1111,94 @@ def demo_volume_story() -> bytes:
         trigger="₹1.76 Cr order — Integral Coach Factory, Indian Railways",
         q1_sales_cr=138, q1_sales_growth=17, q1_pat_cr=10.8, q1_pat_growth=83)
     return render_volume_story([entero, orirail], as_of=date(2026, 8, 25))
+
+
+# ── B-37 wiring: scan output → VolumeStock objects ──────────────────────────
+
+def volume_stocks_from_scan(
+    rows: list[dict],
+    *,
+    fundamentals_fn=None,
+    name_fn=None,
+    mcap_fn=None,
+    top_n: int = 2,
+) -> list[VolumeStock]:
+    """Convert volume_anomaly.scan() rows into VolumeStock objects for the card.
+
+    `fundamentals_fn(symbol) -> dict` is optional; when supplied it enriches with
+    Q1 sales/PAT from yfinance quarterly statements.  `name_fn(symbol) -> str`
+    resolves a ticker to a company name; defaults to the symbol itself.
+    `mcap_fn(symbol) -> float|None` fetches market cap in rupees when the scan
+    row lacks `pct_mcap` (which happens when `market_caps` was not passed to
+    `scan()`).
+
+    Returns at most `top_n` stocks, ranked by RVOL (the `multiple` field).
+    """
+    ranked = sorted(rows, key=lambda r: -(r.get("multiple") or 0))[:top_n]
+    out: list[VolumeStock] = []
+    for r in ranked:
+        sym = r["symbol"]
+        vol = r.get("volume", 0)
+        avg = r.get("avg_volume") or 0
+        close = r.get("close") or 0
+        if avg <= 0 or close <= 0:
+            continue
+
+        mcap_cr = None
+        if mcap_fn is not None:
+            mc_rupees = mcap_fn(sym)
+            if mc_rupees and mc_rupees > 0:
+                mcap_cr = mc_rupees / 1e7
+        if mcap_cr is None and r.get("pct_mcap") and r.get("turnover_cr"):
+            tc = r["turnover_cr"]
+            pm = r["pct_mcap"]
+            if pm > 0:
+                mcap_cr = tc / pm * 100.0
+
+        if mcap_cr is None or mcap_cr <= 0:
+            continue
+
+        q1_sales_cr = q1_sales_g = q1_pat_cr = q1_pat_g = None
+        if fundamentals_fn is not None:
+            try:
+                fd = fundamentals_fn(sym)
+                quarters = fd if isinstance(fd, list) else []
+                if quarters:
+                    q = quarters[0]
+                    rev = q.get("revenue")
+                    ni = q.get("net_income")
+                    if rev is not None:
+                        q1_sales_cr = rev / 1e7
+                        q1_sales_g = q.get("revenue_yoy")
+                    if ni is not None:
+                        q1_pat_cr = ni / 1e7
+                        q1_pat_g = q.get("profit_yoy")
+            except Exception:
+                pass
+
+        trigger = None
+        reasons = r.get("reasons")
+        if reasons and isinstance(reasons, list):
+            trigger = reasons[0] if len(reasons) == 1 else " · ".join(reasons[:2])
+        elif reasons and isinstance(reasons, str):
+            trigger = reasons
+
+        name = sym
+        if name_fn is not None:
+            try:
+                name = name_fn(sym) or sym
+            except Exception:
+                pass
+
+        out.append(volume_stock(
+            sym, name,
+            today_vol=vol, avg_vol=avg, vwap=close, mcap_cr=mcap_cr,
+            price_pct=r.get("day_pct") or 0.0,
+            trigger=trigger,
+            q1_sales_cr=q1_sales_cr, q1_sales_growth=q1_sales_g,
+            q1_pat_cr=q1_pat_cr, q1_pat_growth=q1_pat_g,
+        ))
+    return out
 
 
 if __name__ == "__main__":

@@ -13,6 +13,9 @@ related:
   - analyses/Open-Backlog.md
   - analyses/Sector-Rotation-Tool-Architecture.md
   - concepts/Stage-Analysis.md
+created: 2026-09-09
+updated: 2026-09-09
+sources: 0
 ---
 
 # ScreeningMantis — price/volume column model & sector rotation tabs

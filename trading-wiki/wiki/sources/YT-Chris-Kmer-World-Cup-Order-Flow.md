@@ -7,6 +7,9 @@ author: "[[entities/Chris-Kmer]]"
 fetched: 2026-08-29
 raw: .raw/transcripts/YT-Chris-Kmer-World-Cup-Order-Flow-2026-08-29.md
 tags: [order-flow, gamma-exposure, gex, volume-profile, auction-market-theory, prop-trading, day-trading, futures, psychology, absorption]
+created: 2026-08-30
+updated: 2026-08-30
+sources: 0
 ---
 
 # YT — Chris Kmer: World Cup championship process (order flow · GEX · volume profile)

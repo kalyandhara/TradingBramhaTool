@@ -136,6 +136,14 @@ def cmf(df: pd.DataFrame, n: int = CMF_N, offset: int = 0) -> Optional[float]:
     return round(float(mfv_w.sum()) / tot, 4)
 
 
+def obv(df: pd.DataFrame) -> pd.Series:
+    """On-Balance Volume — cumulative sum of signed volume."""
+    close = pd.to_numeric(_col(df, "close"), errors="coerce")
+    vol = pd.to_numeric(_col(df, "volume"), errors="coerce").fillna(0.0)
+    sign = close.diff().apply(lambda x: 1 if x > 0 else (-1 if x < 0 else 0))
+    return (sign * vol).cumsum()
+
+
 # ── per sector ────────────────────────────────────────────────────────────────
 
 def sector_cmf(members: dict[str, pd.DataFrame], n: int = CMF_N,

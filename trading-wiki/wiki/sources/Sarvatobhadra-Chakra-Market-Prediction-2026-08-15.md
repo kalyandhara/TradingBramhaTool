@@ -136,5 +136,5 @@ Day of recording: Wednesday (Budha/Mercury hora cycle), Krishna Ashtami, Bhadra 
 ## Pages Updated
 
 - [[concepts/Sarvatobhadra-Chakra]] — created
-- [[wiki/index.md]] — updated
-- [[wiki/log.md]] — updated
+- [[index]] — updated
+- [[log]] — updated

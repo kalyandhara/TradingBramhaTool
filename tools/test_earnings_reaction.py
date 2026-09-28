@@ -123,3 +123,71 @@ def test_the_age_bound_is_generous_enough_for_a_quarterly_reporter():
     """A quarterly reporter's last result is at most ~120 days old, so the bound
     must sit well clear of that or it would suppress real results."""
     assert er.MAX_EVENT_AGE_DAYS > 200
+
+
+# ── The PEAD walk ────────────────────────────────────────────────────────────
+# These pin the two definitional choices the walk makes that a naive version
+# gets wrong: drift is measured FROM THE REACTION BAR (not the event bar), and
+# an unfinished +20 window is incomplete rather than zero.
+
+@pytest.fixture
+def _cal(monkeypatch):
+    """Install a cached-calendar stub; returns the setter."""
+    def _set(dates):
+        monkeypatch.setattr(
+            er, "_read_any",
+            lambda sym: {"events": [{"date": d} for d in dates]})
+    return _set
+
+
+def test_drift_is_measured_from_the_reaction_bar_not_the_event_bar():
+    """The whole point of PEAD: the announcement jump is NOT drift.
+
+    Event on bar 2, a +10% reaction on bar 3, then a perfectly flat five
+    sessions. D+1 must show the jump and →+5 must show 0.0% — folding the jump
+    into the drift would report +10% and make every well-received result look
+    like it drifted.
+    """
+    df = _frame("2026-01-05", [100.0, 100.0, 100.0, 110.0] + [110.0] * 25)
+    i, _ = er._bar_index(df, df.index[2].date())
+    assert er._close_return(df, i + 1) == pytest.approx(10.0)
+    assert er._drift_from(df, i + 1, 5) == pytest.approx(0.0)
+    assert er._drift_from(df, i + 1, 20) == pytest.approx(0.0)
+
+
+def test_an_unfinished_drift_window_is_none_not_zero():
+    """A result announced three weeks ago has a running +20 window. Absent, not
+    flat — the difference is the whole reading."""
+    df = _frame("2026-01-05", [100.0] * 12)
+    assert er._drift_from(df, 1, 5) == pytest.approx(0.0)
+    assert er._drift_from(df, 1, 20) is None
+
+
+def test_the_walk_covers_four_quarters_newest_first(_cal):
+    _cal(["2026-07-17", "2026-04-18", "2026-01-16", "2025-10-17", "2025-07-18"])
+    df = _frame("2025-06-02", [100.0 + i for i in range(340)])
+    w = er.pead_walk("ACME", df, today=date(2026, 9, 10))
+    assert len(w["events"]) == er.WALK_QUARTERS == 4
+    assert [e["date"] for e in w["events"]] == [
+        date(2026, 7, 17), date(2026, 4, 18),
+        date(2026, 1, 16), date(2025, 10, 17)]
+    # A monotonically rising frame drifts up after every reaction.
+    assert all(e["d20"] > 0 for e in w["events"])
+    assert w["consistency"] == w["agreeable"] == 4
+
+
+def test_a_stale_calendar_produces_no_walk_at_all(_cal):
+    """Same rule as `last_earnings` — a 2018 feed does not get to render a
+    four-quarter walk of 2018 events."""
+    _cal(["2018-08-14", "2018-05-10", "2018-02-08", "2017-11-09"])
+    df = _frame("2026-01-05", [100.0] * 200)
+    assert er.pead_walk("STALE", df, today=date(2026, 9, 10))["events"] == []
+
+
+def test_no_calendar_and_no_bars_both_render_absent(_cal):
+    _cal([])
+    df = _frame("2026-01-05", [100.0] * 50)
+    assert er.pead_walk("NOCAL", df, today=date(2026, 9, 10))["events"] == []
+    _cal(["2026-07-17"])
+    out = er.pead_walk("NOBARS", pd.DataFrame(), today=date(2026, 9, 10))
+    assert out["events"] == [] and out["consistency"] is None

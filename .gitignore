@@ -15,6 +15,18 @@ build/
 *.db
 *.log
 
+# ...except the measured RECORDS, which are not data exports. These are
+# committed on purpose: each one is the baseline a ratchet test asserts against,
+# and a ratchet whose baseline is gitignored silently SKIPS on a fresh checkout
+# instead of failing (PR-2). Committed, they are also diffable -- a scanner
+# losing its trade plan shows up as a line in a review.
+!tools/scanner_plan_coverage.json
+
+# Generated output (B-88). New dated exports land here instead of the repo root,
+# which held 30 xlsx + 19 renders + 5 csv. Readers search BOTH, so files already
+# at the root keep working and nothing had to be moved.
+output/
+
 # Sector rotation outputs
 sector_rotation_*.html
 sector_rotation_*.png

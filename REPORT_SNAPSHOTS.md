@@ -14,6 +14,8 @@ all of them after the close.
 | `sector_turnover_share` | Sector Map | turnover-share rotation grid |
 | `volume_shockers` | Home | Darvas volume shockers (bhavcopy + default-threshold result) |
 | `trending` | Home | price movers, volume shockers, 52-week / all-time extremes |
+| `institutional_volume` | Home | pocket-pivot bars with volume ≥ 5x the 50-day average, last 5 sessions (nifty500) |
+| `cpr_vp_scan` | Home | CPR × Volume Profile confluence over the top-turnover names (setups on the last bar; context, not a signal) |
 | `sentiment` | Market Sentiment | composite reading (also persisted by sentiment_index) |
 | `market_health` | Market Sentiment | NIFTY / VIX + 60-name basket for the health gate |
 | `finviz` | Market Sentiment | US index chips + breadth |
@@ -71,3 +73,12 @@ Code: `tools/snapshot_store.py` (SQLite), `tools/snapshot_registry.py`
 (producers, no Streamlit), `tools/snapshot_refresh.py` (runner),
 `snapshot_panel()` in `tools/dashboard_app.py` (badge + ↻).
 Tests: `tools/test_snapshot_store.py`.
+
+## Sending a table to Predictive Analysis
+
+Home's **Institutional volume** and **Volume Shockers · Darvas** tables and the
+**Watchlist** page each have a **→ Predictive Analysis (n)** button. It makes
+that table's symbols the candidate list on Research › Predictive Analysis (with
+a short note per name, e.g. `20.7x rvol · +7.7% · 2026-09-25`) and jumps there.
+The list is stored in the settings table, so it survives a restart; sending
+another table replaces it, and ✕ on the Predictive Analysis page clears it.

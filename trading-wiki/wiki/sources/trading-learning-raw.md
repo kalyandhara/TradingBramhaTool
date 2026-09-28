@@ -6,6 +6,7 @@ created: 2026-06-14
 updated: 2026-06-14
 author: Kalyan Dhara
 related: [wiki/concepts/Darvas-Box.md, wiki/concepts/CANSLIM.md, wiki/concepts/RSI.md, wiki/strategies/TechnoFunda-Swing.md, wiki/concepts/Elliott-Wave.md]
+sources: 0
 ---
 
 # Personal Trading Notes — trading_learning_raw.pdf

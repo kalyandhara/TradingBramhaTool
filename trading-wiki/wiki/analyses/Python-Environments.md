@@ -1,10 +1,10 @@
 ---
 title: "Two Python interpreters, different packages — the verification hazard"
 category: analysis
-tags: [infrastructure, environment, dependencies, ephem, streamlit, verification, gotcha]
+tags: [infrastructure, environment, dependencies, ephem, streamlit, verification, gotcha, stale-claim-corrected]
 timeframe: n/a
 created: 2026-08-09
-updated: 2026-08-09
+updated: 2026-09-15
 sources: 0
 related:
   - concepts/Panchang.md
@@ -16,15 +16,54 @@ related:
 
 ## Thesis
 
-**This machine has two Python 3.14.4 installs with different packages, and the one that runs the app is not the one that is convenient to test with.** A feature was shipped verified against the wrong interpreter and failed on first use.
+**As written, 2026-08-09:** this machine has two Python 3.14.4 installs with
+different packages, and the one that runs the app is not the one that is convenient
+to test with. A feature was shipped verified against the wrong interpreter and
+failed on first use.
+
+**As it stands, 2026-09-15:** both installs now carry the full stack, so that
+sentence is no longer true and the rule it justified had come to name the wrong
+interpreter. The hazard did not go away, it **changed shape** — see the correction
+directly below. The original account is kept verbatim further down, because the
+failure it records is still the reason this page exists.
+
+> [!warning] Re-verified 2026-09-15 (B-79) — the asymmetry this page was written about is GONE
+> The original finding was that **each interpreter had something the other lacked**:
+> `streamlit` worked only in `pythoncore-3.14-64` and `ephem` only in
+> `Programs\Python314`, so no single interpreter could both run the app and verify
+> the astro layer. **Both now carry the full stack.** The page's "working rule"
+> below therefore named the wrong interpreter for the dashboard, and had done since
+> `.claude/launch.json` and `start.bat` switched to `Programs\Python314`.
+>
+> **What remains true is narrower and still bites:** there are still two installs,
+> they still hold *different versions* of three packages, and **only one has
+> `pytest`** — so the test suite has exactly one home.
+
+**Measured 2026-09-15, not carried forward:**
 
 | | `pythoncore-3.14-64` | `Programs\Python\Python314` |
 |---|---|---|
-| **Runs the app** (`start.bat`, `.claude/launch.json`) | ✅ **yes** | no |
-| streamlit | ✅ 1.57.0 | ❌ broken (starlette `DEFAULT_EXCLUDED_CONTENT_TYPES` ImportError) |
-| pandas | ✅ 3.0.2 | ✅ 3.0.2 |
-| yfinance | 1.2.1 | **1.4.1** |
-| ephem | ❌ **was missing** → installed 2026-08-09 | ✅ 4.2.1 |
+| **Runs the dashboard** (`.claude/launch.json`) | no | ✅ **yes** |
+| **Runs the scheduled batch jobs** (`scheduler_core.PYTHON_EXE`, `scanner_daily.bat`, `intraday_update.bat`) | ✅ **yes** | no |
+| **Runs the test suite** | ❌ **no pytest** | ✅ 8.3.0 |
+| streamlit | 1.57.0 | 1.58.0 |
+| pandas / numpy / plotly / ephem | 3.0.2 / 2.4.4 / 6.8.0 / 4.2.1 | identical |
+| yfinance | 1.6.0 | **1.4.1** |
+| scipy | 1.17.1 | **1.18.1** |
+| lxml | 6.0.3 | 6.1.3 |
+
+**The split is now by SURFACE, not by capability.** The dashboard and the tests run
+under `Programs\Python314`; the scheduled jobs run under `pythoncore-3.14-64`
+because their `.bat` files name it. Both work. Nothing is missing from either except
+`pytest`.
+
+> [!warning] The version skew now runs in the direction that matters
+> `yfinance` is **1.6.0** on the interpreter that runs the **unattended** jobs and
+> **1.4.1** on the one where everything is verified — so the scheduled shortlist
+> fetches through a *newer* library than any test or manual check ever exercises.
+> That is the skew the 2026-08-09 page called "currently harmless"; it is the same
+> skew pointing the other way, and it is now on the path nobody watches.
+> `scipy` differs too, which reaches the significance stack (B-39).
 
 There is also a third on `PATH` — `hermes-agent\venv` — which has neither pandas nor numpy and is what a bare `python` resolves to. So `python foo.py` runs in an environment that can import almost nothing in this repo.
 
@@ -49,11 +88,19 @@ Brief build failed: ModuleNotFoundError: No module named 'ephem'
 
 ## Conclusion — the working rule
 
-**Verify anything dashboard-facing with the interpreter from `.claude/launch.json`:**
+**Verify anything on the surface you are changing, with that surface's own
+interpreter** — the rule is the same as it was, but the answer has swapped:
 
 ```
-C:\Users\Owner\AppData\Local\Python\pythoncore-3.14-64\python.exe
+dashboard + tests   C:\Users\Owner\AppData\Local\Programs\Python\Python314\python.exe
+scheduled batch     C:\Users\Owner\AppData\Local\Python\pythoncore-3.14-64\python.exe
 ```
+
+The original sentence said "verify dashboard-facing work with the interpreter
+from `.claude/launch.json`" and then printed `pythoncore-3.14-64` beneath it.
+That was correct when written and became **self-contradictory** the moment
+`launch.json` changed, because the prose named a source of truth and the code
+block hard-coded an answer. **Name the source, not the answer.**
 
 Pure modules can be checked anywhere, but anything the app imports must be checked there. And **a new third-party import means adding it to `tools/requirements_pipeline.txt` in the same change** — an ad-hoc `pip install` records machine state, not project state, which is the mistake B-14 made.
 

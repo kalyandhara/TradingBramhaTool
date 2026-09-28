@@ -276,3 +276,54 @@ def test_every_span_grey_is_returned_as_nothing_at_all():
 def test_ema_stack_is_none_when_nothing_can_be_computed():
     assert rm.ema_stack(_frame([100.0, 101.0])) is None
     assert rm.ema_stack(None) is None
+
+
+# ── B-75 · the sequential profit walk ─────────────────────────────────────────
+# What these pin is the three ways the walk can lie, all of which a naive
+# implementation commits: bridging a gapped quarter and presenting it as one
+# quarter's change, computing a percentage off a loss base (a shrinking loss
+# reads as growth), and printing an empty walk where there is no data at all.
+
+def _q(*pairs):
+    """Quarterly rows NEWEST FIRST, the shape `derive_fundamentals` returns."""
+    return [{"period": p, "net_income": n} for p, n in pairs]
+
+
+def test_profit_walk_reads_oldest_first():
+    q = _q(("2026-06-30", 120.0), ("2026-03-31", 100.0), ("2025-12-31", 80.0))
+    assert rm.profit_qoq_walk(q) == "+25 → +20"
+
+
+def test_profit_walk_marks_a_gapped_quarter_instead_of_bridging_it():
+    # 2025-12-31 missing: Mar-to-Jun is one quarter, Sep-to-Mar is two. The
+    # second must NOT be printed as +150%.
+    q = _q(("2026-06-30", 120.0), ("2026-03-31", 100.0), ("2025-09-30", 40.0))
+    assert rm.profit_qoq_walk(q) == "? → +20"
+
+
+def test_profit_walk_refuses_a_percentage_off_a_loss_base():
+    q = _q(("2026-03-31", -10.0), ("2025-12-31", -100.0))
+    assert rm.profit_qoq_walk(q) == "L"
+
+
+def test_profit_walk_drops_a_step_with_a_missing_figure():
+    # A missing net_income is an absent row, not a gapped quarter, so it must
+    # not print "?" — the reader would take that for a hole in the calendar.
+    q = [{"period": "2026-06-30", "net_income": 120.0},
+         {"period": "2026-03-31", "net_income": None},
+         {"period": "2025-12-31", "net_income": 80.0}]
+    assert rm.profit_qoq_walk(q) is None
+
+
+def test_profit_walk_is_absent_not_empty_when_there_is_no_history():
+    assert rm.profit_qoq_walk([]) is None
+    assert rm.profit_qoq_walk(_q(("2026-03-31", 100.0))) is None
+
+
+def test_profit_walk_caps_the_number_of_steps_and_keeps_the_newest():
+    ends = ["2026-06-30", "2026-03-31", "2025-12-31", "2025-09-30", "2025-06-30",
+            "2025-03-31", "2024-12-31", "2024-09-30", "2024-06-30"]
+    q = _q(*[(e, 100.0) for e in ends])
+    steps = rm.profit_qoq_steps(q)
+    assert len(steps) == rm.QOQ_MAX_STEPS
+    assert steps[-1]["period"] == q[0]["period"]

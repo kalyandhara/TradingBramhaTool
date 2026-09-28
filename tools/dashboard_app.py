@@ -54,10 +54,15 @@ import india_market_intel as imi
 import harmonic_patterns as hp
 import sentiment_index as senti
 import market_verdict as mvd
+import index_strip as istrip
+import desk_pages as dpages
+import breadth_strip as bstrip
 import block_deal_intel as bdi
 import deal_infographic as dinf
 import nse_oi_momentum as oim
 import browser_cookie_helper as bch
+import portfolio_risk as prisk
+import ui_tables as uit
 import stock_council as council
 import fundamentals_deep as fdeep
 import fundamental_score as fscore
@@ -96,6 +101,7 @@ except ImportError:
     sys.exit("Run:  py -3 -m pip install ta")
 
 BASE_DIR = sp.BASE_DIR
+import out_paths as _out
 
 # Sidebar starts collapsed: navigation moved to a horizontal top bar, so the
 # sidebar now holds nothing. Left expandable rather than hidden outright so
@@ -106,90 +112,22 @@ st.set_page_config(page_title="Trading Bramha Dashboard", layout="wide",
 # Base URL of THIS dashboard, used to build "Analyze" deep-links that open the
 # Stock Analyzer (with the 3-POV Council) in a new browser tab. Mirrors the
 # hardcoded localhost:5001 chart-server convention already used across the app.
-DASHBOARD_BASE = "http://localhost:8501"
+DASHBOARD_BASE = uit.DASHBOARD_BASE
 
 
-def _analyze_url(sym) -> str | None:
-    """Deep-link that opens the Stock Analyzer on `sym` in a fresh tab."""
-    s = str(sym).strip().upper().replace(".NS", "")
-    if not s or s.startswith("^"):
-        return None
-    # Percent-encode: NSE tickers legitimately contain "&" (M&M, GVT&D), which
-    # unescaped ends the symbol parameter early and silently deep-links to the
-    # wrong stock rather than failing visibly.
-    return f"{DASHBOARD_BASE}/?nav=analyze&symbol={quote(s, safe='')}"
+_analyze_url = uit.analyze_url
 
 
-def _chart_url(sym) -> str | None:
-    """Deep-link that opens the multi-chart tool (chart_server on :5001) on `sym`.
-    Bare NSE tickers are the norm across this app — add .NS so yfinance resolves;
-    indices (leading ^) and already-suffixed symbols pass through."""
-    s = str(sym).strip().upper()
-    if not s:
-        return None
-    tkr = s if ("." in s or s.startswith("^")) else f"{s}.NS"
-    return f"http://localhost:5001/?symbol={quote(tkr, safe='^')}&tf=1d"
+_chart_url = uit.chart_url
+_analyze_colcfg = uit.analyze_colcfg
+_with_analyze_col = uit.with_analyze_col
 
-
-def _analyze_colcfg() -> "st.column_config.LinkColumn":
-    return st.column_config.LinkColumn(
-        "Analyze", help="Open the 3-POV Council analysis in a new tab",
-        display_text="Analyze ↗", width="small",
-    )
-
-
-def _with_analyze_col(df, symbol_col: str, after: str | None = "Chart"):
-    """Return a copy of df with an 'Analyze' deep-link column inserted right
-    after `after` (or appended if that column is absent)."""
-    out = df.copy()
-    urls = out[symbol_col].map(_analyze_url)
-    pos = (out.columns.get_loc(after) + 1) if (after in out.columns) else len(out.columns)
-    out.insert(pos, "Analyze", urls)
-    return out
-
-
-# ── Chart-icon family for dataframes ──────────────────────────────────────────
-# st.dataframe cells can't render the card's HTML action-icon row, so the same
-# family (in-app Chart 👁 / Analyze ↗ + TradingView / Screener / Google Finance)
-# is surfaced as a set of LinkColumns. display_text keeps a word alongside the
-# emoji — emoji-ONLY display_text triggers Streamlit's spurious edit-pencil bug.
-_CHART_FAMILY_COLS = ["Chart", "Analyze", "TView", "Screener", "GFin"]
-
-
-def _chart_family_urls(sym) -> dict[str, "str | None"]:
-    s = str(sym).strip().upper().replace(".NS", "")
-    if not s or s.startswith("^"):
-        return {c: None for c in _CHART_FAMILY_COLS}
-    return {
-        "Chart":    _chart_url(sym),
-        "Analyze":  _analyze_url(sym),
-        "TView":    f"https://www.tradingview.com/chart/?symbol=NSE%3A{s}",
-        "Screener": f"https://www.screener.in/company/{s}/consolidated/",
-        "GFin":     f"https://www.google.com/finance/quote/{s}:NSE",
-    }
-
-
-def _with_chart_family(df, symbol_col: str):
-    """Return a copy of df with the card's chart-icon family appended as
-    LinkColumns, keyed off the symbols in `symbol_col`."""
-    out = df.copy()
-    fam = [_chart_family_urls(s) for s in out[symbol_col]]
-    for c in _CHART_FAMILY_COLS:
-        out[c] = [f[c] for f in fam]
-    return out
-
-
-def _chart_family_colcfg() -> dict:
-    """The family's config, now from the shared registry (B-63a).
-
-    The frame's columns are Title-Case (`Chart`, `TView`) because
-    `_with_chart_family` has always written them that way and many callers read
-    those names; `columns.py` ids are lower-case. The mapping happens here once,
-    rather than renaming columns under every reader.
-    """
-    import columns as _cols
-    cfg = _cols.configure(*_cols.CHART_FAMILY)
-    return {c: cfg[i] for c, i in zip(_CHART_FAMILY_COLS, _cols.CHART_FAMILY)}
+# Chart-icon family for dataframes lives in ui_tables so extracted pages can use
+# it without importing this module (which would re-run the whole app).
+_CHART_FAMILY_COLS = uit.CHART_FAMILY_COLS
+_chart_family_urls = uit.chart_family_urls
+_with_chart_family = uit.with_chart_family
+_chart_family_colcfg = uit.chart_family_colcfg
 
 
 # ── Shareable "copy as card" for Telegram / social ────────────────────────────
@@ -1113,7 +1051,10 @@ PAGE_BLURBS = {
     "Hidden Treasures":     "Small/micro-cap conviction screen — ownership + quality",
     "Screener":             "The core NSE screen with the saved pipeline",
     "Other Screeners":      "Ownership pipeline, sector rotation, bulk data",
-    "Scanner Hub":          "24 pattern scanners, run on any universe",
+    # COMPUTED, not typed. This read "24 pattern scanners" against a registry of  # claims-lint: checked B-79
+    # 46 -- stale since whenever the 25th shipped, and sitting one hover away
+    # from a Home tile that counts the registry correctly (B-79).
+    "Scanner Hub":          f"{len(sc.SCANNERS)} pattern scanners, run on any universe",
     "Breakout Scans":       "External new-high breakout feeds — Chartink or TradingView",
     "High-Growth Screener": "Quality growth names on ROE / ROCE / OPM floors",
     "SVP Structure":        "Volume-profile structure — a bystander lens, not in the pipeline",
@@ -1539,72 +1480,6 @@ def _notes_table(df, key: str, symbol_col: str, *, column_config=None,
     return edited
 
 
-def _paginated_df(df: "pd.DataFrame", key: str, page_size: int = 25,
-                  tint: bool = True, **kwargs) -> None:
-    """Render a DataFrame with pagination when it exceeds page_size rows.
-
-    UI-2 (2026-09-10): this is also where the desk's table LOOK is applied, for
-    the same reason `columns.py` owns the labels — one render path, one answer.
-    Two things happen here that used to happen nowhere:
-
-    * **row_height** is set from `columns.ROW_HEIGHT`, which is what makes a wide
-      table scannable. Streamlit's grid is a canvas, so CSS cannot touch it and
-      this parameter is the only way in.
-    * **tint pairs** are applied from each column's registry `tone` — positive on
-      a green wash, negative on red, volume heat above its floor, rank at the
-      extremes. Colouring the CELL rather than the number is the single biggest
-      readability difference measured against screeningmantis.com
-      (analyses/ScreeningMantis-Table-Gap-Analysis.md).
-
-    `tint=False` opts a table out — used where the frame is already a Styler, or
-    where a caller has its own colour logic that has not been migrated yet.
-    Passing a Styler in is safe either way: `columns.tint` only accepts frames,
-    so a Styler falls through untouched.
-    """
-    import columns as _cols
-    kwargs.setdefault("row_height", _cols.ROW_HEIGHT)
-
-    def _paint(frame):
-        if not tint or not hasattr(frame, "columns"):
-            return frame
-        try:
-            return _cols.tint(frame)
-        except Exception:
-            # A tint failure must never cost the user the table. The numbers are
-            # the point; the wash is decoration.
-            return frame
-
-    n = len(df)
-    if n <= page_size:
-        st.dataframe(_paint(df), width="stretch", hide_index=True, **kwargs)
-        return
-    n_pages = (n + page_size - 1) // page_size
-    _pk = f"_pg_{key}"
-    if _pk not in st.session_state:
-        st.session_state[_pk] = 1
-    pc1, pc2, pc3 = st.columns([1, 3, 1])
-    with pc1:
-        if st.button("◀ Prev", key=f"{_pk}_prev",
-                     disabled=st.session_state[_pk] <= 1):
-            st.session_state[_pk] = max(1, st.session_state[_pk] - 1)
-            st.rerun()
-    with pc2:
-        new_page = st.number_input(
-            "Page", 1, n_pages, st.session_state[_pk],
-            key=f"{_pk}_num", label_visibility="collapsed",
-        )
-        if int(new_page) != st.session_state[_pk]:
-            st.session_state[_pk] = int(new_page)
-    with pc3:
-        if st.button("Next ▶", key=f"{_pk}_next",
-                     disabled=st.session_state[_pk] >= n_pages):
-            st.session_state[_pk] = min(n_pages, st.session_state[_pk] + 1)
-            st.rerun()
-    start = (st.session_state[_pk] - 1) * page_size
-    end = min(start + page_size, n)
-    st.dataframe(_paint(df.iloc[start:end]), width="stretch",
-                 hide_index=True, **kwargs)
-    st.caption(f"Page {st.session_state[_pk]}/{n_pages} · rows {start + 1}–{end} of {n}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -2095,6 +1970,64 @@ def snapshot_panel(name: str, *, key: str, compact: bool = False,
             bits.append(f"⚠ last attempt failed: {last_meta.error}")
         st.caption(" · ".join(bits))
     return meta, payload
+
+
+# ── "→ Predictive Analysis": hand a whole table over as the candidate set ────
+# Any table (Home's institutional-volume and volume-shocker lists, the
+# Watchlist) can push its symbols to Research › Predictive Analysis for a
+# side-by-side read. The list persists in the settings table so it is still
+# there after a restart, until replaced or cleared on the PA page.
+_PA_SENT_KEY = "pa_sent_candidates"
+
+
+def _pa_sent_load() -> dict | None:
+    if _PA_SENT_KEY in st.session_state:
+        return st.session_state[_PA_SENT_KEY]
+    raw = db.get_setting(_PA_SENT_KEY, "") or ""
+    try:
+        data = json.loads(raw) if raw else None
+    except Exception:                                    # noqa: BLE001
+        data = None
+    st.session_state[_PA_SENT_KEY] = data
+    return data
+
+
+def _pa_sent_save(data: dict | None) -> None:
+    st.session_state[_PA_SENT_KEY] = data
+    db.set_setting(_PA_SENT_KEY, json.dumps(data) if data else "")
+
+
+def _pa_send_button(key: str, source: str, df, symbol_col: str,
+                    note_fn=None, *, label: str | None = None) -> None:
+    """One button under a table: make its symbols the Predictive Analysis
+    candidate list (replacing the previous sent list) and jump there."""
+    if df is None or getattr(df, "empty", True) or symbol_col not in df.columns:
+        return
+    items, seen = [], set()
+    for i in range(len(df)):
+        row = df.iloc[i]
+        sym = str(row[symbol_col]).strip().upper()
+        if not sym or sym in seen:
+            continue
+        seen.add(sym)
+        note = ""
+        if note_fn is not None:
+            try:
+                note = str(note_fn(row) or "")
+            except Exception:                            # noqa: BLE001
+                note = ""
+        items.append({"symbol": sym, "note": note})
+    if not items:
+        return
+    if st.button(label or f"→ Predictive Analysis ({len(items)})", key=f"{key}_to_pa",
+                 help=f"Open Research › Predictive Analysis with these {len(items)} "
+                      f"names as the candidate list for a side-by-side read."):
+        _pa_sent_save({"source": source,
+                       "sent_at": datetime.now().isoformat(timespec="minutes"),
+                       "items": items})
+        st.session_state["pa_symbol"] = items[0]["symbol"]
+        st.session_state["current_page"] = "Predictive Analysis"
+        st.rerun()
 
 
 @st.cache_resource(show_spinner=False)
@@ -3403,6 +3336,162 @@ def render_ownership_flow(symbol: str) -> None:
         "not a signal.")
 
 
+def _gauge_svg(pct: float, color: str, label: str, sub: str, size: int = 150) -> str:
+    """A half-ring gauge 0-100 as inline SVG (no plotly for one number)."""
+    import math
+    pct = max(0.0, min(100.0, float(pct)))
+    r, cx, cy, w = size * 0.4, size / 2, size * 0.56, size * 0.085
+    def arc(a0, a1):
+        x0, y0 = cx + r * math.cos(math.pi * (1 - a0)), cy - r * math.sin(math.pi * (1 - a0))
+        x1, y1 = cx + r * math.cos(math.pi * (1 - a1)), cy - r * math.sin(math.pi * (1 - a1))
+        # A half ring spans 180° at most, so the SVG large-arc flag is never set:
+        # with it, anything past 50% drew the long way round the circle.
+        return f"M{x0:.1f},{y0:.1f} A{r:.1f},{r:.1f} 0 0 1 {x1:.1f},{y1:.1f}"
+    t = rs.TOKENS
+    fg = arc(0, max(0.004, pct / 100.0))
+    return (f'<svg width="{size}" height="{size * 0.68:.0f}" viewBox="0 0 {size} {size * 0.68:.0f}">'
+            f'<path d="{arc(0, 1)}" fill="none" stroke="{t["surface_alt"]}" stroke-width="{w:.1f}" stroke-linecap="round"/>'
+            f'<path d="{fg}" fill="none" stroke="{color}" stroke-width="{w:.1f}" stroke-linecap="round"/>'
+            f'<text x="{cx}" y="{cy - 2}" text-anchor="middle" font-size="{size * 0.17:.0f}" font-weight="800" fill="{t["text"]}">{label}</text>'
+            f'<text x="{cx}" y="{cy + size * 0.1:.0f}" text-anchor="middle" font-size="{size * 0.075:.0f}" font-weight="700" fill="{color}">{sub}</text>'
+            f'</svg>')
+
+
+def render_pattern_metrics(df, nifty_df=None, *, key: str = "pm") -> None:
+    """Historical pattern metrics — overhead supply, extension, base / VCP coil,
+    scanner-metric radar, exceptional volume. Descriptions of the history the
+    page already holds; nothing here is a signal (pattern_metrics.py)."""
+    import pattern_metrics as pm
+    t = rs.TOKENS
+    try:
+        m = pm.compute_all(df, nifty_df)
+    except Exception as e:                                # noqa: BLE001
+        st.caption(f"Historical pattern metrics unavailable: {e}")
+        return
+    st.markdown("#### 📐 Historical pattern metrics")
+    st.caption("Volume · overhead · VCP · normalised fields — read from the daily bars "
+               "already loaded. Descriptive only; none of these has been measured for "
+               "forward return here.")
+
+    micro = f'font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:{t["text_muted"]};'
+    c1, c2 = st.columns(2)
+    oh, ex = m["overhead"], m["extension"]
+    with c1:
+        if oh:
+            col = t["good"] if oh["pct"] < pm.OVERHEAD_CLEAR else t["accent"] if oh["pct"] < pm.OVERHEAD_HEAVY else t["risk"]
+            gauge = _gauge_svg(oh["pct"], col, f"{oh['pct']:.0f}%", oh["label"])
+            body = (f'<div style="{micro}">Overhead supply</div>'
+                    f'<div style="font-size:12px;color:{t["text_muted"]};">Prior highs above the current price · last {oh["bars"]} sessions</div>'
+                    f'<div style="text-align:center;">{gauge}</div>'
+                    f'<div style="font-size:12px;color:{t["text_muted"]};text-align:center;">{oh["note"]}</div>')
+            st.markdown(rs.card(body), unsafe_allow_html=True)
+    with c2:
+        if ex and ex["score"] is not None:
+            col = t["good"] if ex["score"] < 33 else t["accent"] if ex["score"] < 66 else t["risk"]
+            gauge = _gauge_svg(ex["score"], col, f"{ex['score']:.0f}", ex["band"])
+            flag = (f'<div style="font-size:12px;color:{t["risk"]};">⚠ RSI exhaustion — '
+                    f'{ex["rsi_pct"]:.0f}th pct of two years, {ex["run5_pct"]:+.1f}% in 5 sessions</div>'
+                    if ex["rsi_exhaustion"] else
+                    f'<div style="font-size:12px;color:{t["text_muted"]};">RSI {ex["rsi"]:.0f} · '
+                    f'{(ex.get("above_sma50_pct") or 0):+.1f}% vs 50-day · {ex["run5_pct"]:+.1f}% / 5d</div>'
+                    if ex.get("rsi") is not None else "")
+            body = (f'<div style="{micro}">Extension metric</div>'
+                    f'<div style="font-size:12px;color:{t["text_muted"]};">Composite: above 50-day and 20-day means, RSI percentile, 5-day run</div>'
+                    f'<div style="text-align:center;">{gauge}</div>'
+                    f'{flag}')
+            st.markdown(rs.card(body), unsafe_allow_html=True)
+
+    c3, c4 = st.columns(2)
+    vc, rd = m["vcp"], m["radar"]
+    with c3:
+        if vc:
+            tiles = "".join(
+                f'<div style="flex:1;background:{t["surface_alt"]};border-radius:8px;padding:8px 6px;text-align:center;">'
+                f'<div style="font-size:16px;font-weight:800;color:{t["text"]};">{v}</div>'
+                f'<div style="{micro}font-size:9.5px;">{k}</div></div>'
+                for k, v in (("Base length", f"{vc['base_weeks']:.0f}w"),
+                             ("Depth", f"{vc['depth_pct']:.1f}%"),
+                             ("Contractions", f"{vc['contractions']}")))
+            mx = max(vc["ladder"]) or 1.0
+            ladder = "".join(
+                f'<div style="flex:1;text-align:center;">'
+                f'<div style="height:6px;margin:0 8px;border-radius:3px;background:{t["accent"]};'
+                f'width:{max(12, d / mx * 100):.0f}%;margin-left:auto;margin-right:auto;"></div>'
+                f'<div style="font-size:11px;font-weight:700;color:{t["text_muted"]};margin-top:4px;">L{i + 1}</div>'
+                f'<div style="font-size:12px;color:{t["text"]};">{d:.1f}%</div></div>'
+                for i, d in enumerate(vc["ladder"]))
+            tight = (f'Tightness {vc["tightness_pct"]:.1f}% — final contraction as a share of the first (lower is tighter)'
+                     if vc["tightness_pct"] is not None else "")
+            body = (f'<div style="{micro}">Base / VCP coil</div>'
+                    f'<div style="font-size:12px;color:{t["text_muted"]};">Depth and contractions from the pivot-based detector'
+                    f'{" · still forming" if vc["in_progress"] else ""}</div>'
+                    f'<div style="display:flex;gap:8px;margin:8px 0;">{tiles}</div>'
+                    f'<div style="{micro}font-size:10px;margin-top:4px;">Contraction ladder</div>'
+                    f'<div style="display:flex;gap:4px;margin-top:6px;">{ladder}</div>'
+                    f'<div style="font-size:11.5px;color:{t["text_muted"]};text-align:center;margin-top:8px;">{tight}</div>')
+            st.markdown(rs.card(body), unsafe_allow_html=True)
+        else:
+            st.markdown(rs.card(f'<div style="{micro}">Base / VCP coil</div>'
+                                f'<div style="font-size:12px;color:{t["text_muted"]};">No confirmed contraction '
+                                f'sequence in the last 120 sessions — the detector abstains rather than guess.</div>'),
+                        unsafe_allow_html=True)
+    with c4:
+        if rd:
+            axes = {k: v for k, v in rd["axes"].items() if v is not None}
+            names, vals = list(axes), [axes[k] for k in axes]
+            fig = go.Figure(go.Scatterpolar(r=vals + vals[:1], theta=names + names[:1],
+                                            fill="toself", line=dict(color="#5b4bd6", width=2),
+                                            fillcolor="rgba(91,75,214,0.18)", hoverinfo="theta+r"))
+            fig.update_layout(height=230, margin=dict(l=30, r=30, t=20, b=10),
+                              polar=dict(radialaxis=dict(range=[0, 100], showticklabels=False, gridcolor="#e8e2d6"),
+                                         angularaxis=dict(tickfont=dict(size=11), gridcolor="#e8e2d6"),
+                                         bgcolor="rgba(0,0,0,0)"),
+                              paper_bgcolor="rgba(0,0,0,0)", showlegend=False,
+                              annotations=[dict(text=f"<b>{rd['score']:.1f}</b>" if rd["score"] is not None else "—",
+                                                x=0.5, y=0.5, showarrow=False, font=dict(size=22, color=t["text"]))])
+            bars = "".join(
+                f'<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin:3px 0;">'
+                f'<div style="width:70px;color:{t["text_muted"]};">{k}</div>'
+                f'<div style="flex:1;height:6px;background:{t["surface_alt"]};border-radius:3px;">'
+                f'<div style="width:{v:.0f}%;height:6px;border-radius:3px;background:linear-gradient(90deg,#8a7cf0,#5b4bd6);"></div></div>'
+                f'<div style="width:28px;text-align:right;font-weight:700;color:{t["text"]};">{v:.0f}</div></div>'
+                for k, v in axes.items())
+            st.markdown(f'<div style="{micro}">Scanner metric radar</div>'
+                        f'<div style="font-size:12px;color:{t["text_muted"]};">Six normalised axes (0-100) and their mean</div>',
+                        unsafe_allow_html=True)
+            st.plotly_chart(fig, width="stretch", key=f"{key}_radar", config={"displayModeBar": False})
+            st.markdown(bars, unsafe_allow_html=True)
+            st.caption("VCP: contraction count, shrinkage, tightness · RS: 1y vs benchmark, ±40pp · Stage: "
+                       "Weinstein stack · Volume: share of the last 60 sessions' volume on up bars · "
+                       "Low risk: distance to the 10-bar swing low, ≤3% best · Clear path: 100 − overhead %.")
+
+    xv = m["exceptional_volume"]
+    if xv:
+        tiles = "".join(
+            f'<div style="flex:1;background:{t["surface"]};border:1px solid {t["surface_alt"]};border-radius:8px;padding:10px 12px;">'
+            f'<div style="font-size:18px;font-weight:800;color:{t["text"]};">{v}</div>'
+            f'<div style="{micro}font-size:9.5px;">{k}</div></div>'
+            for k, v in (("2-year avg volume", f"{xv['avg_volume']:,.0f}"),
+                         ("Exceptional sessions", f"{xv['count']}"),
+                         (f"{xv['mult']:.0f}× threshold", f"{xv['threshold']:,.0f}")))
+        top = xv["sessions"][:8]
+        mx = max((s["ratio"] for s in top), default=1.0)
+        rows = "".join(
+            f'<div style="display:flex;align-items:center;gap:10px;font-size:12px;padding:6px 0;border-top:1px solid {t["surface_alt"]};">'
+            f'<div style="width:90px;color:{t["text"]};">{pd.Timestamp(s["date"]).strftime("%d %b %Y")}</div>'
+            f'<div style="flex:1;height:8px;background:{t["surface_alt"]};border-radius:4px;">'
+            f'<div style="width:{s["ratio"] / mx * 100:.0f}%;height:8px;border-radius:4px;background:linear-gradient(90deg,#f6b73c,#e8590c);"></div></div>'
+            f'<div style="width:110px;text-align:right;color:{t["text_muted"]};">{s["volume"]:,.0f}</div>'
+            f'<div style="width:48px;text-align:right;font-weight:800;color:{t["risk"]};">{s["ratio"]:.1f}×</div></div>'
+            for s in top) or f'<div style="font-size:12px;color:{t["text_muted"]};">No session reached the threshold.</div>'
+        body = (f'<div style="{micro}">Exceptional volume activity</div>'
+                f'<div style="font-size:12px;color:{t["text_muted"]};">Sessions with at least {xv["mult"]:.0f}× the two-year average volume</div>'
+                f'<div style="display:flex;gap:10px;margin:8px 0 10px;">{tiles}</div>{rows}'
+                f'<div style="font-size:11px;color:{t["text_muted"]};text-align:center;margin-top:8px;">'
+                f'{xv["n_sessions"]} trading sessions · {xv["from"]} to {xv["to"]}</div>')
+        st.markdown(rs.card(body), unsafe_allow_html=True)
+
+
 def render_setup_intelligence(intel) -> None:
     """Scannable plain-language setup panel derived from the council's evidence."""
     with st.container(border=True):
@@ -3470,8 +3559,16 @@ def render_council(bundle, bull, bear, card) -> None:
                            for i, (t, r) in enumerate(zip(card.targets, card.rr)))
         lines.append(f"**Targets** {tgt}")
     if card.size_pct is not None and card.verdict != "AVOID":
-        lines.append(f"**Suggested size** {card.size_pct}% of capital "
-                     f"(at {council.RISK_PER_TRADE_PCT}% risk rule)  ·  **Horizon** {card.horizon}")
+        # B-107: the per-trade size now passes through the MARKET verdict's
+        # throttle before it is shown. The two numbers both already existed —
+        # `council.RISK_PER_TRADE_PCT` sizing off the stop, and the verdict's
+        # 0/50/100% multiplier plus its max-trades cap — and never met, so a
+        # STAND DOWN day ("no size, no exceptions") left this line unchanged.
+        # `verdict` and `portfolio_summary` are module-level and computed on
+        # every page render, well before any council card is drawn.
+        _rec = prisk.reconcile_size(card.size_pct, verdict,
+                                    portfolio_summary.get("open_count", 0))
+        lines.append(f"{prisk.size_note(_rec)}  ·  **Horizon** {card.horizon}")
     lines.append(f"🟢 **Bull's best:** {card.bull_top}")
     lines.append(f"🔴 **Bear's best:** {card.bear_top}")
     lines.append(f"🧭 {card.regime_note}")
@@ -3517,9 +3614,70 @@ def _volume_profile(df: pd.DataFrame, n_bins: int = 50):
 
 
 CHART_TOOL_PORT = 5001
+CHART_SERVER_LOG = Path(__file__).resolve().parent / "logs" / "chart_server.log"
 
 
-def render_chart_tool(symbol: str, height: int = 620, caption: bool = True) -> bool:
+def _chart_server_up(timeout: float = 0.4) -> bool:
+    try:
+        socket.create_connection(("127.0.0.1", CHART_TOOL_PORT), timeout=timeout).close()
+        return True
+    except OSError:
+        return False
+
+
+@st.cache_resource(show_spinner=False)
+def _chart_server_autostart() -> str:
+    """Once per Streamlit process: bring up the Chart Tool (chart_server.py on
+    :5001) if nothing is listening there, so `streamlit run dashboard_app.py`
+    is the only command needed.
+
+    The child is detached (own process group / session), so Ctrl-C in the
+    Streamlit console does not take the chart down — the installed PWA on a
+    phone keeps working, and the next desk start finds it already up. Turn the
+    behaviour off with the `chart_server_autostart` setting = "0". Output goes
+    to tools/logs/chart_server.log; the probe warning in render_chart_tool
+    points there when the port stays closed (e.g. Flask not installed).
+    """
+    if _chart_server_up():
+        return "already running"
+    if (db.get_setting("chart_server_autostart", "1") or "1") != "1":
+        return "disabled"
+    import os
+    import subprocess
+    import time as _time
+    script = Path(__file__).resolve().parent / "chart_server.py"
+    if not script.is_file():
+        return "chart_server.py not found"
+    CHART_SERVER_LOG.parent.mkdir(parents=True, exist_ok=True)
+    log_fh = open(CHART_SERVER_LOG, "ab")                 # noqa: SIM115 — child owns it
+    kw: dict = {"stdout": log_fh, "stderr": subprocess.STDOUT, "stdin": subprocess.DEVNULL,
+                "cwd": str(script.parent)}
+    if os.name == "nt":
+        kw["creationflags"] = (subprocess.CREATE_NEW_PROCESS_GROUP
+                               | getattr(subprocess, "CREATE_NO_WINDOW", 0))
+    else:
+        kw["start_new_session"] = True
+    try:
+        proc = subprocess.Popen([sys.executable, str(script)], **kw)
+    except Exception as e:                                # noqa: BLE001
+        return f"launch failed: {e}"
+    for _ in range(40):                                   # ≤ 8 s for Flask to bind
+        if _chart_server_up(0.2):
+            return f"started (pid {proc.pid})"
+        if proc.poll() is not None:
+            return f"exited with code {proc.returncode} — see {CHART_SERVER_LOG}"
+        _time.sleep(0.2)
+    return f"launched (pid {proc.pid}), port not open yet"
+
+
+try:
+    _chart_server_autostart()
+except Exception:                                         # noqa: BLE001 — never block the desk
+    pass
+
+
+def render_chart_tool(symbol: str, height: int = 620, caption: bool = True,
+                      query: str = "") -> bool:
     """Embed the Chart Tool for `symbol`; returns whether it rendered.
 
     Extracted from the Predictive Analysis page (M4) when the Stock Analyzer
@@ -3528,17 +3686,17 @@ def render_chart_tool(symbol: str, height: int = 620, caption: bool = True) -> b
     blank rectangle, so the page has to say what's wrong instead.
     """
     chart_sym = symbol if ("." in symbol or symbol.startswith("^")) else f"{symbol}.NS"
-    try:
-        socket.create_connection(("127.0.0.1", CHART_TOOL_PORT), timeout=0.4).close()
-    except OSError:
+    if not _chart_server_up():
+        _auto = _chart_server_autostart()
         st.warning(
-            f"Chart Tool server (port {CHART_TOOL_PORT}) is not running — start it "
-            "with `start.bat` (or `py tools/chart_server.py`) to embed the "
-            "annotated chart here."
+            f"Chart Tool server (port {CHART_TOOL_PORT}) is not running — the desk "
+            f"tried to start it on launch ({_auto}). Check `{CHART_SERVER_LOG}` "
+            "or start it by hand with `py tools/chart_server.py`."
         )
         return False
     st.iframe(
-        f"http://localhost:{CHART_TOOL_PORT}/?symbol={chart_sym}&tf=1d",
+        f"http://localhost:{CHART_TOOL_PORT}/?symbol={chart_sym}&tf=1d"
+        + (f"&{query}" if query else ""),
         height=height,
     )
     if caption:
@@ -3797,41 +3955,26 @@ def build_chart(symbol: str, df: pd.DataFrame, ew: dict,
 
 
 def compute_portfolio_summary() -> dict:
-    """Live P&L + capital-at-risk over all open positions. Cheap to call repeatedly —
-    cached_fetch_ohlcv handles the network-call caching underneath."""
+    """Live P&L + BOTH risk numbers over all open positions. Cheap to call
+    repeatedly — cached_fetch_ohlcv handles the network-call caching underneath.
+
+    The arithmetic lives in `portfolio_risk`, not here (B-106). It used to be
+    inline and it computed risk from `entry_price - stop_loss`: INITIAL risk,
+    frozen at entry, on a page showing live prices. Being inside this file also
+    meant it could not be tested, because importing this module runs the app.
+    """
     open_pos = db.get_open_positions()
     total_capital = float(db.get_setting("total_capital", "0") or 0)
 
-    if open_pos.empty:
-        return dict(invested=0.0, current_value=0.0, pl=0.0, pl_pct=0.0,
-                     capital_at_risk_pct=0.0, total_capital=total_capital,
-                     day_pl_pct=0.0, open_count=0)
-
-    invested = 0.0
-    current_value = 0.0
-    risk_amount = 0.0
-    day_pl = 0.0
-    for _, pos in open_pos.iterrows():
-        df = cached_fetch_ohlcv(pos["symbol"], enforce_liquidity=False)
+    def _price(symbol: str):
+        df = cached_fetch_ohlcv(symbol, enforce_liquidity=False)
         if df is None or df.empty:
-            continue
+            return None
         last = float(df["close"].iloc[-1])
         prev = float(df["close"].iloc[-2]) if len(df) > 1 else last
-        qty = float(pos["quantity"])
-        invested += pos["entry_price"] * qty
-        current_value += last * qty
-        day_pl += (last - prev) * qty
-        if pos["stop_loss"] is not None and not pd.isna(pos["stop_loss"]):
-            risk_amount += max(0.0, pos["entry_price"] - pos["stop_loss"]) * qty
+        return last, prev
 
-    pl = current_value - invested
-    pl_pct = (pl / invested * 100) if invested else 0.0
-    day_pl_pct = (day_pl / current_value * 100) if current_value else 0.0
-    capital_at_risk_pct = (risk_amount / total_capital * 100) if total_capital else 0.0
-
-    return dict(invested=invested, current_value=current_value, pl=pl, pl_pct=pl_pct,
-                 capital_at_risk_pct=capital_at_risk_pct, total_capital=total_capital,
-                 day_pl_pct=day_pl_pct, open_count=len(open_pos))
+    return prisk.summarise(open_pos, _price, total_capital)
 
 
 def check_alert(alert: pd.Series, portfolio_summary: dict) -> tuple[bool, str]:
@@ -3935,7 +4078,7 @@ def _tone_signed(v, *, good_when_positive=True):
     return "good" if up == good_when_positive else "risk"
 
 
-_cap_risk = portfolio_summary["capital_at_risk_pct"]
+
 _ov_cards = [
     rs.stat_card(
         "Nifty 50",
@@ -3958,12 +4101,16 @@ _ov_cards = [
         tone=_tone_signed(portfolio_summary["pl"])),
     # Capital at risk is caution-only: more of it is never good news, so it
     # cannot read green. Amber past the same 6% the verdict engine flags.
+    # OPEN risk (live price vs stop), not the initial risk this showed until
+    # 2026-09-21 — see `portfolio_risk` / B-106. Value, sub-line and tone all come
+    # from `prisk.risk_card`, which is tested; the same logic written here would
+    # not be. The walrus keeps it inside THIS statement rather than adding a
+    # module-level assignment the monolith ratchet would rightly count.
     rs.stat_card(
         "Capital at Risk",
-        fmt_pct(_cap_risk).replace("+", ""),
-        f"caution above {mvd.CAPITAL_AT_RISK_CAUTION_PCT:.0f}%",
-        tone=("risk" if (_cap_risk or 0) > mvd.CAPITAL_AT_RISK_CAUTION_PCT
-              else "neutral")),
+        fmt_pct((_rc := prisk.risk_card(
+            portfolio_summary, mvd.CAPITAL_AT_RISK_CAUTION_PCT))[0]).replace("+", ""),
+        _rc[1], tone=_rc[2]),
     rs.stat_card(
         "Alerts Triggered", f"{triggered_count}/{len(active_alerts)}",
         "active alerts firing",
@@ -3971,8 +4118,17 @@ _ov_cards = [
 ]
 st.markdown(rs.strip(_ov_cards, cols=5), unsafe_allow_html=True)
 
+# ── Index strip — the four headline indices, intraday ─────────────────────────
+# Home only. It is context for the verdict directly below it, and on the working
+# pages (Scanner Hub, Stock Analyzer, ...) four charts above the fold would push
+# the thing the reader actually navigated to off the first screen. The fetch,
+# the cards and the figures all live in index_strip.py — this file only says
+# WHERE the strip goes.
+if current_page == "Home":
+    istrip.render()
+
 # ── Regime + today's verdict — ONE card ───────────────────────────────────────
-_show_regime = current_page != "Scanner Hub"  # hidden on Scanner Hub
+_show_regime = current_page == "Home"
 # These were two stacked cards and between them they owned most of the first
 # screen on every page. They are now one, because they are one thought: the
 # regime is the CONTEXT and the verdict is the DECISION taken in it, and the
@@ -4002,6 +4158,15 @@ if _senti_reading and _senti_reading.get("reading_date"):
             f"Sentiment reading is {_senti_age} day(s) old "
             f"(dated {_senti_reading['reading_date']})")
 verdict = mvd.build_verdict(_senti_reading, portfolio_summary, _stale_flags)
+
+# ── Breadth strip — the market's internals, under the index charts ───────────
+# Home only, same reasoning as the index strip. Placed here rather than next to
+# it because it needs `_senti_reading`, which owns both the Adv/Decl counts and
+# the sentiment score — reading them from the same object is what keeps this
+# strip and the verdict card below it from disagreeing about the same market.
+if current_page == "Home":
+    bstrip.render(_senti_reading)
+
 
 _vfg, _ = rs.tone_colors(verdict["tone"])
 
@@ -4259,7 +4424,7 @@ def _scanner_stats_html(card: dict) -> str:
     return (f'<div style="margin:8px 0 4px 0;">{stats}{risk_html}</div>')
 
 
-def _card_action_links(sym: str) -> str:
+def _card_action_links(sym: str, analyze: bool = True) -> str:
     """Analyze + chart icons as anchors INSIDE a card's HTML.
 
     st.link_button can only be placed after a card, which costs a full Streamlit
@@ -4277,7 +4442,7 @@ def _card_action_links(sym: str) -> str:
             f'">{glyph}</a>')
 
     parts = []
-    _an = _analyze_url(sym)
+    _an = _analyze_url(sym) if analyze else None
     if _an:
         parts.append(icon(_an, "↗", "Analyze — open the 3-POV Council in a new tab"))
     _ch = _chart_url(sym)
@@ -4295,6 +4460,11 @@ _TIER_CHIP = {
     "unmeasured": ("neutral", "",   "never backtested — plausible but unproven, half weight"),
     "weak":       ("warn",    "~ ", "measured AT OR BELOW a random-entry baseline — quarter weight"),
     "risk":       ("risk",    "⚠ ", "BEARISH read on the same chart — never counts as confluence"),
+    # B-101. Deliberately NOT the risk tone: this is not a bearish read, it is
+    # the absence of a direction, and colouring it red would make a coil look
+    # like a warning.
+    "neutral":    ("neutral", "⚖ ", "BILATERAL — direction unknown until it breaks; "
+                                    "never counts as confluence either way"),
 }
 
 
@@ -4721,6 +4891,82 @@ def _render_pipeline_card(hit: dict) -> None:
     card["overall"] = hit.get("overall")
     card["overall_breakdown"] = hit.get("overall_breakdown") or {}
     _render_scanner_card(card, best, header_html=header_html)
+    _render_pead_walk(hit.get("pead"))
+
+
+def _pct_tone(v) -> str:
+    """Colour for a signed per-cent, or the muted token for an absent one."""
+    if v is None:
+        return rs.TOKENS["text_muted"]
+    return rs.TOKENS["good"] if v > 0 else rs.TOKENS["risk"] if v < 0 else         rs.TOKENS["text_body"]
+
+
+def _render_pead_walk(walk: dict | None) -> None:
+    """The last-4-quarter post-earnings drift walk, under the pipeline card.
+
+    A small fixed GRID, not a card and not a dataframe. This is the one shape
+    the cards-not-tables rule does not cover: it is the SAME three measurements
+    repeated over four dates for ONE name, and the whole point is reading down a
+    column to see whether the drift keeps its sign. Four sub-cards would hide
+    exactly that. It stays inside the parent card's column, so the 3-column hit
+    grid is untouched.
+
+    `None` (or a walk with no events) renders NOTHING — no placeholder, no
+    dashes. A name whose calendar this desk does not have should look like a
+    name without the section, not like a name that drifts zero.
+    """
+    if not walk or not walk.get("events"):
+        return
+    _m = rs.TOKENS["text_muted"]
+    _b = rs.TOKENS["text_body"]
+
+    def _cell(v):
+        return (f'<span style="color:{_pct_tone(v)};">'
+                f'{"—" if v is None else f"{v:+.1f}%"}</span>')
+
+    rows = ""
+    for e in walk["events"]:
+        _snap = (f' <span style="color:{_m};" title="event date snapped forward '
+                 f'{e["snapped_days"]}d to the first trading session">*</span>'
+                 if e.get("snapped_days") else "")
+        _run = ("" if e.get("complete") else
+                f' <span style="color:{_m};" title="drift window still running '
+                f'— the frame ends before +20 sessions">…</span>')
+        # The archived-card path (daily_opportunity_cards) round-trips the hit
+        # through JSON, where a `date` becomes a string. Both shapes reach this
+        # renderer, so format the date only when it still is one.
+        _d = e["date"]
+        _d = f"{_d:%Y-%m-%d}" if hasattr(_d, "year") else str(_d)[:10]
+        rows += (f'<tr><td style="color:{_b};padding:1px 8px 1px 0;">'
+                 f'{_d}{_snap}{_run}</td>'
+                 f'<td style="text-align:right;padding:1px 8px;">{_cell(e.get("d1"))}</td>'
+                 f'<td style="text-align:right;padding:1px 8px;">{_cell(e.get("d5"))}</td>'
+                 f'<td style="text-align:right;padding:1px 0 1px 8px;">'
+                 f'{_cell(e.get("d20"))}</td></tr>')
+
+    _cons = walk.get("consistency")
+    _agree = walk.get("agreeable") or 0
+    foot = (f'{_cons}/{_agree} quarters drifted the same way as their reaction bar'
+            if _cons is not None and _agree
+            else 'not enough completed windows to judge consistency')
+
+    st.markdown(
+        f'<div style="margin:-6px 0 10px;padding:7px 10px;border-radius:8px;'
+        f'background:{rs.TOKENS["surface_alt"]};font-size:11.5px;">'
+        f'<div style="color:{_m};margin-bottom:3px;" '
+        f'title="D+1 is the session after the results date — the reaction for a '
+        f'post-close announcement. D+5 and D+20 are the drift FROM the '
+        f'close of that bar, so the reaction itself is not counted as drift.">'
+        f'PEAD walk · last {len(walk["events"])} results</div>'
+        f'<table style="width:100%;border-collapse:collapse;">'
+        f'<tr style="color:{_m};"><td style="padding:1px 8px 1px 0;">results</td>'
+        f'<td style="text-align:right;padding:1px 8px;">D+1</td>'
+        f'<td style="text-align:right;padding:1px 8px;">→+5</td>'
+        f'<td style="text-align:right;padding:1px 0 1px 8px;">→+20</td></tr>'
+        f'{rows}</table>'
+        f'<div style="color:{_m};margin-top:4px;">{foot} · context only, '
+        f'nothing is scored or ranked on it</div></div>',
+        unsafe_allow_html=True)
 
 
 with st.expander("Daily Workflow (IST)"):
@@ -5048,10 +5294,9 @@ def _hub_enrich(df, symbol_col: str, key: str):
             vals = [px.get(s, {}).get(col) for s in syms]
             if any(v is not None for v in vals):
                 df[col] = vals
-    # Cap beside the symbol; it is identity, not a measurement.
-    order = [symbol_col, "cap_bucket"] + [c for c in df.columns
-                                          if c not in (symbol_col, "cap_bucket")]
-    return df[order]
+    # Cap and Sector beside the symbol; both are identity, not measurements.
+    import sector_column as _sc
+    return _sc.attach(df, symbol_col)
 
 
 def _hub_price_button(symbols, key: str, label: str) -> None:
@@ -5070,6 +5315,15 @@ def _hub_price_button(symbols, key: str, label: str) -> None:
             got = _hub_price_fill(pending, key)
         st.success(f"{label}: price columns ready for {got} name(s).")
         st.rerun()
+
+
+# B-75's four helpers live in `profit_walk_ui` rather than here. They are new
+# UI code, and the B-87 ratchet's rule is that new UI code does not land in this
+# file. `_pw()` is the whole of its footprint here: the call sites go straight
+# through it, so mounting the column costs this file one function, not five.
+def _pw():
+    import profit_walk_ui as _pwu
+    return _pwu
 
 
 def _wl_rs_mom(df):
@@ -5309,7 +5563,9 @@ def _darvas_rows_table(df, key_prefix: str):
         st.info("No name clears both conditions in this session. "
                 "That is a normal reading — the scan is meant to be quiet.")
         return
-    out = _with_chart_family(df.copy(), "symbol")
+    import sector_column as _sc
+    out = _sc.attach(df.copy(), "symbol")
+    out = _with_chart_family(out, "symbol")
     import columns as _cols
     cfg = dict(_chart_family_colcfg())
     # One definition per column (B-63a). `multiple` resolves to the shared
@@ -5337,7 +5593,15 @@ def _darvas_rows_table(df, key_prefix: str):
         _rows = []
     _picked = [str(df.iloc[i]["symbol"]) for i in _rows if i < len(df)]
 
-    _wc1, _wc2 = st.columns([1, 3])
+    _wc1, _wc3, _wc2 = st.columns([1, 1, 2])
+    with _wc3:
+        _pa_send_button(key_prefix, "Volume Shockers · Darvas", df, "symbol",
+                        note_fn=lambda r: " · ".join(
+                            x for x in (
+                                f"{r.get('multiple')}x vol" if r.get("multiple") is not None else "",
+                                f"{float(r.get('chg_pct') or 0):+.1f}%" if r.get("chg_pct") is not None else "",
+                                str(r.get("dir") or ""),
+                            ) if x))
     with _wc1:
         if st.button(f"♥ Add {len(_picked) or ''} to watchlist".replace("  ", " "),
                      key=f"{key_prefix}_addwl", disabled=not _picked,
@@ -5797,7 +6061,8 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
             if df is None or df.empty:
                 st.info("Nothing qualifies in this session.")
                 return
-            out = df.copy()
+            import sector_column as _sc
+            out = _sc.attach(df.copy(), "symbol")
             out = _with_chart_family(out, "symbol")
             import columns as _cols
             colcfg = dict(_chart_family_colcfg())
@@ -5877,6 +6142,64 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
                     + ".  Each spike is attributed to a filing, prop churn, deal activity, "
                       "or nothing — the list answers *why*, not only *what*.")
                 _tr_table(_vol["rows"])
+
+                # B-37: volume share-card export
+                _vol_rows = _vol.get("raw", {}).get("rows") or _vol.get("rows")
+                if _vol_rows is not None and not (hasattr(_vol_rows, "empty") and _vol_rows.empty):
+                    _vol_list = (_vol_rows.to_dict("records")
+                                 if hasattr(_vol_rows, "to_dict") else _vol_rows)
+                    if _vol_list:
+                        _vc1, _vc2 = st.columns([1, 2])
+                        with _vc1:
+                            _want_vs = st.button("🖼 Build volume share card",
+                                                 key=f"{key_prefix}_vs_card",
+                                                 width="stretch")
+                        with _vc2:
+                            _vs_top = st.slider("Names on card", 1, 2, 2,
+                                                key=f"{key_prefix}_vs_top",
+                                                help="The card shows one or two stocks.")
+                        if _want_vs:
+                            with st.spinner("Rendering volume story card…"):
+                                try:
+                                    _names = _company_names()
+                                    def _q_fn(sym):
+                                        try:
+                                            return cached_fundamentals_deep(sym).get("quarters", [])
+                                        except Exception:
+                                            return []
+                                    def _mc_fn(sym):
+                                        try:
+                                            f = cached_fetch_fundamentals(sym)
+                                            return f.get("market_cap")
+                                        except Exception:
+                                            return None
+                                    _vs_stocks = orep.volume_stocks_from_scan(
+                                        _vol_list,
+                                        fundamentals_fn=_q_fn,
+                                        name_fn=lambda s: _names.get(s, s),
+                                        mcap_fn=_mc_fn,
+                                        top_n=_vs_top,
+                                    )
+                                    if _vs_stocks:
+                                        _td = _vol.get("trade_date") or _vol.get("raw", {}).get("trade_date")
+                                        _as_of = None
+                                        if _td:
+                                            try:
+                                                _as_of = date.fromisoformat(str(_td)[:10])
+                                            except (ValueError, TypeError):
+                                                _as_of = None
+                                        _vs_png = orep.render_volume_story(_vs_stocks, as_of=_as_of)
+                                        st.image(_vs_png, width="stretch")
+                                        _stamp = (_as_of or date.today()).isoformat()
+                                        st.download_button(
+                                            f"⬇ volume-story-{_stamp}.png", _vs_png,
+                                            file_name=f"volume-story-{_stamp}.png",
+                                            mime="image/png", type="primary",
+                                            key=f"{key_prefix}_vs_dl")
+                                    else:
+                                        st.info("No stocks have enough data for a card.")
+                                except Exception as _e:
+                                    st.error(f"Card render failed: {_e}")
 
         if _t_vol is not None:
             with _t_vol:
@@ -5963,7 +6286,7 @@ def _company_names() -> dict:
 
 
 def _action_card(col, title: str, blurb: str, rows: list, target_page,
-                 key: str, *, empty: str = "") -> None:
+                 key: str, *, empty: str = "", tickers: bool = False) -> None:
     """One card: heading + View link, a one-line blurb, then up to three rows.
 
     `rows` is [(bold line, muted sub-line)] - usually (symbol, company), but the
@@ -5995,6 +6318,15 @@ def _action_card(col, title: str, blurb: str, rows: list, target_page,
                     f'font-style:italic;padding:10px 0 4px;">'
                     f'{empty or "No stored data."}</div>', unsafe_allow_html=True)
                 return
+            if tickers:
+                for a, b in rows[:3]:
+                    _sub = str(b).replace("&middot;", "·")
+                    if st.button(f"**{a}** :gray[{_sub}]", key=f"am_{key}_{a}",
+                                 type="tertiary", help=f"Open {a} in Predictive Analysis"):
+                        st.session_state["pa_symbol"] = a
+                        st.session_state["current_page"] = "Predictive Analysis"
+                        st.rerun()
+                return
             cells = "".join(
                 f'<div style="background:{t["surface_alt"]};border-radius:6px;'
                 f'padding:7px 10px;margin-bottom:6px;">'
@@ -6003,6 +6335,121 @@ def _action_card(col, title: str, blurb: str, rows: list, target_page,
                 f'<div style="font-size:10px;color:{t["text_muted"]};">{b}</div></div>'
                 for a, b in rows[:3])
             st.markdown(cells, unsafe_allow_html=True)
+
+
+def _render_institutional_volume(key_prefix: str) -> None:
+    """PPV bars with RVOL >= 5x in the last 5 trading sessions."""
+    t = rs.TOKENS
+    st.markdown(
+        f'<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
+        f'text-transform:uppercase;color:{t["text_muted"]};padding-top:6px;">'
+        f'Institutional volume (last 5 sessions &middot; PPV &ge; 5x RVOL)'
+        f'</div>',
+        unsafe_allow_html=True)
+    st.caption("Pocket pivot bars where volume exceeded 5x the 50-day average. "
+               "Context, not a signal — measured edge is zero (ppv_edge_study).")
+
+    # Stored snapshot (written by the 16:30 job or ↻); the ~500-name scan
+    # never runs on page load.
+    _iv_meta, _iv_snap = snapshot_panel("institutional_volume", key=key_prefix,
+                                        compact=True, button_label="↻ Rescan nifty500")
+    if _iv_snap is None:
+        st.info("No stored scan yet — press ↻ to scan nifty500 in the background.")
+        return
+
+    df = _iv_snap.get("df")
+    if df is None or (hasattr(df, "empty") and df.empty):
+        st.info("No PPV bars with RVOL >= 5x found in the last 5 sessions.")
+        return
+
+    import columns as _cols
+    import sector_column as _sc
+
+    out = df.copy()
+    out = out.rename(columns={"change_pct": "chg_pct"})
+    out = _sc.attach(out, "symbol")
+    out = _with_chart_family(out, "symbol")
+
+    display_cols = ["symbol", "date", "close", "chg_pct", "rvol",
+                    "sector"] + _CHART_FAMILY_COLS
+    out = out[[c for c in display_cols if c in out.columns]]
+
+    cfg = dict(_chart_family_colcfg())
+    cfg.update(_cols.configure_df(out))
+
+    def _chg_color(v):
+        if v is None or pd.isna(v):
+            return ""
+        return (f"color:{t['good']};font-weight:600" if v > 0
+                else f"color:{t['risk']};font-weight:600" if v < 0
+                else "")
+
+    styled = out.style.map(_chg_color, subset=["chg_pct"])
+    st.dataframe(styled, width="stretch", hide_index=True,
+                 column_config=cfg, key=f"{key_prefix}_tbl")
+
+    _pa_send_button(key_prefix, "Institutional volume · PPV ≥ 5x RVOL", out, "symbol",
+                    note_fn=lambda r: f"{r.get('rvol', '')}x rvol · "
+                                      f"{float(r.get('chg_pct') or 0):+.1f}% · {r.get('date', '')}")
+
+
+def _render_cpr_vp(key_prefix: str) -> None:
+    """Home › CPR × Volume Profile confluence — stored scan, ↻ in the background."""
+    import cpr_vp as _cv
+    t = rs.TOKENS
+    st.markdown(
+        f'<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
+        f'text-transform:uppercase;color:{t["text_muted"]};padding-top:6px;">'
+        f'CPR &times; Volume Profile (last bar &middot; top-turnover names)'
+        f'</div>',
+        unsafe_allow_html=True)
+    st.caption("Where yesterday's Central Pivot Range meets the 60-bar volume profile: "
+               "names whose CPR band sits inside a high-volume node, or whose last bar "
+               "held above / retested / rejected the band with volume. Context, not a "
+               "signal — none of these setups has been measured here.")
+
+    _meta, _snap = snapshot_panel("cpr_vp_scan", key=key_prefix, compact=True,
+                                  button_label="↻ Rescan")
+    if _snap is None:
+        st.info("No stored scan yet — press ↻ to scan the top-turnover names in the background.")
+        return
+    rows = _snap.get("rows") or []
+    if not rows:
+        st.info(f"Nothing fired on the last bar across {_snap.get('scanned_n', 0)} names — "
+                "a quiet reading, which is normal.")
+        return
+
+    import columns as _cols
+    import sector_column as _sc
+    out = pd.DataFrame(rows)
+    out = _sc.attach(out, "Symbol")
+    out = _with_chart_family(out, "Symbol")
+    show_cols = ["Symbol", "Close", "Chg %", "RVOL", "CPR", "Band", "Confluence",
+                 "Setups", "Bias", "sector"] + _CHART_FAMILY_COLS
+    out = out[[c for c in show_cols if c in out.columns]]
+    cfg = dict(_chart_family_colcfg())
+    cfg.update(_cols.configure_df(out))
+
+    def _bias_color(v):
+        return (f"color:{t['good']};font-weight:600" if v == "bullish"
+                else f"color:{t['risk']};font-weight:600" if v == "bearish"
+                else f"color:{t['text_muted']}" if v == "mixed" else "")
+
+    def _chg_color(v):
+        if v is None or pd.isna(v):
+            return ""
+        return (f"color:{t['good']};font-weight:600" if v > 0
+                else f"color:{t['risk']};font-weight:600" if v < 0 else "")
+
+    styled = out.style.map(_chg_color, subset=["Chg %"]).map(_bias_color, subset=["Bias"])
+    st.dataframe(styled, width="stretch", hide_index=True, column_config=cfg,
+                 key=f"{key_prefix}_tbl")
+    st.caption(f"{len(rows)} of {_snap.get('scanned_n', '?')} names scanned · "
+               f"setups: {', '.join(_cv.SETUP_LABELS.values())}.")
+    _pa_send_button(key_prefix, "CPR × Volume Profile", out, "Symbol",
+                    note_fn=lambda r: " · ".join(x for x in (
+                        str(r.get("Setups") or r.get("Confluence") or ""),
+                        f"RVOL {r.get('RVOL')}x" if r.get("RVOL") is not None else "") if x))
 
 
 def render_action_map() -> None:
@@ -6047,8 +6494,30 @@ def render_action_map() -> None:
         return
 
     if _run != date.today().isoformat():
-        st.caption(f"Newest stored run is **{_run}**, not today - these are that "
-                   f"day's names. Price levels decay; treat them as history.")
+        # A run that is merely "not today" is normal before the 16:20 job fires.
+        # A run with a whole weekday between it and today means the job did NOT
+        # fire — which is how the shortlist silently aged a week (2026-09-07 →
+        # 09-14) while this caption read like a timing note. Count the weekdays
+        # strictly between the two dates: one or more is a missed session, and
+        # that is a red chip naming the job, not a grey caption.
+        try:
+            _missed = len(pd.bdate_range(
+                pd.Timestamp(_run) + pd.Timedelta(days=1),
+                pd.Timestamp(date.today()) - pd.Timedelta(days=1)))
+        except Exception:
+            _missed = 0
+        if _missed >= 1:
+            st.markdown(
+                rs.callout(
+                    f"Shortlist is stale — {_missed} session(s) missed since {_run}.",
+                    "The TradingBramha-OpportunityDaily job did not run. Check it on "
+                    "the Scheduler Hub (Ops) or run the Hub by hand. Price levels "
+                    "decay; these names are history until it does.",
+                    tone="risk"),
+                unsafe_allow_html=True)
+        else:
+            st.caption(f"Newest stored run is **{_run}**, not today - these are that "
+                       f"day's names. Price levels decay; treat them as history.")
 
     # Row 1 - the shortlist, its sectors, its strongest movers
     c1, c2, c3 = st.columns(3)
@@ -6057,7 +6526,7 @@ def render_action_map() -> None:
                   for _, r in _df.sort_values("rank").head(3).iterrows()]
     _action_card(c1, "Today's shortlist",
                  "Ranked across every scanner by the stored daily run.",
-                 _rank_rows, "Opportunity Hub", "rank")
+                 _rank_rows, "Opportunity Hub", "rank", tickers=True)
 
     _sec_rows = []
     if "sector" in _df.columns:
@@ -6077,7 +6546,7 @@ def render_action_map() -> None:
                      if pd.notna(r.get("momentum"))]
     _action_card(c3, "Strongest momentum",
                  "IBD-style weighted trailing return, highest first.",
-                 _mom_rows, "Opportunity Hub", "mom")
+                 _mom_rows, "Opportunity Hub", "mom", tickers=True)
 
     # Row 2 - rating, confluence, what actually fired
     c4, c5, c6 = st.columns(3)
@@ -6089,7 +6558,7 @@ def render_action_map() -> None:
                      if pd.notna(r.get("overall_rating"))]
     _action_card(c4, "Highest rated",
                  "The M1 technical Overall Rating - a different lens from the "
-                 "shortlist score.", _rat_rows, "Predictive Analysis", "rat")
+                 "shortlist score.", _rat_rows, "Predictive Analysis", "rat", tickers=True)
 
     _conf_rows = []
     if "confluence" in _df.columns:
@@ -6099,7 +6568,7 @@ def render_action_map() -> None:
     _action_card(c5, "Most confluence",
                  "Most scanners firing on one name. Measured co-fire lift is "
                  "significant only at 60d - a lead, not an edge.",
-                 _conf_rows, "Scanner Hub", "conf")
+                 _conf_rows, "Scanner Hub", "conf", tickers=True)
 
     _tally = {}
     for _sc in _df.get("scanners", pd.Series(dtype=str)).dropna():
@@ -6182,7 +6651,8 @@ if current_page == "Home":
             rs.stat_card("Pattern scanners",
                          str(_n_scanners) if _n_scanners is not None else None,
                          "backtest-measured where marked", tone="info"),
-            rs.stat_card("Pages", str(_n_pages), "across five groups", tone="neutral"),
+            rs.stat_card("Pages", str(_n_pages),
+                          f"across {len(PAGE_GROUPS)} sidebar groups", tone="neutral"),
             rs.stat_card("Last sentiment", _senti_val, _senti_sub, tone=_senti_tone),
         ], cols=3),
         unsafe_allow_html=True,
@@ -6191,6 +6661,15 @@ if current_page == "Home":
 
     # ── The action map — stored state only, so it costs nothing on load ──────
     render_action_map()
+    st.write("")
+
+    # ── Institutional volume (PPV >= 5x RVOL, last 5 sessions) ───────────────
+    # Context, not a signal: ppv_edge_study.py showed no forward-return edge at
+    # any RVOL threshold. This answers "where did institutions show up" — a
+    # screen, not an alert.
+    _render_institutional_volume("home_iv")
+    st.write("")
+    _render_cpr_vp("home_cpr")
     st.write("")
 
     # Home used to be a card grid of every page. It is now a working surface: the
@@ -6252,9 +6731,20 @@ if current_page == "Home":
         # load. This is the roster; the scored view is one click away.
         _wl_out = _wl.rename(columns={"symbol": "Symbol", "added_date": "Added",
                                       "notes": "Notes"})
+        # Sector rides along even on this deliberately un-enriched roster: it
+        # costs no fetch (the month's map is already cached), which is the whole
+        # reason "Home must not fetch on load" does not exclude it.
+        import sector_column as _sc
+        _wl_out = _sc.attach(_wl_out, "Symbol")
         _wl_out = _with_chart_family(_wl_out, "Symbol")
+        _wl_out["Symbol"] = _wl_out.pop("Analyze")
+        _wl_out = _wl_out[["Symbol"] + [c for c in _wl_out.columns if c != "Symbol"]]
         _wl_cfg = dict(_chart_family_colcfg())
-        _wl_cfg["Symbol"] = st.column_config.TextColumn("Symbol", width="small")
+        _wl_cfg.pop("Analyze", None)
+        _wl_cfg.update(_cols_mod().configure("sector"))
+        _wl_cfg["Symbol"] = st.column_config.LinkColumn(
+            "Symbol", width="small", display_text=r"symbol=([^&]+)",
+            help="Click the ticker to analyze it (opens in a new tab)")
         _wl_cfg["Added"] = st.column_config.TextColumn("Added", width="small")
         _wl_cfg["Notes"] = st.column_config.TextColumn("Notes", width="medium")
         _wl_sel = st.dataframe(_wl_out, width="stretch", hide_index=True,
@@ -6292,8 +6782,17 @@ if current_page == "Home":
         f'ratings on this dashboard are automated outputs computed from historical '
         f'market data and filed disclosures. They are <b>not investment advice</b> and '
         f'not a recommendation to buy, sell or hold. Scanner edges shown as measured '
-        f'come from a single backtest window and carry no significance test yet — '
-        f'treat them as leads, not signals. Nothing here executes trades.'
+        # This said "a single backtest window and no significance test yet" for
+        # five weeks after both became false -- B-20a added the t-test and CI
+        # (2026-08-12), B-21 added walk-forward pooling and B-29 the cost model
+        # (2026-09-01). The correction is not a softening: the honest sentence is
+        # a STRONGER warning than the stale one, because what the measurement
+        # found was 0 of 41 stable (B-19). A caveat that understates the work
+        # also understates the result. (B-79)
+        f'are walk-forward and net of Indian delivery costs, with a significance '
+        f'test — and of the {len(oh.pipeline_scanners())} scanners measured that '
+        f'way, <b>none was stable across every horizon</b>. Treat them as leads, '
+        f'not signals. Nothing here executes trades.'
         f'</div>',
         unsafe_allow_html=True,
     )
@@ -6309,7 +6808,8 @@ if current_page == "Screener":
         "Use this to trigger it manually (~3-4 min for ~200-250 stocks)."
     )
 
-    today_path = BASE_DIR / f"screener_{date.today():%Y%m%d}.xlsx"
+    today_path = (_out.resolve(f"screener_{date.today():%Y%m%d}.xlsx")
+                  or _out.out_path(f"screener_{date.today():%Y%m%d}.xlsx"))
 
     col_a, col_b = st.columns(2)
     with col_a:
@@ -6349,7 +6849,7 @@ if current_page == "Screener":
         view.insert(1, "Chart", view["Symbol"].map(_chart_url))
         view = _with_analyze_col(view, "Symbol", after="Chart")
 
-        _paginated_df(
+        uit.paginated_df(
             view, key="screener_main",
             column_config={
                 "Chart": st.column_config.LinkColumn(
@@ -6773,6 +7273,27 @@ if current_page == "Portfolio":
     if open_pos.empty:
         st.info("No open positions.")
     else:
+        # ── Exposure (B-107) — the component the reference pipeline names and
+        # the desk did not have. It REPORTS and does not judge: every threshold
+        # here would be a statement about risk appetite, which is the owner's to
+        # make once and deliberately, not a default smuggled in by a card.
+        import sector_column as _sc
+
+        def _last_px(sym: str):
+            _d = cached_fetch_ohlcv(sym, enforce_liquidity=False)
+            if _d is None or _d.empty:
+                return None
+            return float(_d["close"].iloc[-1]), 0.0     # prev close unused here
+
+        _exp = prisk.exposure(open_pos, _last_px,
+                              portfolio_summary["total_capital"],
+                              sectors=_sc.symbol_sectors(
+                                  open_pos["symbol"].tolist()))
+        _cards, _caps = prisk.exposure_strip(_exp)
+        st.markdown(_cards, unsafe_allow_html=True)
+        for _c in _caps:
+            st.caption(_c)
+
         rows = []
         for _, pos in open_pos.iterrows():
             df = cached_fetch_ohlcv(pos["symbol"], enforce_liquidity=False)
@@ -6791,7 +7312,7 @@ if current_page == "Portfolio":
                 "Stop": pos["stop_loss"], "Target": pos["target"],
                 "Entry Date": pos["entry_date"], "Notes": pos["notes"],
             })
-        _paginated_df(pd.DataFrame(rows).drop(columns=["id"]), key="portfolio_open")
+        uit.paginated_df(pd.DataFrame(rows).drop(columns=["id"]), key="portfolio_open")
 
         st.caption("Close a position")
         close_id = st.selectbox(
@@ -6821,7 +7342,7 @@ if current_page == "Portfolio":
             closed_pos["Result"] = closed_pos["closed_price"].ge(closed_pos["entry_price"]).map(
                 {True: "Win", False: "Loss"}
             )
-            _paginated_df(
+            uit.paginated_df(
                 closed_pos[["symbol", "entry_price", "closed_price", "quantity",
                             "P&L %", "Result", "entry_date", "closed_date", "notes"]],
                 key="portfolio_closed",
@@ -6979,8 +7500,11 @@ if current_page == "Watchlist":
         # not, so the page you keep open all day was the one page with no way to
         # open a chart. Placed beside the identity columns rather than appended,
         # because at ~25 columns "appended" means "behind a horizontal scroll".
+        import sector_column as _sc
+        _wl_df = _sc.attach(_wl_df, "Symbol")
         _wl_df = _with_chart_family(_wl_df, "Symbol")
-        _head = ["Symbol"] + (["cap_bucket"] if "cap_bucket" in _wl_df.columns else [])             + _CHART_FAMILY_COLS
+        _head = ["Symbol"] + [c for c in ("cap_bucket", "sector")
+                              if c in _wl_df.columns] + _CHART_FAMILY_COLS
         _wl_df = _wl_df[_head + [c for c in _wl_df.columns if c not in _head]]
         # A symbol whose history failed to load contributes only Symbol/Notes,
         # which leaves the numeric columns as object dtype holding None — and
@@ -6997,7 +7521,8 @@ if current_page == "Watchlist":
         if not _wl_walk and "rs_walk" in _wl_df.columns:
             _wl_df = _wl_df.drop(columns=["rs_walk"])
         for _c in ("pivot_d", "pivot_w", "bo_date", "rs_walk", "minervini",
-                   "technofunda", "ema_stack", "cap_bucket", "svp_hist_8w"):
+                   "technofunda", "ema_stack", "cap_bucket", "sector",
+                   "svp_hist_8w"):
             if _c in _wl_df.columns:
                 _wl_df[_c] = _wl_df[_c].where(_wl_df[_c].notna(), "")
         if _wl_ref is None and not _wl_df.empty:
@@ -7006,6 +7531,7 @@ if current_page == "Watchlist":
         # autofit=True: widths measured from the values in THIS frame rather
         # than the registry's general-case small/medium/large. At ~25 columns
         # the three guesses cost more screen than they save.
+        _wl_df = _pw().attach(_wl_df, "Symbol", "wl")
         _wl_cfg = _cols.configure_df(
             _wl_df, autofit=True,
             overrides={"close": {"label": f"LTP ({date.today():%d %b})"}})
@@ -7026,9 +7552,13 @@ if current_page == "Watchlist":
         # destroys what you wrote about it, which is the behaviour the old
         # membership-scoped column had.
         _earnings_fill_button(_wl_df["Symbol"], "wl")
+        _pw().fill_button(_wl_df["Symbol"], "wl", "Watchlist",
+                          fetch=cached_fundamentals_deep)
         _wl_edited = _notes_table(_wl_df, key="wl_notes_editor",
                                   symbol_col="Symbol", column_config=_wl_cfg,
                                   select_col="✕")
+        _pa_send_button("wl", "Watchlist", _wl_df, "Symbol",
+                        note_fn=lambda r: str(r.get("Notes") or r.get("notes") or "watchlist"))
         # Per-row removal, replacing the detached "Remove from watchlist"
         # dropdown that used to sit under the table. The dropdown made you name
         # a symbol you were already looking at, and it could only take one.
@@ -7183,7 +7713,7 @@ if current_page == "Alerts":
                 "Current": detail, "Note": a["note"],
             })
         alerts_view = pd.DataFrame(rows).sort_values("Status")
-        _paginated_df(alerts_view.drop(columns=["id"]), key="alerts_main")
+        uit.paginated_df(alerts_view.drop(columns=["id"]), key="alerts_main")
 
         del_id = st.selectbox(
             "Deactivate/delete alert", alerts_df["id"],
@@ -7197,298 +7727,6 @@ if current_page == "Alerts":
         if dc2.button("Delete"):
             db.delete_alert(del_id)
             st.success(f"Deleted alert #{del_id}.")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Tab 6 — Other Screeners (with chained pipelining into Sector Rotation)
-# ──────────────────────────────────────────────────────────────────────────────
-if current_page == "Other Screeners":
-    st.subheader("Other Screeners")
-
-    choice = st.selectbox(
-        "Screener",
-        ["Multibagger Candidates", "GARP / Promoter-Profit Surprise",
-         "NSE Shareholding (Free, no login)", "Custom Screener.in Query"],
-    )
-
-    SESSION_BACKED = {
-        "Multibagger Candidates": (mb, mb.QUERY),
-        "GARP / Promoter-Profit Surprise": (pps, pps.QUERY),
-        "Custom Screener.in Query": (ss, ss.DEFAULT_QUERY),
-    }
-
-    if choice in SESSION_BACKED:
-        module, default_query = SESSION_BACKED[choice]
-        sessionid, browser = bch.get_screener_sessionid()
-        if sessionid:
-            st.caption(f"Using screener.in session from local browser ({browser}).")
-        else:
-            st.warning(
-                "No screener.in `sessionid` cookie found in your local browsers "
-                "(Chrome / Edge / Brave / Firefox). Log into screener.in in your "
-                "default browser once, then re-run."
-            )
-        query = st.text_area("Query", value=default_query, height=120)
-
-        if st.button("Run", type="primary"):
-            if not sessionid:
-                st.warning("No local browser cookie available — cannot query screener.in.")
-            else:
-                try:
-                    with st.spinner("Querying screener.in..."):
-                        df = module.build_dataset(sessionid, query)
-                except Exception as exc:
-                    st.error(f"Run failed: {exc}")
-                    df = None
-                if df is not None:
-                    if df.empty:
-                        st.warning("Query returned no rows.")
-                    else:
-                        st.session_state["other_screener_df"] = df
-                        st.session_state["other_screener_kind"] = choice
-                        st.success(f"Fetched {len(df)} rows.")
-
-    else:  # NSE Shareholding — free, no session needed
-        top200 = st.checkbox("Use Top 200 by traded value (Bhavcopy)", value=True)
-        manual_syms = ""
-        if not top200:
-            manual_syms = st.text_area("Symbols (comma or newline separated)")
-
-        if st.button("Run", type="primary"):
-            if top200:
-                with st.spinner("Fetching Bhavcopy top 200..."):
-                    symbols = sp.fetch_bhavcopy_top_volume()
-            else:
-                symbols = [s.strip().upper() for s in manual_syms.replace(",", "\n").splitlines() if s.strip()]
-            if not symbols:
-                st.warning("No symbols to process.")
-            else:
-                # build_dataset raises when every symbol failed, and the message
-                # names which lookup died. It used to return an empty frame, so
-                # a dead endpoint rendered as "No data fetched" — indistinguishable
-                # from a quiet market. That is how the quote-equity 403 hid.
-                df = None
-                try:
-                    with st.spinner(f"Fetching shareholding data for {len(symbols)} symbols..."):
-                        df = nse.build_dataset(symbols)
-                except RuntimeError as exc:
-                    st.error(str(exc))
-
-                if df is not None:
-                    if df.empty:
-                        st.warning("No data fetched.")
-                    else:
-                        st.session_state["other_screener_df"] = df
-                        st.session_state["other_screener_kind"] = choice
-                        st.success(f"Fetched {len(df)} rows.")
-
-    other_df = st.session_state.get("other_screener_df")
-    other_kind = st.session_state.get("other_screener_kind")
-    if other_df is not None and other_kind == choice:
-        st.dataframe(other_df, width="stretch", hide_index=True)
-        st.download_button(
-            "Download CSV", data=other_df.to_csv(index=False).encode("utf-8"),
-            file_name=f"{choice.lower().replace(' ', '_')}_{date.today():%Y%m%d}.csv",
-            mime="text/csv",
-        )
-
-        can_chain = other_kind in SESSION_BACKED and "Industry" in other_df.columns
-        if can_chain:
-            st.divider()
-            st.caption(
-                "Pipeline this result into Sector Rotation analysis "
-                "(requires Industry + FII-holding columns, present in screener.in-backed results)."
-            )
-            if st.button("Pipeline → Sector Rotation"):
-                export_path = BASE_DIR / f"screener_export_{date.today():%Y%m%d}.csv"
-                other_df.to_csv(export_path, index=False)
-                try:
-                    with st.spinner("Running sector_rotation + sector_rotation_trail..."):
-                        secrot.run(export_path)
-                        secrot_trail.run(export_path)
-                except Exception as exc:
-                    st.error(f"Sector rotation pipeline failed: {exc}")
-                else:
-                    date_str = date.today().strftime("%Y%m%d")
-                    xlsx_path = BASE_DIR / f"sector_rotation_{date_str}.xlsx"
-                    html_path = BASE_DIR / f"sector_rotation_orbit_{date_str}.html"
-                    if xlsx_path.exists():
-                        st.dataframe(pd.read_excel(xlsx_path), width="stretch")
-                    if html_path.exists():
-                        st.iframe(
-                            html_path.read_text(encoding="utf-8"), height=700
-                        )
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Tab 7 — Pipeline Log
-# ──────────────────────────────────────────────────────────────────────────────
-if current_page == "Pipeline Log":
-    st.subheader("Pipeline Log")
-    st.caption(f"Tail of {sp.LOG_FILE}")
-    if sp.LOG_FILE.exists():
-        lines = sp.LOG_FILE.read_text(encoding="utf-8", errors="replace").splitlines()
-        st.code("\n".join(lines[-200:]), language=None)
-    else:
-        st.info("No log file yet — run the pipeline at least once.")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Scheduler Hub — manage batch jobs as Windows Scheduled Tasks. Generalises the
-# Scanner Hub's one-off scheduler panel (scheduler_core.JOBS registry). Star job:
-# the live Alert Bot (alert_watcher.js), run every N min during market hours.
-# ──────────────────────────────────────────────────────────────────────────────
-if current_page == "Scheduler Hub":
-    import json as _sched_json
-    import scheduler_core as sched
-
-    st.subheader("Scheduler Hub")
-    st.caption(
-        "Batch jobs registered as Windows Scheduled Tasks. **Register / Remove / "
-        "Run now change persistent OS scheduled tasks.** The Alert Bot runs the live "
-        "SVP / indicator signal engine each interval during market hours and fires on "
-        "pattern-buildup transitions."
-    )
-    st.info(
-        "Jobs read live bars from the chart server (http://127.0.0.1:5001) and the "
-        "dashboard cache — keep the chart server running during market hours so the "
-        "Alert Bot has data.", icon="ℹ️",
-    )
-
-    if not sched.SCHTASKS_AVAILABLE:
-        st.warning(
-            f"{sched.UNAVAILABLE_MSG} The page is read-only here; "
-            "the in-app **↻ Refresh all now** below still works.", icon="⚠️")
-
-    for _jid, _job in sched.JOBS.items():
-        _stt = sched.status(_job)
-        _reg = _stt.get("registered")
-        with st.container(border=True):
-            _hdr = st.columns([3, 1])
-            _hdr[0].markdown(f"### {_job.label}")
-            _hdr[0].caption(_job.desc)
-            _hdr[1].markdown(f"**{'🟢 registered' if _reg else '⚪ not registered'}**")
-            _hdr[1].caption(f"`{_job.task_name}`")
-
-            if _reg:
-                _m = st.columns(4)
-                _m[0].metric("State", _stt.get("state", "—"))
-                _m[1].metric("Next run", _stt.get("next_run", "—"))
-                _m[2].metric("Last run", _stt.get("last_run", "—"))
-                _m[3].metric("Last result", _stt.get("last_result", "—"))
-
-            # Schedule configuration
-            if _job.kind == "interval":
-                _c = st.columns(3)
-                _v_st = _c[0].text_input("Start (HH:MM)", value=_job.default_time, key=f"sch_{_jid}_st")
-                _v_et = _c[1].text_input("End (HH:MM)", value=_job.default_end, key=f"sch_{_jid}_et")
-                _v_mo = _c[2].number_input("Every N min", 1, 240, int(_job.default_interval), key=f"sch_{_jid}_mo")
-                _sched_kw = dict(time=_v_st, end=_v_et, interval=int(_v_mo))
-            else:
-                _c = st.columns(3)
-                _v_t = _c[0].text_input("Run time (HH:MM)", value=_job.default_time, key=f"sch_{_jid}_t")
-                _sched_kw = dict(time=_v_t)
-
-            _b = st.columns(4)
-            if _b[0].button("Register / Update", key=f"sch_{_jid}_reg", type="primary",
-                            disabled=not sched.SCHTASKS_AVAILABLE):
-                _ok, _msg = sched.register(_job, **_sched_kw)
-                if _ok:
-                    st.success(_msg); st.rerun()
-                else:
-                    st.error(_msg)
-                    st.code(" ".join(sched.register_argv(_job, **_sched_kw)), language="bat")
-                    st.caption("If it's a permissions error, run the command above in an elevated terminal.")
-            if _b[1].button("Run now", key=f"sch_{_jid}_run", disabled=not _reg):
-                _ok, _msg = sched.run_now(_job)
-                (st.success if _ok else st.error)(_msg)
-            if _b[2].button("Remove", key=f"sch_{_jid}_del", disabled=not _reg):
-                _ok, _msg = sched.remove(_job)
-                (st.success if _ok else st.warning)(_msg); st.rerun()
-
-            with st.expander("Log tail", expanded=False):
-                st.code(sched.tail_log(_job, 40), language=None)
-
-            # Alert-bot specifics: config summary, delivery status, recent alerts.
-            if _jid == "alert_watcher":
-                _cfg_path = sched.HERE / "alert_config.json"
-                try:
-                    _cfg = _sched_json.loads(_cfg_path.read_text(encoding="utf-8"))
-                except Exception:
-                    _cfg = {}
-                _delivery = _cfg.get("delivery", [])
-                if not _delivery or _delivery == ["log"]:
-                    st.warning(
-                        "Delivery is **dry-run** (log only) — no email/Telegram channel wired "
-                        "yet. Fired alerts go to `tools/cache/alerts/alerts.jsonl`.", icon="⚠️",
-                    )
-                _watch = _cfg.get("watch", [])
-                if _watch:
-                    st.caption("Watchlist: " + " · ".join(f"{w.get('symbol')}·{w.get('tf')}" for w in _watch)
-                               + "   |   Rules: " + ", ".join(r.get("id", "?") for r in _cfg.get("rules", [])))
-                _feed = sched.HERE / "cache" / "alerts" / "alerts.jsonl"
-                if _feed.exists():
-                    _rows = [r for r in _feed.read_text(encoding="utf-8").splitlines() if r.strip()][-10:]
-                    if _rows:
-                        with st.expander(f"Recent alerts ({len(_rows)})", expanded=False):
-                            for _r in reversed(_rows):
-                                try:
-                                    _a = _sched_json.loads(_r)
-                                    st.markdown(f"- `{_a.get('ts','')}` — **{_a.get('headline','')}**")
-                                except Exception:
-                                    pass
-
-    # ── Report snapshots — what the Snapshot Refresh job writes ───────────────
-    st.divider()
-    st.markdown("### Report snapshots")
-    st.caption(
-        "Every on-demand report the pages load on open, with its last stored run. "
-        "The **Report Snapshot Refresh** task above rewrites them after the close; "
-        "each page's ↻ recomputes one on demand; the app also fills in any that "
-        "are older than the last close when it starts (toggle below)."
-    )
-    _sf_c1, _sf_c2 = st.columns([1, 3])
-    with _sf_c1:
-        _snap_all_label = "Refresh · all report snapshots"
-        _snap_all_done = ui_jobs.get_queue().take_result(_snap_all_label)
-        if _snap_all_done is not None:
-            if _snap_all_done.status == "error":
-                st.error(f"Snapshot run failed: {_snap_all_done.error}")
-            else:
-                _bad = [m for m in (_snap_all_done.result or []) if not m.ok]
-                st.success(f"All snapshots refreshed — {len(_bad)} failed."
-                           if _bad else "All snapshots refreshed.")
-        if st.button("↻ Refresh all now (in-app)", key="snap_run_all",
-                     width="stretch",
-                     disabled=ui_jobs.get_queue().is_active(_snap_all_label),
-                     help="Runs every snapshot in this session's background queue — "
-                          "the same work the scheduled task does, without schtasks."):
-            ui_jobs.submit_unique(_snap_all_label, snapreg.run_all,
-                                  progress_kw="progress")
-            st.rerun()
-    with _sf_c2:
-        _fill_on = (db.get_setting("snapshot_startup_fill", "1") or "1") == "1"
-        _fill_new = st.checkbox(
-            "Fill stale snapshots in the background when the app starts",
-            value=_fill_on, key="snap_startup_fill")
-        if _fill_new != _fill_on:
-            db.set_setting("snapshot_startup_fill", "1" if _fill_new else "0")
-
-    _ov = {m.name: m for m in snapstore.overview()}
-    _snap_rows = []
-    for _spec in snapreg.ordered():
-        _m = _ov.get(_spec.name)
-        _snap_rows.append({
-            "Snapshot": _spec.label, "Page": _spec.page,
-            "Last run": _m.run_at.replace("T", " ") if _m else "never",
-            "Status": ("—" if _m is None else
-                       "⚠ stale" if snapstore.is_stale(_m if _m.ok else None) and _m.ok else
-                       "✅ ok" if _m.ok else "❌ error"),
-            "Secs": round(_m.elapsed) if _m else None,
-            "KB": round(_m.nbytes / 1024) if _m and _m.nbytes else None,
-            "Error": (_m.error or "") if _m else "",
-        })
-    st.dataframe(pd.DataFrame(_snap_rows), hide_index=True, width="stretch")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7540,7 +7778,7 @@ if current_page == "Opportunity Hub":
     # ── Daily shortlist (stored) ──────────────────────────────────────────────
     # The manual funnel below is five steps and keeps nothing. This runs the same
     # funnel unattended and stores the result, so the daily question is "what did
-    # it like today" rather than "which of 24 scanners should I try".
+    # it like today" rather than "which scanner should I try".
     st.markdown(rs.section("Daily shortlist — stored"), unsafe_allow_html=True)
 
     _dates = db.get_opportunity_run_dates()
@@ -7717,14 +7955,14 @@ if current_page == "Opportunity Hub":
                         f'<div style="display:flex;align-items:baseline;gap:10px;flex-wrap:wrap;">'
                         f'<span class="tb-mono" style="font-size:15px;font-weight:700;'
                         f'color:{rs.TOKENS["text_muted"]};">#{int(row["rank"])}</span>'
-                        f'<b style="font-size:15px;">{_sym}</b>'
+                        f'{uit.ticker_link(_sym)}'
                         f'{_rating_badge_html({"overall": _rt, "overall_breakdown": {}})}'
                         f'<span class="tb-chip" style="background:{rs.TOKENS["surface_alt"]};'
                         f'color:{rs.TOKENS["text_body"]};">score {row["score"]:.1f}</span>'
                         f'{_confluence_chips(int(row["confluence"]), _fam_of(row))}'
                         f'<span style="margin-left:auto;display:inline-flex;'
                         f'align-items:center;gap:8px;">{_plan}'
-                        f'{_card_action_links(_sym)}</span></div>'
+                        f'{_card_action_links(_sym, analyze=False)}</span></div>'
                         f'<div class="tb-micro" style="margin-top:5px;">'
                         f'{row.get("industry") or "—"} · {row.get("sector") or "—"}</div>'
                         f'{_chips}'
@@ -7733,6 +7971,27 @@ if current_page == "Opportunity Hub":
                         f'margin-top:5px;line-height:1.45;">{_notes}</div>'
                     ),
                     unsafe_allow_html=True)
+
+            # B-109 — the PLAN stage, on the page a name is chosen from. The
+            # council is expensive and this is a shortlist, so it is one name on
+            # demand rather than a column: the pipeline puts PLAN *after* the
+            # reader has chosen, not twenty plans before they have. Imported
+            # inside the page block, the way `sector_column` and the other
+            # page-scoped helpers are, so the monolith ratchet does not pay for
+            # a module-level import that only one page uses.
+            import plan_on_demand as _plan_od
+
+            _plan_od.render(
+                _shortlist,
+                run_council=lambda _s: _plan_od.council_result(
+                    _s,
+                    fetch_ohlcv=lambda x: cached_fetch_ohlcv(
+                        x, days=400, enforce_liquidity=False),
+                    fetch_index=cached_fetch_nifty50,
+                    fetch_fundamentals=cached_fetch_fundamentals,
+                    run=council.run_council, regime=nifty_regime),
+                render_card=lambda r: render_council(*r),
+                key=f"od_{_sel_date}")
 
             _render_export_controls(orep.model_from_stored(_shortlist),
                                     key=f"od_{_sel_date}")
@@ -8270,6 +8529,7 @@ if current_page == "Delete Funnel":
 if current_page == "Scanner Hub":
     st.subheader("Scanner Hub")
     st.caption("Pre-built pattern scanners — choose a scanner, select a universe, run.")
+    __import__("scanner_plans").render()      # PR-2 · trade-plan coverage census
 
 
     # ── Scanner card grid (full-width, replaces left panel) ──────────────────
@@ -8933,8 +9193,11 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                 # UI-2: notes are editable here and stored per SYMBOL, so a note
                 # written on the Hub is the same note the Watchlist shows.
                 _sum_df = _hub_enrich(_sum_df, "Top Symbol", "summary")
+                _sum_df = _pw().attach(_sum_df, "Top Symbol", "summary")
                 _hub_price_button(_sum_df["Top Symbol"], "summary", "Summary")
                 _earnings_fill_button(_sum_df["Top Symbol"], "hub_summary")
+                _pw().fill_button(_sum_df["Top Symbol"], "summary", "Summary",
+                                  fetch=cached_fundamentals_deep)
                 _notes_table(
                     _sum_df, key="hub_summary_notes", symbol_col="Top Symbol",
                     column_config={**_chart_family_colcfg(),
@@ -9063,8 +9326,11 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                     _conf_df = _conf_df.drop(columns=["rs_walk"])
                 _conf_df = _with_chart_family(_conf_df, "Symbol")
                 _conf_df = _hub_enrich(_conf_df, "Symbol", "confluence")
+                _conf_df = _pw().attach(_conf_df, "Symbol", "confluence")
                 _hub_price_button(_conf_df["Symbol"], "confluence", "Confluence")
                 _earnings_fill_button(_conf_df["Symbol"], "hub_conf")
+                _pw().fill_button(_conf_df["Symbol"], "confluence", "Confluence",
+                                  fetch=cached_fundamentals_deep)
                 _conf_colcfg = {
                     **_chart_family_colcfg(),
                     **_cols_mod().configure_df(_conf_df, autofit=True),
@@ -9304,18 +9570,52 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
 # See wiki/analyses/Dashboard-UI-Roadmap.md §Milestone 4.
 # ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Predictive Analysis":
+    # Override the global 1440px cap — this page needs the full viewport for the
+    # chart iframe, same reason TradingView uses edge-to-edge layout.
+    st.markdown(
+        """<style>
+        [data-testid="stMainBlockContainer"] {
+            max-width: 100% !important;
+            padding-left: 1rem !important;
+            padding-right: 1rem !important;
+        }
+        /* Scrollable candidates panel */
+        .pa-candidates {
+            max-height: calc(100vh - 180px);
+            overflow-y: auto;
+            padding-right: 6px;
+        }
+        .pa-candidates::-webkit-scrollbar { width: 5px; }
+        .pa-candidates::-webkit-scrollbar-thumb {
+            background: #d4c8b8; border-radius: 4px;
+        }
+        </style>""",
+        unsafe_allow_html=True,
+    )
     st.subheader("Predictive Analysis")
     st.caption(
         "One screen: ranked candidates (left) → annotated chart + ratings + setup "
-        "intelligence (right). Candidates come from the last **Scanner Hub** run; "
-        "the chart carries the pattern overlays and price projection from the Chart Tool."
+        "intelligence (right). Candidates come from the last **Scanner Hub** run, "
+        "from any table sent here with **→ Predictive Analysis**, and from the "
+        "Watchlist; the chart carries the pattern overlays and price projection "
+        "from the Chart Tool."
     )
 
-    pa_left, pa_main = st.columns([1, 2.6], gap="medium")
+    pa_left, pa_main = st.columns([1, 3.5], gap="medium")
 
     with pa_left:
+        _pa_scroll = st.container(height=680)
+    with _pa_scroll:
         hits = st.session_state.get("hub_results") or []
         ran_for = st.session_state.get("hub_scanner_ran", "")
+
+        # Auto-load from DB when no in-session results exist.
+        if not hits:
+            _db_name, _db_date, _db_cards = db.get_latest_scanner_run()
+            if _db_cards:
+                hits = _db_cards
+                ran_for = f"{_db_name} ({_db_date})"
+
         ranked = sorted(
             hits,
             key=lambda h: (h.get("overall") is not None, h.get("overall") or 0),
@@ -9323,34 +9623,80 @@ if current_page == "Predictive Analysis":
         )
         st.markdown("**Candidates**")
         if not ranked:
-            st.info("No Scanner Hub results in this session — run a scanner there "
-                    "first, or type a symbol below.")
+            st.info("No scanner results found — run a scanner in the Scanner Hub, "
+                    "or type a symbol below.")
         else:
             st.caption(f"{len(ranked)} from **{ran_for}** · ranked by Overall Rating")
             for h in ranked[:30]:
                 _sym = h["symbol"]
-                bcol, vcol = st.columns([4, 1])
-                with bcol:
-                    st.markdown(
-                        f'<div style="display:flex;align-items:center;padding:3px 0;">'
-                        f'{_rating_badge_html(h)}'
-                        f'<b style="color:#3a2a1e;margin-right:8px;">{_sym}</b>'
-                        f'<span style="background:#fff1e0;color:#c2410c;padding:1px 8px;'
-                        f'border-radius:99px;font-size:10.5px;">'
-                        f'{h.get("pattern_type", ran_for)}</span></div>',
-                        unsafe_allow_html=True,
-                    )
-                with vcol:
-                    if st.button("→", key=f"pa_view_{_sym}", help=f"Analyze {_sym}"):
-                        st.session_state["pa_symbol"] = _sym
+                rcol, tcol, pcol = st.columns([1.2, 1.8, 3.0], gap="small",
+                                              vertical_alignment="center")
+                rcol.markdown(_rating_badge_html(h), unsafe_allow_html=True)
+                if tcol.button(f"**{_sym}**", key=f"pa_view_{_sym}", type="tertiary",
+                               help=f"Analyze {_sym}"):
+                    st.session_state["pa_symbol"] = _sym
+                pcol.badge(str(h.get("pattern_type", ran_for)), color="orange")
 
-        st.divider()
-        mcol1, mcol2 = st.columns([3, 1])
-        pa_manual = mcol1.text_input("Any symbol", key="pa_manual",
-                                     placeholder="e.g. TITAN",
-                                     label_visibility="collapsed")
-        if mcol2.button("Go", key="pa_go", width="stretch") and pa_manual.strip():
-            st.session_state["pa_symbol"] = pa_manual.strip().upper()
+        # ── A table sent here with "→ Predictive Analysis" ───────────────
+        _pa_sent = _pa_sent_load()
+        if _pa_sent and _pa_sent.get("items"):
+            st.divider()
+            _sh1, _sh2 = st.columns([4, 1], vertical_alignment="center")
+            _sh1.markdown(f"**📤 {_pa_sent.get('source', 'Sent list')}** "
+                          f"({len(_pa_sent['items'])})")
+            _sh1.caption("sent " + str(_pa_sent.get("sent_at", ""))[:16].replace("T", " "))
+            if _sh2.button("✕", key="pa_sent_clear", type="tertiary",
+                           help="Clear this sent list"):
+                _pa_sent_save(None)
+                st.rerun()
+            for _it in _pa_sent["items"][:60]:
+                _ss = _it["symbol"]
+                _stc, _snc = st.columns([1.9, 3.7], gap="small",
+                                        vertical_alignment="center")
+                if _stc.button(f"**{_ss}**", key=f"pa_sent_{_ss}", type="tertiary",
+                               help=f"Analyze {_ss}"):
+                    st.session_state["pa_symbol"] = _ss
+                _snc.badge(str(_it.get("note") or _pa_sent.get("source", "")),
+                           color="blue")
+
+        # ── Watchlist as candidates ──────────────────────────────────────
+        _pa_wl = db.get_watchlist()
+        if _pa_wl is not None and not _pa_wl.empty:
+            _scanner_syms = {h["symbol"] for h in ranked} if ranked else set()
+            # …and not already listed in the sent block above
+            if _pa_sent and _pa_sent.get("items"):
+                _scanner_syms |= {it["symbol"] for it in _pa_sent["items"]}
+            _wl_only = _pa_wl[~_pa_wl["symbol"].isin(_scanner_syms)]
+            if not _wl_only.empty:
+                st.divider()
+                st.markdown(f"**♥ Watchlist** ({len(_wl_only)})")
+                for _, _wr in _wl_only.iterrows():
+                    _ws = _wr["symbol"]
+                    _wtc, _wnc = st.columns([1.9, 3.7], gap="small",
+                                            vertical_alignment="center")
+                    if _wtc.button(f"**{_ws}**", key=f"pa_wl_{_ws}", type="tertiary",
+                                   help=f"Analyze {_ws}"):
+                        st.session_state["pa_symbol"] = _ws
+                    _wn = _wr.get("notes") or ""
+                    _wnc.badge(f"watchlist · {_wn}" if _wn else "watchlist", color="green")
+
+    with pa_left:
+        if _SYMSEARCH is not None:
+            _pa_pick = _SYMSEARCH(options=_symbol_payload(),
+                                  placeholder="Search symbol…",
+                                  key="pa_symsearch", default=None)
+            if isinstance(_pa_pick, dict) and _pa_pick.get("symbol"):
+                if _pa_pick.get("n") != st.session_state.get("_pa_pick_n"):
+                    st.session_state["_pa_pick_n"] = _pa_pick["n"]
+                    st.session_state["pa_symbol"] = _pa_pick["symbol"].strip().upper()
+                    st.rerun()
+        else:
+            mcol1, mcol2 = st.columns([3, 1])
+            pa_manual = mcol1.text_input("Any symbol", key="pa_manual",
+                                         placeholder="e.g. TITAN",
+                                         label_visibility="collapsed")
+            if mcol2.button("Go", key="pa_go", width="stretch") and pa_manual.strip():
+                st.session_state["pa_symbol"] = pa_manual.strip().upper()
 
     with pa_main:
         pa_sym = st.session_state.get("pa_symbol")
@@ -9382,11 +9728,152 @@ if current_page == "Predictive Analysis":
                     unsafe_allow_html=True,
                 )
 
+                # ── B-130 + B-131: Stock Summary & Smart Money Flow ──────
+                _card_l, _card_r = st.columns(2)
+                with _card_l:
+                    try:
+                        _pa_close = pa_df["close"]
+                        _pa_price = float(_pa_close.iloc[-1])
+                        _pa_win = _pa_close.tail(252)
+                        _pa_lo52, _pa_hi52 = float(_pa_win.min()), float(_pa_win.max())
+                        _pa_tail = _pa_close.tail(60)
+                        _pa_marks = []
+                        if len(_pa_tail) >= 20:
+                            _pa_sup, _pa_res = float(_pa_tail.min()), float(_pa_tail.max())
+                            if _pa_sup < _pa_price:
+                                _pa_marks.append((_pa_sup, f"Sup {_pa_sup:,.0f}"))
+                            if _pa_res > _pa_price:
+                                _pa_marks.append((_pa_res, f"Res {_pa_res:,.0f}"))
+                        _pa_spectrum = rs.range_spectrum(_pa_lo52, _pa_hi52, _pa_price, marks=_pa_marks)
+                        _pa_pct_from_high = (_pa_price / _pa_hi52 - 1) * 100 if _pa_hi52 else 0
+                        _pa_mv, _pa_conds = sp.score_minervini(pa_df, nifty_df=pa_bench)
+                        _pa_stage_label = (
+                            "Stage-2 ideal band" if _pa_mv >= 6 else
+                            "Stage-2 emerging" if _pa_mv >= 4 else
+                            "Stage-1 base" if _pa_mv >= 2 else
+                            "Stage-3/4 caution"
+                        )
+                        _pa_stage_color = (
+                            "#16a34a" if _pa_mv >= 6 else
+                            "#65a30d" if _pa_mv >= 4 else
+                            "#d97706" if _pa_mv >= 2 else
+                            "#dc2626"
+                        )
+                        _pa_cond_chips = "".join(
+                            f'<span style="background:{"#dcfce7" if v else "#fef2f2"};'
+                            f'color:{"#166534" if v else "#991b1b"};border-radius:4px;'
+                            f'padding:1px 6px;font-size:10px;margin:1px 2px;'
+                            f'display:inline-block;">{"✓" if v else "✗"} {k.split(" ",1)[1]}</span>'
+                            for k, v in _pa_conds.items()
+                        )
+                        _pa_patterns = db.get_symbol_patterns(pa_sym)
+                        _pa_pat_chips = "".join(
+                            f'<span style="background:#fef3c7;color:#92400e;border-radius:4px;'
+                            f'padding:2px 8px;font-size:11px;margin:2px 3px;'
+                            f'display:inline-block;font-weight:600;">{p}</span>'
+                            for p in _pa_patterns
+                        ) if _pa_patterns else '<span style="color:#9ca3af;font-size:11px;">No patterns detected in latest scan</span>'
+                        st.markdown(rs.card(
+                            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
+                            f'<div><span style="font-size:22px;font-weight:700;">₹{_pa_price:,.2f}</span>'
+                            f'<span style="color:#6b7280;font-size:12px;margin-left:8px;">'
+                            f'{_pa_pct_from_high:+.1f}% from 52W high</span></div>'
+                            f'<span style="background:{_pa_stage_color};color:#fff;border-radius:6px;'
+                            f'padding:3px 10px;font-size:12px;font-weight:700;">'
+                            f'{_pa_stage_label} ({_pa_mv}/8)</span></div>'
+                            f'{_pa_spectrum}'
+                            f'<div style="margin-top:8px;">{_pa_cond_chips}</div>'
+                            f'<div style="margin-top:10px;"><b style="font-size:12px;color:#374151;">'
+                            f'Detected Patterns</b><div style="margin-top:4px;">{_pa_pat_chips}</div></div>',
+                            title="Stock Summary",
+                        ), unsafe_allow_html=True)
+                    except Exception:
+                        pass
+                with _card_r:
+                    try:
+                        import money_flow as _mf
+                        _smf_df = pa_df.tail(60).copy()
+                        _smf_close = _smf_df["close"].values
+                        _smf_open = _smf_df["open"].values
+                        _smf_vol = _smf_df["volume"].values
+                        _smf_avg_vol = float(_smf_df["volume"].mean())
+                        _smf_bars = []
+                        _smf_acc, _smf_dist = 0, 0
+                        for i in range(len(_smf_df)):
+                            c, o, v = float(_smf_close[i]), float(_smf_open[i]), float(_smf_vol[i])
+                            if c > o and v > _smf_avg_vol:
+                                _smf_bars.append("#16a34a")
+                                _smf_acc += 1
+                            elif c < o and v > _smf_avg_vol:
+                                _smf_bars.append("#dc2626")
+                                _smf_dist += 1
+                            else:
+                                _smf_bars.append("#9ca3af")
+                        _smf_n = len(_smf_bars)
+                        if _smf_acc > _smf_dist * 1.5:
+                            _smf_verdict, _smf_vc = "Strong accumulation", "#16a34a"
+                        elif _smf_acc > _smf_dist:
+                            _smf_verdict, _smf_vc = "Mild accumulation", "#65a30d"
+                        elif _smf_dist > _smf_acc * 1.5:
+                            _smf_verdict, _smf_vc = "Strong distribution", "#dc2626"
+                        elif _smf_dist > _smf_acc:
+                            _smf_verdict, _smf_vc = "Mild distribution", "#ea580c"
+                        else:
+                            _smf_verdict, _smf_vc = "Neutral", "#6b7280"
+                        _smf_bar_w = max(1, int(100 / max(_smf_n, 1)))
+                        _smf_strip = "".join(
+                            f'<div style="flex:1;height:32px;background:{c};'
+                            f'margin-right:1px;border-radius:1px;"></div>'
+                            for c in _smf_bars
+                        )
+                        _smf_obv = _mf.obv(pa_df)
+                        _smf_obv_tail = _smf_obv.tail(60).values
+                        _smf_obv_min, _smf_obv_max = float(min(_smf_obv_tail)), float(max(_smf_obv_tail))
+                        _smf_obv_range = _smf_obv_max - _smf_obv_min or 1
+                        _smf_obv_pts = []
+                        for idx, val in enumerate(_smf_obv_tail):
+                            x = idx / max(len(_smf_obv_tail) - 1, 1) * 200
+                            y = 40 - (float(val) - _smf_obv_min) / _smf_obv_range * 38
+                            _smf_obv_pts.append(f"{x:.1f},{y:.1f}")
+                        _smf_obv_line = " ".join(_smf_obv_pts)
+                        _smf_obv_trend = "rising" if float(_smf_obv_tail[-1]) > float(_smf_obv_tail[0]) else "falling"
+                        _smf_obv_color = "#16a34a" if _smf_obv_trend == "rising" else "#dc2626"
+                        _smf_cmf = _mf.cmf(pa_df, n=21)
+                        _smf_cmf_str = f"{_smf_cmf:+.3f}" if _smf_cmf is not None else "n/a"
+                        _smf_cmf_color = "#16a34a" if (_smf_cmf or 0) > 0 else "#dc2626" if (_smf_cmf or 0) < 0 else "#6b7280"
+                        st.markdown(rs.card(
+                            f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
+                            f'<span style="font-weight:700;color:{_smf_vc};">{_smf_verdict}</span>'
+                            f'<span style="font-size:12px;color:#6b7280;">'
+                            f'{_smf_acc} acc · {_smf_dist} dist · {_smf_n - _smf_acc - _smf_dist} neutral'
+                            f' (last {_smf_n} sessions)</span></div>'
+                            f'<div style="display:flex;align-items:flex-end;height:32px;">{_smf_strip}</div>'
+                            f'<div style="display:flex;gap:20px;margin-top:12px;align-items:center;">'
+                            f'<div style="flex:1;"><b style="font-size:11px;color:#374151;">'
+                            f'OBV Trend <span style="color:{_smf_obv_color};">({_smf_obv_trend})</span></b>'
+                            f'<svg width="100%" height="42" viewBox="0 0 200 42" style="display:block;margin-top:2px;">'
+                            f'<polyline points="{_smf_obv_line}" fill="none" stroke="{_smf_obv_color}" '
+                            f'stroke-width="1.5" stroke-linejoin="round"/></svg></div>'
+                            f'<div style="text-align:center;"><b style="font-size:11px;color:#374151;">CMF (21)</b>'
+                            f'<div style="font-size:20px;font-weight:700;color:{_smf_cmf_color};">'
+                            f'{_smf_cmf_str}</div></div></div>'
+                            f'<div style="margin-top:8px;font-size:10px;color:#9ca3af;">'
+                            f'Session flow is a bar-level heuristic (close vs open + above-average volume) '
+                            f'— not institutional delivery data, not measured against forward returns.</div>',
+                            title="Smart Money Flow",
+                        ), unsafe_allow_html=True)
+                    except Exception:
+                        pass
+
                 # Annotated chart — the Chart Tool iframe carries every overlay the
                 # user has enabled there (M2 base zones, harmonic, trendlines, M3
                 # price projection, MA Bias, …). Indicator selection persists in
                 # the Chart Tool's own localStorage, so it survives reloads.
-                render_chart_tool(pa_sym)
+                import pa_chart_focus as _pcf
+                _ctx, _note = _pcf.render_pin_bar(pa_sym)
+                st.caption(_note)
+                render_chart_tool(pa_sym, height=1080, query=_pcf.chart_query(
+                    pa_sym, _ctx, st.session_state.get("pa_pins", [])))
 
                 # Setup Intelligence + Council — same engine as the Stock Analyzer.
                 st.divider()
@@ -9401,12 +9888,57 @@ if current_page == "Predictive Analysis":
                 with st.expander("Council drill-down (Bull / Bear / Judge)"):
                     render_council(pa_bundle, pa_bull, pa_bear, pa_card)
 
+                # ── Historical pattern metrics (overhead · extension · VCP ·
+                #    radar · exceptional volume) — from the bars already loaded.
+                st.divider()
+                render_pattern_metrics(pa_df, pa_bench, key="pa_pm")
+
+                # ── Reused Stock Analyzer sections ───────────────────────
+                st.divider()
+                with st.spinner("Fetching fundamentals & statements…"):
+                    _pa_deep = cached_fundamentals_deep(pa_sym)
+                render_fundamental_header(pa_sym, pa_df, pa_fund, _pa_deep)
+                render_fundamental_signals(fscore.score_all(pa_fund, _pa_deep))
+                render_ownership_flow(pa_sym)
+
+                render_momentum_meter(pa_df)
+                render_timeframe_board(pa_sym, pa_df)
+
+                with st.expander("Fundamental history"):
+                    render_fundamental_history(_pa_deep)
+                with st.expander("Peer comparison"):
+                    render_peer_comparison(pa_sym)
+                with st.expander("Red flags"):
+                    _pa_rf = cached_red_flags(pa_sym)
+                    render_red_flags(_pa_rf)
+                with st.expander("Scenario analysis"):
+                    render_scenarios(scen.build(_pa_deep), _pa_deep)
+                with st.expander("Conference calls"):
+                    render_concalls(cached_concalls(pa_sym))
+
+                if st.button("Add to Watchlist", key="pa_wl"):
+                    db.add_watchlist_symbol(pa_sym, "From Predictive Analysis")
+                    st.success(f"{pa_sym} added to watchlist.")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Tab 9 — Sector Map (live heatmap + rotation quadrant + orbit chart)
 # ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Sector Map":
     st.subheader("Sector Map")
+
+    import sector_indices_table as _sit
+    _sit.render()
+    st.divider()
+    import sector_ranking as _srk
+    _srk.render()
+    st.divider()
+    import sector_rs_leadership as _rsl
+    _rsl.render()
+    st.divider()
+    import sector_turnover_heatmap as _tah
+    _tah.render()
+    st.divider()
 
     # Money flow first: it answers "where is money going" from the constituents
     # themselves, and needs no sector-index fetch, so it renders before the RRG
@@ -9827,7 +10359,8 @@ if current_page == "Sector Map":
     if nse_rebuild:
         try:
             with st.spinner("Emitting wide frame from the ownership cache…"):
-                _nse_csv = BASE_DIR / f"nse_ownership_wide_{date.today():%Y%m%d}.csv"
+                _nse_csv = _out.out_path(
+                    f"nse_ownership_wide_{date.today():%Y%m%d}.csv")
                 _wide = ocache.emit_csv(_nse_csv, quarters=8)
             with st.spinner(f"Running the trail over {len(_wide)} symbols…"):
                 secrot_trail.run(_nse_csv)
@@ -9846,7 +10379,7 @@ if current_page == "Sector Map":
 
     # Legacy path — kept working rather than deleted: an existing screener.in
     # export is still a valid input, and `load_wide_export` reads both shapes.
-    export_files = sorted(BASE_DIR.glob("screener_export_*.csv"), reverse=True)
+    export_files = _out.find("screener_export_*.csv")
     col_regen, col_src = st.columns([1, 3])
     with col_regen:
         regen_clicked = st.button(
@@ -9878,7 +10411,7 @@ if current_page == "Sector Map":
             st.rerun()
 
     selected_name = None
-    html_files = sorted(BASE_DIR.glob("sector_rotation_orbit_*.html"), reverse=True)
+    html_files = _out.find("sector_rotation_orbit_*.html")
     if html_files:
         names = [f.name for f in html_files]
         selected_name = st.selectbox(
@@ -9897,1056 +10430,38 @@ if current_page == "Sector Map":
         )
 
     # Saved sector rotation table — follow the selected orbit snapshot's date when possible
-    xlsx_files = sorted(BASE_DIR.glob("sector_rotation_*.xlsx"), reverse=True)
+    xlsx_files = _out.find("sector_rotation_*.xlsx")
     if xlsx_files:
         table_path = xlsx_files[0]
         if selected_name:
             # sector_rotation_orbit_YYYYMMDD.html -> sector_rotation_YYYYMMDD.xlsx
             date_suffix = selected_name.replace("sector_rotation_orbit_", "").replace(".html", "")
-            matched = BASE_DIR / f"sector_rotation_{date_suffix}.xlsx"
-            if matched.exists():
+            matched = _out.resolve(f"sector_rotation_{date_suffix}.xlsx")
+            if matched is not None:
                 table_path = matched
         with st.expander("Saved Sector Rotation Table"):
             try:
                 df_sr = pd.read_excel(table_path, sheet_name="Sector Rotation")
                 st.caption(f"Source: `{table_path.name}`")
-                _paginated_df(df_sr, key="sector_rotation_saved")
+                uit.paginated_df(df_sr, key="sector_rotation_saved")
             except Exception as e:
                 st.warning(f"Could not load table: {e}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Tab 10 — Astro Timing
+# Extracted pages (B-87r) — Tab 10 (Astro Timing) lives in tools/pages/ now
 # ──────────────────────────────────────────────────────────────────────────────
-if current_page == "Astro Timing":
-    st.subheader("Astrological Trading Timing")
-    st.caption(
-        "Lunar cycles, solar timing, and market intensity indicators. "
-        "Based on Vedic astrology principles for optimal entry/exit timing."
-    )
-
-    # City selector + share button
-    col_city, col_date, col_share = st.columns([2, 2, 1])
-    with col_city:
-        city = st.selectbox("Select Location", list(at.AstroIndicators.CITIES.keys()), index=0)
-    with col_date:
-        analysis_date = st.date_input("Analysis Date", value=date.today())
-    with col_share:
-        st.markdown("<div style='height:28px'></div>", unsafe_allow_html=True)
-        _gen_card = st.button("📷 Share Card", width="stretch",
-                              help="Generate a weekly astro infographic and copy PNG to clipboard")
-
-    ai = at.AstroIndicators(city=city)
-    timing = ai.get_trading_timing(analysis_date)
-
-    # Daily summary. AW-0: the lunar figures are None outside the reversal
-    # calendar's coverage, and a date we cannot place must render as unplaced
-    # rather than as a confident number — that is the whole point of the fix.
-    _lun = timing['lunar_phase']
-    _unknown = _lun.get('phase') == 'unknown' or _lun.get('cycle_day') is None
-    col1, col2, col3, col4 = st.columns(4)
-    with col1:
-        st.metric(
-            "Lunar Phase",
-            "—" if _unknown else _lun['phase'].title(),
-            "outside calendar coverage" if _unknown
-            else f"{_lun['illumination']}% illuminated"
-        )
-    with col2:
-        st.metric(
-            "Market Intensity",
-            "—" if timing['market_intensity'] is None
-            else f"{timing['market_intensity']}/100",
-            "Volatility indicator"
-        )
-    with col3:
-        st.metric(
-            "Cycle Day",
-            "—" if _unknown else f"{_lun['cycle_day']:.1f}",
-            "no lunation to measure against" if _unknown
-            else f"of {_lun['cycle_length']:.1f}"
-        )
-    with col4:
-        st.metric("Location", city, "")
-
-    if _unknown:
-        st.warning(
-            f"No lunation covers {analysis_date}. The reversal calendar holds "
-            "new/full moons for a fixed window; extend it with "
-            "`py -3 tools/reversal_calendar.py build --years …` (needs `ephem`)."
-        )
-    elif _lun.get("source") == "reversal_calendar":
-        st.caption(
-            "Lunar figures read from the reversal-calendar DB (PyEphem-derived "
-            "instants), not from a mean-cycle approximation."
-        )
-
-    # Solar timing
-    st.subheader("Solar Timing (IST)")
-    scol1, scol2, scol3, scol4 = st.columns(4)
-    with scol1:
-        st.metric("Sunrise", timing['solar_timing']['sunrise'])
-    with scol2:
-        st.metric("Sunset", timing['solar_timing']['sunset'])
-    with scol3:
-        st.metric("Optimal Entry", timing['solar_timing']['optimal_entry'], "15 min post-sunrise")
-    with scol4:
-        st.metric("Optimal Exit", timing['solar_timing']['optimal_exit'], "15 min pre-sunset")
-
-    # Recommendations
-    st.subheader("Trading Recommendations")
-    for i, rec in enumerate(timing['recommendations'], 1):
-        st.info(f"**{i}.** {rec}")
-
-    # Weekly calendar
-    st.subheader("Weekly Astro Calendar")
-    today = date.today()
-    weekly = ai.get_weekly_calendar(today, days=7)
-
-    # Format for display
-    display_cols = ['date', 'lunar_phase', 'illumination', 'market_intensity', 'sunrise', 'sunset']
-    display_df = weekly[display_cols].copy()
-    display_df.columns = ['Date', 'Lunar Phase', 'Illumination %', 'Market Intensity', 'Sunrise', 'Sunset']
-
-    st.dataframe(display_df, width="stretch", hide_index=True)
-
-    # ── Nakshatra Sector Forecast ──────────────────────────────────────────────
-    st.subheader("Nakshatra Sector Forecast — 7-Day Forward")
-    st.caption(
-        "Moon's nakshatra (lunar mansion) for each trading day ahead. "
-        "Each nakshatra rules specific commodities and NSE sectors — use as a "
-        "directional bias, not an entry signal."
-    )
-
-    _nk_today = ai.get_nakshatra(analysis_date)
-    _nk_df = pd.DataFrame()   # always defined; populated below if nakshatra succeeds
-
-    if "error" in _nk_today:
-        st.warning(f"Nakshatra engine: {_nk_today['error']}")
-    else:
-        # Today's nakshatra at a glance
-        nk_c1, nk_c2, nk_c3, nk_c4 = st.columns(4)
-        with nk_c1:
-            st.metric("Today's Nakshatra", _nk_today["nakshatra"],
-                      f"#{_nk_today['index']} of 27")
-        with nk_c2:
-            st.metric("Ruling Planet", _nk_today["planet"],
-                      f"{_nk_today['pct']}% through")
-        with nk_c3:
-            st.metric("Sectors to Watch", " · ".join(_nk_today["sectors"][:2]),
-                      _nk_today["sectors"][2] if len(_nk_today["sectors"]) > 2 else "")
-        with nk_c4:
-            st.metric("Moon Longitude (sid.)", f"{_nk_today['sidereal_lon']}°",
-                      f"{_nk_today['deg_in']}° in nakshatra")
-
-        st.info(f"**Commodity theme today:** {_nk_today['theme']}")
-
-        # 7-day table
-        _nk_df = ai.get_nakshatra_forecast(analysis_date, days=7)
-        if isinstance(_nk_df, list):
-            import pandas as _pd_nk
-            _nk_df = _pd_nk.DataFrame(_nk_df)
-
-        # Highlight today (first row)
-        def _nk_row_style(row):
-            if row.name == 0:
-                return [f"background:rgba(74,222,128,0.12)" for _ in row]
-            return ["" for _ in row]
-
-        st.dataframe(
-            _nk_df.style.apply(_nk_row_style, axis=1),
-            width="stretch",
-            hide_index=True,
-        )
-
-        # Sector heatmap — count how many days each sector appears
-        from collections import Counter as _Counter
-        _sector_days: _Counter = _Counter()
-        for _, row in _nk_df.iterrows():
-            for _s in row["Watch Sectors"].split(" / "):
-                _sector_days[_s] += 1
-
-        st.markdown("**Sector appearance frequency (next 7 days)**")
-        _hm_cols = st.columns(min(len(_sector_days), 6))
-        for _ci, (_sec, _cnt) in enumerate(sorted(_sector_days.items(), key=lambda x: -x[1])):
-            with _hm_cols[_ci % len(_hm_cols)]:
-                _pct_bar = int(_cnt / 7 * 100)
-                st.markdown(
-                    f'<div style="background:rgba(74,222,128,{_cnt/7:.2f});'
-                    f'border-radius:8px;padding:8px 12px;margin:2px 0;'
-                    f'font-size:13px;font-weight:600;">'
-                    f'{_sec}<br>'
-                    f'<span style="font-size:11px;font-weight:400;">{_cnt}/7 days</span>'
-                    f'</div>',
-                    unsafe_allow_html=True,
-                )
-
-    # ── Jupiter Crash Signal ───────────────────────────────────────────────────
-    st.subheader("Jupiter Crash Signal Monitor")
-    st.caption(
-        "Three-factor model: Jupiter in Ketu's nakshatra + Shashtashtak Yoga "
-        "(6/8 axis) with malefics + Rahu-Ketu nodal influence. "
-        "All 4 major Indian crashes (1992/2000/2008/2020) had all three active. "
-        "No single factor alone predicts a crash."
-    )
-
-    _jp = ai.get_jupiter_position(analysis_date)
-
-    if "error" in _jp:
-        st.warning(f"Jupiter engine: {_jp['error']}")
-    else:
-        # ── Signal banner ──────────────────────────────────────────────────────
-        _sig_colors = {
-            "CRASH SIGNAL":  ("rgba(220,38,38,0.18)",  "#fca5a5", "🔴"),
-            "ELEVATED RISK": ("rgba(234,88,12,0.18)",  "#fdba74", "🟠"),
-            "WATCH":         ("rgba(234,179,8,0.15)",  "#fde047", "🟡"),
-            "CLEAR":         ("rgba(74,222,128,0.12)", "#86efac", "🟢"),
-        }
-        _bg, _border_col, _icon = _sig_colors[_jp["signal"]]
-        _factors_desc = []
-        if _jp["is_ketu_nakshatra"]:
-            _factors_desc.append(f"Jupiter in Ketu's nakshatra ({_jp['nakshatra']})")
-        if _jp["shashtashtak_with"]:
-            _factors_desc.append(f"Shashtashtak with {', '.join(_jp['shashtashtak_with'])}")
-        if _jp["nodal_influence"]:
-            _factors_desc.append(
-                f"Rahu-Ketu nodal influence "
-                f"(Rahu {_jp['rahu_arc']}° / Ketu {_jp['ketu_arc']}°)"
-            )
-        _factors_text = " · ".join(_factors_desc) if _factors_desc else "No active factors"
-
-        st.markdown(
-            f'<div style="background:{_bg};border:1px solid {_border_col};'
-            f'border-radius:12px;padding:14px 18px;margin:8px 0;">'
-            f'<span style="font-size:20px;">{_icon}</span> '
-            f'<strong style="font-size:16px;">{_jp["signal"]}</strong> — '
-            f'{_jp["factors_active"]}/3 factors active<br>'
-            f'<span style="font-size:13px;opacity:0.85;">{_factors_text}</span>'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-        # ── Jupiter position metrics ───────────────────────────────────────────
-        jp_c1, jp_c2, jp_c3, jp_c4 = st.columns(4)
-        with jp_c1:
-            st.metric("Jupiter Sign", _jp["sign"].split("(")[0].strip(),
-                      f"Sign #{_jp['sign_index']}")
-        with jp_c2:
-            _ketu_tag = " ⚠ Ketu's star" if _jp["is_ketu_nakshatra"] else ""
-            st.metric("Jupiter Nakshatra", _jp["nakshatra"] + _ketu_tag,
-                      f"Ruled by {_jp['nakshatra_planet']}")
-        with jp_c3:
-            _s6_8 = ", ".join(_jp["shashtashtak_with"]) if _jp["shashtashtak_with"] else "None"
-            st.metric("Shashtashtak With", _s6_8, "6th/8th axis malefic")
-        with jp_c4:
-            st.metric("Jupiter Longitude", f"{_jp['sidereal_lon']}°",
-                      "sidereal (Lahiri)")
-
-        # ── Factor checklist ───────────────────────────────────────────────────
-        _check = lambda ok: "✅" if ok else "⬜"
-        st.markdown(
-            f"**Crash signal factors:**  "
-            f"{_check(_jp['is_ketu_nakshatra'])} Ketu nakshatra &nbsp;&nbsp;"
-            f"{_check(_jp['shashtashtak_with'])} Shashtashtak w/ malefic &nbsp;&nbsp;"
-            f"{_check(_jp['nodal_influence'])} Rahu-Ketu nodal influence"
-        )
-
-        # ── Historical context note ────────────────────────────────────────────
-        with st.expander("Historical crash setups (reference)"):
-            st.markdown(
-                "| Year | Event | Jupiter Nakshatra | Key Combo | Outcome |\n"
-                "|------|-------|-------------------|-----------|--------|\n"
-                "| 1992 | Harshad Mehta crash | Magha (Ketu) | Shashtashtak Saturn+Sun; Rahu+Mars | Sensex −57%, 20m recovery |\n"
-                "| 2000 | Dot-com bust | Ashwini (Ketu) | Conjunction Saturn; Rahu-Ketu axis | Nifty −53%, 34m recovery |\n"
-                "| 2008 | Global financial crisis | Mula (Ketu) | Sun+Mars+Ketu aspect; 8th from Saturn | Nifty −64%, 71m recovery |\n"
-                "| 2020 | Covid crash | Mula (Ketu) | Saturn+Sun+Mercury; eclipse; Ketu | Nifty −39%, fast recovery |\n"
-                "| **Nov 2026** | **Prediction** | **Magha (Ketu)** | **Rahu-Ketu axis; 8th from Saturn** | **Major crash predicted** |\n"
-                "\n"
-                "*Exception rule:* Ketu nakshatra alone is NOT sufficient. "
-                "1995 (+7%), 2003 (+20%), 2023 (+12%) were all bullish despite "
-                "Jupiter in Ketu's star — because Shashtashtak and/or nodal influence was absent."
-            )
-
-    # ── India Degree-Matching Alerts ──────────────────────────────────────────
-    st.subheader("India Chart — Degree-Matching Alerts (9:15 AM IST)")
-    st.caption(
-        "Transiting planets within ±2° of India's Independence Chart sensitive degrees "
-        "(Aug 15, 1947). When a karaka planet hits these degrees it historically "
-        "marks trend acceleration or reversal. Malefics (Saturn/Sun/Rahu/Mars) = bullish "
-        "signal; Benefics (Jupiter/Moon/Mercury/Venus) = correction risk."
-    )
-
-    _orb_input = st.slider("Orb (degrees)", min_value=0.5, max_value=3.0,
-                           value=2.0, step=0.5, key="india_orb")
-    _alerts = ai.get_india_chart_alerts(analysis_date, orb=_orb_input)
-
-    if _alerts and "error" in _alerts[0]:
-        st.warning(f"India chart engine: {_alerts[0]['error']}")
-    elif not _alerts:
-        st.success(f"No planets within ±{_orb_input}° of any India chart sensitive degree today.")
-    else:
-        # Summary count strip
-        _bull_alerts = [a for a in _alerts if a["bias"] == "bullish"]
-        _bear_alerts = [a for a in _alerts if a["bias"] == "bearish"]
-        _amb_alerts  = [a for a in _alerts if a["bias"] == "ambiguous"]
-
-        ia_c1, ia_c2, ia_c3, ia_c4 = st.columns(4)
-        with ia_c1:
-            st.metric("Active Alerts", len(_alerts), f"within ±{_orb_input}°")
-        with ia_c2:
-            st.metric("Bullish Signals", len(_bull_alerts),
-                      "Saturn/Sun/Rahu/Mars hitting India degrees")
-        with ia_c3:
-            st.metric("Bearish Signals", len(_bear_alerts),
-                      "Jupiter/Moon/Mercury/Venus hitting India degrees")
-        with ia_c4:
-            st.metric("Ambiguous", len(_amb_alerts), "Ketu")
-
-        # Net bias
-        _net = len(_bull_alerts) - len(_bear_alerts)
-        if _net > 0:
-            _net_label = f"Net BULLISH (+{_net})"
-            _net_color = "rgba(74,222,128,0.15)"
-            _net_border = "#4ade80"
-        elif _net < 0:
-            _net_label = f"Net BEARISH ({_net})"
-            _net_color = "rgba(220,38,38,0.15)"
-            _net_border = "#f87171"
-        else:
-            _net_label = "Balanced (no edge)"
-            _net_color = "rgba(234,179,8,0.12)"
-            _net_border = "#fde047"
-
-        st.markdown(
-            f'<div style="background:{_net_color};border:1px solid {_net_border};'
-            f'border-radius:8px;padding:10px 16px;margin:6px 0;">'
-            f'<strong>{_net_label}</strong> — {len(_alerts)} degree matches active'
-            f'</div>',
-            unsafe_allow_html=True,
-        )
-
-        # Alert cards
-        _bias_icon = {"bullish": "🟢", "bearish": "🔴", "ambiguous": "🟡"}
-        _bias_bg   = {
-            "bullish":   "rgba(74,222,128,0.10)",
-            "bearish":   "rgba(220,38,38,0.10)",
-            "ambiguous": "rgba(234,179,8,0.10)",
-        }
-        _bias_border = {
-            "bullish":   "rgba(74,222,128,0.4)",
-            "bearish":   "rgba(220,38,38,0.4)",
-            "ambiguous": "rgba(234,179,8,0.4)",
-        }
-
-        for _a in _alerts:
-            _icon  = _bias_icon.get(_a["bias"], "⬜")
-            _bg    = _bias_bg.get(_a["bias"], "transparent")
-            _brd   = _bias_border.get(_a["bias"], "rgba(255,255,255,0.1)")
-            _exact = " ✦ EXACT" if _a["exact"] else ""
-            st.markdown(
-                f'<div style="background:{_bg};border:1px solid {_brd};'
-                f'border-radius:8px;padding:10px 16px;margin:4px 0;">'
-                f'{_icon} <strong>{_a["planet"]}</strong> at '
-                f'<strong>{_a["deg_in_sign"]:.1f}°</strong> {_a["sign"]} '
-                f'→ matches India <strong>{_a["india_point"]} ({_a["india_deg"]}°)</strong> '
-                f'<span style="opacity:0.7;">orb {_a["orb_actual"]}°{_exact}</span><br>'
-                f'<span style="font-size:12px;opacity:0.75;">'
-                f'Bias: {_a["bias"].upper()} &nbsp;|&nbsp; '
-                f'Karaka: {_a["karaka"]}'
-                f'</span>'
-                f'</div>',
-                unsafe_allow_html=True,
-            )
-
-        # India chart degree reference (collapsed)
-        with st.expander("India Independence Chart — sensitive degrees reference"):
-            _ref_rows = [
-                f"| {pt} | {deg}° | ±{_orb_input}° orb = {max(0,deg-_orb_input):.1f}°–{min(30,deg+_orb_input):.1f}° |"
-                for pt, deg in ai.INDIA_CHART_DEGREES.items()
-            ]
-            st.markdown(
-                "| Chart Point | Degree | Active Window |\n"
-                "|-------------|--------|---------------|\n" +
-                "\n".join(_ref_rows)
-            )
-            st.caption(
-                "India Independence Chart: Aug 15, 1947, 12:00 AM, New Delhi. "
-                "D1 = Rashi chart. D9 = Navamsa chart. "
-                "Degree matching checks the transiting planet's position within its current "
-                "sign (lon mod 30°) against these fixed reference degrees."
-            )
-
-    # ── Weekly Astro Infographic Card ─────────────────────────────────────────
-    if _gen_card:
-        try:
-            from PIL import Image as _PILImage, ImageDraw as _PILDraw, ImageFont as _PILFont
-        except ImportError:
-            st.error("Pillow is not installed. Run `pip install Pillow` and restart the app.")
-            _PILImage = None
-        import io as _io
-        import base64 as _b64
-        if _PILImage is None:
-            pass
-        else:
-            # ── palette ───────────────────────────────────────────────────────
-            _C = {
-                "bg":    (15,  10,  6),
-                "panel": (28,  20,  16),
-                "amber": (234, 88,  12),
-                "green": (74,  222, 128),
-                "red":   (239, 68,  68),
-                "yellow":(253, 224, 71),
-                "text":  (255, 245, 235),
-                "muted": (168, 133, 106),
-                "white": (255, 255, 255),
-                "card_b":(38,  28,  20),
-            }
-
-            def _font(size, bold=False):
-                try:
-                    return _PILFont.truetype("arialbd.ttf" if bold else "arial.ttf", size)
-                except OSError:
-                    return _PILFont.load_default()
-
-            W, H = 1080, 1350
-            img = _PILImage.new("RGB", (W, H), _C["bg"])
-            dr  = _PILDraw.Draw(img)
-
-            def _rect(x0, y0, x1, y1, fill, r=12):
-                dr.rounded_rectangle([x0, y0, x1, y1], radius=r, fill=fill)
-
-            def _txt(x, y, text, fnt, fill, anchor="la"):
-                dr.text((x, y), str(text), font=fnt, fill=fill, anchor=anchor)
-
-            # ── header ────────────────────────────────────────────────────────
-            _rect(0, 0, W, 120, _C["amber"], r=0)
-            _txt(40,      30, "Trading Bramha",          _font(38, True), _C["white"])
-            _txt(40,      76, "ASTRO WEEKLY SNAPSHOT",   _font(18),       _C["white"])
-            _txt(W - 40,  30, analysis_date.strftime("%d %b %Y"),
-                 _font(28, True), _C["white"], anchor="ra")
-            _txt(W - 40,  76, analysis_date.strftime("Week of %a %d %b"),
-                 _font(16), _C["white"], anchor="ra")
-
-            # ── running y cursor ───────────────────────────────────────────────
-            _cy = [140]
-
-            def _section_lbl(title):
-                _txt(40, _cy[0], title.upper(), _font(13), _C["muted"])
-                _cy[0] += 28
-
-            def _open_panel(h):
-                y0 = _cy[0]
-                _rect(30, y0, W - 30, y0 + h, _C["panel"])
-                return 30 + 20, y0 + 20
-
-            def _close_panel(h):
-                _cy[0] += h + 16
-
-            # ── Moon Nakshatra ─────────────────────────────────────────────────
-            _section_lbl("Moon Nakshatra Today")
-            if "error" not in _nk_today:
-                _ph = 160
-                _px, _py = _open_panel(_ph)
-                _txt(_px, _py,      _nk_today["nakshatra"],          _font(36, True), _C["text"])
-                _txt(_px, _py + 44, f"Ruled by {_nk_today['planet']}  •  #{_nk_today['index']} of 27",
-                     _font(18), _C["muted"])
-                _txt(_px, _py + 72, "Sectors: " + " / ".join(_nk_today["sectors"]),
-                     _font(16), _C["green"])
-                _txt(_px, _py + 96, _nk_today["theme"][:70], _font(14), _C["muted"])
-                _bw = W - 30 - 20 - _px
-                _rect(_px, _py + 122, _px + _bw, _py + 132, _C["card_b"], r=4)
-                _filled = max(4, int(_bw * _nk_today["pct"] / 100))
-                _rect(_px, _py + 122, _px + _filled, _py + 132, _C["amber"], r=4)
-                _txt(_px + _bw + 6, _py + 122, f"{_nk_today['pct']}%", _font(12), _C["muted"])
-                _close_panel(_ph)
-            else:
-                _cy[0] += 60
-
-            # ── Jupiter Crash Signal ───────────────────────────────────────────
-            _section_lbl("Jupiter Crash Signal")
-            if "error" not in _jp:
-                _sig_col = {"CRASH SIGNAL": _C["red"], "ELEVATED RISK": _C["amber"],
-                            "WATCH": _C["yellow"], "CLEAR": _C["green"]}.get(_jp["signal"], _C["muted"])
-                _ph = 130
-                _px, _py = _open_panel(_ph)
-                _txt(_px, _py,      f"{_jp['signal']}  —  {_jp['factors_active']}/3 factors",
-                     _font(30, True), _sig_col)
-                _txt(_px, _py + 44, f"Jupiter in {_jp['nakshatra']} ({_jp['sign'].split('(')[0].strip()})",
-                     _font(18), _C["text"])
-                _active_parts = []
-                if _jp["is_ketu_nakshatra"]:  _active_parts.append("Ketu nakshatra")
-                if _jp["shashtashtak_with"]:  _active_parts.append(f"Shashtashtak w/ {', '.join(_jp['shashtashtak_with'])}")
-                if _jp["nodal_influence"]:    _active_parts.append("Rahu-Ketu nodal")
-                _txt(_px, _py + 70, "  ".join(_active_parts) or "No factors active",
-                     _font(14), _C["muted"])
-                _txt(_px, _py + 96, "Red flag: Nov 2026 full crash signal — mirrors 1992 & 2008",
-                     _font(13), _C["red"])
-                _close_panel(_ph)
-            else:
-                _cy[0] += 40
-
-            # ── India Chart Alerts ─────────────────────────────────────────────
-            _section_lbl("India Chart — Top Degree Alerts (9:15 AM IST)")
-            _top_al = [a for a in _alerts if "error" not in a][:5]
-            if _top_al:
-                _bull_n = sum(1 for a in _top_al if a["bias"] == "bullish")
-                _bear_n = sum(1 for a in _top_al if a["bias"] == "bearish")
-                _net_t  = (f"Net BULLISH +{_bull_n - _bear_n}" if _bull_n > _bear_n else
-                           f"Net BEARISH {_bull_n - _bear_n}"  if _bear_n > _bull_n else "Balanced")
-                _net_c  = _C["green"] if _bull_n > _bear_n else _C["red"] if _bear_n > _bull_n else _C["yellow"]
-                _ph = 36 + len(_top_al) * 24 + 20
-                _px, _py = _open_panel(_ph)
-                _txt(_px, _py, _net_t, _font(22, True), _net_c)
-                for _i, _a in enumerate(_top_al):
-                    _ac = (_C["green"] if _a["bias"] == "bullish"
-                           else _C["red"] if _a["bias"] == "bearish" else _C["yellow"])
-                    _line = (f"{_a['planet']:8s}  {_a['deg_in_sign']:4.1f}°  "
-                             f"→ {_a['india_point']:12s} ({_a['india_deg']}°)  orb {_a['orb_actual']}°")
-                    _txt(_px, _py + 36 + _i * 24, _line, _font(15), _ac)
-                _close_panel(_ph)
-            else:
-                _cy[0] += 40
-
-            # ── 7-Day Nakshatra Forecast ───────────────────────────────────────
-            _section_lbl("7-Day Nakshatra Forecast")
-            _nk_df_c = (_nk_df if not isinstance(_nk_df, list)
-                        else pd.DataFrame(_nk_df))
-            if not _nk_df_c.empty:
-                _row_h = 38
-                _col_ratios = [0.18, 0.28, 0.16, 0.38]
-                _ph = 26 + len(_nk_df_c) * _row_h + 10
-                _px, _py = _open_panel(_ph)
-                _col_w = [(W - 30 - 20 - _px) * r for r in _col_ratios]
-                _hdrs  = ["Date", "Nakshatra", "Planet", "Sectors"]
-                _hx = _px
-                for _h, _cw in zip(_hdrs, _col_w):
-                    _txt(_hx, _py, _h, _font(13), _C["muted"])
-                    _hx += _cw
-                for _ri, (_, _row) in enumerate(_nk_df_c.iterrows()):
-                    _ry = _py + 26 + _ri * _row_h
-                    if _ri == 0:
-                        _rect(_px - 8, _ry - 4, W - 30 - 20 + 8, _ry + _row_h - 6, (38, 55, 38), r=6)
-                    _cx2 = _px
-                    _cells = [_row.get("Date", ""), _row.get("Nakshatra", ""),
-                              _row.get("Ruling Planet", ""), str(_row.get("Watch Sectors", ""))[:35]]
-                    for _cell, _cw in zip(_cells, _col_w):
-                        _txt(_cx2, _ry, str(_cell), _font(14, bold=(_ri == 0)),
-                             _C["green"] if _ri == 0 else _C["text"])
-                        _cx2 += _cw
-                _close_panel(_ph)
-            else:
-                _cy[0] += 40
-
-            # ── footer ────────────────────────────────────────────────────────
-            _rect(0, H - 60, W, H, _C["panel"], r=0)
-            _txt(W // 2, H - 38,
-                 "Trading Bramha  •  Astro Timing Dashboard  •  For reference only",
-                 _font(14), _C["muted"], anchor="mm")
-            _txt(W // 2, H - 18, "Context, not signal. Always verify with price action.",
-                 _font(12), _C["muted"], anchor="mm")
-
-            # ── export ────────────────────────────────────────────────────────
-            _buf = _io.BytesIO()
-            img.save(_buf, format="PNG", optimize=True)
-            _png_bytes = _buf.getvalue()
-            _b64_str   = _b64.b64encode(_png_bytes).decode()
-
-            st.image(img, caption="Weekly Astro Card — copy or download below",
-                     width=540)
-
-            st.download_button(
-                label="⬇ Download PNG",
-                data=_png_bytes,
-                file_name=f"trading_bramha_astro_{analysis_date.strftime('%Y%m%d')}.png",
-                mime="image/png",
-                width="content",
-            )
-
-            st.iframe(f"""
-            <button onclick="copyCard()" style="
-                background:#ea580c;color:#fff;border:none;border-radius:8px;
-                padding:8px 20px;font-size:14px;font-weight:700;cursor:pointer;">
-                \U0001f4cb Copy PNG to Clipboard
-            </button>
-            <span id="cs" style="margin-left:12px;font-size:13px;"></span>
-            <script>
-            async function copyCard() {{
-                try {{
-                    const res  = await fetch("data:image/png;base64,{_b64_str}");
-                    const blob = await res.blob();
-                    await navigator.clipboard.write([new ClipboardItem({{"image/png": blob}})]);
-                    const s = document.getElementById("cs");
-                    s.style.color = "#4ade80"; s.textContent = "Copied!";
-                    setTimeout(() => s.textContent = "", 3000);
-                }} catch(e) {{
-                    const s = document.getElementById("cs");
-                    s.style.color = "#ef4444";
-                    s.textContent = "Copy failed — use Download (" + e.message + ")";
-                }}
-            }}
-            </script>
-            """, height=56)
-
-    # Lunar phase chart
-    st.subheader("Lunar Phase Progression")
-
-    dates_list = []
-    illumination_list = []
-    intensity_list = []
-
-    for i in range(30):
-        d = date.today() + timedelta(days=i)
-        dates_list.append(d.strftime('%m-%d'))
-        lunar = ai.get_lunar_phase(d)
-        illumination_list.append(lunar['illumination'])
-        timing_temp = ai.get_trading_timing(d)
-        intensity_list.append(timing_temp['market_intensity'])
-
-    fig_astro = go.Figure()
-    fig_astro.add_trace(go.Scatter(
-        x=dates_list,
-        y=illumination_list,
-        mode='lines+markers',
-        name='Lunar Illumination %',
-        line=dict(color='gold', width=2),
-        yaxis='y1'
-    ))
-    fig_astro.add_trace(go.Scatter(
-        x=dates_list,
-        y=intensity_list,
-        mode='lines+markers',
-        name='Market Intensity',
-        line=dict(color='crimson', width=2),
-        yaxis='y2'
-    ))
-
-    fig_astro.update_layout(
-        title="30-Day Lunar & Market Intensity Forecast",
-        hovermode='x unified',
-        xaxis_title="Date",
-        yaxis=dict(title="Lunar Illumination %", side='left'),
-        yaxis2=dict(title="Market Intensity", side='right', overlaying='y'),
-        height=500
-    )
-
-    st.plotly_chart(fig_astro, width="stretch")
-
-    # AstroHora integration section
-    st.subheader("AstroHora Chart Data Integration")
-    st.caption("Load birth charts or event data from AstroHora for deeper astrological analysis.")
-
-    upload_col, manual_col = st.columns(2)
-
-    with upload_col:
-        st.write("**Upload AstroHora Data**")
-        uploaded_file = st.file_uploader(
-            "Load CSV/Excel export from AstroHora",
-            type=['csv', 'xlsx'],
-            key='astro_upload'
-        )
-
-        if uploaded_file:
-            aha = ahl.AstroHoraData()
-            try:
-                if uploaded_file.name.endswith('.csv'):
-                    import io
-                    stringio = io.StringIO(uploaded_file.getvalue().decode("utf8"))
-                    csv_reader = csv.DictReader(stringio)
-                    for row in csv_reader:
-                        aha._parse_row(row)
-                else:
-                    # Excel handling
-                    import io
-                    df = pd.read_excel(uploaded_file)
-                    aha._parse_astro_dataframe(df)
-
-                st.success("✓ Chart data loaded")
-
-                summary = aha.get_summary()
-                st.json(summary, expanded=False)
-
-            except Exception as e:
-                st.error(f"Error loading file: {e}")
-
-    with manual_col:
-        st.write("**Or Enter Chart Details**")
-        chart_type = st.selectbox("Chart Type", ["natal", "prashna"], key='chart_type_select')
-        birth_location = st.text_input("Location (e.g., Mumbai, India)", value="Mumbai, India")
-
-        if st.button("Load Example Chart", key='example_chart_btn'):
-            from datetime import time
-
-            aha = ahl.AstroHoraData()
-            example_chart = {
-                'chart_type': 'natal',
-                'birth_date': date(1990, 6, 15),
-                'birth_time': time(14, 30),
-                'location': birth_location,
-                'chart_data': {
-                    'Sun': {'sign': 'Gemini', 'longitude': 84.5, 'house': '11'},
-                    'Moon': {'sign': 'Libra', 'longitude': 207.2, 'house': '3'},
-                    'Mars': {'sign': 'Leo', 'longitude': 123.8, 'house': '1'},
-                    'Mercury': {'sign': 'Gemini', 'longitude': 91.3, 'house': '11'},
-                    'Jupiter': {'sign': 'Cancer', 'longitude': 99.5, 'house': '12'},
-                    'Venus': {'sign': 'Cancer', 'longitude': 108.7, 'house': '12'},
-                    'Saturn': {'sign': 'Capricorn', 'longitude': 286.4, 'house': '6'},
-                }
-            }
-            aha.load_from_dict(example_chart)
-
-            col_a, col_b, col_c = st.columns(3)
-
-            with col_a:
-                st.write("**Planetary Positions**")
-                for planet, data in aha.get_planetary_positions().items():
-                    st.text(f"{planet}: {data['sign']} {data['degree']}°")
-
-            with col_b:
-                st.write("**Strong Planets**")
-                for planet, status in aha.get_strong_planets():
-                    st.text(f"{planet}: {status}")
-
-            with col_c:
-                st.write("**Major Aspects**")
-                for aspect in aha.get_aspectarian():
-                    st.text(f"{aspect['planet1']} {aspect['aspect']} {aspect['planet2']}")
-
-            st.write("**Dasha Analysis**")
-            dasha = aha.get_vimshottari_dasha(date(1990, 6, 15))
-            dasha_col1, dasha_col2, dasha_col3 = st.columns(3)
-            with dasha_col1:
-                st.metric("Current Dasha", dasha['current_dasha'])
-            with dasha_col2:
-                st.metric("Years Remaining", f"{dasha['years_remaining']:.1f}")
-            with dasha_col3:
-                st.metric("Period Length", f"{dasha['period_years']} yrs")
+# One dispatch for every page that has been moved into tools/desk_pages/, paid for
+# once. Each future extraction deletes an `if current_page == "..."` block from
+# this file and adds nothing here, so the module-statement ratchet now falls
+# with each one instead of creeping up. See tools/desk_pages/__init__.py.
+if dpages.handles(current_page):
+    dpages.render(current_page)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Tab 11 — Telegram Signals
 # ──────────────────────────────────────────────────────────────────────────────
-if current_page == "Telegram Signals":
-    st.subheader("Telegram Trading Signals")
-    st.caption(
-        "Track trading signals from Telegram channels (Rohan Das RPCI, TechnoFunda, etc). "
-        "Manually add signals, track entries/exits, and measure performance."
-    )
-
-    # Initialize signal manager
-    ts = tg.TelegramSignals()
-
-    # Tab sections
-    signal_tab1, signal_tab_fetch, signal_tab2, signal_tab3, signal_tab4 = st.tabs(
-        ["Add Signal", "Fetch from Channel", "Active Signals", "Signal History", "Statistics"]
-    )
-
-    # ──────────────────────────────────────────────────────────────────────────────
-    # Subsection: Fetch from public Telegram preview
-    with signal_tab_fetch:
-        st.subheader("Fetch from Public Telegram Preview")
-        st.caption(
-            "Pulls the ~20 most recent posts from `t.me/s/<channel>` (no auth). "
-            "Preview truncates long posts — verify on Telegram before saving."
-        )
-        fetch_col1, fetch_col2 = st.columns([3, 1])
-        with fetch_col1:
-            fetch_channel_name = st.text_input(
-                "Channel username (without @)",
-                value="FinanceWithSunil",
-                key="fetch_tg_channel",
-            )
-        with fetch_col2:
-            st.write("")
-            st.write("")
-            do_fetch = st.button("Fetch posts", type="primary", key="fetch_tg_btn")
-
-        if do_fetch:
-            try:
-                import telegram_preview_scraper as tps
-                with st.spinner(f"Fetching @{fetch_channel_name}..."):
-                    posts = tps.fetch_channel(fetch_channel_name)
-                st.session_state["tg_fetched_posts"] = [p.to_dict() for p in posts]
-                st.session_state["tg_fetched_channel"] = fetch_channel_name
-                st.success(f"Fetched {len(posts)} posts.")
-            except Exception as e:
-                st.error(f"Fetch failed: {e}")
-
-        posts_cache = st.session_state.get("tg_fetched_posts", [])
-        if posts_cache:
-            channel_label = f"@{st.session_state.get('tg_fetched_channel', fetch_channel_name)}"
-            st.markdown(f"**{len(posts_cache)} posts from {channel_label}** (newest last)")
-            for idx, p in enumerate(posts_cache):
-                header = f"[{p.get('posted_at', '?')}] {' · '.join(p.get('tickers') or []) or '(no ticker detected)'}"
-                with st.expander(header, expanded=False):
-                    st.write(p.get("text", ""))
-                    if p.get("url"):
-                        st.markdown(f"[Open on Telegram]({p['url']})")
-                    tickers = p.get("tickers") or []
-                    if tickers:
-                        pick = st.selectbox(
-                            "Symbol to save",
-                            tickers,
-                            key=f"tg_pick_{idx}",
-                        )
-                        if st.button("Save as PENDING signal", key=f"tg_save_{idx}"):
-                            try:
-                                posted = None
-                                if p.get("posted_at"):
-                                    posted = datetime.fromisoformat(
-                                        p["posted_at"].replace("Z", "+00:00")
-                                    ).date()
-                            except Exception:
-                                posted = date.today()
-                            sig = ts.add_signal_from_dict({
-                                "symbol": pick,
-                                "channel": channel_label,
-                                "posted_date": posted or date.today(),
-                                "strategy": "",
-                                "signal_source": "OTHER",
-                                "timeframe": "",
-                                "confidence": 5,
-                                "notes": (p.get("text") or "") + (f"\n\nSource: {p['url']}" if p.get("url") else ""),
-                                "metadata": {"source_url": p.get("url"), "posted_at": p.get("posted_at")},
-                            })
-                            st.success(f"Saved {sig.signal_id}")
-
-    # ──────────────────────────────────────────────────────────────────────────────
-    # Subsection: Add New Signal
-    with signal_tab1:
-        st.subheader("Add Signal from Telegram")
-
-        col1, col2 = st.columns(2)
-
-        with col1:
-            channel = st.text_input(
-                "Telegram Channel",
-                value="Rohan Das (@rohaninvestor)",
-                placeholder="e.g., Rohan Das (@rohaninvestor)"
-            )
-            symbol = st.text_input(
-                "Stock Symbol",
-                value="",
-                placeholder="e.g., MOTHERSON, RELIANCE, TCS"
-            ).upper()
-            signal_date = st.date_input("Signal Posted Date", value=date.today())
-            strategy = st.text_input(
-                "Strategy/Indicator",
-                value="RPCI",
-                placeholder="e.g., RPCI, TechnoFunda, Chart Pattern"
-            )
-
-        with col2:
-            timeframe = st.selectbox(
-                "Timeframe",
-                ["Intraday", "Short-term (1-3 days)", "Medium-term (1-4 weeks)", "Long-term (1-3 months)"]
-            )
-            confidence = st.slider("Confidence Level", min_value=1, max_value=10, value=5)
-            entry_price = st.number_input("Entry Price (Optional)", value=0.0, step=0.01)
-            target_price = st.number_input("Target Price (Optional)", value=0.0, step=0.01)
-            stop_loss = st.number_input("Stop Loss (Optional)", value=0.0, step=0.01)
-
-        notes = st.text_area(
-            "Notes/Analysis",
-            height=150,
-            placeholder="Paste signal details, analysis, or key points from Telegram post..."
-        )
-
-        # Pre-filled Rohan Das RPCI example
-        if st.button("Load Example: Rohan Das RPCI (MOTHERSON)", key='example_rpci'):
-            symbol = 'MOTHERSON'
-            strategy = 'RPCI Indicator'
-            channel = 'Rohan Das (@rohaninvestor)'
-            signal_date = date(2026, 6, 25)
-            confidence = 8
-            timeframe = 'Medium-term (1-4 weeks)'
-            notes = (
-                "RPCI identified MOTHERSON before SEBI RA recommendation.\n"
-                "Stock recommended for next week accumulation.\n"
-                "RPCI simplifies technical analysis with rule-based signals.\n"
-                "Used by 1500+ traders including SEBI registered users.\n\n"
-                "SEBI RA confirmation: 27 June for next week accumulation."
-            )
-
-            st.session_state.signal_symbol = symbol
-            st.session_state.signal_channel = channel
-            st.session_state.signal_strategy = strategy
-            st.session_state.signal_date = signal_date
-            st.session_state.signal_confidence = confidence
-            st.session_state.signal_timeframe = timeframe
-            st.session_state.signal_notes = notes
-            st.rerun()
-
-        if st.button("Add Signal", type="primary", key='add_signal_btn'):
-            if not symbol or not channel:
-                st.error("Symbol and Channel are required")
-            else:
-                signal_data = {
-                    'symbol': symbol,
-                    'channel': channel,
-                    'posted_date': signal_date,
-                    'strategy': strategy,
-                    'signal_source': strategy.upper().replace(' ', '_') if strategy else 'OTHER',
-                    'timeframe': timeframe,
-                    'confidence': confidence,
-                    'entry_price': entry_price if entry_price > 0 else None,
-                    'target_price': target_price if target_price > 0 else None,
-                    'stop_loss': stop_loss if stop_loss > 0 else None,
-                    'notes': notes,
-                    'metadata': {
-                        'added_on': datetime.now().isoformat(),
-                        'manual_entry': True,
-                    }
-                }
-
-                signal = ts.add_signal_from_dict(signal_data)
-                st.success(f"Signal added: {signal.signal_id}")
-                st.balloons()
-
-    # ──────────────────────────────────────────────────────────────────────────────
-    # Subsection: Active Signals
-    with signal_tab2:
-        st.subheader("Active & Pending Signals")
-
-        active = ts.get_active_signals()
-
-        if not active:
-            st.info("No active signals. Add one above.")
-        else:
-            for signal in active:
-                with st.expander(f"{signal.symbol} — {signal.strategy} (Confidence: {signal.confidence}/10)", expanded=False):
-                    col1, col2, col3 = st.columns(3)
-
-                    with col1:
-                        st.metric("Symbol", signal.symbol)
-                        st.metric("Channel", signal.channel[:30])
-                        st.metric("Status", signal.status.value.title())
-
-                    with col2:
-                        st.metric("Entry Price", f"₹{signal.entry_price}" if signal.entry_price else "—")
-                        st.metric("Target", f"₹{signal.target_price}" if signal.target_price else "—")
-                        st.metric("Stop Loss", f"₹{signal.stop_loss}" if signal.stop_loss else "—")
-
-                    with col3:
-                        st.metric("Timeframe", signal.timeframe or "—")
-                        st.metric("Confidence", f"{signal.confidence}/10")
-                        st.metric("Posted", signal.posted_date.strftime('%d-%b') if signal.posted_date else "—")
-
-                    if signal.notes:
-                        st.write("**Notes:**")
-                        st.caption(signal.notes)
-
-                    # Update signal status
-                    col_update1, col_update2, col_update3, col_update4 = st.columns(4)
-                    with col_update1:
-                        if st.button("Mark Active", key=f"active_{signal.signal_id}"):
-                            ts.update_signal(signal.signal_id, status=tg.SignalStatus.ACTIVE, entry_date=date.today())
-                            st.rerun()
-                    with col_update2:
-                        if st.button("Partial Exit", key=f"partial_{signal.signal_id}"):
-                            ts.update_signal(signal.signal_id, status=tg.SignalStatus.PARTIAL)
-                            st.rerun()
-                    with col_update3:
-                        exit_return = st.number_input("Return %", value=0.0, step=0.1, key=f"return_{signal.signal_id}")
-                        if st.button("Close", key=f"close_{signal.signal_id}"):
-                            ts.update_signal(
-                                signal.signal_id,
-                                status=tg.SignalStatus.CLOSED,
-                                exit_date=date.today(),
-                                realized_return=exit_return
-                            )
-                            st.rerun()
-                    with col_update4:
-                        if st.button("Cancel", key=f"cancel_{signal.signal_id}"):
-                            ts.update_signal(signal.signal_id, status=tg.SignalStatus.CANCELLED)
-                            st.rerun()
-
-    # ──────────────────────────────────────────────────────────────────────────────
-    # Subsection: Signal History
-    with signal_tab3:
-        st.subheader("All Signals History")
-
-        if not ts.signals:
-            st.info("No signals recorded yet.")
-        else:
-            # Display as table
-            signal_list = []
-            for sig_id, signal in ts.signals.items():
-                signal_list.append({
-                    'Symbol': signal.symbol,
-                    'Channel': signal.channel[:20],
-                    'Strategy': signal.strategy,
-                    'Status': signal.status.value.title(),
-                    'Confidence': f"{signal.confidence}/10",
-                    'Entry': f"₹{signal.entry_price}" if signal.entry_price else "—",
-                    'Target': f"₹{signal.target_price}" if signal.target_price else "—",
-                    'Return %': f"{signal.realized_return}%" if signal.realized_return else "—",
-                    'Posted': signal.posted_date.strftime('%d-%b-%y') if signal.posted_date else "—",
-                })
-
-            df_signals = pd.DataFrame(signal_list)
-            _paginated_df(df_signals, key="telegram_signals")
-
-            # Export option
-            col_exp1, col_exp2 = st.columns(2)
-            with col_exp1:
-                csv_export = ts.export_to_csv()
-                if csv_export:
-                    st.success(f"Exported to: `{csv_export}`")
-
-    # ──────────────────────────────────────────────────────────────────────────────
-    # Subsection: Statistics
-    with signal_tab4:
-        st.subheader("Signal Performance Statistics")
-
-        stats = ts.get_signal_statistics()
-
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("Total Signals", stats['total_signals'])
-        with col2:
-            st.metric("Active/Pending", stats['active_signals'])
-        with col3:
-            st.metric("Closed", stats['closed_signals'])
-        with col4:
-            st.metric("Win Rate", f"{stats['win_rate']}%" if stats['closed_signals'] > 0 else "—")
-
-        col5, col6, col7 = st.columns(3)
-        with col5:
-            st.metric("Avg Return", f"{stats['avg_return']}%" if stats['closed_signals'] > 0 else "—")
-        with col6:
-            st.metric("Total Return", f"{stats['total_return']}%" if stats['closed_signals'] > 0 else "—")
-        with col7:
-            st.metric("Best Signal", stats['best_return'] if stats['best_signal'] else "—")
-
-        # By channel breakdown
-        st.subheader("Signals by Channel")
-        channels = {}
-        for signal in ts.signals.values():
-            if signal.channel not in channels:
-                channels[signal.channel] = 0
-            channels[signal.channel] += 1
-
-        if channels:
-            channel_df = pd.DataFrame(
-                list(channels.items()),
-                columns=['Channel', 'Signal Count']
-            ).sort_values('Signal Count', ascending=False)
-            st.dataframe(channel_df, width="stretch", hide_index=True)
-
-        # By strategy breakdown
-        st.subheader("Signals by Strategy")
-        strategies = {}
-        for signal in ts.signals.values():
-            if signal.strategy not in strategies:
-                strategies[signal.strategy] = 0
-            strategies[signal.strategy] += 1
-
-        if strategies:
-            strategy_df = pd.DataFrame(
-                list(strategies.items()),
-                columns=['Strategy', 'Signal Count']
-            ).sort_values('Signal Count', ascending=False)
-            st.dataframe(strategy_df, width="stretch", hide_index=True)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -11491,358 +11006,10 @@ if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chart
 # Page — High-Growth Screener (screener.in fundamentals + IBD-style RS rank +
 # %R Trend Exhaustion signal)
 # ──────────────────────────────────────────────────────────────────────────────
-if current_page == "SVP Structure":
-    st.subheader("SVP Structure")
-    st.caption(
-        "Volume-profile **structure** across the engine's retained sessions — where "
-        "price sits against the composite value area and POC, what shapes the "
-        "sessions printed, whether a trap run is in progress. Read from the SAME "
-        "`session_volume_profile.js` the chart draws, via a headless Node pass, so "
-        "the screen and the chart can never disagree."
-    )
-    st.markdown(
-        rs.callout(
-            "A bystander, deliberately.",
-            "This page feeds NOTHING. It is not a registered scanner, it is not in "
-            "the confluence pipeline, and it contributes no ranking weight. The SVP "
-            "confluence SCORE was measured 2026-08-29 as a clean negative — "
-            "corr(score, 20d fwd) = −0.041, deciles non-monotonic, BUY-high "
-            "confidence performing WORSE than BUY-low, 5 of 7 factor families "
-            "sign-inverted — so the score and its BUY/SELL direction are not shown "
-            "here at all. What is shown is structure, which the chart card's own "
-            "caveat says to read while ignoring the direction. If it ever earns a "
-            "place in the pipeline it goes at the END of it, on measured accuracy, "
-            "and that decision has not been taken.",
-            tone="warn"),
-        unsafe_allow_html=True)
-
-    _svp_csv = Path(__file__).resolve().parent / "cache" / "svp_screen.csv"
-    if not _svp_csv.exists():
-        st.info("No screen file yet. Build one with:")
-        st.code("py -3 tools/svp_universe_export.py --index nifty500\n"
-                "node tools/svp_screen_runner.js --dir tools/cache/svp_bars "
-                "--out tools/cache/svp_screen.csv",
-                language="bash")
-    else:
-        _svp = pd.read_csv(_svp_csv)
-        _age = datetime.now() - datetime.fromtimestamp(_svp_csv.stat().st_mtime)
-        _hrs = _age.total_seconds() / 3600
-        st.caption(
-            f"{len(_svp)} symbols · file written {_hrs:.1f}h ago · "
-            f"as-of dates in the table are the LAST BAR per symbol, which is what "
-            f"the structure describes — a stale bar makes a stale row, so both are "
-            f"shown rather than one date for the page."
-        )
-
-        # Defaults are BUY + D, per the desk's stated use: this page is being read
-        # as a long-idea lens. They are DEFAULTS and not restrictions — SELL and
-        # HOLD stay computed and one click away, because a screen that can only
-        # show one side stops being able to tell you the side is empty.
-        _shapes_avail = sorted(_svp["last_shape"].dropna().unique())
-        _c1, _c2, _c3 = st.columns(3)
-        with _c1:
-            _dirs = st.multiselect("Card read (confluence)", ["BUY", "SELL", "NEUTRAL"],
-                                   default=["BUY"], key="svp_dir",
-                                   help="The chart card's own confluence read — the "
-                                        "same engine, same factors, same wording. "
-                                        "Its DIRECTION measured negative on "
-                                        "2026-08-29; the per-factor detail is the "
-                                        "part that stands on its own.")
-        with _c2:
-            _shape = st.multiselect(
-                "Last session shape", _shapes_avail,
-                default=[x for x in ("D",) if x in _shapes_avail], key="svp_shape",
-                help="D = directional. The BUY rule accepts P or D, so this "
-                     "default hides P-shape BUYs — clear it to see them.")
-        with _c3:
-            _near = st.slider("Max |distance to composite POC| %", 0.0, 25.0, 25.0,
-                              step=0.5, key="svp_poc",
-                              help="POC is where most volume transacted — the "
-                                   "structural magnet. This filters on PROXIMITY "
-                                   "only; it implies no direction.")
-        _va = st.multiselect("Value-area state",
-                             sorted(_svp["va_state"].dropna().unique()),
-                             default=[], key="svp_va")
-
-        _f = _svp.copy()
-        if _va:
-            _f = _f[_f["va_state"].isin(_va)]
-        if _shape:
-            _f = _f[_f["last_shape"].isin(_shape)]
-        _f = _f[_f["poc_dist_pct"].abs().fillna(999) <= _near]
-
-        _c4, _c5 = st.columns(2)
-        with _c4:
-            _minagree = st.slider("Min agreement %", 0, 100, 0, step=5,
-                                  key="svp_agree",
-                                  help="How one-sided the factors are. This FILTERS, "
-                                       "it does not rank — agreement is a facet of a "
-                                       "composite whose direction measured negative, "
-                                       "so sorting the page by it would rank on the "
-                                       "discredited engine.")
-        with _c5:
-            _minfac = st.slider("Min factors", 0, 7, 0, step=1, key="svp_nfac",
-                                help="How many named factors fired. More factors is "
-                                     "more to READ, not more edge.")
-        if _dirs:
-            _f = _f[_f["sig_dir"].isin(_dirs)]
-        _f = _f[pd.to_numeric(_f["agreement"], errors="coerce").fillna(0) >= _minagree]
-        _f = _f[pd.to_numeric(_f["n_factors"], errors="coerce").fillna(0) >= _minfac]
-
-        st.markdown(f"**{len(_f)} of {len(_svp)}** symbols match.")
-        _show = _f[["symbol", "sig_dir", "sig_kind", "sig_conf", "agreement",
-                    "bull_w", "bear_w", "n_factors", "invalidation", "sig_target",
-                    "close", "sess_poc", "sess_val", "sess_vah",
-                    "va_state", "poc_dist_pct",
-                    "support_hvn", "resistance_hvn", "fast_below", "fast_above",
-                    "last_shape", "shape_seq", "accum_dist",
-                    "struct_read", "migration", "factors", "asof"]].copy()
-        # Same action-icon family every other table on this desk carries, so a row
-        # here reaches the chart, the analyzer and the watchlist without retyping
-        # a symbol into another page.
-        _show = _with_chart_family(_show, "symbol")
-        st.dataframe(
-            _show,
-            width="stretch", hide_index=True,
-            column_config={
-                **_chart_family_colcfg(),
-                "sig_dir": st.column_config.TextColumn(
-                    "card", help="The chart card's confluence direction. Carried as "
-                                 "DATA to be tested, never as a ranking key — it "
-                                 "measured negative on 2026-08-29."),
-                "agreement": st.column_config.NumberColumn(
-                    "agree %", format="%d%%",
-                    help="How one-sided the factors are. 100% means nothing "
-                         "disagreed — which is consistency, not correctness."),
-                "invalidation": st.column_config.NumberColumn(
-                    "breaks if", format="%.2f",
-                    help="The card's own invalidation level: the price at which "
-                         "this read stops holding. Populated on 286 of 500 rows."),
-                "sig_target": st.column_config.NumberColumn(
-                    "target", format="%.2f",
-                    help="The card's target where it has one — 178 of 500 rows. "
-                         "Blank means the structure offers none, not that the "
-                         "number is missing."),
-                "factors": st.column_config.TextColumn(
-                    "factors (plain English)", width="large",
-                    help="Every named factor, its weight, its direction and the "
-                         "card's own wording. This is the part that reads the same "
-                         "on the screen as on the chart."),
-                "struct_read": st.column_config.TextColumn(
-                    "struct", help="The SECOND construction (svp_structure_signal.js) "
-                                   "— POC migration + HVN/LVN roles. Kept alongside "
-                                   "so B-56 can test both against each other."),
-                "migration_frac": st.column_config.NumberColumn(
-                    "mig", format="%.2f",
-                    help="Fraction of session-to-session POC steps agreeing in "
-                         "sign. >= 0.60 is required to call a trend."),
-                "support_hvn": st.column_config.NumberColumn(
-                    "sup HVN", format="%.2f",
-                    help="Nearest HIGH-volume node below — accepted price with "
-                         "inventory to defend it. Stops belong behind this."),
-                "resistance_hvn": st.column_config.NumberColumn(
-                    "res HVN", format="%.2f",
-                    help="Nearest high-volume node above — supply overhead, where "
-                         "price stalls."),
-                "fast_below": st.column_config.NumberColumn(
-                    "fast ▼", format="%.2f",
-                    help="Nearest LOW-volume node below. NOT support — thin trade, "
-                         "price traverses it quickly. A stop here sits in the one "
-                         "place the market moves through fastest."),
-                "fast_above": st.column_config.NumberColumn(
-                    "fast ▲", format="%.2f",
-                    help="Nearest low-volume node above — a fast zone, so a target "
-                         "beyond it is reachable quickly once entered."),
-                "why": st.column_config.TextColumn(
-                    "rules", width="medium",
-                    help="Which named rules fired (or, for HOLD, which failed). "
-                         "No weights — a disagreement is about a stated rule."),
-                "poc_dist_pct": st.column_config.NumberColumn(
-                    "vs POC %", format="%.2f%%",
-                    help="Close against the composite POC. Sign is position, "
-                         "not a verdict."),
-                "va_pos": st.column_config.NumberColumn(
-                    "VA pos", format="%.2f",
-                    help="0 = value-area low, 1 = value-area high. Outside 0–1 "
-                         "means price left the range."),
-                "shape_seq": st.column_config.TextColumn(
-                    "shapes", help="Oldest→newest. P = buying/short-covering, "
-                                   "B = selling/liquidation, D = directional, "
-                                   "I = balance."),
-            })
-        st.caption(
-            "**A blank `res HVN` on a BUY row is meaningful, not missing.** "
-            "Measured on the nifty500 run: `support_hvn` is populated on 37 of 37 "
-            "BUY rows and `resistance_hvn` on 97 of 97 SELL rows, because each "
-            "rule requires that node to exist. A BUY with no node above means "
-            "price has run clear of every accepted zone — no overhead supply, "
-            "which is the bullish reading — but it also means **there is no "
-            "structural target**: the construction gives an entry and a stop "
-            "(behind `sup HVN`) and nothing to aim at. Use `fast ▲` as the next "
-            "reference, remembering it is a fast zone rather than a barrier."
-        )
-        st.caption(
-            "**The `read` column is a SECOND, separate construction** "
-            "(`svp_structure_signal.js`) — POC migration, HVN/LVN roles and the "
-            "shape series, as named boolean rules with no weights, so a "
-            "disagreement is about a stated rule rather than a number nobody can "
-            "decompose. It does NOT use the confluence score. It is **unmeasured**, "
-            "and the prior evidence points against it: `sequence` attributed at "
-            "−0.67 and `va` at −0.71 in the 2026-08-29 study, and those are exactly "
-            "the inputs it uses. **B-56 is the pre-registered test.** Nothing here "
-            "reaches the pipeline until that runs."
-        )
-        st.caption(
-            "`sweep` and `exh` are the only two of seven factor families that "
-            "measured the RIGHT way (+0.39 and +0.12). They are shown as flags and "
-            "nothing sorts on them: +0.12 is near zero, and picking the winners out "
-            "of an in-sample attribution is the overfit the SVP design "
-            "pre-registered against. They are here for a future pre-registered "
-            "test, not as a signal."
-        )
+# SVP Structure — EXTRACTED to tools/desk_pages/svp_structure.py (B-87r).
+# Dispatched by the desk_pages registry block above.
 
 
-if current_page == "High-Growth Screener":
-    st.subheader("High-Growth Screener — Sustained Growth + Quality Gates")
-    st.caption(
-        "Pure fundamental screen against screener.in — sustained 5-year sales/profit growth "
-        "gated by ROE/ROCE/OPM quality plus a YoY quarterly-profit acceleration kicker "
-        "(screener.in has no analyst-consensus 'profit surprise' field; YoY qtr profit growth "
-        "is the closest real proxy). No technical filters, no RS/exhaustion/validation "
-        "columns — those live on the Scanner Hub cards; this page is fundamental-only."
-    )
-
-    hg_left, hg_main = st.columns([1, 3])
-
-    with hg_left:
-        st.markdown("**screener.in Session**")
-        hg_cookie, hg_browser = bch.get_screener_sessionid()
-        if hg_cookie:
-            st.session_state["pb_screener_cookie"] = hg_cookie
-            st.caption(f"✅ Using screener.in session from local browser ({hg_browser}).")
-        else:
-            st.caption(
-                "⚠️ No screener.in `sessionid` cookie found in your local browsers. "
-                "Log into screener.in in your default browser once, then re-run."
-            )
-
-        st.divider()
-        st.markdown("**Growth & Quality Thresholds**")
-        hg_sales5y = st.slider("Min 5Y Sales Growth %", 0, 50, 15, step=1, key="hg_sales5y")
-        hg_profit5y = st.slider("Min 5Y Profit Growth %", 0, 80, 15, step=1, key="hg_profit5y")
-        hg_yoyq = st.slider("Min YoY Qtr Profit Growth % (surprise proxy)", -20, 100, 15,
-                             step=5, key="hg_yoyq")
-        hg_roe = st.slider("Min ROE %", 0, 40, 15, step=1, key="hg_roe")
-        hg_roce = st.slider("Min ROCE %", 0, 40, 15, step=1, key="hg_roce")
-        hg_opm = st.slider("Min OPM %", 0, 50, 10, step=1, key="hg_opm")
-
-        st.divider()
-        if st.button("▶ Run High-Growth Screen", type="primary", key="hg_run"):
-            cookie = (hg_cookie or "").strip() or st.session_state.get("pb_screener_cookie", "").strip()
-            if not cookie:
-                st.error("No screener.in `sessionid` cookie found — log into screener.in "
-                         "in your default browser, then re-run.")
-            else:
-                with st.spinner("Querying screener.in…"):
-                    try:
-                        hg_df = ss.fetch_high_growth_stocks(
-                            cookie, min_sales_growth_5y=hg_sales5y, min_profit_growth_5y=hg_profit5y,
-                            min_yoy_qtr_profit_growth=hg_yoyq, min_roe=hg_roe, min_roce=hg_roce,
-                            min_opm=hg_opm,
-                        )
-                    except Exception as exc:
-                        hg_df = None
-                        st.error(f"screener.in fetch failed: {exc}")
-
-                if hg_df is not None:
-                    if hg_df.empty:
-                        st.session_state["hg_results"] = []
-                    else:
-                        # Pure fundamental screen — no technical enrichment. Every
-                        # column here comes straight from the screener.in query
-                        # response; no yfinance fetch, no RS/%R/validation compute.
-                        results = []
-                        for _, row in hg_df.iterrows():
-                            sym = str(row.get("_slug") or row.get("Name", "")).strip().upper()
-                            if not sym:
-                                continue
-                            rec = {"symbol": sym}
-                            for col in hg_df.columns:
-                                if col not in ("Name", "_slug"):
-                                    rec[col] = row.get(col)
-                            results.append(rec)
-
-                        # Sort by 5Y profit growth (falls back to sales growth,
-                        # then YoY qtr) — pure fundamental ranking now that RS
-                        # Rank is gone.
-                        def _sort_key(r):
-                            for col in ("Profit growth 5Years", "Sales growth 5Years",
-                                        "YOY Quarterly profit growth"):
-                                v = pd.to_numeric(r.get(col), errors="coerce")
-                                if pd.notna(v):
-                                    return -float(v)
-                            return 0.0
-                        st.session_state["hg_results"] = sorted(results, key=_sort_key)
-
-    with hg_main:
-        hg_results = st.session_state.get("hg_results")
-        if hg_results is None:
-            st.info(
-                "Adjust thresholds and click **Run High-Growth Screen**. The screener.in "
-                "session is read automatically from your local browser — just stay logged "
-                "into screener.in there."
-            )
-        elif not hg_results:
-            st.info(
-                "screener.in returned 0 rows for these thresholds. With nominal "
-                "settings that usually means the sessionid cookie has expired "
-                "(re-paste it and rerun) rather than genuinely no matches — an "
-                "expired cookie now raises an error instead, so if you're seeing "
-                "this after a clean run, the thresholds really matched nothing."
-            )
-        else:
-            df_hg_res = pd.DataFrame(hg_results)
-            df_hg_res["Chart"] = df_hg_res["symbol"].apply(
-                lambda s: f"http://localhost:5001/?symbol={s}.NS&tf=1d"
-            )
-            df_hg_res["Analyze"] = df_hg_res["symbol"].map(_analyze_url)
-
-            rename_map = {
-                "symbol": "Symbol",
-                "Current Price": "Price",
-                "Sales growth 5Years": "Sales Gr 5Y %",
-                "Profit growth 5Years": "Profit Gr 5Y %",
-                "YOY Quarterly profit growth": "YoY Qtr Profit %",
-                "Return on equity": "ROE %",
-                "Return on capital employed": "ROCE %",
-                "OPM": "OPM %",
-            }
-            df_hg_res = df_hg_res.rename(
-                columns={k: v for k, v in rename_map.items() if k in df_hg_res.columns}
-            )
-
-            keep_hg = ["Chart", "Analyze", "Symbol", "Price", "Sales Gr 5Y %", "Profit Gr 5Y %",
-                       "YoY Qtr Profit %", "ROE %", "ROCE %", "OPM %"]
-            keep_hg = [c for c in keep_hg if c in df_hg_res.columns]
-
-            st.caption(
-                f"{len(df_hg_res)} stocks passed the growth/quality gate · "
-                "sorted by 5Y profit growth"
-            )
-            col_cfg_hg = {
-                "Chart": st.column_config.LinkColumn(
-                    "Chart", display_text="Open Chart", width="small",
-                ),
-                "Analyze": _analyze_colcfg(),
-            }
-            st.dataframe(
-                df_hg_res[keep_hg], width="stretch", hide_index=True,
-                column_config=col_cfg_hg,
-            )
-            st.caption(
-                "Columns showing blank came back missing from screener.in's response for that "
-                "field (its raw-query columns can vary); re-check that stock on screener.in directly."
-            )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -12444,9 +11611,22 @@ if current_page == "India Market Intel":
         "confirmed working via reverse-engineered public APIs — no login needed. Rows marked "
         "**NEW** appeared since the last time you refreshed this page (these feeds have no "
         "history endpoint, so this isn't a true day-over-day diff — just 'new since last check'). "
-        "Corporate announcements aren't wired up yet — the whole-market feed is very high volume "
-        "without a watchlist filter to scope it to."
+        "**Corporate filings are now wired up** (below) — the whole-market feed IS high volume, "
+        "which is why it is bucketed and de-noised rather than left raw: 1,262 filings over four "
+        "days reduce to 226 material ones."
     )
+
+    # ── Material corporate filings, market-wide (B-111) ───────────────────────
+    # The stream this page said was "not wired up because it is high volume".
+    # Bucketing is the answer to the volume; the render lives in the module so a
+    # test can reach the classification, which is the part that decides what a
+    # reader is told is material.
+    import nse_filings_feed as _ff
+
+    st.markdown("#### Material corporate filings")
+    _ff.render(days=st.select_slider("Window (days)", [1, 2, 3, 5, 7], value=2,
+                                     key="mi_filing_days"), key="mi")
+    st.divider()
 
     # ── Deal Intelligence (CEAVET) ────────────────────────────────────────────
     # The tables below are complete and say nothing at a glance: 190 deal rows
@@ -12698,7 +11878,7 @@ if current_page == "India Market Intel":
             col_config["Chart"] = st.column_config.LinkColumn("Chart", display_text="📈 Open", width="small")
         if "Analyze" in df_deals.columns:
             col_config["Analyze"] = _analyze_colcfg()
-        _paginated_df(df_deals.style.apply(_row_color, axis=1), key="deals_main",
+        uit.paginated_df(df_deals.style.apply(_row_color, axis=1), key="deals_main",
                       column_config=col_config)
 
     with intel_tabs[0]:
@@ -12824,7 +12004,7 @@ if current_page == "India Market Intel":
 
             styled = ins_display.style.apply(_dir_color, axis=1) \
                 if "Δ Holding %" in ins_display.columns else ins_display
-            _paginated_df(styled, key="insider_main", column_config=ins_col_config)
+            uit.paginated_df(styled, key="insider_main", column_config=ins_col_config)
 
     with intel_tabs[3]:
         st.caption(
@@ -13577,7 +12757,8 @@ if current_page == "Strategy Hub":
     st.markdown(
         f"<h2 style='margin-bottom:2px;'>Strategy Hub</h2>"
         f"<div style='font-size:12px;color:{rs.TOKENS['text_muted']};margin-bottom:16px;'>"
-        f"Snapshot: {_SNAP_DATE} · Chart patterns + trading strategies + fundamental scores"
+        f"Chart patterns (detections {_SNAP_DATE}, prices live) · "
+        f"trading strategies + fundamental scores ({_SNAP_DATE} snapshot)"
         f"</div>",
         unsafe_allow_html=True,
     )
@@ -13589,43 +12770,25 @@ if current_page == "Strategy Hub":
     # ── 1. Chart Patterns ─────────────────────────────────────────────────────
     with st.container(border=True):
         st.markdown("#### Chart Patterns  ·  Major Stocks")
-        st.caption("Past detections from StockEdge (EOD, AI + Human hybrid). "
-                   "Outcome = LTP vs published price point.")
+        st.caption(
+            "**Detections are a fixed sample** captured from StockEdge in August "
+            "2026 (EOD, AI + Human hybrid) \u2014 a record of what a third party "
+            "called and when, not a live feed. **The prices are live:** LTP is "
+            "fetched from the same batched source the rest of the desk uses, and "
+            "Move % is derived from it rather than stored (PR-1)."
+        )
 
         import pandas as pd
+        import pattern_reports as _pr
 
-        _PATTERNS = [
-            # (Stock, Pattern, Bias, Published, Pub Price, LTP, Move%)
-            ("CE Info Systems",      "Double Top",          "Bearish",  "04 Aug", 1231.95, 1013.30, -17.7),
-            ("Zee Entertainment",    "Double Top",          "Bearish",  "03 Aug",  118.35,   91.56, -22.6),
-            ("Supreme Petrochem",    "Double Top",          "Bearish",  "29 Jul",  788.00,  685.25, -13.0),
-            ("Gallantt Ispat",       "Bearish Flag",        "Bearish",  "21 Jul",  618.50,  593.50,  -4.0),
-            ("Hero MotoCorp",        "Falling Channel",     "Bearish",  "20 Jul", 4942.38, 5865.50, +18.7),
-            ("Mahindra & Mahindra",  "Falling Channel",     "Bearish",  "21 Jul", 3172.73, 3460.10,  +9.1),
-            ("PNB Housing Finance",  "Rising Wedge",        "Bearish",  "23 Jul", 1073.38, 1142.10,  +6.4),
-            ("Pine Labs",            "Double Top",          "Bearish",  "16 Jul",  164.40,  167.58,  +1.9),
-            ("Muthoot Finance",      "Falling Wedge",       "Bearish",  "21 Jul", 3068.97, 2915.90,  -5.0),
-            ("Jubilant FoodWorks",   "Double Bottom",       "Bullish",  "27 Jul",  408.55,  488.20, +19.5),
-            ("Sapphire Foods",       "Sym. Triangle",       "Bullish",  "27 Jul",  182.94,  236.02, +29.0),
-            ("LTM Ltd.",             "Sym. Triangle",       "Bullish",  "28 Jul", 4192.58, 4850.00, +15.7),
-            ("Piramal Pharma",       "Sym. Triangle",       "Bullish",  "17 Jul",  177.18,  214.19, +20.9),
-            ("RR Kabel",             "Sym. Triangle",       "Bullish",  "22 Jul", 2386.29, 2812.80, +17.9),
-            ("Clean Science & Tech", "Sym. Triangle",       "Bullish",  "20 Jul",  756.03,  810.00,  +7.1),
-            ("Hyundai Motor India",  "Ascending Triangle",  "Bullish",  "31 Jul", 2064.80, 2200.00,  +6.5),
-            ("CRISIL",               "Ascending Triangle",  "Bullish",  "21 Jul", 4250.00, 4480.80,  +5.4),
-            ("Blue Star",            "Sym. Triangle",       "Neutral",  "03 Aug",    None,    None, -13.0),
-            ("Zee Entertainment",    "Sym. Triangle",       "Neutral",  "27 Jul",    None,    None, -15.3),
-            ("Supreme Petrochem",    "Falling Channel",     "Bearish",  "27 Jul",    None,    None,  -9.0),
-        ]
-
-        _pat_df = pd.DataFrame(_PATTERNS, columns=[
-            "Stock", "Pattern", "Bias", "Published", "Pub Price ₹", "LTP ₹", "Move %",
-        ])
-
-        def _bias_badge(b: str) -> str:
-            colors = {"Bullish": "#2e7d32", "Bearish": "#c62828", "Neutral": "#5c6bc0"}
-            return f'<span style="background:{colors.get(b,"#666")};color:#fff;' \
-                   f'border-radius:4px;padding:1px 6px;font-size:11px;">{b}</span>'
+        _pat_px = _pr.cached_prices()
+        _pat_df = pd.DataFrame(_pr.build_rows(_pat_px), columns=list(_pr.COLUMNS))
+        # A None in an object-dtype column renders as the literal string "None".
+        # Coercing makes it NaN, which renders as an EMPTY cell -- an absent
+        # reading must look absent, not like a value. Same fix the Watchlist
+        # applies to its own numeric columns.
+        for _c in ("Pub Price ₹", "LTP ₹", "Move %"):
+            _pat_df[_c] = pd.to_numeric(_pat_df[_c], errors="coerce")
 
         _pat_filter = st.radio(
             "Filter", ["All", "Bullish", "Bearish", "Neutral"],
@@ -13638,33 +12801,54 @@ if current_page == "Strategy Hub":
             width="stretch",
             hide_index=True,
             column_config={
+                # The symbol is shown, not hidden: it is what the price was
+                # fetched against, so a reader can check the name-to-ticker
+                # mapping rather than trust it.
+                "Symbol":      st.column_config.TextColumn("Symbol", width="small"),
                 "Stock":       st.column_config.TextColumn("Stock", width="medium"),
                 "Pattern":     st.column_config.TextColumn("Pattern", width="medium"),
                 "Published":   st.column_config.TextColumn("Published", width="small"),
-                # "Pub Price ₹" stays inline — a singleton, used only here.
-                # "LTP ₹" is the shared `close`, and adopting it drops the ₹
-                # glyph from the cells: the format is part of the definition and
-                # every other table on the desk prints LTP without it.
+                # "Pub Price ₹" stays inline — a singleton, used only here. Blank
+                # means the source published no price point, so the row carries a
+                # detection but cannot carry a move.
+                # "Pub Price ₹" stays inline -- a singleton, used only here.
+                #
+                # The three price-less rows render a grey "None" in these
+                # columns, not an empty cell. That is STREAMLIT's missing-value
+                # placeholder, not our data: the values are verified NaN
+                # (float64) before they reach the grid, and dropping the printf
+                # format does not change it. Tested both ways on the running
+                # page rather than assumed. The caption under the table names
+                # the three rows and why they cannot carry a move, which is
+                # where the explanation belongs; the same placeholder shows up
+                # on the Watchlist's SVP column and is tracked separately.
                 "Pub Price ₹": st.column_config.NumberColumn("Pub Price ₹", format="₹%.2f"),
                 **_cols_mod().configure("LTP ₹"),
-                "Move %":      st.column_config.NumberColumn("Move %", format="%.1f%%"),
+                "Move %":      st.column_config.NumberColumn("Move %", format="%+.1f%%"),
             },
         )
-        _total = len(_pat_view)
-        _bull_pats = (_pat_view["Move %"] > 0).sum()
-        _bear_pats = (_pat_view["Move %"] < 0).sum()
+        _sb = _pr.scoreboard(_pat_view.to_dict("records"))
+        _unpriced = len(_pr.symbols()) - len(_pat_px)
         st.caption(
-            f"{_total} pattern(s) shown · "
-            f"**{_bull_pats}** above publish price · **{_bear_pats}** below · "
-            f"Major Stocks filter · activeness-status=200"
+            f"**{_sb['above']}** above publish price · **{_sb['below']}** below · "
+            f"scored on **{_sb['scored']} of {_sb['total']}** shown"
+            + (f" \u2014 {_sb['total'] - _sb['scored']} have no publish price, so they "
+               f"carry a detection but no move" if _sb['scored'] < _sb['total'] else "")
+            + (f" · {_unpriced} symbol(s) could not be priced" if _unpriced else "")
+            + " · Major Stocks filter · activeness-status=200"
         )
 
     # ── 2. Trading Strategies ─────────────────────────────────────────────────
     with st.container(border=True):
-        st.markdown("#### Trading Strategies  ·  Live Counts")
+        # "Live Counts" until 2026-09-17, over a hardcoded literal dated 11 Aug
+        # (PR-1b). The heading was the boldest claim on the page and the one
+        # thing here that was never true.
+        st.markdown("#### Trading Strategies  ·  Snapshot")
         st.caption(
-            "Predefined combination scans re-run EOD by 7 PM. "
-            f"Counts as of {_SNAP_DATE}."
+            f"**A fixed snapshot from {_SNAP_DATE}, not a live count** — these "
+            "scans are a third party's and nothing on this desk re-runs them. "
+            "The descriptions and horizons are a record of what each scan is; "
+            "the stock counts are what it returned on that date."
         )
 
         _STRATEGIES = [
@@ -13712,118 +12896,18 @@ if current_page == "Strategy Hub":
                     unsafe_allow_html=True,
                 )
 
-        _bull_total = sum(s[3] for s in _STRATEGIES if s[2] == "Bullish")
-        _bear_total = sum(s[3] for s in _STRATEGIES if s[2] == "Bearish")
-        st.caption(
-            f"Net: **{_bull_total} bullish** signals vs **{_bear_total} bearish** · "
-            f"Bullish skew in strategy engine is consistent — chart patterns are "
-            f"backward-looking; strategies are forward-looking EOD signals."
-        )
+        # The "Net: N bullish vs M bearish · bullish skew is consistent" line was
+        # removed 2026-09-17 (PR-1b). It summed the frozen counts above and read
+        # as a finding about the market; it was a finding about a literal. A
+        # scoreboard is only worth printing when something is measuring it.
 
-    # ── 3. Fundamental Scores ─────────────────────────────────────────────────
+    # ── 3. Fundamentals (PR-1c) ───────────────────────────────────────────────
+    # Was `_FS_DATA`, a literal of six rows carrying a /100 shield, an EPS CAGR,
+    # a PE band, LTP and day change -- all hardcoded under a caption claiming the
+    # scores were "computed from the last fundamental data pull". It printed a
+    # PE of 62x for Piramal Pharma, whose TTM EPS is -2.4: not stale, meaningless.
     with st.container(border=True):
-        st.markdown("#### Fundamental Scores  ·  Top Picks")
-        st.caption(
-            "Scores computed from the last fundamental data pull. "
-            "Shield color: green ≥ 70 · amber 50–69 · red < 50."
-        )
-
-        _FS_DATA = [
-            # (stock, sector, mcap_cr, fund_score, eps_cagr_3y, pe_min, pe_max, pe_now, ltp, ltp_chg)
-            ("DCM Shriram",    "Chemicals",      9_800,  75, -2.15,  12.1, 28.4, 14.2, 1143.50, +1.2),
-            ("Vedanta",        "Metals",        1_52_000, 72, +16.10, 6.3, 18.7,  9.1,  465.80, +0.8),
-            ("Jubilant FW",    "Consumer",      12_500,  68, +8.40,  32.0, 58.2, 41.0,  488.20, +2.1),
-            ("CRISIL",         "Financials",    32_400,  81, +11.20, 28.5, 45.0, 36.8, 4480.80, +0.4),
-            ("Hyundai India",  "Auto",         1_20_000, 65, +4.50,  18.0, 32.0, 22.1, 2200.00, +0.6),
-            ("Piramal Pharma", "Pharma",        14_200,  59, -1.80,  40.0, 95.0, 62.0,  214.19, +3.2),
-        ]
-
-        def _shield_color(score: int) -> str:
-            if score >= 70:
-                return "#2e7d32"
-            if score >= 50:
-                return "#e65100"
-            return "#c62828"
-
-        def _pe_bar_html(pe_min, pe_max, pe_now, width=90) -> str:
-            if pe_max <= pe_min:
-                return "—"
-            pct = max(0.0, min(1.0, (pe_now - pe_min) / (pe_max - pe_min)))
-            filled = int(pct * width)
-            marker = filled
-            return (
-                f'<div style="position:relative;width:{width}px;height:8px;'
-                f'background:#e0e0e0;border-radius:4px;display:inline-block;">'
-                f'<div style="width:{filled}px;height:8px;background:#1565c0;'
-                f'border-radius:4px;"></div>'
-                f'<div style="position:absolute;top:-2px;left:{marker}px;'
-                f'width:3px;height:12px;background:#ff6f00;border-radius:2px;"></div>'
-                f'</div><span style="font-size:10px;margin-left:5px;">{pe_now:.1f}x</span>'
-            )
-
-        for (_fstock, _fsec, _fmcap, _fscore, _feps, _fpe_min, _fpe_max, _fpe_now,
-             _fltp, _fchg) in _FS_DATA:
-            _sc = _shield_color(_fscore)
-            _chg_color = "#2e7d32" if _fchg >= 0 else "#c62828"
-            _chg_sign  = "+" if _fchg >= 0 else ""
-            _eps_color = "#2e7d32" if _feps >= 0 else "#c62828"
-
-            fc1, fc2, fc3, fc4, fc5, fc6 = st.columns([2.5, 1.2, 1.0, 1.8, 1.8, 1.2])
-            with fc1:
-                st.markdown(
-                    f'<div style="padding-top:4px;font-weight:600;">{_fstock}</div>'
-                    f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
-                    f'{_fsec} · ₹{_fmcap/100:,.0f}Cr MCap</div>',
-                    unsafe_allow_html=True,
-                )
-            with fc2:
-                st.markdown(
-                    f'<div style="padding-top:4px;">'
-                    f'<span style="background:{_sc};color:#fff;border-radius:6px;'
-                    f'padding:3px 10px;font-weight:700;font-size:13px;">🛡 {_fscore}</span>'
-                    f'<span style="font-size:10px;color:{rs.TOKENS["text_muted"]};'
-                    f'margin-left:4px;">/100</span></div>',
-                    unsafe_allow_html=True,
-                )
-            with fc3:
-                st.markdown(
-                    f'<div style="padding-top:6px;font-size:12px;">'
-                    f'<span style="color:{_eps_color};font-weight:600;">'
-                    f'{_chg_sign if _feps >= 0 else ""}{_feps:.2f}%</span>'
-                    f'<br><span style="font-size:10px;color:{rs.TOKENS["text_muted"]};">'
-                    f'EPS 3Y CAGR</span></div>',
-                    unsafe_allow_html=True,
-                )
-            with fc4:
-                st.markdown(
-                    f'<div style="padding-top:8px;">'
-                    f'{_pe_bar_html(_fpe_min, _fpe_max, _fpe_now)}</div>'
-                    f'<div style="font-size:10px;color:{rs.TOKENS["text_muted"]};">'
-                    f'PE 3Y range {_fpe_min:.0f}–{_fpe_max:.0f}x</div>',
-                    unsafe_allow_html=True,
-                )
-            with fc5:
-                st.markdown(
-                    f'<div style="padding-top:4px;font-size:14px;font-weight:700;">'
-                    f'₹{_fltp:,.2f}</div>'
-                    f'<div style="font-size:11px;color:{_chg_color};">'
-                    f'{_chg_sign}{_fchg:.2f}% today</div>',
-                    unsafe_allow_html=True,
-                )
-            with fc6:
-                _qs_url = f"?nav=analyze&symbol={_fstock.replace(' ','%20').split()[0].upper()}"
-                st.markdown(
-                    f'<div style="padding-top:6px;">'
-                    f'<a href="{_qs_url}" target="_self" style="font-size:11px;">'
-                    f'Analyze ↗</a></div>',
-                    unsafe_allow_html=True,
-                )
-
-            st.markdown(
-                f'<hr style="border:none;border-top:1px solid {rs.TOKENS["border"]};'
-                f'margin:4px 0;">',
-                unsafe_allow_html=True,
-            )
+        __import__("fundamental_panel").render(rs.TOKENS)
 
 
 # ──────────────────────────────────────────────────────────────────────────────

@@ -6,6 +6,7 @@ created: 2026-08-29
 updated: 2026-08-29
 sources: 0
 related: [analyses/Open-Backlog, analyses/Backtest-Harness, concepts/Renko-Charts]
+timeframe: n/a
 ---
 
 # Scanner Overlap Audit

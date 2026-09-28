@@ -36,9 +36,30 @@ The rarest and most aggressive bullish continuation pattern: a near-vertical **p
 - [[strategies/Minervini-SEPA]] — HTF discussed as a rare leadership pattern; SEPA risk rules (stop below flag low, pilot-then-add) apply directly.
 - [[concepts/Darvas-Box]] — the flag is a one-box Darvas consolidation at the top of a runaway move.
 
+## Position in the Flag Family — added 2026-09-17
+
+HTF is **the rarest member of a family, not the family itself**, and the distinction was not recorded here until [[sources/Spider-Software-Flag-Pole-Infographic]] made the general case explicit.
+
+| | HTF (what ships) | General Flag & Pole (absent) |
+|---|---|---|
+| Pole | **≥90% in ~40 bars** | any proportionate impulse |
+| Flag depth | **≤25%** | typically ≤38–50% of the pole |
+| Volume in the flag | **must contract** (a rising-volume flag is rejected outright) | commonly optional |
+| Direction | **bullish only** | both — the inverted/bear half is absent here entirely |
+| Trade plan | **none emitted** | entry at the flag break, stop at the far boundary, target = pole projected |
+
+> [!warning] Rare enough that it cannot be measured
+> [[analyses/Open-Backlog#B-19]] lists `High Tight Flag` among **three scanners with too few signals** to score across LIQUID_50 over three walk-forward windows. The gates that make the pattern meaningful are the same gates that make it unmeasurable.
+>
+> That is an argument **for** building the general version rather than against it: a proportionate-pole flag fires often enough to be scored, and HTF then becomes a testable *subset* of a family with a measured base rate instead of a lone rule nobody can check. Tracked as [[analyses/Open-Backlog#B-92]].
+
+**The scanner emits no entry, stop or target** — `pattern_type`, `tags`, `reasons` and `score` only. It is not alone (7 of 31 firing scanners carry a full plan), and because `backtest._simulate_plan` walks entry → stop/target, a scanner without one **cannot be scored on realised R at all**. See [[analyses/Pattern-Reporting-Enhancement-Roadmap]].
+
 ## Examples in This Wiki
 - **Scanner**: `scan_high_tight_flag()` in `tools/scanner_templates.py` (added 2026-07-03 from the SwingEdge Momentum Buildup ingest).
 - No live NSE example yet — the pattern is rare by definition; annotate an entity page when the scanner produces a genuine hit.
+- **Not drawable on the chart.** `falling_wedge`, `vcp`, `roundbottom` and `harmonic` have overlays; no flag/pole overlay exists (roadmap PR-4).
 
 ## Sources
 1. [SwingEdge-Momentum-Buildup-Screener-20260703](../sources/SwingEdge-Momentum-Buildup-Screener-20260703.md) — pattern parameters, volume rules, and tag taxonomy (ingested 2026-07-03).
+2. [[sources/Spider-Software-Flag-Pole-Infographic]] (2026-09-17) — the general flag-and-pole construction and its measured-move plan geometry, which placed HTF as the extreme case.

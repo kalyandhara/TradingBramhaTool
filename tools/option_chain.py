@@ -201,14 +201,17 @@ def max_pain(chain: dict[str, Any]) -> Optional[dict[str, Any]]:
 
 
 def oi_walls(chain: dict[str, Any], n: int = 3,
-             above_below_spot: bool = True) -> dict[str, list[dict[str, float]]]:
+             above_below_spot: bool = True,
+             near_strikes: Optional[int] = None) -> dict[str, list[dict[str, float]]]:
     """Highest-OI strikes: call walls (resistance) and put walls (support).
 
     With `above_below_spot` (default) call walls are restricted to strikes AT OR
     ABOVE spot and put walls to strikes AT OR BELOW it — the only side on which
-    each reading means anything. A large call OI far below spot is deep-ITM
-    inventory, not a ceiling; ranking it as "resistance" would put the strongest
-    resistance underneath the price.
+    each reading means anything.
+
+    With `near_strikes` (e.g. 10), ranking is further limited to the N strikes
+    nearest spot on each side.  This prevents far-OTM weekly inventory from
+    appearing as "resistance" or "support" when nobody is defending those levels.
 
     Returns {"resistance": [...], "support": [...]}, strongest first, each entry
     {"strike", "oi", "dist_pct"}.
@@ -225,6 +228,11 @@ def oi_walls(chain: dict[str, Any], n: int = 3,
         d = df[df[col] >= MIN_WALL_OI]
         if above_below_spot and spot:
             d = d[d["strike"] >= spot] if side == "resistance" else d[d["strike"] <= spot]
+        if near_strikes and spot and len(d) > near_strikes:
+            if side == "resistance":
+                d = d.nsmallest(near_strikes, "strike")
+            else:
+                d = d.nlargest(near_strikes, "strike")
         if d.empty:
             return []
         d = d.nlargest(n, col)
@@ -258,7 +266,7 @@ def read_levels(symbol: str = "NIFTY", expiry: Optional[str] = None,
         return None
 
     mp = max_pain(chain)
-    w = oi_walls(chain, n=walls)
+    w = oi_walls(chain, n=walls, near_strikes=NEAR_STRIKES)
     spot = chain.get("spot")
     df = chain["strikes"]
 
@@ -287,6 +295,7 @@ def read_levels(symbol: str = "NIFTY", expiry: Optional[str] = None,
         "total_put_oi": tot_p,
         "pcr_oi": pcr_oi,
         "n_strikes": int(len(df)),
+        "wall_window": NEAR_STRIKES,
         "unmeasured": True,   # see the module docstring — levels, not a signal
     }
 

@@ -63,6 +63,92 @@ VERDICTS = ("POSITIVE", "NEGATIVE", "NULL", "INCONCLUSIVE", "MIXED", "UNRECORDED
 #: headline — one short line; optional, and never the full result
 STUDIES: tuple[dict, ...] = (
     {
+        "item": "B-114", "tool": "sbc_reading_backtest.py", "date": "2026-09-21",
+        "subjects": ("structure break chain reading",),
+        "verdict": "POSITIVE",
+        "headline": ("150 names, 4,608 events (2,525 held / 2,083 failed): a break that "
+                     "HELD beat one that FAILED by +1.28pp @20d, p<0.001 pooled -- and it "
+                     "SURVIVES clustering (symbol as the unit: 133 names, mean +1.37pp, "
+                     "median +1.04pp, 79/133 positive, p=0.0015). The graded quality score "
+                     "does NOT rank on the same data (NORMAL -0.37% sits below WEAK "
+                     "+0.52%), so the binary carries it. NOT tested against a do-nothing "
+                     "baseline. BSE alone had said +16.05pp -- twelve times the powered "
+                     "number, which is the floor's whole argument. B-115 then added the "
+                     "missing arm: held breaks DO beat owning the same bars, +0.82pp @20d "
+                     "(p=0.006; clustered 130 symbols, mean +0.67pp, 58% positive, "
+                     "p=0.0297) -- real, and half the size of the two-bucket number. "
+                     "Earlier BSE-only run: 41 events, 32 held vs 9 FAILED -- held breaks beat "
+                     "failed ones by +7.1/+12.7/+16.1/+15.8pp at 5/10/20/60d "
+                     "(p 0.064/0.009/0.039/0.064), and the failed bucket is 9 against "
+                     "a pre-registered floor of 30, so nothing is claimed. The first "
+                     "run was an ARTIFACT (41 held / 0 failed): `failed` resolves in "
+                     "the bars AFTER a break, so at the break bar it is always False. "
+                     "Neither secondary ladder ranks -- warn beats good, WEAK beats "
+                     "STRONG"),
+        "source": "analyses/SBC-Reading-BSE",
+    },
+    {
+        "item": "B-48", "tool": "cvd_data_probe.py", "date": "2026-09-21",
+        # Subject is the DATA, not a scanner: nothing in SCANNERS computes a
+        # delta, and the point of the probe was to stop something from being
+        # built that would have.
+        "subjects": ("cumulative volume delta",),
+        "verdict": "NEGATIVE",
+        "headline": ("a true CVD is not computable without tick/bid-ask data, and the "
+                     "OHLC proxy is bar-size dependent: 75.6% sign agreement and r=0.80 "
+                     "between 5m and 15m session totals over 435 symbol-sessions, "
+                     "against a pre-committed 90%/0.90. The two conventional proxies "
+                     "disagree with EACH OTHER on 26% of the same bars"),
+        "source": "analyses/CVD-Data-Probe",
+    },
+    {
+        "item": "B-101", "tool": "bilateral_expansion_study.py",
+        "date": "2026-09-20",
+        "subjects": ("Symmetrical Triangle (bilateral)",),
+        # Two runs. The first (28 coils) was INCONCLUSIVE by its own floor; the
+        # second (270) is powered and settles it. The pair is kept because the
+        # underpowered run is the argument for the floor.
+        "verdict": "NULL",
+        "headline": ("270 coils over 482 names, ~10y: a coil precedes an ORDINARY move "
+                     "-- +0.32/-0.01/+0.23/-0.74pp |move| vs baseline at 5/10/20/60d, "
+                     "p 0.27-0.98, sign not stable. The apex 50-75% band carries nothing "
+                     "(in-band expands slightly LESS at every horizon, p 0.37-0.79). The "
+                     "BILATERAL framing SURVIVES its falsifier: 42.7% up-share (105/141/"
+                     "24 undecidable), inside the pre-committed 40-60%. The first run's "
+                     "28-signal lean (+1.02 to +4.47pp) and its 29.2% up-share were both "
+                     "noise, and the pre-registered floor is why neither was claimed"),
+        "source": "analyses/Bilateral-Expansion-Pre-Registration",
+    },
+    {
+        "item": "B-76", "tool": "order_block_rules_backtest.py",
+        "date": "2026-09-13",
+        # Subjects are the three OVERLAY rules, deliberately NOT "Order Block
+        # Retest". That scanner was measured separately by the harness (-0.74%
+        # @20d) and naming it here would let CHECK 0 read this study as a verdict
+        # on the scanner, which it is not -- same B-73p0 reasoning.
+        "subjects": ("order block target ladder", "order block stacked-zone bias",
+                     "order block rejection entry"),
+        "verdict": "NEGATIVE",
+        "headline": ("target ladder is a NULL (paired -0.019R gross / -0.030R net vs "
+                     "flat 2R, p=0.76 / 0.64) so it collapsed to 2R -- and the surviving "
+                     "2R plan is -0.095R NET of costs; the stacked-zone bias gauge is "
+                     "INVERTED (bullish lean +0.70% vs bearish +2.19% raw @20d, t=-9.05 "
+                     "gross / -12.79 net; clustered by symbol -0.373pp on 38/50 and "
+                     "-2.361pp on 40/44) and was RETIRED; early vs confirmed retest "
+                     "undecidable (p=0.26 both cost bases, n~175/arm) so no difference "
+                     "is claimed"),
+        "source": "analyses/Order-Block-Rules-Measured",
+    },
+    {
+        "item": "B-76c", "tool": "ob_bias_clustered.py", "date": "2026-09-13",
+        "subjects": ("order block stacked-zone bias",),
+        "verdict": "NEGATIVE",
+        "headline": ("the clustering control B-76's pooled test could not supply: with "
+                     "the SYMBOL as the unit (50 clusters) the inversion holds -- bullish "
+                     "lean -0.373pp negative on 38/50 names, bearish -2.361pp on 40/44"),
+        "source": "analyses/Order-Block-Rules-Measured",
+    },
+    {
         "item": "B-41m", "tool": None, "date": "2026-09-06",
         "subjects": ("Liquidity Sweep", "Liquidity Sweep Bear"),
         "verdict": "MIXED",
@@ -193,6 +279,70 @@ STUDIES: tuple[dict, ...] = (
         "verdict": "NEGATIVE",
         "headline": "5 of 7 factors sign-inverted, corr -0.041, beat buy&hold 0/8",
         "source": "analyses/SVP-Signal-Backtest-Design",
+    },
+    {
+        "item": "B-94", "tool": "letter_levels_check.py", "date": "2026-09-19",
+        "subjects": ("max_pain", "oi_walls", "read_levels"),
+        "verdict": "MIXED",
+        "headline": ("an outside letter's NIFTY max pain 23,300 reproduces "
+                     "EXACTLY on the 2026-09-17 chain; its call wall 23,500 "
+                     "reproduces only inside a +-10-strike window (ours ranks "
+                     "the whole chain and returns 24,500); its put wall 23,100 "
+                     "is our #8 put strike against 23,000's 80%-larger OI"),
+        "source": "analyses/Open-Backlog#B-94",
+    },
+    {
+        "item": "B-97", "tool": "pivot_timeframe_agreement.py",
+        "date": "2026-09-19",
+        "subjects": ("pivot_d", "pivot_w", "pivot_zone"),
+        "verdict": "MIXED",
+        "headline": ("daily and weekly pivot zones put a name on the same side "
+                     "of the pivot 53.9% of 499 names (chance 41.8%, lift "
+                     "+12.1) and on OPPOSITE sides 37.9%; median across 29 "
+                     "month-ends 64.0% side / 27.3% opposite -- two readings, "
+                     "not one in two resolutions"),
+        "source": "analyses/Open-Backlog#B-97",
+    },
+    {
+        "item": "B-42r", "tool": "pivot_len_agreement.py", "date": "2026-09-17",
+        "subjects": ("read_market_structure",),
+        "verdict": "MIXED",
+        "headline": ("pivot_len 5 and 15 agree on state only 29.6% of 199 names; "
+                     "17.6% read DOWNTREND vs UPTREND -- opposite, not coarser"),
+        "source": "analyses/Open-Backlog#B-42r",
+    },
+    {
+        "item": "B-9", "tool": "value_area_traverse_study.py", "date": "2026-09-17",
+        "subjects": ("volume-profile value-area traverse",),
+        "verdict": "NEGATIVE",
+        "headline": ("the 80% rule traverses 45.5% of the time (95% CI 37.3-54.0, "
+                     "n=134); lift over base -4.1pp p=0.422, not claimed"),
+        "source": "analyses/Open-Backlog#B-9",
+    },
+    {
+        "item": "B-8", "tool": "mean_reversion_stop_study.py", "date": "2026-09-17",
+        "subjects": ("Mean Reversion (Connors RSI2)",),
+        "verdict": "MIXED",
+        "headline": ("the shipped session-low stop costs -0.64pp vs no stop "
+                     "(p=0.0086, n=742, 300 names); 2-ATR costs nothing "
+                     "measurable; LIQUID_50 alone had read -1.44pp"),
+        "source": "analyses/Open-Backlog#B-8",
+    },
+    {
+        "item": "B-92", "tool": "flag_pole_edge.py", "date": "2026-09-17",
+        "subjects": ("Flag & Pole", "Inverted Flag & Pole"),
+        "verdict": "MIXED",
+        "headline": ("bull +0.71% @20d p=0.0499 (marginal pass), plan +0.36R on a "
+                     "36.8% target rate; bear INVERTED +1.33% p=0.0005"),
+        "source": "analyses/Flag-Pole-Pre-Registration",
+    },
+    {
+        "item": "B-56", "tool": "svp_structure_backtest.py", "date": "2026-09-17",
+        "subjects": ("SVPSTRUCT.read",),
+        "verdict": "NEGATIVE",
+        "headline": ("INVERTED: SELL +2.75% vs BUY +0.99% @20d, spread -1.77% "
+                     "p_rot 0.041, 8 of 8 symbols; mirror deliberately not shipped"),
+        "source": "analyses/SVP-Structure-Signal-Pre-Registration",
     },
     {
         "item": "ADX", "tool": "adx_di_backtest.py", "date": "2026-08-30",
