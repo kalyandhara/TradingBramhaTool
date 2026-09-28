@@ -6178,6 +6178,65 @@ def _render_institutional_volume(key_prefix: str) -> None:
                                       f"{float(r.get('chg_pct') or 0):+.1f}% · {r.get('date', '')}")
 
 
+def _render_cpr_vp(key_prefix: str) -> None:
+    """Home › CPR × Volume Profile confluence — stored scan, ↻ in the background."""
+    import cpr_vp as _cv
+    t = rs.TOKENS
+    st.markdown(
+        f'<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
+        f'text-transform:uppercase;color:{t["text_muted"]};padding-top:6px;">'
+        f'CPR &times; Volume Profile (last bar &middot; top-turnover names)'
+        f'</div>',
+        unsafe_allow_html=True)
+    st.caption("Where yesterday's Central Pivot Range meets the 60-bar volume profile: "
+               "names whose CPR band sits inside a high-volume node, or whose last bar "
+               "held above / retested / rejected the band with volume. Context, not a "
+               "signal — none of these setups has been measured here.")
+
+    _meta, _snap = snapshot_panel("cpr_vp_scan", key=key_prefix, compact=True,
+                                  button_label="↻ Rescan")
+    if _snap is None:
+        st.info("No stored scan yet — press ↻ to scan the top-turnover names in the background.")
+        return
+    rows = _snap.get("rows") or []
+    if not rows:
+        st.info(f"Nothing fired on the last bar across {_snap.get('scanned_n', 0)} names — "
+                "a quiet reading, which is normal.")
+        return
+
+    import columns as _cols
+    import sector_column as _sc
+    out = pd.DataFrame(rows)
+    out = _sc.attach(out, "Symbol")
+    out = _with_chart_family(out, "Symbol")
+    show_cols = ["Symbol", "Close", "Chg %", "RVOL", "CPR", "Band", "Confluence",
+                 "Setups", "Bias", "sector"] + _CHART_FAMILY_COLS
+    out = out[[c for c in show_cols if c in out.columns]]
+    cfg = dict(_chart_family_colcfg())
+    cfg.update(_cols.configure_df(out))
+
+    def _bias_color(v):
+        return (f"color:{t['good']};font-weight:600" if v == "bullish"
+                else f"color:{t['risk']};font-weight:600" if v == "bearish"
+                else f"color:{t['text_muted']}" if v == "mixed" else "")
+
+    def _chg_color(v):
+        if v is None or pd.isna(v):
+            return ""
+        return (f"color:{t['good']};font-weight:600" if v > 0
+                else f"color:{t['risk']};font-weight:600" if v < 0 else "")
+
+    styled = out.style.map(_chg_color, subset=["Chg %"]).map(_bias_color, subset=["Bias"])
+    st.dataframe(styled, width="stretch", hide_index=True, column_config=cfg,
+                 key=f"{key_prefix}_tbl")
+    st.caption(f"{len(rows)} of {_snap.get('scanned_n', '?')} names scanned · "
+               f"setups: {', '.join(_cv.SETUP_LABELS.values())}.")
+    _pa_send_button(key_prefix, "CPR × Volume Profile", out, "Symbol",
+                    note_fn=lambda r: " · ".join(x for x in (
+                        str(r.get("Setups") or r.get("Confluence") or ""),
+                        f"RVOL {r.get('RVOL')}x" if r.get("RVOL") is not None else "") if x))
+
+
 def render_action_map() -> None:
     """The card grid. Reads stored state only - no network, no scan."""
     t = rs.TOKENS
@@ -6394,6 +6453,8 @@ if current_page == "Home":
     # any RVOL threshold. This answers "where did institutions show up" — a
     # screen, not an alert.
     _render_institutional_volume("home_iv")
+    st.write("")
+    _render_cpr_vp("home_cpr")
     st.write("")
 
     # Home used to be a card grid of every page. It is now a working surface: the

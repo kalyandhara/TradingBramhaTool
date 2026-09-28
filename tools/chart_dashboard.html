@@ -68,6 +68,9 @@
      card's probability is this symbol's own historical breakout follow-through, not a
      Gann confidence number. -->
 <script src="/gann.js"></script>
+<!-- Central Pivot Range (TC / Pivot / BC + R1 / S1 from the prior bar) — pure computation, see cpr.js.
+     Overlay + a status card that names which CPR level sits inside a Volume Profile node. -->
+<script src="/cpr.js"></script>
 <!-- RSI divergence (regular + hidden, both directions) — pure computation module,
      see rsi_divergence.js. Loaded AFTER elliott_wave.js for the same reason
      fibonacci.js is: it reads EW.computeZigzag so every structure tool on the
@@ -1575,6 +1578,7 @@ const INDICATOR_DEFS = [
   {key:'liquidity',    label:'Liquidity Pools + Sweep + BUY signal (equal highs/lows · stop run)', group:'Smart Money & Structure', color:'#ff6d00', alias:'liquidity pool sweep stop hunt stop run raid equal highs equal lows resting stops smc trap reclaim'},
   {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab)', group:'Price Patterns', color:'#ba68c8'},
   {key:'projection',   label:'Price Projection (EW + patterns)', group:'Levels & Projection', color:'#4c9aff'},
+  {key:'cpr',          label:'CPR (TC / Pivot / BC + R1 / S1, prior bar)', group:'Levels & Projection', color:'#c9a227', alias:'cpr central pivot range floor pivots tc bc pivot r1 s1 value area day'},
   {key:'fib',          label:'Fibonacci + Trade Plan (VP + Projection confluence)',
                                                      group:'Levels & Projection', color:'#c9a227'},
   {key:'gann',         label:'Gann S/R + Break Odds (Square-of-9 + historical follow-through)',
@@ -2237,6 +2241,43 @@ function renderIchimokuCard(pane, ik) {
     const tk = st.tkCross === 'bullish' ? 'Tenkan > Kijun'
              : st.tkCross === 'bearish' ? 'Tenkan < Kijun' : 'flat';
     lines.push(`<div class="sbc-note">${cloud} · ${tk}</div>`);
+    lines.push('<div class="sbc-note" style="opacity:0.6">Overlay only — no signal measured</div>');
+  }
+  box.innerHTML = lines.join('');
+  box.style.display = 'block';
+}
+
+function renderCprCard(pane, cp) {
+  // Where the last close sits against the CPR band, the band's width, and —
+  // when the Volume Profile overlay is on — which CPR level lies inside a
+  // profile node. Read from cpr.js + VP.findConfluence; nothing is scored.
+  const cls = 'cpr-status';
+  let box = pane.el.querySelector('.' + cls);
+  const on = pane.indicators instanceof Set && pane.indicators.has('cpr');
+  if (!on) { if (box) box.style.display = 'none'; return; }
+  if (!box) {
+    box = document.createElement('div');
+    box.className = 'trail-status ' + cls;
+    mountCard(pane, box, 'stack');
+  }
+  const lines = ['<div class="svol-head">CPR (prior bar)</div>'];
+  const L = cp.last;
+  if (L) {
+    const pos = cp.position === 'above_tc' ? '🟢 Close above TC'
+              : cp.position === 'below_bc' ? '🔴 Close below BC' : '🟡 Close inside CPR';
+    const f = v => Number.isFinite(v) ? v.toFixed(2) : '—';
+    lines.push(`<div class="sbc-note">${pos} · width ${cp.widthPct.toFixed(2)}% (${cp.band})</div>`);
+    lines.push(`<div class="sbc-note">TC ${f(L.tc)} · P ${f(L.p)} · BC ${f(L.bc)} · R1 ${f(L.r1)} · S1 ${f(L.s1)}</div>`);
+    const vpOn = pane.indicators.has('volprofile') && pane.vp;
+    if (vpOn) {
+      const conf = CPR.confluence(L, pane.vp);
+      const parts = ['TC', 'P', 'BC'].filter(k => conf[k] && conf[k].length)
+                                    .map(k => `${k}∈${conf[k].join('/')}`);
+      lines.push(`<div class="sbc-note">${parts.length ? '⛁ Confluence: ' + parts.join(' · ')
+                                               : 'No CPR level inside a profile node'}</div>`);
+    } else {
+      lines.push('<div class="sbc-note" style="opacity:0.6">Enable Volume Profile for node confluence</div>');
+    }
     lines.push('<div class="sbc-note" style="opacity:0.6">Overlay only — no signal measured</div>');
   }
   box.innerHTML = lines.join('');
@@ -4301,6 +4342,18 @@ function applyIndicators(pane) {
           addLine(pane, '#f23645', 2),  // down-trend (above price)
         ];
         break;
+      case 'cpr':
+        // Five stepwise level lines from the PRIOR bar: the band (TC / BC dashed,
+        // Pivot solid) in gold, R1 / S1 dotted grey. Same arithmetic as the
+        // classic chart's CPR pane and row_metrics.pivot_levels.
+        pane.indSeries[key] = [
+          addLine(pane, '#c9a227', 1, 2),   // [0] TC  (dashed)
+          addLine(pane, '#c9a227', 1),      // [1] Pivot
+          addLine(pane, '#c9a227', 1, 2),   // [2] BC  (dashed)
+          addLine(pane, '#9aa4af', 1, 1),   // [3] R1  (dotted)
+          addLine(pane, '#9aa4af', 1, 1),   // [4] S1  (dotted)
+        ];
+        break;
       case 'psar':
         // DOTS, not a line. Consecutive SAR values sit on opposite sides of price
         // across a reversal, so joining them would draw a stroke straight through
@@ -4443,6 +4496,16 @@ function applyIndicators(pane) {
           : {time: sig.time, position: 'aboveBar', color: '#f23645', shape: 'arrowDown',
              text: 'SELL ' + sig.strength}));
         renderTrailStatusCard(pane, 'stai');
+        break;
+      }
+      case 'cpr': {
+        const cp = CPR.compute(bars);
+        s[0].setData(padToBars(cp.tc, bars));
+        s[1].setData(padToBars(cp.p, bars));
+        s[2].setData(padToBars(cp.bc, bars));
+        s[3].setData(padToBars(cp.r1, bars));
+        s[4].setData(padToBars(cp.s1, bars));
+        renderCprCard(pane, cp);
         break;
       }
       case 'psar': {

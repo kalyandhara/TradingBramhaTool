@@ -337,6 +337,28 @@ def produce_institutional_volume() -> dict:
                                  "window": ivs.WINDOW_DAYS, "top_n": ivs.TOP_N}}
 
 
+CPR_VP_UNIVERSE = 150
+
+
+def produce_cpr_vp_scan() -> dict:
+    """Home › CPR × Volume Profile: over the top-turnover names, every last bar
+    that fired a playbook setup or whose CPR band sits inside a high-volume
+    node. Context, not a signal (cpr_vp.py). A fetch failure raises so it lands
+    as an error row; an empty scan is a valid quiet day."""
+    import cpr_vp
+    import screener_pipeline as sp
+    universe = sp.fetch_bhavcopy_top_volume(CPR_VP_UNIVERSE)
+    if not universe:
+        raise RuntimeError("no universe (bhavcopy top-volume list is empty)")
+    stats: dict = {}
+    rows = cpr_vp.scan(universe, sp.fetch_ohlcv, stats=stats)
+    if not stats.get("scanned"):
+        raise RuntimeError(f"no OHLCV could be fetched for any of {len(universe)} symbols")
+    return {"rows": rows, "universe_n": len(universe), "scanned_n": stats["scanned"],
+            "params": {"lookback": cpr_vp.LOOKBACK, "rvol_strong": cpr_vp.RVOL_STRONG,
+                       "tol_pct": cpr_vp.TOL_PCT}}
+
+
 # ── registry ──────────────────────────────────────────────────────────────────
 SNAPSHOTS: dict[str, SnapshotSpec] = {s.name: s for s in [
     SnapshotSpec("sector_index_data", "Sector index data (heatmap / RRG / card)",
@@ -351,6 +373,8 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {s.name: s for s in [
                  "Home", produce_trending, order=31, heavy=True),
     SnapshotSpec("institutional_volume", "Institutional volume (PPV ≥ 5x RVOL)",
                  "Home", produce_institutional_volume, order=32, heavy=True),
+    SnapshotSpec("cpr_vp_scan", "CPR × Volume Profile confluence",
+                 "Home", produce_cpr_vp_scan, order=33, heavy=True),
     SnapshotSpec("sentiment", "Market sentiment reading",
                  "Market Sentiment", produce_sentiment, order=40),
     SnapshotSpec("market_health", "Market health gate basket",
