@@ -60,6 +60,6 @@ echo.
 echo Desk is running in the "Trading Bramha Desk :%PORT%" window.
 echo   - Re-run this file any time to RESTART it.
 echo   - Close that window to STOP it.
-echo   - The chart tool is a separate server; see .claude\launch.json ("chart").
+echo   - The chart tool (:5001) is started by the desk itself if not already up.
 echo.
 endlocal
