@@ -2472,7 +2472,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
     </div>
     <div class="range-row">${RANGE_PRESETS.map(p =>
       `<button type="button" class="range-btn" data-range="${p.label}">${p.label}</button>`
-    ).join('')}<span class="range-sep"></span><input type="date" class="goto-date" title="Go to date — jump the chart to a specific date"><button type="button" class="range-btn goto-btn" title="Jump the chart to the selected date">Go&nbsp;to</button></div>
+    ).join('')}<span class="range-sep"></span><input type="date" class="goto-date" title="Go to date — jump the chart to a specific date"><button type="button" class="range-btn goto-btn" title="Jump the chart to the selected date">Go&nbsp;to</button><span class="range-sep subs-sep" hidden></span><button type="button" class="range-btn subs-toggle-btn" title="Collapse or expand every sub-plot at once" hidden>▾ Collapse all</button></div>
     <div class="chart-body">
       <div class="chart-main">
         <div class="loading-msg">Loading…</div>
@@ -2655,6 +2655,20 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
       try { savePaneCfg(); } catch {}
     });
   }
+
+  // ── Collapse all / expand all sub-plots ───────────────────────────────────
+  const subsToggle = el.querySelector('.subs-toggle-btn');
+  if (subsToggle) subsToggle.addEventListener('click', () => {
+    const keys = Object.keys(pane.subCharts);
+    if (!keys.length) return;
+    if (!pane.collapsedSubs) pane.collapsedSubs = new Set();
+    // Any sub-plot still open → collapse everything; all closed → expand everything.
+    const collapseAll = keys.some(k => !pane.collapsedSubs.has(k));
+    keys.forEach(k => { if (collapseAll) pane.collapsedSubs.add(k); else pane.collapsedSubs.delete(k); });
+    keys.forEach(k => { const sub = pane.subCharts[k]; if (sub && sub.syncCollapse) sub.syncCollapse(); });
+    applySubStack(pane);
+    try { savePaneCfg(); } catch {}
+  });
 
   // ── Pane object ────────────────────────────────────────────────────────────
   const pane = { idx, el, chart, series, resizeObs, symbol, tf,
@@ -4865,6 +4879,7 @@ function addSubPane(pane, key, labelText, height) {
     if (!pane.collapsedSubs) pane.collapsedSubs = new Set();
     if (pane.collapsedSubs.has(key)) pane.collapsedSubs.delete(key); else pane.collapsedSubs.add(key);
     syncCollapseBtn();
+    applySubStack(pane);   // keeps the "Collapse all / Expand all" label in step
     try { savePaneCfg(); } catch {}
   });
   closeBtn.addEventListener('click', ev => {
@@ -4895,7 +4910,7 @@ function addSubPane(pane, key, labelText, height) {
     } catch {}
   }, 60);
 
-  const sub = {chart: subChart, el, ro, label: labelEl, series: null};
+  const sub = {chart: subChart, el, ro, label: labelEl, series: null, syncCollapse: syncCollapseBtn};
   pane.subCharts[key] = sub;
   applySubStack(pane);
   return sub;
@@ -4919,6 +4934,14 @@ function applySubStack(pane) {
   if (!stack) return;
   const n = stack.children.length;
   if (splitter) splitter.hidden = n === 0;
+  const toggle = pane.el.querySelector('.subs-toggle-btn');
+  const toggleSep = pane.el.querySelector('.subs-sep');
+  if (toggle) {
+    toggle.hidden = n === 0;
+    if (toggleSep) toggleSep.hidden = n === 0;
+    const anyOpen = Array.from(stack.children).some(c => !c.classList.contains('collapsed'));
+    toggle.textContent = anyOpen ? '▾ Collapse all' : '▸ Expand all';
+  }
   const userSized = !!(pane.subStackH && n);
   if (userSized) {
     stack.classList.add('user-sized');
