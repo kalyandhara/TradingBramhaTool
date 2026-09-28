@@ -3336,6 +3336,162 @@ def render_ownership_flow(symbol: str) -> None:
         "not a signal.")
 
 
+def _gauge_svg(pct: float, color: str, label: str, sub: str, size: int = 150) -> str:
+    """A half-ring gauge 0-100 as inline SVG (no plotly for one number)."""
+    import math
+    pct = max(0.0, min(100.0, float(pct)))
+    r, cx, cy, w = size * 0.4, size / 2, size * 0.56, size * 0.085
+    def arc(a0, a1):
+        x0, y0 = cx + r * math.cos(math.pi * (1 - a0)), cy - r * math.sin(math.pi * (1 - a0))
+        x1, y1 = cx + r * math.cos(math.pi * (1 - a1)), cy - r * math.sin(math.pi * (1 - a1))
+        # A half ring spans 180° at most, so the SVG large-arc flag is never set:
+        # with it, anything past 50% drew the long way round the circle.
+        return f"M{x0:.1f},{y0:.1f} A{r:.1f},{r:.1f} 0 0 1 {x1:.1f},{y1:.1f}"
+    t = rs.TOKENS
+    fg = arc(0, max(0.004, pct / 100.0))
+    return (f'<svg width="{size}" height="{size * 0.68:.0f}" viewBox="0 0 {size} {size * 0.68:.0f}">'
+            f'<path d="{arc(0, 1)}" fill="none" stroke="{t["surface_alt"]}" stroke-width="{w:.1f}" stroke-linecap="round"/>'
+            f'<path d="{fg}" fill="none" stroke="{color}" stroke-width="{w:.1f}" stroke-linecap="round"/>'
+            f'<text x="{cx}" y="{cy - 2}" text-anchor="middle" font-size="{size * 0.17:.0f}" font-weight="800" fill="{t["text"]}">{label}</text>'
+            f'<text x="{cx}" y="{cy + size * 0.1:.0f}" text-anchor="middle" font-size="{size * 0.075:.0f}" font-weight="700" fill="{color}">{sub}</text>'
+            f'</svg>')
+
+
+def render_pattern_metrics(df, nifty_df=None, *, key: str = "pm") -> None:
+    """Historical pattern metrics — overhead supply, extension, base / VCP coil,
+    scanner-metric radar, exceptional volume. Descriptions of the history the
+    page already holds; nothing here is a signal (pattern_metrics.py)."""
+    import pattern_metrics as pm
+    t = rs.TOKENS
+    try:
+        m = pm.compute_all(df, nifty_df)
+    except Exception as e:                                # noqa: BLE001
+        st.caption(f"Historical pattern metrics unavailable: {e}")
+        return
+    st.markdown("#### 📐 Historical pattern metrics")
+    st.caption("Volume · overhead · VCP · normalised fields — read from the daily bars "
+               "already loaded. Descriptive only; none of these has been measured for "
+               "forward return here.")
+
+    micro = f'font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:{t["text_muted"]};'
+    c1, c2 = st.columns(2)
+    oh, ex = m["overhead"], m["extension"]
+    with c1:
+        if oh:
+            col = t["good"] if oh["pct"] < pm.OVERHEAD_CLEAR else t["accent"] if oh["pct"] < pm.OVERHEAD_HEAVY else t["risk"]
+            gauge = _gauge_svg(oh["pct"], col, f"{oh['pct']:.0f}%", oh["label"])
+            body = (f'<div style="{micro}">Overhead supply</div>'
+                    f'<div style="font-size:12px;color:{t["text_muted"]};">Prior highs above the current price · last {oh["bars"]} sessions</div>'
+                    f'<div style="text-align:center;">{gauge}</div>'
+                    f'<div style="font-size:12px;color:{t["text_muted"]};text-align:center;">{oh["note"]}</div>')
+            st.markdown(rs.card(body), unsafe_allow_html=True)
+    with c2:
+        if ex and ex["score"] is not None:
+            col = t["good"] if ex["score"] < 33 else t["accent"] if ex["score"] < 66 else t["risk"]
+            gauge = _gauge_svg(ex["score"], col, f"{ex['score']:.0f}", ex["band"])
+            flag = (f'<div style="font-size:12px;color:{t["risk"]};">⚠ RSI exhaustion — '
+                    f'{ex["rsi_pct"]:.0f}th pct of two years, {ex["run5_pct"]:+.1f}% in 5 sessions</div>'
+                    if ex["rsi_exhaustion"] else
+                    f'<div style="font-size:12px;color:{t["text_muted"]};">RSI {ex["rsi"]:.0f} · '
+                    f'{(ex.get("above_sma50_pct") or 0):+.1f}% vs 50-day · {ex["run5_pct"]:+.1f}% / 5d</div>'
+                    if ex.get("rsi") is not None else "")
+            body = (f'<div style="{micro}">Extension metric</div>'
+                    f'<div style="font-size:12px;color:{t["text_muted"]};">Composite: above 50-day and 20-day means, RSI percentile, 5-day run</div>'
+                    f'<div style="text-align:center;">{gauge}</div>'
+                    f'{flag}')
+            st.markdown(rs.card(body), unsafe_allow_html=True)
+
+    c3, c4 = st.columns(2)
+    vc, rd = m["vcp"], m["radar"]
+    with c3:
+        if vc:
+            tiles = "".join(
+                f'<div style="flex:1;background:{t["surface_alt"]};border-radius:8px;padding:8px 6px;text-align:center;">'
+                f'<div style="font-size:16px;font-weight:800;color:{t["text"]};">{v}</div>'
+                f'<div style="{micro}font-size:9.5px;">{k}</div></div>'
+                for k, v in (("Base length", f"{vc['base_weeks']:.0f}w"),
+                             ("Depth", f"{vc['depth_pct']:.1f}%"),
+                             ("Contractions", f"{vc['contractions']}")))
+            mx = max(vc["ladder"]) or 1.0
+            ladder = "".join(
+                f'<div style="flex:1;text-align:center;">'
+                f'<div style="height:6px;margin:0 8px;border-radius:3px;background:{t["accent"]};'
+                f'width:{max(12, d / mx * 100):.0f}%;margin-left:auto;margin-right:auto;"></div>'
+                f'<div style="font-size:11px;font-weight:700;color:{t["text_muted"]};margin-top:4px;">L{i + 1}</div>'
+                f'<div style="font-size:12px;color:{t["text"]};">{d:.1f}%</div></div>'
+                for i, d in enumerate(vc["ladder"]))
+            tight = (f'Tightness {vc["tightness_pct"]:.1f}% — final contraction as a share of the first (lower is tighter)'
+                     if vc["tightness_pct"] is not None else "")
+            body = (f'<div style="{micro}">Base / VCP coil</div>'
+                    f'<div style="font-size:12px;color:{t["text_muted"]};">Depth and contractions from the pivot-based detector'
+                    f'{" · still forming" if vc["in_progress"] else ""}</div>'
+                    f'<div style="display:flex;gap:8px;margin:8px 0;">{tiles}</div>'
+                    f'<div style="{micro}font-size:10px;margin-top:4px;">Contraction ladder</div>'
+                    f'<div style="display:flex;gap:4px;margin-top:6px;">{ladder}</div>'
+                    f'<div style="font-size:11.5px;color:{t["text_muted"]};text-align:center;margin-top:8px;">{tight}</div>')
+            st.markdown(rs.card(body), unsafe_allow_html=True)
+        else:
+            st.markdown(rs.card(f'<div style="{micro}">Base / VCP coil</div>'
+                                f'<div style="font-size:12px;color:{t["text_muted"]};">No confirmed contraction '
+                                f'sequence in the last 120 sessions — the detector abstains rather than guess.</div>'),
+                        unsafe_allow_html=True)
+    with c4:
+        if rd:
+            axes = {k: v for k, v in rd["axes"].items() if v is not None}
+            names, vals = list(axes), [axes[k] for k in axes]
+            fig = go.Figure(go.Scatterpolar(r=vals + vals[:1], theta=names + names[:1],
+                                            fill="toself", line=dict(color="#5b4bd6", width=2),
+                                            fillcolor="rgba(91,75,214,0.18)", hoverinfo="theta+r"))
+            fig.update_layout(height=230, margin=dict(l=30, r=30, t=20, b=10),
+                              polar=dict(radialaxis=dict(range=[0, 100], showticklabels=False, gridcolor="#e8e2d6"),
+                                         angularaxis=dict(tickfont=dict(size=11), gridcolor="#e8e2d6"),
+                                         bgcolor="rgba(0,0,0,0)"),
+                              paper_bgcolor="rgba(0,0,0,0)", showlegend=False,
+                              annotations=[dict(text=f"<b>{rd['score']:.1f}</b>" if rd["score"] is not None else "—",
+                                                x=0.5, y=0.5, showarrow=False, font=dict(size=22, color=t["text"]))])
+            bars = "".join(
+                f'<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin:3px 0;">'
+                f'<div style="width:70px;color:{t["text_muted"]};">{k}</div>'
+                f'<div style="flex:1;height:6px;background:{t["surface_alt"]};border-radius:3px;">'
+                f'<div style="width:{v:.0f}%;height:6px;border-radius:3px;background:linear-gradient(90deg,#8a7cf0,#5b4bd6);"></div></div>'
+                f'<div style="width:28px;text-align:right;font-weight:700;color:{t["text"]};">{v:.0f}</div></div>'
+                for k, v in axes.items())
+            st.markdown(f'<div style="{micro}">Scanner metric radar</div>'
+                        f'<div style="font-size:12px;color:{t["text_muted"]};">Six normalised axes (0-100) and their mean</div>',
+                        unsafe_allow_html=True)
+            st.plotly_chart(fig, width="stretch", key=f"{key}_radar", config={"displayModeBar": False})
+            st.markdown(bars, unsafe_allow_html=True)
+            st.caption("VCP: contraction count, shrinkage, tightness · RS: 1y vs benchmark, ±40pp · Stage: "
+                       "Weinstein stack · Volume: share of the last 60 sessions' volume on up bars · "
+                       "Low risk: distance to the 10-bar swing low, ≤3% best · Clear path: 100 − overhead %.")
+
+    xv = m["exceptional_volume"]
+    if xv:
+        tiles = "".join(
+            f'<div style="flex:1;background:{t["surface"]};border:1px solid {t["surface_alt"]};border-radius:8px;padding:10px 12px;">'
+            f'<div style="font-size:18px;font-weight:800;color:{t["text"]};">{v}</div>'
+            f'<div style="{micro}font-size:9.5px;">{k}</div></div>'
+            for k, v in (("2-year avg volume", f"{xv['avg_volume']:,.0f}"),
+                         ("Exceptional sessions", f"{xv['count']}"),
+                         (f"{xv['mult']:.0f}× threshold", f"{xv['threshold']:,.0f}")))
+        top = xv["sessions"][:8]
+        mx = max((s["ratio"] for s in top), default=1.0)
+        rows = "".join(
+            f'<div style="display:flex;align-items:center;gap:10px;font-size:12px;padding:6px 0;border-top:1px solid {t["surface_alt"]};">'
+            f'<div style="width:90px;color:{t["text"]};">{pd.Timestamp(s["date"]).strftime("%d %b %Y")}</div>'
+            f'<div style="flex:1;height:8px;background:{t["surface_alt"]};border-radius:4px;">'
+            f'<div style="width:{s["ratio"] / mx * 100:.0f}%;height:8px;border-radius:4px;background:linear-gradient(90deg,#f6b73c,#e8590c);"></div></div>'
+            f'<div style="width:110px;text-align:right;color:{t["text_muted"]};">{s["volume"]:,.0f}</div>'
+            f'<div style="width:48px;text-align:right;font-weight:800;color:{t["risk"]};">{s["ratio"]:.1f}×</div></div>'
+            for s in top) or f'<div style="font-size:12px;color:{t["text_muted"]};">No session reached the threshold.</div>'
+        body = (f'<div style="{micro}">Exceptional volume activity</div>'
+                f'<div style="font-size:12px;color:{t["text_muted"]};">Sessions with at least {xv["mult"]:.0f}× the two-year average volume</div>'
+                f'<div style="display:flex;gap:10px;margin:8px 0 10px;">{tiles}</div>{rows}'
+                f'<div style="font-size:11px;color:{t["text_muted"]};text-align:center;margin-top:8px;">'
+                f'{xv["n_sessions"]} trading sessions · {xv["from"]} to {xv["to"]}</div>')
+        st.markdown(rs.card(body), unsafe_allow_html=True)
+
+
 def render_setup_intelligence(intel) -> None:
     """Scannable plain-language setup panel derived from the council's evidence."""
     with st.container(border=True):
@@ -9731,6 +9887,11 @@ if current_page == "Predictive Analysis":
                 )
                 with st.expander("Council drill-down (Bull / Bear / Judge)"):
                     render_council(pa_bundle, pa_bull, pa_bear, pa_card)
+
+                # ── Historical pattern metrics (overhead · extension · VCP ·
+                #    radar · exceptional volume) — from the bars already loaded.
+                st.divider()
+                render_pattern_metrics(pa_df, pa_bench, key="pa_pm")
 
                 # ── Reused Stock Analyzer sections ───────────────────────
                 st.divider()
