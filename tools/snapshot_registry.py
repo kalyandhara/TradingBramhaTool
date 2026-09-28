@@ -327,6 +327,16 @@ def produce_market_brief() -> dict:
     return model
 
 
+def produce_institutional_volume() -> dict:
+    """Home › Institutional volume: PPV bars with RVOL ≥ 5x in the last 5
+    sessions over nifty500. Empty = scanned and found none; a fetch failure
+    raises (raise_on_no_data) so it lands as an error row."""
+    import institutional_volume_scan as ivs
+    df = ivs.scan(raise_on_no_data=True)
+    return {"df": df, "params": {"rvol_min": ivs.RVOL_THRESHOLD,
+                                 "window": ivs.WINDOW_DAYS, "top_n": ivs.TOP_N}}
+
+
 # ── registry ──────────────────────────────────────────────────────────────────
 SNAPSHOTS: dict[str, SnapshotSpec] = {s.name: s for s in [
     SnapshotSpec("sector_index_data", "Sector index data (heatmap / RRG / card)",
@@ -339,6 +349,8 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {s.name: s for s in [
                  "Home", produce_volume_shockers, order=30),
     SnapshotSpec("trending", "What moved today",
                  "Home", produce_trending, order=31, heavy=True),
+    SnapshotSpec("institutional_volume", "Institutional volume (PPV ≥ 5x RVOL)",
+                 "Home", produce_institutional_volume, order=32, heavy=True),
     SnapshotSpec("sentiment", "Market sentiment reading",
                  "Market Sentiment", produce_sentiment, order=40),
     SnapshotSpec("market_health", "Market health gate basket",
