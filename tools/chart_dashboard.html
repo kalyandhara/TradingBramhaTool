@@ -1576,7 +1576,7 @@ const INDICATOR_DEFS = [
   {key:'structure_chain', label:'Structure Break Chain (BOS/CHoCH + quality)', group:'Smart Money & Structure', color:'#00e676'},
   {key:'orderblock',   label:'Order Blocks (SMC demand / supply zones)', group:'Smart Money & Structure', color:'#4c9aff', alias:'order block ob smart money smc demand supply zone mitigation institutional'},
   {key:'liquidity',    label:'Liquidity Pools + Sweep + BUY signal (equal highs/lows · stop run)', group:'Smart Money & Structure', color:'#ff6d00', alias:'liquidity pool sweep stop hunt stop run raid equal highs equal lows resting stops smc trap reclaim'},
-  {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab)', group:'Price Patterns', color:'#ba68c8'},
+  {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab + AB=CD)', group:'Price Patterns', color:'#ba68c8'},
   {key:'projection',   label:'Price Projection (EW + patterns)', group:'Levels & Projection', color:'#4c9aff'},
   {key:'cpr',          label:'CPR (TC / Pivot / BC + R1 / S1, prior bar)', group:'Levels & Projection', color:'#c9a227', alias:'cpr central pivot range floor pivots tc bc pivot r1 s1 value area day'},
   {key:'fib',          label:'Fibonacci + Trade Plan (VP + Projection confluence)',
@@ -7739,6 +7739,8 @@ const DRAW_TOOL_DEFS = [
   {key: 'rect',  glyph: '▭',  title: 'Zone — drag a rectangle (supply/demand, consolidation)'},
   {key: 'fib',   glyph: '≣',  title: 'Fib retracement — drag from swing low to swing high'},
   {key: 'text',  glyph: 'T',  title: 'Text note — click to place a label'},
+  {key: 'gannfan', glyph: '⟋', title: 'Gann fan — drag from the pivot along the 1×1; the other angles follow (drawing only)'},
+  {key: 'gcycle',  glyph: '⏲', title: 'Gann time cycles — click the anchor bar; verticals at 91/121/144/182/242/274/365 days (drawing only)'},
 ];
 
 const DRAW_TOOLBAR_HTML = (() => {
@@ -7768,6 +7770,24 @@ function drawAdapter(pane) {
   const s  = pane.series;
   return {
     toX:   t => { try { return ts.timeToCoordinate(t); } catch { return null; } },
+    // A calendar date → x. Dates inside the data map to the first bar at or
+    // after them; dates past the last bar are placed by logical index at
+    // ~5 trading days per 7 calendar days, so time-cycle verticals can sit in
+    // the future the way the chart's own whitespace does.
+    toXDate: t => {
+      try {
+        const bars = pane.bars || [];
+        if (!bars.length) return null;
+        const last = bars[bars.length - 1];
+        if (t <= last.time) {
+          let lo = 0, hi = bars.length - 1;
+          while (lo < hi) { const mid = (lo + hi) >> 1; if (bars[mid].time < t) lo = mid + 1; else hi = mid; }
+          return ts.timeToCoordinate(bars[lo].time);
+        }
+        const est = Math.round((t - last.time) / 86400 * 5 / 7);
+        return ts.logicalToCoordinate(bars.length - 1 + est);
+      } catch { return null; }
+    },
     toY:   p => { try { return s.priceToCoordinate(p); } catch { return null; } },
     fromX: x => { try { return ts.coordinateToTime(x); } catch { return null; } },
     fromY: y => { try { return s.coordinateToPrice(y); } catch { return null; } },
@@ -7948,6 +7968,13 @@ function wireDrawingTools(pane) {
     // One-click tools finish immediately; two-point tools start a drag.
     if (pane.drawTool === 'hline') {
       pane.drawings.push(Drawings.make('hline', pt));
+      saveDrawings(pane);
+      setDrawTool(pane, null);
+      redrawDrawings(pane);
+      return;
+    }
+    if (pane.drawTool === 'gcycle') {
+      pane.drawings.push(Drawings.make('gcycle', pt));
       saveDrawings(pane);
       setDrawTool(pane, null);
       redrawDrawings(pane);
@@ -9858,8 +9885,10 @@ async function renderHarmonic(pane) {
   hm.priceLines = [];
 
   if (!g || !g.points) { setPaneMarkers(pane, 'harmonic', null); return; }
-  const pts = ['X','A','B','C','D'].map(k => g.points[k]).filter(p => p && p.time != null);
-  if (pts.length !== 5) { setPaneMarkers(pane, 'harmonic', null); return; }
+  // Five points for the XABCD family, four for AB=CD (no X).
+  const keys = g.points.X ? ['X','A','B','C','D'] : ['A','B','C','D'];
+  const pts = keys.map(k => g.points[k]).filter(p => p && p.time != null);
+  if (pts.length !== keys.length) { setPaneMarkers(pane, 'harmonic', null); return; }
 
   const color = HARMONIC_COLORS[g.direction] || '#ba68c8';
 
@@ -9875,16 +9904,18 @@ async function renderHarmonic(pane) {
     priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
     autoscaleInfoProvider: () => null,
   });
+  // Dashed diagonal: X→D for XABCD; A→D for AB=CD (the leg the pattern measures).
   hm.diagonal.setData([
     {time: pts[0].time, value: pts[0].price},
-    {time: pts[4].time, value: pts[4].price},
+    {time: pts[pts.length - 1].time, value: pts[pts.length - 1].price},
   ]);
 
-  // Pivot labels — X/A/B/C/D above highs, below lows, matching direction.
-  // Bullish LHLHL: X(L) A(H) B(L) C(H) D(L); bearish inverted.
+  // Pivot labels above highs, below lows, matching direction.
+  // Bullish XABCD is LHLHL: X(L) A(H) B(L) C(H) D(L); bullish AB=CD is HLHL.
   const bull = g.direction === 'bullish';
-  const kinds = bull ? ['L','H','L','H','L'] : ['H','L','H','L','H'];
-  const labels = ['X','A','B','C','D'];
+  const kinds5 = bull ? ['L','H','L','H','L'] : ['H','L','H','L','H'];
+  const kinds = keys.length === 5 ? kinds5 : kinds5.slice(1);
+  const labels = keys;
   const markers = pts.map((p, i) => ({
     time: p.time,
     position: kinds[i] === 'H' ? 'aboveBar' : 'belowBar',
