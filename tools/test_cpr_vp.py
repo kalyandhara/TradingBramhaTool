@@ -91,3 +91,20 @@ def test_read_returns_none_on_short_or_bad_frames():
     assert cpr_vp.read(None) is None
     assert cpr_vp.read(pd.DataFrame({"close": [1, 2]})) is None
     assert cpr_vp.read(_frame(n=10)) is None
+
+
+def test_council_surfaces_cpr_chip_and_lines():
+    """gather_evidence fills facts['cpr_vp']; setup_intelligence turns it into a
+    CPR chip and a last-bar setup line, worded as unmeasured."""
+    import stock_council as council
+    prev = {"o": 100, "h": 101, "l": 99, "c": 100.5}
+    df = _frame(n=260, prev=prev,
+                last={"o": 100.6, "h": 101.5, "l": 100.4, "c": 101.2, "v": 3_000_000})
+    bundle, bull, bear, card = council.run_council("TEST", df)
+    cv = bundle.facts.get("cpr_vp")
+    assert cv and cv["position"] == "above_tc" and "hold_above_cpr_volume" in cv["setups"]
+    intel = council.setup_intelligence(bundle, bull, bear, card)
+    chip = next((c for c in intel.chips if c[0] == "CPR"), None)
+    assert chip is not None and chip[1].startswith("Above TC")
+    assert any("Holds above CPR with volume" in x and "unmeasured" in x
+               for x in intel.bullish_factors)
