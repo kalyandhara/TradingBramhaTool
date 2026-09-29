@@ -2,7 +2,7 @@
 setlocal
 title Trading Bramha - Desk launcher
 set "REPO=%~dp0"
-set "PORT=8760"
+set "PORT=8501"
 REM The interpreter .claude\launch.json uses. If Python moves, change it in BOTH
 REM (and in run_tests.bat, which a test asserts agrees with launch.json).
 set "PYTHON=C:\Users\Owner\AppData\Local\Programs\Python\Python314\python.exe"
@@ -12,7 +12,7 @@ REM ── B-84 ─────────────────────�
 REM
 REM This repo ships THREE apps and, until now, a .bat for only one of them:
 REM
-REM   dashboard_app.py           the DESK      Streamlit  :8760   <- this file
+REM   dashboard_app.py           the DESK      Streamlit  :8501   <- this file
 REM   dash_trading_dashboard.py  SBC / astro   Dash       :8050   <- start.bat
 REM   sbc_app.py                 SBC (older)   Streamlit  ----    launched by nothing
 REM

@@ -11,7 +11,7 @@ echo   Trading Bramha - SBC / astro dashboard
 echo   http://localhost:%PORT%
 echo.
 echo   For the main desk (screening, research, risk)
-echo   run start_desk.bat instead - it serves :8760.
+echo   run start_desk.bat instead - it serves :8501.
 echo ==================================================
 echo.
 
