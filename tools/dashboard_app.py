@@ -3467,11 +3467,15 @@ def render_pattern_metrics(df, nifty_df=None, *, key: str = "pm") -> None:
 
     xv = m["exceptional_volume"]
     if xv:
+        # The window is whatever the page loaded (≤ 2 years), so name it by
+        # its real length instead of always calling it "two-year".
+        _yrs = xv["n_sessions"] / 250
+        _win = "two-year" if _yrs >= 1.9 else f"{_yrs:.1f}-year"
         tiles = "".join(
             f'<div style="flex:1;background:{t["surface"]};border:1px solid {t["surface_alt"]};border-radius:8px;padding:10px 12px;">'
             f'<div style="font-size:18px;font-weight:800;color:{t["text"]};">{v}</div>'
             f'<div style="{micro}font-size:9.5px;">{k}</div></div>'
-            for k, v in (("2-year avg volume", f"{xv['avg_volume']:,.0f}"),
+            for k, v in ((f"{_win} avg volume", f"{xv['avg_volume']:,.0f}"),
                          ("Exceptional sessions", f"{xv['count']}"),
                          (f"{xv['mult']:.0f}× threshold", f"{xv['threshold']:,.0f}")))
         top = xv["sessions"][:8]
@@ -3485,10 +3489,11 @@ def render_pattern_metrics(df, nifty_df=None, *, key: str = "pm") -> None:
             f'<div style="width:48px;text-align:right;font-weight:800;color:{t["risk"]};">{s["ratio"]:.1f}×</div></div>'
             for s in top) or f'<div style="font-size:12px;color:{t["text_muted"]};">No session reached the threshold.</div>'
         body = (f'<div style="{micro}">Exceptional volume activity</div>'
-                f'<div style="font-size:12px;color:{t["text_muted"]};">Sessions with at least {xv["mult"]:.0f}× the two-year average volume</div>'
+                f'<div style="font-size:12px;color:{t["text_muted"]};">Sessions with at least {xv["mult"]:.0f}× the {_win} average volume</div>'
                 f'<div style="display:flex;gap:10px;margin:8px 0 10px;">{tiles}</div>{rows}'
                 f'<div style="font-size:11px;color:{t["text_muted"]};text-align:center;margin-top:8px;">'
-                f'{xv["n_sessions"]} trading sessions · {xv["from"]} to {xv["to"]}</div>')
+                + (f'Top {len(top)} of {xv["count"]} shown · ' if xv["count"] > len(top) else '')
+                + f'{xv["n_sessions"]} trading sessions · {xv["from"]} to {xv["to"]}</div>')
         st.markdown(rs.card(body), unsafe_allow_html=True)
 
 
