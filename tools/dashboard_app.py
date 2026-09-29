@@ -3357,6 +3357,10 @@ def _gauge_svg(pct: float, color: str, label: str, sub: str, size: int = 150) ->
             f'</svg>')
 
 
+# Two years of sessions for the pattern-metrics panel, plus RSI warm-up.
+PM_HISTORY_BARS = 520
+
+
 def render_pattern_metrics(df, nifty_df=None, *, key: str = "pm") -> None:
     """Historical pattern metrics — overhead supply, extension, base / VCP coil,
     scanner-metric radar, exceptional volume. Descriptions of the history the
@@ -9896,7 +9900,15 @@ if current_page == "Predictive Analysis":
                 # ── Historical pattern metrics (overhead · extension · VCP ·
                 #    radar · exceptional volume) — from the bars already loaded.
                 st.divider()
-                render_pattern_metrics(pa_df, pa_bench, key="pa_pm")
+                # The RSI percentile and exceptional-volume average are defined
+                # over two years (500 sessions); the page's own frame is 300,
+                # so give this panel its own longer frame (+20 for RSI warm-up).
+                # The council keeps pa_df, so its outputs are unchanged.
+                _pm_df = cached_fetch_ohlcv(pa_sym, days=PM_HISTORY_BARS,
+                                            enforce_liquidity=False)
+                if _pm_df is None or len(_pm_df) < len(pa_df):
+                    _pm_df = pa_df
+                render_pattern_metrics(_pm_df, pa_bench, key="pa_pm")
 
                 # ── Reused Stock Analyzer sections ───────────────────────
                 st.divider()
