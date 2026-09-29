@@ -164,6 +164,10 @@ def _harmonic_candidate(df, timeframe):
         return None
     if not m:
         return None
+    # A plan price already stopped out of, or ran through T3, is history: its
+    # "first target" would project toward a level price has left behind.
+    if (m.get("status") or {}).get("resolved"):
+        return None
     trade = m.get("trade") or {}
     targets = trade.get("targets") or []
     if not targets:
@@ -179,7 +183,8 @@ def _harmonic_candidate(df, timeframe):
         "confidence": conf,
         "direction": "up" if direction == "bullish" else "down",
         "reasoning": f"{m.get('pattern', 'Harmonic')} {direction} — first target "
-                     f"(0.382 AD), pattern age {age} bars.",
+                     f"(0.382 {'CD' if 'X' not in (m.get('points') or {}) else 'AD'}), "
+                     f"pattern age {age} bars.",
         "invalidation": trade.get("stop"),
     }
 

@@ -160,10 +160,58 @@ def _match_abcd(a, b, c, d) -> dict | None:
 
 
 # ── Public API ───────────────────────────────────────────────────────────────
+def resolve_after_d(df: pd.DataFrame, m: dict) -> dict:
+    """What price did AFTER the D pivot, bar by bar, against the trade plan.
+
+    Returns {"state", "targets_hit", "stop_hit", "resolved"}:
+      state        "live"     no target and no stop touched yet
+                   "partial"  T1 or T2 touched, T3 not, stop not
+                   "complete" T3 touched before the stop
+                   "stopped"  stop touched (targets_hit says how many came first)
+      resolved     True for "complete" / "stopped": the plan is over, and its
+                   entry / stop / targets describe history, not a live setup.
+
+    A bar that touches both a target and the stop counts as stopped — the
+    conservative reading, since daily bars do not say which came first.
+    Needed because the chart and projection accept D pivots up to ~50 daily
+    bars old; RELIANCE (2026-09-28) drew a bearish AB=CD "entry 1337" with
+    price at 1197, below all three targets."""
+    t = m.get("trade") or {}
+    stop, targets = t.get("stop"), list(t.get("targets") or [])
+    d_idx = (m.get("points") or {}).get("D", {}).get("idx")
+    out = {"state": "live", "targets_hit": 0, "stop_hit": False, "resolved": False}
+    if stop is None or not targets or d_idx is None:
+        return out
+    bull = m.get("direction") == "bullish"
+    hit = 0
+    for _, r in df.iloc[d_idx + 1:].iterrows():
+        hi, lo = float(r["high"]), float(r["low"])
+        if (lo <= stop) if bull else (hi >= stop):
+            out.update(state="stopped", targets_hit=hit, stop_hit=True, resolved=True)
+            return out
+        while hit < len(targets) and ((hi >= targets[hit]) if bull else (lo <= targets[hit])):
+            hit += 1
+        if hit == len(targets):
+            out.update(state="complete", targets_hit=hit, resolved=True)
+            return out
+    out.update(state="partial" if hit else "live", targets_hit=hit)
+    return out
+
+
 def detect_last_pattern(df: pd.DataFrame, max_age_bars: int = 10,
                          atr_mult: float = 2.0) -> dict | None:
     """Return the most recent harmonic pattern whose D pivot is within max_age_bars.
-    None if no valid pattern completes near the current bar."""
+    None if no valid pattern completes near the current bar. The result carries
+    "status" (resolve_after_d): whether price has already hit the stop or the
+    targets since D."""
+    m = _detect_last_pattern(df, max_age_bars=max_age_bars, atr_mult=atr_mult)
+    if m is not None:
+        m["status"] = resolve_after_d(df, m)
+    return m
+
+
+def _detect_last_pattern(df: pd.DataFrame, max_age_bars: int = 10,
+                         atr_mult: float = 2.0) -> dict | None:
     pivots = find_pivots(df, atr_mult=atr_mult)
     if len(pivots) < 4:
         return None

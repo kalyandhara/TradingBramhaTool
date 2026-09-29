@@ -10258,7 +10258,13 @@ async function renderHarmonic(pane) {
   const bull = g.direction === 'bullish';
   const kinds5 = bull ? ['L','H','L','H','L'] : ['H','L','H','L','H'];
   const kinds = keys.length === 5 ? kinds5 : kinds5.slice(1);
-  const labels = keys;
+  // A resolved plan (stopped, or ran through T3) says so on its D label.
+  const stt = g.status || {};
+  const outcome = !stt.resolved ? ''
+    : stt.state === 'stopped'
+      ? ` · stopped${stt.targets_hit ? ` after T${stt.targets_hit}` : ''}`
+      : ' · T3 hit';
+  const labels = keys.map((k, i) => i === keys.length - 1 ? k + outcome : k);
   const markers = pts.map((p, i) => ({
     time: p.time,
     position: kinds[i] === 'H' ? 'aboveBar' : 'belowBar',
@@ -10268,8 +10274,12 @@ async function renderHarmonic(pane) {
   }));
   setPaneMarkers(pane, 'harmonic', markers);
 
-  // Entry / stop / targets — priced against the D pivot.
+  // Entry / stop / targets — priced against the D pivot. Skipped once the plan
+  // has resolved: a live-looking "entry" 140 points from price (RELIANCE,
+  // 2026-09-28) reads as an open setup when it is history.
+  if (stt.resolved) return;
   const t = g.trade || {};
+  const leg = keys.length === 5 ? 'AD' : 'CD';   // AB=CD targets measure CD
   const mk = (price, label, col, style) => {
     if (price == null) return;
     const pl = pane.series.createPriceLine({
@@ -10281,8 +10291,8 @@ async function renderHarmonic(pane) {
   mk(t.entry,       `H:${g.pattern} entry`, color,     0);
   mk(t.stop,        'H:stop',               '#f23645', 2);
   if (t.targets && t.targets.length) {
-    mk(t.targets[0], 'H:T1 (0.382 AD)',     '#26a69a', 2);
-    mk(t.targets[1], 'H:T2 (0.618 AD)',     '#26a69a', 2);
+    mk(t.targets[0], `H:T1 (0.382 ${leg})`, '#26a69a', 2);
+    mk(t.targets[1], `H:T2 (0.618 ${leg})`, '#26a69a', 2);
   }
 }
 

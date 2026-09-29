@@ -1307,6 +1307,7 @@ def api_harmonic():
             for k, v in pts.items()
         },
         "trade": m["trade"],
+        "status": m.get("status"),
     }
     return jsonify({"symbol": symbol, "harmonic": harmonic})
 

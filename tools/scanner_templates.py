@@ -4377,8 +4377,9 @@ def scan_harmonic_reversal(df: pd.DataFrame) -> dict | None:
         return None
     reasons = [
         f"{h['pattern']} ({h['direction']}) completed at D, {h['age_bars']} bars ago",
-        f"Ratios AB/XA={h['ratios']['AB/XA']}, BC/AB={h['ratios']['BC/AB']}, "
-        f"CD/BC={h['ratios']['CD/BC']}, AD/XA={h['ratios']['AD/XA']}",
+        # Generic join: the four-point AB=CD family has no X, so no AB/XA or
+        # AD/XA — indexing those raised KeyError on every bullish AB=CD.
+        "Ratios " + ", ".join(f"{k}={v}" for k, v in h["ratios"].items()),
         f"Entry {t['entry']} · Stop {t['stop']} · T2 {t['targets'][1]} — R:R {t['rr_to_t2']}",
     ]
     return {
