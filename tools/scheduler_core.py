@@ -12,6 +12,7 @@ Jobs (extend JOBS to add more):
   • daily_scanner — the existing after-close scanner suite, DAILY mode. Its task
     (TradingBramha-DailyScanner) may already exist; represented here so the hub
     can show/manage it too.
+  • hidden_treasures_daily — small/micro-cap discovery, stored per run date.
 
 Registering/removing a task changes persistent OS configuration — those calls are
 made only when the user acts (the hub buttons), never as a side effect of import.
@@ -130,6 +131,23 @@ JOBS: dict[str, JobSpec] = {
         kind="daily",
         command=f'"{PYTHON_EXE}" "{HERE / "snapshot_refresh.py"}" --all',
         default_time="16:30",
+    ),
+    "hidden_treasures_daily": JobSpec(
+        id="hidden_treasures_daily",
+        label="Hidden Treasures Discovery",
+        desc="Warms the small/micro-cap shareholding cache (only quarters not "
+             "yet cached are fetched), ranks the NSE Both universe with the "
+             "quality overlay, and stores the top 100 in the hidden_treasures "
+             "table with the run's universe and counts. The page opens on the "
+             "latest stored run. A manual Discover replaces that day's run. "
+             "One yfinance call per name, so ~5-15 min.",
+        task_name="TradingBramha-HiddenTreasuresDaily",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "hidden_treasures_daily.py"}" '
+                f'--kind both --top 100',
+        # Last: shareholding moves quarterly, so nothing downstream waits on it,
+        # and it is the slowest job after the snapshot refresh.
+        default_time="16:45",
     ),
 }
 

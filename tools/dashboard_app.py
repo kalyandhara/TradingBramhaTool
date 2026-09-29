@@ -5787,20 +5787,74 @@ if current_page == "Hidden Treasures":
         with st.spinner("Scoring small/micro-cap universe…"):
             try:
                 _ht_kind_val = _kind_map[_ht_kind]
-                _ht_res = scd.discover(kind=_ht_kind_val,
-                                       limit=_ht_limit,
-                                       enrich=_ht_enrich,
-                                       veto_critical=_ht_veto)
-                st.session_state["ht_result"] = _ht_res
+                # Always store the top 100 (the slider's max) so every "Show
+                # top N" position is served from the stored run below.
+                _ht_live = scd.discover(kind=_ht_kind_val, limit=100,
+                                        enrich=_ht_enrich,
+                                        veto_critical=_ht_veto)
+                _ht_today = date.today().isoformat()
                 _saved_n = db.save_hidden_treasures_run(
-                    _ht_res["hits"],
+                    _ht_live["hits"],
                     universe_kind=_ht_kind_val,
-                    universe_size=_ht_res.get("universe", 0))
+                    universe_size=_ht_live.get("universe", 0),
+                    run_date=_ht_today)
+                db.save_hidden_treasures_meta(_ht_today, {
+                    "universe_kind": _ht_kind_val,
+                    "universe": _ht_live.get("universe", 0),
+                    "scanned": _ht_live.get("scanned", 0),
+                    "cached": _ht_live.get("cached", 0),
+                    "veto_active": _ht_live.get("veto_active", False),
+                    "vetoed": _ht_live.get("vetoed") or [],
+                    "enrich": bool(_ht_enrich), "source": "manual"})
+                st.session_state["ht_run_date"] = _ht_today
                 st.toast(f"💾 {_saved_n} hits saved to history")
             except Exception as _e:
                 st.error(f"Discovery failed: {_e}")
 
-    _ht_res = st.session_state.get("ht_result")
+    # ── The list shown is always a STORED run ─────────────────────────────────
+    # Discover above and the scheduled Hidden Treasures job (Scheduler Hub)
+    # both write the hidden_treasures table, so the page opens on the latest
+    # run instead of an empty screen, and older runs stay one pick away. The
+    # table keeps one run per date: a Discover replaces that day's run.
+    _ht_res = None
+    _ht_dates = db.get_hidden_treasures_dates()
+    _kind_label = {v: k for k, v in _kind_map.items()}
+    if _ht_dates:
+        if st.session_state.get("ht_run_date") not in _ht_dates:
+            st.session_state["ht_run_date"] = _ht_dates[0]
+
+        def _ht_date_label(d):
+            _m = db.get_hidden_treasures_meta(d)
+            _parts = [d]
+            if _m.get("universe_kind"):
+                _parts.append(_kind_label.get(_m["universe_kind"], _m["universe_kind"]))
+            if _m.get("source"):
+                _parts.append(_m["source"])
+            return " · ".join(_parts)
+
+        _ht_sel = st.selectbox("Stored run", _ht_dates, key="ht_run_date",
+                               format_func=_ht_date_label,
+                               help="Written by Discover and by the scheduled "
+                                    "Hidden Treasures job. One run per date.")
+        _ht_cards = db.get_hidden_treasures_run(_ht_sel)
+        _ht_meta = db.get_hidden_treasures_meta(_ht_sel)
+        if _ht_cards:
+            _ht_res = {
+                "hits": _ht_cards[:_ht_limit],
+                "universe": _ht_meta.get("universe", len(_ht_cards)),
+                "cached": _ht_meta.get("cached"),   # None on runs stored before meta
+                "scanned": _ht_meta.get("scanned", len(_ht_cards)),
+                "vetoed": _ht_meta.get("vetoed") or [],
+                "veto_active": _ht_meta.get("veto_active", False),
+            }
+            if _ht_meta.get("universe_kind") and _kind_map.get(_ht_kind) != _ht_meta["universe_kind"]:
+                st.caption(f"Showing the stored **{_kind_label.get(_ht_meta['universe_kind'], _ht_meta['universe_kind'])}** "
+                           f"run. Press Discover to run **{_ht_kind}** instead.")
+    else:
+        st.info("No stored run yet. Press **Discover**, or register the Hidden "
+                "Treasures job in Scheduler Hub (Ops) to run it after each close.",
+                icon="ℹ️")
+
     if _ht_res is not None:
         # The veto is the only HARD gate in this lane, so what it removed has to
         # be visible. A silent exclusion is indistinguishable from a name that was
@@ -5833,8 +5887,10 @@ if current_page == "Hidden Treasures":
                         unsafe_allow_html=True)
                 if len(_ht_vetoed) > 60:
                     st.caption(f"…and {len(_ht_vetoed) - 60} more.")
-        st.markdown(rs.section(f"Top {len(_ht_res['hits'])} of {_ht_res['universe']} "
-                               f"({_ht_res['cached']} cached)"),
+        _ht_cached_txt = (f" ({_ht_res['cached']} cached)"
+                          if _ht_res.get("cached") is not None else "")
+        st.markdown(rs.section(f"Top {len(_ht_res['hits'])} of {_ht_res['universe']}"
+                               f"{_ht_cached_txt}"),
                     unsafe_allow_html=True)
 
         for _i in range(0, len(_ht_res["hits"]), 3):

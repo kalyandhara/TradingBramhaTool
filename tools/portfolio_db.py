@@ -1098,6 +1098,48 @@ def get_hidden_treasures_dates() -> list[str]:
         conn.close()
 
 
+def save_hidden_treasures_meta(run_date: str, meta: dict) -> None:
+    """Run-level facts for a stored Hidden Treasures run: universe kind and
+    size, how many names were cached / scanned, whether the veto ran and what
+    it removed, and whether the run was scheduled or manual. The fact table
+    holds cards only, so without this a restored run could not say which
+    universe it covers. Kept in `settings` (one JSON value per run date), so
+    no schema change is needed."""
+    import json as _json
+    set_setting(f"ht_run_meta:{run_date}", _json.dumps(meta, default=str))
+
+
+def get_hidden_treasures_meta(run_date: str) -> dict:
+    """Meta saved by save_hidden_treasures_meta. Runs stored before it existed
+    fall back to the universe kind / size the fact table recorded per row (no
+    scanned / cached / veto facts for those); {} when the date has no run."""
+    import json as _json
+    raw = get_setting(f"ht_run_meta:{run_date}")
+    try:
+        meta = _json.loads(raw) if raw else {}
+    except ValueError:
+        meta = {}
+    if meta:
+        return meta
+    conn = get_connection()
+    try:
+        _ensure_hidden_treasures_table(conn)
+        row = conn.execute(
+            "SELECT universe_kind, MAX(universe_size) FROM hidden_treasures "
+            "WHERE run_date = ? GROUP BY universe_kind ORDER BY COUNT(*) DESC LIMIT 1",
+            (run_date,)).fetchone()
+    finally:
+        conn.close()
+    if not row:
+        return {}
+    out = {}
+    if row[0]:
+        out["universe_kind"] = row[0]
+    if row[1]:
+        out["universe"] = int(row[1])
+    return out
+
+
 def get_hidden_treasures_history(symbol: str) -> pd.DataFrame:
     """All historical Hidden Treasures appearances for a symbol, newest first."""
     conn = get_connection()
