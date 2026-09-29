@@ -5173,7 +5173,13 @@ function applyIndicators(pane) {
     // yet (that's why the VP histogram disappeared on tf change, SUVEN.NS
     // case 2026-07-04). One RAF is enough for LWC to settle its layout.
     requestAnimationFrame(() => {
-      if (pane.indicators.has('volprofile')) drawVolumeProfile(pane);
+      if (!pane.indicators.has('volprofile')) return;
+      drawVolumeProfile(pane);
+      // The CPR card read pane.vp synchronously above, before this frame
+      // populated it, so it showed "Enable Volume Profile" with VP on.
+      // Re-render now that the profile exists.
+      if (pane.indicators.has('cpr') && pane.vp && typeof CPR !== 'undefined')
+        renderCprCard(pane, CPR.compute(pane.bars));
     });
   }
 
