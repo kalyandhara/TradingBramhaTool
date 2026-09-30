@@ -33,3 +33,14 @@ def test_chart_query_shape():
     q = parse_qs(f.chart_query("TCS", "^CNXIT", ["INFY"]))
     assert q["layout"] == ["pa"] and q["charts"] == ["4"]
     assert q["compare"] == ["^CNXIT,INFY.NS,^NSEI"]
+
+
+def test_default_view_is_a_single_chart():
+    # context off (the page default) and nothing pinned -> the focus chart alone
+    assert f.pane_symbols("SUNPHARMA", None, []) == []
+    q = parse_qs(f.chart_query("TCS", None, []))
+    assert q["charts"] == ["1"] and "compare" not in q   # empty value is dropped
+
+
+def test_pins_without_context_start_at_chart_two():
+    assert f.pane_symbols("SUNPHARMA", None, ["CIPLA"]) == ["CIPLA"]
