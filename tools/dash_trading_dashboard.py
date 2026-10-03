@@ -78,7 +78,7 @@ class TradingDashboard:
             port: Port to run dashboard on
             debug: Enable debug mode
         """
-        self.app = dash.Dash(__name__)
+        self.app = dash.Dash(__name__, title='Trading Bramha Dashboard')
         self.port = port
         self.debug = debug
 
@@ -99,7 +99,7 @@ class TradingDashboard:
         self.app.layout = html.Div([
             # Header
             html.Div([
-                html.H1('Trading Bramha — Interactive Dashboard',
+                html.H1('Trading Bramha Dashboard',
                         style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': 30}),
                 html.P('Real-time trading analysis with astrology, signals, and financial indicators',
                        style={'textAlign': 'center', 'color': '#7f8c8d', 'fontSize': 14}),

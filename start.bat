@@ -1,13 +1,13 @@
 @echo off
 setlocal
-title Trading Bramha - SBC Dashboard launcher
+title Trading Bramha Dashboard launcher
 set "REPO=%~dp0"
 set "PORT=8050"
 set "PYTHON=C:\Users\Owner\AppData\Local\Programs\Python\Python314\python.exe"
 set "PYTHONIOENCODING=utf-8"
 
 echo ==================================================
-echo   Trading Bramha - SBC Dashboard
+echo   Trading Bramha Dashboard
 echo   http://localhost:%PORT%
 echo ==================================================
 echo.
@@ -31,14 +31,14 @@ for /f "tokens=5" %%p in ('netstat -ano ^| findstr ":%PORT% " ^| findstr LISTENI
 
 echo [2/3] Launching dashboard in its own window ...
 cd /d "%REPO%"
-start "SBC Dashboard :%PORT%" %PYTHON% "%REPO%tools\dash_trading_dashboard.py"
+start "Trading Bramha Dashboard :%PORT%" %PYTHON% "%REPO%tools\dash_trading_dashboard.py"
 
 echo [3/3] Waiting for the server to come up, then opening the browser ...
 timeout /t 12 /nobreak >nul
 start "" "http://localhost:%PORT%"
 
 echo.
-echo Dashboard is running in the "SBC Dashboard :%PORT%" window.
+echo Dashboard is running in the "Trading Bramha Dashboard :%PORT%" window.
 echo   - Re-run this file any time to RESTART it.
 echo   - Close that window (or run stop.bat) to STOP it.
 echo   - If the browser shows an error, wait a few seconds and refresh.
