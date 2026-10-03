@@ -16,13 +16,14 @@ import asyncio
 import json
 import logging
 import queue
+import re
 import sys
 import threading
 import time
 from collections import deque
 from pathlib import Path
 
-from flask import Flask, jsonify, request, send_from_directory
+from flask import Flask, abort, jsonify, request, send_from_directory
 from flask_sock import Sock
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
@@ -392,102 +393,66 @@ def pwa_icon_maskable():
     return send_from_directory(HERE, "icon-maskable-512.png", mimetype="image/png")
 
 
-@app.route("/elliott_wave.js")
-def elliott_wave_js():
-    return send_from_directory(HERE, "elliott_wave.js", mimetype="application/javascript")
-
-
-@app.route("/volume_profile.js")
-def volume_profile_js():
-    return send_from_directory(HERE, "volume_profile.js", mimetype="application/javascript")
-
-
-@app.route("/fvg.js")
-def fvg_js():
-    return send_from_directory(HERE, "fvg.js", mimetype="application/javascript")
-
-
-@app.route("/fibonacci.js")
-def fibonacci_js():
-    return send_from_directory(HERE, "fibonacci.js", mimetype="application/javascript")
-
-
-@app.route("/gann.js")
-def gann_js():
-    return send_from_directory(HERE, "gann.js", mimetype="application/javascript")
-
-
-@app.route("/session_volume_profile.js")
-def session_volume_profile_js():
-    return send_from_directory(HERE, "session_volume_profile.js",
-                               mimetype="application/javascript")
-
-
-@app.route("/hm_indicator.js")
-def hm_indicator_js():
-    return send_from_directory(HERE, "hm_indicator.js",
-                               mimetype="application/javascript")
-
-
-@app.route("/supertrend_ai.js")
-def supertrend_ai_js():
-    return send_from_directory(HERE, "supertrend_ai.js",
-                               mimetype="application/javascript")
-
-
-@app.route("/percent_r_trend_exhaustion.js")
-def percent_r_trend_exhaustion_js():
-    return send_from_directory(HERE, "percent_r_trend_exhaustion.js", mimetype="application/javascript")
-
-
-@app.route("/adx_di.js")
-def adx_di_js():
-    return send_from_directory(HERE, "adx_di.js", mimetype="application/javascript")
-
-
-@app.route("/evwma_vwap_macd.js")
-def evwma_vwap_macd_js():
-    return send_from_directory(HERE, "evwma_vwap_macd.js",
-                               mimetype="application/javascript")
-
-
-@app.route("/vwap_mean_reversion.js")
-def vwap_mean_reversion_js():
-    return send_from_directory(HERE, "vwap_mean_reversion.js",
-                               mimetype="application/javascript")
-
-
-@app.route("/psar.js")
-def psar_js():
-    return send_from_directory(HERE, "psar.js", mimetype="application/javascript")
-
-
-@app.route("/renko.js")
-def renko_js():
-    return send_from_directory(HERE, "renko.js", mimetype="application/javascript")
-
-
-@app.route("/obv_divergence.js")
-def obv_divergence_js():
-    return send_from_directory(HERE, "obv_divergence.js",
-                               mimetype="application/javascript")
-
-
-@app.route("/rsi_divergence.js")
-def rsi_divergence_js():
-    return send_from_directory(HERE, "rsi_divergence.js", mimetype="application/javascript")
-
-
-@app.route("/chart_drawings.js")
-def chart_drawings_js():
-    return send_from_directory(HERE, "chart_drawings.js", mimetype="application/javascript")
-
-
 # Bhavcopy is one file per session and every strike-level read comes out of it,
 # so the download is cached process-wide rather than repeated per request. Keyed
 # by nothing but recency: a new session simply replaces it.
 _OPT_CACHE: dict[str, object] = {"raw": None, "date": None, "at": 0.0}
 _OPT_TTL = 30 * 60
+
+
+#: Browser modules are served by ONE route, and the ALLOW-LIST is read from the
+#: page itself (B-85).
+#:
+#: Before this there were 17 near-identical routes, one per module, and the cost
+#: was not the duplication -- it was that a running server 404s a module added
+#: after it started. That was observed live on 2026-09-07 (`/psar.js`) and the
+#: backlog carried "restart the chart server" as an operational note on two
+#: separate sessions. A restart is not a fix for a routing table that has to be
+#: edited to learn about a file already on disk.
+#:
+#: A blanket `/<anything>.js` would have been the obvious move and is WRONG here:
+#: `tools/` also holds nine NODE-side scripts -- `alert_watcher.js`,
+#: `svp_backtest_runner.js`, the emit and backtest runners -- and serving those
+#: over HTTP would publish internal tooling, including the shape of the alert
+#: delivery config. The browser needs exactly what `chart_dashboard.html` asks
+#: for, so the page is the authority and nothing else is reachable.
+#:
+#: Cached on the HTML's mtime, so adding a module and its `<script src>` line
+#: works on a RUNNING server, which is the whole point of the change.
+_MODULE_CACHE: dict[str, object] = {"mtime": None, "names": frozenset()}
+
+
+def _page_modules() -> frozenset:
+    """`{"elliott_wave.js", ...}` — every module `chart_dashboard.html` loads."""
+    page = HERE / "chart_dashboard.html"
+    try:
+        mtime = page.stat().st_mtime
+    except OSError:
+        return frozenset()
+    if _MODULE_CACHE["mtime"] != mtime:
+        try:
+            html = page.read_text(encoding="utf-8", errors="replace")
+        except OSError:
+            return frozenset()
+        _MODULE_CACHE["names"] = frozenset(
+            re.findall(r'src="/([A-Za-z0-9_]+\.js)"', html))
+        _MODULE_CACHE["mtime"] = mtime
+    return _MODULE_CACHE["names"]
+
+
+@app.route("/<name>.js")
+def chart_module_js(name: str):
+    """Serve a chart module the page actually references, or 404.
+
+    Flask's string converter never matches a `/`, and membership in the page's own
+    list is the real gate, so neither traversal nor a guessed filename reaches
+    disk. The explicit `/sw.js` route above wins over this one: a static rule
+    outranks a converter rule in Flask's map.
+    """
+    fname = f"{name}.js"
+    if fname not in _page_modules():
+        abort(404)
+    return send_from_directory(HERE, fname, mimetype="application/javascript")
 
 
 @app.route("/api/option_levels")
@@ -696,6 +661,83 @@ def api_rounding_bottom():
     return jsonify({"symbol": symbol, "saucer": saucer})
 
 
+@app.route("/api/double_bottom")
+def api_double_bottom():
+    """Double Bottom geometry for chart overlay rendering. Runs the same
+    detector as the Scanner Hub's "Double Bottom" card (see
+    scanner_templates.scan_double_bottom + concepts/Reversal-Chart-Patterns.md,
+    ported from sources/AGPro-Reversal-Pattern-Quality-Scanner-Pine.md).
+    Returns {"double_bottom": null} when no confirmed pattern is live — the
+    client hides the overlay in that case.
+
+    Two numbers ride out separately and must stay that way on the wire as well
+    as in the detector: `quality`/`grade` describe the SHAPE, `follow_through`
+    describes whether this symbol has been honouring these breaks. The source
+    page's warning is that a textbook A-grade shape can sit on a poor real
+    follow-through rate, so the client renders both rather than one blended
+    number."""
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    # The detector needs enough bars for two CONFIRMED pivots (8 each side)
+    # plus the pattern width plus the break; below that it returns None anyway.
+    if df is None or len(df) < 90:
+        return jsonify({"symbol": symbol, "double_bottom": None})
+
+    hit = sc.scan_double_bottom(df)
+    if not hit or "geometry" not in hit:
+        return jsonify({"symbol": symbol, "double_bottom": None})
+
+    g = hit["geometry"]
+
+    # Bar indices -> unix timestamps, same convention as /api/rounding_bottom:
+    # the detector stays index-based (simpler to test) and the wire format uses
+    # timestamps (what LightweightCharts needs).
+    def _t(idx):
+        if idx is None or idx < 0 or idx >= len(bars):
+            return None
+        return int(bars[idx]["time"])
+
+    dbl = {
+        "neckline":        g["neckline"],
+        "left_time":       _t(g["left_bar_idx"]),
+        "left_low":        g["left_low"],
+        "right_time":      _t(g["right_bar_idx"]),
+        "right_low":       g["right_low"],
+        "neck_time":       _t(g["neck_bar_idx"]),
+        "breakout_time":   _t(g["breakout_bar_idx"]),
+        "last_time":       int(bars[-1]["time"]),
+        "state":           g["state"],
+        "quality":         g["quality"],
+        "grade":           g["grade"],
+        "parts":           g["parts"],
+        "eq_pct":          g["eq_pct"],
+        "pullback_pct":    g["pullback_pct"],
+        "width_bars":      g["width_bars"],
+        "atrs_past":       g["atrs_past"],
+        "breakout_vol_x":  g["breakout_vol_x"],
+        "extended_pct":    g["extended_pct"],
+        "bars_since_break": g["bars_since_break"],
+        # Descriptive history for THIS symbol, always with its sample size.
+        "follow_through":  g["follow_through"],
+        "score":           hit["score"],
+        "reasons":         hit.get("reasons", []),
+        # Actionable trade plan — see detect_double_bottom for the derivation.
+        "verdict":         g["verdict"],
+        "entry":           g["entry"],
+        "stop":            g["stop"],
+        "target":          g["target"],
+        "risk_reward":     g["risk_reward"],
+    }
+    return jsonify({"symbol": symbol, "double_bottom": dbl})
+
+
 @app.route("/api/vcp")
 def api_vcp():
     """VCP (Volatility Contraction Pattern) coiling geometry for chart
@@ -810,6 +852,61 @@ def api_falling_wedge():
     return jsonify({"symbol": symbol, "falling_wedge": fw})
 
 
+@app.route("/api/flag_pole")
+def api_flag_pole():
+    """Flag & pole geometry for the chart overlay (B-92 / PR-4).
+
+    See `flag_pole.detect_flag_pole` and
+    `analyses/Pattern-Reporting-Enhancement-Roadmap`. Returns BOTH directions so
+    the overlay can draw whichever exists without a second round trip — they are
+    mutually exclusive in practice but nothing guarantees it, and asking the
+    client to choose would put the detector's logic in two places.
+
+    Bar indices are mapped to chart timestamps here, as every other overlay route
+    does. {"bull": null, "bear": null} when nothing qualifies.
+    """
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+
+    import flag_pole as fpm
+    need = fpm.WINDOW + fpm.ATR_N
+    if df is None or len(df) < need:
+        # Say WHY rather than returning a bare null: an overlay that silently
+        # draws nothing on a short frame is indistinguishable from one that
+        # found no pattern, and the two need different reactions from the user.
+        return jsonify({"symbol": symbol, "bull": None, "bear": None,
+                        "note": f"needs {need} bars, has {0 if df is None else len(df)}"})
+
+    def _t(idx):
+        if idx is None or idx < 0 or idx >= len(bars):
+            return None
+        return int(bars[idx]["time"])
+
+    out = {"symbol": symbol, "bull": None, "bear": None}
+    for d in ("bull", "bear"):
+        g = fpm.detect_flag_pole(df, direction=d)
+        if g is None:
+            continue
+        out[d] = {
+            **{k: g[k] for k in (
+                "direction", "pole_low", "pole_high", "pole_bars", "pole_atr",
+                "pole_monotonicity", "flag_bars", "flag_high", "flag_low",
+                "retrace", "vol_contract", "broken", "entry", "stop",
+                "target", "rr", "atr")},
+            "pole_t0": _t(g["pole_start"]), "pole_t1": _t(g["pole_end"]),
+            "flag_t0": _t(g["flag_start"]), "flag_t1": _t(g["flag_end"]),
+            "last_t":  _t(len(df) - 1),
+        }
+    return jsonify(out)
+
+
 @app.route("/api/structure_chain")
 def api_structure_chain():
     """Market-structure break chain for the chart overlay — SBC-4. See
@@ -913,7 +1010,9 @@ def api_order_blocks():
     Each block carries its zone (low/high), BOS/CHOCH label, ATR displacement,
     break-bar volume multiple, and mitigation state — bar indices mapped to
     timestamps, with the box spanning the OB candle to its mitigation bar (or the
-    right edge while still unmitigated). {"order_blocks": []} when none exist."""
+    right edge while still unmitigated), plus an entry/stop/target trade plan on
+    every live zone — measured at ~0R, see detect_order_blocks.
+    {"order_blocks": []} when none exist."""
     symbol    = request.args.get("symbol", "").strip().upper()
     timeframe = request.args.get("timeframe", "1d")
     bars_n    = min(int(request.args.get("bars", 300)), 3000)
@@ -962,6 +1061,13 @@ def api_order_blocks():
             "vol_x":      b["vol_x"],
             "buy_pct":    b.get("buy_pct", 50.0),
             "sell_pct":   b.get("sell_pct", 50.0),
+            # Trade plan — present on every live zone (see detect_order_blocks).
+            # The overlay draws stop/target lines from these. No `rr`: the target
+            # is a flat 2R since 2026-09-13, so a ratio would be a constant
+            # dressed up as information.
+            "entry":      b.get("entry"),
+            "stop":       b.get("stop"),
+            "target":     b.get("target"),
         })
 
     retest_out = []
@@ -971,6 +1077,9 @@ def api_order_blocks():
             continue
         retest_out.append({
             "dir":   rt["dir"],
+            # early = wick rejection at the zone; confirmed = price left the zone.
+            "kind":  rt.get("kind", "confirmed"),
+            "ob_idx": rt.get("ob_idx"),
             "time":  t,
             "price": round(rt["price"], 2),
             "buy_pct":  rt.get("buy_pct"),
@@ -1198,6 +1307,7 @@ def api_harmonic():
             for k, v in pts.items()
         },
         "trade": m["trade"],
+        "status": m.get("status"),
     }
     return jsonify({"symbol": symbol, "harmonic": harmonic})
 
@@ -1457,7 +1567,25 @@ if __name__ == "__main__":
     import argparse as _argparse
     _ap = _argparse.ArgumentParser(description="Trading Bramha chart server")
     _ap.add_argument("--port", type=int, default=5001)
+    # ── Why the default is still 0.0.0.0 (B-86) ──────────────────────────────
+    # bandit flags this as B104, and the design review's recommendation was to
+    # default to loopback. That recommendation was made without checking what
+    # binds here, and it is WRONG for this server: the chart is a PWA -- it ships
+    # a service worker, a manifest and maskable icons, and there are INSTALLED
+    # clients (the 2026-08-29 cache regression was found precisely because a fix
+    # never reached one). A phone on the same wifi cannot reach 127.0.0.1, so
+    # defaulting to loopback would silently break the surface the PWA exists for.
+    #
+    # The finding is therefore ACCEPTED rather than fixed, and made explicit:
+    # `--host 127.0.0.1` is one flag away for anyone who wants it. What makes the
+    # exposure tolerable is the rest of the shape -- read-only market endpoints,
+    # no credentials, no writes, and a module route that serves only what the
+    # page references (B-85) rather than anything in `tools/`.
+    _ap.add_argument("--host", default="0.0.0.0",
+                     help="bind address; use 127.0.0.1 to keep it off the LAN "
+                          "(the installed PWA on a phone then cannot reach it)")
     _args = _ap.parse_args()
     _hl_start()
-    log.info("Chart server → http://localhost:%d", _args.port)
-    app.run(host="0.0.0.0", port=_args.port, debug=False, threaded=True)
+    log.info("Chart server → http://localhost:%d  (bound %s)",
+             _args.port, _args.host)
+    app.run(host=_args.host, port=_args.port, debug=False, threaded=True)

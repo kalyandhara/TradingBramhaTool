@@ -11,6 +11,8 @@ related:
   - strategies/Minervini-SEPA.md
   - concepts/Trading-Psychology-Champion.md
   - sources/Minervini-Think-Trade-Champion.md
+timeframe: n/a
+sources: 0
 ---
 
 # Kalyan's Trading Philosophy & Rules

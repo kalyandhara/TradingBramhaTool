@@ -67,6 +67,8 @@ This is not a stylistic preference — it is arithmetic. On a daily chart each b
 - **Applying session VWAP to swing trades.** Session VWAP resets daily and does not carry information across sessions; for multi-day setups use AVWAP from a meaningful anchor.
 - **Fading price above VWAP just because it's "extended."** In a widening-band, steep-slope regime, "extended" above VWAP is exactly where momentum trades pay — bandwidth tells you whether extension is exhaustion or conviction.
 - **Trusting VWAP on low-volume instruments.** The whole point of the weighting is volume; on illiquid names, VWAP is noise.
+- **Expecting VWAP on an INDEX SPOT chart.** Index spot has no traded volume, so VWAP is not noisy there — it is *undefined*. Measured 2026-09-17: `^NSEI` carries **zero volume on all 2,125 stored 15-minute bars**. This desk draws nothing rather than falling back to close (an earlier version did, which drew VWAP *as the price line* — the most convincing way possible to be wrong). Use the **futures** chart, which is where the volume is. See [[sources/Spider-Software-VWAP-EMA-Infographic]].
+- **Expecting session VWAP on DAILY bars.** One bar is one session, so the accumulator resets every bar and the formula collapses to that bar's typical price. Measured on daily RELIANCE: session VWAP equalled `(H+L+C)/3` on **24 of 24** bars. For multi-day work use [[concepts/Anchored-VWAP-Pyramiding]].
 
 ## Related Concepts
 - [[concepts/Anchored-VWAP-Pyramiding]] — event-anchored variant used for swing pyramiding.
@@ -77,7 +79,9 @@ This is not a stylistic preference — it is arithmetic. On a daily chart each b
 - [[strategies/TechnoFunda-Swing]] — uses `close > VWAP` as one of its 7 gate conditions. Per this concept page, that gate can be tightened by also requiring non-flat slope on entry day.
 - [[strategies/Hyperliquid-Momentum-Screener]] — requires price > VWAP as part of the EMA9/21/50+VWAP trend stack for crypto momentum candidates.
 - [[sources/X-KoroushAK-VWAP-Masterclass-20260506]] — Koroush AK's 3-signal framework (position / slope / bandwidth) with real coach trade examples (Brandon breakdown short, Josh crypto momentum long, Kim fakeout avoidance).
+- [[sources/Spider-Software-VWAP-EMA-Infographic]] — vendor card pairing VWAP with an EMA as a short-side state rule. **Validated against what ships, not adopted:** its index caveat is real and already handled (by a volume check rather than a symbol list), but the combined rule itself is unmeasured and its nearest measured relatives on this desk both failed (`evmacd` NEGATIVE, bare DI cross LOSES).
 
 ## Sources
 - [[sources/X-KoroushAK-VWAP-Masterclass-20260506]]
 - [[sources/ForexTester-Anchored-VWAP-Guide]] (2026-08-02) — session-vs-anchored comparison, the explicit AVWAP formula, and Brian Shannon as the originator of the anchored variant
+- [[sources/Spider-Software-VWAP-EMA-Infographic]] (2026-09-17) — VWAP+EMA state rule; validated, three backlog items raised

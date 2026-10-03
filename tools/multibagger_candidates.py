@@ -90,6 +90,7 @@ except ImportError:
     sys.exit("Run:  py -3 -m pip install openpyxl")
 
 BASE_DIR = Path(__file__).resolve().parent.parent
+import out_paths as _out
 
 QUERY = (
     "Market Capitalization < 20000 AND\n"
@@ -253,10 +254,10 @@ if __name__ == "__main__":
     df = build_dataset(sessionid, QUERY)
 
     date_str = datetime.today().strftime("%Y%m%d")
-    csv_path = BASE_DIR / f"multibagger_candidates_{date_str}.csv"
+    csv_path = _out.out_path(f"multibagger_candidates_{date_str}.csv")
     df.to_csv(csv_path, index=False)
     print(f"Saved -> {csv_path}  ({len(df)} rows)")
 
-    xlsx_path = BASE_DIR / f"sector_rotation_{date_str}.xlsx"
+    xlsx_path = _out.out_path(f"sector_rotation_{date_str}.xlsx")
     write_excel_sheet(df, xlsx_path)
     print(f"Added 'Multibagger Candidates' sheet -> {xlsx_path}")

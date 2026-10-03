@@ -73,6 +73,14 @@ def main():
 
     risk_scanners = {n for n, spec in sc.SCANNERS.items()
                      if spec.get("category") == "Risk"}
+    # B-101: a BILATERAL scanner has no side, so the long-only walk-forward is
+    # measuring the wrong thing on it — a directional edge near zero is what a
+    # coil that resolves both ways SHOULD produce, and printing that as "NO EDGE"
+    # would read as a failed detector rather than a detector working as designed.
+    # It still runs (the signal count and the raw distribution are worth having);
+    # only the verdict line is told not to grade it on a direction it never claimed.
+    neutral_scanners = {n for n, spec in sc.SCANNERS.items()
+                        if spec.get("category") == "Neutral"}
 
     print(f"B-19 batch: {len(run_names)} scanners, {len(LIQUID_50)} symbols, "
           f"WF={N_WINDOWS}, cost=Indian delivery\n")
@@ -112,13 +120,15 @@ def main():
             pooled_h = pooled.get("horizons", {})
             n_sig = pooled.get("n_signals", 0)
             is_risk = name in risk_scanners
+            is_neutral = name in neutral_scanners
             degradation = res.get("degradation", {})
             stability = res.get("stability", {})
 
             # Build edge dict keyed by horizon
             edges = {h: m.get("edge") for h, m in pooled_h.items() if m.get("edge") is not None}
 
-            verdict = _derive_verdict(edges, n_sig, is_risk, degradation, stability)
+            verdict = _derive_verdict(edges, n_sig, is_risk, degradation, stability,
+                                      is_neutral=is_neutral)
 
             results.append({
                 "scanner": name,
@@ -166,7 +176,8 @@ def main():
     print(f"Summary JSON: {OUT_DIR}/_summary.json")
 
 
-def _derive_verdict(edges, n_sig, is_risk, degradation, stability) -> str:
+def _derive_verdict(edges, n_sig, is_risk, degradation, stability,
+                    is_neutral: bool = False) -> str:
     if n_sig < 20:
         return "TOO FEW SIGNALS"
 
@@ -181,6 +192,13 @@ def _derive_verdict(edges, n_sig, is_risk, degradation, stability) -> str:
 
     stab = stability.get("all_stable", False)
     stab_tag = "" if stab else " [UNSTABLE]"
+
+    # A bilateral scanner never claimed a direction, so there is no directional
+    # edge to pass or fail. Say so instead of grading it against a hypothesis it
+    # does not hold; measuring it properly means absolute move vs baseline, which
+    # this harness cannot express yet (B-101).
+    if is_neutral:
+        return f"BILATERAL — directional edge is not the test ({ep * 100:+.2f}% @20d)"
 
     # For risk scanners, NEGATIVE edge is the desired direction
     if is_risk:

@@ -8,6 +8,9 @@ fetched: 2026-08-29
 recorded: 2026-08-24
 raw: .raw/transcripts/YT-Devendra-Renko-Intelligence-Commodities-2026-08-29.md
 tags: [renko, brick-size, atr, supertrend, commodities, noise-filtering, chart-type, unvalidated]
+created: 2026-08-30
+updated: 2026-08-30
+sources: 0
 ---
 
 # YT — Devendra: Renko Intelligence on Candles (podcast, part 2)

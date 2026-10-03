@@ -116,7 +116,7 @@ daily volume / daily sma(daily volume, 1) = 1   (redundant/no-op — always true
 Pure volume-anomaly (2x-5x average volume = "shock") + CCI(34)>110 momentum, no price-trend filter — highest false-positive rate of the 7, intended for manual review only.
 
 ## Actionable Insights
-- The CCI(34)>100/110/133 momentum trigger is reusable: could be added as an additional flag in [[trading-wiki/tools/nse_wave_scanner.py]] alongside the existing OWL/RSI/ATR/EMA flags.
+- The CCI(34)>100/110/133 momentum trigger is reusable: could be added as an additional flag in `trading-wiki/tools/nse_wave_scanner.py` alongside the existing OWL/RSI/ATR/EMA flags.
 - The "1Y/3Y Breakout" formulas (#5, #6) are simpler/looser versions of [[strategies/EW-Flat-Bottom-Breakout]] — useful as a first-pass filter before applying the stricter flat-channel + OWL check.
 - The Blockbuster Screener's PEG<1.5 + golden cross + YoY growth combo (#3) is a strong candidate to cross-check against [[concepts/CANSLIM]] picks.
 - "Fundamental Multibagger" (#2) weekly-CCI + 52w-high-proximity could feed sector/position-sizing watchlists.

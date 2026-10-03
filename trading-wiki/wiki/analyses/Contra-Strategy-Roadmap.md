@@ -6,6 +6,8 @@ created: 2026-08-31
 updated: 2026-08-31
 tags: [contra, roadmap, value, screening, piotroski, buyback, unvalidated]
 related: [concepts/Margin-Inflection-Contra, concepts/Mean-Reversion, concepts/PEAD, concepts/Market-Sentiment-Index, analyses/Open-Backlog, analyses/Noise-Regime-Coverage-Postmortem, analyses/SVP-Signal-Backtest-Design, concepts/Sarvatobhadra-Chakra]
+timeframe: milestone-plan
+sources: 0
 ---
 
 # Contra Strategy Roadmap

@@ -215,6 +215,37 @@ def test_walls_empty_on_empty_chain():
     assert oc.oi_walls(None)["resistance"] == []
 
 
+def test_near_strikes_excludes_far_otm():
+    """B-100: far-OTM inventory must not appear as a wall when near_strikes is set."""
+    legs = [
+        (110, "CE", 10), (120, "CE", 20), (130, "CE", 30),
+        (200, "CE", 9999),  # far OTM, huge OI
+    ]
+    chain = _simple_chain(legs)
+    w_all = oc.oi_walls(chain, n=1)
+    assert w_all["resistance"][0]["strike"] == 200.0  # without window: far OTM wins
+
+    w_near = oc.oi_walls(chain, n=1, near_strikes=3)
+    assert w_near["resistance"][0]["strike"] == 130.0  # with window: nearest 3 only
+
+
+def test_near_strikes_support_side():
+    legs = [
+        (10, "PE", 9999),  # far OTM put
+        (80, "PE", 30), (90, "PE", 20), (100, "PE", 10),
+    ]
+    chain = _simple_chain(legs)
+    w_near = oc.oi_walls(chain, n=1, near_strikes=3)
+    assert w_near["support"][0]["strike"] == 80.0  # not 10
+
+
+def test_read_levels_includes_wall_window():
+    legs = [(90, "PE", 500), (100, "CE", 300), (100, "PE", 300), (110, "CE", 700)]
+    raw = _raw(_rows("NIFTY", "IDO", "2026-09-24", 100.0, legs))
+    r = oc.read_levels("NIFTY", raw=raw)
+    assert r["wall_window"] == oc.NEAR_STRIKES
+
+
 # ── composed read ─────────────────────────────────────────────────────────────
 def test_read_levels_composes_without_network():
     legs = [(90, "PE", 500), (100, "CE", 300), (100, "PE", 300), (110, "CE", 700)]

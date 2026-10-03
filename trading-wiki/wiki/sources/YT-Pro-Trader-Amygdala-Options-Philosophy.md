@@ -7,6 +7,9 @@ author: "Unnamed guest (host sign-off auto-captions as 'Emry'); worked with Andy
 fetched: 2026-08-29
 raw: .raw/transcripts/YT-Pro-Trader-Amygdala-Options-Philosophy-2026-08-29.md
 tags: [psychology, philosophy, amygdala, super-ego, loss-aversion, options, constrained-participants, prop-trading, expected-value, process-over-outcome]
+created: 2026-08-30
+updated: 2026-08-30
+sources: 0
 ---
 
 # YT — Retail→pro trader: the amygdala, the benevolent super-ego, and playing the players

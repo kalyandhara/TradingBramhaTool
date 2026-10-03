@@ -5,6 +5,8 @@ tags: [python, algo-trading, architecture, pipeline, Alpaca, automation]
 created: 2026-06-14
 updated: 2026-06-14
 related: [concepts/VCP.md, strategies/VCPBot-Trend-Template.md, analyses/VCPBot-Risk-System.md]
+timeframe: n/a
+sources: 0
 ---
 
 # VCPBot Architecture — 7-Phase Pipeline

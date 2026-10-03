@@ -3,7 +3,7 @@ pandas>=2.0.0
 ta>=0.11.0
 requests>=2.31.0
 openpyxl>=3.1.0
-streamlit>=1.38.0
+streamlit>=1.64.0
 plotly>=5.24.0
 matplotlib>=3.8.0
 beautifulsoup4>=4.12.0
@@ -24,3 +24,10 @@ ephem>=4.2
 # shape as the ephem note above — an undeclared dependency that looked like a
 # data problem.
 lxml>=5.0
+
+# The SBC / astro dashboard (tools/dash_trading_dashboard.py, launched by
+# start.bat) is a Plotly Dash app, not Streamlit. Installed on this machine and
+# undeclared until B-84 found it — the THIRD instance of the pattern this file
+# already records twice above, after ephem and lxml. Declared now, before it
+# becomes a fourth "it works here" story.
+dash>=3.0

@@ -59,6 +59,7 @@ except ImportError:
 
 BASE_DIR  = Path(__file__).resolve().parent.parent
 TOOLS_DIR = BASE_DIR / "tools"
+import out_paths as _out
 LOG_FILE  = TOOLS_DIR / "pipeline.log"
 
 SCREENER_SLUGS = [
@@ -745,7 +746,7 @@ def run_pipeline() -> pd.DataFrame | None:
     )
 
     # ── 4. Export ─────────────────────────────────────────────────
-    out_path = BASE_DIR / f"screener_{datetime.today().strftime('%Y%m%d')}.xlsx"
+    out_path = _out.out_path(f"screener_{datetime.today().strftime('%Y%m%d')}.xlsx")
     _export_excel(results, out_path)
 
     top = results[["Symbol", "Close", "Sources",

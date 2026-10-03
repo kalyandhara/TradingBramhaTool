@@ -9,6 +9,9 @@ set "PYTHONIOENCODING=utf-8"
 echo ==================================================
 echo   Trading Bramha Dashboard
 echo   http://localhost:%PORT%
+echo.
+echo   For the main desk (screening, research, risk)
+echo   run start_desk.bat instead - it serves :8501.
 echo ==================================================
 echo.
 

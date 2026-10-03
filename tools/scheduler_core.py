@@ -23,10 +23,12 @@ CLI (read-only unless you pass register/remove/run):
 """
 from __future__ import annotations
 
+import re
 import shutil
 import subprocess
 import sys
 from dataclasses import dataclass, field
+from datetime import datetime
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -88,6 +90,20 @@ JOBS: dict[str, JobSpec] = {
         managed_bat=False,
         default_time="16:15",
     ),
+    "sentiment_daily": JobSpec(
+        id="sentiment_daily",
+        label="Daily Market Sentiment",
+        desc="Recomputes the 0-100 sentiment composite after close and stores it "
+             "in sentiment_history. Home's verdict reads the STORED reading, so "
+             "without this the desk shows a hand-refreshed number and counts its "
+             "own staleness as a caution flag.",
+        task_name="TradingBramha-SentimentDaily",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "sentiment_index.py"}"',
+        # After the shortlist, not before: nothing in the funnel reads sentiment,
+        # so the ordering is free, and running last keeps the heaviest jobs first.
+        default_time="16:30",
+    ),
     "opportunity_daily": JobSpec(
         id="opportunity_daily",
         label="Daily Opportunity Shortlist",
@@ -100,6 +116,20 @@ JOBS: dict[str, JobSpec] = {
         command=f'"{PYTHON_EXE}" "{HERE / "opportunity_daily.py"}" '
                 f'--universe 500 --top 100',
         default_time="16:20",
+    ),
+    "snapshot_refresh": JobSpec(
+        id="snapshot_refresh",
+        label="Report Snapshot Refresh",
+        desc="Recomputes every registered report snapshot (Sector Map index data, "
+             "money flow, turnover share, volume shockers, sentiment, market "
+             "health, Finviz, TradingView scan, deals, gap & volume, market brief) "
+             "after the close and stores each in the snapshots table with its run "
+             "timestamp. Pages load the stored snapshot on open; ↻ refreshes on "
+             "demand. One failing snapshot is logged and skipped. ~5-10 min.",
+        task_name="TradingBramha-SnapshotRefresh",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "snapshot_refresh.py"}" --all',
+        default_time="16:30",
     ),
 }
 
@@ -124,9 +154,9 @@ def write_bat(job: JobSpec) -> Path:
         f'echo ===== %DATE% %TIME% -- {job.id} starting ===== >> "%LOG%"\r\n'
         f'{job.command} >> "%LOG%" 2>&1\r\n'
         "if errorlevel 1 (\r\n"
-        '    echo ***** FAILED ***** >> "%LOG%"\r\n'
+        f'    echo ***** FAILED at %DATE% %TIME% ***** >> "%LOG%"\r\n'
         ") else (\r\n"
-        '    echo ----- ok ----- >> "%LOG%"\r\n'
+        f'    echo ----- ok at %DATE% %TIME% ----- >> "%LOG%"\r\n'
         ")\r\n"
     )
     job.bat_path.write_text(src, encoding="utf-8")
@@ -134,16 +164,59 @@ def write_bat(job: JobSpec) -> Path:
 
 
 # ── schtasks command construction ────────────────────────────────────────────
+#: Weekdays an interval job runs on. NSE trades Mon-Fri, so a market-hours bot
+#: has nothing to do at the weekend and the schedule should say so rather than
+#: firing 26 no-op runs every Saturday and Sunday.
+_TRADING_DAYS = "MON,TUE,WED,THU,FRI"
+
+
+def _duration(start: str, end: str) -> str:
+    """`/du` value (HHHH:MM) spanning `start`..`end`, both "HH:MM", same day.
+
+    schtasks expresses a bounded repeating window as a duration, not as an end
+    time — see `register_argv` for why that distinction cost this job its
+    schedule.
+    """
+    try:
+        sh, sm = (int(x) for x in start.split(":"))
+        eh, em = (int(x) for x in end.split(":"))
+    except (ValueError, AttributeError):
+        return "0006:30"
+    mins = (eh * 60 + em) - (sh * 60 + sm)
+    if mins <= 0:                       # end at/before start — treat as a full day
+        mins = 24 * 60 - 1
+    return f"{mins // 60:04d}:{mins % 60:02d}"
+
+
 def register_argv(job: JobSpec, *, time: str | None = None,
                   interval: int | None = None, end: str | None = None) -> list[str]:
-    """Build (do not run) the schtasks /create argv for a job's schedule."""
+    """Build (do not run) the schtasks /create argv for a job's schedule.
+
+    ── Why an interval job is WEEKLY and not MINUTE (fixed 2026-09-15) ──
+    The first version used `/sc MINUTE /mo N /st 09:15 /et 15:45`, which reads
+    like "every N minutes between those times". It is not. `/sc MINUTE` creates a
+    **one-time** trigger with a repetition attached, so the task fires once on the
+    day it is registered and then has **no next run at all** — `schtasks /query`
+    reported `Next Run Time: N/A` on the live AlertWatcher task. `/et` was
+    silently dropped too (`Repeat: Until: Time: None`).
+
+    The form that actually recurs is a WEEKLY trigger on the trading days with
+    `/ri` (repeat interval, minutes) and `/du` (how long to keep repeating):
+    verified to report a real next run at the following 09:15.
+
+    **The failure mode is the dangerous kind** — registration SUCCEEDS, the task
+    is Enabled, and the hub shows it as registered. Only the next-run field says
+    it will never fire, which is why `status()` returns `next_run` and the hub
+    must show it.
+    """
     bat = _scanner_bat() if job.id == "daily_scanner" else job.bat_path
     argv = ["schtasks", "/create", "/f", "/tn", job.task_name, "/tr", str(bat)]
     if job.kind == "interval":
         st = time or job.default_time
         et = end or job.default_end
         mo = int(interval or job.default_interval)
-        argv += ["/sc", "MINUTE", "/mo", str(mo), "/st", st, "/et", et]
+        argv += ["/sc", "WEEKLY", "/d", _TRADING_DAYS, "/st", st,
+                 "/ri", str(mo), "/du", _duration(st, et)]
     else:  # daily
         st = time or job.default_time
         argv += ["/sc", "DAILY", "/st", st]
@@ -153,28 +226,42 @@ def register_argv(job: JobSpec, *, time: str | None = None,
 
 
 # ── Actions (each shells out to schtasks) ────────────────────────────────────
+SCHTASKS_AVAILABLE = shutil.which("schtasks") is not None
+UNAVAILABLE_MSG = ("Windows Task Scheduler (schtasks) is not available on this "
+                   "machine — jobs can't be registered here.")
+
+
+def _schtasks(argv: list[str]) -> subprocess.CompletedProcess:
+    """Run a schtasks command; on a machine without schtasks (Linux/macOS, or a
+    trimmed Windows) return a failed result instead of raising, so the hub
+    page renders read-only rather than crashing at the first status() call."""
+    try:
+        return subprocess.run(argv, capture_output=True, text=True, shell=False)
+    except (FileNotFoundError, OSError) as e:
+        return subprocess.CompletedProcess(argv, 127, stdout="",
+                                           stderr=f"{UNAVAILABLE_MSG} ({e})")
+
+
 def register(job: JobSpec, **kw) -> tuple[bool, str]:
     """CREATE/replace the scheduled task. Persistent OS change — user-triggered."""
     if job.managed_bat:
         write_bat(job)
     argv = register_argv(job, **kw)
-    res = subprocess.run(argv, capture_output=True, text=True, shell=False)
+    res = _schtasks(argv)
     if res.returncode == 0:
         return True, (res.stdout or "").strip() or "Task registered."
     return False, (res.stderr or res.stdout or "schtasks failed").strip()
 
 
 def remove(job: JobSpec) -> tuple[bool, str]:
-    res = subprocess.run(["schtasks", "/delete", "/f", "/tn", job.task_name],
-                         capture_output=True, text=True, shell=False)
+    res = _schtasks(["schtasks", "/delete", "/f", "/tn", job.task_name])
     if res.returncode == 0:
         return True, "Task removed."
     return False, (res.stderr or res.stdout or "not found").strip()
 
 
 def run_now(job: JobSpec) -> tuple[bool, str]:
-    res = subprocess.run(["schtasks", "/run", "/tn", job.task_name],
-                         capture_output=True, text=True, shell=False)
+    res = _schtasks(["schtasks", "/run", "/tn", job.task_name])
     if res.returncode == 0:
         return True, "Triggered."
     return False, (res.stderr or res.stdout or "run failed").strip()
@@ -182,10 +269,7 @@ def run_now(job: JobSpec) -> tuple[bool, str]:
 
 def status(job: JobSpec) -> dict:
     """Read-only. Returns {registered, state, next_run, last_run, last_result}."""
-    res = subprocess.run(
-        ["schtasks", "/query", "/tn", job.task_name, "/fo", "LIST", "/v"],
-        capture_output=True, text=True, shell=False,
-    )
+    res = _schtasks(["schtasks", "/query", "/tn", job.task_name, "/fo", "LIST", "/v"])
     if res.returncode != 0:
         return {"registered": False}
     fields: dict[str, str] = {}
@@ -213,6 +297,135 @@ def tail_log(job: JobSpec, n: int = 40) -> str:
         return f"(log read error: {e})"
 
 
+# ── Run history ──────────────────────────────────────────────────────────────
+_START_RE = re.compile(
+    r"=====\s+\w+\s+(\d{2}/\d{2}/\d{4})\s+(\d{1,2}:\d{2}:\d{2}\.\d+)\s+--\s+(\S+)\s+starting\s+=====",
+)
+_START_RE2 = re.compile(
+    r"=====\s+\w+\s+(\d{2}/\d{2}/\d{4})\s+(\d{1,2}:\d{2}:\d{2}\.\d+)\s+.+?\s+starting\s+=====",
+)
+_END_OK = re.compile(r"-----\s+ok(?:\s+at\s+\w+\s+(\d{2}/\d{2}/\d{4})\s+(\d{1,2}:\d{2}:\d{2}\.\d+))?\s*-----")
+_END_FAIL = re.compile(r"\*{5}\s+FAILED(?:\s+at\s+\w+\s+(\d{2}/\d{2}/\d{4})\s+(\d{1,2}:\d{2}:\d{2}\.\d+))?\s*\*{5}")
+
+
+def _parse_dt(date_s: str, time_s: str) -> datetime | None:
+    try:
+        return datetime.strptime(f"{date_s} {time_s.split('.')[0]}", "%m/%d/%Y %H:%M:%S")
+    except (ValueError, IndexError):
+        return None
+
+
+@dataclass
+class RunRecord:
+    job: str
+    started: datetime | None
+    outcome: str          # "ok" | "FAILED" | "running"
+    ended: datetime | None = None
+    duration_s: float | None = None
+
+
+def parse_run_history(job: JobSpec, *, max_runs: int = 200) -> list[RunRecord]:
+    """Parse the log file into a list of run records, newest first."""
+    p = job.log_path if job.managed_bat else (
+        _scanner_bat().with_suffix(".log") if job.id == "daily_scanner"
+        else HERE / f"{job.id}.log")
+    if job.id == "daily_scanner":
+        p = HERE / "scanner_daily.log"
+    if not p.exists():
+        return []
+
+    text = p.read_text(encoding="utf-8", errors="replace")
+    runs: list[RunRecord] = []
+    current_start: datetime | None = None
+    current_job: str = job.id
+
+    for line in text.splitlines():
+        m = _START_RE.match(line.strip())
+        if m:
+            if current_start is not None:
+                runs.append(RunRecord(job=current_job, started=current_start,
+                                      outcome="running"))
+            current_start = _parse_dt(m.group(1), m.group(2))
+            current_job = m.group(3)
+            continue
+        if not m:
+            m2 = _START_RE2.match(line.strip())
+            if m2:
+                if current_start is not None:
+                    runs.append(RunRecord(job=current_job, started=current_start,
+                                          outcome="running"))
+                current_start = _parse_dt(m2.group(1), m2.group(2))
+                continue
+
+        m_ok = _END_OK.search(line.strip())
+        m_fail = _END_FAIL.search(line.strip())
+        if m_ok and current_start is not None:
+            ended = _parse_dt(m_ok.group(1), m_ok.group(2)) if m_ok.group(1) else None
+            dur = (ended - current_start).total_seconds() if ended and current_start else None
+            runs.append(RunRecord(job=current_job, started=current_start,
+                                  outcome="ok", ended=ended, duration_s=dur))
+            current_start = None
+        elif m_fail and current_start is not None:
+            ended = _parse_dt(m_fail.group(1), m_fail.group(2)) if m_fail.group(1) else None
+            dur = (ended - current_start).total_seconds() if ended and current_start else None
+            runs.append(RunRecord(job=current_job, started=current_start,
+                                  outcome="FAILED", ended=ended, duration_s=dur))
+            current_start = None
+
+    if current_start is not None:
+        runs.append(RunRecord(job=current_job, started=current_start,
+                              outcome="running"))
+
+    runs.reverse()
+    return runs[:max_runs]
+
+
+def run_summary(job: JobSpec) -> dict:
+    """Summary stats for a job's run history."""
+    runs = parse_run_history(job)
+    if not runs:
+        return {"total": 0, "instrumented": False}
+    ok = sum(1 for r in runs if r.outcome == "ok")
+    failed = sum(1 for r in runs if r.outcome == "FAILED")
+    durations = [r.duration_s for r in runs if r.duration_s is not None]
+    first = runs[-1].started
+    last = runs[0].started
+    return {
+        "total": len(runs),
+        "ok": ok,
+        "failed": failed,
+        "running": sum(1 for r in runs if r.outcome == "running"),
+        "first_run": first.isoformat() if first else None,
+        "last_run": last.isoformat() if last else None,
+        "median_duration_s": sorted(durations)[len(durations)//2] if durations else None,
+        "instrumented": True,
+    }
+
+
+def all_run_summaries() -> dict[str, dict]:
+    return {jid: run_summary(j) for jid, j in JOBS.items()}
+
+
+# ── Orphan detection ────────────────────────────────────────────────────────
+def orphan_tasks() -> list[str]:
+    """List TradingBramha-* scheduled tasks not in JOBS."""
+    try:
+        res = subprocess.run(
+            ["schtasks", "/query", "/fo", "CSV", "/nh"],
+            capture_output=True, text=True, shell=False, timeout=10)
+    except Exception:
+        return []
+    known = {j.task_name for j in JOBS.values()}
+    orphans = []
+    for line in res.stdout.splitlines():
+        parts = line.strip().strip('"').split('","')
+        if parts and parts[0].startswith("\\TradingBramha-"):
+            name = parts[0].lstrip("\\")
+            if name not in known:
+                orphans.append(name)
+    return orphans
+
+
 # ── CLI (read-only unless you ask otherwise) ─────────────────────────────────
 def _main(argv: list[str]) -> None:
     if not argv or argv[0] == "list":
@@ -220,6 +433,15 @@ def _main(argv: list[str]) -> None:
             print(f"{jid:16} [{j.kind:8}] {j.label}  ->  {j.task_name}")
         return
     cmd = argv[0]
+    if cmd == "orphans":
+        o = orphan_tasks()
+        print(f"Orphan tasks: {o}" if o else "No orphan TradingBramha-* tasks.")
+        return
+    if cmd == "summaries":
+        for jid, s in all_run_summaries().items():
+            print(f"  {jid:20} total={s['total']:3}  ok={s.get('ok',0):3}  "
+                  f"failed={s.get('failed',0)}  last={s.get('last_run','?')}")
+        return
     job = JOBS.get(argv[1]) if len(argv) > 1 else None
     if not job:
         print(f"unknown job; try: {', '.join(JOBS)}"); return
@@ -237,9 +459,20 @@ def _main(argv: list[str]) -> None:
         print(run_now(job))
     elif cmd == "log":
         print(tail_log(job))
+    elif cmd == "history":
+        runs = parse_run_history(job, max_runs=30)
+        if not runs:
+            print(f"  (no runs recorded for {job.id})")
+        for r in runs:
+            dt = r.started.strftime("%Y-%m-%d %H:%M") if r.started else "?"
+            dur = f" ({r.duration_s:.0f}s)" if r.duration_s else ""
+            print(f"  {dt}  {r.outcome}{dur}")
+        s = run_summary(job)
+        print(f"\n  total={s['total']}  ok={s.get('ok',0)}  failed={s.get('failed',0)}"
+              f"  median_dur={s.get('median_duration_s', '?')}s")
     else:
         print("commands: list | status | writebat | registerargv | log | "
-              "register | remove | run <job>")
+              "history | summaries | orphans | register | remove | run <job>")
 
 
 if __name__ == "__main__":

@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-09-11
+updated: 2026-09-20
 sources: 0
 related:
   - analyses/PCR-Sign-Convention-Pre-Registration.md
@@ -68,7 +68,7 @@ corrected in place below, each marked with the date.
 | **Counted 2026-09-10** | **B-59 overlap check** (`psar_overlap.js`, 460 names / 322,608 bars) — **PSAR is a SUPERSET, not a subset**: 28,582 flips against PMax 3,396 and STAI 13,050 (8.4× / 2.2×), 68.9% of them uncovered at ±3 bars, while PSAR itself covers 92% of STAI and 70% of PMax at ±10. B-46's zero-unique-cell objection does NOT survive — but it is replaced by a sharper one, since PSAR's whole content is its extra flips. Gate did not close; an edge test on the UNIQUE cells specifically is now owed. PSAR stays a drawn overlay meanwhile |
 | **Measured 2026-09-10** | **B-58** (`quasimodo_study.py`) — **INCONCLUSIVE, UNDERPOWERED**: 53 QM zone entries across 356 names / 3 years against a pre-registered floor of 200, and too few for a rotation p to be computable at all. Not a null; the pattern is too rare to measure to this desk's bar on daily bars in one market. QM stays geometry, PIPELINE_EXCLUDED. Three process catches recorded: the equivalence check aborted on SCOPE (355/355 once windowed), the pre-registered baseline could not contain its own signal (a QM's left shoulder is by definition a broken low), and the HARNESS clause fired but was resolved as uninformative when the panel reproduced B-43's null at −0.05% |
 | **Corrected 2026-09-10 (re-verify)** | **B-3** and **B-19b** bodies said "absent" for four weeks after the ledger closed them; **B-10** is down to one symbol (`BSE`), not four; **B-17** re-verified still absent and now covers two shipped OBV surfaces |
-| **Still open** | B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-26, B-27, B-30, B-31, B-35, B-37, B-28r — **all re-verified open 2026-09-10** except B-10, which shrank to a single symbol. Spot checks: no AVWAP anchor UI (`avwap` appears in `scanner_templates.py` only), no Volume-Profile 80% rule anywhere in `session_volume_profile.js` / `volume_profile.js`, and `sentiment_index.py` still carries **four** weighted factors (30/25/25/20) with the PCR factor 5 a docstring line only — even though `pcr.py` is now consumed by `dashboard_app.py` in three other places, so B-22 is wiring, not a build — **B-22 and B-20 both actioned 2026-09-11, see their rows; `sentiment_index.py` now carries five factors at 25/20/20/15/20** |
+| **Still open** | ~~*superseded — see [[#THE OPEN ROADMAP — refined 2026-09-17]], which is the current list. B-10 and B-27 in this row have since closed.*~~ B-4/B-12, B-6, B-8, B-9, B-10, B-13, B-15, B-17, B-21b, B-26, B-27, B-30, B-31, B-35, B-37, B-28r — **all re-verified open 2026-09-10** except B-10, which shrank to a single symbol. Spot checks: no AVWAP anchor UI (`avwap` appears in `scanner_templates.py` only), no Volume-Profile 80% rule anywhere in `session_volume_profile.js` / `volume_profile.js`, and `sentiment_index.py` still carries **four** weighted factors (30/25/25/20) with the PCR factor 5 a docstring line only — even though `pcr.py` is now consumed by `dashboard_app.py` in three other places, so B-22 is wiring, not a build — **B-22 and B-20 both actioned 2026-09-11, see their rows; `sentiment_index.py` now carries five factors at 25/20/20/15/20** |
 | **Open — residual only** | **B-35** (family-lens UI, not started), **B-37** (volume share-card, not started), **B-38** (delete-funnel shipped; blocked only on point-in-time fundamentals for the full backtest) |
 | **New 2026-08-27** | **B-32r** (calibrate exact regime floors — currently heuristic), **B-39** (pin `scipy` in requirements / make `backtest.py` scipy-optional — the hard import silently broke the significance stack on Python 3.14) |
 | **New 2026-08-27 (strategy-coverage gaps)** | **B-40** (VWAP as a signal — **scanner SHIPPED same day**), ~~**B-41**~~ (**CLOSED 2026-09-02** — `detect_liquidity_pools` + `detect_liquidity_sweep` + both scanners; SMC stack now complete), ~~**B-42**~~ (**CLOSED 2026-09-02**; residual **B-42r** — the pivot_len 5-vs-15 split, to be settled on data). Intraday lane (ORB/DOM/scalping) recorded as an explicit out-of-scope decision. From the profitable-trader strategy-combination audit. |
@@ -81,6 +81,198 @@ corrected in place below, each marked with the date.
 | **Measured 2026-08-27** | **B-25** first actually run (`backtest_confluence`, 13 bullish scanners × LIQUID_50): co-fire lift is significant **only at 60d (+0.38%, p=0.025)**, trivial + non-sig at 5–20d — confluence is *not* the additive swing-horizon edge the Hub premise assumes. Required installing `scipy 1.18.1` (backtest's hard scipy import was broken on Python 3.14) |
 | **Shipped 2026-09-02 (not from the backlog)** | **Trending Stocks page** — `trending_stocks.py` + a Market-Intel page with four lenses: Price Movers (whole-market bhavcopy, turnover-floored), Volume Shockers (reuses `volume_anomaly` **with cause attribution** — the one lens the desk does better than the commercial screener it was modelled on), 52-Week and All-Time High/Low (computed from batched history over a bounded top-N-by-turnover universe, since NSE's UDiFF bhavcopy carries **no 52-week columns** — verified, 34 columns, none a range extreme). Requested from a screenshot of a commercial "Trending Stocks" page. **Deliberately NO "Most Visited" lens** — that is crowd page-view data from a site's own traffic logs, there is no free public feed for retail attention, and a proxy (delivery spikes, rank churn) would measure something else under the same label. Recorded as a decision, not an oversight, the same way the intraday ORB/DOM lane is. Two things the build forced: a **turnover floor**, without which the movers list is almost entirely penny stocks (a ₹3 share moving 19% is arithmetic), and a **cash-equivalent filter** reusing the chart's existing `isLikelyLiquidETF` definition, because a liquid ETF is *permanently* at its all-time high by construction and squatted on the first ATH run. |
 | **Measured 2026-09-02** | **B-19** batch walk-forward on all 41 scanners (LIQUID_50, 3 windows, Indian delivery ~29bps): **0/41 stable** across all horizons; 11 show positive 20d edge but all UNSTABLE; strongest = %R Bottoming (+2.68% @60d, stable @20d+60d), Falling Wedge (+1.58% @60d); **most scanners show negative edge after costs**. 3 too-few-signals (High Tight Flag, Minervini VCP, RSI-Fibo Hidden Div). 3/5 risk scanners show bearish edge. Full table in `tools/cache/b19_verdicts/_summary_table.txt`. |
+
+## Re-verification 2026-09-19
+
+**Read this section, then the roadmap below it. Everything further down the page
+is history.** The three tier tables in the next section are the only current
+list of what is open; they have been corrected in place by this pass and each
+correction is dated in the row itself.
+
+**What this pass did.** Every open item in the roadmap below was re-read against
+the **code**, not against the previous pass — the method the 2026-08-27,
+2026-09-10 and 2026-09-11 passes used. `tools/claims_lint.py` was run first:
+CHECK 0 (state labels contradicted by a measurement), CHECK 0b (studies missing
+from the index) and CHECK 3 (counts disagreeing with the registry) are all
+**clean**, which is the first time all three have been. CHECK 0c is not, and
+that became [[#B-99]].
+
+### What had moved
+
+| Item | The page said | The code says | 
+|---|---|---|
+| **B-93 / PR-1** | open, "the only pattern-surface item that currently misleads" | **shipped 2026-09-17** — three commits, the same day this table was refined |
+| **B-93 / PR-2** | open, "only 7 of 31 firing scanners emit entry/stop/target" | **shipped 2026-09-17** as `scanner_plans.py`, and the census **corrected the ratio to 14 of 45** — so the row was stale in its build status *and* in its number |
+| **B-17** | open BUILD item | **closed 2026-09-11**, and the 2026-09-11 pass recorded that closure **twice** |
+| **B-37** | "volume share-card", not started | **scaffold built** — renderer, canvas, deriving factory and invariant verifier all exist; three wiring steps left, named in the file's own header |
+| **B-87r** | "ongoing, one page per session" | **96 lines of headroom** on the 13,900-line ratchet, and the statement ratchet raised 320 → 324 rather than lowered |
+| **B-59r2** | MEASURABLE NOW | **contested** — struck as discharged on 2026-09-11, re-raised here on 2026-09-17, and the two counts do not match |
+
+### What was checked and is still accurately open
+
+`ichimoku` appears only in a `psar.js` comment (**B-46**); no TPO source outside
+the vendored bundle (**B-47**); nothing matches `cumulative_volume_delta`/`cvd`
+(**B-48**); no `opening_range`, `year_open` or calendar anchor anywhere
+(**B-98**); `pivot_levels()` still has exactly **two** call sites, `pivot_d` and
+`pivot_w` (**B-96**, confirming the grep this page already claimed); no pivot
+agreement study exists (**B-97**); `mabias` ships in `chart_dashboard.html` and
+is scored nowhere (**B-89**); no VWAP+EMA agreement state (**B-90**);
+`participant` appears only in `gamma_exposure.py`, an unrelated use (**B-95**);
+`max_pain` and `oi_walls` both exist in `option_chain.py`, so **B-94** is a run
+and a diff exactly as claimed; `MIN_PRICE_PCT = 0.5` unchanged (**B-26**);
+`veto_critical: bool = True` unchanged (**B-34r2**); `tools/sbc_app.py` still
+present (**B-84r**).
+
+### The finding, and it is not the same one as last time
+
+Previous passes explained drift two ways: *"an item is only re-read when it is
+worked"* (2026-09-10) and *"ranked tables that paraphrase item bodies are a
+second source of truth"* (2026-09-11). **Neither explains this pass.** Three of
+the six items that moved — B-93/PR-1, B-93/PR-2, B-59r2 — were listed as open by
+a table **refined on the same day the work shipped or the day after the debt was
+struck**. The drift is no longer in the old unworked items; it is in the newest
+table, written by the session that was doing the work.
+
+**The rule that produces it:** a refinement pass reads the *page* to build its
+summary, and the page has not yet been updated by the work that session is
+simultaneously committing. The summary is therefore written against a snapshot
+that is already stale by the time it is saved. **A roadmap table written in the
+same session as the work it summarises will be wrong about that work** — which
+argues for writing the tier tables from `git log` and grep at the *start* of a
+session, never from the page at the end of one.
+
+### Ranked, after the corrections
+
+| Rank | Item | Why |
+|---|---|---|
+| ~~1~~ | ~~**B-97**~~ | **RUN 2026-09-19 → TWO DIFFERENT READINGS.** It did its job as a gate: B-96 is re-scoped, not unblocked |
+| ~~2~~ | ~~**B-94**~~ | **RUN 2026-09-19 → SPLIT.** Max pain exact, call wall exact once the definition matches, put wall unsupported. Raised **B-100** against our own `oi_walls` |
+| ~~3~~ | ~~**B-87r**~~ | **FIRST EXTRACTION DONE 2026-09-19** — 696 lines out, ceilings lowered, and the registry makes the next one cheaper than this one. Headroom 96 → 42 lines *below* a ceiling that is itself 750 lower |
+| 4 | **B-99** | four measurements already paid for and not written down |
+| 5 | **B-96** | **no longer "composed of two built things"** — B-97 turned it into a presentation decision (govern, or print the agreement). Rank unchanged, size is not |
+| — | **B-59r2** | re-read the two counts before running anything; it may already be done |
+
+Nothing was closed by this pass that the code did not show closed, and nothing
+was invented.
+
+
+## THE OPEN ROADMAP — refined 2026-09-17, corrected 2026-09-19
+
+**Why this section exists.** The status table above is a *history*, and it had
+become the only index of what is open — a "Still open" row that is a comma list
+of sixteen ids, two of them (**B-10**, **B-27**) closed weeks ago and still
+listed. An index you have to fact-check is not an index. This section is the
+opposite shape: **only what is open, one line each, classified by what it is
+waiting on.** The history above is left exactly as it is.
+
+**The classification is the point.** Every open item is waiting on one of three
+things, and they are not interchangeable — the reason items sit for weeks is that
+"needs a decision" and "needs an afternoon" have been living in the same list.
+
+| Class | Meaning | Who unblocks it |
+|---|---|---|
+| **MEASURABLE NOW** | harness and data both exist; nothing to build first | nobody — just run it |
+| **BUILD** | scoped, no open question, only work | a session |
+| **OWNER** | a judgement call this desk cannot make for itself | you |
+
+### MEASURABLE NOW — the harness and the data are already here
+
+Re-verified against the code and the stores on 2026-09-17. **This tier was the
+discovery of the refinement pass:** three of these were filed as if blocked, and
+none of them is.
+
+| # | What is unmeasured | Why it is runnable today |
+|---|---|---|
+| ~~**B-56**~~ | ~~the SVP **structure** BUY/SELL/HOLD signal~~ — **MEASURED 2026-09-17 → INVERTED** (spread −1.77%, p_rot 0.041, SELL beat BUY 8 of 8). Mirror deliberately not shipped; stays a bystander. [[analyses/SVP-Structure-Signal-Pre-Registration]] | done — the prior was right |
+| ~~**B-8**~~ | ~~mean-reversion **stops**~~ — **MEASURED 2026-09-17: CONNORS WAS RIGHT, for tight stops.** The shipped session-low stop costs **−0.64pp** vs no stop (p=0.0086, **n=742**, 300 names, 20y); 2-ATR costs nothing measurable because it is only touched 24.7% of the time. Stop deliberately unchanged; the number is now in the scanner's own plan output | done |
+| ~~**B-9**~~ | ~~the Volume-Profile **80% rule**~~ — **MEASURED 2026-09-17: FALSIFIED.** 45.5% (95% CI 37.3–54.0, n=134) against a claimed 80%. Lift over base −4.1pp, p=0.422, explicitly NOT claimed | done — and it was never blocked on data |
+| ~~**B-42r**~~ | ~~`pivot_len` 5 vs 15~~ — **MEASURED 2026-09-17: the two settings agree on `state` only 29.6%** of the time (199 names), and 17.6% read DOWNTREND in the scanners against UPTREND on the chart. **Promoted to an OWNER decision** — see below | measured; the decision is yours |
+| ~~**B-94**~~ | ~~an outside letter’s option-chain levels have never been checked against our own~~ — **MEASURED 2026-09-19: SPLIT.** Max pain **23,300 reproduces EXACTLY** on the 2026-09-17 chain (and on 09-16), nearest expiry 2026-09-22. Both walls MISS on the whole-chain definition (ours 24,500 call / 22,000 put). **Post-hoc, using the module’s own existing `NEAR_STRIKES = 10` window, the call wall 23,500 also reproduces EXACTLY** — so the call-wall gap was DEFINITIONAL, ours. The put wall 23,100 does not reproduce under either definition: it is our **#8** put strike (5.36M) while 23,000 carries **9.65M**, 80% more. Verdict by the pre-registered rule: **NOT REPRODUCED** (1 of 3 exact); by substance: **2 of 3, and the third is the letter’s weakest claim**. [[#B-94]] | done — and it found a gap in OUR tool, not only in the source |
+| ~~**B-97**~~ | ~~nothing has ever scored whether `pivot_d` and `pivot_w` AGREE~~ — **MEASURED 2026-09-19: they agree on the SIDE of the pivot 53.9% of 499 names (chance 41.8%, lift +12.1) and read OPPOSITE sides 37.9%. Median across 29 month-ends: 64.0% side / 27.3% opposite. Both pre-registered bands fail — TWO DIFFERENT READINGS + CONTRADICTION. Agreement is above chance at every date, so the columns are not independent; the shared part is just far smaller than two adjacent columns imply. [[#B-97]]** | done — and it re-scoped B-96 |
+| **B-21b** | every floor set on 2026-08-07 came from **one session's cross-section** | the floors are labelled in code and the history to re-measure them on is cached |
+| **B-59r2** | ~~PSAR's **unique** flips (68.9% uncovered at ±3) — the edge test the overlap check left owed~~ — **CONTESTED 2026-09-19, see [[#Re-verification 2026-09-19]]. The 2026-09-11 pass struck this debt as already discharged by [[#B-59r]], and this table re-raised it six days later. The counts do not settle it: B-59r scored 8,576 PSAR-not-STAI flips, while "68.9% uncovered" is ~19,693 flips uncovered by *either* twin. Cheap to resolve, and it is a re-read before it is a run** | `psar_stai_edge.py` already scores PSAR-only cells |
+| ~~**B-89**~~ | ~~**`mabias`** — a 9/20 EMA-cross verdict ladder shipping LONG/SHORT badges on the chart, **never scored**~~ — **MEASURED 2026-09-24 → NULL.** spread −1.68%, p_rot 0.165; SHORT outperforms LONG in 7 of 8 symbols but not significantly. The badge stays on the chart as a visual aid; it is NOT entered into the confluence pipeline. [[analyses/MA-Bias-Edge-Test]] | done |
+| **B-90** | the **VWAP+EMA agreement state** from the owner's card | `intraday_store` already holds 15m bars, 85 sessions, 6 names — no new data |
+
+### BUILD — scoped, nothing to decide
+
+| # | What | Size |
+|---|---|---|
+| **B-46** | Ichimoku Cloud — verified still absent (`ichimoku` appears only in `psar.js`) | medium |
+| **B-47** | TPO / Market Profile pane — verified absent | medium |
+| ~~**B-48**~~ | ~~Cumulative volume delta — **answer the DATA question first**, before any indicator~~ — **PROBED 2026-09-21 → FAIL, and the instruction was right.** A true CVD needs the aggressor side of each trade; the desk has OHLCV bars and no tick or bid/ask feed, so only a PROXY is computable (sign the bar's volume by the bar's direction — what every package shipping "CVD" on OHLC data does, usually without saying so). **The probe asked whether that proxy is a property of the market or of the bar size**, with the bar pre-committed in code before the run: ≥90% sign agreement between 5m and 15m session totals, and r ≥ 0.90. **Result: 75.6% and r=0.80 over 435 symbol-sessions.** One session in four changes its mind about who was in control when the bar size changes (28 of 87 on ICICIBANK), and the coarser bars do not just re-sign the day — they **inflate** it 1.4-1.8×, because aggregation hides the intra-bar reversals that cancel at finer resolution. **The two conventional proxies disagree with each other on 26% of sessions on the SAME bars**, so the unstated choice of formula moves the answer about as much as the timeframe does. **One correction made before publishing:** the first run read 79.7% because it included `^NSEI`, which has no volume — every delta zero, every session trivially "agreeing", 87 free sessions of 100%. See [[analyses/CVD-Data-Probe]] | **the indicator is NOT built, and that is the finding.** Three honest options are written up (drop it · ship it as a named bar-size-explicit *delta proxy* with the 76% on the card · buy a tick feed) and **none is chosen here** — the probe was asked whether the data supports the indicator, not which compromise to make |
+| **B-6** | retest entries: the desk detects breaks well and retests poorly; `scan_order_block` is the only retest trigger | medium |
+| ~~**B-93 / PR-1**~~ | ~~Strategy Hub's pattern table shows 20 hardcoded rows with frozen LTP~~ — **BUILT 2026-09-17** (`a884f11` priced the table live and caught one row on the wrong side of its own scoreboard, `e7b1741` fixed a "Live" heading over a five-week-old literal, `dc7a10e` computed the fundamentals block). Listed open by a table refined the *same day* it shipped | done |
+| ~~**B-17**~~ | ~~OBV has no wiki page, and now ships on **two** surfaces~~ — **CLOSED 2026-09-11** ([[concepts/On-Balance-Volume]], `8b29158`). The 2026-09-11 pass recorded this closure **twice** and this table still carried it open six days later | done |
+| **B-87r** | the monolith **extraction** the ratchet is holding the line for. **FIRST PAGE EXTRACTED 2026-09-19: Astro Timing → `tools/desk_pages/astro_timing.py`. `dashboard_app.py` 13,804 → 13,108 lines (−696), raw-HTML renders 112 → 102; ceilings lowered 13,900 → 13,150 and 120 → 108.** Chosen because `ast` said it was the only large page touching **zero** module-level variables and **zero** module-level helpers — a move, not a refactor. The dispatch is a shared registry, so **every next extraction now LOWERS the statement ratchet instead of raising it**. Remaining: 29 page blocks, 6,790 inline lines; the next clean targets are Telegram Signals (322 lines, 1 helper) and SVP Structure (219, 2) | ongoing — but now it pays for itself, one page per session |  **SECOND PAGE EXTRACTED 2026-09-21: Telegram Signals → `tools/desk_pages/telegram_signals.py`, and `_paginated_df` → `tools/ui_tables.py` (its only coupling to the monolith, and a helper nine call sites shared). `dashboard_app.py` 13,171 → **12,785 lines**; ratchets lowered 13,150 → 12,800 and, for the first time, module statements FELL (325 → 324) — which is exactly what paying for the dispatch once was supposed to buy. The extraction was not planned for this session: the LINE ratchet refused [[#B-109]]'s twenty-line addition and told it to extract a page instead of raising the number, which is the ratchet working as designed.** **THIRD PAGE EXTRACTED 2026-09-24: SVP Structure → `tools/desk_pages/svp_structure.py` (~225 lines). `dashboard_app.py` 12,785 → 12,713 lines; raw-HTML renders 106 → 104; ratchets lowered 12,800 → 12,750 and 108 → 106.** **FOURTH + FIFTH PAGES EXTRACTED 2026-09-26: Other Screeners → `tools/desk_pages/other_screeners.py` (~118 lines) and Pipeline Log → `tools/desk_pages/pipeline_log.py` (~8 lines). `dashboard_app.py` 12,713 → 12,689 lines (−134 from prior including B-117 additions); module statements 323 → 321; ratchets lowered 12,825 → 12,700 and 323 → 321.**
+| ~~**B-37**~~ | ~~volume share-card~~ — **BUILT 2026-09-24.** `volume_stocks_from_scan()` wires `volume_anomaly.scan()` output to `VolumeStock` dataclass (RVOL ranking, mcap derivation, Q1 fundamentals). Dashboard button on the Anomaly Spikes page renders 1200×675 PNG with slider for 1–2 names, fundamentals enrichment, image display + download | done |
+| ~~**B-91**~~ | ~~VWAP's zero-point cases say **why**~~ — **BUILT 2026-09-23.** The indicator label keeps its short form `VWAP (session · intraday only)` and gains a `title` tooltip on hover explaining the two distinct zero-point cases: (1) daily — each bar IS its own session so VWAP collapses to typical price, (2) zero-volume feeds like index spot — undefined. The `vwapSeries` guard at line 1729 (`if (!INTRADAY_TFS.has(tf)) return []`) already prevents drawing; the tooltip now says WHY | done |
+| ~~**B-92**~~ | ~~Flag & Pole detector, both directions~~ — **BUILT 2026-09-17**, both cards carry a full plan; counting first caught a breakout condition that was unsatisfiable by construction | done |
+| **B-95** | **FII / client participant-wise F&O long:short ratios** — the “88% short is squeeze fuel” claim from [[sources/Bramesh-NIFTY-Gann-1x3-Higher-High-2026-09-18]]. **Probe the DATA first:** nothing here reads NSE’s participant-wise OI (`FII` in the toolchain is a *shareholder-name* classifier in `block_deal_intel.py`; the F&O bhavcopy carries contract OI, not the participant split). If the file is fetchable → pre-register, then measure **with rotation p-values**, because this is an autocorrelated STATE series and a t-test here manufactures significance (known null: p=0.031 Welch vs 0.32 rotation). Needs a control too — extremes cluster in falling markets by construction. See [[concepts/Participant-Positioning-FII-DII]] | data probe, then medium |
+| **B-96** | **monthly / quarterly / yearly pivot zones** — `row_metrics.pivot_levels()` already accepts any frame (*"Feed it a weekly-resampled frame to get weekly pivots"*) and `timeframe_board.py` already resamples to `ME`/`2QE`/`YE` from one download. **The only two call sites in all of `tools/` are `pivot_d` and `pivot_w`** (`row_metrics.py:510-511`, grep-verified). No new data, no new arithmetic — a composition of two things already built. From [[sources/Bramesh-TradingView-Gann-Scanners-Product-Line]], where the idea of looking past one timeframe sells for ₹6,666/month | **no longer small — B-97 re-scoped it 2026-09-19.** At 37.9% opposite today and 27.3% at the median, five peer columns would routinely contradict each other with nothing saying which governs. B-96 must either name a governing timeframe or print the AGREEMENT as the reading (a "3 of 5 above" state, B-42's `agreement` shape). The second is the better fit, and it is a design task, not a composition |
+| **B-98** | **a calendar-anchored reference level** — **DETECTOR BUILT + PRE-REGISTERED 2026-09-20; the measurement is the open half.** `tools/calendar_anchor.py`: the January high/low as an anchor, a state (ABOVE / BELOW / INSIDE) and the event (first close outside), 16 tests. **The build produced its own prior, counted before any forward return was touched** (120 names, ~10 years, **972 symbol-years**): the range breaks in **971 of them — 99.9%**, median **7 sessions** after January, **42%** inside five sessions, up-share 44.4%, median January width 16.1%. **A construct that fires on 99.9% of symbol-years selects nothing**, so this will not be registered as a shortlist scanner whatever the edge turns out to be — that is settled by the base rate, not by a p-value. The design changed BEFORE the run because of it: [[analyses/Yearly-Opening-Range-Pre-Registration]] tests the break's DIRECTION, the STATE, and whether the break HELD, with a by-year test as the deciding one (every name breaks in the same few weeks of the same year, so a pooled p-value over 971 correlated signals would be the most overstated number here). **Dates are the catch**: `_clean_ohlc` and `backtest_scanner` both `reset_index(drop=True)`, so the module takes a dated frame and RAISES rather than guessing that bar 0 is January — see [[#B-104]], the same class of bug already found live | **detector done; the measurement is next, and it is a study of its own** |
+| ~~**B-93 / PR-2**~~ | ~~trade-plan coverage as a visible metric — only **7 of 31** firing scanners emit entry/stop/target~~ — **BUILT 2026-09-17** (`7385a9b`): `tools/scanner_plans.py` + its cache, rendered from `dashboard_app.py:8256`. **The census also corrected the number this row states — 14 of 45, not 7 of 31** | done |
+| ~~**B-99**~~ | ~~**four indexed studies ran and left no citable result**~~ — **DOCUMENTED 2026-09-24.** SBC-15m (lift 0.96×, NULL), SBC-muhurat (lift 0.66×, NULL), B-30r newmoon levels (lift 0.95–1.05×, NULL) — three clean nulls. B-38 funnel price legs: machinery verified on synthetic data, live measurement still needs fetcher wiring. [[analyses/B99-Study-Write-Ups]] | done — `claims_lint` CHECK 0c cleared |
+| ~~**B-100**~~ | ~~**`oi_walls` ranks the WHOLE chain and does not say so**~~ — **FIXED 2026-09-23.** `oi_walls()` gains a `near_strikes` parameter; when set, ranking is limited to the N strikes nearest spot on each side, so far-OTM weekly inventory no longer appears as "resistance" or "support". `read_levels()` now passes `near_strikes=NEAR_STRIKES` (10) by default, and the response includes `wall_window: 10` so consumers know the window. The chart overlay (B-28) inherits this automatically since it draws what the server returns. 3 new tests (29 total in test_option_chain.py). The `oi_walls(chain, n=3)` call without `near_strikes` still works as before for any caller that wants the whole-chain ranking | done |
+| ~~**B-101**~~ | ~~the registry has no BILATERAL pattern — a symmetrical triangle has no honest reading~~ — **BUILT 2026-09-20**. `scan_symmetrical_triangle` + `detect_symmetrical_triangle_geometry` in `tools/scanner_templates.py`, registered as **category `Neutral`** — the desk's first non-directional scanner. It generalises the wedge core's pivots/fit/containment/volume tests and differs in three places: the slopes **oppose**, **neither side may be flat** (a flat side is an ascending or descending triangle, and the ascending case is the one already covered by accident), and **no bare `entry`/`stop`/`target` is emitted at all** — both legs ship as `up_*` / `down_*`, so nothing downstream can read a long out of a coil by picking up a key it expected. **The missing STATE this row was really about is the part that took the work:** `opportunity_hub.NEUTRAL_SCANNERS` + a `neutral` tier at weight 0, and an explicit skip in `tally_evidence` — whose fall-through gives an unmapped non-risk scanner its own family of one, which is the right default for a new directional scanner and exactly wrong here. It is **not** folded into `RISK_SCANNERS`: that would have been the cheap way to stop the vote and would print a bearish flag on a pattern that is not bearish. `scanner_plans` gains a fifth state (`BILATERAL`) for the same reason it already separates UNSEEN from NONE — counting this as "no plan" would put it on the list of things to fix, and the fix would be to invent a direction. **Measured, not assumed: 32 hits over 147 nifty500 names at stride 5** (probed 2026-09-20, same protocol as the PR-2 census) — it fires, and it does not flood. 21 tests in `tools/test_symmetrical_triangle.py` pin the geometry, every neighbouring shape it must refuse, and the two assertions that are the point: no bare `entry` key, and no vote. | **built, then MEASURED 2026-09-20 → NULL — and the FRAMING SURVIVED.** Pre-registered in [[analyses/Bilateral-Expansion-Pre-Registration]], run by `tools/bilateral_expansion_study.py` once B-102 gave the harness a side. **Two runs, and the first one is why the second exists.** Run 1 (150 names, ~900 sessions) returned **28 coils against a pre-registered floor of 200 → INCONCLUSIVE**, with all four horizons leaning positive (+1.02 to +4.47pp) and a 29.2% up-share that looked like a finding. Run 2 ([[#B-103]]: 482 names, ~10 years, **270 coils**) settles it: **a coil precedes an ORDINARY move** — +0.32 / −0.01 / +0.23 / −0.74pp |move| vs an every-bar baseline at 5/10/20/60d, p 0.27–0.98, sign not even stable. **NULL, adequately powered**, which is a result and not an absence of one — and it also fails to support the registered prior (that a coil precedes a SMALLER move). **Claim C is the payoff: 42.7% up-share (105 up / 141 down / 24 undecidable), INSIDE the 40-60% band pre-committed as a falsifier of the "bilateral" label — at a sample that could have fired it.** The non-voting neutral card is kept on evidence rather than taste. Run 1's 29.2% was noise, and the floor is the only reason it was never written up. **Claim B is now well-powered description: the textbook 50-75% apex band carries nothing** (in-band coils expand slightly LESS at every horizon, p 0.37–0.79), so the card now says *position, not edge*, and the 0.12 apex weight is documented as structural (how much triangle is left) rather than predictive. The scanner stays registered, running, visible and non-voting: 270 hits in a decade that predict an ordinary move are context, not a trade |
+| ~~**B-102**~~ | ~~a bilateral pattern cannot be scored by a long-only harness~~ — **BUILT 2026-09-20.** `backtest._simulate_plan` takes a `side`, and the short leg is the exact MIRROR (stop above entry hit on the high, target below hit on the low, R = entry − exit) rather than a sign flip applied to a long walk — a flip would have scored the short against the long's own stop/target ordering and credited the wrong bar. **The evidence that it is right is an equivalence test, not an assertion:** it matches `order_block_rules_backtest.simulate` and `flag_pole_edge.walk_plan` bar-for-bar and R-for-R on 60 random frames per side, so every number those two studies already published is unmoved and folding the copies into the shared one is now mechanical. The replay reads the side off the plan's own geometry (a stop above the entry is a short), so a bearish scanner's plans are simulated instead of silently counted as unsimulatable; `plans_unsimulated` now means degenerate plans only. `backtest.absolute_move` is the second half — the directionless unit a coil is scored in. 13 tests in `tools/test_backtest_sides.py` | done — the two hand-written mirrors are now redundant and can fold in whenever that is worth a commit; the equivalence tests are what make that safe |
+| ~~**B-103**~~ | ~~the bilateral expansion test is underpowered, and the fix is arithmetic~~ — **RUN 2026-09-20, same day it was raised.** `--symbols 500 --days 2500`: 482 usable names, ~10 years, **270 coils** against the floor of 200. The arithmetic held (0.19 coils per name per 900 sessions predicted ~250). Nothing in the analysis plan moved — event, primary, horizons, pass bar and falsifier all as registered — and each run writes its own file under `cache/bilateral_expansion/`, so the underpowered run is still on the record next to the one that supersedes it. **Both open results closed at once:** the expansion effect is a NULL, and the bilateral framing passed its falsifier at 42.7%. See [[#B-101]] | **done — and the cheapest lesson in the pair.** The two numbers that most looked like findings at n=28 (a +4.47pp @60d lean and a 29.2% up-share) are both gone at n=270. The pre-registered floor cost one extra run and bought not having retracted either |
+| ~~**B-104**~~ | ~~the market-model alpha block in `backtest_scanner` has never run~~ — **FOUND AND FIXED 2026-09-20**, while building [[#B-98]] and asking what the harness does with dates. The block computes beta over the 60 bars before a signal and reports alpha = raw − β × market. Its guard read `hasattr(df.index, "date")` — and the frame is `reset_index(drop=True)` **eleven lines above**, so the index is a RangeIndex and the test is always False. **`alpha_avg` and `alpha_ttest` came back None on every run since it shipped**, including the **five dashboard call sites** that fetch a benchmark specifically to pass it in. Nothing errored; the column was simply always empty. Verified live before the fix (28 signals, valid dated benchmark, alpha None) and after (alpha populated, p computed). The fix keeps the dates the reset throws away and **refuses the join when NaN rows were dropped** — a date/bar misalignment would be a plausible wrong number, which is worse than no number. 6 tests in `tools/test_market_model_alpha.py`, including that a beta-2 symbol loses twice as much of a rising market as a beta-1 one. **No published figure moves**: the field was never populated, so nothing ever cited it | **done.** Noted in passing and not fixed: `mkt_ret` is collected and handed to `_aggregate`, which never surfaces it — the market return itself is still invisible |
+| ~~**B-105**~~ | ~~a BEARISH scanner is casting a BULLISH confluence vote~~ — **FIXED 2026-09-21.** `Liquidity Sweep Bear` shipped as `category: "Risk"` and was never added to `opportunity_hub.RISK_SCANNERS`, so `scanner_tier()` read it as `unmeasured` and `tally_evidence`'s fall-through — the branch that deliberately gives an unmapped NON-risk scanner its own family of one — counted a breakdown detector as **0.5 points FOR the name**. One line to fix; **the test is the actual deliverable.** `test_support_breakdown_retired.py` already asserted this for ONE scanner and said why in as many words; it did not generalise, which is how this survived. `tools/test_risk_scanner_invariants.py` now asserts it over the WHOLE registry, in both directions (every `category == "Risk"` entry is in the tuple; every tuple entry is category Risk) plus the same invariant for `category == "Neutral"` / `NEUTRAL_SCANNERS` (B-101), and it is **mutation-checked**: restoring the broken tuple in memory makes it fail with the right message. 17 tests. **Blast radius, counted rather than guessed:** the stored shortlist holds **2 affected rows, both QUADFUTURE** (2026-09-19 and 09-20). Before → after: **5 families / 2.50 pts → 4 / 2.00**, and **6 / 2.75 → 5 / 2.25**; the risk-flag list gains `Liquidity Sweep Bear` on both. **Confluence % is 100 either way** (both clear `FULL_CONFLUENCE = 2.0` on the bullish evidence alone), so no ranking actually moved — the note on those rows had simply been listing a bearish detector among the "independent families" supporting the name, one clause away from warning about a different bearish one | **done.** Stored rows are left as they were run — they are a RECORD of what the desk said that day, and rewriting history to match today's code is the one thing a run-date store must not do. Re-running the scan is the owner's call and would change nothing but those two notes |
+| ~~**B-106**~~ | ~~"Capital at Risk" is measured from a price that is no longer live~~ — **FIXED 2026-09-21.** The arithmetic left the monolith: `tools/portfolio_risk.py` now computes **both** numbers and `dashboard_app.compute_portfolio_summary` is a five-line adapter over it. **Initial risk keeps its old key and its old meaning** (`capital_at_risk_pct`) — silently redefining a key is how one number ends up read two ways — and the live question gets a new name (`open_risk_pct` = `(last − stop) × qty`). Home's card and `market_verdict`'s 6% flag both read the OPEN number now, with the initial one on the sub-line, because **the gap between them is the read**: it is how much of the original risk the book has retired. **Three things fell out of doing it properly:** a stop ABOVE the live price is floored at zero, not negative, or one winner would net off two losers' real exposure; a position with **no stop** has unbounded risk, is not in the number at all, and now raises its own caution instead of scoring as zero; an **unpriced** position is counted and said out loud rather than skipped. 21 tests — the math was previously untestable, because importing `dashboard_app` runs the app | **done.** The card's own three-way sub-line moved into `prisk.risk_card` too: the monolith ratchet caught the four module-level assignments this started as, and it was right — logic at module scope in that file is logic no test can reach. Net module-statement cost: **zero** |
+| **B-107** | **the RISK stage is three-quarters absent, and the quarter that exists is defined twice** — **TWO OF THREE BUILT 2026-09-21; drawdown split out as [[#B-110]].** **Sizing, reconciled:** `prisk.reconcile_size` multiplies the council's per-trade size by the market verdict's 0/50/100% multiplier and checks `max_trades` against the open book, and the council card now SAYS which rule moved the number (*"12.0% at the per-trade risk rule, scaled to 50% by today's SELECTIVE verdict · 1 of 2 trade slot(s) left"*). **No new rule was invented** — both numbers already existed and had simply never met, so a STAND DOWN day left the suggested size untouched. Size and cap are reported SEPARATELY because they fail differently: a halved size still lets you take the trade, being at the cap does not. **Exposure, built:** `prisk.exposure` gives deployed %, largest position, top-3, and sector concentration, on the Portfolio page. Measured against **total capital, not the deployed book** — a share of what is deployed flatters a book that is mostly cash, and the question is what happens to the ACCOUNT when one name gaps. An unmapped symbol is counted as unmapped rather than bucketed into "Other" (the `sector_column` rule). **It reports and does NOT judge: no thresholds.** What counts as too concentrated is risk appetite, which is a decision to be made once and deliberately by the owner, not a default smuggled in by whoever wrote the function. Verified end-to-end on real prices through a THROWAWAY copy of the DB: deployed 38.9%, largest 22.2%, Banks 22.2%, unmapped 4.3%. 36 tests | **max-loss is still a flag, not a limit, and that is deliberate** — enforcing it means refusing to show something, which is a policy decision. Drawdown is [[#B-110]]. What remains here is one owner call: whether any of these numbers should ever BLOCK rather than inform |
+| **B-108** | **nine pages answer the SCAN stage and the nav does not say which is canonical** — [[analyses/Pipeline-Alignment-Audit]]. The "Screening" group holds **9 of 23 pages** (Screener, Other Screeners, High-Growth, Hidden Treasures, Breakout Scans, Delete Funnel, plus Opportunity Hub / Scanner Hub / SVP Structure which are really SIGNAL), while RISK has no group at all and is scattered across Home, Portfolio and two research pages. **This is a presentation question, not a defect** — nine entry points may be nine different questions rather than drift — but a reader coming to the desk cold cannot tell which page starts the funnel. Options, in ascending order of disruption: (a) leave the nav, publish the audit as the map; (b) re-blurb each page with the stage it serves, changing no routing; (c) regroup the nav by stage. **(b) is the cheap one and loses nothing** | **OWNER decision on (a)/(b)/(c); (b) is ~23 string edits** |
+| ~~**B-109**~~ | ~~the trade plan and the per-name verdict are not on the page a name is chosen from~~ — **BUILT 2026-09-21.** `tools/plan_on_demand.py` puts a *Plan a name from this list* picker on the Opportunity Hub: pick one shortlisted name, get the full council card — BUY / WATCH / AVOID, entry, stop, three targets with R:R, invalidations, horizon, and the size already scaled by today's market verdict ([[#B-107]]). **A click-through, not a column, and the reason is the pipeline itself:** PLAN comes *after* the reader has chosen, so twenty plans before they have chosen is both expensive (the council fetches fundamentals and scores two theses per name) and the wrong shape — a ranked list where every row carries a full plan is not a shortlist any more. The module owns the SELECTION and the framing; the council, the card renderer and the fetchers are injected, so there is no second copy of "how a trade card looks" to drift. Picker order is the RANKING's order — sorting it alphabetically would bury #1 — and a null symbol is dropped rather than stringified into "NONE", which a test caught. **Verified live:** AHCL → *WATCH, conviction 8.7, entry 26.24, stop 15.41, T1/T2/T3, and "size 0.0% — 4.8% at the per-trade risk rule, scaled to 0% by today's STAND DOWN verdict, already at today's cap of 0 trade(s)"* — the B-107 reconciliation doing its job on a real STAND DOWN day | **done.** 8 tests on the selection logic; the Streamlit surface is verified by driving the running app |
+| **B-110** | **drawdown cannot be computed because nothing stores the equity curve** — split out of [[#B-107]] 2026-09-21 rather than left as a bullet. The reference pipeline names drawdown as a RISK component and the desk has no peak-to-trough number for the portfolio or for closed trades. **The blocker is data, not arithmetic**: `positions` holds entry/exit prices and dates, and there is **no equity-history table at all** (checked: `portfolio_equity` and `equity_curve` do not exist). Two honest routes — (a) a daily snapshot job writing `{date, equity, deployed, open_risk}` after close, which starts the series TODAY and is worth nothing for a year; (b) RECONSTRUCT the curve from `positions` + cached OHLCV, which gives history immediately and inherits every survivorship and price-adjustment quirk in the cache. **(b) then (a) is the honest pair**: reconstruct to have a number now, snapshot so the number stops depending on a reconstruction. Whichever comes first, the result must say which one it is — a reconstructed drawdown and a recorded one are not the same claim | **medium.** The reconstruction is a walk over open+closed positions; the snapshot is a scheduler job beside the ones `scheduler_core` already registers |
+| ~~**B-111**~~ | ~~the desk reads corporate filings one SYMBOL at a time, and the market-wide stream was never read~~ — **BUILT 2026-09-21**, from the owner's question *"can we fetch company deal information yet?"* — checked end to end rather than from the docstrings. **Two halves.** **(a) The filing text was being thrown away:** `volume_anomaly` printed NSE's `desc`, which for a third of filings is the useless *"General Updates"*, while the same payload's `attchmntText` carried the actual event. `filing_headline()` now strips the *"X Limited has informed the Exchange about"* boilerplate and the repeated category, and the 21-Sep card's own "why" comes straight out: SAMBHV reads **"proposed preferential issue of 8,695,400 fully convertible equity warrants"** where it used to read "General Updates". **(b) `tools/nse_filings_feed.py`** reads the market-wide endpoint that was always there — **without a date range it returns 20 rows, with one it returns 1,262 over four days**, which is why *"there is no market-wide feed"* was easy to believe. Bucketed (ORDER_WIN · M&A · FUND_RAISE · CAPACITY · RATING · GOVERNANCE · RESULTS) and de-noised: **1,262 raw → 226 material, 494 dropped as exchange/compliance noise**. Wired into India Market Intel, whose own caption said filings were *"not wired up — the feed is very high volume without a watchlist filter"*; the bucketing IS that filter, and the caption is retired. Verified live: WELCORP's Saudi Aramco order (ORDER_WIN, 20-Sep) and GUJTHEM's acquisition (M&A, 18-Sep) — both names from the owner's screenshots — surface without either being a volume spike. **One real bug caught by its own test:** `[A-Z]{3}` under `re.I` matched the "ver" in *"over 771 million SAR"* and printed **"VER 771 million"**, a plausible amount in a currency that does not exist; currency codes are now an explicit list. 26 tests | **done, and the limit is named on the surface** — see [[#B-112]] |
+| **B-112** | **the deal AMOUNTS live in PDFs nobody parses** — the half of the owner's question that [[#B-111]] could not answer. NSE's API carries a category, a one-line text and a LINK: *"₹937 Cr order book"*, *"₹126 Cr contract from Kalpataru"*, *"SAR 771 Mn"*, *"₹1,220 Cr acquisition"* are all attachment content. `amount_from()` reads a figure only when the filing's own text states one and returns None otherwise — **None means "not in the text", never "small"**, and the surface says so. **Measured blind spot, 4 days:** of 1,262 filings, 521 are neither noise nor classifiable — **145 "General Updates" and 76 "Updates"**, generic labels whose content exists only in the PDF. TEGA's ₹126 Cr Kalpataru contract is exactly this case: it filed as *"General Updates — intimation pursuant to Reg. 30"*, which is material BY DEFINITION (Reg 30 is the materiality rule) and unreadable without the attachment | **medium, and it wants a DATA PROBE first, the way [[#B-48]] got one**: how many attachments are text-layer PDFs vs scans, how large (WELCORP's was 3.32 MB), and what share of amounts a regex over the extracted text actually recovers. Build the extractor only if the probe says the text is there |
+| ~~**B-113**~~ | ~~scheduler page reports STATE but has no run HISTORY~~ — **BUILT 2026-09-23.** `parse_run_history()` parses log markers into structured run records (job, started, outcome, ended, duration). `run_summary()` gives totals. `orphan_tasks()` finds OS tasks not in JOBS (found: TradingBramha-IntradayUpdate). `write_bat` now stamps end time for duration. CLI: `history`, `summaries`, `orphans`. Current: alert_watcher 144 ok, daily_scanner 4 ok, sentiment_daily 6 ok, opportunity_daily 5 ok, zero failures. 11 tests. **Remaining from the original 7-step plan:** (3) daily_scanner now HAS markers — corrected from the 2026-09-21 count; (4) log rotation not built — 37KB/133KB/27KB/32KB, not urgent; (6) Pipeline Log fold-in: owner decision; (7) page extraction: follow B-87r pattern when next touching the monolith | **done — steps 1,2,5 built; 3 self-corrected; 4,6,7 deferred** |
+| ~~**B-114**~~ | ~~the SBC card's new wording is measured on ONE name and cannot be settled there~~ — **POWERED AND SETTLED 2026-09-21.** `walk_fast` made it runnable (one detection pass per symbol instead of two per bar) and was **diffed against the slow walk on BSE before being trusted — 41 events, every field identical**. Then 150 nifty500 names, ~10 years: **4,608 events, 2,525 held vs 2,083 failed**. A break that HELD beat one that FAILED by **+0.35 / +0.86 / +1.28 / +0.96pp** at 5/10/20/60d, direction-signed and net of costs, p<0.001 at the primary horizon and the sign holding everywhere → **POSITIVE at the pre-registered bar**. **It also survives the clustering control** the pooled p cannot supply (symbol as the unit, B-76c's method): 133 names, mean **+1.37pp**, median +1.04pp, **79/133 positive**, p=0.0015. **BSE alone had said +16.05pp — twelve times the powered number**, same direction, and that is the floor's entire argument in one line. **The graded quality score does NOT rank on 4,608 events** (NORMAL −0.37% sits below WEAK +0.52%; `warn` beats `good`), so what carries the result is the binary — price coming back through its own level — and the `0.6·dist/ATR + 0.4·body/ATR` formula the card prints is decoration so far | **done. Two things it deliberately does NOT claim:** it is held-vs-FAILED, **not** held-vs-doing-nothing — no baseline arm was pre-registered or run, and that is the obvious next test ([[#B-115]]); and it is not a trade at +1.28pp over 20 sessions with 59% of names positive |
+| ~~**B-115**~~ | ~~"held beats failed" is not "held beats doing nothing"~~ — **RUN 2026-09-21 → POSITIVE, and thin.** Pre-registered and committed BEFORE the run (`26f3fda`): baseline = every eligible bar in the same names and window, same timing, same costs; up-direction only, because a long-only desk's alternative is owning it, not shorting it. **1,545 up-held breaks vs 261,121 eligible bars: +0.21 / +0.31 / +0.82 / +0.75pp** at 5/10/20/60d, **p=0.006 at the primary horizon**, sign positive at all four → POSITIVE as written. **Clustered: 130 symbols, mean +0.67pp, median +0.36pp, 75/130 positive (58%), p=0.0297.** **Read it thinly:** only h=20 clears 0.05 individually, the clustered p is 0.0297 against B-114's 0.0015, and mean-above-median says a minority of names carry more than their share. **So B-114's +1.28pp splits roughly in two** — about +0.8pp of "held is better than average" and the rest from "failed is worse than average"; both real, neither large. **A sign error worth recording:** the first report printed *"held down-breaks fell −0.94%"*. They did not fall — the stored return is signed by the event's direction, so the name ROSE 0.94% against a random bar's +1.47%. A held DOWN break is an **underperformance** read, not a decline, and a test now pins the wording so "fell" cannot reappear for a number that rose | **done.** The card keeps describing structure rather than proposing trades: 0.8pp over 20 sessions on 58% of names is a real effect and a small one. The quality ladder is still unranked and still decoration |
+| **B-116** | **every measured-move TARGET this desk prints is unmeasured as a target** — **PLUMBING DONE 2026-09-21, CENSUS BLOCKED, and the block is the finding.** `_aggregate` always built the plan scoreboard (`target_hits`, `stop_hits`, `win_rate`, `avg_R`) and `format_report` always printed it; `walk_forward_scanner` dropped it, so the B-19 batch computed target-vs-stop for 44 scanners and discarded it 44 times. Now pooled across windows — **counts summed, rates recomputed from the sums**, because three windows of 4, 40 and 400 plans are not three equal opinions about a hit rate (averaging says 50% where the truth is 25.7%; there is a test). **Then the control failed, which is why no numbers are published here.** Flag & Pole through the generic harness reads **10.9% target / 82.6% stop / −0.42R**, against B-92's own study of the same scanner at **36.8% / 51.6% / +0.36R**. **RETRACTED 2026-09-21 — the first diagnosis was wrong.** This row originally blamed the EVENT DEFINITION: `scan_flag_pole` fires on runs of ~4 consecutive bars, so the harness supposedly re-entered the same breakout four times. [[#B-120]] built the fix (`signal_mode="fresh"`) and it **did not reproduce B-92 either — 11.8% / 84.4% / −0.40R against "all" mode's 11.0% / 82.5% / −0.42R**. The reason the two modes barely differ was sitting in the code the whole time: **`min_gap=5` already skips five bars after every recorded signal**, so a four-bar run was ALREADY collapsing to roughly one entry (RELIANCE: 13 signals in `all` vs 10 in `fresh`). The run counts were right and the story about them was not. **So the discrepancy is UNEXPLAINED**, and the leading unchecked candidate is now [[#B-121]] — the harness assumes the card's stated entry is filled, at that price, whether or not price ever trades there | **the plumbing is done and worth having. The census needs [[#B-120]] first** — a fresh-signal filter in the shared harness. Three studies have now hand-rolled their own (B-92, B-101, B-114) **EXPLAINED 2026-09-23 — third diagnosis, and this one has a control behind it.** `flag_pole._card` returns a full entry/stop/target for EVERY detected flag, **including `WATCH — unbroken` ones** whose entry is a trigger above the market; the harness takes every card as a trade. B-92 counted only BROKEN flags. Same harness, broken cards only, `market` fill, fresh: **33.8% / 54.0% / +0.26R (n=645)** against B-92's own simulator on the same 150 names **34.6% / 53.2% / +0.29R** — reproduced. So the retracted 'runs of ~4 bars' diagnosis was wrong about the mechanism but right that it was the EVENT DEFINITION. Consequence filed as [[#B-128]] |
+| ~~**B-117**~~ | ~~**no target is ever sanity-checked against volatility**~~ — **BUILT 2026-09-26.** `projection.target_atr_distance(target, current, df)` computes `abs(target − current) / ATR(14)`, returned as `target_atr` in the `compute_projection()` result dict. Chart card (`renderProjInfo`) renders "Target distance: X.X× ATR" with color coding: green/default for ≤3×, orange for 3–5×, red for >5×. **Ships as DISTANCE (fact), not a veto** — per the backlog spec, no target is suppressed based on ATR distance until B-116 measures whether far targets actually fail more. 5 tests in `test_target_atr.py` | **done** |
+| ~~**B-118**~~ | ~~**targets are never checked against the levels that actually stop price**~~ — **BUILT 2026-09-26.** `projection.nearby_levels(target, current, df, direction)` collects swing highs/lows from `detect_structure_chain` and floor pivots from `row_metrics.pivot_levels`, returns up to 3 structural levels between current price and target sorted nearest-to-target first. Each carries `price`, `source` (human label), and `dist_pct` (signed distance from target — negative means the level sits BEFORE the target). Wired into `compute_projection()` as `nearby_levels` in the result dict. Chart card (`renderProjInfo`) renders them as "Levels in the way" with red highlight when within 1% of target; shows "open air" when none found. **Ships as DISTANCE, not a confirmation score** — *"Swing high ₹1,842.50, −0.8% from target"* is a fact; "confirmed by structure" would be a claim. 8 tests in `test_nearby_levels.py` | **done** |
+| **B-119** | **analog / pattern-match forward projection — the one method the desk does not have at all** — same audit, and deliberately LAST of the four. Scan history for segments that resemble the recent normalised path, take the best matches, average their forward paths, draw a mean with bands. Nothing in `tools/` does this: no nearest-neighbour search, no DTW, no analog library. `projection.py` is a CONFLUENCE of structural methods, which is a different object. **Why it is last:** it is the most seductive and the least checkable of the five — an averaged forward path from lookalike history is a shape that always looks informative, and this desk has measured three volume-profile reads and a VCP detector to nothing. **Pre-register before building**, not after: what counts as a match, how many analogs, and what beats a same-bar baseline | **medium-large, and it should not start until B-116 says whether the targets we ALREADY print are reachable.** Adding a fourth projection method while three are unmeasured is how a desk acquires surface instead of evidence |
+| ~~**B-120**~~ | ~~the shared harness has no notion of a FRESH signal, and three studies have hand-rolled one~~ — **BUILT 2026-09-21, and it did NOT do what it was raised to do.** `backtest_scanner`/`walk_forward_scanner` now take `signal_mode`: **`all`** (every bar the scanner hits, de-duplicated by `min_gap` — the default, unchanged, because every published number came through it and flipping the default would silently redefine 44 verdicts) or **`fresh`** (only the bar a hit APPEARS). The mode travels with the result and prints in the header, so no figure can be quoted without it; `min_gap` is disabled under `fresh` because the transition rule already de-duplicates and skipping ahead would DROP a genuine new break inside the gap; an unknown mode RAISES rather than falling back to `all`. 6 tests. **The honest part: it was raised to explain [[#B-116]]'s control failure and it does not.** Fresh mode moved Flag & Pole from 11.0% → 11.8% target, not to B-92's 36.8%, because `min_gap` had already collapsed the runs. **The feature is still right** — a persisting state IS one signal for a plan test and arguably many for an edge test, and three studies wrote their own rule rather than use the harness — but it bought a correctness property, not the explanation | **done, and the thing it was supposed to explain is still open.** See [[#B-121]] |
+| ~~**B-121**~~ | ~~`_simulate_plan` assumes the stated entry is FILLED~~ — **BUILT 2026-09-23, a real bug, and NOT the explanation it was filed as.** `resolve_fill` + `fill_model`: `assumed` (default, unchanged) · `market` (next open) · `touch` (the entry is an ORDER — above the signal close a long is a buy-stop, below it a buy-limit; gaps fill at the open, worse for stops and better for limits; shorts mirror; cancelled after 5 bars). Unfilled orders and fills through the stop are COUNTED, never simulated. 11 tests; gap direction mutation-checked. Two silent losses in `_pool_r_blocks` fixed alongside (windows with no fill dropped before their unfilled counts were summed; a pre-existing `seen = 0 … if seen else None` pooled every plans-seen-none-simulated run to None). **The control, Flag & Pole, 150 names, fresh:** assumed 10.7% / 86.0% / −0.43R · market 13.5% / 82.4% / −1.13R with **316 of 1,555 fills already past the stop** · touch 21.6% / 72.1% / +0.22R with **756 orders never filled**. None reproduces B-92, so the fill model is not the cause — but a harness that credits half its orders as filled was wrong regardless. **A suspicion of my own, refuted before it was published:** B-92's `walk_plan` uses `abs(entry − stop)`, which would score a gap-through-stop as +1R. Checked: **1 of 713** B-92 bull plans opened past the stop. B-92 stands | **done** — see [[#B-116]] for what the cause actually was |
+| ~~**B-122**~~ | ~~No-Supply Screener~~ -- **BUILT + MEASURED 2026-09-23, clean negative.** Python port of simple_volume.js with bar-for-bar parity (5 symbols). Scanner `scan_no_supply`: gates on Trend/Momentum family + zero red bars + at least one pocket pivot in last 10 sessions. 3 of 24 cached symbols fire (20% gate rate across 8,580 signals). **Gate-vs-no-gate study (pre-registered, paired by symbol, Bonferroni alpha 0.05/3, floor 20 symbols):** @10d -0.118% (p=0.79), @20d +0.157% (p=0.25), @60d +0.789% (p=0.25) -- **NO DIFFERENCE at any horizon.** The supply filter selects a subset (20%) but not a better one. The scanner ships registered but unmeasured (weight 0) as a SCREEN for attention, not a trigger | **done -- clean negative, as the family itself was** |
+| ~~**B-123**~~ | ~~the harness cannot test a trailing exit~~ — **BUILT 2026-09-23.** `_simulate_plan(exit_model=…)` + `backtest_scanner`/`walk_forward_scanner` pass-through, reported in the result and the report header exactly like `signal_mode`. Models: **`fixed`** (default — bit-for-bit the old path, pinned by test, so no published R moves) · **`atr_trail:k`** (Chandelier: extreme since entry − k·ATR22, Wilder) · **`ema_close:n`** · **`structure:p`** (close through the latest CONFIRMED swing low/high — the CHoCH that ends a long). Rules pinned by 18 tests: the initial stop still defines R and fires intraday; trails **only tighten**; the ATR trail on bar i is set from bars ≤ i−1, so no bar exits on a level it made; EMA/structure exits are **close-based**; swing pivots are used only once confirmed (p bars later); shorts mirror; an unknown model **raises** instead of quietly measuring the control. **The fixed target is dropped under a trail** (`target_used: False`) — capping a trail at the card's target would measure a fixed plan with a tighter stop. **Correction to this row as filed:** it said the ATR trail is close-based. It is not — once ratcheted it rests as an intraday stop, which is what Chandelier is; only the EMA and structure exits are close-based. **A silent empty caught before any number was read:** the R block counted target/stop/open/time only, so every `trail` exit would have vanished from the tallies, and `win_rate` (= target hit) reads **0% by construction** once the target is dropped. Added `trail_exits`, **`positive_rate`** (R>0 — the win rate that means the same under every exit model) and **`r_p90`** (the tail a trail exists to fatten); pooled too; a test asserts the five outcomes sum to n. A mutation check (make the trail follow the latest candidate down) fails the ratchet test, so that test has teeth. **Smoke only, NOT a result** (Falling Wedge, 25 names, fresh, 29bps): 127 plans, all 127 accounted for under each model; fixed +0.04R, ATR −0.04R, structure +0.01R, EMA +0.02R. **Do not quote these** — wrong panel, no clustering, no pre-registration. **One thing B-124 must pre-register because of it:** Falling Wedge declares a `time_stop`, and 26–39 of 127 trades ended on it under every trail model — **a card's time stop caps the very tail a trail is for.** B-124 has to state whether the time stop applies to trail arms, before the run | **done.** Harness is ready for [[#B-124]]; [[#B-121]] (fill model) is still open and still applies to every arm |
+| ~~**B-124**~~ | ~~exit-model bake-off~~ — **RUN 2026-09-23 (run 2; run 1 void, see below) → NO TRAIL WINS. The prior held.** Pre-registered in `exit_model_bakeoff.py` before either run; run 2 is the registered run repeated unchanged on fixed code. 300 names, fresh signals, next-open fill, 29bps, pairs on (symbol, signal bar), per-symbol means, α = 0.05/6 = 0.0083. **Falling Wedge** (1,210 pairs, 265 symbols; control −0.005R): ATR trail **+0.13R p=0.058** · structure −0.07R p=0.19 · EMA20 −0.10R p=0.045 → **NO DIFFERENCE ×3**. **Harmonic Reversal** (793 pairs, 257 symbols; control −0.15R): ATR −0.07R p=0.40 · structure −0.10R p=0.16 → NO DIFFERENCE; **EMA20 −0.23R p=0.0003 → TRAIL WORSE**. **Read it like this:** 5 of 6 are ties, the one decisive result is a trail LOSING, and the nearest thing to a win (Falling Wedge ATR, +0.13R) misses α by 7×. The ATR trail does what a trail is for — fattens the tail (Falling Wedge r_p90 **2.0 → 2.9R**) — and pays for it in hit rate (R>0 **40% → 28%**); on these entries the two cancel. Tight close-based exits (EMA20, avg **3.6 bars** held on Falling Wedge) just cut winners, the same finding as B-8. **Caveats that stay attached:** Falling Wedge's population includes forming / pre-breakout cards ([[#B-128]]); Harmonic's fixed control is now −0.15R, not the published +0.25R ([[#B-129]]). Both caveats hit both arms equally, so the COMPARISON is fair; the absolute levels are not. **Run 1 is void** — its Harmonic 'TRAIL BETTER ×3' came from inverted plans ([[#B-129]]); kept locally as `cache/exit_model_bakeoff_run1_invalid.json` | **done.** Consequence: [[#B-125]] closes unbuilt; the chart's trail cards say *measured as an exit class: no gain* |
+| ~~**B-125**~~ | ~~Statistical Trailing Stop [LuxAlgo]~~ — **CLOSED UNBUILT 2026-09-23 on its own condition.** It was conditional on [[#B-124]] showing any trail beat fixed. None did (5 ties, 1 trail worse). A better-fitted trailing distance cannot rescue an exit class that ties at best, and its in-chart performance dashboard was never evidence | **closed** — reopen only if a setup with a measured positive plan appears where a trail is the thing being tested |
+| **B-126** | **Market Structure / FVG / Fibonacci trailing stops [LuxAlgo] — DECLINED as builds; all three are compositions of modules we have.** Market Structure trail = SBC swing levels ratcheted (B-123's `structure` arm covers it). FVG trail = the lowest unmitigated bull FVG from `fvg.js` as the stop. Fib trail = retracement of the latest swing from `fibonacci.js`. Each is ≤1 day on top of B-123 **if** B-124 says structure-type exits win. Sigmoid and Neighboring (k-NN) trails **declined outright** — smoothing and k-NN over one name's own history add parameters, not information, and the desk's record on added parameters is B-65 / B-59r2 | **declined, reopen from B-124's result** |
+| ~~**B-127**~~ | ~~the chart draws trails without saying they are unmeasured as exits~~ — **DONE 2026-09-23, and the row as filed was one-third wrong.** **PMax needed nothing**: its card already states B-65 (the signal) AND B-74 (**its trail scored as an exit**, −0.50R vs holding) — the one trail on the chart that WAS measured as an exit, which the filing missed. **The real gap was worse than filed**: SuperTrend AI and PSAR had **no card at all** — the lines just sat under price with nothing beside them. Both now get a status card (`TRAIL_STATUS`, one place to update when B-124 reports): *as a signal* — measured, no edge, B-59r (STAI-only flips −1.00% p=0.150 n=1,909; PSAR-only −0.77% p=0.053 n=8,576, a null not a loss; agreement +0.16% p=0.820 ≈ market); *as an exit* — **never measured**. STAI's card also says its 0–10 arrow strength is scored on the chart it is drawn on, so it is not evidence. Verified in the browser: each card appears with its line and leaves with it | **done** — revisit the two strings when [[#B-124]] reports |
+| ~~**B-128**~~ | ~~scanners attach trade plans to WATCH cards and the harness trades them~~ — **BUILT + RE-MEASURED 2026-09-23.** Contract: `actionable: False` keeps the levels for the reader; the harness measures the SIGNAL and counts the plan (`plans_not_actionable`) without simulating it; a missing key means actionable. Set from each card's own state on Flag & Pole (broken), Falling Wedge (confirmed), VCP Coiling (BUY / WEAK BUY / READY — READY is 'place the order'), Rounding Bottom (not WATCH), Double Bottom (not EXTENDED). **Audit test** over every registered scanner on real bars: a card calling itself WATCH / forming / pre-breakout / unbroken / approaching / awaiting / no room may not carry an actionable plan. It found VCP and Rounding Bottom on its first REAL run and fails when VCP's flag is removed. **Its first two runs were not real** — it asked for `RELIANCE.NS`, the cache holds `RELIANCE`, and it SKIPPED, which reads as a pass; B-129's property test had the same mistake. Both fixed. **Re-measured with the B-19 batch's own settings** (LIQUID_50, 3 windows, 29bps, all-mode, assumed fill — so plan R is comparable to the old files, NOT a realistic fill): share of plans that were watch-only — **Flag & Pole 826/913 · VCP Coiling 2,380/3,236 · Double Bottom 1,084/1,528 · Rounding Bottom 354/541 · Falling Wedge 121/273**. Plan R, old → actionable-only: Flag & Pole **−0.42 → +0.65R** (n=87) · VCP **−0.46 → −0.18R** · Rounding Bottom **+0.17 → +0.43R** · Double Bottom **−0.00 → +0.02R** · Falling Wedge **−0.01 → +0.02R**. Signal edges barely move, as they should: the signal side never skipped anything. **Falling Wedge split by state — the result that matters:** confirmed breakouts **+1.37% @20d, +1.98% @60d, stable at 10/20/60d (n=194)**; forming / pre-breakout **−0.27% @20d (n=132)**. The published +0.74% was a DILUTION of a stronger, cleaner edge. **Its measured tier stands and is better supported than before.** **Caveat:** Double Bottom has 71% of its plans flagged EXTENDED — plausible for a detector that keeps reporting a completed pattern, but worth a look before anyone reads its +0.02R | **done.** Every other scanner without the key is unaffected by construction; the audit guards the next one |
+| ~~**B-129**~~ | **Harmonic Butterfly/Crab plans had the stop on the profit side** — FIX BUILT 2026-09-23 (stop beyond the more extreme of X and D; property test on real bars, which now actually RUNS — see B-128), plus harness guards (target on the stop side is degenerate; fill past the target is counted). **RE-MEASURED 2026-09-23, and the tier's evidence does not survive it.** The harness's signal edge scores every hit as a LONG — it does not read `direction` — so bearish Harmonic patterns (a SHORT thesis) have always been inside the long edge. Split with the B-19 settings: **bullish only +1.07% @20d, UNSTABLE at every horizon** (2 of 3 windows positive, one at −0.82%; n=116) · **bearish patterns scored as longs +0.72% @20d** (n=145): after a bearish Harmonic the stock ROSE, so the short thesis FAILS, exactly as Inverted Flag & Pole did in B-92. The pooled **+0.88%** that keeps Harmonic in `MEASURED_EDGE_SCANNERS` is a failing short thesis averaged with an unstable long one. **Plan R is still not known.** Under the B-19 settings (assumed fill) the fixed plan reads +1.21R, which is the stale-fill case B-121 exists for — the entry is the D price, up to 10 bars old. Under next-open fill + fresh signals (B-124 run 2) the same scanner's fixed plan was **−0.15R**. **OWNER DECISION, not made here:** the evidence says Harmonic no longer meets 'measured to beat random entry'. Recommended: demote to the weak tier (0.25) and scan bullish patterns only, as the Inverted Flag & Pole precedent did; the `opportunity_hub` comment now states this instead of the old +0.67% / +0.25R **DECIDED 2026-09-23 by the owner: demoted to the weak tier (0.25), bullish patterns only.** `scan_harmonic_reversal` now returns None for bearish patterns (the chart's harmonic overlay reads the detector directly and still draws both); `opportunity_hub` moves it from `MEASURED_EDGE_SCANNERS` to `MEASURED_WEAK_SCANNERS`; the registry description says bullish-only and measured weak. Tests pin both. **Falling Wedge is now the desk's only measured-edge scanner** | **done.** Re-earning a higher tier needs a bullish-only re-measure that is stable across windows, on next-open fills |
+
+| ~~**B-130**~~ | ~~**Stock Summary Card on Predictive Analysis — 52-week context + detected patterns**~~ — **BUILT 2026-09-26.** Three-layer card above the PA chart: 52-week range bar (`rs.range_spectrum` with sup/res marks), Minervini stage badge (8 condition chips, 4-tier label), detected-pattern chips queried across all scanners via new `db.get_symbol_patterns()`. Inline in `dashboard_app.py` PA block, wrapped in try/except | **done.** |
+| ~~**B-131**~~ | ~~**Smart Money Flow card on Predictive Analysis — accumulation vs distribution, OBV trend, CMF**~~ — **BUILT 2026-09-26.** Session-flow bar chart (60 sessions, green/red/grey), verdict label (5-tier), inline SVG OBV trend mini-chart via new `money_flow.obv()`, CMF(21) reading. Honest caveat on the card about the heuristic nature of the classifier. Inline in `dashboard_app.py` PA block, wrapped in try/except | **done.** |
+
+### OWNER — a judgement, not a task
+
+| # | The decision |
+|---|---|
+| **B-73** | the contra-theme **cadence** |
+| **B-4 / B-12** | AVWAP click-to-anchor — verified no anchor UI exists. Anchor choice is the subjective half of AVWAP; how much UI is worth building is yours |
+| **B-26** | `MIN_PRICE_PCT` is **0.5 against a 0.90 median** — far more permissive than its own comment claims. Deliberately unchanged, because moving it re-grades the whole universe. Decide it on purpose rather than by inheritance |
+| **B-34r2** | whether the red-flag veto is ON by default (it vetoes **100 of 249** on Smallcap-250) |
+| **B-84r** | retire or document the third app — the candidate is named in [[#B-84]] |
+| **B-42r** | which `pivot_len` IS "structure" — 5 (scanners) or 15 (chart). Measured 2026-09-17 at **29.6% agreement on `state`**, with 17.6% of names reading *opposite* directions. Cannot be unified quietly: it re-grades most names |
+| **B-30 / B-31 / B-35** | parked by choice; unpark or drop |
+| **P2 four** | B-4/12, B-6, B-8, B-9 were "schedule one or mark deferred" as of the design review. **B-8 and B-9 are now scheduled — they are in MEASURABLE NOW above.** |
+
+> [!warning] A specification this page lost
+> **B-8 and B-9 were described here as "both fully specified"** — and they were
+> not. Both were reduced to a bare heading with one shared sentence under them;
+> the actual specifications (the Connors-vs-ForexTester contradiction, the
+> 2-consecutive-30-min-bar traverse claim) survived only in the superseded
+> [[analyses/Open-Backlog-2026-08-02]] snapshot. **A living page that supersedes
+> a snapshot inherits the duty to carry its content**, and this one dropped two
+> specs on the way. Restored below, in their own entries.
+>
+> This is the same failure the page already documents about itself, one level up:
+> it re-verifies STATUSES against code and never re-verified that its own
+> BODIES survived the migration.
+
 
 ## Left open by the 2026-09-07 session — carried forward, re-checked 2026-09-10
 
@@ -96,7 +288,7 @@ reconstructed from the commit log.
 | 4 | **B-57 · secondaries** | [[#B-57]] | The primary FAILED (−0.25%, p_rot=0.714) and that is settled. Unrun: the 60d horizon, the quality gate tightened from a sign test to a top-quartile OCF rank, and `depth_from_flip` as the depth definition. All were pre-registered as non-decisive, so they describe rather than rescue. |
 | 5 | **B-58 residual · multi-timeframe liquidity** | [[#B-58]] | "HTF LQ" from the source chart. `detect_liquidity_pools` takes one `df` — single timeframe. Bigger build, own entry when picked up. **Naming trap:** `HTF` in this repo means **High Tight Flag**, not higher timeframe, so grepping for it gives false confidence the feature exists. |
 | ~~6~~ | ~~**B-60 · sector money-flow heatmap**~~ | [[#B-60]] | **BUILT 2026-09-07** — `money_flow.py` + 18 tests, on Sector Map and Home, verified in the running dashboard. Ships as a view; unmeasured. |
-| 7 | **Fib rungs are drawn, not wired** | `fibonacci.js` | 0.886 and 1.13 exist as levels but do NOT feed `buildPlan`: 0.886 is entry-ineligible without `{deepEntry:true}`, and 1.13 never becomes the stop. Adopting either changes reward-to-risk — and therefore the `actionable` flag — on plans unrelated to QM. **Changing what a stop means is a measurement, not a default.** |
+| ~~7~~ | ~~**Fib rungs are drawn, not wired**~~ — **SETTLED 2026-09-11** by B-58's FAIL: the geometry they serve does not beat a plain support retest, so neither becomes a `buildPlan` default and **they stay drawn on purpose**. Code re-verified unchanged 2026-09-19, which is the settled state, not an open one | `fibonacci.js` | 0.886 and 1.13 exist as levels but do NOT feed `buildPlan`: 0.886 is entry-ineligible without `{deepEntry:true}`, and 1.13 never becomes the stop. Adopting either changes reward-to-risk — and therefore the `actionable` flag — on plans unrelated to QM. **Changing what a stop means is a measurement, not a default.** |
 
 > [!note] The one thing worth carrying forward from this session's method
 > Twice, counting BEFORE measuring saved a week. `renko_quality_cardinality.py`
@@ -104,6 +296,11 @@ reconstructed from the commit log.
 > detector's first version reported a "pattern" on 73% of names until the pivots
 > were required to be consecutive. **A filter that admits almost everything is not
 > a filter, and that is cheaper to discover by counting than by backtesting.**
+
+**Status of that table on 2026-09-19:** rows 2, 3, 6 and 7 are closed or
+settled; **rows 1 (chart-server restart), 4 (B-57 secondaries) and 5 (B-58
+residual · multi-timeframe liquidity) are still open and untouched**, all three
+re-verified this pass.
 
 **Status of that table on 2026-09-10:** rows 2 and 3 were **run this session**
 ([[#B-58]] — inconclusive for lack of events, not a null; [[#B-59]] — PSAR is a
@@ -117,6 +314,11 @@ MEASUREMENTS owed, not builds.** That is the standing shape of this backlog — 
 desk builds faster than it measures.
 
 ## Refinement pass 2026-09-10 — what is actually next
+> [!note] Superseded — history, not a list
+> Kept for its reasoning and its "not promoted, and why" notes. The current
+> ranking is [[#Ranked, after the corrections]]. Do not pick work from the
+> ranked table below: B-10, B-17, B-58, B-22 and the Fib rungs in it have all
+> since closed or settled.
 
 Ranked by *what the desk cannot currently answer*, not by size. No new items were
 invented in this pass; this is the existing page, sorted.
@@ -141,6 +343,11 @@ astro nulls.
 
 
 ## Refinement pass 2026-09-11 — re-verified against code, and one item was owed to itself
+> [!note] Superseded — history, not a list
+> Kept for its correction narrative and the B-22r result in full. The current
+> ranking is [[#Ranked, after the corrections]]. **Its adjudication of B-59r2
+> is the one still live** — it struck the PSAR unique-cell debt as discharged,
+> and the 2026-09-17 table re-raised it; see [[#Re-verification 2026-09-19]].
 
 Same method as 2026-09-10: every item ranked below was re-read against the
 **code**, not against the previous pass. Nothing new was invented. What follows is
@@ -163,9 +370,9 @@ owed.
 
 | Item | Claim on the page | Verified against | Verdict |
 |---|---|---|---|
-| **B-45** (ATR/MFI not plottable) | "Neither appears in `INDICATOR_DEFS`" | `INDICATOR_DEFS` at [chart_dashboard.html:1285](tools/chart_dashboard.html:1285) — **48 keys**, no `atr`, no `mfi` | **Open, accurate** |
-| **B-46** (Ichimoku) | "absent from `tools/` entirely" | only hit for `ichimoku` repo-wide is a *comment in* `tools/psar.js:14` citing B-46 itself | **Open, accurate** |
-| **B-47** (TPO) | absent | no TPO source outside vendored `breakout_scanner` bundles | **Open, accurate** |
+| ~~**B-45**~~ (ATR/MFI not plottable) | "Neither appears in `INDICATOR_DEFS`" | **STALE — both now ship.** `INDICATOR_DEFS` has `mfi` (line 1549) and `atr` (line 1550), with full sub-pane rendering at lines 4931+ and 4949+. Closed 2026-09-26 | **Closed, claim was stale** |
+| ~~**B-46**~~ (Ichimoku) | "absent from `tools/` entirely" | **STALE — now ships.** `ichimoku.js` exists, `INDICATOR_DEFS` line 1536, full rendering at chart_dashboard.html lines 4306+4454. Closed 2026-09-26 | **Closed, claim was stale** |
+| ~~**B-47**~~ (TPO) | absent | **STALE — now ships.** `drawTPO` at chart_dashboard.html:9142, `INDICATOR_DEFS` line 1561, multiple render call sites. Closed 2026-09-26 | **Closed, claim was stale** |
 | **B-10** (uncached symbols) | "only `BSE`" | `tools/cache/ownership/` — **751 files**, no `BSE*` | **Open, unchanged since 09-10** |
 | **B-17** (OBV concept page) | absent | `wiki/concepts/` still has no OBV page; two OBV surfaces ship | ~~Open~~ — **CLOSED 2026-09-11** |
 | **Fib rungs** (row 7, 09-07 table) | drawn, not wired | [fibonacci.js:85-96](tools/fibonacci.js:85) — `DEEP_RETRACEMENT` 0.886 still gated behind `{deepEntry:true}`, 1.13 still only in `OVERSHOOTS`, never a stop | **Open, accurate** |
@@ -993,7 +1200,7 @@ one phase.
 **Not ranked yet.** The 2026-09-11 refinement pass predates it; it takes its place
 in the next pass's ordering.
 
-## B-75 · A quarterly profit-growth walk on the tables — **RAISED 2026-09-12, SCOPED, NOT STARTED**
+## B-75 · A quarterly profit-growth walk on the tables — **SCOPED 2026-09-12, BUILT 2026-09-16** *(outcome below)*
 
 Owner's ask: a **Q-on-Q profit growth %** walk column, in the shape of the RS walk
 ([[#B-63b]]) — a per-quarter sequence read oldest → newest, so a name whose profit
@@ -1057,6 +1264,165 @@ nobody can see is wrong.
 
 **Cost:** small. The arithmetic exists, the walk pattern exists, the mount points
 exist. The judgement above is the expensive half, and it is written down now.
+
+## Ingested-research additions (2026-09-18) — B-96 / B-97 / B-98
+
+From [[sources/Bramesh-TradingView-Gann-Scanners-Product-Line]] — five paid TradingView Gann scanners, **₹24,330/month for the set**,
+all closed-source Pine, all capped at 40 symbols, and across five products **not one
+backtest, win rate, sample size or losing example**. Read the way the ScreeningMantis
+tables were: as a **catalogue of constructs to check against our own**, never as evidence.
+
+**Nothing worth buying. Three ideas worth stealing — and none of them is a Gann idea.**
+
+What was **declined**, with the reason:
+
+* **"Vibration", square/cube numbers, 180°/360°/540°/720° extensions** — unfalsifiable
+  as sold. No anchor rule, no scaling, no construction. Same verdict as
+  [[concepts/Gann-Angles-And-Trend-Change-Levels]]: *a level you cannot derive is a level
+  you cannot backtest*, and paying for it does not change that.
+* **"Institutional Floor"** — the **200 EMA**, renamed. The page says so itself.
+* **"Time-cycle averages"** — a moving average with a longer lookback.
+* **FRESH / NEAR state labels** — **already shipped as [[#B-63]]b**, and ours is better:
+  it prints the **age** (`ema_cross_age`, `bo_date`, the RS-rank walk) rather than a
+  two-state flag. Their 0.5% proximity band is also looser than `row_metrics.PIVOT_NEAR`
+  at **0.15%**.
+* **The drift table** (distance to level, absolute and %) — the arithmetic a `pivot_zone`
+  label exists to remove.
+* **The 40-symbol cap** — a Pine platform limit, not a design choice. B-92 ran across
+  **248 names**. Nothing here inherits it.
+
+> [!key-insight] Two of the three came from noticing something this desk already had and
+> was not using
+> B-96 is a composition of `pivot_levels()` and `timeframe_board`'s resampling — both
+> shipped, never combined. B-97 is a question about two columns that have printed side by
+> side since B-63b and were never compared. **Neither needed the source to invent
+> anything**; the source's only contribution was to make the absence visible. That is the
+> honest value of reading a competitor's feature list, and it is worth more than the
+> ₹2.92 lakh/year the list is attached to.
+
+### B-96 · higher-timeframe pivot zones — **BUILD, small**
+
+`pivot_levels()` is frame-agnostic by design; its docstring already invites this. Add
+`pivot_m` / `pivot_q` / `pivot_y` alongside `pivot_d` / `pivot_w`, resampling with the
+period-END anchors `timeframe_board.RESAMPLE` already uses so a partial current period
+shows as a partial bar rather than being dropped.
+
+**Two things to get right, both of which this desk has been bitten by before:**
+
+1. **A yearly pivot needs a PRIOR yearly bar.** `pivot_levels` reads `iloc[-2]`, so a name
+   listed inside the window has none — it must return `None`, not a pivot computed from a
+   stub. Precedent: `timeframe_board`'s `MIN_BARS` refusal, and PR-1c's *"Hyundai correctly
+   reports 2 rather than pretending to four"*.
+2. **Absent must render absent** (FR-4). A missing yearly pivot must not read as a verdict.
+
+### B-97 · do the pivot timeframes agree? — **MEASURED 2026-09-19: NO. They agree on the SIDE of the pivot 53.9% of the time and read OPPOSITE sides 37.9%**
+
+**Result first.** `tools/pivot_timeframe_agreement.py`, 499 of 500 NIFTY 500 names (one
+excluded — could not produce both reads):
+
+| | observed | chance | lift |
+|---|---|---|---|
+| zone agreement (7 labels) | **25.9%** | 17.9% | +7.9 |
+| **SIDE agreement** (above / at / below the pivot) | **53.9%** | 41.8% | **+12.1** |
+| **opposite sides** (one ABOVE, one BELOW) | **37.9%** | — | — |
+
+Against the bands fixed before the run: **TWO DIFFERENT READINGS** (side < 70%) and the
+opposite-side flag reads **CONTRADICTION** (≥ 20%). **Worse than the prior.** B-42r found
+`pivot_len` 5 vs 15 agreeing 29.6% on `state` with **17.6%** opposite; daily vs weekly
+pivots read opposite **37.9%** of the time, more than double that.
+
+**The robustness check, and it is why this is a finding rather than a snapshot.** The
+primary run's label distribution came back badly skewed — 249 of 499 names at `R1` on
+daily against 199 at `PP-S1` on weekly — which is exactly what a cross-section taken three
+sessions into a bounce off a seven-week decline looks like: above yesterday's pivot, below
+last week's. Taken alone it would have inflated disagreement by construction. Re-run on
+**29 past month-ends** (2024-03 → 2026-07, same frames truncated, nothing re-downloaded):
+
+* **median side agreement 64.0%** (range 50.1 – 91.0)
+* **median opposite 27.3%** (range 5.6 – 39.0)
+* **22 of 29 dates clear the 20% contradiction threshold**; only **5 of 29** reach the 70%
+  "real but narrow" band and only one (2026-03-31, 91.0%) is cosmetic.
+
+So the primary date is at the disagreeable end of the range but **not an outlier, and the
+verdict does not depend on it** — the median date still fails both bands. Today was
+declared post-hoc in the file and is not restated as the headline.
+
+**What the lift says, and it is the half that is easy to miss.** Agreement is above chance
+at every single date (+4.2 to +32.3, median ≈ +16). These two columns are **not
+independent** — they carry real shared information. The finding is not "the weekly column
+is noise"; it is that the shared part is far smaller than a reader scanning two adjacent
+columns would assume.
+
+**The two high-agreement dates are the mechanism.** 2025-02-28 (87.3%) and 2026-03-31
+(91.0%) are the dates where nearly everything sat on one side, which is what a strong
+trending month does to both timeframes at once. Agreement is a function of the tape, not a
+property of the columns.
+
+#### What this decides for [[#B-96]]
+
+B-97 was run first precisely so this question could be answered before three more columns
+existed, and the answer is now on the record: **B-96 must not print five peer columns.**
+At 37.9% opposite today and 27.3% at the median, a reader scanning five timeframes will
+routinely see three say one thing and two the other, with nothing on the surface saying
+which governs. Concretely, B-96 must either
+
+1. **name a governing timeframe** and render the others as context subordinate to it, or
+2. **print the agreement itself** — a single "3 of 5 above" state, the way B-42's
+   `agreement` field collapses CONFIRMED / UNDECIDED — so the split is the reading rather
+   than something the reader has to notice.
+
+Option 2 is the better fit for this desk, because it makes the disagreement legible
+instead of leaving it as five facts in a row. **Either way B-96 is no longer "small".**
+
+#### Design notes (the file is the pre-registration, committed before the run)
+
+No build at all: `pivot_d` and `pivot_w` both compute today. Score the agreement rate on
+`state` across the universe, the way [[#B-42r]] scored `pivot_len` 5 vs 15.
+
+> [!note] What happened to "use a rotation p-value"
+> The instruction below was written for scoring a state against forward returns, and this
+> study scores no returns — applied literally it would have tested nothing. What survives
+> is the part that bites: **a raw agreement rate is mostly base rate.** The statistic is
+> therefore agreement **lift over a cross-sectional rotation baseline** that holds both
+> label distributions fixed, which is the same correction [[#B-59]]'s v2 re-run applied
+> when its raw coverage turned out to be mostly chance. Reported with the raw rate, never
+> instead of it.
+
+**Use a rotation p-value.** A pivot zone is a slow, autocorrelated **state series**, not an
+event — the same trap recorded in [[concepts/Participant-Positioning-FII-DII]] and measured
+in B-56 (`gamma_regime_backtest._rotation_p`: a known null printed **p=0.031** under Welch
+and **0.32** under rotation).
+
+**Why this runs before B-96:** if daily and weekly already disagree as badly as `pivot_len`
+5 vs 15 did (29.6%), then adding monthly, quarterly and yearly produces **five columns that
+contradict each other**, and B-96 ships a confusion rather than a perspective. The
+agreement rate is the number that decides how B-96 should present itself.
+
+### B-98 · the calendar-anchored range — **BUILD then PRE-REGISTER**
+
+The January high/low, stripped of the branding, is a **yearly opening-range breakout**. It
+is the only construct on that page that can be reproduced here, because unlike every Gann
+level it states its anchor.
+
+Verified absent: no `opening_range`, no year-open reference anywhere in `tools/`.
+
+**Scope, deliberately narrow:**
+* Anchor = the first calendar month's high/low (the rule the source states — **use theirs
+  rather than tuning one**, so the test is of their claim and not of our fitting).
+* State = above / inside / below. Event = **the first close outside**.
+* Pre-register before measuring, on B-92's shape: **the EVENT is the transition, not every
+  bar of the state**, or the harness counts something nobody trades. Signal floor 200 per
+  direction, per the B-58 precedent.
+* Expect a **momentum confound**, exactly as B-92 has unresolved: a name above its January
+  range has been rising all year by construction. **The control belongs in the
+  pre-registration this time, not in the write-up afterwards.**
+
+**The prior is skeptical and goes on the record now:** B-19 found **0 of 41 scanners stable
+after costs**, and this desk's nearest existing construct — `Breakout` — is already
+measured. A yearly range is a 12-month lookback breakout with a calendar anchor; the anchor
+is the only novel part, and it is novel for **convenience**, not for any stated mechanism.
+
+---
 
 ## Ingested-research additions (2026-08-20)
 
@@ -1212,9 +1578,142 @@ fallback to a normal approximation when scipy is absent, mirroring `funnel_backt
 can now be settled empirically; picking the winner and writing it back to the
 scanners is a follow-up, not a build.
 
-### B-8 · Stops in mean reversion — the Connors contradiction
-### B-9 · Volume Profile 80% rule
-Both fully specified, both still taken on faith.
+### B-8 · Stops in mean reversion — the Connors contradiction — **MEASURED 2026-09-17: CONNORS WAS RIGHT**
+
+> [!key-insight] The desk's own stop costs it 0.64pp per trade
+> `mean_reversion_stop_study.py`, **300 nifty500 names**, ~20 years (5,000
+> bars/name), **742 non-overlapping signals** — above the desk's 200 floor —
+> `COST_INDIAN` on every arm.
+>
+> | policy | mean % | median % | win% | stopped% | target% |
+> |---|---|---|---|---|---|
+> | **NO STOP (Connors)** | **+0.47** | +1.28 | 55.5 | 0.0 | 32.5 |
+> | session low ×0.995 (**shipped**) | −0.15 | −1.85 | 30.1 | **68.1** | 21.2 |
+> | 1-ATR (ForexTester) | +0.07 | −3.05 | 40.8 | 52.7 | 26.8 |
+> | 2-ATR (ForexTester) | +0.33 | +0.84 | 53.1 | 24.7 | 31.4 |
+>
+> Paired against NO STOP on the same signals: **shipped −0.64pp (p=0.0086)**,
+> 1-ATR −0.40pp (p=0.082), 2-ATR −0.14pp (p=0.370). Only the shipped stop is
+> significant.
+>
+> **Both sources are right, about different stops.** Connors' claim — that stops
+> remove the edge — holds for TIGHT ones. ForexTester's 2-ATR is
+> indistinguishable from no stop at all, and the reason is in the table: it is
+> only touched **24.7%** of the time, so it barely binds. The contradiction was
+> never really a contradiction; it was two stop widths under one word.
+>
+> **The desk's shipped stop is the tightest of the three and the worst.** It is
+> hit on **more than two trades in three** and cuts the win rate from 55.5% to
+> 30.1% — it is closing mean-reversion trades exactly where mean reversion is
+> about to happen, which is the failure mode Connors described.
+
+> [!warning] The narrow basket overstated the effect by more than double
+> This was first run on **LIQUID_50 only (145 signals)** and read **−1.44pp at
+> p=0.0009**. Widened to 300 names and 742 signals, the same test reads
+> **−0.64pp at p=0.0086**.
+>
+> **The direction replicated on 5× the sample and the policy ordering is
+> identical** — shipped worst, then 1-ATR, then 2-ATR ≈ no stop, with stop-hit
+> rates in the same order. **The size did not replicate.** 1-ATR also lost
+> significance (p=0.021 → 0.082), which is what a real-but-smaller effect looks
+> like when the basket stops being 50 of the most liquid names on the exchange.
+>
+> The setup itself is weaker off the large caps too: NO STOP falls from +1.28% to
+> +0.47%. **Cite −0.64pp.** The first number was not wrong, it was narrow — and
+> the difference between those two is the reason the provisional label existed.
+
+**The stop was NOT removed, and that is deliberate.** The pre-registered
+consequence was to record the finding and surface the number, not to silently
+change a plan. Two reasons it stands as a decision rather than an oversight
+(the third, the sample floor, was retired by the wide run):
+
+1. **The effect is real but modest.** −0.64pp on a setup whose unconditional
+   return is +0.47% is most of the edge, but it is a fraction of a per cent and
+   it shrank by more than half when the basket widened.
+2. **"No stop" is not "no risk control".** The scanner's `time_stop: 10` bounds
+   the trade in TIME. Removing the price stop converts a bounded loss into a
+   gap-exposed one, and this study measured return, not drawdown or ruin.
+3. **2-ATR is the interesting middle** and it is what a follow-up should test as
+   the default — it keeps a bound while costing nothing measurable.
+
+**What a reader of the scanner should know now:** the plan's stop is tight enough
+that it fires on most trades, and on this evidence it costs return rather than
+saving it.
+
+### B-8 · original specification
+**Body restored 2026-09-17 from [[analyses/Open-Backlog-2026-08-02]]**, which is
+where it had been left behind. What this page carried instead was a bare heading
+and the claim that it was "fully specified" — see the warning in the roadmap.
+
+[[strategies/Quantified-MA-Mean-Reversion]] uses **no stop**, because its own
+backtests found that stops removed the edge. [[sources/ForexTester-Mean-Reversion-Guide]]
+makes **1–2 ATR stops mandatory**. Two sources, one setup, opposite rules.
+
+**And the desk has already taken a side without measuring it.**
+`scan_mean_reversion` ships `stop = session_low × 0.995` with `time_stop: 10`.
+That is not the neutral position; it is the ForexTester answer, adopted by
+inheritance. Run one reversion entry with and without a 2-ATR stop and settle it.
+
+### B-9 · Volume Profile 80% rule — **MEASURED 2026-09-17: FALSIFIED (45.5%, not 80%)**
+
+> [!warning] The claim is off by a factor close to two, and it was never blocked on data
+> `value_area_traverse_study.py`, 6 symbols × 84 sessions = **504 sessions**,
+> prior session's value area, 30-minute bars aggregated from the stored 15s.
+>
+> | | |
+> |---|---|
+> | traverse after a 2-bar hold | **45.5%** (61/134) |
+> | 95% CI (Wilson) | **37.3% – 54.0%** |
+> | base rate, no hold required | 49.6% (178/359) |
+> | lift | −4.1pp (p=0.422) |
+> | **the claim** | **80%** |
+>
+> **80% lies far outside the interval**, so the claim is falsified on one
+> proportion — no control needed for that part.
+>
+> **The lift is NOT claimed.** −4.1pp at p=0.422 is nothing, and the study says so
+> in as many words. "Worse than doing nothing" is a stronger statement than "not
+> 80%" and must not ride in on the first one's significance. The 15-minute
+> sensitivity check agrees on both counts (41.3%, lift −8.9pp, p=0.056).
+
+**Not blocked on data, which is the process finding.** The snapshot said "testable
+on NSE 30-min data" and nothing followed, which read as a gap. `intraday_store`
+already held 15-minute bars over ~85 sessions for six liquid names, and 30-minute
+bars aggregate from them. Counting what is already stored beat waiting — the same
+finding as [[analyses/PCR-Sign-Convention-Pre-Registration]]'s "blocked until
+December" premise, which was also false.
+
+> [!key-insight] A test caught a bug that moved the headline number
+> The first run reported **40.6%**. `resample("30min")` snaps to the hour, and
+> **NSE opens at 09:15**, so every session's first "30-minute bar" held a single
+> 15-minute bar and the whole sequence was offset from there. Anchoring the
+> resample on the session's own first timestamp moved the hit rate to **45.5%**.
+>
+> The conclusion is unchanged — 80% was never in reach either way — but a
+> 5-point swing from a one-line alignment bug is a reminder that **an intraday
+> study's bar boundaries are part of its method, not an implementation detail.**
+> The test that caught it was written because the fixture looked wrong, not
+> because the bug was suspected.
+
+**Recorded, not claimed:** entries from ABOVE traverse at 56.1% (n=66) against
+35.3% from below (n=68). Unregistered and unexplained; it is the kind of asymmetry
+that deserves its own hypothesis rather than a footnote conclusion.
+
+**Coverage note:** ^NSEI arms **zero** times in 84 sessions — the index rarely
+leaves its prior value area and returns in this pattern at all. The rule is a
+single-stock construct on this evidence.
+
+### B-9 · original specification
+**Body restored 2026-09-17 from the same snapshot.**
+
+The claim: price entering the value area and holding **2 consecutive 30-minute
+bars** has a ~**80%** chance of a full **VAL→VAH traverse**. A vendor claim with
+no data behind it, and stated precisely enough to be falsified.
+
+**No longer blocked on data.** The snapshot said "testable on NSE 30-min data"
+and nothing followed, which read as a data gap. `intraday_store` now holds
+**15m bars over 85 sessions for 6 symbols** (plus 1h over 751), and 30-minute
+bars aggregate from 15m — so the study is runnable today. Moved to MEASURABLE NOW.
 
 ---
 
@@ -4090,7 +4589,32 @@ prop-desk toolset converges on. See [[concepts/Order-Flow]].
 > stack that could plausibly supply trade-side data; establish whether it does, and whether
 > any NSE path exists, first.
 
-### B-56 · Structural BUY/SELL/HOLD from POC · HVN/LVN · shape series — **BUILT 2026-09-06, PRE-REGISTERED TEST PENDING**
+### B-56 · Structural BUY/SELL/HOLD from POC · HVN/LVN · shape series — **BUILT 2026-09-06, MEASURED 2026-09-17 → INVERTED**
+
+> [!warning] MEASURED 2026-09-17 — the read is backwards, and the mirror was NOT shipped
+> 8 symbols, ~4,600 bars each, 36,829 rows. At the pre-registered primary horizon
+> (20 sessions): **BUY +0.99% · SELL +2.75% · spread −1.77% · p_rot 0.041**, with
+> both floors cleared (4,576 BUY / 2,876 SELL against 200 each) and **SELL beating
+> BUY in 8 of 8 symbols** — the consistency is the stronger evidence.
+>
+> The control passed: **HOLD sat −0.146pp from baseline**, so the rules are not
+> just selecting unusual bars.
+>
+> **Every arm is positive** (BUY +0.99, SELL +2.75, HOLD +0.95, base +1.10)
+> because the window is a rising market, so "SELL is followed by a bigger bounce"
+> is the signature of **mean reversion**, not of a short signal. The rules seem to
+> find a pullback and put the wrong label on it. Flipping them would fit a label
+> to a bull-market artifact, so per the pre-registered decision table the mirror
+> is a **new hypothesis owing its own test**, not a shipped change.
+>
+> Nothing deleted. The engine stays, the levels keep drawing, the HVN/LVN role
+> naming stays. **Still a bystander: no vote, no score, no confluence weight** —
+> and the SVP screen's caption now says all of this on the page.
+>
+> Full design and result: [[analyses/SVP-Structure-Signal-Pre-Registration]].
+> **This was the last built-but-unmeasured signal on the desk.**
+
+**Original entry, kept because the build reasoning is still correct:**
 
 Owner's push-back, and it was right: retiring the SVP *composite* does not retire
 structural inference from volume profile. `tools/svp_structure_signal.js` is a
@@ -4510,10 +5034,43 @@ lesson):
    CHOCH *down* the previous session. That disagreement is the earliest honest
    warning structure is turning, and it is the most useful field on the object.
 
-**Residual → B-42r:** the `pivot_len` split (5 in the scanners, 15 on the chart
-and in the shared read) is untouched and documented in-module. "Structure" is
-still coarser on the chart than in the scanners. Settle it on data — the same
-`--wf` harness B-19 used — not by inheritance. Also unbuilt: consuming the read
+**Residual → B-42r — MEASURED 2026-09-17, and it is worse than "coarser".**
+
+> [!warning] The chart and the scanners agree on the headline state 29.6% of the time
+> `pivot_len_agreement.py`, 199 nifty500 names, both settings on the same frame:
+>
+> | field | agree |
+> |---|---|
+> | **`state`** (the word a reader sees) | **29.6%** |
+> | `agreement` (is structure turning) | 35.2% |
+> | `zone` (premium/discount) | 57.3% |
+> | `trend_from_breaks` | 68.3% |
+> | median \|zone_pct\| gap | **42.5 pp** |
+>
+> Most common disagreement: **DOWNTREND in the scanners against UPTREND on the
+> chart, on 17.6% of names.** Not coarser — **opposite**. A reader comparing the
+> chart to a scanner hit is comparing two definitions under one word.
+
+**This was measured as an AGREEMENT test, not an edge sweep, on purpose.** The
+original note said to settle it with the `--wf` harness. That would have been the
+wrong first move twice over: **B-19 already measured these scanners at 0 of 41
+stable after costs**, so sweeping `pivot_len` for the best forward return would be
+parameter-fitting on detectors with no established edge; and `pivot_len` is a
+*definition* rather than a signal — it decides what counts as a swing, so the
+question is whether the two are the same reading, which needs no forward return at
+all. This is the **[[#B-59]] precedent applied**: the first measurement owed was an
+overlap check, not an edge test.
+
+**Promoted from residual to an OWNER decision.** It cannot be quietly unified:
+changing either default silently re-grades live output (the [[#B-26]] lesson), and
+at 29.6% agreement it would move most names. What "structure" means at each
+timeframe is a judgement. Mitigation already in place: every read carries its own
+`params.pivot_len`, so a consumer can always say which definition produced the
+word — and the number is now in the module note instead of an open question.
+
+**Still unbuilt** (unchanged): consuming the read as an actual *filter* inside the
+trend/pullback/SMC scanners, which is a detection change and was out of B-42's
+additive scope. Also unbuilt: consuming the read
 as an actual *filter* inside the trend/pullback/SMC scanners, which is a
 detection change and so was out of this item's additive scope.
 
@@ -4798,7 +5355,7 @@ true only on paper.
 
 **Next (updated 2026-09-02):**
 
-1. **B-42r** — settle the `pivot_len` 5-vs-15 split on data (harness, not taste).
+1. ~~**B-42r**~~ — **MEASURED 2026-09-17: 29.6% agreement on `state`.** Now an owner decision, not a task.
 2. **B-32r** — recalibrate regime floors with walk-forward (now unblocked).
 3. **B-28r** — the option-OI event studies, now that the levels are on the chart:
    the **short-straddle break → short-cover rally** (the wall being *pierced* is
@@ -5466,6 +6023,1133 @@ canonical, exactly as proposed above. What the build added beyond the decision:
 `daily_opportunities`: **447 of 453 resolve (98.7%)**, and all six failures are
 rows whose stored sector is the empty string — bad data, not an unmapped pair.
 
+
+
+## B-76 · The three order-block overlay rules — **MEASURED 2026-09-13: one null, one INVERSION, one undecidable**
+
+The chart's Order Block overlay gained a trade plan, a stacked-zone bias gauge and
+an early rejection entry in one session, each taken from the conventional SMC
+playbook. [[analyses/Backtest-Harness]] had already measured the **Order Block
+Retest** scanner at **−0.74% @20d**, so three new rules were being drawn as precise
+numbers on top of a substrate already known to be a null.
+
+Pre-registered first ([[analyses/Order-Block-Rules-Pre-Registration]]), results in
+[[analyses/Order-Block-Rules-Measured]]. LIQUID_50 / 1500d, point-in-time, stride 5,
+baseline **+0.958% @20d**.
+
+| Rule | Measured | Consequence |
+|---|---|---|
+| **A** target ladder (opposing zone → displacement → 2R) | **null** — paired Δ p=0.76 gross / 0.64 net; and the surviving 2R plan is **−0.095R NET** (+0.026R gross) | **ladder collapsed to flat 2R**; `rr` removed from payload and label |
+| **B** stacked-zone bias gauge | **INVERTED** — bullish lean +0.70% vs bearish +2.19% raw @20d, t=−9.05 gross / −12.79 net | **gauge retired outright** |
+| **C** early vs confirmed retest | **undecidable** — p=0.26 on *both* cost bases at n≈175/arm | both kept; no difference claimed |
+
+> [!key-insight] The targets differed; the expectancy did not
+> Target-hit rates of **26% / 38% / 34%** prove the ladder's three steps were
+> picking genuinely different distances — and expectancy was flat across all of
+> them anyway. The ladder bought the appearance of structure, not a better exit.
+> Precedent [[#B-74]]: keep the geometry, drop the claim.
+
+**The inversion, and the control that earned the retirement.** Pooled, the bias
+gauge was backwards at p=2.3e−19 — but a stacked lean *persists*, so those 8,948
+observations are nowhere near independent and that p-value could not carry a
+retirement on its own. Re-run with the **symbol as the unit** (50 clusters,
+`tools/ob_bias_clustered.py`), the inversion held: bullish lean **−0.373pp**
+negative on **38/50** names, bearish lean **−2.361pp** negative on **40/44**.
+Mechanism, inferred not tested: in a constructive tape a bearish stack accumulates
+after a run of weakness, i.e. the gauge was most bearish at local bottoms.
+
+Retired, not flipped — the stack count also failed to grade monotonically
+(1× −0.220, 2× −0.373, 3×+ +0.323), so there was no stable structure to invert.
+Same treatment as GEX in [[#B-44r]].
+
+**One decision-rule branch was deliberately WITHHELD.** The pre-registration said
+*"C — no difference ⇒ collapse to one marker"*. The test returned p=0.26 at n≈175
+per arm, which cannot resolve the 0.92pp difference observed. Applying the branch
+would have deleted a distinction on the strength of a test too weak to see it, so
+both markers stay and neither is claimed better. **Recording this because the honest
+failure mode of pre-registration is mechanical application of a branch whose
+precondition — a test with the power to distinguish — was never met.**
+
+**NOT promoted to anything.** The surviving 2R plan is **−0.095R net of costs**
+(+0.026R gross) — flat before costs, negative after them — and both retest kinds
+sit at or below baseline. The
+rails stay drawn as the detector's geometry with the measured number in the code
+header. This is a calibration, not a discovery.
+
+**Still owed:** a regime split on B (does the inversion hold in a flat or falling
+window — the [[#B-74r]] shape), and a wider universe for C if that distinction ever
+becomes load-bearing. Neither blocks the consequences already applied.
+
+
+## B-77 · The daily jobs were never registered — and one of them could not have run — **CLOSED 2026-09-15**
+
+Raised by [[analyses/Design-Review-2026-09-14]] as the review's only P0. Task
+Scheduler held **two** TradingBramha tasks (IntradayUpdate, DailyDigest); the three
+the Scheduler Hub defines held **none**. `daily_opportunities` last ran
+**2026-09-07**, so Home had been ranking week-old names for five sessions.
+
+**The second defect is the one worth keeping, because registering the jobs exposed
+it.** `register_argv` built the Alert Bot's schedule as
+`/sc MINUTE /mo 15 /st 09:15 /et 15:45`, which reads like "every 15 minutes between
+those times" and is not that. **`/sc MINUTE` is a ONE-TIME trigger with a repetition
+attached**: `schtasks` returned SUCCESS, the task showed **Enabled**, the hub showed
+it **🟢 registered** — and `Next Run Time` was **N/A**. It would never have fired
+again. `/et` was silently dropped too (`Repeat: Until: Time: None`).
+
+> [!warning] A registration that succeeds and never runs is worse than one that fails
+> Every surface said green. The single field that said otherwise was one metric on
+> the hub, reading `N/A`, next to three that looked fine. **The bug was visible and
+> unread** — the same shape as [[#B-69]]'s state label, moved from a docstring to a
+> scheduled task.
+
+**Fixed to the form that actually recurs**, verified against a scratch task before
+the code changed: `/sc WEEKLY /d MON,TUE,WED,THU,FRI /st 09:15 /ri 15 /du 0006:30`
+→ next run reported at the following 09:15. Weekday-only is deliberate: NSE is shut
+at the weekend and the previous shape would have been 26 no-op runs a day if it had
+worked at all.
+
+| job | task | next run |
+|---|---|---|
+| Alert Bot | `TradingBramha-AlertWatcher` | Mon–Fri 09:15, every 15 min for 6h30m |
+| Daily Scanner | `TradingBramha-DailyScanner` | daily 16:15 |
+| Opportunity Shortlist | `TradingBramha-OpportunityDaily` | daily 16:20 |
+
+**Verified by running it, not by registering it.** `TradingBramha-OpportunityDaily`
+triggered by hand: universe 500, **576 fetches, 76 candidates**, top 5 stored for
+`2026-09-15`, exit **Last Result 0**. The Home map went from the stale chip to
+today's names on reload.
+
+**Two surfaces gained a warning, both from this failure's own shape:**
+* **Home** — "not today" was a grey caption, which is correct *before* the 16:20 job
+  fires and badly wrong *after* it fails. It now counts the **weekdays strictly
+  between** the stored run and today: one or more is a missed session and renders a
+  **risk-toned chip naming the task**. A Friday run read on Monday counts **zero** —
+  the weekend is not a missed session.
+* **Scheduler Hub** — a registered job whose `next_run` is `N/A` now says so in
+  words, instead of leaving the reader to notice one metric among four.
+
+**Pinned by tests, not by memory** — `tools/test_scheduler_core.py` (12 tests) asserts
+the interval job never emits `/sc MINUTE` or `/mo`, that it recurs weekly on the
+trading days with `/ri` + `/du`, and that `/et` is gone. The duration arithmetic
+covers the market window, a reversed window and malformed input from the hub's own
+text boxes.
+
+**Noted, not fixed — 122 yfinance `401 Invalid Crumb` errors across 576 fetches in
+that run.** The retry path in `data_source` absorbed them and the shortlist came out
+complete, so this is degraded-but-working rather than broken. It belongs in its own
+item if the rate climbs; a scheduled job failing this way would be silent.
+
+
+## B-78 · Two PCR baselines, and the live one was empty — **CLOSED 2026-09-15**
+
+Raised by [[analyses/Design-Review-2026-09-14]]. [[#B-22r]] backfilled **543
+sessions** to `cache/pcr/nifty_index_pcr.csv` and measured the sign convention on
+them. `--write-db` — the separate, opt-in step that loads that cache into
+`pcr_index_history`, the table the **live factor** ranks against — **was never
+run.** The live table held **one row**, so the dashboard told the reader
+
+> *"only 0 of 60 baseline sessions stored; an index PCR can only be ranked against its own past"*
+
+about a series that was already two years deep.
+
+**This was not a design disagreement.** The pre-registration always intended the
+backfill to land in that table; its warning was about doing it *safely* (historical
+dates only, idempotent per `(date, symbol)`, verify today's reading afterwards), not
+about avoiding it. All three conditions hold. The step was simply never taken, and
+**nothing counted the two stores against each other**, so a month passed.
+
+### The latent bug the fill exposed
+
+`_pcr_nifty` **returns before it records** when a session is illiquid, so the live
+table contains liquid days only — never as a filter anyone wrote, purely as a
+consequence of control flow. The cache deliberately does the opposite: `backfill`
+carries `liquid` *"not filtered on, so the study can apply the production liquidity
+floor itself"*, and `pcr_sign_study` duly applies it.
+
+**`write_db` applied neither.** It wrote the cache verbatim, so it would have put
+sessions into the baseline that the live path could not have produced — and a
+percentile is a statement *about its sample*. Every one of the 543 cached rows
+happened to be liquid, so nothing was corrupted. **The two paths disagreed about
+what the baseline IS, and were one illiquid session away from that being silent and
+permanent.** Fixed to apply production's rule.
+
+### Why filling it was safe, established before it was filled
+
+The obvious fear is that deepening the history **enfranchises a factor B-22r
+measured as a null**. It does not, and the reason is worth stating because it is
+load-bearing: `pcr_factor` sets `state = NOT_CHECKED` **inside** the `if not
+PCR_SCORES` branch, so the composite's `state != NOT_CHECKED` filter excludes it at
+any depth. Proven as a pure function first — same PCR, 1-session history vs
+543-session: both `NOT_CHECKED`, both `score = 0.0`, only `factor` becoming
+computable (0.2554, reported not scored).
+
+Confirmed end-to-end after the write: **composite 16.32 "Strong Sell", coverage
+60/100, `excluded = [sector_performance, pcr_nifty]`** — unchanged.
+
+### What the reader sees now
+
+| | before | after |
+|---|---|---|
+| live table | 1 session | **545** sessions |
+| PCR line | "only 0 of 60 baseline sessions stored" | "NIFTY PCR 1.01 — 61st pct of 544 sessions — NOT SCORED: the sign convention was measured (B-22r) and found to carry no direction" |
+| composite | 16.32, coverage 60/100 | **unchanged** |
+
+The factor stays under **NOT CHECKED** on the verdict, which is correct — it is
+excluded. What changed is that it now says *why* it is excluded (measured, null)
+instead of *falsely* claiming there is no history to rank it against.
+
+> [!key-insight] The fix made a string render for the first time, and it was wrong
+> Because the history had **always** been below `MIN_PCR_HISTORY`, the branch that
+> prints the percentile had **never once executed** on the live surface. Its first
+> appearance read **"61th"**. A dead branch is not a tested branch, and filling the
+> baseline is what turned it on. Fixed with an `_ordinal` helper that handles the
+> 11/12/13 exception, pinned by tests.
+
+### Recurrence
+
+`pcr_backfill` gained `reconcile()` / `--status`, and **every CLI run now prints
+both counts** whether or not it wrote. A cache deeper than the live table names the
+gap and prints the command that closes it. Reporting only; it never writes.
+
+**Tests:** `tools/test_pcr_backfill.py` (10) covers the liquidity rule, idempotence,
+the reconcile gap, and the depth invariant — an existing test pins the null gate
+exactly *at* the floor, this one pins it at 544 sessions, because the fill is what
+moved the history and a depth-dependent regression would not show at 60. Plus 15
+ordinal tests. Suite 490 → 514.
+
+**Not done, and not this item's business:** the `--write-db` step is still manual by
+design. What changed is that skipping it is no longer silent.
+
+
+## B-79 · Three state phrases the surface had outlived — **CLOSED 2026-09-15**
+
+Raised by [[analyses/Design-Review-2026-09-14]]. Three claims on the running desk
+were false, and none was a figure, so [[#B-69]]'s `claims_lint` could not see any of
+them. All three were re-verified against code before being touched.
+
+### 1. The research notice understated its own rigour
+
+Every page footed with *"Scanner edges shown as measured come from a single
+backtest window and carry no significance test yet."* Both halves had been false
+for weeks — **B-20a** added the t-test and CI (2026-08-12), **B-21** added
+walk-forward pooling and **B-29** the ~29bps cost model (2026-09-01).
+
+> [!key-insight] The correction is a STRONGER warning, not a softer one
+> The temptation with a stale caveat is to read it as harmlessly over-cautious.
+> It was not. What that measurement actually found was **0 of 41 scanners stable
+> across horizons** ([[#B-19]]) — so the honest sentence warns the reader *more*
+> than the stale one did. **A caveat that understates the work also understates
+> the result.** Now: *"walk-forward and net of Indian delivery costs, with a
+> significance test — and of the 41 scanners measured that way, none was stable
+> across every horizon."* The scanner count is computed.
+
+### 2. "24 pattern scanners", one hover from a tile that said 46
+
+The Scanner Hub's nav tooltip was typed. The registry holds **46**, and the Home
+tile beside it computes `len(sc.SCANNERS)` correctly — so the desk contradicted
+itself on one screen. **No count in the code equals 24**: not the registry (46),
+not the pipeline (41), not non-Risk (40). It was simply true once. Two further
+copies had drifted the same way in `opportunity_daily`'s docstring and a
+`dashboard_app` comment; both now avoid the bare number. The tooltip is computed,
+as is Home's "across 5 sidebar groups".
+
+### 3. The environments page named the wrong interpreter — and contradicted itself
+
+[[analyses/Python-Environments]] existed because **each interpreter had something
+the other lacked**: `streamlit` only in `pythoncore-3.14-64`, `ephem` only in
+`Programs\Python314`. **Re-measured 2026-09-15: both now carry the full stack.**
+The page's working rule therefore named the wrong interpreter for the dashboard,
+and had since `launch.json` switched.
+
+> [!warning] It was self-contradictory, which is worse than merely stale
+> The rule said *"verify dashboard-facing work with the interpreter from
+> `.claude/launch.json`"* and then printed `pythoncore-3.14-64` in a code block
+> beneath it. **The prose named a source of truth and the block hard-coded an
+> answer**, so the moment `launch.json` changed the page disagreed with itself.
+> Rewritten to name the source, not the answer.
+
+**What is still true is narrower and now points the wrong way.** The split is by
+**surface**: dashboard and tests under `Programs\Python314`, scheduled batch jobs
+under `pythoncore-3.14-64`. Only one has `pytest`. And the version skew has
+**inverted** — `yfinance` is **1.6.0** on the interpreter running the *unattended*
+jobs and **1.4.1** where everything is verified, so the nightly shortlist fetches
+through a newer library than any test exercises. `scipy` differs too, and that
+reaches the significance stack ([[#B-39]]).
+
+### The lint extension — CHECK 3, counts against the registry
+
+`claims_lint` gained a check with **ground truth**, the same shape as CHECK 0 and
+deliberately unlike CHECK 2: a count in prose that the code can count and that does
+not match. It fires only on a real mismatch, so the normal output is empty and every
+line is definitely wrong. Registries are read with `ast`, never imported — importing
+`dashboard_app` runs a Streamlit app.
+
+> [!key-insight] The first cut returned 14 hits on the shipped tree and every one was wrong
+> Matching "<N> … scanners|pages" caught *"exactly 1 scanner fired"*, *"42 scanners,
+> 114 candidates rated"*, *"trimmed 12 scanners over"*, `0.30 x best scanner score`
+> (a **decimal** read as a count) and `wiki_lint`'s *"4 pages"* (a different registry
+> entirely). **`scanner` and `page` are among the commonest nouns in this repo and
+> nearly every number near them counts an EVENT, not the inventory.** No blacklist of
+> verbs would have held, so the check was narrowed to noun phrases that only ever
+> denote the whole registry. It catches less and is worth more — the alternative is
+> output you learn to skim, which is the failure `claims_lint` exists to prevent.
+
+**A measurement result over a past registry is deliberately NOT flagged.** *"0/41
+scanners stable"* is true about the run it describes, and rewriting it to 46 when the
+47th ships would corrupt a finding. The existing `CONTEXT` vocabulary already
+separates the two — the regex CHECK 2 uses to decide a number *is* a measurement,
+used here inverted.
+
+**Tests:** 12 added to `tools/test_claims_lint.py`, including all seven real false
+positives as regression cases and a guard that the check stays silent on the shipped
+tree. Suite 514 → 530.
+
+**Residual:** the check covers scanners, pages and sidebar groups. Indicator counts
+live in `chart_dashboard.html`'s `INDICATOR_DEFS` and would need a JS-side count to
+be checkable; not built, and not currently drifted.
+
+
+## B-80 · The verdict degraded by default — **CLOSED 2026-09-15**
+
+Raised by [[analyses/Design-Review-2026-09-14]]. Two independent defects fed the
+same STAND DOWN reading: sentiment was only ever refreshed by hand, so the verdict
+counted its own staleness as a caution; and sector participation had been
+NOT_CHECKED on 8 of 11 indices for weeks.
+
+### The sector half, and the fix that could not be built
+
+The 2026-09-10 pass diagnosed this precisely and deliberately deferred the repair
+to its own commit, recording the design in the docstring:
+
+> *"A correct fix widens the window AND bounds the GAP BETWEEN the two bars it
+> uses… Not done here — it is a behaviour change to a live component."*
+
+**Re-probed before building it, and that plan is unbuildable against today's feed.**
+
+| tickers | rows at `1mo` / `3mo` / `6mo` / `1y` / `max` |
+|---|---|
+| the 8 dark ones (`^CNXAUTO`, `^CNXFMCG`, `^CNXENERGY`, `^CNXMETAL`, `^CNXREALTY`, `^CNXINFRA`, `^CNXCONSUM`, `NIFTY_FIN_SERVICE.NS`) | **1 / 1 / 1 / 1 / 1** — one bar, dated today |
+| `^CNXIT`, `^CNXPHARMA`, `^NSEBANK` | 20 / 64 / 123 / 246 / **4,674** |
+
+**No second bar at any width means no 1-day change at any width.** The window
+could not be widened and there was no gap to bound. On 2026-09-10 `period="3mo"`
+still returned 28 rows for `^CNXAUTO`; the feed degraded further in the five days
+the item sat. **Counting first is the only reason this was found before the fix
+was built rather than after it shipped and quietly did nothing.**
+
+> [!key-insight] A recorded fix is a hypothesis with a date on it
+> The design was right when written and wrong when read. This page's standing
+> lesson is that *items* go stale; this is the first time a **recorded solution**
+> did. Re-probe before building from a plan you did not write today.
+
+**What shipped instead is a source repair, not a redefinition.** NSE publishes
+every index's close and `Change(%)` for the session in one CSV
+(`ind_close_all_DDMMYYYY.csv`), login-free, on the `nsearchives` host
+[[#B-34]]'s constituent fetcher already uses. That is **the same quantity the
+factor always claimed** — the sector index's own 1-day move — taken from the
+exchange that computes it rather than a mirror that stopped carrying it. So no
+pre-registration is owed; a constituent-aggregated substitute *would* have needed
+one, and was not built for exactly that reason.
+
+* `sector_rotation.fetch_nse_index_closes` / `nse_index_changes` — walks back over
+  weekends and holidays, rejects NSE's 200-status HTML holiday page by content
+  rather than status, caches per session date (the published file is immutable).
+* All **11 of 11** tickers map to exact NSE index names — verified against a live
+  download, no fuzzy matching; an unmatched name is omitted, never defaulted to 0.
+* **yfinance is kept as a per-ticker fallback**, and the staleness rule applies to
+  both sources — a file found by walking back over a long shutdown is stale for
+  exactly the reason a stale bar is.
+
+### This one DID move the score, and that is the point
+
+Unlike [[#B-78]], where the null gate kept the factor excluded at any depth, here
+restoring coverage **re-enfranchises a scoring component** (weight 20). That is the
+designed behaviour returning after weeks dark, not a new claim — [[#B-66]] measured
+this factor as non-discriminating and deliberately did **not** demote it.
+
+| | before | after |
+|---|---|---|
+| sector indices scored | 3 / 11, below the floor -> NOT_CHECKED | **11 / 11**, all from NSE |
+| composite | 16.32, coverage **60/100** | **14.51**, coverage **80/100** |
+| band | Strong Sell | Strong Sell |
+
+The drop is the factor doing its job on a broadly red session (1 green / 10 red).
+
+### The refresh half
+
+`sentiment_daily` added to the Scheduler Hub registry
+(`TradingBramha-SentimentDaily`, daily 16:30) and registered. **Not folded into
+`opportunity_daily`**: nothing in that funnel reads sentiment, so coupling them
+would have been a dependency invented for scheduling convenience. Verified by
+running the task — clean exit, 0 errors, and it persisted the 14.51 reading with
+sector at 11/11.
+
+**Tests:** `tools/test_nse_index_closes.py` (15) covers the map's completeness,
+weekend backtracking, the HTML-holiday page, per-session caching, absent-renders-
+absent, the staleness rule on NSE dates, the yfinance fallback covering only what
+NSE did not answer, an NSE exception not taking the factor down, and the green /
+red / flat thresholds surviving the source swap. Suite 530 → 545.
+
+**Residual:** the four NSE sector labels with no index ([[#B-64]]'s deliberate
+omissions) are unchanged — this repaired the feed, not the taxonomy.
+
+
+## B-81 · Land the PEAD walk — **CLOSED 2026-09-16**
+
+The four-quarter post-earnings drift walk had sat uncommitted across a session
+boundary. [[analyses/Design-Review-2026-09-14]] found the measurement itself sound
+— drift taken from the reaction bar, an unfinished window as `None`, a stale
+calendar yielding nothing, all pinned by tests — and flagged three things around
+it.
+
+### The frame was chosen by registry order
+
+`_attach_pead` resolved its frame with
+``next(n for n in sc.SCANNERS if not sc.SCANNERS[n].get("needs_full_history"))``
+— **whichever scanner happened to sit first in the dict.** It worked, and it was
+wrong: adding a scanner at the top of `SCANNERS`, or reordering it, would have
+silently changed which fetch backed the walk, with nothing to notice.
+
+`fetch_for` discriminates on exactly one thing — the `needs_full_history` flag —
+so the honest way to ask is to **say what is wanted** rather than name a scanner
+that happens to want the same thing. Added `oh.DEFAULT_WINDOW`, a sentinel that is
+deliberately *not* a scanner name, and wrote the contract into
+`run_scanner_pipeline`'s docstring: **a factory must answer for a name it does not
+recognise, with the default-window fetch.** Both shipped callers already did,
+since each looks up `SCANNERS.get(name, {})`; a factory that refuses now makes the
+walk go quiet instead of taking a scan of hundreds of names down with it.
+
+`_attach_pead` now takes the **fetch function**, not the factory, so the registry
+is out of it entirely — which is the actual repair, not just a renamed lookup.
+
+### Untested surface
+
+12 tests in `tools/test_pead_attach.py`: that attaching never adds or removes a
+name (it runs after the filter and is context, never a vote), that one symbol's
+failure does not stop the rest, that an empty walk leaves **no key at all**, and
+that the archived card's JSON round-trip returns a date as a **string** while a
+`None` leg stays `None` — "still running" must not render as a value.
+
+### Verified on real stored data, not only on fixtures
+
+The scheduled job's archived cards for 2026-09-15 carry the walk, and the split is
+the designed one:
+
+| name | walk | why |
+|---|---|---|
+| LAURUSLABS | **4 events**, dates back as strings through JSON | newest cached result 54 days old |
+| BODALCHEM | absent | newest cached result **2019-05-21**, 2,675 days |
+| SOLARA | absent | newest cached result **2023-01-25**, 1,330 days |
+| AHCL, ANTELOPUS | absent | no cached calendar at all |
+
+Two of those have calendars and still render nothing — `MAX_EVENT_AGE_DAYS = 400`
+refusing to present a four-quarter walk of 2019 results as current. **Absent
+renders absent**, confirmed on live data rather than asserted.
+
+### `.gitattributes`
+
+Every commit printed *"LF will be replaced by CRLF"* per staged file. Harmless, and
+it trains you to skim the one channel git uses to speak up. `* text=auto` makes
+repository STORAGE uniform (LF) as files are touched; `.bat`/`.ps1` are pinned to
+CRLF because cmd.exe wants them and `scheduler_core.write_bat` already emits `
+`
+deliberately; data and binaries are left alone.
+
+> [!warning] Corrected 2026-09-16, one commit later — the claim was too strong
+> B-81 said this "ends the warning on every commit". **It does not, and B-82's very
+> next commit proved it**: the message reappears for any file a TOOL writes with LF
+> endings, because `text=auto` means the next checkout converts it to CRLF. The
+> warning is informational about the working tree, not about anything being wrong.
+> What `.gitattributes` actually buys is uniform storage and the `.bat`/`.ps1`
+> pinning. A one-off `git add --renormalize .` would settle the remaining mixed
+> storage, and is deliberately NOT done here: it would touch hundreds of files and
+> bury the diff it travelled with. **Recorded rather than quietly left**, because a
+> claim that goes false in one commit is exactly what this page exists to catch.
+
+**NOT promoted to anything.** The walk is context on a card. Nothing scores, ranks
+or filters on it, `consistency` is not a validated signal, and the attach stage runs
+*after* the survivor filter so it cannot change which names appear or in what order.
+Suite 545 → 557.
+
+
+## B-82 · The wiki lint crashed — and its own clock had stopped — **CLOSED 2026-09-16**
+
+Raised by [[analyses/Design-Review-2026-09-14]] as "fix the cp1252 crash, then work
+the list behind it". The crash was the smaller half.
+
+### The clock, which is the finding
+
+`TODAY` was **hardcoded** to `dt.date(2026, 8, 9)` and had stayed there for
+**38 days**. Section 5 does not report "pages 30+ days old" — it reported pages 30+
+days old *as of a date in the past*, drifting further from the truth every day
+nobody edited the line, while **every page updated after 2026-08-09 read as a
+negative age**.
+
+> [!key-insight] The lint that exists to find claims which go false with time contained one
+> In the single line where time enters it. `claims_lint` hunts figures and
+> promises, `wiki_lint` §9 hunts phrases that go false when code ships, and
+> neither could see a frozen constant inside the linter itself. Now
+> `dt.date.today()`, pinned by a test that fails if anyone re-freezes it and a
+> second that asserts **no page reports a negative age** — the symptom, not just
+> the cause.
+
+`ROOT` was likewise an absolute path to one machine; a lint nobody else can run is
+a lint that only ever gets run here. Derived from `__file__` now.
+
+### The crash
+
+No stdout reconfigure, so it died on a circled digit while quoting a roadmap title.
+The vault is full of em dashes and arrows, so this was not exotic — it was what
+happened on this machine without `-X utf8`. Fixed the way `claims_lint` already
+did, and there is a test that runs the lint with `PYTHONIOENCODING=cp1252` rather
+than trusting the fix.
+
+### B-27's actual ask, finally done
+
+`index.md`'s own convention comment has said since 2026-08-07: *"A lint should
+COMPUTE both rather than trust them."* It never did. The counters are hand-written
+in **two** places — frontmatter and the body's `_Last updated: … | Pages: N …` line
+— which is how they drifted to two different wrong numbers before. **Found drifted
+again this pass, and this time it was the dates**: frontmatter said `2026-09-09`,
+the body said `2026-09-14`, and both said 289 against an actual 294.
+
+Two hand-maintained copies of one fact is not a counting problem, it is a second
+source of truth. `--fix-index` writes both from one computation; three tests assert
+the two copies agree with each other and with the vault.
+
+### The hygiene, and what was deliberately refused
+
+| | before | after |
+|---|---|---|
+| index counters | 289 vs 294, two different dates | **computed, OK** |
+| dead links | 33 in 15 pages | **7 in 5 pages** |
+| frontmatter gaps | 30 pages | **17 pages** |
+
+Fixed only where intent was unambiguous: `[[wiki/index]]` / `[[wiki/log]]` (a
+prefix that is not part of any page key), wikilinks pointing at **source files**
+(which can never resolve — now inline code), and four bare tickers whose
+`entities/` pages exist. Also `[[investment-desk-not-trading-system]]`, which was
+a **memory slug that had leaked into a wiki page** as though it were a vault page.
+
+**Refused, and reported instead**, on `wiki_lint`'s own stated rule — *"a wrong
+count written confidently is worse than a known-inconsistent one"*:
+* `timeframe` on **5 strategy pages** — a strategy's horizon is content, and
+  swing-vs-intraday is exactly what a reader would trust.
+* `timeframe` on **8 measurement/other analyses** — arguable either way.
+* The **7 remaining dead links** point at pages that do not exist
+  (`entities/TRENT`, `entities/NIFTY`, `AEGISLOG`,
+  `concepts/Relative-Strength-RS`, `strategies/Sector-Momentum-Map`,
+  `strategies/FIPA-Quality-Momentum`). Creating stubs would be inventing content;
+  an empty page pretends knowledge a dead link at least admits is missing.
+* The **12 orphans** are unchanged. `CLAUDE.md` says orphans should be *flagged*
+  during lint, and flagging is the designed behaviour — linking them means
+  deciding what relates to what.
+
+Dates filled on source pages came from **git history for the file**, derived rather
+than guessed.
+
+**Newly visible now that section 5 works:** 248 pages are 30+ days old, oldest 94d.
+That number was meaningless while the clock was stopped and is not acted on here.
+Suite 557 → 566.
+
+
+## B-83 · 566 tests, one interpreter, and nothing that ran them — **CLOSED 2026-09-16**
+
+Raised by [[analyses/Design-Review-2026-09-14]]. The suite was good and invisible:
+no config, no runner, no CI, and it passed under exactly **one** of the three
+Pythons on this machine.
+
+| interpreter | runs | pytest |
+|---|---|---|
+| `Programs\Python314` | the dashboard (`.claude/launch.json`) | ✅ |
+| `Python\pythoncore-3.14-64` | **the scheduled jobs** (every `.bat`) | ❌ |
+| `hermes-agentenv` | what a bare `python` resolves to | ❌ (no pandas either) |
+
+So `python -m pytest` in a shell was a coin toss, and the one it most often lands
+on cannot import pandas.
+
+### What shipped
+
+* **`pytest.ini`** — the suite ran on *defaults*, not decisions: discovery happened
+  to find `tools/`, and the `prepend` import mode happened to put each test's own
+  directory on `sys.path`, which is the only reason `import scanner_templates`
+  resolves. `testpaths` now bounds discovery, and `norecursedirs` keeps the
+  vendored `breakout_scanner/node_modules` tree out — it found nothing there
+  today; the point is that **a vendored bundle must never be able to fail this
+  project's suite**. `--strict-markers` turns a typo'd marker into an error rather
+  than a test that looks configured and is not.
+* **`run_tests.bat`** — pins the interpreter, passes arguments through, and fails
+  with the install command rather than a traceback when pytest is absent.
+* **`tools/requirements_dev.txt`** — pytest was installed into one Python and
+  **declared nowhere**. That is the `ephem` (B-14) and `lxml` failure a third time:
+  *"installed" true of a machine, not of the project.* Kept separate from
+  `requirements_pipeline.txt` because a scheduled job does not need a test runner.
+* **An opt-in pre-commit hook** (`tools/install_hooks.bat`). Not installed by this
+  session — a hook changes what `git commit` does, and that is the owner's call,
+  not a side effect of a session that happened to touch the test setup.
+
+### `--batch`, and the gap it is there to keep visible
+
+The runner will also run under the **scheduled-job** interpreter. It has no pytest,
+so today it prints the gap and the install line — and that is the useful outcome:
+**the code that runs unattended every evening is never exercised under the
+interpreter that runs it**, and that interpreter carries a *different yfinance*
+(1.6.0 against 1.4.1, see [[analyses/Python-Environments]]). The report is
+deliberately **never a gate**: a dev dependency missing on a second interpreter
+must not fail an otherwise-green run, and a test asserts the exit code is captured
+before the batch report runs.
+
+### The new failure mode a pin creates, and the test for it
+
+Pinning an interpreter invents a fresh way to be wrong: **the pin can drift from
+the one the app actually uses.** That is exactly [[#B-79]]'s environments-page
+defect one layer down — prose naming a source of truth with a hard-coded answer
+beneath it. So a test reads `.claude/launch.json` and asserts `run_tests.bat` and
+the hook both pin the *same* interpreter. If Python moves, the suite says so
+instead of quietly going green on a Python the dashboard never uses.
+
+**Two verifications worth recording.** The `for %%A in (%*)` + delayed-expansion
+idiom for stripping `--batch` **silently passed the literal text `!ARGS!` through
+to pytest** — found by running it, not by reading it; replaced with a `shift` loop
+and `call set`. And the hook's degrade-open branches were tested by pointing them
+at an interpreter with no pytest and at a path that does not exist: both print the
+fix and **allow the commit**, because a broken hook must not block work.
+
+Suite 566 → 574.
+
+
+## B-84 · "Two dashboards, and start.bat points at the wrong one" — **the premise was wrong. CLOSED 2026-09-16**
+
+[[analyses/Design-Review-2026-09-14]] raised this as an owner decision: *"retire
+the Dash app or document it as a second product. Point start.bat at the desk
+either way."* Checked before deciding anything, and **both halves of the framing
+were false.**
+
+### There are THREE apps, not two
+
+| app | product | stack | port | launched by | history |
+|---|---|---|---|---|---|
+| `dashboard_app.py` | **the desk** | Streamlit | 8760 | *nothing* — only `.claude/launch.json` | the daily surface |
+| `dash_trading_dashboard.py` | **SBC / astro** | Dash | 8050 | `start.bat` | 3 commits, last **2026-08-18 adding features** |
+| `sbc_app.py` | SBC (earlier) | Streamlit | — | **nothing at all** | **1 commit, 2026-08-16** |
+
+### `start.bat` was never mislabelled
+
+Its title, banner and window name all read *"SBC Dashboard"*, and it launches the
+SBC dashboard. It is doing exactly what it says. **The review read "not the desk"
+as "the wrong one"**, and a second product is not a wrong one.
+
+Nor is the Dash app an older version of the desk. It imports **twelve `sbc_*`
+modules** plus `signal_processing_engine`, `live_movers` and
+`financial_astrology_methods` — and `dashboard_app.py` references **none** of them.
+There is no overlap to retire; it covers a vertical the desk does not have.
+
+> [!key-insight] The real gap was the opposite of the one reported
+> Not "a launcher pointing at the wrong app" but **"the app everyone uses has no
+> launcher at all"**. The desk could only be started from `.claude/launch.json`,
+> i.e. from inside Claude Code. `start_desk.bat` now starts it on :8760, each
+> launcher points at the other in its banner, and neither changes what the other
+> does. Verified by running it: HTTP 200 on :8760, then stopped again.
+
+### The retire candidate is a different file, and it is the owner's call
+
+**`sbc_app.py`** is the dead one: a single commit on 2026-08-16, launched by
+nothing, importing only `sbc_scoring` — and **superseded two days later** by the
+Dash app's SBC tab, which drives the whole `sbc_*` stack. Its own docstring still
+gives a `streamlit run` command nothing else references.
+
+**Not deleted here.** Removing a file is destructive and the evidence, while
+one-sided, is circumstantial: it may be kept deliberately as a lighter standalone
+view. Flagged with the evidence so the decision is one line of reading, not an
+investigation.
+
+### Found in passing, and it is the third time
+
+`dash` was installed on this machine and **declared nowhere** — after `ephem`
+(B-14) and `lxml` (the earnings calendar), in the same file that already records
+both. Declared now. [[#B-83]] hit the identical pattern with `pytest` on the same
+day, which makes four; the shape is always *"installed" is true of a machine, not
+of the project.*
+
+**Tests:** 5 added, asserting each launcher targets a file that exists, that the
+two do not launch the same app, that the desk launcher pins the same interpreter
+and port as `launch.json` (the [[#B-83]] drift risk again), and that `dash` is
+declared. One of them was **wrong on first write** — it searched the whole file
+and so read the new cross-reference banners as the app being launched; it now
+matches the launch line. Suite 574 → 579.
+
+
+## B-85 · One route for the chart modules — **CLOSED 2026-09-16**
+
+17 near-identical routes, one per browser module. **The duplication was not the
+cost.** A running server 404s a module added after it started — observed live on
+2026-09-07 (`/psar.js`) and carried in this page as *"restart the chart server"*
+on two separate sessions. **A restart is not a fix for a routing table that has to
+be edited to learn about a file already on disk.**
+
+> [!warning] The obvious fix was the wrong one, and the count says why
+> A blanket `/<anything>.js` is what this looks like it wants. `tools/` holds
+> **27 `.js` files and the page loads 17.** The other nine are NODE-side:
+> `alert_watcher.js`, the backtest and emit runners, the shared SVP engine.
+> Serving those over HTTP would publish internal tooling, including the shape of
+> the alert delivery config. **Counting the files before writing the route is the
+> only reason that was noticed.**
+
+So the allow-list is read from `chart_dashboard.html`: the page is the authority
+on what the browser needs, and nothing else is reachable. Cached on the page's
+mtime, so adding a module *and its `<script src>` line* works on a running server.
+
+**Verified against the real server, not only the test client.** A probe module was
+404 before its script tag was added and **200 immediately after, with no restart**;
+`alert_watcher.js` and `svp_backtest_runner.js` stayed 404 throughout; `/sw.js`
+keeps its own route because it needs no-cache headers and root scope, and a static
+rule outranks a converter rule in Flask's map. Routes 39 → 23.
+
+18 tests, including every Node script asserted unreachable and three traversal
+probes.
+
+---
+
+## B-86 · The security report was a month stale — **CLOSED 2026-09-16**
+
+Re-ran bandit. **HIGH 2 → 0**: both were `shell=True` calls that no longer exist
+in the code, still being reported by a file dated 2026-08-15.
+
+### The number that ballooned, and why it was not a regression
+
+The first re-run reported **1,134 LOW** against the old report's 53, which reads
+like a collapse. It was `-x` being passed as repeated flags — **bandit takes ONE
+comma-separated list, so the exclusions silently did nothing** — and what it was
+counting was `assert` in a suite that had just grown to 597 tests. A number that
+balloons because the project got *better* is a number nobody reads, which is the
+failure mode `claims_lint` exists to prevent. `bandit.yaml` now records the exact
+command, and the mistake, so the next run is comparable.
+
+**Baseline, tests excluded: HIGH 0 · MEDIUM 4 · LOW 153.**
+
+### All four MEDIUM read, none fixed by a code change
+
+* **B104 bind-all-interfaces** — **ACCEPTED, and the review's recommendation was
+  wrong.** It said default to loopback; that was written without checking what
+  binds here. The chart is a **PWA with installed clients** — the 2026-08-29 cache
+  regression was found precisely because a fix failed to reach one — and **a phone
+  on the same wifi cannot reach 127.0.0.1**. Defaulting to loopback would silently
+  break the surface the PWA exists for. Added `--host` instead, so loopback is one
+  flag away and the exposure is a decision on the record. What makes it tolerable:
+  read-only market endpoints, no credentials, no writes, and [[#B-85]]'s route
+  serving only what the page references.
+* **B608 × 2 in `portfolio_db`** — **false positives, both.** One interpolates
+  column names validated against a whitelist two lines earlier; the other
+  interpolates a run of `?` placeholders for an `IN` clause, the canonical safe
+  form. No user text reaches either string.
+* **B310** — a hardcoded https telegram preview URL. Worth re-reading only if it
+  ever becomes caller-supplied.
+
+> [!key-insight] The most useful number in the report is not a security number
+> **117 of the 153 LOW are silent exception handlers** — 77 `try/except/pass`
+> and 40 `try/except/continue`. That is [[#B-87]]'s "nine silent excepts in
+> `dashboard_app`" measured across the whole tree, and it arrived from a tool
+> nobody was running for that purpose.
+
+
+## B-87 · The monolith gets a ratchet, not a refactor — **RATCHETED 2026-09-16, extraction still open**
+
+`dashboard_app.py` is 13,846 lines and grows about 500 a week. The item says
+*extract one page per session, ongoing, no big bang* — and **an ongoing item with
+no measurement is a wish.** Nothing noticed the growth because no page body can be
+unit-tested, which is the problem it describes.
+
+### What was deliberately NOT done
+
+Two things, both because the safe-looking version was the dangerous one.
+
+* **No page extraction.** Page bodies live inline under `if current_page == "X":`
+  at module scope and close over module-level state. Moving one is a real refactor
+  of the product's main surface with **no page-level tests to catch a mistake**.
+  Doing it badly to close a P3 item would be the worst trade on this page.
+* **No mass rewrite of the silent exception handlers.** The obvious script —
+  regex `except X:` / `pass` into `except X as e:` + a log line — was written and
+  then **thrown away**. It rewrites exception signatures across 13,846 untested
+  lines to add debug logging: real risk of a shadowed name or a syntax error, in
+  exchange for information nobody is currently missing.
+
+### What shipped instead: numbers that can only go down
+
+`tools/test_monolith_ratchet.py` pins four readings, measured with `ast` rather
+than grep so they are trustworthy enough to gate on:
+
+| reading | today | ceiling |
+|---|---|---|
+| lines | 13,846 | 13,900 |
+| silent handlers (`except: pass` / `continue`) | 11 | 11 |
+| module-level statements | 318 | 320 |
+| raw-HTML renders | ~112 | 120 |
+
+**Every one is a debt, not a target.** They may fall freely; raising one requires
+editing that file and saying why. A sixth test fails if a ceiling drifts far above
+reality, because *a ceiling far above the actual value is not a ratchet, it is
+decoration*.
+
+**The count came from a tool nobody was running for it.** [[#B-86]]'s bandit
+re-run reported **117 silent handlers tree-wide** — 77 `try/except/pass`, 40
+`try/except/continue`. Individually each is a defensible best-effort path; the
+total is not, and that is exactly why the number needs a ceiling rather than an
+argument.
+
+**Still open:** the extraction itself. The destination (`tools/pages/`) is
+documented and deliberately **not created empty** — an empty package is a claim
+that work has started.
+
+---
+
+## B-88 · Generated files out of the repo root — **CLOSED 2026-09-16**
+
+The root held **30 `.xlsx`, 19 sector-rotation renders and 5 `.csv`**, every one
+gitignored and generated. They broke nothing; they buried the docs, which are the
+only things at the root a person is meant to read.
+
+> [!warning] It is not a one-line move, and the reason is in the reader
+> The dashboard **reads these back**: `glob("sector_rotation_*.xlsx")`,
+> `glob("screener_export_*.csv")`, `glob("sector_rotation_orbit_*.html")` and two
+> direct `screener_<today>.xlsx` lookups. **Changing only the writers would leave a
+> year of exports invisible to the surface that lists them** — a tidy-up that
+> silently deletes history from the reader's point of view is worse than the mess.
+
+So `tools/out_paths.py` owns the question: **new files go to `output/`, readers
+search `output/` AND the root, and nothing is moved or deleted.** The root stops
+growing, existing files keep working where they are, and the pile drains on its own
+as old dated files stop being the newest. Six writers and four readers rewired
+across five modules plus the dashboard.
+
+Two details that are decisions rather than defaults:
+* **Sorted by FILENAME, not mtime.** Every one of these names carries a `YYYYMMDD`
+  stamp, and a file copied or restored later would sort wrongly by mtime while its
+  name still says exactly which session produced it.
+* **`resolve()` returns `None`, never a non-existent `Path`** — a phantom path is
+  what turns "no export yet" into a confusing error three calls later.
+
+**Verified against the real tree before committing:** 23 screener workbooks, 7
+sector tables, 7 orbit renders and 1 export CSV all still found, a probe file
+round-tripped through `output/`, and the dashboard boots clean with no errors.
+16 tests, including one that fails if any writer starts targeting the root again.
+Suite 597 → 619.
+
+
+---
+
+## B-75 · The quarterly profit walk — **BUILT 2026-09-16**
+
+The last of the twelve-item design-review batch that did not need an owner
+decision. Scoped on 2026-09-12 with the count already taken, so nothing about the
+design changed on contact: **yfinance serves 5-7 quarterly columns, of which only
+1-2 carry a year-ago match.** A YoY walk is one or two points and is not a
+sequence, so the sequential walk is the only walk this data supports.
+
+That collides with a decision already in the code — `_quarterly_history` uses YoY
+*on purpose*, saying "sequential comparison would read seasonality as growth" —
+and the collision is **not resolved, it is labelled**. The column is published as
+a SHAPE, the tooltip says in as many words that a festive Q3 shows up here as
+growth, and nothing about it votes, scores or enters a confluence weight. No
+backtest is owed because no claim is made.
+
+### The three ways this column could have lied
+
+| | What a naive version does | What it does |
+|---|---|---|
+| **Gapped quarter** | bridges Sep→Mar and prints it as one quarter | `?`, the same convention `rs_walk.format_walk` already uses |
+| **Loss base** | −100 → −10 computes as **+90%**, reads as growth | `L` — the denominator was a loss, which is the fact worth carrying |
+| **Missing figure** | prints `?`, which the reader takes for a calendar hole | the step is dropped; an absent row is not a gapped quarter |
+
+Each is a test. The gap case is not hypothetical: **RELIANCE's frame is missing
+2025-09-30**, and the live column reads `+39 → ? → -9 → +23` rather than bridging
+it. On the running Watchlist, PINELABS reads `L → ? → +40 → -67` and MOBIKWIK
+`L → L → +8 → +74` — both of which a percentage-off-a-loss version would have
+printed as growth.
+
+### Behind a button, and not in the monolith
+
+The walk reads `derive_fundamentals` — four yfinance calls per symbol, on tables
+that carry eighty names — so it follows the pattern the pledge and price columns
+already set: a button fills a per-table session cache, and **a table that was
+never filled does not get the column at all.** A column of blanks would read as
+"no quarterly history for any of these", which is false.
+
+The four helpers were written into `dashboard_app.py` first, and **[[#B-87]]'s
+ratchet failed the build** — 13,930 lines against its 13,900, 323 module
+statements against 320. That is the ratchet working as designed on the first
+change after it landed. They moved to `tools/profit_walk_ui.py`, which left one
+import shim in the monolith and made the module testable without Streamlit.
+
+Mounted on the Watchlist and both Scanner Hub tables. Engine in
+`row_metrics.profit_qoq_steps` / `format_profit_walk`, registry entry in
+`columns.py`, 12 tests, suite 619 → 631, verified on the running page.
+
+**Carried forward from the design review, still open:** [[#B-73]] (needs the
+cadence decision), B-76 residuals, [[#B-56]] (the only built-but-unscored signal
+left), B-34r2, B-32r/[[#B-21b]]/[[#B-26]], B-35/B-31/B-30 (parked),
+[[#B-46]]/[[#B-47]]/[[#B-48]], B-87's extraction, and the four August P2 items
+B-4/12, B-6, B-8, B-9 — all of which need either an owner decision or a
+measurement, not a session.
+
+
+---
+
+## VWAP + EMA — validated against a Spider Software infographic, 2026-09-17
+
+Owner brought a "Trading with VWAP & EMA" card: **SHORT when price closes below
+both VWAP and EMA, exit when it closes above both**, plus the note *"for indices
+VWAP is applicable only on futures charts, not spot"*. Validated against what
+actually ships. Three new items fall out: **B-89, B-90, B-91.**
+
+### What is already here, and in one respect it is better than the card
+
+| The card says | The desk has | Verdict |
+|---|---|---|
+| VWAP on the chart | `vwap` — **session VWAP, intraday-only** | **present, and stricter** |
+| EMA on the chart | `ema9 / ema20 / ema50 / ema200` | present |
+| "indices: futures only, not spot" | a **volume guard**, not a symbol list | **present, better founded** |
+| EMA cross BUY/SELL | `mabias` — 9/20 arrows, 50/200 GC/DC, verdict card | **present, and richer** |
+| price below BOTH -> SHORT | — | **ABSENT -> B-90** |
+
+> [!key-insight] The index caveat is handled by measuring the data, not by naming the instrument
+> The card states a rule about *instruments* ("indices are futures-only"). The
+> desk enforces the underlying *fact*: `vwapSeries` accumulates only where volume
+> exists (`if (cumVol > 0)`), so a feed with no traded volume gets no line.
+>
+> **Verified both ends, 2026-09-17.** `^NSEI` carries **zero volume on all 2,125
+> stored 15-minute bars**; RELIANCE.NS carries real volume on 2,119 of 2,121. And
+> driven directly in the browser on synthetic bars: `vwapSeries` returns **25
+> points with volume, 0 points with zero volume, and 0 points on `1d`**.
+>
+> That is the card's caveat, generalised — it holds for any volume-less feed, not
+> just Indian index spot, and it cannot go stale when an exchange changes what it
+> publishes. The in-code comment records that an earlier version fell back to
+> `b.close`, which drew **VWAP as the price line** on a volume-less feed: "the
+> most convincing way possible to be wrong."
+>
+> The daily guard is stronger than anything on the card and is measured: on daily
+> RELIANCE bars session VWAP equalled `(H+L+C)/3` on **24 of 24** — a typical-price
+> line wearing a VWAP label — so daily draws nothing and Anchored VWAP covers it.
+
+### The card's actual rule is NOT implemented, and the near neighbours point down
+
+The card is a **trend-following state agreement**: price on the same side of both
+lines. The two VWAP scanners are neither.
+
+* `scan_vwap_reclaim` (B-40) — uses **rolling n-day** VWAP plus `close > EMA-50`
+  as a trend gate, which is the closest thing here. But it is an **event**
+  (reclaim / pullback), **long-only**, and its VWAP is not the session VWAP the
+  card draws.
+* `scan_vwap_mean_reversion` (B-40m) — two-sided, but the **opposite thesis**:
+  it trades the stretch *away* from the mean snapping back, where the card trades
+  continuation away from it.
+
+**The prior is not neutral, and it is already on this page.** The nearest measured
+relatives both failed:
+
+| Rule | Verdict |
+|---|---|
+| `evmacd` — EVWMA/**VWAP** MACD cross | **NEGATIVE**: no edge; stop-and-reverse **-29%** against buy&hold **+827%** |
+| ADX/DI bare cross | **the bare DI cross LOSES** (-0.93% @10d, p=0.02) |
+| all 41 scanners, walk-forward | **0 of 41 stable** after costs (B-19) |
+
+Two lagging averages crossed and read as a state is the same shape of construct.
+That is a reason to **pre-register before measuring**, not a reason to skip it.
+
+**And the card is a SHORT rule.** This repo already records that shorting NSE cash
+for a swing hold is not available to most of its users, so even a working version
+is an **exit and avoid** signal for a cash book, not an entry. Scope it that way.
+
+### B-89 · `mabias` ships an EMA-cross verdict on the chart and nothing has scored it — **P1**
+
+The card asks whether EMA-cross BUY/SELL is adopted. **It is** — and it is
+considerably more careful than the card: 9/20 cross arrows, 50/200 golden/death
+markers, volume-grading of the trigger bar, a whipsaw veto, a braided-MA chop
+gate, an extension-distrust tier, and a five-way verdict ladder
+(`LONG / SHORT / CHOP / COUNTER-TREND / MIXED`).
+
+**It has never been measured.** No entry in `named_studies`, no study file. It is
+chart-only — `mabias` appears in no module outside `chart_dashboard.html`, casts
+no confluence vote and is not in `SCANNERS` — so the exposure is bounded. But a
+**verdict badge that says LONG or SHORT on the screen is a recommendation**, and
+this desk closed exactly that class of debt for [[#B-56]] on 2026-09-17.
+
+**First step:** pre-register, then score the `verdict` as a STATE with a rotation
+p-value ([[analyses/SVP-Structure-Signal-Pre-Registration]] is the template —
+same shape, same autocorrelation problem). The ladder makes this cheap and
+informative: `CHOP` and `COUNTER-TREND` are falsifiable on their own, and if the
+chop gates carry no information the ladder collapses to a bare 9/20 cross, which
+the ADX/DI result already suggests is a loser.
+
+### B-90 · The VWAP+EMA agreement state — measure BEFORE building — **P2**
+
+The card's rule, stated so it can be argued with: **price closes on the same side
+of session VWAP and the EMA**. Intraday only, because that is where session VWAP
+is defined — and `intraday_store` already holds 15m bars over ~85 sessions for six
+names, so this needs **no new data**, the same discovery that unblocked [[#B-9]].
+
+**Do not build a scanner first.** The honest order is the one [[#B-59]] set: score
+the state, with the skeptical prior above written down, and build only on a pass.
+Baseline matters more than hit rate here — "price below both averages" selects
+downtrends, so it will look right in any falling window without carrying
+information. **Frame it as an EXIT/AVOID rule for a cash book**, not an entry.
+
+### B-91 · VWAP draws nothing on index spot and does not say why — **P3, small**
+
+The behaviour is correct and the label is half-right. `VWAP (session · intraday
+only)` warns about the **timeframe** and says nothing about **volume**, so on
+`^NSEI` intraday a user turns VWAP on and gets **silence** — no line, no reason.
+Absent renders absent, which is the desk's rule, but this absence has a cause the
+reader cannot see and the card is evidence that people expect the line there.
+
+**First step:** when a selected VWAP yields zero points, say which guard fired —
+"no traded volume on this feed (index spot — use the futures chart)" or "session
+VWAP is undefined on daily bars — use Anchored VWAP". Two strings, one `if`.
+Same class as the [[#B-79]] stale-phrase work.
+
+
+---
+
+## Flag & Pole — ingested 2026-09-17, and the gap is the PLAN, not the pattern
+
+Owner supplied a Spider Software card, [[sources/Spider-Software-Flag-Pole-Infographic]]:
+a vertical **pole**, a shallow counter-trend **flag** (channel / wedge /
+triangle), then **entry at the flag break, stop at the far flag boundary, target
+= the pole height projected**. Presented in both directions.
+
+**It makes no numeric claim at all** — no hit rate, no sample. Unlike the VWAP+EMA
+card there is nothing here to falsify: it is a *construction spec*, and should be
+read as one.
+
+### What is here, and what is not
+
+| The card specifies | The desk has | Gap |
+|---|---|---|
+| Bullish pole + flag | `High Tight Flag` — **one extreme variant** (pole ≥90% in ~40 bars, flag ≤25%) | the **general** bull flag is absent |
+| **Inverted** (bearish) flag & pole | — | **entirely absent** |
+| Entry / stop / target from the geometry | HTF emits **none of the three** | absent |
+| Draw it on the chart | `falling_wedge`, `vcp`, `roundbottom`, `harmonic` | **no flag/pole overlay** |
+
+> [!key-insight] The card's whole content is the plan — and 24 of 31 firing scanners have none
+> `scan_high_tight_flag` returns `pattern_type`, `tags`, `reasons`, `score` and
+> **nothing else**. It is not alone. Measured across 60 nifty500 names on
+> 2026-09-17: **31 scanners fired; only 7 emitted a full `entry`/`stop`/`target`.**
+>
+> This is not cosmetic. `backtest._simulate_plan` walks entry → stop/target, so a
+> scanner with no plan **cannot be scored on realised R at all**. Plan coverage is
+> a measurement capability, not a display nicety — which is why it is ranked
+> above the new detector in the roadmap.
+
+**And the one flag detector we have is too rare to measure.** [[#B-19]] lists
+`High Tight Flag` among **three scanners with too few signals** to score. A ≥90%
+pole is the rarest member of the family. That is an argument **for** the general
+version — it would fire often enough to be measurable — not against it.
+
+### B-92 · Flag & Pole detector — **BUILT + MEASURED 2026-09-17: bull marginal pass, bear INVERTED**
+
+> [!warning] MEASURED — 248 names, 1,189 bull and 979 bear breakouts
+> **BULL: edge +0.71% at 20 sessions, p = 0.0499.** A PASS by the pre-registered
+> rule and **marginal in the most literal sense** — it sits on the fourth decimal
+> of its own threshold. Nothing at 5 or 10 days (p ≈ 0.86); +2.03% at 60 days.
+>
+> **BEAR: edge +1.33% at 20 sessions, p = 0.0005 — INVERTED.** Breakdowns were
+> followed by the stock going UP more than baseline. **The mirror was not
+> shipped**; the card now says STRUCTURE only, and its earlier exit/avoid framing
+> is retired — a breakdown followed by strength is not a reason to get out.
+>
+> **The PLAN beat the entry, and that is the best thing here.** Bull: target hit
+> **36.8%** against a 51.6% stop rate, **avg +0.36R** — it loses more often than
+> it wins and still pays, which is what a measured move is supposed to do. Bear:
+> target 8.6% / stop 77.8% / −0.44R.
+>
+> **The volume gate was NOT added.** The question PR-3 deferred instead of
+> assuming: flags on RISING volume returned 3.52% against 2.38% for flags that
+> dried up, so HTF's gate would have removed the better subgroup. Pre-registered
+> as non-decisive and the subgroup is small (126 vs 1,063), so it reads as **no
+> support for gating**, not "rising volume is better".
+>
+> **The confound is NOT resolved.** This fires only after a ≥4×ATR thrust, so its
+> population is momentum names, and an every-bar baseline does not control for
+> that. Nothing at 5d/10d against +2.03% at 60d is the shape a trend confound
+> produces. **A momentum-matched control is the next test** and needs its own
+> pre-registration; until it runs, the bull edge is not distinguishable from being
+> in strong names.
+>
+> Full design and result: [[analyses/Flag-Pole-Pre-Registration]].
+
+**Build entry, kept because the reasoning still holds:**
+
+> [!key-insight] BUILT — and counting first caught a bug that made breakouts impossible
+> `tools/flag_pole.py`, two registered cards (**Flag & Pole**, **Inverted Flag &
+> Pole**), both emitting entry / stop / pole-projected target. Registry 46 → 48;
+> the PR-2 plan ratchet rose **14 → 16** behind them.
+>
+> **The first `--count` returned 189 patterns and `broken 0`.** The flag boundary
+> included the live bar, so `close > flag_high` was unsatisfiable by construction.
+> The boundary is now formed strictly before the bar that breaks it.
+>
+> **Counts, published:** bull present on **5.1%** of bars (broken out on 0.45%),
+> bear 3.3% (0.32%). A flag that has not broken is a WATCH, so the actionable rate
+> is the second number. The "any pullback" trap named before the build did not open.
+>
+> **Coverage, concrete:** on the same sample `High Tight Flag` fired **4** times
+> against this detector's **66**. HTF is unchanged and still registered.
+>
+> **UNMEASURED**, and both cards say so. Justified on coverage; B-19's 0-of-41
+> stands. Full write-up: [[analyses/Pattern-Reporting-Enhancement-Roadmap]].
+
+**Original scoping, kept because the reasoning still holds:**
+
+Build `detect_flag_pole` emitting the card's three levels, bull and bear.
+
+**Justified on COVERAGE, never on expected edge.** [[#B-19]] measured 0 of 41
+scanners stable after costs; a 47th pattern is not expected to break that. It
+closes a named absence and it makes the family measurable.
+
+**The trap, and B-58 is the precedent.** Loosen the pole threshold far enough and
+"flag" becomes "any pullback in an uptrend" — which this desk already has as
+`Pullback Entry`, **measured NEGATIVE** (−0.43% / −1.12%). B-58's quasimodo work
+reported the pattern on **73%** of names until pivots were required to be
+adjacent, which cut it to 44%, with the true count **3%**. **Count the hits
+before trusting the detector**, and publish the count.
+
+Parameters left open on purpose — each is a decision, listed in
+[[analyses/Pattern-Reporting-Enhancement-Roadmap]]: pole size **in ATR** not per
+cent, flag retracement cap, whether contracting volume is required (HTF rejects a
+rising-volume flag outright, and that reasoning is sound — a flag on rising
+volume is distribution into strength), and close-confirmed breakout per this
+desk's convention.
+
+**Scope the bear half as EXIT/AVOID.** Shorting NSE cash for a swing hold is not
+available to most users of this repo — the same scoping [[#B-90]] carries.
+
+### B-93 · Pattern reporting — the page exists, so this is an enhancement roadmap — **PR-1 is P1**
+
+The owner asked for a pattern reporting page, or a roadmap if one exists.
+**Two exist:** **Scanner Hub** (46 scanners on any universe — the real one, and
+nothing about it needs replacing) and **Strategy Hub § Chart Patterns**.
+
+> [!warning] PR-1 — Strategy Hub's pattern table presents frozen numbers as live
+> `_PATTERNS` in `dashboard_app.py` is a **Python literal of 20 tuples**: stock,
+> pattern, bias, publish date, publish price, **LTP and Move %** — all hardcoded.
+>
+> The caption is honest that the detections are third-party and historical. It is
+> **not** honest that the table is **static**: the "LTP ₹" column reads as live,
+> and the footer computes *"N above publish price · M below"* from those frozen
+> numbers — **a scoreboard over data nothing is measuring.**
+>
+> Same class as [[#B-79]]'s stale state phrases, and `claims_lint` cannot see it
+> because the numbers live in a tuple rather than in prose.
+>
+> **Honest minimum:** say the block is a fixed August sample and delete the
+> computed footer. **Better:** recompute LTP from the price cache the rest of the
+> desk already uses, which makes the scoreboard real. Either way it must say which
+> — silently refreshing in place is the [[#B-26]] error.
+
+Full four-rung roadmap in [[analyses/Pattern-Reporting-Enhancement-Roadmap]]:
+**PR-1** the static table (the only rung that fixes something currently
+misleading), **PR-2** trade-plan coverage as a visible metric, **PR-3** the B-92
+detector, **PR-4** the chart overlay.
 
 
 ## Outcome (fill in later)

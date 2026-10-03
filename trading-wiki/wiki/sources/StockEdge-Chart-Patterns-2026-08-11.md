@@ -120,6 +120,6 @@ related:
 ---
 
 ## Pages Updated
-- [[wiki/log]] — appended
-- [[wiki/index]] — updated
+- [[log]] — appended
+- [[index]] — updated
 - [[concepts/Chart-Patterns]] — created (new concept page to hold the category taxonomy)

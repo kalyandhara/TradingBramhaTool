@@ -194,3 +194,27 @@ def test_scored_factor_enters_the_composite(monkeypatch):
     assert r["weight_measured"] == 100
     # PCR at zero costs exactly its own weight — no renormalisation.
     assert r["score"] == pytest.approx(80.0, abs=0.01)
+
+
+# ── The reading is a sentence someone reads every morning (B-78) ─────────────
+
+@pytest.mark.parametrize("pct,expected", [
+    (1, "1st"), (2, "2nd"), (3, "3rd"), (4, "4th"),
+    (11, "11th"), (12, "12th"), (13, "13th"),   # the teens exception
+    (21, "21st"), (22, "22nd"), (23, "23rd"),
+    (61, "61st"), (100, "100th"), (0, "0th"),
+])
+def test_percentile_ordinals_read_as_english(pct, expected):
+    """Until B-78 backfilled the baseline the history was always below the floor,
+    so the branch printing this percentile had never rendered — and it said
+    "61th" the first time it did."""
+    assert si._ordinal(pct) == expected
+
+
+def test_the_reading_carries_a_correct_ordinal():
+    assert "100th pct of 200 sessions" in si.pcr_factor(
+        1.5, None, _hist([1.0] * 200))["reading"]
+    # 61 is the exact value that rendered as "61th" on the live page the first
+    # time this branch was reachable: 61 of 100 sessions sit below 1.0.
+    hist = _hist([0.5] * 61 + [2.0] * 39)
+    assert "61st pct of 100 sessions" in si.pcr_factor(1.0, None, hist)["reading"]

@@ -53,8 +53,13 @@ def _direct_scan_payload(min_chg: float, min_rel_vol: float,
 
 def fetch_brkoutgeek(min_chg: float = 2.0,
                      min_rel_vol: float = 1.5,
-                     min_price_vol_inr: float = 10_000_000.0) -> pd.DataFrame:
-    """Replicates the BrkoutGeek: Horz Break copy screener."""
+                     min_price_vol_inr: float = 10_000_000.0,
+                     raise_on_error: bool = False) -> pd.DataFrame:
+    """Replicates the BrkoutGeek: Horz Break copy screener.
+
+    An empty frame means "no matches" OR "TradingView unreachable"; callers that
+    must tell them apart (the snapshot job) pass raise_on_error=True.
+    """
     try:
         r = requests.post(
             TV_SCAN_URL,
@@ -66,6 +71,8 @@ def fetch_brkoutgeek(min_chg: float = 2.0,
         data = r.json()
     except Exception as e:
         log.warning("TV scan failed: %s", e)
+        if raise_on_error:
+            raise RuntimeError(f"TradingView scan unreachable: {e}") from e
         return pd.DataFrame()
 
     rows = data.get("data", []) or []

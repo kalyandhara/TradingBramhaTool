@@ -144,10 +144,153 @@ def _to_float(x) -> float | None:
         return None
 
 
+#: Exit models `_simulate_plan` understands (B-123). ``fixed`` is the default and
+#: is the pre-B-123 behaviour bit for bit, so no published R changes. The others
+#: MOVE the stop, which the harness could not express before -- every trailing
+#: stop on the chart (PMax, SuperTrend AI, PSAR) had never been measured as an
+#: exit by this harness.
+EXIT_MODELS = ("fixed", "atr_trail", "ema_close", "structure")
+_EXIT_DEFAULTS = {"atr_trail": 3.0, "ema_close": 20, "structure": 5}
+
+
+def parse_exit_model(spec: str | None) -> tuple[str, float | None]:
+    """``"atr_trail:3"`` -> ``("atr_trail", 3.0)``; ``None``/``"fixed"`` -> fixed.
+
+    Unknown names RAISE rather than falling back to ``fixed`` -- a typo that
+    silently measured the fixed plan would publish the control as the treatment
+    (the same rule ``signal_mode`` follows)."""
+    if spec is None:
+        return "fixed", None
+    name, _, arg = str(spec).strip().lower().partition(":")
+    if name not in EXIT_MODELS:
+        raise ValueError(f"exit_model must be one of {EXIT_MODELS}, got {spec!r}")
+    if name == "fixed":
+        return name, None
+    val = float(arg) if arg else float(_EXIT_DEFAULTS[name])
+    if val <= 0:
+        raise ValueError(f"exit_model parameter must be positive, got {spec!r}")
+    return name, val
+
+
+#: Fill models (B-121). ``assumed`` is the pre-B-121 behaviour and the default,
+#: for the same reason ``fixed`` is: every published R came through it.
+FILL_MODELS = ("assumed", "market", "touch")
+FILL_MAX_WAIT = 5
+
+
+def resolve_fill(df: pd.DataFrame, signal_idx: int, entry: float, side: str,
+                 fill_model: str = "assumed",
+                 max_wait: int = FILL_MAX_WAIT) -> dict:
+    """Where, and at what price, the card's entry would actually have filled.
+
+    Before B-121 the harness simply assumed the card's ``entry`` filled on the
+    bar after the signal, at that price, whether or not price ever traded there.
+    Sampled on RELIANCE, `scan_flag_pole` returned entry 1469.68 on a bar that
+    closed 1441.30 -- 2% above the market -- and the simulation credited the fill
+    and measured the stop from it. ``order_block_rules_backtest.pending_limit_fill``
+    already knew better; this brings that reasoning into the shared harness.
+
+    * ``assumed`` -- the old behaviour: bar ``signal_idx+1``, at ``entry``.
+    * ``market``  -- bar ``signal_idx+1``, at its OPEN. What acting on the card
+      the next morning actually gets, whatever the card's number says.
+    * ``touch``   -- the card's entry is an ORDER, and its type is read off where
+      it sits relative to the signal bar's close. A long entry above the close is
+      a BUY-STOP (fills when high reaches it; a gap through fills at the worse
+      open); below the close it is a BUY-LIMIT (fills when low reaches it; a gap
+      through fills at the better open). Shorts mirror. Waits ``max_wait`` bars,
+      then the order is CANCELLED -- an unfilled order is a trade that did not
+      happen, and it is counted, never simulated.
+
+    Returns ``{"status": "filled", "idx", "px"}`` or ``{"status": "unfilled"}``.
+    """
+    if fill_model not in FILL_MODELS:
+        raise ValueError(f"fill_model must be one of {FILL_MODELS}, got {fill_model!r}")
+    n = len(df)
+    nxt = signal_idx + 1
+    if nxt >= n:
+        return {"status": "unfilled"}
+    if fill_model == "assumed":
+        return {"status": "filled", "idx": nxt, "px": float(entry)}
+    openp = df["open"].to_numpy(dtype=float)
+    if fill_model == "market":
+        return {"status": "filled", "idx": nxt, "px": float(openp[nxt])}
+    high = df["high"].to_numpy(dtype=float)
+    low = df["low"].to_numpy(dtype=float)
+    ref = float(df["close"].to_numpy(dtype=float)[signal_idx])
+    short = str(side).lower() in ("short", "bear", "bearish", "down")
+    # A stop order sits on the side price must MOVE TO; a limit on the side it
+    # must come BACK to.
+    stop_order = (entry <= ref) if short else (entry >= ref)
+    for i in range(nxt, min(n, nxt + max_wait)):
+        if short:
+            if stop_order and low[i] <= entry:
+                return {"status": "filled", "idx": i, "px": float(min(entry, openp[i]))}
+            if not stop_order and high[i] >= entry:
+                return {"status": "filled", "idx": i, "px": float(max(entry, openp[i]))}
+        else:
+            if stop_order and high[i] >= entry:
+                return {"status": "filled", "idx": i, "px": float(max(entry, openp[i]))}
+            if not stop_order and low[i] <= entry:
+                return {"status": "filled", "idx": i, "px": float(min(entry, openp[i]))}
+    return {"status": "unfilled"}
+
+
+_EXIT_SERIES_CACHE: dict = {}
+
+
+def _exit_series(df: pd.DataFrame, name: str, param: float) -> dict:
+    """Per-bar series an exit model reads, computed once per (frame, model).
+
+    Every value at index ``i`` uses bars ``<= i`` only. How a model consumes
+    them is decided in `_simulate_plan`, where the lookahead argument is made."""
+    key = (id(df), len(df), name, param)
+    hit = _EXIT_SERIES_CACHE.get(key)
+    if hit is not None:
+        return hit
+    if len(_EXIT_SERIES_CACHE) > 64:
+        _EXIT_SERIES_CACHE.clear()
+    high = df["high"].astype(float)
+    low = df["low"].astype(float)
+    close = df["close"].astype(float)
+    out: dict = {}
+    if name == "atr_trail":
+        # Chandelier's own lookback (22), Wilder smoothing.
+        prev = close.shift(1)
+        tr = pd.concat([high - low, (high - prev).abs(), (low - prev).abs()],
+                       axis=1).max(axis=1)
+        out["atr"] = tr.ewm(alpha=1.0 / 22, adjust=False).mean().to_numpy()
+    elif name == "ema_close":
+        out["ema"] = close.ewm(span=int(param), adjust=False).mean().to_numpy()
+    elif name == "structure":
+        # A swing low at j needs `p` bars on EACH side, so it is only KNOWN at
+        # bar j+p. `swing_low[i]` is the latest swing low confirmed by bar i --
+        # reading the pivot at j would be lookahead by p bars.
+        p = int(param)
+        hv, lv = high.to_numpy(), low.to_numpy()
+        n = len(df)
+        known_low = np.full(n, np.nan)
+        known_high = np.full(n, np.nan)
+        last_l = last_h = np.nan
+        for i in range(n):
+            j = i - p
+            if j - p >= 0:
+                if lv[j] == lv[j - p:j + p + 1].min():
+                    last_l = lv[j]
+                if hv[j] == hv[j - p:j + p + 1].max():
+                    last_h = hv[j]
+            known_low[i] = last_l
+            known_high[i] = last_h
+        out["swing_low"], out["swing_high"] = known_low, known_high
+    _EXIT_SERIES_CACHE[key] = out
+    return out
+
+
 def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
                    stop: float, target: float, max_bars: int,
                    time_stop: float | None = None,
-                   cost_model: CostModel | None = None) -> dict | None:
+                   cost_model: CostModel | None = None,
+                   side: str = "long",
+                   exit_model: str | None = None) -> dict | None:
     """Stop-or-target-first walk forward from ``entry_idx`` (the entry bar).
 
     Conservative tie-break: if a single bar's range spans BOTH the stop and the
@@ -161,38 +304,146 @@ def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
     is the measurement horizon rather than a decision, and the two are reported
     as different outcomes so a deliberate exit is never read as a stalled one.
 
-    Returns None when the plan cannot be simulated long-only — a short-side plan
-    (stop above entry) or a degenerate one. The caller counts these rather than
-    letting them vanish: a scanner whose plans are all unsimulatable must not
-    look like a scanner with no plans.
+    ``side`` is ``long`` or ``short`` (B-102). This was long-only until
+    2026-09-20, and the cost of that was not a missing feature but a SILENT one:
+    a short-side plan returned None and was counted as "unsimulatable", so a
+    bearish scanner's R-block read as zero measurable plans rather than as a
+    measurement nobody had built. Three studies had already written their own
+    mirror to get around it (``flag_pole_edge.walk_plan``,
+    ``order_block_rules_backtest.simulate``, and the stop study) — three chances
+    for the pessimistic tie-break to drift apart.
+
+    The short side is the exact MIRROR, never a sign flip applied to a long
+    result: the stop is ABOVE the entry and is hit on ``high``, the target is
+    BELOW and is hit on ``low``, and R is ``entry - exit``. A sign flip would
+    have scored the short against the long's own stop/target ordering and
+    credited the wrong bar.
+
+    Returns None only for a DEGENERATE plan — one whose risk is zero or points
+    the wrong way for the side it declares (a "long" whose stop sits above its
+    entry is not a long, it is a typo). The caller counts those rather than
+    letting them vanish.
+
+    ``exit_model`` (B-123) -- ``fixed`` (default, unchanged), ``atr_trail:k``
+    (Chandelier: extreme since entry - k*ATR22), ``ema_close:n`` (close through
+    EMA n), ``structure:p`` (close through the latest CONFIRMED swing low/high,
+    pivot length p -- the CHoCH that ends a long). Rules every moving model obeys:
+
+    * **The initial stop still defines R and still fires intraday.** A trail can
+      only TIGHTEN from it, never loosen -- ratchet-only.
+    * **Model exits are CLOSE-based**, filled at that close. Touch-based trails
+      are whippier ([[concepts/Capital-Management-Methods]]), and a close rule is
+      the one a daily-bar trader can actually follow. The ATR trail, once it has
+      ratcheted, is enforced as a resting stop (intraday), like Chandelier.
+    * **The ATR trail used on bar i is computed from bars <= i-1.** Swing pivots
+      already carry their p-bar confirmation delay. No bar exits on a level it
+      helped set.
+    * **The fixed target is DROPPED.** Letting winners run is the whole case for
+      a trail; capping it at the card's target would measure a fixed plan with a
+      tighter stop. The result carries ``target_used: False`` so it is visible.
+
+    Outcomes add ``trail`` (a moving stop closed the trade).
     """
-    risk = entry - stop
+    model, param = parse_exit_model(exit_model)
+    short = str(side).lower() in ("short", "bear", "bearish", "down")
+    risk = (stop - entry) if short else (entry - stop)
     if risk <= 0:
+        return None
+    # A target on the STOP side of the entry is not a plan either (B-124): the
+    # side is read off the stop, so an inverted stop turns a long into a "short"
+    # whose target is then behind it, and every "target hit" books a loss.
+    # Harmonic Butterfly/Crab cards did exactly this for a quarter of their
+    # hits. Degenerate -> None -> counted as unsimulated, never scored.
+    if (target >= entry) if short else (target <= entry):
         return None
     cm = cost_model or COST_GROSS
     n = len(df)
+    if entry_idx >= n:
+        return None
     high = df["high"].to_numpy(dtype=float)
     low = df["low"].to_numpy(dtype=float)
     close = df["close"].to_numpy(dtype=float)
 
+    def _r(exit_px: float) -> float:
+        gross = (entry - exit_px) if short else (exit_px - entry)
+        return (gross - entry * cm.round_trip_pct(entry, exit_px) / 100.0) / risk
+
     horizon = max_bars if time_stop is None else min(max_bars, int(time_stop))
     end = min(n - 1, entry_idx + horizon)
+
+    if model == "fixed":
+        for i in range(entry_idx, end + 1):
+            hit_stop = (high[i] >= stop) if short else (low[i] <= stop)
+            hit_tgt = (low[i] <= target) if short else (high[i] >= target)
+            if hit_stop:
+                return {"outcome": "stop", "r": _r(stop), "bars": i - entry_idx}
+            if hit_tgt:
+                return {"outcome": "target", "r": _r(target), "bars": i - entry_idx}
+        timed_out = time_stop is not None and (end - entry_idx) >= horizon
+        return {"outcome": "time" if timed_out else "open",
+                "r": _r(float(close[end])), "bars": end - entry_idx}
+
+    ser = _exit_series(df, model, param)
+    tag = f"{model}:{param:g}"
+    extra = {"exit_model": tag, "target_used": False}
+    live = stop          # ratchets from the initial stop, never loosens
+    extreme = entry      # highest high (long) / lowest low (short) since entry
     for i in range(entry_idx, end + 1):
-        hit_stop = low[i] <= stop
-        hit_tgt = high[i] >= target
-        if hit_stop:
-            cost = entry * cm.round_trip_pct(entry, stop) / 100.0
-            return {"outcome": "stop", "r": (stop - entry - cost) / risk,
-                    "bars": i - entry_idx}
-        if hit_tgt:
-            cost = entry * cm.round_trip_pct(entry, target) / 100.0
-            return {"outcome": "target", "r": (target - entry - cost) / risk,
-                    "bars": i - entry_idx}
-    exit_px = close[end]
-    cost = entry * cm.round_trip_pct(entry, exit_px) / 100.0
+        # 1. The resting stop, intraday, at the level in force coming INTO bar i.
+        if (high[i] >= live) if short else (low[i] <= live):
+            return {"outcome": "stop" if live == stop else "trail",
+                    "r": _r(live), "bars": i - entry_idx, **extra}
+        # 2. The model's close-based exit on this bar.
+        lvl = None
+        if model == "ema_close":
+            lvl = ser["ema"][i]
+        elif model == "structure":
+            lvl = ser["swing_high"][i] if short else ser["swing_low"][i]
+        if lvl is not None and not np.isnan(lvl) and (
+                (close[i] > lvl) if short else (close[i] < lvl)):
+            return {"outcome": "trail", "r": _r(float(close[i])),
+                    "bars": i - entry_idx, **extra}
+        # 3. Ratchet for the NEXT bar, from information through bar i.
+        if model == "atr_trail":
+            extreme = min(extreme, low[i]) if short else max(extreme, high[i])
+            a = ser["atr"][i]
+            if not np.isnan(a):
+                cand = extreme + param * a if short else extreme - param * a
+                live = min(live, cand) if short else max(live, cand)
     timed_out = time_stop is not None and (end - entry_idx) >= horizon
     return {"outcome": "time" if timed_out else "open",
-            "r": (exit_px - entry - cost) / risk, "bars": end - entry_idx}
+            "r": _r(float(close[end])), "bars": end - entry_idx, **extra}
+
+
+def absolute_move(df: pd.DataFrame, entry_idx: int, horizon: int,
+                  cost_model: CostModel | None = None) -> float | None:
+    """|forward move| over ``horizon`` bars, in percent, net of a round trip.
+
+    The measurement a BILATERAL pattern needs (B-102, for B-101's symmetrical
+    triangle). A coil claims no direction, so a directional edge near zero is
+    what it SHOULD produce and grading it on one says nothing about whether the
+    detector works. What a coil DOES claim is expansion: that price is about to
+    leave a range it has been compressing inside. That claim is directionless,
+    and this is its unit.
+
+    Entry is the NEXT bar's open, exit the close ``horizon`` bars later — the
+    same timing every other signal in this file uses, so a coil and a breakout
+    are measured on the same clock. Costs are subtracted from the absolute move
+    rather than added to it: a move has to beat the round trip to be worth
+    anything, whichever way it went. The caller applies this identically to
+    signal and baseline bars, which is what keeps the comparison fair.
+    """
+    close = df["close"].to_numpy(dtype=float)
+    openp = (df["open"].to_numpy(dtype=float) if "open" in df.columns else close)
+    t = entry_idx
+    if t + 1 + horizon > len(close) - 1:
+        return None
+    entry = float(openp[t + 1])
+    if entry <= 0:
+        return None
+    exit_px = float(close[t + 1 + horizon])
+    cm = cost_model or COST_GROSS
+    return abs((exit_px / entry - 1.0) * 100.0) - cm.round_trip_pct(entry, exit_px)
 
 
 def _resolve_cost(cost_bps: float = 0,
@@ -212,6 +463,11 @@ def backtest_scanner(scanner_name: str,
                      benchmark_df: "pd.DataFrame | None" = None,
                      cost_bps: float = 0,
                      cost_model: CostModel | None = None,
+                     signal_mode: str = "all",
+                     exit_model: str | None = None,
+                     fill_model: str = "assumed",
+                     honor_time_stop: bool = True,
+                     keep_trades: bool = False,
                      _record_frac: "tuple[float, float] | None" = None) -> dict:
     """Replay ``scanner_name`` over ``symbols`` and return aggregate metrics.
 
@@ -219,7 +475,33 @@ def backtest_scanner(scanner_name: str,
     delivery costs, ``FlatCost(bps)`` for a flat haircut).  Overrides ``cost_bps``
     when given.  Costs are applied to BOTH signal and baseline returns so the
     edge comparison is fair.
+
+    ``signal_mode`` — ``all`` (every bar the scanner returns a hit, de-duplicated
+    by ``min_gap``) or ``fresh`` (only the bar a hit APPEARS, i.e. the previous
+    evaluated bar had none). **The default stays ``all`` on purpose**: every
+    number this desk has published came through that path, and flipping the
+    default would silently redefine 44 verdicts rather than re-measure them.
+    The mode is reported in the result so no figure is ever quoted without it
+    (B-120).
     """
+    if signal_mode not in ("all", "fresh"):
+        raise ValueError(f"signal_mode must be 'all' or 'fresh', got {signal_mode!r}")
+    _em, _ep = parse_exit_model(exit_model)          # raises on a typo, up front
+    exit_tag = "fixed" if _em == "fixed" else f"{_em}:{_ep:g}"
+    if fill_model not in FILL_MODELS:              # same: fail before the work
+        raise ValueError(f"fill_model must be one of {FILL_MODELS}, got {fill_model!r}")
+    n_unfilled = 0          # orders that never traded -- not trades, not dropped
+    n_fill_through = 0      # filled at or beyond the stop: no risk left to measure
+    n_fill_past_target = 0  # filled at or beyond the target: nothing left to make
+    n_not_actionable = 0    # plans on cards that declare themselves not a trade (B-128)
+    slip_pct: list[float] = []   # adverse gap between the card's entry and the fill
+    # B-124 hooks. `keep_trades` returns every simulated trade keyed by
+    # (symbol, signal bar) so two exit arms can be PAIRED on identical entries
+    # and clustered by symbol. `honor_time_stop=False` lets a moving-stop arm run
+    # to the measurement horizon instead of the card's own time stop -- the
+    # B-123 smoke showed the card's time stop ending 26-39 of 127 trades under
+    # every trail, capping exactly the tail a trail is for.
+    trades: list[dict] = []
     spec = sc.SCANNERS.get(scanner_name)
     if spec is None:
         return {"error": f"unknown scanner '{scanner_name}'"}
@@ -253,7 +535,19 @@ def backtest_scanner(scanner_name: str,
             continue
         if df is None or df.empty:
             continue
+        # Keep the DATES before the reset throws them away. Every scanner here
+        # works in bar offsets, so the positional index is what the rest of this
+        # loop needs — but the market model joins to the benchmark BY DATE, and
+        # after `reset_index(drop=True)` there are no dates left to join on.
+        # The guard below used to read `hasattr(df.index, "date")`, which is
+        # False for the RangeIndex this line produces, so the whole alpha/beta
+        # block was unreachable: `alpha_avg` and `alpha_ttest` came back None on
+        # every run, including the five dashboard call sites that pass a
+        # benchmark. Nothing errored and nothing said so (B-104).
+        _dates = df.index if isinstance(df.index, pd.DatetimeIndex) else None
         df = df.dropna(subset=["high", "low", "close", "volume"]).reset_index(drop=True)
+        if _dates is not None and len(_dates) != len(df):
+            _dates = None          # NaN rows were dropped; the alignment is gone
         n = len(df)
         if n < warmup + max_h + 2:
             continue
@@ -290,6 +584,7 @@ def backtest_scanner(scanner_name: str,
         # Signals: walk the record window, feed point-in-time slices.
         # Scanner sees df.iloc[:t+1] (full lookback); only the record range counts.
         t = rec_start
+        prev_hit = False            # B-120: was the PREVIOUS evaluated bar a hit?
         while t < rec_end and t <= last_eval:
             if stride > 1 and (t - warmup) % stride != 0:
                 t += 1
@@ -299,8 +594,24 @@ def backtest_scanner(scanner_name: str,
             except Exception:
                 hit = None
             if not hit:
+                prev_hit = False
                 t += 1
                 continue
+
+            # B-120 — a persisting STATE is not a new signal every bar. Most
+            # detectors here describe a condition that stays true for a while:
+            # `scan_flag_pole` fires on runs of ~4 consecutive bars (longest
+            # measured 8), so "all" mode enters the same breakout four times at
+            # four different prices. That is defensible for an EDGE question
+            # ("do bars in this state outperform?") and indefensible for a PLAN
+            # question ("was the stated target reachable from the stated
+            # entry?") — which is why every study that cared wrote its own
+            # freshness rule (flag_pole_edge, bilateral_expansion, sbc_reading).
+            if signal_mode == "fresh" and prev_hit:
+                prev_hit = True
+                t += 1
+                continue
+            prev_hit = True
 
             n_signals += 1
             entry_idx = t + 1
@@ -308,13 +619,14 @@ def backtest_scanner(scanner_name: str,
             if entry_b > 0:
                 # ── market-model beta from the 60-bar pre-signal window ──────
                 _beta: float | None = None
-                if bench_close is not None and hasattr(df.index, "date"):
+                if bench_close is not None and _dates is not None:
                     try:
-                        _sym_px = df["close"].iloc[max(0, t - 60): t + 1]
+                        _lo = max(0, t - 60)
+                        _sym_px = pd.Series(close[_lo: t + 1], index=_dates[_lo: t + 1])
                         _sym_r = _sym_px.pct_change().dropna()
                         # Align benchmark returns to the same dates
                         _b_px = bench_close.reindex(_sym_r.index, method="nearest",
-                                                     tolerance=pd.Timedelta("2d"))
+                                                     tolerance=pd.Timedelta("2D"))
                         _b_r = _b_px.pct_change().dropna()
                         _both = pd.concat([_sym_r, _b_r], axis=1).dropna()
                         if len(_both) >= 20:
@@ -332,10 +644,10 @@ def backtest_scanner(scanner_name: str,
                     sig_ret[h].append(sr)
 
                     # Market return for the same forward window (by date index)
-                    if bench_close is not None and hasattr(df.index, "date"):
+                    if bench_close is not None and _dates is not None:
                         try:
-                            _entry_date = df.index[entry_idx]
-                            _exit_date = df.index[min(entry_idx + h, len(df) - 1)]
+                            _entry_date = _dates[entry_idx]
+                            _exit_date = _dates[min(entry_idx + h, len(df) - 1)]
                             _b_entry = float(bench_close.asof(_entry_date))
                             _b_exit = float(bench_close.asof(_exit_date))
                             _mr = (_b_exit / _b_entry - 1.0) * 100.0
@@ -355,26 +667,92 @@ def backtest_scanner(scanner_name: str,
                 stop_p = _to_float(hit.get("stop"))
                 tgt = hit.get("target")
                 tgt_p = _to_float(tgt[0] if isinstance(tgt, (list, tuple)) and tgt else tgt)
-                if entry_p and stop_p and tgt_p:
+                if entry_p and stop_p and tgt_p and hit.get("actionable") is False:
+                    # B-128. The card says its state is not a trade -- a flag not
+                    # yet broken, a wedge still forming. Its SIGNAL return above
+                    # stays measured (that is the pattern); its PLAN is counted
+                    # and never simulated. Before this, Flag & Pole's plan R was
+                    # -0.43 with WATCH cards traded and +0.26 without them.
+                    n_not_actionable += 1
+                elif entry_p and stop_p and tgt_p:
                     n_plans += 1
-                    r = _simulate_plan(df, entry_idx, entry_p, stop_p, tgt_p,
-                                       max_h, _to_float(hit.get("time_stop")),
-                                       cost_model=cm)
+                    # The SIDE is read off the plan's own geometry (B-102). A stop
+                    # ABOVE the entry is a short — there is no other way to read
+                    # it — so a bearish scanner's plans are now simulated instead
+                    # of counted as unsimulatable. Inferring from the levels beats
+                    # trusting a `direction` key most cards do not carry.
+                    _side = "short" if stop_p > entry_p else "long"
+                    fill = resolve_fill(df, t, entry_p, _side, fill_model)
+                    if fill["status"] != "filled":
+                        n_unfilled += 1
+                        t += 1 if signal_mode == "fresh" else min_gap
+                        continue
+                    f_idx, f_px = fill["idx"], fill["px"]
+                    through = (f_px >= stop_p) if _side == "short" else (f_px <= stop_p)
+                    # Filled already PAST the target: the move the card projected
+                    # happened before the order did. Scoring it would book a
+                    # "target hit" at a price worse than the fill -- a loss with a
+                    # winner's label (B-124). Counted beside fill-through-stop.
+                    past_tgt = (f_px <= tgt_p) if _side == "short" else (f_px >= tgt_p)
+                    if past_tgt and not through:
+                        n_fill_past_target += 1
+                        t += 1 if signal_mode == "fresh" else min_gap
+                        continue
+                    if through:
+                        n_fill_through += 1
+                        t += 1 if signal_mode == "fresh" else min_gap
+                        continue
+                    slip_pct.append(((f_px - entry_p) if _side == "long"
+                                     else (entry_p - f_px)) / entry_p * 100.0)
+                    _ts = _to_float(hit.get("time_stop"))
+                    if not honor_time_stop and _em != "fixed":
+                        _ts = None
+                    r = _simulate_plan(df, f_idx, f_px, stop_p, tgt_p,
+                                       max_h, _ts,
+                                       cost_model=cm, side=_side,
+                                       exit_model=exit_model)
                     if r:
                         r_results.append(r)
+                        if keep_trades:
+                            trades.append({"symbol": sym, "t": int(t),
+                                           "side": _side, **r})
                     else:
-                        # Long-only simulator: short-side and degenerate plans are
-                        # counted, not dropped, so the report can say how much of
-                        # the plan coverage it could actually measure.
+                        # Degenerate plans (zero risk) are counted, not dropped,
+                        # so the report can say how much of the plan coverage it
+                        # could actually measure.
                         n_plans_unsimulated += 1
 
-            t += min_gap        # de-dup: skip ahead after a recorded signal
+            # In "all" mode min_gap IS the de-duplication. In "fresh" mode the
+            # transition rule already did it, and skipping ahead would throw
+            # away a genuine new break that happens within min_gap bars.
+            t += 1 if signal_mode == "fresh" else min_gap
 
-    return _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list,
-                      r_results, n_signals, n_symbols_used, total_bars,
-                      n_plans, n_plans_unsimulated,
-                      mkt_ret=mkt_ret, alpha_ret=alpha_ret,
-                      cost_model=cm)
+    out = _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list,
+                     r_results, n_signals, n_symbols_used, total_bars,
+                     n_plans, n_plans_unsimulated,
+                     mkt_ret=mkt_ret, alpha_ret=alpha_ret,
+                     cost_model=cm)
+    out["signal_mode"] = signal_mode
+    out["exit_model"] = exit_tag
+    out["fill_model"] = fill_model
+    out["honor_time_stop"] = bool(honor_time_stop)
+    if keep_trades:
+        out["trades"] = trades
+    rb = out.get("r_metrics")
+    if (isinstance(rb, dict) or n_unfilled or n_fill_through or n_fill_past_target
+            or n_not_actionable):
+        rb = rb if isinstance(rb, dict) else {"n_with_plan": 0,
+                                              "plans_seen": int(n_plans)}
+        # Counted, never dropped: a fill model that silently shrank the sample
+        # would look like a cleaner result rather than a smaller one.
+        rb["plans_unfilled"] = int(n_unfilled)
+        rb["plans_fill_through_stop"] = int(n_fill_through)
+        rb["plans_fill_past_target"] = int(n_fill_past_target)
+        rb["plans_not_actionable"] = int(n_not_actionable)
+        rb["avg_slippage_pct"] = (round(float(np.mean(slip_pct)), 3)
+                                  if slip_pct else None)
+        out["r_metrics"] = rb
+    return out
 
 
 def walk_forward_scanner(scanner_name: str,
@@ -484,11 +862,33 @@ def walk_forward_scanner(scanner_name: str,
     else:
         verdict = "UNSTABLE — edge sign inconsistent at every horizon"
 
+    # B-116 — carry the TRADE PLAN's own scoreboard out of the walk-forward path.
+    # `_aggregate` has always built this per window (target_hits, stop_hits,
+    # win_rate, avg_R, expectancy_R) and `format_report` has always printed it,
+    # but `walk_forward_scanner` dropped it on the floor — so the B-19 batch,
+    # which runs through here, computed target-vs-stop for 44 scanners and threw
+    # it away 44 times. Every saved verdict in cache/b19_verdicts/ shows edges
+    # and stability and not one R line.
+    #
+    # Pooled by SUMMING counts rather than averaging rates: three windows with
+    # 4, 40 and 400 plans are not three equal opinions about a hit rate.
+    # `_aggregate` stores it under "r_metrics". Reading "r_block" here (the
+    # local variable's name inside `_aggregate`) silently pooled nothing and the
+    # report printed no line at all — a wrong key that looks exactly like "this
+    # scanner has no plans". The end-to-end test exists because of it.
+    plans = _pool_r_blocks([w.get("r_metrics") for w in windows])
+
     return {
         "scanner": scanner_name,
         "n_windows": n_windows,
         "windows": windows,
         "pooled": pooled,
+        "plans": plans,
+        # Reported, never assumed: a hit rate from "all" and one from "fresh"
+        # answer different questions, so the number never travels without it.
+        "signal_mode": (windows[0].get("signal_mode", "all") if windows else "all"),
+        "exit_model": (windows[0].get("exit_model", "fixed") if windows else "fixed"),
+        "fill_model": (windows[0].get("fill_model", "assumed") if windows else "assumed"),
         "stability": {
             "per_horizon": stability_per_h,
             "all_stable": all_stable,
@@ -504,12 +904,78 @@ def walk_forward_scanner(scanner_name: str,
     }
 
 
+def _pool_r_blocks(blocks: "list[dict | None]") -> dict | None:
+    """Sum the per-window plan scoreboards into one, or None when there are none.
+
+    Counts sum; rates are recomputed from the sums. Averaging three windows'
+    win rates would give a 4-plan window the same say as a 400-plan one, which
+    is the error this function exists to not make.
+    """
+    # Unfilled / fill-through counts come from EVERY window (B-121): a window
+    # where no order filled has n_with_plan 0 and is dropped below, and its
+    # unfilled orders would otherwise vanish with it.
+    raw = [b for b in blocks if b]
+    unf = sum(int(b.get("plans_unfilled") or 0) for b in raw)
+    fth = sum(int(b.get("plans_fill_through_stop") or 0) for b in raw)
+    fpt = sum(int(b.get("plans_fill_past_target") or 0) for b in raw)
+    nna = sum(int(b.get("plans_not_actionable") or 0) for b in raw)
+    blocks = [b for b in raw if int(b.get("n_with_plan") or 0) > 0]
+    if not blocks:
+        # This used to read `seen = 0 ... if seen else None` -- always None, so a
+        # run where plans were SEEN but none simulated (or, since B-121, none
+        # FILLED) pooled to nothing and the report printed no plan line at all.
+        seen = sum(int(b.get("plans_seen") or 0) for b in raw)
+        if not (seen or unf or fth or nna):
+            return None
+        return {"n_with_plan": 0, "plans_seen": seen,
+                "plans_unfilled": unf, "plans_fill_through_stop": fth,
+                "plans_fill_past_target": fpt,
+                "plans_not_actionable": nna,
+                "plans_unsimulated": sum(int(b.get("plans_unsimulated") or 0)
+                                         for b in raw)}
+    n = sum(int(b["n_with_plan"]) for b in blocks)
+    tgt = sum(int(b.get("target_hits") or 0) for b in blocks)
+    stp = sum(int(b.get("stop_hits") or 0) for b in blocks)
+    opn = sum(int(b.get("open_exits") or 0) for b in blocks)
+    tme = sum(int(b.get("time_exits") or 0) for b in blocks)
+    trl = sum(int(b.get("trail_exits") or 0) for b in blocks)
+    # positive_rate is stored in PERCENT per window; pool it by plan count.
+    pos = sum(float(b.get("positive_rate") or 0.0) / 100.0 * int(b["n_with_plan"])
+              for b in blocks)
+    # avg_R weighted by the plans behind it, for the same reason.
+    tot_r = sum(float(b.get("avg_R") or 0.0) * int(b["n_with_plan"]) for b in blocks)
+    return {
+        "n_with_plan": n,
+        "target_hits": tgt, "stop_hits": stp,
+        "open_exits": opn, "time_exits": tme, "trail_exits": trl,
+        "plans_unfilled": unf, "plans_fill_through_stop": fth,
+        "plans_fill_past_target": fpt,
+        "plans_not_actionable": nna,
+        "positive_rate": round(pos / n, 3),
+        "target_rate": round(tgt / n, 3),
+        "stop_rate": round(stp / n, 3),
+        "win_rate": round(tgt / n, 3),
+        "avg_R": round(tot_r / n, 3),
+        "plans_seen": sum(int(b.get("plans_seen") or 0) for b in blocks),
+        "plans_unsimulated": sum(int(b.get("plans_unsimulated") or 0) for b in blocks),
+    }
+
+
 def format_walk_forward(result: dict) -> str:
     """Human-readable report for walk_forward_scanner."""
     lines = []
     cost_note = result.get("cost_label", "GROSS")
+    mode = result.get("signal_mode", "all")
     lines.append(f"=== Walk-Forward: {result['scanner']} "
-                 f"({result['n_windows']} windows, {cost_note}) ===")
+                 f"({result['n_windows']} windows, {cost_note}, "
+                 f"signals={mode}, exit={result.get('exit_model', 'fixed')}, "
+                 f"fill={result.get('fill_model', 'assumed')}) ===")
+    if result.get("exit_model", "fixed") != "fixed":
+        lines.append(f"exit: {result['exit_model']} -- a MOVING stop, target "
+                     "dropped; plan R is not comparable to a fixed-exit run (B-123)")
+    if mode == "fresh":
+        lines.append("signals: FRESH only — a state that persists counts ONCE, "
+                     "on the bar it appears (B-120)")
     lines.append("")
 
     horizons = list(result["pooled"]["horizons"].keys())
@@ -548,6 +1014,35 @@ def format_walk_forward(result: dict) -> str:
         lines.append(f"degradation @{deg['ref_horizon']}d: "
                      f"pooled {deg['pooled_edge']:+.2f} vs best-window "
                      f"{deg['best_window_edge']:+.2f} (gap {deg['gap']:+.2f})")
+
+    # The plan's own scoreboard. An edge says the SIGNAL preceded a move; this
+    # says whether the TARGET the card prints was reachable before the stop —
+    # a different claim, and the one a reader acts on (B-116).
+    pl = result.get("plans") or {}
+    if pl.get("n_with_plan"):
+        lines.append("")
+        lines.append(
+            f"plan (target vs stop): {pl['n_with_plan']} simulated · "
+            f"target {pl['target_rate']:.1%} · stop {pl['stop_rate']:.1%} · "
+            f"open {pl['open_exits']} · timed out {pl['time_exits']} · "
+            + (f"trailed out {pl['trail_exits']} · " if pl.get("trail_exits") else "")
+            + f"R>0 {pl.get('positive_rate', 0):.1%} · "
+            f"avg {pl['avg_R']:+.2f}R")
+        if pl.get("plans_not_actionable"):
+            lines.append(f"  ({pl['plans_not_actionable']} plans on WATCH / forming "
+                         f"cards -- counted, not traded; B-128)")
+        if pl.get("plans_unfilled") or pl.get("plans_fill_through_stop"):
+            lines.append(f"  ({pl.get('plans_unfilled', 0)} orders never filled, "
+                         f"{pl.get('plans_fill_through_stop', 0)} filled through "
+                         f"the stop -- counted, not simulated; B-121)")
+        if pl.get("plans_unsimulated"):
+            lines.append(f"  ({pl['plans_unsimulated']} plans could not be "
+                         f"simulated — degenerate levels)")
+    elif pl.get("plans_seen"):
+        lines.append("")
+        lines.append(f"plan: {pl['plans_seen']} seen, none simulatable"
+                     + (f" ({pl['plans_unfilled']} never filled)"
+                        if pl.get("plans_unfilled") else ""))
 
     lines.append(f"  (* = p<0.05 two-tailed)")
     return "\n".join(lines)
@@ -671,6 +1166,15 @@ def _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list, r_results,
             "stop_hits": int(np.sum([x["outcome"] == "stop" for x in r_results])),
             "open_exits": int(np.sum([x["outcome"] == "open" for x in r_results])),
             "time_exits": int(np.sum([x["outcome"] == "time" for x in r_results])),
+            # B-123. A moving stop closes trades as "trail", which none of the
+            # four counts above sees -- without this key those exits silently
+            # vanish from the tallies. And under a trail there IS no target, so
+            # win_rate (= target hit) reads 0% by construction; `positive_rate`
+            # (R > 0) is the win rate that means the same thing under every
+            # exit model, and `r_p90` is the right tail a trail exists to fatten.
+            "trail_exits": int(np.sum([x["outcome"] == "trail" for x in r_results])),
+            "positive_rate": round(float(np.mean(rs > 0) * 100), 1),
+            "r_p90": round(float(np.percentile(rs, 90)), 2),
             # Plan coverage. Without these two a scanner whose plans are all
             # short-side would report an empty R block indistinguishable from one
             # that emits no plans at all.
@@ -742,7 +1246,9 @@ def format_report(result: dict) -> str:
         lines.append(f"trade-plan R: n={r['n_with_plan']} win%={r['win_rate']} "
                      f"expectancy={r['expectancy_R']}R "
                      f"(target={r['target_hits']}/stop={r['stop_hits']}"
-                     f"/time={r.get('time_exits', 0)}/open={r['open_exits']})")
+                     f"/time={r.get('time_exits', 0)}/open={r['open_exits']}"
+                     + (f"/trail={r['trail_exits']}" if r.get("trail_exits") else "")
+                     + ")")
         # Plan coverage. A scanner can emit plans on every signal and still have
         # half of them unsimulatable (short-side); quoting the expectancy without
         # saying what fraction it was measured on is the partial-result habit.

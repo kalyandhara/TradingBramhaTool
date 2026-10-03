@@ -198,5 +198,5 @@ None found. These scanners are additive to existing [[strategies/FIPA-Quality-Mo
 ---
 
 ## Pages Updated
-- [[wiki/log.md]]
-- [[wiki/index.md]]
+- [[log]]
+- [[index]]
