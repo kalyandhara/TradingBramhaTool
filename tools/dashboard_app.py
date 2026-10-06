@@ -7334,6 +7334,16 @@ if current_page == "Portfolio":
                                  notes=p_notes)
                 st.success(f"Added {p_symbol}.")
 
+    import equity_curve as _ec      # B-110: drawdown, recorded or reconstructed
+    try:
+        _dd_html, _dd_caps = _ec.portfolio_strip(
+            db, lambda s: cached_fetch_ohlcv(s, days=1500, enforce_liquidity=False))
+    except Exception as _e:         # a card must not take the tracker down with it
+        _dd_html, _dd_caps = "", [f"Drawdown unavailable — {type(_e).__name__}: {_e}"]
+    st.markdown(_dd_html, unsafe_allow_html=True)
+    for _c in _dd_caps:
+        st.caption(_c)
+
     open_pos = db.get_open_positions()
     if open_pos.empty:
         st.info("No open positions.")

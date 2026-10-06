@@ -1155,4 +1155,67 @@ def get_hidden_treasures_history(symbol: str) -> pd.DataFrame:
         conn.close()
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# Equity snapshots (B-110) — the RECORDED half of the equity curve.
+# One row per trading day, written after the close by equity_snapshot.py.
+# `capital` is stored per row because the total_capital setting has no history
+# of its own; without it a withdrawal reads as a drawdown. See equity_curve.py.
+# ──────────────────────────────────────────────────────────────────────────────
+
+def _ensure_equity_snapshots_table(conn: sqlite3.Connection) -> None:
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS equity_snapshots (
+            date        TEXT PRIMARY KEY,
+            equity      REAL NOT NULL,
+            capital     REAL NOT NULL,
+            deployed    REAL,
+            realised    REAL,
+            unrealised  REAL,
+            open_risk   REAL,
+            n_open      INTEGER,
+            unpriced    INTEGER NOT NULL DEFAULT 0,
+            created_at  TEXT NOT NULL
+        );
+    """)
+
+
+def save_equity_snapshot(row: dict) -> None:
+    """Upsert one day's snapshot. A re-run on the same date replaces it."""
+    conn = get_connection()
+    try:
+        _ensure_equity_snapshots_table(conn)
+        conn.execute(
+            "INSERT OR REPLACE INTO equity_snapshots (date, equity, capital,"
+            " deployed, realised, unrealised, open_risk, n_open, unpriced,"
+            " created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (row["date"], float(row["equity"]), float(row["capital"]),
+             row.get("deployed"), row.get("realised"), row.get("unrealised"),
+             row.get("open_risk"), int(row.get("n_open") or 0),
+             int(row.get("unpriced") or 0),
+             datetime.now().isoformat(timespec="seconds")))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_equity_snapshots() -> pd.DataFrame:
+    conn = get_connection()
+    try:
+        _ensure_equity_snapshots_table(conn)
+        return pd.read_sql_query(
+            "SELECT * FROM equity_snapshots ORDER BY date", conn)
+    finally:
+        conn.close()
+
+
+def get_all_positions() -> pd.DataFrame:
+    """Open AND closed positions — the input to the equity reconstruction."""
+    conn = get_connection()
+    try:
+        return pd.read_sql_query(
+            "SELECT * FROM positions ORDER BY entry_date", conn)
+    finally:
+        conn.close()
+
+
 init_db()

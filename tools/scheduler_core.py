@@ -132,6 +132,19 @@ JOBS: dict[str, JobSpec] = {
         command=f'"{PYTHON_EXE}" "{HERE / "snapshot_refresh.py"}" --all',
         default_time="16:30",
     ),
+    "equity_snapshot": JobSpec(
+        id="equity_snapshot",
+        label="Portfolio Equity Snapshot",
+        desc="Writes one row per trading day to equity_snapshots: equity "
+             "(capital + realised + unrealised P&L), capital, deployed and open "
+             "risk, dated by the last priced bar. This is the RECORDED half of "
+             "the Portfolio page's drawdown (B-110); before it has run, the "
+             "drawdown is a reconstruction from the positions table. Seconds.",
+        task_name="TradingBramha-EquitySnapshot",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "equity_snapshot.py"}"',
+        default_time="16:10",
+    ),
     "hidden_treasures_daily": JobSpec(
         id="hidden_treasures_daily",
         label="Hidden Treasures Discovery",
