@@ -79,7 +79,7 @@ class TradingDashboard:
             port: Port to run dashboard on
             debug: Enable debug mode
         """
-        self.app = dash.Dash(__name__)
+        self.app = dash.Dash(__name__, title='Trading Bramha Dashboard')
         self.port = port
         self.debug = debug
 
@@ -100,7 +100,7 @@ class TradingDashboard:
         self.app.layout = html.Div([
             # Header
             html.Div([
-                html.H1('Trading Bramha — Interactive Dashboard',
+                html.H1('Trading Bramha Dashboard',
                         style={'textAlign': 'center', 'color': '#2c3e50', 'marginBottom': 30}),
                 html.P('Real-time trading analysis with astrology, signals, and financial indicators',
                        style={'textAlign': 'center', 'color': '#7f8c8d', 'fontSize': 14}),
@@ -155,8 +155,11 @@ class TradingDashboard:
                     html.Label('Select City:'),
                     dcc.Dropdown(
                         id='astro-city-select',
+                        # `at` is only bound when the module import succeeded;
+                        # fall back to a bare default so the app still starts.
                         options=[{'label': city, 'value': city}
-                                for city in list(at.AstroIndicators.CITIES.keys())],
+                                for city in (list(at.AstroIndicators.CITIES.keys())
+                                             if HAS_MODULES else ['Mumbai'])],
                         value='Mumbai'
                     )
                 ], style={'width': '30%', 'display': 'inline-block', 'marginRight': '10%'}),
@@ -493,7 +496,9 @@ class TradingDashboard:
 
                 for i in range(30):
                     d_temp = d + timedelta(days=i)
-                    dates_list.append(d_temp.strftime('%m-%d'))
+                    # real date objects: a '%m-%d' string gets parsed by Plotly
+                    # as a YY-MM date and lands the axis in 2010
+                    dates_list.append(d_temp)
                     lunar = astro.get_lunar_phase(d_temp)
                     illumination_list.append(lunar['illumination'])
                     timing_temp = astro.get_trading_timing(d_temp)
