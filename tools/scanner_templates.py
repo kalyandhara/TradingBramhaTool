@@ -9570,8 +9570,10 @@ SCANNERS: dict[str, dict] = {
             "Crab) completing at D within the last 10 bars, filtered to R:R ≥ 1.5 "
             "to T2. Trade plan: entry at D, stop beyond the lower of X and D, "
             "targets at 0.382 / 0.618 / 1.0 of AD. MEASURED WEAK (B-129, "
-            "2026-09-23): bullish-only +1.07% @20d but unstable across windows; "
-            "bearish patterns dropped because their short thesis failed."
+            "2026-09-23; re-measured 2026-10-05 with AB=CD, 300 names, fresh, "
+            "next-open fill): +0.55% @20d over 2,389 signals but not stable "
+            "across windows, and the plan is -0.18R. Bearish patterns dropped "
+            "because their short thesis failed."
         ),
         "category": "Pattern",
     },

@@ -462,6 +462,10 @@ MEASURED_WEAK_SCANNERS: tuple[str, ...] = (
     # scored long) with an unstable long one (bullish-only +1.07%, positive in 2
     # of 3 windows at every horizon). Now bullish-only in the scanner, and 0.25
     # here until a bullish-only re-measure earns more.
+    # Re-measured 2026-10-05 (tools/harmonic_bull_remeasure.py, pre-registered;
+    # 300 names, fresh, next-open fill): STAYS WEAK. @20d +0.55% but window 2
+    # -0.03, and the plan is -0.18R. AB=CD carries the signal edge (clustered
+    # p=0.0066) and its D-0.5% stop gives it back (68% stopped) -- B-132.
     "Harmonic Reversal (XABCD)",
     "Order Block Retest",
     "RSI 60-40 Setup",
