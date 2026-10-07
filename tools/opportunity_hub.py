@@ -357,7 +357,10 @@ COVERED_SCANNERS: tuple[str, ...] = (
     "RSI 60-40 Setup",                  #  91 /  84
     "Triple-RS 52W Cross",              #  70 /  63 — 99% contained in 52-Week High Leaders
     "ATH Breakout (all-time high)",     #  67 /  45
-    "Consolidation Breakout (6M–10Y)",  #  17 /   8 — 100% contained in Pullback Entry
+    # "Consolidation Breakout (6M–10Y)" was here (17 / 8, 100% contained in Pullback
+    # Entry). Shown by default again 2026-10-06 at the user's request: it is the
+    # cookie-free replacement for the Chartink 5Y/10Y scans. The 1500-day count
+    # predates its full-history routing, so its 5Y/10Y tiers could not fire then.
     "IPO-Base Breakout",                #  14 /   6
     "Minervini VCP (valchak)",          #   3 /   4 — containment is structural: its Trend
                                         #             Template gate tests what Stage 2 does

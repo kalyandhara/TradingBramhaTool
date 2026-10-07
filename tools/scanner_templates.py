@@ -1540,6 +1540,25 @@ def scan_10y_breakout(df: pd.DataFrame) -> dict | None:
     return _consolidation_breakout(df, lookback=2520, label="10-Year", max_range_pct=200)
 
 
+def scan_3y_breakout(df: pd.DataFrame) -> dict | None:
+    """3-year high breakout — the tier the Chartink page offered and this engine
+    lacked. The 65% range gate is INTERPOLATED between the 1Y (50%) and 5Y (80%)
+    gates, not measured. Breakout Scans page only: deliberately NOT a tier of
+    `scan_all_duration_breakout`, so the hub/pipeline scanner is unchanged."""
+    return _consolidation_breakout(df, lookback=756, label="3-Year", max_range_pct=65)
+
+
+#: Duration tiers for the Breakout Scans page, longest first.
+#: (sessions, label, scanner).
+BREAKOUT_TIERS = (
+    (2520, "10-Year", scan_10y_breakout),
+    (1260, "5-Year",  scan_5y_breakout),
+    (756,  "3-Year",  scan_3y_breakout),
+    (252,  "1-Year",  scan_1y_breakout),
+    (126,  "6-Month", scan_6m_consolidation_breakout),
+)
+
+
 def scan_all_duration_breakout(df: pd.DataFrame) -> dict | None:
     """Every consolidation-breakout duration in a single pass.
 
@@ -2054,6 +2073,25 @@ def compute_pre_breakout_conviction(df: pd.DataFrame) -> dict | None:
         "rsi": round(rsi, 1) if rsi is not None else None,
         "reasons": reasons,
     }
+
+
+def pre_breakout_gate(df: pd.DataFrame) -> bool:
+    """The Chartink "Pre-Breakout Setup (1-2 Day)" clause, evaluated locally so
+    the screener needs no Chartink session. Same five gates, same numbers:
+    close > EMA50; close <= prior 20-day high and > 90% of it; 40 < RSI14 < 72;
+    volume < 1.3x its 20-day mean; volume > 50,000 shares.
+    """
+    if df is None or len(df) < 60:
+        return False
+    close, high, volume = df["close"], df["high"], df["volume"]
+    last, vol = float(close.iloc[-1]), float(volume.iloc[-1])
+    prior_high = float(high.iloc[-21:-1].max())
+    rsi = float(_rsi_series(close, 14).iloc[-1])
+    return (last > float(_ema_series(close, 50).iloc[-1])
+            and 0.90 * prior_high < last <= prior_high
+            and 40 < rsi < 72
+            and vol < 1.3 * float(volume.tail(20).mean())
+            and vol > 50_000)
 
 
 def compute_ibd_rs_blend(df: pd.DataFrame) -> float | None:
@@ -9377,6 +9415,11 @@ SCANNERS: dict[str, dict] = {
             "longest duration it cleared; results table sorts longest first."
         ),
         "category": "Pattern",
+        # The 1Y / 5Y / 10Y tiers need 257 / 1,265 / 2,525 bars. On the default
+        # ~300-bar window only the 6M tier could ever fire, so this scanner
+        # silently reported 6-month breakouts under a 6M–10Y label. It replaces
+        # the Chartink 5Y/10Y scans, so it gets the full listing history.
+        "needs_full_history": True,
     },
     "Flag & Pole": {
         "fn": _fp.scan_flag_pole,

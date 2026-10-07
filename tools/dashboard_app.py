@@ -80,6 +80,7 @@ import market_health as mh
 import report_style as rs
 import sector_card as scard
 import opportunity_report as orep
+import pa_report
 import pcr
 import price_levels as plv
 import rrg as rrg_mod
@@ -1055,7 +1056,7 @@ PAGE_BLURBS = {
     # 46 -- stale since whenever the 25th shipped, and sitting one hover away
     # from a Home tile that counts the registry correctly (B-79).
     "Scanner Hub":          f"{len(sc.SCANNERS)} pattern scanners, run on any universe",
-    "Breakout Scans":       "External new-high breakout feeds — Chartink or TradingView",
+    "Breakout Scans":       "New-high breakout feeds — yfinance 6M–10Y or TradingView",
     "High-Growth Screener": "Quality growth names on ROE / ROCE / OPM floors",
     "SVP Structure":        "Volume-profile structure — a bystander lens, not in the pipeline",
     "Market Sentiment":     "0–100 composite regime gauge, with coverage",
@@ -9637,6 +9638,102 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# PDF export for one Predictive Analysis ticker — every section of the page,
+# the expander contents included, gathered from what the page already computed
+# (or from the same cached fetchers) and laid out by pa_report.render_pdf.
+def _pa_pdf_model(sym, df, bench, rating, breakdown, fund, deep,
+                  bull, bear, card, intel, pm_df, size_note=None) -> dict:
+    close = df["close"].astype(float)
+    price = float(close.iloc[-1])
+    prev = float(close.iloc[-2]) if len(close) > 1 else price
+    win = close.tail(252)
+    lo52, hi52 = float(win.min()), float(win.max())
+    tail = close.tail(60)
+    sup = float(tail.min()) if len(tail) >= 20 and float(tail.min()) < price else None
+    res = float(tail.max()) if len(tail) >= 20 and float(tail.max()) > price else None
+
+    m: dict = {"symbol": sym, "as_of": str(df.index[-1])[:10],
+               "generated_at": datetime.now(), "regime": str(nifty_regime).upper(),
+               "long_name": (deep or {}).get("long_name"), "price": price,
+               "chg_pct": (price / prev - 1) * 100 if prev else None,
+               "rating": rating, "rating_breakdown": breakdown or {}, "df": df,
+               "bull": bull, "bear": bear, "card": card, "intel": intel,
+               "size_note": size_note, "deep": deep or {}}
+
+    try:
+        mv, conds = sp.score_minervini(df, nifty_df=bench)
+        m["summary"] = {"lo52": lo52, "hi52": hi52,
+                        "pct_from_high": (price / hi52 - 1) * 100 if hi52 else 0.0,
+                        "mv": mv, "stage": pa_report.stage_label(mv)[0],
+                        "conds": conds, "support": sup, "resistance": res,
+                        "patterns": db.get_symbol_patterns(sym) or []}
+    except Exception:
+        pass
+    try:
+        import money_flow as _mf
+        flow = pa_report.smart_money(df)
+        obv = _mf.obv(df).tail(60).values
+        flow["obv_trend"] = "rising" if float(obv[-1]) > float(obv[0]) else "falling"
+        flow["cmf"] = _mf.cmf(df, n=21)
+        m["flow"] = flow
+    except Exception:
+        pass
+    try:
+        import pattern_metrics as _pm
+        m["pattern_metrics"] = _pm.compute_all(pm_df, bench)
+    except Exception:
+        pass
+
+    f, d = fund or {}, deep or {}
+    d2e = f.get("debt_to_equity")
+    m["fundamentals"] = {
+        "statements": bool(d.get("available")),
+        "valuation": [
+            ("P / E", _q(f.get("pe"), "x") or "-"), ("P / B", _q(f.get("pb"), "x") or "-"),
+            ("D / E", "-" if d2e is None else f"{d2e / 100:,.2f}x"),
+            ("ROE", _q(f.get("roe"), "%") or "-"), ("ROCE", _q(d.get("roce"), "%") or "-"),
+            ("EPS TTM", _q(f.get("eps_ttm") if f.get("eps_ttm") is not None
+                           else d.get("eps_ttm")) or "-"),
+            ("Div yield", _q(f.get("dividend_yield"), "%") or "-"),
+            ("Mkt cap", _cr(f.get("market_cap")) or "-"),
+            ("Sector", f.get("sector") or "-")],
+        "growth": [
+            ("Rev CAGR 3Y", _q(d.get("revenue_cagr_3y"), "%") or "-"),
+            ("Profit CAGR 3Y", _q(d.get("profit_cagr_3y"), "%") or "-"),
+            ("Net margin", _q(d.get("net_margin"), "%") or "-"),
+            ("OPM", _q(d.get("opm"), "%") or "-"),
+            ("Free cash flow", _cr(d.get("fcf")) or "-"),
+            ("Debtor days", _q(d.get("debtor_days"), "d", 0) or "-")]
+        if d.get("available") else [],
+    }
+    try:
+        m["signals"] = fscore.score_all(fund, deep)
+    except Exception:
+        pass
+    try:
+        rsi_v = float(sc._rsi_series(close, 14).iloc[-1])
+        adx_v = float(sc._adx_di_series(df, 14)[0].iloc[-1])
+        rsi_v = rsi_v if np.isfinite(rsi_v) else None
+        adx_v = adx_v if np.isfinite(adx_v) else None
+        m["momentum"] = {
+            "rsi": rsi_v, "adx": adx_v,
+            "rsi_word": None if rsi_v is None else ("OVERSOLD" if rsi_v < 30 else
+                                                    "OVERBOUGHT" if rsi_v > 70 else "NEUTRAL"),
+            "adx_word": None if adx_v is None else ("NO TREND" if adx_v < 20 else
+                                                    "FORMING" if adx_v < 25 else "TRENDING")}
+    except Exception:
+        pass
+    for k, fn in (("red_flags", lambda: cached_red_flags(sym)),
+                  ("scenarios", lambda: scen.build(deep)),
+                  ("concalls", lambda: cached_concalls(sym))):
+        try:
+            m[k] = fn()
+        except Exception:
+            m[k] = None
+    return m
+
+
+# ──────────────────────────────────────────────────────────────────────────────
 # Predictive Analysis (Milestone 4) — the consolidated "should I take this
 # trade" surface. PURE COMPOSITION of shipped pieces: M1's Overall Rating
 # (ranked candidate rail from the last Scanner Hub run) + the Chart Tool iframe
@@ -9822,18 +9919,7 @@ if current_page == "Predictive Analysis":
                         _pa_spectrum = rs.range_spectrum(_pa_lo52, _pa_hi52, _pa_price, marks=_pa_marks)
                         _pa_pct_from_high = (_pa_price / _pa_hi52 - 1) * 100 if _pa_hi52 else 0
                         _pa_mv, _pa_conds = sp.score_minervini(pa_df, nifty_df=pa_bench)
-                        _pa_stage_label = (
-                            "Stage-2 ideal band" if _pa_mv >= 6 else
-                            "Stage-2 emerging" if _pa_mv >= 4 else
-                            "Stage-1 base" if _pa_mv >= 2 else
-                            "Stage-3/4 caution"
-                        )
-                        _pa_stage_color = (
-                            "#16a34a" if _pa_mv >= 6 else
-                            "#65a30d" if _pa_mv >= 4 else
-                            "#d97706" if _pa_mv >= 2 else
-                            "#dc2626"
-                        )
+                        _pa_stage_label, _pa_stage_color = pa_report.stage_label(_pa_mv)
                         _pa_cond_chips = "".join(
                             f'<span style="background:{"#dcfce7" if v else "#fef2f2"};'
                             f'color:{"#166534" if v else "#991b1b"};border-radius:4px;'
@@ -9867,34 +9953,10 @@ if current_page == "Predictive Analysis":
                 with _card_r:
                     try:
                         import money_flow as _mf
-                        _smf_df = pa_df.tail(60).copy()
-                        _smf_close = _smf_df["close"].values
-                        _smf_open = _smf_df["open"].values
-                        _smf_vol = _smf_df["volume"].values
-                        _smf_avg_vol = float(_smf_df["volume"].mean())
-                        _smf_bars = []
-                        _smf_acc, _smf_dist = 0, 0
-                        for i in range(len(_smf_df)):
-                            c, o, v = float(_smf_close[i]), float(_smf_open[i]), float(_smf_vol[i])
-                            if c > o and v > _smf_avg_vol:
-                                _smf_bars.append("#16a34a")
-                                _smf_acc += 1
-                            elif c < o and v > _smf_avg_vol:
-                                _smf_bars.append("#dc2626")
-                                _smf_dist += 1
-                            else:
-                                _smf_bars.append("#9ca3af")
-                        _smf_n = len(_smf_bars)
-                        if _smf_acc > _smf_dist * 1.5:
-                            _smf_verdict, _smf_vc = "Strong accumulation", "#16a34a"
-                        elif _smf_acc > _smf_dist:
-                            _smf_verdict, _smf_vc = "Mild accumulation", "#65a30d"
-                        elif _smf_dist > _smf_acc * 1.5:
-                            _smf_verdict, _smf_vc = "Strong distribution", "#dc2626"
-                        elif _smf_dist > _smf_acc:
-                            _smf_verdict, _smf_vc = "Mild distribution", "#ea580c"
-                        else:
-                            _smf_verdict, _smf_vc = "Neutral", "#6b7280"
+                        _smf = pa_report.smart_money(pa_df)
+                        _smf_bars, _smf_acc, _smf_dist = _smf["bars"], _smf["acc"], _smf["dist"]
+                        _smf_n = _smf["n"]
+                        _smf_verdict, _smf_vc = _smf["verdict"], _smf["color"]
                         _smf_bar_w = max(1, int(100 / max(_smf_n, 1)))
                         _smf_strip = "".join(
                             f'<div style="flex:1;height:32px;background:{c};'
@@ -10002,6 +10064,41 @@ if current_page == "Predictive Analysis":
                 if st.button("Add to Watchlist", key="pa_wl"):
                     db.add_watchlist_symbol(pa_sym, "From Predictive Analysis")
                     st.success(f"{pa_sym} added to watchlist.")
+
+                # ── PDF of the whole page, collapsed sections expanded ───
+                # Built on request, like the Opportunity Hub export:
+                # download_button needs the bytes up front, and most visits
+                # never export.
+                st.divider()
+                _pdf_c1, _pdf_c2 = st.columns([1, 3], vertical_alignment="center")
+                _pdf_c2.caption("One PDF of this page for this ticker — every "
+                                "collapsed section expanded, a static price chart "
+                                "in place of the Chart Tool. Text is selectable "
+                                "and searchable.")
+                if _pdf_c1.button(f"📄 Build PDF — {pa_sym}", key="pa_pdf_go",
+                                  width="stretch"):
+                    with st.spinner("Rendering the report…"):
+                        try:
+                            _pa_size = None
+                            if pa_card.size_pct is not None:
+                                _pa_size = prisk.size_note(prisk.reconcile_size(
+                                    pa_card.size_pct, verdict,
+                                    portfolio_summary.get("open_count", 0)))
+                            _pa_pdf = pa_report.render_pdf(_pa_pdf_model(
+                                pa_sym, pa_df, pa_bench, pa_rating, pa_bd,
+                                pa_fund, _pa_deep, pa_bull, pa_bear, pa_card,
+                                council.setup_intelligence(pa_bundle, pa_bull,
+                                                           pa_bear, pa_card),
+                                _pm_df, size_note=_pa_size))
+                        except Exception as exc:
+                            st.error(f"PDF render failed: {exc}")
+                            _pa_pdf = None
+                    if _pa_pdf:
+                        _pa_fn = pa_report.file_name(pa_sym)
+                        st.download_button(f"⬇ {_pa_fn}", _pa_pdf, file_name=_pa_fn,
+                                           mime="application/pdf", type="primary",
+                                           key="pa_pdf_dl")
+                        st.caption(f"{len(_pa_pdf) / 1024:.0f} KB")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10548,468 +10645,260 @@ if dpages.handles(current_page):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Breakout Scans · Chartink source  (live Chartink fetch across entire market)
+# Breakout Scans · yfinance source — replaced the Chartink feed 2026-10-06.
+# Chartink needed a `_chartink_session` cookie pasted by hand whenever it
+# expired. This runs the repo's own breakout engine on yfinance history over
+# the NSE-bhavcopy universe: no login, no cookie. Engine: breakout_scan.py.
 # ──────────────────────────────────────────────────────────────────────────────
-import chartink_scraper as ck
+import breakout_scan as bks
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _bks_frames(top_n: int, as_of: str) -> dict:
+    """Full yfinance history for the top-N bhavcopy names. Keyed on the date so
+    a new session forces a fresh download; cached six hours within a day."""
+    syms = cached_fetch_bhavcopy_universe(top_n)
+    return bks.download_history(list(syms), period="max")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Page — Breakout Scans (B-36r fold, 2026-08-27). Formerly two sibling nav pages
-# — "Breakout Screener" (Chartink) and "TradingView Screener" — collapsed into one
-# page with a source toggle. Same task (external new-high breakout feed), two
-# providers, so the split was structural redundancy, not two distinct tools. The
-# two bodies below are unchanged; they now guard on `bscan_src` instead of being
-# separate top-level pages. Invariant: both feeds stay reachable, nothing lost.
+# Page — Breakout Scans (B-36r fold, 2026-08-27). One page, two sources: the
+# yfinance engine (formerly Chartink) and the TradingView BrkoutGeek replica.
+# Invariant: both feeds stay reachable, nothing lost.
 # ──────────────────────────────────────────────────────────────────────────────
+_BKS_YF = "yfinance (no login)"
 if current_page == "Breakout Scans":
-    st.subheader("Breakout Scans — external new-high feeds")
-    st.caption(
-        "Two login-light breakout feeds, same idea (a stock clearing a prior high) "
-        "from different providers. Pick a source."
-    )
+    st.subheader("Breakout Scans — new-high breakout feeds")
+    st.caption("Two no-login breakout feeds, same idea (a stock clearing a prior "
+               "high) from different engines. Pick a source.")
+    if st.session_state.get("bscan_src") not in (_BKS_YF, "TradingView"):
+        st.session_state["bscan_src"] = _BKS_YF      # old "Chartink" value
     st.radio(
-        "Source",
-        ["Chartink", "TradingView"],
-        horizontal=True,
-        key="bscan_src",
-        help="Chartink: 6M–10Y consolidation breakouts (needs a session cookie). "
-             "TradingView: BrkoutGeek 1-month-high replica, no login.",
+        "Source", [_BKS_YF, "TradingView"], horizontal=True, key="bscan_src",
+        help="yfinance: 6M → 10Y consolidation breakouts on NSE-bhavcopy names, "
+             "computed here. TradingView: BrkoutGeek 1-month-high replica.",
     )
 
-if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chartink") == "Chartink":
-    st.markdown("**Chartink — 6M → 10Y consolidation breakouts**")
+if current_page == "Breakout Scans" and st.session_state.get("bscan_src") == _BKS_YF:
+    st.markdown("**6M → 10Y consolidation breakouts — yfinance history, no login**")
     st.caption(
-        "Runs directly against **chartink.com** across the entire cash market. "
-        "No stock list needed — Chartink scans every listed stock server-side. "
-        "Paste your `_chartink_session` cookie once; it lasts for months."
+        "Universe: the top names by traded value from today's **NSE bhavcopy**. "
+        "Bars: full **yfinance** daily history. Rules: the same consolidation-"
+        "breakout engine the Scanner Hub runs (close above the period high, above "
+        "EMA50, traded-value floor, and a per-duration range gate). Results differ "
+        "from Chartink on purpose — Chartink's clauses had no real consolidation "
+        "test — and cover the top-N liquid names rather than the whole market."
     )
 
-    # Colours come from rs.TOKENS, not literals. These were GitHub's dark-theme
-    # palette (#58a6ff / #3fb950 / #d29922 / #f0883e / #f85149) sitting on a
-    # cream dashboard — the same off-palette hard-coding backlog B-16 records for
-    # OI Momentum. The RAMP is deliberate and is the point: lookback lengthens
-    # 6M → 10Y, so the colour walks info → good → accent → risk, i.e. a longer
+    # Ramp walks info → good → accent → risk as the base lengthens: a longer
     # base is a rarer, heavier claim. Reading order, not decoration.
-    _CK_SCANNERS = {
-        "6M Consolidation Breakout": {"color": rs.TOKENS["info"],   "lookback": "6 months"},
-        "1Y All-Time Breakout":      {"color": rs.TOKENS["good"],   "lookback": "1 year"},
-        "3Y Breakout":               {"color": rs.TOKENS["accent"], "lookback": "3 years"},
-        "5Y Breakout":               {"color": "#c2410c",           "lookback": "5 years"},
-        "10Y Breakout":              {"color": rs.TOKENS["risk"],   "lookback": "10 years"},
-    }
+    _BKS_COLOR = {"6-Month": rs.TOKENS["info"], "1-Year": rs.TOKENS["good"],
+                  "3-Year": rs.TOKENS["accent"], "5-Year": "#c2410c",
+                  "10-Year": rs.TOKENS["risk"]}
+    _BKS_LABELS = [lab for _d, lab, _f in reversed(sc.BREAKOUT_TIERS)]
 
     bk_left, bk_main = st.columns([1, 3])
-
     with bk_left:
-        # ── Session cookie ─────────────────────────────────────────────────
-        st.markdown("**Chartink Session Cookie**")
-        st.caption(
-            "Open chartink.com → F12 → Application → Cookies → chartink.com "
-            "→ copy the value of `_chartink_session`."
-        )
-        ck_cookie = st.text_input(
-            "_chartink_session",
-            value=st.session_state.get("ck_cookie", ""),
-            type="password",
-            key="ck_cookie_input",
-            placeholder="paste cookie value here",
-        )
-        if ck_cookie:
-            st.session_state["ck_cookie"] = ck_cookie
+        bks_top = st.select_slider("Universe (top N by traded value)",
+                                   options=[200, 500, 1000, 2000], value=500,
+                                   key="bks_top",
+                                   help="First run downloads full history for "
+                                        "these names (~1–3 min for 500); "
+                                        "cached for six hours after.")
+        bks_tiers = st.multiselect("Durations", _BKS_LABELS,
+                                   default=["10-Year", "5-Year", "3-Year", "1-Year"],
+                                   key="bks_tiers")
+        st.caption("3-Year uses a 65% range gate interpolated between the 1Y and "
+                   "5Y gates — not measured.")
+        if st.button("▶ Run breakout scan", type="primary", key="bks_run",
+                     width="stretch"):
+            with st.spinner(f"Downloading history for the top {bks_top} NSE names "
+                            f"and scanning…"):
+                try:
+                    _fr = _bks_frames(int(bks_top), date.today().isoformat())
+                    st.session_state["bks_results"] = {
+                        "rows": bks.breakouts(_fr, bks_tiers),
+                        "n": len(_fr), "top": int(bks_top),
+                        "tiers": list(bks_tiers),
+                        "short_10y": len(bks.short_history(_fr, 2520)),
+                        "short_5y": len(bks.short_history(_fr, 1260)),
+                    }
+                except Exception as exc:
+                    st.error(f"Breakout scan failed: {exc}")
 
-        st.divider()
-
-        # ── Scanner selector ───────────────────────────────────────────────
-        st.markdown("**Breakout Timeframe**")
-        for bk_name in _CK_SCANNERS:
-            lbl = f"{bk_name}  ({_CK_SCANNERS[bk_name]['lookback']})"
-            if st.button(lbl, key=f"ck_sel_{bk_name}", width="stretch"):
-                st.session_state["ck_scanner"] = bk_name
-                st.session_state.pop("ck_results", None)
-
-        selected_ck = st.session_state.get("ck_scanner", "1Y All-Time Breakout")
-        st.divider()
-        color_ck = _CK_SCANNERS[selected_ck]["color"]
-        st.markdown(
-            f"**Selected:** <span style='color:{color_ck}'>{selected_ck}</span>",
-            unsafe_allow_html=True,
-        )
-        full_clause = ck.SCAN_CLAUSES.get(selected_ck, "")
-        st.caption(full_clause[:180] + ("…" if len(full_clause) > 180 else ""))
-
-        # ── Copy scan clause to clipboard ──────────────────────────────────
-        if full_clause:
-            # Use a JS snippet injected via st.components to copy to clipboard
-            safe = full_clause.replace("\\", "\\\\").replace("`", "\\`")
-            st.iframe(
-                f"""
-                <button onclick="navigator.clipboard.writeText(`{safe}`)
-                  .then(()=>this.textContent='✓ Copied!')
-                  .catch(()=>this.textContent='⚠ Failed')"
-                  style="background:{rs.TOKENS['accent']};color:#fff;border:none;
-                         border-radius:8px;padding:6px 12px;cursor:pointer;
-                         font-size:12px;font-weight:600;width:100%">
-                  📋 Copy Scan Clause
-                </button>
-                """,
-                height=38,
-            )
-
-        st.divider()
-
-        # ── Custom clause ──────────────────────────────────────────────────
-        with st.expander("Custom scan clause (advanced)"):
-            custom_clause = st.text_area(
-                "Paste any Chartink scan clause",
-                height=120,
-                key="ck_custom_clause",
-                placeholder="( {cash} ( daily close > ... ) )",
-            )
-
-        # ── Run buttons ────────────────────────────────────────────────────
-        if st.button("▶ Run Selected Scan", type="primary", key="ck_run"):
-            cookie = st.session_state.get("ck_cookie", "").strip()
-            if not cookie:
-                st.error("Paste your `_chartink_session` cookie first.")
-            else:
-                clause = custom_clause.strip() if custom_clause.strip() else None
-                with st.spinner(f"Querying Chartink — {selected_ck}…"):
-                    try:
-                        if clause:
-                            rows = ck.run_chartink_scan(clause, cookie)
-                            ran_name = "Custom Clause"
-                        else:
-                            rows = ck.run_named_scan(selected_ck, cookie)
-                            ran_name = selected_ck
-                        st.session_state["ck_results"]     = rows
-                        st.session_state["ck_scanner_ran"] = ran_name
-                        st.session_state.pop("ck_all_results", None)
-                    except Exception as exc:
-                        st.error(f"Chartink fetch failed: {exc}")
-
-        if st.button("▶ Run All 5 Timeframes", key="ck_run_all", type="primary"):
-            cookie = st.session_state.get("ck_cookie", "").strip()
-            if not cookie:
-                st.error("Paste your `_chartink_session` cookie first.")
-            else:
-                all_ck: dict[str, list] = {}
-                failed = []
-                for bk_n in _CK_SCANNERS:
-                    with st.spinner(f"Scanning {bk_n}…"):
-                        try:
-                            all_ck[bk_n] = ck.run_named_scan(bk_n, cookie)
-                        except Exception as exc:
-                            all_ck[bk_n] = []
-                            failed.append(f"{bk_n}: {exc}")
-                st.session_state["ck_all_results"] = all_ck
-                st.session_state.pop("ck_results", None)
-                if failed:
-                    st.warning("Some scans failed:\n" + "\n".join(failed))
-
-    # ── Right panel — results ──────────────────────────────────────────────────
     with bk_main:
-
-        _CHART_SERVER = "http://localhost:5001"
-
-        def _render_ck_table(rows: list[dict], scan_label: str, color: str) -> None:
-            """Render Chartink result rows with chart-launch links + CSV export."""
-            if not rows:
-                st.info(f"No stocks matched **{scan_label}**.")
-                return
-
-            df_res = pd.DataFrame(rows)
-
-            # Normalise Chartink column names.
-            # Chartink returns "price" for LTP (not "close"), and sometimes
-            # both exist — prefer "price" if present.
-            col_map = {
-                "nsecode":         "Symbol",
-                "bsecode":         "BSE Code",
-                "per_chg":         "% Chg",
-                "close":           "Price",   # fallback if price absent
-                "price":           "Price",   # Chartink primary field
-                "volume":          "Volume",
-                "series":          "Series",
-                "market_cap_full": "Mkt Cap (Cr)",
-            }
-            df_res = df_res.rename(columns={k: v for k, v in col_map.items() if k in df_res.columns})
-            # Drop duplicate Price column that can appear when both close+price exist
-            df_res = df_res.loc[:, ~df_res.columns.duplicated()]
-
-            # Coerce numerics
-            for num_col in ["Price", "% Chg", "Volume", "Mkt Cap (Cr)"]:
-                if num_col in df_res.columns:
-                    df_res[num_col] = pd.to_numeric(df_res[num_col], errors="coerce")
-
-            # Build chart URL: NSE code + ".NS" suffix → opens chart dashboard
-            if "Symbol" in df_res.columns:
-                df_res["Chart"] = df_res["Symbol"].apply(
-                    lambda s: f"{_CHART_SERVER}/?symbol={s}.NS&tf=1d"
-                )
-                df_res["Analyze"] = df_res["Symbol"].map(_analyze_url)
-
-            df_res = df_res.sort_values("% Chg", ascending=False).reset_index(drop=True)
-
-            # Column order — Chart + Analyze links first so they're always visible
-            keep = [c for c in ["Chart", "Analyze", "Symbol", "Price", "% Chg",
-                                 "Volume", "Mkt Cap (Cr)", "BSE Code", "Series"]
-                    if c in df_res.columns]
-
-            st.markdown(
-                f"<span style='color:{color};font-weight:700;font-size:15px;'>"
-                f"▶ {scan_label} — {len(rows)} stocks</span>",
-                unsafe_allow_html=True,
-            )
-            st.caption("Click **Chart** to open the live chart dashboard in a new tab.")
-
-            col_cfg = {}
-            if "Chart" in df_res.columns:
-                col_cfg["Chart"] = st.column_config.LinkColumn(
-                    "Chart",
-                    display_text="Open Chart",   # plain text — emoji causes pencil icon bug
-                    help="Opens Trading Bramha live chart for this stock (chart server must be running on :5001)",
-                    width="small",
-                )
-            if "Analyze" in df_res.columns:
-                col_cfg["Analyze"] = _analyze_colcfg()
-            if "% Chg" in df_res.columns:
-                col_cfg["% Chg"] = st.column_config.NumberColumn(
-                    "% Chg", format="%.2f%%"
-                )
-            if "Price" in df_res.columns:
-                col_cfg["Price"] = st.column_config.NumberColumn(
-                    "Price", format="%.2f"
-                )
-            if "Volume" in df_res.columns:
-                col_cfg["Volume"] = st.column_config.NumberColumn(
-                    "Volume", format="%d"
-                )
-
-            st.dataframe(
-                df_res[keep],
-                width="stretch",
-                hide_index=True,
-                column_config=col_cfg,
-            )
-
-            csv = df_res[[c for c in keep if c not in ("Chart", "Analyze")]].to_csv(index=False).encode()
-            st.download_button(
-                f"⬇ Download {scan_label} CSV",
-                data=csv,
-                file_name=f"chartink_{scan_label.replace(' ', '_')}.csv",
-                mime="text/csv",
-                key=f"ck_dl_{scan_label}",
-            )
-
-        # Combined "Run All" view
-        if "ck_all_results" in st.session_state and "ck_results" not in st.session_state:
-            all_res: dict = st.session_state["ck_all_results"]
-            total = sum(len(v) for v in all_res.values())
-            st.markdown(f"### All Timeframes — **{total}** hits")
-            for bk_n, rows in all_res.items():
-                _render_ck_table(rows, bk_n, _CK_SCANNERS[bk_n]["color"])
-                st.divider()
-
-        # Single scan view
-        elif "ck_results" in st.session_state:
-            rows    = st.session_state["ck_results"]
-            ran     = st.session_state.get("ck_scanner_ran", selected_ck)
-            color_r = _CK_SCANNERS.get(ran, {}).get("color", rs.TOKENS["info"])
-            _render_ck_table(rows, ran, color_r)
-
+        _res = st.session_state.get("bks_results")
+        if not _res:
+            st.info("Pick a universe size and durations, then **Run breakout "
+                    "scan**. No cookie or login needed.")
         else:
-            st.info(
-                "1. Paste your `_chartink_session` cookie on the left.\n"
-                "2. Pick a breakout timeframe.\n"
-                "3. Click **Run Selected Scan** — results scan the **entire NSE cash market** via Chartink."
-            )
+            st.caption(
+                f"{len(_res['rows'])} breakout(s) among {_res['n']} of the top "
+                f"{_res['top']} names yfinance served · durations: "
+                f"{', '.join(_res['tiers'])} · {_res['short_10y']} names have under "
+                f"10 years of history and {_res['short_5y']} under 5, so those "
+                f"tiers cannot fire for them.")
+            if not _res["rows"]:
+                st.info("No stock cleared the selected durations today.")
+            else:
+                _bdf = pd.DataFrame(_res["rows"])
+                _bdf.insert(0, "Chart", _bdf["symbol"].map(
+                    lambda s: f"http://localhost:5001/?symbol={s}.NS&tf=1d"))
+                _bdf.insert(1, "Analyze", _bdf["symbol"].map(_analyze_url))
+                _bdf = _bdf.rename(columns={
+                    "symbol": "Symbol", "longest": "Longest", "tiers": "Cleared",
+                    "price": "Price", "chg_pct": "% Chg", "broke_level": "Broke",
+                    "breakout_pct": "Above %", "range_pct": "Range %",
+                    "vol_ratio": "Vol ×", "years_history": "Years"})
+                st.markdown(" · ".join(
+                    f"<span style='color:{_BKS_COLOR[lab]};font-weight:700;'>"
+                    f"{lab} {int((_bdf['Longest'] == lab).sum())}</span>"
+                    for lab in _res["tiers"]), unsafe_allow_html=True)
+                _keep = ["Chart", "Analyze", "Symbol", "Longest", "Cleared", "Price",
+                         "% Chg", "Broke", "Above %", "Range %", "Vol ×", "Years"]
+                st.dataframe(
+                    _bdf[_keep], width="stretch", hide_index=True,
+                    column_config={
+                        "Chart": st.column_config.LinkColumn(
+                            "Chart", display_text="Open Chart", width="small"),
+                        "Analyze": _analyze_colcfg(),
+                        "% Chg": st.column_config.NumberColumn(format="%.2f%%"),
+                        "Above %": st.column_config.NumberColumn(format="%.1f%%"),
+                        "Range %": st.column_config.NumberColumn(format="%.0f%%"),
+                    })
+                st.download_button(
+                    "⬇ Download CSV",
+                    _bdf[[c for c in _keep if c not in ("Chart", "Analyze")]]
+                    .to_csv(index=False).encode(),
+                    file_name=f"breakouts_{date.today().isoformat()}.csv",
+                    mime="text/csv", key="bks_dl")
+                _pa_send_button("bks", "Breakout Scans (yfinance)", _bdf, "Symbol",
+                                note_fn=lambda r: r["Longest"])
 
     st.divider()
 
     # ── Pre-Breakout Screener (conviction score + pledge/cash-flow gate) ────────
     st.subheader("Pre-Breakout Screener — Conviction ≥ 60%, Pledge & Cash-Flow Safe")
     st.caption(
-        "Chartink finds stocks coiled just under a 20-day high — 1-2 sessions from a "
-        "possible breakout — then each candidate is scored 0-100 (proximity to the "
-        "trigger, volatility contraction, RSI, trend/volume) using its own OHLCV. "
-        "Only score ≥ 60 survives. Chartink has no pledge% or cash-flow fields, so "
-        "that red-flag check runs separately against screener.in (optional below)."
+        "Finds stocks coiled just under a 20-day high — 1-2 sessions from a possible "
+        "breakout — using the same five gates as Chartink's pre-breakout clause, "
+        "evaluated locally on yfinance bars (no login). Each candidate is then "
+        "scored 0-100 (proximity to the trigger, volatility contraction, RSI, "
+        "trend/volume); only scores at or above the slider survive. The pledge / "
+        "cash-flow red-flag check runs against screener.in using your browser's "
+        "existing login, if there is one."
     )
 
     pb_left, pb_main = st.columns([1, 3])
-
     with pb_left:
-        st.markdown("**screener.in Session (optional)**")
         pb_screener_cookie, pb_browser = bch.get_screener_sessionid()
         if pb_screener_cookie:
-            st.session_state["pb_screener_cookie"] = pb_screener_cookie
-            st.caption(
-                f"✅ Using screener.in session from local browser ({pb_browser}) — "
-                "auto-drops stocks with promoter pledge ≥ 5% or negative operating cash flow."
-            )
+            st.caption(f"✅ screener.in session found in {pb_browser} — stocks with "
+                       "promoter pledge above the limit or negative operating cash "
+                       "flow are dropped automatically.")
         else:
             pb_screener_cookie = ""
-            st.caption(
-                "⚠️ No screener.in `sessionid` cookie in your local browsers. Log into "
-                "screener.in in your default browser to auto-drop pledged / negative-cash-flow "
-                "stocks; otherwise results show a manual check-link instead."
-            )
-
-        st.divider()
-        pb_min_conviction = st.slider(
-            "Minimum conviction %", min_value=0, max_value=100, value=60, step=5,
-            key="pb_min_conviction",
-            help="Lower this to see more (weaker) candidates while testing.",
-        )
-        pb_max_pledge = st.slider(
-            "Max pledge %", min_value=0.0, max_value=25.0, value=5.0, step=0.5,
-            key="pb_max_pledge",
-            help="Only used if a screener.in cookie is pasted above.",
-        )
-
-        st.divider()
-        if st.button("▶ Run Pre-Breakout Scan", type="primary", key="pb_run"):
-            cookie = st.session_state.get("ck_cookie", "").strip()
-            if not cookie:
-                st.error("Paste your `_chartink_session` cookie above first.")
-            else:
-                with st.spinner("Querying Chartink for pre-breakout candidates…"):
-                    try:
-                        candidates = ck.run_named_scan("Pre-Breakout Setup (1-2 Day)", cookie)
-                    except Exception as exc:
-                        candidates = None
-                        st.error(f"Chartink fetch failed: {exc}")
-
-                if candidates is not None:
-                    safe_symbols = None
-                    if pb_screener_cookie.strip():
-                        with st.spinner("Checking pledge % / cash flow on screener.in…"):
-                            try:
-                                safe_symbols = cached_fetch_safe_symbols(
-                                    pb_screener_cookie.strip(), max_pledge_pct=pb_max_pledge,
-                                )
-                            except Exception as exc:
-                                st.warning(f"screener.in fundamental check failed: {exc}")
-
-                    funnel = {"chartink": len(candidates), "conviction": 0, "fundamentals": 0}
-                    scored = []
-                    with st.spinner(f"Scoring conviction on {len(candidates)} candidates…"):
-                        for row in candidates:
-                            sym = row.get("nsecode", "").strip().upper()
-                            if not sym:
-                                continue
-                            try:
-                                df_pb = cached_fetch_ohlcv(f"{sym}.NS", days=90)
-                            except Exception:
-                                continue
-                            if df_pb is None or df_pb.empty:
-                                continue
-                            hit = sc.compute_pre_breakout_conviction(df_pb)
-                            if hit is None or hit["conviction"] < pb_min_conviction:
-                                continue
-                            funnel["conviction"] += 1
-                            if safe_symbols is not None:
-                                hit["fundamentals_safe"] = sym in safe_symbols
-                                if not hit["fundamentals_safe"]:
-                                    continue
-                                funnel["fundamentals"] += 1
-                            else:
-                                hit["fundamentals_safe"] = None
-                            hit["symbol"] = sym
-                            hit["price"] = row.get("price") or row.get("close")
-                            hit["pct_chg"] = row.get("per_chg")
-                            scored.append(hit)
-
-                    st.session_state["pb_results"] = sorted(
-                        scored, key=lambda h: h["conviction"], reverse=True
-                    )
-                    st.session_state["pb_funnel"] = funnel
+            st.caption("⚠️ Not logged into screener.in in a local browser — results "
+                       "show a manual check-link instead of auto-dropping pledged / "
+                       "negative-cash-flow stocks.")
+        pb_min_conviction = st.slider("Minimum conviction %", 0, 100, 60, 5,
+                                      key="pb_min_conviction",
+                                      help="Lower this to see more (weaker) candidates.")
+        pb_max_pledge = st.slider("Max pledge %", 0.0, 25.0, 5.0, 0.5,
+                                  key="pb_max_pledge",
+                                  help="Only applied when a screener.in session exists.")
+        st.caption(f"Universe: top {st.session_state.get('bks_top', 500)} NSE names "
+                   "(the slider above); reuses the downloaded history.")
+        if st.button("▶ Run Pre-Breakout Scan", type="primary", key="pb_run",
+                     width="stretch"):
+            _top = int(st.session_state.get("bks_top", 500))
+            with st.spinner(f"Scanning the top {_top} NSE names for pre-breakouts…"):
+                try:
+                    _fr = _bks_frames(_top, date.today().isoformat())
+                    gated = bks.pre_breakouts(_fr, 0)
+                except Exception as exc:
+                    gated = None
+                    st.error(f"Pre-breakout scan failed: {exc}")
+            if gated is not None:
+                safe_symbols = None
+                if pb_screener_cookie:
+                    with st.spinner("Checking pledge % / cash flow on screener.in…"):
+                        try:
+                            safe_symbols = cached_fetch_safe_symbols(
+                                pb_screener_cookie, max_pledge_pct=pb_max_pledge)
+                        except Exception as exc:
+                            st.warning(f"screener.in fundamental check failed: {exc}")
+                funnel = {"gate": len(gated), "conviction": 0, "fundamentals": 0}
+                scored = []
+                for hit in gated:
+                    if hit["conviction"] < pb_min_conviction:
+                        continue
+                    funnel["conviction"] += 1
+                    if safe_symbols is not None:
+                        hit["fundamentals_safe"] = hit["symbol"] in safe_symbols
+                        if not hit["fundamentals_safe"]:
+                            continue
+                        funnel["fundamentals"] += 1
+                    else:
+                        hit["fundamentals_safe"] = None
+                    scored.append(hit)
+                st.session_state["pb_results"] = scored
+                st.session_state["pb_funnel"] = funnel
 
         pb_funnel = st.session_state.get("pb_funnel")
         if pb_funnel:
-            funnel_line = (
-                f"Chartink: **{pb_funnel['chartink']}** → "
-                f"conviction ≥{pb_min_conviction}%: **{pb_funnel['conviction']}**"
-            )
-            if pb_funnel["fundamentals"] or pb_screener_cookie.strip():
-                funnel_line += f" → pledge/cash-flow safe: **{pb_funnel['fundamentals']}**"
-            st.caption(funnel_line)
-
-        st.divider()
-        st.caption(
-            "screener.in field names confirmed via its public "
-            "`/api/ratio/search/` endpoint: **Pledged percentage** and "
-            "**Cash from operations last year**."
-        )
+            line = (f"Pre-breakout gates: **{pb_funnel.get('gate', 0)}** → "
+                    f"conviction ≥{pb_min_conviction}%: **{pb_funnel['conviction']}**")
+            if pb_screener_cookie:
+                line += f" → pledge/cash-flow safe: **{pb_funnel['fundamentals']}**"
+            st.caption(line)
 
     with pb_main:
         pb_results = st.session_state.get("pb_results")
         if pb_results is None:
-            st.info(
-                "Uses the `_chartink_session` cookie from the left panel above. "
-                "Click **Run Pre-Breakout Scan** to look for stocks 1-2 sessions "
-                "from a breakout."
-            )
+            st.info("Click **Run Pre-Breakout Scan** to look for stocks 1-2 sessions "
+                    "from a breakout. No cookie needed.")
         elif not pb_results:
-            st.info(
-                "No candidates cleared both the Chartink pre-breakout filter and "
-                "the ≥60% conviction score right now."
-            )
+            st.info("No candidate cleared both the pre-breakout gates and the "
+                    "conviction floor right now.")
         else:
             df_pb_res = pd.DataFrame(pb_results)
             df_pb_res["Chart"] = df_pb_res["symbol"].apply(
-                lambda s: f"{_CHART_SERVER}/?symbol={s}.NS&tf=1d"
-            )
+                lambda s: f"http://localhost:5001/?symbol={s}.NS&tf=1d")
             df_pb_res["Analyze"] = df_pb_res["symbol"].map(_analyze_url)
             if df_pb_res["fundamentals_safe"].isna().all():
                 df_pb_res["Pledge/CF Check"] = df_pb_res["symbol"].apply(
-                    lambda s: f"https://www.screener.in/company/{s}/consolidated/#shareholding"
-                )
-                pledge_note = "manual — paste a screener.in cookie to automate"
+                    lambda s: f"https://www.screener.in/company/{s}/consolidated/#shareholding")
+                pledge_note = "manual — log into screener.in in your browser to automate"
             else:
-                # Only rows that already passed the pledge/cash-flow gate reach
-                # here (flagged candidates were dropped when the list was built).
                 df_pb_res["Pledge/CF Check"] = "✅ Verified Safe"
                 pledge_note = "auto-verified via screener.in"
-
             df_pb_res = df_pb_res.rename(columns={
                 "symbol": "Symbol", "price": "Price", "pct_chg": "% Chg",
                 "conviction": "Conviction %", "distance_pct": "Dist to Trigger %",
-                "rsi": "RSI",
-            })
-            for c in ["Price", "% Chg", "Conviction %", "Dist to Trigger %", "RSI"]:
-                df_pb_res[c] = pd.to_numeric(df_pb_res[c], errors="coerce")
-
+                "rsi": "RSI"})
             st.caption(f"{len(df_pb_res)} candidates · pledge/cash-flow check: {pledge_note}")
-
             col_cfg_pb = {
-                "Chart": st.column_config.LinkColumn(
-                    "Chart", display_text="Open Chart", width="small",
-                ),
+                "Chart": st.column_config.LinkColumn("Chart", display_text="Open Chart",
+                                                     width="small"),
                 "Analyze": _analyze_colcfg(),
                 "Conviction %": st.column_config.ProgressColumn(
-                    "Conviction %", min_value=0, max_value=100, format="%.0f%%",
-                ),
-                # B-63a: "% Chg" and "Price" resolve to the shared chg_pct /
-                # close definitions — this table spelled them its own way.
+                    "Conviction %", min_value=0, max_value=100, format="%.0f%%"),
                 **_cols_mod().configure("% Chg", "Price"),
             }
             if pledge_note.startswith("manual"):
                 col_cfg_pb["Pledge/CF Check"] = st.column_config.LinkColumn(
-                    "Pledge/CF Check", display_text="Verify", width="small",
-                )
-
+                    "Pledge/CF Check", display_text="Verify", width="small")
             keep_pb = ["Chart", "Analyze", "Symbol", "Price", "% Chg", "Conviction %",
                        "Dist to Trigger %", "RSI", "Pledge/CF Check"]
-            st.dataframe(
-                df_pb_res[[c for c in keep_pb if c in df_pb_res.columns]],
-                width="stretch", hide_index=True, column_config=col_cfg_pb,
-            )
+            st.dataframe(df_pb_res[[c for c in keep_pb if c in df_pb_res.columns]],
+                         width="stretch", hide_index=True, column_config=col_cfg_pb)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Breakout Scans · TradingView source (BrkoutGeek: Horz Break replica, public scan API)
 # ──────────────────────────────────────────────────────────────────────────────
-if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chartink") == "TradingView":
+if current_page == "Breakout Scans" and st.session_state.get("bscan_src") == "TradingView":
     st.markdown("**TradingView — BrkoutGeek: Horz Break (replica)**")
     st.caption(
         "Replicates saved screener uPUJdiD5 via TradingView's public scan endpoint — "
