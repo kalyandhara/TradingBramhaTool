@@ -34,8 +34,13 @@ DISCLAIMER = ("Automated research output, not investment advice and not a buy "
 #: Sections of the live page this PDF deliberately does not reproduce, stated
 #: in the file so their absence reads as a choice, not a gap.
 NOT_INCLUDED = ("Interactive Chart Tool overlays (replaced by a static price "
-                "chart), the six-horizon board, peer comparison and ownership "
-                "flow are not included - open the dashboard for those.")
+                "chart), peer comparison and ownership flow are not included - "
+                "open the dashboard for those.")
+
+#: Hourly bars drawn in the PDF. The page plots everything Yahoo returns (~700
+#: sessions); at print width that is a smear, so the PDF keeps the most recent
+#: sessions and says so under the panel.
+PDF_HOURLY_SESSIONS = 60
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -120,7 +125,7 @@ class _Pager(orep._Pager):
     def _footer(self):
         m = self.model
         self.fig.text(self.x0, orep.M_B / orep.PAGE_H - 0.028,
-                      f'Trading Bramha · Predictive Analysis · {m["symbol"]} · '
+                      f'Trading Bramha · {m.get("page_title", "Predictive Analysis")} · {m["symbol"]} · '
                       f'price as of {m["as_of"]} · market {m["regime"]}',
                       fontsize=7, color=rs.TOKENS["text_muted"], family=_SANS)
         self.fig.text(self.x1, orep.M_B / orep.PAGE_H - 0.028, f"page {self.page}",
@@ -135,6 +140,19 @@ class _Pager(orep._Pager):
         ax = self.fig.add_axes([self.x0, self.y - height, self.width, height])
         self.y -= height + 0.012
         return ax
+
+    def axes_row(self, height: float, n: int, polar: tuple[int, ...] = (),
+                 gap: float = 0.035):
+        """Reserve `height` and return `n` side-by-side Axes; indices in `polar`
+        get a polar projection (the year spiral)."""
+        self.space(height + 0.01)
+        w = (self.width - gap * (n - 1)) / n
+        out = []
+        for i in range(n):
+            rect = [self.x0 + i * (w + gap), self.y - height, w, height]
+            out.append(self.fig.add_axes(rect, projection="polar" if i in polar else None))
+        self.y -= height + 0.012
+        return out
 
     def heading(self, s: str):
         self.space(0.12)   # heading plus its first lines, never orphaned
@@ -223,6 +241,212 @@ def _flow_strip(p: _Pager, bars: list[str]):
     ax.axis("off")
 
 
+def _style(ax, size=6):
+    ax.tick_params(labelsize=size)
+    ax.grid(alpha=0.25, linewidth=0.5)
+    for sp_ in ("top", "right"):
+        ax.spines[sp_].set_visible(False)
+
+
+def _candles(ax, d, date_fmt: str):
+    """OHLC candles on an integer x (no weekend/overnight gaps), ~4 date ticks."""
+    import numpy as np
+    t = rs.TOKENS
+    o, h, l, c = (d[k].astype(float).values for k in ("open", "high", "low", "close"))
+    x = np.arange(len(d))
+    col = [t["good"] if cc >= oo else t["risk"] for oo, cc in zip(o, c)]
+    lw = 0.4 if len(d) > 150 else 0.7
+    ax.vlines(x, l, h, colors=col, linewidth=lw)
+    ax.bar(x, np.maximum(abs(c - o), (h - l) * 0.002), bottom=np.minimum(o, c),
+           width=0.7, color=col, linewidth=0)
+    ticks = np.linspace(0, len(d) - 1, min(4, len(d))).astype(int)
+    ax.set_xticks(ticks)
+    ax.set_xticklabels([d.index[i].strftime(date_fmt) for i in ticks])
+    ax.set_xlim(-1, len(d))
+    _style(ax)
+
+
+#: date format per board panel, so each axis reads at its own scale
+_TF_FMT = {"Hourly": "%d %b", "Daily": "%b %y", "Monthly": "%Y",
+           "Half-yearly": "%Y", "Yearly": "%Y"}
+
+
+def _six_horizons(p: _Pager, panels: list):
+    t = rs.TOKENS
+    p.heading("Six horizons")
+    p.para("Hourly · Daily · Monthly · Half-yearly · Yearly · Year-on-year - one "
+           "company at six scales. Context, not a signal.", size=8,
+           color=t["text_muted"])
+    notes = []
+    for k, row in enumerate((panels[:3], panels[3:])):
+        p.space(0.20)
+        p.gap(0.004 if k == 0 else 0.022)
+        for i, pn in enumerate(row):          # panel titles above their axes
+            w = (p.width - 0.035 * 2) / 3
+            p.fig.text(p.x0 + i * (w + 0.035), p.y, pn.name.upper(), fontsize=7.6,
+                       fontweight="bold", color=t["text_muted"], family=_SANS, va="top")
+        p.gap(0.018)
+        axes = p.axes_row(0.16, len(row))
+        for ax, pn in zip(axes, row):
+            note = pn.note
+            if not pn.ok:
+                ax.axis("off")
+                ax.text(0.5, 0.5, "Not shown - " + clean(pn.note or "no data"),
+                        ha="center", va="center", fontsize=6.5, wrap=True,
+                        color=t["text_muted"], transform=ax.transAxes)
+                continue
+            if pn.lines:
+                newest = max(pn.lines)
+                for lab in sorted(pn.lines):
+                    s_ = pn.lines[lab]
+                    now = lab == newest
+                    ax.plot(s_.index, s_.values, linewidth=1.6 if now else 0.7,
+                            color=t["accent"] if now else t["absent"],
+                            alpha=1 if now else 0.6, label=lab)
+                ax.axhline(0, color=t["border_strong"], linewidth=0.6)
+                ax.set_xlabel("day of year", fontsize=6)
+                ax.set_ylabel("% from 1 Jan", fontsize=6)
+                ax.legend(fontsize=5, frameon=False, ncol=3, loc="upper left")
+                _style(ax)
+            else:
+                d = pn.df
+                if pn.name == "Hourly":
+                    days = d.index.normalize()
+                    keep = days.isin(days.unique()[-PDF_HOURLY_SESSIONS:])
+                    d = d[keep]
+                    note = (f"last {PDF_HOURLY_SESSIONS} sessions shown in print "
+                            f"({len(d)} bars); " + (pn.note or ""))
+                _candles(ax, d, _TF_FMT.get(pn.name, "%Y"))
+            if note:
+                notes.append(f"{pn.name}: " + clean(note))
+    p.gap(0.022)                              # clear the x tick labels
+    for n_ in notes:
+        p.para(n_, size=7.2, color=t["text_muted"], chars=125, lead=0.0125)
+    p.para("Half-yearly and yearly are resampled from daily bars (an OHLC aggregate "
+           "of daily bars is the true period candle). Year-on-year rebases each "
+           "calendar year to its own 1 January, so it compares SHAPE, not "
+           "performance.", size=7.4, color=t["text_muted"], chars=125)
+
+
+def _horizon_geometry(p: _Pager, df):
+    import numpy as np
+    import pandas as pd
+    import matplotlib.dates as mdates
+    import horizon_geometry as hgeo
+    t = rs.TOKENS
+    p.heading("Horizon geometry")
+    p.space(0.36)
+    p.fig.text(p.x0, p.y, "YEAR SPIRAL - angle = day of year, radius = close (log)",
+               fontsize=7.6, fontweight="bold", color=t["text_muted"], family=_SANS,
+               va="top")
+    p.fig.text(p.x0 + p.width / 2 + 0.02, p.y,
+               "PIVOT GEOMETRY - circles on major weekly swings", fontsize=7.6,
+               fontweight="bold", color=t["text_muted"], family=_SANS, va="top")
+    p.gap(0.02)
+    ax_sp, ax_geo = p.axes_row(0.30, 2, polar=(0,), gap=0.06)
+
+    # Year spiral. Radius is log10(close) with price labels - same picture as the
+    # page's log radial axis, without matplotlib's fragile polar log scale.
+    sp = hgeo.year_spiral(df)
+    if len(sp) < 2:
+        ax_sp.axis("off")
+        ax_sp.text(0.5, 0.5, "Not shown - needs two calendar years", ha="center",
+                   fontsize=7, color=t["text_muted"], transform=ax_sp.transAxes)
+    else:
+        newest = max(sp)
+        cmap = __import__("matplotlib").colormaps["tab10"]
+        for i, yr in enumerate(sorted(sp)):
+            d = sp[yr]
+            now = yr == newest
+            ax_sp.plot(np.radians(d["theta"].values), np.log10(d["r"].values),
+                       linewidth=1.6 if now else 0.7,
+                       color=t["accent"] if now else cmap(i % 10),
+                       alpha=1 if now else 0.6, label=yr)
+        ax_sp.set_theta_zero_location("N")
+        ax_sp.set_theta_direction(-1)
+        ax_sp.set_xticks(np.radians(np.arange(12) * 30))
+        ax_sp.set_xticklabels(["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul",
+                               "Aug", "Sep", "Oct", "Nov", "Dec"], fontsize=6)
+        allr = np.log10(np.concatenate([sp[y]["r"].values for y in sp]))
+        lo_r, hi_r = float(allr.min()), float(allr.max())
+        pad = (hi_r - lo_r) * 0.08 or 0.05
+        ax_sp.set_ylim(lo_r - pad, hi_r + pad)
+        rt = np.linspace(lo_r, hi_r, 4)
+        ax_sp.set_yticks(rt)
+        ax_sp.set_yticklabels([f"{10 ** v:,.0f}" for v in rt], fontsize=5.5,
+                              color=t["text_muted"])
+        ax_sp.set_rlabel_position(100)
+        ax_sp.grid(alpha=0.3, linewidth=0.5)
+        ax_sp.legend(fontsize=5, frameon=False, loc="upper center",
+                     bbox_to_anchor=(0.5, -0.06), ncol=min(6, len(sp)))
+
+    # Pivot geometry
+    geo = hgeo.pivot_geometry(df)
+    if not geo.ok:
+        ax_geo.axis("off")
+        ax_geo.text(0.5, 0.5, "Not shown - " + clean(geo.note or "no data"),
+                    ha="center", fontsize=7, color=t["text_muted"],
+                    transform=ax_geo.transAxes)
+    else:
+        w = df["close"].astype(float).copy()
+        w.index = pd.to_datetime(w.index)
+        w = w.resample("W-FRI").last().dropna()
+        ax_geo.plot(w.index, w.values, color=t["accent"], linewidth=1.0,
+                    label="weekly close")
+        for circ in geo.circles:
+            xs, ys = hgeo.circle_path(geo, circ)
+            xn = np.array([mdates.date2num(pd.Timestamp(x)) if x is not None else np.nan
+                           for x in xs])
+            yn = np.array([y if y is not None else np.nan for y in ys], dtype=float)
+            ax_geo.plot(xn, yn, color=t["absent"], linewidth=0.5, alpha=0.55)
+        pd_, pp_, _pk = zip(*geo.pivots)
+        ax_geo.plot(pd_, pp_, color="#f5a623", linewidth=1.1, marker="s",
+                    markersize=3, label="pivots")
+        if geo.nodes:
+            ax_geo.scatter([n["date"] for n in geo.nodes],
+                           [n["price"] for n in geo.nodes], marker="D", s=18,
+                           color=t["risk"], zorder=5, label="future nodes")
+        ax_geo.axvline(w.index[-1], color=t["border_strong"], linewidth=0.7,
+                       linestyle=":")
+        lo, hi = min(pp_), max(pp_)
+        ax_geo.set_yscale("log")
+        ax_geo.set_ylim(lo * 0.6, hi * 1.6)
+        tk = __import__("matplotlib").ticker
+        yt = np.geomspace(lo * 0.6, hi * 1.6, 6)
+        ax_geo.set_yticks(yt)
+        ax_geo.yaxis.set_major_formatter(tk.FuncFormatter(
+            lambda v, _: f"{v:,.0f}" if v >= 10 else f"{v:,.1f}"))
+        ax_geo.yaxis.set_minor_formatter(tk.NullFormatter())
+        ax_geo.yaxis.set_minor_locator(tk.NullLocator())
+        ax_geo.xaxis.set_major_formatter(mdates.DateFormatter("%Y"))
+        ax_geo.legend(fontsize=5.5, frameon=False, loc="upper left")
+        _style(ax_geo)
+    p.gap(0.02)
+    if geo.ok:
+        p.para(clean(geo.note or ""), size=7.4, color=t["text_muted"], chars=125)
+        if geo.nodes:
+            p.label("Future nodes")
+            p.table(["Node date", "Price", "Circles crossing"],
+                    [[n["date"].strftime("%d %b %Y"), f'{n["price"]:,.2f}',
+                      str(n["circles"])] for n in geo.nodes], [16, 14, 18])
+    p.para("Context, not a signal. Pivot circles are computed in a fixed normalized "
+           "space, so nodes do not move with zoom - drawn on date/price axes they can "
+           "look like ellipses. A dense lattice always fits past turns; only nodes "
+           "named before price arrives carry information.", size=7.4,
+           color=t["text_muted"], chars=125)
+
+
+def _analyzer_scores(p: _Pager, sc_: dict):
+    """Stock Analyzer's own score strip + Elliott-wave read (that page only)."""
+    t = rs.TOKENS
+    p.heading("Analyzer scores")
+    p.kv([(k, str(v)) for k, v in sc_.get("pairs", [])], cols=3)
+    if sc_.get("ew"):
+        p.para(clean(sc_["ew"]), size=8.2, chars=118)
+    p.para("Rule-count scores, not backtested probabilities.", size=7.4,
+           color=t["text_muted"])
+
+
 def render_pdf(m: dict[str, Any]) -> bytes:
     import matplotlib
     matplotlib.use("Agg")
@@ -234,7 +458,8 @@ def render_pdf(m: dict[str, Any]) -> bytes:
         p = _Pager(pdf, m)
 
         # ── Title ─────────────────────────────────────────────────────────────
-        p.text(f'{m["symbol"]}  ·  PREDICTIVE ANALYSIS', size=19, weight="bold",
+        p.text(f'{m["symbol"]}  ·  {m.get("page_title", "Predictive Analysis").upper()}',
+               size=19, weight="bold",
                color=t["text"], dy=0.028)
         sub = clean(m.get("long_name") or "")
         p.text((sub + "  ·  " if sub else "")
@@ -252,6 +477,9 @@ def render_pdf(m: dict[str, Any]) -> bytes:
         p.para(f'Market regime when generated: {m["regime"]}.', size=8,
                color=t["text_muted"])
         p.para(NOT_INCLUDED, size=7.6, color=t["text_muted"])
+
+        if m.get("analyzer_scores"):
+            _analyzer_scores(p, m["analyzer_scores"])
 
         # ── Stock summary ─────────────────────────────────────────────────────
         s = m.get("summary")
@@ -413,6 +641,20 @@ def render_pdf(m: dict[str, Any]) -> bytes:
                   ("ADX 14", _f(mo.get("adx"), "{:.1f}") + f' {mo.get("adx_word") or ""}')],
                  cols=3)
 
+        # ── Six horizons + horizon geometry (same order as the page) ─────────
+        if m.get("horizon_panels"):
+            try:
+                _six_horizons(p, m["horizon_panels"])
+            except Exception as exc:          # a chart must not cost the report
+                p.para(f"Six horizons could not be drawn ({type(exc).__name__}).",
+                       size=8, color=t["text_muted"])
+        if m.get("df") is not None:
+            try:
+                _horizon_geometry(p, m["df"])
+            except Exception as exc:
+                p.para(f"Horizon geometry could not be drawn ({type(exc).__name__}).",
+                       size=8, color=t["text_muted"])
+
         # ── Collapsed sections, expanded ──────────────────────────────────────
         deep = m.get("deep") or {}
         annual, quarters = deep.get("annual") or [], deep.get("quarters") or []
@@ -495,5 +737,6 @@ def render_pdf(m: dict[str, Any]) -> bytes:
     return buf.getvalue()
 
 
-def file_name(symbol: str, when: datetime | None = None) -> str:
-    return f"predictive-analysis-{symbol}-{(when or datetime.now()):%Y-%m-%d}.pdf"
+def file_name(symbol: str, when: datetime | None = None,
+              page: str = "predictive-analysis") -> str:
+    return f"{page}-{symbol}-{(when or datetime.now()):%Y-%m-%d}.pdf"

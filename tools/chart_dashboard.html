@@ -1627,7 +1627,9 @@ const INDICATOR_DEFS = [
   // Real taker side, not an estimate from bar internals — see drawDeltaProfile.
   {key:'deltaprofile', label:'Delta Profile — real taker side (Hyperliquid only)', group:'Volume', color:'#26a69a'},
   // ── Pattern Recognition ──────────────────────────────────────────────────────
-  {key:'elliott',      label:'Elliott Wave (1-5, A-B-C)', group:'Levels & Projection', color:'#00e5ff'},
+  {key:'elliott',      label:'Elliott Wave (1-5, A-B-C, W-X-Y)', group:'Levels & Projection', color:'#00e5ff', alias:'elliott wave wxy double zigzag double three complex correction'},
+  // B-136: the same engine at a larger zigzag size, drawn over the normal count.
+  {key:'ew2deg',       label:'Elliott Wave · larger degree (nesting)', group:'Levels & Projection', color:'#9e9e9e', alias:'elliott wave degree nested higher degree major minor'},
   {key:'fvg',          label:'Fair Value Gap + Buy/Sell signal (FPV)', group:'Smart Money & Structure', color:'#26a69a'},
   {key:'roundbottom',  label:'Rounding Bottom (saucer)',  group:'Price Patterns', color:'#ffab40'},
   {key:'doublebottom', label:'Double Bottom (neckline + quality grade)', group:'Price Patterns', color:'#f778ba', alias:'double bottom W pattern reversal neckline retest agpro quality grade follow through'},
@@ -4324,6 +4326,7 @@ function applyIndicators(pane) {
   if (!pane.indicators.has('mabias') && pane.maBias) clearMABias(pane);
   // Tear down Elliott Wave overlay if deselected
   if (!pane.indicators.has('elliott') && pane.ew) clearElliottWave(pane);
+  if (!pane.indicators.has('ew2deg') && pane.ew2) clearEwMajor(pane);
   // Tear down RSI divergence if deselected. When only RSI is switched off the
   // divergence survives on the price pane; clearRsiDivergence skips the RSI-side
   // removal once subCharts.rsi is gone, since that chart is already destroyed.
@@ -5244,6 +5247,9 @@ function applyIndicators(pane) {
   // ── Elliott Wave overlay (plug-in module, see elliott_wave.js) ────────────────
   if (pane.indicators.has('elliott')) {
     renderElliottWave(pane);
+  }
+  if (pane.indicators.has('ew2deg')) {
+    renderEwMajor(pane);
   }
 
   // ── Rounding Bottom overlay (server-side detection, see scanner_templates.py) ─
@@ -7133,6 +7139,81 @@ function ewWavePointPosition(p) {
   return p.type === 'high' ? 'aboveBar' : 'belowBar';
 }
 
+// ── B-136: larger degree ──────────────────────────────────────────────────────
+// The same engine with a 3x larger zigzag, drawn faint and thick behind the
+// normal count, labels in parentheses — the textbook convention for one degree
+// up. The info line says which normal-degree structures sit inside which
+// larger leg (EW.analyzeDegrees().nesting). Labels, not a signal.
+const EW_MAJOR_MULT = 3.6;   // 3x the normal 1.2 (floor scales with it)
+
+function clearEwMajor(pane) {
+  if (!pane.ew2) return;
+  Object.values(pane.ew2.lines).forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
+  setPaneMarkers(pane, 'elliott_major', null);
+  if (pane.ew2.noteEl) pane.ew2.noteEl.remove();
+  pane.ew2 = null;
+}
+
+function renderEwMajor(pane) {
+  const bars = pane.bars;
+  if (!window.EW || !EW.analyzeDegrees || !bars || bars.length < EW_OPTS.atrPeriod + 10) return;
+  const lastBar = bars[bars.length - 1];
+  const key = bars.length + ':' + lastBar.time + ':' + lastBar.close;
+  if (pane.ew2 && pane.ew2.key === key) return;
+  clearEwMajor(pane);
+  pane.ew2 = {key, lines: {}, noteEl: null};
+
+  const d = EW.analyzeDegrees(bars, {atrPeriod: EW_OPTS.atrPeriod, minPct: EW_OPTS.minPct,
+                                     minorMult: EW_OPTS.atrMult, majorMult: EW_MAJOR_MULT});
+  const M = d.major;
+  const mkLine = (id, pts) => {
+    const line = pane.chart.addLineSeries({
+      color: 'rgba(158,158,158,0.45)', lineWidth: 4, lineStyle: 0,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      autoscaleInfoProvider: () => null,
+    });
+    line.setData(pts.map(p => ({time: p.time, value: p.price})));
+    pane.ew2.lines[id] = line;
+  };
+  // The larger-degree swing path is always drawn — it is the "big picture"
+  // even before it holds a complete count. Labels only come from its live
+  // structure (EW.analyze().active): drawing its impulse, corrective and W-X-Y
+  // together stacked three labels on shared pivots.
+  if (M.pivots.length >= 2) mkLine('major_path', M.pivots);
+  const markers = [];
+  if (M.active) {
+    M.active.points.forEach(p => {
+      if (!p.label) return;
+      markers.push({time: p.time, position: ewWavePointPosition(p), color: '#9e9e9e',
+                    shape: 'square', size: 0.6, text: `(${p.label})`});
+    });
+  }
+  setPaneMarkers(pane, 'elliott_major', markers);
+
+  // Which normal-degree structure most recently fitted inside ONE larger leg —
+  // e.g. "this W-X-Y is the larger down leg", i.e. a wave (b) one degree up.
+  const names = {'impulse': '1-5', 'corrective': 'A-B-C', 'complex-corrective': 'W-X-Y'};
+  const fmt = v => v.toLocaleString('en-IN', {maximumFractionDigits: 2});
+  const latest = d.nesting.slice().sort((a, b) => b.minorEnd - a.minorEnd)[0];
+  const el = document.createElement('div');
+  el.className = 'ew-info';
+  let txt = `<b style="color:#9e9e9e">Larger degree (×${EW_MAJOR_MULT} zigzag, grey)</b>`;
+  if (latest) {
+    const a = M.pivots[latest.majorLeg], b = M.pivots[latest.majorLeg + 1];
+    txt += `<br>Latest ${names[latest.minorType] || latest.minorType} sits inside the larger ` +
+           `${latest.legDirection} leg ${fmt(a.price)} → ${fmt(b.price)}` +
+           (b.provisional ? ' (leg still forming)' : '');
+  } else {
+    txt += `<br>No normal-degree structure fits inside one larger leg yet.`;
+  }
+  if (M.active) txt += `<br>Larger-degree count: ${names[M.active.type] || M.active.type}` +
+                       (M.active.final ? '' : ' (forming)');
+  txt += `<br><i style="color:var(--text-muted)">Labels in ( ) are one degree up. Unmeasured.</i>`;
+  el.innerHTML = txt;
+  mountCard(pane, el, 'stack');
+  pane.ew2.noteEl = el;
+}
+
 function renderElliottWave(pane) {
   const ew = ensureEwState(pane);
   const bars = pane.bars;
@@ -7148,12 +7229,16 @@ function renderElliottWave(pane) {
   if (ew.lastComputeKey === cacheKey) return;
   ew.lastComputeKey = cacheKey;
 
-  const {impulses, correctives} = EW.analyze(bars, EW_OPTS);
+  const an = EW.analyze(bars, EW_OPTS);
+  const {impulses, correctives, complex, pivots} = an;
   const shown = selectStructuresToRender(impulses);
   const shownIds = new Set(shown.map(s => s.id));
   const shownCorrectives = correctives.filter(c => shownIds.has(c.parentImpulseId));
+  // B-135: W-X-Y structures are found on their own (they need no parent
+  // impulse). Only the most recent two are drawn — older ones are history.
+  const shownComplex = (complex || []).slice(-2);
 
-  const allStructures = [...shown, ...shownCorrectives];
+  const allStructures = [...shown, ...shownCorrectives, ...shownComplex];
 
   // Drop line series for structures that fell out of the rendered set.
   Object.keys(ew.lineSeries).forEach(id => {
@@ -7163,8 +7248,18 @@ function renderElliottWave(pane) {
     }
   });
 
-  const lastImpulse    = shown[shown.length - 1];
-  const lastCorrective = shownCorrectives[shownCorrectives.length - 1];
+  // B-138: the panel, the negation and the projections describe the most
+  // RECENT drawn count, and only while it is current (EW.liveCount). `shown` is
+  // score-ordered for drawing; taking its last element used to pick the
+  // lowest-scored of three, often months old.
+  const lc = EW.liveCount ? EW.liveCount(an, shown)
+           : {impulse: shown[shown.length - 1] || null, corrective: null,
+              complex: shownComplex[shownComplex.length - 1] || null,
+              active: null, live: false, endedAt: null};
+  const lastImpulse    = lc.impulse || undefined;
+  const lastCorrective = lc.corrective || undefined;
+  const lastComplex    = lc.complex || undefined;
+  const cxLive = !!(lc.live && lc.active && lc.complex && lc.active.id === lc.complex.id);
 
   // ── Elliott Wave + Volume Profile confluence ──────────────────────────────
   // Only meaningful once both modules have run — relies on drawVolumeProfile()
@@ -7178,6 +7273,7 @@ function renderElliottWave(pane) {
     const ewPoints = [];
     if (lastImpulse)    lastImpulse.points.forEach(p => ewPoints.push({time: p.time, price: p.price, label: p.label}));
     if (lastCorrective) lastCorrective.points.forEach(p => ewPoints.push({time: p.time, price: p.price, label: p.label}));
+    if (lastComplex) lastComplex.points.filter(p => p.label).forEach(p => ewPoints.push({time: p.time, price: p.price, label: p.label}));
     confluenceList = VP.findConfluence(ewPoints, pane.vp, EW_VP_CONFLUENCE_TOL);
     confluentKeys = new Set(confluenceList.map(c => c.time + ':' + c.label));
   }
@@ -7188,7 +7284,8 @@ function renderElliottWave(pane) {
     let line = ew.lineSeries[s.id];
     if (!line) {
       line = pane.chart.addLineSeries({
-        color: s.type === 'impulse' ? '#00e5ff' : '#ffab40',
+        color: s.type === 'impulse' ? '#00e5ff'
+             : s.type === 'complex-corrective' ? '#b388ff' : '#ffab40',
         lineWidth: 2,
         lineStyle: s.type === 'impulse' ? 0 : 2,           // solid impulse, dashed corrective
         priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
@@ -7203,11 +7300,14 @@ function renderElliottWave(pane) {
     line.setData(s.points.map(p => ({time: p.time, value: p.price})));
 
     s.points.forEach(p => {
+      if (!p.label) return;          // a W-X-Y's origin pivot carries no label
       const isConfluent = confluentKeys.has(p.time + ':' + p.label);
+      const base = s.type === 'impulse' ? '#00e5ff'
+                 : s.type === 'complex-corrective' ? '#b388ff' : '#ffab40';
       markers.push({
         time: p.time,
         position: ewWavePointPosition(p),
-        color: isConfluent ? '#ffd60a' : (s.type === 'impulse' ? '#00e5ff' : '#ffab40'),
+        color: isConfluent ? '#ffd60a' : base,
         shape: 'circle',
         size: isConfluent ? 1.4 : 0.8,
         text: isConfluent ? p.label + '★' : p.label,
@@ -7217,11 +7317,18 @@ function renderElliottWave(pane) {
 
   setPaneMarkers(pane, 'elliott', markers);
 
-  const fibConfluence = renderEwFibLevels(pane, lastImpulse, lastCorrective);
-  renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConfluence);
+  // Projections only for the live count's OWN leg: W3/W5 targets of an impulse
+  // that is already in its correction, or of a count that ended swings ago, are
+  // history drawn as if they were ahead.
+  const act = lc.live ? lc.active : null;
+  const fibConfluence = renderEwFibLevels(pane,
+    act && act.type === 'impulse' ? act : null,
+    act && act.type === 'corrective' ? act : null,
+    act && act.type === 'complex-corrective' ? act : null);
+  renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConfluence, lastComplex, cxLive, lc);
 }
 
-function renderEwFibLevels(pane, lastImpulse, lastCorrective) {
+function renderEwFibLevels(pane, lastImpulse, lastCorrective, lastComplex) {
   const ew = ensureEwState(pane);
   ew.fibLineSeries.forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
   ew.fibLineSeries = [];
@@ -7231,6 +7338,9 @@ function renderEwFibLevels(pane, lastImpulse, lastCorrective) {
   const rawLevels = [];
   if (lastImpulse)    rawLevels.push(...EW.fibLevelsForImpulse(lastImpulse));
   if (lastCorrective) rawLevels.push(...EW.fibLevelsForCorrective(lastCorrective));
+  // Y targets only while Y is still forming — once final they are history.
+  if (lastComplex && !lastComplex.final && EW.fibLevelsForComplex)
+    rawLevels.push(...EW.fibLevelsForComplex(lastComplex));
 
   // Forward-looking confluence runs against the FULL raw set so a far-off
   // extension that lands on a real POC/HVN can still be marked confluent
@@ -7279,7 +7389,7 @@ function renderEwFibLevels(pane, lastImpulse, lastCorrective) {
   return levels.filter(lv => fibConfluentLabels.has(lv.label));
 }
 
-function renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConfluence) {
+function renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConfluence, lastComplex, cxLive, lc) {
   const ew = ensureEwState(pane);
   if (!ew.infoEl) {
     ew.infoEl = document.createElement('div');
@@ -7314,20 +7424,25 @@ function renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConf
     ew.infoSummary = summary;
     mountCard(pane, ew.infoEl, 'corner');
   }
-  if (!lastImpulse) { ew.infoEl.style.display = 'none'; return; }
+  if (!lastImpulse && !lastComplex) { ew.infoEl.style.display = 'none'; return; }
   // Compact chip: label + confidence, matches the leading line of the full
   // panel so users know what's parked there when it's collapsed.
   if (ew.infoSummary) {
-    ew.infoSummary.textContent =
-      `EW: ${lastImpulse.bullish ? 'Bullish' : 'Bearish'} ` +
-      `${lastImpulse.final ? '5W' : '5W?'} · ${lastImpulse.score}/100`;
+    ew.infoSummary.textContent = lastImpulse
+      ? `EW: ${lastImpulse.bullish ? 'Bullish' : 'Bearish'} ` +
+        `${lastImpulse.final ? '5W' : '5W?'} · ${lastImpulse.score}/100` +
+        (lastComplex ? ' · W-X-Y' : '')
+      : `EW: W-X-Y ${lastComplex.direction === 'down' ? '↓' : '↑'}` +
+        (!cxLive ? ' (completed)' : lastComplex.final ? '' : ' (Y forming)');
   }
 
   const fmtPct = v => v == null ? '—' : (v * 100).toFixed(0) + '%';
   const fmtR   = v => v == null ? '—' : v.toFixed(2) + '×';
+  let html = '';
+  if (lastImpulse) {
   const r = lastImpulse.ratios;
 
-  let html = `<b>${lastImpulse.bullish ? 'Bullish' : 'Bearish'} Impulse (1-5)</b>` +
+  html += `<b>${lastImpulse.bullish ? 'Bullish' : 'Bearish'} Impulse (1-5)</b>` +
              (lastImpulse.final ? '' : ' <i>forming</i>') +
              `<br>W1 len: ${Math.abs(lastImpulse.lengths.wave1).toFixed(2)}` +
              `<br>W2 retrace: ${fmtPct(r.w2retrPct)} of W1` +
@@ -7345,13 +7460,46 @@ function renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConf
               ` <i>(${lastCorrective.ratios.patternGuess})</i>`;
     if (lastCorrective.ratios.cVsA != null)
       html += `<br>C: ${fmtR(lastCorrective.ratios.cVsA)} of A`;
+    // B-134 — stated, not scored: nothing on this desk has measured it.
+    if (lastCorrective.ratios.bAbnormal)
+      html += `<br><i style="color:#d29922">⚠ Unusual B — ` +
+              `${lastCorrective.ratios.bAbnormalReasons.join('; ')}</i>`;
+    if (lastCorrective.ratios.bSlow)
+      html += `<br><i style="color:var(--text-muted)">${lastCorrective.ratios.bSlowNote}</i>`;
+  }
+  }
+
+  // B-135 — W-X-Y. A drawing aid: the pre-registered study is in the backlog.
+  if (lastComplex) {
+    const cr = lastComplex.ratios;
+    const bNote = (b, name) => b.abnormal
+      ? `<br><i style="color:#d29922">⚠ ${name}'s b — ${b.reasons.join('; ')}</i>` : '';
+    html += (html ? `<hr style="border-color:#30363d;margin:4px 0;">` : '') +
+            `<b style="color:#b388ff">W-X-Y ${lastComplex.direction === 'down' ? '↓' : '↑'} ` +
+            `(${lastComplex.subtype})</b>` +
+            (!cxLive ? ` <i style="color:var(--text-muted)">completed ` +
+                       `${new Date(lastComplex.points[7].time * 1000).toISOString().slice(0, 10)}` +
+                       ` — not the live count</i>`
+                     : lastComplex.final ? '' : ' <i>Y forming</i>') +
+            `<br>X retrace: ${fmtPct(cr.xRetracePct)} of W` +
+            `<br>Y size: ${fmtR(cr.yVsW)} of W` +
+            bNote(cr.wB, 'W') + bNote(cr.yB, 'Y') +
+            `<br><i style="color:var(--text-muted)">Unmeasured — a drawing aid, not a signal.</i>`;
   }
 
   // ── Pattern negation ────────────────────────────────────────────────────────
   // The level at which the live count stops being possible. A target without an
   // invalidation cannot be wrong, and a count that cannot be wrong is not a
   // forecast — so this is stated as prominently as the targets above it.
-  const _ewActive = lastCorrective || lastImpulse;
+  // B-138: negate only the LIVE count. A count that ended swings ago has
+  // nothing left to negate — say so rather than print a stale level.
+  const _ewActive = lc && lc.live ? lc.active : null;
+  if (lc && !lc.live && lc.active && lc.endedAt) {
+    html += `<hr style="border-color:#30363d;margin:4px 0;">` +
+            `<i style="color:var(--text-muted)">No live count — the latest drawn ` +
+            `structure ended ${new Date(lc.endedAt * 1000).toISOString().slice(0, 10)}; ` +
+            `price has moved on since. No negation level or projections.</i>`;
+  }
   const _inv = _ewActive && EW.invalidation
     ? EW.invalidation(_ewActive, pane.bars) : null;
   if (_inv) {

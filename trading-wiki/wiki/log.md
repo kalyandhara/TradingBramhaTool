@@ -3073,3 +3073,31 @@
 - **Autofit column widths** — Streamlit 1.58 accepts an INT (pixels) for width, so `configure_df(autofit=True)` measures each column from the values in THAT frame, counting emoji as double width (the EMAs column clipped before this). Opt-in per call site: the registry's declared width is a statement about the column in general, autofit about one rendering of it
 - **Font one step down** — `theme.baseFontSize = 15` (from Streamlit's 16 default). The grid renders to canvas so CSS cannot reach cell text; this is the only lever that does, and it is **app-wide by construction** — every widget steps down with the tables. Trade made deliberately and recorded in config.toml
 
+
+## [2026-10-08] backlog | Elliott-wave coverage gaps filed as B-133–B-136, with a testing plan
+- **Trigger:** owner asked whether the desk covers an external SweeGlu Nifty 15m Elliott chart (W-X-Y inside a larger (b), 61.8–70% target band, "Fibonacci abnormality in wave (b)", Fibonacci trailing stop). Checked against `elliott_wave.js`, `fibonacci.js`, `ew_module.py`: the desk covers the drawing (15m bars, ATR zigzag, single A-B-C typing, Fib grid), not the count
+- **Filed in [[analyses/Open-Backlog]]:** B-133 0.70 Fibonacci level (drawn, not entry-eligible) · B-134 abnormal wave-B flag · B-135 W-X-Y detection · B-136 multi-degree labelling (blocked on B-135). Fibonacci trailing stop NOT refiled — B-126 declined it and B-124 found no trail beats a fixed exit
+- **Testing made part of the items, not an afterthought:** `elliott_wave.js` has zero tests today; plan is fixtures first (node pattern of `test_fibonacci_levels.py`), a non-repainting property test, one real Nifty 15m regression fixture, then PRE-REGISTERED studies for B-134 / B-135 through the shared harness before anything votes. Stated prior: no edge, given QM / ICT / OB / CHoCH results
+
+## [2026-10-08] build | B-133–B-136 built, B-134/B-135 measured (NULL / FAIL), B-137 filed
+- **B-133** 0.70 Fibonacci rung, drawn only (`DRAWN_ONLY`), never an entry — guarded by `buildPlan` test
+- **B-134** `EW.assessB` → `bAbnormal` / `bSlow` on correctives, "⚠ Unusual B" on the chart panel. Pre-registered study: +0.17% @20d, p=0.281, n=13,077 — NULL, label only
+- **B-135** `EW.detectComplexCorrectives` (W-X-Y), Y targets, forming-Y negation, purple on the chart. Study vs any correction ending in the same 61.8–78.6% band: +0.36% @20d, p=0.620, n=353 — FAIL
+- **B-136** `EW.analyzeDegrees` + chart toggle "Elliott Wave · larger degree"; bug caught on the rendered chart: scaling atrMult alone left both degrees identical because the 0.5% minPct floor dominates on index prices — both now scale
+- **Pre-run amendments recorded in the backlog before the scorer existed:** label-permutation p (sparse event sets make rotation meaningless) and a two-sided B-134 bar (an "abnormality" is a warning, not a buy feature)
+- **Tests:** new `test_elliott_wave.py` (the module had none) — fixtures, negatives, no-redraw property, `confirmedAt` causality; real Nifty 15m fixture via `tools/capture_ew_fixture.py` (capture before early December 2026, Yahoo's 15m window)
+- **Found:** B-137 — `computeZigzag` can place a high and a low pivot on the same wide bar; filed, not fixed in place
+
+## [2026-10-08] fix | B-137 — zigzag no longer puts a top and a bottom on one candle; B-138 filed
+- **Fix:** `computeZigzag` confirms a reversal only on a bar AFTER the extreme's bar (`elliott_wave.js` 1.3.0). Tests written first; they fail on the old engine
+- **Impact, measured on cardinality_deep (459 names, 1.50M bars):** confirmed pivots 613,942 → 376,562 (−38.7%), same-bar pairs 132,258 → 0, 96% of survivors unchanged; live Fibonacci anchor moved for 252/459 names — the chart's Fib grid and RSI-divergence swings will look different on most names
+- **B-134 / B-135 re-run on the fixed engine:** verdicts hold (NULL / FAIL)
+- **Chart:** a W-X-Y is the live count only while its Y is the latest swing; older ones read "completed <date> — not the live count"
+- **Correction:** cardinality_deep holds up to ~20y per name (~13y avg), not "~7 years" as written in the B-133–B-136 pre-registration and the CHoCH scanner description — both corrected
+- **Filed B-138:** the chart's Elliott info panel picks the lowest-scored of the top-3 impulses as the "live" count, so its negation can be months old
+
+## [2026-10-08] fix | B-138 — the Elliott panel describes the live count, or says there is none
+- `EW.liveCount` picks the most RECENT drawn count (the chart used the lowest-scored of the top three) and marks it live only if it ends at the latest confirmed or forming swing
+- Not live → "No live count — the latest drawn structure ended <date>", no negation level, no projection rays; live impulse already in its correction → only its C targets
+- Seen on RELIANCE 1d before/after: a Wave C negation 19% above price and W3/W5 targets 20–30% above price, all from a count that ended in January, are gone; the old counts remain drawn as history
+- 4 tests first (`test_elliott_wave.py`); 58 pass + 1 skipped (the uncaptured Nifty 15m fixture) across the Elliott / Fibonacci / divergence suites

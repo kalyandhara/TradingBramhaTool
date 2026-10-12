@@ -8975,7 +8975,68 @@ def scan_breakout_retest(df: pd.DataFrame, lookback: int = 120,
     }
 
 
+
+# ── Bullish CHoCH (fresh change of character) ────────────────────────────────
+def scan_bullish_choch(df: pd.DataFrame, within: int = 5,
+                       pivot_len: int = 5) -> dict | None:
+    """Bullish CHoCH in the last `within` sessions: first close above the latest
+    confirmed swing high while structure was bearish, not since invalidated by a
+    close below a confirmed swing low. Logic lives in tools/choch_scan.py
+    (`bullish_choch`), which keeps a CHoCH even when a BOS followed it.
+    MEASURED NO EDGE (choch_study.py) - PIPELINE_EXCLUDED."""
+    from choch_scan import bullish_choch   # lazy: choch_scan imports this module
+    r = bullish_choch(df, pivot_len=pivot_len, within=within)
+    if not r:
+        return None
+    ba = r["bars_ago"]
+    when = "today" if ba == 0 else f"{ba} bar{'s' if ba > 1 else ''} ago"
+    close, level, leg = r["close"], r["broken_level"], r.get("leg_low")
+    reasons = [
+        f"Bullish CHoCH {when}: closed above swing high {level:.2f} while "
+        f"structure was bearish (pivot {pivot_len})",
+        f"Price {close:.2f}, {r['pct_above_level']:+.2f}% vs the broken level",
+        f"Break candle body {r['body_ratio']:.2f} of range"
+        + (" - displacement" if r["displacement"] else " - soft close")
+        + (f", {r['break_rvol']:.1f}x 20d volume" if r.get("break_rvol") else ""),
+    ]
+    if r["bos_after"]:
+        reasons.append(f"{r['bos_after']} BOS since the CHoCH - new uptrend extending")
+    if r.get("ote_zone"):
+        reasons.append(f"OTE pullback zone (61.8-79%): {r['ote_zone']}")
+    card = {
+        "pattern_type": "Bullish CHoCH (market structure shift)",
+        "tags": ["CHoCH", when] + (["Displacement"] if r["displacement"] else [])
+                + (["Measured: no edge"]),
+        "reasons": reasons,
+        "score": round(max(10.0, 70.0 - 8.0 * ba
+                           + (10.0 if r["displacement"] else 0.0)
+                           + min(10.0, 3.0 * ((r.get("break_rvol") or 1.0) - 1.0))), 1),
+        "choch_level": level,
+        "choch_bars_ago": ba,
+        "rs_raw": _rs_raw(df),
+    }
+    if leg and leg < close:
+        card.update({"entry": close, "stop": leg,
+                     "target": round(close + 2 * (close - leg), 2)})
+    return card
+
+
 SCANNERS: dict[str, dict] = {
+    "Bullish CHoCH (last 5 sessions)": {
+        "fn": scan_bullish_choch,
+        "description": (
+            "Fresh bullish change of character: within the last 5 sessions a daily "
+            "close broke the most recent confirmed swing high (pivot 5) while "
+            "structure was bearish, and no close has since broken a confirmed swing "
+            "low. Caught even if a BOS followed. Stop = swing low that started the "
+            "leg, target 2R; OTE 61.8-79% zone shown for pullback entries. "
+            "MEASURED NO EDGE (choch_study.py, 2026-10-07, 459 names, ~13y avg daily history): "
+            "+0.24% @20d vs bearish-state baseline, p_rot 0.511, n=15,851; "
+            "+0.77% @60d, p_rot 0.263. The card window vs all bars is -0.30%. "
+            "Attention list - PIPELINE_EXCLUDED, never votes."
+        ),
+        "category": "Entry",
+    },
     "Shallow Flip (Renko, bounded correction)": {
         "fn": scan_shallow_flip,
         "description": (

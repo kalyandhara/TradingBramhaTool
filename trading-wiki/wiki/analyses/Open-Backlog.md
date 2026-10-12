@@ -4,7 +4,7 @@ category: analysis
 tags: [backlog, index, roadmap, open-items, measurement-debt]
 timeframe: milestone-plan
 created: 2026-08-07
-updated: 2026-09-20
+updated: 2026-10-08
 sources: 0
 related:
   - analyses/PCR-Sign-Convention-Pre-Registration.md
@@ -150,7 +150,7 @@ session, never from the page at the end of one.
 | ~~3~~ | ~~**B-87r**~~ | **FIRST EXTRACTION DONE 2026-09-19** — 696 lines out, ceilings lowered, and the registry makes the next one cheaper than this one. Headroom 96 → 42 lines *below* a ceiling that is itself 750 lower |
 | 4 | **B-99** | four measurements already paid for and not written down |
 | 5 | **B-96** | **no longer "composed of two built things"** — B-97 turned it into a presentation decision (govern, or print the agreement). Rank unchanged, size is not |
-| — | **B-59r2** | re-read the two counts before running anything; it may already be done |
+| ~~—~~ | ~~**B-59r2**~~ | **RESOLVED 2026-10-12 — already discharged by B-59r (8,576 PSAR-only flips reproduce its n exactly); no run owed. See the B-59r2 row in the roadmap.** |
 
 Nothing was closed by this pass that the code did not show closed, and nothing
 was invented.
@@ -189,10 +189,10 @@ none of them is.
 | ~~**B-42r**~~ | ~~`pivot_len` 5 vs 15~~ — **MEASURED 2026-09-17: the two settings agree on `state` only 29.6%** of the time (199 names), and 17.6% read DOWNTREND in the scanners against UPTREND on the chart. **Promoted to an OWNER decision** — see below | measured; the decision is yours |
 | ~~**B-94**~~ | ~~an outside letter’s option-chain levels have never been checked against our own~~ — **MEASURED 2026-09-19: SPLIT.** Max pain **23,300 reproduces EXACTLY** on the 2026-09-17 chain (and on 09-16), nearest expiry 2026-09-22. Both walls MISS on the whole-chain definition (ours 24,500 call / 22,000 put). **Post-hoc, using the module’s own existing `NEAR_STRIKES = 10` window, the call wall 23,500 also reproduces EXACTLY** — so the call-wall gap was DEFINITIONAL, ours. The put wall 23,100 does not reproduce under either definition: it is our **#8** put strike (5.36M) while 23,000 carries **9.65M**, 80% more. Verdict by the pre-registered rule: **NOT REPRODUCED** (1 of 3 exact); by substance: **2 of 3, and the third is the letter’s weakest claim**. [[#B-94]] | done — and it found a gap in OUR tool, not only in the source |
 | ~~**B-97**~~ | ~~nothing has ever scored whether `pivot_d` and `pivot_w` AGREE~~ — **MEASURED 2026-09-19: they agree on the SIDE of the pivot 53.9% of 499 names (chance 41.8%, lift +12.1) and read OPPOSITE sides 37.9%. Median across 29 month-ends: 64.0% side / 27.3% opposite. Both pre-registered bands fail — TWO DIFFERENT READINGS + CONTRADICTION. Agreement is above chance at every date, so the columns are not independent; the shared part is just far smaller than two adjacent columns imply. [[#B-97]]** | done — and it re-scoped B-96 |
-| **B-21b** | every floor set on 2026-08-07 came from **one session's cross-section** | the floors are labelled in code and the history to re-measure them on is cached |
-| **B-59r2** | ~~PSAR's **unique** flips (68.9% uncovered at ±3) — the edge test the overlap check left owed~~ — **CONTESTED 2026-09-19, see [[#Re-verification 2026-09-19]]. The 2026-09-11 pass struck this debt as already discharged by [[#B-59r]], and this table re-raised it six days later. The counts do not settle it: B-59r scored 8,576 PSAR-not-STAI flips, while "68.9% uncovered" is ~19,693 flips uncovered by *either* twin. Cheap to resolve, and it is a re-read before it is a run** | `psar_stai_edge.py` already scores PSAR-only cells |
+| **B-21b** | **PARTLY RE-MEASURED 2026-10-12 (cash-market proxy, ad-hoc script, not saved as a study; 1.47M name-days, 2006–2026, `cardinality_deep`).** **1.0x rvol veto:** the market is below 1.0x about **52% of days in every one of 21 years** (51.3–53.3%), median rvol 0.97–0.98, so the cut is stable and is simply "below the median"; on |move|≥1.5% days (n=628k) median rvol is 1.18 and 40% still sit under 1.0x. **5-session window:** 5/10/20-day baselines give the same share (52.1/52.1/51.4%) and rank-correlate 0.77 (5 vs 20) — no evidence the window matters. **Stability caveat:** the rvol p90 drifts 3.0 → 2.4 over the period, so a fixed high rvol cut ages. **Turnover floor:** NOT stable in rupee terms — the p10 of 10-day turnover rose from ~Rs 0.05–0.5 cr (2008–2016) to Rs 11.4 cr (2026), so any floor set in one year is a different percentile in another; the Rs 50 cr OI-momentum floor is a level, not a percentile, and should be read that way. **Price floor:** cash |daily move| median is 1.23% with year medians 1.0–2.1%, so MIN_PRICE_PCT 0.5 is far below typical (consistent with B-26; this is stocks, not the futures price the floor is applied to). **NOT re-measured:** PCR percentile cuts, MIN_OPTION_OI, index OI floors, NOTABLE_PCR_CHG — they need historical F&O bhavcopy, which is not cached and NSE is not reachable from this sandbox; run from the desk machine. Survivor-only cache (current constituents) flatters turnover history | the floors are labelled in code and the history to re-measure them on is cached |
+| ~~**B-59r2**~~ | ~~PSAR's **unique** flips (68.9% uncovered at ±3) — the edge test the overlap check left owed~~ — **RESOLVED 2026-10-12 → ALREADY DISCHARGED by [[#B-59r]]; no run owed.** Recounted from `cache/flip_vectors.json` (460 names, ±3): the 68.9% is 19,690 of 28,582 flips over BOTH directions (the "~19,693" figure), while B-59r scored LONG flips only. PSAR up-flips with no STAI up-flip, inside B-59r's window (WARMUP 60, horizon 20) = **8,576, reproducing B-59r's n exactly**; of those, **8,421 (98.2%) are also uncovered by PMax**, i.e. the "unique" cells are almost wholly inside the arm already scored (−0.77%, p=0.053). A separate unique-cell run would repeat that number. Not covered: PSAR down-flips, never scored (long-side-only design). Prior note: **CONTESTED 2026-09-19, see [[#Re-verification 2026-09-19]]. The 2026-09-11 pass struck this debt as already discharged by [[#B-59r]], and this table re-raised it six days later. The counts do not settle it: B-59r scored 8,576 PSAR-not-STAI flips, while "68.9% uncovered" is ~19,693 flips uncovered by *either* twin. Cheap to resolve, and it is a re-read before it is a run** | `psar_stai_edge.py` already scores PSAR-only cells |
 | ~~**B-89**~~ | ~~**`mabias`** — a 9/20 EMA-cross verdict ladder shipping LONG/SHORT badges on the chart, **never scored**~~ — **MEASURED 2026-09-24 → NULL.** spread −1.68%, p_rot 0.165; SHORT outperforms LONG in 7 of 8 symbols but not significantly. The badge stays on the chart as a visual aid; it is NOT entered into the confluence pipeline. [[analyses/MA-Bias-Edge-Test]] | done |
-| **B-90** | the **VWAP+EMA agreement state** from the owner's card | `intraday_store` already holds 15m bars, 85 sessions, 6 names — no new data |
+| ~~**B-90**~~ | the **VWAP+EMA agreement state** — **MEASURED 2026-10-12 → FAILS (wrong sign), do not build** (`tools/vwap_ema_agreement_study.py`, design in its docstring, written before the run). 5 stocks (^NSEI excluded: no volume), 15m bars, 102 sessions, 10,650 bars; session VWAP + EMA20; first 4 bars skipped. Pre-registered statistic = per-session excess over the same-session every-bar baseline, t-test across sessions. **BELOW-both (the exit/avoid form) was hypothesised NEGATIVE; it is +0.12pp @1h and +0.16pp @2h, p<0.001 both** — price tended to bounce, not keep falling. ABOVE-both mirrors it (−0.17 / −0.19pp). **Caveat that stays attached:** the pooled raw means barely differ (BELOW −0.046% vs baseline −0.038% @1h), so the within-session excess is an intraday mean-reversion contrast that the pooled, day-level view does not show — days with many BELOW bars are down days that keep falling. Only ~102 sessions, 5 correlated large-caps, one regime, gross of costs. Verdict: the card's rule is not an exit signal here; if anything a within-session fade, which is unmeasured as a trade and not claimed | `intraday_store` 15m, 5 names |
 
 ### BUILD — scoped, nothing to decide
 
@@ -210,7 +210,7 @@ none of them is.
 | ~~**B-92**~~ | ~~Flag & Pole detector, both directions~~ — **BUILT 2026-09-17**, both cards carry a full plan; counting first caught a breakout condition that was unsatisfiable by construction | done |
 | **B-95** | **FII / client participant-wise F&O long:short ratios** — the “88% short is squeeze fuel” claim from [[sources/Bramesh-NIFTY-Gann-1x3-Higher-High-2026-09-18]]. **Probe the DATA first:** nothing here reads NSE’s participant-wise OI (`FII` in the toolchain is a *shareholder-name* classifier in `block_deal_intel.py`; the F&O bhavcopy carries contract OI, not the participant split). If the file is fetchable → pre-register, then measure **with rotation p-values**, because this is an autocorrelated STATE series and a t-test here manufactures significance (known null: p=0.031 Welch vs 0.32 rotation). Needs a control too — extremes cluster in falling markets by construction. See [[concepts/Participant-Positioning-FII-DII]] | data probe, then medium |
 | **B-96** | **monthly / quarterly / yearly pivot zones** — `row_metrics.pivot_levels()` already accepts any frame (*"Feed it a weekly-resampled frame to get weekly pivots"*) and `timeframe_board.py` already resamples to `ME`/`2QE`/`YE` from one download. **The only two call sites in all of `tools/` are `pivot_d` and `pivot_w`** (`row_metrics.py:510-511`, grep-verified). No new data, no new arithmetic — a composition of two things already built. From [[sources/Bramesh-TradingView-Gann-Scanners-Product-Line]], where the idea of looking past one timeframe sells for ₹6,666/month | **no longer small — B-97 re-scoped it 2026-09-19.** At 37.9% opposite today and 27.3% at the median, five peer columns would routinely contradict each other with nothing saying which governs. B-96 must either name a governing timeframe or print the AGREEMENT as the reading (a "3 of 5 above" state, B-42's `agreement` shape). The second is the better fit, and it is a design task, not a composition |
-| **B-98** | **a calendar-anchored reference level** — **DETECTOR BUILT + PRE-REGISTERED 2026-09-20; the measurement is the open half.** `tools/calendar_anchor.py`: the January high/low as an anchor, a state (ABOVE / BELOW / INSIDE) and the event (first close outside), 16 tests. **The build produced its own prior, counted before any forward return was touched** (120 names, ~10 years, **972 symbol-years**): the range breaks in **971 of them — 99.9%**, median **7 sessions** after January, **42%** inside five sessions, up-share 44.4%, median January width 16.1%. **A construct that fires on 99.9% of symbol-years selects nothing**, so this will not be registered as a shortlist scanner whatever the edge turns out to be — that is settled by the base rate, not by a p-value. The design changed BEFORE the run because of it: [[analyses/Yearly-Opening-Range-Pre-Registration]] tests the break's DIRECTION, the STATE, and whether the break HELD, with a by-year test as the deciding one (every name breaks in the same few weeks of the same year, so a pooled p-value over 971 correlated signals would be the most overstated number here). **Dates are the catch**: `_clean_ohlc` and `backtest_scanner` both `reset_index(drop=True)`, so the module takes a dated frame and RAISES rather than guessing that bar 0 is January — see [[#B-104]], the same class of bug already found live | **detector done; the measurement is next, and it is a study of its own** |
+| ~~**B-98**~~ | **MEASURED 2026-10-12 → CLAIM A FAILS (`tools/yearly_opening_range_study.py`, 442 names, 5,960 symbol-years, 2007–2026).** Signed excess over a same-symbol-year every-bar baseline: **h=20 −0.03pp, h=60 −1.57pp, h=120 −0.59pp**; the deciding by-year test: **p=0.874 / 0.230 / 0.680, positive in only 7 / 6 / 8 of 20 years**. Pooled p at h=60 is 0.000 but in the NEGATIVE direction and driven by a few years (2008, 2009 ≈ −12 to −23pp, 2020 +18pp), exactly the clustering the pre-registration warned about. Both directions are individually non-positive at h=60 (up −1.52, down −1.61). **B (state, ABOVE−BELOW at quarter-ends): +1.93pp, p=0.063 over 69 overlapping dates** — description only, A failed. **C (held vs failed): no separation** (by-year diff +0.19 / −0.59 / +3.03pp, p 0.83 / 0.65 / 0.15). **Deviation from the registered text, stated:** `still_outside` is measured at the frame end and so uses the future; C uses "still beyond the level 10 sessions after the break" instead. Costs cancel in the excess; raw signed return is −1.21% (net −1.50%) at h=60. **Outcome: stays a drawn level/state provider with no claim attached; not a scanner.** Original entry: **DETECTOR BUILT + PRE-REGISTERED 2026-09-20; the measurement is the open half.** `tools/calendar_anchor.py`: the January high/low as an anchor, a state (ABOVE / BELOW / INSIDE) and the event (first close outside), 16 tests. **The build produced its own prior, counted before any forward return was touched** (120 names, ~10 years, **972 symbol-years**): the range breaks in **971 of them — 99.9%**, median **7 sessions** after January, **42%** inside five sessions, up-share 44.4%, median January width 16.1%. **A construct that fires on 99.9% of symbol-years selects nothing**, so this will not be registered as a shortlist scanner whatever the edge turns out to be — that is settled by the base rate, not by a p-value. The design changed BEFORE the run because of it: [[analyses/Yearly-Opening-Range-Pre-Registration]] tests the break's DIRECTION, the STATE, and whether the break HELD, with a by-year test as the deciding one (every name breaks in the same few weeks of the same year, so a pooled p-value over 971 correlated signals would be the most overstated number here). **Dates are the catch**: `_clean_ohlc` and `backtest_scanner` both `reset_index(drop=True)`, so the module takes a dated frame and RAISES rather than guessing that bar 0 is January — see [[#B-104]], the same class of bug already found live | **detector done; the measurement is next, and it is a study of its own** |
 | ~~**B-93 / PR-2**~~ | ~~trade-plan coverage as a visible metric — only **7 of 31** firing scanners emit entry/stop/target~~ — **BUILT 2026-09-17** (`7385a9b`): `tools/scanner_plans.py` + its cache, rendered from `dashboard_app.py:8256`. **The census also corrected the number this row states — 14 of 45, not 7 of 31** | done |
 | ~~**B-99**~~ | ~~**four indexed studies ran and left no citable result**~~ — **DOCUMENTED 2026-09-24.** SBC-15m (lift 0.96×, NULL), SBC-muhurat (lift 0.66×, NULL), B-30r newmoon levels (lift 0.95–1.05×, NULL) — three clean nulls. B-38 funnel price legs: machinery verified on synthetic data, live measurement still needs fetcher wiring. [[analyses/B99-Study-Write-Ups]] | done — `claims_lint` CHECK 0c cleared |
 | ~~**B-100**~~ | ~~**`oi_walls` ranks the WHOLE chain and does not say so**~~ — **FIXED 2026-09-23.** `oi_walls()` gains a `near_strikes` parameter; when set, ranking is limited to the N strikes nearest spot on each side, so far-OTM weekly inventory no longer appears as "resistance" or "support". `read_levels()` now passes `near_strikes=NEAR_STRIKES` (10) by default, and the response includes `wall_window: 10` so consumers know the window. The chart overlay (B-28) inherits this automatically since it draws what the server returns. 3 new tests (29 total in test_option_chain.py). The `oi_walls(chain, n=3)` call without `near_strikes` still works as before for any caller that wants the whole-chain ranking | done |
@@ -247,6 +247,12 @@ none of them is.
 | **B-132** | **AB=CD signals carry an edge their plan gives away** — from the B-129 re-measure, 2026-10-05. AB=CD-only bullish: 2,136 fresh signals, positive @20d in 3/3 windows, clustered p=0.0066, yet −0.17R because the stop is D − 0.5%·D and 68% of plans stop out. Not acted on: promoting a sub-family found by splitting after the fact is the post-hoc move the desk refuses, and the window-3 +1.44 carries most of the mean. **Next, if pursued:** pre-register an AB=CD stop study (e.g. stop beyond D by k·ATR, or beyond the BC leg) on a fresh panel, with the tier question decided only by that run. Also owner's call: whether AB=CD should vote at all while its plan is negative | **OWNER: pursue or drop.** Pre-registered stop study is ~1 session |
 | ~~**B-130**~~ | ~~**Stock Summary Card on Predictive Analysis — 52-week context + detected patterns**~~ — **BUILT 2026-09-26.** Three-layer card above the PA chart: 52-week range bar (`rs.range_spectrum` with sup/res marks), Minervini stage badge (8 condition chips, 4-tier label), detected-pattern chips queried across all scanners via new `db.get_symbol_patterns()`. Inline in `dashboard_app.py` PA block, wrapped in try/except | **done.** |
 | ~~**B-131**~~ | ~~**Smart Money Flow card on Predictive Analysis — accumulation vs distribution, OBV trend, CMF**~~ — **BUILT 2026-09-26.** Session-flow bar chart (60 sessions, green/red/grey), verdict label (5-tier), inline SVG OBV trend mini-chart via new `money_flow.obv()`, CMF(21) reading. Honest caveat on the card about the heuristic nature of the classifier. Inline in `dashboard_app.py` PA block, wrapped in try/except | **done.** |
+| ~~**B-133**~~ | ~~Fibonacci grid has no 0.70 level~~ — **BUILT 2026-10-08.** `fibonacci.js` RETRACEMENTS gains 0.70, excluded from entries by name via `DRAWN_ONLY` (it sits inside ENTRY_BAND, so the band test alone would have promoted it). 4 new tests in `test_fibonacci_levels.py`, incl. `buildPlan` never entering at 0.70 even when it is the ONLY level with volume confluence. Unmeasured by design | small |
+| ~~**B-134**~~ | ~~no flag for an abnormal wave-B ratio~~ — **BUILT + MEASURED 2026-10-08 → NULL.** `EW.assessB` + `bAbnormal` / `bAbnormalReasons` (price: B < 23.6% or > 138.2% of A) and a separate `bSlow` (B > 2x A in time) on every corrective; shown on the chart panel as "⚠ Unusual B". Pre-registered study (`ew_structure_study.py`, two-sided by pre-run amendment): **+0.17% @20d, p=0.281, n=13,077 vs 32,724** — neither a buy feature nor a valid warning. Stays a label | small + study |
+| ~~**B-135**~~ | ~~W-X-Y not detected~~ — **BUILT + MEASURED 2026-10-08 → FAIL.** `EW.detectComplexCorrectives` (8 pivots; W and Y real A-B-Cs, X 38.2–100% of W, Y past W's end, Y 0.382–2.618x W), `fibLevelsForComplex` (Y = X ± W x 0.618/1/1.618), `invalidationForComplex`; drawn purple on the chart. Pre-registered study: W-X-Y vs ANY correction ending in the same 61.8–78.6% band — **+0.36% @20d, p=0.620, n=353 vs 28,210**. The shape adds nothing over the depth. Drawing aid only. Real-chart regression test skips until `py -3 tools/capture_ew_fixture.py` is run (Yahoo keeps 15m ~60 days: capture before early December 2026) | medium + study |
+| ~~**B-136**~~ | ~~one wave degree only~~ — **BUILT 2026-10-08.** `EW.analyzeDegrees` runs the engine at two zigzag sizes (BOTH atrMult and the minPct floor scale — scaling atrMult alone left both degrees identical on index prices, caught on the rendered chart) and returns `nesting`: which normal-degree structures sit inside which larger leg. Chart toggle **"Elliott Wave · larger degree"**: grey larger-degree path, its live count in ( ) labels, and a card naming the latest nested structure. Unmeasured, as filed | large |
+| ~~**B-137**~~ | ~~`computeZigzag` can put a HIGH and a LOW pivot on the SAME bar~~ — **FIXED + MEASURED 2026-10-08.** A reversal is now confirmed only by a bar AFTER the one that set the extreme (both phases); `elliott_wave.js` 1.3.0. 3 new tests fail on the old engine and pass on the new. Impact on cardinality_deep (459 names, 1.50M bars): **613,942 → 376,562 confirmed pivots (−38.7%)**, same-bar pairs **132,258 → 0**, 96% of surviving pivots unchanged, one swing per 2.4 → 4.0 bars; **the live Fibonacci anchor moved for 252 of 459 names** (fibonacci.js and rsi_divergence.js read the same zigzag). B-134 / B-135 re-run on the fixed engine, design unchanged: verdicts HOLD (B-134 +0.09%, p=0.649 NULL; B-135 −0.49%, p=0.557, n=282 FAIL) | small |
+| ~~**B-138**~~ | ~~the chart's Elliott "live count" is not the latest structure~~ — **FIXED 2026-10-08.** New `EW.liveCount(analysis, shownImpulses)` (elliott_wave.js 1.4.0): the most RECENT drawn impulse (not the last of a score-sorted list), its corrective, and the latest W-X-Y; `live` only when the active structure ends at the latest confirmed or forming swing. The chart's panel, **Pattern negation** and projection rays now come from it: a count that is not live shows "No live count — the latest drawn structure ended <date>" with **no negation and no projections**, and a live impulse already in its correction projects only its C targets (its W3/W5 targets are history). 4 tests written first. Verified on RELIANCE 1d: the 19%-away Wave C negation and the W3 2.618x / W5 targets 20-30% above price are gone; historical counts stay drawn as context | small |
 
 ### OWNER — a judgement, not a task
 
@@ -7152,6 +7158,148 @@ Full four-rung roadmap in [[analyses/Pattern-Reporting-Enhancement-Roadmap]]:
 misleading), **PR-2** trade-plan coverage as a visible metric, **PR-3** the B-92
 detector, **PR-4** the chart overlay.
 
+
+## B-133–B-136 · Elliott-wave coverage gaps — **FILED 2026-10-08 · BUILT + MEASURED 2026-10-08 (B-134 NULL, B-135 FAIL)**
+
+**Source.** An external SweeGlu Elliott Wave chart, Nifty 50, 15-minute, 2026-10-08:
+a W-X-Y correction (its Y an (a)(b)(c)) counted as wave (b) of a larger
+(a)(b)(c), Y ending in the 61.8% (22,432) – 70% (22,386) retracement band of the
+Oct 3 low → (X) high, a "Fibonacci abnormality in wave (b)" call-out, a trailing
+stop at 22,509 (≈ the 38.2% retracement of the Y leg) and a projected (c) up. The
+owner asked whether the desk covers this. **It covers the drawing, not the count.**
+
+### Coverage, checked against the code on 2026-10-08
+
+| Element on the chart | Desk today | Status |
+|---|---|---|
+| Nifty index, 15m bars | chart tool serves 1m … 1wk | covered |
+| Swing pivots | `EW.computeZigzag` — ATR-adaptive, non-repainting, trailing pivot `provisional` | covered |
+| Single A-B-C, typed by B retrace | `EW.detectCorrectives` → zigzag / flat / expanded-flat | covered |
+| W-X-Y double correction | — | **gap → B-135** |
+| Nested degrees ((W)(X)(Y) inside (b)) | single degree only | **gap → B-136** |
+| "Fibonacci abnormality in wave (b)" | `bRetracePct` measured, never flagged | **partial → B-134** |
+| 23.6 / 38.2 / 61.8 % zones | `fibonacci.js` grid 0.236 … 0.886 | covered |
+| 70% level | grid skips 0.618 → 0.786 | **gap → B-133** |
+| Anchor leg of the grid | auto-anchored on the LATEST zigzag swing; the analyst anchored Oct 3 low → (X) | may differ — by design, not a gap |
+| (c) projection | `fibLevelsForCorrective` 0.618 / 1.0 / 1.618 × A — single A-B-C only | partial (follows B-135) |
+| Trail at a Fibonacci retracement of the last leg | PMax / SuperTrend AI trails; impulse invalidation levels | not built — and **[[#B-126]] already declined Fibonacci trailing stops** as a composition, and [[#B-124]] found no trail beats a fixed exit. Not refiled. |
+| `ew_module.py` (Stock Analyzer EW read) | daily only, W1–W5 + a bare "ABC" label | not relevant at 15m |
+
+### Testing — required, in this order, for every item
+
+1. **Fixtures before code.** `elliott_wave.js` has **no tests at all** today
+   (only `fibonacci.js` does, via `test_fibonacci_levels.py` through node). Add
+   `test_elliott_wave.py` on the same node pattern, with hand-built pivot series
+   for: clean zigzag, flat, expanded flat, abnormal-B (15% / 140%), clean W-X-Y,
+   and a "looks like WXY but X too shallow" negative.
+2. **Non-repainting property test** for every new detector: run on bars[:k] for
+   increasing k; a structure marked confirmed at k must be identical at every
+   later k. Provisional structures may change and must say so.
+3. **One real regression fixture:** the Nifty 15m 2026-10-03 → 10-08 bars cached
+   to `tools/cache/fixtures/`, asserting the detector finds W, X, Y in that
+   segment. It pins behaviour; it is NOT evidence of edge (one hand-picked example
+   is the illusion the harness exists to prevent).
+4. **Pre-registered measurement before anything becomes a signal**, written into
+   this entry and committed BEFORE the scorer runs, through the shared harness
+   (`renko_regime_study._edge` / `_rotation_p`, cache `cardinality_deep`):
+   - **B-134:** do abnormal-B correctives resolve differently from normal ones?
+     Signal = completion of C after an abnormal B; baseline = completion of C
+     after a normal B in the same names; 20d next-open; PASS = edge > 0 and
+     p_rot < 0.05, n ≥ 200.
+   - **B-135:** does a completed Y inside the 61.8–78.6% band of the prior leg
+     beat a state-matched baseline = every bar in that band WITHOUT a WXY?
+     Same horizon, same bar. Daily bars first (the cache); 15m only if daily
+     passes, because the desk has no deep intraday cache.
+   - **B-133 / B-136:** no study of their own — 0.70 stays a drawn level and
+     multi-degree labels stay labels unless B-135 passes.
+
+### Pre-registration — written 2026-10-08, BEFORE the scorer existed
+
+Supersedes the one-line study sketches in step 4 above, which were not specific
+enough to run without choices. Every choice is made here, first.
+
+**Common to both.** Engine = the shipped `elliott_wave.js` (v1.2.0, default
+options atrMult 1.2, minPct 0.5) run through node on the daily bars in
+`tools/cache/cardinality_deep` (459 names; corrected 2026-10-08: up to ~20 years each, ~13 on average, 1.50M bars — first written here as "~7 years"). An event is dated at the
+**`confirmedAt` bar of its last pivot** (added to `computeZigzag` for this; the
+first bar a live reader could see the structure; causality is unit-tested). Entry
+= next open, horizon = **20 trading days**, return = close[t+21] / open[t+1] − 1.
+**Long side only** (the desk is long-only): B-134 uses correctives of a
+**bullish** parent impulse, B-135 uses **downward** W-X-Ys. ABORT if a signal arm
+has fewer than 200 events: INCONCLUSIVE, UNDERPOWERED, not a null.
+
+**Amendment 1: p-value by label permutation, not rotation.** The baselines below
+are SETS OF EVENTS, not dense bar states, so rotating a sparse event vector
+against a sparse mask leaves almost nothing in the mask and the rotation null
+is meaningless. Instead: shuffle the signal label among the baseline events
+**within each symbol**, 2,000 times, and recompute mean(signal) − mean(rest);
+p = share of |permuted edge| ≥ |observed edge| (two-sided, same convention as
+`_rotation_p`). This answers the actual question: among events of the same kind,
+does the label matter?
+
+**Amendment 2: B-134 is two-sided.** The filed bar (edge > 0) treated an unusual
+B as a buy feature. The chart that prompted it calls it an *abnormality*, which
+is a warning. So: **edge > 0, p < 0.05** → the flag marks BETTER outcomes;
+**edge < 0, p < 0.05** → it is a valid WARNING; otherwise NULL (label only).
+
+**B-134 · unusual wave B.**
+- Universe of events: every complete corrective (A, B, C all present) of a bullish
+  parent impulse, dated at C's `confirmedAt`.
+- Signal: `bAbnormal` true (PRICE definition only: B < 23.6% or > 138.2% of A).
+- Baseline: the same events with `bAbnormal` false.
+- Secondary (reported, decides nothing): `bSlow` instead of `bAbnormal`.
+
+**B-135 · W-X-Y depth.**
+- Universe of events (the baseline): every confirmed swing LOW p_j such that, with
+  H = the highest high pivot among p_(j-7)..p_(j-1) and L = the low pivot just
+  before H, p_j is the lowest pivot since H and retraces **61.8%–78.6%** of the
+  L→H leg. In words: any correction of up to seven swings that ends in that
+  depth band. Dated at p_j's `confirmedAt`.
+- Signal: the subset where p_(j-7)..p_j is a **downward W-X-Y** (so H is its
+  start and L the pivot before it).
+- Question: does the W-X-Y SHAPE add anything over any correction completing at
+  the same depth? PASS = edge > 0 and p < 0.05, n ≥ 200.
+- CONTRAST (reported, decides nothing): baseline events vs ALL bars in the same names.
+
+**B-133 / B-136** stay unmeasured, as filed.
+
+### Results — 2026-10-08, run on the pre-registered design unchanged
+
+`py -3 tools/ew_structure_study.py` (459 names, cardinality_deep, 20d, 2,000
+within-symbol label permutations):
+
+| Arm | Signal n | vs n | Signal | Rest | Edge | p | Verdict |
+|---|---|---|---|---|---|---|---|
+| B-134 PRIMARY unusual B vs normal B | 13,077 | 32,724 | +2.09% | +1.92% | +0.17% | 0.281 | **NULL** — label only |
+| B-134 secondary slow B | 6,316 | 39,485 | +1.99% | +1.96% | +0.03% | 0.873 | — |
+| B-135 PRIMARY W-X-Y vs same-depth correction | 353 | 28,210 | +2.60% | +2.24% | +0.36% | 0.620 | **FAIL** |
+| B-135 CONTRAST band events vs all bars | — | — | +2.25% | +1.97% (all bars) | +0.28% | — | never decisive |
+
+The stated prior held. Hit rate on the W-X-Y arm reads 57.2% vs 52.6%, which is
+the kind of number a careless version of this would headline; at n=353 against
+p=0.62 it is noise. Nothing here votes anywhere; the chart says "Unmeasured — a
+drawing aid, not a signal" under every W-X-Y, and that line is now measured-true.
+
+**Built, with tests (test_elliott_wave.py, new — 28 tests; test_fibonacci_levels.py +4):**
+fixtures for zigzag / flat / expanded-flat typing, unusual B at 15/50/90/140%,
+clean W-X-Y both directions, three negatives (X too shallow, X past W's origin, Y
+short of W's end), forming-Y invalidation, Y targets, two-degree nesting, the
+minPct-scaling regression, a no-redraw property test, and `confirmedAt`
+causality. The real Nifty 15m fixture test skips until captured.
+
+**Re-run after [[#B-137]] (2026-10-08, same design, fixed zigzag):** B-134 +0.09%
+(p=0.649, n=8,848 vs 18,108) — NULL; slow-B +0.30% (p=0.124); B-135 −0.49%
+(p=0.557, n=282 vs 14,023) — FAIL. The verdicts do not depend on the same-bar bug.
+
+**Prior, stated before any of it runs.** Every adjacent family this desk has
+measured has come back null or negative: Quasimodo (CHoCH inside it decorative,
+B-58), ICT setup −0.36%, Order Block Retest −0.47%, bare CHoCH (+0.24% @20d,
+p_rot 0.511) and CHoCH under trend / sweep filters (both FAIL, 2026-10-07,
+`choch_study.py` / `choch_filters_study.py`). The expected outcome of B-134 /
+B-135 is **no edge**, and the build is still worth doing as a **drawing aid** —
+the owner reads these counts by eye already, and a detector that labels them
+consistently beats one that can't see them. What it must not do is vote in the
+Opportunity Hub before the study says so.
 
 ## Outcome (fill in later)
 

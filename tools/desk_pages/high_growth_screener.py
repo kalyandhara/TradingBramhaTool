@@ -1,146 +1,95 @@
-"""High-Growth Screener page — extracted from dashboard_app.py (B-87r)."""
+"""High-Growth Screener page - free yfinance fundamentals, no screener.in login.
+
+Reads the snapshot built by growth_screen.py (scheduled job "growth_snapshot",
+or the Refresh button here). Sliders filter the snapshot instantly.
+"""
 from __future__ import annotations
 
 import pandas as pd
 import streamlit as st
 
-import browser_cookie_helper as bch
-import screener_scraper as ss
+import growth_screen as gs
 import ui_tables as uit
 
 
 def render() -> None:
     st.subheader("High-Growth Screener — Sustained Growth + Quality Gates")
     st.caption(
-        "Pure fundamental screen against screener.in — sustained 5-year sales/profit growth "
-        "gated by ROE/ROCE/OPM quality plus a YoY quarterly-profit acceleration kicker "
-        "(screener.in has no analyst-consensus 'profit surprise' field; YoY qtr profit growth "
-        "is the closest real proxy). No technical filters, no RS/exhaustion/validation "
-        "columns — those live on the Scanner Hub cards; this page is fundamental-only."
+        "Fundamental screen on free yfinance statements — no screener.in login. "
+        "Sales/profit CAGR (5Y when Yahoo has 5 years, otherwise 3Y — the Basis column "
+        "says which), a YoY quarterly-profit kicker, gated by ROE/ROCE/OPM. Data comes "
+        "from a snapshot refreshed by the scheduled job; sliders filter it instantly. "
+        "Not backtested — a reading list, not an edge claim."
     )
 
+    snap = gs.load_snapshot()
     hg_left, hg_main = st.columns([1, 3])
 
     with hg_left:
-        st.markdown("**screener.in Session**")
-        hg_cookie, hg_browser = bch.get_screener_sessionid()
-        if hg_cookie:
-            st.session_state["pb_screener_cookie"] = hg_cookie
-            st.caption(f"✅ Using screener.in session from local browser ({hg_browser}).")
+        st.markdown("**Data snapshot**")
+        age = gs.snapshot_age_days(snap)
+        if snap:
+            st.caption(f"✅ {snap['derived']}/{snap['scanned']} names · {snap['universe']} · "
+                       f"built {snap['built_at']} ({age:.1f} days ago)")
         else:
-            st.caption(
-                "⚠️ No screener.in `sessionid` cookie found in your local browsers. "
-                "Log into screener.in in your default browser once, then re-run."
-            )
+            st.caption("⚠️ No snapshot yet — click Refresh below (≈5–10 min for Nifty 500), "
+                       "or enable the 'Growth Snapshot' job in Scheduler Hub.")
+        uni = st.selectbox("Universe", list(gs.UNIVERSES), key="hg_universe",
+                           index=list(gs.UNIVERSES).index((snap or {}).get("universe", "nifty500")))
+        if st.button("⟳ Refresh from yfinance", key="hg_refresh"):
+            bar = st.progress(0.0, text="Starting…")
+            snap = gs.refresh(uni, progress_cb=lambda d, t, s: bar.progress(
+                d / t, text=f"{d}/{t} · {s}"))
+            bar.empty()
+            st.success(f"Snapshot rebuilt: {snap['derived']}/{snap['scanned']} names.")
 
         st.divider()
         st.markdown("**Growth & Quality Thresholds**")
-        hg_sales5y = st.slider("Min 5Y Sales Growth %", 0, 50, 15, step=1, key="hg_sales5y")
-        hg_profit5y = st.slider("Min 5Y Profit Growth %", 0, 80, 15, step=1, key="hg_profit5y")
-        hg_yoyq = st.slider("Min YoY Qtr Profit Growth % (surprise proxy)", -20, 100, 15,
-                             step=5, key="hg_yoyq")
-        hg_roe = st.slider("Min ROE %", 0, 40, 15, step=1, key="hg_roe")
-        hg_roce = st.slider("Min ROCE %", 0, 40, 15, step=1, key="hg_roce")
-        hg_opm = st.slider("Min OPM %", 0, 50, 10, step=1, key="hg_opm")
-
-        st.divider()
-        if st.button("▶ Run High-Growth Screen", type="primary", key="hg_run"):
-            cookie = (hg_cookie or "").strip() or st.session_state.get("pb_screener_cookie", "").strip()
-            if not cookie:
-                st.error("No screener.in `sessionid` cookie found — log into screener.in "
-                         "in your default browser, then re-run.")
-            else:
-                with st.spinner("Querying screener.in…"):
-                    try:
-                        hg_df = ss.fetch_high_growth_stocks(
-                            cookie, min_sales_growth_5y=hg_sales5y, min_profit_growth_5y=hg_profit5y,
-                            min_yoy_qtr_profit_growth=hg_yoyq, min_roe=hg_roe, min_roce=hg_roce,
-                            min_opm=hg_opm,
-                        )
-                    except Exception as exc:
-                        hg_df = None
-                        st.error(f"screener.in fetch failed: {exc}")
-
-                if hg_df is not None:
-                    if hg_df.empty:
-                        st.session_state["hg_results"] = []
-                    else:
-                        results = []
-                        for _, row in hg_df.iterrows():
-                            sym = str(row.get("_slug") or row.get("Name", "")).strip().upper()
-                            if not sym:
-                                continue
-                            rec = {"symbol": sym}
-                            for col in hg_df.columns:
-                                if col not in ("Name", "_slug"):
-                                    rec[col] = row.get(col)
-                            results.append(rec)
-
-                        def _sort_key(r):
-                            for col in ("Profit growth 5Years", "Sales growth 5Years",
-                                        "YOY Quarterly profit growth"):
-                                v = pd.to_numeric(r.get(col), errors="coerce")
-                                if pd.notna(v):
-                                    return -float(v)
-                            return 0.0
-                        st.session_state["hg_results"] = sorted(results, key=_sort_key)
+        th = gs.Thresholds(
+            min_sales_growth=st.slider("Min Sales Growth % (CAGR)", 0, 50, 15, key="hg_sales5y"),
+            min_profit_growth=st.slider("Min Profit Growth % (CAGR)", 0, 80, 15, key="hg_profit5y"),
+            min_yoy_qtr_profit=st.slider("Min YoY Qtr Profit Growth %", -20, 100, 15, step=5,
+                                         key="hg_yoyq"),
+            min_roe=st.slider("Min ROE %", 0, 40, 15, key="hg_roe"),
+            min_roce=st.slider("Min ROCE %", 0, 40, 15, key="hg_roce"),
+            min_opm=st.slider("Min OPM %", 0, 50, 10, key="hg_opm"),
+        )
+        max_unk = st.slider("Allow missing fields (Yahoo gaps)", 0, 3, 0, key="hg_unk",
+                            help="Banks/NBFCs usually have no OPM/ROCE on Yahoo. "
+                                 "Missing is never counted as a pass or a fail.")
 
     with hg_main:
-        hg_results = st.session_state.get("hg_results")
-        if hg_results is None:
-            st.info(
-                "Adjust thresholds and click **Run High-Growth Screen**. The screener.in "
-                "session is read automatically from your local browser — just stay logged "
-                "into screener.in there."
-            )
-        elif not hg_results:
-            st.info(
-                "screener.in returned 0 rows for these thresholds. With nominal "
-                "settings that usually means the sessionid cookie has expired "
-                "(re-paste it and rerun) rather than genuinely no matches — an "
-                "expired cookie now raises an error instead, so if you're seeing "
-                "this after a clean run, the thresholds really matched nothing."
-            )
-        else:
-            df_hg_res = pd.DataFrame(hg_results)
-            df_hg_res["Chart"] = df_hg_res["symbol"].apply(
-                lambda s: f"http://localhost:5001/?symbol={s}.NS&tf=1d"
-            )
-            df_hg_res["Analyze"] = df_hg_res["symbol"].map(uit.analyze_url)
-
-            rename_map = {
-                "symbol": "Symbol",
-                "Current Price": "Price",
-                "Sales growth 5Years": "Sales Gr 5Y %",
-                "Profit growth 5Years": "Profit Gr 5Y %",
-                "YOY Quarterly profit growth": "YoY Qtr Profit %",
-                "Return on equity": "ROE %",
-                "Return on capital employed": "ROCE %",
-                "OPM": "OPM %",
-            }
-            df_hg_res = df_hg_res.rename(
-                columns={k: v for k, v in rename_map.items() if k in df_hg_res.columns}
-            )
-
-            keep_hg = ["Chart", "Analyze", "Symbol", "Price", "Sales Gr 5Y %", "Profit Gr 5Y %",
-                       "YoY Qtr Profit %", "ROE %", "ROCE %", "OPM %"]
-            keep_hg = [c for c in keep_hg if c in df_hg_res.columns]
-
-            st.caption(
-                f"{len(df_hg_res)} stocks passed the growth/quality gate · "
-                "sorted by 5Y profit growth"
-            )
-            col_cfg_hg = {
-                "Chart": st.column_config.LinkColumn(
-                    "Chart", display_text="Open Chart", width="small",
-                ),
+        if not snap:
+            st.info("Build the snapshot first (Refresh on the left).")
+            return
+        hits = gs.screen(snap["rows"], th, max_unknowns=max_unk)
+        if not hits:
+            st.info("No stocks pass these thresholds. Loosen a slider or allow missing fields.")
+            return
+        df = pd.DataFrame(hits)
+        df["Chart"] = df["symbol"].apply(lambda s: f"http://localhost:5001/?symbol={s}.NS&tf=1d")
+        df["Analyze"] = df["symbol"].map(uit.analyze_url)
+        df["Missing"] = df["states"].apply(
+            lambda s: ", ".join(k for k, v in s.items() if v == gs.UNKNOWN) or "")
+        df = df.rename(columns={
+            "symbol": "Symbol", "name": "Name", "industry": "Industry", "price": "Price",
+            "sales_growth": "Sales Gr %", "profit_growth": "Profit Gr %",
+            "growth_basis": "Basis", "yoy_qtr_profit": "YoY Qtr Profit %",
+            "yoy_qtr_period": "Qtr", "roe": "ROE %", "roce": "ROCE %", "opm": "OPM %",
+            "pe": "P/E"})
+        keep = ["Chart", "Analyze", "Symbol", "Name", "Industry", "Price", "Sales Gr %",
+                "Profit Gr %", "Basis", "YoY Qtr Profit %", "Qtr", "ROE %", "ROCE %",
+                "OPM %", "P/E", "Missing"]
+        keep = [c for c in keep if c in df.columns]
+        st.caption(f"{len(df)} stocks passed · sorted by profit growth · "
+                   f"snapshot {snap['built_at']}")
+        st.dataframe(
+            df[keep].round(1), width="stretch", hide_index=True,
+            column_config={
+                "Chart": st.column_config.LinkColumn("Chart", display_text="Open Chart",
+                                                     width="small"),
                 "Analyze": uit.analyze_colcfg(),
-            }
-            st.dataframe(
-                df_hg_res[keep_hg], width="stretch", hide_index=True,
-                column_config=col_cfg_hg,
-            )
-            st.caption(
-                "Columns showing blank came back missing from screener.in's response for that "
-                "field (its raw-query columns can vary); re-check that stock on screener.in directly."
-            )
+            },
+        )
+        st.caption("Basis 3Y = Yahoo had fewer than 5 annual statements, so the 3-year CAGR "
+                   "is used. 'Missing' lists fields Yahoo didn't report for that stock.")

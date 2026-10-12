@@ -304,6 +304,9 @@ NEUTRAL_SCANNERS: tuple[str, ...] = ("Symmetrical Triangle (bilateral)",)
 #: same as Renko. The measurement rules out a vote, not the view. Its complementary
 #: anchored-VWAP-from-catalyst half (B-4/B-12) is a different mean and is untouched.
 PIPELINE_EXCLUDED: tuple[str, ...] = ("Zero-Debt Quality PEAD",
+                                      # choch_study.py 2026-10-07: +0.24% @20d vs bearish state,
+                                      # p_rot 0.511, n=15,851 -- FAIL, screens only.
+                                      "Bullish CHoCH (last 5 sessions)",
                                       "Renko Flip (structure change)",
                                       # B-57 measured this at -0.25% @20d, p_rot=0.714,
                                       # against a state-matched baseline -- it failed its
