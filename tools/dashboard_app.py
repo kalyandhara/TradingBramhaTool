@@ -1207,7 +1207,7 @@ def _ribbon_quotes(_bucket: int):
 st.markdown('<div id="tb-navstart"></div>', unsafe_allow_html=True)
 
 # Widths, left to right: brand · Home · the five group popovers · spacer ·
-# search · sign-in. The current-page label used to live here; it is a breadcrumb,
+# search · sign-in · help. The current-page label used to live here; it is a breadcrumb,
 # and it now sits on the strip below the bar where a breadcrumb belongs.
 #
 # The quote strip is NOT in this row: width here is scarce (at these weights
@@ -1219,7 +1219,7 @@ st.markdown('<div id="tb-navstart"></div>', unsafe_allow_html=True)
 # of its column, and at 1.15 the company names were cut to a few characters with
 # a horizontal scrollbar under them. The width comes out of the brand and the
 # spacer, not the group labels — those are already near their text width.
-_nav = st.columns([1.4, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.1, 2.0, 0.95],
+_nav = st.columns([1.4, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.1, 2.0, 0.95, 0.5],
                    gap="small", vertical_alignment="center")
 
 with _nav[0]:
@@ -1263,53 +1263,8 @@ with _nav[8]:
 with _nav[9]:
     _signin_control()
 
-# Beginner-friendly help toggle - add after sign-in
-# Re-adjust columns to accommodate help button
-_nav_help = st.columns([1.4, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.1, 2.0, 0.95, 0.5],
-                        gap="small", vertical_alignment="center")
-
-# Re-render brand and home in new column layout
-with _nav_help[0]:
-    st.markdown(
-        '<div style="display:flex;align-items:center;gap:8px;height:48px;">'
-        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
-        'stroke="#ea580c" stroke-width="2.4" stroke-linecap="round" '
-        'stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/>'
-        '<path d="M21 7h-5v5"/></svg>'
-        '<span style="font-size:15px;font-weight:700;color:#f8fafc;'
-        'letter-spacing:-0.01em;white-space:nowrap;">'
-        'Trading<span style="color:#ea580c;"> Bramha</span></span>'
-        '</div>',
-        unsafe_allow_html=True,
-    )
-
-with _nav_help[1]:
-    if st.button("Home", key="nav_Home", width="stretch",
-                 type="primary" if st.session_state["current_page"] == "Home" else "secondary"):
-        st.session_state["current_page"] = "Home"
-        st.rerun()
-
-for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
-    with _nav_help[2 + _i]:
-        _active_here = st.session_state["current_page"] in _gpages
-        with st.popover(f"{_gname} ▾", width="stretch",
-                        type="primary" if _active_here else "secondary"):
-            for _p in _gpages:
-                _is_active = st.session_state["current_page"] == _p
-                if st.button(_p, key=f"nav_{_p}", width="stretch",
-                             help=PAGE_BLURBS.get(_p),
-                             type="primary" if _is_active else "secondary"):
-                    st.session_state["current_page"] = _p
-                    st.rerun()
-
-with _nav_help[8]:
-    _search_control()
-
-with _nav_help[9]:
-    _signin_control()
-
-# Beginner mode toggle and glossary
-with _nav_help[10]:
+# Beginner mode toggle and glossary button
+with _nav[10]:
     beginner_mode = help.beginner_mode_toggle()
     
     if st.button("Glossary", key="tb_glossary", help="Trading Glossary", width="stretch"):
