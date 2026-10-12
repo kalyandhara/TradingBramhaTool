@@ -38,6 +38,7 @@ import symbol_directory as symdir
 import ew_module
 import scanner_templates as sc
 import timeframe_board as tfb
+import horizon_geometry as hgeo
 import opportunity_hub as oh
 import screener_scraper as ss
 import multibagger_candidates as mb
@@ -88,6 +89,10 @@ import ownership_cache as ocache
 import concalls
 import snapshot_store as snapstore
 import snapshot_registry as snapreg
+
+# Beginner-friendly help system
+import trading_glossary as glossary
+import ui_help as help
 
 # The M1 rating lives in rating.py so the headless daily Opportunity Hub job
 # scores with the SAME code the interactive Hub shows. Aliased to the old
@@ -1038,7 +1043,7 @@ PAGE_GROUPS = {
     "Screening":        ["Opportunity Hub", "Delete Funnel", "Hidden Treasures", "Screener", "Other Screeners", "Scanner Hub",
                          "Breakout Scans", "High-Growth Screener", "SVP Structure"],
     "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
-    "Research":         ["Predictive Analysis", "Stock Analyzer", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals"],
+    "Research":         ["Predictive Analysis", "Stock Analyzer", "Sector wise Navigation", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
     "Ops":              ["Pipeline Log", "Scheduler Hub"],
 }
@@ -1065,6 +1070,7 @@ PAGE_BLURBS = {
     "Predictive Analysis":  "Consolidated rating, chart and intel per stock",
     "Stock Analyzer":       "Full fundamental + technical deep dive",
     "Sector Map":           "Relative Rotation Graph and sector orbit",
+    "Sector wise Navigation":         "Every industry peer in a ribbon — step through one by one",
     "Astro Timing":         "Reversal calendar — context, never an entry",
     "Telegram Signals":     "Ingested channel calls, parsed and tabulated",
     "Portfolio":            "Open positions, capital at risk, heat",
@@ -1081,11 +1087,17 @@ if "current_page" not in st.session_state:
 # Deep-link: a table's "Analyze ↗" link opens ?nav=analyze&symbol=SYM in a new
 # tab. Consume the params once, route to the Stock Analyzer, pre-load the symbol
 # and prime an auto-run, then clear the URL so sidebar navigation isn't pinned.
-if st.query_params.get("nav") == "analyze" and st.query_params.get("symbol"):
+# ?nav=predict does the same for Predictive Analysis (Sector Lobby's openers,
+# so they can be right-click -> "Open in new tab" links rather than buttons).
+if st.query_params.get("nav") in ("analyze", "predict") and st.query_params.get("symbol"):
     _dl_sym = st.query_params["symbol"].strip().upper()
-    st.session_state["current_page"] = "Stock Analyzer"
-    st.session_state["selected_symbol"] = _dl_sym
-    st.session_state["last_analyzed"] = _dl_sym   # triggers auto-run in the tab
+    if st.query_params["nav"] == "predict":
+        st.session_state["current_page"] = "Predictive Analysis"
+        st.session_state["pa_symbol"] = _dl_sym
+    else:
+        st.session_state["current_page"] = "Stock Analyzer"
+        st.session_state["selected_symbol"] = _dl_sym
+        st.session_state["last_analyzed"] = _dl_sym   # triggers auto-run in the tab
     st.query_params.clear()
 
 # ── Ribbon status: market session + data freshness ──────────────────
@@ -1250,6 +1262,59 @@ with _nav[8]:
 
 with _nav[9]:
     _signin_control()
+
+# Beginner-friendly help toggle - add after sign-in
+# Re-adjust columns to accommodate help button
+_nav_help = st.columns([1.4, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.1, 2.0, 0.95, 0.5],
+                        gap="small", vertical_alignment="center")
+
+# Re-render brand and home in new column layout
+with _nav_help[0]:
+    st.markdown(
+        '<div style="display:flex;align-items:center;gap:8px;height:48px;">'
+        '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" '
+        'stroke="#ea580c" stroke-width="2.4" stroke-linecap="round" '
+        'stroke-linejoin="round"><path d="M3 17l6-6 4 4 8-8"/>'
+        '<path d="M21 7h-5v5"/></svg>'
+        '<span style="font-size:15px;font-weight:700;color:#f8fafc;'
+        'letter-spacing:-0.01em;white-space:nowrap;">'
+        'Trading<span style="color:#ea580c;"> Bramha</span></span>'
+        '</div>',
+        unsafe_allow_html=True,
+    )
+
+with _nav_help[1]:
+    if st.button("Home", key="nav_Home", width="stretch",
+                 type="primary" if st.session_state["current_page"] == "Home" else "secondary"):
+        st.session_state["current_page"] = "Home"
+        st.rerun()
+
+for _i, (_gname, _gpages) in enumerate(PAGE_GROUPS.items()):
+    with _nav_help[2 + _i]:
+        _active_here = st.session_state["current_page"] in _gpages
+        with st.popover(f"{_gname} ▾", width="stretch",
+                        type="primary" if _active_here else "secondary"):
+            for _p in _gpages:
+                _is_active = st.session_state["current_page"] == _p
+                if st.button(_p, key=f"nav_{_p}", width="stretch",
+                             help=PAGE_BLURBS.get(_p),
+                             type="primary" if _is_active else "secondary"):
+                    st.session_state["current_page"] = _p
+                    st.rerun()
+
+with _nav_help[8]:
+    _search_control()
+
+with _nav_help[9]:
+    _signin_control()
+
+# Beginner mode toggle and glossary
+with _nav_help[10]:
+    beginner_mode = help.beginner_mode_toggle()
+    
+    if st.button("Glossary", key="tb_glossary", help="Trading Glossary", width="stretch"):
+        st.session_state["show_glossary"] = True)
+        st.rerun()
 
 # ── Breadcrumb + status strip ────────────────────────────────────
 # One 30px line under the bar: where you are on the left, whether the data is
@@ -2521,6 +2586,107 @@ def render_timeframe_board(symbol: str, df: "pd.DataFrame") -> None:
         "Year-on-year rebases every calendar year to its own 1 January, so it "
         "compares SHAPE and says nothing about absolute performance — that is "
         "what the other five panels are for."
+    )
+    render_horizon_geometry(symbol, df)
+
+
+def render_horizon_geometry(symbol: str, df: "pd.DataFrame") -> None:
+    """Year spiral (polar) + pivot price-time geometry — see horizon_geometry.py.
+
+    Context, not a signal. Both are long-horizon perspective views; the pivot
+    nodes are computed in a declared normalized space so they do not move with
+    zoom, and nothing here has been measured as an edge.
+    """
+    st.markdown(rs.section("Horizon geometry"), unsafe_allow_html=True)
+    c1, c2 = st.columns(2)
+
+    with c1:
+        st.markdown("**Year spiral** — angle = day of year, radius = close (log)")
+        sp = hgeo.year_spiral(df)
+        if len(sp) < 2:
+            st.markdown(rs.callout("Not shown.", "needs two calendar years",
+                                   tone="absent"), unsafe_allow_html=True)
+        else:
+            fig = go.Figure()
+            newest = max(sp)
+            for yr in sorted(sp):
+                d = sp[yr]
+                now = yr == newest
+                fig.add_trace(go.Scatterpolar(
+                    r=d["r"], theta=d["theta"], mode="lines", name=yr,
+                    customdata=d["date"].dt.strftime("%d %b %Y"),
+                    hovertemplate="%{customdata}<br>%{r:,.2f}<extra></extra>",
+                    line=dict(width=2.6 if now else 1.1,
+                              color=rs.TOKENS["accent"] if now else None),
+                    opacity=1.0 if now else 0.6))
+            fig.update_layout(
+                height=420, margin=dict(l=20, r=20, t=20, b=20),
+                legend=dict(font=dict(size=9), orientation="h", y=-0.08),
+                polar=dict(
+                    radialaxis=dict(type="log", tickfont=dict(size=9)),
+                    angularaxis=dict(rotation=90, direction="clockwise",
+                                     tickmode="array",
+                                     tickvals=[i * 30 for i in range(12)],
+                                     ticktext=["Jan", "Feb", "Mar", "Apr", "May", "Jun",
+                                               "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"])))
+            st.plotly_chart(fig, width="stretch", key=f"hg_spiral_{symbol}")
+            st.caption("One loop per calendar year, clockwise from January at the "
+                       "top. Same angle = same time of year, so seasonal habits and "
+                       "each year's range compare directly. Log radius so early "
+                       "years are not crushed into the centre.")
+
+    with c2:
+        st.markdown("**Pivot geometry** — circles on major weekly swings")
+        geo = hgeo.pivot_geometry(df)
+        if not geo.ok:
+            st.markdown(rs.callout("Not shown.", geo.note or "no data",
+                                   tone="absent"), unsafe_allow_html=True)
+        else:
+            fig = go.Figure()
+            w = df["close"].astype(float)
+            w.index = pd.to_datetime(w.index)
+            w = w.resample("W-FRI").last().dropna()
+            fig.add_trace(go.Scatter(x=w.index, y=w.values, mode="lines",
+                                     name="weekly close",
+                                     line=dict(width=1.4, color=rs.TOKENS["accent"])))
+            for circ in geo.circles:
+                xs, ys = hgeo.circle_path(geo, circ)
+                fig.add_trace(go.Scatter(x=xs, y=ys, mode="lines", hoverinfo="skip",
+                                         showlegend=False, connectgaps=False,
+                                         line=dict(width=0.8, color=rs.TOKENS["absent"]),
+                                         opacity=0.55))
+            pd_, pp_, pk_ = zip(*geo.pivots)
+            fig.add_trace(go.Scatter(x=pd_, y=pp_, mode="lines+markers", name="pivots",
+                                     line=dict(width=1.6, color="#f5a623"),
+                                     marker=dict(size=7, symbol="square")))
+            if geo.nodes:
+                fig.add_trace(go.Scatter(
+                    x=[n["date"] for n in geo.nodes], y=[n["price"] for n in geo.nodes],
+                    mode="markers", name="future nodes",
+                    marker=dict(size=11, symbol="diamond", color=rs.TOKENS["risk"]),
+                    hovertemplate="%{x|%d %b %Y}<br>%{y:,.2f}<extra></extra>"))
+            fig.add_vline(x=w.index[-1], line_width=1, line_dash="dot",
+                          line_color=rs.TOKENS["border_strong"])
+            lo, hi = min(pp_), max(pp_)
+            fig.update_layout(height=420, margin=dict(l=4, r=4, t=6, b=4),
+                              yaxis=dict(type="log", range=[np.log10(lo * 0.6),
+                                                            np.log10(hi * 1.6)]),
+                              legend=dict(font=dict(size=9), orientation="h", y=-0.12))
+            st.plotly_chart(fig, width="stretch", key=f"hg_geo_{symbol}")
+            st.caption(geo.note)
+            if geo.nodes:
+                st.dataframe(pd.DataFrame([{
+                    "Node date": n["date"].strftime("%d %b %Y"),
+                    "Price": round(n["price"], 2),
+                    "Circles crossing": n["circles"]} for n in geo.nodes]),
+                    hide_index=True, width="stretch")
+
+    st.caption(
+        "**Context, not a signal.** Pivot circles are computed in a fixed "
+        "normalized space (time scaled to the pivot span plus a projection, log "
+        "price scaled to the pivot range), so nodes do not move with zoom — drawn "
+        "on date/price axes they can look like ellipses. A dense lattice always "
+        "fits past turns; only nodes named before price arrives carry information."
     )
 
 
@@ -6680,6 +6846,37 @@ def render_action_map() -> None:
 
 
 # ──────────────────────────────────────────────────────────────────────────────
+# Glossary Page - Beginner-friendly help system
+# ──────────────────────────────────────────────────────────────────────────────
+if st.session_state.get("show_glossary"):
+    st.subheader("Trading Glossary")
+    st.caption("Beginner-friendly explanations for all technical terms")
+    
+    beginner_mode = help.beginner_mode_toggle()
+    
+    help.glossary_search()
+    
+    st.divider()
+    
+    help.quick_reference()
+    
+    st.divider()
+    
+    st.subheader("Browse by Category")
+    
+    for category in glossary.get_all_categories():
+        with st.expander(f"{category} ({len(glossary.get_terms_by_category(category))} terms)"):
+            for term in glossary.get_terms_by_category(category):
+                if beginner_mode:
+                    help.info_card(term)
+                else:
+                    st.markdown(f"- **{term}**")
+    
+    if st.button("Back to Dashboard", key="glossary_back"):
+        st.session_state["show_glossary"] = False
+        st.rerun()
+
+# ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Home":
     _t = rs.TOKENS
     _n_pages = sum(len(v) for v in PAGE_GROUPS.values())
@@ -6988,6 +7185,23 @@ if current_page == "Screener":
 # ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Stock Analyzer":
     st.subheader("Individual Stock Analyzer")
+    
+    # Beginner-friendly help
+    beginner_mode = help.beginner_mode_toggle()
+    
+    if beginner_mode:
+        with st.expander("Understanding Technical Indicators", expanded=False):
+            help.info_card("RSI")
+            help.info_card("EMA")
+            help.info_card("SMA")
+            help.info_card("ADX")
+            help.info_card("ATR")
+        
+        with st.expander("Understanding Market Structure", expanded=False):
+            help.info_card("Support")
+            help.info_card("Resistance")
+            help.info_card("Uptrend")
+            help.info_card("Downtrend")
 
     # Candidates parked by the ribbon search when what was typed was a prefix
     # rather than a ticker. This is the chart tool's typeahead dropdown, one
@@ -7337,6 +7551,41 @@ if current_page == "Stock Analyzer":
                 if st.button("Add to Watchlist", key="sa_wl"):
                     db.add_watchlist_symbol(symbol, "From Stock Analyzer")
                     st.success(f"{symbol} added to watchlist.")
+
+                # ── PDF of this analysis (same report as Predictive Analysis) ──
+                st.divider()
+                _sa_c1, _sa_c2 = st.columns([1, 3], vertical_alignment="center")
+                _sa_c2.caption("One PDF of this analysis — scores, council, six "
+                               "horizons, horizon geometry and every fundamental "
+                               "section, with a static price chart.")
+                if _sa_c1.button(f"📄 Build PDF — {symbol}", key="sa_pdf_go",
+                                 width="stretch"):
+                    with st.spinner("Rendering the report…"):
+                        try:
+                            _sa_pdf = pa_report.render_pdf(_pa_pdf_model(
+                                symbol, df, nifty_df, None, None, _fund, _deep,
+                                bull, bear, card,
+                                council.setup_intelligence(bundle, bull, bear, card),
+                                df, page_title="Stock Analyzer",
+                                analyzer_scores={
+                                    "pairs": [("Minervini", f"{mv_score}/8"),
+                                              ("TechnoFunda", f"{tf_score}/6"),
+                                              ("Total", f"{mv_score + tf_score}/14"),
+                                              ("EW confidence", f"{ew['confidence']}%"),
+                                              ("CANSLIM (RS)", f"{cs_score}/4 "
+                                               f"({rs_pct:+.1f}% vs Nifty)")],
+                                    "ew": (f"Wave position: {ew['wave_pos']} | "
+                                           f"Extension risk: {ew['ext_risk']} | "
+                                           f"OWL: {ew['owl_signal']} | PTF: "
+                                           f"{ew['ptf_signal']}. {ew['note']}")}))
+                        except Exception as exc:
+                            st.error(f"PDF render failed: {exc}")
+                            _sa_pdf = None
+                    if _sa_pdf:
+                        _sa_fn = pa_report.file_name(symbol, page="stock-analyzer")
+                        st.download_button(f"⬇ {_sa_fn}", _sa_pdf, file_name=_sa_fn,
+                                           mime="application/pdf", type="primary",
+                                           key="sa_pdf_dl")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -7848,6 +8097,20 @@ if current_page == "Opportunity Hub":
                "ranked bottom-up from their constituents' momentum, then a pattern "
                "scanner runs on just the leaders. The Hub narrows & ranks — you "
                "validate the setup and manage the risk.")
+    
+    # Beginner-friendly help
+    beginner_mode = help.beginner_mode_toggle()
+    
+    if beginner_mode:
+        with st.expander("Understanding the Funnel", expanded=False):
+            help.info_card("Confluence")
+            help.info_card("Conviction")
+            st.markdown("**Regime Gate**:")
+            help.info_card("RISK-ON")
+            help.info_card("MIXED")
+            help.info_card("RISK-OFF")
+    
+    # ── Regime posture banner (B-36) — the one-line "what do I do today?" ──────
 
     # ── Regime posture banner (B-36) — the one-line "what do I do today?" ──────
     # Driven by the SAME regime + conviction gate B-32/B-33 validated, so the
@@ -8635,6 +8898,17 @@ if current_page == "Delete Funnel":
 if current_page == "Scanner Hub":
     st.subheader("Scanner Hub")
     st.caption("Pre-built pattern scanners — choose a scanner, select a universe, run.")
+    
+    # Beginner-friendly help
+    beginner_mode = help.beginner_mode_toggle()
+    
+    if beginner_mode:
+        with st.expander("Understanding Scanner Categories", expanded=False):
+            help.info_card("Entry Scanner")
+            help.info_card("Trend Scanner")
+            help.info_card("Risk Scanner")
+            help.info_card("Pattern Scanner")
+    
     __import__("scanner_plans").render()      # PR-2 · trade-plan coverage census
 
 
@@ -9672,7 +9946,8 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
 # the expander contents included, gathered from what the page already computed
 # (or from the same cached fetchers) and laid out by pa_report.render_pdf.
 def _pa_pdf_model(sym, df, bench, rating, breakdown, fund, deep,
-                  bull, bear, card, intel, pm_df, size_note=None) -> dict:
+                  bull, bear, card, intel, pm_df, size_note=None,
+                  page_title="Predictive Analysis", analyzer_scores=None) -> dict:
     close = df["close"].astype(float)
     price = float(close.iloc[-1])
     prev = float(close.iloc[-2]) if len(close) > 1 else price
@@ -9688,7 +9963,13 @@ def _pa_pdf_model(sym, df, bench, rating, breakdown, fund, deep,
                "chg_pct": (price / prev - 1) * 100 if prev else None,
                "rating": rating, "rating_breakdown": breakdown or {}, "df": df,
                "bull": bull, "bear": bear, "card": card, "intel": intel,
-               "size_note": size_note, "deep": deep or {}}
+               "size_note": size_note, "deep": deep or {},
+               "page_title": page_title, "analyzer_scores": analyzer_scores}
+    try:        # Six horizons: same build the page uses (hourly is cached there)
+        m["horizon_panels"] = tfb.build(sym, daily=_board_daily(sym, df),
+                                        hourly=_cached_hourly(sym))
+    except Exception:
+        m["horizon_panels"] = None
 
     try:
         mv, conds = sp.score_minervini(df, nifty_df=bench)
@@ -10102,7 +10383,8 @@ if current_page == "Predictive Analysis":
                 st.divider()
                 _pdf_c1, _pdf_c2 = st.columns([1, 3], vertical_alignment="center")
                 _pdf_c2.caption("One PDF of this page for this ticker — every "
-                                "collapsed section expanded, a static price chart "
+                                "collapsed section expanded, six horizons and "
+                                "horizon geometry included, a static price chart "
                                 "in place of the Chart Tool. Text is selectable "
                                 "and searchable.")
                 if _pdf_c1.button(f"📄 Build PDF — {pa_sym}", key="pa_pdf_go",
