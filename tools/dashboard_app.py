@@ -93,6 +93,7 @@ import snapshot_registry as snapreg
 # Beginner-friendly help system
 import trading_glossary as glossary
 import ui_help as help
+import help_panels
 
 # The M1 rating lives in rating.py so the headless daily Opportunity Hub job
 # scores with the SAME code the interactive Hub shows. Aliased to the old
@@ -5910,17 +5911,7 @@ if current_page == "Hidden Treasures":
                "that artefact. Coverage, not edge.")
     
     # Beginner-friendly help
-    beginner_mode = help.beginner_mode_toggle(key="hidden_treasures_beginner_mode")
-    
-    if beginner_mode:
-        with st.expander("Understanding Hidden Treasures", expanded=False):
-            help.info_card("Market Cap")
-            help.info_card("Promoter Holding")
-            help.info_card("FII/DII")
-            help.info_card("ROCE")
-            help.info_card("OPM")
-            help.info_card("D/E Ratio")
-
+    help_panels.render("hidden_treasures")
     _ht_c1, _ht_c2 = st.columns([2, 1])
     with _ht_c1:
         _ht_kind = st.radio("Universe",
@@ -6816,32 +6807,7 @@ def render_action_map() -> None:
 # Glossary Page - Beginner-friendly help system
 # ──────────────────────────────────────────────────────────────────────────────
 if st.session_state.get("show_glossary"):
-    st.subheader("Trading Glossary")
-    st.caption("Beginner-friendly explanations for all technical terms")
-    
-    beginner_mode = help.beginner_mode_toggle(key="glossary_page_beginner_mode")
-    
-    help.glossary_search()
-    
-    st.divider()
-    
-    help.quick_reference()
-    
-    st.divider()
-    
-    st.subheader("Browse by Category")
-    
-    for category in glossary.get_all_categories():
-        with st.expander(f"{category} ({len(glossary.get_terms_by_category(category))} terms)"):
-            for term in glossary.get_terms_by_category(category):
-                if beginner_mode:
-                    help.info_card(term)
-                else:
-                    st.markdown(f"- **{term}**")
-    
-    if st.button("Back to Dashboard", key="glossary_back"):
-        st.session_state["show_glossary"] = False
-        st.rerun()
+    help_panels.glossary_page()
 
 # ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Home":
@@ -7154,22 +7120,7 @@ if current_page == "Stock Analyzer":
     st.subheader("Individual Stock Analyzer")
     
     # Beginner-friendly help
-    beginner_mode = help.beginner_mode_toggle(key="stock_analyzer_beginner_mode")
-    
-    if beginner_mode:
-        with st.expander("Understanding Technical Indicators", expanded=False):
-            help.info_card("RSI")
-            help.info_card("EMA")
-            help.info_card("SMA")
-            help.info_card("ADX")
-            help.info_card("ATR")
-        
-        with st.expander("Understanding Market Structure", expanded=False):
-            help.info_card("Support")
-            help.info_card("Resistance")
-            help.info_card("Uptrend")
-            help.info_card("Downtrend")
-
+    help_panels.render("stock_analyzer")
     # Candidates parked by the ribbon search when what was typed was a prefix
     # rather than a ticker. This is the chart tool's typeahead dropdown, one
     # step later: Streamlit cannot filter a list per keystroke (a widget only
@@ -7562,16 +7513,7 @@ if current_page == "Portfolio":
     st.subheader("Portfolio / Position Tracker")
     
     # Beginner-friendly help
-    beginner_mode = help.beginner_mode_toggle(key="portfolio_beginner_mode")
-    
-    if beginner_mode:
-        with st.expander("Understanding Portfolio Risk Management", expanded=False):
-            help.info_card("Stop-loss")
-            help.info_card("Risk-Reward Ratio")
-            help.info_card("Position Sizing")
-            help.info_card("Drawdown")
-            help.info_card("Capital")
-
+    help_panels.render("portfolio")
     with st.form("add_position_form", clear_on_submit=True):
         st.caption("Add a position")
         c1, c2, c3 = st.columns(3)
@@ -8077,16 +8019,7 @@ if current_page == "Opportunity Hub":
                "validate the setup and manage the risk.")
     
     # Beginner-friendly help
-    beginner_mode = help.beginner_mode_toggle(key="opportunity_hub_beginner_mode")
-    
-    if beginner_mode:
-        with st.expander("Understanding the Funnel", expanded=False):
-            help.info_card("Confluence")
-            help.info_card("Conviction")
-            st.markdown("**Regime Gate**:")
-            help.info_card("RISK-ON")
-            help.info_card("MIXED")
-            help.info_card("RISK-OFF")
+    help_panels.render("opportunity_hub")
     
     # ── Regime posture banner (B-36) — the one-line "what do I do today?" ──────
 
@@ -8878,15 +8811,7 @@ if current_page == "Scanner Hub":
     st.caption("Pre-built pattern scanners — choose a scanner, select a universe, run.")
     
     # Beginner-friendly help
-    beginner_mode = help.beginner_mode_toggle(key="scanner_hub_beginner_mode")
-    
-    if beginner_mode:
-        with st.expander("Understanding Scanner Categories", expanded=False):
-            help.info_card("Entry Scanner")
-            help.info_card("Trend Scanner")
-            help.info_card("Risk Scanner")
-            help.info_card("Pattern Scanner")
-    
+    help_panels.render("scanner_hub")
     __import__("scanner_plans").render()      # PR-2 · trade-plan coverage census
 
 
@@ -11292,16 +11217,7 @@ if current_page == "Market Sentiment":
     )
     
     # Beginner-friendly help
-    beginner_mode = help.beginner_mode_toggle(key="market_sentiment_beginner_mode")
-    
-    if beginner_mode:
-        with st.expander("Understanding Market Sentiment", expanded=False):
-            help.info_card("Breadth")
-            help.info_card("Advance-Decline Ratio")
-            help.info_card("VIX")
-            help.info_card("Regime")
-            help.info_card("RISK-ON")
-            help.info_card("RISK-OFF")
+    help_panels.render("market_sentiment")
     # B-66 measured all four inputs AND the composite against NIFTY's forward
     # returns and found no discrimination anywhere. The page is not being removed
     # — a null is not evidence of harm, and a description of today's tape is worth
