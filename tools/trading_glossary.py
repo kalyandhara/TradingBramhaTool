@@ -447,6 +447,163 @@ GLOSSARY: Dict[str, TermDefinition] = {
         example="A stock with 4-point confluence in RISK-ON regime with 3:1 R:R = High conviction. Take full position size.",
         related_terms=["Confluence", "Confidence", "Position Size", "Quality"],
     ),
+    
+    # ── Additional Fundamental Terms ───────────────────────────────────────────────
+    "ROE": TermDefinition(
+        term="ROE (Return on Equity)",
+        category="Fundamental",
+        definition="A measure of how efficiently a company uses shareholders' money to generate profit. Higher is better.",
+        technical_detail="ROE = Net Income / Shareholder's Equity. Shows how much profit the company generates for every rupee of equity. Good ROE is typically 15%+. Consistent high ROE indicates good management.",
+        example="TCS has ROE of 45% - for every ₹100 of equity, it generates ₹45 profit annually. Very efficient.",
+        related_terms=["EPS", "P/E Ratio", "Profitability"],
+    ),
+    
+    "ROCE": TermDefinition(
+        term="ROCE (Return on Capital Employed)",
+        category="Fundamental",
+        definition="Similar to ROE but includes debt. Measures how efficiently a company uses all capital (equity + debt) to generate profit.",
+        technical_detail="ROCE = EBIT / Capital Employed. Capital Employed = Equity + Debt. ROCE is better than ROE for capital-intensive companies because it accounts for debt financing. Good ROCE is typically 15%+.",
+        example="HDFC BANK has ROCE of 18% - efficiently uses both equity and debt to generate profit.",
+        related_terms=["ROE", "Debt", "Capital"],
+    ),
+    
+    "OPM": TermDefinition(
+        term="OPM (Operating Profit Margin)",
+        category="Fundamental",
+        definition="The percentage of revenue that becomes operating profit after covering operating costs. Higher margin = more profitable business.",
+        technical_detail="OPM = Operating Profit / Revenue × 100. Shows how much of each rupee of sales remains after covering operating costs (but before interest and taxes). Good OPM varies by industry (software > 20%, retail < 10%).",
+        example="INFY has OPM of 25% - for every ₹100 of revenue, ₹25 is operating profit.",
+        related_terms=["Revenue", "Profitability", "Margin"],
+    ),
+    
+    "D/E Ratio": TermDefinition(
+        term="D/E Ratio (Debt-to-Equity)",
+        category="Fundamental",
+        definition="Shows how much debt a company has compared to its equity. Lower is generally safer, but some industries use debt strategically.",
+        technical_detail="D/E = Total Debt / Shareholder's Equity. D/E < 1 = conservative, D/E 1-2 = moderate, D/E > 2 = aggressive. High debt increases risk but can boost returns if used well. Too much debt = bankruptcy risk.",
+        example="Company A has D/E of 0.5 (low debt, safe). Company B has D/E of 3.0 (high debt, risky).",
+        related_terms=["Debt", "Equity", "Risk", "Leverage"],
+    ),
+    
+    "Promoter Holding": TermDefinition(
+        term="Promoter Holding",
+        category="Fundamental",
+        definition="The percentage of shares owned by company promoters (founders, management). High promoter holding = management confidence.",
+        technical_detail="Promoters with >50% holding have control. <30% = takeover risk. Increasing promoter holding = confidence. Decreasing = potential issues. In India, promoter pledge is a red flag.",
+        example="TCS promoters hold 72% - strong management control and confidence. A company with 15% promoter holding is vulnerable to takeover.",
+        related_terms=["Shareholding", "Pledge", "Ownership"],
+    ),
+    
+    "FII/DII": TermDefinition(
+        term="FII/DII (Foreign/Domestic Institutional Investors)",
+        category="Fundamental",
+        definition="FII = Foreign investors (buy from abroad). DII = Domestic institutions (Indian mutual funds, insurance). Their buying/selling drives market moves.",
+        technical_detail="FII buying = foreign confidence in Indian market. DII buying = domestic confidence. When both buy together = strong rally. When both sell = crash. FII selling often causes short-term volatility.",
+        example="Today FIIs bought ₹5000 crore, DIIs bought ₹2000 crore = strong market. If FIIs sold ₹5000 crore, market would likely fall.",
+        related_terms=["Institutional", "Volume", "Market Sentiment"],
+    ),
+    
+    # ── Market Terms ─────────────────────────────────────────────────────────────
+    "Breadth": TermDefinition(
+        term="Market Breadth",
+        category="Market",
+        definition="How many stocks are participating in a market move. Broad participation = healthy trend. Narrow participation = risky.",
+        technical_detail="Measured by Advance-Decline ratio, number of stocks above 200-DMA, etc. If Nifty is up but only 20% of stocks are up = unhealthy breadth (bubble risk). If 70% up = healthy breadth.",
+        example="Nifty up 1% but only 150 stocks advancing vs 300 declining = poor breadth. Rally unsustainable.",
+        related_terms=["Advance-Decline Ratio", "Market Health", "Regime"],
+    ),
+    
+    "Advance-Decline Ratio": TermDefinition(
+        term="Advance-Decline Ratio (A/D Ratio)",
+        category="Market",
+        definition="The ratio of advancing stocks to declining stocks. Shows market breadth and participation.",
+        technical_detail="A/D Ratio = Advancing Stocks / Declining Stocks. >1 = more stocks up than down (bullish). <1 = more down than up (bearish). 2:1 = strong breadth. 0.5:1 = weak breadth.",
+        example="A/D Ratio of 2.5 = very strong breadth (2.5 stocks up for every 1 down). A/D Ratio of 0.4 = weak breadth.",
+        related_terms=["Breadth", "Market Health", "Sentiment"],
+    ),
+    
+    "Nifty50": TermDefinition(
+        term="Nifty50",
+        category="Market",
+        definition="India's main stock market index - the top 50 largest companies by market cap. It's the benchmark for Indian market performance.",
+        technical_detail="Weighted by market cap (larger companies move it more). Used as benchmark for relative strength calculations. Companies in Nifty50 are considered blue-chip, stable, and liquid.",
+        example="RELIANCE, TCS, HDFC BANK are in Nifty50. When Nifty50 is up, most large-cap stocks tend to follow.",
+        related_terms=["Benchmark", "Index", "Blue-chip"],
+    ),
+    
+    # ── Additional Risk Terms ─────────────────────────────────────────────────────
+    "Slippage": TermDefinition(
+        term="Slippage",
+        category="Risk",
+        definition="The difference between the expected price of a trade and the actual price at which it's executed. High slippage = poor execution.",
+        technical_detail="Slippage occurs due to low liquidity, volatility, or large order size. In illiquid stocks, a market order might execute far from the last traded price. Limit orders reduce slippage but may not fill.",
+        example="You want to buy at 100, but due to low liquidity, you fill at 102 = 2% slippage.",
+        related_terms=["Liquidity", "Execution", "Market Impact"],
+    ),
+    
+    "Market Impact": TermDefinition(
+        term="Market Impact",
+        category="Risk",
+        definition="The effect your trade has on the market price. Large orders in small stocks can move the price against you.",
+        technical_detail="Buying pushes price up, selling pushes price down. The larger your order relative to daily volume, the more impact. To reduce impact, use limit orders, break large orders into smaller chunks, or trade in liquid stocks.",
+        example="Trying to buy 10,000 shares of a smallcap that only trades 5,000 shares/day will push the price up significantly.",
+        related_terms=["Slippage", "Liquidity", "Volume"],
+    ),
+    
+    # ── Additional Scanner Terms ─────────────────────────────────────────────────────
+    "ATH Breakout": TermDefinition(
+        term="ATH Breakout (All-Time High)",
+        category="Scanner",
+        definition="When a stock breaks above its highest price ever. This removes all overhead resistance and can lead to explosive moves.",
+        technical_detail="ATH breakouts are powerful because everyone who ever bought the stock is in profit = no sellers waiting to exit. However, they can be extended and risky if not done with volume confirmation. Requires full history to verify true ATH.",
+        example="TCS breaks above its all-time high of 4000 with 2x volume = strong ATH breakout signal.",
+        related_terms=["Breakout", "Resistance", "Volume Confirmation"],
+    ),
+    
+    "Gap Up": TermDefinition(
+        term="Gap Up",
+        category="Scanner",
+        definition="When a stock opens significantly higher than the previous day's close, creating a gap on the chart. Shows strong overnight buying interest.",
+        technical_detail="Gap up = Today's Open > Yesterday's High. 2%+ gap is significant. Gaps often act as support (should hold on pullback). Failed gap (price fills the gap) = weak signal. Gap and go (stock holds gap and moves higher) = strong.",
+        example="Yesterday closed at 100, today opened at 105 (5% gap up) = strong overnight buying interest.",
+        related_terms=["Gap", "Breakout", "Overnight"],
+    ),
+    
+    "Gap Down": TermDefinition(
+        term="Gap Down",
+        category="Scanner",
+        definition="When a stock opens significantly lower than the previous day's close. Shows strong overnight selling pressure or negative news.",
+        technical_detail="Gap down = Today's Open < Yesterday's Low. Often indicates bad news or sector weakness. Gap downs can act as resistance (price struggles to get back up). Recovery from gap down can be bullish if done with volume.",
+        example="Yesterday closed at 100, today opened at 95 (5% gap down) = negative overnight news or sector weakness.",
+        related_terms=["Gap", "Risk", "Overnight"],
+    ),
+    
+    "Moving Average Crossover": TermDefinition(
+        term="Moving Average Crossover",
+        category="Scanner",
+        definition="When a shorter moving average crosses above or below a longer moving average. Golden cross = bullish, Death cross = bearish.",
+        technical_detail="Golden Cross: 50-DMA crosses above 200-DMA = bullish trend change. Death Cross: 50-DMA crosses below 200-DMA = bearish trend change. Crossovers are lagging indicators (late signals) but reliable for trend confirmation.",
+        example="50-DMA crosses above 200-DMA = Golden Cross, potential start of new uptrend.",
+        related_terms=["SMA", "EMA", "Trend", "Golden Cross"],
+    ),
+    
+    "Golden Cross": TermDefinition(
+        term="Golden Cross",
+        category="Scanner",
+        definition="A bullish signal when the 50-day moving average crosses above the 200-day moving average. Indicates potential start of long-term uptrend.",
+        technical_detail="Classic trend-following signal. 50-DMA crossing above 200-DMA means short-term momentum is stronger than long-term trend. Often used as buy signal for trend followers. Lagging but reliable.",
+        example="RELIANCE 50-DMA crosses above 200-DMA = Golden Cross, buy signal for trend followers.",
+        related_terms=["Death Cross", "SMA", "Uptrend", "Moving Average Crossover"],
+    ),
+    
+    "Death Cross": TermDefinition(
+        term="Death Cross",
+        category="Scanner",
+        definition="A bearish signal when the 50-day moving average crosses below the 200-day moving average. Indicates potential start of long-term downtrend.",
+        technical_detail="Opposite of Golden Cross. 50-DMA crossing below 200-DMA means short-term momentum is weaker than long-term trend. Often used as sell signal or warning to reduce positions. Can produce false signals in sideways markets.",
+        example="TCS 50-DMA crosses below 200-DMA = Death Cross, warning to reduce long positions.",
+        related_terms=["Golden Cross", "SMA", "Downtrend", "Moving Average Crossover"],
+    ),
 }
 
 
@@ -463,6 +620,7 @@ CATEGORIES = {
     "Regime": [t for t, d in GLOSSARY.items() if d.category == "Regime"],
     "Scanner Category": [t for t, d in GLOSSARY.items() if d.category == "Scanner Category"],
     "Analysis": [t for t, d in GLOSSARY.items() if d.category == "Analysis"],
+    "Market": [t for t, d in GLOSSARY.items() if d.category == "Market"],
 }
 
 

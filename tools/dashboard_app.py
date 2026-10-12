@@ -5951,7 +5951,19 @@ if current_page == "Hidden Treasures":
                "(negative FCF only penalises — B-34r2). "
                "**Unvalidated** — a discovery lens, not an edge. B-34r4 measured "
                "the ranking at −0.12% @60d (p=0.94) / +0.20% @120d (p=0.94) once "
-               "the drifting promoter window is bounded — the earlier +2.5% was "
+               "the drifting promoter window is bounded — the earlier +2.5% was ")
+    
+    # Beginner-friendly help
+    beginner_mode = help.beginner_mode_toggle()
+    
+    if beginner_mode:
+        with st.expander("Understanding Hidden Treasures", expanded=False):
+            help.info_card("Market Cap")
+            help.info_card("Promoter Holding")
+            help.info_card("FII/DII")
+            help.info_card("ROCE")
+            help.info_card("OPM")
+            help.info_card("D/E Ratio")
                "that artefact. Coverage, not edge.")
 
     _ht_c1, _ht_c2 = st.columns([2, 1])
@@ -7593,6 +7605,17 @@ if current_page == "Stock Analyzer":
 # ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Portfolio":
     st.subheader("Portfolio / Position Tracker")
+    
+    # Beginner-friendly help
+    beginner_mode = help.beginner_mode_toggle()
+    
+    if beginner_mode:
+        with st.expander("Understanding Portfolio Risk Management", expanded=False):
+            help.info_card("Stop-loss")
+            help.info_card("Risk-Reward Ratio")
+            help.info_card("Position Sizing")
+            help.info_card("Drawdown")
+            help.info_card("Capital")
 
     with st.form("add_position_form", clear_on_submit=True):
         st.caption("Add a position")
@@ -11312,6 +11335,18 @@ if current_page == "Market Sentiment":
         "PMax direction on NIFTY 1H. Phase 2 adds PCR when the option-chain "
         "scraper lands."
     )
+    
+    # Beginner-friendly help
+    beginner_mode = help.beginner_mode_toggle()
+    
+    if beginner_mode:
+        with st.expander("Understanding Market Sentiment", expanded=False):
+            help.info_card("Breadth")
+            help.info_card("Advance-Decline Ratio")
+            help.info_card("VIX")
+            help.info_card("Regime")
+            help.info_card("RISK-ON")
+            help.info_card("RISK-OFF")
     # B-66 measured all four inputs AND the composite against NIFTY's forward
     # returns and found no discrimination anywhere. The page is not being removed
     # — a null is not evidence of harm, and a description of today's tape is worth
