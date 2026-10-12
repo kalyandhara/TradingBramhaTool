@@ -2409,6 +2409,35 @@ def _cached_hourly(symbol: str) -> "pd.DataFrame":
     return h[[c for c in ("open", "high", "low", "close", "volume") if c in h.columns]]
 
 
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _cached_daily_max(symbol: str) -> "pd.DataFrame":
+    """Full listed daily history for the timeframe board. The page's own `df`
+    is a short analysis window (~1y), which starves Half-yearly / Yearly / Y-on-Y
+    of bars — those panels refused with "1.2y listed" on decades-old names."""
+    import yfinance as yf
+    tk = symbol if "." in symbol else f"{symbol}.NS"
+    d = yf.download(tk, period="max", interval="1d", progress=False,
+                    auto_adjust=False)
+    if d is None or d.empty:
+        return pd.DataFrame()
+    if isinstance(d.columns, pd.MultiIndex):
+        d.columns = d.columns.get_level_values(0)
+    d.columns = [str(c).lower() for c in d.columns]
+    return d[[c for c in ("open", "high", "low", "close", "volume") if c in d.columns]]
+
+
+def _board_daily(symbol: str, df: "pd.DataFrame") -> "pd.DataFrame":
+    """Longest daily frame available: full history if the download works, else
+    the page's window — so a network failure degrades to today's behaviour."""
+    try:
+        full = _cached_daily_max(symbol)
+    except Exception:
+        full = pd.DataFrame()
+    if full is not None and not full.empty and (df is None or len(full) > len(df)):
+        return full
+    return df
+
+
 def render_timeframe_board(symbol: str, df: "pd.DataFrame") -> None:
     """Six horizons of one company, side by side — Hourly to Yearly plus Y-on-Y.
 
@@ -2438,7 +2467,8 @@ def render_timeframe_board(symbol: str, df: "pd.DataFrame") -> None:
         return
 
     with st.spinner("Building six horizons..."):
-        panels = tfb.build(symbol, daily=df, hourly=_cached_hourly(symbol))
+        panels = tfb.build(symbol, daily=_board_daily(symbol, df),
+                           hourly=_cached_hourly(symbol))
 
     for row in (panels[:3], panels[3:]):
         cols = st.columns(3)
