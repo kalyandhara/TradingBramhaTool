@@ -1313,7 +1313,7 @@ with _nav_help[10]:
     beginner_mode = help.beginner_mode_toggle()
     
     if st.button("Glossary", key="tb_glossary", help="Trading Glossary", width="stretch"):
-        st.session_state["show_glossary"] = True)
+        st.session_state["show_glossary"] = True
         st.rerun()
 
 # ── Breadcrumb + status strip ────────────────────────────────────
@@ -5951,7 +5951,8 @@ if current_page == "Hidden Treasures":
                "(negative FCF only penalises — B-34r2). "
                "**Unvalidated** — a discovery lens, not an edge. B-34r4 measured "
                "the ranking at −0.12% @60d (p=0.94) / +0.20% @120d (p=0.94) once "
-               "the drifting promoter window is bounded — the earlier +2.5% was ")
+               "the drifting promoter window is bounded — the earlier +2.5% was "
+               "that artefact. Coverage, not edge.")
     
     # Beginner-friendly help
     beginner_mode = help.beginner_mode_toggle()
@@ -5964,7 +5965,6 @@ if current_page == "Hidden Treasures":
             help.info_card("ROCE")
             help.info_card("OPM")
             help.info_card("D/E Ratio")
-               "that artefact. Coverage, not edge.")
 
     _ht_c1, _ht_c2 = st.columns([2, 1])
     with _ht_c1:
