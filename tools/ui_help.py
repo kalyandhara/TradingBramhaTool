@@ -201,9 +201,12 @@ def column_with_help(column_name: str, term: str | None = None) -> str:
     return column_name
 
 
-def beginner_mode_toggle() -> bool:
+def beginner_mode_toggle(key: str = "beginner_mode_toggle") -> bool:
     """
     Display a toggle for beginner mode.
+    
+    Args:
+        key: Unique key for the toggle widget (required if called multiple times)
     
     Returns:
         True if beginner mode is enabled
@@ -215,6 +218,7 @@ def beginner_mode_toggle() -> bool:
         "🎓 Beginner Mode",
         value=st.session_state.beginner_mode,
         help="Show explanations for technical terms",
+        key=key,
     )
     st.session_state.beginner_mode = beginner_mode
     

@@ -1265,7 +1265,7 @@ with _nav[9]:
 
 # Beginner mode toggle and glossary button
 with _nav[10]:
-    beginner_mode = help.beginner_mode_toggle()
+    beginner_mode = help.beginner_mode_toggle(key="nav_beginner_mode")
     
     if st.button("Glossary", key="tb_glossary", help="Trading Glossary", width="stretch"):
         st.session_state["show_glossary"] = True
@@ -5910,7 +5910,7 @@ if current_page == "Hidden Treasures":
                "that artefact. Coverage, not edge.")
     
     # Beginner-friendly help
-    beginner_mode = help.beginner_mode_toggle()
+    beginner_mode = help.beginner_mode_toggle(key="hidden_treasures_beginner_mode")
     
     if beginner_mode:
         with st.expander("Understanding Hidden Treasures", expanded=False):
@@ -6819,7 +6819,7 @@ if st.session_state.get("show_glossary"):
     st.subheader("Trading Glossary")
     st.caption("Beginner-friendly explanations for all technical terms")
     
-    beginner_mode = help.beginner_mode_toggle()
+    beginner_mode = help.beginner_mode_toggle(key="glossary_page_beginner_mode")
     
     help.glossary_search()
     
@@ -7154,7 +7154,7 @@ if current_page == "Stock Analyzer":
     st.subheader("Individual Stock Analyzer")
     
     # Beginner-friendly help
-    beginner_mode = help.beginner_mode_toggle()
+    beginner_mode = help.beginner_mode_toggle(key="stock_analyzer_beginner_mode")
     
     if beginner_mode:
         with st.expander("Understanding Technical Indicators", expanded=False):
@@ -7562,7 +7562,7 @@ if current_page == "Portfolio":
     st.subheader("Portfolio / Position Tracker")
     
     # Beginner-friendly help
-    beginner_mode = help.beginner_mode_toggle()
+    beginner_mode = help.beginner_mode_toggle(key="portfolio_beginner_mode")
     
     if beginner_mode:
         with st.expander("Understanding Portfolio Risk Management", expanded=False):
@@ -8077,7 +8077,7 @@ if current_page == "Opportunity Hub":
                "validate the setup and manage the risk.")
     
     # Beginner-friendly help
-    beginner_mode = help.beginner_mode_toggle()
+    beginner_mode = help.beginner_mode_toggle(key="opportunity_hub_beginner_mode")
     
     if beginner_mode:
         with st.expander("Understanding the Funnel", expanded=False):
@@ -8878,7 +8878,7 @@ if current_page == "Scanner Hub":
     st.caption("Pre-built pattern scanners — choose a scanner, select a universe, run.")
     
     # Beginner-friendly help
-    beginner_mode = help.beginner_mode_toggle()
+    beginner_mode = help.beginner_mode_toggle(key="scanner_hub_beginner_mode")
     
     if beginner_mode:
         with st.expander("Understanding Scanner Categories", expanded=False):
@@ -11292,7 +11292,7 @@ if current_page == "Market Sentiment":
     )
     
     # Beginner-friendly help
-    beginner_mode = help.beginner_mode_toggle()
+    beginner_mode = help.beginner_mode_toggle(key="market_sentiment_beginner_mode")
     
     if beginner_mode:
         with st.expander("Understanding Market Sentiment", expanded=False):
