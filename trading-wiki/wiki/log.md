@@ -1,6 +1,19 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-12] build | Beginner-friendly help system — glossary, tooltips, beginner mode (owner-directed; four commits, logged retroactively)
+- **Trigger:** owner asked for beginner-friendly tooltips/explanations across the desk. Built by a Devin session in four commits the same day (`205cc2d` → `53de80f` → `d603d39` → `c31b40e`); none was logged, so this entry is written from the commits and the code, not from memory.
+- **`tools/trading_glossary.py`** — central glossary, `TermDefinition` (definition / technical detail / example / related terms). 46 terms at `205cc2d`, **63 after `d603d39`** (+17: ROE, ROCE, OPM, D/E, Promoter Holding, FII/DII, Breadth, A/D Ratio, Nifty50, Slippage, Market Impact, ATH Breakout, Gap Up/Down, MA Crossover, Golden/Death Cross) and a new **Market** category. API: `get_definition`, `search_terms`, `get_terms_by_category`, `get_related_terms`, `generate_tooltip`, `generate_detailed_tooltip`.
+- **`tools/ui_help.py`** — reusable components: info icons, help buttons, info cards, glossary search, `beginner_mode_toggle`, metric/parameter explanations. `c31b40e` added an optional `key` so the toggle can appear on many pages without `StreamlitDuplicateElementId`; all 8 call sites carry a unique key.
+- **Surfaces wired in `dashboard_app.py`:** nav-ribbon beginner toggle + Glossary button; a dedicated searchable Glossary page (browse by category); help cards on Scanner Hub, Opportunity Hub (funnel, confluence, regime gate), Stock Analyzer (indicators, market structure), Hidden Treasures, Market Sentiment, Portfolio. All help is **beginner-mode dependent**, so the default view is unchanged.
+- **Docs added:** `BEGINNER_FRIENDLY_HELP_SYSTEM.md`, `SYSTEM_ARCHITECTURE_ANALYSIS.md`, `SCREENER_BATCH_WORKFLOW.md` (a proposal, not built). Same session registered 3 dormant scheduled jobs (growth_snapshot, snapshot_refresh, hidden_treasures_daily) → 8 enabled.
+- **Nature of the content:** explanatory, not measured. The glossary carries no performance claims, and nothing here changes a scanner, floor or verdict.
+- **Integrity — open, found while writing this entry, NOT fixed here:**
+  1. **Monolith ratchet will fail.** `dashboard_app.py` is **13,193 lines** against `MAX_LINES = 12_550` in `test_monolith_ratchet.py` (`53de80f` alone added ~290). Per that file's own rule the number is not raised silently; the intended fix is to extract the help sections into `tools/desk_pages/` (the B-87r pattern). I could not run the test here (no `pytest` in the sandbox) — the line count is the evidence.
+  2. **`test_glossary.py` ran 0 tests under unittest** (it is plain functions). The "8 tests" in `205cc2d` were not re-run by me.
+  3. **Unlogged work:** B-87r's recorded progress (12,689 lines on 2026-09-26) is now stale by ~500 lines.
+- **Integrity — fixed:** commit `70f16ed` ("commit everything") had swept in runtime artefacts — three `tools/.fuse_hidden*` files, `trading_bramha.db-shm` / `-wal`, `tools/logs/.health_check_test`. Untracked and added to `.gitignore`.
+
 ## [2026-09-26] ingest | SMC Top-Down Analysis infographic
 - Created concept page: `concepts/SMC-Top-Down-Analysis.md`
 - Created source page: `sources/Infographic-SMC-Top-Down-Analysis.md`
