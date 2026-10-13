@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-12] backlog | B-146 placeholder — fair-value range from short-history methods
+- Owner asked whether 4 years of data suffices for intrinsic/over/undervalued calls. Recorded answer: not for own-history multiples, return-prediction tests or cyclicals; workable for peer-relative valuation and a rough scenario-based earnings-power estimate. Filed as B-146 (placeholder, owner to approve discount rate and growth caps). Nothing built. The screener.in long-history fetch (B-141 follow-up) is still pending the owner's go-ahead.
+
 ## [2026-10-12] build | Valuation plan B-140…B-145, built in order: probe FAILED, thin study INCONCLUSIVE, index card shipped
 - **B-141** `eps_history_probe.py` (bar fixed before reading): median TTM-EPS span 5.0y, 8 of 500 names reach 8y → FAIL. yfinance cannot supply own-history; the live fetch (screener.in / niftyindices.com) is a desk-machine job — every outside host is blocked from the sandbox.
 - **B-142** `valuation_edge_study.py` thin run: cheapest−dearest quintile +12.3pp @12m but ~5 independent windows (floor 8) → INCONCLUSIVE; sign flipped in 2024. Base rate: 37% of the dearest quintile lost money vs 33% of all names.
