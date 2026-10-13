@@ -11208,6 +11208,8 @@ if current_page == "Market Sentiment":
     
     # Beginner-friendly help
     help_panels.render("market_sentiment")
+    # B-145 · index valuation with its window stated; never labelled cheap/expensive.
+    __import__("index_valuation_card").render()
     # B-66 measured all four inputs AND the composite against NIFTY's forward
     # returns and found no discrimination anywhere. The page is not being removed
     # — a null is not evidence of harm, and a description of today's tape is worth

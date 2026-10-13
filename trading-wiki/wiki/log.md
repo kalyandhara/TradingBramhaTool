@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-12] build | Valuation plan B-140…B-145, built in order: probe FAILED, thin study INCONCLUSIVE, index card shipped
+- **B-141** `eps_history_probe.py` (bar fixed before reading): median TTM-EPS span 5.0y, 8 of 500 names reach 8y → FAIL. yfinance cannot supply own-history; the live fetch (screener.in / niftyindices.com) is a desk-machine job — every outside host is blocked from the sandbox.
+- **B-142** `valuation_edge_study.py` thin run: cheapest−dearest quintile +12.3pp @12m but ~5 independent windows (floor 8) → INCONCLUSIVE; sign flipped in 2024. Base rate: 37% of the dearest quintile lost money vs 33% of all names.
+- **B-143** `own_history_valuation.py` built and dormant: it refuses below 8 years, and 0 of 261 names qualify today. Not wired anywhere.
+- **B-145** `index_valuation.py` + `index_valuation_card.py` live on Market Sentiment: Nifty P/E 19.1, P/B 2.75, yield 1.53%, with the 17-month window stated, never labelled cheap/expensive.
+- **B-144** (role/horizon of valuation) remains the owner's decision. 15 new tests pass under a stub runner (pytest is not installable in the sandbox); the card is not opened in a browser.
+
 ## [2026-10-12] ingest | YouTube — Chuck Carnevale (Fast Graphs): 22 "Fallen Angels"
 - **Created:** `sources/YT-Chuck-Carnevale-Fallen-Angels-Valuation.md`, `concepts/Intrinsic-Value-Valuation.md`. Index now 318 pages / 121 sources (the previous 314 / 120 had drifted; recomputed by the file-count rule in the index comment).
 - **Source weight: zero.** Written from the owner's summary (no transcript), vendor content, US stocks, 22 examples picked because they fell, no base rate.
