@@ -358,7 +358,9 @@ def test_the_registry_counts_parse_without_importing_the_modules():
     # 49 -> 50 on 2026-09-20 (B-101 added Symmetrical Triangle, the first
     # BILATERAL scanner — it is registered and runs like any other, it simply
     # does not vote).
-    assert cl._count_symbol("scanner_templates.py", "SCANNERS", "dict_keys") == 50
+    # 50 -> 54 between 2026-09-20 and 2026-10-12 without this pin moving.
+    # 54 -> 56 on 2026-10-12 (Qullamaggie Breakout + Episodic Pivot).
+    assert cl._count_symbol("scanner_templates.py", "SCANNERS", "dict_keys") == 56
     assert cl._count_symbol("dashboard_app.py", "PAGE_GROUPS", "dict_keys") == 5
     assert cl._count_symbol("dashboard_app.py", "PAGE_GROUPS",
                             "sum_of_list_values") == 23

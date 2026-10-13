@@ -3143,3 +3143,9 @@
 - Not live → "No live count — the latest drawn structure ended <date>", no negation level, no projection rays; live impulse already in its correction → only its C targets
 - Seen on RELIANCE 1d before/after: a Wave C negation 19% above price and W3/W5 targets 20–30% above price, all from a count that ended in January, are gone; the old counts remain drawn as history
 - 4 tests first (`test_elliott_wave.py`); 58 pass + 1 skipped (the uncaptured Nifty 15m fixture) across the Elliott / Fibonacci / divergence suites
+
+## [2026-10-12] feat | Qullamaggie setups — two scanners + market filter (B-147)
+- `Qullamaggie Breakout` and `Episodic Pivot` scanners added (daily-bar halves of his breakout and EP; no intraday entry, no target), in the Base/Contraction and Event confluence families
+- Home regime line now shows "Momentum longs ON/OFF" from NIFTY SMA10 vs SMA20, his market filter; first reading OFF (22,559 vs 22,917)
+- Live run caught yfinance's NaN-price stub bar firing 16 fake EPs; both scanners now drop NaN bars (regression test added)
+- UNMEASURED; measurement plan in B-147. 11 tests in `test_qullamaggie_scans.py`

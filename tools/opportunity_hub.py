@@ -200,6 +200,7 @@ SCANNER_FAMILIES: dict[str, tuple[str, ...]] = {
         "Base Formation",
         "High Tight Flag",
         "Darvas Box",
+        "Qullamaggie Breakout",
     ),
     "Breakout/Structure": (
         "Consolidation Breakout (6M–10Y)",
@@ -227,6 +228,7 @@ SCANNER_FAMILIES: dict[str, tuple[str, ...]] = {
     ),
     "Event": (
         "PEAD Drift",
+        "Episodic Pivot",
     ),
 }
 

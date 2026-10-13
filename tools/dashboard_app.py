@@ -4356,6 +4356,13 @@ def _regime_line() -> str:
     if regime_info["dist_pct"] is not None:
         bits.append(f'within <span class="tb-mono">'
                     f'{abs(regime_info["dist_pct"]):.1f}%</span> of the 50 SMA')
+    # Qullamaggie's switch for momentum longs: NIFTY SMA10 vs SMA20.
+    _ml = regime_info.get("momentum_longs")
+    if _ml is not None:
+        bits.append(f'Momentum longs <b>{"ON" if _ml else "OFF"}</b> — SMA10 '
+                    f'<span class="tb-mono">{regime_info["sma10"]:,.0f}</span> '
+                    f'{"above" if _ml else "below"} SMA20 '
+                    f'<span class="tb-mono">{regime_info["sma20"]:,.0f}</span>')
     return (
         f'<div style="border-top:1px solid {rs.TOKENS["border"]};margin-top:10px;'
         f'padding-top:8px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">'
