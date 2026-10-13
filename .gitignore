@@ -77,3 +77,6 @@ tools/cache/svp_screen.csv
 *.db-shm
 *.db-wal
 tools/logs/.health_check_test
+
+# B-158: rule files are pre-registrations, keep them in git
+!tools/rules/*.json

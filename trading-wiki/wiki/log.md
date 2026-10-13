@@ -1,6 +1,12 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-13] build | B-158 rule-composer entries for the shared harness; B-159/B-160 filed
+- Compared the desk with LuxAlgo's Backtester (OSC) entry/exit docs: exits and fill models were already covered (B-121/B-123/B-124), sequenced multi-condition entries and portfolio-level risk were not. Built `rule_engine.py` (JSON rules: indicator conditions → ordered steps with `within`, `invalidate`, optional ATR/%/swing plan) + a `prepare` hook in `backtest_scanner` + `rule_runner.py` (requires a hypothesis, logs distinct rules, prints the Bonferroni bar). 40 tests incl. a no-lookahead parity test. Example rule run on 300 names: −0.19pp @20d, unstable — no edge, as expected. Filed B-159 (portfolio simulation, next) and B-160 (indicator exits / order-price options, conditional); mapped LuxAlgo's trailing-stop catalogue into B-160 — all behind B-124's null.
+
+## [2026-10-13] backlog | B-148…B-157 — Indicator Browser v2 for the Chart Tool (assessment + plan, nothing built)
+- Owner asked for a TradingView-style indicator library (overlay, cards with pictures, detail pane, favourites). Assessed the current 520 px dropdown in `chart_dashboard.html`: 59 indicators, family rail + search work well, but no descriptions, levels, pictures, favourites or evidence. Filed umbrella B-148 and B-149 (content: short/desc/level/goals/added/concept) → B-157. Desk-specific departures from the reference: an NSE evidence line from `named_studies.py` instead of unmeasured "higher probability" copy; "Learn more" (wiki/glossary) instead of "Ask Quant"; hashed thumbnail names because `sw.js` caches images cache-first. Owner decided the same day: generated screenshots; Learn more link (no AI explainer); evidence line shown to everyone; Claude drafts the 59 descriptions, owner reviews.
+
 ## [2026-10-12] build | B-141 follow-up — screener.in annual-EPS fetch script (written, not run)
 - `tools/screener_eps_fetch.py` + `test_screener_eps_fetch.py` (6 tests, parser only) and `eps_history_probe.py --annual`. Default run fetches 20 liquid names; output `cache/screener_eps/`. Written in a sandbox with no outside access, so the live fetch and the real page layout are untested. Owner runs it on the desk machine.
 
