@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-12] ingest | YouTube — Chuck Carnevale (Fast Graphs): 22 "Fallen Angels"
+- **Created:** `sources/YT-Chuck-Carnevale-Fallen-Angels-Valuation.md`, `concepts/Intrinsic-Value-Valuation.md`. Index now 318 pages / 121 sources (the previous 314 / 120 had drifted; recomputed by the file-count rule in the index comment).
+- **Source weight: zero.** Written from the owner's summary (no transcript), vendor content, US stocks, 22 examples picked because they fell, no base rate.
+- **Owner's concern checked against the desk:** valuation is half-present. `fundamental_score` has a P/E-P/B-PEG axis relative to the NSE cross-section, but it is excluded from the business rank, feeds no shortlist/vote/verdict, has no own-history or intrinsic-value view, and has never been measured against forward returns.
+- **Premise check:** Nifty 50 is 15.2% below its all-time high (2026-01-05) and ~11% below 2024-10-14 — two years without a gain, but not a 20%+ bear market on the cached data. Nifty P/E 19.1, P/B 2.75 (index files hold only 344 sessions since 2025-05-23, so this is not a cheapness claim).
+- **Filed B-140 … B-145** in [[analyses/Open-Backlog]]: umbrella, data probe (long EPS history, only 4 annual years today), forward-return measurement (expected INCONCLUSIVE until B-141), own-history band overlay (display only), OWNER decision on valuation's role/horizon, index valuation context. Nothing built.
+
 ## [2026-10-12] build | Glossary becomes its own page (Research → Glossary), arranged as a learning path
 - **Trigger:** owner: tooltips are fine but do not add up to sound learning for beginners. A tooltip explains one term where you meet it; it cannot teach the ORDER the ideas depend on.
 - **`tools/desk_pages/glossary.py`**, registered in `desk_pages/__init__.py` and listed under **Research** with a nav blurb. Two views: **Learning path** (11 sections, "Market → Market Structure → Indicator → Volume → Fundamental → Risk → Pattern → Regime → Scanner → Scanner Category → Analysis", each with a one-line reason to read it; the first open) and **A–Z**. Search across all terms. Each term: simple explanation, then technical detail + worked example behind an expander, then "See also" links to related terms that actually exist in the glossary. A category added to the glossary later but not to the path is appended, never dropped.
