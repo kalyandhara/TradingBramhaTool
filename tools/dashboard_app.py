@@ -91,7 +91,6 @@ import snapshot_store as snapstore
 import snapshot_registry as snapreg
 
 # Beginner-friendly help system
-import trading_glossary as glossary
 import ui_help as help
 import help_panels
 
@@ -1044,7 +1043,7 @@ PAGE_GROUPS = {
     "Screening":        ["Opportunity Hub", "Delete Funnel", "Hidden Treasures", "Screener", "Other Screeners", "Scanner Hub",
                          "Breakout Scans", "High-Growth Screener", "SVP Structure"],
     "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
-    "Research":         ["Predictive Analysis", "Stock Analyzer", "Sector wise Navigation", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals"],
+    "Research":         ["Predictive Analysis", "Stock Analyzer", "Sector wise Navigation", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals", "Glossary"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
     "Ops":              ["Pipeline Log", "Scheduler Hub"],
 }
@@ -1069,6 +1068,7 @@ PAGE_BLURBS = {
     "India Market Intel":   "Bulk & block deals, insider trades, gap scanner",
     "OI Momentum":          "Open-interest build-up and unwinding",
     "Predictive Analysis":  "Consolidated rating, chart and intel per stock",
+    "Glossary":             "Plain-English guide to every term, in learning order",
     "Stock Analyzer":       "Full fundamental + technical deep dive",
     "Sector Map":           "Relative Rotation Graph and sector orbit",
     "Sector wise Navigation":         "Every industry peer in a ribbon — step through one by one",
@@ -1264,13 +1264,9 @@ with _nav[8]:
 with _nav[9]:
     _signin_control()
 
-# Beginner mode toggle and glossary button
+# Beginner mode toggle (the Glossary is a page: Research → Glossary)
 with _nav[10]:
     beginner_mode = help.beginner_mode_toggle(key="nav_beginner_mode")
-    
-    if st.button("Glossary", key="tb_glossary", help="Trading Glossary", width="stretch"):
-        st.session_state["show_glossary"] = True
-        st.rerun()
 
 # ── Breadcrumb + status strip ────────────────────────────────────
 # One 30px line under the bar: where you are on the left, whether the data is
@@ -6802,12 +6798,6 @@ def render_action_map() -> None:
                  "Which detectors actually produced today's list.",
                  _scan_rows, "Scanner Hub", "scan")
 
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Glossary Page - Beginner-friendly help system
-# ──────────────────────────────────────────────────────────────────────────────
-if st.session_state.get("show_glossary"):
-    help_panels.glossary_page()
 
 # ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Home":

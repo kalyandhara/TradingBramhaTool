@@ -356,7 +356,8 @@ def st_glossary_sidebar() -> None:
                 st.caption("No matches")
         
         if st.button("Full Glossary", key="full_glossary_btn"):
-            st.session_state.show_glossary = True
+            st.session_state["current_page"] = "Glossary"
+            st.rerun()
 
 
 # ── CSS for Tooltips ───────────────────────────────────────────────────────────

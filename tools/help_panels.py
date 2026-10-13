@@ -15,7 +15,6 @@ from __future__ import annotations
 
 import streamlit as st
 
-import trading_glossary as glossary
 import ui_help as help  # noqa: A001 — same alias dashboard_app uses
 
 #: page -> (toggle key, [(expander title, [term | "**markdown header**", ...]), ...])
@@ -63,33 +62,3 @@ def render(page: str) -> bool:
                     else:
                         help.info_card(term)
     return beginner_mode
-
-
-def glossary_page() -> None:
-    """The searchable Glossary page (opened by the nav ribbon's Glossary button)."""
-    st.subheader("Trading Glossary")
-    st.caption("Beginner-friendly explanations for all technical terms")
-
-    beginner_mode = help.beginner_mode_toggle(key="glossary_page_beginner_mode")
-
-    help.glossary_search()
-
-    st.divider()
-
-    help.quick_reference()
-
-    st.divider()
-
-    st.subheader("Browse by Category")
-
-    for category in glossary.get_all_categories():
-        with st.expander(f"{category} ({len(glossary.get_terms_by_category(category))} terms)"):
-            for term in glossary.get_terms_by_category(category):
-                if beginner_mode:
-                    help.info_card(term)
-                else:
-                    st.markdown(f"- **{term}**")
-
-    if st.button("Back to Dashboard", key="glossary_back"):
-        st.session_state["show_glossary"] = False
-        st.rerun()
