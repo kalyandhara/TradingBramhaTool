@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-12] build | B-141 follow-up — screener.in annual-EPS fetch script (written, not run)
+- `tools/screener_eps_fetch.py` + `test_screener_eps_fetch.py` (6 tests, parser only) and `eps_history_probe.py --annual`. Default run fetches 20 liquid names; output `cache/screener_eps/`. Written in a sandbox with no outside access, so the live fetch and the real page layout are untested. Owner runs it on the desk machine.
+
 ## [2026-10-12] backlog | B-146 placeholder — fair-value range from short-history methods
 - Owner asked whether 4 years of data suffices for intrinsic/over/undervalued calls. Recorded answer: not for own-history multiples, return-prediction tests or cyclicals; workable for peer-relative valuation and a rough scenario-based earnings-power estimate. Filed as B-146 (placeholder, owner to approve discount rate and growth caps). Nothing built. The screener.in long-history fetch (B-141 follow-up) is still pending the owner's go-ahead.
 

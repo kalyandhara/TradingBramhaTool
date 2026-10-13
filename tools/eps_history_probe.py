@@ -24,7 +24,15 @@ published at the time and is NOT split-adjusted by yfinance in every case — a
 share-count change shows as a spurious EPS jump; flagged below), consolidated vs
 standalone mixing.
 
-CLI: py -3 tools/eps_history_probe.py [--json out.json]
+ANNUAL MODE (--annual): the same bar, applied to cache/screener_eps (written by
+screener_eps_fetch.py, ~10 fiscal years of annual EPS). Nothing about the bar
+changes: >= MIN_YEARS of span for >= COVERAGE_BAR of the universe, and direction
+agreement with revenue >= AGREE_BAR. Coverage is measured against the names that
+were FETCHED, and the fetched count is printed, because a 20-name sample cannot
+stand in for the NIFTY 500 — a pass on 20 liquid names is a go-ahead to fetch
+more, not a pass on the universe.
+
+CLI: py -3 tools/eps_history_probe.py [--json out.json] [--annual]
 """
 from __future__ import annotations
 
@@ -38,6 +46,7 @@ HERE = Path(__file__).resolve().parent
 EARN = HERE / "cache" / "earnings"
 PIT = HERE / "cache" / "pit_quality"
 N500 = HERE / "cache" / "nse_nifty500_constituents.json"
+SCR = HERE / "cache" / "screener_eps"
 
 MIN_YEARS = 8
 COVERAGE_BAR = 0.60
@@ -87,10 +96,49 @@ def artefacts(ser) -> int:
     return n
 
 
+def main_annual() -> int:
+    files = sorted(SCR.glob("*.json"))
+    if not files:
+        print("No cache/screener_eps files. Run: py -3 tools/screener_eps_fetch.py")
+        return 2
+    ys, flagged, paired, agree, bases = [], 0, 0, 0, {}
+    for p in files:
+        d = json.loads(p.read_text(encoding="utf-8"))
+        per = [x for x in d.get("periods", []) if x.get("eps") is not None]
+        ser = [(x["period_end"], x["eps"]) for x in per]
+        ys.append(years_spanned(ser))
+        bases[d.get("basis", "unknown")] = bases.get(d.get("basis", "unknown"), 0) + 1
+        if artefacts(ser):
+            flagged += 1
+        for a0, a1 in zip(per, per[1:]):
+            if None in (a0.get("sales"), a1.get("sales")) or not a0["eps"] or not a0["sales"]:
+                continue
+            paired += 1
+            agree += int((a1["sales"] > a0["sales"]) == (a1["eps"] > a0["eps"]))
+    n = len(ys)
+    ok_n = sum(1 for y in ys if y >= MIN_YEARS)
+    cov = ok_n / n
+    agr = agree / paired if paired else None
+    print(f"FETCHED names: {n} (a sample, not the universe)   basis: {bases}")
+    print(f"annual EPS span, years — median {sorted(ys)[n//2]:.1f}  max {max(ys):.1f}")
+    print(f"  >= {MIN_YEARS:.0f} years: {ok_n}/{n} ({cov:.0%})   possible split/unit artefacts: {flagged}")
+    print(f"sanity (EPS direction vs sales direction, year on year): {agree}/{paired}"
+          + (f" = {agr:.0%}" if agr is not None else ""))
+    p1, p2 = cov >= COVERAGE_BAR, agr is not None and agr >= AGREE_BAR
+    print(f"BAR 1 coverage >= {COVERAGE_BAR:.0%} at >= {MIN_YEARS:.0f}y: {cov:.0%} -> {'PASS' if p1 else 'FAIL'}")
+    print(f"BAR 2 direction agreement >= {AGREE_BAR:.0%}: -> {'PASS' if p2 else 'FAIL'}")
+    print("VERDICT:", ("PASS on this sample — fetch more (--n 100, then 500) before wiring B-143" if (p1 and p2)
+                       else "FAIL on this sample"))
+    return 0
+
+
 def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--json")
+    ap.add_argument("--annual", action="store_true")
     a = ap.parse_args()
+    if a.annual:
+        return main_annual()
 
     uni = _universe()
     files = {p.stem.upper(): p for p in EARN.glob("*.json")}
