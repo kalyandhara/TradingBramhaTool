@@ -341,7 +341,9 @@ def render() -> None:
                 st.plotly_chart(mini_figure(q), width="stretch",
                                 config={"displayModeBar": False},
                                 key=f"idxstrip_{q.symbol}")
-    st.caption(
+    # B-162: the method note is the desk's honesty and stays — collapsed, so it
+    # is not a wall of small grey text between the charts and the breadth bars.
+    st.expander("How this is measured — index cards").caption(
         f"{INTERVAL} bars, latest session; the dotted line is the previous "
         "session's close, which is also what the % is measured against. "
         "NIFTY NEXT 50 has no Yahoo index feed with intraday data, so that card "

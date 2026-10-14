@@ -574,7 +574,53 @@ def tint(df):
     st_ = df.style
     for c in cols:
         st_ = st_.map(_TINTERS[COLUMNS[resolve(str(c))].tone], subset=[c])
-    return st_
+    return formatted(st_)
+
+
+#: Decimals for a float column the registry does not know. Two, because a price
+#: and a percentage both read correctly at two and nothing on the desk needs six.
+DEFAULT_DP = 2
+
+
+def _cell_formatter(fmt: Optional[str]):
+    """A Python callable rendering one cell the way `fmt` would in the grid."""
+    def _f(v):
+        if v is None or (isinstance(v, float) and v != v):
+            return ""
+        if not isinstance(v, (int, float)) or isinstance(v, bool):
+            return str(v)
+        if fmt == "localized":
+            return f"{v:,.2f}" if isinstance(v, float) and v != int(v) else f"{int(v):,}"
+        if fmt:
+            try:
+                return fmt % v
+            except (TypeError, ValueError):
+                return str(v)
+        return f"{v:.{DEFAULT_DP}f}" if isinstance(v, float) else str(v)
+    return _f
+
+
+def formatted(styler):
+    """Give a pandas Styler the registry's number formats — B-164.
+
+    Once a frame is STYLED, Streamlit renders the Styler's own display text, and
+    pandas formats every float to six decimals by default. `column_config`'s
+    `format` never reaches those cells, which is how Home's CPR × Volume Profile
+    table printed `3.100000` beside a plain table printing `5.30%` (measured
+    2026-10-13). Every Styler handed to `st.dataframe` goes through here:
+    registry columns get their declared format, any other float column gets
+    `DEFAULT_DP` decimals, everything else is left as it is.
+    """
+    df = styler.data
+    fmts = {}
+    for c in df.columns:
+        k = resolve(str(c))
+        s = COLUMNS[k] if k else None
+        if s is not None and s.kind == "number":
+            fmts[c] = _cell_formatter(s.fmt)
+        elif s is None and str(df[c].dtype).startswith("float"):
+            fmts[c] = _cell_formatter(None)
+    return styler.format(fmts) if fmts else styler
 
 
 #: Row height, in px. Theirs is 36 at 11px type; Streamlit will not let us set

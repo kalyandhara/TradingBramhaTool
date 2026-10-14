@@ -303,3 +303,38 @@ def test_autofit_does_not_leak_into_the_registry():
     before = C.COLUMNS["symbol"].width
     C.configure_df(pd.DataFrame({"symbol": ["X" * 40]}), autofit=True)
     assert C.COLUMNS["symbol"].width == before
+
+
+# ── B-164: a styled table must not print six decimals ─────────────────────────
+def _cells(styler):
+    """The display text Streamlit will render, column by column."""
+    tr = styler._translate(False, False)
+    heads = [h["display_value"] for h in tr["head"][0]][1:]
+    return {h: [row[i + 1]["display_value"] for row in tr["body"]]
+            for i, h in enumerate(heads)}
+
+
+def test_formatted_gives_unknown_floats_two_decimals():
+    """Home's CPR × Volume Profile table printed `3.100000` — the measured bug."""
+    df = pd.DataFrame({"CPR": [3.1, 0.123456], "Setups": ["held", "retest"]})
+    cells = _cells(C.formatted(df.style))
+    assert cells["CPR"] == ["3.10", "0.12"]
+    assert cells["Setups"] == ["held", "retest"]
+
+
+def test_formatted_uses_the_registry_format():
+    df = pd.DataFrame({"chg_pct": [5.3, -1.25], "rvol": [2.04, None]})
+    cells = _cells(C.formatted(df.style))
+    assert cells["chg_pct"] == ["5.30%", "-1.25%"]
+    assert cells["rvol"] == ["2.0x", ""]
+
+
+def test_formatted_keeps_the_callers_colours():
+    df = pd.DataFrame({"CPR": [3.1]})
+    s = C.formatted(df.style.map(lambda v: "color:red", subset=["CPR"]))
+    assert "color: red" in s.to_html()
+
+
+def test_tint_output_is_formatted_too():
+    out = C.tint(pd.DataFrame({"chg_pct": [1.0], "CPR": [3.1]}))
+    assert _cells(out)["CPR"] == ["3.10"]

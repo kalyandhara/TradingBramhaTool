@@ -108,8 +108,8 @@ def _model_key() -> str:
 def _fld_section(sym: str, f: dict | None, frame) -> None:
     """Confluence row, per-cycle table and FLD chart for the active stock."""
     model = fc.load_model()
-    tag = (f'<span style="color:#16a34a">calibrated</span> · {model.get("universe", "")}'
-           if model else '<span style="color:#d97706">uncalibrated — default weights</span>')
+    tag = (f'<span style="color:#166534">calibrated</span> · {model.get("universe", "")}'
+           if model else '<span style="color:#a14a0b">uncalibrated — default weights</span>')
     st.markdown(f'<div style="font-size:12px;color:#7a6858;margin-top:6px">'
                 f'FLD CONFLUENCE (HURST, CYCLES {"/".join(map(str, fc.CYCLES))}) · {tag}</div>',
                 unsafe_allow_html=True)
@@ -160,7 +160,7 @@ def _fld_section(sym: str, f: dict | None, frame) -> None:
                                  visible=True if shown else "legendonly", showlegend=False))
     fig.add_hline(y=f["target"], line=dict(color=col, dash="dot"),
                   annotation_text=f"Target {f['target']:,.0f}", annotation_position="top left")
-    fig.add_hline(y=f["stop"], line=dict(color="#9ca3af", dash="dot"),
+    fig.add_hline(y=f["stop"], line=dict(color="#636a75", dash="dot"),
                   annotation_text=f"Invalidation {f['stop']:,.0f}",
                   annotation_position="bottom left")
     fig.add_vline(x=view.index[-1], line=dict(color="#a855f7", dash="dash", width=1))
@@ -234,7 +234,7 @@ def _pick() -> None:
 
 def _stat(label: str, value: str, color: str | None = None, sub: str = "") -> str:
     c = f"color:{color};" if color else ""
-    s = f'<div style="font-size:11px;color:#9ca3af">{sub}</div>' if sub else ""
+    s = f'<div style="font-size:11px;color:#636a75">{sub}</div>' if sub else ""
     return (f'<div style="flex:1;min-width:120px;background:#fffdf8;border:1px solid '
             f'#f0e0cc;border-radius:10px;padding:8px 12px">'
             f'<div style="font-size:11px;color:#7a6858;text-transform:uppercase;'
@@ -319,7 +319,7 @@ def render() -> None:
             lvl += ", found across NSE sectors"
         st.markdown(
             f'<div style="padding-top:26px;color:#5c4a3a">'
-            f'Anchor <b style="color:#d97706">{anchor}</b> · <b>{lob["label"]}</b> <span style="color:#9ca3af">({lvl} · NSE '
+            f'Anchor <b style="color:#a14a0b">{anchor}</b> · <b>{lob["label"]}</b> <span style="color:#636a75">({lvl} · NSE '
             f'{lob["macro_sector"] or "—"})</span> · {len(order)} names</div>',
             unsafe_allow_html=True)
 
@@ -355,7 +355,7 @@ def render() -> None:
         f'font-weight:600">{sl.fmt_price(card["last"])}</span>'
         f'<span style="font-size:16px;font-weight:600;color:{sl.tone(chg)}">'
         f'{sl.fmt_pct(chg)}{abs_txt} today</span>'
-        f'<span style="color:#9ca3af;font-size:12px">as of {card["asof"] or "—"}</span>'
+        f'<span style="color:#636a75;font-size:12px">as of {card["asof"] or "—"}</span>'
         f'</div>', unsafe_allow_html=True)
 
     _row([
@@ -416,7 +416,7 @@ def render() -> None:
         fig = go.Figure()
         if avg is not None:
             fig.add_trace(go.Scatter(x=avg.index, y=avg.values, name="Rest of lobby (avg)",
-                                     line=dict(color="#9ca3af", width=1.5, dash="dot")))
+                                     line=dict(color="#636a75", width=1.5, dash="dot")))
         fig.add_trace(go.Scatter(x=own.index, y=own.values, name=active,
                                  line=dict(color=sl.tone(card["ret_6m"]), width=2)))
         fig.add_hline(y=100, line=dict(color="#e5cfae", width=1))

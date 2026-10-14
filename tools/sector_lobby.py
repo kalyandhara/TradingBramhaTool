@@ -558,7 +558,7 @@ def relative_series(frames: dict[str, Any], sym: str, members: list[str],
 # ──────────────────────────────────────────────────────────────────────────────
 # Rendering helpers (HTML strings; the page decides where they go)
 # ──────────────────────────────────────────────────────────────────────────────
-GOOD, RISK, MUTED = "#16a34a", "#dc2626", "#9ca3af"
+GOOD, RISK, MUTED = "#166534", "#b91c1c", "#636a75"
 
 
 def fmt_pct(v: float | None, signed: bool = True) -> str:
@@ -665,9 +665,9 @@ def ribbon_html(cards: list[dict], active: str, *, pill_marker: str) -> str:
            background:#fffdf8; border:1px solid #f0e0cc; border-radius:12px;
            padding:10px 12px 6px; cursor:pointer; transition:transform .12s, box-shadow .12s; }}
   .card:hover {{ transform:translateY(-2px); box-shadow:0 4px 12px rgba(58,42,30,.10); }}
-  .card.active {{ border:2px solid #d97706; background:#fff8e1;
+  .card.active {{ border:2px solid #a14a0b; background:#fff8e1;
                   box-shadow:0 4px 14px rgba(217,119,6,.18); }}
-  .pos {{ position:absolute; top:8px; right:10px; font-size:10px; color:#9ca3af; }}
+  .pos {{ position:absolute; top:8px; right:10px; font-size:10px; color:#636a75; }}
   .sym {{ font-size:11px; letter-spacing:.04em; color:#7a6858; font-weight:600; }}
   .name {{ font-size:13px; color:#3a2a1e; font-weight:600; white-space:nowrap;
            overflow:hidden; text-overflow:ellipsis; margin:2px 0 4px; }}

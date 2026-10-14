@@ -163,7 +163,7 @@ def _share_card_html(title: str, subtitle: str, items: list[dict]) -> tuple[str,
                     f'font-weight:600;">{sym}</a>') if tv else f'<b>{sym}</b>'
             parts.append(("— " if label else "") + link)
         if score is not None and score != "":
-            parts.append(f'<span style="color:#16a34a;font-weight:600;">{score}</span>')
+            parts.append(f'<span style="color:#166534;font-weight:600;">{score}</span>')
         if meta:
             parts.append(f'<span style="color:#8a7a68;">· {meta}</span>')
         rows_html.append(
@@ -208,7 +208,7 @@ def _render_copy_card(card_html: str, plain_text: str, key: str) -> None:
                    padding:7px 14px;cursor:pointer;font-size:13px;font-weight:600;">
             📋 Copy card
           </button>
-          <span id="tbmsg-{key}" style="margin-left:10px;font-size:12px;color:#16a34a;"></span>
+          <span id="tbmsg-{key}" style="margin-left:10px;font-size:12px;color:#166534;"></span>
         </div>
         <script>
         function tbCopy_{key}() {{
@@ -216,7 +216,7 @@ def _render_copy_card(card_html: str, plain_text: str, key: str) -> None:
           var msg  = document.getElementById('tbmsg-{key}');
           var plain = {plain_js};
           var html = card.innerHTML;
-          function ok()  {{ msg.style.color='#16a34a';
+          function ok()  {{ msg.style.color='#166534';
                             msg.textContent='✓ Copied — paste into Telegram / email'; }}
           function bad() {{ msg.style.color='#b45309';
                             msg.textContent='⚠ Blocked — select the card and press Ctrl+C'; }}
@@ -288,14 +288,14 @@ def _render_copy_plain(text: str, key: str) -> None:
                    padding:7px 14px;cursor:pointer;font-size:13px;font-weight:600;">
             💬 Copy plain text
           </button>
-          <span id="tbplmsg-{key}" style="margin-left:10px;font-size:12px;color:#16a34a;"></span>
+          <span id="tbplmsg-{key}" style="margin-left:10px;font-size:12px;color:#166534;"></span>
         </div>
         <script>
         function tbPlain_{key}() {{
           var ta  = document.getElementById('tbpl-{key}');
           var msg = document.getElementById('tbplmsg-{key}');
           var txt = {txt_js};
-          function ok()  {{ msg.style.color='#16a34a';
+          function ok()  {{ msg.style.color='#166534';
                             msg.textContent='✓ Copied — paste into WhatsApp / Telegram'; }}
           function bad() {{ msg.style.color='#b45309';
                             msg.textContent='⚠ Blocked — tap the box and press Ctrl+C'; }}
@@ -4276,15 +4276,6 @@ _ov_cards = [
 ]
 st.markdown(rs.strip(_ov_cards, cols=5), unsafe_allow_html=True)
 
-# ── Index strip — the four headline indices, intraday ─────────────────────────
-# Home only. It is context for the verdict directly below it, and on the working
-# pages (Scanner Hub, Stock Analyzer, ...) four charts above the fold would push
-# the thing the reader actually navigated to off the first screen. The fetch,
-# the cards and the figures all live in index_strip.py — this file only says
-# WHERE the strip goes.
-if current_page == "Home":
-    istrip.render()
-
 # ── Regime + today's verdict — ONE card ───────────────────────────────────────
 _show_regime = current_page == "Home"
 # These were two stacked cards and between them they owned most of the first
@@ -4316,15 +4307,6 @@ if _senti_reading and _senti_reading.get("reading_date"):
             f"Sentiment reading is {_senti_age} day(s) old "
             f"(dated {_senti_reading['reading_date']})")
 verdict = mvd.build_verdict(_senti_reading, portfolio_summary, _stale_flags)
-
-# ── Breadth strip — the market's internals, under the index charts ───────────
-# Home only, same reasoning as the index strip. Placed here rather than next to
-# it because it needs `_senti_reading`, which owns both the Adv/Decl counts and
-# the sentiment score — reading them from the same object is what keeps this
-# strip and the verdict card below it from disagreeing about the same market.
-if current_page == "Home":
-    bstrip.render(_senti_reading)
-
 
 _vfg, _ = rs.tone_colors(verdict["tone"])
 
@@ -4489,12 +4471,24 @@ if _show_regime:
             db.set_setting("total_capital", str(new_cap))
             st.success("Saved — refresh metrics above.")
 
+# ── Index + breadth strips — the market context, AFTER the decision (B-162) ───
+# Home only: on working pages four charts above the fold would push the page the
+# reader navigated to off the first screen. They sat ABOVE the verdict until
+# 2026-10-13, which put the day's one decision two-thirds down the first screen.
+# Breadth reads `_senti_reading`, the same object the verdict used, so the two
+# cannot disagree. Everything else lives in index_strip.py / breadth_strip.py.
 if _show_regime:
+    istrip.render()
+    bstrip.render(_senti_reading)
     st.divider()
 
+# B-161: the ring prints the score IN this colour, so every step must read as
+# text (>= 4.5:1). The 600-level steps (#65a30d, #ca8a04, #ea580c) measured
+# ~2.9-3.6 on the cream card; the whole scale moved to its 800 level together
+# so the gradient stays even.
 _SIGNAL_COLORS = {
-    "Very Strong": "#16a34a", "Strong": "#65a30d", "Moderate": "#ca8a04",
-    "Watch": "#ea580c", "Weak": "#dc2626",
+    "Very Strong": "#166534", "Strong": "#3f6212", "Moderate": "#854d0e",
+    "Watch": "#9a3412", "Weak": "#b91c1c",
 }
 
 
@@ -4526,12 +4520,12 @@ def _rating_color(r: int | None) -> str:
     if r is None:
         return "#7a6858"
     if r >= 85:
-        return "#16a34a"   # green
+        return "#166534"   # green
     if r >= 70:
-        return "#d97706"   # amber
+        return "#a14a0b"   # amber
     if r >= 50:
         return "#6b7280"   # grey
-    return "#dc2626"       # red
+    return "#b91c1c"       # red
 
 
 def _rating_badge_html(card: dict) -> str:
@@ -4564,17 +4558,17 @@ def _scanner_stats_html(card: dict) -> str:
     parts = []
     if "rs_rank" in card:
         rs = card["rs_rank"]
-        parts.append(chip("RS", f"{rs:.0f}", "#16a34a" if rs >= 80 else "#5c4a3a"))
+        parts.append(chip("RS", f"{rs:.0f}", "#166534" if rs >= 80 else "#5c4a3a"))
     if "base_q" in card:
         bq = card["base_q"]
-        parts.append(chip("Base Q", f"{bq:.0f}", "#16a34a" if bq >= 65 else "#5c4a3a"))
+        parts.append(chip("Base Q", f"{bq:.0f}", "#166534" if bq >= 65 else "#5c4a3a"))
     if card.get("vol_q"):
         parts.append(chip("Vol Q", card["vol_q"]))
     if "from_pivot" in card:
         parts.append(chip("From pivot", f'{card["from_pivot"]:+.1f}%'))
     if "vol_x50d" in card:
         vx = card["vol_x50d"]
-        parts.append(chip("Vol ×50d", f"{vx:.1f}×", "#16a34a" if vx >= 1.5 else "#5c4a3a"))
+        parts.append(chip("Vol ×50d", f"{vx:.1f}×", "#166534" if vx >= 1.5 else "#5c4a3a"))
     stats = "".join(parts)
 
     risks = card.get("fail_risk") or []
@@ -4732,9 +4726,9 @@ def _card_trade_fundamentals_html(sym: str, card: dict) -> str:
         if risk > 0:
             t2 = t2 or round(entry + 2 * risk, 1)
             t3 = round(entry + 3 * risk, 1)
-            parts.append(_cell("T1", f"₹{t1:,.1f}", "#16a34a"))
-            parts.append(_cell("T2", f"₹{t2:,.1f}", "#16a34a"))
-            parts.append(_cell("T3", f"₹{t3:,.1f}", "#16a34a"))
+            parts.append(_cell("T1", f"₹{t1:,.1f}", "#166534"))
+            parts.append(_cell("T2", f"₹{t2:,.1f}", "#166534"))
+            parts.append(_cell("T3", f"₹{t3:,.1f}", "#166534"))
 
     # Fundamentals — from cached yfinance .info (disk cache, not network).
     try:
@@ -4744,34 +4738,34 @@ def _card_trade_fundamentals_html(sym: str, card: dict) -> str:
 
     pe = fund.get("pe")
     if pe is not None:
-        pe_color = "#b45309" if pe > 40 else ("#16a34a" if pe < 20 else "#5c4a3a")
+        pe_color = "#b45309" if pe > 40 else ("#166534" if pe < 20 else "#5c4a3a")
         parts.append(_cell("PE", f"{pe:.1f}×", pe_color))
 
     # PEG — <1 cheap-for-growth (green), >2 pricey (amber). 'calc' = derived from
     # PE/earnings-growth rather than the vendor's own ratio (marked with ~).
     peg = fund.get("peg")
     if peg is not None:
-        peg_color = "#16a34a" if peg < 1 else ("#b45309" if peg > 2 else "#5c4a3a")
+        peg_color = "#166534" if peg < 1 else ("#b45309" if peg > 2 else "#5c4a3a")
         peg_txt = f"{'~' if fund.get('peg_src') == 'calc' else ''}{peg:.2f}"
         parts.append(_cell("PEG", peg_txt, peg_color))
 
     eps = fund.get("eps")
     if eps is not None:
-        parts.append(_cell("EPS", f"₹{eps:,.2f}", "#16a34a" if eps > 0 else "#b45309"))
+        parts.append(_cell("EPS", f"₹{eps:,.2f}", "#166534" if eps > 0 else "#b45309"))
 
     ebitda_cr = fund.get("ebitda_cr")
     if ebitda_cr is not None:
         # ≥1 lakh-crore → abbreviate to "L Cr", else plain "₹N Cr".
         _eb = (f"₹{ebitda_cr / 1e5:,.2f}L Cr" if abs(ebitda_cr) >= 1e5
                else f"₹{ebitda_cr:,.0f} Cr")
-        parts.append(_cell("EBITDA", _eb, "#16a34a" if ebitda_cr > 0 else "#b45309"))
+        parts.append(_cell("EBITDA", _eb, "#166534" if ebitda_cr > 0 else "#b45309"))
 
     # Cash-flow margin (OCF ÷ revenue). Positive & fat = cash-generative (green);
     # negative = burning operating cash (amber).
     cfm = fund.get("cf_margin_pct")
     if cfm is not None:
         parts.append(_cell("CF%", f"{cfm:.1f}%",
-                           "#16a34a" if cfm > 0 else "#b45309"))
+                           "#166534" if cfm > 0 else "#b45309"))
 
     # Promoter pledge — not in yfinance. Read the screener.in disk cache (pure
     # local read, no network); populated by the Scanner Hub "Fetch pledge %"
@@ -4786,7 +4780,7 @@ def _card_trade_fundamentals_html(sym: str, card: dict) -> str:
             pledge = None
     if pledge is not None:
         parts.append(_cell("Pledge", f"{pledge:.1f}%",
-                           "#dc2626" if pledge > 5 else "#16a34a"))
+                           "#b91c1c" if pledge > 5 else "#166534"))
 
     if not parts:
         return ""
@@ -4818,7 +4812,7 @@ def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -
             f' style="display:inline-flex;align-items:center;justify-content:center;'
             f'width:{w};height:{w};border-radius:6px;text-decoration:none;'
             f'font-size:{sz};line-height:1;background:#f7efe3;'
-            f'color:#d97706;border:1px solid #f0e0cc;margin-left:4px;">'
+            f'color:#a14a0b;border:1px solid #f0e0cc;margin-left:4px;">'
             f'{glyph}</a>'
         )
 
@@ -4856,7 +4850,7 @@ def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -
         if r.startswith("⚠") else
         (f'<div style="display:flex;align-items:baseline;margin-bottom:4px;'
          f'font-size:12px;color:#5c4a3a;">'
-         f'<span style="color:#16a34a;font-weight:700;margin-right:5px;flex-shrink:0;">✓</span>'
+         f'<span style="color:#166534;font-weight:700;margin-right:5px;flex-shrink:0;">✓</span>'
          f'{r}</div>')
         for r in card.get("reasons", [])
     )
@@ -5626,9 +5620,9 @@ def _turnover_share_window(key_prefix: str = "tsh_page"):
 
     show = df[["sector", "members", "turnover_cr", "share_pct",
                "d_share_d", "d_share_w"]]
-    styled = show.style.background_gradient(
+    styled = _cols_mod().formatted(show.style.background_gradient(
         cmap="RdYlGn", subset=["d_share_d", "d_share_w"], vmin=-3.0, vmax=3.0
-    )  # numbers are formatted by columns.py, not here — one formatter, not two
+    ))  # numbers are formatted by columns.py, not here — one formatter, not two
     st.dataframe(
         styled, hide_index=True, width="stretch",
         column_config=_cols_mod().configure_df(show))
@@ -5748,7 +5742,7 @@ def _darvas_rows_table(df, key_prefix: str):
                 else f"color:{rs.TOKENS['risk']};font-weight:600" if v < 0
                 else "")
 
-    _show = out.style.map(_chg_color, subset=["chg_pct"])
+    _show = _cols.formatted(out.style.map(_chg_color, subset=["chg_pct"]))
     _sel = st.dataframe(_show, width="stretch", hide_index=True, column_config=cfg,
                         key=f"{key_prefix}_tbl", on_select="rerun",
                         selection_mode="multi-row")
@@ -6109,7 +6103,7 @@ if current_page == "Hidden Treasures":
                             f' style="display:inline-flex;align-items:center;justify-content:center;'
                             f'width:{w};height:{w};border-radius:6px;text-decoration:none;'
                             f'font-size:{sz};line-height:1;background:#f7efe3;'
-                            f'color:#d97706;border:1px solid #f0e0cc;margin-left:4px;">'
+                            f'color:#a14a0b;border:1px solid #f0e0cc;margin-left:4px;">'
                             f'{glyph}</a>')
                     _ht_icons = ""
                     _ht_ch = _chart_url(_sym)
@@ -6607,7 +6601,7 @@ def _render_institutional_volume(key_prefix: str) -> None:
                 else f"color:{t['risk']};font-weight:600" if v < 0
                 else "")
 
-    styled = out.style.map(_chg_color, subset=["chg_pct"])
+    styled = _cols.formatted(out.style.map(_chg_color, subset=["chg_pct"]))
     st.dataframe(styled, width="stretch", hide_index=True,
                  column_config=cfg, key=f"{key_prefix}_tbl")
 
@@ -6664,7 +6658,7 @@ def _render_cpr_vp(key_prefix: str) -> None:
         return (f"color:{t['good']};font-weight:600" if v > 0
                 else f"color:{t['risk']};font-weight:600" if v < 0 else "")
 
-    styled = out.style.map(_chg_color, subset=["Chg %"]).map(_bias_color, subset=["Bias"])
+    styled = _cols.formatted(out.style.map(_chg_color, subset=["Chg %"]).map(_bias_color, subset=["Bias"]))  # B-164
     st.dataframe(styled, width="stretch", hide_index=True, column_config=cfg,
                  key=f"{key_prefix}_tbl")
     st.caption(f"{len(rows)} of {_snap.get('scanned_n', '?')} names scanned · "
@@ -6811,24 +6805,6 @@ if current_page == "Home":
     _t = rs.TOKENS
     _n_pages = sum(len(v) for v in PAGE_GROUPS.values())
 
-    st.markdown(
-        f'<div style="background:linear-gradient(135deg,{_t["surface_warm"]} 0%,'
-        f'{_t["surface_alt"]} 55%,{_t["surface"]} 100%);'
-        f'border:1px solid {_t["border_strong"]};border-radius:16px;'
-        f'padding:30px 34px;margin:2px 0 20px;">'
-        f'<div class="tb-micro" style="color:{_t["accent"]};">TRADING BRAMHA</div>'
-        f'<div style="font-size:30px;font-weight:800;line-height:1.22;'
-        f'color:{_t["text"]};margin-top:8px;">Screening, research and risk —<br>'
-        f'<span style="color:{_t["accent"]};">in one place.</span></div>'
-        f'<div style="font-size:14px;color:{_t["text_body"]};margin-top:12px;'
-        f'max-width:620px;line-height:1.55;">'
-        f'A personal NSE swing-trading desk. Every number on it is computed from '
-        f'filed data or measured history — where something could not be measured, '
-        f'the page says so rather than guessing.</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
     # Call-to-action row, as in the reference layout. Real buttons rather than
     # styled anchors, because navigation here is session_state + rerun.
     _cta1, _cta2, _cta3, _cta4 = st.columns([1.15, 1, 1, 3])
@@ -6851,36 +6827,6 @@ if current_page == "Home":
         f'No sign-in required to browse. '
         f'<b>For research and educational purposes only — not investment advice.</b>'
         f'</div>', unsafe_allow_html=True)
-
-    # Three genuinely cheap facts. Nothing here fetches.
-    try:
-        _n_scanners = len(sc.SCANNERS)
-    except Exception:
-        _n_scanners = None
-    _senti = None
-    try:
-        _senti = cached_latest_sentiment()
-    except Exception:
-        _senti = None
-
-    _senti_val = f"{_senti['score']:.0f} · {_senti['band']}" if _senti else None
-    _senti_sub = f"as of {_senti['reading_date']}" if _senti else "never refreshed"
-    _senti_tone = "neutral"
-    if _senti and str(_senti.get("band")) == "NOT_CHECKED":
-        _senti_tone = "absent"
-
-    st.markdown(
-        rs.strip([
-            rs.stat_card("Pattern scanners",
-                         str(_n_scanners) if _n_scanners is not None else None,
-                         "backtest-measured where marked", tone="info"),
-            rs.stat_card("Pages", str(_n_pages),
-                          f"across {len(PAGE_GROUPS)} sidebar groups", tone="neutral"),
-            rs.stat_card("Last sentiment", _senti_val, _senti_sub, tone=_senti_tone),
-        ], cols=3),
-        unsafe_allow_html=True,
-    )
-    st.write("")
 
     # ── The action map — stored state only, so it costs nothing on load ──────
     render_action_map()
@@ -6997,6 +6943,39 @@ if current_page == "Home":
                        f"Watchlist page.")
 
     st.write("")
+
+    # ── About this desk — the hero, moved to the foot of Home (B-162) ─────────
+    # A landing-page hero is for a first visit; mid-page on a daily-use surface it
+    # pushed the scans a full screen down. "Last sentiment" was dropped from its
+    # fact row: the verdict card at the top already states that reading.
+    try:
+        _n_scanners = len(sc.SCANNERS)
+    except Exception:
+        _n_scanners = None
+    st.markdown(
+        f'<div style="background:linear-gradient(135deg,{_t["surface_warm"]} 0%,'
+        f'{_t["surface_alt"]} 55%,{_t["surface"]} 100%);'
+        f'border:1px solid {_t["border_strong"]};border-radius:16px;'
+        f'padding:22px 28px;margin:2px 0 14px;">'
+        f'<div class="tb-micro" style="color:{_t["accent"]};">TRADING BRAMHA</div>'
+        f'<div style="font-size:22px;font-weight:800;line-height:1.25;'
+        f'color:{_t["text"]};margin-top:6px;">Screening, research and risk — '
+        f'<span style="color:{_t["accent"]};">in one place.</span></div>'
+        f'<div style="font-size:14px;color:{_t["text_body"]};margin:10px 0 14px;'
+        f'max-width:620px;line-height:1.55;">'
+        f'A personal NSE swing-trading desk. Every number on it is computed from '
+        f'filed data or measured history — where something could not be measured, '
+        f'the page says so rather than guessing.</div>'
+        + rs.strip([
+            rs.stat_card("Pattern scanners",
+                         str(_n_scanners) if _n_scanners is not None else None,
+                         "backtest-measured where marked", tone="info"),
+            rs.stat_card("Pages", str(_n_pages),
+                         f"across {len(PAGE_GROUPS)} sidebar groups", tone="neutral"),
+        ], cols=2)
+        + '</div>',
+        unsafe_allow_html=True,
+    )
 
     st.markdown(
         f'<div style="border-top:1px solid {_t["border"]};margin-top:6px;padding-top:14px;'
@@ -8190,11 +8169,11 @@ if current_page == "Opportunity Hub":
                     txt = fmt.format(v)
                     if green_thr is not None and amber_thr is not None:
                         if lo_good:
-                            col = ("#16a34a" if v <= green_thr
-                                   else "#d97706" if v <= amber_thr else "#dc2626")
+                            col = ("#166534" if v <= green_thr
+                                   else "#a14a0b" if v <= amber_thr else "#b91c1c")
                         else:
-                            col = ("#16a34a" if v >= green_thr
-                                   else "#d97706" if v >= amber_thr else "#dc2626")
+                            col = ("#166534" if v >= green_thr
+                                   else "#a14a0b" if v >= amber_thr else "#b91c1c")
                     else:
                         col = "#5c4a3a"
                     return (f'<span style="display:inline-block;background:#f7efe3;'
@@ -10144,7 +10123,7 @@ if current_page == "Predictive Analysis":
                             f'padding:2px 8px;font-size:11px;margin:2px 3px;'
                             f'display:inline-block;font-weight:600;">{p}</span>'
                             for p in _pa_patterns
-                        ) if _pa_patterns else '<span style="color:#9ca3af;font-size:11px;">No patterns detected in latest scan</span>'
+                        ) if _pa_patterns else '<span style="color:#636a75;font-size:11px;">No patterns detected in latest scan</span>'
                         st.markdown(rs.card(
                             f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
                             f'<div><span style="font-size:22px;font-weight:700;">₹{_pa_price:,.2f}</span>'
@@ -10185,10 +10164,10 @@ if current_page == "Predictive Analysis":
                             _smf_obv_pts.append(f"{x:.1f},{y:.1f}")
                         _smf_obv_line = " ".join(_smf_obv_pts)
                         _smf_obv_trend = "rising" if float(_smf_obv_tail[-1]) > float(_smf_obv_tail[0]) else "falling"
-                        _smf_obv_color = "#16a34a" if _smf_obv_trend == "rising" else "#dc2626"
+                        _smf_obv_color = "#166534" if _smf_obv_trend == "rising" else "#b91c1c"
                         _smf_cmf = _mf.cmf(pa_df, n=21)
                         _smf_cmf_str = f"{_smf_cmf:+.3f}" if _smf_cmf is not None else "n/a"
-                        _smf_cmf_color = "#16a34a" if (_smf_cmf or 0) > 0 else "#dc2626" if (_smf_cmf or 0) < 0 else "#6b7280"
+                        _smf_cmf_color = "#166534" if (_smf_cmf or 0) > 0 else "#b91c1c" if (_smf_cmf or 0) < 0 else "#6b7280"
                         st.markdown(rs.card(
                             f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
                             f'<span style="font-weight:700;color:{_smf_vc};">{_smf_verdict}</span>'
@@ -10205,7 +10184,7 @@ if current_page == "Predictive Analysis":
                             f'<div style="text-align:center;"><b style="font-size:11px;color:#374151;">CMF (21)</b>'
                             f'<div style="font-size:20px;font-weight:700;color:{_smf_cmf_color};">'
                             f'{_smf_cmf_str}</div></div></div>'
-                            f'<div style="margin-top:8px;font-size:10px;color:#9ca3af;">'
+                            f'<div style="margin-top:8px;font-size:10px;color:#636a75;">'
                             f'Session flow is a bar-level heuristic (close vs open + above-average volume) '
                             f'— not institutional delivery data, not measured against forward returns.</div>',
                             title="Smart Money Flow",
@@ -12795,11 +12774,11 @@ _L4_NEG = {"confirmed_distribution", "slow_distribution", "fast_distribution",
 
 def _l4_color(agreement: str) -> str:
     if agreement in _L4_POS:
-        return "#16a34a"
+        return "#166534"
     if agreement in _L4_NEG:
-        return "#dc2626"
+        return "#b91c1c"
     if agreement == "bought_now_selling":
-        return "#d97706"                     # amber — the warning divergence
+        return "#a14a0b"                     # amber — the warning divergence
     return "#6b7280"                         # neutral / no data
 
 
@@ -12808,7 +12787,7 @@ def _l4_signed_bar(label: str, v: float) -> str:
     v = max(-1.0, min(1.0, float(v)))
     half = abs(v) * 50.0
     left = 50.0 if v >= 0 else 50.0 - half
-    color = "#16a34a" if v >= 0 else "#dc2626"
+    color = "#166534" if v >= 0 else "#b91c1c"
     return (
         '<div style="display:flex;align-items:center;gap:8px;font-size:11px;margin:3px 0;">'
         f'<span style="width:112px;color:#7a6858;">{label}</span>'
@@ -12865,7 +12844,7 @@ def _render_smart_money_result(res: dict, include_fast: bool) -> None:
     veto = res["veto"]
     if veto["status"] == "pledged":
         st.markdown(
-            f"<span style='color:#dc2626;font-weight:600;'>⚠ Promoter pledge "
+            f"<span style='color:#b91c1c;font-weight:600;'>⚠ Promoter pledge "
             f"{veto['pledge_pct']:.1f}% — governance risk</span>",
             unsafe_allow_html=True,
         )

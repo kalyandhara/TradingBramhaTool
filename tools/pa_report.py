@@ -49,12 +49,12 @@ PDF_HOURLY_SESSIONS = 60
 def stage_label(mv: int) -> tuple[str, str]:
     """Minervini score (0-8) -> (stage label, colour)."""
     if mv >= 6:
-        return "Stage-2 ideal band", "#16a34a"
+        return "Stage-2 ideal band", "#166534"
     if mv >= 4:
-        return "Stage-2 emerging", "#65a30d"
+        return "Stage-2 emerging", "#3f6212"
     if mv >= 2:
-        return "Stage-1 base", "#d97706"
-    return "Stage-3/4 caution", "#dc2626"
+        return "Stage-1 base", "#a14a0b"
+    return "Stage-3/4 caution", "#b91c1c"
 
 
 def smart_money(df, n: int = 60) -> dict[str, Any]:
@@ -69,19 +69,19 @@ def smart_money(df, n: int = 60) -> dict[str, Any]:
     for c, o, v in zip(tail["close"].values, tail["open"].values, tail["volume"].values):
         c, o, v = float(c), float(o), float(v)
         if c > o and v > avg_vol:
-            bars.append("#16a34a"); acc += 1
+            bars.append("#166534"); acc += 1
         elif c < o and v > avg_vol:
-            bars.append("#dc2626"); dist += 1
+            bars.append("#b91c1c"); dist += 1
         else:
-            bars.append("#9ca3af")
+            bars.append("#636a75")
     if acc > dist * 1.5:
-        verdict, color = "Strong accumulation", "#16a34a"
+        verdict, color = "Strong accumulation", "#166534"
     elif acc > dist:
-        verdict, color = "Mild accumulation", "#65a30d"
+        verdict, color = "Mild accumulation", "#3f6212"
     elif dist > acc * 1.5:
-        verdict, color = "Strong distribution", "#dc2626"
+        verdict, color = "Strong distribution", "#b91c1c"
     elif dist > acc:
-        verdict, color = "Mild distribution", "#ea580c"
+        verdict, color = "Mild distribution", "#9a3412"
     else:
         verdict, color = "Neutral", "#6b7280"
     return {"bars": bars, "acc": acc, "dist": dist, "n": len(bars),
