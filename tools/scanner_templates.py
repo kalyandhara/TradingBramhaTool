@@ -9850,9 +9850,15 @@ SCANNERS: dict[str, dict] = {
             "pivot is the alert level). His real entry is the intraday "
             "opening-range high, which this desk cannot see, so the daily card "
             "is a later, wider trade. No target — he trails with the 10/20 MA. "
-            "Stand down on longs when the Home regime line shows NIFTY's SMA10 "
-            "below its SMA20. UNMEASURED — an attention list until a "
-            "pre-registered forward-return study says otherwise."
+            "His market filter (NIFTY SMA10 above SMA20) is shown on the Home "
+            "regime line. MEASURED NULL (qullamaggie_edge_study.py, B-147, "
+            "2026-10-14, 459 names, 19y, 3,672 breakouts on 400 symbols): "
+            "+0.67 points over the same stock's ordinary bar @20d, p=0.031 — "
+            "short of the pre-registered 0.0125 bar (+1.76 @60d, p=0.005, not "
+            "the decisive horizon). With his trail, 19% reached +3R before the "
+            "low-of-day stop, 33% won, avg win 2.66x avg loss, +0.18R a trade. "
+            "His filter did not help on NSE: signals with it OFF did no worse. "
+            "An attention list, not a measured edge."
         ),
         "category": "Momentum",
     },
@@ -9867,7 +9873,11 @@ SCANNERS: dict[str, dict] = {
             "gap-day low since (that low is the stop). Each hit is checked "
             "against the NSE result calendar and tagged Earnings EP or "
             "Non-earnings gap — tag only, no score bonus. Overlaps PEAD Drift by "
-            "construction (same Event family, one vote). UNMEASURED."
+            "construction (same Event family, one vote). MEASURED NULL "
+            "(qullamaggie_edge_study.py, B-147, 2026-10-14): 320 gap-day signals "
+            "on 171 symbols, +0.47 points vs the stock's ordinary bar @20d, "
+            "p=0.68. Earnings EPs since 2021 looked stronger than non-earnings "
+            "gaps (n=21 vs 33) — too few to call; descriptive only."
         ),
         "category": "Momentum",
     },

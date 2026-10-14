@@ -515,6 +515,32 @@ STUDIES: tuple[dict, ...] = (
         "headline": "new-moon highs/lows as S/R vs an adjacent day; no result located",
         "source": "analyses/Open-Backlog#B-30",
     },
+    {
+        "item": "B-147", "tool": "qullamaggie_edge_study.py", "date": "2026-10-14",
+        "source": "analyses/Qullamaggie-Edge-Study",
+        "subjects": ("Qullamaggie Breakout", "Episodic Pivot"),
+        "verdict": "NULL",
+        "headline": ("pre-registered, 459 names x 19y: Breakout +0.67pp @20d vs the "
+                     "stock's ordinary bar, p=0.031 (bar 0.0125) -- NULL; +1.76pp @60d "
+                     "p=0.005 not decisive. EP +0.47pp p=0.68 -- NULL. Right tail: 19% "
+                     "reach +3R before the low-of-day stop, win/loss 2.66, +0.18R a "
+                     "trade; the pre-registered R baseline was void (tiny R on ordinary "
+                     "bars), post-hoc % plan +0.73% vs +0.12% (CI +0.29..+0.99). His "
+                     "NIFTY SMA10>SMA20 filter did not help."),
+    },
+    {
+        "item": "B-147b", "tool": "qullamaggie_breakout_retest.py", "date": "2026-10-14",
+        "source": "analyses/Qullamaggie-Edge-Study",
+        "subjects": ("Qullamaggie Breakout",),
+        "verdict": "NULL",
+        "headline": ("pre-registered confirmatory re-test of B-147's two Breakout leads on "
+                     "424 names B-147 never saw (mostly small caps, 2021-26): 874 signals / "
+                     "290 symbols. Decisive % plan vs the same plan on an ordinary bar with "
+                     "a stop matched at 1.32x ATR14: +0.09pp a trade, p=0.85 (bar 0.025), "
+                     "CI -0.56..+1.00 -- NULL. 60d forward +0.47pp p=0.68 -- the 60d lead "
+                     "does not carry over. In-sample the matched-stop gap is +0.51pp "
+                     "(p=0.028) but only +0.23pp vs a trend-matched bar."),
+    },
 )
 
 

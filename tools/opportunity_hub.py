@@ -476,6 +476,13 @@ MEASURED_WEAK_SCANNERS: tuple[str, ...] = (
     # p=0.0066) and its D-0.5% stop gives it back (68% stopped) -- B-132.
     "Harmonic Reversal (XABCD)",
     "Order Block Retest",
+    # B-147, 2026-10-14 (qullamaggie_edge_study.py, pre-registered, 459 names x
+    # 19y): both NULL at the decisive 20d horizon -- Breakout +0.67pp p=0.031
+    # against a 0.0125 bar, EP +0.47pp p=0.68. Measured and not shown to beat
+    # the stock's own ordinary bar, which is what this tier means: 0.50 -> 0.25,
+    # the same move VCP made on a positive-but-unproven result.
+    "Qullamaggie Breakout",
+    "Episodic Pivot",
     "RSI 60-40 Setup",
     "Structural Breakout",
     "VCP Coiling",

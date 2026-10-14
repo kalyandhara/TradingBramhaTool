@@ -284,8 +284,9 @@ def classify_regime(nifty_df) -> dict[str, Any]:
     # Qullamaggie's market filter, reported beside the label rather than folded
     # into it: NIFTY's SMA10 above its SMA20 = momentum longs (breakouts, EPs)
     # allowed; below = reduce or stand aside. A short-horizon switch — it flips
-    # weeks before the 50-SMA label does, which is the point of it. Unmeasured
-    # on NSE; his rule, not this desk's finding.
+    # weeks before the 50-SMA label does, which is the point of it. His rule,
+    # not this desk's finding: B-147 (2026-10-14) found his breakouts and EPs
+    # did NO WORSE with it OFF on NSE (descriptive split, not a test).
     sma10 = float(close.rolling(10).mean().iloc[-1])
     sma20 = float(close.rolling(20).mean().iloc[-1])
     out.update({"sma10": round(sma10, 2), "sma20": round(sma20, 2),

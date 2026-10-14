@@ -137,8 +137,11 @@ def test_registered_and_capped_inside_existing_families():
     assert sc.SCANNERS["Qullamaggie Breakout"]["fn"] is sc.scan_qullamaggie_breakout
     assert sc.SCANNERS["Episodic Pivot"]["fn"] is sc.scan_episodic_pivot
     for name in ("Qullamaggie Breakout", "Episodic Pivot"):
-        assert "UNMEASURED" in sc.SCANNERS[name]["description"]
-        assert oh.scanner_tier(name) == "unmeasured"
+        # B-147 measured both (NULL at 20d), so the description cites it and
+        # the tier is "weak" — measured, not shown to beat an ordinary bar.
+        assert "MEASURED NULL" in sc.SCANNERS[name]["description"]
+        assert "B-147" in sc.SCANNERS[name]["description"]
+        assert oh.scanner_tier(name) == "weak"
     # One fact, one vote: a base breakout votes with the base family, an EP
     # with PEAD — never as an extra family of its own.
     assert oh.scanner_family("Qullamaggie Breakout") == "Base/Contraction"
