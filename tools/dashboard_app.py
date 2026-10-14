@@ -7713,7 +7713,7 @@ if current_page == "Watchlist":
                 "ema_cross_age": (None if _age is None else
                                   (_age if m["ema_cross_dir"] == "up" else -_age)),
                 "pivot_d": m["pivot_d"],
-                "pivot_w": m["pivot_w"],
+                "pivot_w": m["pivot_w"], "pivot_agree": m.get("pivot_agree"),
                 "from_52w_high_pct": m["from_52w_high_pct"],
                 "bo_gain_pct": m["bo_gain_pct"],
                 "bo_date": m["bo_date"],
@@ -7771,7 +7771,7 @@ if current_page == "Watchlist":
                 _wl_df[_c] = pd.to_numeric(_wl_df[_c], errors="coerce")
         if not _wl_walk and "rs_walk" in _wl_df.columns:
             _wl_df = _wl_df.drop(columns=["rs_walk"])
-        for _c in ("pivot_d", "pivot_w", "bo_date", "rs_walk", "minervini",
+        for _c in ("pivot_d", "pivot_w", "pivot_agree", "bo_date", "rs_walk", "minervini",
                    "technofunda", "ema_stack", "cap_bucket", "sector",
                    "svp_hist_8w"):
             if _c in _wl_df.columns:

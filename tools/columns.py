@@ -227,6 +227,15 @@ COLUMNS: dict[str, ColSpec] = {
     "pivot_w": ColSpec(
         "W-Pivot", "The same band, against WEEKLY pivots.",
         "text", width="small"),
+    "pivot_agree": ColSpec(
+        "Pivots above",
+        "Of the daily, weekly, monthly, quarterly and yearly floor pivots (each "
+        "from its last COMPLETED period), how many the close sits above. "
+        "5/5 = above every one; 0/5 = below every one. A young listing shows a "
+        "smaller denominator (no prior year), not a guess. One reading on "
+        "purpose: daily and weekly disagree for ~38% of names (B-97), so five "
+        "separate columns would contradict each other.",
+        "text", width="small"),
     "bo_gain_pct": ColSpec(
         "BO gain%",
         "Gain since the last close above its prior 20-bar high. Can be "
