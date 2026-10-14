@@ -25,6 +25,12 @@
   }
 </script>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<!-- Plain-words catalogue for the indicator panel (B-149): short / desc / level /
+     goals / added / concept per INDICATOR_DEFS key. DRAFT until the owner reviews. -->
+<script src="/indicator_catalogue.js"></script>
+<!-- Card-style Indicator Browser + Favorites/Recent (B-150/B-152) — one overlay,
+     acts on the pane that opened it through that pane's classic checkboxes. -->
+<script src="/indicator_browser.js"></script>
 <!-- Elliott Wave detection plug-in — pure computation module, see elliott_wave.js -->
 <script src="/elliott_wave.js"></script>
 <!-- Volume Profile (POC/Value Area/HVN/LVN) plug-in — pure computation module, see volume_profile.js -->
@@ -473,9 +479,16 @@ html, body {
 .ind-search-wrap {
   position: sticky; top: 0; z-index: 3; background: var(--bg-dropdown);
   padding: 0 10px 6px; margin-bottom: 2px; border-bottom: 1px solid var(--border-soft);
+  display: flex; gap: 6px;
 }
+.ind-cardview {
+  flex-shrink: 0; min-height: 24px; box-sizing: border-box; padding: 0 10px;
+  background: var(--bg-input); border: 1px solid var(--border); border-radius: 5px;
+  color: var(--text-secondary); font-size: 11px; font-weight: 600; cursor: pointer;
+}
+.ind-cardview:hover { border-color: var(--accent); color: var(--accent); }
 .ind-search {
-  width: 100%; box-sizing: border-box; padding: 5px 8px; font-size: 12px;
+  flex: 1; min-width: 0; box-sizing: border-box; padding: 5px 8px; font-size: 12px;
   background: var(--bg-pane); color: var(--text-chart);
   border: 1px solid var(--border-soft); border-radius: 5px; outline: none;
 }
@@ -483,6 +496,191 @@ html, body {
 .ind-search:focus { border-color: var(--accent); }
 .ind-group + .ind-group { border-top: 1px solid var(--border-soft); margin-top: 4px; }
 .ind-empty { padding: 12px; font-size: 11px; color: var(--text-secondary); text-align: center; }
+
+/* ── Indicator Browser (B-150 / B-152) — see indicator_browser.js ─────────── */
+/* One centred overlay for the page. It dims the chart, so the reader knows the
+   chart is not taking clicks; Esc / ✕ / the backdrop close it. Controls follow
+   B-163 (24px targets, 11px+ labels). */
+html.ib-lock, html.ib-lock body { overflow: hidden; }
+.ib-overlay { display: none; position: fixed; inset: 0; z-index: 200; }
+.ib-overlay.open { display: block; }
+.ib-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+.ib-modal {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(1080px, calc(100vw - 32px)); height: min(680px, calc(100vh - 32px));
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg-dropdown); color: var(--text-chart);
+  border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 18px 50px rgba(0,0,0,.45);
+}
+.ib-head {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.ib-title { font-size: 14px; font-weight: 700; color: var(--text-primary); white-space: nowrap; }
+.ib-target { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+.ib-search {
+  flex: 1; min-width: 0; height: 30px; box-sizing: border-box; padding: 0 10px; font-size: 13px;
+  background: var(--bg-pane); color: var(--text-chart);
+  border: 1px solid var(--border-soft); border-radius: 6px; outline: none;
+}
+.ib-search:focus { border-color: var(--accent); }
+.ib-close {
+  width: 30px; height: 30px; flex-shrink: 0; border-radius: 6px; cursor: pointer;
+  background: transparent; border: 1px solid transparent; color: var(--text-secondary); font-size: 14px;
+}
+.ib-close:hover { border-color: var(--border); color: var(--text-primary); }
+.ib-body { position: relative; flex: 1; min-height: 0; display: flex; }
+.ib-rail {
+  flex: 0 0 176px; overflow-y: auto; padding: 8px 6px;
+  border-right: 1px solid var(--border-soft);
+}
+.ib-rail-head {
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-secondary); padding: 8px 8px 4px;
+}
+.ib-fam {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 28px;
+  padding: 0 8px; border: 0; border-radius: 5px; background: transparent;
+  color: var(--text-secondary); font-size: 12px; text-align: left; cursor: pointer;
+}
+.ib-fam:hover { background: var(--bg-hover); color: var(--text-chart); }
+.ib-fam.active { background: var(--bg-hover); color: var(--text-primary); font-weight: 600; }
+.ib-fam-name { flex: 1; min-width: 0; }
+.ib-fam-n { font-size: 11px; font-variant-numeric: tabular-nums; opacity: .8; }
+.ib-grid { flex: 1; min-width: 0; overflow-y: auto; padding: 12px; }
+.ib-blurb { font-size: 12px; color: var(--text-secondary); margin: 0 0 10px; }
+/* B-156 goal chips — the beginner's way in; families stay the expert's. */
+.ib-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
+.ib-chips-q { font-size: 11px; font-weight: 700; color: var(--text-secondary); margin-right: 2px; }
+.ib-chip {
+  min-height: 26px; padding: 0 10px; border-radius: 13px; cursor: pointer; font-size: 11.5px;
+  background: transparent; border: 1px solid var(--border-soft); color: var(--text-chart);
+}
+.ib-chip:hover { border-color: var(--border); }
+.ib-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* B-153 Discover rows */
+.ib-row-head {
+  display: flex; align-items: baseline; gap: 8px; margin: 14px 0 8px;
+  font-size: 13px; font-weight: 700; color: var(--text-primary);
+}
+.ib-row-head:first-of-type { margin-top: 0; }
+.ib-row-head span { font-size: 11px; font-weight: 500; color: var(--text-secondary); }
+.ib-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; }
+.ib-card {
+  position: relative; display: flex; flex-direction: column; gap: 4px;
+  padding: 8px; border-radius: 8px; cursor: pointer; outline: none;
+  background: var(--bg-pane); border: 1px solid var(--border-soft);
+}
+.ib-card:hover { border-color: var(--border); }
+.ib-card:focus-visible, .ib-card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.ib-card.on { background: var(--bg-hover); }
+.ib-card.disabled { opacity: .5; }
+/* Stand-in for the B-151 preview picture: the indicator's own colour, so the
+   card already matches the line it draws. */
+.ib-pic {
+  aspect-ratio: 16 / 9; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--sw) 38%, transparent), color-mix(in srgb, var(--sw) 8%, transparent));
+  border-bottom: 2px solid var(--sw);
+}
+.ib-pic span { font-size: 20px; font-weight: 700; color: var(--text-primary); opacity: .55; }
+.ib-pic { position: relative; overflow: hidden; }
+.ib-pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ib-pic.big span { font-size: 34px; }
+.ib-star {
+  position: absolute; top: 10px; right: 10px; width: 26px; height: 26px; border-radius: 13px;
+  border: 0; cursor: pointer; font-size: 15px; line-height: 1;
+  background: rgba(0,0,0,.35); color: #fff;
+}
+.ib-star.on { color: #ffd60a; }
+.ib-card-name { font-size: 12.5px; font-weight: 600; color: var(--text-primary); line-height: 1.3; }
+.ib-card-meta { font-size: 11px; color: var(--text-secondary); }
+.ib-badge {
+  align-self: flex-start; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9px;
+  background: var(--accent); color: #fff;
+}
+.ib-badge.muted { background: var(--bg-input-alt); color: var(--text-secondary); }
+.ib-empty, .ib-detail-empty { padding: 24px 12px; font-size: 12px; color: var(--text-secondary); text-align: center; }
+.ib-detail {
+  flex: 0 0 300px; overflow-y: auto; padding: 12px 14px;
+  border-left: 1px solid var(--border-soft);
+}
+.ib-back { display: none; }
+.ib-d-meta { font-size: 11px; color: var(--text-secondary); margin-top: 10px; }
+.ib-d-name { font-size: 16px; color: var(--text-primary); margin: 4px 0 8px; }
+.ib-d-short { font-size: 13px; font-weight: 600; color: var(--text-chart); margin-bottom: 8px; line-height: 1.4; }
+.ib-d-desc { font-size: 12.5px; line-height: 1.55; color: var(--text-chart); margin-bottom: 8px; }
+.ib-draft {
+  display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 9px;
+  margin-bottom: 10px; color: #d29922; background: rgba(210,153,34,.14); border: 1px solid rgba(210,153,34,.35);
+}
+/* B-154 evidence line. The label carries the meaning in words; the left rule's
+   colour only repeats it, so nothing depends on telling red from green. */
+.ib-evidence {
+  margin: 4px 0 10px; padding: 8px 10px; border-radius: 6px; font-size: 12px; line-height: 1.45;
+  background: var(--bg-pane); border: 1px solid var(--border-soft); border-left: 3px solid var(--text-secondary);
+}
+.ib-evidence.pos { border-left-color: var(--up); }
+.ib-evidence.neg { border-left-color: var(--down); }
+.ib-evidence.mix { border-left-color: #d29922; }
+.ib-ev-head { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-secondary); }
+.ib-ev-label { color: var(--text-primary); }
+.ib-ev-line { margin-top: 4px; color: var(--text-chart); }
+.ib-ev-cite { color: var(--text-secondary); font-size: 11px; }
+.ib-d-row { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; line-height: 1.45; }
+.ib-d-row b { color: var(--text-chart); font-weight: 600; margin-right: 4px; }
+.ib-d-row.warn { color: #d29922; }
+.ib-d-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.ib-act {
+  min-height: 30px; padding: 0 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;
+  background: var(--bg-input); border: 1px solid var(--border); color: var(--text-chart);
+}
+.ib-act:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.ib-act.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ib-act.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.1); }
+.ib-act:disabled { opacity: .45; cursor: not-allowed; }
+a.ib-act { display: inline-flex; align-items: center; text-decoration: none; }
+.ib-foot {
+  display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+  border-top: 1px solid var(--border-soft); font-size: 11px; color: var(--text-secondary);
+}
+.ib-keys kbd {
+  font-family: var(--font-mono); font-size: 11px; padding: 0 4px; border-radius: 3px;
+  border: 1px solid var(--border); background: var(--bg-input);
+}
+.ib-count { margin-left: auto; }
+.ib-classic {
+  min-height: 24px; padding: 0 10px; border-radius: 5px; cursor: pointer; font-size: 11px;
+  background: transparent; border: 1px solid var(--border-soft); color: var(--text-secondary);
+}
+.ib-classic:hover { border-color: var(--border); color: var(--text-primary); }
+/* Phones: a full-screen sheet; the detail slides up over the grid. */
+@media (max-width: 760px) {
+  .ib-modal { left: 0; top: 0; transform: none; width: 100%; height: 100%; border-radius: 0; }
+  .ib-head { flex-wrap: wrap; row-gap: 8px; }
+  .ib-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .ib-search { order: 3; flex-basis: 100%; height: 36px; font-size: 14px; }
+  .ib-body { flex-direction: column; }
+  .ib-rail {
+    flex: 0 0 auto; display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
+    border-right: 0; border-bottom: 1px solid var(--border-soft); padding: 6px 8px;
+  }
+  .ib-rail-head { display: none; }
+  .ib-fam { width: auto; flex-shrink: 0; min-height: 32px; border: 1px solid var(--border-soft); border-radius: 16px; padding: 0 12px; }
+  .ib-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ib-detail {
+    position: absolute; left: 0; right: 0; bottom: 0; max-height: 78%; z-index: 2;
+    background: var(--bg-dropdown); border-left: 0; border-top: 1px solid var(--border);
+    border-radius: 14px 14px 0 0; box-shadow: 0 -10px 30px rgba(0,0,0,.4);
+    transform: translateY(100%); transition: transform .2s ease-out;
+  }
+  .ib-overlay.has-sel .ib-detail { transform: none; }
+  .ib-back {
+    display: inline-flex; align-items: center; min-height: 32px; padding: 0 10px; margin-bottom: 4px;
+    border: 1px solid var(--border-soft); border-radius: 6px; background: transparent;
+    color: var(--text-secondary); font-size: 13px; cursor: pointer;
+  }
+  .ib-keys { display: none; }
+}
 
 /* ── Ticker bar ───────────────────────────────────────────────────────────── */
 .ticker-wrap {
@@ -1699,8 +1897,12 @@ const INDICATOR_GROUPS = [
   'Moving Averages', 'Trend & Bands', 'Oscillators', 'Volume',
   'Price Patterns', 'Smart Money & Structure', 'Levels & Projection', 'Calendar',
 ];
-// One-line orientation per family, shown under the list header. The panel now
-// carries 44 entries across 8 families; without this the rail is just nouns.
+// B-149: fold the plain-words catalogue (indicator_catalogue.js) into each def,
+// so the panel reads d.short / d.desc / d.level / d.goals / d.added / d.concept.
+// Nothing renders these yet — the card layout is B-150.
+INDICATOR_DEFS.forEach(d => Object.assign(d, (window.INDICATOR_INFO || {})[d.key] || {}));
+// One-line orientation per family, shown under the list header. The panel
+// carries dozens of entries across 8 families; without this the rail is just nouns.
 const GROUP_BLURB = {
   'Moving Averages':         'Direction and dynamic support. Draw on price.',
   'Trend & Bands':           'Volatility envelopes and trailing-stop trend flips.',
@@ -1715,7 +1917,7 @@ const GROUP_BLURB = {
 function renderIndicatorPanel() {
   // TradingView-style two-column browser: a family rail on the left, the
   // matching list on the right. The rail is what makes the families legible —
-  // 44 entries in one scrolling column read as a wall regardless of headings.
+  // Dozens of entries in one scrolling column read as a wall regardless of headings.
   const counts = {};
   INDICATOR_GROUPS.forEach(g => { counts[g] = INDICATOR_DEFS.filter(d => d.group === g).length; });
 
@@ -1757,6 +1959,7 @@ function renderIndicatorPanel() {
 
   return '<div class="ind-search-wrap">'
        + `<input type="text" class="ind-search" placeholder="Search all ${INDICATOR_DEFS.length} indicators…" spellcheck="false" autocomplete="off">`
+       + '<button type="button" class="ind-cardview" title="Open the card browser with descriptions (B-150)">Card view</button>'
        + '</div>'
        + '<div class="ind-body">'
        +   `<div class="ind-rail">${rail}</div>`
@@ -3444,6 +3647,14 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
   // ── Indicators dropdown ──────────────────────────────────────────────────────
   indBtn.addEventListener('click', e => {
     e.stopPropagation();
+    // B-150: the card browser is the default; the classic list stays one click
+    // away (its "Card view" button, or the browser's "Classic list") for a release.
+    const IB = window.IndicatorBrowser;
+    if (IB && !IB.classicPreferred() && !indPanel.classList.contains('open')) {
+      closeAllIndicatorPanels();
+      IB.open(pane);
+      return;
+    }
     const willOpen = !indPanel.classList.contains('open');
     closeAllIndicatorPanels();
     if (willOpen) {
@@ -3580,6 +3791,18 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
     });
   }
   refreshActiveCount();
+
+  // B-150: the classic list's "Card view" button returns to the card browser
+  // and makes it the default again.
+  const indCardView = indPanel.querySelector('.ind-cardview');
+  if (indCardView) indCardView.addEventListener('click', e => {
+    e.stopPropagation();
+    const IB = window.IndicatorBrowser;
+    if (!IB) return;
+    IB.useCards();
+    closeAllIndicatorPanels();
+    IB.open(pane);
+  });
 
   // Drawing tools: wire the toolbar/canvas, then restore this symbol's markup.
   try { wireDrawingTools(pane); loadDrawings(pane); } catch (e) { console.warn('drawing tools:', e); }
@@ -4302,6 +4525,10 @@ function applyIndicators(pane) {
   const _obvDivOn = pane.indicators.has('obvdiv');
   if (_obvDivOn && !pane._obvdivWasOn && !pane.indicators.has('obv')) {
     pane.indicators.add('obv');
+    // Tick its box too, as RSI's is below — an unticked OBV that is on cannot be
+    // turned off from the list and leaks into anything that reads the boxes.
+    const obvChk = pane.el.querySelector('.ind-panel .ind-chk[data-key="obv"]');
+    if (obvChk) obvChk.checked = true;
   }
   pane._obvdivWasOn = _obvDivOn;
 

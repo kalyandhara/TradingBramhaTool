@@ -393,6 +393,84 @@ def pwa_icon_maskable():
     return send_from_directory(HERE, "icon-maskable-512.png", mimetype="image/png")
 
 
+@app.route("/api/indicator_evidence")
+def indicator_evidence_api():
+    """B-154: key → {verdict, label, line, items} for every INDICATOR_DEFS key, from
+    indicator_evidence (which reads named_studies). Small and static per process."""
+    import indicator_evidence as ie
+    html = (HERE / "chart_dashboard.html").read_text(encoding="utf-8", errors="replace")
+    body = html.split("const INDICATOR_DEFS = [", 1)[-1].split("\n];", 1)[0]
+    keys = re.findall(r"key:'([a-z0-9_]+)'", body)
+    return jsonify(ie.evidence(keys))
+
+
+#: B-157 "Learn more": the indicator's wiki concept page, rendered read-only. The
+#: key → page map is the catalogue's own `concept` field, so only the ~44 pages
+#: an indicator names are reachable — not the wiki, not a path the caller picks.
+WIKI_DIR = HERE.parent / "trading-wiki" / "wiki"
+_LEARN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><style>
+:root{{--bg:#fffdf8;--fg:#2b2118;--mut:#6b5b4b;--line:#e5cfae;--acc:#a14a0b}}
+@media (prefers-color-scheme:dark){{:root{{--bg:#131722;--fg:#e6edf3;--mut:#8b949e;--line:#30363d;--acc:#58a6ff}}}}
+body{{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif}}
+main{{max-width:760px;margin:0 auto;padding:24px 16px 48px}} a{{color:var(--acc)}}
+.note{{font-size:12px;color:var(--mut);border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:16px}}
+table{{border-collapse:collapse;display:block;overflow-x:auto}} th,td{{border:1px solid var(--line);padding:4px 8px;vertical-align:top}}
+code{{font-family:ui-monospace,Consolas,monospace;font-size:.9em}} h1{{font-size:24px}} h2{{font-size:19px;margin-top:28px}}
+</style></head><body><main><div class="note">From the desk's wiki: <code>{path}</code> · read-only.
+Wiki links are shown as plain text.</div>{body}</main></body></html>"""
+
+
+def _concept_for(key: str) -> str | None:
+    js = (HERE / "indicator_catalogue.js").read_text(encoding="utf-8", errors="replace")
+    info = json.loads(js.split("/*JSON-BEGIN*/", 1)[1].split("/*JSON-END*/", 1)[0])
+    c = (info.get(key) or {}).get("concept")
+    return c if c and re.fullmatch(r"concepts/[A-Za-z0-9_.-]+\.md", c) else None
+
+
+@app.route("/learn/<key>")
+def learn_more(key: str):
+    from html import escape
+    from markdown_it import MarkdownIt
+    if not re.fullmatch(r"[a-z0-9_]+", key):
+        abort(404)
+    rel = _concept_for(key)
+    page = (WIKI_DIR / rel) if rel else None
+    if page is None or not page.is_file():
+        abort(404)
+    text = page.read_text(encoding="utf-8", errors="replace")
+    if text.startswith("---"):
+        text = text.split("---", 2)[-1]                     # drop the frontmatter
+    text = re.sub(r"\[\[([^\]|]+)\|?([^\]]*)\]\]", lambda m: m.group(2) or m.group(1).split("/")[-1], text)
+    # html=False: anything that looks like markup in a wiki page is shown, not run.
+    body = MarkdownIt("commonmark", {"html": False}).enable("table").render(text)
+    m = re.search(r"<h1>(.*?)</h1>", body)
+    title = re.sub(r"<[^>]+>", "", m.group(1)) if m else rel
+    return _LEARN_PAGE.format(title=escape(title), path=escape(rel), body=body)
+
+
+#: B-151 indicator preview pictures, written by gen_indicator_thumbs.py. Only the
+#: manifest and hash-named webp files are reachable — the name pattern is the
+#: gate, as `_page_modules` is for scripts. The pictures never change under one
+#: name (a redraw gets a new hash), so they cache forever; the manifest, which
+#: says which hash is current, must not.
+THUMBS_DIR = HERE / "ind-thumbs"
+_THUMB_NAME = re.compile(r"[a-z0-9_]+\.[0-9a-f]{10}\.webp")
+
+
+@app.route("/ind-thumbs/<name>")
+def indicator_thumb(name: str):
+    if name == "manifest.json":
+        resp = send_from_directory(THUMBS_DIR, name, mimetype="application/json")
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+    if not _THUMB_NAME.fullmatch(name):
+        abort(404)
+    resp = send_from_directory(THUMBS_DIR, name, mimetype="image/webp")
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
+
+
 # Bhavcopy is one file per session and every strike-level read comes out of it,
 # so the download is cached process-wide rather than repeated per request. Keyed
 # by nothing but recency: a new session simply replaces it.
