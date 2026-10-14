@@ -545,7 +545,12 @@ def backtest_scanner(scanner_name: str,
         # every run, including the five dashboard call sites that pass a
         # benchmark. Nothing errored and nothing said so (B-104).
         _dates = df.index if isinstance(df.index, pd.DatetimeIndex) else None
-        df = df.dropna(subset=["high", "low", "close", "volume"]).reset_index(drop=True)
+        df = df.dropna(subset=["high", "low", "close", "volume"])
+        # B-159: kept trades carry calendar dates so a portfolio can line them
+        # up across symbols. Taken AFTER the dropna, so they stay aligned even
+        # where `_dates` (the market model's, unchanged) gives up below.
+        _trade_dates = df.index if isinstance(df.index, pd.DatetimeIndex) else None
+        df = df.reset_index(drop=True)
         if _dates is not None and len(_dates) != len(df):
             _dates = None          # NaN rows were dropped; the alignment is gone
         n = len(df)
@@ -725,8 +730,14 @@ def backtest_scanner(scanner_name: str,
                     if r:
                         r_results.append(r)
                         if keep_trades:
-                            trades.append({"symbol": sym, "t": int(t),
-                                           "side": _side, **r})
+                            _tr = {"symbol": sym, "t": int(t), "side": _side,
+                                   "entry_idx": int(f_idx), "entry_px": float(f_px),
+                                   "stop": float(stop_p), **r}
+                            if _trade_dates is not None:
+                                _x = min(int(f_idx) + int(r["bars"]), n - 1)
+                                _tr["entry_date"] = _trade_dates[int(f_idx)]
+                                _tr["exit_date"] = _trade_dates[_x]
+                            trades.append(_tr)
                     else:
                         # Degenerate plans (zero risk) are counted, not dropped,
                         # so the report can say how much of the plan coverage it
