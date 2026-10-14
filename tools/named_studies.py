@@ -389,6 +389,100 @@ STUDIES: tuple[dict, ...] = (
         "headline": "daily-vedha NIFTY event study: clean negative under 5,000x rotation",
         "source": "analyses/Contra-Strategy-Roadmap",
     },
+    # ── Indexed 2026-10-14 (B-154 follow-up): nine study files the index had missed.
+    {
+        "item": "B-134", "tool": "ew_structure_study.py", "date": "2026-10-08",
+        # The flag the elliott overlay prints as "⚠ Unusual B", scored through the
+        # shipped elliott_wave.js at its default options.
+        "subjects": ("EW unusual wave B flag",),
+        "verdict": "NULL",
+        "headline": ("unusual B vs normal B +0.17% @20d, p=0.281, n=13,077 vs 32,724 -- "
+                     "neither a buy feature nor a valid warning; re-run after the B-137 "
+                     "zigzag fix +0.09%, p=0.649. Stays a label"),
+        "source": "analyses/Open-Backlog#B-134",
+    },
+    {
+        "item": "B-135", "tool": "ew_structure_study.py", "date": "2026-10-08",
+        "subjects": ("EW W-X-Y complex correction",),
+        "verdict": "NULL",
+        "headline": ("W-X-Y vs any correction ending in the same 61.8-78.6% band +0.36% "
+                     "@20d, p=0.620, n=353 vs 28,210 -- the shape adds nothing over the "
+                     "depth; re-run after B-137 -0.49%, p=0.557. Drawing aid only"),
+        "source": "analyses/Open-Backlog#B-135",
+    },
+    {
+        "item": "CHoCH", "tool": "choch_study.py", "date": "2026-10-07",
+        # No backlog item of its own: the result lives in the scanner's description
+        # and in one aside in the B-133-B-136 prior paragraph.
+        "subjects": ("Bullish CHoCH (last 5 sessions)",),
+        "verdict": "NULL",
+        "headline": ("+0.24% @20d vs a bearish-structure baseline, p_rot 0.511, "
+                     "n=15,851; +0.77% @60d, p_rot 0.263. PIPELINE_EXCLUDED, never votes"),
+        "source": "analyses/Open-Backlog#B-134",
+    },
+    {
+        "item": "B-122", "tool": "no_supply_gate_study.py", "date": "2026-09-23",
+        "subjects": ("No-Supply (new high + clean volume)",),
+        "verdict": "NULL",
+        "headline": ("gate vs no gate on the Trend/Momentum family, paired by symbol, 24 "
+                     "symbols / 8,580 signals / 1,728 gated: -0.118% @10d (p=0.79), "
+                     "+0.157% @20d (p=0.25), +0.789% @60d (p=0.25) -- a subset, not a "
+                     "better one"),
+        "source": "analyses/Open-Backlog#B-122",
+    },
+    {
+        "item": "B-90", "tool": "vwap_ema_agreement_study.py", "date": "2026-10-12",
+        # The state was never built (B-90 says "do not build"); the vwap and ema20
+        # overlays draw the two lines, not the agreement.
+        "subjects": ("VWAP+EMA20 agreement state",),
+        "verdict": "NEGATIVE",
+        "headline": ("BELOW-both, hypothesised negative, was +0.12pp @1h / +0.16pp @2h "
+                     "within-session, p<0.001 -- wrong sign. 5 names, 15m, 102 sessions; "
+                     "the pooled day-level view does not show it"),
+        "source": "analyses/Open-Backlog#B-90",
+    },
+    {
+        "item": "B-98", "tool": "yearly_opening_range_study.py", "date": "2026-10-12",
+        "subjects": ("January opening-range break",),
+        "verdict": "NULL",
+        "headline": ("442 names, 5,960 symbol-years: break excess -0.03 / -1.57 / -0.59pp "
+                     "@20/60/120d, deciding by-year p=0.874 / 0.230 / 0.680; held vs "
+                     "failed no separation. A level, not a scanner"),
+        "source": "analyses/Open-Backlog#B-98",
+    },
+    {
+        "item": "B-142", "tool": "valuation_edge_study.py", "date": "2026-10-12",
+        "subjects": ("earnings-yield quintile at entry",),
+        "verdict": "INCONCLUSIVE",
+        "headline": ("thin run, 168 names: cheapest minus dearest +12.31pp @12m on ~5 "
+                     "independent windows against a floor of 8; sign flips in 2024. "
+                     "Reopens with B-141 depth"),
+        "source": "analyses/Open-Backlog#B-142",
+    },
+    {
+        "item": "CHoCH-f", "tool": "choch_filters_study.py", "date": "2026-10-07",
+        "subjects": ("CHoCH inside an SMA200 uptrend", "CHoCH after a sell-side sweep"),
+        "verdict": "UNRECORDED",
+        "headline": ("only written as 'both FAIL' in an aside in the B-134 prior -- no "
+                     "edge, p or n for either test anywhere"),
+        "source": "analyses/Open-Backlog#B-134",
+    },
+    {
+        "item": "PPV", "tool": "ppv_edge_study.py", "date": "2026-09-24",
+        "subjects": ("pocket pivot volume bar",),
+        "verdict": "UNRECORDED",
+        "headline": ("no wiki write-up; only commit 80fa6e8's message (\"no forward-return "
+                     "edge\", 24 symbols) and code comments -- no per-horizon numbers"),
+        "source": "concepts/Pocket-Pivot",
+    },
+    {
+        "item": "PPV-v", "tool": "ppv_variant_study.py", "date": "2026-09-24",
+        "subjects": ("pocket pivot at RVOL 3x / 5x", "pocket pivot near a 20-day high"),
+        "verdict": "UNRECORDED",
+        "headline": ("no wiki write-up; commit 80fa6e8 calls all three variants clean "
+                     "negatives (24 symbols, 9,879 signals) with no per-horizon numbers"),
+        "source": "concepts/Pocket-Pivot",
+    },
     # ── The four with no findable write-up ────────────────────────────────────
     # Each RAN or was BUILT to run, and none has a result this index can cite. They
     # are indexed anyway: the mapping (tool -> subjects) is what CHECK 0 needs, and

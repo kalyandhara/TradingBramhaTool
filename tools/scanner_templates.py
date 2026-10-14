@@ -9538,9 +9538,11 @@ SCANNERS: dict[str, dict] = {
             "sessions — the Simple Volume 'no supply + demand' read. A screen, "
             "not a trade trigger: no entry/stop/target, no confluence vote. The "
             "thesis is that a new-high stock with no selling pressure visible in "
-            "volume is in the cleanest part of its move. UNMEASURED — ships at "
-            "weight 0 until the gate-vs-no-gate study (B-122) says whether the "
-            "supply filter adds anything to the family. Built from the Python "
+            "volume is in the cleanest part of its move. MEASURED NO DIFFERENCE "
+            "(no_supply_gate_study.py, B-122, 2026-09-23, 24 symbols, paired by "
+            "symbol): gated vs ungated family -0.118% @10d (p=0.79), +0.157% @20d "
+            "(p=0.25), +0.789% @60d (p=0.25) — the filter picks a subset, not a "
+            "better one. Stays weight 0, a screen for attention. Built from the Python "
             "port of simple_volume.js with bar-for-bar parity."
         ),
         "category": "Momentum",
