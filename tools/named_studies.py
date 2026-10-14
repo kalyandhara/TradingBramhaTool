@@ -541,6 +541,18 @@ STUDIES: tuple[dict, ...] = (
                      "does not carry over. In-sample the matched-stop gap is +0.51pp "
                      "(p=0.028) but only +0.23pp vs a trend-matched bar."),
     },
+    {
+        "item": "B-132", "tool": "abcd_stop_study.py", "date": "2026-10-14",
+        "source": "analyses/ABCD-Stop-Study",
+        "subjects": ("AB=CD plan stop",),
+        "verdict": "POSITIVE",
+        "headline": ("pre-registered, nifty500[300:500] (fresh vs B-129r): AB=CD plan with "
+                     "stop D - 2 x ATR14 +0.56%/trade vs +0.01% at the card's D - 0.5% "
+                     "(paired by symbol +0.52pp, p=0.0019; own per-symbol p=0.012; 1,385 "
+                     "trades / 183 symbols); 1 x ATR also passed (+0.37pp, p=0.010). "
+                     "Stop-outs 67% -> 21%, but 43% now leave on the 10-bar time stop. "
+                     "SHIPPED A2. Tier unchanged."),
+    },
 )
 
 

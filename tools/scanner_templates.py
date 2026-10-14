@@ -4690,6 +4690,10 @@ def scan_early_reversal(df: pd.DataFrame) -> dict | None:
     }
 
 
+#: B-132: AB=CD plan stop distance below D, in ATR14 (abcd_stop_study.py).
+ABCD_STOP_ATR = 2.0
+
+
 def scan_harmonic_reversal(df: pd.DataFrame) -> dict | None:
     """Fibonacci-ratio harmonic pattern (Gartley/Bat/Butterfly/Crab) completing
     at D within the last 10 bars — low-risk / high-reward reversal setup."""
@@ -4712,6 +4716,21 @@ def scan_harmonic_reversal(df: pd.DataFrame) -> dict | None:
     t = h["trade"]
     if t["rr_to_t2"] < 1.5:
         return None
+    # B-132 (2026-10-14, pre-registered, fresh 200-name panel): the AB=CD stop at
+    # D - 0.5% of D stopped 67% of plans and gave the signal's edge away. D - 2 x
+    # ATR14 beat it by +0.52pp a trade (p=0.0019) and was itself positive
+    # (+0.56%/trade, per-symbol p=0.012), stop-outs 67% -> 21%. Applied exactly
+    # as tested: the R:R gate above stays on the ORIGINAL stop (it defines the
+    # signal set that was measured); only the plan's stop moves. XABCD patterns
+    # keep their X-based stop — they were not part of the test.
+    if "AB=CD" in str(h.get("pattern", "")):
+        atr = float(_atr_series(df, 14).iloc[-1])
+        if atr > 0:
+            new_stop = round(float(t["entry"]) - ABCD_STOP_ATR * atr, 2)
+            risk = float(t["entry"]) - new_stop
+            t = {**t, "stop": new_stop,
+                 "rr_to_t2": round((float(t["targets"][1]) - float(t["entry"])) / risk, 2)
+                 if risk > 0 else t["rr_to_t2"]}
     reasons = [
         f"{h['pattern']} ({h['direction']}) completed at D, {h['age_bars']} bars ago",
         # Generic join: the four-point AB=CD family has no X, so no AB/XA or
@@ -10022,7 +10041,10 @@ SCANNERS: dict[str, dict] = {
             "2026-09-23; re-measured 2026-10-05 with AB=CD, 300 names, fresh, "
             "next-open fill): +0.55% @20d over 2,389 signals but not stable "
             "across windows, and the plan is -0.18R. Bearish patterns dropped "
-            "because their short thesis failed."
+            "because their short thesis failed. AB=CD plan stop moved to D - 2 x "
+            "ATR14 (B-132, 2026-10-14, pre-registered, fresh 200 names): +0.56% "
+            "a trade vs +0.01% with the old D - 0.5% stop (p=0.0019), stop-outs "
+            "67% -> 21%. The tier is unchanged until B-129r's check is re-run."
         ),
         "category": "Pattern",
     },
