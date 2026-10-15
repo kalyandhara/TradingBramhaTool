@@ -6816,7 +6816,11 @@ if current_page == "Home":
     with _cta2:
         if st.button("View top movers", key="home_cta_movers",
                      width="stretch"):
+            # The section is usually open already (a stored snapshot opens it on
+            # load) and sits a few screens down, so setting the flag alone looked
+            # like a dead button. Also queue a one-shot scroll to it.
             st.session_state["home_trending_open"] = True
+            st.session_state["home_trending_scroll"] = True
             st.rerun()
     with _cta3:
         if st.button("Scanner Hub", key="home_cta_hub", width="stretch"):
@@ -6863,7 +6867,36 @@ if current_page == "Home":
     # whole-market bhavcopy plus live quotes, and the 52W/ATH pair downloads
     # history for a few hundred names. Rendering them eagerly would put a
     # minutes-long wait on the landing page.
+    st.markdown('<div id="tb-home-movers"></div>', unsafe_allow_html=True)
     st.markdown("#### 📈 What moved today")
+    if st.session_state.pop("home_trending_scroll", False):
+        # st.markdown strips <script>, so — as with the ⌘K binding — a 1px
+        # same-origin iframe reaches into the parent. Retries because the
+        # sections above are still painting when it first runs; fails silently.
+        st.iframe(
+            """
+            <script>
+            (function () {
+              let n = 0;
+              (function go() {
+                const doc = window.parent.document;
+                const el = doc.getElementById('tb-home-movers');
+                if (el) {
+                  // Clear the sticky top ribbon, measured rather than assumed:
+                  // it wraps taller on narrow screens.
+                  let p = doc.elementFromPoint(window.parent.innerWidth / 2, 5);
+                  while (p && getComputedStyle(p).position !== 'sticky') p = p.parentElement;
+                  el.style.scrollMarginTop = ((p ? p.getBoundingClientRect().bottom : 0) + 12) + 'px';
+                  el.scrollIntoView({block: 'start'});   // smooth was a no-op in stMain
+                  return;
+                }
+                if (++n < 40) setTimeout(go, 100);
+              })();
+            })();
+            </script>
+            """,
+            height=1,
+        )
     _tr_key = "home_trending_open"
     if _tr_key not in st.session_state:
         # Open by default when a stored run exists — showing a snapshot costs
