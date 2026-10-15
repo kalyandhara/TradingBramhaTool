@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-15] query | LuxAlgo Machine Learning library — gap analysis, backlog B-172 … B-178
+- Read all 30 LuxAlgo ML indicators and 25 ML concepts; filed [[analyses/LuxAlgo-Machine-Learning-Gap-Analysis]] (✅ 3 · 🟡 6 · ❌ 30 · 🚫 16). The desk's only learned component is STAI's k-means (null as a signal); its strength is the honest-testing infrastructure. Ranking favours measurement and risk over per-chart learners: B-172 score calibration census, B-173 correlation clusters (effective independent bets), B-174 GMM regime vs classify_regime (volatility target), B-175 residual momentum, B-176 analog outcome panel; B-177 one cross-sectional supervised experiment parked behind an owner go-ahead; B-178 declined list. Nothing built; all unbacktested priors.
+
 ## [2026-10-15] backlog | SMC/ICT follow-ups filed as B-165 … B-171
 - From [[analyses/LuxAlgo-SMC-ICT-Gap-Analysis]]: B-165 weekly CRT (overlap check first), B-166 HTF liquidity pools (B-58's deferred gap), B-167 sweep confirmation as a filter (no stop), B-168 breaker/IFVG + CE display-only, B-169 range-height projections as target tags (blocked on B-116), B-170 later/declined list, B-171 housekeeping (four pre-existing test failures, OB overlay pivot 6 vs 5).
 
