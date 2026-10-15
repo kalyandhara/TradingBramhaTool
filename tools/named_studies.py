@@ -566,6 +566,17 @@ STUDIES: tuple[dict, ...] = (
                      "(-0.03 -> +0.15) came from calendar drift, not the stop; margins thin. "
                      "Tier unchanged -- owner's call."),
     },
+    {
+        "item": "B-95", "tool": "participant_oi_study.py", "date": "2026-10-15",
+        "source": "analyses/FII-Short-Squeeze-Study",
+        "subjects": ("FII index-futures extreme short",),
+        "verdict": "NULL",
+        "headline": ("pre-registered blind, 2016-2026, rotation p: FII >= 85% short in index "
+                     "futures (261 sessions, 12 episodes) -> NIFTY +20 sessions -1.42pp vs "
+                     "otherwise after a prior-move control, p=0.38 -- NULL, leaning AGAINST "
+                     "the squeeze claim; entry days -3.55pp p=0.052 on 12 events. All "
+                     "episodes 2020+."),
+    },
 )
 
 

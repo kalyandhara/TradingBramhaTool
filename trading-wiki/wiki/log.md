@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-15] study | B-95 — FII "88% short is squeeze fuel": NULL, leaning against
+- Data probe passed: NSE's participant-wise F&O OI file is fetchable from 2016; new `tools/participant_oi.py` (fetch, cache, parse; bare-CR 2017 files handled — that bug had silently stopped the first backfill), 2,470 sessions cached. Pre-registered BLIND in [[analyses/FII-Short-Squeeze-Study]] (threshold from the claim: FII ≥ 85% short), NIFTYBEES forward returns, exact circular-rotation p-values, prior-20-session tercile control. Result: 261 extreme sessions / 12 episodes; decisive controlled 20d difference −1.42pp, rotation p=0.38 → **NULL**; entry days −3.55pp p=0.052 (12 events). Every reading leans against the squeeze. All episodes from 2020 on — heavy FII index shorts are now normal. Concept page status updated; named_studies B-95; 5 parser tests.
+
 ## [2026-10-14] study | B-132r — Harmonic tier re-check with the new AB=CD stop: rule says PROMOTE (owner's call)
 - Pre-registered in [[analyses/ABCD-Stop-Study]] (section B-132r) before any run; `tools/harmonic_tier_recheck.py` imports B-129r's `summarise`/`clustered`/`decide` unchanged and runs on B-129r's panel (nifty500 first 300 — out of sample for the stop, which B-132 chose on 301–500). R0 PASS (n=109 vs 116, +1.10% vs +1.07%). Arm P: 2,349 signals / 281 symbols; @20d +0.55%, windows +0.33/+0.15/+1.06; clustered +0.76, p=0.025; plan **+0.04R** (B-129r −0.18R), +0.55% a trade, 23% stopped → **all five conditions pass: PROMOTE (recommendation only)**. Prior was STAYS WEAK and was wrong: condition 5 flipped because of B-132, but condition 2 flipped through calendar drift (window 2 −0.03 → +0.15 as nine days of bars moved the window edges), not the stop. Margins thin (window 2, p=0.025, +0.04R). `opportunity_hub` tiers not changed. named_studies B-132r; 2 tests added to test_abcd_stop_study.py.
 
