@@ -1,6 +1,11 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-15] study | B-165 weekly CRT vs Liquidity Sweep overlap — NOT A SUBSET; B-174 GMM regime — CLEAN NEGATIVE; B-173 built
+- B-165 ([[analyses/Weekly-CRT-Sweep-Overlap]], pre-registered `c5164d5`): 258 names, 6,502 weekly CRT vs 5,316 sweep events; 28.1% covered at ±5 sessions (bar 80%), at or below the ~34% chance rate → different events; B-165r (pre-registered edge test) filed. 500-bar window failed parity (27.4%), full history used as registered.
+- B-174 ([[analyses/GMM-Regime-vs-Verdict]], pre-registered `14aee1c`): GMM P(stressed) ρ 0.226 vs VOLATILE 0.310 vs trailing vol 0.599 with forward 20d vol → closed, regime stays rule-based.
+- B-173 built: `book_correlation.py`, Watchlist 24 names ≈ 14.4 independent bets. B-176 flagged as a duplicate of B-119.
+
 ## [2026-10-15] query | LuxAlgo Machine Learning library — gap analysis, backlog B-172 … B-178
 - Read all 30 LuxAlgo ML indicators and 25 ML concepts; filed [[analyses/LuxAlgo-Machine-Learning-Gap-Analysis]] (✅ 3 · 🟡 6 · ❌ 30 · 🚫 16). The desk's only learned component is STAI's k-means (null as a signal); its strength is the honest-testing infrastructure. Ranking favours measurement and risk over per-chart learners: B-172 score calibration census, B-173 correlation clusters (effective independent bets), B-174 GMM regime vs classify_regime (volatility target), B-175 residual momentum, B-176 analog outcome panel; B-177 one cross-sectional supervised experiment parked behind an owner go-ahead; B-178 declined list. Nothing built; all unbacktested priors.
 

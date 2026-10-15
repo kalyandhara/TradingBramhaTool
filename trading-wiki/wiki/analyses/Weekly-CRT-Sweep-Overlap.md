@@ -68,6 +68,30 @@ multi-touch equal-lows pool (≥ 2 touches), a dominant rejection wick and a pie
 0.05–2 ATR. A weekly CRT needs only one prior week's low, which is a far looser condition, so most CRT weeks
 should have no daily sweep inside them.
 
-## Result
+## Result — RUN 2026-10-15: NOT A SUBSET → B-165r filed
 
-*(appended after the run — the section above is not edited after it)*
+**Deviation, applied as pre-registered:** the 500-bar window **failed** its parity check
+(10 names: 161 window events vs 208 full-history events, 27.4% apart, bar 2%), so the
+registered run used **full history**, the fallback the pre-registration names.
+`tools/crt_sweep_overlap.py`; output `cache/crt_sweep_overlap.json`.
+
+**258 of 300 names** usable (the rest failed to fetch or had under 810 bars). **6,502 weekly
+CRT events, 5,316 Liquidity Sweep events**, last 750 bars each. Median CRT pierce **0.45 ATR**.
+
+| d (trading days) | CRT covered by a sweep | sweeps inside a CRT week ± d |
+|---|---|---|
+| 0 | 14.9% | 21.4% |
+| 2 | 20.7% | 32.8% |
+| **5 (decides)** | **28.1%** | 47.5% |
+| 10 | 37.5% | 66.3% |
+
+**Verdict: NOT A SUBSET** (28.1% < 80%; 6,502 ≥ 150 events). Inside the prior's 20–40% band.
+Per the rule, **B-165 closes and B-165r is filed**: a separately pre-registered forward-return
+test of weekly CRT. It is not run here.
+
+**Descriptive, not pre-registered:** sweeps fire on 2.75% of symbol-days, so a random
+15-session window (a week ± 5) holds at least one about **34%** of the time. CRT weeks are covered
+**28%** of the time, i.e. no more often than chance. The two detectors are not loosely nested
+versions of one event: a weekly CRT is, statistically, a different event from a daily
+equal-lows sweep. That is why an edge test is owed, and also why the sweep's B-41m
+result says nothing about whether CRT has an edge.
