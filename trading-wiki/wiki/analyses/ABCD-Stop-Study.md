@@ -196,3 +196,15 @@ defect that blocked it is fixed and out of sample, but the window-2 pass came fr
 calendar moving, not from B-132, and is thin. A cautious alternative is to hold one more
 re-run on a later data date before acting. `opportunity_hub.py` is **not** changed by
 this study.
+
+### Owner decision — 2026-10-14: HOLD the tier, re-run next week first
+
+Harmonic Reversal (XABCD) stays in the weak tier (0.25) for now. Because condition 2's pass
+came from the calendar moving, not from B-132, the owner wants the result to survive one
+more data date before acting.
+
+**Re-run rule, fixed now (before that run):** run `tools/harmonic_tier_recheck.py`
+**unchanged** on or after **2026-10-21**. Promotion goes back to the owner only if that run
+again gives **PROMOTE** (R0 passing, all five conditions on P). Any other result — a
+condition failing, including window 2 @20d dipping back to ≤ 0 — means **STAYS WEAK**, and
+the scanner is not re-checked again on calendar drift alone.
