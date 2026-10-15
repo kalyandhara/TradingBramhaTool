@@ -577,6 +577,16 @@ STUDIES: tuple[dict, ...] = (
                      "the squeeze claim; entry days -3.55pp p=0.052 on 12 events. All "
                      "episodes 2020+."),
     },
+    {
+        "item": "B-174", "tool": "gmm_regime_study.py", "date": "2026-10-15",
+        "source": "analyses/GMM-Regime-vs-Verdict",
+        "subjects": ("Gaussian-mixture regime", "VOLATILE regime label"),
+        "verdict": "NEGATIVE",
+        "headline": ("pre-registered, NIFTY 2010-2026, Spearman with forward 20d vol: GMM "
+                     "P(stressed) 0.226 vs VOLATILE 0.310 vs naive trailing vol 0.599 -- the "
+                     "learned regime is significantly WORSE than the vol it is fed; closed, "
+                     "regime stays rule-based."),
+    },
 )
 
 

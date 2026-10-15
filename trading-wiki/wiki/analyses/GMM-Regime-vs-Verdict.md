@@ -62,6 +62,33 @@ applied to the **difference** ρ(P(stressed)) − ρ(competitor).
 volatility clustering is already in `v_t`. Expected: ρ(P(stressed)) ≈ ρ(trailing vol),
 both above ρ(VOLATILE), because a binary flag discards most of the information.
 
-## Result
+## Result — RUN 2026-10-15: CLEAN NEGATIVE, B-174 CLOSED
 
-*(appended after the run — the section above is not edited after it)*
+`tools/gmm_regime_study.py`, run unchanged from the pre-registration. **3,872 days**
+(2010-11-04 → 2026-09-15; the first 750 days of NIFTY history train the first fit).
+P(stressed) > 0.5 on 15.2% of days, VOLATILE on 19.2%.
+
+| Predictor | ρ, forward 20-day vol (primary) | ρ, forward 20-day drawdown |
+|---|---|---|
+| GMM P(stressed) | 0.226 | 0.019 |
+| Verdict VOLATILE flag | 0.310 | 0.032 |
+| Trailing 20-day vol (naive) | **0.599** | **0.143** |
+
+| P(stressed) minus… | forward vol: diff [95% CI] | drawdown: diff [95% CI] |
+|---|---|---|
+| trailing vol | **−0.373 [−0.505, −0.233]** | −0.124 [−0.247, −0.004] |
+| VOLATILE | −0.084 [−0.201, +0.028] | −0.013 [−0.117, +0.081] |
+
+**Verdict: DOES NOT ADD INFORMATION on either target → B-174 CLOSED; the regime stays rule-based.**
+
+**It is worse than the prior, not just equal.** The prior expected P(stressed) ≈ trailing
+vol. Instead the learned regime is **significantly worse than the number it was fed**. A
+two-state posterior collapses a continuous volatility reading into "mostly 0 or 1", and
+volatility persistence lives in the continuous level, which the mixture throws away. The
+same mechanism explains the VOLATILE flag's 0.31: also a binary cut of the same variable.
+
+**Descriptive, NOT pre-registered (so not a finding to act on):** the plain trailing-vol
+number carries about twice the forward-volatility information of the desk's VOLATILE
+label (0.60 vs 0.31). If the desk wants a risk context line, a continuous vol *percentile*
+beside the label is the cheap candidate, but that needs its own pre-registered question
+before anything changes. Filed as a note on B-174, not as a task.
