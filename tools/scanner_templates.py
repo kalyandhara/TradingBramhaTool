@@ -3025,6 +3025,12 @@ def detect_structure_chain(df: pd.DataFrame, pivot_len: int = 15,
 # names — which makes it an OWNER decision about what "structure" means at each
 # timeframe, not a default to tidy. Every read carries its own `params.pivot_len`,
 # so a consumer can always say which definition produced the word.
+#
+# OWNER DECIDED 2026-10-15 (B-42r, Option C): keep BOTH, named. pivot_len 5 is
+# "short-term structure" (the SMC scanners, and the definition B-41m measured the
+# sweep edge on); 15 is "swing structure" (this read's default and the chart's
+# Structure Break Chain). Neither default changes. A surface that shows both shows
+# ONE agreement reading of them (smc_state.py), never two peer columns.
 # ─────────────────────────────────────────────────────────────────────────────
 
 def label_swing_sequence(swings: list[dict], tol_pct: float = 0.0) -> list[dict]:

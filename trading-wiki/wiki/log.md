@@ -1,6 +1,13 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-15] decision | B-42r settled — Option C: keep both structure definitions, named; SMC columns on the Watchlist
+- Owner decided: pivot_len 5 = "short-term structure" (every SMC scanner, incl. the measured Liquidity Sweep), 15 = "swing structure" (chart Structure Break Chain, `read_market_structure`). No default changed, so nothing is re-graded. Recorded in [[analyses/Open-Backlog]] (B-42r rows + body) and the `scanner_templates` note.
+- Built `tools/smc_state.py` + 5 Watchlist columns: one ST/SW agreement cell (agree / split / opposite — the B-96/B-97 precedent), P/D in the swing band (ABOVE/BELOW when price has left it), nearest untouched SSL/BSL pool in ATR and a swept-in-5-sessions flag, both at pivot 5 (the B-41m definition). Descriptions, not signals. On the live watchlist: 10 split, 8 agree, 3 opposite of 21 readable names. Follows [[analyses/LuxAlgo-SMC-ICT-Gap-Analysis]] item 4.
+
+## [2026-10-15] query | LuxAlgo SMC/ICT concepts — gap analysis vs chart, scanners, watchlist
+- Read all 55 LuxAlgo SMC/ICT concept pages; mapped against chart overlays (fvg, orderblock, liquidity, structure_chain, trendlines), the six SMC scanners and the Watchlist. Filed [[analyses/LuxAlgo-SMC-ICT-Gap-Analysis]]: 15 built / 12 partial / 15 missing / 13 out of scope. Ranking follows the measured record: Liquidity Sweep is the desk's best edge (B-41m), "retrace into a zone after a structure break" is negative three ways (B-19), FVGs are not magnets, CHoCH no edge. Top picks extend the sweep (HTF pools — B-58's deferred gap; weekly Candle Range Theory; CISD/BOS as a filter) and surface SMC state on the Watchlist (blocked on B-42r). Nothing built; all unbacktested priors.
+
 ## [2026-10-15] study | B-95 — FII "88% short is squeeze fuel": NULL, leaning against
 - Data probe passed: NSE's participant-wise F&O OI file is fetchable from 2016; new `tools/participant_oi.py` (fetch, cache, parse; bare-CR 2017 files handled — that bug had silently stopped the first backfill), 2,470 sessions cached. Pre-registered BLIND in [[analyses/FII-Short-Squeeze-Study]] (threshold from the claim: FII ≥ 85% short), NIFTYBEES forward returns, exact circular-rotation p-values, prior-20-session tercile control. Result: 261 extreme sessions / 12 episodes; decisive controlled 20d difference −1.42pp, rotation p=0.38 → **NULL**; entry days −3.55pp p=0.052 (12 events). Every reading leans against the squeeze. All episodes from 2020 on — heavy FII index shorts are now normal. Concept page status updated; named_studies B-95; 5 parser tests.
 

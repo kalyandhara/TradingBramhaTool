@@ -186,7 +186,7 @@ none of them is.
 | ~~**B-56**~~ | ~~the SVP **structure** BUY/SELL/HOLD signal~~ — **MEASURED 2026-09-17 → INVERTED** (spread −1.77%, p_rot 0.041, SELL beat BUY 8 of 8). Mirror deliberately not shipped; stays a bystander. [[analyses/SVP-Structure-Signal-Pre-Registration]] | done — the prior was right |
 | ~~**B-8**~~ | ~~mean-reversion **stops**~~ — **MEASURED 2026-09-17: CONNORS WAS RIGHT, for tight stops.** The shipped session-low stop costs **−0.64pp** vs no stop (p=0.0086, **n=742**, 300 names, 20y); 2-ATR costs nothing measurable because it is only touched 24.7% of the time. Stop deliberately unchanged; the number is now in the scanner's own plan output | done |
 | ~~**B-9**~~ | ~~the Volume-Profile **80% rule**~~ — **MEASURED 2026-09-17: FALSIFIED.** 45.5% (95% CI 37.3–54.0, n=134) against a claimed 80%. Lift over base −4.1pp, p=0.422, explicitly NOT claimed | done — and it was never blocked on data |
-| ~~**B-42r**~~ | ~~`pivot_len` 5 vs 15~~ — **MEASURED 2026-09-17: the two settings agree on `state` only 29.6%** of the time (199 names), and 17.6% read DOWNTREND in the scanners against UPTREND on the chart. **Promoted to an OWNER decision** — see below | measured; the decision is yours |
+| ~~**B-42r**~~ | ~~`pivot_len` 5 vs 15~~ — **MEASURED 2026-09-17: the two settings agree on `state` only 29.6%** of the time (199 names), and 17.6% read DOWNTREND in the scanners against UPTREND on the chart. **OWNER DECIDED 2026-10-15 — Option C: keep both, named.** pivot_len **5 = "short-term structure"** (every SMC scanner, incl. the measured Liquidity Sweep), **15 = "swing structure"** (chart Structure Break Chain, `read_market_structure` default). Neither default changes, so no live output is re-graded. The Watchlist shows ONE agreement reading of the two (the B-96/B-97 precedent), and liquidity columns use 5 — the definition B-41m was measured on | **decided** |
 | ~~**B-94**~~ | ~~an outside letter’s option-chain levels have never been checked against our own~~ — **MEASURED 2026-09-19: SPLIT.** Max pain **23,300 reproduces EXACTLY** on the 2026-09-17 chain (and on 09-16), nearest expiry 2026-09-22. Both walls MISS on the whole-chain definition (ours 24,500 call / 22,000 put). **Post-hoc, using the module’s own existing `NEAR_STRIKES = 10` window, the call wall 23,500 also reproduces EXACTLY** — so the call-wall gap was DEFINITIONAL, ours. The put wall 23,100 does not reproduce under either definition: it is our **#8** put strike (5.36M) while 23,000 carries **9.65M**, 80% more. Verdict by the pre-registered rule: **NOT REPRODUCED** (1 of 3 exact); by substance: **2 of 3, and the third is the letter’s weakest claim**. [[#B-94]] | done — and it found a gap in OUR tool, not only in the source |
 | ~~**B-97**~~ | ~~nothing has ever scored whether `pivot_d` and `pivot_w` AGREE~~ — **MEASURED 2026-09-19: they agree on the SIDE of the pivot 53.9% of 499 names (chance 41.8%, lift +12.1) and read OPPOSITE sides 37.9%. Median across 29 month-ends: 64.0% side / 27.3% opposite. Both pre-registered bands fail — TWO DIFFERENT READINGS + CONTRADICTION. Agreement is above chance at every date, so the columns are not independent; the shared part is just far smaller than two adjacent columns imply. [[#B-97]]** | done — and it re-scoped B-96 |
 | **B-21b** | **PARTLY RE-MEASURED 2026-10-12 (cash-market proxy, ad-hoc script, not saved as a study; 1.47M name-days, 2006–2026, `cardinality_deep`).** **1.0x rvol veto:** the market is below 1.0x about **52% of days in every one of 21 years** (51.3–53.3%), median rvol 0.97–0.98, so the cut is stable and is simply "below the median"; on |move|≥1.5% days (n=628k) median rvol is 1.18 and 40% still sit under 1.0x. **5-session window:** 5/10/20-day baselines give the same share (52.1/52.1/51.4%) and rank-correlate 0.77 (5 vs 20) — no evidence the window matters. **Stability caveat:** the rvol p90 drifts 3.0 → 2.4 over the period, so a fixed high rvol cut ages. **Turnover floor:** NOT stable in rupee terms — the p10 of 10-day turnover rose from ~Rs 0.05–0.5 cr (2008–2016) to Rs 11.4 cr (2026), so any floor set in one year is a different percentile in another; the Rs 50 cr OI-momentum floor is a level, not a percentile, and should be read that way. **Price floor:** cash |daily move| median is 1.23% with year medians 1.0–2.1%, so MIN_PRICE_PCT 0.5 is far below typical (consistent with B-26; this is stocks, not the futures price the floor is applied to). **NOT re-measured:** PCR percentile cuts, MIN_OPTION_OI, index OI floors, NOTABLE_PCR_CHG — they need historical F&O bhavcopy, which is not cached and NSE is not reachable from this sandbox; run from the desk machine. Survivor-only cache (current constituents) flatters turnover history | the floors are labelled in code and the history to re-measure them on is cached |
@@ -280,7 +280,7 @@ none of them is.
 | **B-26** | `MIN_PRICE_PCT` is **0.5 against a 0.90 median** — far more permissive than its own comment claims. Deliberately unchanged, because moving it re-grades the whole universe. Decide it on purpose rather than by inheritance |
 | **B-34r2** | whether the red-flag veto is ON by default (it vetoes **100 of 249** on Smallcap-250) |
 | **B-84r** | retire or document the third app — the candidate is named in [[#B-84]] |
-| **B-42r** | which `pivot_len` IS "structure" — 5 (scanners) or 15 (chart). Measured 2026-09-17 at **29.6% agreement on `state`**, with 17.6% of names reading *opposite* directions. Cannot be unified quietly: it re-grades most names |
+| ~~**B-42r**~~ | ~~which `pivot_len` IS "structure" — 5 (scanners) or 15 (chart)~~. Measured 2026-09-17 at **29.6% agreement on `state`**, with 17.6% of names reading *opposite* directions. **OWNER DECIDED 2026-10-15 — Option C: keep both, named.** pivot_len **5 = "short-term structure"** (every SMC scanner, incl. the measured Liquidity Sweep), **15 = "swing structure"** (chart Structure Break Chain, `read_market_structure` default). Neither default changes, so no live output is re-graded. The Watchlist shows ONE agreement reading of the two (the B-96/B-97 precedent), and liquidity columns use 5 — the definition B-41m was measured on. Side note found while deciding: the chart's order-block overlay uses pivot_len **6** on daily against the scanner's 5 — left as is, not part of the decision |
 | **B-30 / B-31 / B-35** | parked by choice; unpark or drop |
 | **P2 four** | B-4/12, B-6, B-8, B-9 were "schedule one or mark deferred" as of the design review. **B-8 and B-9 are now scheduled — they are in MEASURABLE NOW above.** |
 
@@ -5088,7 +5088,21 @@ overlap check, not an edge test.
 **Promoted from residual to an OWNER decision.** It cannot be quietly unified:
 changing either default silently re-grades live output (the [[#B-26]] lesson), and
 at 29.6% agreement it would move most names. What "structure" means at each
-timeframe is a judgement. Mitigation already in place: every read carries its own
+timeframe is a judgement.
+
+> [!success] OWNER DECISION 2026-10-15 — Option C, keep both and name them
+> * **pivot_len 5 = short-term structure.** Every SMC scanner (Liquidity Sweep and its
+>   bear twin, ICT Setup, Order Block Retest, Support Breakdown, Bullish CHoCH, Quasimodo)
+>   and the chart's Liquidity overlay. It is the definition **B-41m measured the sweep
+>   edge on**, so liquidity columns (nearest pool, swept recently) use it.
+> * **pivot_len 15 = swing structure.** The chart's Structure Break Chain and
+>   `read_market_structure`'s default, so premium/discount is read in the swing band.
+> * **No default changes**, so no live output is re-graded (the B-26 lesson).
+> * Where both are shown, they are shown as **one agreement reading**, not two peer
+>   columns: the B-96/B-97 precedent, which found that two adjacent columns that disagree
+>   37.9% of the time read as noise unless the split itself is the reading.
+> * Rejected: **5 everywhere** (re-grades the chart's structure and P/D on most names);
+>   **15 everywhere** (re-grades every SMC scanner and voids B-41m until re-measured). Mitigation already in place: every read carries its own
 `params.pivot_len`, so a consumer can always say which definition produced the
 word — and the number is now in the module note instead of an open question.
 
@@ -5379,7 +5393,7 @@ true only on paper.
 
 **Next (updated 2026-09-02):**
 
-1. ~~**B-42r**~~ — **MEASURED 2026-09-17: 29.6% agreement on `state`.** Now an owner decision, not a task.
+1. ~~**B-42r**~~ — **MEASURED 2026-09-17: 29.6% agreement on `state`.** **DECIDED 2026-10-15: keep both, named short-term (5) / swing (15); one agreement reading on the Watchlist.**
 2. **B-32r** — recalibrate regime floors with walk-forward (now unblocked).
 3. **B-28r** — the option-OI event studies, now that the levels are on the chart:
    the **short-straddle break → short-cover rally** (the wall being *pierced* is

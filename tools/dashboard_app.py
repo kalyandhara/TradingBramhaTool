@@ -1422,6 +1422,16 @@ ui_jobs.render_panel()
 # ≤ page_size rows renders as a plain dataframe (no controls shown).
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _smc_cells(df) -> dict:
+    """SMC state columns for one symbol's bars (smc_state.py). A failure is blank
+    cells for that row — a context column must not take the table down."""
+    try:
+        import smc_state as _smc
+        return _smc.row(df)
+    except Exception:
+        return {}
+
+
 def _notes_table(df, key: str, symbol_col: str, *, column_config=None,
                  page_size: int = 200, select_col: str | None = None,
                  preselect: "set[str] | None" = None):
@@ -7784,6 +7794,9 @@ if current_page == "Watchlist":
                 **_svp_cells(w["symbol"], _wl_svp),
                 "minervini": f"{mv_score}/8",
                 "technofunda": f"{tf_score}/6",
+                # SMC state (smc_state.py, B-42r Option C): one ST/SW agreement
+                # reading, P/D in the swing band, liquidity at pivot 5.
+                **_smc_cells(df),
                 # NOTE deliberately absent: `_notes_table` sources it from the
                 # shared per-symbol store and appends it, so the page cannot show
                 # a note from one place while writing to another.
@@ -7846,7 +7859,7 @@ if current_page == "Watchlist":
         # Coercing makes them NaN, which renders as an empty cell: an absent
         # reading should look absent, not like a value.
         for _c in ("close", "chg_pct", "turnover_cr", "gap_pct", "ema_cross_age",
-                   "svp_factors",
+                   "svp_factors", "ssl_atr", "bsl_atr",
                    "from_52w_high_pct", "bo_gain_pct", "hist_price",
                    "gain_since_pct", "rsi", "pct_from_20ema", "rs_momentum",
                    "earn_d_minus_1", "earn_day", "earn_d_plus_1"):
@@ -7856,7 +7869,8 @@ if current_page == "Watchlist":
             _wl_df = _wl_df.drop(columns=["rs_walk"])
         for _c in ("pivot_d", "pivot_w", "pivot_agree", "bo_date", "rs_walk", "minervini",
                    "technofunda", "ema_stack", "cap_bucket", "sector",
-                   "svp_hist_8w", "plan_status", "plan_from"):
+                   "svp_hist_8w", "plan_status", "plan_from",
+                   "smc_structure", "pd_swing", "swept_recent"):
             if _c in _wl_df.columns:
                 _wl_df[_c] = _wl_df[_c].where(_wl_df[_c].notna(), "")
         if _wl_ref is None and not _wl_df.empty:

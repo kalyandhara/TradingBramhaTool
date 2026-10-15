@@ -264,6 +264,44 @@ COLUMNS: dict[str, ColSpec] = {
         "one population over time. '?' = the name lacked history that far back, "
         "which is not the same as ranking weak.",
         "text", width="medium", tone="rank"),
+    # ── SMC state (smc_state.py, B-42r Option C) — descriptions, not signals ──
+    "smc_structure": ColSpec(
+        "Structure ST/SW",
+        "ONE reading of two structure definitions (owner decision B-42r): ST = "
+        "short-term, pivot length 5 — what every SMC scanner uses; SW = swing, "
+        "pivot length 15 — what the chart's Structure Break Chain draws. "
+        "▲ uptrend (HH+HL) · ▼ downtrend (LH+LL) · ↔ range · ⇕ broadening · "
+        "~ transition. 'agree' / 'split' / 'opposite' is the reading: the two "
+        "agree on only ~30% of names, so a split is normal, and 'opposite' "
+        "means the scanners and the chart are describing different trends. "
+        "Structure state measured no edge (CHoCH study) — context, not a signal.",
+        "text", width="medium"),
+    "pd_swing": ColSpec(
+        "P/D (swing)",
+        "Where the last close sits inside the latest SWING (pivot 15) high-low "
+        "band: PREM >70%, DISC <30%, EQ between. ABOVE / BELOW = price has left "
+        "the band, so it is outside the range rather than 'very premium'. "
+        "Unmeasured as a signal.",
+        "text", width="small"),
+    "ssl_atr": ColSpec(
+        "SSL ↓ (ATR)",
+        "Distance down to the nearest UNTOUCHED sell-side pool (equal lows, "
+        "short-term pivot 5 — the pools the Liquidity Sweep scanner fires on), "
+        "in ATR(14). A pool price has already traded through is spent and not "
+        "counted. Blank = none below.",
+        "number", "%.1f", width="small"),
+    "bsl_atr": ColSpec(
+        "BSL ↑ (ATR)",
+        "Distance up to the nearest UNTOUCHED buy-side pool (equal highs, pivot "
+        "5), in ATR(14). Blank = none above.",
+        "number", "%.1f", width="small"),
+    "swept_recent": ColSpec(
+        "Swept",
+        "A liquidity sweep (pool pierced on the wick, close back inside) in the "
+        "last 5 sessions, pivot 5. 'SSL' = equal lows swept — the bullish event "
+        "the Liquidity Sweep scanner trades (B-41m, +0.51% @20d); 'BSL' = equal "
+        "highs swept, the unmeasured bearish twin.",
+        "text", width="small"),
     # ── trade-plan status (plan_status.py, LuxAlgo R&E step 2) ────────────────
     "plan_status": ColSpec(
         "Plan",
