@@ -165,9 +165,10 @@ the levels on the chart.
   structure the desk already labels; no mechanical definition worth measuring.
 
 ## Implementation order
-1. Overlap check: weekly CRT vs `Liquidity Sweep` (½ session). If it is not a subset, run the CRT pre-registration.
-2. HTF pools pre-registration + build (1–2 sessions).
-3. Sweep confirmation filter study, CISD/BOS (1 session).
-4. **Owner decision B-42r** → then SMC state columns (1 session).
-5. Breaker / IFVG + CE overlay, display-only (1 session).
-6. Target tags (rides on Risk & Exits step 6).
+1. Overlap check: weekly CRT vs `Liquidity Sweep` (½ session). If it is not a subset, run the CRT pre-registration. → **B-165**
+2. HTF pools pre-registration + build (1–2 sessions). → **B-166**
+3. Sweep confirmation filter study, CISD/BOS (1 session). → **B-167**
+4. ~~**Owner decision B-42r** → then SMC state columns~~ — **DONE 2026-10-15** (Option C; `smc_state.py`, 5 Watchlist columns).
+5. Breaker / IFVG + CE overlay, display-only (1 session). → **B-168**
+6. Target tags (rides on Risk & Exits step 6). → **B-169**
+7. Later / declined items → **B-170**; housekeeping found along the way → **B-171**.

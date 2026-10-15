@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-15] backlog | SMC/ICT follow-ups filed as B-165 … B-171
+- From [[analyses/LuxAlgo-SMC-ICT-Gap-Analysis]]: B-165 weekly CRT (overlap check first), B-166 HTF liquidity pools (B-58's deferred gap), B-167 sweep confirmation as a filter (no stop), B-168 breaker/IFVG + CE display-only, B-169 range-height projections as target tags (blocked on B-116), B-170 later/declined list, B-171 housekeeping (four pre-existing test failures, OB overlay pivot 6 vs 5).
+
 ## [2026-10-15] decision | B-42r settled — Option C: keep both structure definitions, named; SMC columns on the Watchlist
 - Owner decided: pivot_len 5 = "short-term structure" (every SMC scanner, incl. the measured Liquidity Sweep), 15 = "swing structure" (chart Structure Break Chain, `read_market_structure`). No default changed, so nothing is re-graded. Recorded in [[analyses/Open-Backlog]] (B-42r rows + body) and the `scanner_templates` note.
 - Built `tools/smc_state.py` + 5 Watchlist columns: one ST/SW agreement cell (agree / split / opposite — the B-96/B-97 precedent), P/D in the swing band (ABOVE/BELOW when price has left it), nearest untouched SSL/BSL pool in ATR and a swept-in-5-sessions flag, both at pivot 5 (the B-41m definition). Descriptions, not signals. On the live watchlist: 10 split, 8 agree, 3 opposite of 21 readable names. Follows [[analyses/LuxAlgo-SMC-ICT-Gap-Analysis]] item 4.
