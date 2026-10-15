@@ -7594,6 +7594,12 @@ if current_page == "Portfolio":
         st.markdown(_cards, unsafe_allow_html=True)
         for _c in _caps:
             st.caption(_c)
+        # B-173: what sector labels miss — which holdings move as one.
+        import book_correlation as _bc
+        _bc.render(st, open_pos["symbol"].tolist(),
+                   lambda s_: cached_fetch_ohlcv(s_, enforce_liquidity=False),
+                   weights={r["symbol"]: float(r["entry_price"]) * float(r["quantity"])
+                            for _, r in open_pos.iterrows()}, key="pf_corr")
 
         rows = []
         for _, pos in open_pos.iterrows():
@@ -7965,6 +7971,10 @@ if current_page == "Watchlist":
             "+3% from four months ago are not the same situation, and a faded "
             "breakout shows here as a negative."
         )
+        # B-173: how many independent bets the watchlist really is.
+        import book_correlation as _bc
+        _bc.render(st, [r["Symbol"] for r in rows],
+                   lambda s_: cached_fetch_ohlcv(s_, enforce_liquidity=False), key="wl_corr")
         _thin = [r["Symbol"] for r in rows
                  if r.get("turnover_cr") is not None
                  and r["turnover_cr"] < sp.MIN_TURNOVER / 1e7]

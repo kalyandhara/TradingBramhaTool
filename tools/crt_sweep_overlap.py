@@ -11,8 +11,9 @@ verdict printed here applies it unchanged.
     py -3 -X utf8 tools/crt_sweep_overlap.py               # the registered run
 
 The scanner is `scanner_templates.scan_liquidity_sweep` AS SHIPPED, replayed on
-every daily bar of the evaluation span. Each call sees a trailing 500-bar window
-(a speed concession declared in the pre-registration and checked by --parity).
+every daily bar of the evaluation span. The pre-registered 500-bar window
+FAILED its parity check (27.4% of events differ), so the registered run uses full
+history, as the pre-registration's fallback requires.
 """
 from __future__ import annotations
 
@@ -142,7 +143,9 @@ def main() -> int:
         return 0
 
     with Pool(a.procs) as p:
-        rows = [r for r in p.imap_unordered(one, [(s, WINDOW) for s in syms]) if r]
+        # --parity FAILED on 2026-10-15 (window 161 vs full 208 events, 27.4% apart,
+        # bar 2%), so the pre-registered fallback applies: full history.
+        rows = [r for r in p.imap_unordered(one, [(s, None) for s in syms]) if r]
     cov = coverage(rows)
     piers = sorted(e["pierce_atr"] for r in rows for e in r["crt"] if e["pierce_atr"] is not None)
     res = {"symbols_requested": len(syms), "symbols_used": len(rows), **cov,
