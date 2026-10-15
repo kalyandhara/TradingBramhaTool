@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-14] study | B-132r — Harmonic tier re-check with the new AB=CD stop: rule says PROMOTE (owner's call)
+- Pre-registered in [[analyses/ABCD-Stop-Study]] (section B-132r) before any run; `tools/harmonic_tier_recheck.py` imports B-129r's `summarise`/`clustered`/`decide` unchanged and runs on B-129r's panel (nifty500 first 300 — out of sample for the stop, which B-132 chose on 301–500). R0 PASS (n=109 vs 116, +1.10% vs +1.07%). Arm P: 2,349 signals / 281 symbols; @20d +0.55%, windows +0.33/+0.15/+1.06; clustered +0.76, p=0.025; plan **+0.04R** (B-129r −0.18R), +0.55% a trade, 23% stopped → **all five conditions pass: PROMOTE (recommendation only)**. Prior was STAYS WEAK and was wrong: condition 5 flipped because of B-132, but condition 2 flipped through calendar drift (window 2 −0.03 → +0.15 as nine days of bars moved the window edges), not the stop. Margins thin (window 2, p=0.025, +0.04R). `opportunity_hub` tiers not changed. named_studies B-132r; 2 tests added to test_abcd_stop_study.py.
+
 ## [2026-10-14] study | B-132 — AB=CD stop study: SHIP D − 2×ATR14
 - Pre-registered in [[analyses/ABCD-Stop-Study]]; `tools/abcd_stop_study.py` on nifty500 names 301–500 (fresh vs B-129r), B-129r's harness settings, only the stop varied. 1,405 AB=CD signals / 183 symbols. Card stop (D − 0.5%): +0.01% a trade, 67% stopped (reproduces B-129r). D − 1×ATR: +0.40% (vs A0 p=0.010). **D − 2×ATR: +0.56% (vs A0 +0.52pp, p=0.0019; own p=0.012), 21% stopped → shipped** in `scan_harmonic_reversal` (AB=CD only; R:R gate still on the original stop so the signal set is the measured one). Signal edge held out of sample (+0.84/+0.89/+1.12% @10/20/60d). 43% of trades now exit on the 10-bar time stop — not changed here. Harmonic tier unchanged (owner's call; re-run B-129r's check first). named_studies B-132; 7 tests in test_abcd_stop_study.py.
 

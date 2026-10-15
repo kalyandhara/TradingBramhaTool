@@ -553,6 +553,19 @@ STUDIES: tuple[dict, ...] = (
                      "Stop-outs 67% -> 21%, but 43% now leave on the 10-bar time stop. "
                      "SHIPPED A2. Tier unchanged."),
     },
+    {
+        "item": "B-132r", "tool": "harmonic_tier_recheck.py", "date": "2026-10-14",
+        "source": "analyses/ABCD-Stop-Study",
+        "subjects": ("Harmonic Reversal (XABCD)",),
+        "verdict": "POSITIVE",
+        "headline": ("pre-registered re-run of B-129r's promotion check with B-132's AB=CD "
+                     "stop (D - 2 x ATR14), nifty500 first 300 (out of sample for the stop). "
+                     "R0 PASS (n=109, +1.10%). P: 2,349 signals / 281 symbols, @20d +0.55% "
+                     "windows +0.33/+0.15/+1.06, clustered p=0.025, plan +0.04R (was -0.18R), "
+                     "+0.55%/trade -> rule says PROMOTE (recommendation only). The window-2 pass "
+                     "(-0.03 -> +0.15) came from calendar drift, not the stop; margins thin. "
+                     "Tier unchanged -- owner's call."),
+    },
 )
 
 
