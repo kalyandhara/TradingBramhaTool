@@ -63,6 +63,7 @@ import deal_infographic as dinf
 import nse_oi_momentum as oim
 import browser_cookie_helper as bch
 import portfolio_risk as prisk
+import position_sizing as psz
 import ui_tables as uit
 import stock_council as council
 import fundamentals_deep as fdeep
@@ -1422,7 +1423,8 @@ ui_jobs.render_panel()
 # ──────────────────────────────────────────────────────────────────────────────
 
 def _notes_table(df, key: str, symbol_col: str, *, column_config=None,
-                 page_size: int = 200, select_col: str | None = None):
+                 page_size: int = 200, select_col: str | None = None,
+                 preselect: "set[str] | None" = None):
     """A table whose ONLY editable cells are the note and an optional tick-box.
 
     UI-2 (2026-09-10). Generalises the pattern B-63b proved on the Watchlist so
@@ -1442,6 +1444,9 @@ def _notes_table(df, key: str, symbol_col: str, *, column_config=None,
     is a second `st.data_editor` over the same frame, and two editors against one
     table is the drift `columns.py` exists to stop.
 
+    `preselect` starts those symbols ticked. It is still only a tick: the
+    caller's own button is what acts on it, so a suggestion stays a suggestion.
+
     Returns the edited frame so a caller can keep using it.
     """
     import columns as _cols
@@ -1456,7 +1461,9 @@ def _notes_table(df, key: str, symbol_col: str, *, column_config=None,
         # a destructive control at the far right of ~25 columns is a control
         # aimed at whichever row you happened to scroll to. Verified in the
         # running dashboard rather than inferred from the insert position.
-        work.insert(0, select_col, False)
+        _pre = {str(x).strip().upper() for x in (preselect or ())}
+        work.insert(0, select_col, [str(x).strip().upper() in _pre
+                                    for x in work[symbol_col]])
     before = dict(zip((str(x).strip().upper() for x in work[symbol_col]),
                       work["notes"]))
 
@@ -7584,16 +7591,21 @@ if current_page == "Portfolio":
             current = float(df["close"].iloc[-1]) if df is not None and not df.empty else None
             pl_pct = ((current - pos["entry_price"]) / pos["entry_price"] * 100
                       ) if current else None
-            r_mult = None
-            has_stop = pd.notna(pos["stop_loss"]) and pos["stop_loss"] not in (None, 0)
-            if current is not None and has_stop and pos["entry_price"] != pos["stop_loss"]:
-                r_mult = (current - pos["entry_price"]) / (pos["entry_price"] - pos["stop_loss"])
+            # R against the stop the trade was OPENED with (positions.initial_stop),
+            # not today's stop: a raised stop shrinks entry - stop, and R measured
+            # against it inflates every winner. Falls back to stop_loss for a row
+            # whose initial stop is unknown.
+            _r_stop = pos.get("initial_stop")
+            if _r_stop is None or pd.isna(_r_stop):
+                _r_stop = pos["stop_loss"]
+            r_mult = psz.r_multiple(pos["entry_price"], _r_stop, current)
             rows.append({
                 "id": pos["id"], "Symbol": pos["symbol"], "Entry": pos["entry_price"],
                 "Qty": pos["quantity"], "Current": current,
                 "P&L %": gain_loss_badge(pl_pct) if pl_pct is not None else "—",
                 "R-Multiple": f"{r_mult:.2f}R" if r_mult is not None else "—",
-                "Stop": pos["stop_loss"], "Target": pos["target"],
+                "Stop": pos["stop_loss"], "Initial stop": pos.get("initial_stop"),
+                "Target": pos["target"],
                 "Entry Date": pos["entry_date"], "Notes": pos["notes"],
             })
         uit.paginated_df(pd.DataFrame(rows).drop(columns=["id"]), key="portfolio_open")
@@ -7626,9 +7638,22 @@ if current_page == "Portfolio":
             closed_pos["Result"] = closed_pos["closed_price"].ge(closed_pos["entry_price"]).map(
                 {True: "Win", False: "Loss"}
             )
+            # Realised R against the opening stop. Blank, not 0, when the trade had
+            # no stop: an unbounded risk has no R, and 0R would read as a scratch.
+            _r = [psz.r_multiple(e, s0, x) for e, s0, x in zip(
+                closed_pos["entry_price"],
+                closed_pos.get("initial_stop", closed_pos["stop_loss"]),
+                closed_pos["closed_price"])]
+            closed_pos["R"] = [f"{v:+.2f}R" if v is not None else "—" for v in _r]
+            _rs = [v for v in _r if v is not None]
+            if _rs:
+                st.caption(f"Realised R over {len(_rs)} closed trade(s) with a stop: "
+                           f"mean **{sum(_rs) / len(_rs):+.2f}R**, "
+                           f"total **{sum(_rs):+.2f}R**. 1R = entry − the stop the "
+                           f"trade was opened with.")
             uit.paginated_df(
                 closed_pos[["symbol", "entry_price", "closed_price", "quantity",
-                            "P&L %", "Result", "entry_date", "closed_date", "notes"]],
+                            "P&L %", "R", "Result", "entry_date", "closed_date", "notes"]],
                 key="portfolio_closed",
             )
 
@@ -7775,6 +7800,29 @@ if current_page == "Watchlist":
         for _r in rows:
             _r["cap_bucket"] = _cap_map.get(str(_r["Symbol"]).strip().upper(), "")
 
+        # Plan status (LuxAlgo R&E step 2, plan_status.py). The newest cached
+        # scanner plan per name, judged by the harness's own walk. Bars come from
+        # the same cached fetch the rows above used, so this costs no new fetch.
+        import plan_status as _pst
+        try:
+            _pconn = db.get_connection()
+            try:
+                _wl_plans = _pst.watchlist_status(
+                    [r["Symbol"] for r in rows],
+                    lambda s_: _pst.cache_rows_from_db(_pconn, s_),
+                    lambda s_: cached_fetch_ohlcv(s_, enforce_liquidity=False))
+            finally:
+                _pconn.close()
+        except Exception as _e:           # a status column must not take the page down
+            _wl_plans = {}
+            st.caption(f"Plan status unavailable — {type(_e).__name__}: {_e}")
+        for _r in rows:
+            _p = _wl_plans.get(_r["Symbol"], {})
+            _r["plan_status"] = _pst.label(_p) if _p else ""
+            _r["plan_from"] = _pst.plan_source(_p)
+        _wl_done = [s_ for s_, p_ in _wl_plans.items()
+                    if p_.get("status") in _pst.REMOVE_SUGGESTED]
+
         _wl_df = pd.DataFrame(rows)
         # Cap is an IDENTITY attribute, not a measurement, so it belongs beside
         # the symbol rather than wherever dict insertion order left it — which
@@ -7787,8 +7835,10 @@ if current_page == "Watchlist":
         import sector_column as _sc
         _wl_df = _sc.attach(_wl_df, "Symbol")
         _wl_df = _with_chart_family(_wl_df, "Symbol")
+        # Plan status sits with the identity columns: it is what the removal tick
+        # beside the symbol is most often deciding on.
         _head = ["Symbol"] + [c for c in ("cap_bucket", "sector")
-                              if c in _wl_df.columns] + _CHART_FAMILY_COLS
+                              if c in _wl_df.columns] + _CHART_FAMILY_COLS +                 [c for c in ("plan_status", "plan_from") if c in _wl_df.columns]
         _wl_df = _wl_df[_head + [c for c in _wl_df.columns if c not in _head]]
         # A symbol whose history failed to load contributes only Symbol/Notes,
         # which leaves the numeric columns as object dtype holding None — and
@@ -7806,7 +7856,7 @@ if current_page == "Watchlist":
             _wl_df = _wl_df.drop(columns=["rs_walk"])
         for _c in ("pivot_d", "pivot_w", "pivot_agree", "bo_date", "rs_walk", "minervini",
                    "technofunda", "ema_stack", "cap_bucket", "sector",
-                   "svp_hist_8w"):
+                   "svp_hist_8w", "plan_status", "plan_from"):
             if _c in _wl_df.columns:
                 _wl_df[_c] = _wl_df[_c].where(_wl_df[_c].notna(), "")
         if _wl_ref is None and not _wl_df.empty:
@@ -7838,9 +7888,28 @@ if current_page == "Watchlist":
         _earnings_fill_button(_wl_df["Symbol"], "wl")
         _pw().fill_button(_wl_df["Symbol"], "wl", "Watchlist",
                           fetch=cached_fundamentals_deep)
-        _wl_edited = _notes_table(_wl_df, key="wl_notes_editor",
-                                  symbol_col="Symbol", column_config=_wl_cfg,
-                                  select_col="✕")
+        # Removal SUGGESTIONS from the Plan column. Pressing this only ticks the
+        # finished rows; the existing two-step remove button still does the
+        # removing, so nothing leaves the list without a second, deliberate click.
+        if _wl_done:
+            _sg1, _sg2 = st.columns([3, 1])
+            _sg1.info(f"**{len(_wl_done)}** name(s) have a finished plan "
+                      f"(stop or target hit, past the time stop, or the entry "
+                      f"never filled): "
+                      f"{', '.join(_wl_done[:10])}{'…' if len(_wl_done) > 10 else ''}. "
+                      f"Finished plan ≠ finished stock — review before removing.")
+            if _sg2.button(f"Tick these {len(_wl_done)}", key="wl_tick_done",
+                           help="Ticks the finished-plan rows in the ✕ column. "
+                                "Nothing is removed until you press Remove."):
+                st.session_state["wl_preselect"] = list(_wl_done)
+                # A fresh editor key so the new defaults show instead of the
+                # editor's remembered (unticked) state.
+                st.session_state["wl_editor_gen"] = st.session_state.get("wl_editor_gen", 0) + 1
+                st.rerun()
+        _wl_edited = _notes_table(
+            _wl_df, key=f"wl_notes_editor_{st.session_state.get('wl_editor_gen', 0)}",
+            symbol_col="Symbol", column_config=_wl_cfg, select_col="✕",
+            preselect=set(st.session_state.get("wl_preselect", [])))
         _pa_send_button("wl", "Watchlist", _wl_df, "Symbol",
                         note_fn=lambda r: str(r.get("Notes") or r.get("notes") or "watchlist"))
         # Per-row removal, replacing the detached "Remove from watchlist"
@@ -7868,6 +7937,10 @@ if current_page == "Watchlist":
                 # reverse it.
                 st.success(f"Removed {', '.join(_wl_picked)} from the watchlist. "
                            f"Notes kept.")
+                # The rows shifted, so remembered ticks would land on the wrong
+                # names: drop the suggestion set and start a fresh editor.
+                st.session_state.pop("wl_preselect", None)
+                st.session_state["wl_editor_gen"] = st.session_state.get("wl_editor_gen", 0) + 1
                 st.rerun()
         st.caption(
             "**EMA cross (d)** is signed: **+12** = the 10-EMA crossed ABOVE the "

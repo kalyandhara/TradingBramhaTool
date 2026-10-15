@@ -126,6 +126,11 @@ window.INDICATOR_INFO = /*JSON-BEGIN*/{
     "desc": "Trails a line three times the 14-bar average true range behind price and marks when price closes through it, flipping long to short. It sizes the stop to how much the stock normally moves, so a volatile name gets more room. Wide stops mean bigger losses per trade, and after a volatility spike the line can sit far from price.",
     "level": "Intermediate", "goals": ["stop", "trend"], "added": "2026-09-24", "concept": null
   },
+  "riskbox": {
+    "short": "Draws entry, stop and 1R/2R/3R lines and works out how many shares to buy.",
+    "desc": "Takes an entry and a stop (by default the last close and the trade card's own stop rule) and draws them with targets at one, two and three times the risk. It sizes the position so that hitting the stop loses a fixed slice of your capital, 2% unless you change it. It is arithmetic about risk, not a buy signal, and the 2% figure is a starting assumption rather than a tested number.",
+    "level": "Beginner", "goals": ["stop", "target"], "added": "2026-10-15", "concept": null
+  },
   "renko": {
     "short": "Renko bricks drawn over the candles — trend structure with small wiggles removed.",
     "desc": "Builds Renko bricks sized by ATR (a new brick only when price moves a full brick) and draws that staircase over the candles, marking where the brick direction flips. It filters out small moves so the trend is easier to see. Bricks ignore time and the latest brick can be pending, so the chart can look calmer than it is.",

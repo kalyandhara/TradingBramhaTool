@@ -138,6 +138,20 @@ def init_db() -> None:
         # columns added after the first release need an explicit backfill or a
         # machine that has been running the job just silently keeps the old
         # schema and the new INSERT fails.
+        # `initial_stop` is the stop a position was OPENED with, and it is what
+        # defines 1R (R-multiple framework). `stop_loss` may be raised later as
+        # the trade is managed; measuring R against the raised stop silently
+        # redefines what -1R meant, and the Portfolio page did exactly that.
+        #
+        # Backfilled from `stop_loss` once, for rows added before the column
+        # existed. That is exact for every row the desk can have written: until
+        # this column, nothing in the app ever MOVED `stop_loss` (the only
+        # `update_position` caller was `close_position`), so stop_loss still is
+        # the stop each position was opened with. The UPDATE only touches NULLs,
+        # so it is a no-op on every later start.
+        _add_missing_columns(conn, "positions", {"initial_stop": "REAL"})
+        conn.execute("UPDATE positions SET initial_stop = stop_loss "
+                     "WHERE initial_stop IS NULL AND stop_loss IS NOT NULL")
         _add_missing_columns(conn, "daily_opportunities", {
             "families": "INTEGER",        # independent scanner families hit
             "family_names": "TEXT",
@@ -402,12 +416,16 @@ def _add_missing_columns(conn, table: str, columns: dict[str, str]) -> None:
 def add_position(symbol: str, entry_price: float, quantity: float, entry_date: str,
                   stop_loss: float | None = None, target: float | None = None,
                   notes: str = "") -> int:
+    """Open a position. Its opening ``stop_loss`` is also frozen as
+    ``initial_stop`` — the stop that defines 1R for the life of the trade."""
     conn = get_connection()
     try:
         cur = conn.execute(
             "INSERT INTO positions (symbol, entry_price, quantity, entry_date, "
-            "stop_loss, target, status, notes) VALUES (?, ?, ?, ?, ?, ?, 'open', ?)",
-            (symbol.upper(), entry_price, quantity, entry_date, stop_loss, target, notes),
+            "stop_loss, initial_stop, target, status, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)",
+            (symbol.upper(), entry_price, quantity, entry_date, stop_loss,
+             stop_loss, target, notes),
         )
         conn.commit()
         return cur.lastrowid
@@ -415,6 +433,9 @@ def add_position(symbol: str, entry_price: float, quantity: float, entry_date: s
         conn.close()
 
 
+#: `initial_stop` is deliberately NOT editable here: it is set once, at entry.
+#: Raising the stop is `update_position(id, stop_loss=...)`; rewriting what the
+#: trade risked on day one is not an operation the journal offers.
 _POSITION_COLUMNS = frozenset({
     "symbol", "entry_price", "quantity", "entry_date",
     "stop_loss", "target", "status", "closed_price", "closed_date", "notes",

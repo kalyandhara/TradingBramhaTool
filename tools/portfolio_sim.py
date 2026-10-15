@@ -59,6 +59,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
+import position_sizing as ps
+
 
 @dataclass
 class Settings:
@@ -134,8 +136,7 @@ def _one_path(trades: list[dict], s: Settings, seed: int) -> dict:
                 continue
             entry, stop = float(t["entry_px"]), float(t["stop"])
             risk_frac = abs(entry - stop) / entry          # loss per ₹ of notional at the stop
-            want_risk = equity * s.risk_pct / 100.0
-            notional = want_risk / risk_frac
+            notional = ps.notional_for_risk(equity, entry, stop, s.risk_pct)
             cash = equity - sum(p["notional"] for p in open_pos)
             cap = min(equity * s.max_position_pct / 100.0, cash)
             if notional > cap:

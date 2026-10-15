@@ -69,6 +69,9 @@
      Loaded AFTER elliott_wave.js and volume_profile.js: it reads EW.computeZigzag for
      swing anchoring and VP.findConfluence for level scoring. -->
 <script src="/fibonacci.js"></script>
+<!-- Risk box: entry / stop / ±R + position size — bookkeeping, not a signal. Mirrors
+     position_sizing.py (test_risk_box.py holds the two equal). -->
+<script src="/risk_box.js"></script>
 <!-- Gann Square-of-9 S/R levels + honest break-odds card — pure computation, see gann.js.
      Draws only the deterministic horizontal levels (not the scale-dependent fan); the
      card's probability is this symbol's own historical breakout follow-through, not a
@@ -1865,6 +1868,7 @@ const INDICATOR_DEFS = [
   // Real taker side, not an estimate from bar internals — see drawDeltaProfile.
   {key:'deltaprofile', label:'Delta Profile — real taker side (Hyperliquid only)', group:'Volume', color:C_UP},
   // ── Pattern Recognition ──────────────────────────────────────────────────────
+  {key:'riskbox',      label:'Risk Box — entry / stop / ±R + position size', group:'Levels & Projection', color:'#4c9aff', alias:'risk reward position size sizing r multiple stop loss take profit risk management tool shares quantity fixed fractional'},
   {key:'elliott',      label:'Elliott Wave (1-5, A-B-C, W-X-Y)', group:'Levels & Projection', color:'#00e5ff', alias:'elliott wave wxy double zigzag double three complex correction'},
   // B-136: the same engine at a larger zigzag size, drawn over the normal count.
   {key:'ew2deg',       label:'Elliott Wave · larger degree (nesting)', group:'Levels & Projection', color:'#9e9e9e', alias:'elliott wave degree nested higher degree major minor'},
@@ -4575,6 +4579,7 @@ function applyIndicators(pane) {
     clearOrderBlocks(pane);
     if (pane.indicators.has('prte')) renderPrteOverlay(pane);
   }
+  if (!pane.indicators.has('riskbox') && pane.riskBox) clearRiskBox(pane);
   // Clear liquidity pools + sweep marker if deselected.
   if (!pane.indicators.has('liquidity') && pane.liq) clearLiquidity(pane);
   // Clear the %R exhaustion main-chart overlay (arrows + tint) if deselected.
@@ -5500,6 +5505,9 @@ function applyIndicators(pane) {
   // needed -- price lines and markers are placed by PRICE and TIME, not by pixel
   // coordinates, so they do not care whether LWC has settled its scales yet.
   if (pane.indicators.has('liquidity')) renderLiquidity(pane);
+
+  // Risk box: price lines by PRICE, like liquidity, so no RAF deferral.
+  if (pane.indicators.has('riskbox')) renderRiskBox(pane);
 
   // ── MA Bias overlay (regime / stack / trigger / distrust card + crosses) ────
   if (pane.indicators.has('mabias')) {
@@ -9371,6 +9379,131 @@ function renderSbcInfo(pane, d) {
       `<br>quality = 0.6·dist/ATR + 0.4·body/ATR → STRONG ≥0.75 · NORMAL ≥0.35 · else WEAK; ` +
       `opacity shows it` +
       `<br><i>Held vs failed MEASURED 2026-09-21 (B-114): +1.28pp @20d over 4,608 events, 150 names, and it survives clustering (133 symbols, p=0.0015). The quality ladder does NOT rank on the same data — read STRONG/NORMAL/WEAK as description, not as strength. B-115: a held UP break also beats owning the same bars, +0.82pp @20d (p=0.006, 58% of names) — real, and small.</i></div>`;
+}
+
+// ── Risk box (integration layer for risk_box.js) ─────────────────────────────
+// Entry / stop / +1R..+3R as price lines, and a card that sizes the position so a
+// stop-out costs a fixed slice of capital (fixed-fractional, R-multiple framework).
+// BOOKKEEPING, NOT A SIGNAL: it shows what a trade would risk, never whether to
+// take it. Entry starts at the last close and the stop at the trade card's own
+// rule (10-bar swing low vs close − 1.5×ATR14); both are editable per pane and
+// reset when the symbol changes. Capital and risk % persist per browser.
+const LS_RISKBOX = 'tb.riskbox.prefs.v1';
+function loadRiskBoxPrefs() {
+  try { return JSON.parse(localStorage.getItem(LS_RISKBOX) || '{}') || {}; } catch { return {}; }
+}
+function saveRiskBoxPrefs(p) {
+  try { localStorage.setItem(LS_RISKBOX, JSON.stringify(p)); } catch {}
+}
+
+function clearRiskBox(pane) {
+  const st = pane.riskBox;
+  if (!st) return;
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  if (st.el) { try { st.el.remove(); } catch {} }
+  pane.riskBox = null;
+}
+
+function _rbSeed(pane, st) {
+  const last = pane.bars[pane.bars.length - 1].close;
+  const stop = RISKBOX.defaultStop(pane.bars);
+  st.entry = +last.toFixed(2);
+  st.stop = Number.isFinite(stop) ? +stop.toFixed(2) : +(last * 0.95).toFixed(2);
+}
+
+function _rbCard(pane, st) {
+  const el = document.createElement('div');
+  el.className = 'trail-status riskbox-card';
+  el.innerHTML =
+    '<div class="svol-head">Risk box — position size from the stop</div>' +
+    '<div class="rb-grid" style="display:grid;grid-template-columns:auto 1fr auto 1fr;' +
+      'gap:3px 6px;align-items:center;margin-top:4px;font-size:10.5px;">' +
+      '<label>Capital ₹</label><input data-f="capital" type="number" min="0" step="1000">' +
+      '<label>Risk %</label><input data-f="risk" type="number" min="0.1" max="10" step="0.1">' +
+      '<label>Entry</label><input data-f="entry" type="number" step="0.05">' +
+      '<label>Stop</label><input data-f="stop" type="number" step="0.05">' +
+    '</div>' +
+    '<div class="rb-out sbc-note" style="margin-top:5px;font-family:var(--font-mono);"></div>' +
+    '<div class="sbc-note" style="opacity:0.75;margin-top:3px;">Bookkeeping, not a signal. ' +
+      '2% is the desk&#39;s prior, not a measured number. Default stop = the trade card&#39;s ' +
+      'rule. <a href="#" data-act="reset">Reset entry/stop</a></div>';
+  el.querySelectorAll('input').forEach(inp => {
+    inp.style.cssText = 'width:100%;min-width:0;font-size:10.5px;padding:1px 3px;' +
+      'background:transparent;color:inherit;border:1px solid rgba(128,128,128,0.45);border-radius:3px;';
+    // Typing a number must not drive the chart's own keyboard shortcuts.
+    inp.addEventListener('keydown', ev => ev.stopPropagation());
+    inp.addEventListener('change', () => {
+      const v = parseFloat(inp.value);
+      if (!Number.isFinite(v) || v <= 0) return renderRiskBox(pane);
+      const f = inp.dataset.f;
+      if (f === 'capital' || f === 'risk') {
+        const p = loadRiskBoxPrefs();
+        p[f] = v;
+        saveRiskBoxPrefs(p);
+      } else {
+        st[f] = v;
+      }
+      renderRiskBox(pane);
+    });
+  });
+  el.querySelector('[data-act="reset"]').addEventListener('click', ev => {
+    ev.preventDefault();
+    _rbSeed(pane, st);
+    renderRiskBox(pane);
+  });
+  mountCard(pane, el, 'stack');
+  return el;
+}
+
+function renderRiskBox(pane) {
+  if (typeof RISKBOX === 'undefined' || !pane.bars || !pane.bars.length) return;
+  let st = pane.riskBox;
+  if (st && st.symbol !== pane.symbol) { clearRiskBox(pane); st = null; }
+  if (!st) {
+    st = pane.riskBox = {priceLines: [], el: null, symbol: pane.symbol};
+    _rbSeed(pane, st);
+  }
+  if (!st.el) st.el = _rbCard(pane, st);
+  st.el.style.display = 'block';      // .trail-status cards start hidden
+
+  const prefs = loadRiskBoxPrefs();
+  const capital = Number.isFinite(prefs.capital) ? prefs.capital : 1000000;
+  const riskPct = Number.isFinite(prefs.risk) ? prefs.risk : RISKBOX.RISK_PER_TRADE_PCT;
+  const last = pane.bars[pane.bars.length - 1].close;
+  // Never overwrite the field being typed in: a new bar re-renders mid-edit.
+  const vals = {capital, risk: riskPct, entry: st.entry, stop: st.stop};
+  st.el.querySelectorAll('input').forEach(inp => {
+    if (document.activeElement !== inp) inp.value = vals[inp.dataset.f];
+  });
+
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+  const box = RISKBOX.compute({capital, riskPct, entry: st.entry, stop: st.stop, last});
+  const out = st.el.querySelector('.rb-out');
+  if (!box) { out.textContent = 'Entry and stop must differ.'; return; }
+
+  const mk = (price, title, color, style) => {
+    try {
+      st.priceLines.push(pane.series.createPriceLine({
+        price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title,
+      }));
+    } catch {}
+  };
+  mk(box.entry, 'Entry', '#4c9aff', 0);
+  mk(box.stop, 'Stop −1R', '#f23645', 0);
+  box.targets.forEach(t => mk(t.price, `+${t.r}R`, C_UP, 2));
+
+  const inr = v => '₹' + Math.round(v).toLocaleString('en-IN');
+  const z = box.size;
+  const lastR = box.last_r === null ? '—'
+    : `<span style="color:${box.last_r >= 0 ? C_UP : '#f23645'}">${box.last_r >= 0 ? '+' : ''}${box.last_r.toFixed(2)}R</span>`;
+  out.innerHTML =
+    `${box.side.toUpperCase()} · 1R = ${box.r.toFixed(2)} (${box.stop_pct.toFixed(2)}%) · last close ${lastR}<br>` +
+    (z ? `<b>${z.qty.toLocaleString('en-IN')} shares</b> · risk ${inr(z.risk_amount)} of ${inr(z.risk_budget)} · ` +
+         `position ${inr(z.notional)} (${z.position_pct.toFixed(1)}% of capital)` +
+         (z.capped ? '<br><span style="color:#ffa726">⚠ Capped at 100% of capital — the stop is tighter than the risk budget can use.</span>' : '')
+       : 'Enter capital to size the position.') +
+    (box.side === 'short' ? '<br><span style="color:#ffa726">Stop above entry = a short; NSE cash delivery cannot hold one overnight.</span>' : '');
 }
 
 // ── PMax trade overlay (flip markers + live position levels) ──────────────────

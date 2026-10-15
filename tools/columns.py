@@ -264,6 +264,25 @@ COLUMNS: dict[str, ColSpec] = {
         "one population over time. '?' = the name lacked history that far back, "
         "which is not the same as ranking weak.",
         "text", width="medium", tone="rank"),
+    # ── trade-plan status (plan_status.py, LuxAlgo R&E step 2) ────────────────
+    "plan_status": ColSpec(
+        "Plan",
+        "Where the name's newest cached scanner plan stands, judged the way the "
+        "backtest harness scores a plan: the entry is an ORDER that waits 5 "
+        "sessions (B-121 touch fill), then stop-first when one bar spans both "
+        "levels, against the card's own time stop. STOP HIT / TARGET HIT / "
+        "EXPIRED / NOT FILLED / MISSED (filled only past the target) = the plan "
+        "is finished, so the row is a removal SUGGESTION — nothing is removed for "
+        "you. PENDING = the entry has not traded yet. R is from the fill, gross "
+        "of costs. WATCH ONLY = the card's levels are not a plan (B-128). No plan "
+        "= no cached card with entry/stop/target.",
+        "text", width="medium"),
+    "plan_from": ColSpec(
+        "Plan from",
+        "Which scanner card, and from which run date, the Plan column is judging "
+        "— the newest one with a full plan. The watchlist does not record the "
+        "plan a name was added on, so this is never claimed to be that one.",
+        "text", width="medium"),
     "profit_qoq_walk": ColSpec(
         "Profit walk (QoQ)",
         "Net profit change from one quarter to the NEXT one, per cent, oldest "

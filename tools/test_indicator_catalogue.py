@@ -36,7 +36,7 @@ POSITIVE_VERDICT: set[str] = indicator_evidence.positive_keys()
 
 
 def test_every_def_has_an_entry_and_no_orphans():
-    assert len(KEYS) == len(set(KEYS)) == 59
+    assert len(KEYS) == len(set(KEYS)) == 60
     assert set(KEYS) == set(INFO), (
         f"missing: {sorted(set(KEYS) - set(INFO))}, orphan: {sorted(set(INFO) - set(KEYS))}")
 
