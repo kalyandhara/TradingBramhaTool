@@ -5056,8 +5056,8 @@ def _render_pipeline_card(hit: dict) -> None:
         f'<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;'
         f'margin-bottom:4px;">'
         f'{_confluence_chips(len(hit["scanners"]), hit["families"])}'
-        f'<span class="tb-chip" title="Rank score — 0.45×Overall Rating + '
-        f'0.30×best scanner score + 0.25×family-capped confluence" '
+        f'<span class="tb-chip" title="Rank score — 0.45×Overall Rating + 0.30×best scanner '
+        f'score (UNMEASURED as a ranking input, B-172) + 0.25×family-capped confluence" '
         f'style="background:{rs.TOKENS["surface_alt"]};'
         f'color:{rs.TOKENS["text_body"]};">score '
         f'{(hit.get("rank_score") or 0):.1f}</span></div>'
@@ -8387,9 +8387,13 @@ if current_page == "Opportunity Hub":
                 "0.25 × confluence**. Confluence weights scanners by *measured* "
                 "backtest edge — Falling Wedge, Harmonic Reversal and Order Block "
                 "count double, because the harness found the others at or below a "
-                "random-entry baseline. Every name here already sits in a leading "
-                "sector **and** industry; that is a filter, not a bonus. This is a "
-                "shortlist to research, not a buy list.")
+                "random-entry baseline. **The scanner-score term is unmeasured as a "
+                "ranking input:** B-172 found a scanner's own 0–100 score separates "
+                "better hits from worse for only 1–2 of 41 scanners (inverted for "
+                "Downside Risk), and no-score scanners such as Liquidity Sweep count as "
+                "0. Kept by owner decision (B-172r), not by evidence. Every name here "
+                "already sits in a leading sector **and** industry; that is a filter, "
+                "not a bonus. This is a shortlist to research, not a buy list.")
 
     st.divider()
     st.markdown("**Manual funnel** — drive the same steps yourself")

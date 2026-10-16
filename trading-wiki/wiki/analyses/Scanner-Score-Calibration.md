@@ -121,3 +121,8 @@ Everything else: NO EVIDENCE.
   a ranking input, so B-172r is still the question that matters.
 * The no-score scanners (Liquidity Sweep and six others) still count as 0 in the
   `best_score` race. Nothing here changes that; it is part of the B-172r question.
+
+## Owner decision — B-172r, 2026-10-15
+**Keep `best_score`'s 30% of `rank_score` for now, and say so.** The Opportunity Hub
+shortlist caption and each card's score-chip tooltip state that the scanner-score term is
+unmeasured as a ranking input and is kept by decision, not evidence. No weight changed.
