@@ -95,3 +95,50 @@ test of weekly CRT. It is not run here.
 versions of one event: a weekly CRT is, statistically, a different event from a daily
 equal-lows sweep. That is why an edge test is owed, and also why the sweep's B-41m
 result says nothing about whether CRT has an edge.
+
+---
+
+## B-165r — Weekly CRT forward-return test
+
+### Pre-registration — written 2026-10-15, BEFORE any forward return was computed
+
+**Events.** Weekly bullish CRT exactly as B-165 defined it (`tools/crt_weekly.py`), on the
+**same panel and span**: nifty500 first 300, 1500 days, the last 750 bars of each name.
+The signal bar is the **last trading day of candle 2's week**. Entry is the next session's
+**open**; the exit is the close *h* sessions after entry. That is the harness timing (`backtest`:
+entry t+1 open, exit t+1+h close), so the numbers line up with B-41m.
+
+**Two populations, both tested:**
+* **ALL**: every CRT event.
+* **UNCOVERED**: CRT events with **no** Liquidity Sweep swept bar within the CRT week ± 5
+  sessions. Sweep events are recomputed with `crt_sweep_overlap.sweep_dates` (full history, as
+  B-165 ran), because B-165 saved only aggregates. UNCOVERED is what CRT would add if
+  the sweep scanner were already in use.
+
+**Return and baseline.** Net of `backtest.COST_INDIAN` round-trip costs. Baseline: the same
+symbol's mean net forward return from **every** bar in the same span, with the same timing.
+**Edge = event return − that symbol's baseline**, the harness's "minus all bars" definition,
+made per symbol.
+
+**Statistic.** Per-symbol mean edge, then a one-sample t-test across symbols (the B-124
+clustering precedent: a name that fires 30 times is one opinion). Horizons 10 / 20 / 60
+sessions; **20 is primary.** α = **0.025** per population at 20 sessions (Bonferroni over ALL
+and UNCOVERED); 10 and 60 are descriptive.
+
+**Stability.** The span is split into 3 equal calendar windows; the pooled 20-session edge
+must be positive in **at least 2 of 3**.
+
+**Decision (fixed now).**
+* **EDGE** for a population if the 20-session edge is > 0, with p < 0.025, positive in ≥ 2 of 3
+  windows, and ≥ 30 symbols / ≥ 300 events. Then file **B-165s**: register weekly CRT as a
+  scanner at unmeasured weight, with its own plan study. It does **not** promote the
+  scanner's tier.
+* **NULL** otherwise. B-165r closes; CRT stays a detector with no scanner.
+
+**Prior: NULL for both.** Weekly CRT is common (6,502 events across 258 names in about 150 weeks,
+roughly one week in six per name). An event that common is mostly ordinary tape, so expect a
+20-session edge within ±0.3% and p > 0.05. UNCOVERED is expected to be no better than ALL.
+
+### Result
+
+*(appended after the run — the pre-registration above is not edited after it)*
