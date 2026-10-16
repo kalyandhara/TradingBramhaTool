@@ -56,6 +56,25 @@ outcome, across names with both. Then the mean IC across dates, with a t-test ac
 mostly been rewarded. Expected: IC(RS) slightly positive, IC(RESID) similar, ΔIC within
 ±0.02 and not significant.
 
-## Result
+## Result — RUN 2026-10-16: NO CHANGE
 
-*(appended after the run — the pre-registration above is not edited after it)*
+`tools/residual_momentum_study.py`, run as pre-registered (`2879611`); output
+`cache/residual_momentum_study.json`. **58 monthly dates** (2021-11-01 → 2026-09-03), median
+**258 names** per date.
+
+| Predictor | mean IC | t | p | % dates > 0 |
+|---|---|---|---|---|
+| RS (desk, total return) | 0.036 | 1.86 | 0.067 | 62.1% |
+| RESID (12-1 residual momentum) | **0.044** | 2.81 | **0.007** | 63.8% |
+| **ΔIC = RESID − RS** | **+0.008** | 0.81 | **0.420** | 43.1% |
+
+ΔIC by calendar window: **−0.007 / −0.003 / +0.033**.
+
+**Verdict: NO CHANGE.** RESID's own IC clears p < 0.05, but its advantage over RS does not
+(p = 0.42), and it is positive in only 1 of 3 windows. All three conditions were needed. RS stays as it is; no
+B-175r. Prior held.
+
+**What it does say (descriptive):** both momentum flavours carry a little cross-sectional
+information on this panel. ICs of 0.04 are small but typical of equity momentum, and the
+market-neutral version is not worse than the desk's total-return RS. RS's own IC is only marginal
+here (p = 0.067). Survivorship (today's membership) flatters both equally.

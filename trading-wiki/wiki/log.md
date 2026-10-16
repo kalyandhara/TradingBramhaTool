@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-16] study | B-175 residual momentum vs RS rank — NO CHANGE
+- Pre-registered (`2879611`, intercept-free beta fixed before commit) in [[analyses/Residual-Momentum-vs-RS]]. 58 monthly dates: IC RS 0.036 (p 0.067), RESID 0.044 (p 0.007), Δ +0.008 (p 0.42), Δ>0 in 1/3 windows. RS stays.
+
 ## [2026-10-15] study | B-165r weekly CRT forward-return test — NULL, closed
 - Pre-registered (`fe1945a`) in [[analyses/Weekly-CRT-Sweep-Overlap]]. 258 names, net costs, per-symbol t: @20d ALL −0.16% (p 0.21), UNCOVERED −0.27% (p 0.09); window signs flip. CRT stays a detector; no B-165s. Leans slightly negative short-term — a sweep of last week's low reads as continuation, not reversal.
 

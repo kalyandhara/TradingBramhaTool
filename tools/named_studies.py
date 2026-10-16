@@ -606,6 +606,15 @@ STUDIES: tuple[dict, ...] = (
                      "bullish CRT -> 20d edge -0.16% (p 0.21) all events, -0.27% (p 0.09) "
                      "where no sweep fired; window signs flip. Detector only, no scanner."),
     },
+    {
+        "item": "B-175", "tool": "residual_momentum_study.py", "date": "2026-10-16",
+        "source": "analyses/Residual-Momentum-vs-RS",
+        "subjects": ("residual momentum", "RS rank"),
+        "verdict": "NULL",
+        "headline": ("pre-registered monthly IC, 58 dates x ~258 names: RS 0.036 (p 0.067), "
+                     "residual momentum 0.044 (p 0.007), difference +0.008 (p 0.42) -- "
+                     "not better than RS; no change."),
+    },
 )
 
 
