@@ -139,6 +139,30 @@ must be positive in **at least 2 of 3**.
 roughly one week in six per name). An event that common is mostly ordinary tape, so expect a
 20-session edge within ±0.3% and p > 0.05. UNCOVERED is expected to be no better than ALL.
 
-### Result
+### Result — RUN 2026-10-15: NULL for both populations → B-165r CLOSED
 
-*(appended after the run — the pre-registration above is not edited after it)*
+`tools/crt_edge_study.py`, run as pre-registered (`fe1945a`); output `cache/crt_edge_study.json`.
+258 names, the same span as B-165.
+
+| Population | h | events | mean edge (per-symbol) | symbols > 0 | t | p |
+|---|---|---|---|---|---|---|
+| **ALL** | 10 | 6,422 | −0.17% | 44.6% | −1.83 | 0.068 |
+| **ALL** | **20** | 6,270 | **−0.16%** | 46.9% | −1.26 | **0.208** |
+| ALL | 60 | 5,965 | +0.48% | 55.0% | +1.88 | 0.061 |
+| **UNCOVERED** | 10 | 4,633 | −0.23% | 46.5% | −2.02 | 0.044 |
+| **UNCOVERED** | **20** | 4,538 | **−0.27%** | 49.6% | −1.72 | **0.086** |
+| UNCOVERED | 60 | 4,356 | +0.00% | 51.6% | +0.01 | 0.993 |
+
+20-session pooled edge by calendar window: ALL **+1.63 / −1.91 / +0.02**, UNCOVERED
+**+1.53 / −2.52 / +0.01**. The sign flips with the tape.
+
+**Verdict: NULL for ALL and for UNCOVERED.** Neither is positive at 20 sessions, and neither is stable across windows.
+**B-165r closes; weekly CRT stays a detector (`crt_weekly.py`), not a scanner.** Prior held.
+
+**How to read it.** The point estimate at 10–20 sessions **leans negative** (UNCOVERED
+@10d p = 0.044 would not survive α = 0.025 and is descriptive only). The "sweep of the prior
+week's low" reads, if anything, as a mild short-term continuation of weakness rather than a
+reversal. The 60-session +0.48% (p = 0.061) is the only positive reading, it is not the primary
+horizon, and it does not survive the window split. A weekly CRT is about one week in six per
+name: common enough to be mostly ordinary tape, which is what this shows. The Liquidity
+Sweep result (B-41m) stands on its own and is not extended by CRT.

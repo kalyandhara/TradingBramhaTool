@@ -597,6 +597,15 @@ STUDIES: tuple[dict, ...] = (
                      "Breakout fragile), INVERTED for Downside Risk; 38 no evidence. "
                      "B-172r (owner) on best_score's 30% of rank_score."),
     },
+    {
+        "item": "B-165r", "tool": "crt_edge_study.py", "date": "2026-10-15",
+        "source": "analyses/Weekly-CRT-Sweep-Overlap",
+        "subjects": ("weekly Candle Range Theory", "CRT"),
+        "verdict": "NULL",
+        "headline": ("pre-registered, 258 names x 750 bars, net costs, per-symbol t: weekly "
+                     "bullish CRT -> 20d edge -0.16% (p 0.21) all events, -0.27% (p 0.09) "
+                     "where no sweep fired; window signs flip. Detector only, no scanner."),
+    },
 )
 
 

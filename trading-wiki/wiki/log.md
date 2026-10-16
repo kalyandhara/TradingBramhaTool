@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-15] study | B-165r weekly CRT forward-return test — NULL, closed
+- Pre-registered (`fe1945a`) in [[analyses/Weekly-CRT-Sweep-Overlap]]. 258 names, net costs, per-symbol t: @20d ALL −0.16% (p 0.21), UNCOVERED −0.27% (p 0.09); window signs flip. CRT stays a detector; no B-165s. Leans slightly negative short-term — a sweep of last week's low reads as continuation, not reversal.
+
 ## [2026-10-15] study | B-172 scanner score calibration census — scores do NOT rank; B-172r (owner) filed
 - Pre-registered ([[analyses/Scanner-Score-Calibration]], `2092c88`). 132,174 scored hits, 41 qualifying scanners. @20d RANKS 2 (Renko Flip; ATH Breakout on the boundary, lost it on re-run), INVERTED 1 (Downside Risk), 38 no evidence. 60d column had a NaN defect; fixed and re-run (bars drifted 13 hits, decision unchanged). B-172r: should best_score keep 30% of rank_score — owner's call.
 
