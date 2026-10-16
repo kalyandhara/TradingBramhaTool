@@ -75,6 +75,49 @@ one INVERTED. The desk's single scored-composite check (SVP) was a clean negativ
 scanner signals measured near-null in B-19. A score built from the same ingredients has
 little room to separate good hits from bad.
 
-## Result
+## Result — RUN 2026-10-15: SCORES DO NOT RANK → B-172r filed (OWNER)
 
-*(appended after the run — the section above is not edited after it)*
+`tools/score_calibration_study.py`, run as pre-registered (`2092c88`). **132,174 scored
+hits** on 139 of 150 names; **41 scanners qualify** (≥ 90 hits, ≥ 15 symbols, ≥ 3
+distinct scores), so the interval is two-sided at 1 − 0.05/41 (α = 0.0012).
+
+### Primary, 20 sessions (run 1, the registered run)
+| Label | Scanners |
+|---|---|
+| **RANKS** (2) | **Renko Flip** +1.54pp [+0.21, +2.74] (only 3 distinct score values) · **ATH Breakout** +2.93pp [**+0.03**, +6.08] |
+| **INVERTED** (1) | **Downside Risk** (a risk scanner): a higher risk score was followed by a **better** return, +0.93pp [+0.17, +1.68] |
+| NO EVIDENCE | the other 38, including 20 EMA Base, Stage 2, Pullback Entry, Near Pivot, VCP Coiling, Momentum Continuation, Darvas, PEAD, Order Block Retest, Harmonic |
+| INSUFFICIENT | EMA-50 Coil, Episodic Pivot, Minervini VCP (valchak), RSI-Fibo Hidden Divergence |
+
+**2 of 41 RANK (< ¼) → decision: file B-172r**, an OWNER question: should `best_score` keep
+30% of `rank_score`? Inside the prior (≤ 3 RANK, ≥ 1 INVERTED).
+
+### A defect, and the re-run it forced
+Run 1's **60-session** column was broken: a hit whose forward window touched a missing
+price carried NaN, and one NaN turned a scanner's whole spread and interval into NaN, which
+the labelling read as NO EVIDENCE (10 scanners). **The 20-session column had no NaN and is
+unaffected.** Fixed (non-finite outcomes dropped per horizon, with a test). Run 1's output was
+kept as `cache/score_calibration_study_run1_nan_defect.json` and the census re-run;
+raw rows are now saved (`cache/score_calibration_rows.json`).
+
+**The re-run did not reproduce bit for bit**: the fetched bars shifted (132,161 vs 132,174
+hits, max spread change 0.65pp; the same yfinance drift B-41p recorded). **One primary label
+moved: ATH Breakout RANKS → NO EVIDENCE** (+2.96pp [−0.05, +6.27]). It sat on the
+boundary in run 1, so **its RANKS is not robust**. Renko Flip (RANKS) and Downside Risk
+(INVERTED, +0.93pp [+0.06, +1.83]) hold in both runs. The decision is the same either way.
+
+### Secondary, 60 sessions (run 2, defect fixed)
+RANKS: **Darvas Box** +2.58pp [+0.15, +5.09]. INVERTED: **Downside Risk** +2.34pp
+[+0.28, +4.43] and **VCP Coiling** −2.77pp [−5.85, −0.13] (a higher VCP score was followed by a worse 60-day return).
+Everything else: NO EVIDENCE.
+
+### What this says
+* For 38–39 of 41 scanners, the 0–100 score **does not separate better hits from worse
+  ones** within the scanner. The 30% of `rank_score` that spends `best_score` is, on this
+  evidence, mostly ordering by noise. This census cannot say whether cross-scanner
+  comparison is meaningful either; it does not test that.
+* **Downside Risk's score points the wrong way at both horizons and in both runs**: names it
+  rates riskier did better. That deserves a look on its own, but it is a risk flag, not
+  a ranking input, so B-172r is still the question that matters.
+* The no-score scanners (Liquidity Sweep and six others) still count as 0 in the
+  `best_score` race. Nothing here changes that; it is part of the B-172r question.

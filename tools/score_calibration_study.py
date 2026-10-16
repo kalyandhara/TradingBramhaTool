@@ -97,6 +97,11 @@ def bootstrap(rows: list[dict], key: str, rng, draws: int = DRAWS) -> np.ndarray
 
 
 def label(rows: list[dict], key: str, risk: bool, alpha: float, rng) -> dict:
+    # Defect found in run 1 (2026-10-15): a hit whose forward window touched a
+    # missing price carried NaN, and one NaN turned the whole spread and its CI
+    # into NaN, which the comparisons below then read as NO EVIDENCE. Ten 60d
+    # rows were affected, no 20d row. Non-finite outcomes are dropped per horizon.
+    rows = [r for r in rows if np.isfinite(r[key])]
     n, n_sym = len(rows), len({r["symbol"] for r in rows})
     distinct = len({round(r["score"], 6) for r in rows})
     base = {"hits": n, "symbols": n_sym, "distinct_scores": distinct}
@@ -152,6 +157,7 @@ def main() -> int:
     syms = list(nu.symbols("nifty500"))[:a.symbols]
     with Pool(a.procs) as p:
         rows = [r for rr in p.imap_unordered(_scan_symbol, syms) for r in rr]
+    (OUT.parent / "score_calibration_rows.json").write_text(json.dumps(rows), encoding="utf-8")
     res = analyse(rows, set(getattr(oh, "RISK_SCANNERS", ())))
     res["symbols_requested"] = len(syms)
     res["symbols_with_hits"] = len({r["symbol"] for r in rows})

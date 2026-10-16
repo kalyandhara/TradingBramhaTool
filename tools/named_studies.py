@@ -587,6 +587,16 @@ STUDIES: tuple[dict, ...] = (
                      "learned regime is significantly WORSE than the vol it is fed; closed, "
                      "regime stays rule-based."),
     },
+    {
+        "item": "B-172", "tool": "score_calibration_study.py", "date": "2026-10-15",
+        "source": "analyses/Scanner-Score-Calibration",
+        "subjects": ("scanner score", "best_score", "rank_score scanner term"),
+        "verdict": "NULL",
+        "headline": ("pre-registered census, 132k scored hits / 41 scanners: the 0-100 score "
+                     "ranks hits within the scanner for 1-2 of 41 @20d (Renko Flip; ATH "
+                     "Breakout fragile), INVERTED for Downside Risk; 38 no evidence. "
+                     "B-172r (owner) on best_score's 30% of rank_score."),
+    },
 )
 
 

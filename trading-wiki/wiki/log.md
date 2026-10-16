@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-15] study | B-172 scanner score calibration census — scores do NOT rank; B-172r (owner) filed
+- Pre-registered ([[analyses/Scanner-Score-Calibration]], `2092c88`). 132,174 scored hits, 41 qualifying scanners. @20d RANKS 2 (Renko Flip; ATH Breakout on the boundary, lost it on re-run), INVERTED 1 (Downside Risk), 38 no evidence. 60d column had a NaN defect; fixed and re-run (bars drifted 13 hits, decision unchanged). B-172r: should best_score keep 30% of rank_score — owner's call.
+
 ## [2026-10-15] study | B-165 weekly CRT vs Liquidity Sweep overlap — NOT A SUBSET; B-174 GMM regime — CLEAN NEGATIVE; B-173 built
 - B-165 ([[analyses/Weekly-CRT-Sweep-Overlap]], pre-registered `c5164d5`): 258 names, 6,502 weekly CRT vs 5,316 sweep events; 28.1% covered at ±5 sessions (bar 80%), at or below the ~34% chance rate → different events; B-165r (pre-registered edge test) filed. 500-bar window failed parity (27.4%), full history used as registered.
 - B-174 ([[analyses/GMM-Regime-vs-Verdict]], pre-registered `14aee1c`): GMM P(stressed) ρ 0.226 vs VOLATILE 0.310 vs trailing vol 0.599 with forward 20d vol → closed, regime stays rule-based.
