@@ -632,6 +632,15 @@ STUDIES: tuple[dict, ...] = (
         "headline": ("pre-registered, 5,305 sweeps: CISD/BOS-confirmed minus unconfirmed "
                      "-0.02pp @20d (p 0.97); confirmation does not select better sweeps."),
     },
+    {
+        "item": "B-177", "tool": "ml_cross_section_study.py", "date": "2026-10-17",
+        "source": "analyses/Cross-Sectional-ML-Experiment",
+        "subjects": ("machine learning", "cross-sectional ML", "gradient boosting"),
+        "verdict": "NULL",
+        "headline": ("pre-registered, purged + embargoed walk-forward, 33 monthly test dates: "
+                     "8-feature GBM IC 0.030 vs RS 0.019, difference +0.012 (p 0.59); LOGIT "
+                     "-0.002 (p 0.94). Nothing learnable beyond RS; no model ships."),
+    },
 )
 
 

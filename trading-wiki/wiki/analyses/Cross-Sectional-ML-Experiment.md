@@ -77,4 +77,20 @@ that is under the noise floor. Expected: IC(model) ≈ IC(RS) ± 0.02, not signi
 
 ## Result
 
-*Not run yet.*
+**RUN 2026-10-17: NOTHING LEARNABLE.** `tools/ml_cross_section_study.py` was run as
+pre-registered (`fcc699e`). There were 58 rebalance dates. 24 were needed for training plus the
+2-period gap, which leaves **33 test dates** (2023-12 to 2026-09), fewer than the ≈ 50 the
+prior assumed. ~258 names per date.
+
+| | IC (p) | ΔIC vs RS (p) | ΔIC by window | top-quintile net excess / month (p) |
+|---|---|---|---|---|
+| RS alone | 0.019 (0.54) | — | — | — |
+| LOGIT | 0.017 (0.56) | −0.002 (0.94) | −0.025 / +0.004 / +0.016 | +0.91% (0.057) |
+| GBM | 0.030 (0.13) | +0.012 (0.59) | −0.007 / +0.018 / +0.024 | +0.78% (0.020) |
+
+**Verdict: NOTHING LEARNABLE.** Neither model ranks next-month returns better than RS: the
+ΔIC is within ±0.012 and nowhere near significant. Neither model's own IC is significant
+either. The prior held. The top-quintile excess is positive but is not a pass on its own.
+Over this window it is the same tilt that RS and momentum already carry: the IC shows no
+added ranking skill. No B-177r and no model ships. The desk's ML line is closed apart from
+B-119.
