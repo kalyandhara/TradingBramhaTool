@@ -55,4 +55,18 @@ ALL-AT-SWEEP.
 
 ## Result
 
-*(appended after the run — the pre-registration above is not edited after it)*
+**RUN 2026-10-17: NO FILTER.** `tools/sweep_confirm_study.py` as pre-registered (`26fcbc4`);
+5,305 sweeps on 258 names; **54.4% confirm** within 5 sessions (CISD or BOS).
+
+| h | CONF − UNCONF (paired, 242 symbols) | CONF edge | ALL-AT-SWEEP edge |
+|---|---|---|---|
+| 10 | +0.07 (p 0.80) | +0.03 (p 0.88) | −0.01 (p 0.98) |
+| **20** | **−0.02 (p 0.97)** | +0.77 (p 0.067) | +0.64 (p 0.061) |
+| 60 | −0.60 (p 0.56) | +2.83 (p 0.015) | +2.59 (p 0.003) |
+
+20-session CONF − UNCONF by window: +0.05 / −0.46 / +0.23.
+
+**Verdict: NO FILTER.** Confirmed and unconfirmed sweeps are the same trade (−0.02pp). Waiting for
+CISD or BOS does not select better sweeps; it only moves the entry later. No B-167r; the sweep card
+stays as is. Prior held. Consistent with B-41p: this edge is in the sweep itself, not in what
+follows it.

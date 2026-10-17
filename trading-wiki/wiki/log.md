@@ -1,6 +1,11 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-17] study | B-166 HTF sweeps — NO CHANGE; B-167 sweep confirmation — NO FILTER; B-168 built
+- B-166 ([[analyses/HTF-Liquidity-Sweep]]): HTF sweeps the scanner misses +0.21% @20d (p 0.35). Registered sweep on this panel +2.59% @60d (p 0.003) — B-41m holds.
+- B-167 ([[analyses/Sweep-Confirmation-Filter]]): confirmed − unconfirmed −0.02pp (p 0.97). The edge is in the sweep, not the confirmation.
+- B-168: FVG CE lines + live inversion FVGs on the chart, display only.
+
 ## [2026-10-16] study | B-175 residual momentum vs RS rank — NO CHANGE
 - Pre-registered (`2879611`, intercept-free beta fixed before commit) in [[analyses/Residual-Momentum-vs-RS]]. 58 monthly dates: IC RS 0.036 (p 0.067), RESID 0.044 (p 0.007), Δ +0.008 (p 0.42), Δ>0 in 1/3 windows. RS stays.
 

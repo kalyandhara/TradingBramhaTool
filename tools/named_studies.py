@@ -615,6 +615,23 @@ STUDIES: tuple[dict, ...] = (
                      "residual momentum 0.044 (p 0.007), difference +0.008 (p 0.42) -- "
                      "not better than RS; no change."),
     },
+    {
+        "item": "B-166", "tool": "htf_sweep_study.py", "date": "2026-10-17",
+        "source": "analyses/HTF-Liquidity-Sweep",
+        "subjects": ("HTF liquidity sweep", "prior-week low sweep", "prior-month low sweep"),
+        "verdict": "NULL",
+        "headline": ("pre-registered, 258 names: HTF sweeps the scanner misses +0.21% @20d "
+                     "(p 0.35); pools stay daily. Registered sweep on the same panel +2.59% "
+                     "@60d (p 0.003)."),
+    },
+    {
+        "item": "B-167", "tool": "sweep_confirm_study.py", "date": "2026-10-17",
+        "source": "analyses/Sweep-Confirmation-Filter",
+        "subjects": ("sweep confirmation", "CISD", "smart money reversal"),
+        "verdict": "NULL",
+        "headline": ("pre-registered, 5,305 sweeps: CISD/BOS-confirmed minus unconfirmed "
+                     "-0.02pp @20d (p 0.97); confirmation does not select better sweeps."),
+    },
 )
 
 

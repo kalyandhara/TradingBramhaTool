@@ -55,4 +55,17 @@ cousin of PWL) carried no edge and leaned negative. Expected: H edge ≈ 0 or sl
 
 ## Result
 
-*(appended after the run — the pre-registration above is not edited after it)*
+**RUN 2026-10-17: NO CHANGE.** `tools/htf_sweep_study.py` as pre-registered (`21efeab`); 258 names.
+
+| Arm | events | 10d | 20d (primary) | 60d | 20d windows |
+|---|---|---|---|---|---|
+| **H**, HTF sweeps the scanner misses | 2,858 | +0.18% (p 0.21) | **+0.21% (p 0.35)** | −0.03% (p 0.94) | +2.63 / −1.27 / −0.80 |
+| D, registered Liquidity Sweep (context) | 5,066 | −0.01% (p 0.98) | +0.64% (p 0.062) | **+2.59% (p 0.003)** | +3.53 / −0.01 / −0.54 |
+
+**Verdict: NO CHANGE.** H fails every condition (p 0.35, 1 of 3 windows, below D). Pools stay daily;
+no B-166r. Prior held.
+
+**Context worth keeping:** on this fresh 258-name panel the registered sweep reads **+2.59% at 60
+sessions (p = 0.003)** and +0.64% at 20 (p = 0.062), consistent with B-41m's +0.91% @60d /
++0.51% @20d on its own panel. The edge, where it exists, is the daily equal-lows pool; a sweep of
+last week's or month's low does not inherit it.
