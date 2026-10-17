@@ -1093,35 +1093,38 @@ PAGE_GROUPS = {
 #: One line per page, shown as the tooltip on its nav-popover button (Home no
 #: longer cards the pages). Kept factual — each says what the page DOES, not how
 #: good it is. Any page missing from here still routes fine, just without a hint.
+#: Each starts with its pipeline stage (SCAN → SIGNAL → PLAN → RISK → MONITOR,
+#: per analyses/Pipeline-Alignment-Audit) and "start here" marks the canonical
+#: entry point (B-108, owner chose option b 2026-10-17). Routing is unchanged.
 PAGE_BLURBS = {
-    "Opportunity Hub":      "Ranked daily shortlist across every scanner",
-    "Delete Funnel":        "Technofunda 8-filter noise sieve — deletes to a shortlist",
-    "Hidden Treasures":     "Small/micro-cap conviction screen — ownership + quality",
-    "Screener":             "The core NSE screen with the saved pipeline",
-    "Other Screeners":      "Ownership pipeline, sector rotation, bulk data",
+    "Opportunity Hub":      "SIGNAL — start here · Ranked daily shortlist across every scanner",
+    "Delete Funnel":        "SCAN · Technofunda 8-filter noise sieve — deletes to a shortlist",
+    "Hidden Treasures":     "SCAN · Small/micro-cap conviction screen — ownership + quality",
+    "Screener":             "SCAN — start here · The core NSE screen with the saved pipeline",
+    "Other Screeners":      "SCAN · Ownership pipeline, sector rotation, bulk data",
     # COMPUTED, not typed. This read "24 pattern scanners" against a registry of  # claims-lint: checked B-79
     # 46 -- stale since whenever the 25th shipped, and sitting one hover away
     # from a Home tile that counts the registry correctly (B-79).
-    "Scanner Hub":          f"{len(sc.SCANNERS)} pattern scanners, run on any universe",
-    "Breakout Scans":       "New-high breakout feeds — yfinance 6M–10Y or TradingView",
-    "High-Growth Screener": "Quality growth names on ROE / ROCE / OPM floors",
-    "SVP Structure":        "Volume-profile structure — a bystander lens, not in the pipeline",
-    "Market Sentiment":     "0–100 composite regime gauge, with coverage",
-    "India Market Intel":   "Bulk & block deals, insider trades, gap scanner",
-    "OI Momentum":          "Open-interest build-up and unwinding",
-    "Predictive Analysis":  "Consolidated rating, chart and intel per stock",
-    "Glossary":             "Plain-English guide to every term, in learning order",
-    "Stock Analyzer":       "Full fundamental + technical deep dive",
-    "Sector Map":           "Relative Rotation Graph and sector orbit",
-    "Sector wise Navigation":         "Every industry peer in a ribbon — step through one by one",
-    "Astro Timing":         "Reversal calendar — context, never an entry",
-    "Telegram Signals":     "Ingested channel calls, parsed and tabulated",
-    "Portfolio":            "Open positions, capital at risk, heat",
-    "Watchlist":            "Tracked names and their trade plans",
-    "Alerts":               "Price and metric alerts you have armed",
-    "Pipeline Log":         "What the 4:05 PM batch did, and whether it failed",
-    "Scheduler Hub":        "Batch jobs & the live alert bot — schedule, run, monitor",
-    "Strategy Hub":         "Chart patterns, trading strategies, and fundamental scores",
+    "Scanner Hub":          f"SIGNAL · {len(sc.SCANNERS)} pattern scanners, run on any universe",
+    "Breakout Scans":       "SCAN · New-high breakout feeds — yfinance 6M–10Y or TradingView",
+    "High-Growth Screener": "SCAN · Quality growth names on ROE / ROCE / OPM floors",
+    "SVP Structure":        "SIGNAL (bystander) · Volume-profile structure — not in the shortlist ranking",
+    "Market Sentiment":     "SCAN · market · 0–100 composite regime gauge, with coverage",
+    "India Market Intel":   "SCAN · market · Bulk & block deals, insider trades, gap scanner",
+    "OI Momentum":          "SCAN · market · Open-interest build-up and unwinding",
+    "Predictive Analysis":  "SIGNAL · Consolidated rating, chart and intel per stock",
+    "Glossary":             "REFERENCE · Plain-English guide to every term, in learning order",
+    "Stock Analyzer":       "RESEARCH · Full fundamental + technical deep dive",
+    "Sector Map":           "SCAN · sectors · Relative Rotation Graph and sector orbit",
+    "Sector wise Navigation":         "RESEARCH · Every industry peer in a ribbon — step through one by one",
+    "Astro Timing":         "CONTEXT · Reversal calendar — context, never an entry",
+    "Telegram Signals":     "SIGNAL · third-party · Ingested channel calls, parsed and tabulated",
+    "Portfolio":            "RISK · Open positions, capital at risk, heat",
+    "Watchlist":            "PLAN · Tracked names and their trade plans",
+    "Alerts":               "MONITOR · Price and metric alerts you have armed",
+    "Pipeline Log":         "MONITOR · What the 4:05 PM batch did, and whether it failed",
+    "Scheduler Hub":        "MONITOR · Batch jobs & the live alert bot — schedule, run, monitor",
+    "Strategy Hub":         "SIGNAL · Chart patterns, trading strategies, and fundamental scores",
 }
 
 if "current_page" not in st.session_state:
