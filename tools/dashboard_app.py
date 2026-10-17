@@ -8389,7 +8389,7 @@ if current_page == "Opportunity Hub":
                 "count double, because the harness found the others at or below a "
                 "random-entry baseline. **The scanner-score term is unmeasured as a "
                 "ranking input:** B-172 found a scanner's own 0–100 score separates "
-                "better hits from worse for only 1–2 of 41 scanners (inverted for "
+                "better hits from worse for only 1–2 of the 41 it could test (inverted for "
                 "Downside Risk), and no-score scanners such as Liquidity Sweep count as "
                 "0. Kept by owner decision (B-172r), not by evidence. Every name here "
                 "already sits in a leading sector **and** industry; that is a filter, "

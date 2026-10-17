@@ -5,8 +5,23 @@ Run:  python -m pytest tools/test_abcd_stop_study.py -q
 import numpy as np
 import pandas as pd
 
+import pytest
+
 import abcd_stop_study as s
 import scanner_templates as sc
+
+
+@pytest.fixture(autouse=True)
+def _restore_scanner_registry():
+    """`harmonic_bull_remeasure` (imported by two tests below) REPLACES the live
+    Harmonic entry in `sc.SCANNERS` with a memoised wrapper at import time. Left in
+    place, every later test that calls the registered scanner got the study's
+    memo — test_backtest_fill_models' Harmonic test then read a cached None for a
+    second call on the same frame (B-171, 2026-10-17). Restore after each test."""
+    saved = dict(sc.SCANNERS)
+    yield
+    sc.SCANNERS.clear()
+    sc.SCANNERS.update(saved)
 
 
 def _frame(n=80):
