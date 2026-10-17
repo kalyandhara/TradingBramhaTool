@@ -1096,10 +1096,12 @@ def api_order_blocks():
     bars_n    = min(int(request.args.get("bars", 300)), 3000)
     # Order blocks are more LOCAL than major structure swings, so a tighter pivot
     # than /api/structure_chain — otherwise a daily chart surfaces almost none.
+    # Daily/weekly use 5 = scan_order_block's pivot (B-171, owner 2026-10-17), so
+    # the chart draws the zones the scanner reads.
     piv_default = {
         "1m": 3, "5m": 4, "15m": 5, "30m": 5,
-        "1h": 6, "4h": 6, "6h": 6, "1d": 6, "1w": 6,
-    }.get(timeframe, 6)
+        "1h": 6, "4h": 6, "6h": 6, "1d": 5, "1w": 5,
+    }.get(timeframe, 5)
     pivot_len = max(2, min(int(request.args.get("pivot_len", piv_default)), 100))
     if not symbol:
         return jsonify({"error": "symbol required"}), 400
