@@ -54,6 +54,8 @@ const LWC_SRC = "https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-cha
 const OPEN_MS = 250, CLOSE_MS = 200, FETCH_MS = 6000, ERR_TTL_MS = 60000;
 const CARD_W = 560, CARD_H = 340;
 const TOUCH = window.matchMedia("(hover: none)").matches;
+// The card never exceeds the viewport: 560 px on desktop, screen width on a phone.
+function cardW() { return Math.min(CARD_W, window.parent.innerWidth - 16); }
 
 const wrap = document.getElementById("wrap");
 let ARGS = {}, rowsSig = "", picked = new Set();
@@ -130,7 +132,7 @@ function ensureCard() {
   card.id = "tb-hover-card";
   Object.assign(card.style, {
     position: "fixed", zIndex: "10000", display: "none",
-    width: CARD_W + "px", height: CARD_H + "px", boxSizing: "border-box",
+    width: cardW() + "px", height: CARD_H + "px", boxSizing: "border-box",
     background: t.surface || "#fff", color: t.text || "#111",
     border: `1px solid ${t.border || "#ddd"}`, borderRadius: "10px",
     boxShadow: "0 12px 32px rgba(0,0,0,0.18)", padding: "8px 10px",
@@ -163,8 +165,10 @@ function place(rowEl) {
                                  : {left: 0, right: 0, top: 0};
   const rr = rowEl.getBoundingClientRect();
   const vw = window.parent.innerWidth, vh = window.parent.innerHeight;
+  const w = cardW();
+  card.style.width = w + "px";
   let left = fr.right + 8;
-  if (left + CARD_W > vw - 8) left = Math.max(8, vw - CARD_W - 8);
+  if (left + w > vw - 8) left = Math.max(8, vw - w - 8);
   let top = fr.top + rr.top - 8;
   if (top + CARD_H > vh - 8) top = fr.top + rr.bottom - CARD_H + 8;   // flip up
   top = Math.max(8, Math.min(top, vh - CARD_H - 8));
@@ -248,7 +252,7 @@ async function openCard(i, rowEl) {
   const body = setBody("");
   try {
     chart = L.createChart(body, {
-      width: CARD_W - 22, height: CARD_H - 44,
+      width: cardW() - 22, height: CARD_H - 44,
       layout: {background: {color: t.surface || "#fff"}, textColor: t.muted || "#666", fontSize: 11},
       grid: {vertLines: {color: t.grid || "#eee"}, horzLines: {color: t.grid || "#eee"}},
       rightPriceScale: {borderColor: t.border || "#ddd"},
