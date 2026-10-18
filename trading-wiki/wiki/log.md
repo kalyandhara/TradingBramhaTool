@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-18] spec | B-180 Home rail hover chart
+- [[analyses/Home-Rail-Hover-Chart-Spec]]: hover a rail ticker → floating card (candles, volume, SMA 20/50) from `/api/ohlcv`; rail rows become `components/watch_rail`. Hardening branch merged first (`2ab7e02`).
+
 ## [2026-10-18] spec | B-179 Home terminal layout
 - [[analyses/Home-Terminal-Layout-Spec]]: three panes (watchlist/sector rail · existing sections · account cards); every current Home section placed. Found no on-disk close cache — spec adds `cache/last_close.json`.
 - Built same day (`e73d833`..`954a511`): `watch_rail.py`, `desk_pages/home_layout.py`, Home wired via `with _slots.*`. Ratchet lowered (lines 11,900 · statements 304 · raw HTML 82). Browser check moved the market bar under the verdict.
