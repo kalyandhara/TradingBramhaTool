@@ -9,6 +9,7 @@ sources: 0
 related:
   - analyses/Dashboard-UI-Roadmap.md
   - analyses/Open-Backlog.md
+  - analyses/Home-Terminal-Layout-Plan.md
 ---
 
 # Home — Terminal Layout Spec (B-179)
@@ -115,8 +116,10 @@ min) and never persisted. On a cold start the rail would have no prices.
   load_bhav()`, so volume shockers, What moved today and ↻ all refresh it
   for free. Write failures are logged, never raised.
 - **Read** by the rail on every render (disk only, no fetch).
-- **↻** clears `_trend_bhav`'s cache and calls it once (one NSE request for
-  the whole market), which rewrites the file, then reruns. It does **not**
+- **↻** calls `trending_stocks.load_bhav()` once (one NSE request for the
+  whole market), which rewrites the file, then reruns. (`_trend_bhav`'s
+  in-memory copy lives in `dashboard_app` and is left to expire on its 15-min
+  TTL — `desk_pages` must not import the monolith.) It does **not**
   pull per-symbol intraday quotes: during market hours Close is the last
   published bhavcopy (end of the previous session) and the rail says so —
   caption `Closes as of <trade_date>`.
