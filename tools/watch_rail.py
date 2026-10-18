@@ -26,6 +26,7 @@ import math
 from datetime import datetime
 from pathlib import Path
 
+import numpy as np
 import pandas as pd
 
 log = logging.getLogger(__name__)
@@ -40,19 +41,25 @@ def write_closes(frame: pd.DataFrame, trade_date: str | None,
                  path: Path = CLOSES_PATH) -> int:
     """Persist `symbol, close, prev_close` from a bhavcopy frame; return rows written.
 
-    Rows with a missing or non-positive close / prev_close are skipped, so the
-    JSON never holds NaN or a price that would make Day % infinite. Never
-    raises: a snapshot that could not be written must not break the scan that
-    loaded the bhavcopy.
+    Rows with a missing, non-finite or non-positive close / prev_close are
+    skipped, so the JSON never holds NaN/inf or a price that would make Day %
+    infinite. When NO row survives (a half-published, all-NA bhavcopy) nothing
+    is written and the previous snapshot stays: an empty file would blank a
+    rail that had good closes. Never raises: a snapshot that could not be
+    written must not break the scan that loaded the bhavcopy.
     """
     try:
         d = frame[["symbol", "close", "prev_close"]].copy()
         d["close"] = pd.to_numeric(d["close"], errors="coerce")
         d["prev_close"] = pd.to_numeric(d["prev_close"], errors="coerce")
-        d = d[(d["close"] > 0) & (d["prev_close"] > 0)]
+        d = d[np.isfinite(d["close"]) & np.isfinite(d["prev_close"])
+              & (d["close"] > 0) & (d["prev_close"] > 0)]
         rows = {str(s).strip(): [float(c), float(p)]
                 for s, c, p in zip(d["symbol"], d["close"], d["prev_close"])
                 if str(s).strip()}
+        if not rows:
+            log.warning("close snapshot not written: no usable rows")
+            return 0
         payload = {"trade_date": trade_date,
                    "saved_at": datetime.now().isoformat(timespec="seconds"),
                    "rows": rows}
@@ -77,6 +84,51 @@ def read_closes(path: Path = CLOSES_PATH) -> tuple[dict[str, tuple[float, float]
         return rows, payload.get("trade_date")
     except Exception:
         return {}, None
+
+
+def refresh_closes(loader, path: Path = CLOSES_PATH) -> tuple[bool, str]:
+    """The rail's ↻: run `loader` (`trending_stocks.load_bhav`) and say what
+    happened as `(ok, message)` — never raises, because a failed refresh is a
+    toast, not a broken Home.
+
+    `load_bhav` already writes the snapshot but discards the count, so the
+    frame is written again here to learn whether any row was usable.
+    """
+    try:
+        df, trade_date = loader()
+    except Exception as e:
+        return False, f"Price refresh failed ({e}). The last snapshot stays."
+    if df is None:
+        return False, "Couldn't reach NSE for prices. The last snapshot stays."
+    if write_closes(df, trade_date, path) == 0:
+        return False, "NSE returned no usable prices. The last snapshot stays."
+    return True, f"Closes refreshed ({trade_date or 'date unknown'})"
+
+
+def rail_sector_map() -> dict[str, str | None]:
+    """This month's stored sector map, read from disk only.
+
+    `sectors.lookup` refills a cache MISS from NSE — right for a scan the user
+    started, wrong for the rail, which renders on every Home load. A miss (a
+    new month before any scan ran) or an unreadable database is `{}`, which
+    the rail shows as "Sector map unavailable".
+    """
+    try:
+        import portfolio_db as pdb
+        pdb.init_db()
+        return pdb.get_sector_map()
+    except Exception as e:
+        log.warning("rail sector map unavailable: %s", e)
+        return {}
+
+
+def pick_index(keys: list[str], saved: str | None) -> int:
+    """Position of the remembered picker key, else 0 (the watchlist).
+
+    The picker remembers its KEY, not its label: "Banks (12)" becoming
+    "Banks (13)" must not drop the user back to the watchlist.
+    """
+    return keys.index(saved) if saved in keys else 0
 
 
 def sector_options(sector_map: dict[str, str | None],

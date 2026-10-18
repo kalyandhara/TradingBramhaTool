@@ -127,3 +127,15 @@ def test_home_layout_does_not_import_the_monolith():
 def test_home_helpers_exist_and_home_is_not_a_registered_page():
     assert callable(desk_pages.home_header) and callable(desk_pages.home_rail)
     assert not desk_pages.handles("Home")
+
+
+def test_home_rail_failure_cannot_blank_the_centre(monkeypatch):
+    """B-179 review: the rail renders BEFORE the centre block, so an exception
+    there used to abort the script and leave the centre pane empty."""
+    import importlib
+    hl = importlib.import_module("desk_pages.home_layout")
+
+    def boom(db):
+        raise RuntimeError("watchlist table locked")
+    monkeypatch.setattr(hl, "render_rail", boom)
+    desk_pages.home_rail(None)          # must not raise
