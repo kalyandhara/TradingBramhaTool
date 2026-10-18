@@ -45,6 +45,21 @@ HERE = Path(__file__).resolve().parent
 app = Flask(__name__, static_folder=str(HERE))
 sock = Sock(app)
 
+# B-180: the Home rail's hover chart runs in the desk's page and reads candles
+# from here — a cross-port fetch the browser blocks without this header. Only
+# the desk's own origins, and only /api/ohlcv: nothing else on this server is
+# meant to be read by another page.
+ALLOWED_ORIGINS = frozenset({"http://localhost:8501", "http://localhost:8502"})
+
+
+@app.after_request
+def _cors_for_ohlcv(resp):
+    origin = request.headers.get("Origin")
+    if request.path == "/api/ohlcv" and origin in ALLOWED_ORIGINS:
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.vary.add("Origin")
+    return resp
+
 # ── Client registry ───────────────────────────────────────────────────────────
 # Each browser WS connection gets an outbound queue; a sender thread drains it.
 
