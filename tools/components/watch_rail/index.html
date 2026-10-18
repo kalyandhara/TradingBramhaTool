@@ -110,17 +110,30 @@ let token = 0, openFor = null;
 const cache = new Map();      // chart symbol -> {bars, prev} | {err, at}
 
 function loadLwc() {
+  // A script tag that already failed never fires load/error again, so a dead
+  // tag must be removed (the next hover retries) and every wait is bounded.
   if (window.parent.LightweightCharts) return Promise.resolve(window.parent.LightweightCharts);
   let s = P.getElementById("tb-lwc");
+  if (s && s.dataset.state === "failed") { s.remove(); s = null; }
+  if (s && !s.dataset.state && !s.dataset.pending) { s.remove(); s = null; }   // stale, untracked
   if (!s) {
     s = P.createElement("script");
-    s.id = "tb-lwc"; s.src = LWC_SRC;
+    s.id = "tb-lwc"; s.src = LWC_SRC; s.dataset.pending = "1";
+    s.addEventListener("load", () => { s.dataset.state = "ok"; delete s.dataset.pending; }, {once: true});
+    s.addEventListener("error", () => { s.dataset.state = "failed"; delete s.dataset.pending; }, {once: true});
     P.head.appendChild(s);
   }
+  const tag = s;
   return new Promise((ok, bad) => {
-    if (window.parent.LightweightCharts) return ok(window.parent.LightweightCharts);
-    s.addEventListener("load", () => ok(window.parent.LightweightCharts), {once: true});
-    s.addEventListener("error", () => bad(new Error("chart library failed to load")), {once: true});
+    const done = () => window.parent.LightweightCharts
+      ? ok(window.parent.LightweightCharts) : bad(new Error("chart library failed to load"));
+    if (tag.dataset.state) return done();
+    const timer = setTimeout(() => {
+      tag.dataset.state = "failed"; delete tag.dataset.pending;
+      bad(new Error("chart library timed out"));
+    }, FETCH_MS);
+    tag.addEventListener("load", () => { clearTimeout(timer); done(); }, {once: true});
+    tag.addEventListener("error", () => { clearTimeout(timer); done(); }, {once: true});
   });
 }
 
@@ -337,7 +350,17 @@ window.addEventListener("message", (event) => {
   root.setProperty("--accent-link", t.link || "#2563eb");
   root.setProperty("--risk", ARGS.risk || "#dc2626");
   const sig = JSON.stringify([ARGS.rows, ARGS.show_heart]);
-  if (sig !== rowsSig) { rowsSig = sig; picked = new Set(); renderRows(); }
+  if (sig !== rowsSig) {
+    rowsSig = sig;
+    // Keep only ticks whose rows are still shown, and tell Python whenever that
+    // changed — otherwise a cleared box could still count for Add/Remove.
+    const shown = new Set((ARGS.rows || []).map(r => r.symbol));
+    const kept = new Set([...picked].filter(x => shown.has(x)));
+    const changed = kept.size !== picked.size;
+    picked = kept;
+    renderRows();
+    if (changed) setValue({picked: [...picked]});
+  }
   const h = ARGS.height || 520;
   wrap.style.height = h + "px";
   setHeight(h + 2);
