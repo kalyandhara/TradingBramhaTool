@@ -21,6 +21,7 @@ Three jobs, none of which touch Streamlit or the network:
 from __future__ import annotations
 
 import json
+import re
 import logging
 import math
 from datetime import datetime
@@ -209,6 +210,14 @@ def chart_symbol(sym: str) -> str:
     return s if (s.startswith("^") or "." in s) else f"{s}.NS"
 
 
+_SAFE_SYMBOL = re.compile(r"\^?[A-Z0-9][A-Z0-9&._-]{0,24}")
+
+
+def is_safe_symbol(sym: str) -> bool:
+    """NSE/BSE ticker characters only — no markup or URL metacharacters."""
+    return bool(_SAFE_SYMBOL.fullmatch(str(sym).strip().upper()))
+
+
 def rail_rows(frame: pd.DataFrame, source: str) -> list[dict]:
     """`rail_frame` as JSON-safe dicts for the watch_rail component (B-180).
 
@@ -228,4 +237,4 @@ def rail_rows(frame: pd.DataFrame, source: str) -> list[dict]:
              "day_pct": num(r["Day %"]),
              "watched": None if mode_watch else bool(r["♥"]),
              "chart": chart_symbol(r["Symbol"])}
-            for _, r in frame.iterrows()]
+            for _, r in frame.iterrows() if is_safe_symbol(r["Symbol"])]

@@ -139,3 +139,12 @@ def test_home_rail_failure_cannot_blank_the_centre(monkeypatch):
         raise RuntimeError("watchlist table locked")
     monkeypatch.setattr(hl, "render_rail", boom)
     desk_pages.home_rail(None)          # must not raise
+
+
+def test_watch_rail_component_ships():
+    """B-180: the rail's rows are a component; its folder must ship index.html
+    or home_layout falls back to the hover-less table."""
+    html = (HERE / "components" / "watch_rail" / "index.html").read_text(encoding="utf-8")
+    assert "streamlit:componentReady" in html
+    assert "lightweight-charts@4.1.3" in html
+    assert "/api/ohlcv" not in html          # the URL comes from Python (chart_api arg)

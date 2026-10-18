@@ -201,3 +201,14 @@ def test_rail_rows_are_json_safe_and_mode_aware():
     json.dumps(rows, allow_nan=False)            # no NaN reaches the browser
     wl = wr.rail_rows(wr.rail_frame(wr.WATCHLIST_KEY, ["INFY"], SMAP, {}), wr.WATCHLIST_KEY)
     assert wl[0]["watched"] is None
+
+
+def test_rail_rows_drop_symbols_with_markup():
+    # Defence in depth (security review, B-180): the component escapes, but no
+    # markup metacharacter should reach the browser at all.
+    smap = {"M&M": "Auto", "BAJAJ-AUTO": "Auto", "A<img src=x onerror=1>": "Auto",
+            'X"Y': "Auto"}
+    rows = wr.rail_rows(wr.rail_frame("Auto", [], smap, {}), "Auto")
+    assert [r["symbol"] for r in rows] == ["BAJAJ-AUTO", "M&M"]
+    assert wr.is_safe_symbol("^NSEI") and wr.is_safe_symbol("MARINE.BO")
+    assert not wr.is_safe_symbol("A B")
