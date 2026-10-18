@@ -13,6 +13,7 @@ presses it.
 """
 from __future__ import annotations
 
+import logging
 import math
 from dataclasses import dataclass
 from typing import Any
@@ -21,6 +22,8 @@ import report_style as rs
 import streamlit as st
 import ui_tables as uit
 import watch_rail as wr
+
+log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -70,6 +73,60 @@ def _clear_selection() -> None:
     st.session_state["home_rail_nonce"] = st.session_state.get("home_rail_nonce", 0) + 1
 
 
+_COMPONENT: Any = None
+
+
+def _rail_component():
+    """The watch_rail component (B-180): rows with hover charts. Declared once,
+    lazily; None when its folder is missing, so the rail falls back to the
+    plain table instead of failing."""
+    global _COMPONENT
+    if _COMPONENT is None:
+        import pathlib
+        import streamlit.components.v1 as components
+        path = pathlib.Path(__file__).resolve().parent.parent / "components" / "watch_rail"
+        try:
+            if not (path / "index.html").exists():
+                raise FileNotFoundError(path / "index.html")
+            _COMPONENT = components.declare_component("tb_watch_rail", path=str(path))
+        except Exception as e:
+            log.warning("watch_rail component unavailable: %s", e)
+            _COMPONENT = False
+    return _COMPONENT or None
+
+
+def _rail_table_fallback(frame, source: str, key: str) -> list[str]:
+    """The hover-less rail table (B-179), used when the watch_rail component
+    folder is missing. Returns the ticked symbols."""
+    show = frame.copy()
+    show["Symbol"] = [uit.analyze_url(s) for s in frame["Symbol"]]
+    if source == wr.WATCHLIST_KEY:
+        show = show.drop(columns=["♥"])   # every row is watched; the rail is narrow
+    event = st.dataframe(
+        # Styler formats Close / Day % (not column_config) because only it
+        # has na_rep: a NumberColumn renders a missing price as "None".
+        show.style.map(_day_colour, subset=["Day %"])
+            .format({"Close": "{:.2f}", "Day %": "{:+.2f}%"}, na_rep="—"),
+        height=520, hide_index=True, width="stretch",
+        key=key,
+        on_select="rerun", selection_mode="multi-row",
+        column_config={
+            # Pixel widths: the rail is ~280 px wide and auto-sized
+            # columns clipped four-digit closes ("6184.50" read "184.50").
+            "Symbol": st.column_config.LinkColumn(
+                "Symbol", display_text=r"symbol=([^&]+)", width=84,
+                help="Click the ticker to analyze it (opens in a new tab)"),
+            "Close": st.column_config.Column("Close", width=62),
+            "Day %": st.column_config.Column("Day %", width=58),
+            "♥": st.column_config.CheckboxColumn("♥", width=28),
+        })
+    try:
+        rows = list(event.selection.rows)
+    except Exception:
+        rows = []
+    return [str(frame.iloc[i]["Symbol"]) for i in rows if i < len(frame)]
+
+
 def render_rail(db) -> None:
     """The left rail: picker, filter, scrolling rows, footer actions."""
     smap = wr.rail_sector_map()
@@ -97,34 +154,27 @@ def render_rail(db) -> None:
         st.info("Watchlist is empty — tick rows in a scan and press ♥.")
     else:
         frame = wr.rail_frame(source, wl, smap, closes, query)
-        show = frame.copy()
-        show["Symbol"] = [uit.analyze_url(s) for s in frame["Symbol"]]
-        if source == wr.WATCHLIST_KEY:
-            show = show.drop(columns=["♥"])   # every row is watched; the rail is narrow
-        event = st.dataframe(
-            # Styler formats Close / Day % (not column_config) because only it
-            # has na_rep: a NumberColumn renders a missing price as "None".
-            show.style.map(_day_colour, subset=["Day %"])
-                .format({"Close": "{:.2f}", "Day %": "{:+.2f}%"}, na_rep="—"),
-            height=520, hide_index=True, width="stretch",
-            key=wr.table_key(source, query, trade_date,
-                             st.session_state.get("home_rail_nonce", 0)),
-            on_select="rerun", selection_mode="multi-row",
-            column_config={
-                # Pixel widths: the rail is ~280 px wide and auto-sized
-                # columns clipped four-digit closes ("6184.50" read "184.50").
-                "Symbol": st.column_config.LinkColumn(
-                    "Symbol", display_text=r"symbol=([^&]+)", width=84,
-                    help="Click the ticker to analyze it (opens in a new tab)"),
-                "Close": st.column_config.Column("Close", width=62),
-                "Day %": st.column_config.Column("Day %", width=58),
-                "♥": st.column_config.CheckboxColumn("♥", width=28),
-            })
-        try:
-            rows = list(event.selection.rows)
-        except Exception:
-            rows = []
-        picked = [str(frame.iloc[i]["Symbol"]) for i in rows if i < len(frame)]
+        key = wr.table_key(source, query, trade_date,
+                           st.session_state.get("home_rail_nonce", 0))
+        comp = _rail_component()
+        if comp is None:
+            picked = _rail_table_fallback(frame, source, key)
+        else:
+            t = rs.TOKENS
+            value = comp(
+                rows=wr.rail_rows(frame, source),
+                show_heart=source != wr.WATCHLIST_KEY,
+                good=rs.tone_colors("good")[0], risk=rs.tone_colors("risk")[0],
+                theme={"surface": t["surface"], "surface_alt": t["surface_alt"],
+                       "border": t["border"], "text": t["text"],
+                       "muted": t["text_muted"], "link": t["info"],
+                       "grid": t["surface_alt"], "sma20": t["info"],
+                       "sma50": t["accent"]},
+                chart_api="http://localhost:5001/api/ohlcv",
+                analyze_base=uit.DASHBOARD_BASE + "/?nav=analyze&symbol=",
+                height=520, key=key, default={"picked": []})
+            shown = set(frame["Symbol"])
+            picked = [s for s in (value or {}).get("picked", []) if s in shown]
 
     with st.container(horizontal=True, gap="small"):
         if st.button("↻", key="home_rail_refresh", help="Refresh closes from NSE"):
