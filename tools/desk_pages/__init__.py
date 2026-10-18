@@ -84,3 +84,14 @@ def render(page: str) -> None:
     """
     mod = importlib.import_module(f"{__name__}.{PAGES[page]}")
     mod.render()
+
+
+def home_header(cards, is_home: bool):
+    """B-179. Home is not a registered page — it only borrows panes from
+    `home_layout`. Lazy, like `render`, and one call site in the monolith."""
+    return importlib.import_module(f"{__name__}.home_layout").header(cards, is_home)
+
+
+def home_rail(db) -> None:
+    """B-179. The left watchlist/sector rail on Home."""
+    importlib.import_module(f"{__name__}.home_layout").render_rail(db)
