@@ -77,3 +77,14 @@ def test_filter_is_literal_case_insensitive():
     df = wr.rail_frame("Automobile and Auto Components", [], smap, {}, query="m&")
     assert list(df["Symbol"]) == ["M&M"]
     assert wr.rail_frame("Automobile and Auto Components", [], smap, {}, query="(").empty
+
+
+def test_load_bhav_writes_snapshot(tmp_path, monkeypatch):
+    import trending_stocks as ts
+    frame = pd.DataFrame({"symbol": ["TCS"], "close": [110.0], "prev_close": [100.0],
+                          "trade_date": ["2026-10-17"]})
+    monkeypatch.setattr(ts.sp, "fetch_bhavcopy_frame", lambda: frame)
+    monkeypatch.setattr(wr, "CLOSES_PATH", tmp_path / "c.json")
+    df, td = ts.load_bhav()
+    assert td == "2026-10-17"
+    assert wr.read_closes(tmp_path / "c.json")[0]["TCS"] == (110.0, 100.0)
