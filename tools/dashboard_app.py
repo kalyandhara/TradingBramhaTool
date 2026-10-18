@@ -3283,186 +3283,188 @@ _ov_cards = [
         "active alerts firing",
         tone="warn" if triggered_count else "neutral"),
 ]
-st.markdown(rs.strip(_ov_cards, cols=5), unsafe_allow_html=True)
+_slots = dpages.home_header(_ov_cards, current_page == "Home")
 
 # ── Regime + today's verdict — ONE card ───────────────────────────────────────
 _show_regime = current_page == "Home"
-# These were two stacked cards and between them they owned most of the first
-# screen on every page. They are now one, because they are one thought: the
-# regime is the CONTEXT and the verdict is the DECISION taken in it, and the
-# reader was scrolling past both to reach the page they asked for.
-#
-# The old code already carried the rule that makes the merge safe — "two
-# coloured surfaces stacked would read as two verdicts, and only one of these is
-# a decision". One card with the verdict's tone on its border keeps exactly one
-# decision on screen; the regime sits inside it as a labelled context line.
-#
-# Compaction is layout only. No flag, number or sentence is dropped: the
-# caution / favorable / not-checked blocks moved from stacked full-width lists
-# into three columns, which is where most of the height went.
-regime_info = mvd.classify_regime(nifty_overview)
+# B-179: the verdict card and its controls render into Home's centre pane.
+with _slots.centre:
+    # These were two stacked cards and between them they owned most of the first
+    # screen on every page. They are now one, because they are one thought: the
+    # regime is the CONTEXT and the verdict is the DECISION taken in it, and the
+    # reader was scrolling past both to reach the page they asked for.
+    #
+    # The old code already carried the rule that makes the merge safe — "two
+    # coloured surfaces stacked would read as two verdicts, and only one of these is
+    # a decision". One card with the verdict's tone on its border keeps exactly one
+    # decision on screen; the regime sits inside it as a labelled context line.
+    #
+    # Compaction is layout only. No flag, number or sentence is dropped: the
+    # caution / favorable / not-checked blocks moved from stacked full-width lists
+    # into three columns, which is where most of the height went.
+    regime_info = mvd.classify_regime(nifty_overview)
 
-_senti_reading = cached_latest_sentiment()
-# A reading from three sessions ago must not read as today's green light.
-_stale_flags = []
-_senti_age = None
-if _senti_reading and _senti_reading.get("reading_date"):
-    _senti_age = (date.today() - date.fromisoformat(_senti_reading["reading_date"])).days
-    if _senti_age >= 1:
-        # The instruction used to be "refresh Market Sentiment", pointing at
-        # another page. There is a button directly under this card now, so the
-        # flag states the fact and the button owns the fix.
-        _stale_flags.append(
-            f"Sentiment reading is {_senti_age} day(s) old "
-            f"(dated {_senti_reading['reading_date']})")
-verdict = mvd.build_verdict(_senti_reading, portfolio_summary, _stale_flags)
+    _senti_reading = cached_latest_sentiment()
+    # A reading from three sessions ago must not read as today's green light.
+    _stale_flags = []
+    _senti_age = None
+    if _senti_reading and _senti_reading.get("reading_date"):
+        _senti_age = (date.today() - date.fromisoformat(_senti_reading["reading_date"])).days
+        if _senti_age >= 1:
+            # The instruction used to be "refresh Market Sentiment", pointing at
+            # another page. There is a button directly under this card now, so the
+            # flag states the fact and the button owns the fix.
+            _stale_flags.append(
+                f"Sentiment reading is {_senti_age} day(s) old "
+                f"(dated {_senti_reading['reading_date']})")
+    verdict = mvd.build_verdict(_senti_reading, portfolio_summary, _stale_flags)
 
-_vfg, _ = rs.tone_colors(verdict["tone"])
-
-
-def _regime_line() -> str:
-    """The regime as a context strip inside the verdict card, or '' if unknown."""
-    if regime_info["label"] == "UNKNOWN":
-        return ""
-    bits = []
-    if regime_info["vol"] is not None and regime_info["vol_baseline"] is not None:
-        bits.append(f'Vol <span class="tb-mono">{regime_info["vol"]:.2f}%</span> vs '
-                    f'<span class="tb-mono">{regime_info["vol_baseline"]:.2f}%</span> baseline')
-    if regime_info["dist_pct"] is not None:
-        bits.append(f'within <span class="tb-mono">'
-                    f'{abs(regime_info["dist_pct"]):.1f}%</span> of the 50 SMA')
-    # Qullamaggie's switch for momentum longs: NIFTY SMA10 vs SMA20.
-    _ml = regime_info.get("momentum_longs")
-    if _ml is not None:
-        bits.append(f'Momentum longs <b>{"ON" if _ml else "OFF"}</b> — SMA10 '
-                    f'<span class="tb-mono">{regime_info["sma10"]:,.0f}</span> '
-                    f'{"above" if _ml else "below"} SMA20 '
-                    f'<span class="tb-mono">{regime_info["sma20"]:,.0f}</span>')
-    return (
-        f'<div style="border-top:1px solid {rs.TOKENS["border"]};margin-top:10px;'
-        f'padding-top:8px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">'
-        f'<span class="tb-micro">Regime</span>'
-        + rs.chip(regime_info["label"], tone=regime_info["tone"])
-        + f'<span style="font-size:12.5px;color:{rs.TOKENS["text_body"]};">'
-          f'{regime_info["playbook"]}</span>'
-        + (f'<span style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
-           f'{" · ".join(bits)}</span>' if bits else "")
-        + '</div>'
-    )
+    _vfg, _ = rs.tone_colors(verdict["tone"])
 
 
-# One bordered card: the verdict, the regime it was formed in, and the flags that
-# produced it are a single object. The border colour is where the decision is
-# stated (report_style's `tone` rule — a value's colour states its verdict).
-if _show_regime:
-    st.markdown(
-        rs.card(
-            '<div style="display:flex;align-items:flex-start;gap:16px;">'
-            '<div style="flex:1;min-width:0;">'
-            '<div class="tb-micro">Today\'s verdict</div>'
-            f'<div style="font-size:24px;font-weight:800;color:{_vfg};'
-            f'line-height:1.15;letter-spacing:-.01em;">{verdict["verdict"]}</div>'
-            f'<div style="font-size:13px;color:{rs.TOKENS["text_body"]};'
-            f'margin-top:2px;">{verdict["instruction"]}</div>'
-            '</div>'
-            '<div style="text-align:right;flex-shrink:0;">'
-            '<div class="tb-micro">Position size</div>'
-            f'<div class="tb-mono" style="font-size:24px;font-weight:800;'
-            f'color:{_vfg};line-height:1.15;">{verdict["size_pct"]}%</div>'
-            f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
-            f'max <span class="tb-mono">{verdict["max_trades"]}</span> trade(s) today</div>'
-            '</div></div>'
-            + _regime_line()
-            # Components that could not be measured abstain from the vote (B-1),
-            # so the verdict above was formed on LESS than the full weight. Shown
-            # explicitly — otherwise the only visible difference between a
-            # complete verdict and a partial one is that it has fewer flags.
-            + f'<div style="border-top:1px solid {rs.TOKENS["border"]};margin-top:10px;'
-              f'padding-top:8px;display:flex;gap:18px;flex-wrap:wrap;">'
-            + _flag_col(verdict["caution"], "Caution", "risk", "✗")
-            + _flag_col(verdict["favorable"], "Favorable", "good", "✓")
-            + _flag_col(verdict.get("not_checked") or [], "Not checked", "neutral", "—")
-            + '</div>',
-            tone=verdict["tone"]),
-        unsafe_allow_html=True,
-    )
+    def _regime_line() -> str:
+        """The regime as a context strip inside the verdict card, or '' if unknown."""
+        if regime_info["label"] == "UNKNOWN":
+            return ""
+        bits = []
+        if regime_info["vol"] is not None and regime_info["vol_baseline"] is not None:
+            bits.append(f'Vol <span class="tb-mono">{regime_info["vol"]:.2f}%</span> vs '
+                        f'<span class="tb-mono">{regime_info["vol_baseline"]:.2f}%</span> baseline')
+        if regime_info["dist_pct"] is not None:
+            bits.append(f'within <span class="tb-mono">'
+                        f'{abs(regime_info["dist_pct"]):.1f}%</span> of the 50 SMA')
+        # Qullamaggie's switch for momentum longs: NIFTY SMA10 vs SMA20.
+        _ml = regime_info.get("momentum_longs")
+        if _ml is not None:
+            bits.append(f'Momentum longs <b>{"ON" if _ml else "OFF"}</b> — SMA10 '
+                        f'<span class="tb-mono">{regime_info["sma10"]:,.0f}</span> '
+                        f'{"above" if _ml else "below"} SMA20 '
+                        f'<span class="tb-mono">{regime_info["sma20"]:,.0f}</span>')
+        return (
+            f'<div style="border-top:1px solid {rs.TOKENS["border"]};margin-top:10px;'
+            f'padding-top:8px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">'
+            f'<span class="tb-micro">Regime</span>'
+            + rs.chip(regime_info["label"], tone=regime_info["tone"])
+            + f'<span style="font-size:12.5px;color:{rs.TOKENS["text_body"]};">'
+              f'{regime_info["playbook"]}</span>'
+            + (f'<span style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
+               f'{" · ".join(bits)}</span>' if bits else "")
+            + '</div>'
+        )
 
-# ── Inline sentiment refresh ────────────────────────────────────────────
-if _show_regime and (_senti_reading is None or (_senti_age or 0) >= 1):
-    _rf1, _rf2 = st.columns([1, 3])
-    with _rf1:
-        _do_refresh = st.button(
-            "↻ Refresh sentiment", key="ov_senti_refresh",
-            help="Recomputes breadth, sector participation, the 200-SMA regime "
-                 "and NIFTY PMax, then re-reads this verdict. Takes ~25s.")
-    with _rf2:
-        st.caption(
-            "No sentiment reading has been computed yet — the verdict above is "
-            "running on a missing input." if _senti_reading is None else
-            f"Reading is **{_senti_age} day(s) old** (dated "
-            f"{_senti_reading['reading_date']}). The verdict above counts that "
-            "as a caution flag, so refreshing may change it.")
 
-    if _do_refresh:
-        # Queue the ~25s compute on the serial job queue rather than running it
-        # inline — so a funnel run in progress is NOT cancelled, and vice-versa.
-        _sjid = ui_jobs.submit_unique("Refresh sentiment", senti.compute_sentiment,
-                                      persist=True)
-        if _sjid is None:
-            st.info("A sentiment refresh is already running — click ignored.")
-        st.rerun()
-
-    # Consume a completed sentiment refresh (fires once on completion). The cache
-    # bust + rerun must happen on the MAIN thread, so it lives here, not in the job.
-    _sfin = ui_jobs.get_queue().take_result("Refresh sentiment")
-    if _sfin is not None:
-        if _sfin.status == "error":
-            st.error(f"Sentiment compute failed: {_sfin.error}")
-        else:
-            cached_latest_sentiment.clear()   # else the ribbon serves stale for ~5 min
-            st.session_state["ov_senti_refreshed"] = True
-
-if _show_regime and st.session_state.pop("ov_senti_refreshed", False):
-    st.success("Sentiment recomputed — the verdict above reflects the new reading.")
-
-if _show_regime:
-    with st.expander("Why this verdict?"):
-        # stat_card, not st.metric: the native metric renders its value in the
-        # proportional face with its own grey label, which is the one thing on this
-        # page that never matched the rest of the figures.
+    # One bordered card: the verdict, the regime it was formed in, and the flags that
+    # produced it are a single object. The border colour is where the decision is
+    # stated (report_style's `tone` rule — a value's colour states its verdict).
+    if _show_regime:
         st.markdown(
-            rs.strip([
-                rs.stat_card("Min conviction required", verdict["min_conviction"],
-                             tone="warn" if verdict["min_conviction"] == "HIGH" else "neutral"),
-                rs.stat_card("Caution flags", str(verdict["n_caution"]),
-                             tone="risk" if verdict["n_caution"] else "neutral"),
-                rs.stat_card("Favorable flags", str(verdict["n_favorable"]),
-                             tone="good" if verdict["n_favorable"] else "neutral"),
-            ], cols=3),
+            rs.card(
+                '<div style="display:flex;align-items:flex-start;gap:16px;">'
+                '<div style="flex:1;min-width:0;">'
+                '<div class="tb-micro">Today\'s verdict</div>'
+                f'<div style="font-size:24px;font-weight:800;color:{_vfg};'
+                f'line-height:1.15;letter-spacing:-.01em;">{verdict["verdict"]}</div>'
+                f'<div style="font-size:13px;color:{rs.TOKENS["text_body"]};'
+                f'margin-top:2px;">{verdict["instruction"]}</div>'
+                '</div>'
+                '<div style="text-align:right;flex-shrink:0;">'
+                '<div class="tb-micro">Position size</div>'
+                f'<div class="tb-mono" style="font-size:24px;font-weight:800;'
+                f'color:{_vfg};line-height:1.15;">{verdict["size_pct"]}%</div>'
+                f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
+                f'max <span class="tb-mono">{verdict["max_trades"]}</span> trade(s) today</div>'
+                '</div></div>'
+                + _regime_line()
+                # Components that could not be measured abstain from the vote (B-1),
+                # so the verdict above was formed on LESS than the full weight. Shown
+                # explicitly — otherwise the only visible difference between a
+                # complete verdict and a partial one is that it has fewer flags.
+                + f'<div style="border-top:1px solid {rs.TOKENS["border"]};margin-top:10px;'
+                  f'padding-top:8px;display:flex;gap:18px;flex-wrap:wrap;">'
+                + _flag_col(verdict["caution"], "Caution", "risk", "✗")
+                + _flag_col(verdict["favorable"], "Favorable", "good", "✓")
+                + _flag_col(verdict.get("not_checked") or [], "Not checked", "neutral", "—")
+                + '</div>',
+                tone=verdict["tone"]),
             unsafe_allow_html=True,
         )
-        if verdict["score"] is not None:
-            st.caption(f"Sentiment score {verdict['score']} ({verdict['band']}) "
-                       f"· reading dated {verdict['as_of']}")
-        st.markdown("**Decision rule**")
-        for line in verdict["rule"]:
-            st.markdown(f"- {line}")
-        st.caption(
-            "Each sentiment component votes once, by the share of its own weight it "
-            "earned. Portfolio heat and stale data can only add caution, never "
-            "conviction. Thresholds are defaults — tune them against Verdict "
-            "Calibration before trusting the ladder with size."
-        )
 
-if _show_regime:
-    with st.expander("Set total capital (used for % capital-at-risk)"):
-        new_cap = st.number_input(
-            "Total capital (₹)", min_value=0.0,
-            value=portfolio_summary["total_capital"], step=10000.0,
-        )
-        if st.button("Save total capital"):
-            db.set_setting("total_capital", str(new_cap))
-            st.success("Saved — refresh metrics above.")
+    # ── Inline sentiment refresh ────────────────────────────────────────────
+    if _show_regime and (_senti_reading is None or (_senti_age or 0) >= 1):
+        _rf1, _rf2 = st.columns([1, 3])
+        with _rf1:
+            _do_refresh = st.button(
+                "↻ Refresh sentiment", key="ov_senti_refresh",
+                help="Recomputes breadth, sector participation, the 200-SMA regime "
+                     "and NIFTY PMax, then re-reads this verdict. Takes ~25s.")
+        with _rf2:
+            st.caption(
+                "No sentiment reading has been computed yet — the verdict above is "
+                "running on a missing input." if _senti_reading is None else
+                f"Reading is **{_senti_age} day(s) old** (dated "
+                f"{_senti_reading['reading_date']}). The verdict above counts that "
+                "as a caution flag, so refreshing may change it.")
+
+        if _do_refresh:
+            # Queue the ~25s compute on the serial job queue rather than running it
+            # inline — so a funnel run in progress is NOT cancelled, and vice-versa.
+            _sjid = ui_jobs.submit_unique("Refresh sentiment", senti.compute_sentiment,
+                                          persist=True)
+            if _sjid is None:
+                st.info("A sentiment refresh is already running — click ignored.")
+            st.rerun()
+
+        # Consume a completed sentiment refresh (fires once on completion). The cache
+        # bust + rerun must happen on the MAIN thread, so it lives here, not in the job.
+        _sfin = ui_jobs.get_queue().take_result("Refresh sentiment")
+        if _sfin is not None:
+            if _sfin.status == "error":
+                st.error(f"Sentiment compute failed: {_sfin.error}")
+            else:
+                cached_latest_sentiment.clear()   # else the ribbon serves stale for ~5 min
+                st.session_state["ov_senti_refreshed"] = True
+
+    if _show_regime and st.session_state.pop("ov_senti_refreshed", False):
+        st.success("Sentiment recomputed — the verdict above reflects the new reading.")
+
+    if _show_regime:
+        with st.expander("Why this verdict?"):
+            # stat_card, not st.metric: the native metric renders its value in the
+            # proportional face with its own grey label, which is the one thing on this
+            # page that never matched the rest of the figures.
+            st.markdown(
+                rs.strip([
+                    rs.stat_card("Min conviction required", verdict["min_conviction"],
+                                 tone="warn" if verdict["min_conviction"] == "HIGH" else "neutral"),
+                    rs.stat_card("Caution flags", str(verdict["n_caution"]),
+                                 tone="risk" if verdict["n_caution"] else "neutral"),
+                    rs.stat_card("Favorable flags", str(verdict["n_favorable"]),
+                                 tone="good" if verdict["n_favorable"] else "neutral"),
+                ], cols=3),
+                unsafe_allow_html=True,
+            )
+            if verdict["score"] is not None:
+                st.caption(f"Sentiment score {verdict['score']} ({verdict['band']}) "
+                           f"· reading dated {verdict['as_of']}")
+            st.markdown("**Decision rule**")
+            for line in verdict["rule"]:
+                st.markdown(f"- {line}")
+            st.caption(
+                "Each sentiment component votes once, by the share of its own weight it "
+                "earned. Portfolio heat and stale data can only add caution, never "
+                "conviction. Thresholds are defaults — tune them against Verdict "
+                "Calibration before trusting the ladder with size."
+            )
+
+    if _show_regime:
+        with st.expander("Set total capital (used for % capital-at-risk)"):
+            new_cap = st.number_input(
+                "Total capital (₹)", min_value=0.0,
+                value=portfolio_summary["total_capital"], step=10000.0,
+            )
+            if st.button("Save total capital"):
+                db.set_setting("total_capital", str(new_cap))
+                st.success("Saved — refresh metrics above.")
 
 # ── Index + breadth strips — the market context, AFTER the decision (B-162) ───
 # Home only: on working pages four charts above the fold would push the page the
@@ -3471,9 +3473,10 @@ if _show_regime:
 # Breadth reads `_senti_reading`, the same object the verdict used, so the two
 # cannot disagree. Everything else lives in index_strip.py / breadth_strip.py.
 if _show_regime:
-    istrip.render()
-    bstrip.render(_senti_reading)
-    st.divider()
+    with _slots.market:
+        istrip.render()
+        bstrip.render(_senti_reading)
+        st.divider()
 
 # B-161: the ring prints the score IN this colour, so every step must read as
 # text (>= 4.5:1). The 600-level steps (#65a30d, #ca8a04, #ea580c) measured
@@ -5504,232 +5507,180 @@ if current_page == "Home":
     _t = rs.TOKENS
     _n_pages = sum(len(v) for v in PAGE_GROUPS.values())
 
-    # Call-to-action row, as in the reference layout. Real buttons rather than
-    # styled anchors, because navigation here is session_state + rerun.
-    _cta1, _cta2, _cta3, _cta4 = st.columns([1.15, 1, 1, 3])
-    with _cta1:
+    # B-179: the call-to-action row became the right rail's quick actions, under
+    # the account cards. Real buttons rather than styled anchors, because
+    # navigation here is session_state + rerun.
+    with _slots.right:
+        st.caption("Quick actions")
         if st.button("Open screener dashboard", key="home_cta_screen",
                      type="primary", width="stretch"):
             st.session_state["current_page"] = "Opportunity Hub"
             st.rerun()
-    with _cta2:
-        if st.button("View top movers", key="home_cta_movers",
-                     width="stretch"):
-            # The section is usually open already (a stored snapshot opens it on
-            # load) and sits a few screens down, so setting the flag alone looked
-            # like a dead button. Also queue a one-shot scroll to it.
+        if st.button("View top movers", key="home_cta_movers", width="stretch"):
+            # The section sits a few screens down, so setting the flag alone
+            # looked like a dead button. Also queue a one-shot scroll to it.
             st.session_state["home_trending_open"] = True
             st.session_state["home_trending_scroll"] = True
             st.rerun()
-    with _cta3:
         if st.button("Scanner Hub", key="home_cta_hub", width="stretch"):
             st.session_state["current_page"] = "Scanner Hub"
             st.rerun()
-    st.markdown(
-        f'<div style="font-size:11px;color:{_t["text_muted"]};margin:8px 0 18px;">'
-        f'No sign-in required to browse. '
-        f'<b>For research and educational purposes only — not investment advice.</b>'
-        f'</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="font-size:11px;color:{_t["text_muted"]};margin:8px 0 18px;">'
+            f'No sign-in required to browse. '
+            f'<b>For research and educational purposes only — not investment advice.</b>'
+            f'</div>', unsafe_allow_html=True)
 
-    # ── The action map — stored state only, so it costs nothing on load ──────
-    render_action_map()
-    st.write("")
+    # B-179: the watchlist roster that closed Home became the left rail.
+    with _slots.left:
+        dpages.home_rail(db)
 
-    # ── Institutional volume (PPV >= 5x RVOL, last 5 sessions) ───────────────
-    # Context, not a signal: ppv_edge_study.py showed no forward-return edge at
-    # any RVOL threshold. This answers "where did institutions show up" — a
-    # screen, not an alert.
-    _render_institutional_volume("home_iv")
-    st.write("")
-    _render_cpr_vp("home_cpr")
-    st.write("")
+    # Centre pane, below the verdict card the shared header already put there.
+    with _slots.centre:
+        # ── The action map — stored state only, so it costs nothing on load ──────
+        render_action_map()
+        st.write("")
 
-    # Home used to be a card grid of every page. It is now a working surface: the
-    # scan that was buried three clicks deep, then the roster it feeds. Navigation
-    # lives in the top ribbon, where it was already complete.
-    _darvas_window("home_vs", compact=True)
-    st.write("")
+        # Home used to be a card grid of every page. It is now a working surface: the
+        # scan that was buried three clicks deep, then the roster it feeds. Navigation
+        # lives in the top ribbon, where it was already complete.
+        _darvas_window("home_vs", compact=True)
+        st.write("")
 
-    # Sector money flow, positive side only (B-60). Where the day's names sit in
-    # the bigger flow picture -- deliberately AFTER the shockers, because it is
-    # context for that list rather than a list of its own. Scan-on-click, same as
-    # above: Home never fetches on load.
-    _money_flow_window("home_smf", compact=True)
-    st.write("")
+        _mf_col, _iv_col = st.columns(2)
+        with _mf_col:
+            # Sector money flow, positive side only (B-60). Where the day's names sit in
+            # the bigger flow picture -- deliberately AFTER the shockers, because it is
+            # context for that list rather than a list of its own. Scan-on-click, same as
+            # above: Home never fetches on load.
+            _money_flow_window("home_smf", compact=True)
+            st.write("")
+        with _iv_col:
+            # ── Institutional volume (PPV >= 5x RVOL, last 5 sessions) ───────────────
+            # Context, not a signal: ppv_edge_study.py showed no forward-return edge at
+            # any RVOL threshold. This answers "where did institutions show up" — a
+            # screen, not an alert.
+            _render_institutional_volume("home_iv")
+            st.write("")
 
-    # ── What moved today (was the Trending Stocks page) ──────────────────────
-    # Folded in because the page was a single nav click that only ever led here,
-    # and Home already carried one of its four lenses (the Darvas window above).
-    #
-    # LAZY ON PURPOSE. Home's rule is that it must not fetch on load, and these
-    # lenses are the most expensive fetches in the app: Price Movers pulls the
-    # whole-market bhavcopy plus live quotes, and the 52W/ATH pair downloads
-    # history for a few hundred names. Rendering them eagerly would put a
-    # minutes-long wait on the landing page.
-    st.markdown('<div id="tb-home-movers"></div>', unsafe_allow_html=True)
-    st.markdown("#### 📈 What moved today")
-    if st.session_state.pop("home_trending_scroll", False):
-        # st.markdown strips <script>, so — as with the ⌘K binding — a 1px
-        # same-origin iframe reaches into the parent. Retries because the
-        # sections above are still painting when it first runs; fails silently.
-        st.iframe(
-            """
-            <script>
-            (function () {
-              let n = 0;
-              (function go() {
-                const doc = window.parent.document;
-                const el = doc.getElementById('tb-home-movers');
-                if (el) {
-                  // Clear the sticky top ribbon, measured rather than assumed:
-                  // it wraps taller on narrow screens.
-                  let p = doc.elementFromPoint(window.parent.innerWidth / 2, 5);
-                  while (p && getComputedStyle(p).position !== 'sticky') p = p.parentElement;
-                  el.style.scrollMarginTop = ((p ? p.getBoundingClientRect().bottom : 0) + 12) + 'px';
-                  el.scrollIntoView({block: 'start'});   // smooth was a no-op in stMain
-                  return;
-                }
-                if (++n < 40) setTimeout(go, 100);
-              })();
-            })();
-            </script>
-            """,
-            height=1,
-        )
-    _tr_key = "home_trending_open"
-    if _tr_key not in st.session_state:
-        # Open by default when a stored run exists — showing a snapshot costs
-        # no fetch, which is the only thing Home ever refused to do on load.
-        st.session_state[_tr_key] = snapstore.latest_meta("trending", ok_only=True) is not None
-    if not st.session_state.get(_tr_key):
-        _tc_a, _tc_b = st.columns([1, 4])
-        with _tc_a:
-            if st.button("Load", key="home_trending_btn", width="stretch"):
-                st.session_state[_tr_key] = True
+        _render_cpr_vp("home_cpr")
+        st.write("")
+
+        # ── What moved today (was the Trending Stocks page) ──────────────────────
+        # Folded in because the page was a single nav click that only ever led here,
+        # and Home already carried one of its four lenses (the Darvas window above).
+        #
+        # LAZY ON PURPOSE. Home's rule is that it must not fetch on load, and these
+        # lenses are the most expensive fetches in the app: Price Movers pulls the
+        # whole-market bhavcopy plus live quotes, and the 52W/ATH pair downloads
+        # history for a few hundred names. Rendering them eagerly would put a
+        # minutes-long wait on the landing page.
+        st.markdown('<div id="tb-home-movers"></div>', unsafe_allow_html=True)
+        st.markdown("#### 📈 What moved today")
+        if st.session_state.pop("home_trending_scroll", False):
+            # st.markdown strips <script>, so — as with the ⌘K binding — a 1px
+            # same-origin iframe reaches into the parent. Retries because the
+            # sections above are still painting when it first runs; fails silently.
+            st.iframe(
+                """
+                <script>
+                (function () {
+                  let n = 0;
+                  (function go() {
+                    const doc = window.parent.document;
+                    const el = doc.getElementById('tb-home-movers');
+                    if (el) {
+                      // Clear the sticky top ribbon, measured rather than assumed:
+                      // it wraps taller on narrow screens.
+                      let p = doc.elementFromPoint(window.parent.innerWidth / 2, 5);
+                      while (p && getComputedStyle(p).position !== 'sticky') p = p.parentElement;
+                      el.style.scrollMarginTop = ((p ? p.getBoundingClientRect().bottom : 0) + 12) + 'px';
+                      el.scrollIntoView({block: 'start'});   // smooth was a no-op in stMain
+                      return;
+                    }
+                    if (++n < 40) setTimeout(go, 100);
+                  })();
+                })();
+                </script>
+                """,
+                height=1,
+            )
+        _tr_key = "home_trending_open"
+        if _tr_key not in st.session_state:
+            # Open by default when a stored run exists — showing a snapshot costs
+            # no fetch, which is the only thing Home ever refused to do on load.
+            st.session_state[_tr_key] = snapstore.latest_meta("trending", ok_only=True) is not None
+        if not st.session_state.get(_tr_key):
+            _tc_a, _tc_b = st.columns([1, 4])
+            with _tc_a:
+                if st.button("Load", key="home_trending_btn", width="stretch"):
+                    st.session_state[_tr_key] = True
+                    st.rerun()
+            with _tc_b:
+                st.caption("Price movers, 52-week and all-time extremes, and the "
+                           "cause-attributed volume spikes. Runs on request — the "
+                           "range lenses download history for a few hundred names.")
+        else:
+            render_trending_stocks("home_tr", include_volume=False)
+            if st.button("Hide", key="home_trending_hide"):
+                st.session_state[_tr_key] = False
                 st.rerun()
-        with _tc_b:
-            st.caption("Price movers, 52-week and all-time extremes, and the "
-                       "cause-attributed volume spikes. Runs on request — the "
-                       "range lenses download history for a few hundred names.")
-    else:
-        render_trending_stocks("home_tr", include_volume=False)
-        if st.button("Hide", key="home_trending_hide"):
-            st.session_state[_tr_key] = False
-            st.rerun()
-    st.write("")
+        st.write("")
 
-    # The nav-card grid is gone: every page is already one click away in the top
-    # ribbon, so carding them twice made Home a menu of a menu. Home now shows the
-    # two things you actually act on — today's volume shockers, and what you are
-    # already tracking.
-    st.markdown("#### ♥ Watchlist")
-    _wl = db.get_watchlist()
-    if _wl is None or _wl.empty:
-        st.info("Watchlist is empty — tick rows in the scan above and press ♥.")
-    else:
-        # Deliberately NOT price-enriched here: the Watchlist page fetches OHLCV
-        # per symbol to score Minervini/TechnoFunda, and Home must not fetch on
-        # load. This is the roster; the scored view is one click away.
-        _wl_out = _wl.rename(columns={"symbol": "Symbol", "added_date": "Added",
-                                      "notes": "Notes"})
-        # Sector rides along even on this deliberately un-enriched roster: it
-        # costs no fetch (the month's map is already cached), which is the whole
-        # reason "Home must not fetch on load" does not exclude it.
-        import sector_column as _sc
-        _wl_out = _sc.attach(_wl_out, "Symbol")
-        _wl_out = _with_chart_family(_wl_out, "Symbol")
-        _wl_out["Symbol"] = _wl_out.pop("Analyze")
-        _wl_out = _wl_out[["Symbol"] + [c for c in _wl_out.columns if c != "Symbol"]]
-        _wl_cfg = dict(_chart_family_colcfg())
-        _wl_cfg.pop("Analyze", None)
-        _wl_cfg.update(_cols_mod().configure("sector"))
-        _wl_cfg["Symbol"] = st.column_config.LinkColumn(
-            "Symbol", width="small", display_text=r"symbol=([^&]+)",
-            help="Click the ticker to analyze it (opens in a new tab)")
-        _wl_cfg["Added"] = st.column_config.TextColumn("Added", width="small")
-        _wl_cfg["Notes"] = st.column_config.TextColumn("Notes", width="medium")
-        _wl_sel = st.dataframe(_wl_out, width="stretch", hide_index=True,
-                               column_config=_wl_cfg, key="home_wl_tbl",
-                               on_select="rerun", selection_mode="multi-row")
+        # ── About this desk — the hero, moved to the foot of Home (B-162) ─────────
+        # A landing-page hero is for a first visit; mid-page on a daily-use surface it
+        # pushed the scans a full screen down. "Last sentiment" was dropped from its
+        # fact row: the verdict card at the top already states that reading.
         try:
-            _wl_rows = list(_wl_sel.selection.rows)
+            _n_scanners = len(sc.SCANNERS)
         except Exception:
-            _wl_rows = []
-        _wl_pick = [str(_wl.iloc[i]["symbol"]) for i in _wl_rows if i < len(_wl)]
+            _n_scanners = None
+        st.markdown(
+            f'<div style="background:linear-gradient(135deg,{_t["surface_warm"]} 0%,'
+            f'{_t["surface_alt"]} 55%,{_t["surface"]} 100%);'
+            f'border:1px solid {_t["border_strong"]};border-radius:16px;'
+            f'padding:22px 28px;margin:2px 0 14px;">'
+            f'<div class="tb-micro" style="color:{_t["accent"]};">TRADING BRAMHA</div>'
+            f'<div style="font-size:22px;font-weight:800;line-height:1.25;'
+            f'color:{_t["text"]};margin-top:6px;">Screening, research and risk — '
+            f'<span style="color:{_t["accent"]};">in one place.</span></div>'
+            f'<div style="font-size:14px;color:{_t["text_body"]};margin:10px 0 14px;'
+            f'max-width:620px;line-height:1.55;">'
+            f'A personal NSE swing-trading desk. Every number on it is computed from '
+            f'filed data or measured history — where something could not be measured, '
+            f'the page says so rather than guessing.</div>'
+            + rs.strip([
+                rs.stat_card("Pattern scanners",
+                             str(_n_scanners) if _n_scanners is not None else None,
+                             "backtest-measured where marked", tone="info"),
+                rs.stat_card("Pages", str(_n_pages),
+                             f"across {len(PAGE_GROUPS)} sidebar groups", tone="neutral"),
+            ], cols=2)
+            + '</div>',
+            unsafe_allow_html=True,
+        )
 
-        _h1, _h2, _h3 = st.columns([1, 1, 2])
-        with _h1:
-            if st.button(f"Remove {len(_wl_pick) or ''}".strip(), key="home_wl_rm",
-                         disabled=not _wl_pick, width="stretch"):
-                for _s in _wl_pick:
-                    db.remove_watchlist_symbol(_s)
-                st.toast(f"Removed {len(_wl_pick)}")
-                st.rerun()
-        with _h2:
-            if st.button("Open Watchlist →", key="home_wl_open",
-                         width="stretch"):
-                st.session_state["current_page"] = "Watchlist"
-                st.rerun()
-        with _h3:
-            st.caption(f"{len(_wl)} tracked. Scores and trade plans live on the "
-                       f"Watchlist page.")
-
-    st.write("")
-
-    # ── About this desk — the hero, moved to the foot of Home (B-162) ─────────
-    # A landing-page hero is for a first visit; mid-page on a daily-use surface it
-    # pushed the scans a full screen down. "Last sentiment" was dropped from its
-    # fact row: the verdict card at the top already states that reading.
-    try:
-        _n_scanners = len(sc.SCANNERS)
-    except Exception:
-        _n_scanners = None
-    st.markdown(
-        f'<div style="background:linear-gradient(135deg,{_t["surface_warm"]} 0%,'
-        f'{_t["surface_alt"]} 55%,{_t["surface"]} 100%);'
-        f'border:1px solid {_t["border_strong"]};border-radius:16px;'
-        f'padding:22px 28px;margin:2px 0 14px;">'
-        f'<div class="tb-micro" style="color:{_t["accent"]};">TRADING BRAMHA</div>'
-        f'<div style="font-size:22px;font-weight:800;line-height:1.25;'
-        f'color:{_t["text"]};margin-top:6px;">Screening, research and risk — '
-        f'<span style="color:{_t["accent"]};">in one place.</span></div>'
-        f'<div style="font-size:14px;color:{_t["text_body"]};margin:10px 0 14px;'
-        f'max-width:620px;line-height:1.55;">'
-        f'A personal NSE swing-trading desk. Every number on it is computed from '
-        f'filed data or measured history — where something could not be measured, '
-        f'the page says so rather than guessing.</div>'
-        + rs.strip([
-            rs.stat_card("Pattern scanners",
-                         str(_n_scanners) if _n_scanners is not None else None,
-                         "backtest-measured where marked", tone="info"),
-            rs.stat_card("Pages", str(_n_pages),
-                         f"across {len(PAGE_GROUPS)} sidebar groups", tone="neutral"),
-        ], cols=2)
-        + '</div>',
-        unsafe_allow_html=True,
-    )
-
-    st.markdown(
-        f'<div style="border-top:1px solid {_t["border"]};margin-top:6px;padding-top:14px;'
-        f'font-size:11.5px;color:{_t["text_muted"]};line-height:1.65;max-width:900px;">'
-        f'<b style="color:{_t["text_body"]};">Research notice.</b> Scores, signals and '
-        f'ratings on this dashboard are automated outputs computed from historical '
-        f'market data and filed disclosures. They are <b>not investment advice</b> and '
-        f'not a recommendation to buy, sell or hold. Scanner edges shown as measured '
-        # This said "a single backtest window and no significance test yet" for
-        # five weeks after both became false -- B-20a added the t-test and CI
-        # (2026-08-12), B-21 added walk-forward pooling and B-29 the cost model
-        # (2026-09-01). The correction is not a softening: the honest sentence is
-        # a STRONGER warning than the stale one, because what the measurement
-        # found was 0 of 41 stable (B-19). A caveat that understates the work
-        # also understates the result. (B-79)
-        f'are walk-forward and net of Indian delivery costs, with a significance '
-        f'test — and of the {len(oh.pipeline_scanners())} scanners measured that '
-        f'way, <b>none was stable across every horizon</b>. Treat them as leads, '
-        f'not signals. Nothing here executes trades.'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+        st.markdown(
+            f'<div style="border-top:1px solid {_t["border"]};margin-top:6px;padding-top:14px;'
+            f'font-size:11.5px;color:{_t["text_muted"]};line-height:1.65;max-width:900px;">'
+            f'<b style="color:{_t["text_body"]};">Research notice.</b> Scores, signals and '
+            f'ratings on this dashboard are automated outputs computed from historical '
+            f'market data and filed disclosures. They are <b>not investment advice</b> and '
+            f'not a recommendation to buy, sell or hold. Scanner edges shown as measured '
+            # This said "a single backtest window and no significance test yet" for
+            # five weeks after both became false -- B-20a added the t-test and CI
+            # (2026-08-12), B-21 added walk-forward pooling and B-29 the cost model
+            # (2026-09-01). The correction is not a softening: the honest sentence is
+            # a STRONGER warning than the stale one, because what the measurement
+            # found was 0 of 41 stable (B-19). A caveat that understates the work
+            # also understates the result. (B-79)
+            f'are walk-forward and net of Indian delivery costs, with a significance '
+            f'test — and of the {len(oh.pipeline_scanners())} scanners measured that '
+            f'way, <b>none was stable across every horizon</b>. Treat them as leads, '
+            f'not signals. Nothing here executes trades.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
