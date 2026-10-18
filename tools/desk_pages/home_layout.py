@@ -65,6 +65,11 @@ def _day_colour(v: float) -> str:
     return f"color: {rs.tone_colors('good' if v > 0 else 'risk')[0]}"
 
 
+def _clear_selection() -> None:
+    """New table key on the next run, so no row is pre-selected after an action."""
+    st.session_state["home_rail_nonce"] = st.session_state.get("home_rail_nonce", 0) + 1
+
+
 def render_rail(db) -> None:
     """The left rail: picker, filter, scrolling rows, footer actions."""
     try:
@@ -101,7 +106,9 @@ def render_rail(db) -> None:
             show.style.map(_day_colour, subset=["Day %"])
                 .format({"Close": "{:.2f}", "Day %": "{:+.2f}%"}, na_rep="—"),
             height=520, hide_index=True, width="stretch",
-            key="home_rail_tbl", on_select="rerun", selection_mode="multi-row",
+            key=wr.table_key(source, query, trade_date,
+                             st.session_state.get("home_rail_nonce", 0)),
+            on_select="rerun", selection_mode="multi-row",
             column_config={
                 # Pixel widths: the rail is ~280 px wide and auto-sized
                 # columns clipped four-digit closes ("6184.50" read "184.50").
@@ -132,14 +139,17 @@ def render_rail(db) -> None:
                          disabled=not picked):
                 for s in picked:
                     db.remove_watchlist_symbol(s)
+                _clear_selection()
                 st.toast(f"Removed {len(picked)}")
                 st.rerun()
         else:
-            if st.button(f"♥ Add {len(picked) or ''}".strip(), key="home_rail_add",
-                         disabled=not picked):
-                for s in picked:
+            to_add = wr.names_to_add(picked, wl)
+            if st.button(f"♥ Add {len(to_add) or ''}".strip(), key="home_rail_add",
+                         disabled=not to_add):
+                for s in to_add:
                     db.add_watchlist_symbol(s, "Home sector rail")
-                st.toast(f"Added {len(picked)} to watchlist")
+                _clear_selection()
+                st.toast(f"Added {len(to_add)} to watchlist")
                 st.rerun()
         if st.button("Open Watchlist →", key="home_wl_open"):
             st.session_state["current_page"] = "Watchlist"

@@ -121,3 +121,29 @@ def rail_frame(source: str, watchlist: list[str],
     if df["Day %"].notna().any():
         df = df.sort_values("Day %", ascending=False, na_position="last", kind="stable")
     return df.reset_index(drop=True)
+
+
+def names_to_add(picked: list[str], watchlist: list[str]) -> list[str]:
+    """Picked names not already watched, first-seen order, no duplicates.
+
+    `portfolio_db.add_watchlist_symbol` is INSERT OR REPLACE, so re-adding a
+    watched name would reset its note and `added_date` — the facts the row
+    exists to carry.
+    """
+    have = set(watchlist)
+    out: list[str] = []
+    for s in picked:
+        if s not in have and s not in out:
+            out.append(s)
+    return out
+
+
+def table_key(source: str, query: str, trade_date: str | None, nonce: int) -> str:
+    """Widget key for the rail table.
+
+    Streamlit keeps a dataframe's row selection under its key, as row
+    POSITIONS. A key that ignored the source, filter or snapshot date would
+    carry a selection onto different rows; `nonce` is bumped after Add/Remove
+    so the rows that shifted up are not pre-selected for a second click.
+    """
+    return f"home_rail_tbl|{source}|{query}|{trade_date}|{nonce}"

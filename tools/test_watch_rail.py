@@ -88,3 +88,22 @@ def test_load_bhav_writes_snapshot(tmp_path, monkeypatch):
     df, td = ts.load_bhav()
     assert td == "2026-10-17"
     assert wr.read_closes(tmp_path / "c.json")[0]["TCS"] == (110.0, 100.0)
+
+
+def test_names_to_add_skips_already_watched():
+    # add_watchlist_symbol is INSERT OR REPLACE: re-adding a watched name would
+    # reset its note and added_date (review finding, B-179).
+    assert wr.names_to_add(["TCS", "INFY", "TCS"], ["INFY"]) == ["TCS"]
+    assert wr.names_to_add(["INFY"], ["INFY"]) == []
+
+
+def test_table_key_changes_with_context_and_nonce():
+    # A dataframe's selection lives under its key; a key that ignores source,
+    # filter, snapshot date or a completed action carries row positions over to
+    # rows the user never picked (review finding, B-179).
+    base = wr.table_key("Banks", "", "2026-10-16", 0)
+    assert base != wr.table_key(wr.WATCHLIST_KEY, "", "2026-10-16", 0)
+    assert base != wr.table_key("Banks", "ba", "2026-10-16", 0)
+    assert base != wr.table_key("Banks", "", "2026-10-17", 0)
+    assert base != wr.table_key("Banks", "", "2026-10-16", 1)
+    assert base == wr.table_key("Banks", "", "2026-10-16", 0)
