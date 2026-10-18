@@ -25,6 +25,13 @@ changes.
 Owner decisions (2026-10-18): picker = **both** (watchlist + sectors);
 prices = **cached close + ↻ on demand**; three-pane layout **approved**.
 
+> **Built 2026-10-18 — one layout change from the browser check:** the market
+> bar (index strip, breadth bars, Nifty 50 and vs 200 SMA cards) renders in the
+> centre pane **under the verdict**, not across the top. Full width it measured
+> ~450 px and pushed the watchlist rail off the first screen. Home's foot also
+> carried the "About this desk" card and the Research notice, missed in the
+> table below; both sit at the bottom of the centre pane, unchanged.
+
 ## Rules this must keep
 1. **Home never fetches on load** (existing rule). The rail reads disk only;
    the network is touched only by ↻.

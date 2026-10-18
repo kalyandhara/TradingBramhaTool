@@ -3,6 +3,7 @@
 
 ## [2026-10-18] spec | B-179 Home terminal layout
 - [[analyses/Home-Terminal-Layout-Spec]]: three panes (watchlist/sector rail · existing sections · account cards); every current Home section placed. Found no on-disk close cache — spec adds `cache/last_close.json`.
+- Built same day (`e73d833`..`954a511`): `watch_rail.py`, `desk_pages/home_layout.py`, Home wired via `with _slots.*`. Ratchet lowered (lines 11,900 · statements 304 · raw HTML 82). Browser check moved the market bar under the verdict.
 
 ## [2026-10-17] study | B-166 HTF sweeps — NO CHANGE; B-167 sweep confirmation — NO FILTER; B-168 built
 - B-166 ([[analyses/HTF-Liquidity-Sweep]]): HTF sweeps the scanner misses +0.21% @20d (p 0.35). Registered sweep on this panel +2.59% @60d (p 0.003) — B-41m holds.
