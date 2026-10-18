@@ -3287,8 +3287,8 @@ _slots = dpages.home_header(_ov_cards, current_page == "Home")
 
 # ── Regime + today's verdict — ONE card ───────────────────────────────────────
 _show_regime = current_page == "Home"
-# B-179: the verdict card and its controls render into Home's centre pane.
-with _slots.centre:
+# B-179: the verdict card and its controls open Home's centre pane.
+with _slots.verdict:
     # These were two stacked cards and between them they owned most of the first
     # screen on every page. They are now one, because they are one thought: the
     # regime is the CONTEXT and the verdict is the DECISION taken in it, and the
@@ -5535,7 +5535,7 @@ if current_page == "Home":
     with _slots.left:
         dpages.home_rail(db)
 
-    # Centre pane, below the verdict card the shared header already put there.
+    # Centre pane, below the verdict card and market bar the header put there.
     with _slots.centre:
         # ── The action map — stored state only, so it costs nothing on load ──────
         render_action_map()

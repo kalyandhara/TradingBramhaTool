@@ -31,6 +31,7 @@ class Slots:
     left: Any
     centre: Any
     right: Any
+    verdict: Any
 
 
 def header(cards: list[str], is_home: bool) -> Slots:
@@ -38,18 +39,24 @@ def header(cards: list[str], is_home: bool) -> Slots:
 
     `cards` is `_ov_cards`: Nifty 50, vs 200 SMA, Portfolio P&L, Capital at
     Risk, Alerts Triggered. Off Home they stay one five-up strip; on Home the
-    two market cards head the market bar and the three account cards stack in
-    the right rail.
+    two market cards head the market bar (centre pane, under the verdict) and
+    the three account cards stack in the right rail.
     """
     if not is_home:
         st.markdown(rs.strip(cards, cols=5), unsafe_allow_html=True)
         c = st.container()
-        return Slots(c, c, c, c)
-    market = st.container()
-    market.markdown(rs.strip(cards[:2], cols=2), unsafe_allow_html=True)
+        return Slots(c, c, c, c, c)
+    # The market bar sits in the centre pane, AFTER the verdict, not across the
+    # top: full width, the index charts and breadth bars measured ~450 px and
+    # pushed the watchlist rail off the first screen — and B-162 already put
+    # the strips after the decision for the same reason.
     left, centre, right = st.columns([1.1, 3.4, 1], gap="small")
+    verdict = centre.container()
+    market = centre.container()
+    market.markdown(rs.strip(cards[:2], cols=2), unsafe_allow_html=True)
+    body = centre.container()
     right.markdown(rs.strip(cards[2:], cols=1), unsafe_allow_html=True)
-    return Slots(market, left, centre, right)
+    return Slots(market, left, body, right, verdict)
 
 
 def _day_colour(v: float) -> str:
@@ -86,17 +93,24 @@ def render_rail(db) -> None:
         frame = wr.rail_frame(source, wl, smap, closes, query)
         show = frame.copy()
         show["Symbol"] = [uit.analyze_url(s) for s in frame["Symbol"]]
+        if source == wr.WATCHLIST_KEY:
+            show = show.drop(columns=["♥"])   # every row is watched; the rail is narrow
         event = st.dataframe(
-            show.style.map(_day_colour, subset=["Day %"]),
+            # Styler formats Close / Day % (not column_config) because only it
+            # has na_rep: a NumberColumn renders a missing price as "None".
+            show.style.map(_day_colour, subset=["Day %"])
+                .format({"Close": "{:.2f}", "Day %": "{:+.2f}%"}, na_rep="—"),
             height=520, hide_index=True, width="stretch",
             key="home_rail_tbl", on_select="rerun", selection_mode="multi-row",
             column_config={
+                # Pixel widths: the rail is ~280 px wide and auto-sized
+                # columns clipped four-digit closes ("6184.50" read "184.50").
                 "Symbol": st.column_config.LinkColumn(
-                    "Symbol", display_text=r"symbol=([^&]+)",
+                    "Symbol", display_text=r"symbol=([^&]+)", width=84,
                     help="Click the ticker to analyze it (opens in a new tab)"),
-                "Close": st.column_config.NumberColumn("Close", format="%.2f"),
-                "Day %": st.column_config.NumberColumn("Day %", format="%+.2f%%"),
-                "♥": st.column_config.CheckboxColumn("♥", width="small"),
+                "Close": st.column_config.Column("Close", width=62),
+                "Day %": st.column_config.Column("Day %", width=58),
+                "♥": st.column_config.CheckboxColumn("♥", width=28),
             })
         try:
             rows = list(event.selection.rows)
