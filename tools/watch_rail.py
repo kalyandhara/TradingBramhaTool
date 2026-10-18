@@ -199,3 +199,33 @@ def table_key(source: str, query: str, trade_date: str | None, nonce: int) -> st
     so the rows that shifted up are not pre-selected for a second click.
     """
     return f"home_rail_tbl|{source}|{query}|{trade_date}|{nonce}"
+
+
+def chart_symbol(sym: str) -> str:
+    """The ticker the :5001 chart server expects: bare NSE names get `.NS`;
+    indices (`^…`) and already-suffixed names pass through — the same rule
+    as `ui_tables.chart_url`."""
+    s = str(sym).strip().upper()
+    return s if (s.startswith("^") or "." in s) else f"{s}.NS"
+
+
+def rail_rows(frame: pd.DataFrame, source: str) -> list[dict]:
+    """`rail_frame` as JSON-safe dicts for the watch_rail component (B-180).
+
+    NaN becomes None (JSON has no NaN). `watched` is None in watchlist mode,
+    where every row is watched and the ♥ column is not drawn.
+    """
+    def num(v):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return None if math.isnan(f) else f
+
+    mode_watch = source == WATCHLIST_KEY
+    return [{"symbol": str(r["Symbol"]),
+             "close": num(r["Close"]),
+             "day_pct": num(r["Day %"]),
+             "watched": None if mode_watch else bool(r["♥"]),
+             "chart": chart_symbol(r["Symbol"])}
+            for _, r in frame.iterrows()]

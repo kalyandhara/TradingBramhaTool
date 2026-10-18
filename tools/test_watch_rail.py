@@ -179,3 +179,25 @@ def test_pick_index_follows_the_key_not_the_label():
     assert wr.pick_index(keys, "IT") == 2
     assert wr.pick_index(keys, "Gone") == 0
     assert wr.pick_index(keys, None) == 0
+
+
+def test_chart_symbol_suffix_rule():
+    assert wr.chart_symbol("TCS") == "TCS.NS"
+    assert wr.chart_symbol(" tcs ") == "TCS.NS"
+    assert wr.chart_symbol("^NSEI") == "^NSEI"
+    assert wr.chart_symbol("MARINE.BO") == "MARINE.BO"
+
+
+def test_rail_rows_are_json_safe_and_mode_aware():
+    import json
+    closes = {"TCS": (110.0, 100.0)}
+    f = wr.rail_frame("Information Technology", ["INFY"], SMAP, closes)
+    rows = wr.rail_rows(f, "Information Technology")
+    assert [r["symbol"] for r in rows] == ["TCS", "INFY"]
+    assert rows[0]["close"] == 110.0 and math.isclose(rows[0]["day_pct"], 10.0)
+    assert rows[1]["close"] is None and rows[1]["day_pct"] is None
+    assert [r["watched"] for r in rows] == [False, True]
+    assert rows[0]["chart"] == "TCS.NS"
+    json.dumps(rows, allow_nan=False)            # no NaN reaches the browser
+    wl = wr.rail_rows(wr.rail_frame(wr.WATCHLIST_KEY, ["INFY"], SMAP, {}), wr.WATCHLIST_KEY)
+    assert wl[0]["watched"] is None
