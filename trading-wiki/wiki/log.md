@@ -3,6 +3,7 @@
 
 ## [2026-10-18] spec | B-180 Home rail hover chart
 - [[analyses/Home-Rail-Hover-Chart-Spec]]: hover a rail ticker → floating card (candles, volume, SMA 20/50) from `/api/ohlcv`; rail rows become `components/watch_rail`. Hardening branch merged first (`2ab7e02`).
+- Built same day (`714cedf`..`c14d76d`): `components/watch_rail`, chart-server CORS for `/api/ohlcv` (:8501/:8502 only), symbol allowlist in `rail_rows`. Card width clamps to the viewport on phones.
 
 ## [2026-10-18] spec | B-179 Home terminal layout
 - [[analyses/Home-Terminal-Layout-Spec]]: three panes (watchlist/sector rail · existing sections · account cards); every current Home section placed. Found no on-disk close cache — spec adds `cache/last_close.json`.
