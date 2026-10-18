@@ -31,3 +31,10 @@ def test_unknown_origin_gets_no_header():
 def test_other_routes_get_no_header():
     r = _get("/manifest.webmanifest", "http://localhost:8501")
     assert "Access-Control-Allow-Origin" not in r.headers
+
+
+def test_loopback_ip_origin_is_echoed_on_ohlcv():
+    # The desk opened as http://127.0.0.1:8501 is the same desk, a different origin.
+    for o in ("http://127.0.0.1:8501", "http://127.0.0.1:8502"):
+        r = _get("/api/ohlcv", o)
+        assert r.headers.get("Access-Control-Allow-Origin") == o

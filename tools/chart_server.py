@@ -49,7 +49,10 @@ sock = Sock(app)
 # from here — a cross-port fetch the browser blocks without this header. Only
 # the desk's own origins, and only /api/ohlcv: nothing else on this server is
 # meant to be read by another page.
-ALLOWED_ORIGINS = frozenset({"http://localhost:8501", "http://localhost:8502"})
+ALLOWED_ORIGINS = frozenset({
+    f"http://{host}:{port}"
+    for host in ("localhost", "127.0.0.1") for port in (8501, 8502)
+})
 
 
 @app.after_request

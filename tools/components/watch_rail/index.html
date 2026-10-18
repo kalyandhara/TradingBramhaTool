@@ -59,6 +59,10 @@ function cardW() { return Math.min(CARD_W, window.parent.innerWidth - 16); }
 
 const wrap = document.getElementById("wrap");
 let ARGS = {}, rowsSig = "", picked = new Set();
+// Card state lives up here so the handshake below never meets it uninitialised.
+let P = null, card = null, chart = null, openTimer = null, closeTimer = null;
+let token = 0, openFor = null;
+const cache = new Map();      // chart symbol -> {bars, prev} | {err, at}
 
 // ── Rows ────────────────────────────────────────────────────────────────────
 function fmtClose(v) { return v == null ? "—" : v.toFixed(2); }
@@ -103,11 +107,42 @@ wrap.addEventListener("change", (e) => {
   setValue({picked: [...picked]});
 });
 
+// ── Host handshake ──────────────────────────────────────────────────────────
+// Sent before anything touches the parent page: if that access throws, the
+// rows still render and only the hover chart is lost.
+window.addEventListener("message", (event) => {
+  if (!event.data || event.data.type !== "streamlit:render") return;
+  hideCard();                                  // a rerun never leaves a card behind
+  ARGS = event.data.args || {};
+  const t = ARGS.theme || {};
+  const root = document.documentElement.style;
+  root.setProperty("--border", t.border || "#e5e7eb");
+  root.setProperty("--surface", t.surface || "#fff");
+  root.setProperty("--surface-alt", t.surface_alt || "#f8fafc");
+  root.setProperty("--muted", t.muted || "#6b7280");
+  root.setProperty("--accent-link", t.link || "#2563eb");
+  root.setProperty("--risk", ARGS.risk || "#dc2626");
+  const sig = JSON.stringify([ARGS.rows, ARGS.show_heart]);
+  if (sig !== rowsSig) {
+    rowsSig = sig;
+    // Keep only ticks whose rows are still shown, and tell Python whenever that
+    // changed — otherwise a cleared box could still count for Add/Remove.
+    const shown = new Set((ARGS.rows || []).map(r => r.symbol));
+    const kept = new Set([...picked].filter(x => shown.has(x)));
+    const changed = kept.size !== picked.size;
+    picked = kept;
+    renderRows();
+    if (changed) setValue({picked: [...picked]});
+  }
+  const h = ARGS.height || 520;
+  wrap.style.height = h + "px";
+  setHeight(h + 2);
+});
+
+send("streamlit:componentReady", {apiVersion: 1});
+
 // ── Chart card, hosted in the PARENT page so the narrow frame can't clip it ──
-const P = window.parent.document;
-let card = null, chart = null, openTimer = null, closeTimer = null;
-let token = 0, openFor = null;
-const cache = new Map();      // chart symbol -> {bars, prev} | {err, at}
+try { P = window.parent.document; P.body; } catch (e) { P = null; }   // e.g. cross-origin host
 
 function loadLwc() {
   // A script tag that already failed never fires load/error again, so a dead
@@ -288,19 +323,27 @@ async function openCard(i, rowEl) {
                          lastValueVisible: false}).setData(sma(bars, 50));
     chart.timeScale().fitContent();
   } catch (e) {
+    if (chart) { try { chart.remove(); } catch (_) {} chart = null; }
     setBody("Chart unavailable");
   }
 }
 
 // Hover (desktop): rest on a Symbol cell for OPEN_MS.
 wrap.addEventListener("mouseover", (e) => {
-  if (TOUCH) return;
+  if (TOUCH || !P) return;
+  // Back on the open row from the card (any cell, not just Symbol): keep it.
+  const row = e.target.closest(".row[data-i]");
+  const rowSym = row && (ARGS.rows || [])[Number(row.dataset.i)];
+  if (rowSym && openFor === rowSym.symbol) clearTimeout(closeTimer);
   const cell = e.target.closest(".sym");
   if (!cell) return;
   clearTimeout(closeTimer);
   const i = Number(cell.dataset.i), rowEl = cell.closest(".row");
   const sym = (ARGS.rows || [])[i] && ARGS.rows[i].symbol;
   if (openFor === sym && card && card.style.display === "block") return;
+  // Heading for another name: a load still in flight for the old one must not
+  // draw while this row's timer runs.
+  if (openFor !== null && openFor !== sym) { token++; openFor = null; }
   clearTimeout(openTimer);
   openTimer = setTimeout(() => openCard(i, rowEl), OPEN_MS);
 });
@@ -315,7 +358,7 @@ wrap.addEventListener("mouseout", (e) => {
 // Chart icon: toggles the card (the only trigger on touch screens).
 wrap.addEventListener("click", (e) => {
   const btn = e.target.closest(".chartbtn");
-  if (!btn) return;
+  if (!btn || !P) return;
   const i = Number(btn.dataset.i), r = (ARGS.rows || [])[i];
   if (r && openFor === r.symbol && card && card.style.display === "block") hideCard();
   else openCard(i, btn.closest(".row"));
@@ -323,50 +366,22 @@ wrap.addEventListener("click", (e) => {
 
 function onKey(e) { if (e.key === "Escape") hideCard(); }
 document.addEventListener("keydown", onKey);
-P.addEventListener("keydown", onKey);
 function onOutside(e) {
   if (!card || card.style.display !== "block") return;
   if (card.contains(e.target)) return;
   hideCard();
 }
-P.addEventListener("pointerdown", onOutside);
-window.addEventListener("pagehide", () => {
-  hideCard();
-  P.removeEventListener("keydown", onKey);
-  P.removeEventListener("pointerdown", onOutside);
-});
+if (P) {
+  P.addEventListener("keydown", onKey);
+  P.addEventListener("pointerdown", onOutside);
+  window.addEventListener("pagehide", () => {
+    hideCard();
+    P.removeEventListener("keydown", onKey);
+    P.removeEventListener("pointerdown", onOutside);
+  });
+}
 
-// ── Host handshake ──────────────────────────────────────────────────────────
-window.addEventListener("message", (event) => {
-  if (!event.data || event.data.type !== "streamlit:render") return;
-  hideCard();                                  // a rerun never leaves a card behind
-  ARGS = event.data.args || {};
-  const t = ARGS.theme || {};
-  const root = document.documentElement.style;
-  root.setProperty("--border", t.border || "#e5e7eb");
-  root.setProperty("--surface", t.surface || "#fff");
-  root.setProperty("--surface-alt", t.surface_alt || "#f8fafc");
-  root.setProperty("--muted", t.muted || "#6b7280");
-  root.setProperty("--accent-link", t.link || "#2563eb");
-  root.setProperty("--risk", ARGS.risk || "#dc2626");
-  const sig = JSON.stringify([ARGS.rows, ARGS.show_heart]);
-  if (sig !== rowsSig) {
-    rowsSig = sig;
-    // Keep only ticks whose rows are still shown, and tell Python whenever that
-    // changed — otherwise a cleared box could still count for Add/Remove.
-    const shown = new Set((ARGS.rows || []).map(r => r.symbol));
-    const kept = new Set([...picked].filter(x => shown.has(x)));
-    const changed = kept.size !== picked.size;
-    picked = kept;
-    renderRows();
-    if (changed) setValue({picked: [...picked]});
-  }
-  const h = ARGS.height || 520;
-  wrap.style.height = h + "px";
-  setHeight(h + 2);
-});
 
-send("streamlit:componentReady", {apiVersion: 1});
 </script>
 </body>
 </html>
