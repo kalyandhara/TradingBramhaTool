@@ -1,12 +1,12 @@
 ---
 title: "Wiki Index"
 updated: 2026-10-18
-pages: 337
+pages: 338
 sources_ingested: 122
 ---
 
 # Trading Wiki — Index
-_Last updated: 2026-10-18 | Pages: 337 | Sources ingested: 122_
+_Last updated: 2026-10-18 | Pages: 338 | Sources ingested: 122_
 <!-- Counting convention, stated because these two counters silently drifted to
      TWO DIFFERENT wrong numbers before 2026-08-07 (see B-27 in
      analyses/Open-Backlog.md): "Pages" = every .md under wiki/ EXCLUDING the
@@ -310,6 +310,7 @@ _Last updated: 2026-10-18 | Pages: 337 | Sources ingested: 122_
 | [Home-Terminal-Layout-Spec](analyses/Home-Terminal-Layout-Spec.md) | 2026-10-18 | B-179 presentation spec: Home as a three-pane trading terminal — left watchlist rail with a watchlist/sector picker, centre with every existing Home section, right rail with account cards; adds a disk close-price snapshot so Home still never fetches on load |
 | [Home-Terminal-Layout-Plan](analyses/Home-Terminal-Layout-Plan.md) | 2026-10-18 | B-179 implementation plan: 5 tasks — `watch_rail` pure logic, snapshot write in `load_bhav`, `desk_pages/home_layout` panes + rail, `dashboard_app` wiring under the monolith ratchet, browser verification |
 | [Home-Rail-Hover-Chart-Spec](analyses/Home-Rail-Hover-Chart-Spec.md) | 2026-10-18 | B-180 spec: Chartink-style hover chart card on Home's rail — candles, volume, SMA 20/50 from the :5001 chart server, rail rows as a custom component |
+| [Home-Rail-Hover-Chart-Plan](analyses/Home-Rail-Hover-Chart-Plan.md) | 2026-10-18 | B-180 implementation plan: 5 tasks — `rail_rows`/`chart_symbol`, chart-server CORS for `/api/ohlcv`, `components/watch_rail` (rows + hover card), rail wiring with fallback, browser verification |
 | [Radar-Chart-Analyzer-Fit](analyses/Radar-Chart-Analyzer-Fit.md) | 2026-07-25 | Grounded audit + phased plan for adding the [[concepts/Radar-Chart-Stock-Scoring]] radar to our Stock Analyzer. Finding: ~70% is a data-remap + one Plotly `Scatterpolar` — we already fetch Growth/Valuation/Finance inputs via yfinance `fetch_fundamentals` and ship Plotly; gaps are band-scoring (/10, universe-calibrated), a defined Sentiment axis, and optional screener.in 3Y-CAGR/true-ROCE (rides PEAD Phase 5.2). Portfolio radar drives off our **own** `portfolio_db` (no Groww MCP). Plan RC-1 (single-stock, yfinance-only) → RC-2 (screener.in enrich) → RC-3 (portfolio overlay + table) → RC-4 (fuse with M1). Flags the "two Overalls" naming collision (fundamental mean vs technical M1 /100) |
 | [Backtest-Harness](analyses/Backtest-Harness.md) | 2026-07-25 | Phase-3 measurement layer ([backtest.py](tools/backtest.py)). Look-ahead-safe point-in-time replay (scanner sees only `df.iloc[:t+1]`, entry next-bar-open) + **edge-vs-random-entry baseline** (signal return − all-bars return in the same tape), generic over all 22 scanners; `_simulate_plan` R-sim unit-verified but dormant until scanners expose structured `entry`/`stop`/`target` (today plans live in reason-text). **First finding:** of 5 scanners measured (49 names, ~6y), **only Harmonic Reversal beat baseline** (+0.67% @20d); RSI-60-40 / VCP / Structural Breakout showed ≤0 edge — the measured credibility check [[analyses/Dashboard-UI-Roadmap]] Phase 3 wanted. Caveats: gross, survivorship-biased, one window |
 | [Opportunity-Hub-Roadmap](analyses/Opportunity-Hub-Roadmap.md) | 2026-07-25 | Top-down **Sector→Industry→Stock→Pattern→Entry** funnel (from a competitor "Opportunity Hub" post). Grounded audit finding: we own ~all the building blocks (Sector Map rotation quadrant, 18 scanners, Overall Rating, projection entry/stop/target) but lack the **orchestration** that lets leading sectors DRIVE which stocks get scanned. Phase 1 = funnel MVP (sector→stock→existing scanners, pure composition, no new detectors); Phase 2 = industry-level rotation; Phase 3 = the 3 greenfield detectors (candlestick, IPO-base breakout, explicit ATH breakout); Phase 4 = participant presets + backtest. Composes on [[analyses/Dashboard-UI-Roadmap]] |
