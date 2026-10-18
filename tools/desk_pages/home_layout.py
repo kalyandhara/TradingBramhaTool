@@ -72,18 +72,19 @@ def _clear_selection() -> None:
 
 def render_rail(db) -> None:
     """The left rail: picker, filter, scrolling rows, footer actions."""
-    try:
-        import sectors
-        smap = sectors.lookup()
-    except Exception:
-        smap = {}
+    smap = wr.rail_sector_map()
     wl_df = db.get_watchlist()
     wl = [] if wl_df is None or wl_df.empty else [str(s) for s in wl_df["symbol"]]
 
-    opts = wr.sector_options(smap, wl)
-    choice = st.selectbox("Watch", opts, format_func=lambda o: o[0],
-                          key="home_rail_src", label_visibility="collapsed")
-    source = choice[1] if choice else wr.WATCHLIST_KEY
+    labels = {k: lab for lab, k in wr.sector_options(smap, wl)}
+    keys = list(labels)
+    source = st.selectbox(
+        "Watch", keys, format_func=labels.get, label_visibility="collapsed",
+        index=wr.pick_index(keys, st.session_state.get("home_rail_src_key")),
+        # The label carries a count, so a keyed widget whose label changed
+        # (Add/Remove) is a new widget: `index` from the stored key keeps it.
+        key=f"home_rail_src|{len(wl)}") or wr.WATCHLIST_KEY
+    st.session_state["home_rail_src_key"] = source
     if not smap:
         st.caption("Sector map unavailable")
     query = st.text_input("Filter", key="home_rail_q", placeholder="TCS",
@@ -129,11 +130,10 @@ def render_rail(db) -> None:
         if st.button("↻", key="home_rail_refresh", help="Refresh closes from NSE"):
             import trending_stocks
             with st.spinner("Fetching closes…"):
-                df, _ = trending_stocks.load_bhav()
-            if df is None:
-                st.toast("Couldn't reach NSE for prices. The last snapshot stays.")
-            else:
+                ok, msg = wr.refresh_closes(trending_stocks.load_bhav)
+            if ok:
                 st.rerun()
+            st.toast(msg)
         if source == wr.WATCHLIST_KEY:
             if st.button(f"✕ Remove {len(picked) or ''}".strip(), key="home_rail_rm",
                          disabled=not picked):
