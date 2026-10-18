@@ -1265,7 +1265,7 @@ st.markdown('<div id="tb-navstart"></div>', unsafe_allow_html=True)
 # of its column, and at 1.15 the company names were cut to a few characters with
 # a horizontal scrollbar under them. The width comes out of the brand and the
 # spacer, not the group labels — those are already near their text width.
-_nav = st.columns([1.4, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.1, 2.0, 0.95, 0.5],
+_nav = st.columns([1.4, 0.8, 1.0, 1.0, 1.0, 1.0, 1.0, 0.1, 2.0, 0.95],
                    gap="small", vertical_alignment="center")
 
 with _nav[0]:
@@ -1309,9 +1309,6 @@ with _nav[8]:
 with _nav[9]:
     _signin_control()
 
-# Beginner mode toggle (the Glossary is a page: Research → Glossary)
-with _nav[10]:
-    beginner_mode = help.beginner_mode_toggle(key="nav_beginner_mode")
 
 # ── Breadcrumb + status strip ────────────────────────────────────
 # One 30px line under the bar: where you are on the left, whether the data is
