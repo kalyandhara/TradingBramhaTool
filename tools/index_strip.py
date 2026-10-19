@@ -145,28 +145,34 @@ def mini_figure(q: IndexQuote, height: int = 150) -> go.Figure:
     return fig
 
 
-def header_html(q: IndexQuote) -> str:
-    """Name · proxy tag · session date on one line, value and change below."""
-    fg, _ = rs.tone_colors(q.tone)
-    proxy = (f'<span class="tb-micro" style="color:{rs.TOKENS["text_muted"]};">'
-             f'{q.proxy}</span>' if q.proxy else "")
-    if q.last is None:
+def _head_html(label: str, tag: str | None, day: str | None, last: float | None,
+               change: float | None, change_pct: float | None, tone: str) -> str:
+    """Name + tag / date / value / change, each on its own line, so every card
+    in the row is the same height and nothing runs past a narrow card's edge."""
+    fg, _ = rs.tone_colors(tone)
+    nowrap = "white-space:nowrap;overflow:hidden;text-overflow:ellipsis;"
+    tag_html = (f' <span class="tb-micro" style="color:{rs.TOKENS["text_muted"]};">'
+                f'{tag}</span>' if tag else "")
+    if last is None:
         value = f'<div class="tb-stat-val tb-na">{rs.NA}</div>'
     else:
-        arrow = "▲" if (q.change or 0) >= 0 else "▼"
+        arrow = "▲" if (change or 0) >= 0 else "▼"
+        chg = (f'{arrow} {change:+,.2f} ({change_pct:+.2f}%)'
+               if change is not None and change_pct is not None else "&nbsp;")
         value = (
-            f'<div style="display:flex;align-items:baseline;gap:8px;">'
-            f'<span class="tb-mono" style="font-size:19px;font-weight:700;'
-            f'color:{rs.TOKENS["text"]};">{q.last:,.2f}</span>'
-            f'<span class="tb-mono" style="font-size:12.5px;font-weight:700;'
-            f'color:{fg};">{arrow} {q.change:+,.2f} '
-            f'({q.change_pct:+.2f}%)</span></div>')
+            f'<div class="tb-mono" style="font-size:19px;font-weight:700;'
+            f'line-height:1.25;color:{rs.TOKENS["text"]};{nowrap}">{last:,.2f}</div>'
+            f'<div class="tb-mono" style="font-size:12.5px;font-weight:700;'
+            f'color:{fg};{nowrap}">{chg}</div>')
     return (
-        f'<div style="display:flex;align-items:baseline;gap:7px;flex-wrap:wrap;">'
-        f'<span style="font-size:13px;font-weight:700;letter-spacing:.02em;'
-        f'color:{rs.TOKENS["text"]};">{q.label}</span>{proxy}'
-        f'<span class="tb-micro" style="margin-left:auto;">{q.session or ""}</span>'
-        f'</div>{value}')
+        f'<div style="{nowrap}"><span style="font-size:13px;font-weight:700;'
+        f'letter-spacing:.02em;color:{rs.TOKENS["text"]};">{label}</span>{tag_html}</div>'
+        f'<div class="tb-micro" style="{nowrap}">{day or "&nbsp;"}</div>{value}')
+
+
+def header_html(q: IndexQuote) -> str:
+    return _head_html(q.label, q.proxy, q.session, q.last, q.change,
+                      q.change_pct, q.tone)
 
 
 def absent_html(q: IndexQuote) -> str:
@@ -242,28 +248,9 @@ def _split_stamp(stamp: str | None) -> tuple[str, str]:
 
 
 def gift_header_html(g: GiftQuote) -> str:
-    fg, _ = rs.tone_colors(g.tone)
-    tag = (f'<span class="tb-micro" style="color:{rs.TOKENS["text_muted"]};">'
-           f'FUT</span>')
     day, _ = _split_stamp(g.stamp)
-    if g.last is None:
-        value = f'<div class="tb-stat-val tb-na">{rs.NA}</div>'
-    else:
-        arrow = "▲" if (g.change or 0) >= 0 else "▼"
-        chg = (f'{arrow} {g.change:+,.2f} ({g.change_pct:+.2f}%)'
-               if g.change is not None and g.change_pct is not None else "")
-        value = (
-            f'<div style="display:flex;align-items:baseline;gap:8px;">'
-            f'<span class="tb-mono" style="font-size:19px;font-weight:700;'
-            f'color:{rs.TOKENS["text"]};">{g.last:,.2f}</span>'
-            f'<span class="tb-mono" style="font-size:12.5px;font-weight:700;'
-            f'color:{fg};">{chg}</span></div>')
-    return (
-        f'<div style="display:flex;align-items:baseline;gap:7px;white-space:nowrap;">'
-        f'<span style="font-size:13px;font-weight:700;letter-spacing:.02em;'
-        f'color:{rs.TOKENS["text"]};">GIFT NIFTY</span>{tag}'
-        f'<span class="tb-micro" style="margin-left:auto;">{day}</span>'
-        f'</div>{value}')
+    return _head_html("GIFT NIFTY", "FUT", day, g.last, g.change,
+                      g.change_pct, g.tone)
 
 
 def gift_body_html(g: GiftQuote, nifty: IndexQuote | None, height: int = 150) -> str:
@@ -325,7 +312,9 @@ def render() -> None:
 
     quotes = st.cache_data(ttl=300, show_spinner=False)(fetch_quotes)()
     gift = st.cache_data(ttl=120, show_spinner=False)(fetch_gift)()
-    cols = st.columns(len(quotes) + 1)
+    st.markdown(rs.wrap_row_css("tb_idxstrip"), unsafe_allow_html=True)
+    with st.container(key="tb_idxstrip"):
+        cols = st.columns(len(quotes) + 1)
     with cols[0]:
         st.markdown(rs.card(gift_header_html(gift), tone=gift.tone),
                     unsafe_allow_html=True)

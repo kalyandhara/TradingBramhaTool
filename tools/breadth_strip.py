@@ -264,7 +264,11 @@ def render(reading: dict | None) -> None:
     hist = st.cache_data(
         ttl=900, show_spinner="Measuring NIFTY 500 breadth …")(fetch_history)()
     bars = build_bars(hist, reading)
-    for col, b in zip(st.columns(len(bars)), bars):
+    # Wraps like the index cards above (same minimum), so the two rows stay in step.
+    st.markdown(rs.wrap_row_css("tb_breadthstrip"), unsafe_allow_html=True)
+    with st.container(key="tb_breadthstrip"):
+        cols = st.columns(len(bars))
+    for col, b in zip(cols, bars):
         with col:
             st.markdown(bar_html(b), unsafe_allow_html=True)
     st.expander("How this is measured — breadth bars").caption(

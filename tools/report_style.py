@@ -215,6 +215,20 @@ def card(body: str, title: str | None = None, emphasis: bool = False,
     return f'<div class="{cls}"{style}>{head}{body}</div>'
 
 
+def wrap_row_css(key: str, min_px: int = 200) -> str:
+    """CSS that lets the st.columns row inside `st.container(key=key)` wrap.
+
+    Columns are a fixed share of the row, so five of them in a narrow pane get
+    ~190 px each and their contents spill. Here each column keeps at least
+    `min_px` and the row wraps (5 -> 3+2 -> 2+2+1) as the pane narrows. A grid,
+    not flex-wrap, so a card left alone on the last line keeps its width."""
+    sel = f'.st-key-{key} [data-testid="stHorizontalBlock"]'
+    return (f"<style>{sel}{{display:grid !important;gap:1rem !important;"
+            f"grid-template-columns:repeat(auto-fit,minmax({min_px}px,1fr));}}"
+            f'{sel} > [data-testid="stColumn"]{{width:auto !important;'
+            f"min-width:0 !important;flex:none !important;}}</style>")
+
+
 def chip(label: str, tone: str = "neutral", value: str | None = None) -> str:
     """Pill. Two uses: classification (sector, cap band) and verdict
     (`Entry: OVERVALUED`). The tone *is* the message, so pick it deliberately."""
