@@ -4,7 +4,7 @@ category: analysis
 tags: [b-116, scanners, targets, trade-plan, census, pre-registration]
 created: 2026-10-21
 updated: 2026-10-21
-sources: 0
+sources: 1
 related:
   - analyses/Open-Backlog
   - analyses/Scanner-Score-Calibration
@@ -127,4 +127,61 @@ switched to a new `fresh_plan` mode. Recorded before any census number was read.
 
 ## Result
 
-*(not run yet)*
+**Run date:** 2026-10-21. Panel: `nifty500[150:300]`, 150 symbols (149 with data).
+Qualifying K = 21, Bonferroni α = 0.0024. RSI-Fibo Hidden Divergence: TOO FEW (n=22).
+
+**Verdict: every qualifying scanner is NO BETTER THAN CHANCE.**
+
+No scanner's target-hit-rate interval lies above 0. None lies below 0 either.
+The printed targets carry no detectable placement information relative to a
+random bracket of the same width drawn from the same stock at a random bar.
+
+### Per-scanner table
+
+| Scanner | n | sym | tgt% | stop% | R | placebo tgt% | Δhit [lo,hi] | ΔR [lo,hi] | Label |
+|---------|---|-----|------|-------|---|---|---|---|---|
+| %R Bottoming | 1423 | 141 | 34.9 | 58.3 | +0.06 | 34.0 | +0.008 [−0.028,+0.048] | +0.00 [−0.11,+0.13] | NO BETTER THAN CHANCE |
+| Breakout Retest | 909 | 132 | 8.9 | 39.3 | +0.09 | 9.4 | −0.005 [−0.033,+0.025] | +0.07 [−0.09,+0.30] | NO BETTER THAN CHANCE |
+| Bullish CHoCH (last 5 sessions) | 1677 | 143 | 27.4 | 40.6 | +0.18 | 27.0 | +0.003 [−0.023,+0.033] | −0.02 [−0.09,+0.06] | NO BETTER THAN CHANCE |
+| Double Bottom | 1163 | 133 | 34.4 | 63.8 | +0.13 | 33.0 | +0.014 [−0.038,+0.069] | +0.07 [−0.12,+0.26] | NO BETTER THAN CHANCE |
+| Falling Wedge | 375 | 123 | 34.9 | 44.3 | +0.01 | 33.4 | +0.015 [−0.053,+0.086] | −0.02 [−0.19,+0.16] | NO BETTER THAN CHANCE |
+| Flag & Pole | 636 | 134 | 37.3 | 52.8 | +0.35 | 31.4 | +0.059 [−0.004,+0.115] | +0.15 [−0.07,+0.36] | NO BETTER THAN CHANCE |
+| FVG Pullback | 3752 | 143 | 34.3 | 60.2 | +0.05 | 35.2 | −0.009 [−0.029,+0.013] | −0.06 [−0.13,+0.00] | NO BETTER THAN CHANCE |
+| Harmonic Reversal (XABCD) | 1141 | 141 | 36.4 | 22.7 | +0.06 | 34.0 | +0.024 [−0.008,+0.060] | +0.06 [−0.03,+0.15] | NO BETTER THAN CHANCE |
+| HM Buy (Hilega Milega) | 3835 | 142 | 20.5 | 40.3 | +0.04 | 20.9 | −0.004 [−0.022,+0.013] | +0.02 [−0.04,+0.07] | NO BETTER THAN CHANCE |
+| ICT Setup | 380 | 101 | 25.0 | 72.9 | +0.49 | 24.1 | +0.009 [−0.079,+0.113] | +0.49 [−0.33,+2.12] | NO BETTER THAN CHANCE |
+| Inverted Flag & Pole | 561 | 136 | 8.4 | 77.7 | −0.43 | 10.4 | −0.020 [−0.061,+0.016] | −0.14 [−0.35,+0.04] | NO BETTER THAN CHANCE |
+| Liquidity Sweep | 2819 | 142 | 34.3 | 65.1 | −1.04 | 33.8 | +0.005 [−0.020,+0.030] | +0.03 [−0.08,+0.16] | NO BETTER THAN CHANCE |
+| Mean Reversion (Connors RSI2) | 153 | 86 | 14.4 | 73.2 | −0.31 | 17.4 | −0.030 [−0.097,+0.040] | −0.18 [−0.58,+0.21] | NO BETTER THAN CHANCE |
+| Order Block Retest | 4893 | 144 | 14.9 | 40.0 | +0.01 | 14.4 | +0.004 [−0.008,+0.018] | +0.01 [−0.05,+0.08] | NO BETTER THAN CHANCE |
+| RSI 60-40 Setup | 4443 | 144 | 17.4 | 33.7 | +0.06 | 16.9 | +0.005 [−0.015,+0.027] | −0.00 [−0.06,+0.06] | NO BETTER THAN CHANCE |
+| RSI Divergence Bear | 965 | 141 | 5.7 | 35.2 | −0.14 | 6.9 | −0.012 [−0.032,+0.009] | −0.00 [−0.09,+0.09] | NO BETTER THAN CHANCE |
+| RSI Divergence Bull | 379 | 125 | 47.8 | 47.8 | −0.26 | 45.4 | +0.024 [−0.034,+0.082] | −0.08 [−0.36,+0.19] | NO BETTER THAN CHANCE |
+| RSI-Fibo Hidden Divergence | 22 | 21 | 45.5 | 27.3 | −0.10 | 48.0 | — | — | TOO FEW |
+| Rounding Bottom | 695 | 137 | 33.5 | 57.1 | +0.42 | 28.8 | +0.047 [−0.006,+0.117] | +0.24 [−0.03,+0.53] | NO BETTER THAN CHANCE |
+| Support Breakdown | 7672 | 143 | 3.1 | 72.6 | −0.38 | 3.5 | −0.004 [−0.009,+0.002] | −0.08 [−0.45,+0.14] | NO BETTER THAN CHANCE |
+| VCP Coiling | 1704 | 144 | 31.5 | 56.9 | +0.11 | 32.5 | −0.010 [−0.045,+0.023] | −0.06 [−0.18,+0.06] | NO BETTER THAN CHANCE |
+| VWAP Mean Reversion | 848 | 138 | 33.3 | 58.7 | −0.26 | 32.7 | +0.005 [−0.040,+0.051] | −0.12 [−0.28,+0.05] | NO BETTER THAN CHANCE |
+
+### What this means — and does not mean
+
+* **Targets are not wrong places.** The interval contains 0 for every scanner: the
+  target is reached about as often as a random bracket of the same width would be.
+  That is the null result, not a negative one. Price does reach these targets; the
+  scanner is simply not selecting bars from which it reaches them *more* reliably.
+* **R varies widely.** ICT Setup (+0.49R) and Rounding Bottom (+0.42R) have
+  economically meaningful positive R despite NO BETTER THAN CHANCE on the target
+  itself, because their stop distances are well-placed relative to the bracket.
+  Inverted Flag & Pole (−0.43R) and Liquidity Sweep (−1.04R) are the opposite.
+  This is a stop-placement finding, not a signal finding.
+* **Flag & Pole is the closest to INFORMATIVE** (Δhit lower bound −0.004, just
+  below 0 after Bonferroni). On the census panel (150:300) it ran 636 trades vs
+  629 in the control (150 names); the gap is consistent with the panel overlap from
+  one delisted name (BAGMANE).
+* **This census says nothing about signal edge.** Signal edge (does the scanner
+  identify a better entry?) is separately measured for most scanners and is not
+  reopened here. A scanner can have a real entry edge and still have NO BETTER THAN
+  CHANCE targets — the target placement rule may simply be a heuristic.
+* **Action:** no card, target rule or scanner ranking changes as a result of this
+  census alone. Any change is a separate pre-registered item. The census is on file
+  for use as prior evidence in future target-placement studies.
