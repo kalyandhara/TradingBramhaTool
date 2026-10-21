@@ -154,7 +154,7 @@ window.INDICATOR_INFO = /*JSON-BEGIN*/{
   "rs": {
     "short": "This stock divided by Nifty 50 — rising means it is beating the market.",
     "desc": "Plots the stock's price divided by the benchmark (Nifty 50 for Indian symbols, Bitcoin for crypto), rebased so 100 is the starting point. A rising line means the stock is outperforming even if both are falling. It compares with the index only, so a stock can lead the index while lagging its own sector.",
-    "level": "Beginner", "goals": ["trend"], "added": "2026-07-20", "concept": "concepts/Mansfield-RS.md"
+    "level": "Beginner", "goals": ["trend", "target"], "added": "2026-07-20", "concept": "concepts/Mansfield-RS.md"
   },
   "prte": {
     "short": "Williams %R exhaustion: flags when a run looks spent, with arrows on the chart.",
