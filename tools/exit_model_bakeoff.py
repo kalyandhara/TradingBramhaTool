@@ -47,6 +47,33 @@ not express a stop that moves.
 
   py -3 -X utf8 tools/exit_model_bakeoff.py            # the registered run
   py -3 -X utf8 tools/exit_model_bakeoff.py --keep-time-stop   # sensitivity
+
+== B-181 RE-RUN -- pre-registered 2026-10-21 BEFORE this variant was run ==
+
+  REASON    B-116's control diagnosis (2026-10-21) found that `signal_mode="fresh"`
+            drops a breakout bar that follows a scanner's WATCH-only card: the
+            WATCH bar is the 'first hit', so the actionable break is never fresh.
+            Falling Wedge emits WATCH cards; Harmonic Reversal (XABCD) does not.
+            The original B-124 run used `signal_mode="fresh"`, so its Falling Wedge
+            arm undercounted breakouts. The Harmonic arm is unaffected.
+
+  CHANGE    `signal_mode="fresh_plan"` in place of `"fresh"`. Everything else
+            unchanged: same panel (nifty500 first 300, 1500 days), same arms
+            (atr_trail:3, structure:5, ema_close:20), same pairing rule, same
+            decision alpha (0.05/6 = 0.0083), same INCONCLUSIVE / TRAIL BETTER /
+            TRAIL WORSE thresholds, honor_time_stop=False for trail arms.
+
+  CONTROL   Harmonic Reversal arm must reproduce B-124 run 2: pairs 793, symbols 257,
+            mean_dR within +/-0.05R and p within +/-0.05 for each of the three arms.
+            If it fails, the run stops -- the scanner or the harness moved.
+
+  EXPECTED  Falling Wedge will have more trades and pairs. The ATR arm (+0.13R,
+            p=0.058) may cross significance or stay a tie. Prior: tie or worse.
+            One decisive result in the whole bake-off, and it was a trail LOSING --
+            the structural prior is "trails cut winners on daily bars."
+
+  py -3 -X utf8 tools/exit_model_bakeoff.py --fresh-plan           # B-181 run
+  py -3 -X utf8 tools/exit_model_bakeoff.py --fresh-plan --keep-time-stop  # sensitivity
 """
 from __future__ import annotations
 
@@ -127,11 +154,13 @@ def describe(trades: list[dict]) -> dict[str, Any]:
             "avg_bars": round(float(np.mean([x["bars"] for x in trades])), 1)}
 
 
-def run(symbols, fetch_fn, keep_time_stop: bool = False) -> dict[str, Any]:
+def run(symbols, fetch_fn, keep_time_stop: bool = False,
+        fresh_plan: bool = False) -> dict[str, Any]:
+    signal_mode = "fresh_plan" if fresh_plan else "fresh"
     out: dict[str, Any] = {"alpha": ALPHA, "keep_time_stop": keep_time_stop,
-                           "fill_model": "market", "signal_mode": "fresh",
+                           "fill_model": "market", "signal_mode": signal_mode,
                            "setups": {}}
-    common = dict(cost_model=bt.COST_INDIAN, signal_mode="fresh",
+    common = dict(cost_model=bt.COST_INDIAN, signal_mode=signal_mode,
                   fill_model="market", keep_trades=True)
     for setup in SETUPS:
         ctl = bt.backtest_scanner(setup, symbols, fetch_fn, **common)
@@ -153,6 +182,8 @@ def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--keep-time-stop", action="store_true",
                     help="SENSITIVITY: trail arms honour the card's time stop")
+    ap.add_argument("--fresh-plan", action="store_true",
+                    help="B-181 re-run: use fresh_plan signal mode instead of fresh")
     ap.add_argument("--symbols", type=int, default=N_SYMBOLS)
     a = ap.parse_args()
     import nse_universe as nu
@@ -168,10 +199,11 @@ def main() -> int:
                 cache[s] = None
         return cache[s]
 
-    res = run(syms, fetch, keep_time_stop=a.keep_time_stop)
+    res = run(syms, fetch, keep_time_stop=a.keep_time_stop, fresh_plan=a.fresh_plan)
     res["symbols_requested"] = len(syms)
     OUT.parent.mkdir(parents=True, exist_ok=True)
-    out = OUT.with_name(OUT.stem + ("_keep_ts" if a.keep_time_stop else "") + ".json")
+    suffix = ("_fp" if a.fresh_plan else "") + ("_keep_ts" if a.keep_time_stop else "")
+    out = OUT.with_name(OUT.stem + suffix + ".json")
     out.write_text(json.dumps(res, indent=2), encoding="utf-8")
     print(f"\nwritten {out}")
     return 0
