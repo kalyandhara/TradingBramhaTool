@@ -2483,8 +2483,8 @@ function fmtVol(v) {
 // measured as an EXIT. PMax is not here -- its card already states B-65 and
 // B-74, and B-74 did score its trail as an exit.
 //
-// When B-124 reports, these strings are the one place to update, and
-// claims_lint will hold them to the backlog like every other cited figure.
+// Updated 2026-10-21 (B-181): B-124's fresh re-run with fresh_plan mode
+// changed the Falling Wedge verdict. These strings reflect the current state.
 const TRAIL_STATUS = {
   // B-168 — not a trail, but the same "say it is unmeasured beside the drawing" card.
   fvg: {
@@ -2501,10 +2501,11 @@ const TRAIL_STATUS = {
           'SuperTrend AI fired −1.00% @20d (p=0.150, n=1,909); where it agreed ' +
           'with PSAR, +0.16% (p=0.820) ≈ the market. The 0–10 strength on each ' +
           'arrow is scored on the same chart it is drawn on, so it is not evidence. ' +
-          '<br>As an <b>exit</b>: this line itself is not measured, but the class is — ' +
-          'B-124 swapped the fixed plan for ATR / structure / EMA trails on the ' +
-          'two best setups: 5 ties, 1 trail <b>worse</b>, none better. A trailing ' +
-          'stop is not an edge here.',
+          '<br>As an <b>exit</b>: this line itself is not measured, but the ATR ' +
+          'trail class is — B-124/B-181. <b>Falling Wedge: ATR trail WINS</b> ' +
+          '(+0.26R p=0.0017, B-181). Structure and EMA20 exits: no difference. ' +
+          'Harmonic: all three trails no difference or worse (B-124; scanner grew ' +
+          'before B-181, so that arm is descriptive only).',
   },
   atrtrail: {
     title: 'ATR Trailing Stop — unmeasured',
@@ -2518,10 +2519,11 @@ const TRAIL_STATUS = {
     title: 'Parabolic SAR — the dots are not a measured stop',
     body: 'As a <b>signal</b>: measured, no edge — B-59r, flips where only PSAR ' +
           'fired −0.77% @20d (p=0.053, n=8,576), which is a null, not a measured ' +
-          'loss. <br>As an <b>exit</b>: <b>never measured</b>. Wilder built SAR ' +
-          'as a stop; this line itself is not measured as one, but the class is — ' +
-          'B-124: ATR / structure / EMA trails vs the fixed plan on the two best ' +
-          'setups gave 5 ties, 1 trail <b>worse</b>, none better.',
+          'loss. <br>As an <b>exit</b>: this line itself is not measured, but the ' +
+          'ATR trail class is — B-124/B-181. <b>Falling Wedge: ATR trail WINS</b> ' +
+          '(+0.26R p=0.0017, B-181). Structure and EMA20 exits: no difference. ' +
+          'Harmonic: all three trails no difference or worse (B-124; scanner grew ' +
+          'before B-181, so that arm is descriptive only).',
   },
 };
 
