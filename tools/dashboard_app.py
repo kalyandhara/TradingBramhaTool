@@ -99,6 +99,7 @@ from desk_pages.table_cells import (  # B-171 extraction
     _svp_cells,
     _wl_rs_mom)
 import breadth_strip as bstrip
+import fii_strip as fstrip
 import block_deal_intel as bdi
 import deal_infographic as dinf
 import nse_oi_momentum as oim
@@ -3474,6 +3475,7 @@ if _show_regime:
         istrip.render()
         bstrip.render(_senti_reading)
         st.divider()
+        fstrip.render()
 
 # B-161: the ring prints the score IN this colour, so every step must read as
 # text (>= 4.5:1). The 600-level steps (#65a30d, #ca8a04, #ea580c) measured
