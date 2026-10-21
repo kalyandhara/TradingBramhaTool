@@ -101,7 +101,29 @@ column is there so that is visible, not argued away.
 
 ## Deviations
 
-*(none yet)*
+**1 · 2026-10-21 — the control failed, and the cause is the `fresh` rule; census
+switched to a new `fresh_plan` mode. Recorded before any census number was read.**
+
+* **The miss:** Flag & Pole on `nifty500[:150]` gave **134 trades** (29.1% target / 63.4%
+  stop / +0.22R) against the registered 645 (33.8% / 54.0% / +0.26R): n off by 79%, stop
+  rate off by 9.4 pp. The run stopped there, as registered.
+* **The cause, counted:** `signal_mode="fresh"` counts a signal only on the first bar
+  a scanner hits. Since B-128 a flag fires as a non-actionable WATCH card for several bars
+  before it breaks, so **the breakout bar is almost never fresh** and its trade is dropped.
+  On 25 control names, of 99 first-actionable cards **81 came straight after a WATCH bar**
+  (lost) and 18 on a fresh bar. 1,399 of 1,535 signals were WATCH cards. The 2026-09-23
+  reproduction filtered to broken cards ad hoc, outside the harness, so it never met this.
+* **The change:** `backtest.SIGNAL_MODES` gains `fresh_plan` — freshness is judged on the
+  *tradeable* card: a card with `actionable: False` counts as no tradeable state and is
+  counted, not signalled; the first actionable card after it is a fresh trade. Plain
+  `fresh` is unchanged, so no published number moves. Test:
+  `test_fresh_plan_trades_the_break_that_follows_a_watch_card`.
+* **Everything else in the registration stands**, including the control and its
+  tolerances, which `fresh_plan` must now pass before the census runs.
+* **Consequence beyond this study, filed not fixed:** every run since B-128 that used
+  `fresh` on a scanner that emits WATCH cards undercounted its breaks — at least B-124's
+  exit bake-off and B-128's Falling Wedge re-measurement. Whether that moves either
+  verdict is a re-run question for the backlog, not for this census.
 
 ## Result
 

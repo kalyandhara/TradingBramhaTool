@@ -250,3 +250,39 @@ def test_honor_time_stop_false_frees_only_the_moving_arms(stub_scanner):
     # the trail arm is released to the horizon
     assert max(x["bars"] for x in trail["trades"]) > 3
     assert trail["honor_time_stop"] is False
+
+
+@pytest.fixture
+def watch_then_break(monkeypatch):
+    """Every 25 bars: a WATCH card for 3 bars, then the BROKEN card for 2."""
+    import scanner_templates as sc
+
+    def fn(df):
+        k = len(df) % 25
+        if k not in (1, 2, 3, 4, 5):
+            return None
+        last = float(df["close"].iloc[-1])
+        return {"entry": last, "stop": last - 3, "target": last + 30,
+                "actionable": k >= 4}
+    monkeypatch.setitem(sc.SCANNERS, "_stub_b116", {"fn": fn})
+    return "_stub_b116"
+
+
+def test_fresh_plan_trades_the_break_that_follows_a_watch_card(watch_then_break):
+    # B-116: plain `fresh` judges freshness on ANY hit, so a break that follows
+    # its own WATCH bars is never fresh and the trade is lost. `fresh_plan`
+    # judges it on the TRADEABLE card: one trade per break.
+    df = _stub_frame()
+    kw = dict(fetch_fn=lambda s: df, keep_trades=True, fill_model="market")
+    plain = bt.backtest_scanner(watch_then_break, ["X"], signal_mode="fresh", **kw)
+    plan = bt.backtest_scanner(watch_then_break, ["X"], signal_mode="fresh_plan", **kw)
+    assert plain["trades"] == []
+    assert plan["trades"]
+    assert all(len(df.iloc[:x["t"] + 1]) % 25 == 4 for x in plan["trades"])
+    assert plan["signal_mode"] == "fresh_plan"
+    assert plan["r_metrics"]["plans_not_actionable"] > 0
+
+
+def test_unknown_signal_mode_still_raises():
+    with pytest.raises(ValueError):
+        bt.backtest_scanner("x", [], lambda s: None, signal_mode="freshish")
