@@ -234,6 +234,9 @@ def test_trades_are_kept_and_pair_across_exit_arms(stub_scanner):
     kb = {(x["symbol"], x["t"]) for x in b["trades"]}
     assert ka and ka == kb                       # identical entries, pairable
     assert {x["symbol"] for x in a["trades"]} == {"X", "Y"}
+    # B-116: a kept trade carries its bracket, so a placebo can rebuild it
+    assert all(x["target"] > x["entry_px"] > x["stop"] for x in a["trades"])
+    assert all("time_stop" in x for x in a["trades"])
 
 
 def test_honor_time_stop_false_frees_only_the_moving_arms(stub_scanner):

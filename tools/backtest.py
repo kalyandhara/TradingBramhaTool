@@ -732,7 +732,8 @@ def backtest_scanner(scanner_name: str,
                         if keep_trades:
                             _tr = {"symbol": sym, "t": int(t), "side": _side,
                                    "entry_idx": int(f_idx), "entry_px": float(f_px),
-                                   "stop": float(stop_p), **r}
+                                   "stop": float(stop_p), "target": float(tgt_p),
+                                   "time_stop": _ts, **r}
                             if _trade_dates is not None:
                                 _x = min(int(f_idx) + int(r["bars"]), n - 1)
                                 _tr["entry_date"] = _trade_dates[int(f_idx)]
