@@ -92,7 +92,7 @@ def home_header(cards, is_home: bool):
     return importlib.import_module(f"{__name__}.home_layout").header(cards, is_home)
 
 
-def home_rail(db) -> None:
+def home_rail(db, search_options: str = "") -> None:
     """B-179. The left watchlist/sector rail on Home.
 
     Guarded: it renders before the centre block in the monolith, so an
@@ -100,7 +100,7 @@ def home_rail(db) -> None:
     (the decision surface) blank. A broken rail is a warning in the rail.
     """
     try:
-        importlib.import_module(f"{__name__}.home_layout").render_rail(db)
+        importlib.import_module(f"{__name__}.home_layout").render_rail(db, search_options)
     except Exception as e:
         import logging
         import streamlit as st

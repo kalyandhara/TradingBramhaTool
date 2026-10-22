@@ -10,13 +10,19 @@ Three jobs, none of which touch Streamlit or the network:
      already on disk. `trending_stocks.load_bhav` writes them here whenever
      any section (or the rail's ↻) loads the bhavcopy; the rail only reads.
 
-  2. The PICKER. One list: your watchlist first, then every canonical NSE
-     sector (`sectors.py` — NSE macro is canonical). The key is the raw
-     sector string, never parsed back out of the "(N)" label, because sector
-     names carry punctuation ("Oil Gas & Consumable Fuels").
+  2. The PICKER. One list: your default watchlist first, then your named
+     watchlists, then every canonical NSE sector (`sectors.py` — NSE macro is
+     canonical). The key is the raw sector string (or `__list__:<id>`), never
+     parsed back out of the "(N)" label, because sector names carry
+     punctuation ("Oil Gas & Consumable Fuels").
 
-  3. The ROWS. Symbol · Close · Day % · ♥ for whichever source is picked.
-     A name with no sector or no snapshot row is shown blank, never guessed.
+  3. The ROWS. Symbol · name · sparkline · Close · Day % for whichever source
+     is picked. A name with no sector or no snapshot row is shown blank,
+     never guessed.
+
+  4. The SPARKLINE STORE (2026-10-22). One month of closes per symbol, on
+     disk, filled only by a user action (↻, or adding a stock) through one
+     batched download. The rail reads it; Home still never fetches on load.
 """
 from __future__ import annotations
 
@@ -33,7 +39,9 @@ import pandas as pd
 log = logging.getLogger(__name__)
 
 CLOSES_PATH: Path = Path(__file__).resolve().parent / "cache" / "last_close.json"
+SPARKS_PATH: Path = Path(__file__).resolve().parent / "cache" / "rail_sparks.json"
 WATCHLIST_KEY: str = "__watchlist__"
+LIST_PREFIX: str = "__list__:"
 
 _COLUMNS = ["Symbol", "Close", "Day %", "♥"]
 
@@ -106,6 +114,74 @@ def refresh_closes(loader, path: Path = CLOSES_PATH) -> tuple[bool, str]:
     return True, f"Closes refreshed ({trade_date or 'date unknown'})"
 
 
+def list_key(list_id: int) -> str:
+    return f"{LIST_PREFIX}{int(list_id)}"
+
+
+def list_id_of(key: str | None) -> int | None:
+    """The named list's id for a `__list__:<id>` key, else None."""
+    if not key or not str(key).startswith(LIST_PREFIX):
+        return None
+    try:
+        return int(str(key)[len(LIST_PREFIX):])
+    except ValueError:
+        return None
+
+
+def is_list_source(key: str | None) -> bool:
+    """The default watchlist or a named one — anything that is not a sector."""
+    return key == WATCHLIST_KEY or list_id_of(key) is not None
+
+
+def read_sparks(path: Path = SPARKS_PATH) -> dict[str, list[float]]:
+    """`{SYMBOL: [closes oldest→newest]}`, or `{}` when missing/unreadable."""
+    try:
+        payload = json.loads(path.read_text(encoding="utf-8"))
+        return {str(s): [float(x) for x in v] for s, v in payload["rows"].items()}
+    except Exception:
+        return {}
+
+
+def refresh_sparks(symbols: list[str], downloader,
+                   path: Path = SPARKS_PATH) -> tuple[bool, str]:
+    """Fetch closes for `symbols` with `downloader(symbols) -> {sym: [closes]}`
+    and merge them into the store. Symbols that came back empty keep their old
+    line. Never raises: `(ok, message)` for a toast.
+    """
+    syms = [s for s in dict.fromkeys(symbols) if is_safe_symbol(s)]
+    if not syms:
+        return False, "No symbols to fetch."
+    try:
+        got = downloader(syms) or {}
+    except Exception as e:
+        return False, f"Sparkline fetch failed ({e})."
+    fresh = {}
+    for s, closes in got.items():
+        vals = []
+        for c in closes:
+            try:
+                f = float(c)
+            except (TypeError, ValueError):
+                continue
+            if math.isfinite(f) and f > 0:
+                vals.append(f)
+        if len(vals) >= 2:
+            fresh[str(s)] = vals[-30:]
+    if not fresh:
+        return False, "No price history came back."
+    rows = read_sparks(path)
+    rows.update(fresh)
+    try:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        tmp = path.with_suffix(".tmp")
+        tmp.write_text(json.dumps({"saved_at": datetime.now().isoformat(timespec="seconds"),
+                                   "rows": rows}, allow_nan=False), encoding="utf-8")
+        tmp.replace(path)
+    except Exception as e:
+        return False, f"Sparklines not saved ({e})."
+    return True, f"Sparklines for {len(fresh)} of {len(syms)}"
+
+
 def rail_sector_map() -> dict[str, str | None]:
     """This month's stored sector map, read from disk only.
 
@@ -133,13 +209,16 @@ def pick_index(keys: list[str], saved: str | None) -> int:
 
 
 def sector_options(sector_map: dict[str, str | None],
-                   watchlist: list[str]) -> list[tuple[str, str]]:
-    """`(label, key)` pairs: the watchlist first, then sectors A→Z with counts."""
+                   watchlist: list[str],
+                   lists: list[tuple[int, str, int]] = ()) -> list[tuple[str, str]]:
+    """`(label, key)` pairs: the default watchlist, then named lists
+    (`(id, name, count)`, in the order given), then sectors A→Z with counts."""
     counts: dict[str, int] = {}
     for label in sector_map.values():
         if label:
             counts[label] = counts.get(label, 0) + 1
     return ([(f"♥ Your watchlist ({len(watchlist)})", WATCHLIST_KEY)]
+            + [(f"☰ {name} ({n})", list_key(i)) for i, name, n in lists]
             + [(f"{s} ({n})", s) for s, n in sorted(counts.items())])
 
 
@@ -150,15 +229,18 @@ def _day_pct(close: float, prev: float) -> float:
 def rail_frame(source: str, watchlist: list[str],
                sector_map: dict[str, str | None],
                closes: dict[str, tuple[float, float]],
-               query: str = "") -> pd.DataFrame:
-    """The rail's rows for `source` (WATCHLIST_KEY or a sector key).
+               query: str = "", members: list[str] | None = None) -> pd.DataFrame:
+    """The rail's rows for `source` (WATCHLIST_KEY, a named-list key whose
+    symbols are `members`, or a sector key).
 
-    Watchlist keeps its own order; a sector lists its members A→Z. When any
+    A list keeps its own order; a sector lists its members A→Z. When any
     row has a price, rows sort by Day % descending with unpriced rows last.
     `query` is a literal, case-insensitive substring on the symbol.
     """
     if source == WATCHLIST_KEY:
         symbols = list(watchlist)
+    elif list_id_of(source) is not None:
+        symbols = list(members or [])
     else:
         symbols = sorted(s for s, lab in sector_map.items() if lab == source)
     watched = set(watchlist)
@@ -218,12 +300,16 @@ def is_safe_symbol(sym: str) -> bool:
     return bool(_SAFE_SYMBOL.fullmatch(str(sym).strip().upper()))
 
 
-def rail_rows(frame: pd.DataFrame, source: str) -> list[dict]:
+def rail_rows(frame: pd.DataFrame, source: str,
+              names: dict[str, str] | None = None,
+              sparks: dict[str, list[float]] | None = None) -> list[dict]:
     """`rail_frame` as JSON-safe dicts for the watch_rail component (B-180).
 
-    NaN becomes None (JSON has no NaN). `watched` is None in watchlist mode,
-    where every row is watched and the ♥ column is not drawn.
+    NaN becomes None (JSON has no NaN). `watched` is None in any list mode,
+    where the ♥ column is not drawn. `name` is the company name ('' when
+    unknown) and `spark` the stored closes ([] when none).
     """
+    names, sparks = names or {}, sparks or {}
     def num(v):
         try:
             f = float(v)
@@ -231,10 +317,12 @@ def rail_rows(frame: pd.DataFrame, source: str) -> list[dict]:
             return None
         return None if math.isnan(f) else f
 
-    mode_watch = source == WATCHLIST_KEY
+    mode_watch = is_list_source(source)
     return [{"symbol": str(r["Symbol"]),
+             "name": str(names.get(str(r["Symbol"]), "") or ""),
              "close": num(r["Close"]),
              "day_pct": num(r["Day %"]),
              "watched": None if mode_watch else bool(r["♥"]),
+             "spark": [round(x, 4) for x in sparks.get(str(r["Symbol"]), [])],
              "chart": chart_symbol(r["Symbol"])}
             for _, r in frame.iterrows() if is_safe_symbol(r["Symbol"])]

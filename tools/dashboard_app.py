@@ -5486,7 +5486,7 @@ if current_page == "Home":
 
     # B-179: the watchlist roster that closed Home became the left rail.
     with _slots.left:
-        dpages.home_rail(db)
+        dpages.home_rail(db, _symbol_payload())
 
     # Centre pane, below the verdict card and market bar the header put there.
     with _slots.centre:

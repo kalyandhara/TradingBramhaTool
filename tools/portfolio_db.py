@@ -61,6 +61,22 @@ def init_db() -> None:
                 notes TEXT
             );
 
+            -- Named watchlists (2026-10-22). `watchlist` above stays the
+            -- DEFAULT list, so every "♥ Add to watchlist" button and the
+            -- Watchlist page keep working untouched; these are the extra,
+            -- user-named lists the Home rail can switch between.
+            CREATE TABLE IF NOT EXISTS watchlists (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS watchlist_items (
+                list_id    INTEGER NOT NULL REFERENCES watchlists(id) ON DELETE CASCADE,
+                symbol     TEXT NOT NULL,
+                added_date TEXT NOT NULL,
+                PRIMARY KEY (list_id, symbol)
+            );
+
             -- UI-2 (2026-09-10). ONE note per symbol, for every surface that
             -- shows one. The Watchlist had `watchlist.notes`, which is scoped to
             -- membership: remove a name and the note goes with it, and a note on
@@ -620,6 +636,111 @@ def get_watchlist() -> pd.DataFrame:
     conn = get_connection()
     try:
         return pd.read_sql_query("SELECT * FROM watchlist ORDER BY added_date DESC", conn)
+    finally:
+        conn.close()
+
+
+# ── Named watchlists ─────────────────────────────────────────────────────────
+# The default list is `watchlist` (above); these are the user-named extras.
+# Names are unique ignoring case, so "Banks" and "banks" are one list.
+
+WATCHLIST_NAME_MAX = 40
+
+
+def _clean_list_name(name: str) -> str:
+    n = " ".join(str(name or "").split())
+    if not n:
+        raise ValueError("List name is empty.")
+    if len(n) > WATCHLIST_NAME_MAX:
+        raise ValueError(f"List name is over {WATCHLIST_NAME_MAX} characters.")
+    return n
+
+
+def create_watchlist(name: str) -> int:
+    """New named list; returns its id. ValueError on an empty or taken name."""
+    n = _clean_list_name(name)
+    conn = get_connection()
+    try:
+        cur = conn.execute("INSERT INTO watchlists (name, created_at) VALUES (?, ?)",
+                           (n, datetime.now().isoformat(timespec="seconds")))
+        conn.commit()
+        return int(cur.lastrowid)
+    except sqlite3.IntegrityError:
+        raise ValueError(f"A list named \"{n}\" already exists.") from None
+    finally:
+        conn.close()
+
+
+def rename_watchlist(list_id: int, name: str) -> None:
+    n = _clean_list_name(name)
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE watchlists SET name = ? WHERE id = ?", (n, int(list_id)))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        raise ValueError(f"A list named \"{n}\" already exists.") from None
+    finally:
+        conn.close()
+
+
+def delete_watchlist(list_id: int) -> None:
+    """Drop a named list and its members. The default list cannot be deleted
+    this way — it is not in this table."""
+    conn = get_connection()
+    try:
+        # Explicit, not ON DELETE CASCADE: sqlite only cascades with
+        # PRAGMA foreign_keys on, which this module does not set.
+        conn.execute("DELETE FROM watchlist_items WHERE list_id = ?", (int(list_id),))
+        conn.execute("DELETE FROM watchlists WHERE id = ?", (int(list_id),))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_watchlists() -> pd.DataFrame:
+    """`id, name, n` for every named list, oldest first."""
+    conn = get_connection()
+    try:
+        return pd.read_sql_query(
+            "SELECT w.id, w.name, COUNT(i.symbol) AS n FROM watchlists w "
+            "LEFT JOIN watchlist_items i ON i.list_id = w.id "
+            "GROUP BY w.id ORDER BY w.id", conn)
+    finally:
+        conn.close()
+
+
+def get_watchlist_items(list_id: int) -> list[str]:
+    """Symbols on a named list, newest first."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT symbol FROM watchlist_items WHERE list_id = ? "
+            "ORDER BY added_date DESC, rowid DESC", (int(list_id),)).fetchall()
+        return [r["symbol"] for r in rows]
+    finally:
+        conn.close()
+
+
+def add_watchlist_item(list_id: int, symbol: str) -> bool:
+    """Add to a named list; False when it was already there (date kept)."""
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO watchlist_items (list_id, symbol, added_date) "
+            "SELECT id, ?, ? FROM watchlists WHERE id = ?",
+            (symbol.strip().upper(), date.today().isoformat(), int(list_id)))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def remove_watchlist_item(list_id: int, symbol: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM watchlist_items WHERE list_id = ? AND symbol = ?",
+                     (int(list_id), symbol.strip().upper()))
+        conn.commit()
     finally:
         conn.close()
 
