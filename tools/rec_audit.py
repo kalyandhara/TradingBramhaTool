@@ -45,6 +45,10 @@ EVENT_GAP_PCT = -7.0         # one session's close-to-close at or below this
 SETUP_FAIL_SESSIONS = 5      # broke stop / 20-day low within this many sessions
 CHASED_ABOVE_EMA_PCT = 10.0  # rec close this far above EMA 20 = extended entry
 ILLIQUID_TURNOVER_RS = 1e7   # 10-session average traded value below ₹1 Cr
+#: A one-session move this large is read as an unadjusted corporate action
+#: (split/bonus), not a price move: NSE circuit bands cap most stocks at ±20%.
+#: HEG printed −62.6% on 2026-09-07 then traded on at the new level.
+SPLIT_SUSPECT_PCT = 35.0
 MIN_N = 30                   # attribution cells below this are "insufficient"
 
 #: Primary-tag precedence: the first that applies explains the failure.
@@ -152,11 +156,26 @@ def episode_outcome(ep: pd.Series | dict, bars: pd.DataFrame | None,
             out.update(status="no_data", sessions=0)
         return out
 
+    # Cut the window at a suspected corporate action: returns before it stand,
+    # nothing after it is comparable. Too short to judge → set aside.
+    rec_close = bars.loc[bars.index <= rec, "close"]
+    path = pd.concat([rec_close.tail(1), after["close"]])
+    jumps = path.pct_change().iloc[1:].abs() * 100
+    bad = jumps[jumps >= SPLIT_SUSPECT_PCT]
+    if not bad.empty:
+        out["data_suspect_date"] = bad.index[0].date().isoformat()
+        after = after[after.index < bad.index[0]]
+        if after.empty:
+            out.update(status="data_suspect", sessions=0)
+            return out
+
     entry_day = after.index[0]
     entry_px = float(after["open"].iloc[0])
+    status = "matured" if len(after) >= MATURE_H else "open"
+    if not bad.empty and len(after) < MATURE_H:
+        status = "data_suspect"
     out.update(entry_date=entry_day.date().isoformat(), entry_px=entry_px,
-               sessions=len(after),
-               status="matured" if len(after) >= MATURE_H else "open")
+               sessions=len(after), status=status)
 
     for h in HORIZONS:
         if len(after) < h:
@@ -206,9 +225,11 @@ def _num(v) -> float | None:
 
 def is_failure(o: dict, h: int = HEADLINE_H) -> bool:
     """A failure at horizon h: raw or excess return past its line, or the stop
-    went first inside the horizon. Unmatured episodes are not judged."""
+    went first inside the horizon. Unmatured and data-suspect episodes are not judged."""
     if o.get("status") == "no_data":
         return True
+    if o.get("status") == "data_suspect":
+        return False
     ret, exc = _num(o.get(f"ret_{h}")), _num(o.get(f"excess_{h}"))
     if ret is None:
         return False
@@ -280,6 +301,7 @@ def summarise(df: pd.DataFrame, h: int = HEADLINE_H) -> dict:
         "h": h, "episodes": int(len(df)), "n": int(m.sum()),
         "no_data": int((df.get("status") == "no_data").sum()),
         "pending": int((df.get("status") == "pending").sum()),
+        "data_suspect": int((df.get("status") == "data_suspect").sum()),
         "hit_rate": _rate(r[m] > 0),
         "beat_market_rate": _rate(e[e.notna()] > 0),
         "mean_ret": _f(r[m].mean()), "median_ret": _f(r[m].median()),

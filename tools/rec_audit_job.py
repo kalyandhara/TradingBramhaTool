@@ -35,6 +35,9 @@ import rec_audit as ra  # noqa: E402
 
 TOOLS_DIR = Path(__file__).resolve().parent
 DB_PATH = TOOLS_DIR / "rec_audit.db"
+#: One markdown report per month, overwritten by every run inside that month,
+#: so the last run of a month leaves that month's verdict frozen in git.
+REPORTS_DIR = TOOLS_DIR.parent / "reports" / "audit"
 
 MARKET = "^CRSLDX"                 # NIFTY 500
 SMALLCAP = "NIFTYSMLCAP250.NS"     # NIFTY Smallcap 250
@@ -146,6 +149,11 @@ def connect(db_path: Path | str = DB_PATH) -> sqlite3.Connection:
         CREATE TABLE IF NOT EXISTS audit_runs (
             id INTEGER PRIMARY KEY AUTOINCREMENT, as_of TEXT NOT NULL,
             source TEXT NOT NULL, created_at TEXT NOT NULL, summary_json TEXT);
+        -- The owner's post-mortem review. Kept apart from audit_episodes (which
+        -- every run replaces) so a note outlives the re-run that follows it.
+        CREATE TABLE IF NOT EXISTS postmortem_notes (
+            episode_id TEXT PRIMARY KEY, tag_override TEXT, note TEXT,
+            updated_at TEXT NOT NULL);
     """)
     return conn
 
@@ -218,8 +226,11 @@ def run_audit(recs: pd.DataFrame | None = None, *, as_of: date | None = None,
 
         report = build_report(out, bars, market)
         keep = out.drop(columns=[c for c in ("notes", "market_verdict") if c in out])
-        keep.astype({c: str for c in keep.columns if keep[c].dtype == object}) \
-            .to_sql("audit_episodes", conn, if_exists="replace", index=False)
+        _sqlable(keep).to_sql("audit_episodes", conn, if_exists="replace", index=False)
+        port = report["portfolio"]
+        port_rows = (port.rename_axis("date").reset_index() if not port.empty
+                     else pd.DataFrame(columns=["date", "basket", "market", "active"]))
+        _sqlable(port_rows).to_sql("audit_portfolio", conn, if_exists="replace", index=False)
         conn.execute("INSERT INTO audit_runs (as_of, source, created_at, summary_json) "
                      "VALUES (?,?,?,?)",
                      (as_of.isoformat(), source, datetime.now().isoformat(timespec="seconds"),
@@ -264,7 +275,8 @@ def build_report(out: pd.DataFrame, bars: dict, market: pd.DataFrame) -> dict:
 def format_report(rep: dict) -> str:
     s = rep["summary"]
     lines = [f"Recommendation audit — {s['episodes']} episodes, {s['n']} matured at "
-             f"{s['h']} sessions, {s['no_data']} with no data, {s['pending']} not yet entered",
+             f"{s['h']} sessions, {s['no_data']} with no data, {s['pending']} not yet entered, "
+             f"{s['data_suspect']} set aside (suspected split/bonus)",
              f"  hit rate {s['hit_rate']}% | median return {s['median_ret']}% | "
              f"beat NIFTY 500 {s['beat_market_rate']}% | median excess {s['median_excess']}% "
              f"(t={_r(s['t_excess'])}) | vs Smallcap 250 {s['median_excess_smallcap']}% "
@@ -283,6 +295,78 @@ def format_report(rep: dict) -> str:
     return "\n".join(lines)
 
 
+def _sqlable(df: pd.DataFrame) -> pd.DataFrame:
+    """Timestamps → ISO text; everything else as is (None stays NULL, not "None")."""
+    out = df.copy()
+    for c in out.columns:
+        if pd.api.types.is_datetime64_any_dtype(out[c]):
+            out[c] = out[c].dt.strftime("%Y-%m-%d")
+        elif out[c].dtype == object:
+            out[c] = [v.strftime("%Y-%m-%d") if isinstance(v, (pd.Timestamp, datetime, date))
+                      else v for v in out[c]]
+    return out
+
+
+# ── Read side (the page) ─────────────────────────────────────────────────────
+def load_latest(db_path: Path | str = DB_PATH) -> dict:
+    """The stored audit: episodes (+ the owner's notes), portfolio, last run and
+    run history. Empty frames and run=None before the first audit. Never fetches."""
+    conn = connect(db_path)
+    try:
+        tabs = {r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+        eps = (pd.read_sql_query("SELECT * FROM audit_episodes", conn)
+               if "audit_episodes" in tabs else pd.DataFrame())
+        port = (pd.read_sql_query("SELECT * FROM audit_portfolio", conn,
+                                  parse_dates=["date"]).set_index("date")
+                if "audit_portfolio" in tabs else pd.DataFrame())
+        notes = pd.read_sql_query("SELECT * FROM postmortem_notes", conn)
+        run = conn.execute("SELECT as_of, created_at, summary_json FROM audit_runs "
+                           "ORDER BY id DESC LIMIT 1").fetchone()
+        history = pd.read_sql_query("SELECT as_of, created_at, summary_json FROM audit_runs "
+                                    "ORDER BY id", conn)
+    finally:
+        conn.close()
+    if not eps.empty:
+        eps = eps.merge(notes, on="episode_id", how="left")
+        eps["failure"] = eps["failure"].fillna(0).astype(bool)
+        has_override = eps["tag_override"].notna() & (eps["tag_override"] != "")
+        eps["review_tag"] = eps["tag_override"].where(has_override, eps["primary_tag"])
+    return {"episodes": eps, "portfolio": port,
+            "run": None if run is None else {"as_of": run[0], "created_at": run[1],
+                                             "summary": json.loads(run[2] or "{}")},
+            "history": history}
+
+
+def save_note(episode_id: str, tag_override: str | None, note: str | None,
+              db_path: Path | str = DB_PATH) -> None:
+    """Upsert the owner's review of one episode. Empty override = keep the auto tag."""
+    conn = connect(db_path)
+    try:
+        conn.execute("INSERT INTO postmortem_notes (episode_id, tag_override, note, updated_at) "
+                     "VALUES (?,?,?,?) ON CONFLICT(episode_id) DO UPDATE SET "
+                     "tag_override=excluded.tag_override, note=excluded.note, "
+                     "updated_at=excluded.updated_at",
+                     (episode_id, tag_override or None, (note or "").strip() or None,
+                      datetime.now().isoformat(timespec="seconds")))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def write_monthly_report(rep: dict, as_of: date, out_dir: Path | None = None) -> Path:
+    """reports/audit/YYYY-MM.md — overwritten by each run inside that month."""
+    out_dir = out_dir or REPORTS_DIR
+    out_dir.mkdir(parents=True, exist_ok=True)
+    path = out_dir / f"{as_of:%Y-%m}.md"
+    path.write_text(
+        f"# Recommendation audit — {as_of:%B %Y}\n\n"
+        f"Last run in the month: as of {as_of.isoformat()}. Generated by "
+        f"`tools/rec_audit_job.py`. Returns are measured from the next session's open "
+        f"and compared with benchmarks over the same dates.\n\n"
+        f"```\n{format_report(rep)}\n```\n", encoding="utf-8")
+    return path
+
+
 def _r(v):
     return None if v is None else round(v, 2)
 
@@ -290,12 +374,16 @@ def _r(v):
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Recommendation audit")
     ap.add_argument("--as-of", type=lambda s: date.fromisoformat(s), default=None)
+    ap.add_argument("--no-report", action="store_true",
+                    help="skip writing reports/audit/YYYY-MM.md")
     a = ap.parse_args(argv)
     for stream in (sys.stdout, sys.stderr):
         if hasattr(stream, "reconfigure"):
             stream.reconfigure(encoding="utf-8", errors="replace")
     rep = run_audit(as_of=a.as_of)
     print(format_report(rep))
+    if not a.no_report:
+        print(f"report -> {write_monthly_report(rep, a.as_of or date.today())}")
     return 0
 
 

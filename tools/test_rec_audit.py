@@ -179,3 +179,25 @@ def test_paper_portfolio_ends_at_mean_holding_return_and_freezes_exits():
     assert eq["basket"].iloc[0] == pytest.approx(1.0)       # only A deployed, day 1
     assert eq["basket"].iloc[-1] == pytest.approx(1.5)
     assert eq["active"].tolist() == [1, 2, 1]                # ends at the last exit
+
+
+def test_a_split_sized_jump_cuts_the_window_and_sets_short_episodes_aside():
+    # HEG, 2026-09-07: −62.6% in one session, then normal trading at the new level.
+    closes = [100.0] * 10 + [37.0] * 30
+    b = _bars(closes, opens=closes)
+    o = ra.episode_outcome(_ep(), b, _bars([1.0] * 40))
+    assert o["status"] == "data_suspect" and o["data_suspect_date"] == str(b.index[10].date())
+    assert "ret_21" not in o and o["ret_5"] == pytest.approx(0.0)
+    assert not ra.is_failure(o)
+
+
+def test_returns_before_a_late_split_still_count():
+    closes = [100.0] * 30 + [40.0] * 10
+    o = ra.episode_outcome(_ep(), _bars(closes, opens=closes), _bars([1.0] * 40))
+    assert o["status"] == "matured" and "ret_21" in o and "ret_63" not in o
+
+
+def test_a_20pct_circuit_is_a_real_move_not_a_split():
+    closes = [100.0] * 5 + [80.0, 64.0, 51.2] + [51.2] * 30
+    o = ra.episode_outcome(_ep(), _bars(closes, opens=closes), _bars([1.0] * 38))
+    assert o["status"] == "matured" and "data_suspect_date" not in o

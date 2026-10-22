@@ -1087,7 +1087,7 @@ PAGE_GROUPS = {
                          "Breakout Scans", "High-Growth Screener", "SVP Structure"],
     "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
     "Research":         ["Predictive Analysis", "Stock Analyzer", "Sector wise Navigation", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals", "Glossary"],
-    "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
+    "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts", "Recommendation Audit"],
     "Ops":              ["Pipeline Log", "Scheduler Hub"],
 }
 
@@ -1123,6 +1123,7 @@ PAGE_BLURBS = {
     "Portfolio":            "RISK · Open positions, capital at risk, heat",
     "Watchlist":            "PLAN · Tracked names and their trade plans",
     "Alerts":               "MONITOR · Price and metric alerts you have armed",
+    "Recommendation Audit": "MONITOR · How every past shortlist pick did since the day it was picked",
     "Pipeline Log":         "MONITOR · What the 4:05 PM batch did, and whether it failed",
     "Scheduler Hub":        "MONITOR · Batch jobs & the live alert bot — schedule, run, monitor",
     "Strategy Hub":         "SIGNAL · Chart patterns, trading strategies, and fundamental scores",

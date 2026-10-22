@@ -173,6 +173,20 @@ JOBS: dict[str, JobSpec] = {
         # and it is the slowest job after the snapshot refresh.
         default_time="16:45",
     ),
+    "rec_audit": JobSpec(
+        id="rec_audit",
+        label="Recommendation Audit",
+        desc="Re-scores every past Opportunity Hub pick against NIFTY 500, Smallcap "
+             "250 and its sector index (entry = next open) and stores it in "
+             "rec_audit.db for the Recommendation Audit page. Also rewrites "
+             "reports/audit/YYYY-MM.md, so each month's last run freezes that "
+             "month's report. ~3 min.",
+        task_name="TradingBramha-RecAudit",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "rec_audit_job.py"}"',
+        # After opportunity_daily (16:20) has saved today's picks.
+        default_time="17:30",
+    ),
     "batch_screener": JobSpec(
         id="batch_screener",
         label="Batch Screener (Category-Based)",
