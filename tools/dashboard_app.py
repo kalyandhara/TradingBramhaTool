@@ -10766,7 +10766,8 @@ if current_page == "India Market Intel":
             col_config["Chart"] = st.column_config.LinkColumn("Chart", display_text="📈 Open", width="small")
         if "Analyze" in df_deals.columns:
             col_config["Analyze"] = _analyze_colcfg()
-        uit.paginated_df(df_deals.style.apply(_row_color, axis=1), key="deals_main",
+        # Four tables (bulk/block × BSE/NSE) share this helper: key per table.
+        uit.paginated_df(df_deals.style.apply(_row_color, axis=1), key=f"deals_{filter_key}",
                       column_config=col_config)
 
     with intel_tabs[0]:

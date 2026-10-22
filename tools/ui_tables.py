@@ -135,7 +135,13 @@ def paginated_df(df: "pd.DataFrame", key: str, page_size: int = 25,
             # the point; the wash is decoration.
             return frame
 
-    n = len(df)
+    # A Styler has neither len() nor .iloc, so page its frame and re-apply the
+    # caller's styles to each slice. export()/use() carry .apply/.map; a
+    # caller's own .format() does not survive, and _paint's registry formats
+    # stand in for it.
+    styler = df if hasattr(df, "data") and hasattr(df, "export") else None
+    data = styler.data if styler is not None else df
+    n = len(data)
     if n <= page_size:
         st.dataframe(_paint(df), width="stretch", hide_index=True, **kwargs)
         return
@@ -163,6 +169,9 @@ def paginated_df(df: "pd.DataFrame", key: str, page_size: int = 25,
             st.rerun()
     start = (st.session_state[_pk] - 1) * page_size
     end = min(start + page_size, n)
-    st.dataframe(_paint(df.iloc[start:end]), width="stretch",
+    page = data.iloc[start:end]
+    if styler is not None:
+        page = page.style.use(styler.export())
+    st.dataframe(_paint(page), width="stretch",
                  hide_index=True, **kwargs)
     st.caption(f"Page {st.session_state[_pk]}/{n_pages} · rows {start + 1}–{end} of {n}")
