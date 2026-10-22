@@ -1,6 +1,15 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-22] study | Recommendation audit A1 backfill — size effect, not significant
+- [[analyses/Recommendation-Audit-Roadmap]] first result (as of 2026-10-21): 558 episodes, 510 matured at 21 sessions. Median excess +1.18% vs NIFTY 500 but −1.36% vs Smallcap 250; grouped by entry week (8 weeks) t=1.57 / 1.12 — not significant. Paper basket −0.17% vs NIFTY 500 −2.73%. 220 failures; top primary tags SETUP_FAILED 50, STOCK_SPECIFIC 47. Agrees with B-32 RISK-OFF (no bullish edge below the 200 SMA). No weight changes proposed.
+
+## [2026-10-22] analysis | Monthly recommendation audit — ground analysis + roadmap
+- [[analyses/Recommendation-Audit-Roadmap]]: daily_opportunities 774 rows / 40 runs (07-31→10-21); 150 weekend duplicates; 472 episodes after 14-day merge, 429 ≥21 sessions old; plan levels on 124 episodes; every run below the 200 SMA. Post-mortem taxonomy MARKET_DRAG / SECTOR_DRAG / SETUP_FAILED / EVENT_GAP / WARNING_IGNORED / CHASED / ILLIQUID / NO_DATA. Nothing built.
+
+## [2026-10-22] analysis | Daily pipeline → morning report gap analysis
+- [[analyses/Daily-Pipeline-Morning-Report-Roadmap]]: Task Scheduler evidence — batch_screener never registered; daily_scanner output (1,171 hits/day) read by nothing; snapshot_refresh 0/7 ok (UnicodeEncodeError on '≥' under cp1252); daily jobs run on weekends. Roadmap R0–R4 with four-step report cards (signal / confirm / where it fails / see it live).
+
 ## [2026-10-21] study | B-132r2 harmonic tier second re-run — STAYS WEAK
 - [[analyses/ABCD-Stop-Study]] second re-run of B-129r's promotion check (rule fixed 2026-10-14). R0 PASS (n=109, +1.13%). P: 4 of 5 conditions pass — but condition 3 fails (10d window 1 = 0.0, not > 0; 60d window 2 = −0.94). Rule result: **STAYS WEAK**. Not re-checked on calendar drift alone. Tier unchanged at 0.25.
 
