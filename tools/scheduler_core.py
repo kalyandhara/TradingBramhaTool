@@ -212,6 +212,9 @@ def write_bat(job: JobSpec) -> Path:
         "@echo off\r\n"
         f'set REPO={REPO}\r\n'
         f'set LOG={log}\r\n'
+        # The task's console is cp1252; without this a non-ASCII print kills
+        # a Python job (snapshot_refresh died at step 6/16 every run).
+        'set PYTHONIOENCODING=utf-8\r\n'
         'cd /d "%REPO%"\r\n'
         'echo. >> "%LOG%"\r\n'
         f'echo ===== %DATE% %TIME% -- {job.id} starting ===== >> "%LOG%"\r\n'
@@ -285,9 +288,9 @@ def register_argv(job: JobSpec, *, time: str | None = None,
         mo = int(interval or job.default_interval)
         argv += ["/sc", "WEEKLY", "/d", _TRADING_DAYS, "/st", st,
                  "/ri", str(mo), "/du", _duration(st, et)]
-    else:  # daily
+    else:  # daily — on trading weekdays; /sc DAILY also fired every Sat/Sun
         st = time or job.default_time
-        argv += ["/sc", "DAILY", "/st", st]
+        argv += ["/sc", "WEEKLY", "/d", _TRADING_DAYS, "/st", st]
     if job.elevate:
         argv += ["/rl", "HIGHEST"]
     return argv
@@ -310,15 +313,42 @@ def _schtasks(argv: list[str]) -> subprocess.CompletedProcess:
                                            stderr=f"{UNAVAILABLE_MSG} ({e})")
 
 
+def task_settings_ps(task_name: str) -> str:
+    """PowerShell that sets what `schtasks /create` cannot express.
+
+    * StartWhenAvailable — a run missed while the PC slept fires on wake
+      instead of being skipped until tomorrow.
+    * Battery — schtasks' defaults refuse to START on battery and KILL a run
+      when the laptop unplugs; the logs' `^C` lines and runs stuck "running"
+      were this.
+
+    The task object is edited in place rather than replaced with
+    New-ScheduledTaskSettingsSet, which would reset every other setting.
+    """
+    name = task_name.replace("'", "''")
+    return (f"$t = Get-ScheduledTask -TaskName '{name}'; "
+            "$t.Settings.StartWhenAvailable = $true; "
+            "$t.Settings.DisallowStartIfOnBatteries = $false; "
+            "$t.Settings.StopIfGoingOnBatteries = $false; "
+            "Set-ScheduledTask -InputObject $t | Out-Null")
+
+
 def register(job: JobSpec, **kw) -> tuple[bool, str]:
     """CREATE/replace the scheduled task. Persistent OS change — user-triggered."""
     if job.managed_bat:
         write_bat(job)
     argv = register_argv(job, **kw)
     res = _schtasks(argv)
-    if res.returncode == 0:
-        return True, (res.stdout or "").strip() or "Task registered."
-    return False, (res.stderr or res.stdout or "schtasks failed").strip()
+    if res.returncode != 0:
+        return False, (res.stderr or res.stdout or "schtasks failed").strip()
+    msg = (res.stdout or "").strip() or "Task registered."
+    ps = _schtasks(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                    task_settings_ps(job.task_name)])
+    if ps.returncode != 0:
+        # Registered and will run; only catch-up/battery tolerance is missing.
+        msg += (" (warning: catch-up/battery settings not applied: "
+                f"{(ps.stderr or ps.stdout or 'powershell failed').strip()})")
+    return True, msg
 
 
 def remove(job: JobSpec) -> tuple[bool, str]:
