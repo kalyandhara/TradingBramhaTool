@@ -1,6 +1,7 @@
 @echo off
 set REPO=C:\Users\Owner\OneDrive\Documents\Trading\Trading_Bramha\Trading_Bramha
 set LOG=C:\Users\Owner\OneDrive\Documents\Trading\Trading_Bramha\Trading_Bramha\tools\logs\growth_snapshot.log
+set PYTHONIOENCODING=utf-8
 cd /d "%REPO%"
 echo. >> "%LOG%"
 echo ===== %DATE% %TIME% -- growth_snapshot starting ===== >> "%LOG%"
