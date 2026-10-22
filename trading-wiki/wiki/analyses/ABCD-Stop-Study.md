@@ -208,3 +208,27 @@ more data date before acting.
 again gives **PROMOTE** (R0 passing, all five conditions on P). Any other result — a
 condition failing, including window 2 @20d dipping back to ≤ 0 — means **STAYS WEAK**, and
 the scanner is not re-checked again on calendar drift alone.
+
+### Results — second run (2026-10-21)
+
+*(appended 2026-10-21 — nothing above this line is edited)*
+
+**R0: PASS** — n = 109 (unchanged from 2026-10-14 run), pooled @20d +1.13% (2026-10-14: +1.10%; B-129r: +1.07%). One symbol skipped as delisted (BAGMANE.NS).
+
+**Arm P — five conditions compared.**
+
+| Condition | 2026-10-14 | 2026-10-21 | |
+|---|---|---|---|
+| 1 floors | 2,349 signals / 281 symbols | 2,359 / 281 | pass |
+| 2 @20d pooled, windows | +0.55%; +0.33 / +0.15 / +1.06 | +0.54%; +0.40 / +0.13 / +0.97 | pass |
+| 3 10d or 60d 3/3 | 10d +0.03 / +0.88 / +0.52 | 10d **0.0** / +0.95 / +0.49; 60d +1.48 / **−0.94** / +0.03 | **fail** |
+| 4 clustered @20d | +0.76, p 0.025 (156/281) | +0.771, p 0.0235 (156/281) | pass |
+| 5 plan avg_R | +0.04R, 23% stopped | +0.043R, 23% stopped | pass |
+
+Descriptive plan (outside the rule): +0.561% of entry a trade, 2,290 trades; 35.8% target / 23.3% stop / 40.9% time exits; 10 plans filled through the stop, 0 unfilled.
+
+**Outcome under the fixed rule: STAYS WEAK.**
+
+Condition 3 fails: the 10d first window moved from +0.03% to 0.0% (not strictly positive), and the 60d second window is −0.94%. Four of five conditions pass; only condition 3 breaks. Window 2 @20d held at +0.13% (from +0.15% on 2026-10-14): the fragile condition held, but condition 3 broke instead.
+
+Under the rule fixed on 2026-10-14: any condition failing means **STAYS WEAK**, and the scanner is not re-checked again on calendar drift alone. Harmonic Reversal (XABCD) remains in the weak tier (0.25). `opportunity_hub.py` is not changed.

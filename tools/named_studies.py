@@ -567,6 +567,17 @@ STUDIES: tuple[dict, ...] = (
                      "Tier unchanged -- owner's call."),
     },
     {
+        "item": "B-132r2", "tool": "harmonic_tier_recheck.py", "date": "2026-10-21",
+        "source": "analyses/ABCD-Stop-Study",
+        "subjects": ("Harmonic Reversal (XABCD)",),
+        "verdict": "MIXED",
+        "headline": ("second re-run of B-129r's promotion check (rule fixed 2026-10-14, run "
+                     "on/after 2026-10-21). R0 PASS (n=109, +1.13%). P: 2,359 signals / 281 "
+                     "symbols, @20d +0.54% windows +0.40/+0.13/+0.97, clustered p=0.0235, "
+                     "plan +0.043R. Condition 3 FAILS: 10d window 1 = 0.0 (not > 0); 60d "
+                     "window 2 = -0.94. Rule: STAYS WEAK. Not re-checked on calendar drift alone."),
+    },
+    {
         "item": "B-95", "tool": "participant_oi_study.py", "date": "2026-10-15",
         "source": "analyses/FII-Short-Squeeze-Study",
         "subjects": ("FII index-futures extreme short",),

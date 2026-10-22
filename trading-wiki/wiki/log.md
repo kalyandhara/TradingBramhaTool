@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-21] study | B-132r2 harmonic tier second re-run — STAYS WEAK
+- [[analyses/ABCD-Stop-Study]] second re-run of B-129r's promotion check (rule fixed 2026-10-14). R0 PASS (n=109, +1.13%). P: 4 of 5 conditions pass — but condition 3 fails (10d window 1 = 0.0, not > 0; 60d window 2 = −0.94). Rule result: **STAYS WEAK**. Not re-checked on calendar drift alone. Tier unchanged at 0.25.
+
 ## [2026-10-18] spec | B-180 Home rail hover chart
 - [[analyses/Home-Rail-Hover-Chart-Spec]]: hover a rail ticker → floating card (candles, volume, SMA 20/50) from `/api/ohlcv`; rail rows become `components/watch_rail`. Hardening branch merged first (`2ab7e02`).
 - Built same day (`714cedf`..`c14d76d`): `components/watch_rail`, chart-server CORS for `/api/ohlcv` (:8501/:8502 only), symbol allowlist in `rail_rows`. Card width clamps to the viewport on phones.
