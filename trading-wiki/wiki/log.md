@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-22] build | Recommendation audit A2 — page, job, monthly report; split screen revises result
+- [[analyses/Recommendation-Audit-Roadmap]]: Recommendation Audit page (Portfolio & Risk) with post-mortem review notes, `rec_audit` scheduler job (registry only), `reports/audit/YYYY-MM.md`. A ≥35% one-session move now reads as an unadjusted split (HEG −62.6% on 09-07): result revised to 509 judged, median excess +1.23% vs NIFTY 500 / −1.33% vs Smallcap 250, week-grouped t 1.60 / 1.16 — still not significant.
+
 ## [2026-10-22] study | Recommendation audit A1 backfill — size effect, not significant
 - [[analyses/Recommendation-Audit-Roadmap]] first result (as of 2026-10-21): 558 episodes, 510 matured at 21 sessions. Median excess +1.18% vs NIFTY 500 but −1.36% vs Smallcap 250; grouped by entry week (8 weeks) t=1.57 / 1.12 — not significant. Paper basket −0.17% vs NIFTY 500 −2.73%. 220 failures; top primary tags SETUP_FAILED 50, STOCK_SPECIFIC 47. Agrees with B-32 RISK-OFF (no bullish edge below the 200 SMA). No weight changes proposed.
 

@@ -200,6 +200,11 @@ the episode and feed the next month's review.
 
 ## First result: A1 backfill (run 2026-10-22, as of 2026-10-21)
 
+> **Revised the same day (A2 split screen):** HEG printed −62.6% in one session
+> on 2026-09-07, an unadjusted split/bonus. A one-session move of 35% or more now
+> cuts the window there. HEG's 08-24 pick is set aside as `data_suspect`, and its
+> 08-03 pick keeps a valid 21-session result. The figures below are after that fix.
+
 Built: `tools/rec_audit.py` (pure), `tools/rec_audit_job.py` (prices, store,
 CLI), and `tools/rec_audit.db`. Re-run with:
 `py -3 tools/rec_audit_job.py --as-of YYYY-MM-DD`.
@@ -207,22 +212,23 @@ CLI), and `tools/rec_audit.db`. Re-run with:
 **Episodes: 558.** That's more than the 472 counted above, because the Sunday
 2026-08-09 list held 100 *unique* picks. Mapping weekend runs to Friday keeps
 them, where dropping weekend rows lost them.
-- 510 have reached 21 sessions.
+- 509 have reached 21 sessions.
 - 1 is pending (KMEW, recommended on the audit date).
+- 1 is set aside as a suspected split (HEG, 08-24).
 - 0 have no data.
 
 | Measure (21 sessions, entry = next open) | Value |
 |---|---|
-| Hit rate (raw return > 0) | 42.9% |
-| Median raw return | −1.72% |
-| Beat NIFTY 500 | 54.9% of picks, median excess **+1.18%** |
-| vs Smallcap 250 | median excess **−1.36%** |
-| Significance, per pick | t = 4.97 vs NIFTY 500 (overstated, see next row) |
-| **Significance, grouped by entry week (8 weeks)** | **t = 1.57 vs NIFTY 500, 1.12 vs Smallcap 250** |
-| Paper basket (₹1 per pick, 21-session hold) | **−0.17%** vs NIFTY 500 shadow −2.73% (max DD −1.81% vs −3.75%) |
-| Median best / worst move (MFE / MAE) | +7.08% / −12.61% |
+| Hit rate (raw return > 0) | 43.0% |
+| Median raw return | −1.71% |
+| Beat NIFTY 500 | 55.0% of picks, median excess **+1.23%** |
+| vs Smallcap 250 | median excess **−1.33%** |
+| Significance, per pick | t = 5.40 vs NIFTY 500 (overstated, see next row) |
+| **Significance, grouped by entry week (8 weeks)** | **t = 1.60 vs NIFTY 500, 1.16 vs Smallcap 250** |
+| Paper basket (₹1 per pick, 21-session hold) | **−0.04%** vs NIFTY 500 shadow −2.73% (max DD −1.68% vs −3.75%) |
+| Median best / worst move (MFE / MAE) | +7.08% / −12.51% |
 | Plans decided target-first | 32.8% (n=130 with levels) |
-| Failures (21-session return or excess ≤ −5%, or stop first) | 220 of 510 (43%) |
+| Failures (21-session return or excess ≤ −5%, or stop first) | 219 of 509 (43%) |
 
 **Cohorts (median 21-session excess vs NIFTY 500):**
 - Jul: +4.91% (n=10)
@@ -230,7 +236,7 @@ them, where dropping weekend rows lost them.
 - Sep: −1.21% (n=17)
 - Oct: too early. At 10 sessions it reads −8.79% (n=10).
 
-**Failure primary tags (n=220):**
+**Failure primary tags (n=219):**
 
 | Tag | Count |
 |---|---|
@@ -238,7 +244,7 @@ them, where dropping weekend rows lost them.
 | STOCK_SPECIFIC | 47 |
 | WARNING_IGNORED | 31 |
 | SECTOR_DRAG | 31 |
-| EVENT_GAP | 26 |
+| EVENT_GAP | 25 |
 | MARKET_DRAG | 19 |
 | CHASED | 16 |
 
@@ -262,6 +268,15 @@ them, where dropping weekend rows lost them.
 - Flagged picks (risk_flags) were *not* worse: +1.49%, n=54
 
 Nearly all of this is one August cohort, so no weight changes are proposed.
+
+### A2: page, scheduled job, monthly report (built 2026-10-22)
+- **Recommendation Audit** page (Portfolio & Risk), `tools/desk_pages/rec_audit_page.py`. It reads `rec_audit.db` only; "↻ Re-run audit" is the one fetch.
+  - Tiles: picks judged, went up, vs NIFTY 500, vs Smallcap 250, week-grouped t, and ₹1 per pick.
+  - Below them: a warning when the result isn't significant, and the ₹1-per-pick curve.
+  - Tabs: monthly batches, slices (family, sector, rank band, flags, plan source, model version, regime, days on list), post-mortem cards, all picks, run history.
+- **Post-mortem review:** override the cause and add a note on each failure card. Stored in `postmortem_notes`, so a re-run keeps it.
+- **Scheduler:** job `rec_audit`, Mon–Fri 17:30, in the registry. It still has to be registered from Scheduler Hub.
+- **Monthly report:** each run rewrites `reports/audit/YYYY-MM.md`. The last run of a month freezes that month's report.
 
 ### Where the build departed from the design above
 - **Sector bars come from NSE's daily all-indices file**
