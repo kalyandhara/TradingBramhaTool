@@ -99,6 +99,37 @@ REGIME_GATE: dict[str, dict] = {
 }
 
 
+#: Default plan for a pick whose best scanner card carries no levels (A0,
+#: 2026-10-22): stop at the 20-session low, target at 2R. Only 182 of the first
+#: 774 stored picks had levels, so the audit could check a stop on a quarter of
+#: them. A named prior, not a measured stop.
+DEFAULT_STOP_LOOKBACK = 20
+DEFAULT_TARGET_R = 2.0
+
+
+def default_plan(df: pd.DataFrame) -> tuple[float, float | None, float | None]:
+    """(entry, stop, target) from bars: entry = last close, stop = lowest low of
+    the last DEFAULT_STOP_LOOKBACK sessions, target = entry + DEFAULT_TARGET_R × risk.
+    Stop/target are None when the close IS the low (no risk to measure)."""
+    entry = float(df["close"].iloc[-1])
+    stop = float(df["low"].tail(DEFAULT_STOP_LOOKBACK).min())
+    if not stop < entry:
+        return entry, None, None
+    return entry, stop, round(entry + DEFAULT_TARGET_R * (entry - stop), 2)
+
+
+def model_version() -> str:
+    """Code + weights that rank the shortlist (model_version.py)."""
+    import model_version as mv
+    return mv.version(
+        {"w": (W_RATING, W_SCANNER, W_CONFLUENCE), "gate": REGIME_GATE,
+         "families": oh.SCANNER_FAMILIES, "measured": oh.MEASURED_EDGE_SCANNERS,
+         "weak": oh.MEASURED_WEAK_SCANNERS, "risk": oh.RISK_SCANNERS,
+         "tiers": (oh.WEIGHT_MEASURED, oh.WEIGHT_UNMEASURED, oh.WEIGHT_WEAK,
+                   oh.FULL_CONFLUENCE),
+         "plan": (DEFAULT_STOP_LOOKBACK, DEFAULT_TARGET_R)})
+
+
 def _apply_regime_gate(rows: list[dict], regime: str, top_n: int,
                        score_key: str = "score",
                        rating_key: str = "overall_rating") -> tuple[list[dict], dict]:
@@ -330,6 +361,7 @@ def run(universe_size: int = 200, top_n: int = 100,
     # ── Rank ──────────────────────────────────────────────────────────────────
     _say(f"Rating {len(hits)} candidates…")
     tags = table.set_index("symbol") if "symbol" in table.columns else None
+    version = model_version()
     rows = []
     for sym, h in hits.items():
         df = fetch(sym)
@@ -341,6 +373,12 @@ def run(universe_size: int = 200, top_n: int = 100,
                  + W_CONFLUENCE * oh.confluence_pct(h["edge_points"]))
         card = h["best_card"] or {}
         row = tags.loc[sym] if (tags is not None and sym in tags.index) else None
+        if card.get("stop") is not None:
+            plan = (card.get("entry"), card.get("stop"), card.get("target"))
+            plan_source = "scanner"
+        else:
+            plan = default_plan(df)
+            plan_source = "default_20d_low_2R" if plan[1] is not None else None
         rows.append({
             "symbol": sym,
             "score": round(score, 1),
@@ -358,9 +396,11 @@ def run(universe_size: int = 200, top_n: int = 100,
             "momentum": (float(row["momentum"]) if row is not None
                          and pd.notna(row.get("momentum")) else None),
             "close": float(df["close"].iloc[-1]),
-            "entry": card.get("entry"),
-            "stop": card.get("stop"),
-            "target": card.get("target"),
+            "entry": plan[0],
+            "stop": plan[1],
+            "target": plan[2],
+            "plan_source": plan_source,
+            "model_version": version,
             "market_regime": market["regime"],
             "market_verdict": market["verdict"],
             "universe_size": len(universe),

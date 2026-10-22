@@ -173,6 +173,10 @@ def init_db() -> None:
             "family_names": "TEXT",
             "edge_points": "REAL",        # family-capped weight the score spent
             "risk_flags": "TEXT",         # bearish scanners that also fired
+            # A0 (2026-10-22): which code + weights made the pick, and whether
+            # entry/stop/target came from the scanner card or the default plan.
+            "model_version": "TEXT",
+            "plan_source": "TEXT",
         })
         # Full per-card snapshot for a run date (Opportunity Hub). Stores the
         # frozen hit payload as JSON so a historical run renders identically to
@@ -899,8 +903,8 @@ def save_daily_opportunities(rows: list[dict], run_date: str | None = None) -> i
                      families, family_names, edge_points, risk_flags,
                      scanners, sector, industry, momentum, close, entry, stop,
                      target, market_regime, market_verdict, universe_size, notes,
-                     created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     created_at, model_version, plan_source)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (run_date, r.get("rank"), r.get("symbol"), r.get("score"),
                  r.get("overall_rating"), r.get("confluence"),
@@ -909,7 +913,8 @@ def save_daily_opportunities(rows: list[dict], run_date: str | None = None) -> i
                  r.get("sector"), r.get("industry"), r.get("momentum"),
                  r.get("close"), r.get("entry"), r.get("stop"), r.get("target"),
                  r.get("market_regime"), r.get("market_verdict"),
-                 r.get("universe_size"), r.get("notes"), now),
+                 r.get("universe_size"), r.get("notes"), now,
+                 r.get("model_version"), r.get("plan_source")),
             )
         conn.commit()
         return len(rows)
@@ -1170,14 +1175,20 @@ def _ensure_hidden_treasures_table(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_ht_symbol
             ON hidden_treasures(symbol);
     """)
+    # Code that produced the run (model_version.py) — the audit's before/after key.
+    _add_missing_columns(conn, "hidden_treasures", {"model_version": "TEXT"})
 
 
 def save_hidden_treasures_run(hits: list[dict], universe_kind: str = "both",
                               universe_size: int = 0,
-                              run_date: str | None = None) -> int:
+                              run_date: str | None = None,
+                              model_version: str | None = None) -> int:
     """Persist a Hidden Treasures discovery run. Replaces any prior run for the
-    same run_date so a re-run reflects the latest data."""
+    same run_date so a re-run reflects the latest data. `model_version`
+    defaults to the current git sha."""
     import json as _json
+    import model_version as _mv
+    model_version = model_version or _mv.git_sha()
     run_date = run_date or date.today().isoformat()
     now = datetime.now().isoformat(timespec="seconds")
     conn = get_connection()
@@ -1193,8 +1204,8 @@ def save_hidden_treasures_run(hits: list[dict], universe_kind: str = "both",
                      promoter_delta, pledge_pct, pledge_flag,
                      roce, opm, debt_to_equity, market_cap_cr,
                      universe_kind, universe_size, index_source,
-                     card_json, created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     card_json, created_at, model_version)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (run_date, h.get("symbol"), h.get("name"), rank,
                  h.get("score"), h.get("inst_delta"),
@@ -1203,7 +1214,7 @@ def save_hidden_treasures_run(hits: list[dict], universe_kind: str = "both",
                  q.get("roce"), q.get("opm"), q.get("debt_to_equity"),
                  q.get("market_cap_cr"),
                  universe_kind, universe_size, h.get("index"),
-                 _json.dumps(h), now),
+                 _json.dumps(h), now, model_version),
             )
         conn.commit()
         return len(hits)
