@@ -18,6 +18,7 @@ import math
 from dataclasses import dataclass
 from typing import Any
 
+import live_chrome as lc
 import report_style as rs
 import streamlit as st
 import ui_tables as uit
@@ -35,6 +36,11 @@ class Slots:
     centre: Any
     right: Any
     verdict: Any
+    #: Full-width dark band above the panes (live chrome).
+    hero: Any
+    #: Full width UNDER the panes: wide tables live here, not in the centre
+    #: pane, where a 10-column scan scrolled sideways.
+    band: Any
 
 
 def header(cards: list[str], is_home: bool) -> Slots:
@@ -48,18 +54,26 @@ def header(cards: list[str], is_home: bool) -> Slots:
     if not is_home:
         st.markdown(rs.strip(cards, cols=5), unsafe_allow_html=True)
         c = st.container()
-        return Slots(c, c, c, c, c)
+        return Slots(c, c, c, c, c, c, c)
     # The market bar sits in the centre pane, AFTER the verdict, not across the
     # top: full width, the index charts and breadth bars measured ~450 px and
     # pushed the watchlist rail off the first screen — and B-162 already put
     # the strips after the decision for the same reason.
+    hero = st.container()
+    st.markdown(lc.PANE_CSS, unsafe_allow_html=True)
+    # Ratios are only the fallback: PANE_CSS pins the rails to fixed pixel
+    # widths and gives the centre everything else, so a wider page widens the
+    # centre instead of fattening the rails.
     left, centre, right = st.columns([1.1, 3.4, 1], gap="small")
+    for pane, name in ((left, "left"), (centre, "centre"), (right, "right")):
+        pane.markdown(lc.pane_mark(name), unsafe_allow_html=True)
     verdict = centre.container()
     market = centre.container()
     market.markdown(rs.strip(cards[:2], cols=2), unsafe_allow_html=True)
     body = centre.container()
     right.markdown(rs.strip(cards[2:], cols=1), unsafe_allow_html=True)
-    return Slots(market, left, body, right, verdict)
+    band = st.container()
+    return Slots(market, left, body, right, verdict, hero, band)
 
 
 def _day_colour(v: float) -> str:

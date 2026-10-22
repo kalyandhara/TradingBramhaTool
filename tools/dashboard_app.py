@@ -56,6 +56,7 @@ import harmonic_patterns as hp
 import sentiment_index as senti
 import market_verdict as mvd
 import index_strip as istrip
+import live_chrome as lc
 import desk_pages as dpages
 from desk_pages.stock_panels import (  # B-171 extraction
     _axis_tone,
@@ -621,10 +622,10 @@ st.markdown(
 # ── Content-width constraint ───────────────────────────────────────────────────
 # layout="wide" is kept so the 5-column metric strip and scanner card grid have
 # room to breathe on large monitors, but raw "wide" fills every pixel edge-to-edge
-# on a 4K/ultrawide display — uncomfortable to read and scan. Clamping the main
-# block container to 1 440 px and centering it gives the best of both: wide-mode
-# Streamlit widgets stay proportional at their natural widths, while the whole
-# column sits comfortably in the viewport center at any resolution above that.
+# on an ultrawide display. The clamp was 1 440 px until 2026-10-22; on a large
+# monitor that used under half the screen and squeezed Home's centre pane to
+# ~830 px, so 10-column scans scrolled sideways. 2 200 px fits those tables and
+# still stops short of edge-to-edge on an ultrawide.
 #
 # The selector [data-testid="stMainBlockContainer"] wraps the entire main-content
 # column that Streamlit renders inside the wide layout. The sidebar is a sibling
@@ -633,7 +634,7 @@ st.markdown(
     """
     <style>
       [data-testid="stMainBlockContainer"] {
-        max-width: 1440px !important;
+        max-width: 2200px !important;
         margin-left: auto !important;
         margin-right: auto !important;
         padding-left: 2rem !important;
@@ -1201,44 +1202,10 @@ def _batch_freshness() -> str:
     return f"batch {when} · {rel}"
 
 
-#: (yahoo ticker, ribbon label). Three is the ceiling: the strip shares a line
-#: with the breadcrumb, and a fourth starts truncating the page name on a laptop.
-_RIBBON_INDICES = [("^NSEI", "NIFTY"), ("^NSEBANK", "BANKNIFTY"), ("^INDIAVIX", "VIX")]
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def _ribbon_quotes(_bucket: int):
-    """Last close and day change for the ribbon indices. ONE yfinance call.
-
-    `_bucket` is a time bucket the caller passes in purely to bust this cache —
-    the long ttl is a backstop, the bucket is the real clock. That indirection
-    buys a refresh cadence that changes with the session (see the call site):
-    a fixed short ttl would re-download the same closed-market numbers all
-    evening, and a fixed long one would freeze the strip during a live session.
-
-    Daily bars, so intraday this is the LAST CLOSE, not a live tick — the same
-    basis as the Nifty stat card on Home. Every failure returns None values and
-    the strip renders "—" rather than a stale or invented number.
-    """
-    try:
-        import yfinance as yf
-        data = yf.download(
-            [t for t, _ in _RIBBON_INDICES], period="7d", interval="1d",
-            progress=False, group_by="ticker", auto_adjust=False, threads=True,
-        )
-    except Exception as e:
-        _log.warning("ribbon quotes fetch failed: %s", e)
-        return [(lbl, None, None) for _, lbl in _RIBBON_INDICES]
-
-    out = []
-    for tkr, lbl in _RIBBON_INDICES:
-        try:
-            closes = data[tkr]["Close"].dropna()
-            last, prev = float(closes.iloc[-1]), float(closes.iloc[-2])
-            out.append((lbl, last, (last - prev) / prev * 100.0))
-        except Exception:
-            out.append((lbl, None, None))
-    return out
+# The ticker tape's quotes (live_chrome.TAPE): ONE yfinance call, daily bars.
+# `_bucket` is the real clock — the caller passes a time bucket so one cached
+# function refreshes every minute in session and every 15 minutes outside it.
+_ribbon_quotes = st.cache_data(ttl=3600, show_spinner=False)(lc.fetch_tape)
 
 
 # ── Horizontal top nav ────────────────────────────────────────────────────────
@@ -1335,25 +1302,6 @@ _mkt_state, _mkt_dot, _mkt_label = _market_status()
 # a quarter-hour once it is not. Passing the bucket in (rather than setting a
 # short ttl) is what lets one cached function have two cadences.
 _q_bucket = int(_time.time() // (60 if _mkt_state in ("LIVE", "PRE-OPEN") else 900))
-_quote_html = ""
-for _lbl, _val, _chg in _ribbon_quotes(_q_bucket):
-    if _val is None:
-        _quote_html += (
-            f'<span style="display:inline-flex;gap:5px;align-items:baseline;">'
-            f'<span style="color:{_T["text_muted"]};font-weight:600;">{_lbl}</span>'
-            f'<span style="color:{_T["absent"]};">—</span></span>'
-        )
-        continue
-    _tone = _T["good"] if _chg >= 0 else _T["risk"]
-    _num = f"{_val:,.0f}" if _lbl != "VIX" else f"{_val:,.2f}"
-    _quote_html += (
-        f'<span style="display:inline-flex;gap:5px;align-items:baseline;">'
-        f'<span style="color:{_T["text_muted"]};font-weight:600;">{_lbl}</span>'
-        f'<span style="color:{_T["text"]};font-variant-numeric:tabular-nums;">{_num}</span>'
-        f'<span style="color:{_tone};font-variant-numeric:tabular-nums;">{_chg:+.2f}%</span>'
-        f'</span>'
-    )
-
 st.markdown(
     f'<div style="display:flex;align-items:center;justify-content:space-between;'
     f'gap:16px;height:30px;font-size:11.5px;margin:0;'
@@ -1364,8 +1312,6 @@ st.markdown(
     f'  </div>'
     f'  <div style="display:flex;align-items:center;gap:14px;white-space:nowrap;'
     f'color:{_T["text_muted"]};">'
-    f'    {_quote_html}'
-    f'    <span style="color:{_T["border_strong"]};">|</span>'
     f'    <span style="display:inline-flex;align-items:center;gap:5px;">'
     f'      <span style="width:6px;height:6px;border-radius:50%;'
     f'background:{_mkt_dot};display:inline-block;"></span>{_mkt_label}</span>'
@@ -1375,6 +1321,8 @@ st.markdown(
     f'</div>',
     unsafe_allow_html=True,
 )
+# The quotes moved off this line into a scrolling tape under it (2026-10-22).
+lc.render_tape(_tape := _ribbon_quotes(_q_bucket))
 
 # ── ⌘K / Ctrl-K ───────────────────────────────────────────────────
 # Streamlit gives no keyboard API, and st.markdown strips <script>, so the only
@@ -2036,7 +1984,9 @@ def snapshot_panel(name: str, *, key: str, compact: bool = False,
         else:
             when = meta.run_at_dt.strftime("%d %b %Y %H:%M")
             stale = snapstore.is_stale(meta)
-            bits.append(f"Last run **{when}**" + (" · ⚠ older than the last close"
+            dot = lc.fresh_dot(meta.run_at_dt, stale=stale,
+                               live=_market_status()[0] == "LIVE")
+            bits.append(f"{dot} Last run **{when}**" + (" · ⚠ older than the last close"
                                                   if stale else "") +
                         (f" · {meta.elapsed:.0f}s" if meta.elapsed >= 1 else ""))
         if last_meta is not None and last_meta.error and (
@@ -3470,6 +3420,12 @@ with _slots.verdict:
 # Breadth reads `_senti_reading`, the same object the verdict used, so the two
 # cannot disagree. Everything else lives in index_strip.py / breadth_strip.py.
 if _show_regime:
+    with _slots.hero:
+        lc.render_hero(
+            market_state=_mkt_state, market_label=_mkt_label,
+            verdict=verdict["verdict"], instruction=verdict["instruction"],
+            verdict_tone=verdict["tone"], regime=nifty_regime, tiles=_tape[:3],
+            today=datetime.now().strftime("%A, %d %B %Y"))
     with _slots.market:
         istrip.render()
         bstrip.render(_senti_reading)
@@ -5536,8 +5492,10 @@ if current_page == "Home":
     with _slots.centre:
         # ── The action map — stored state only, so it costs nothing on load ──────
         render_action_map()
-        st.write("")
 
+    # Full width under the panes: the tables below need more than the centre
+    # pane's width (Volume Shockers is 10+ columns).
+    with _slots.band:
         # Home used to be a card grid of every page. It is now a working surface: the
         # scan that was buried three clicks deep, then the roster it feeds. Navigation
         # lives in the top ribbon, where it was already complete.
