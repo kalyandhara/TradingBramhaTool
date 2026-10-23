@@ -320,7 +320,7 @@ def test_a_count_that_matches_the_registry_is_silent(counted):
 
 
 def test_two_claims_on_one_line_are_both_reported(counted):
-    """`_dedupe` keys on (file, line) and would drop the second. "25 pages across
+    """`_dedupe` keys on (file, line) and would drop the second. "N pages across
     5 sidebar groups" is two independent facts that can drift independently."""
     rows = cl._scan_count_claims([counted])
     on_note = [r for r in rows if "page(s)" in r[2] or "group(s)" in r[2]]
@@ -362,8 +362,9 @@ def test_the_registry_counts_parse_without_importing_the_modules():
     # 54 -> 56 on 2026-10-12 (Qullamaggie Breakout + Episodic Pivot).
     assert cl._count_symbol("scanner_templates.py", "SCANNERS", "dict_keys") == 56
     assert cl._count_symbol("dashboard_app.py", "PAGE_GROUPS", "dict_keys") == 5
+    # 25 -> 26 on 2026-10-22 (A2 added Recommendation Audit under Portfolio & Risk).
     assert cl._count_symbol("dashboard_app.py", "PAGE_GROUPS",
-                            "sum_of_list_values") == 25
+                            "sum_of_list_values") == 26
 
 
 def test_a_missing_registry_file_is_silent_not_an_error(tmp_path, monkeypatch):
