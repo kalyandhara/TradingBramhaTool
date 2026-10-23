@@ -656,8 +656,10 @@ STUDIES: tuple[dict, ...] = (
         "item": "B-182", "tool": "bull_trap_study.py", "date": "2026-10-23",
         "source": "analyses/Bull-Trap-Detector",
         "subjects": ("Bull Trap",),
-        "verdict": "UNRECORDED",
-        "headline": "pre-registered 2026-10-23 before any forward return; not yet run.",
+        "verdict": "INCONCLUSIVE",
+        "headline": ("pre-registered, 258 names: TOO FEW -- 55 full traps on 49 names, "
+                     "+0.03% @20d (p 0.98); plain failed breakouts (3,563) +0.11% "
+                     "(p 0.47), no negative edge even when powered."),
     },
 )
 

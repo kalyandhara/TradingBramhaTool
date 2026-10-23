@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-23] study | B-182 Bull Trap — TOO FEW; failed breakouts do not warn
+- [[analyses/Bull-Trap-Detector]] run as pre-registered: TRAP 55 events / 49 names, +0.03% @20d (p 0.98) — under the 100-event gate. FB_ONLY 3,563 events / 258 names +0.11% (p 0.47). Bull Trap stays a display-only Risk flag + chart overlay.
+
 ## [2026-10-23] pre-reg | B-182 Bull Trap detector
 - [[analyses/Bull-Trap-Detector]] pre-registered before any forward return: TRAP = failed breakout (20-session high, back below within 3) + weak breakout volume (< 1.0× 20d) + RSI divergence (≥ 3 pts). WARNS rule fixed; prior NOT ESTABLISHED.
 

@@ -4462,7 +4462,8 @@ def scan_bull_trap(df: pd.DataFrame, max_bars_ago: int = 3) -> dict | None:
         f"Bearish RSI divergence: price made a higher high (₹{ev['peak_high']:.2f}) but "
         f"RSI {ev['rsi_new']:.0f} vs {ev['rsi_old']:.0f} at the prior high",
         f"Invalidated on a close above ₹{invalidation:.2f}",
-        "⚠ Risk flag, not a short signal — avoid or exit; see B-182 for its measured edge",
+        "⚠ Risk flag, not a short signal — B-182: too few traps to measure (55); "
+        "plain failed breakouts showed no negative edge",
     ]
     return {
         "pattern_type": "Bull Trap",
@@ -9829,7 +9830,10 @@ SCANNERS: dict[str, dict] = {
             "least 3 points under RSI at the prior high (bearish divergence). "
             "Risk flag rather than a short signal: a negative forward edge is the "
             "desired direction. Card shows CMP and an invalidation above the trap "
-            "high; target=None. PRE-REGISTERED as B-182 (Bull-Trap-Detector); result pending."
+            "high; target=None. MEASURED (B-182, pre-registered): TOO FEW to read — 55 full "
+            "traps on 49 names, 20-session edge +0.03% (p 0.98); plain failed "
+            "breakouts (3,563 events) +0.11% (p 0.47), so the base pattern does not "
+            "warn either. Display only; re-run when the panel grows."
         ),
         "category": "Risk",
     },

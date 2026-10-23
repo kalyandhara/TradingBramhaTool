@@ -90,4 +90,27 @@ requiring all three makes events rare. Expected: a small negative edge, not sign
 
 ## Result
 
-*Not yet run.*
+**RUN 2026-10-23: TOO FEW.** `tools/bull_trap_study.py` as pre-registered (`0f716ff`,
+amendments `971d303` and `e77b924`, all committed before the run). 258 of 300 names loaded.
+
+| Arm | events (20 s) | symbols | 10 s | **20 s** | 60 s | 20 s by window |
+|---|---|---|---|---|---|---|
+| **TRAP** (full) | 55 | 49 | +1.05 (p 0.32) | **+0.03 (p 0.98)** | −0.24 (p 0.91) | +2.02 / −0.51 / −2.40 |
+| FB_ONLY (plain failed breakouts) | 3,563 | 258 | +0.26 (p 0.051) | +0.11 (p 0.47) | +0.12 (p 0.68) | +3.17 / −0.99 / −2.17 |
+
+Paired TRAP − FB_ONLY at 20 sessions: −0.38pp over 49 symbols (p 0.77).
+
+**Verdict: TOO FEW.** 55 events is under the pre-registered 100.
+
+**Reading:**
+- Even ignoring the gate, the full trap shows **no warning**: +0.03% at 20 sessions, a coin flip.
+- The powered arm is the informative one. Plain failed breakouts, 3,563 of them on 258 names, are **not followed by weakness**: +0.11%, p 0.47.
+- So the infographic's premise ("fake breakout, so exit, then short below resistance") does not hold on NSE daily bars over this span. Adding the weak-volume and divergence tells did not change that (−0.38pp, p 0.77).
+- Both arms swing with the tape: positive in the first window, negative in the last. That is regime, not the pattern.
+
+**Consequence, as pre-registered:**
+- `Bull Trap` stays a registered Risk flag (weight 0), and the chart overlay stays, because both are display.
+- The card now reads "too few to measure". No ranking weight changes.
+- Re-run when the panel grows. At this rate (about 0.2 full traps per name over 750 bars) reaching 100 events needs about 1.8× the panel.
+
+This is calibration, not failure: it says to read a bull-trap arrow as context, not as a sell.
