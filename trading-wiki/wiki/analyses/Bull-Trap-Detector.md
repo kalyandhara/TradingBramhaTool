@@ -67,6 +67,14 @@ chart overlay, because both are display. Only the card's wording changes:
 
 No verdict changes any ranking weight.
 
+**Amendment, 2026-10-23, still before any forward return was computed.** Spacing as first
+written ("events at least 10 sessions apart") let a *plain* failed breakout suppress a *full* trap
+that followed it within 10 sessions. On the chart overlay, SUNPHARMA's one full trap vanished on a
+longer window because a non-full failure 5 sessions earlier blocked it.
+* **Amended spacing:** a full trap must be 10 sessions after the previous *full* trap. A plain failed breakout must be 10 sessions after the previous event of either kind.
+* Pinned by `test_a_plain_failed_breakout_does_not_suppress_a_full_trap`.
+* Nothing else changes: thresholds, arms, outcome and decision are as above.
+
 **Prior: NOT ESTABLISHED.** The components are weak or unstable on their own (B-19, B-41m), and
 requiring all three makes events rare. Expected: a small negative edge, not significant.
 

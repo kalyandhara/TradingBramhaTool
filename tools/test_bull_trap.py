@@ -80,3 +80,47 @@ def test_registered_as_a_risk_flag():
     import opportunity_hub as oh
     assert sc.SCANNERS["Bull Trap"]["category"] == "Risk"
     assert "Bull Trap" in oh.RISK_SCANNERS
+
+
+def test_chart_endpoint_serves_the_scanners_own_events(monkeypatch):
+    import chart_server as cs
+    df = _chart(tail=1)
+    bars = [{"time": int(ts.timestamp()), "open": r.open, "high": r.high, "low": r.low,
+             "close": r.close, "volume": r.volume} for ts, r in df.iterrows()]
+
+    class _Src:
+        def get_ohlcv(self, symbol, timeframe, n):
+            return bars
+
+    monkeypatch.setattr(cs.ds, "detect_source", lambda s: _Src())
+    monkeypatch.setattr(cs.sym_dir, "resolve_symbol", lambda s: s)
+    cs.app.config["TESTING"] = True
+    with cs.app.test_client() as c:
+        got = c.get("/api/bull_trap?symbol=TEST&timeframe=1d").get_json()
+    assert got["fired"] is True and len(got["events"]) == 1
+    e = got["events"][0]
+    assert e["full"] and e["level"] == 152.0
+    assert e["trap_time"] == bars[59]["time"] and e["breakout_time"] == bars[58]["time"]
+
+
+def test_chart_page_wires_the_overlay():
+    from pathlib import Path
+    html = (Path(__file__).resolve().parent / "chart_dashboard.html").read_text(encoding="utf-8")
+    assert "key:'bulltrap'" in html and "renderBullTrap(pane)" in html
+    assert "clearBullTrap(pane)" in html and "/api/bull_trap" in html
+
+
+def test_a_plain_failed_breakout_does_not_suppress_a_full_trap():
+    """Amended before the run: SUNPHARMA's one full trap vanished on a longer
+    window because a non-full failed breakout 5 sessions earlier blocked it."""
+    df = _chart()
+    # An earlier failed breakout of the same old high, on HEAVY volume (not a
+    # trap), 5 sessions before the real one: bar 52 closes above, 53 back below.
+    df = df.copy()
+    df.iloc[52, df.columns.get_loc("close")] = 152.5
+    df.iloc[52, df.columns.get_loc("high")] = 152.6
+    df.iloc[53, df.columns.get_loc("close")] = 145.0
+    df.iloc[52, df.columns.get_loc("volume")] = 3e6
+    ev = sc.bull_trap_events(df)
+    assert [e["full"] for e in ev] == [False, True]
+    assert ev[-1]["trap_bar"] == 59

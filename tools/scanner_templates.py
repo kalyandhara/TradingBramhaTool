@@ -4371,8 +4371,11 @@ def bull_trap_events(df: pd.DataFrame, *, res_lookback: int = BT_RES_LOOKBACK,
       * divergence — price made a higher high but RSI(14) did not: RSI at the
         highest high of b … t is ≥ div_min points below RSI at res_bar, and
         res_bar is at least `min_res_age` sessions before b.
-    `full` (a BULL TRAP) = weak_vol AND divergence. Events are at least
-    `min_gap` sessions apart (on t). Uses only bars up to t — no look-ahead.
+    `full` (a BULL TRAP) = weak_vol AND divergence. Spacing (on t): a full trap
+    must be `min_gap` sessions after the previous FULL trap; a plain failed
+    breakout must be `min_gap` after the previous event of either kind. A plain
+    failed breakout never suppresses a full trap (amended before the run,
+    2026-10-23). Uses only bars up to t — no look-ahead.
     """
     if df is None or len(df) < res_lookback + 20:
         return []
@@ -4381,7 +4384,7 @@ def bull_trap_events(df: pd.DataFrame, *, res_lookback: int = BT_RES_LOOKBACK,
     v = df["volume"].to_numpy(float) if "volume" in df else np.zeros(len(df))
     rsi = _rsi_series(df["close"].astype(float), 14).to_numpy()
     n = len(df)
-    out, last_t = [], -10**9
+    out, last_any, last_full = [], -10**9, -10**9
     b = max(res_lookback, 20) + 1
     while b < n:
         win = h[b - res_lookback:b]
@@ -4394,9 +4397,6 @@ def bull_trap_events(df: pd.DataFrame, *, res_lookback: int = BT_RES_LOOKBACK,
         if t is None:
             b += 1
             continue
-        if t - last_t < min_gap:
-            b = t + 1
-            continue
         vol20 = float(v[b - 20:b].mean())
         vol_x = float(v[b] / vol20) if vol20 > 0 else None
         peak = b + int(np.argmax(h[b:t + 1]))
@@ -4405,6 +4405,10 @@ def bull_trap_events(df: pd.DataFrame, *, res_lookback: int = BT_RES_LOOKBACK,
                    else None)
         weak = vol_x is not None and vol_x < weak_vol_x
         div = (div_pts is not None and div_pts >= div_min and b - res_bar >= min_res_age)
+        full = bool(weak and div)
+        if t - (last_full if full else last_any) < min_gap:
+            b = t + 1
+            continue
         out.append({"breakout_bar": b, "trap_bar": t, "res_bar": res_bar, "peak_bar": peak,
                     "level": round(R, 2), "peak_high": round(float(h[peak]), 2),
                     "vol_x": None if vol_x is None else round(vol_x, 2),
@@ -4412,8 +4416,10 @@ def bull_trap_events(df: pd.DataFrame, *, res_lookback: int = BT_RES_LOOKBACK,
                     "rsi_new": None if not np.isfinite(r_new) else round(float(r_new), 1),
                     "div_pts": None if div_pts is None else round(div_pts, 1),
                     "weak_vol": bool(weak), "divergence": bool(div),
-                    "full": bool(weak and div)})
-        last_t = t
+                    "full": full})
+        last_any = t
+        if full:
+            last_full = t
         b = t + 1
     return out
 
