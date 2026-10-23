@@ -49,7 +49,7 @@ raw/
 # Env
 .env
 *.env
-.streamlit/secrets.toml
+**/.streamlit/secrets.toml
 
 # Node
 node_modules/
