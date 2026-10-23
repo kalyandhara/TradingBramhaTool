@@ -14,6 +14,7 @@ Run:  py -3 -m streamlit run tools/dashboard_app.py
 
 import sys
 import csv
+import hmac
 import time as _time
 import json
 import logging
@@ -847,11 +848,18 @@ st.markdown(
 # the credential check does not have to be rebuilt — but nobody should assume
 # this flag is protecting anything today.
 #
-# Credentials still come from .streamlit/secrets.toml ([auth] username/password).
+# Credentials come only from tools/.streamlit/secrets.toml ([auth] username/password),
+# which is git-ignored; copy secrets.toml.example to create it. There is no
+# built-in default: with no secrets file, sign-in fails closed.
 def _auth_check(username: str, password: str) -> bool:
-    _u = st.secrets.get("auth", {}).get("username", "bramha")
-    _p = st.secrets.get("auth", {}).get("password", "trading2024")
-    return username == _u and password == _p
+    try:
+        _auth = st.secrets.get("auth", {})
+    except Exception:  # no secrets.toml at all
+        return False
+    _u, _p = _auth.get("username"), _auth.get("password")
+    if not _u or not _p:
+        return False
+    return hmac.compare_digest(username, _u) and hmac.compare_digest(password, _p)
 
 
 def _signin_control() -> None:
