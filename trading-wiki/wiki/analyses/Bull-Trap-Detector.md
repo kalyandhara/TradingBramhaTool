@@ -69,11 +69,21 @@ No verdict changes any ranking weight.
 
 **Amendment, 2026-10-23, still before any forward return was computed.** Spacing as first
 written ("events at least 10 sessions apart") let a *plain* failed breakout suppress a *full* trap
-that followed it within 10 sessions. On the chart overlay, SUNPHARMA's one full trap vanished on a
-longer window because a non-full failure 5 sessions earlier blocked it.
+that followed it within 10 sessions. This was spotted while checking the overlay. The SUNPHARMA case
+that prompted it turned out to be the RSI warm-up in amendment 2, but the suppression is real by
+construction.
 * **Amended spacing:** a full trap must be 10 sessions after the previous *full* trap. A plain failed breakout must be 10 sessions after the previous event of either kind.
 * Pinned by `test_a_plain_failed_breakout_does_not_suppress_a_full_trap`.
 * Nothing else changes: thresholds, arms, outcome and decision are as above.
+
+**Amendment 2, 2026-10-23, still before any forward return was computed.** On SUNPHARMA a
+300-bar window called 2025-10-14 a full trap with a 4.5-point divergence. The full history reads
+the same event at 0.3 points. The prior high sat about 30 bars into the short window, where
+Wilder's RSI has not yet forgotten its seed.
+* **Amended:** no divergence is read at a prior high in the first 100 bars of the frame (`BT_RSI_WARMUP`).
+* Pinned by `test_no_divergence_is_read_inside_the_rsi_warm_up`.
+* The study panel's evaluation span starts about 290 bars into each frame, so the guard does not shrink the measured sample. It protects the chart (300-bar windows) and short scanner frames.
+* Nothing else changes.
 
 **Prior: NOT ESTABLISHED.** The components are weak or unstable on their own (B-19, B-41m), and
 requiring all three makes events rare. Expected: a small negative edge, not significant.

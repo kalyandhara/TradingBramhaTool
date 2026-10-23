@@ -10,11 +10,17 @@ import pandas as pd
 import scanner_templates as sc
 
 
-def _chart(*, breakout_vol=5e5, hold=False, tail=8, reclaim=False):
-    """A flat base, a run-up and plateau with the old high on bar 47 (high 152),
-    a pullback, a close above 152 on bar 58, then back below on bar 59 (a
+#: Flat-base length: long enough that the old high sits past BT_RSI_WARMUP.
+BASE = 125
+OLD, BRK, TRAP = BASE + 22, BASE + 33, BASE + 34      # 147, 158, 159
+
+
+def _chart(*, breakout_vol=5e5, hold=False, tail=8, reclaim=False, base=BASE):
+    """A flat base, a run-up and plateau with the old high on bar OLD (high 152),
+    a pullback, a close above 152 on bar BRK, then back below on bar TRAP (a
     trap) — or holding above when `hold`."""
-    closes = [100.0] * 25 + list(np.linspace(102, 150, 20))           # 0..44
+    off = base - BASE
+    closes = [100.0] * base + list(np.linspace(102, 150, 20))
     closes += [150.0] * 4                                             # 45..48 plateau
     closes += list(np.linspace(148, 140, 8))                          # 49..56
     closes += [148.0, 153.0]                                          # 57, 58 breakout
@@ -25,10 +31,10 @@ def _chart(*, breakout_vol=5e5, hold=False, tail=8, reclaim=False):
     n = len(closes)
     c = pd.Series(closes, dtype=float)
     high = c + 0.5
-    high[47] = 152.0
-    high[58] = 154.0
+    high[OLD + off] = 152.0
+    high[BRK + off] = 154.0
     vol = pd.Series(1e6, index=range(n), dtype=float)
-    vol[58] = breakout_vol
+    vol[BRK + off] = breakout_vol
     idx = pd.bdate_range("2026-01-01", periods=n)
     return pd.DataFrame({"open": c.values, "high": high.values, "low": (c - 0.5).values,
                          "close": c.values, "volume": vol.values}, index=idx)
@@ -38,7 +44,7 @@ def test_a_weak_volume_failed_breakout_with_divergence_is_a_full_trap():
     ev = sc.bull_trap_events(_chart())
     assert len(ev) == 1
     e = ev[0]
-    assert (e["breakout_bar"], e["trap_bar"], e["res_bar"]) == (58, 59, 47)
+    assert (e["breakout_bar"], e["trap_bar"], e["res_bar"]) == (BRK, TRAP, OLD)
     assert e["level"] == 152.0 and e["vol_x"] == 0.5
     assert e["weak_vol"] and e["divergence"] and e["full"]
     assert e["div_pts"] >= sc.BT_DIV_MIN_PTS
@@ -55,13 +61,13 @@ def test_a_breakout_that_holds_is_no_event():
 
 def test_no_look_ahead_the_event_is_known_at_the_trap_close():
     full = sc.bull_trap_events(_chart())
-    cut = sc.bull_trap_events(_chart().iloc[:60])                     # through bar 59
+    cut = sc.bull_trap_events(_chart().iloc[:TRAP + 1])
     assert cut == full
 
 
 def test_events_are_spaced_by_min_gap():
     df = _chart()
-    assert sc.bull_trap_events(df, min_gap=10**6)[0]["trap_bar"] == 59
+    assert sc.bull_trap_events(df, min_gap=10**6)[0]["trap_bar"] == TRAP
 
 
 def test_scanner_fires_on_a_fresh_trap_with_a_card():
@@ -100,7 +106,7 @@ def test_chart_endpoint_serves_the_scanners_own_events(monkeypatch):
     assert got["fired"] is True and len(got["events"]) == 1
     e = got["events"][0]
     assert e["full"] and e["level"] == 152.0
-    assert e["trap_time"] == bars[59]["time"] and e["breakout_time"] == bars[58]["time"]
+    assert e["trap_time"] == bars[TRAP]["time"] and e["breakout_time"] == bars[BRK]["time"]
 
 
 def test_chart_page_wires_the_overlay():
@@ -111,16 +117,24 @@ def test_chart_page_wires_the_overlay():
 
 
 def test_a_plain_failed_breakout_does_not_suppress_a_full_trap():
-    """Amended before the run: SUNPHARMA's one full trap vanished on a longer
-    window because a non-full failed breakout 5 sessions earlier blocked it."""
+    """Amended before the run: under the first spacing rule a non-full failed
+    breakout 5 sessions earlier consumed the 10-session gap and hid the trap."""
     df = _chart()
     # An earlier failed breakout of the same old high, on HEAVY volume (not a
-    # trap), 5 sessions before the real one: bar 52 closes above, 53 back below.
+    # trap), 5 sessions before the real one.
     df = df.copy()
-    df.iloc[52, df.columns.get_loc("close")] = 152.5
-    df.iloc[52, df.columns.get_loc("high")] = 152.6
-    df.iloc[53, df.columns.get_loc("close")] = 145.0
-    df.iloc[52, df.columns.get_loc("volume")] = 3e6
+    df.iloc[BRK - 6, df.columns.get_loc("close")] = 152.5
+    df.iloc[BRK - 6, df.columns.get_loc("high")] = 152.6
+    df.iloc[BRK - 5, df.columns.get_loc("close")] = 145.0
+    df.iloc[BRK - 6, df.columns.get_loc("volume")] = 3e6
     ev = sc.bull_trap_events(df)
     assert [e["full"] for e in ev] == [False, True]
-    assert ev[-1]["trap_bar"] == 59
+    assert ev[-1]["trap_bar"] == TRAP
+
+
+def test_no_divergence_is_read_inside_the_rsi_warm_up():
+    """Amended before the run: on SUNPHARMA a 300-bar window read a 4.5-pt
+    divergence at a prior high ~30 bars in; the full history read 0.3."""
+    e = sc.bull_trap_events(_chart(base=25))[0]
+    assert e["res_bar"] < sc.BT_RSI_WARMUP
+    assert not e["divergence"] and not e["full"]

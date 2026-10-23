@@ -33,7 +33,7 @@ def test_events_with_edges_uses_next_open_and_the_span_baseline():
     evs = bts.events_with_edges(df, start=0, cost=_NoCost)
     assert len(evs) == 1 and evs[0]["full"]
     o, c = df["open"].to_numpy(), df["close"].to_numpy()
-    t = 59
+    t = tb.TRAP
     raw10 = (c[t + 11] / o[t + 1] - 1) * 100
     base10 = pd.Series([(c[k + 11] / o[k + 1] - 1) * 100 for k in range(len(df) - 11)]).mean()
     assert abs(evs[0]["edge"][10] - (raw10 - base10)) < 1e-9
@@ -43,7 +43,7 @@ def test_events_with_edges_uses_next_open_and_the_span_baseline():
 def test_events_before_the_span_are_dropped():
     import test_bull_trap as tb
     df = tb._chart(tail=30).reset_index().rename(columns={"index": "date"})
-    assert bts.events_with_edges(df, start=60, cost=_NoCost) == []
+    assert bts.events_with_edges(df, start=tb.TRAP + 1, cost=_NoCost) == []
 
 
 def test_paired_difference():

@@ -4352,6 +4352,10 @@ BT_WEAK_VOL_X = 1.0      # breakout-bar volume below the prior 20-session averag
 BT_DIV_MIN_PTS = 3.0     # RSI(14) at the new high this many points under RSI at the old high
 BT_MIN_RES_AGE = 5       # the old high must be at least 5 sessions before the breakout
 BT_MIN_GAP = 10          # at most one event per 10 sessions
+#: RSI is not read for divergence in the first 100 bars of the frame: Wilder's
+#: RSI needs that long to forget its seed. Found on SUNPHARMA before the run —
+#: a 300-bar window read a 4.5-pt divergence that the full history reads as 0.3.
+BT_RSI_WARMUP = 100
 
 
 def bull_trap_events(df: pd.DataFrame, *, res_lookback: int = BT_RES_LOOKBACK,
@@ -4370,7 +4374,8 @@ def bull_trap_events(df: pd.DataFrame, *, res_lookback: int = BT_RES_LOOKBACK,
       * weak_vol   — volume[b] < weak_vol_x × mean(volume[b-20 : b]);
       * divergence — price made a higher high but RSI(14) did not: RSI at the
         highest high of b … t is ≥ div_min points below RSI at res_bar, and
-        res_bar is at least `min_res_age` sessions before b.
+        res_bar is at least `min_res_age` sessions before b and at least
+        BT_RSI_WARMUP bars into the frame (RSI seed has decayed).
     `full` (a BULL TRAP) = weak_vol AND divergence. Spacing (on t): a full trap
     must be `min_gap` sessions after the previous FULL trap; a plain failed
     breakout must be `min_gap` after the previous event of either kind. A plain
@@ -4404,7 +4409,8 @@ def bull_trap_events(df: pd.DataFrame, *, res_lookback: int = BT_RES_LOOKBACK,
         div_pts = (float(r_old - r_new) if np.isfinite(r_new) and np.isfinite(r_old)
                    else None)
         weak = vol_x is not None and vol_x < weak_vol_x
-        div = (div_pts is not None and div_pts >= div_min and b - res_bar >= min_res_age)
+        div = (div_pts is not None and div_pts >= div_min and b - res_bar >= min_res_age
+               and res_bar >= BT_RSI_WARMUP)
         full = bool(weak and div)
         if t - (last_full if full else last_any) < min_gap:
             b = t + 1
