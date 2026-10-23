@@ -119,13 +119,24 @@ function emailBatch(alerts, cfg) {
   const emailCfg = cfg.email || {};
   const py = emailCfg.python || process.env.TB_PYTHON || 'python';
   const script = path.join(__dirname, 'alert_email_send.py');
-  const n = alerts.length;
+  // Prices to 2 decimals: the engine's raw floats (2400.5990658333335) read as noise.
+  const px = v => (typeof v === 'number' && Number.isFinite(v)) ? v.toFixed(2) : '—';
+  // One block per symbol|tf|direction: two rules firing on the same state (a
+  // direction change AND a trap-reversal) used to print the same signal twice.
+  const seen = new Set();
+  const uniq = alerts.filter(a => {
+    const k = `${a.symbol}|${a.tf}|${a.dir}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  const n = uniq.length;
   const subject = emailCfg.subject_prefix
     ? `${emailCfg.subject_prefix} · ${n} signal${n > 1 ? 's' : ''}`
     : `Trading Bramha Alert · ${n} signal${n > 1 ? 's' : ''}`;
-  const body = alerts.map(a =>
-    `${a.headline}\n  ${a.detail || ''}\n  target ${a.target ?? '—'} · `
-    + `invalidate ${a.invalidation ?? '—'}`).join('\n\n')
+  const body = uniq.map(a =>
+    `${a.headline}\n  ${a.detail || ''}\n  target ${px(a.target)} · `
+    + `invalidate ${px(a.invalidation)}`).join('\n\n')
     + `\n\n— Trading Bramha alert bot (${new Date().toISOString()})`;
   try {
     const args = [script, '--subject', subject];

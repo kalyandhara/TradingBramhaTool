@@ -25,6 +25,12 @@
   }
 </script>
 <script src="https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js"></script>
+<!-- Plain-words catalogue for the indicator panel (B-149): short / desc / level /
+     goals / added / concept per INDICATOR_DEFS key. DRAFT until the owner reviews. -->
+<script src="/indicator_catalogue.js"></script>
+<!-- Card-style Indicator Browser + Favorites/Recent (B-150/B-152) — one overlay,
+     acts on the pane that opened it through that pane's classic checkboxes. -->
+<script src="/indicator_browser.js"></script>
 <!-- Elliott Wave detection plug-in — pure computation module, see elliott_wave.js -->
 <script src="/elliott_wave.js"></script>
 <!-- Volume Profile (POC/Value Area/HVN/LVN) plug-in — pure computation module, see volume_profile.js -->
@@ -63,6 +69,9 @@
      Loaded AFTER elliott_wave.js and volume_profile.js: it reads EW.computeZigzag for
      swing anchoring and VP.findConfluence for level scoring. -->
 <script src="/fibonacci.js"></script>
+<!-- Risk box: entry / stop / ±R + position size — bookkeeping, not a signal. Mirrors
+     position_sizing.py (test_risk_box.py holds the two equal). -->
+<script src="/risk_box.js"></script>
 <!-- Gann Square-of-9 S/R levels + honest break-odds card — pure computation, see gann.js.
      Draws only the deterministic horizontal levels (not the scale-dependent fan); the
      card's probability is this symbol's own historical breakout follow-through, not a
@@ -149,10 +158,28 @@ html.light {
 }
 
 /* ── Reset & base ─────────────────────────────────────────────────────────── */
+/* B-164: one sans and one mono for the whole desk. These are report_style.SANS
+   and report_style.MONO verbatim (Home's injected HTML and .streamlit/config.toml
+   use the same two), so the Chart Tool and Home read in the same faces. System
+   fonts, no webfont: the PWA works offline and nothing needs fetching. Pinned
+   by test_chart_control_sizes.py::test_chart_fonts_match_home. */
+:root {
+  --font-sans: 'Segoe UI Variable Text','Segoe UI',system-ui,-apple-system,'Helvetica Neue',sans-serif;
+  --font-mono: ui-monospace,'Cascadia Mono','Segoe UI Mono',Consolas,'Roboto Mono','Courier New',monospace;
+  /* Up / down. TradingView's teal and red, kept on purpose (owner decision,
+     2026-10-14): Home's #166534 / #b91c1c are tuned for a cream background,
+     these for the dark chart — same meaning, a shade per surface. Mirrored as
+     C_UP / C_DOWN in the script for Lightweight Charts, which takes no CSS vars.
+     Pinned by test_chart_control_sizes.py::test_up_down_colours_live_in_one_place. */
+  --up:   #26a69a;
+  --down: #ef5350;
+}
 *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+/* Form controls default to the OS UI font, not the page's — make them follow it. */
+button, input, select, textarea { font-family: inherit; }
 html, body {
   height: 100%; overflow: hidden;
-  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-family: var(--font-sans);
   background: var(--bg-page); color: var(--text-primary);
 }
 
@@ -187,8 +214,9 @@ html, body {
 .theme-switch input[type=radio] { display: none; }
 .theme-switch label {
   display: flex; align-items: center; gap: 4px;
-  padding: 2px 10px; border-radius: 13px; cursor: pointer;
-  font-size: 11px; font-weight: 600; color: var(--text-secondary);
+  padding: 0 10px; border-radius: 13px; cursor: pointer;
+  min-height: 24px; box-sizing: border-box;
+  font-size: 12px; font-weight: 600; color: var(--text-secondary);
   transition: background .15s, color .15s;
   user-select: none;
 }
@@ -256,7 +284,8 @@ html, body {
 }
 .ph input[type=text] {
   width: 110px; background: var(--bg-input); border: 1px solid var(--border); color: var(--text-primary);
-  padding: 2px 6px; border-radius: 4px; font-size: 11px; outline: none;
+  padding: 0 6px; border-radius: 4px; font-size: 12px; outline: none;
+  height: 24px; box-sizing: border-box;
   text-transform: uppercase;
 }
 .ph input[type=text]:focus { border-color: var(--accent); }
@@ -301,26 +330,33 @@ html, body {
 .so-exch.INDEX                 { background: var(--exch-index-bg);  color: #d29922; }
 .ph select {
   background: var(--bg-input); border: 1px solid var(--border); color: var(--text-primary);
-  padding: 2px 4px; border-radius: 4px; font-size: 11px; cursor: pointer;
+  padding: 0 4px; border-radius: 4px; font-size: 12px; cursor: pointer;
+  height: 24px; box-sizing: border-box;
   outline: none;
 }
 .ph select:focus { border-color: var(--accent); }
 
 /* ── Indicators button + dropdown ─────────────────────────────────────────── */
+/* B-163: every clickable control in the pane header and range row is at least
+   24px tall with an 11–12px label (WCAG 2.5.8 minimum target). They were
+   17–20px with 10px labels, measured live 2026-10-13. Pinned by
+   test_chart_control_sizes.py. */
 .ind-wrap { position: relative; }
 .ind-btn {
   background: var(--bg-input); border: 1px solid var(--border); color: var(--text-secondary);
-  padding: 2px 8px; border-radius: 4px; font-size: 10px; font-weight: 700;
+  padding: 0 10px; border-radius: 4px; font-size: 11px; font-weight: 700;
   letter-spacing: .03em; cursor: pointer; outline: none; white-space: nowrap;
+  min-height: 24px; box-sizing: border-box;
+  display: inline-flex; align-items: center; justify-content: center;
 }
 .ind-btn:hover, .ind-btn.active { border-color: var(--accent); color: var(--accent); }
-.snap-btn { padding: 2px 7px; font-size: 13px; line-height: 1.4; }
+.snap-btn { padding: 0 8px; font-size: 13px; line-height: 1; }
 
 /* ── Chart history navigation (forward/back buttons) ──────────────────────── */
 .nav-btn {
   background: var(--bg-input); border: 1px solid var(--border); color: var(--text-secondary);
-  padding: 2px 6px; border-radius: 4px; font-size: 11px; cursor: pointer; outline: none;
-  min-width: 20px; height: 20px; display: inline-flex; align-items: center; justify-content: center;
+  padding: 0 6px; border-radius: 4px; font-size: 12px; cursor: pointer; outline: none;
+  min-width: 24px; height: 24px; box-sizing: border-box; display: inline-flex; align-items: center; justify-content: center;
 }
 .nav-btn:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
 .nav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
@@ -329,13 +365,24 @@ html, body {
 .qlinks { display: inline-flex; gap: 4px; align-items: center; }
 .qlink {
   display: inline-flex; align-items: center; justify-content: center;
-  min-width: 22px; height: 20px; padding: 0 5px; box-sizing: border-box;
+  min-width: 24px; height: 24px; padding: 0 6px; box-sizing: border-box;
   background: var(--bg-input); border: 1px solid var(--border);
   color: var(--text-secondary); border-radius: 4px;
-  font-size: 10px; font-weight: 800; letter-spacing: .02em;
+  font-size: 11px; font-weight: 800; letter-spacing: .02em;
   text-decoration: none; cursor: pointer; white-space: nowrap;
 }
 .qlink:hover { border-color: var(--accent); color: var(--accent); }
+/* B-163 made the controls 24px targets, which widened the control row by ~40px
+   and pushed it to two lines plus the ticker (84px header) at an 8-chart grid
+   on a 1920px screen. Win the width back horizontally only — the 24px height
+   and 11–12px labels stay. Placed AFTER the base rules so it wins the cascade
+   (the container block above sits before them). */
+@container (max-width: 640px) {
+  .ph { gap: 4px; }
+  .ph input[type=text] { width: 92px; }
+  .ind-btn { padding: 0 6px; }
+  .nav-btn { padding: 0; min-width: 24px; }
+}
 
 /* ── Visible-range presets (1M/3M/6M/1Y/All) ─────────────────────────────── */
 .range-row {
@@ -344,8 +391,8 @@ html, body {
 }
 .range-btn {
   background: transparent; border: 1px solid transparent; color: var(--text-secondary);
-  padding: 1px 7px; border-radius: 4px; font-size: 10px; font-weight: 600;
-  cursor: pointer; outline: none;
+  padding: 0 9px; border-radius: 4px; font-size: 11px; font-weight: 600;
+  cursor: pointer; outline: none; min-height: 24px; box-sizing: border-box;
 }
 .range-btn:hover { border-color: var(--border); color: var(--text-primary); }
 .range-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
@@ -353,8 +400,8 @@ html, body {
 .range-sep { width: 1px; align-self: stretch; margin: 1px 4px; background: var(--border-soft); }
 .goto-date {
   background: transparent; border: 1px solid var(--border-soft); color: var(--text-secondary);
-  padding: 0 4px; border-radius: 4px; font-size: 10px; font-weight: 600;
-  height: 18px; cursor: pointer; outline: none; color-scheme: dark light;
+  padding: 0 4px; border-radius: 4px; font-size: 11px; font-weight: 600;
+  height: 24px; box-sizing: border-box; cursor: pointer; outline: none; color-scheme: dark light;
 }
 .goto-date:hover { border-color: var(--border); color: var(--text-primary); }
 .goto-btn { border-color: var(--border-soft); }
@@ -435,9 +482,16 @@ html, body {
 .ind-search-wrap {
   position: sticky; top: 0; z-index: 3; background: var(--bg-dropdown);
   padding: 0 10px 6px; margin-bottom: 2px; border-bottom: 1px solid var(--border-soft);
+  display: flex; gap: 6px;
 }
+.ind-cardview {
+  flex-shrink: 0; min-height: 24px; box-sizing: border-box; padding: 0 10px;
+  background: var(--bg-input); border: 1px solid var(--border); border-radius: 5px;
+  color: var(--text-secondary); font-size: 11px; font-weight: 600; cursor: pointer;
+}
+.ind-cardview:hover { border-color: var(--accent); color: var(--accent); }
 .ind-search {
-  width: 100%; box-sizing: border-box; padding: 5px 8px; font-size: 12px;
+  flex: 1; min-width: 0; box-sizing: border-box; padding: 5px 8px; font-size: 12px;
   background: var(--bg-pane); color: var(--text-chart);
   border: 1px solid var(--border-soft); border-radius: 5px; outline: none;
 }
@@ -445,6 +499,191 @@ html, body {
 .ind-search:focus { border-color: var(--accent); }
 .ind-group + .ind-group { border-top: 1px solid var(--border-soft); margin-top: 4px; }
 .ind-empty { padding: 12px; font-size: 11px; color: var(--text-secondary); text-align: center; }
+
+/* ── Indicator Browser (B-150 / B-152) — see indicator_browser.js ─────────── */
+/* One centred overlay for the page. It dims the chart, so the reader knows the
+   chart is not taking clicks; Esc / ✕ / the backdrop close it. Controls follow
+   B-163 (24px targets, 11px+ labels). */
+html.ib-lock, html.ib-lock body { overflow: hidden; }
+.ib-overlay { display: none; position: fixed; inset: 0; z-index: 200; }
+.ib-overlay.open { display: block; }
+.ib-backdrop { position: absolute; inset: 0; background: rgba(0,0,0,.55); }
+.ib-modal {
+  position: absolute; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(1080px, calc(100vw - 32px)); height: min(680px, calc(100vh - 32px));
+  display: flex; flex-direction: column; overflow: hidden;
+  background: var(--bg-dropdown); color: var(--text-chart);
+  border: 1px solid var(--border); border-radius: 10px; box-shadow: 0 18px 50px rgba(0,0,0,.45);
+}
+.ib-head {
+  display: flex; align-items: center; gap: 12px; padding: 10px 12px;
+  border-bottom: 1px solid var(--border-soft);
+}
+.ib-title { font-size: 14px; font-weight: 700; color: var(--text-primary); white-space: nowrap; }
+.ib-target { font-size: 12px; font-weight: 500; color: var(--text-secondary); }
+.ib-search {
+  flex: 1; min-width: 0; height: 30px; box-sizing: border-box; padding: 0 10px; font-size: 13px;
+  background: var(--bg-pane); color: var(--text-chart);
+  border: 1px solid var(--border-soft); border-radius: 6px; outline: none;
+}
+.ib-search:focus { border-color: var(--accent); }
+.ib-close {
+  width: 30px; height: 30px; flex-shrink: 0; border-radius: 6px; cursor: pointer;
+  background: transparent; border: 1px solid transparent; color: var(--text-secondary); font-size: 14px;
+}
+.ib-close:hover { border-color: var(--border); color: var(--text-primary); }
+.ib-body { position: relative; flex: 1; min-height: 0; display: flex; }
+.ib-rail {
+  flex: 0 0 176px; overflow-y: auto; padding: 8px 6px;
+  border-right: 1px solid var(--border-soft);
+}
+.ib-rail-head {
+  font-size: 11px; font-weight: 700; letter-spacing: .06em; text-transform: uppercase;
+  color: var(--text-secondary); padding: 8px 8px 4px;
+}
+.ib-fam {
+  display: flex; align-items: center; gap: 6px; width: 100%; min-height: 28px;
+  padding: 0 8px; border: 0; border-radius: 5px; background: transparent;
+  color: var(--text-secondary); font-size: 12px; text-align: left; cursor: pointer;
+}
+.ib-fam:hover { background: var(--bg-hover); color: var(--text-chart); }
+.ib-fam.active { background: var(--bg-hover); color: var(--text-primary); font-weight: 600; }
+.ib-fam-name { flex: 1; min-width: 0; }
+.ib-fam-n { font-size: 11px; font-variant-numeric: tabular-nums; opacity: .8; }
+.ib-grid { flex: 1; min-width: 0; overflow-y: auto; padding: 12px; }
+.ib-blurb { font-size: 12px; color: var(--text-secondary); margin: 0 0 10px; }
+/* B-156 goal chips — the beginner's way in; families stay the expert's. */
+.ib-chips { display: flex; flex-wrap: wrap; align-items: center; gap: 6px; margin: 0 0 12px; }
+.ib-chips-q { font-size: 11px; font-weight: 700; color: var(--text-secondary); margin-right: 2px; }
+.ib-chip {
+  min-height: 26px; padding: 0 10px; border-radius: 13px; cursor: pointer; font-size: 11.5px;
+  background: transparent; border: 1px solid var(--border-soft); color: var(--text-chart);
+}
+.ib-chip:hover { border-color: var(--border); }
+.ib-chip.on { background: var(--accent); border-color: var(--accent); color: #fff; }
+/* B-153 Discover rows */
+.ib-row-head {
+  display: flex; align-items: baseline; gap: 8px; margin: 14px 0 8px;
+  font-size: 13px; font-weight: 700; color: var(--text-primary);
+}
+.ib-row-head:first-of-type { margin-top: 0; }
+.ib-row-head span { font-size: 11px; font-weight: 500; color: var(--text-secondary); }
+.ib-cards { display: grid; grid-template-columns: repeat(auto-fill, minmax(168px, 1fr)); gap: 10px; }
+.ib-card {
+  position: relative; display: flex; flex-direction: column; gap: 4px;
+  padding: 8px; border-radius: 8px; cursor: pointer; outline: none;
+  background: var(--bg-pane); border: 1px solid var(--border-soft);
+}
+.ib-card:hover { border-color: var(--border); }
+.ib-card:focus-visible, .ib-card.sel { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.ib-card.on { background: var(--bg-hover); }
+.ib-card.disabled { opacity: .5; }
+/* Stand-in for the B-151 preview picture: the indicator's own colour, so the
+   card already matches the line it draws. */
+.ib-pic {
+  aspect-ratio: 16 / 9; border-radius: 6px; display: flex; align-items: center; justify-content: center;
+  background: linear-gradient(135deg, color-mix(in srgb, var(--sw) 38%, transparent), color-mix(in srgb, var(--sw) 8%, transparent));
+  border-bottom: 2px solid var(--sw);
+}
+.ib-pic span { font-size: 20px; font-weight: 700; color: var(--text-primary); opacity: .55; }
+.ib-pic { position: relative; overflow: hidden; }
+.ib-pic img { position: absolute; inset: 0; width: 100%; height: 100%; object-fit: cover; }
+.ib-pic.big span { font-size: 34px; }
+.ib-star {
+  position: absolute; top: 10px; right: 10px; width: 26px; height: 26px; border-radius: 13px;
+  border: 0; cursor: pointer; font-size: 15px; line-height: 1;
+  background: rgba(0,0,0,.35); color: #fff;
+}
+.ib-star.on { color: #ffd60a; }
+.ib-card-name { font-size: 12.5px; font-weight: 600; color: var(--text-primary); line-height: 1.3; }
+.ib-card-meta { font-size: 11px; color: var(--text-secondary); }
+.ib-badge {
+  align-self: flex-start; font-size: 11px; font-weight: 700; padding: 1px 7px; border-radius: 9px;
+  background: var(--accent); color: #fff;
+}
+.ib-badge.muted { background: var(--bg-input-alt); color: var(--text-secondary); }
+.ib-empty, .ib-detail-empty { padding: 24px 12px; font-size: 12px; color: var(--text-secondary); text-align: center; }
+.ib-detail {
+  flex: 0 0 300px; overflow-y: auto; padding: 12px 14px;
+  border-left: 1px solid var(--border-soft);
+}
+.ib-back { display: none; }
+.ib-d-meta { font-size: 11px; color: var(--text-secondary); margin-top: 10px; }
+.ib-d-name { font-size: 16px; color: var(--text-primary); margin: 4px 0 8px; }
+.ib-d-short { font-size: 13px; font-weight: 600; color: var(--text-chart); margin-bottom: 8px; line-height: 1.4; }
+.ib-d-desc { font-size: 12.5px; line-height: 1.55; color: var(--text-chart); margin-bottom: 8px; }
+.ib-draft {
+  display: inline-block; font-size: 11px; font-weight: 700; padding: 2px 8px; border-radius: 9px;
+  margin-bottom: 10px; color: #d29922; background: rgba(210,153,34,.14); border: 1px solid rgba(210,153,34,.35);
+}
+/* B-154 evidence line. The label carries the meaning in words; the left rule's
+   colour only repeats it, so nothing depends on telling red from green. */
+.ib-evidence {
+  margin: 4px 0 10px; padding: 8px 10px; border-radius: 6px; font-size: 12px; line-height: 1.45;
+  background: var(--bg-pane); border: 1px solid var(--border-soft); border-left: 3px solid var(--text-secondary);
+}
+.ib-evidence.pos { border-left-color: var(--up); }
+.ib-evidence.neg { border-left-color: var(--down); }
+.ib-evidence.mix { border-left-color: #d29922; }
+.ib-ev-head { font-size: 11px; font-weight: 700; letter-spacing: .04em; text-transform: uppercase; color: var(--text-secondary); }
+.ib-ev-label { color: var(--text-primary); }
+.ib-ev-line { margin-top: 4px; color: var(--text-chart); }
+.ib-ev-cite { color: var(--text-secondary); font-size: 11px; }
+.ib-d-row { font-size: 12px; color: var(--text-secondary); margin-bottom: 6px; line-height: 1.45; }
+.ib-d-row b { color: var(--text-chart); font-weight: 600; margin-right: 4px; }
+.ib-d-row.warn { color: #d29922; }
+.ib-d-actions { display: flex; flex-wrap: wrap; gap: 8px; margin-top: 12px; }
+.ib-act {
+  min-height: 30px; padding: 0 12px; border-radius: 6px; cursor: pointer; font-size: 12px; font-weight: 600;
+  background: var(--bg-input); border: 1px solid var(--border); color: var(--text-chart);
+}
+.ib-act:hover:not(:disabled) { border-color: var(--accent); color: var(--accent); }
+.ib-act.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+.ib-act.primary:hover:not(:disabled) { color: #fff; filter: brightness(1.1); }
+.ib-act:disabled { opacity: .45; cursor: not-allowed; }
+a.ib-act { display: inline-flex; align-items: center; text-decoration: none; }
+.ib-foot {
+  display: flex; align-items: center; gap: 12px; padding: 8px 12px;
+  border-top: 1px solid var(--border-soft); font-size: 11px; color: var(--text-secondary);
+}
+.ib-keys kbd {
+  font-family: var(--font-mono); font-size: 11px; padding: 0 4px; border-radius: 3px;
+  border: 1px solid var(--border); background: var(--bg-input);
+}
+.ib-count { margin-left: auto; }
+.ib-classic {
+  min-height: 24px; padding: 0 10px; border-radius: 5px; cursor: pointer; font-size: 11px;
+  background: transparent; border: 1px solid var(--border-soft); color: var(--text-secondary);
+}
+.ib-classic:hover { border-color: var(--border); color: var(--text-primary); }
+/* Phones: a full-screen sheet; the detail slides up over the grid. */
+@media (max-width: 760px) {
+  .ib-modal { left: 0; top: 0; transform: none; width: 100%; height: 100%; border-radius: 0; }
+  .ib-head { flex-wrap: wrap; row-gap: 8px; }
+  .ib-title { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; }
+  .ib-search { order: 3; flex-basis: 100%; height: 36px; font-size: 14px; }
+  .ib-body { flex-direction: column; }
+  .ib-rail {
+    flex: 0 0 auto; display: flex; gap: 6px; overflow-x: auto; overflow-y: hidden;
+    border-right: 0; border-bottom: 1px solid var(--border-soft); padding: 6px 8px;
+  }
+  .ib-rail-head { display: none; }
+  .ib-fam { width: auto; flex-shrink: 0; min-height: 32px; border: 1px solid var(--border-soft); border-radius: 16px; padding: 0 12px; }
+  .ib-cards { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .ib-detail {
+    position: absolute; left: 0; right: 0; bottom: 0; max-height: 78%; z-index: 2;
+    background: var(--bg-dropdown); border-left: 0; border-top: 1px solid var(--border);
+    border-radius: 14px 14px 0 0; box-shadow: 0 -10px 30px rgba(0,0,0,.4);
+    transform: translateY(100%); transition: transform .2s ease-out;
+  }
+  .ib-overlay.has-sel .ib-detail { transform: none; }
+  .ib-back {
+    display: inline-flex; align-items: center; min-height: 32px; padding: 0 10px; margin-bottom: 4px;
+    border: 1px solid var(--border-soft); border-radius: 6px; background: transparent;
+    color: var(--text-secondary); font-size: 13px; cursor: pointer;
+  }
+  .ib-keys { display: none; }
+}
 
 /* ── Ticker bar ───────────────────────────────────────────────────────────── */
 .ticker-wrap {
@@ -477,7 +716,7 @@ html, body {
 .sym-exch-badge.NSE { color: #3fb950; background: rgba(63,185,80,.15); border: 1px solid rgba(63,185,80,.3); }
 .sym-exch-badge.BSE { color: #d29922; background: rgba(210,153,34,.15); border: 1px solid rgba(210,153,34,.3); }
 .price-el {
-  font-family: "Courier New", monospace; font-size: 13px; font-weight: 700;
+  font-family:var(--font-mono); font-size: 13px; font-weight: 700;
   padding: 2px 8px; border-radius: 4px; min-width: 90px; text-align: right;
   transition: background 0.15s ease-out;
 }
@@ -565,14 +804,14 @@ html, body {
    to lose track of and clicks land on the chart unexpectedly. */
 .draw-tools:hover, .draw-tools.armed { opacity: 1; }
 .draw-btn {
-  width: 24px; height: 22px; display: flex; align-items: center; justify-content: center;
+  width: 24px; height: 24px; display: flex; align-items: center; justify-content: center; box-sizing: border-box;
   background: transparent; border: 1px solid transparent; border-radius: 4px;
-  color: var(--text-secondary); font-size: 12px; line-height: 1;
+  color: var(--text-secondary); font-size: 13px; line-height: 1;
   cursor: pointer; outline: none; padding: 0;
 }
 .draw-btn:hover { border-color: var(--border); color: var(--text-primary); }
 .draw-btn.active { border-color: var(--accent); color: var(--accent); background: var(--bg-input); }
-.draw-btn.danger:hover { border-color: #ef5350; color: #ef5350; }
+.draw-btn.danger:hover { border-color: var(--down); color: var(--down); }
 .draw-sep { height: 1px; background: var(--border); margin: 2px 1px; }
 .draw-count {
   font-size: 9px; text-align: center; color: var(--text-secondary);
@@ -642,7 +881,7 @@ html, body {
   color: var(--text-secondary); font-size: 10px; line-height: 1; cursor: pointer; padding: 0; outline: none;
 }
 .sub-pane-btn:hover { border-color: var(--border); color: var(--text-primary); }
-.sub-pane-btn.danger:hover { border-color: #ef5350; color: #ef5350; }
+.sub-pane-btn.danger:hover { border-color: var(--down); color: var(--down); }
 /* Reorder grip: drag it to move the sub-plot up or down the stack. */
 .sub-pane-btn.grip { cursor: grab; font-size: 11px; letter-spacing: -1px; }
 .sub-pane-btn.grip:active, .sub-pane.reordering .sub-pane-btn.grip { cursor: grabbing; }
@@ -948,7 +1187,7 @@ html, body {
 }
 .svp-info .svp-head { cursor: pointer; font-weight: 700; user-select: none; }
 .svp-info.collapsed .svp-body { display: none; }
-.svp-info .svp-seq { font-family: 'Courier New', monospace; letter-spacing: 2px; }
+.svp-info .svp-seq { font-family:var(--font-mono); letter-spacing: 2px; }
 .svp-info .svp-cav { color: var(--text-muted); font-size: 9px; margin-top: 4px; }
 /* Plain-language layer. The card is read at a glance, so the jargon gloss for each
    factor sits inline and the teaching ("what is a POC?") hides behind the ? until
@@ -962,7 +1201,7 @@ html, body {
   border-top: 1px solid var(--border); font-size: 9.5px; color: var(--text-muted); }
 .svp-info.help-open .svp-help { display: block; }
 .svp-info .svp-help b { color: var(--text-chart); }
-.svp-P { color: #26a69a; } .svp-B { color: #f23645; }
+.svp-P { color: var(--up); } .svp-B { color: #f23645; }
 .svp-D { color: #4c9aff; } .svp-I { color: #b0b7c3; }
 /* ── TPO / Market Profile card ────────────────────────────────────────────── */
 .tpo-info {
@@ -1147,7 +1386,7 @@ html, body {
 .fvg-why { color: var(--text-muted); font-size: 9.5px; }
 .fvg-power {
   height: 5px; border-radius: 3px; margin: 3px 0;
-  background: linear-gradient(to right, #26a69a var(--buy, 50%), #ef5350 var(--buy, 50%));
+  background: linear-gradient(to right, var(--up) var(--buy, 50%), var(--down) var(--buy, 50%));
 }
 
 /* ── Mobile / touch layout (phones & small tablets) ─────────────────────────
@@ -1247,6 +1486,8 @@ html, body {
 
 <script>
 'use strict';
+// B-164: the desk's up/down colours for the chart — see --up / --down in the stylesheet.
+const C_UP = '#26a69a', C_DOWN = '#ef5350';
 
 // ── Theme ─────────────────────────────────────────────────────────────────────
 const CHART_THEMES = {
@@ -1595,7 +1836,7 @@ const INDICATOR_DEFS = [
   {key:'bollinger', label:'Bollinger (20, 2)', group:'Trend & Bands', color:'#9aa4af'},
   {key:'donchian',  label:'Donchian (20)',     group:'Trend & Bands', color:'#26c6da'},
   {key:'keltner',   label:'Keltner (20, 1.5)',     group:'Trend & Bands', color:'#f48fb1'},
-  {key:'pmax',      label:'PMax (EMA10, ATR10 × 3) + signals', group:'Trend & Bands', color:'#26a69a'},
+  {key:'pmax',      label:'PMax (EMA10, ATR10 × 3) + signals', group:'Trend & Bands', color:C_UP},
   {key:'stai',      label:'SuperTrend AI (adaptive factor via K-means) + signals', group:'Trend & Bands', color:'#00bcd4', alias:'supertrend ai luxalgo adaptive clustering kmeans trend trailing stop'},
   {key:'psar',      label:'Parabolic SAR (0.02, 0.20)', group:'Trend & Bands', color:'#ffa726', alias:'parabolic sar stop and reverse wilder trailing stop dots psar'},
   {key:'ichimoku',  label:'Ichimoku Cloud (9, 26, 52)', group:'Trend & Bands', color:'#e040fb', alias:'ichimoku kinko hyo cloud kumo tenkan kijun senkou chikou span equilibrium'},
@@ -1605,15 +1846,15 @@ const INDICATOR_DEFS = [
   {pane:'sub', key:'rsi',       label:'RSI (14)',               group:'Oscillators',       color:'#7b61ff'},
   {pane:'sub', key:'macd',      label:'MACD (12, 26, 9)',       group:'Oscillators',       color:'#2962ff'},
   {pane:'sub', key:'obv',       label:'OBV',                    group:'Oscillators',       color:'#00bd6f'},
-  {pane:'sub', key:'rs',        label:'RS vs Benchmark',        group:'Oscillators',       color:'#ffd60a'},
+  {pane:'sub', key:'rs',        label:'RS vs Benchmark',        group:'Oscillators',       color:'#ffd60a', alias:'relative strength mansfield benchmark nifty outperformance'},
   {pane:'sub', key:'prte',      label:'%R Trend Exhaustion (+ chart arrows / OB confluence)', group:'Oscillators', color:'#2466A7', alias:'williams percent r exhaustion reversal confluence order block up down arrow'},
   {pane:'sub', key:'adxdi',     label:'ADX + DI (trend strength & direction)', group:'Oscillators', color:'#7B1FA2', alias:'adx dmi directional movement index plus di minus di trend strength downside risk crossover'},
   {pane:'sub', key:'evmacd',    label:'EVWMA VWAP MACD (30,5,20) + BUY/SELL', group:'Oscillators', color:'#0094ff', alias:'quantnomad elastic volume weighted moving average vwap macd crossover buy sell signal histogram'},
   {pane:'sub', key:'roc',       label:'ROC + RSI Zones (21,5,5,14)', group:'Oscillators',    color:'#2962ff'},
   {pane:'sub', key:'stoch',     label:'Stochastic (14,3,3)',    group:'Oscillators',       color:'#26c6da'},
-  {pane:'sub', key:'mfi',       label:'MFI (14) · volume-weighted RSI', group:'Oscillators', color:'#26a69a', alias:'money flow index volume weighted rsi typical price oversold overbought accumulation'},
+  {pane:'sub', key:'mfi',       label:'MFI (14) · volume-weighted RSI', group:'Oscillators', color:C_UP, alias:'money flow index volume weighted rsi typical price oversold overbought accumulation'},
   {pane:'sub', key:'atr',       label:'ATR (14) · Wilder — stop sizing', group:'Oscillators', color:'#ff8a65', alias:'average true range volatility wilder stop size position sizing risk'},
-  {pane:'sub', key:'hm',        label:'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', group:'Oscillators', color:'#26a69a', alias:'hilega milega bottom top reversal strength momentum'},
+  {pane:'sub', key:'hm',        label:'HM Bottoms & Tops (RSI9 · EMA3 · VWMA21)', group:'Oscillators', color:C_UP, alias:'hilega milega bottom top reversal strength momentum'},
   // Draws on BOTH the price chart and the RSI pane, so selecting it turns RSI
   // on (see applyIndicators) — half the signal lives in the oscillator.
   {key:'rsidiv',    label:'RSI Divergence (regular + hidden)', group:'Oscillators', color:'#ffd166'},
@@ -1625,15 +1866,18 @@ const INDICATOR_DEFS = [
   {key:'svp',        label:'Session Volume Profile HD (D/P/B/I + Accum/Distrib)', group:'Volume', color:'#26c6da'},
   {key:'tpo',        label:'TPO / Market Profile (time-at-price)', group:'Volume', color:'#ff9800', alias:'tpo market profile time price opportunity letter bracket initial balance'},
   // Real taker side, not an estimate from bar internals — see drawDeltaProfile.
-  {key:'deltaprofile', label:'Delta Profile — real taker side (Hyperliquid only)', group:'Volume', color:'#26a69a'},
+  {key:'deltaprofile', label:'Delta Profile — real taker side (Hyperliquid only)', group:'Volume', color:C_UP},
   // ── Pattern Recognition ──────────────────────────────────────────────────────
-  {key:'elliott',      label:'Elliott Wave (1-5, A-B-C)', group:'Levels & Projection', color:'#00e5ff'},
-  {key:'fvg',          label:'Fair Value Gap + Buy/Sell signal (FPV)', group:'Smart Money & Structure', color:'#26a69a'},
+  {key:'riskbox',      label:'Risk Box — entry / stop / ±R + position size', group:'Levels & Projection', color:'#4c9aff', alias:'risk reward position size sizing r multiple stop loss take profit risk management tool shares quantity fixed fractional'},
+  {key:'elliott',      label:'Elliott Wave (1-5, A-B-C, W-X-Y)', group:'Levels & Projection', color:'#00e5ff', alias:'elliott wave wxy double zigzag double three complex correction'},
+  // B-136: the same engine at a larger zigzag size, drawn over the normal count.
+  {key:'ew2deg',       label:'Elliott Wave · larger degree (nesting)', group:'Levels & Projection', color:'#9e9e9e', alias:'elliott wave degree nested higher degree major minor'},
+  {key:'fvg',          label:'Fair Value Gap + Buy/Sell signal (FPV)', group:'Smart Money & Structure', color:C_UP},
   {key:'roundbottom',  label:'Rounding Bottom (saucer)',  group:'Price Patterns', color:'#ffab40'},
   {key:'doublebottom', label:'Double Bottom (neckline + quality grade)', group:'Price Patterns', color:'#f778ba', alias:'double bottom W pattern reversal neckline retest agpro quality grade follow through'},
   {key:'vcp',          label:'VCP Coiling',               group:'Price Patterns', color:'#26c6da'},
   {key:'trendlines',   label:'Trendlines (supply/demand)', group:'Smart Money & Structure', color:'#ff9800'},
-  {key:'falling_wedge', label:'Falling Wedge (converging → breakout)', group:'Price Patterns', color:'#26a69a'},
+  {key:'falling_wedge', label:'Falling Wedge (converging → breakout)', group:'Price Patterns', color:C_UP},
   {key:'flag_pole',     label:'Flag & Pole + measured-move plan (both directions)', group:'Price Patterns', color:'#4c9aff', alias:'flag pole bull flag bear flag inverted continuation measured move pennant consolidation breakout'},
   {key:'structure_chain', label:'Structure Break Chain (BOS/CHoCH + quality)', group:'Smart Money & Structure', color:'#00e676'},
   {key:'orderblock',   label:'Order Blocks (SMC demand / supply zones)', group:'Smart Money & Structure', color:'#4c9aff', alias:'order block ob smart money smc demand supply zone mitigation institutional'},
@@ -1657,8 +1901,12 @@ const INDICATOR_GROUPS = [
   'Moving Averages', 'Trend & Bands', 'Oscillators', 'Volume',
   'Price Patterns', 'Smart Money & Structure', 'Levels & Projection', 'Calendar',
 ];
-// One-line orientation per family, shown under the list header. The panel now
-// carries 44 entries across 8 families; without this the rail is just nouns.
+// B-149: fold the plain-words catalogue (indicator_catalogue.js) into each def,
+// so the panel reads d.short / d.desc / d.level / d.goals / d.added / d.concept.
+// Nothing renders these yet — the card layout is B-150.
+INDICATOR_DEFS.forEach(d => Object.assign(d, (window.INDICATOR_INFO || {})[d.key] || {}));
+// One-line orientation per family, shown under the list header. The panel
+// carries dozens of entries across 8 families; without this the rail is just nouns.
 const GROUP_BLURB = {
   'Moving Averages':         'Direction and dynamic support. Draw on price.',
   'Trend & Bands':           'Volatility envelopes and trailing-stop trend flips.',
@@ -1673,7 +1921,7 @@ const GROUP_BLURB = {
 function renderIndicatorPanel() {
   // TradingView-style two-column browser: a family rail on the left, the
   // matching list on the right. The rail is what makes the families legible —
-  // 44 entries in one scrolling column read as a wall regardless of headings.
+  // Dozens of entries in one scrolling column read as a wall regardless of headings.
   const counts = {};
   INDICATOR_GROUPS.forEach(g => { counts[g] = INDICATOR_DEFS.filter(d => d.group === g).length; });
 
@@ -1715,6 +1963,7 @@ function renderIndicatorPanel() {
 
   return '<div class="ind-search-wrap">'
        + `<input type="text" class="ind-search" placeholder="Search all ${INDICATOR_DEFS.length} indicators…" spellcheck="false" autocomplete="off">`
+       + '<button type="button" class="ind-cardview" title="Open the card browser with descriptions (B-150)">Card view</button>'
        + '</div>'
        + '<div class="ind-body">'
        +   `<div class="ind-rail">${rail}</div>`
@@ -2177,7 +2426,7 @@ function macdCalc(bars, fast = 12, slow = 26, signal = 9) {
   const hist = [];
   macdLine.forEach(p => {
     const sv = sigMap.get(p.time);
-    if (sv !== undefined) hist.push({time: p.time, value: p.value - sv, color: p.value - sv >= 0 ? '#26a69a' : '#ef5350'});
+    if (sv !== undefined) hist.push({time: p.time, value: p.value - sv, color: p.value - sv >= 0 ? C_UP : C_DOWN});
   });
   const sigTimes = new Set(signalLine.map(p => p.time));
   return {macd: macdLine.filter(p => sigTimes.has(p.time)), signal: signalLine, hist};
@@ -2234,19 +2483,29 @@ function fmtVol(v) {
 // measured as an EXIT. PMax is not here -- its card already states B-65 and
 // B-74, and B-74 did score its trail as an exit.
 //
-// When B-124 reports, these strings are the one place to update, and
-// claims_lint will hold them to the backlog like every other cited figure.
+// Updated 2026-10-21 (B-181): B-124's fresh re-run with fresh_plan mode
+// changed the Falling Wedge verdict. These strings reflect the current state.
 const TRAIL_STATUS = {
+  // B-168 — not a trail, but the same "say it is unmeasured beside the drawing" card.
+  fvg: {
+    title: 'FVG · CE · Inversion — geometry, not signals',
+    body: 'Dashed line inside an open gap = its 50% (consequent encroachment). ' +
+          '<b>IFVG</b> (purple) = a gap a close went fully through, drawn in the flipped ' +
+          'role (▼ failed support → resistance, ▲ the reverse). The desk measured FVGs as ' +
+          '<b>not magnets</b> (fill rate vs a width-matched placebo) and the retrace-into-' +
+          'a-zone family negative (B-19). CE and inversion are <b>unmeasured</b> (B-168).',
+  },
   stai: {
     title: 'SuperTrend AI — the line is not a measured stop',
     body: 'As a <b>signal</b>: measured, no edge — B-59r, flips where only ' +
           'SuperTrend AI fired −1.00% @20d (p=0.150, n=1,909); where it agreed ' +
           'with PSAR, +0.16% (p=0.820) ≈ the market. The 0–10 strength on each ' +
           'arrow is scored on the same chart it is drawn on, so it is not evidence. ' +
-          '<br>As an <b>exit</b>: this line itself is not measured, but the class is — ' +
-          'B-124 swapped the fixed plan for ATR / structure / EMA trails on the ' +
-          'two best setups: 5 ties, 1 trail <b>worse</b>, none better. A trailing ' +
-          'stop is not an edge here.',
+          '<br>As an <b>exit</b>: this line itself is not measured, but the ATR ' +
+          'trail class is — B-124/B-181. <b>Falling Wedge: ATR trail WINS</b> ' +
+          '(+0.26R p=0.0017, B-181). Structure and EMA20 exits: no difference. ' +
+          'Harmonic: all three trails no difference or worse (B-124; scanner grew ' +
+          'before B-181, so that arm is descriptive only).',
   },
   atrtrail: {
     title: 'ATR Trailing Stop — unmeasured',
@@ -2260,10 +2519,11 @@ const TRAIL_STATUS = {
     title: 'Parabolic SAR — the dots are not a measured stop',
     body: 'As a <b>signal</b>: measured, no edge — B-59r, flips where only PSAR ' +
           'fired −0.77% @20d (p=0.053, n=8,576), which is a null, not a measured ' +
-          'loss. <br>As an <b>exit</b>: <b>never measured</b>. Wilder built SAR ' +
-          'as a stop; this line itself is not measured as one, but the class is — ' +
-          'B-124: ATR / structure / EMA trails vs the fixed plan on the two best ' +
-          'setups gave 5 ties, 1 trail <b>worse</b>, none better.',
+          'loss. <br>As an <b>exit</b>: this line itself is not measured, but the ' +
+          'ATR trail class is — B-124/B-181. <b>Falling Wedge: ATR trail WINS</b> ' +
+          '(+0.26R p=0.0017, B-181). Structure and EMA20 exits: no difference. ' +
+          'Harmonic: all three trails no difference or worse (B-124; scanner grew ' +
+          'before B-181, so that arm is descriptive only).',
   },
 };
 
@@ -2521,10 +2781,10 @@ function rocRsiSeries(bars, {length = 21, rocSmooth = 5, rocSmaVal = 5, rsiLen =
       const crossedUp   = rPrev <= rSmaPrev && r > rSma;
       const crossedDown = rPrev >= rSmaPrev && r < rSma;
       if (crossedUp && rSma < r && r < 0 && !isNaN(rs) && rs < 50) {
-        buys.push({time: t, position: 'belowBar', color: '#26a69a', shape: 'arrowUp', text: '▲'});
+        buys.push({time: t, position: 'belowBar', color: C_UP, shape: 'arrowUp', text: '▲'});
       }
       if (crossedDown && rSma > r && r > 0 && !isNaN(rs) && rs > 50) {
-        sells.push({time: t, position: 'aboveBar', color: '#ef5350', shape: 'arrowDown', text: '▼'});
+        sells.push({time: t, position: 'aboveBar', color: C_DOWN, shape: 'arrowDown', text: '▼'});
       }
     }
   }
@@ -2954,11 +3214,11 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
   });
 
   const series = chart.addCandlestickSeries({
-    upColor:       '#26a69a',
-    downColor:     '#ef5350',
+    upColor:       C_UP,
+    downColor:     C_DOWN,
     borderVisible: false,
-    wickUpColor:   '#26a69a',
-    wickDownColor: '#ef5350',
+    wickUpColor:   C_UP,
+    wickDownColor: C_DOWN,
   });
 
   // ── Volume profile canvas overlay (always present, drawn on demand) ────────
@@ -3402,6 +3662,14 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
   // ── Indicators dropdown ──────────────────────────────────────────────────────
   indBtn.addEventListener('click', e => {
     e.stopPropagation();
+    // B-150: the card browser is the default; the classic list stays one click
+    // away (its "Card view" button, or the browser's "Classic list") for a release.
+    const IB = window.IndicatorBrowser;
+    if (IB && !IB.classicPreferred() && !indPanel.classList.contains('open')) {
+      closeAllIndicatorPanels();
+      IB.open(pane);
+      return;
+    }
     const willOpen = !indPanel.classList.contains('open');
     closeAllIndicatorPanels();
     if (willOpen) {
@@ -3538,6 +3806,18 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
     });
   }
   refreshActiveCount();
+
+  // B-150: the classic list's "Card view" button returns to the card browser
+  // and makes it the default again.
+  const indCardView = indPanel.querySelector('.ind-cardview');
+  if (indCardView) indCardView.addEventListener('click', e => {
+    e.stopPropagation();
+    const IB = window.IndicatorBrowser;
+    if (!IB) return;
+    IB.useCards();
+    closeAllIndicatorPanels();
+    IB.open(pane);
+  });
 
   // Drawing tools: wire the toolbar/canvas, then restore this symbol's markup.
   try { wireDrawingTools(pane); loadDrawings(pane); } catch (e) { console.warn('drawing tools:', e); }
@@ -3878,7 +4158,7 @@ async function copyChartSnapshot(pane) {
     // footnote to the ticker — and the ticker alone does not say what the chart
     // is of. The right corner is the second place a reader's eye lands, so the
     // name takes it and the brand drops to the quiet row underneath.
-    const SNAP_FONT = '-apple-system, "Segoe UI", sans-serif';
+    const SNAP_FONT = getComputedStyle(document.documentElement).getPropertyValue('--font-sans').trim() || 'sans-serif';  // B-164
     const symVal    = pane.el.querySelector('.sym-in').value;
     const tfVal     = pane.el.querySelector('.tf-sel').value;
     const priceEl   = pane.el.querySelector('.price-el');
@@ -4260,6 +4540,10 @@ function applyIndicators(pane) {
   const _obvDivOn = pane.indicators.has('obvdiv');
   if (_obvDivOn && !pane._obvdivWasOn && !pane.indicators.has('obv')) {
     pane.indicators.add('obv');
+    // Tick its box too, as RSI's is below — an unticked OBV that is on cannot be
+    // turned off from the list and leaks into anything that reads the boxes.
+    const obvChk = pane.el.querySelector('.ind-panel .ind-chk[data-key="obv"]');
+    if (obvChk) obvChk.checked = true;
   }
   pane._obvdivWasOn = _obvDivOn;
 
@@ -4306,6 +4590,7 @@ function applyIndicators(pane) {
     clearOrderBlocks(pane);
     if (pane.indicators.has('prte')) renderPrteOverlay(pane);
   }
+  if (!pane.indicators.has('riskbox') && pane.riskBox) clearRiskBox(pane);
   // Clear liquidity pools + sweep marker if deselected.
   if (!pane.indicators.has('liquidity') && pane.liq) clearLiquidity(pane);
   // Clear the %R exhaustion main-chart overlay (arrows + tint) if deselected.
@@ -4313,6 +4598,7 @@ function applyIndicators(pane) {
   // B-127 status cards go with their line.
   renderTrailStatusCard(pane, 'stai');
   renderTrailStatusCard(pane, 'psar');
+  renderTrailStatusCard(pane, 'fvg');
   // Tear down the Simple Volume card if deselected (the histogram itself is
   // removed by the generic series teardown).
   if (!pane.indicators.has('simplevol')) {
@@ -4324,6 +4610,7 @@ function applyIndicators(pane) {
   if (!pane.indicators.has('mabias') && pane.maBias) clearMABias(pane);
   // Tear down Elliott Wave overlay if deselected
   if (!pane.indicators.has('elliott') && pane.ew) clearElliottWave(pane);
+  if (!pane.indicators.has('ew2deg') && pane.ew2) clearEwMajor(pane);
   // Tear down RSI divergence if deselected. When only RSI is switched off the
   // divergence survives on the price pane; clearRsiDivergence skips the RSI-side
   // removal once subCharts.rsi is gone, since that chart is already destroyed.
@@ -4459,7 +4746,7 @@ function applyIndicators(pane) {
         // breaks cleanly at the flip — reading as a single line that swaps side and
         // colour, not two crossing lines.
         pane.indSeries[key] = [
-          addLine(pane, '#26a69a', 2),  // up-trend (below price)
+          addLine(pane, C_UP, 2),  // up-trend (below price)
           addLine(pane, '#f23645', 2),  // down-trend (above price)
         ];
         break;
@@ -4490,7 +4777,7 @@ function applyIndicators(pane) {
         // the candles that no part of the indicator asserts. lineVisible:false with
         // point markers is how lightweight-charts draws a scatter.
         pane.indSeries[key] = [
-          addDots(pane, '#26a69a'),   // long — dots trail BELOW price
+          addDots(pane, C_UP),   // long — dots trail BELOW price
           addDots(pane, '#f23645'),   // short — dots trail ABOVE price
         ];
         break;
@@ -4501,8 +4788,8 @@ function applyIndicators(pane) {
         pane.indSeries[key] = [
           addLine(pane, '#2962ff', 1),    // [0] Tenkan-sen (conversion, blue)
           addLine(pane, '#f23645', 1),    // [1] Kijun-sen  (base, red)
-          addLine(pane, '#26a69a', 1, 2), // [2] Senkou A   (leading A, green dashed)
-          addLine(pane, '#ef5350', 1, 2), // [3] Senkou B   (leading B, red dashed)
+          addLine(pane, C_UP, 1, 2), // [2] Senkou A   (leading A, green dashed)
+          addLine(pane, C_DOWN, 1, 2), // [3] Senkou B   (leading B, red dashed)
           addLine(pane, '#9aa4af', 1, 2), // [4] Chikou Span (lagging, grey dashed)
         ];
         break;
@@ -4521,7 +4808,7 @@ function applyIndicators(pane) {
         // colours by brick direction, whitespace-padded like PMax/STAI so each draws
         // only during its own run.
         pane.indSeries[key] = [
-          addLine(pane, '#26a69a', 2),  // up-bricks
+          addLine(pane, C_UP, 2),  // up-bricks
           addLine(pane, '#ab47bc', 2),  // down-bricks
         ];
         try {
@@ -4703,7 +4990,7 @@ function applyIndicators(pane) {
         // (B-43) is that they carry NO forward edge — labelled FLIP, deliberately not
         // BUY/SELL, so the chart does not imply a trigger the data does not support.
         setPaneMarkers(pane, 'renko', rk.flips.map(f => f.dir === 1
-          ? {time: f.time, position: 'belowBar', color: '#26a69a', shape: 'arrowUp',
+          ? {time: f.time, position: 'belowBar', color: C_UP, shape: 'arrowUp',
              text: 'FLIP↑'}
           : {time: f.time, position: 'aboveBar', color: '#ab47bc', shape: 'arrowDown',
              text: 'FLIP↓'}));
@@ -4907,11 +5194,11 @@ function applyIndicators(pane) {
       // −DI first (red), +DI (green), then ADX on top (purple, thickest) — ADX
       // carries the value label since its slope/level is the headline read.
       sub.minusLine = sub.chart.addLineSeries({
-        color: '#EF5350', lineWidth: 1,
+        color: C_DOWN, lineWidth: 1,
         priceLineVisible: false, lastValueVisible: false, title: '−DI',
       });
       sub.plusLine = sub.chart.addLineSeries({
-        color: '#26A69A', lineWidth: 1,
+        color: C_UP, lineWidth: 1,
         priceLineVisible: false, lastValueVisible: false, title: '+DI',
       });
       sub.adxLine = sub.chart.addLineSeries({
@@ -4934,8 +5221,8 @@ function applyIndicators(pane) {
     // (concepts/ADX.md) shows the cross is lagging, so these mark a bias change to
     // confirm against price, not a trigger.
     const markers = [
-      ...adxdi.bullCross.map(p => ({time: p.time, position: 'belowBar', color: '#26A69A', shape: 'circle', text: '+DI'})),
-      ...adxdi.bearCross.map(p => ({time: p.time, position: 'aboveBar', color: '#EF5350', shape: 'circle', text: '−DI'})),
+      ...adxdi.bullCross.map(p => ({time: p.time, position: 'belowBar', color: C_UP, shape: 'circle', text: '+DI'})),
+      ...adxdi.bearCross.map(p => ({time: p.time, position: 'aboveBar', color: C_DOWN, shape: 'circle', text: '−DI'})),
     ].sort((a, b) => a.time - b.time);
     pane.subCharts.adxdi.adxLine.setMarkers(markers);
   }
@@ -4969,23 +5256,23 @@ function applyIndicators(pane) {
     const histData = ev.hist.map((p, i) => {
       const rising = i > 0 ? ev.hist[i - 1].value < p.value : true;
       return {time: p.time, value: p.value,
-              color: p.value >= 0 ? (rising ? '#26A69A' : '#B2DFDB')
-                                  : (rising ? '#FFCDD2' : '#EF5350')};
+              color: p.value >= 0 ? (rising ? C_UP : '#B2DFDB')
+                                  : (rising ? '#FFCDD2' : C_DOWN)};
     });
     pane.subCharts.evmacd.hist.setData(histData);
     pane.subCharts.evmacd.macdLine.setData(padToBars(ev.macd, bars));   // primary → full grid
     pane.subCharts.evmacd.signalLine.setData(ev.signal);
     // Crossovers on the oscillator itself…
     pane.subCharts.evmacd.macdLine.setMarkers([
-      ...ev.buy.map(p  => ({time: p.time, position: 'belowBar', color: '#26A69A', shape: 'arrowUp',   text: 'L'})),
-      ...ev.sell.map(p => ({time: p.time, position: 'aboveBar', color: '#EF5350', shape: 'arrowDown', text: 'S'})),
+      ...ev.buy.map(p  => ({time: p.time, position: 'belowBar', color: C_UP, shape: 'arrowUp',   text: 'L'})),
+      ...ev.sell.map(p => ({time: p.time, position: 'aboveBar', color: C_DOWN, shape: 'arrowDown', text: 'S'})),
     ].sort((a, b) => a.time - b.time));
     // …and mirrored onto the candles as the actual BUY/SELL calls. The Pine
     // strategy is stop-and-reverse (always in the market), so each arrow is both
     // an exit and an entry — labelled BUY/SELL, not "entry only".
     setPaneMarkers(pane, 'evmacd', ev.signals.map(sig => sig.dir === 1
-      ? {time: sig.time, position: 'belowBar', color: '#26A69A', shape: 'arrowUp',   text: 'BUY'}
-      : {time: sig.time, position: 'aboveBar', color: '#EF5350', shape: 'arrowDown', text: 'SELL'}));
+      ? {time: sig.time, position: 'belowBar', color: C_UP, shape: 'arrowUp',   text: 'BUY'}
+      : {time: sig.time, position: 'aboveBar', color: C_DOWN, shape: 'arrowDown', text: 'SELL'}));
     // Current stance in the pane label — on a stop-and-reverse rule the standing
     // side is the read, and it is otherwise only inferable from the last arrow.
     // The VWAP mode is named too, because it differs by timeframe (see the module
@@ -5088,11 +5375,11 @@ function applyIndicators(pane) {
       // Line becomes visually thicker in-zone because it's drawn over the
       // base line, matching Pine's linewidth=2 conditional plot.
       sub.overlayGreen = sub.chart.addLineSeries({
-        color: '#26a69a', lineWidth: 2,
+        color: C_UP, lineWidth: 2,
         priceLineVisible: false, lastValueVisible: false,
       });
       sub.overlayRed = sub.chart.addLineSeries({
-        color: '#ef5350', lineWidth: 2,
+        color: C_DOWN, lineWidth: 2,
         priceLineVisible: false, lastValueVisible: false,
       });
       sub.series = sub.rocLine;   // used for crosshair sync
@@ -5133,7 +5420,7 @@ function applyIndicators(pane) {
     if (!pane.subCharts.mfi) {
       const sub = addSubPane(pane, 'mfi', 'MFI (14)');
       sub.mfiLine = sub.chart.addLineSeries({
-        color: '#26a69a', lineWidth: 1.5,
+        color: C_UP, lineWidth: 1.5,
         priceLineVisible: false, lastValueVisible: true,
       });
       // 80 / 50 / 20 — and 20 is not decorative here: it is the exact level
@@ -5231,6 +5518,9 @@ function applyIndicators(pane) {
   // coordinates, so they do not care whether LWC has settled its scales yet.
   if (pane.indicators.has('liquidity')) renderLiquidity(pane);
 
+  // Risk box: price lines by PRICE, like liquidity, so no RAF deferral.
+  if (pane.indicators.has('riskbox')) renderRiskBox(pane);
+
   // ── MA Bias overlay (regime / stack / trigger / distrust card + crosses) ────
   if (pane.indicators.has('mabias')) {
     renderMABias(pane);
@@ -5244,6 +5534,9 @@ function applyIndicators(pane) {
   // ── Elliott Wave overlay (plug-in module, see elliott_wave.js) ────────────────
   if (pane.indicators.has('elliott')) {
     renderElliottWave(pane);
+  }
+  if (pane.indicators.has('ew2deg')) {
+    renderEwMajor(pane);
   }
 
   // ── Rounding Bottom overlay (server-side detection, see scanner_templates.py) ─
@@ -5962,6 +6255,18 @@ function drawFVG(pane) {
   const lastBarTime = pane.bars[pane.bars.length - 1].time;
   const ts = pane.chart.timeScale();
 
+  // Only LIVE inversions, newest 4: one price has not since closed back through
+  // in the gap's original direction. Drawing every historical inversion to the
+  // last bar buried the chart (45 of 60 RELIANCE daily gaps invert).
+  const liveIfvg = new Set(zones.filter(z => {
+    if (z.invertedIdx === null || z.invertedIdx === undefined) return false;
+    for (let i = z.invertedIdx + 1; i < pane.bars.length; i++) {
+      const c = pane.bars[i].close;
+      if (z.bullish ? c > z.top : c < z.bottom) return false;
+    }
+    return true;
+  }).sort((a, b) => b.invertedIdx - a.invertedIdx).slice(0, 4));
+
   zones.forEach(z => {
     const xLeft = ts.timeToCoordinate(z.startTime);
     if (xLeft === null) return; // scrolled out of view to the left
@@ -5994,7 +6299,36 @@ function drawFVG(pane) {
     ctx.setLineDash(filled ? [3, 3] : []);
     ctx.strokeRect(x, y, w, h);
     ctx.setLineDash([]);
+
+    // B-168, display only. CE: the 50% line of a still-open gap.
+    if (!filled && Number.isFinite(z.ce)) {
+      const yCe = pane.series.priceToCoordinate(z.ce);
+      if (yCe !== null) {
+        ctx.strokeStyle = z.bullish ? 'rgba(38,166,154,0.8)' : 'rgba(239,83,80,0.8)';
+        ctx.setLineDash([2, 3]);
+        ctx.beginPath(); ctx.moveTo(x, yCe); ctx.lineTo(x + w, yCe); ctx.stroke();
+        ctx.setLineDash([]);
+      }
+    }
+    // Inversion FVG: the same band, from the close that broke it to the last bar,
+    // in the flipped role (a failed bullish gap now read as resistance).
+    if (z.invertedTime && liveIfvg.has(z)) {
+      const xi = ts.timeToCoordinate(z.invertedTime);
+      const xe = ts.timeToCoordinate(lastBarTime);
+      if (xi !== null && xe !== null && xe > xi) {
+        ctx.fillStyle = 'rgba(171,71,188,0.10)';
+        ctx.fillRect(Math.max(0, xi), y, Math.min(W, xe) - Math.max(0, xi), h);
+        ctx.strokeStyle = 'rgba(171,71,188,0.55)';
+        ctx.setLineDash([4, 2]);
+        ctx.strokeRect(Math.max(0, xi), y, Math.min(W, xe) - Math.max(0, xi), h);
+        ctx.setLineDash([]);
+        ctx.fillStyle = 'rgba(171,71,188,0.9)';
+        ctx.font = '9px sans-serif';
+        ctx.fillText(z.bullish ? 'IFVG ▼' : 'IFVG ▲', Math.max(0, xi) + 2, y - 2);
+      }
+    }
   });
+  renderTrailStatusCard(pane, 'fvg');
 }
 
 // ── Order Block overlay (SMC demand / supply zones) ───────────────────────────
@@ -6153,8 +6487,8 @@ function drawOrderBlocks(pane) {
         // No R:R on the label: the target is a flat 2R since the ladder was
         // measured away (2026-09-13), so the ratio is a constant and printing it
         // every time would dress a definition up as a finding.
-        [[yTgt, '#26a69a', `TP ${z.target}`],
-         [yStop, '#ef5350', `SL ${z.stop}`]].forEach(([yy, col, tag]) => {
+        [[yTgt, C_UP, `TP ${z.target}`],
+         [yStop, C_DOWN, `SL ${z.stop}`]].forEach(([yy, col, tag]) => {
           ctx.strokeStyle = col;
           ctx.beginPath(); ctx.moveTo(x, yy); ctx.lineTo(xEnd, yy); ctx.stroke();
           ctx.fillStyle = col;
@@ -6387,7 +6721,7 @@ function renderFVGSignals(pane) {
     // A live signal is bright; a stale one (older than `recent` bars) is muted
     // so the eye isn't drawn to an entry that has already passed.
     const strong = sig.fpv.strength === 'STRONG';
-    const base = bullish ? (strong ? '#26a69a' : '#7fd0c8') : (strong ? '#ef5350' : '#f0a1a0');
+    const base = bullish ? (strong ? C_UP : '#7fd0c8') : (strong ? C_DOWN : '#f0a1a0');
     const color = sig.live ? base : (bullish ? 'rgba(38,166,154,0.45)' : 'rgba(239,83,80,0.45)');
     markers.push({
       time: sig.time,
@@ -6458,7 +6792,7 @@ function renderFVGInfo(pane, d) {
 
   const f = head.fpv;
   const strongCol = f.strength === 'STRONG' ? '#3fb950' : f.strength === 'WEAK' ? '#f0883e' : '#8b949e';
-  const dirCol = bullish ? '#26a69a' : '#ef5350';
+  const dirCol = bullish ? C_UP : C_DOWN;
   const recency = head.live
     ? `<span style="color:${dirCol}">live · ${head.barsAgo}b ago</span>`
     : `<span style="color:var(--text-muted)">historical · ${head.barsAgo}b ago</span>`;
@@ -6672,7 +7006,7 @@ function renderMABias(pane) {
   const markers = [];
   d.regimeCrosses.forEach(c => markers.push(c.dir === 1
     ? {time: c.time, position: 'belowBar', color: '#ffd60a', shape: 'circle', text: 'GC'}
-    : {time: c.time, position: 'aboveBar', color: '#ef5350', shape: 'circle', text: 'DC'}));
+    : {time: c.time, position: 'aboveBar', color: C_DOWN, shape: 'circle', text: 'DC'}));
   d.fastCrosses.forEach((c, idx) => {
     const latest = idx === d.fastCrosses.length - 1;
     const bull = c.dir === 1;
@@ -6680,7 +7014,7 @@ function renderMABias(pane) {
       time: c.time,
       position: bull ? 'belowBar' : 'aboveBar',
       color: latest && d.trigger && d.trigger.live
-        ? (bull ? '#26a69a' : '#ef5350')
+        ? (bull ? C_UP : C_DOWN)
         : (bull ? 'rgba(38,166,154,0.35)' : 'rgba(239,83,80,0.35)'),
       shape: bull ? 'arrowUp' : 'arrowDown',
     };
@@ -6694,7 +7028,7 @@ function renderMABias(pane) {
 
 const MA_BADGE = {
   LONG:            {label: 'LONG BIAS',         color: '#3fb950'},
-  SHORT:           {label: 'SHORT BIAS',        color: '#ef5350'},
+  SHORT:           {label: 'SHORT BIAS',        color: C_DOWN},
   'COUNTER-TREND': {label: 'COUNTER-TREND',     color: '#f0883e'},
   CHOP:            {label: 'CHOP — STAND DOWN', color: '#8b949e'},
   MIXED:           {label: 'MIXED',             color: '#8b949e'},
@@ -6720,13 +7054,13 @@ function renderMABiasInfo(pane, d) {
   if (!d.regime) {
     regimeTxt = `<span style="color:var(--text-muted)">— · &lt;200 bars of history</span>`;
   } else {
-    const dirCol = d.regime.dir === 1 ? '#26a69a' : d.regime.dir === -1 ? '#ef5350' : '#f0883e';
+    const dirCol = d.regime.dir === 1 ? C_UP : d.regime.dir === -1 ? C_DOWN : '#f0883e';
     const word = d.regime.dir === 1 ? 'BULL' : d.regime.dir === -1 ? 'BEAR' : 'MIXED';
     regimeTxt = `<span style="color:${dirCol}">${word}</span> · ${d.regime.above200 ? 'above' : 'below'} 200 SMA`;
     if (d.regime.lastCross) {
       const gc = d.regime.lastCross.dir === 1;
       gcTxt = `<div class="ma-row"><span>${gc ? 'Golden' : 'Death'} cross</span>` +
-              `<span style="color:${gc ? '#ffd60a' : '#ef5350'}">${d.regime.lastCross.barsAgo}b ago ` +
+              `<span style="color:${gc ? '#ffd60a' : C_DOWN}">${d.regime.lastCross.barsAgo}b ago ` +
               `@ ${d.regime.lastCross.price.toFixed(2)}</span></div>`;
     }
   }
@@ -6735,8 +7069,8 @@ function renderMABiasInfo(pane, d) {
   let stackTxt = '—';
   if (d.stack) {
     const chain = d.stack.withS200 ? '9&gt;20&gt;50&gt;200' : '9&gt;20&gt;50';
-    stackTxt = d.stack.aligned === 1  ? `<span style="color:#26a69a">${chain} ✓ aligned</span>`
-             : d.stack.aligned === -1 ? `<span style="color:#ef5350">inverted (bearish)</span>`
+    stackTxt = d.stack.aligned === 1  ? `<span style="color:var(--up)">${chain} ✓ aligned</span>`
+             : d.stack.aligned === -1 ? `<span style="color:var(--down)">inverted (bearish)</span>`
              : `<span style="color:#f0883e">mixed</span>`;
   }
 
@@ -6744,7 +7078,7 @@ function renderMABiasInfo(pane, d) {
   let trigTxt = `<span style="color:var(--text-muted)">no 9/20 cross yet</span>`;
   if (d.trigger) {
     const bull = d.trigger.dir === 1;
-    const c = bull ? '#26a69a' : '#ef5350';
+    const c = bull ? C_UP : C_DOWN;
     const rec = d.trigger.live
       ? `<span style="color:${c}">live · ${d.trigger.barsAgo}b ago</span>`
       : `<span style="color:var(--text-muted)">stale · ${d.trigger.barsAgo}b ago</span>`;
@@ -6763,7 +7097,7 @@ function renderMABiasInfo(pane, d) {
     `<div class="ma-row"><span>Stack</span><span>${stackTxt}</span></div><hr>` +
     `<div class="ma-row"><span>Trigger</span><span>${trigTxt}</span></div>` +
     (d.pullback !== 0
-      ? `<div class="ma-row"><span>Pullback</span><span style="color:#26a69a">tagged ` +
+      ? `<div class="ma-row"><span>Pullback</span><span style="color:var(--up)">tagged ` +
         `${d.pullback === 1 ? 'rising' : 'falling'} 20 EMA and held</span></div>`
       : '') +
     `<div class="ma-row"><span>Cross vol</span><span>${volTxt}</span></div>` +
@@ -7133,6 +7467,81 @@ function ewWavePointPosition(p) {
   return p.type === 'high' ? 'aboveBar' : 'belowBar';
 }
 
+// ── B-136: larger degree ──────────────────────────────────────────────────────
+// The same engine with a 3x larger zigzag, drawn faint and thick behind the
+// normal count, labels in parentheses — the textbook convention for one degree
+// up. The info line says which normal-degree structures sit inside which
+// larger leg (EW.analyzeDegrees().nesting). Labels, not a signal.
+const EW_MAJOR_MULT = 3.6;   // 3x the normal 1.2 (floor scales with it)
+
+function clearEwMajor(pane) {
+  if (!pane.ew2) return;
+  Object.values(pane.ew2.lines).forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
+  setPaneMarkers(pane, 'elliott_major', null);
+  if (pane.ew2.noteEl) pane.ew2.noteEl.remove();
+  pane.ew2 = null;
+}
+
+function renderEwMajor(pane) {
+  const bars = pane.bars;
+  if (!window.EW || !EW.analyzeDegrees || !bars || bars.length < EW_OPTS.atrPeriod + 10) return;
+  const lastBar = bars[bars.length - 1];
+  const key = bars.length + ':' + lastBar.time + ':' + lastBar.close;
+  if (pane.ew2 && pane.ew2.key === key) return;
+  clearEwMajor(pane);
+  pane.ew2 = {key, lines: {}, noteEl: null};
+
+  const d = EW.analyzeDegrees(bars, {atrPeriod: EW_OPTS.atrPeriod, minPct: EW_OPTS.minPct,
+                                     minorMult: EW_OPTS.atrMult, majorMult: EW_MAJOR_MULT});
+  const M = d.major;
+  const mkLine = (id, pts) => {
+    const line = pane.chart.addLineSeries({
+      color: 'rgba(158,158,158,0.45)', lineWidth: 4, lineStyle: 0,
+      priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
+      autoscaleInfoProvider: () => null,
+    });
+    line.setData(pts.map(p => ({time: p.time, value: p.price})));
+    pane.ew2.lines[id] = line;
+  };
+  // The larger-degree swing path is always drawn — it is the "big picture"
+  // even before it holds a complete count. Labels only come from its live
+  // structure (EW.analyze().active): drawing its impulse, corrective and W-X-Y
+  // together stacked three labels on shared pivots.
+  if (M.pivots.length >= 2) mkLine('major_path', M.pivots);
+  const markers = [];
+  if (M.active) {
+    M.active.points.forEach(p => {
+      if (!p.label) return;
+      markers.push({time: p.time, position: ewWavePointPosition(p), color: '#9e9e9e',
+                    shape: 'square', size: 0.6, text: `(${p.label})`});
+    });
+  }
+  setPaneMarkers(pane, 'elliott_major', markers);
+
+  // Which normal-degree structure most recently fitted inside ONE larger leg —
+  // e.g. "this W-X-Y is the larger down leg", i.e. a wave (b) one degree up.
+  const names = {'impulse': '1-5', 'corrective': 'A-B-C', 'complex-corrective': 'W-X-Y'};
+  const fmt = v => v.toLocaleString('en-IN', {maximumFractionDigits: 2});
+  const latest = d.nesting.slice().sort((a, b) => b.minorEnd - a.minorEnd)[0];
+  const el = document.createElement('div');
+  el.className = 'ew-info';
+  let txt = `<b style="color:#9e9e9e">Larger degree (×${EW_MAJOR_MULT} zigzag, grey)</b>`;
+  if (latest) {
+    const a = M.pivots[latest.majorLeg], b = M.pivots[latest.majorLeg + 1];
+    txt += `<br>Latest ${names[latest.minorType] || latest.minorType} sits inside the larger ` +
+           `${latest.legDirection} leg ${fmt(a.price)} → ${fmt(b.price)}` +
+           (b.provisional ? ' (leg still forming)' : '');
+  } else {
+    txt += `<br>No normal-degree structure fits inside one larger leg yet.`;
+  }
+  if (M.active) txt += `<br>Larger-degree count: ${names[M.active.type] || M.active.type}` +
+                       (M.active.final ? '' : ' (forming)');
+  txt += `<br><i style="color:var(--text-muted)">Labels in ( ) are one degree up. Unmeasured.</i>`;
+  el.innerHTML = txt;
+  mountCard(pane, el, 'stack');
+  pane.ew2.noteEl = el;
+}
+
 function renderElliottWave(pane) {
   const ew = ensureEwState(pane);
   const bars = pane.bars;
@@ -7148,12 +7557,16 @@ function renderElliottWave(pane) {
   if (ew.lastComputeKey === cacheKey) return;
   ew.lastComputeKey = cacheKey;
 
-  const {impulses, correctives} = EW.analyze(bars, EW_OPTS);
+  const an = EW.analyze(bars, EW_OPTS);
+  const {impulses, correctives, complex, pivots} = an;
   const shown = selectStructuresToRender(impulses);
   const shownIds = new Set(shown.map(s => s.id));
   const shownCorrectives = correctives.filter(c => shownIds.has(c.parentImpulseId));
+  // B-135: W-X-Y structures are found on their own (they need no parent
+  // impulse). Only the most recent two are drawn — older ones are history.
+  const shownComplex = (complex || []).slice(-2);
 
-  const allStructures = [...shown, ...shownCorrectives];
+  const allStructures = [...shown, ...shownCorrectives, ...shownComplex];
 
   // Drop line series for structures that fell out of the rendered set.
   Object.keys(ew.lineSeries).forEach(id => {
@@ -7163,8 +7576,18 @@ function renderElliottWave(pane) {
     }
   });
 
-  const lastImpulse    = shown[shown.length - 1];
-  const lastCorrective = shownCorrectives[shownCorrectives.length - 1];
+  // B-138: the panel, the negation and the projections describe the most
+  // RECENT drawn count, and only while it is current (EW.liveCount). `shown` is
+  // score-ordered for drawing; taking its last element used to pick the
+  // lowest-scored of three, often months old.
+  const lc = EW.liveCount ? EW.liveCount(an, shown)
+           : {impulse: shown[shown.length - 1] || null, corrective: null,
+              complex: shownComplex[shownComplex.length - 1] || null,
+              active: null, live: false, endedAt: null};
+  const lastImpulse    = lc.impulse || undefined;
+  const lastCorrective = lc.corrective || undefined;
+  const lastComplex    = lc.complex || undefined;
+  const cxLive = !!(lc.live && lc.active && lc.complex && lc.active.id === lc.complex.id);
 
   // ── Elliott Wave + Volume Profile confluence ──────────────────────────────
   // Only meaningful once both modules have run — relies on drawVolumeProfile()
@@ -7178,6 +7601,7 @@ function renderElliottWave(pane) {
     const ewPoints = [];
     if (lastImpulse)    lastImpulse.points.forEach(p => ewPoints.push({time: p.time, price: p.price, label: p.label}));
     if (lastCorrective) lastCorrective.points.forEach(p => ewPoints.push({time: p.time, price: p.price, label: p.label}));
+    if (lastComplex) lastComplex.points.filter(p => p.label).forEach(p => ewPoints.push({time: p.time, price: p.price, label: p.label}));
     confluenceList = VP.findConfluence(ewPoints, pane.vp, EW_VP_CONFLUENCE_TOL);
     confluentKeys = new Set(confluenceList.map(c => c.time + ':' + c.label));
   }
@@ -7188,7 +7612,8 @@ function renderElliottWave(pane) {
     let line = ew.lineSeries[s.id];
     if (!line) {
       line = pane.chart.addLineSeries({
-        color: s.type === 'impulse' ? '#00e5ff' : '#ffab40',
+        color: s.type === 'impulse' ? '#00e5ff'
+             : s.type === 'complex-corrective' ? '#b388ff' : '#ffab40',
         lineWidth: 2,
         lineStyle: s.type === 'impulse' ? 0 : 2,           // solid impulse, dashed corrective
         priceLineVisible: false, lastValueVisible: false, crosshairMarkerVisible: false,
@@ -7203,11 +7628,14 @@ function renderElliottWave(pane) {
     line.setData(s.points.map(p => ({time: p.time, value: p.price})));
 
     s.points.forEach(p => {
+      if (!p.label) return;          // a W-X-Y's origin pivot carries no label
       const isConfluent = confluentKeys.has(p.time + ':' + p.label);
+      const base = s.type === 'impulse' ? '#00e5ff'
+                 : s.type === 'complex-corrective' ? '#b388ff' : '#ffab40';
       markers.push({
         time: p.time,
         position: ewWavePointPosition(p),
-        color: isConfluent ? '#ffd60a' : (s.type === 'impulse' ? '#00e5ff' : '#ffab40'),
+        color: isConfluent ? '#ffd60a' : base,
         shape: 'circle',
         size: isConfluent ? 1.4 : 0.8,
         text: isConfluent ? p.label + '★' : p.label,
@@ -7217,11 +7645,18 @@ function renderElliottWave(pane) {
 
   setPaneMarkers(pane, 'elliott', markers);
 
-  const fibConfluence = renderEwFibLevels(pane, lastImpulse, lastCorrective);
-  renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConfluence);
+  // Projections only for the live count's OWN leg: W3/W5 targets of an impulse
+  // that is already in its correction, or of a count that ended swings ago, are
+  // history drawn as if they were ahead.
+  const act = lc.live ? lc.active : null;
+  const fibConfluence = renderEwFibLevels(pane,
+    act && act.type === 'impulse' ? act : null,
+    act && act.type === 'corrective' ? act : null,
+    act && act.type === 'complex-corrective' ? act : null);
+  renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConfluence, lastComplex, cxLive, lc);
 }
 
-function renderEwFibLevels(pane, lastImpulse, lastCorrective) {
+function renderEwFibLevels(pane, lastImpulse, lastCorrective, lastComplex) {
   const ew = ensureEwState(pane);
   ew.fibLineSeries.forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
   ew.fibLineSeries = [];
@@ -7231,6 +7666,9 @@ function renderEwFibLevels(pane, lastImpulse, lastCorrective) {
   const rawLevels = [];
   if (lastImpulse)    rawLevels.push(...EW.fibLevelsForImpulse(lastImpulse));
   if (lastCorrective) rawLevels.push(...EW.fibLevelsForCorrective(lastCorrective));
+  // Y targets only while Y is still forming — once final they are history.
+  if (lastComplex && !lastComplex.final && EW.fibLevelsForComplex)
+    rawLevels.push(...EW.fibLevelsForComplex(lastComplex));
 
   // Forward-looking confluence runs against the FULL raw set so a far-off
   // extension that lands on a real POC/HVN can still be marked confluent
@@ -7279,7 +7717,7 @@ function renderEwFibLevels(pane, lastImpulse, lastCorrective) {
   return levels.filter(lv => fibConfluentLabels.has(lv.label));
 }
 
-function renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConfluence) {
+function renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConfluence, lastComplex, cxLive, lc) {
   const ew = ensureEwState(pane);
   if (!ew.infoEl) {
     ew.infoEl = document.createElement('div');
@@ -7314,20 +7752,25 @@ function renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConf
     ew.infoSummary = summary;
     mountCard(pane, ew.infoEl, 'corner');
   }
-  if (!lastImpulse) { ew.infoEl.style.display = 'none'; return; }
+  if (!lastImpulse && !lastComplex) { ew.infoEl.style.display = 'none'; return; }
   // Compact chip: label + confidence, matches the leading line of the full
   // panel so users know what's parked there when it's collapsed.
   if (ew.infoSummary) {
-    ew.infoSummary.textContent =
-      `EW: ${lastImpulse.bullish ? 'Bullish' : 'Bearish'} ` +
-      `${lastImpulse.final ? '5W' : '5W?'} · ${lastImpulse.score}/100`;
+    ew.infoSummary.textContent = lastImpulse
+      ? `EW: ${lastImpulse.bullish ? 'Bullish' : 'Bearish'} ` +
+        `${lastImpulse.final ? '5W' : '5W?'} · ${lastImpulse.score}/100` +
+        (lastComplex ? ' · W-X-Y' : '')
+      : `EW: W-X-Y ${lastComplex.direction === 'down' ? '↓' : '↑'}` +
+        (!cxLive ? ' (completed)' : lastComplex.final ? '' : ' (Y forming)');
   }
 
   const fmtPct = v => v == null ? '—' : (v * 100).toFixed(0) + '%';
   const fmtR   = v => v == null ? '—' : v.toFixed(2) + '×';
+  let html = '';
+  if (lastImpulse) {
   const r = lastImpulse.ratios;
 
-  let html = `<b>${lastImpulse.bullish ? 'Bullish' : 'Bearish'} Impulse (1-5)</b>` +
+  html += `<b>${lastImpulse.bullish ? 'Bullish' : 'Bearish'} Impulse (1-5)</b>` +
              (lastImpulse.final ? '' : ' <i>forming</i>') +
              `<br>W1 len: ${Math.abs(lastImpulse.lengths.wave1).toFixed(2)}` +
              `<br>W2 retrace: ${fmtPct(r.w2retrPct)} of W1` +
@@ -7345,13 +7788,46 @@ function renderEwInfo(pane, lastImpulse, lastCorrective, confluenceList, fibConf
               ` <i>(${lastCorrective.ratios.patternGuess})</i>`;
     if (lastCorrective.ratios.cVsA != null)
       html += `<br>C: ${fmtR(lastCorrective.ratios.cVsA)} of A`;
+    // B-134 — stated, not scored: nothing on this desk has measured it.
+    if (lastCorrective.ratios.bAbnormal)
+      html += `<br><i style="color:#d29922">⚠ Unusual B — ` +
+              `${lastCorrective.ratios.bAbnormalReasons.join('; ')}</i>`;
+    if (lastCorrective.ratios.bSlow)
+      html += `<br><i style="color:var(--text-muted)">${lastCorrective.ratios.bSlowNote}</i>`;
+  }
+  }
+
+  // B-135 — W-X-Y. A drawing aid: the pre-registered study is in the backlog.
+  if (lastComplex) {
+    const cr = lastComplex.ratios;
+    const bNote = (b, name) => b.abnormal
+      ? `<br><i style="color:#d29922">⚠ ${name}'s b — ${b.reasons.join('; ')}</i>` : '';
+    html += (html ? `<hr style="border-color:#30363d;margin:4px 0;">` : '') +
+            `<b style="color:#b388ff">W-X-Y ${lastComplex.direction === 'down' ? '↓' : '↑'} ` +
+            `(${lastComplex.subtype})</b>` +
+            (!cxLive ? ` <i style="color:var(--text-muted)">completed ` +
+                       `${new Date(lastComplex.points[7].time * 1000).toISOString().slice(0, 10)}` +
+                       ` — not the live count</i>`
+                     : lastComplex.final ? '' : ' <i>Y forming</i>') +
+            `<br>X retrace: ${fmtPct(cr.xRetracePct)} of W` +
+            `<br>Y size: ${fmtR(cr.yVsW)} of W` +
+            bNote(cr.wB, 'W') + bNote(cr.yB, 'Y') +
+            `<br><i style="color:var(--text-muted)">Unmeasured — a drawing aid, not a signal.</i>`;
   }
 
   // ── Pattern negation ────────────────────────────────────────────────────────
   // The level at which the live count stops being possible. A target without an
   // invalidation cannot be wrong, and a count that cannot be wrong is not a
   // forecast — so this is stated as prominently as the targets above it.
-  const _ewActive = lastCorrective || lastImpulse;
+  // B-138: negate only the LIVE count. A count that ended swings ago has
+  // nothing left to negate — say so rather than print a stale level.
+  const _ewActive = lc && lc.live ? lc.active : null;
+  if (lc && !lc.live && lc.active && lc.endedAt) {
+    html += `<hr style="border-color:#30363d;margin:4px 0;">` +
+            `<i style="color:var(--text-muted)">No live count — the latest drawn ` +
+            `structure ended ${new Date(lc.endedAt * 1000).toISOString().slice(0, 10)}; ` +
+            `price has moved on since. No negation level or projections.</i>`;
+  }
   const _inv = _ewActive && EW.invalidation
     ? EW.invalidation(_ewActive, pane.bars) : null;
   if (_inv) {
@@ -7579,7 +8055,7 @@ function renderRbInfo(pane, saucer) {
   let html =
     `<b style="color:${verdictColor}">${saucer.verdict}</b>` +
     ` · <span style="color:var(--text-muted)">R:R ${rr}</span>` +
-    `<div style="margin-top:3px;font-family:'Courier New',monospace;font-size:10px">` +
+    `<div style="margin-top:3px;font-family:var(--font-mono);font-size:10px">` +
       `<span style="color:#26c6da">Entry ₹${saucer.entry.toFixed(2)}</span> · ` +
       `<span style="color:#f85149">Stop ₹${saucer.stop.toFixed(2)}</span> · ` +
       `<span style="color:#3fb950">Target ₹${saucer.target.toFixed(2)}</span>` +
@@ -7807,7 +8283,7 @@ function renderDbInfo(pane, dbl) {
   let html =
     `<b style="color:${verdictColor}">${dbl.verdict}</b>` +
     ` · <span style="color:var(--text-muted)">R:R ${rr}</span>` +
-    `<div style="margin-top:3px;font-family:'Courier New',monospace;font-size:10px">` +
+    `<div style="margin-top:3px;font-family:var(--font-mono);font-size:10px">` +
       `<span style="color:#26c6da">Entry ₹${dbl.entry.toFixed(2)}</span> · ` +
       `<span style="color:#f85149">Stop ₹${dbl.stop.toFixed(2)}</span> · ` +
       `<span style="color:#3fb950">Target ₹${dbl.target.toFixed(2)}</span>` +
@@ -8039,7 +8515,7 @@ function renderVcpInfo(pane, g) {
   // "28/12/6" telling you at a glance whether the depths are shrinking).
   vcp.infoSummary.innerHTML =
     `<span style="color:${verdictColor}">VCP: ${g.verdict}</span> · ` +
-    `<span style="font-family:'Courier New',monospace">${g.footprint}</span>`;
+    `<span style="font-family:var(--font-mono)">${g.footprint}</span>`;
 
   const rr = Number.isFinite(g.risk_reward) ? `${g.risk_reward}×` : '—';
   const volTag = g.vol_confirmed
@@ -8053,7 +8529,7 @@ function renderVcpInfo(pane, g) {
   let html =
     `<b style="color:${verdictColor}">${g.verdict}</b>` +
     ` · <span style="color:var(--text-muted)">R:R ${rr}</span>` +
-    `<div style="margin-top:3px;font-family:'Courier New',monospace;font-size:10px">` +
+    `<div style="margin-top:3px;font-family:var(--font-mono);font-size:10px">` +
       `<span style="color:#26c6da">Entry ₹${g.entry.toFixed(2)}</span> · ` +
       `<span style="color:#f85149">Stop ₹${g.stop.toFixed(2)}</span> · ` +
       `<span style="color:#3fb950">Target ₹${g.target.toFixed(2)}</span>` +
@@ -8470,7 +8946,7 @@ async function renderTrendlines(pane) {
 //
 // THE TARGET IS A PROJECTION, NOT A FORECAST, and the card says so. Nothing here
 // is backtested; B-19 measured 0 of 41 scanners stable after costs.
-const FP_COLORS = {bull: '#26a69a', bear: '#ef5350'};
+const FP_COLORS = {bull: C_UP, bear: C_DOWN};
 
 function ensureFlagPoleState(pane) {
   if (!pane.flagPole) pane.flagPole = {series: [], priceLines: [], infoEl: null, lastFetchKey: null};
@@ -8617,7 +9093,7 @@ function showFlagPoleCard(pane, found, note) {
 // concepts/Falling-Wedge.md). Draws the two converging downward trendlines (green),
 // a translucent fill between them (painted by drawPatternZones from pane.fw.poly),
 // a breakout marker, and a compact stat label. FW-3 of Falling-Wedge-Scanner-Fit.
-const FW_COLOR = '#26a69a';
+const FW_COLOR = C_UP;
 
 function ensureFwState(pane) {
   if (!pane.fw) pane.fw = {upperLine: null, lowerLine: null, poly: null, infoEl: null, lastFetchKey: null};
@@ -8958,12 +9434,137 @@ function renderSbcInfo(pane, d) {
       `<br><i>Held vs failed MEASURED 2026-09-21 (B-114): +1.28pp @20d over 4,608 events, 150 names, and it survives clustering (133 symbols, p=0.0015). The quality ladder does NOT rank on the same data — read STRONG/NORMAL/WEAK as description, not as strength. B-115: a held UP break also beats owning the same bars, +0.82pp @20d (p=0.006, 58% of names) — real, and small.</i></div>`;
 }
 
+// ── Risk box (integration layer for risk_box.js) ─────────────────────────────
+// Entry / stop / +1R..+3R as price lines, and a card that sizes the position so a
+// stop-out costs a fixed slice of capital (fixed-fractional, R-multiple framework).
+// BOOKKEEPING, NOT A SIGNAL: it shows what a trade would risk, never whether to
+// take it. Entry starts at the last close and the stop at the trade card's own
+// rule (10-bar swing low vs close − 1.5×ATR14); both are editable per pane and
+// reset when the symbol changes. Capital and risk % persist per browser.
+const LS_RISKBOX = 'tb.riskbox.prefs.v1';
+function loadRiskBoxPrefs() {
+  try { return JSON.parse(localStorage.getItem(LS_RISKBOX) || '{}') || {}; } catch { return {}; }
+}
+function saveRiskBoxPrefs(p) {
+  try { localStorage.setItem(LS_RISKBOX, JSON.stringify(p)); } catch {}
+}
+
+function clearRiskBox(pane) {
+  const st = pane.riskBox;
+  if (!st) return;
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  if (st.el) { try { st.el.remove(); } catch {} }
+  pane.riskBox = null;
+}
+
+function _rbSeed(pane, st) {
+  const last = pane.bars[pane.bars.length - 1].close;
+  const stop = RISKBOX.defaultStop(pane.bars);
+  st.entry = +last.toFixed(2);
+  st.stop = Number.isFinite(stop) ? +stop.toFixed(2) : +(last * 0.95).toFixed(2);
+}
+
+function _rbCard(pane, st) {
+  const el = document.createElement('div');
+  el.className = 'trail-status riskbox-card';
+  el.innerHTML =
+    '<div class="svol-head">Risk box — position size from the stop</div>' +
+    '<div class="rb-grid" style="display:grid;grid-template-columns:auto 1fr auto 1fr;' +
+      'gap:3px 6px;align-items:center;margin-top:4px;font-size:10.5px;">' +
+      '<label>Capital ₹</label><input data-f="capital" type="number" min="0" step="1000">' +
+      '<label>Risk %</label><input data-f="risk" type="number" min="0.1" max="10" step="0.1">' +
+      '<label>Entry</label><input data-f="entry" type="number" step="0.05">' +
+      '<label>Stop</label><input data-f="stop" type="number" step="0.05">' +
+    '</div>' +
+    '<div class="rb-out sbc-note" style="margin-top:5px;font-family:var(--font-mono);"></div>' +
+    '<div class="sbc-note" style="opacity:0.75;margin-top:3px;">Bookkeeping, not a signal. ' +
+      '2% is the desk&#39;s prior, not a measured number. Default stop = the trade card&#39;s ' +
+      'rule. <a href="#" data-act="reset">Reset entry/stop</a></div>';
+  el.querySelectorAll('input').forEach(inp => {
+    inp.style.cssText = 'width:100%;min-width:0;font-size:10.5px;padding:1px 3px;' +
+      'background:transparent;color:inherit;border:1px solid rgba(128,128,128,0.45);border-radius:3px;';
+    // Typing a number must not drive the chart's own keyboard shortcuts.
+    inp.addEventListener('keydown', ev => ev.stopPropagation());
+    inp.addEventListener('change', () => {
+      const v = parseFloat(inp.value);
+      if (!Number.isFinite(v) || v <= 0) return renderRiskBox(pane);
+      const f = inp.dataset.f;
+      if (f === 'capital' || f === 'risk') {
+        const p = loadRiskBoxPrefs();
+        p[f] = v;
+        saveRiskBoxPrefs(p);
+      } else {
+        st[f] = v;
+      }
+      renderRiskBox(pane);
+    });
+  });
+  el.querySelector('[data-act="reset"]').addEventListener('click', ev => {
+    ev.preventDefault();
+    _rbSeed(pane, st);
+    renderRiskBox(pane);
+  });
+  mountCard(pane, el, 'stack');
+  return el;
+}
+
+function renderRiskBox(pane) {
+  if (typeof RISKBOX === 'undefined' || !pane.bars || !pane.bars.length) return;
+  let st = pane.riskBox;
+  if (st && st.symbol !== pane.symbol) { clearRiskBox(pane); st = null; }
+  if (!st) {
+    st = pane.riskBox = {priceLines: [], el: null, symbol: pane.symbol};
+    _rbSeed(pane, st);
+  }
+  if (!st.el) st.el = _rbCard(pane, st);
+  st.el.style.display = 'block';      // .trail-status cards start hidden
+
+  const prefs = loadRiskBoxPrefs();
+  const capital = Number.isFinite(prefs.capital) ? prefs.capital : 1000000;
+  const riskPct = Number.isFinite(prefs.risk) ? prefs.risk : RISKBOX.RISK_PER_TRADE_PCT;
+  const last = pane.bars[pane.bars.length - 1].close;
+  // Never overwrite the field being typed in: a new bar re-renders mid-edit.
+  const vals = {capital, risk: riskPct, entry: st.entry, stop: st.stop};
+  st.el.querySelectorAll('input').forEach(inp => {
+    if (document.activeElement !== inp) inp.value = vals[inp.dataset.f];
+  });
+
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+  const box = RISKBOX.compute({capital, riskPct, entry: st.entry, stop: st.stop, last});
+  const out = st.el.querySelector('.rb-out');
+  if (!box) { out.textContent = 'Entry and stop must differ.'; return; }
+
+  const mk = (price, title, color, style) => {
+    try {
+      st.priceLines.push(pane.series.createPriceLine({
+        price, color, lineWidth: 1, lineStyle: style, axisLabelVisible: true, title,
+      }));
+    } catch {}
+  };
+  mk(box.entry, 'Entry', '#4c9aff', 0);
+  mk(box.stop, 'Stop −1R', '#f23645', 0);
+  box.targets.forEach(t => mk(t.price, `+${t.r}R`, C_UP, 2));
+
+  const inr = v => '₹' + Math.round(v).toLocaleString('en-IN');
+  const z = box.size;
+  const lastR = box.last_r === null ? '—'
+    : `<span style="color:${box.last_r >= 0 ? C_UP : '#f23645'}">${box.last_r >= 0 ? '+' : ''}${box.last_r.toFixed(2)}R</span>`;
+  out.innerHTML =
+    `${box.side.toUpperCase()} · 1R = ${box.r.toFixed(2)} (${box.stop_pct.toFixed(2)}%) · last close ${lastR}<br>` +
+    (z ? `<b>${z.qty.toLocaleString('en-IN')} shares</b> · risk ${inr(z.risk_amount)} of ${inr(z.risk_budget)} · ` +
+         `position ${inr(z.notional)} (${z.position_pct.toFixed(1)}% of capital)` +
+         (z.capped ? '<br><span style="color:#ffa726">⚠ Capped at 100% of capital — the stop is tighter than the risk budget can use.</span>' : '')
+       : 'Enter capital to size the position.') +
+    (box.side === 'short' ? '<br><span style="color:#ffa726">Stop above entry = a short; NSE cash delivery cannot hold one overnight.</span>' : '');
+}
+
 // ── PMax trade overlay (flip markers + live position levels) ──────────────────
 // The two PMax lines show WHERE the trailing band is but not WHEN it flipped or
 // what to do about it. This layer makes each flip legible: a BUY/SELL arrow on
 // the flip bar, and — for the currently-open direction only — entry / trailing
 // stop / TP1-3 price lines plus a bottom-center state chip.
-const PMAX_UP   = '#26a69a';
+const PMAX_UP   = C_UP;
 const PMAX_DOWN = '#f23645';
 
 function ensurePmaxState(pane) {
@@ -8993,7 +9594,7 @@ function renderRenkoState(pane, rk) {
   const pct = last > 0 ? (st.brick / last * 100).toFixed(2) : '?';
   pane._renkoLines = [pane.series.createPriceLine({
     price: st.lastClose,
-    color: up ? '#26a69a' : '#ab47bc',
+    color: up ? C_UP : '#ab47bc',
     lineWidth: 1, lineStyle: 2, axisLabelVisible: true,
     // No BUY/SELL wording anywhere: B-43 measured the flip at zero forward edge, so
     // this reports STATE (where the grid is, how big a brick is) and nothing more.
@@ -9107,7 +9708,7 @@ function renderPmaxInfo(pane, sig, trail, last, long, col) {
       ` <span style="color:var(--text-muted);font-weight:400;">▾</span>` +
     `</div>` +
     `<div class="pmax-body">` +
-      `<div style="margin-top:5px;font-family:'Courier New',monospace;font-weight:700;">` +
+      `<div style="margin-top:5px;font-family:var(--font-mono);font-weight:700;">` +
         `<span style="color:#4c9aff">Entry ${fmt(sig.entry)}</span> · ` +
         `<span style="color:${PMAX_DOWN}">Trail SL ${fmt(trail)}</span> · ` +
         stopTag +
@@ -9146,7 +9747,7 @@ function renderPmaxInfo(pane, sig, trail, last, long, col) {
 // a horizontal histogram anchored to its time span, classified D/P/B/I, with a
 // card that reads accumulation vs distribution and flags the P-profile trap stack.
 // Compute lives in session_volume_profile.js (window.SVP).
-const SVP_COL = {P: '#26a69a', B: '#f23645', D: '#4c9aff', I: '#8b93a3'};
+const SVP_COL = {P: C_UP, B: '#f23645', D: '#4c9aff', I: '#8b93a3'};
 function svpRgba(hex, a) {
   const n = parseInt(hex.slice(1), 16);
   return `rgba(${(n >> 16) & 255},${(n >> 8) & 255},${n & 255},${a})`;
@@ -9442,7 +10043,7 @@ function renderSVPInfo(pane, r) {
     .replace(/→/g, '—');
   const cur = c.current;
   const adCol = /DISTRIB/.test(c.ad.state) ? '#f23645'
-              : /ACCUM/.test(c.ad.state) ? '#26a69a' : 'var(--text-muted)';
+              : /ACCUM/.test(c.ad.state) ? C_UP : 'var(--text-muted)';
   const trapLine = c.trap
     ? `<div style="color:#f23645;margin-top:3px;">⚠ ${c.trap.note}</div>` : '';
   const levels = (c.levels || []).map(l => `${shp(l.shape)} ${f(l.poc)}`).join(' · ');
@@ -9465,7 +10066,7 @@ function renderSVPInfo(pane, r) {
       const agrWord = agr >= 70 ? 'signals mostly agree'
                     : agr >= 45 ? 'signals partly disagree'
                                 : 'signals conflict — weak, mixed structure';
-      const bar = `<span style="color:#26a69a;">▲${f(sig.bullW)}</span> up vs ` +
+      const bar = `<span style="color:var(--up);">▲${f(sig.bullW)}</span> up vs ` +
                   `<span style="color:#f23645;">▼${f(sig.bearW)}</span> down · ` +
                   `<span class="svp-plain">${agr}% ${agrWord}</span>`;
       // These are STRUCTURE levels, not a forecast — say so in the label rather
@@ -9478,7 +10079,7 @@ function renderSVPInfo(pane, r) {
       const facs = (sig.factors || []).filter(x => x.dir)
         .map(x => {
           const label = PLAIN_NAME[x.name] || x.name;
-          return `<div style="margin-left:8px;color:${x.dir>0?'#26a69a':'#f23645'};">` +
+          return `<div style="margin-left:8px;color:${x.dir>0?C_UP:'#f23645'};">` +
                  `${x.dir>0?'▲':'▼'} <b>${label}</b> ` +
                  `<span class="svp-tech">— ${plainDetail(x.detail)}</span></div>`;
         })
@@ -9491,7 +10092,7 @@ function renderSVPInfo(pane, r) {
   // on top of each other that IS the structural read, and it was invisible before.
   const compAlign = (c.composite && cur && cur.poc > 0
                      && Math.abs(c.composite.poc - cur.poc) / cur.poc < 0.01)
-    ? ` <span style="color:#26a69a;">— same as this ${grainNoun}'s, a level both agree on</span>` : '';
+    ? ` <span style="color:var(--up);">— same as this ${grainNoun}'s, a level both agree on</span>` : '';
   const compLine = c.composite
     ? `<div>Longer-run busiest <b>${f(c.composite.poc)}</b> · fair value ` +
       `${f(c.composite.val)}–${f(c.composite.vah)}${compAlign}</div>` : '';
@@ -9559,7 +10160,7 @@ function renderSVPInfo(pane, r) {
 // Draws ONLY the deterministic horizontal SO9 levels (not the scale-dependent
 // fan). The card states the conditional break heuristic — "if R breaks up, this
 // ── TPO / Market Profile overlay ────────────────────────────────────────────
-const TPO_COLORS = {D: '#4c9aff', P: '#26a69a', B: '#f23645', I: '#b0b7c3'};
+const TPO_COLORS = {D: '#4c9aff', P: C_UP, B: '#f23645', I: '#b0b7c3'};
 
 function ensureTpoCanvas(pane) {
   if (!pane.tpoCanvas) {
@@ -9711,7 +10312,7 @@ function renderTPOInfo(pane, r) {
 // is the follow-through probability" — where the probability is THIS symbol's
 // own historical breakout base rate, so the Gann framing cannot smuggle in
 // confidence it has not earned.
-const GANN_SUP = '#26a69a';
+const GANN_SUP = C_UP;
 const GANN_RES = '#f23645';
 const GANN_GOLD = '#d9b45b';
 
@@ -9848,7 +10449,7 @@ function renderGannInfo(pane, r) {
 // touch" are untested folk claims; the payload carries `unmeasured: true` and
 // the card says so. This is levels-with-context, not a signal.
 const OIW_RES  = '#f23645';   // call walls — resistance
-const OIW_SUP  = '#26a69a';   // put walls  — support
+const OIW_SUP  = C_UP;   // put walls  — support
 const OIW_PAIN = '#7e57c2';   // max pain   — magnet
 
 function ensureOiWallsState(pane) {
@@ -9875,8 +10476,8 @@ function ensureOiWallsState(pane) {
 // IS a horizontal level, and price lines cost nothing on pan/zoom and cannot
 // repeat the 1x-into-2x snapshot bug that the canvas overlays needed sizeOverlay()
 // to fix.
-const LIQ_BUYSIDE  = '#ef5350';   // equal HIGHS  -- stops rest ABOVE (buy-side liquidity)
-const LIQ_SELLSIDE = '#26a69a';   // equal LOWS   -- stops rest BELOW (sell-side)
+const LIQ_BUYSIDE  = C_DOWN;   // equal HIGHS  -- stops rest ABOVE (buy-side liquidity)
+const LIQ_SELLSIDE = C_UP;   // equal LOWS   -- stops rest BELOW (sell-side)
 const LIQ_SWEPT    = '#ff6d00';   // the level that was actually raided
 
 function ensureLiqState(pane) {
@@ -9992,11 +10593,11 @@ function drawLiquidity(pane) {
       const pl = st.data.plan;
       try {
         st.priceLines.push(pane.series.createPriceLine({
-          price: pl.stop, color: '#ef5350', lineWidth: 1, lineStyle: 2,
+          price: pl.stop, color: C_DOWN, lineWidth: 1, lineStyle: 2,
           axisLabelVisible: true, title: 'stop · B-41p: this plan returns +0.06R',
         }));
         st.priceLines.push(pane.series.createPriceLine({
-          price: pl.target, color: '#26a69a', lineWidth: 1, lineStyle: 2,
+          price: pl.target, color: C_UP, lineWidth: 1, lineStyle: 2,
           axisLabelVisible: true, title: 'target',
         }));
       } catch {}
@@ -10291,8 +10892,8 @@ async function renderHarmonic(pane) {
   mk(t.entry,       `H:${g.pattern} entry`, color,     0);
   mk(t.stop,        'H:stop',               '#f23645', 2);
   if (t.targets && t.targets.length) {
-    mk(t.targets[0], `H:T1 (0.382 ${leg})`, '#26a69a', 2);
-    mk(t.targets[1], `H:T2 (0.618 ${leg})`, '#26a69a', 2);
+    mk(t.targets[0], `H:T1 (0.382 ${leg})`, C_UP, 2);
+    mk(t.targets[1], `H:T2 (0.618 ${leg})`, C_UP, 2);
   }
 }
 
@@ -10373,7 +10974,7 @@ function drawProjection(pane) {
   const x1 = anchorX + horizonPx;
 
   const up = p.direction === 'up';
-  const col = up ? '#26a69a' : '#ef5350';
+  const col = up ? C_UP : C_DOWN;
 
   // Dashed projection slope.
   ctx.save();
@@ -10431,14 +11032,14 @@ function renderProjInfo(pane, p) {
   if (!p) { pr.infoEl.style.display = 'none'; return; }
 
   const bandColor = p.band === 'High' ? '#3fb950' : '#f0883e';
-  const moveColor = p.direction === 'up' ? '#26a69a' : '#ef5350';
+  const moveColor = p.direction === 'up' ? C_UP : C_DOWN;
   const sign = p.pct_move >= 0 ? '+' : '';
   const confluence = p.confluence_count > 1
     ? `<span style="color:#3fb950"> · ${p.confluence_count} methods agree</span>` : '';
   const inval = (p.invalidation != null)
     ? `<br><span style="color:var(--text-muted)">Invalidation (stop): ₹${p.invalidation.toFixed(2)}</span>` : '';
   const atrDist = (p.target_atr != null)
-    ? `<br><span style="color:${p.target_atr > 5 ? '#ef5350' : p.target_atr > 3 ? '#f0883e' : 'var(--text-chart)'}">` +
+    ? `<br><span style="color:${p.target_atr > 5 ? C_DOWN : p.target_atr > 3 ? '#f0883e' : 'var(--text-chart)'}">` +
       `Target distance: ${p.target_atr.toFixed(1)}× ATR</span>` : '';
 
   pr.infoEl.innerHTML =
@@ -10457,7 +11058,7 @@ function renderProjInfo(pane, p) {
         ? `<hr><div style="font-size:10px;color:var(--text-muted)">` +
           `<b>Levels in the way</b> (nearest to target first):<br>` +
           p.nearby_levels.map(l =>
-            `<span style="color:${Math.abs(l.dist_pct) < 1 ? '#ef5350' : 'var(--text-chart)'}">` +
+            `<span style="color:${Math.abs(l.dist_pct) < 1 ? C_DOWN : 'var(--text-chart)'}">` +
             `₹${l.price.toFixed(2)} — ${l.source} (${l.dist_pct > 0 ? '+' : ''}${l.dist_pct.toFixed(1)}% from target)</span>`
           ).join('<br>') +
           `</div>`
@@ -10488,8 +11089,8 @@ const FIB_COLORS = {
   gridHit: 'rgba(201,162,39,0.95)',   // level backed by a volume node
   golden:  'rgba(201,162,39,0.75)',   // 0.5 / 0.618 pocket
   entry:   '#4c9aff',
-  stop:    '#ef5350',
-  target:  '#26a69a',
+  stop:    C_DOWN,
+  target:  C_UP,
   swing:   'rgba(201,162,39,0.55)',
   // 113% overshoot: past the leg origin the setup is WRONG, not cheap. Drawing
   // it in the grid's gold would put an invalidation level in the same visual

@@ -53,15 +53,19 @@ TOKENS = {
     "text_body":   "#5c4a3a",
     "text_muted":  "#7a6858",
     # semantic roles
-    "accent":      "#d97706",   # caution / watch / primary accent
+    # B-161 (2026-10-13): good/risk/accent/absent darkened so each reads at
+    # >= 4.5:1 (WCAG AA) on every surface AND on its own *_soft tint. The old
+    # 16a34a / d97706 / 9ca3af (hex) measured 3.24 / 3.13 / 2.50 on `surface`;
+    # test_report_style_contrast.py pins the new values and bans the old ones.
+    "accent":      "#a14a0b",   # caution / watch / primary accent
     "accent_soft": "#fde0c0",
-    "good":        "#16a34a",
+    "good":        "#166534",
     "good_soft":   "#e8f5e9",
-    "risk":        "#dc2626",
+    "risk":        "#b91c1c",
     "risk_soft":   "#fef2f2",
     "info":        "#2563eb",
     "info_soft":   "#eef4ff",
-    "absent":      "#9ca3af",
+    "absent":      "#636a75",   # still lighter than text_body: "no data"
     "absent_soft": "#f3f4f6",
 }
 
@@ -209,6 +213,20 @@ def card(body: str, title: str | None = None, emphasis: bool = False,
         style = f' style="border-color:{fg};"'
     head = f'<div class="tb-card-title">{title}</div>' if title else ""
     return f'<div class="{cls}"{style}>{head}{body}</div>'
+
+
+def wrap_row_css(key: str, min_px: int = 200) -> str:
+    """CSS that lets the st.columns row inside `st.container(key=key)` wrap.
+
+    Columns are a fixed share of the row, so five of them in a narrow pane get
+    ~190 px each and their contents spill. Here each column keeps at least
+    `min_px` and the row wraps (5 -> 3+2 -> 2+2+1) as the pane narrows. A grid,
+    not flex-wrap, so a card left alone on the last line keeps its width."""
+    sel = f'.st-key-{key} [data-testid="stHorizontalBlock"]'
+    return (f"<style>{sel}{{display:grid !important;gap:1rem !important;"
+            f"grid-template-columns:repeat(auto-fit,minmax({min_px}px,1fr));}}"
+            f'{sel} > [data-testid="stColumn"]{{width:auto !important;'
+            f"min-width:0 !important;flex:none !important;}}</style>")
 
 
 def chip(label: str, tone: str = "neutral", value: str | None = None) -> str:

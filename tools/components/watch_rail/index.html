@@ -1,0 +1,387 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  html, body {
+    margin: 0; padding: 0; background: transparent;
+    font-family: "Source Sans Pro", -apple-system, BlinkMacSystemFont, "Segoe UI",
+                 Roboto, sans-serif;
+    font-size: 12px;
+  }
+  #wrap {
+    box-sizing: border-box; overflow-y: auto; overflow-x: hidden;
+    border: 1px solid var(--border); border-radius: 8px; background: var(--surface);
+  }
+  .row {
+    display: grid; align-items: center; height: 30px; padding: 0 6px; gap: 4px;
+    border-bottom: 1px solid var(--border);
+  }
+  .row.head {
+    position: sticky; top: 0; z-index: 1; background: var(--surface-alt);
+    color: var(--muted); font-weight: 600;
+  }
+  .row:not(.head):hover { background: var(--surface-alt); }
+  .num { text-align: right; font-variant-numeric: tabular-nums; }
+  .sym a {
+    color: var(--accent-link); text-decoration: none; font-weight: 600;
+    display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  }
+  .sym a:hover { text-decoration: underline; }
+  .heart { text-align: center; color: var(--risk); }
+  .chartbtn {
+    border: none; background: none; cursor: pointer; padding: 0;
+    color: var(--muted); font-size: 13px; line-height: 1;
+  }
+  .chartbtn:hover { color: var(--accent-link); }
+  input[type=checkbox] { margin: 0; cursor: pointer; }
+  .empty { padding: 10px; color: var(--muted); }
+</style>
+</head>
+<body>
+<div id="wrap"></div>
+
+<script>
+// ── Streamlit component protocol ────────────────────────────────────────────
+// Hand-rolled like components/symbol_search: three postMessage types, no build.
+function send(type, extra) {
+  window.parent.postMessage(Object.assign({isStreamlitMessage: true, type}, extra), "*");
+}
+function setHeight(h) { send("streamlit:setFrameHeight", {height: h}); }
+function setValue(v)  { send("streamlit:setComponentValue", {value: v, dataType: "json"}); }
+
+const LWC_SRC = "https://unpkg.com/lightweight-charts@4.1.3/dist/lightweight-charts.standalone.production.js";
+const OPEN_MS = 250, CLOSE_MS = 200, FETCH_MS = 6000, ERR_TTL_MS = 60000;
+const CARD_W = 560, CARD_H = 340;
+const TOUCH = window.matchMedia("(hover: none)").matches;
+// The card never exceeds the viewport: 560 px on desktop, screen width on a phone.
+function cardW() { return Math.min(CARD_W, window.parent.innerWidth - 16); }
+
+const wrap = document.getElementById("wrap");
+let ARGS = {}, rowsSig = "", picked = new Set();
+// Card state lives up here so the handshake below never meets it uninitialised.
+let P = null, card = null, chart = null, openTimer = null, closeTimer = null;
+let token = 0, openFor = null;
+const cache = new Map();      // chart symbol -> {bars, prev} | {err, at}
+
+// ── Rows ────────────────────────────────────────────────────────────────────
+function fmtClose(v) { return v == null ? "—" : v.toFixed(2); }
+function fmtPct(v)   { return v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed(2) + "%"; }
+function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
+
+function columns() {
+  // checkbox · symbol · close · day% · [♥] · chart
+  return ARGS.show_heart ? "18px minmax(0,1fr) 62px 58px 18px 16px"
+                         : "18px minmax(0,1fr) 62px 58px 16px";
+}
+
+function renderRows() {
+  const rows = ARGS.rows || [];
+  const cols = columns();
+  let html = `<div class="row head" style="grid-template-columns:${cols}">` +
+             `<span></span><span>Symbol</span><span class="num">Close</span>` +
+             `<span class="num">Day %</span>` + (ARGS.show_heart ? `<span class="heart">♥</span>` : "") +
+             `<span></span></div>`;
+  if (!rows.length) html += `<div class="empty">No names match.</div>`;
+  rows.forEach((r, i) => {
+    const pc = r.day_pct == null || r.day_pct === 0 ? "" :
+               `color:${r.day_pct > 0 ? ARGS.good : ARGS.risk}`;
+    html += `<div class="row" data-i="${i}" style="grid-template-columns:${cols}">` +
+      `<input type="checkbox" data-i="${i}"${picked.has(r.symbol) ? " checked" : ""}>` +
+      `<span class="sym" data-i="${i}"><a target="_blank" rel="noopener" ` +
+      `href="${esc(ARGS.analyze_base + encodeURIComponent(r.symbol))}">${esc(r.symbol)}</a></span>` +
+      `<span class="num">${fmtClose(r.close)}</span>` +
+      `<span class="num" style="${pc}">${fmtPct(r.day_pct)}</span>` +
+      (ARGS.show_heart ? `<span class="heart">${r.watched ? "♥" : ""}</span>` : "") +
+      `<button class="chartbtn" data-i="${i}" title="Chart" aria-label="Chart">&#x1F4C8;</button>` +
+      `</div>`;
+  });
+  wrap.innerHTML = html;
+}
+
+wrap.addEventListener("change", (e) => {
+  if (e.target.type !== "checkbox") return;
+  const r = (ARGS.rows || [])[Number(e.target.dataset.i)];
+  if (!r) return;
+  if (e.target.checked) picked.add(r.symbol); else picked.delete(r.symbol);
+  setValue({picked: [...picked]});
+});
+
+// ── Host handshake ──────────────────────────────────────────────────────────
+// Sent before anything touches the parent page: if that access throws, the
+// rows still render and only the hover chart is lost.
+window.addEventListener("message", (event) => {
+  if (!event.data || event.data.type !== "streamlit:render") return;
+  hideCard();                                  // a rerun never leaves a card behind
+  ARGS = event.data.args || {};
+  const t = ARGS.theme || {};
+  const root = document.documentElement.style;
+  root.setProperty("--border", t.border || "#e5e7eb");
+  root.setProperty("--surface", t.surface || "#fff");
+  root.setProperty("--surface-alt", t.surface_alt || "#f8fafc");
+  root.setProperty("--muted", t.muted || "#6b7280");
+  root.setProperty("--accent-link", t.link || "#2563eb");
+  root.setProperty("--risk", ARGS.risk || "#dc2626");
+  const sig = JSON.stringify([ARGS.rows, ARGS.show_heart]);
+  if (sig !== rowsSig) {
+    rowsSig = sig;
+    // Keep only ticks whose rows are still shown, and tell Python whenever that
+    // changed — otherwise a cleared box could still count for Add/Remove.
+    const shown = new Set((ARGS.rows || []).map(r => r.symbol));
+    const kept = new Set([...picked].filter(x => shown.has(x)));
+    const changed = kept.size !== picked.size;
+    picked = kept;
+    renderRows();
+    if (changed) setValue({picked: [...picked]});
+  }
+  const h = ARGS.height || 520;
+  wrap.style.height = h + "px";
+  setHeight(h + 2);
+});
+
+send("streamlit:componentReady", {apiVersion: 1});
+
+// ── Chart card, hosted in the PARENT page so the narrow frame can't clip it ──
+try { P = window.parent.document; P.body; } catch (e) { P = null; }   // e.g. cross-origin host
+
+function loadLwc() {
+  // A script tag that already failed never fires load/error again, so a dead
+  // tag must be removed (the next hover retries) and every wait is bounded.
+  if (window.parent.LightweightCharts) return Promise.resolve(window.parent.LightweightCharts);
+  let s = P.getElementById("tb-lwc");
+  if (s && s.dataset.state === "failed") { s.remove(); s = null; }
+  if (s && !s.dataset.state && !s.dataset.pending) { s.remove(); s = null; }   // stale, untracked
+  if (!s) {
+    s = P.createElement("script");
+    s.id = "tb-lwc"; s.src = LWC_SRC; s.dataset.pending = "1";
+    s.addEventListener("load", () => { s.dataset.state = "ok"; delete s.dataset.pending; }, {once: true});
+    s.addEventListener("error", () => { s.dataset.state = "failed"; delete s.dataset.pending; }, {once: true});
+    P.head.appendChild(s);
+  }
+  const tag = s;
+  return new Promise((ok, bad) => {
+    const done = () => window.parent.LightweightCharts
+      ? ok(window.parent.LightweightCharts) : bad(new Error("chart library failed to load"));
+    if (tag.dataset.state) return done();
+    const timer = setTimeout(() => {
+      tag.dataset.state = "failed"; delete tag.dataset.pending;
+      bad(new Error("chart library timed out"));
+    }, FETCH_MS);
+    tag.addEventListener("load", () => { clearTimeout(timer); done(); }, {once: true});
+    tag.addEventListener("error", () => { clearTimeout(timer); done(); }, {once: true});
+  });
+}
+
+function ensureCard() {
+  if (card && card.isConnected) return card;
+  P.querySelectorAll("#tb-hover-card").forEach(n => n.remove());   // never two
+  const t = ARGS.theme || {};
+  card = P.createElement("div");
+  card.id = "tb-hover-card";
+  Object.assign(card.style, {
+    position: "fixed", zIndex: "10000", display: "none",
+    width: cardW() + "px", height: CARD_H + "px", boxSizing: "border-box",
+    background: t.surface || "#fff", color: t.text || "#111",
+    border: `1px solid ${t.border || "#ddd"}`, borderRadius: "10px",
+    boxShadow: "0 12px 32px rgba(0,0,0,0.18)", padding: "8px 10px",
+    fontFamily: "Source Sans Pro, -apple-system, Segoe UI, Roboto, sans-serif",
+    fontSize: "12px",
+  });
+  card.innerHTML = `<div class="tb-hc-head" style="display:flex;gap:10px;align-items:baseline;` +
+    `white-space:nowrap;overflow:hidden;margin-bottom:4px"></div>` +
+    `<div class="tb-hc-body" style="position:relative;height:${CARD_H - 44}px"></div>`;
+  card.addEventListener("mouseenter", () => clearTimeout(closeTimer));
+  card.addEventListener("mouseleave", scheduleClose);
+  P.body.appendChild(card);
+  return card;
+}
+
+function hideCard() {
+  clearTimeout(openTimer); clearTimeout(closeTimer);
+  token++; openFor = null;
+  if (chart) { try { chart.remove(); } catch (e) {} chart = null; }
+  if (card) card.style.display = "none";
+}
+
+function scheduleClose() {
+  clearTimeout(closeTimer);
+  closeTimer = setTimeout(hideCard, CLOSE_MS);
+}
+
+function place(rowEl) {
+  const fr = window.frameElement ? window.frameElement.getBoundingClientRect()
+                                 : {left: 0, right: 0, top: 0};
+  const rr = rowEl.getBoundingClientRect();
+  const vw = window.parent.innerWidth, vh = window.parent.innerHeight;
+  const w = cardW();
+  card.style.width = w + "px";
+  let left = fr.right + 8;
+  if (left + w > vw - 8) left = Math.max(8, vw - w - 8);
+  let top = fr.top + rr.top - 8;
+  if (top + CARD_H > vh - 8) top = fr.top + rr.bottom - CARD_H + 8;   // flip up
+  top = Math.max(8, Math.min(top, vh - CARD_H - 8));
+  card.style.left = left + "px"; card.style.top = top + "px";
+}
+
+function setHead(html) { card.querySelector(".tb-hc-head").innerHTML = html; }
+function setBody(text) {
+  const b = card.querySelector(".tb-hc-body");
+  b.innerHTML = text ? `<div style="padding:40px 0;text-align:center;color:` +
+    `${(ARGS.theme || {}).muted || "#888"}">${text}</div>` : "";
+  return b;
+}
+
+async function fetchBars(sym) {
+  const hit = cache.get(sym);
+  if (hit && hit.bars) return hit;
+  if (hit && hit.err && Date.now() - hit.at < ERR_TTL_MS) throw new Error("unavailable");
+  const ctl = new AbortController();
+  const t = setTimeout(() => ctl.abort(), FETCH_MS);
+  try {
+    const url = `${ARGS.chart_api}?symbol=${encodeURIComponent(sym)}&timeframe=1d&bars=130`;
+    const res = await fetch(url, {signal: ctl.signal});
+    const data = await res.json();
+    if (!res.ok || data.error || !Array.isArray(data.bars) || data.bars.length < 5) {
+      throw new Error("unavailable");
+    }
+    const out = {bars: data.bars};
+    cache.set(sym, out);
+    return out;
+  } catch (e) {
+    cache.set(sym, {err: true, at: Date.now()});
+    throw e;
+  } finally {
+    clearTimeout(t);
+  }
+}
+
+function sma(bars, n) {
+  const out = []; let sum = 0;
+  for (let i = 0; i < bars.length; i++) {
+    sum += bars[i].close;
+    if (i >= n) sum -= bars[i - n].close;
+    if (i >= n - 1) out.push({time: bars[i].time, value: sum / n});
+  }
+  return out;
+}
+
+async function openCard(i, rowEl) {
+  const r = (ARGS.rows || [])[i];
+  if (!r) return;
+  const my = ++token;
+  openFor = r.symbol;
+  ensureCard();
+  if (chart) { try { chart.remove(); } catch (e) {} chart = null; }
+  const t = ARGS.theme || {};
+  const analyze = `<a href="${esc(ARGS.analyze_base + encodeURIComponent(r.symbol))}" ` +
+    `target="_blank" rel="noopener" style="margin-left:auto;color:${t.link || "#2563eb"};` +
+    `text-decoration:none">Analyze ↗</a>`;
+  setHead(`<b>${esc(r.symbol)}</b><span style="color:${t.muted}">Daily</span>${analyze}`);
+  setBody("Loading…");
+  place(rowEl);
+  card.style.display = "block";
+  let got, L;
+  try {
+    [got, L] = await Promise.all([fetchBars(r.chart), loadLwc()]);
+  } catch (e) {
+    if (my !== token) return;
+    setBody("Chart unavailable");
+    return;
+  }
+  if (my !== token) return;                    // the user moved on while this loaded
+  const bars = got.bars, last = bars[bars.length - 1], prev = bars[bars.length - 2];
+  const chg = prev && prev.close ? (last.close - prev.close) / prev.close * 100 : null;
+  const cc = chg == null || chg === 0 ? t.muted : (chg > 0 ? ARGS.good : ARGS.risk);
+  const f = v => Number(v).toFixed(2);
+  setHead(`<b>${esc(r.symbol)}</b><span style="color:${t.muted}">Daily</span>` +
+    `<span>O ${f(last.open)} H ${f(last.high)} L ${f(last.low)} C ${f(last.close)}</span>` +
+    `<span style="color:${cc}">${chg == null ? "" : (chg > 0 ? "+" : "") + chg.toFixed(2) + "%"}</span>` +
+    analyze);
+  const body = setBody("");
+  try {
+    chart = L.createChart(body, {
+      width: cardW() - 22, height: CARD_H - 44,
+      layout: {background: {color: t.surface || "#fff"}, textColor: t.muted || "#666", fontSize: 11},
+      grid: {vertLines: {color: t.grid || "#eee"}, horzLines: {color: t.grid || "#eee"}},
+      rightPriceScale: {borderColor: t.border || "#ddd"},
+      timeScale: {borderColor: t.border || "#ddd"},
+      crosshair: {mode: 0},
+    });
+    const candles = chart.addCandlestickSeries({
+      upColor: ARGS.good, downColor: ARGS.risk, borderVisible: false,
+      wickUpColor: ARGS.good, wickDownColor: ARGS.risk,
+    });
+    candles.priceScale().applyOptions({scaleMargins: {top: 0.06, bottom: 0.24}});
+    candles.setData(bars.map(b => ({time: b.time, open: b.open, high: b.high, low: b.low, close: b.close})));
+    const vol = chart.addHistogramSeries({priceFormat: {type: "volume"}, priceScaleId: "vol"});
+    chart.priceScale("vol").applyOptions({scaleMargins: {top: 0.8, bottom: 0}});
+    vol.setData(bars.map(b => ({time: b.time, value: b.volume,
+      color: (b.close >= b.open ? ARGS.good : ARGS.risk) + "66"})));
+    chart.addLineSeries({color: t.sma20 || "#2563eb", lineWidth: 1, priceLineVisible: false,
+                         lastValueVisible: false}).setData(sma(bars, 20));
+    chart.addLineSeries({color: t.sma50 || "#d97706", lineWidth: 1, priceLineVisible: false,
+                         lastValueVisible: false}).setData(sma(bars, 50));
+    chart.timeScale().fitContent();
+  } catch (e) {
+    if (chart) { try { chart.remove(); } catch (_) {} chart = null; }
+    setBody("Chart unavailable");
+  }
+}
+
+// Hover (desktop): rest on a Symbol cell for OPEN_MS.
+wrap.addEventListener("mouseover", (e) => {
+  if (TOUCH || !P) return;
+  // Back on the open row from the card (any cell, not just Symbol): keep it.
+  const row = e.target.closest(".row[data-i]");
+  const rowSym = row && (ARGS.rows || [])[Number(row.dataset.i)];
+  if (rowSym && openFor === rowSym.symbol) clearTimeout(closeTimer);
+  const cell = e.target.closest(".sym");
+  if (!cell) return;
+  clearTimeout(closeTimer);
+  const i = Number(cell.dataset.i), rowEl = cell.closest(".row");
+  const sym = (ARGS.rows || [])[i] && ARGS.rows[i].symbol;
+  if (openFor === sym && card && card.style.display === "block") return;
+  // Heading for another name: a load still in flight for the old one must not
+  // draw while this row's timer runs.
+  if (openFor !== null && openFor !== sym) { token++; openFor = null; }
+  clearTimeout(openTimer);
+  openTimer = setTimeout(() => openCard(i, rowEl), OPEN_MS);
+});
+wrap.addEventListener("mouseout", (e) => {
+  if (TOUCH) return;
+  const row = e.target.closest(".row");
+  if (!row || (e.relatedTarget && row.contains(e.relatedTarget))) return;
+  clearTimeout(openTimer);
+  scheduleClose();
+});
+
+// Chart icon: toggles the card (the only trigger on touch screens).
+wrap.addEventListener("click", (e) => {
+  const btn = e.target.closest(".chartbtn");
+  if (!btn || !P) return;
+  const i = Number(btn.dataset.i), r = (ARGS.rows || [])[i];
+  if (r && openFor === r.symbol && card && card.style.display === "block") hideCard();
+  else openCard(i, btn.closest(".row"));
+});
+
+function onKey(e) { if (e.key === "Escape") hideCard(); }
+document.addEventListener("keydown", onKey);
+function onOutside(e) {
+  if (!card || card.style.display !== "block") return;
+  if (card.contains(e.target)) return;
+  hideCard();
+}
+if (P) {
+  P.addEventListener("keydown", onKey);
+  P.addEventListener("pointerdown", onOutside);
+  window.addEventListener("pagehide", () => {
+    hideCard();
+    P.removeEventListener("keydown", onKey);
+    P.removeEventListener("pointerdown", onOutside);
+  });
+}
+
+
+</script>
+</body>
+</html>

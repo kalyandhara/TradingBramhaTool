@@ -122,6 +122,10 @@ def paginated_df(df: "pd.DataFrame", key: str, page_size: int = 25,
     kwargs.setdefault("row_height", _cols.ROW_HEIGHT)
 
     def _paint(frame):
+        if hasattr(frame, "data") and hasattr(frame, "format"):
+            # A caller's own Styler: keep its colours, give it the registry's
+            # number formats so floats do not print to six decimals (B-164).
+            return _cols.formatted(frame)
         if not tint or not hasattr(frame, "columns"):
             return frame
         try:

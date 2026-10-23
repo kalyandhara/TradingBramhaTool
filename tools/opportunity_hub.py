@@ -200,6 +200,7 @@ SCANNER_FAMILIES: dict[str, tuple[str, ...]] = {
         "Base Formation",
         "High Tight Flag",
         "Darvas Box",
+        "Qullamaggie Breakout",
     ),
     "Breakout/Structure": (
         "Consolidation Breakout (6M–10Y)",
@@ -227,6 +228,7 @@ SCANNER_FAMILIES: dict[str, tuple[str, ...]] = {
     ),
     "Event": (
         "PEAD Drift",
+        "Episodic Pivot",
     ),
 }
 
@@ -304,6 +306,9 @@ NEUTRAL_SCANNERS: tuple[str, ...] = ("Symmetrical Triangle (bilateral)",)
 #: same as Renko. The measurement rules out a vote, not the view. Its complementary
 #: anchored-VWAP-from-catalyst half (B-4/B-12) is a different mean and is untouched.
 PIPELINE_EXCLUDED: tuple[str, ...] = ("Zero-Debt Quality PEAD",
+                                      # choch_study.py 2026-10-07: +0.24% @20d vs bearish state,
+                                      # p_rot 0.511, n=15,851 -- FAIL, screens only.
+                                      "Bullish CHoCH (last 5 sessions)",
                                       "Renko Flip (structure change)",
                                       # B-57 measured this at -0.25% @20d, p_rot=0.714,
                                       # against a state-matched baseline -- it failed its
@@ -357,7 +362,10 @@ COVERED_SCANNERS: tuple[str, ...] = (
     "RSI 60-40 Setup",                  #  91 /  84
     "Triple-RS 52W Cross",              #  70 /  63 — 99% contained in 52-Week High Leaders
     "ATH Breakout (all-time high)",     #  67 /  45
-    "Consolidation Breakout (6M–10Y)",  #  17 /   8 — 100% contained in Pullback Entry
+    # "Consolidation Breakout (6M–10Y)" was here (17 / 8, 100% contained in Pullback
+    # Entry). Shown by default again 2026-10-06 at the user's request: it is the
+    # cookie-free replacement for the Chartink 5Y/10Y scans. The 1500-day count
+    # predates its full-history routing, so its 5Y/10Y tiers could not fire then.
     "IPO-Base Breakout",                #  14 /   6
     "Minervini VCP (valchak)",          #   3 /   4 — containment is structural: its Trend
                                         #             Template gate tests what Stage 2 does
@@ -468,6 +476,13 @@ MEASURED_WEAK_SCANNERS: tuple[str, ...] = (
     # p=0.0066) and its D-0.5% stop gives it back (68% stopped) -- B-132.
     "Harmonic Reversal (XABCD)",
     "Order Block Retest",
+    # B-147, 2026-10-14 (qullamaggie_edge_study.py, pre-registered, 459 names x
+    # 19y): both NULL at the decisive 20d horizon -- Breakout +0.67pp p=0.031
+    # against a 0.0125 bar, EP +0.47pp p=0.68. Measured and not shown to beat
+    # the stock's own ordinary bar, which is what this tier means: 0.50 -> 0.25,
+    # the same move VCP made on a positive-but-unproven result.
+    "Qullamaggie Breakout",
+    "Episodic Pivot",
     "RSI 60-40 Setup",
     "Structural Breakout",
     "VCP Coiling",

@@ -134,6 +134,7 @@ DEFAULT_HORIZONS = (5, 10, 20, 60)
 # independent trade inflates and correlates the sample. Enforce a gap (bars)
 # between recorded signals per symbol.
 DEFAULT_MIN_GAP = 5
+SIGNAL_MODES = ("all", "fresh", "fresh_plan")
 
 
 def _to_float(x) -> float | None:
@@ -483,9 +484,16 @@ def backtest_scanner(scanner_name: str,
     default would silently redefine 44 verdicts rather than re-measure them.
     The mode is reported in the result so no figure is ever quoted without it
     (B-120).
+
+    ``fresh_plan`` (B-116) judges freshness on the TRADEABLE card instead of on
+    any hit: a card with ``actionable: False`` counts as no tradeable state, so
+    the break that follows a scanner's own WATCH bars is a fresh trade. Plain
+    ``fresh`` drops it (the previous bar was a hit), which cost Flag & Pole 81
+    of 99 breaks on 25 names. Non-actionable cards are counted, not signals.
     """
-    if signal_mode not in ("all", "fresh"):
-        raise ValueError(f"signal_mode must be 'all' or 'fresh', got {signal_mode!r}")
+    if signal_mode not in SIGNAL_MODES:
+        raise ValueError(f"signal_mode must be one of {SIGNAL_MODES}, got {signal_mode!r}")
+    fresh = signal_mode != "all"
     _em, _ep = parse_exit_model(exit_model)          # raises on a typo, up front
     exit_tag = "fixed" if _em == "fixed" else f"{_em}:{_ep:g}"
     if fill_model not in FILL_MODELS:              # same: fail before the work
@@ -545,12 +553,28 @@ def backtest_scanner(scanner_name: str,
         # every run, including the five dashboard call sites that pass a
         # benchmark. Nothing errored and nothing said so (B-104).
         _dates = df.index if isinstance(df.index, pd.DatetimeIndex) else None
-        df = df.dropna(subset=["high", "low", "close", "volume"]).reset_index(drop=True)
+        df = df.dropna(subset=["high", "low", "close", "volume"])
+        # B-159: kept trades carry calendar dates so a portfolio can line them
+        # up across symbols. Taken AFTER the dropna, so they stay aligned even
+        # where `_dates` (the market model's, unchanged) gives up below.
+        _trade_dates = df.index if isinstance(df.index, pd.DatetimeIndex) else None
+        df = df.reset_index(drop=True)
         if _dates is not None and len(_dates) != len(df):
             _dates = None          # NaN rows were dropped; the alignment is gone
         n = len(df)
         if n < warmup + max_h + 2:
             continue
+        # B-158: a spec may offer `prepare(df) -> hit_at(t)`, computed ONCE per
+        # symbol, instead of the per-bar `fn(df.iloc[:t+1])`. The contract is
+        # that hit_at(t) reads bars 0..t only (rule_engine pins it with a
+        # parity test); the harness cannot check that, so only specs that are
+        # tested for it should offer the hook.
+        hit_at = None
+        if spec.get("prepare") is not None:
+            try:
+                hit_at = spec["prepare"](df)
+            except Exception:
+                continue
         n_symbols_used += 1
         has_open = "open" in df.columns
         close = df["close"].to_numpy(dtype=float)
@@ -590,7 +614,7 @@ def backtest_scanner(scanner_name: str,
                 t += 1
                 continue
             try:
-                hit = fn(df.iloc[:t + 1])
+                hit = hit_at(t) if hit_at is not None else fn(df.iloc[:t + 1])
             except Exception:
                 hit = None
             if not hit:
@@ -607,7 +631,15 @@ def backtest_scanner(scanner_name: str,
             # question ("was the stated target reachable from the stated
             # entry?") — which is why every study that cared wrote its own
             # freshness rule (flag_pole_edge, bilateral_expansion, sbc_reading).
-            if signal_mode == "fresh" and prev_hit:
+            if signal_mode == "fresh_plan" and hit.get("actionable") is False:
+                # A WATCH card: not a tradeable state, so not a signal here, and
+                # the next actionable card after it is a fresh trade.
+                if hit.get("entry") is not None:
+                    n_not_actionable += 1
+                prev_hit = False
+                t += 1
+                continue
+            if fresh and prev_hit:
                 prev_hit = True
                 t += 1
                 continue
@@ -685,7 +717,7 @@ def backtest_scanner(scanner_name: str,
                     fill = resolve_fill(df, t, entry_p, _side, fill_model)
                     if fill["status"] != "filled":
                         n_unfilled += 1
-                        t += 1 if signal_mode == "fresh" else min_gap
+                        t += 1 if fresh else min_gap
                         continue
                     f_idx, f_px = fill["idx"], fill["px"]
                     through = (f_px >= stop_p) if _side == "short" else (f_px <= stop_p)
@@ -696,11 +728,11 @@ def backtest_scanner(scanner_name: str,
                     past_tgt = (f_px <= tgt_p) if _side == "short" else (f_px >= tgt_p)
                     if past_tgt and not through:
                         n_fill_past_target += 1
-                        t += 1 if signal_mode == "fresh" else min_gap
+                        t += 1 if fresh else min_gap
                         continue
                     if through:
                         n_fill_through += 1
-                        t += 1 if signal_mode == "fresh" else min_gap
+                        t += 1 if fresh else min_gap
                         continue
                     slip_pct.append(((f_px - entry_p) if _side == "long"
                                      else (entry_p - f_px)) / entry_p * 100.0)
@@ -714,8 +746,15 @@ def backtest_scanner(scanner_name: str,
                     if r:
                         r_results.append(r)
                         if keep_trades:
-                            trades.append({"symbol": sym, "t": int(t),
-                                           "side": _side, **r})
+                            _tr = {"symbol": sym, "t": int(t), "side": _side,
+                                   "entry_idx": int(f_idx), "entry_px": float(f_px),
+                                   "stop": float(stop_p), "target": float(tgt_p),
+                                   "time_stop": _ts, **r}
+                            if _trade_dates is not None:
+                                _x = min(int(f_idx) + int(r["bars"]), n - 1)
+                                _tr["entry_date"] = _trade_dates[int(f_idx)]
+                                _tr["exit_date"] = _trade_dates[_x]
+                            trades.append(_tr)
                     else:
                         # Degenerate plans (zero risk) are counted, not dropped,
                         # so the report can say how much of the plan coverage it
@@ -725,7 +764,7 @@ def backtest_scanner(scanner_name: str,
             # In "all" mode min_gap IS the de-duplication. In "fresh" mode the
             # transition rule already did it, and skipping ahead would throw
             # away a genuine new break that happens within min_gap bars.
-            t += 1 if signal_mode == "fresh" else min_gap
+            t += 1 if fresh else min_gap
 
     out = _aggregate(scanner_name, horizons, sig_ret, base_ret, mae_list,
                      r_results, n_signals, n_symbols_used, total_bars,
@@ -976,6 +1015,9 @@ def format_walk_forward(result: dict) -> str:
     if mode == "fresh":
         lines.append("signals: FRESH only — a state that persists counts ONCE, "
                      "on the bar it appears (B-120)")
+    elif mode == "fresh_plan":
+        lines.append("signals: FRESH TRADES — counted on the first ACTIONABLE card, "
+                     "so a break after its own WATCH bars is a trade (B-116)")
     lines.append("")
 
     horizons = list(result["pooled"]["horizons"].keys())

@@ -83,7 +83,7 @@ def advance_decline_bar(ad: dict | None, as_of: str | None = None) -> BreadthBar
     `as_of` is the sentiment reading's date, and it is printed rather than
     assumed to be today: the desk persists one reading per run, so this bar can
     legitimately be three sessions old — the same staleness the verdict card
-    below raises as a caution flag. A stale count labelled "today" would be the
+    above raises as a caution flag. A stale count labelled "today" would be the
     one actively misleading thing on the strip.
     """
     adv = decl = None
@@ -206,9 +206,9 @@ def bar_html(b: BreadthBar) -> str:
         f'<div style="display:flex;justify-content:space-between;'
         f'align-items:baseline;gap:8px;margin-top:3px;">'
         f'<span style="font-size:11.5px;font-weight:700;color:{good};">'
-        f'{b.left_label}</span>'
+        f'▲ {b.left_label}</span>'
         f'<span style="font-size:11.5px;font-weight:700;color:{risk};">'
-        f'{b.right_label}</span></div>'
+        f'{b.right_label} ▼</span></div>'
         f'<div style="display:flex;justify-content:space-between;'
         f'align-items:baseline;gap:8px;">'
         f'<span class="tb-mono" style="font-size:12px;color:{good};">'
@@ -216,11 +216,14 @@ def bar_html(b: BreadthBar) -> str:
         f'<span class="tb-mono" style="font-size:12px;color:{risk};">'
         f'({b.right:,}) {b.right_pct:.1f}%</span></div>')
     # Both sides are always drawn, so a 100/0 split reads as a bar that filled
-    # rather than as a bar that failed to render.
+    # rather than as a bar that failed to render. B-162: red vs green alone is the
+    # commonest colour-vision confusion, so the sides also carry ▲/▼ and the two
+    # segments are split by a surface-coloured gap that marks where one ends.
     bar = (
         f'<div style="display:flex;height:9px;border-radius:5px;overflow:hidden;'
         f'margin-top:5px;background:{rs.TOKENS["absent_soft"]};">'
         f'<div style="width:{b.left_pct:.2f}%;background:{good};"></div>'
+        f'<div style="width:2px;flex-shrink:0;background:{rs.TOKENS["surface"]};"></div>'
         f'<div style="width:{b.right_pct:.2f}%;background:{risk};"></div></div>')
     foot = (f'<div class="tb-micro" style="text-align:center;margin-top:5px;">'
             f'{b.universe}</div>')
@@ -261,14 +264,18 @@ def render(reading: dict | None) -> None:
     hist = st.cache_data(
         ttl=900, show_spinner="Measuring NIFTY 500 breadth …")(fetch_history)()
     bars = build_bars(hist, reading)
-    for col, b in zip(st.columns(len(bars)), bars):
+    # Wraps like the index cards above (same minimum), so the two rows stay in step.
+    st.markdown(rs.wrap_row_css("tb_breadthstrip"), unsafe_allow_html=True)
+    with st.container(key="tb_breadthstrip"):
+        cols = st.columns(len(bars))
+    for col, b in zip(cols, bars):
         with col:
             st.markdown(bar_html(b), unsafe_allow_html=True)
-    st.caption(
+    st.expander("How this is measured — breadth bars").caption(
         "Each bar names its own universe — they are not the same one. "
         "Advancing/Declining is the whole EQ market from the bhavcopy of the "
         "sentiment reading dated under that bar — the same count the verdict "
-        "below flags, and as old as that reading is; the three middle bars are "
+        "above flags, and as old as that reading is; the three middle bars are "
         "the "
         f"{UNIVERSE_LABEL} ({len(hist)} of 500 names loaded), measured on "
         "closes; Bull/Bear is this desk's own sentiment score restated as a "
