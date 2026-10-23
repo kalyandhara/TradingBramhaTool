@@ -360,7 +360,8 @@ def test_the_registry_counts_parse_without_importing_the_modules():
     # does not vote).
     # 50 -> 54 between 2026-09-20 and 2026-10-12 without this pin moving.
     # 54 -> 56 on 2026-10-12 (Qullamaggie Breakout + Episodic Pivot).
-    assert cl._count_symbol("scanner_templates.py", "SCANNERS", "dict_keys") == 56
+    # 56 -> 57 on 2026-10-23 (B-182 Bull Trap, a Risk flag).
+    assert cl._count_symbol("scanner_templates.py", "SCANNERS", "dict_keys") == 57
     assert cl._count_symbol("dashboard_app.py", "PAGE_GROUPS", "dict_keys") == 5
     # 25 -> 26 on 2026-10-22 (A2 added Recommendation Audit under Portfolio & Risk).
     assert cl._count_symbol("dashboard_app.py", "PAGE_GROUPS",

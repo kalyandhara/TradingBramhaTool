@@ -652,6 +652,13 @@ STUDIES: tuple[dict, ...] = (
                      "8-feature GBM IC 0.030 vs RS 0.019, difference +0.012 (p 0.59); LOGIT "
                      "-0.002 (p 0.94). Nothing learnable beyond RS; no model ships."),
     },
+    {
+        "item": "B-182", "tool": "bull_trap_study.py", "date": "2026-10-23",
+        "source": "analyses/Bull-Trap-Detector",
+        "subjects": ("Bull Trap",),
+        "verdict": "UNRECORDED",
+        "headline": "pre-registered 2026-10-23 before any forward return; not yet run.",
+    },
 )
 
 

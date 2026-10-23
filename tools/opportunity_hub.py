@@ -255,7 +255,7 @@ FAMILY_ORDER: tuple[str, ...] = tuple(SCANNER_FAMILIES.keys())
 #: Verified live before the fix: `families=['Liquidity Sweep Bear'] points=0.5
 #: riskflags=[]`. The category field had said which side it was on the whole time;
 #: nothing was ambiguous, the two lists had simply drifted apart.
-RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "Support Breakdown", "RSI Divergence Bear", "%R Exhaustion Sell", "Liquidity Sweep Bear")
+RISK_SCANNERS: tuple[str, ...] = ("Downside Risk", "Bearish Reversal Candle", "Support Breakdown", "RSI Divergence Bear", "%R Exhaustion Sell", "Liquidity Sweep Bear", "Bull Trap")
 
 #: BILATERAL scanners — the neutral state (B-101). These RUN and are worth
 #: seeing: a coil that is about to resolve is exactly the thing to have on a

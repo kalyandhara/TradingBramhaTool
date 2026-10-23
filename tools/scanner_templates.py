@@ -4343,6 +4343,129 @@ def scan_liquidity_sweep_bear(df: pd.DataFrame, max_bars_ago: int = 3,
     }
 
 
+# ── B-182 · Bull Trap — failed breakout on weak volume with bearish divergence ──
+# Every threshold is a named prior, fixed in the B-182 pre-registration
+# (trading-wiki analyses/Bull-Trap-Detector.md) before any forward return.
+BT_RES_LOOKBACK = 20     # resistance = highest high of the prior 20 sessions
+BT_FAIL_BARS = 3         # close back below it within 3 sessions of the breakout
+BT_WEAK_VOL_X = 1.0      # breakout-bar volume below the prior 20-session average
+BT_DIV_MIN_PTS = 3.0     # RSI(14) at the new high this many points under RSI at the old high
+BT_MIN_RES_AGE = 5       # the old high must be at least 5 sessions before the breakout
+BT_MIN_GAP = 10          # at most one event per 10 sessions
+
+
+def bull_trap_events(df: pd.DataFrame, *, res_lookback: int = BT_RES_LOOKBACK,
+                     fail_bars: int = BT_FAIL_BARS, weak_vol_x: float = BT_WEAK_VOL_X,
+                     div_min: float = BT_DIV_MIN_PTS, min_res_age: int = BT_MIN_RES_AGE,
+                     min_gap: int = BT_MIN_GAP) -> list[dict]:
+    """Every failed breakout in `df`, each graded for the two bull-trap tells.
+
+    A FAILED BREAKOUT at breakout bar b and trap bar t:
+      * R = highest high of the `res_lookback` sessions before b (bar `res_bar`);
+      * close[b] > R and close[b-1] <= R  — the first close above resistance;
+      * t = the first bar in b+1 … b+fail_bars that closes back below R.
+    The event is dated t: the close at which the trap is known.
+
+    Graded on:
+      * weak_vol   — volume[b] < weak_vol_x × mean(volume[b-20 : b]);
+      * divergence — price made a higher high but RSI(14) did not: RSI at the
+        highest high of b … t is ≥ div_min points below RSI at res_bar, and
+        res_bar is at least `min_res_age` sessions before b.
+    `full` (a BULL TRAP) = weak_vol AND divergence. Events are at least
+    `min_gap` sessions apart (on t). Uses only bars up to t — no look-ahead.
+    """
+    if df is None or len(df) < res_lookback + 20:
+        return []
+    h = df["high"].to_numpy(float)
+    c = df["close"].to_numpy(float)
+    v = df["volume"].to_numpy(float) if "volume" in df else np.zeros(len(df))
+    rsi = _rsi_series(df["close"].astype(float), 14).to_numpy()
+    n = len(df)
+    out, last_t = [], -10**9
+    b = max(res_lookback, 20) + 1
+    while b < n:
+        win = h[b - res_lookback:b]
+        R = float(win.max())
+        res_bar = b - res_lookback + int(len(win) - 1 - np.argmax(win[::-1]))
+        if not (c[b] > R and c[b - 1] <= R):
+            b += 1
+            continue
+        t = next((k for k in range(b + 1, min(b + fail_bars, n - 1) + 1) if c[k] < R), None)
+        if t is None:
+            b += 1
+            continue
+        if t - last_t < min_gap:
+            b = t + 1
+            continue
+        vol20 = float(v[b - 20:b].mean())
+        vol_x = float(v[b] / vol20) if vol20 > 0 else None
+        peak = b + int(np.argmax(h[b:t + 1]))
+        r_new, r_old = rsi[peak], rsi[res_bar]
+        div_pts = (float(r_old - r_new) if np.isfinite(r_new) and np.isfinite(r_old)
+                   else None)
+        weak = vol_x is not None and vol_x < weak_vol_x
+        div = (div_pts is not None and div_pts >= div_min and b - res_bar >= min_res_age)
+        out.append({"breakout_bar": b, "trap_bar": t, "res_bar": res_bar, "peak_bar": peak,
+                    "level": round(R, 2), "peak_high": round(float(h[peak]), 2),
+                    "vol_x": None if vol_x is None else round(vol_x, 2),
+                    "rsi_old": None if not np.isfinite(r_old) else round(float(r_old), 1),
+                    "rsi_new": None if not np.isfinite(r_new) else round(float(r_new), 1),
+                    "div_pts": None if div_pts is None else round(div_pts, 1),
+                    "weak_vol": bool(weak), "divergence": bool(div),
+                    "full": bool(weak and div)})
+        last_t = t
+        b = t + 1
+    return out
+
+
+def scan_bull_trap(df: pd.DataFrame, max_bars_ago: int = 3) -> dict | None:
+    """Bull Trap (B-182, Risk lane): a breakout above 20-session resistance that
+    closed back below within 3 sessions, on below-average breakout volume, with
+    a bearish RSI divergence at the new high. Fires only on a FULL trap whose
+    trap bar is within `max_bars_ago` and whose level is still not reclaimed.
+
+    Registered under Risk, so a NEGATIVE forward edge is the desired direction —
+    a name to avoid or exit, not a short.
+    """
+    d = df.dropna(subset=["close"])
+    evs = [e for e in bull_trap_events(d) if e["full"]]
+    if not evs:
+        return None
+    ev = evs[-1]
+    n = len(d)
+    bars_ago = n - 1 - ev["trap_bar"]
+    last = float(d["close"].iloc[-1])
+    if bars_ago > max_bars_ago or last >= ev["level"]:
+        return None
+    invalidation = round(ev["peak_high"] * 1.005, 2)
+    depth = (ev["level"] - last) / ev["level"] * 100
+    base = (40.0 + min(ev["div_pts"], 15.0) + 15.0 * max(0.0, 1.0 - ev["vol_x"])
+            + (10.0 if bars_ago <= 1 else 0.0) + min(depth * 3.0, 15.0))
+    dates = d.index if not isinstance(d.index, pd.RangeIndex) else None
+    when = (lambda i: str(pd.Timestamp(dates[i]).date())) if dates is not None else (lambda i: f"bar {i}")
+    reasons = [
+        f"Broke above 20-session resistance ₹{ev['level']:.2f} on {when(ev['breakout_bar'])} "
+        f"and closed back below it {ev['trap_bar'] - ev['breakout_bar']} session(s) later",
+        f"Breakout volume only {ev['vol_x']:.2f}× its 20-session average — no real demand",
+        f"Bearish RSI divergence: price made a higher high (₹{ev['peak_high']:.2f}) but "
+        f"RSI {ev['rsi_new']:.0f} vs {ev['rsi_old']:.0f} at the prior high",
+        f"Invalidated on a close above ₹{invalidation:.2f}",
+        "⚠ Risk flag, not a short signal — avoid or exit; see B-182 for its measured edge",
+    ]
+    return {
+        "pattern_type": "Bull Trap",
+        "tags": ["Bull trap", f"₹{ev['level']:.0f}", f"vol {ev['vol_x']:.1f}×",
+                 f"RSI −{ev['div_pts']:.0f}", f"{bars_ago}d ago"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, base), 1),
+        "rs_raw": _rs_raw(d),
+        "entry": round(last, 2),
+        "stop": invalidation,
+        "target": None,
+        "vol_x50d": ev["vol_x"],
+    }
+
+
 def scan_ict_setup(df: pd.DataFrame, pivot_len: int = 5,
                    lookback: int = 120,
                    min_body_ratio: float = 0.5) -> dict | None:
@@ -9684,6 +9807,19 @@ SCANNERS: dict[str, dict] = {
             "SIGNAL as measured and the STOP as a known defect."
         ),
         "category": "Entry",
+    },
+    "Bull Trap": {
+        "fn": scan_bull_trap,
+        "description": (
+            "Bull trap (B-182) — a close above 20-session resistance that fails: "
+            "price closes back below within 3 sessions, the breakout bar's volume "
+            "was below its 20-session average, and RSI(14) at the new high is at "
+            "least 3 points under RSI at the prior high (bearish divergence). "
+            "Risk flag rather than a short signal: a negative forward edge is the "
+            "desired direction. Card shows CMP and an invalidation above the trap "
+            "high; target=None. PRE-REGISTERED as B-182 (Bull-Trap-Detector); result pending."
+        ),
+        "category": "Risk",
     },
     "Liquidity Sweep Bear": {
         "fn": scan_liquidity_sweep_bear,

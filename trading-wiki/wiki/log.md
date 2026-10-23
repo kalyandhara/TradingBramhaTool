@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-23] pre-reg | B-182 Bull Trap detector
+- [[analyses/Bull-Trap-Detector]] pre-registered before any forward return: TRAP = failed breakout (20-session high, back below within 3) + weak breakout volume (< 1.0× 20d) + RSI divergence (≥ 3 pts). WARNS rule fixed; prior NOT ESTABLISHED.
+
 ## [2026-10-22] build | Recommendation audit A2 — page, job, monthly report; split screen revises result
 - [[analyses/Recommendation-Audit-Roadmap]]: Recommendation Audit page (Portfolio & Risk) with post-mortem review notes, `rec_audit` scheduler job (registry only), `reports/audit/YYYY-MM.md`. A ≥35% one-session move now reads as an unadjusted split (HEG −62.6% on 09-07): result revised to 509 judged, median excess +1.23% vs NIFTY 500 / −1.33% vs Smallcap 250, week-grouped t 1.60 / 1.16 — still not significant.
 
