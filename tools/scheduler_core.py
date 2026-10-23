@@ -91,6 +91,17 @@ JOBS: dict[str, JobSpec] = {
         managed_bat=False,
         default_time="16:15",
     ),
+    "growth_snapshot": JobSpec(
+        id="growth_snapshot",
+        label="Growth Snapshot (High-Growth Screener)",
+        desc="Refreshes the yfinance fundamentals snapshot behind the High-Growth "
+             "Screener (no screener.in login). Runs daily but only re-fetches when "
+             "the snapshot is 7+ days old, since statements change quarterly.",
+        task_name="TradingBramha-GrowthSnapshot",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "growth_screen.py"}" --refresh',
+        default_time="17:10",
+    ),
     "sentiment_daily": JobSpec(
         id="sentiment_daily",
         label="Daily Market Sentiment",
@@ -162,6 +173,32 @@ JOBS: dict[str, JobSpec] = {
         # and it is the slowest job after the snapshot refresh.
         default_time="16:45",
     ),
+    "rec_audit": JobSpec(
+        id="rec_audit",
+        label="Recommendation Audit",
+        desc="Re-scores every past Opportunity Hub pick against NIFTY 500, Smallcap "
+             "250 and its sector index (entry = next open) and stores it in "
+             "rec_audit.db for the Recommendation Audit page. Also rewrites "
+             "reports/audit/YYYY-MM.md, so each month's last run freezes that "
+             "month's report. ~3 min.",
+        task_name="TradingBramha-RecAudit",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "rec_audit_job.py"}"',
+        # After opportunity_daily (16:20) has saved today's picks.
+        default_time="17:30",
+    ),
+    "batch_screener": JobSpec(
+        id="batch_screener",
+        label="Batch Screener (Category-Based)",
+        desc="Runs all screeners in category-based batches (Entry, Trend, Risk, Pattern), "
+             "aggregates confluence, and generates segregated reports (Entry, Risk, Confluence). "
+             "Replaces the older scanner_daily_runner. ~15-20 min for universe 500.",
+        task_name="TradingBramha-BatchScreener",
+        kind="daily",
+        command="",  # owned by scanner_batch.bat
+        managed_bat=False,
+        default_time="16:25",  # Between opportunity_daily (16:20) and sentiment_daily (16:30)
+    ),
 }
 
 
@@ -169,17 +206,29 @@ def _scanner_bat() -> Path:
     return HERE / "scanner_daily.bat"
 
 
+def _batch_bat() -> Path:
+    return HERE / "scanner_batch.bat"
+
+
 # ── .bat generation ──────────────────────────────────────────────────────────
 def write_bat(job: JobSpec) -> Path:
     """Write the .bat wrapper for a managed job. Returns the bat path."""
     if not job.managed_bat:
-        return _scanner_bat() if job.id == "daily_scanner" else job.bat_path
+        if job.id == "daily_scanner":
+            return _scanner_bat()
+        elif job.id == "batch_screener":
+            return _batch_bat()
+        else:
+            return job.bat_path
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log = job.log_path
     src = (
         "@echo off\r\n"
         f'set REPO={REPO}\r\n'
         f'set LOG={log}\r\n'
+        # The task's console is cp1252; without this a non-ASCII print kills
+        # a Python job (snapshot_refresh died at step 6/16 every run).
+        'set PYTHONIOENCODING=utf-8\r\n'
         'cd /d "%REPO%"\r\n'
         'echo. >> "%LOG%"\r\n'
         f'echo ===== %DATE% %TIME% -- {job.id} starting ===== >> "%LOG%"\r\n'
@@ -240,7 +289,12 @@ def register_argv(job: JobSpec, *, time: str | None = None,
     it will never fire, which is why `status()` returns `next_run` and the hub
     must show it.
     """
-    bat = _scanner_bat() if job.id == "daily_scanner" else job.bat_path
+    if job.id == "daily_scanner":
+        bat = _scanner_bat()
+    elif job.id == "batch_screener":
+        bat = _batch_bat()
+    else:
+        bat = job.bat_path
     argv = ["schtasks", "/create", "/f", "/tn", job.task_name, "/tr", str(bat)]
     if job.kind == "interval":
         st = time or job.default_time
@@ -248,9 +302,9 @@ def register_argv(job: JobSpec, *, time: str | None = None,
         mo = int(interval or job.default_interval)
         argv += ["/sc", "WEEKLY", "/d", _TRADING_DAYS, "/st", st,
                  "/ri", str(mo), "/du", _duration(st, et)]
-    else:  # daily
+    else:  # daily — on trading weekdays; /sc DAILY also fired every Sat/Sun
         st = time or job.default_time
-        argv += ["/sc", "DAILY", "/st", st]
+        argv += ["/sc", "WEEKLY", "/d", _TRADING_DAYS, "/st", st]
     if job.elevate:
         argv += ["/rl", "HIGHEST"]
     return argv
@@ -273,15 +327,42 @@ def _schtasks(argv: list[str]) -> subprocess.CompletedProcess:
                                            stderr=f"{UNAVAILABLE_MSG} ({e})")
 
 
+def task_settings_ps(task_name: str) -> str:
+    """PowerShell that sets what `schtasks /create` cannot express.
+
+    * StartWhenAvailable — a run missed while the PC slept fires on wake
+      instead of being skipped until tomorrow.
+    * Battery — schtasks' defaults refuse to START on battery and KILL a run
+      when the laptop unplugs; the logs' `^C` lines and runs stuck "running"
+      were this.
+
+    The task object is edited in place rather than replaced with
+    New-ScheduledTaskSettingsSet, which would reset every other setting.
+    """
+    name = task_name.replace("'", "''")
+    return (f"$t = Get-ScheduledTask -TaskName '{name}'; "
+            "$t.Settings.StartWhenAvailable = $true; "
+            "$t.Settings.DisallowStartIfOnBatteries = $false; "
+            "$t.Settings.StopIfGoingOnBatteries = $false; "
+            "Set-ScheduledTask -InputObject $t | Out-Null")
+
+
 def register(job: JobSpec, **kw) -> tuple[bool, str]:
     """CREATE/replace the scheduled task. Persistent OS change — user-triggered."""
     if job.managed_bat:
         write_bat(job)
     argv = register_argv(job, **kw)
     res = _schtasks(argv)
-    if res.returncode == 0:
-        return True, (res.stdout or "").strip() or "Task registered."
-    return False, (res.stderr or res.stdout or "schtasks failed").strip()
+    if res.returncode != 0:
+        return False, (res.stderr or res.stdout or "schtasks failed").strip()
+    msg = (res.stdout or "").strip() or "Task registered."
+    ps = _schtasks(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                    task_settings_ps(job.task_name)])
+    if ps.returncode != 0:
+        # Registered and will run; only catch-up/battery tolerance is missing.
+        msg += (" (warning: catch-up/battery settings not applied: "
+                f"{(ps.stderr or ps.stdout or 'powershell failed').strip()})")
+    return True, msg
 
 
 def remove(job: JobSpec) -> tuple[bool, str]:
@@ -318,7 +399,15 @@ def status(job: JobSpec) -> dict:
 
 
 def tail_log(job: JobSpec, n: int = 40) -> str:
-    p = job.log_path if job.managed_bat else HERE / "scanner_daily.log"
+    if job.id == "daily_scanner":
+        p = HERE / "scanner_daily.log"
+    elif job.id == "batch_screener":
+        p = HERE / "scanner_batch.log"
+    elif job.managed_bat:
+        p = job.log_path
+    else:
+        p = HERE / "scanner_daily.log"
+    
     if not p.exists():
         return "(no log yet)"
     try:

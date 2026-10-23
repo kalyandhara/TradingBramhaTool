@@ -21,7 +21,10 @@ import screener_pipeline as sp
 
 def _ohlcv(sym: str):
     try:
-        return sp.fetch_ohlcv(sym, days=400)
+        # min_turnover=0: the scan's liquidity floor is for keeping thin names
+        # out of a 2,000-stock scan, not for pricing a position already held.
+        # With it, a thin holding (HERANBA) left nothing priceable.
+        return sp.fetch_ohlcv(sym, days=400, min_turnover=0)
     except Exception:
         return None
 
@@ -53,8 +56,10 @@ def main() -> int:
                  if risk and capital else None)
     row = ec.snapshot_row(positions, _ohlcv, capital, open_risk=open_risk)
     if row is None:
-        print("no priced bar for any position — nothing written", file=sys.stderr)
-        return 1
+        # A skip, not a failure: exit 1 here made the hub count no-ops as
+        # failures and bury the real ones.
+        print("SKIPPED: no priced bar for any position — nothing written")
+        return 0
     print(f"{row['date']}: equity {row['equity']:,.2f} (capital {row['capital']:,.0f}, "
           f"realised {row['realised']:,.2f}, unrealised {row['unrealised']:,.2f}, "
           f"{row['n_open']} open, {row['unpriced']} unpriced)")

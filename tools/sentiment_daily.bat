@@ -1,6 +1,7 @@
 @echo off
 set REPO=C:\Users\Owner\OneDrive\Documents\Trading\Trading_Bramha\Trading_Bramha
 set LOG=C:\Users\Owner\OneDrive\Documents\Trading\Trading_Bramha\Trading_Bramha\tools\logs\sentiment_daily.log
+set PYTHONIOENCODING=utf-8
 cd /d "%REPO%"
 echo. >> "%LOG%"
 echo ===== %DATE% %TIME% -- sentiment_daily starting ===== >> "%LOG%"

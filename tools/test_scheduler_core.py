@@ -53,11 +53,50 @@ def test_the_repeat_window_is_expressed_as_a_duration_not_an_end_time():
     assert _flag(argv, "/du") == "0006:30"   # 09:15 -> 15:45
 
 
-def test_a_daily_job_stays_a_plain_daily_trigger():
+def test_a_daily_job_runs_on_trading_weekdays_only():
+    # /sc DAILY fired every after-close job on Saturdays and Sundays too —
+    # equity_snapshot "failed" on 2026-10-17 and 10-18 with nothing to price.
     argv = _argv("opportunity_daily")
-    assert _flag(argv, "/sc") == "DAILY"
+    assert _flag(argv, "/sc") == "WEEKLY"
+    assert _flag(argv, "/d") == "MON,TUE,WED,THU,FRI"
     assert _flag(argv, "/st") == "16:20"
     assert "/ri" not in argv and "/du" not in argv
+
+
+# ── Task settings schtasks /create cannot express ────────────────────────────
+
+def test_settings_script_enables_catch_up_and_battery_runs():
+    ps = sch.task_settings_ps("TradingBramha-SnapshotRefresh")
+    assert "Get-ScheduledTask -TaskName 'TradingBramha-SnapshotRefresh'" in ps
+    assert "StartWhenAvailable = $true" in ps
+    assert "DisallowStartIfOnBatteries = $false" in ps
+    assert "StopIfGoingOnBatteries = $false" in ps
+    assert "Set-ScheduledTask" in ps
+
+
+def test_settings_script_quotes_a_task_name_with_an_apostrophe():
+    assert "'it''s'" in sch.task_settings_ps("it's")
+
+
+def test_register_applies_settings_after_a_successful_create(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(sch, "HERE", tmp_path)
+    monkeypatch.setattr(sch, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(sch, "_schtasks",
+                        lambda argv: (calls.append(argv[0]),
+                                      sch.subprocess.CompletedProcess(argv, 0, "ok", ""))[1])
+    ok, msg = sch.register(sch.JOBS["sentiment_daily"])
+    assert ok and calls == ["schtasks", "powershell"]
+
+
+def test_generated_bats_force_utf8_python_output(monkeypatch, tmp_path):
+    # Task Scheduler's console is cp1252; a "≥" in a progress line killed
+    # snapshot_refresh at step 6/16 on every scheduled run.
+    monkeypatch.setattr(sch, "HERE", tmp_path)
+    monkeypatch.setattr(sch, "LOG_DIR", tmp_path / "logs")
+    bat = sch.write_bat(sch.JOBS["snapshot_refresh"]).read_text(encoding="utf-8")
+    assert "set PYTHONIOENCODING=utf-8" in bat
+    assert bat.index("PYTHONIOENCODING") < bat.index("snapshot_refresh.py")
 
 
 # ── The duration arithmetic ──────────────────────────────────────────────────

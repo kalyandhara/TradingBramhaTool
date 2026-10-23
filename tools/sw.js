@@ -56,6 +56,8 @@ const SHELL = [
   '/evwma_vwap_macd.js',
   '/psar.js',
   '/renko.js',
+  '/indicator_catalogue.js',
+  '/indicator_browser.js',
 ];
 
 self.addEventListener('install', (e) => {
@@ -87,7 +89,10 @@ function isLiveData(url) {
 // Content-stable assets worth pinning. Everything else that reaches the cache
 // layer is code, and code must be allowed to change.
 function isImmutableAsset(url) {
-  return /\.(png|ico|svg|woff2?)$/i.test(url.pathname);
+  // B-151 preview pictures carry a content hash in their name, so a redraw is a
+  // new URL and cache-first can never pin a stale one. Their manifest.json is
+  // NOT matched here — it is the file that says which hash is current.
+  return /\.(png|ico|svg|woff2?|webp)$/i.test(url.pathname);
 }
 
 async function cacheFirst(req) {

@@ -64,6 +64,9 @@ PAGES: dict[str, str] = {
     "Other Screeners": "other_screeners",
     "Pipeline Log": "pipeline_log",
     "High-Growth Screener": "high_growth_screener",
+    "Sector wise Navigation": "sector_lobby",
+    "Glossary": "glossary",
+    "Recommendation Audit": "rec_audit_page",
 }
 
 
@@ -82,3 +85,25 @@ def render(page: str) -> None:
     """
     mod = importlib.import_module(f"{__name__}.{PAGES[page]}")
     mod.render()
+
+
+def home_header(cards, is_home: bool):
+    """B-179. Home is not a registered page — it only borrows panes from
+    `home_layout`. Lazy, like `render`, and one call site in the monolith."""
+    return importlib.import_module(f"{__name__}.home_layout").header(cards, is_home)
+
+
+def home_rail(db, search_options: str = "") -> None:
+    """B-179. The left watchlist/sector rail on Home.
+
+    Guarded: it renders before the centre block in the monolith, so an
+    exception here would otherwise stop the script and leave the centre pane
+    (the decision surface) blank. A broken rail is a warning in the rail.
+    """
+    try:
+        importlib.import_module(f"{__name__}.home_layout").render_rail(db, search_options)
+    except Exception as e:
+        import logging
+        import streamlit as st
+        logging.getLogger(__name__).exception("home rail failed")
+        st.warning(f"Watchlist rail unavailable: {e}")
