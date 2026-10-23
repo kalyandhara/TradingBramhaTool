@@ -1184,6 +1184,51 @@ def api_order_blocks():
     return jsonify({"symbol": symbol, "order_blocks": out, "retests": retest_out})
 
 
+@app.route("/api/bull_trap")
+def api_bull_trap():
+    """Bull traps (B-182) for the `bulltrap` chart overlay.
+
+    Calls the SAME `scanner_templates.bull_trap_events` the `Bull Trap` risk
+    scanner and `bull_trap_study.py` use, so the chart, the scanner and the
+    measurement cannot disagree. Every failed breakout in the window comes back,
+    graded: `full` (weak volume AND RSI divergence) is a bull trap; the rest are
+    plain failed breakouts, drawn as context. `fired` is the scanner's own
+    freshness gate (trap within 3 bars, level not reclaimed).
+
+    {"events": [...], "fired": bool}. Bar indices are mapped to timestamps.
+    """
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < sc.BT_RES_LOOKBACK + 20:
+        return jsonify({"symbol": symbol, "events": [], "fired": False})
+
+    def _t(idx):
+        return int(bars[idx]["time"]) if idx is not None and 0 <= idx < len(bars) else None
+
+    events = []
+    for e in sc.bull_trap_events(df):
+        events.append({
+            "level": e["level"], "peak_high": e["peak_high"],
+            "res_time": _t(e["res_bar"]), "breakout_time": _t(e["breakout_bar"]),
+            "trap_time": _t(e["trap_bar"]), "peak_time": _t(e["peak_bar"]),
+            "vol_x": e["vol_x"], "div_pts": e["div_pts"],
+            "rsi_old": e["rsi_old"], "rsi_new": e["rsi_new"],
+            "weak_vol": e["weak_vol"], "divergence": e["divergence"], "full": e["full"],
+        })
+    try:
+        fired = sc.scan_bull_trap(df) is not None
+    except Exception:
+        fired = False
+    return jsonify({"symbol": symbol, "events": events, "fired": fired})
+
+
 @app.route("/api/liquidity")
 def api_liquidity():
     """Liquidity pools (equal highs/lows) + the most recent sweep-and-reclaim.

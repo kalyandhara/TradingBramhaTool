@@ -1882,6 +1882,7 @@ const INDICATOR_DEFS = [
   {key:'structure_chain', label:'Structure Break Chain (BOS/CHoCH + quality)', group:'Smart Money & Structure', color:'#00e676'},
   {key:'orderblock',   label:'Order Blocks (SMC demand / supply zones)', group:'Smart Money & Structure', color:'#4c9aff', alias:'order block ob smart money smc demand supply zone mitigation institutional'},
   {key:'liquidity',    label:'Liquidity Pools + Sweep + BUY signal (equal highs/lows · stop run)', group:'Smart Money & Structure', color:'#ff6d00', alias:'liquidity pool sweep stop hunt stop run raid equal highs equal lows resting stops smc trap reclaim'},
+  {key:'bulltrap',     label:'Bull Trap (failed breakout · weak volume · RSI divergence)', group:'Smart Money & Structure', color:'#e53935', alias:'bull trap fake breakout false breakout failed breakout stop run weak volume rsi divergence b-182'},
   {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab + AB=CD)', group:'Price Patterns', color:'#ba68c8'},
   {key:'projection',   label:'Price Projection (EW + patterns)', group:'Levels & Projection', color:'#4c9aff'},
   {key:'cpr',          label:'CPR (TC / Pivot / BC + R1 / S1, prior bar)', group:'Levels & Projection', color:'#c9a227', alias:'cpr central pivot range floor pivots tc bc pivot r1 s1 value area day'},
@@ -4591,6 +4592,7 @@ function applyIndicators(pane) {
   if (!pane.indicators.has('riskbox') && pane.riskBox) clearRiskBox(pane);
   // Clear liquidity pools + sweep marker if deselected.
   if (!pane.indicators.has('liquidity') && pane.liq) clearLiquidity(pane);
+  if (!pane.indicators.has('bulltrap') && pane.btrap) clearBullTrap(pane);
   // Clear the %R exhaustion main-chart overlay (arrows + tint) if deselected.
   if (!pane.indicators.has('prte') && (pane.prteData || pane._markerSrcs?.prte)) clearPrteOverlay(pane);
   // B-127 status cards go with their line.
@@ -5515,6 +5517,8 @@ function applyIndicators(pane) {
   // needed -- price lines and markers are placed by PRICE and TIME, not by pixel
   // coordinates, so they do not care whether LWC has settled its scales yet.
   if (pane.indicators.has('liquidity')) renderLiquidity(pane);
+  // Bull traps (B-182): server-fetched, markers + one price line, like liquidity.
+  if (pane.indicators.has('bulltrap')) renderBullTrap(pane);
 
   // Risk box: price lines by PRICE, like liquidity, so no RAF deferral.
   if (pane.indicators.has('riskbox')) renderRiskBox(pane);
@@ -10612,6 +10616,83 @@ function drawLiquidity(pane) {
   } else {
     setPaneMarkers(pane, 'liq', null);
   }
+}
+
+// ── Bull Trap overlay (B-182) ───────────────────────────────────────────────
+// The detector lives in scanner_templates.bull_trap_events and is served by
+// /api/bull_trap; nothing is recomputed here. A FULL trap (failed breakout +
+// weak volume + RSI divergence) gets a red arrow above the trap bar; a plain
+// failed breakout gets a small unlabelled grey dot as context. The trap level
+// is drawn only while the scanner's freshness gate is live (`fired`): an old
+// trap's level across today's prices would read as a current line.
+const BT_TRAP = '#e53935';
+const BT_FAILED = '#9e9e9e';
+
+function ensureBullTrapState(pane) {
+  if (!pane.btrap) pane.btrap = {priceLines: [], lastFetchKey: null, inflight: false};
+  return pane.btrap;
+}
+
+function clearBullTrap(pane) {
+  const st = pane.btrap;
+  if (!st) return;
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+  setPaneMarkers(pane, 'btrap', null);
+  pane.btrap = null;
+}
+
+async function renderBullTrap(pane) {
+  const st = ensureBullTrapState(pane);
+  if (!pane.bars || !pane.bars.length) return;
+  const key = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  if (st.lastFetchKey === key && st.data) { drawBullTrap(pane); return; }
+  if (st.inflight) return;
+  st.inflight = true;
+  try {
+    const url = `${SERVER}/api/bull_trap?symbol=${encodeURIComponent(pane.symbol)}` +
+                `&timeframe=${pane.tf}&bars=${TF_BARS[pane.tf] || 300}`;
+    const res = await fetch(url);
+    st.data = res.ok ? await res.json() : {events: [], fired: false};
+    st.lastFetchKey = key;
+  } catch (e) {
+    console.warn('bull trap fetch failed:', e);
+    st.data = {events: [], fired: false};
+  } finally {
+    st.inflight = false;
+  }
+  if (pane.indicators.has('bulltrap')) drawBullTrap(pane);
+}
+
+function bullTrapMarkers(events, fired) {
+  // Pure: events -> Lightweight Charts markers (exported for the node test).
+  const lastFull = [...events].reverse().find(e => e.full);
+  return events.filter(e => e.trap_time).map(e => e.full ? {
+    time: e.trap_time, position: 'aboveBar', color: BT_TRAP, shape: 'arrowDown',
+    text: `${fired && e === lastFull ? 'NOW · ' : ''}BULL TRAP · vol ${e.vol_x}× · RSI −${e.div_pts}`,
+  } : {
+    time: e.trap_time, position: 'aboveBar', color: BT_FAILED, shape: 'circle',
+    size: 0.5, text: '',
+  });
+}
+
+function drawBullTrap(pane) {
+  const st = pane.btrap;
+  if (!st || !st.data) return;
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+  const events = st.data.events || [];
+  const lastFull = [...events].reverse().find(e => e.full);
+  if (lastFull && st.data.fired) {
+    try {
+      st.priceLines.push(pane.series.createPriceLine({
+        price: lastFull.level, color: BT_TRAP, lineWidth: 1, lineStyle: 2,
+        axisLabelVisible: true, title: `bull trap level ${lastFull.level} · NOW`,
+      }));
+    } catch {}
+  }
+  const markers = bullTrapMarkers(events, !!st.data.fired);
+  setPaneMarkers(pane, 'btrap', markers.length ? markers : null);
 }
 
 function clearOiWalls(pane) {
