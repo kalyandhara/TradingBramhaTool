@@ -2326,24 +2326,35 @@ def render_peer_comparison(anchor: str) -> None:
     df, med = res["table"], res["median"] or {}
 
     # ── What group is this, and how honest is it ──
+    src = res.get("source", "yfinance")
     widened = res.get("group_level") == "family"
+    n_group = res.get("n_in_group") or len(df) - 1
     chips = (
         rs.chip("Group", "info", res.get("group_label")) +
-        rs.chip("Names", "neutral", str(len(df))) +
+        rs.chip("Source", "neutral" if src == "yfinance" else "warn",
+                {"screener.in": "screener.in", "yfinance-cross-sector":
+                 "yfinance · cross-sector"}.get(src, "yfinance")) +
+        rs.chip("Names", "neutral",
+                str(len(df)) + (f" of {n_group + 1}" if n_group + 1 > len(df) else "")) +
         (rs.chip("Widened", "warn", f"only {res['n_same_industry']} in {res['industry']}")
-         if widened else "")
+         if widened and src == "yfinance" else "")
     )
+    _top = (f"the {len(df) - 1} largest by market cap of {n_group} in the group"
+            if n_group > len(df) - 1 else "ranked by market cap")
     st.markdown(
         rs.card(
             f'{chips}<div style="font-size:12px;color:{rs.TOKENS["text_body"]};'
             f'margin-top:6px;">'
+            + f'Source: {pcmp.source_label(res)}. '
             + (f'yfinance tags <b>{anchor}</b> as <i>{res["industry"]}</i>, which holds '
                f'only {res["n_same_industry"]} other NSE name(s) — too thin to compare '
                f'against, so the group was widened one rung to <b>{res["group_label"]}</b>. '
                'Read it as a sector-adjacent group, not a like-for-like one. '
-               if widened else
-               f'Peers are the NSE names yfinance tags <i>{res["industry"]}</i>, '
-               'ranked by market cap. ')
+               if widened and src == "yfinance" else
+               f'The NSE-sector search found too few peers for <b>{anchor}</b>, so the '
+               f'group comes from the wider search the Sector Lobby uses; peers are {_top}. '
+               if src != "yfinance" else
+               f'Peers are the NSE names yfinance tags <i>{res["industry"]}</i>, {_top}. ')
             + 'Fundamental axes only — no technical or timing content here, and no '
               'overall peer score: this ranks measured business characteristics, and '
               'none of it is backtested as an edge.</div>'
