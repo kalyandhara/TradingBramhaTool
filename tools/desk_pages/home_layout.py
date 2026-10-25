@@ -197,14 +197,12 @@ def _month_closes(symbols: list[str]) -> dict[str, list[float]]:
 
 
 def _go_to(page: str, symbol: str) -> None:
-    """The same jump `?nav=predict|analyze` makes, without a new tab."""
-    if page == "predict":
-        st.session_state["current_page"] = "Predictive Analysis"
-        st.session_state["pa_symbol"] = symbol
-    else:
-        st.session_state["current_page"] = "Stock Analyzer"
-        st.session_state["selected_symbol"] = symbol
-        st.session_state["last_analyzed"] = symbol   # triggers the auto-run
+    """The same jump `?nav=analyze` makes, without a new tab. `page` is kept
+    for the rail's old "predict" button value: Predictive Analysis was merged
+    into the Stock Analyzer, so both land there."""
+    st.session_state["current_page"] = "Stock Analyzer"
+    st.session_state["selected_symbol"] = symbol
+    st.session_state["last_analyzed"] = symbol   # triggers the auto-run
 
 
 @st.dialog("Watchlists")

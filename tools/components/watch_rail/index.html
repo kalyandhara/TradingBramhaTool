@@ -140,7 +140,6 @@ function renderRows() {
       `href="${esc(ARGS.analyze_base + encodeURIComponent(r.symbol))}">${esc(r.symbol)}</a>` +
       `<div class="nm" title="${esc(r.name || "")}">${esc(r.name || "")}</div></span>` +
       `<span class="spk">${spark(r.spark)}<span class="acts">` +
-      `<button class="act" data-i="${i}" data-page="predict" title="Predictive Analysis">PA</button>` +
       `<button class="act" data-i="${i}" data-page="analyze" title="Stock Analyzer">SA</button>` +
       `</span></span>` +
       `<span class="num"><div class="px">${fmtClose(r.close)}</div>` +

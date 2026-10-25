@@ -430,7 +430,7 @@ def render() -> None:
 
     # Real links, not buttons: left-click opens in this tab, and the browser's
     # own right-click menu offers "Open link in new tab". Routed by the
-    # ?nav=analyze / ?nav=predict deep-link handler in dashboard_app.py.
+    # ?nav=analyze deep-link handler in dashboard_app.py.
     st.markdown(sl.opener_links(active), unsafe_allow_html=True)
 
     # ── Whole lobby at a glance ───────────────────────────────────────────────

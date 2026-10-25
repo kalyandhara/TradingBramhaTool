@@ -232,9 +232,7 @@ def _card(r: pd.Series) -> None:
             st.caption(f"Families: {r['family_names']}")
         if pd.notna(r.get("note")) and r.get("note"):
             st.caption(f"📝 {r['note']}")
-        a, b = st.columns(2)
-        a.link_button("Analyzer ↗", link("analyze", r["symbol"]), use_container_width=True)
-        b.link_button("Predict ↗", link("predict", r["symbol"]), use_container_width=True)
+        st.link_button("Analyzer ↗", link("analyze", r["symbol"]), use_container_width=True)
         with st.expander("Review"):
             key = r["episode_id"]
             auto = r.get("primary_tag") or ra.UNEXPLAINED

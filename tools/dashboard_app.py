@@ -1086,7 +1086,7 @@ PAGE_GROUPS = {
     "Screening":        ["Opportunity Hub", "Delete Funnel", "Hidden Treasures", "Screener", "Other Screeners", "Scanner Hub",
                          "Breakout Scans", "High-Growth Screener", "SVP Structure"],
     "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
-    "Research":         ["Predictive Analysis", "Stock Analyzer", "Sector wise Navigation", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals", "Glossary"],
+    "Research":         ["Stock Analyzer", "Sector wise Navigation", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals", "Glossary"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts", "Recommendation Audit"],
     "Ops":              ["Pipeline Log", "Scheduler Hub"],
 }
@@ -1113,7 +1113,6 @@ PAGE_BLURBS = {
     "Market Sentiment":     "SCAN · market · 0–100 composite regime gauge, with coverage",
     "India Market Intel":   "SCAN · market · Bulk & block deals, insider trades, gap scanner",
     "OI Momentum":          "SCAN · market · Open-interest build-up and unwinding",
-    "Predictive Analysis":  "SIGNAL · Consolidated rating, chart and intel per stock",
     "Glossary":             "REFERENCE · Plain-English guide to every term, in learning order",
     "Stock Analyzer":       "RESEARCH · Full fundamental + technical deep dive",
     "Sector Map":           "SCAN · sectors · Relative Rotation Graph and sector orbit",
@@ -1135,17 +1134,14 @@ if "current_page" not in st.session_state:
 # Deep-link: a table's "Analyze ↗" link opens ?nav=analyze&symbol=SYM in a new
 # tab. Consume the params once, route to the Stock Analyzer, pre-load the symbol
 # and prime an auto-run, then clear the URL so sidebar navigation isn't pinned.
-# ?nav=predict does the same for Predictive Analysis (Sector Lobby's openers,
-# so they can be right-click -> "Open in new tab" links rather than buttons).
+# ?nav=predict is the old Predictive Analysis link (Sector Lobby's openers,
+# saved bookmarks); that page was merged into the Stock Analyzer, so it lands
+# there too.
 if st.query_params.get("nav") in ("analyze", "predict") and st.query_params.get("symbol"):
     _dl_sym = st.query_params["symbol"].strip().upper()
-    if st.query_params["nav"] == "predict":
-        st.session_state["current_page"] = "Predictive Analysis"
-        st.session_state["pa_symbol"] = _dl_sym
-    else:
-        st.session_state["current_page"] = "Stock Analyzer"
-        st.session_state["selected_symbol"] = _dl_sym
-        st.session_state["last_analyzed"] = _dl_sym   # triggers auto-run in the tab
+    st.session_state["current_page"] = "Stock Analyzer"
+    st.session_state["selected_symbol"] = _dl_sym
+    st.session_state["last_analyzed"] = _dl_sym   # triggers auto-run in the tab
     st.query_params.clear()
 
 # ── Ribbon status: market session + data freshness ──────────────────
@@ -1388,6 +1384,16 @@ st.iframe(
     """,
     height=1,    # st.iframe rejects 0; a 1px frame is as invisible as the old 0px one
 )
+
+# Predictive Analysis was merged into the Stock Analyzer (2026-10-25). Anything
+# still routing to it — a session open across the deploy, or a jump that sets
+# the old `pa_symbol` key — lands on the merged page with that symbol loaded.
+if st.session_state["current_page"] == "Predictive Analysis":
+    st.session_state["current_page"] = "Stock Analyzer"
+_pa_legacy_sym = st.session_state.pop("pa_symbol", None)
+if _pa_legacy_sym:
+    st.session_state["selected_symbol"] = _pa_legacy_sym
+    st.session_state["last_analyzed"] = _pa_legacy_sym
 
 current_page = st.session_state["current_page"]
 
@@ -1997,11 +2003,11 @@ def snapshot_panel(name: str, *, key: str, compact: bool = False,
     return meta, payload
 
 
-# ── "→ Predictive Analysis": hand a whole table over as the candidate set ────
+# ── "→ Stock Analyzer": hand a whole table over as the candidate set ─────────
 # Any table (Home's institutional-volume and volume-shocker lists, the
-# Watchlist) can push its symbols to Research › Predictive Analysis for a
+# Watchlist) can push its symbols to Research › Stock Analyzer for a
 # side-by-side read. The list persists in the settings table so it is still
-# there after a restart, until replaced or cleared on the PA page.
+# there after a restart, until replaced or cleared on the Stock Analyzer.
 _PA_SENT_KEY = "pa_sent_candidates"
 
 
@@ -2024,7 +2030,7 @@ def _pa_sent_save(data: dict | None) -> None:
 
 def _pa_send_button(key: str, source: str, df, symbol_col: str,
                     note_fn=None, *, label: str | None = None) -> None:
-    """One button under a table: make its symbols the Predictive Analysis
+    """One button under a table: make its symbols the Stock Analyzer
     candidate list (replacing the previous sent list) and jump there."""
     if df is None or getattr(df, "empty", True) or symbol_col not in df.columns:
         return
@@ -2044,14 +2050,15 @@ def _pa_send_button(key: str, source: str, df, symbol_col: str,
         items.append({"symbol": sym, "note": note})
     if not items:
         return
-    if st.button(label or f"→ Predictive Analysis ({len(items)})", key=f"{key}_to_pa",
-                 help=f"Open Research › Predictive Analysis with these {len(items)} "
+    if st.button(label or f"→ Stock Analyzer ({len(items)})", key=f"{key}_to_pa",
+                 help=f"Open Research › Stock Analyzer with these {len(items)} "
                       f"names as the candidate list for a side-by-side read."):
         _pa_sent_save({"source": source,
                        "sent_at": datetime.now().isoformat(timespec="minutes"),
                        "items": items})
-        st.session_state["pa_symbol"] = items[0]["symbol"]
-        st.session_state["current_page"] = "Predictive Analysis"
+        st.session_state["selected_symbol"] = items[0]["symbol"]
+        st.session_state["last_analyzed"] = items[0]["symbol"]
+        st.session_state["current_page"] = "Stock Analyzer"
         st.rerun()
 
 
@@ -5195,9 +5202,10 @@ def _action_card(col, title: str, blurb: str, rows: list, target_page,
                 for a, b in rows[:3]:
                     _sub = str(b).replace("&middot;", "·")
                     if st.button(f"**{a}** :gray[{_sub}]", key=f"am_{key}_{a}",
-                                 type="tertiary", help=f"Open {a} in Predictive Analysis"):
-                        st.session_state["pa_symbol"] = a
-                        st.session_state["current_page"] = "Predictive Analysis"
+                                 type="tertiary", help=f"Open {a} in Stock Analyzer"):
+                        st.session_state["selected_symbol"] = a
+                        st.session_state["last_analyzed"] = a
+                        st.session_state["current_page"] = "Stock Analyzer"
                         st.rerun()
                 return
             cells = "".join(
@@ -5431,7 +5439,7 @@ def render_action_map() -> None:
                      if pd.notna(r.get("overall_rating"))]
     _action_card(c4, "Highest rated",
                  "The M1 technical Overall Rating - a different lens from the "
-                 "shortlist score.", _rat_rows, "Predictive Analysis", "rat", tickers=True)
+                 "shortlist score.", _rat_rows, "Stock Analyzer", "rat", tickers=True)
 
     _conf_rows = []
     if "confluence" in _df.columns:
@@ -5726,399 +5734,6 @@ if current_page == "Screener":
                 st.success(f"Added {len(bulk_picks)} symbol(s) to watchlist.")
     else:
         st.info("No results yet — run the pipeline or load today's saved file.")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
-# Tab 2 — Stock Analyzer
-# ──────────────────────────────────────────────────────────────────────────────
-if current_page == "Stock Analyzer":
-    st.subheader("Individual Stock Analyzer")
-    
-    # Beginner-friendly help
-    help_panels.render("stock_analyzer")
-    # Candidates parked by the ribbon search when what was typed was a prefix
-    # rather than a ticker. This is the chart tool's typeahead dropdown, one
-    # step later: Streamlit cannot filter a list per keystroke (a widget only
-    # reports on Enter or blur), so the choice is offered after submit instead
-    # of during typing. Same directory, same ranking, same NSE/BSE reality.
-    _sa_typed, _sa_matches = st.session_state.get("tb_search_matches", (None, []))
-    if _sa_matches:
-        st.caption(f"No exact NSE ticker for **{_sa_typed}** — {len(_sa_matches)} match"
-                   f"{'es' if len(_sa_matches) != 1 else ''}:")
-        _mc = st.columns(min(len(_sa_matches), 4))
-        for _mi, _m in enumerate(_sa_matches):
-            with _mc[_mi % 4]:
-                if st.button(f"{_m['display']}", key=f"tb_match_{_m['display']}",
-                             width="stretch",
-                             help=_m.get("name") or _m["display"]):
-                    st.session_state["selected_symbol"] = _m["display"]
-                    st.session_state["last_analyzed"] = _m["display"]
-                    st.session_state.pop("tb_search_matches", None)
-                    st.rerun()
-                st.caption(f"<span style='font-size:10.5px;color:{_T['text_muted']}'>"
-                           f"{(_m.get('name') or '')[:34]}</span>",
-                           unsafe_allow_html=True)
-        if st.button("✕ Dismiss", key="tb_match_clear"):
-            st.session_state.pop("tb_search_matches", None)
-            st.rerun()
-
-    # Resolved a prefix/typo to a single ticker. Worth one line: the page is
-    # about to show a company nobody typed the exact name of.
-    _sa_res = st.session_state.pop("tb_search_resolved", None)
-    if _sa_res:
-        _typed, _to, _nm = _sa_res
-        st.caption(f"**{_typed}** → **{_to}**{f' · {_nm}' if _nm else ''} "
-                   f"(only NSE match)")
-
-    # Typed something the directory has never heard of. Say so once — the
-    # analysis below still runs, and its own failure message is the detail.
-    _sa_miss = st.session_state.pop("tb_search_miss", None)
-    if _sa_miss:
-        st.caption(f"**{_sa_miss}** is not in the NSE symbol directory — analysing "
-                   f"it anyway, in case the directory is behind on a new listing.")
-
-    # Consume symbol pushed from Scanner Hub card "↗ Analyze" button
-    _sa_override = st.session_state.pop("sa_symbol_override", None)
-    if _sa_override:
-        st.session_state["selected_symbol"] = _sa_override
-        st.session_state["last_analyzed"] = _sa_override
-
-    # Show Analyzer Roster if any symbols queued from Scanner Hub cards
-    _sa_roster = st.session_state.get("sa_roster", [])
-    if _sa_roster:
-        with st.expander(f"Analyzer Roster — {len(_sa_roster)} symbol(s)", expanded=True):
-            _rc = st.columns(min(len(_sa_roster), 6))
-            for _ri, _rsym in enumerate(_sa_roster):
-                with _rc[_ri % 6]:
-                    if st.button(_rsym, key=f"roster_pick_{_rsym}",
-                                 width="stretch",
-                                 help=f"Analyze {_rsym}"):
-                        st.session_state["selected_symbol"] = _rsym
-                        st.session_state["last_analyzed"] = _rsym
-                        st.rerun()
-            if st.button("✕ Clear roster", key="roster_clear"):
-                st.session_state["sa_roster"] = []
-                st.rerun()
-
-    screener_symbols = sorted(st.session_state["screener_results"]["Symbol"].unique()) \
-        if st.session_state.get("screener_results") is not None else []
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        default_idx = 0
-        sel_symbol = st.session_state.get("selected_symbol")
-        if screener_symbols:
-            if sel_symbol in screener_symbols:
-                default_idx = screener_symbols.index(sel_symbol)
-            from_screener = st.selectbox(
-                "From screener results", screener_symbols, index=default_idx
-            )
-        else:
-            from_screener = None
-            st.caption("Run the screener in Tab 1 to populate this list.")
-    with col_b:
-        # Same live typeahead as the ribbon search, over the same
-        # symbol_directory index — so "what is a valid symbol" has ONE answer on
-        # this page and in the bar. Typing a company name resolves to its NSE
-        # code, which the plain box could never do: it took a code or nothing.
-        #
-        # It reports a pick rather than firing _symbol_jump: the ribbon's job is
-        # to NAVIGATE to the analyzer, and this box is already on it. Jumping
-        # would rerun the page to where it already is and drop the picked symbol.
-        manual_symbol = st.session_state.get("_sa_manual", "")
-        if _SYMSEARCH is not None:
-            st.caption("Or enter any NSE symbol manually (no .NS suffix)")
-            _picked = _SYMSEARCH(options=_symbol_payload(),
-                                 placeholder="Type a name or NSE code…",
-                                 key="sa_symsearch", default=None)
-            if isinstance(_picked, dict) and _picked.get("symbol"):
-                # Nonce-guarded like the ribbon: `picked` is the component's
-                # current VALUE and persists across reruns, so acting on it
-                # directly would re-select on every rerun and pin the page to
-                # one symbol.
-                if _picked.get("n") != st.session_state.get("_sa_pick_n"):
-                    st.session_state["_sa_pick_n"] = _picked["n"]
-                    st.session_state["_sa_manual"] = _picked["symbol"]
-                    st.rerun()
-            if manual_symbol:
-                st.caption(f"Selected **{manual_symbol}** — pick another to change it.")
-        else:
-            # Component missing is a packaging accident, not a reason to lose the
-            # ability to analyse an arbitrary symbol.
-            manual_symbol = st.text_input(
-                "Or enter any NSE symbol manually (no .NS suffix)",
-                value="" if from_screener else (sel_symbol or ""),
-            )
-
-    symbol = (manual_symbol or from_screener or "").strip().upper()
-
-    # ── Prev / Next navigation ────────────────────────────────────────────────
-    if screener_symbols:
-        _cur_idx = screener_symbols.index(symbol) if symbol in screener_symbols else -1
-        _nav_c1, _nav_c2, _nav_c3 = st.columns([1, 6, 1])
-        with _nav_c1:
-            _at_start = _cur_idx <= 0
-            if st.button(
-                "◀ Prev",
-                key="sa_prev",
-                disabled=_at_start,
-                width="stretch",
-                help=(screener_symbols[_cur_idx - 1] if _cur_idx > 0 else ""),
-            ):
-                _prev = screener_symbols[_cur_idx - 1]
-                st.session_state["selected_symbol"] = _prev
-                st.session_state["last_analyzed"] = _prev
-                st.rerun()
-        with _nav_c2:
-            if _cur_idx >= 0:
-                st.caption(
-                    f"{_cur_idx + 1} / {len(screener_symbols)} — **{symbol}**",
-                )
-        with _nav_c3:
-            _at_end = _cur_idx >= len(screener_symbols) - 1 or _cur_idx < 0
-            if st.button(
-                "Next ▶",
-                key="sa_next",
-                disabled=_at_end,
-                width="stretch",
-                help=(screener_symbols[_cur_idx + 1] if not _at_end else ""),
-            ):
-                _next = screener_symbols[_cur_idx + 1]
-                st.session_state["selected_symbol"] = _next
-                st.session_state["last_analyzed"] = _next
-                st.rerun()
-
-    tf_choice = st.select_slider(
-        "Chart lookback",
-        options=["3M", "6M", "1Y", "2Y", "5Y", "10Y", "Max"],
-        value="Max",
-    )
-    _tf_map = {"3M": 90, "6M": 180, "1Y": 365, "2Y": 730, "5Y": 1825, "10Y": 3650, "Max": 0}
-    tf_days = _tf_map[tf_choice]
-
-    if st.button("Analyze", type="primary") or st.session_state.get("last_analyzed") == symbol:
-        if not symbol:
-            st.warning("Enter or pick a symbol first.")
-        else:
-            st.session_state["last_analyzed"] = symbol
-            with st.spinner(f"Fetching {symbol}..."):
-                # enforce_liquidity=False: the user asked for THIS symbol.
-                df = cached_fetch_ohlcv(symbol, days=tf_days, enforce_liquidity=False)
-            if df is None:
-                st.error(f"No usable data for {symbol} — fewer than {sp.MIN_BARS} "
-                         f"daily bars, or not on yfinance under that NSE code.")
-            else:
-                _thin_volume_note(df, symbol)
-                # FR-1 — identity header + valuation/quality strip lead the page:
-                # who is this company and what does it cost, before any signal.
-                with st.spinner("Fetching fundamentals & statements..."):
-                    _fund = cached_fetch_fundamentals(symbol)
-                    _deep = cached_fundamentals_deep(symbol)
-                render_fundamental_header(symbol, df, _fund, _deep)
-                render_fundamental_signals(fscore.score_all(_fund, _deep))
-                render_momentum_meter(df)
-                render_timeframe_board(symbol, df)
-                render_fundamental_history(_deep)
-                render_peer_comparison(symbol)
-                _rf_res = cached_red_flags(symbol)
-                render_red_flags(_rf_res)
-                _render_screener_unlock(_rf_res)
-                render_scenarios(scen.build(_deep), _deep)
-                render_concalls(cached_concalls(symbol))
-
-                nifty_df = cached_fetch_nifty50(days=tf_days)
-                mv_score, mv_conds = sp.score_minervini(df, nifty_df=nifty_df)
-                tf_score, tf_conds = sp.score_technofunda(df)
-                ew = ew_module.analyze_ew(df)
-                cs_score, cs_conds, rs_pct, _ = _compute_canslim(df, nifty_df)
-
-                c1, c2, c3, c4, c5 = st.columns(5)
-                c1.metric("Minervini", f"{mv_score}/8")
-                c2.metric("TechnoFunda", f"{tf_score}/6")
-                c3.metric("Total", f"{mv_score + tf_score}/14")
-                c4.metric("EW Confidence", f"{ew['confidence']}%")
-                c5.metric("CANSLIM (RS)", f"{cs_score}/4",
-                           delta=f"{rs_pct:+.1f}% vs Nifty",
-                           delta_color="normal")
-
-                st.info(
-                    f"**Wave Position:** {ew['wave_pos']}  |  "
-                    f"**Extension Risk:** {ew['ext_risk']}  |  "
-                    f"**OWL:** {ew['owl_signal']}  |  **PTF:** {ew['ptf_signal']}  \n"
-                    f"{ew['note']}"
-                )
-
-                # UI-2 — the Chart Tool is the default chart here, as it already
-                # is on Predictive Analysis. The classic Plotly chart stays one
-                # click away because it is not strictly a subset: RS Line, TSI
-                # and CPR exist only there. Until those are ported, dropping it
-                # outright would lose three indicators to gain a nicer canvas.
-                classic_chart = st.toggle(
-                    "Classic chart (RS Line · TSI · CPR)",
-                    key="sa_classic_chart",
-                    help="The Chart Tool is richer — live crosshair, volume "
-                         "profile, Elliott/VCP/harmonic overlays, price "
-                         "projection — but it does not yet carry the RS Line, "
-                         "TSI or CPR panes. Flip this when you need those.",
-                )
-
-                # ── Chart sizing ──────────────────────────────────────────────
-                # Applies to whichever chart is showing. Both renderers are
-                # fixed-height by construction — the Chart Tool is an iframe and
-                # Plotly figures carry an explicit height — so vertical size is
-                # the one dimension `use_container_width` cannot solve, and the
-                # right value depends on the monitor rather than on the data.
-                # Defaults are exactly what each chart used before this control
-                # existed, so an untouched page renders identically.
-                with st.expander("Chart size"):
-                    _sz1, _sz2 = st.columns(2)
-                    with _sz1:
-                        _h_min, _h_def = ((CHART_H_MIN_CLASSIC, CHART_H_DEFAULT_CLASSIC)
-                                          if classic_chart
-                                          else (CHART_H_MIN_TOOL, CHART_H_DEFAULT_TOOL))
-                        sa_chart_h = st.slider(
-                            "Chart height (px)", _h_min, CHART_H_MAX, _h_def, 50,
-                            key=f"sa_chart_h_{'classic' if classic_chart else 'tool'}",
-                            help="Vertical size of the chart. The two chart modes "
-                                 "keep separate values — the Chart Tool is one "
-                                 "pane and the classic chart stacks six, so they "
-                                 "do not want the same number.")
-                    with _sz2:
-                        if classic_chart:
-                            sa_price_share = st.slider(
-                                "Price pane share (%)", 38, int(PRICE_SHARE_MAX * 100),
-                                38, 1, key="sa_price_share",
-                                help="How much of the figure the candles get. The "
-                                     "default 38% is why raising height alone can "
-                                     "feel like it did not help — everything grows "
-                                     "together. Raising this takes room from the "
-                                     "oscillators instead.")
-                        else:
-                            sa_price_share = None
-                            st.caption("Pane share applies to the classic chart — "
-                                       "the Chart Tool manages its own sub-panes.")
-
-                if classic_chart:
-                    show_harmonic = st.checkbox(
-                        "Show Harmonic Pattern (Gartley/Bat/Butterfly/Crab)",
-                        key="sa_harmonic",
-                        help="Detects the most recent completed XABCD harmonic pattern "
-                             "with a valid PRZ within the last ~10 bars. Plots entry, "
-                             "stop (beyond X), and 0.382 / 0.618 / 1.0-of-AD targets.",
-                    )
-                    harmonic = hp.detect_last_pattern(df) if show_harmonic else None
-                    if show_harmonic:
-                        if harmonic:
-                            t = harmonic["trade"]
-                            st.success(
-                                f"**{harmonic['pattern']} ({harmonic['direction']})** — "
-                                f"Entry {t['entry']} · Stop {t['stop']} · "
-                                f"T1 {t['targets'][0]} / T2 {t['targets'][1]} / T3 {t['targets'][2]} · "
-                                f"R:R to T2 = {t['rr_to_t2']} · D pivot {harmonic['age_bars']} bars ago"
-                            )
-                        else:
-                            st.caption("No active harmonic pattern completing in the last 10 bars.")
-
-                    st.plotly_chart(
-                        build_chart(symbol, df, ew, nifty_df=nifty_df,
-                                    harmonic=harmonic, height=sa_chart_h,
-                                    price_share=(sa_price_share / 100.0
-                                                 if sa_price_share else None)),
-                        width="stretch")
-                # Harmonic lives on the Chart Tool's own indicator menu, so the
-                # checkbox above would be a second switch for the same overlay —
-                # it stays with the chart it drives.
-                elif not render_chart_tool(symbol, height=sa_chart_h):
-                    # Server down. Fall back to the classic chart rather than
-                    # leaving the page chartless behind a warning — this is the
-                    # analysis surface, and every read below assumes you have
-                    # looked at the price.
-                    #
-                    # The height carries over, but NOT the pane share: this path
-                    # is reached with the Chart Tool selected, so `sa_price_share`
-                    # is None and the classic chart keeps its own default.
-                    st.plotly_chart(
-                        build_chart(symbol, df, ew, nifty_df=nifty_df,
-                                    height=sa_chart_h),
-                        width="stretch")
-
-                # ── Side-by-side: condition table (left) + chart preview (right) ──
-                sa_cond_col, sa_chart_col = st.columns([1, 1.4], gap="medium")
-                with sa_cond_col:
-                    render_condition_table(mv_conds, tf_conds, cs_conds)
-                with sa_chart_col:
-                    # Embed the Chart Tool iframe beside the condition table so
-                    # the pattern context is visible while reading the scores.
-                    _chart_inline_url = (
-                        f"http://localhost:{CHART_TOOL_PORT}/?symbol="
-                        f"{symbol if ('.' in symbol or symbol.startswith('^')) else symbol + '.NS'}"
-                        f"&tf=1d"
-                    )
-                    st.markdown("**Chart preview**")
-                    st.iframe(_chart_inline_url, height=460)
-                    st.caption(
-                        f"[Open full chart ↗]({_chart_inline_url}) · "
-                        "Chart Tool must be running on :5001"
-                    )
-
-                # ── 3-POV Council: Bull / Bear / Judge ──
-                st.divider()
-                with st.spinner("Running deterministic council..."):
-                    fundamentals = _fund          # already fetched for the header
-                    bundle, bull, bear, card = council.run_council(
-                        symbol, df, nifty_df, fundamentals, regime=nifty_regime
-                    )
-
-                # Plain-language summary first, then the Bull/Bear/Judge drill-down.
-                render_setup_intelligence(
-                    council.setup_intelligence(bundle, bull, bear, card)
-                )
-
-                # Ownership sits directly under the setup read: the structural
-                # leg that says who has been buying the thing the setup likes.
-                render_ownership_flow(symbol)
-
-                st.markdown("### 🧭 Council Verdict — Bull vs Bear vs Judge")
-                render_council(bundle, bull, bear, card)
-
-                if st.button("Add to Watchlist", key="sa_wl"):
-                    db.add_watchlist_symbol(symbol, "From Stock Analyzer")
-                    st.success(f"{symbol} added to watchlist.")
-
-                # ── PDF of this analysis (same report as Predictive Analysis) ──
-                st.divider()
-                _sa_c1, _sa_c2 = st.columns([1, 3], vertical_alignment="center")
-                _sa_c2.caption("One PDF of this analysis — scores, council, six "
-                               "horizons, horizon geometry and every fundamental "
-                               "section, with a static price chart.")
-                if _sa_c1.button(f"📄 Build PDF — {symbol}", key="sa_pdf_go",
-                                 width="stretch"):
-                    with st.spinner("Rendering the report…"):
-                        try:
-                            _sa_pdf = pa_report.render_pdf(_pa_pdf_model(
-                                symbol, df, nifty_df, None, None, _fund, _deep,
-                                bull, bear, card,
-                                council.setup_intelligence(bundle, bull, bear, card),
-                                df, page_title="Stock Analyzer",
-                                analyzer_scores={
-                                    "pairs": [("Minervini", f"{mv_score}/8"),
-                                              ("TechnoFunda", f"{tf_score}/6"),
-                                              ("Total", f"{mv_score + tf_score}/14"),
-                                              ("EW confidence", f"{ew['confidence']}%"),
-                                              ("CANSLIM (RS)", f"{cs_score}/4 "
-                                               f"({rs_pct:+.1f}% vs Nifty)")],
-                                    "ew": (f"Wave position: {ew['wave_pos']} | "
-                                           f"Extension risk: {ew['ext_risk']} | "
-                                           f"OWL: {ew['owl_signal']} | PTF: "
-                                           f"{ew['ptf_signal']}. {ew['note']}")}))
-                        except Exception as exc:
-                            st.error(f"PDF render failed: {exc}")
-                            _sa_pdf = None
-                    if _sa_pdf:
-                        _sa_fn = pa_report.file_name(symbol, page="stock-analyzer")
-                        st.download_button(f"⬇ {_sa_fn}", _sa_pdf, file_name=_sa_fn,
-                                           mime="application/pdf", type="primary",
-                                           key="sa_pdf_dl")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -8647,14 +8262,30 @@ def _pa_pdf_model(sym, df, bench, rating, breakdown, fund, deep,
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Predictive Analysis (Milestone 4) — the consolidated "should I take this
-# trade" surface. PURE COMPOSITION of shipped pieces: M1's Overall Rating
-# (ranked candidate rail from the last Scanner Hub run) + the Chart Tool iframe
-# carrying M2 pattern overlays and the M3 price-projection line + the Setup
-# Intelligence / Council engine from the Stock Analyzer. No new backend.
+# Stock Analyzer — the one per-stock research page. Predictive Analysis (M4,
+# the candidates rail + rating + Chart Tool + council surface) and the classic
+# Stock Analyzer (scores, classic chart, condition table, fundamentals) were
+# merged here on 2026-10-25: one page, every section of both. "Predictive
+# Analysis" survives only as an alias — `?nav=predict`, `pa_symbol` and the
+# old page name are all redirected to this page above the router.
+#
+# ONE symbol key: `selected_symbol` is what the page shows, `last_analyzed`
+# equal to it is what makes it run without a click. Every jump into the page
+# (deep-links, rail buttons, Home's watchlist hover card, roster, Prev/Next)
+# sets both. The search box used to write a private `_sa_manual` that the page
+# preferred over `selected_symbol`, which is why the hover card's "Analyze ↗"
+# opened the page on the wrong (or no) ticker.
 # See wiki/analyses/Dashboard-UI-Roadmap.md §Milestone 4.
 # ──────────────────────────────────────────────────────────────────────────────
-if current_page == "Predictive Analysis":
+def _sa_load(sym) -> None:
+    """Point the Stock Analyzer at `sym` and prime the auto-run."""
+    sym = str(sym or "").strip().upper()
+    if sym:
+        st.session_state["selected_symbol"] = sym
+        st.session_state["last_analyzed"] = sym
+
+
+if current_page == "Stock Analyzer":
     # Override the global 1440px cap — this page needs the full viewport for the
     # chart iframe, same reason TradingView uses edge-to-edge layout.
     st.markdown(
@@ -8677,18 +8308,99 @@ if current_page == "Predictive Analysis":
         </style>""",
         unsafe_allow_html=True,
     )
-    st.subheader("Predictive Analysis")
+    st.subheader("Stock Analyzer")
     st.caption(
-        "One screen: ranked candidates (left) → annotated chart + ratings + setup "
-        "intelligence (right). Candidates come from the last **Scanner Hub** run, "
-        "from any table sent here with **→ Predictive Analysis**, and from the "
-        "Watchlist; the chart carries the pattern overlays and price projection "
-        "from the Chart Tool."
+        "One screen: candidates (left) → rating, scores, annotated chart, council "
+        "and fundamentals (right). Candidates come from the last **Scanner Hub** "
+        "run, the screener, the Analyzer Roster, any table sent here with "
+        "**→ Stock Analyzer**, and the Watchlist."
     )
+
+    # Beginner-friendly help
+    help_panels.render("stock_analyzer")
+
+    # Consume symbol pushed from Scanner Hub card "↗ Analyze" button
+    _sa_override = st.session_state.pop("sa_symbol_override", None)
+    if _sa_override:
+        _sa_load(_sa_override)
+
+    screener_symbols = sorted(st.session_state["screener_results"]["Symbol"].unique()) \
+        if st.session_state.get("screener_results") is not None else []
 
     pa_left, pa_main = st.columns([1, 3.5], gap="medium")
 
     with pa_left:
+        # Same live typeahead as the ribbon search, over the same
+        # symbol_directory index — so "what is a valid symbol" has ONE answer on
+        # this page and in the bar.
+        #
+        # It reports a pick rather than firing _symbol_jump: the ribbon's job is
+        # to NAVIGATE to the analyzer, and this box is already on it.
+        if _SYMSEARCH is not None:
+            _sa_pick = _SYMSEARCH(options=_symbol_payload(),
+                                  placeholder="Type a name or NSE code…",
+                                  key="sa_symsearch", default=None)
+            if isinstance(_sa_pick, dict) and _sa_pick.get("symbol"):
+                # Nonce-guarded like the ribbon: `picked` is the component's
+                # current VALUE and persists across reruns, so acting on it
+                # directly would re-select on every rerun and pin the page to
+                # one symbol.
+                if _sa_pick.get("n") != st.session_state.get("_sa_pick_n"):
+                    st.session_state["_sa_pick_n"] = _sa_pick["n"]
+                    _sa_load(_sa_pick["symbol"])
+                    st.rerun()
+        else:
+            # Component missing is a packaging accident, not a reason to lose the
+            # ability to analyse an arbitrary symbol.
+            mcol1, mcol2 = st.columns([3, 1])
+            pa_manual = mcol1.text_input("Any symbol", key="pa_manual",
+                                         placeholder="e.g. TITAN",
+                                         label_visibility="collapsed")
+            if mcol2.button("Go", key="pa_go", width="stretch") and pa_manual.strip():
+                _sa_load(pa_manual)
+                st.rerun()
+
+        # ── Screener results: pick + Prev / Next ──────────────────────────
+        if screener_symbols:
+            _sel = st.session_state.get("selected_symbol")
+            if _sel in screener_symbols:
+                st.session_state["sa_from_screener"] = _sel
+            st.selectbox("From screener results", screener_symbols,
+                         key="sa_from_screener",
+                         on_change=lambda: _sa_load(st.session_state["sa_from_screener"]))
+            _cur_idx = screener_symbols.index(_sel) if _sel in screener_symbols else -1
+            _nav_c1, _nav_c2 = st.columns(2)
+            _at_start = _cur_idx <= 0
+            if _nav_c1.button("◀ Prev", key="sa_prev", disabled=_at_start,
+                              width="stretch",
+                              help=(screener_symbols[_cur_idx - 1] if _cur_idx > 0 else "")):
+                _sa_load(screener_symbols[_cur_idx - 1])
+                st.rerun()
+            _at_end = _cur_idx >= len(screener_symbols) - 1 or _cur_idx < 0
+            if _nav_c2.button("Next ▶", key="sa_next", disabled=_at_end,
+                              width="stretch",
+                              help=(screener_symbols[_cur_idx + 1] if not _at_end else "")):
+                _sa_load(screener_symbols[_cur_idx + 1])
+                st.rerun()
+            if _cur_idx >= 0:
+                st.caption(f"{_cur_idx + 1} / {len(screener_symbols)} — **{_sel}**")
+
+        # Show Analyzer Roster if any symbols queued from Scanner Hub cards
+        _sa_roster = st.session_state.get("sa_roster", [])
+        if _sa_roster:
+            with st.expander(f"Analyzer Roster — {len(_sa_roster)} symbol(s)", expanded=True):
+                _rc = st.columns(min(len(_sa_roster), 3))
+                for _ri, _rsym in enumerate(_sa_roster):
+                    with _rc[_ri % 3]:
+                        if st.button(_rsym, key=f"roster_pick_{_rsym}",
+                                     width="stretch",
+                                     help=f"Analyze {_rsym}"):
+                            _sa_load(_rsym)
+                            st.rerun()
+                if st.button("✕ Clear roster", key="roster_clear"):
+                    st.session_state["sa_roster"] = []
+                    st.rerun()
+
         _pa_scroll = st.container(height=680)
     with _pa_scroll:
         hits = st.session_state.get("hub_results") or []
@@ -8709,7 +8421,7 @@ if current_page == "Predictive Analysis":
         st.markdown("**Candidates**")
         if not ranked:
             st.info("No scanner results found — run a scanner in the Scanner Hub, "
-                    "or type a symbol below.")
+                    "or type a symbol above.")
         else:
             st.caption(f"{len(ranked)} from **{ran_for}** · ranked by Overall Rating")
             for h in ranked[:30]:
@@ -8719,10 +8431,10 @@ if current_page == "Predictive Analysis":
                 rcol.markdown(_rating_badge_html(h), unsafe_allow_html=True)
                 if tcol.button(f"**{_sym}**", key=f"pa_view_{_sym}", type="tertiary",
                                help=f"Analyze {_sym}"):
-                    st.session_state["pa_symbol"] = _sym
+                    _sa_load(_sym)
                 pcol.badge(str(h.get("pattern_type", ran_for)), color="orange")
 
-        # ── A table sent here with "→ Predictive Analysis" ───────────────
+        # ── A table sent here with "→ Stock Analyzer" ────────────────────
         _pa_sent = _pa_sent_load()
         if _pa_sent and _pa_sent.get("items"):
             st.divider()
@@ -8740,7 +8452,7 @@ if current_page == "Predictive Analysis":
                                         vertical_alignment="center")
                 if _stc.button(f"**{_ss}**", key=f"pa_sent_{_ss}", type="tertiary",
                                help=f"Analyze {_ss}"):
-                    st.session_state["pa_symbol"] = _ss
+                    _sa_load(_ss)
                 _snc.badge(str(_it.get("note") or _pa_sent.get("source", "")),
                            color="blue")
 
@@ -8761,41 +8473,89 @@ if current_page == "Predictive Analysis":
                                             vertical_alignment="center")
                     if _wtc.button(f"**{_ws}**", key=f"pa_wl_{_ws}", type="tertiary",
                                    help=f"Analyze {_ws}"):
-                        st.session_state["pa_symbol"] = _ws
+                        _sa_load(_ws)
                     _wn = _wr.get("notes") or ""
                     _wnc.badge(f"watchlist · {_wn}" if _wn else "watchlist", color="green")
 
-    with pa_left:
-        if _SYMSEARCH is not None:
-            _pa_pick = _SYMSEARCH(options=_symbol_payload(),
-                                  placeholder="Search symbol…",
-                                  key="pa_symsearch", default=None)
-            if isinstance(_pa_pick, dict) and _pa_pick.get("symbol"):
-                if _pa_pick.get("n") != st.session_state.get("_pa_pick_n"):
-                    st.session_state["_pa_pick_n"] = _pa_pick["n"]
-                    st.session_state["pa_symbol"] = _pa_pick["symbol"].strip().upper()
-                    st.rerun()
-        else:
-            mcol1, mcol2 = st.columns([3, 1])
-            pa_manual = mcol1.text_input("Any symbol", key="pa_manual",
-                                         placeholder="e.g. TITAN",
-                                         label_visibility="collapsed")
-            if mcol2.button("Go", key="pa_go", width="stretch") and pa_manual.strip():
-                st.session_state["pa_symbol"] = pa_manual.strip().upper()
-
     with pa_main:
-        pa_sym = st.session_state.get("pa_symbol")
-        if not pa_sym:
-            st.info("Pick a candidate on the left (→) or type a symbol to load the "
-                    "annotated chart, ratings breakdown, and setup intelligence.")
+        # Candidates parked by the ribbon search when what was typed was a prefix
+        # rather than a ticker. This is the chart tool's typeahead dropdown, one
+        # step later: Streamlit cannot filter a list per keystroke (a widget only
+        # reports on Enter or blur), so the choice is offered after submit instead
+        # of during typing. Same directory, same ranking, same NSE/BSE reality.
+        _sa_typed, _sa_matches = st.session_state.get("tb_search_matches", (None, []))
+        if _sa_matches:
+            st.caption(f"No exact NSE ticker for **{_sa_typed}** — {len(_sa_matches)} match"
+                       f"{'es' if len(_sa_matches) != 1 else ''}:")
+            _mc = st.columns(min(len(_sa_matches), 4))
+            for _mi, _m in enumerate(_sa_matches):
+                with _mc[_mi % 4]:
+                    if st.button(f"{_m['display']}", key=f"tb_match_{_m['display']}",
+                                 width="stretch",
+                                 help=_m.get("name") or _m["display"]):
+                        _sa_load(_m["display"])
+                        st.session_state.pop("tb_search_matches", None)
+                        st.rerun()
+                    st.caption(f"<span style='font-size:10.5px;color:{_T['text_muted']}'>"
+                               f"{(_m.get('name') or '')[:34]}</span>",
+                               unsafe_allow_html=True)
+            if st.button("✕ Dismiss", key="tb_match_clear"):
+                st.session_state.pop("tb_search_matches", None)
+                st.rerun()
+
+        # Resolved a prefix/typo to a single ticker. Worth one line: the page is
+        # about to show a company nobody typed the exact name of.
+        _sa_res = st.session_state.pop("tb_search_resolved", None)
+        if _sa_res:
+            _typed, _to, _nm = _sa_res
+            st.caption(f"**{_typed}** → **{_to}**{f' · {_nm}' if _nm else ''} "
+                       f"(only NSE match)")
+
+        # Typed something the directory has never heard of. Say so once — the
+        # analysis below still runs, and its own failure message is the detail.
+        _sa_miss = st.session_state.pop("tb_search_miss", None)
+        if _sa_miss:
+            st.caption(f"**{_sa_miss}** is not in the NSE symbol directory — analysing "
+                       f"it anyway, in case the directory is behind on a new listing.")
+
+        # With a screener list and nothing picked yet, its first row is the
+        # symbol — as before, it waits for the Analyze click.
+        symbol = (st.session_state.get("selected_symbol")
+                  or (screener_symbols[0] if screener_symbols else "") or "").strip().upper()
+
+        _lb_c, _go_c = st.columns([5, 1], vertical_alignment="bottom")
+        with _lb_c:
+            tf_choice = st.select_slider(
+                "Chart lookback",
+                options=["3M", "6M", "1Y", "2Y", "5Y", "10Y", "Max"],
+                value="Max",
+            )
+        _tf_map = {"3M": 90, "6M": 180, "1Y": 365, "2Y": 730, "5Y": 1825, "10Y": 3650, "Max": 0}
+        tf_days = _tf_map[tf_choice]
+        _sa_go = _go_c.button("Analyze", type="primary", width="stretch")
+
+        if not (_sa_go or (symbol and st.session_state.get("last_analyzed") == symbol)):
+            st.info("Pick a candidate on the left or type a symbol to load the "
+                    "rating, scores, annotated chart, council and fundamentals."
+                    + (f" **{symbol}** is selected — press **Analyze**." if symbol else ""))
+        elif not symbol:
+            st.warning("Enter or pick a symbol first.")
         else:
-            pa_df = cached_fetch_ohlcv(pa_sym, enforce_liquidity=False)
-            if pa_df is None:
-                st.error(f"No usable data for {pa_sym} — fewer than {sp.MIN_BARS} "
+            st.session_state["last_analyzed"] = symbol
+            with st.spinner(f"Fetching {symbol}..."):
+                # enforce_liquidity=False: the user asked for THIS symbol.
+                # `df` follows the lookback (scores, classic chart); `pa_df` is
+                # the default frame the Overall Rating, smart money, council and
+                # PDF have always been computed on, so they match the scanner.
+                df = cached_fetch_ohlcv(symbol, days=tf_days, enforce_liquidity=False)
+                pa_df = cached_fetch_ohlcv(symbol, enforce_liquidity=False)
+            if df is None or pa_df is None:
+                st.error(f"No usable data for {symbol} — fewer than {sp.MIN_BARS} "
                          f"daily bars, or not on yfinance under that NSE code.")
             else:
-                _thin_volume_note(pa_df, pa_sym)
+                _thin_volume_note(pa_df, symbol)
                 pa_bench = cached_fetch_nifty50()
+                nifty_df = cached_fetch_nifty50(days=tf_days)
                 _pa_w = st.session_state.get("hub_overall_weights", OVERALL_WEIGHTS)
                 pa_rating, pa_bd = _overall_rating(pa_df, pa_bench, _pa_w)
                 pa_chips = "".join(
@@ -8809,9 +8569,17 @@ if current_page == "Predictive Analysis":
                     f'margin-bottom:4px;">'
                     f'{_rating_badge_html({"overall": pa_rating, "overall_breakdown": pa_bd or {}})}'
                     f'<span style="font-size:20px;font-weight:800;color:#3a2a1e;'
-                    f'margin-right:12px;">{pa_sym}</span>{pa_chips}</div>',
+                    f'margin-right:12px;">{symbol}</span>{pa_chips}</div>',
                     unsafe_allow_html=True,
                 )
+
+                # FR-1 — identity header + valuation/quality strip lead the page:
+                # who is this company and what does it cost, before any signal.
+                with st.spinner("Fetching fundamentals & statements..."):
+                    _fund = cached_fetch_fundamentals(symbol)
+                    _deep = cached_fundamentals_deep(symbol)
+                render_fundamental_header(symbol, df, _fund, _deep)
+                render_fundamental_signals(fscore.score_all(_fund, _deep))
 
                 # ── B-130 + B-131: Stock Summary & Smart Money Flow ──────
                 _card_l, _card_r = st.columns(2)
@@ -8840,7 +8608,7 @@ if current_page == "Predictive Analysis":
                             f'display:inline-block;">{"✓" if v else "✗"} {k.split(" ",1)[1]}</span>'
                             for k, v in _pa_conds.items()
                         )
-                        _pa_patterns = db.get_symbol_patterns(pa_sym)
+                        _pa_patterns = db.get_symbol_patterns(symbol)
                         _pa_pat_chips = "".join(
                             f'<span style="background:#fef3c7;color:#92400e;border-radius:4px;'
                             f'padding:2px 8px;font-size:11px;margin:2px 3px;'
@@ -8870,7 +8638,6 @@ if current_page == "Predictive Analysis":
                         _smf_bars, _smf_acc, _smf_dist = _smf["bars"], _smf["acc"], _smf["dist"]
                         _smf_n = _smf["n"]
                         _smf_verdict, _smf_vc = _smf["verdict"], _smf["color"]
-                        _smf_bar_w = max(1, int(100 / max(_smf_n, 1)))
                         _smf_strip = "".join(
                             f'<div style="flex:1;height:32px;background:{c};'
                             f'margin-right:1px;border-radius:1px;"></div>'
@@ -8915,28 +8682,169 @@ if current_page == "Predictive Analysis":
                     except Exception:
                         pass
 
-                # Annotated chart — the Chart Tool iframe carries every overlay the
-                # user has enabled there (M2 base zones, harmonic, trendlines, M3
-                # price projection, MA Bias, …). Indicator selection persists in
-                # the Chart Tool's own localStorage, so it survives reloads.
-                import pa_chart_focus as _pcf
-                _ctx, _note = _pcf.render_pin_bar(pa_sym)
-                st.caption(_note)
-                render_chart_tool(pa_sym, height=1080, query=_pcf.chart_query(
-                    pa_sym, _ctx, st.session_state.get("pa_pins", [])))
+                # ── Scores on the lookback frame ─────────────────────────
+                mv_score, mv_conds = sp.score_minervini(df, nifty_df=nifty_df)
+                tf_score, tf_conds = sp.score_technofunda(df)
+                ew = ew_module.analyze_ew(df)
+                cs_score, cs_conds, rs_pct, _ = _compute_canslim(df, nifty_df)
 
-                # Setup Intelligence + Council — same engine as the Stock Analyzer.
-                st.divider()
-                with st.spinner("Running deterministic council…"):
-                    pa_fund = cached_fetch_fundamentals(pa_sym)
-                    pa_bundle, pa_bull, pa_bear, pa_card = council.run_council(
-                        pa_sym, pa_df, pa_bench, pa_fund, regime=nifty_regime
-                    )
-                render_setup_intelligence(
-                    council.setup_intelligence(pa_bundle, pa_bull, pa_bear, pa_card)
+                c1, c2, c3, c4, c5 = st.columns(5)
+                c1.metric("Minervini", f"{mv_score}/8")
+                c2.metric("TechnoFunda", f"{tf_score}/6")
+                c3.metric("Total", f"{mv_score + tf_score}/14")
+                c4.metric("EW Confidence", f"{ew['confidence']}%")
+                c5.metric("CANSLIM (RS)", f"{cs_score}/4",
+                           delta=f"{rs_pct:+.1f}% vs Nifty",
+                           delta_color="normal")
+
+                st.info(
+                    f"**Wave Position:** {ew['wave_pos']}  |  "
+                    f"**Extension Risk:** {ew['ext_risk']}  |  "
+                    f"**OWL:** {ew['owl_signal']}  |  **PTF:** {ew['ptf_signal']}  \n"
+                    f"{ew['note']}"
                 )
-                with st.expander("Council drill-down (Bull / Bear / Judge)"):
-                    render_council(pa_bundle, pa_bull, pa_bear, pa_card)
+
+                # UI-2 — the Chart Tool is the default chart. The classic Plotly
+                # chart stays one click away because it is not strictly a
+                # subset: RS Line, TSI and CPR exist only there. Until those are
+                # ported, dropping it outright would lose three indicators to
+                # gain a nicer canvas.
+                classic_chart = st.toggle(
+                    "Classic chart (RS Line · TSI · CPR)",
+                    key="sa_classic_chart",
+                    help="The Chart Tool is richer — live crosshair, volume "
+                         "profile, Elliott/VCP/harmonic overlays, price "
+                         "projection — but it does not yet carry the RS Line, "
+                         "TSI or CPR panes. Flip this when you need those.",
+                )
+
+                # ── Chart sizing ──────────────────────────────────────────────
+                # Applies to whichever chart is showing. Both renderers are
+                # fixed-height by construction — the Chart Tool is an iframe and
+                # Plotly figures carry an explicit height — so vertical size is
+                # the one dimension `use_container_width` cannot solve, and the
+                # right value depends on the monitor rather than on the data.
+                # The Chart Tool defaults to 1080, the height Predictive Analysis
+                # gave it; the classic chart keeps its own default.
+                with st.expander("Chart size"):
+                    _sz1, _sz2 = st.columns(2)
+                    with _sz1:
+                        _h_min, _h_def = ((CHART_H_MIN_CLASSIC, CHART_H_DEFAULT_CLASSIC)
+                                          if classic_chart
+                                          else (CHART_H_MIN_TOOL, 1080))
+                        sa_chart_h = st.slider(
+                            "Chart height (px)", _h_min, CHART_H_MAX, _h_def, 50,
+                            key=f"sa_chart_h_{'classic' if classic_chart else 'tool'}",
+                            help="Vertical size of the chart. The two chart modes "
+                                 "keep separate values — the Chart Tool is one "
+                                 "pane and the classic chart stacks six, so they "
+                                 "do not want the same number.")
+                    with _sz2:
+                        if classic_chart:
+                            sa_price_share = st.slider(
+                                "Price pane share (%)", 38, int(PRICE_SHARE_MAX * 100),
+                                38, 1, key="sa_price_share",
+                                help="How much of the figure the candles get. The "
+                                     "default 38% is why raising height alone can "
+                                     "feel like it did not help — everything grows "
+                                     "together. Raising this takes room from the "
+                                     "oscillators instead.")
+                        else:
+                            sa_price_share = None
+                            st.caption("Pane share applies to the classic chart — "
+                                       "the Chart Tool manages its own sub-panes.")
+
+                if classic_chart:
+                    show_harmonic = st.checkbox(
+                        "Show Harmonic Pattern (Gartley/Bat/Butterfly/Crab)",
+                        key="sa_harmonic",
+                        help="Detects the most recent completed XABCD harmonic pattern "
+                             "with a valid PRZ within the last ~10 bars. Plots entry, "
+                             "stop (beyond X), and 0.382 / 0.618 / 1.0-of-AD targets.",
+                    )
+                    harmonic = hp.detect_last_pattern(df) if show_harmonic else None
+                    if show_harmonic:
+                        if harmonic:
+                            t = harmonic["trade"]
+                            st.success(
+                                f"**{harmonic['pattern']} ({harmonic['direction']})** — "
+                                f"Entry {t['entry']} · Stop {t['stop']} · "
+                                f"T1 {t['targets'][0]} / T2 {t['targets'][1]} / T3 {t['targets'][2]} · "
+                                f"R:R to T2 = {t['rr_to_t2']} · D pivot {harmonic['age_bars']} bars ago"
+                            )
+                        else:
+                            st.caption("No active harmonic pattern completing in the last 10 bars.")
+
+                    st.plotly_chart(
+                        build_chart(symbol, df, ew, nifty_df=nifty_df,
+                                    harmonic=harmonic, height=sa_chart_h,
+                                    price_share=(sa_price_share / 100.0
+                                                 if sa_price_share else None)),
+                        width="stretch")
+                else:
+                    # Annotated chart — the Chart Tool iframe carries every
+                    # overlay the user has enabled there (M2 base zones,
+                    # harmonic, trendlines, M3 price projection, MA Bias, …).
+                    # Indicator selection persists in the Chart Tool's own
+                    # localStorage, so it survives reloads. Harmonic lives on
+                    # its own indicator menu, so the checkbox above stays with
+                    # the classic chart it drives.
+                    import pa_chart_focus as _pcf
+                    _ctx, _note = _pcf.render_pin_bar(symbol)
+                    st.caption(_note)
+                    if not render_chart_tool(symbol, height=sa_chart_h, query=_pcf.chart_query(
+                            symbol, _ctx, st.session_state.get("pa_pins", []))):
+                        # Server down. Fall back to the classic chart rather than
+                        # leaving the page chartless behind a warning — this is
+                        # the analysis surface, and every read below assumes you
+                        # have looked at the price.
+                        #
+                        # The height carries over, but NOT the pane share: this
+                        # path is reached with the Chart Tool selected, so
+                        # `sa_price_share` is None and the classic chart keeps
+                        # its own default.
+                        st.plotly_chart(
+                            build_chart(symbol, df, ew, nifty_df=nifty_df,
+                                        height=sa_chart_h),
+                            width="stretch")
+
+                # ── Side-by-side: condition table (left) + chart preview (right) ──
+                sa_cond_col, sa_chart_col = st.columns([1, 1.4], gap="medium")
+                with sa_cond_col:
+                    render_condition_table(mv_conds, tf_conds, cs_conds)
+                with sa_chart_col:
+                    # Embed the Chart Tool iframe beside the condition table so
+                    # the pattern context is visible while reading the scores.
+                    _chart_inline_url = (
+                        f"http://localhost:{CHART_TOOL_PORT}/?symbol="
+                        f"{symbol if ('.' in symbol or symbol.startswith('^')) else symbol + '.NS'}"
+                        f"&tf=1d"
+                    )
+                    st.markdown("**Chart preview**")
+                    st.iframe(_chart_inline_url, height=460)
+                    st.caption(
+                        f"[Open full chart ↗]({_chart_inline_url}) · "
+                        "Chart Tool must be running on :5001"
+                    )
+
+                # ── 3-POV Council: Bull / Bear / Judge ──
+                st.divider()
+                with st.spinner("Running deterministic council..."):
+                    bundle, bull, bear, card = council.run_council(
+                        symbol, pa_df, pa_bench, _fund, regime=nifty_regime
+                    )
+                _sa_intel = council.setup_intelligence(bundle, bull, bear, card)
+
+                # Plain-language summary first, then the Bull/Bear/Judge drill-down.
+                render_setup_intelligence(_sa_intel)
+
+                # Ownership sits directly under the setup read: the structural
+                # leg that says who has been buying the thing the setup likes.
+                render_ownership_flow(symbol)
+
+                with st.expander("🧭 Council Verdict — Bull vs Bear vs Judge",
+                                 expanded=True):
+                    render_council(bundle, bull, bear, card)
 
                 # ── Historical pattern metrics (overhead · extension · VCP ·
                 #    radar · exceptional volume) — from the bars already loaded.
@@ -8945,38 +8853,32 @@ if current_page == "Predictive Analysis":
                 # over two years (500 sessions); the page's own frame is 300,
                 # so give this panel its own longer frame (+20 for RSI warm-up).
                 # The council keeps pa_df, so its outputs are unchanged.
-                _pm_df = cached_fetch_ohlcv(pa_sym, days=PM_HISTORY_BARS,
+                _pm_df = cached_fetch_ohlcv(symbol, days=PM_HISTORY_BARS,
                                             enforce_liquidity=False)
                 if _pm_df is None or len(_pm_df) < len(pa_df):
                     _pm_df = pa_df
                 render_pattern_metrics(_pm_df, pa_bench, key="pa_pm")
 
-                # ── Reused Stock Analyzer sections ───────────────────────
                 st.divider()
-                with st.spinner("Fetching fundamentals & statements…"):
-                    _pa_deep = cached_fundamentals_deep(pa_sym)
-                render_fundamental_header(pa_sym, pa_df, pa_fund, _pa_deep)
-                render_fundamental_signals(fscore.score_all(pa_fund, _pa_deep))
-                render_ownership_flow(pa_sym)
+                render_momentum_meter(df)
+                render_timeframe_board(symbol, df)
 
-                render_momentum_meter(pa_df)
-                render_timeframe_board(pa_sym, pa_df)
-
-                with st.expander("Fundamental history"):
-                    render_fundamental_history(_pa_deep)
-                with st.expander("Peer comparison"):
-                    render_peer_comparison(pa_sym)
-                with st.expander("Red flags"):
-                    _pa_rf = cached_red_flags(pa_sym)
-                    render_red_flags(_pa_rf)
+                with st.expander("Fundamental history", expanded=True):
+                    render_fundamental_history(_deep)
+                with st.expander("Peer comparison", expanded=True):
+                    render_peer_comparison(symbol)
+                with st.expander("Red flags", expanded=True):
+                    _rf_res = cached_red_flags(symbol)
+                    render_red_flags(_rf_res)
+                    _render_screener_unlock(_rf_res)
                 with st.expander("Scenario analysis"):
-                    render_scenarios(scen.build(_pa_deep), _pa_deep)
+                    render_scenarios(scen.build(_deep), _deep)
                 with st.expander("Conference calls"):
-                    render_concalls(cached_concalls(pa_sym))
+                    render_concalls(cached_concalls(symbol))
 
-                if st.button("Add to Watchlist", key="pa_wl"):
-                    db.add_watchlist_symbol(pa_sym, "From Predictive Analysis")
-                    st.success(f"{pa_sym} added to watchlist.")
+                if st.button("Add to Watchlist", key="sa_wl"):
+                    db.add_watchlist_symbol(symbol, "From Stock Analyzer")
+                    st.success(f"{symbol} added to watchlist.")
 
                 # ── PDF of the whole page, collapsed sections expanded ───
                 # Built on request, like the Opportunity Hub export:
@@ -8984,35 +8886,45 @@ if current_page == "Predictive Analysis":
                 # never export.
                 st.divider()
                 _pdf_c1, _pdf_c2 = st.columns([1, 3], vertical_alignment="center")
-                _pdf_c2.caption("One PDF of this page for this ticker — every "
-                                "collapsed section expanded, six horizons and "
-                                "horizon geometry included, a static price chart "
-                                "in place of the Chart Tool. Text is selectable "
-                                "and searchable.")
-                if _pdf_c1.button(f"📄 Build PDF — {pa_sym}", key="pa_pdf_go",
+                _pdf_c2.caption("One PDF of this page for this ticker — rating, "
+                                "scores, council, six horizons, horizon geometry "
+                                "and every fundamental section, a static price "
+                                "chart in place of the Chart Tool. Text is "
+                                "selectable and searchable.")
+                if _pdf_c1.button(f"📄 Build PDF — {symbol}", key="sa_pdf_go",
                                   width="stretch"):
                     with st.spinner("Rendering the report…"):
                         try:
                             _pa_size = None
-                            if pa_card.size_pct is not None:
+                            if card.size_pct is not None:
                                 _pa_size = prisk.size_note(prisk.reconcile_size(
-                                    pa_card.size_pct, verdict,
+                                    card.size_pct, verdict,
                                     portfolio_summary.get("open_count", 0)))
-                            _pa_pdf = pa_report.render_pdf(_pa_pdf_model(
-                                pa_sym, pa_df, pa_bench, pa_rating, pa_bd,
-                                pa_fund, _pa_deep, pa_bull, pa_bear, pa_card,
-                                council.setup_intelligence(pa_bundle, pa_bull,
-                                                           pa_bear, pa_card),
-                                _pm_df, size_note=_pa_size))
+                            _sa_pdf = pa_report.render_pdf(_pa_pdf_model(
+                                symbol, pa_df, pa_bench, pa_rating, pa_bd,
+                                _fund, _deep, bull, bear, card, _sa_intel,
+                                _pm_df, size_note=_pa_size,
+                                page_title="Stock Analyzer",
+                                analyzer_scores={
+                                    "pairs": [("Minervini", f"{mv_score}/8"),
+                                              ("TechnoFunda", f"{tf_score}/6"),
+                                              ("Total", f"{mv_score + tf_score}/14"),
+                                              ("EW confidence", f"{ew['confidence']}%"),
+                                              ("CANSLIM (RS)", f"{cs_score}/4 "
+                                               f"({rs_pct:+.1f}% vs Nifty)")],
+                                    "ew": (f"Wave position: {ew['wave_pos']} | "
+                                           f"Extension risk: {ew['ext_risk']} | "
+                                           f"OWL: {ew['owl_signal']} | PTF: "
+                                           f"{ew['ptf_signal']}. {ew['note']}")}))
                         except Exception as exc:
                             st.error(f"PDF render failed: {exc}")
-                            _pa_pdf = None
-                    if _pa_pdf:
-                        _pa_fn = pa_report.file_name(pa_sym)
-                        st.download_button(f"⬇ {_pa_fn}", _pa_pdf, file_name=_pa_fn,
+                            _sa_pdf = None
+                    if _sa_pdf:
+                        _sa_fn = pa_report.file_name(symbol, page="stock-analyzer")
+                        st.download_button(f"⬇ {_sa_fn}", _sa_pdf, file_name=_sa_fn,
                                            mime="application/pdf", type="primary",
-                                           key="pa_pdf_dl")
-                        st.caption(f"{len(_pa_pdf) / 1024:.0f} KB")
+                                           key="sa_pdf_dl")
+                        st.caption(f"{len(_sa_pdf) / 1024:.0f} KB")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

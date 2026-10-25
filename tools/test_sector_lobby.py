@@ -132,7 +132,8 @@ def test_sparkline_colour_follows_baseline():
 def test_opener_links_are_real_anchors():
     out = sl.opener_links("M&M")
     assert 'href="?nav=analyze&symbol=M%26M"' in out
-    assert 'href="?nav=predict&symbol=M%26M"' in out
+    # Predictive Analysis merged into the Stock Analyzer: one opener, not two.
+    assert "nav=predict" not in out
     assert "M&amp;M" in out and "<button" not in out
 
 

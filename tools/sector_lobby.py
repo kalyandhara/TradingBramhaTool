@@ -602,7 +602,7 @@ def sparkline_svg(values: list[float], prev: float | None,
 
 
 def opener_links(sym: str) -> str:
-    """Two anchor-styled openers for the active peer. Being <a href> elements is
+    """The anchor-styled opener for the active peer. Being <a href> elements is
     the point: they get the browser's native right-click / middle-click /
     Ctrl-click "open in new tab" behaviour, which a Streamlit button cannot."""
     from urllib.parse import quote
@@ -613,8 +613,6 @@ def opener_links(sym: str) -> str:
     s = html.escape(sym)
     return (f'<div><a href="?nav=analyze&symbol={q}" target="_self" style="{style}" '
             f'title="Right-click to open in a new tab">Open {s} in Stock Analyzer ↗</a>'
-            f'<a href="?nav=predict&symbol={q}" target="_self" style="{style}" '
-            f'title="Right-click to open in a new tab">Open {s} in Predictive Analysis ↗</a>'
             f'</div>')
 
 
