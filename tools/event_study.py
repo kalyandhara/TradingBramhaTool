@@ -180,15 +180,21 @@ def patch_sessions(closes: pd.DataFrame, dates: pd.Series,
     Yahoo never printed the special budget sessions (Sat 2015-02-28, Sat
     2020-02-01, Sun 2026-02-01) nor 2014-02-17. Snapping those to the next
     session would make d0 a two-session return — ~sqrt(2) larger, inflating a
-    magnitude test — so the real session is restored instead. A row that exists
-    with NIFTY missing (2014-02-17) is gap-filled; Yahoo's own values are kept. A date NSE has no
+    magnitude test — so the real session is restored instead. Partial rows are
+    gap-filled too: 2014-02-17 has Bank Nifty but no NIFTY, Sat 2025-02-01 has
+    NIFTY but no sector. A series is only filled between its first and last bar
+    (pre-inception NaN is not a gap), and Yahoo's own values are kept. A date NSE has no
     file for was not a trading day and is left for snap_to_sessions."""
     fetch = fetch or _nse_fetch_any_day
     out = closes.copy()
+    first, last = out.apply(pd.Series.first_valid_index), out.apply(pd.Series.last_valid_index)
     patched = []
-    have = set(out.index[out[MARKET].notna()].normalize()) if MARKET in out else set()
     for d in sorted(set(pd.to_datetime(pd.Series(dates)).dt.normalize())):
-        if d in have:                       # NIFTY printed that day: nothing to restore
+        present = out.loc[d] if d in out.index else pd.Series(np.nan, index=out.columns)
+        # a gap: missing on d while the series has history on both sides of d
+        gaps = [t for t in out.columns if pd.isna(present.get(t)) and pd.notna(first[t])
+                and first[t] < d < last[t]]
+        if not gaps:
             continue
         nse = fetch(d.date())
         if nse is None:
@@ -196,19 +202,17 @@ def patch_sessions(closes: pd.DataFrame, dates: pd.Series,
         vals = dict(zip(nse["Index Name"], pd.to_numeric(nse["Closing Index Value"],
                                                          errors="coerce")))
         row = {}
-        for t in out.columns:
+        for t in gaps:
             for name in NSE_NAMES.get(t, ()):
                 if name in vals and not np.isnan(vals[name]):
                     row[t] = float(vals[name])
                     break
-        if MARKET not in row:
+        if not row or (pd.isna(present.get(MARKET)) and MARKET not in row):
             continue
-        if d in out.index:                  # row exists (other series printed): fill gaps only
-            for t, v in row.items():
-                if pd.isna(out.at[d, t]):
-                    out.at[d, t] = v
-        else:
-            out.loc[d] = pd.Series(row)
+        if d not in out.index:
+            out.loc[d] = np.nan
+        for t, v in row.items():
+            out.at[d, t] = v
         patched.append(d)
     return out.sort_index(), patched
 
