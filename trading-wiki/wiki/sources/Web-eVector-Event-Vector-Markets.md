@@ -15,8 +15,9 @@ related: [analyses/Policy-Event-Study-Result, analyses/Home-Terminal-Layout-Spec
 - **Site:** https://evector.io. Read 2026-10-26: the public home page and `/markets/TSLA`.
 - **What it is:** a US-market research app. It is free at the top and has a waitlisted "Research Desk" at $19.99/month (full event map, full picks list, an AI analyst, state-change alerts, and MCP access for your own AI).
 - **How it was read:**
-  - Page text, screenshots, and a passive read of the public JavaScript bundle (UI strings and client-side detector logic only; no API calls, nothing behind the login).
-  - The REA reverse-engineering MCP needs a local Chrome DevTools endpoint, which this session does not have, so the bundle was read through the in-app browser instead.
+  - Page text, screenshots and a passive read of the public JavaScript bundle (UI strings and client-side detector logic).
+  - Then a full REA pass over a local Chrome DevTools endpoint (see "REA pass" below): the bundle graph, public logged-out endpoint *shapes* (field names, not data), the server-rendered data model and the exact detector thresholds.
+  - Nothing behind the login was touched.
 - **Bias:** neutral. It describes itself as "how prices behave around events … not investment advice".
 
 ## Key takeaways
@@ -51,6 +52,67 @@ related: [analyses/Policy-Event-Study-Result, analyses/Home-Terminal-Layout-Spec
 
 Other features: a "Who's leading the market" panel built from prices alone (industries crowding the top of the ranking, sector breakouts, retail-chatter names); "Today's system picks" (#1 of 5,619 screened, score 77, state Expansion, vs S&P 20 sessions); a "Your stocks" view where you pick a stock and today's events gather around it; and a rate-cycle panel ("If the Fed surprises with a hike…").
 
+## REA pass (2026-10-26): how it is built
+
+Method:
+- REA attached over CDP to a throwaway Chrome (`127.0.0.1:9222`, separate profile).
+- `analyze_web_bundle` covered 18 scripts and 487,828 AST nodes (the parsed-code count), with 0 parse failures.
+- The network log came from the logged-out `/markets/TSLA` page.
+- The server-rendered payload was read as field names, counts and enum values only.
+- REA's `capture_browser_scenario` failed in this environment ("provider is closing") in both connect and launch modes; the passive tools worked.
+
+**Stack.** Next.js (Turbopack) and React. Pages are server-rendered with React Server Components, so the day's events, graph and states arrive inside the HTML (~113 KB of payload on the home page), not from an API. The 737 KB chunk is WebGL/three.js and draws the 3-D vector hero.
+
+**Public endpoints (logged out).**
+
+| Endpoint | Shape |
+|---|---|
+| `GET /api/markets/bars?symbols=…&days=60` | `{bars: {SYM: [{time, open, high, low, close, volume}…]}, live}`, ~41 sessions for 60 days |
+| `GET /api/consensus?ids=q-…` | `{consensus: {id: {questionId, counts{option:n}, total, threshold, revealed, history[{at,label,shares}]}}, votes, voteCount, signedIn}` |
+| `GET /api/markets/watchlist` | `{signedIn, symbols}` |
+| `GET /api/logo/<SYM>` | logo image |
+| `POST /api/track`, `GET /api/me`, `/api/session`, `/api/seen`, `/api/predict`, `/api/signout` | analytics, session and casting a call |
+
+**The crowd is hidden until a threshold.** `revealed` stays false until `total` passes `threshold`, so you make your call before you see anyone else's. That is a deliberate anti-herding device.
+
+**Data model of an event chain** (one record per node; ~158 nodes on the home page):
+
+`{id, kind (event|macro|sector|theme|stock|asset_class|crypto|basket_return|categorical), label, symbol, parent, depth, secondOrder, expectedDirection, direction, strength (Mild|Moderate|Strong|Expected), evidence (observed|hypothesis), measured, measurement, momentum, rationale, questionId}`
+
+- `measurement` = `{asOf, price, change, excess, z, windowLabel ("20 sessions" | "since Oct 22")}`. Each link is scored by its move in excess of the market (`excess`) and that move scaled by the asset's own volatility (`z`).
+- An event has `occurredOn`, `impact`, `reaction`, `scenarios`, and `odds` for rate decisions (cut50/cut25/hold/hike). A question has `opensOn`, `resolvesOn` and `metricLabel`.
+
+**The momentum state machine** (per node: `momentum = {state, stateLabel, previousState, stateDuration, score 0–100, leadership 0–100, reasonCode, transitionReason}`). Reason codes seen:
+
+| reasonCode | transitionReason (verbatim) |
+|---|---|
+| IGNITION_HOLDING | Early evidence present; persistence not yet established. |
+| ACCEL_HOLDING | Momentum is broadening but has not yet met the minimum sequence length for Expansion. |
+| EXPANSION_HOLDING | Repeated confirmation continues; no controlled retracement and no deterioration. |
+| PULLBACK_HOLDING | Retracement remains controlled and the momentum structure is intact. |
+| WEAKENING_REPAIRED | Evidence repairs through renewed price discovery and efficient demand. |
+| BREAKDOWN_HOLDING | The prior momentum structure remains invalidated. |
+| NO_PROCESS | No qualifying momentum evidence. |
+
+The thresholds and the rules for moving between states are computed on the server and are **not** in the bundle; only the outputs are visible. The design itself is the lesson: a named state, how long it has held, the state before it, and a coded reason for the latest transition.
+
+**The "Tour this chart" detectors** (client-side, exact; they need ≥ 80 daily bars):
+
+| Finding | Rule | Weight |
+|---|---|---|
+| Breakout / failed breakout | in the last 15 bars, a close crosses above the prior 55-session closing high; **failed** if any later close is < 0.98 × the level | 0.7 + recency/50 + min(0.2, (RVOL−1)/5), where RVOL = volume ÷ the 20-bar average |
+| Breakdown / failed breakdown | mirror image: under the 55-session closing low; failed if a later close is > 1.02 × the level | same |
+| Volume expansion | average volume of the last 5 bars ÷ the 50 bars before ≥ 1.5 | min(0.85, 0.4 + (x−1.5)/3) |
+| Volatility expansion | Wilder ATR(14) now ÷ ATR 42 bars ago ≥ 1.4 | min(0.8, 0.4 + (x−1.4)/2) |
+| Squeeze | Bollinger(20, 2) width ÷ mid ≤ 1.05 × its minimum over 126 bars | 0.65 |
+| Bearish / bullish divergence | the last two 5-bar swing highs (lows) within 40 bars make a higher high (lower low) while RSI is more than 4 points lower (higher) | 0.7 |
+| Gap up / down | within the last 10 bars, \|open ÷ prior close − 1\| ≥ 3 % and still **unfilled** | 0.6 + min(0.2, \|gap\|) |
+| Crosses, 200-day average | named in the UI strings (outside the captured slice) | — |
+
+The tour also always opens with a **"now" step**: the 63-bar high-low range and the distance from each end, the momentum state and score, RVOL, and support/resistance lines. A **context step** says whether the stock is ahead of, in line with, or behind its ladder peers, using a ±5 % band, and overlays them with `COMPARE`.
+
+Each finding drives the chart through a small action language: `CLEAR`, `ZOOM_TO_RANGE`, `PRICE_LEVEL{price,label,tone}`, `HIGHLIGHT_CANDLE`, `HIGHLIGHT_RANGE`, `INDICATORS{ids}`, `COMPARE{symbols}`, `CONTEXT`, `SELECT_EVENT`. This finding-plus-actions protocol is the most portable piece of the whole site.
+
 ## Design and presentation notes (owner likes these)
 
 - **Look.** Warm off-white canvas, a large serif display face for headlines ("Every event creates a vector in the market."), a small all-caps eyebrow above each section, and generous whitespace.
@@ -69,11 +131,12 @@ Other features: a "Who's leading the market" panel built from prices alone (indu
 
 ## Actionable insights (ranked for this desk)
 
-1. **The momentum lifecycle state as a desk vocabulary.** It names where a move is in its life, which directly encodes the "current + forward-looking" view. The desk today has scanner hits and an RRG quadrant, but no single per-name/per-sector *state*. It has to be measured before it is trusted: do the transitions (e.g. Ignition → Expansion vs Ignition → Breakdown) carry forward returns? That needs a pre-registered study.
-2. **"Tour this chart" narration.** Turn the existing indicator and scanner overlays into ranked plain-English findings that drive the chart (draw the level, highlight the candle). This fits the beginner-readable direction (B-148–B-157 Indicator Browser v2) and the Stock Analyzer. The desk has already measured several of the same detectors (failed breakout B-182, squeeze/coil B-101, divergence), so each sentence can carry its own measured base rate. eVector does not do that.
+1. **The momentum lifecycle state as a desk vocabulary.** *REA adds:* copy the record shape (`state, previousState, stateDuration, score, leadership, reasonCode, transitionReason`). eVector's transition rules are on its server and are not visible, so ours must be written and pre-registered from scratch. It names where a move is in its life, which directly encodes the "current + forward-looking" view. The desk today has scanner hits and an RRG quadrant, but no single per-name/per-sector *state*. It has to be measured before it is trusted: do the transitions (e.g. Ignition → Expansion vs Ignition → Breakdown) carry forward returns? That needs a pre-registered study.
+2. **"Tour this chart" narration.** *REA adds:* the exact rules (table above) port to Python or `chart_tool` JS directly, and the finding-plus-chart-actions protocol is the part to copy. Its weights are hand-set and never measured; ours would use measured base rates instead. Turn the existing indicator and scanner overlays into ranked plain-English findings that drive the chart (draw the level, highlight the candle). This fits the beginner-readable direction (B-148–B-157 Indicator Browser v2) and the Stock Analyzer. The desk has already measured several of the same detectors (failed breakout B-182, squeeze/coil B-101, divergence), so each sentence can carry its own measured base rate. eVector does not do that.
 3. **A context ladder with "was it the stock or the market?"** Market → sector → industry → theme tiles with trend words, plus an attribution line (stock move vs sector vs NIFTY). The Sector Lobby and peers table hold most of the pieces; this is mostly a presentation layer on the Stock Analyzer.
 4. **Event markers on the chart, plus measured-vs-hypothesis event links.** B-184 just built the measurement half (`event_study.py`: the reaction measured from the close before the event). Plotting RBI and Budget days, earnings, block deals and corporate announcements as E/N/M/⚡ markers is the visual half. The "hypothesis until measured" edge wording fits the desk's pre-registration habit well.
-5. **Calls graded by the market.** This is the same idea as rec_audit (recommendations scored by later prices), but run forward and personal: "My record". A 5-session up/down call on a sector or name, final once made and resolved from closes, would give the owner a calibration score on their own reads.
+   *REA adds:* store each link as `{expectedDirection, direction, excess, z, evidence: observed|hypothesis}`, which is the same measurement `event_study.py` already makes for each event. A link becomes "measured" when its excess return has been computed, not when someone asserts it.
+5. **Calls graded by the market.** This is the same idea as rec_audit (recommendations scored by later prices), but run forward and personal: "My record". A 5-session up/down call on a sector or name, final once made and resolved from closes, would give the owner a calibration score on their own reads. *REA adds:* hide any comparison number (the crowd there; for us, the model's own score or the scanner verdict) until the call is made, as with eVector's `threshold`/`revealed`.
 
 ## Contradictions / cautions vs the wiki
 

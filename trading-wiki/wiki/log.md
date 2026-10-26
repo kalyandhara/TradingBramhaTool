@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-26] ingest | eVector — full REA pass (stack, endpoints, data model, detector thresholds)
+- [[sources/Web-eVector-Event-Vector-Markets]] updated from a REA pass over a local CDP endpoint: Next.js RSC (data in HTML), public endpoint shapes (bars, consensus with hidden-until-threshold crowd), event-node model with excess + z measurement, momentum record with previousState/stateDuration/reasonCode, and the exact chart-tour detector rules + action protocol. REA capture_browser_scenario fails here (provider closing); passive tools work.
+
 ## [2026-10-26] ingest | eVector (evector.io) — event map, momentum lifecycle, chart tour
 - [[sources/Web-eVector-Event-Vector-Markets]] read from public pages + the public JS bundle (UI strings and client-side detector logic; REA needs a CDP endpoint this session lacks). Filed B-185…B-189: lifecycle state (measure first), chart tour narration with measured base rates, context ladder + 'stock or market?', event markers on the chart, graded calls.
 
