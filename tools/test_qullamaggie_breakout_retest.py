@@ -5,6 +5,7 @@ Run:  python -m pytest tools/test_qullamaggie_breakout_retest.py -q
 """
 import numpy as np
 import pandas as pd
+import pytest
 
 import qullamaggie_breakout_retest as rt
 import qullamaggie_edge_study as qes
@@ -53,5 +54,7 @@ def test_wider_stop_is_never_stopped_out_earlier():
 def test_oos_universe_excludes_every_in_sample_name_and_funds():
     seen = {f.stem.replace("_1d", "") for f in rt.IN_SAMPLE.glob("*_1d.json")}
     oos = {f.stem.replace("_1d", "") for f in rt.oos_files()}
+    if not seen and not oos:
+        pytest.skip("no cached daily bars (tools/cache is gitignored) — fresh checkout")
     assert oos and not (oos & seen)
     assert not any(rt._is_fund(s) for s in oos)
