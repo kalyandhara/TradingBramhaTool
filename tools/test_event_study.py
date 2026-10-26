@@ -64,3 +64,83 @@ def test_load_events_rejects_duplicate(tmp_path):
     """)
     with pytest.raises(ValueError, match="duplicate"):
         es.load_events(p)
+
+
+# ── prices, returns, sessions ────────────────────────────────────────────────
+
+def _yf_frame(tickers, idx, closes):
+    """A frame shaped like yfinance.download(group_by="ticker"): (ticker, field)."""
+    cols = pd.MultiIndex.from_product([tickers, ["Open", "High", "Low", "Close", "Volume"]])
+    df = pd.DataFrame(np.nan, index=idx, columns=cols)
+    for t, c in zip(tickers, closes):
+        df[(t, "Close")] = c
+    return df
+
+
+def test_load_closes_flattens_multiindex_and_omits_empty(tmp_path):
+    idx = pd.bdate_range("2024-01-01", periods=5)
+    stub = lambda tickers, start: _yf_frame(["A", "B"], idx, [np.arange(5.0) + 1, np.nan])
+    closes, omitted = es.load_closes(["A", "B"], "2024-01-01", download=stub,
+                                     cache_dir=tmp_path, min_obs=1)
+    assert list(closes.columns) == ["A"]
+    assert omitted == ["B"]
+    assert closes["A"].tolist() == [1.0, 2.0, 3.0, 4.0, 5.0]
+
+
+def test_load_closes_omits_short_series(tmp_path):
+    """^CNXMEDIA on Yahoo is one bar: too short to estimate anything, so omitted."""
+    idx = pd.bdate_range("2024-01-01", periods=300)
+    short = np.full(300, np.nan); short[-1] = 5.0
+    stub = lambda tickers, start: _yf_frame(["A", "M"], idx, [np.arange(300.0) + 1, short])
+    closes, omitted = es.load_closes(["A", "M"], "2024-01-01", download=stub, cache_dir=tmp_path)
+    assert omitted == ["M"]
+
+
+def test_load_closes_uses_cache(tmp_path):
+    idx = pd.bdate_range("2024-01-01", periods=5)
+    stub = lambda tickers, start: _yf_frame(["A"], idx, [np.arange(5.0) + 1])
+    es.load_closes(["A"], "2024-01-01", download=stub, cache_dir=tmp_path, min_obs=1,
+                   today=pd.Timestamp("2024-01-06"))
+
+    def boom(tickers, start):
+        raise AssertionError("cache should have been used")
+    closes, _ = es.load_closes(["A"], "2024-01-01", download=boom, cache_dir=tmp_path,
+                               min_obs=1, today=pd.Timestamp("2024-01-06"))
+    assert closes["A"].iloc[-1] == 5.0
+
+
+def test_load_closes_refetches_stale_cache(tmp_path):
+    idx = pd.bdate_range("2024-01-01", periods=5)
+    calls = []
+    def stub(tickers, start):
+        calls.append(1)
+        return _yf_frame(["A"], idx, [np.arange(5.0) + 1])
+    es.load_closes(["A"], "2024-01-01", download=stub, cache_dir=tmp_path, min_obs=1,
+                   today=pd.Timestamp("2024-01-06"))
+    es.load_closes(["A"], "2024-01-01", download=stub, cache_dir=tmp_path, min_obs=1,
+                   today=pd.Timestamp("2024-03-01"))
+    assert len(calls) == 2
+
+
+def test_pair_returns_inner_joins_gaps():
+    idx = pd.bdate_range("2024-01-01", periods=5)
+    closes = pd.DataFrame({"^NSEI": [100.0, 101, 102, 104, 105],
+                           "S": [50.0, 51, np.nan, 53, 54]}, index=idx)
+    pr = es.pair_returns(closes, "S")
+    assert idx[2] not in pr.index
+    assert pr.loc[idx[3], "r"] == pytest.approx(np.log(53 / 51))
+    assert pr.loc[idx[3], "m"] == pytest.approx(np.log(104 / 101))
+    assert len(pr) == 3
+
+
+def test_snap_saturday_to_monday():
+    idx = pd.bdate_range("2020-01-27", "2020-02-07")
+    pos, snapped = es.snap_to_sessions(pd.Series(pd.to_datetime(["2020-02-01", "2020-02-06"])), idx)
+    assert idx[pos[0]] == pd.Timestamp("2020-02-03") and snapped[0]
+    assert idx[pos[1]] == pd.Timestamp("2020-02-06") and not snapped[1]
+
+
+def test_snap_after_last_session_is_minus_one():
+    idx = pd.bdate_range("2020-01-27", "2020-02-07")
+    pos, _ = es.snap_to_sessions(pd.Series(pd.to_datetime(["2020-03-01"])), idx)
+    assert pos[0] == -1
