@@ -679,3 +679,131 @@ _register("liquidity_sweep_bull", "Bullish liquidity sweep", "desk", "dated", "d
 _register("flag_pole_bull", "Bull flag & pole", "desk", "dated", "directional", det_flag_pole_bull)
 _register("abcd", "Bullish AB=CD (B-132 stop)", "desk", "dated", "directional", det_abcd)
 _register("adx_up_state", "ADX confirmed up-state", "desk", "state", "directional", det_adx_up_state)
+
+
+# --------------------------------------------------------------------------- #
+# Stock or market?, badges, the tour
+# --------------------------------------------------------------------------- #
+
+CONTEXT_BAND = 0.05
+MIN_BARS = 80
+STALE_DAYS = 45
+LABEL_TEXT = {"EDGE": "Edge", "INVERTED": "Worked backwards", "ORDINARY": "Ordinary",
+              "TOO_FEW": "Too few", "NOT_MEASURED": "Not measured"}
+
+
+def _ret20(df: pd.DataFrame | None) -> float | None:
+    if df is None or len(df) < 21:
+        return None
+    c = df["close"].to_numpy(float)
+    return float(c[-1] / c[-21] - 1) if c[-21] else None
+
+
+def context_step(df: pd.DataFrame, market_df: pd.DataFrame | None, sector_df: pd.DataFrame | None,
+                 sector_label: str | None, *, sector_symbol: str | None = None) -> dict:
+    """Was it the stock or the tape? Stock's 20-session return against NIFTY and
+    its sector index; ahead / behind when it beats / trails the better of the two
+    by more than 5 percentage points (eVector's band)."""
+    s, m, x = _ret20(df), _ret20(market_df), _ret20(sector_df)
+    bench = max(v for v in (m, x) if v is not None) if (m is not None or x is not None) else None
+    if s is None or bench is None:
+        verdict = None
+    elif s - bench > CONTEXT_BAND:
+        verdict = "ahead"
+    elif s - bench < -CONTEXT_BAND:
+        verdict = "behind"
+    else:
+        verdict = "in line"
+    parts = [f"{_pct(s)} over 20 sessions" if s is not None else "Not enough history"]
+    if m is not None:
+        parts.append(f"NIFTY {_pct(m)}")
+    if x is not None:
+        parts.append(f"{sector_label or 'its sector'} {_pct(x)}")
+    tail = {"ahead": "the stock is moving on its own, ahead of the tape.",
+            "behind": "the stock is lagging the tape.",
+            "in line": "it is moving with the tape.", None: ""}[verdict]
+    syms = ["^NSEI"] + ([sector_symbol] if sector_symbol and sector_df is not None else [])
+    return {
+        "id": "context", "title": "Stock or market?",
+        "body": ", ".join(parts) + (": " + tail if tail else "."),
+        "facts": {"stock20": s, "nifty20": m, "sector20": x, "verdict": verdict,
+                  "sector": sector_label},
+        "actions": validate_actions([
+            {"type": "CLEAR"},
+            {"type": "ZOOM_TO_RANGE", "from": t_of(df, -min(21, len(df))), "to": t_of(df, -1)},
+            {"type": "COMPARE", "symbols": syms},
+        ]),
+    }
+
+
+def _study(study_id: str | None) -> dict | None:
+    if not study_id:
+        return None
+    try:
+        import named_studies as ns
+        st = next((s for s in ns.STUDIES if s["item"] == study_id), None)
+    except Exception:
+        st = None
+    if st is None:
+        return {"id": study_id, "headline": None, "date": None, "verdict": None}
+    return {"id": study_id, "headline": st.get("headline"), "date": st.get("date"),
+            "verdict": st.get("verdict"), "source": st.get("source")}
+
+
+def badge_for(key: str, base_rates: dict | None, today) -> dict:
+    """The badge on a finding: its panel base-rate row in words, whether that row
+    is stale, and the strict study link for the desk's own detectors."""
+    study = _study(STUDY_LINKS.get(key))
+    row = ((base_rates or {}).get("detectors") or {}).get(key)
+    if not row:
+        return {"label": "NOT_MEASURED", "text": LABEL_TEXT["NOT_MEASURED"], "stale": False,
+                "asOf": None, "study": study}
+    as_of = pd.Timestamp(base_rates["asOf"])
+    stale = (pd.Timestamp(today).normalize() - as_of.normalize()).days > STALE_DAYS
+    label = row.get("label", "NOT_MEASURED")
+    head = LABEL_TEXT.get(label, label)
+    if label == "NOT_MEASURED" or row.get("mean20") is None:
+        text = head
+    else:
+        text = (f"{head} · {_pct(row['mean20'])} vs a normal day @20d · "
+                f"{row['n_events']} events / {row['n_symbols']} names · "
+                f"p {row['p20']:.2f} · as of {as_of:%Y-%m}")
+    return {"label": label, "text": text, "stale": bool(stale), "asOf": as_of.date().isoformat(),
+            "study": study}
+
+
+def build_tour(df: pd.DataFrame, *, market_df: pd.DataFrame | None, sector_df: pd.DataFrame | None,
+               sector_label: str | None, base_rates: dict | None, today,
+               sector_symbol: str | None = None, max_findings: int = 8) -> dict:
+    """Now, Stock-or-market?, then up to `max_findings` findings (newest first,
+    then by weight), each carrying its badge. A detector that raises costs its
+    own card and a note, never the tour."""
+    steps = [now_step(df)]
+    notes: list[str] = []
+    if len(df) < MIN_BARS:
+        notes.append("Too little history for findings.")
+        return {"asOf": t_of(df, -1), "steps": steps, "notes": notes}
+    if market_df is not None:
+        steps.append(context_step(df, market_df, sector_df, sector_label, sector_symbol=sector_symbol))
+
+    findings: dict[str, Finding] = {}
+    seen_fns = set()
+    for key, det in DETECTORS.items():
+        if id(det.fn) in seen_fns:
+            continue
+        seen_fns.add(id(det.fn))
+        try:
+            for f in det.fn(df):
+                validate_actions(f.actions)
+                findings.setdefault(f.id, f)
+        except Exception as e:                          # noqa: BLE001 - a card, not the tour
+            notes.append(f"{key} skipped ({type(e).__name__})")
+    last_t = t_of(df, -1)
+    ordered = sorted(findings.values(),
+                     key=lambda f: (-(f.time if f.time is not None else last_t), -f.weight))
+    for f in ordered[:max_findings]:
+        d = f.to_dict()
+        d["badge"] = badge_for(f.detector, base_rates, today)
+        d["family"] = DETECTORS[f.detector].family if f.detector in DETECTORS else None
+        steps.append(d)
+    return {"asOf": last_t, "steps": steps, "notes": notes}

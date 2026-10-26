@@ -398,3 +398,122 @@ def test_desk_wrappers_run_on_real_detectors():
     for k in ct.STUDY_LINKS:
         for f in ct.DETECTORS[k].fn(df):
             ct.validate_actions(f.actions)
+
+
+# ── Stock or market? ─────────────────────────────────────────────────────────
+
+def _ret_frame(total, n=80):
+    return frame(np.r_[np.full(n - 21, 100.0), np.linspace(100, 100 * (1 + total), 21)])
+
+
+def test_context_verdict_bands():
+    s = ct.context_step(_ret_frame(0.12), _ret_frame(0.02), _ret_frame(0.04), "Energy",
+                        sector_symbol="^CNXENERGY")
+    assert s["id"] == "context" and s["facts"]["verdict"] == "ahead"
+    assert s["facts"]["stock20"] == pytest.approx(0.12)
+    cmp_ = next(a for a in s["actions"] if a["type"] == "COMPARE")
+    assert cmp_["symbols"] == ["^NSEI", "^CNXENERGY"]
+    s2 = ct.context_step(_ret_frame(0.06), _ret_frame(0.02), _ret_frame(0.04), "Energy")
+    assert s2["facts"]["verdict"] == "in line"
+    s3 = ct.context_step(_ret_frame(-0.05), _ret_frame(0.02), _ret_frame(0.04), "Energy")
+    assert s3["facts"]["verdict"] == "behind"
+
+
+def test_context_without_sector():
+    s = ct.context_step(_ret_frame(0.12), _ret_frame(0.02), None, None)
+    assert s["facts"]["sector20"] is None and s["facts"]["verdict"] == "ahead"
+    assert next(a for a in s["actions"] if a["type"] == "COMPARE")["symbols"] == ["^NSEI"]
+
+
+# ── badges ────────────────────────────────────────────────────────────────────
+
+RATES = {"asOf": "2026-10-20", "detectors": {
+    "breakout55": {"label": "ORDINARY", "n_events": 3412, "n_symbols": 287, "mean20": 0.002,
+                   "p20": 0.41, "p20_holm": 1.0},
+    "liquidity_sweep_bull": {"label": "EDGE", "n_events": 900, "n_symbols": 210, "mean20": 0.0051,
+                             "p20": 0.001, "p20_holm": 0.01}}}
+TODAY = pd.Timestamp("2026-10-26")
+
+
+def test_badge_not_measured_when_missing():
+    assert ct.badge_for("breakout55", None, TODAY)["label"] == "NOT_MEASURED"
+    assert ct.badge_for("squeeze", RATES, TODAY)["label"] == "NOT_MEASURED"
+    assert ct.badge_for("squeeze", RATES, TODAY)["text"] == "Not measured"
+
+
+def test_badge_text_format():
+    b = ct.badge_for("breakout55", RATES, TODAY)
+    assert b["label"] == "ORDINARY" and not b["stale"]
+    assert b["text"] == "Ordinary · +0.2% vs a normal day @20d · 3412 events / 287 names · p 0.41 · as of 2026-10"
+    assert b["study"] is None
+
+
+def test_badge_stale_after_45_days():
+    assert ct.badge_for("breakout55", RATES, pd.Timestamp("2026-12-10"))["stale"] is True
+    assert ct.badge_for("breakout55", RATES, pd.Timestamp("2026-11-30"))["stale"] is False
+
+
+def test_badge_study_link_for_desk_detector():
+    b = ct.badge_for("liquidity_sweep_bull", RATES, TODAY)
+    assert b["label"] == "EDGE" and b["text"].startswith("Edge ·")
+    assert b["study"]["id"] == "B-41m" and "0.51" in b["study"]["headline"]
+
+
+# ── build_tour ────────────────────────────────────────────────────────────────
+
+def _fake(key, t, w):
+    return ct.Finding(id=f"{key}:{t}", detector=key, title=key, body="", facts={}, time=t,
+                      weight=w, tone="up", watch=None, actions=[{"type": "CLEAR"}])
+
+
+def test_build_tour_order_and_cap(monkeypatch):
+    dets = {}
+    for k in range(10):
+        key = f"d{k}"
+        dets[key] = ct.Detector(key, key, "evector", "dated", "directional",
+                                (lambda df, key=key, k=k: [_fake(key, 1000 + (k // 2), 0.1 * k)]))
+    monkeypatch.setattr(ct, "DETECTORS", dets)
+    tour = ct.build_tour(_base(), market_df=None, sector_df=None, sector_label=None,
+                         base_rates=None, today=TODAY)
+    found = [s for s in tour["steps"] if s["id"] not in ("now", "context")]
+    assert len(found) == 8
+    assert [s["detector"] for s in found[:3]] == ["d9", "d8", "d7"]   # newest, then weight
+    assert all(s["badge"]["label"] == "NOT_MEASURED" for s in found)
+
+
+def test_build_tour_short_history():
+    tour = ct.build_tour(frame(np.linspace(100, 110, 60)), market_df=None, sector_df=None,
+                         sector_label=None, base_rates=None, today=TODAY)
+    assert [s["id"] for s in tour["steps"]] == ["now"]
+    assert "Too little history for findings." in tour["notes"]
+
+
+def test_build_tour_skips_raising_detector(monkeypatch):
+    def boom(df):
+        raise KeyError("pattern")
+    dets = {"ok": ct.Detector("ok", "ok", "evector", "dated", "directional", lambda df: [_fake("ok", 5, 0.5)]),
+            "bad": ct.Detector("bad", "bad", "desk", "dated", "directional", boom)}
+    monkeypatch.setattr(ct, "DETECTORS", dets)
+    tour = ct.build_tour(_base(), market_df=None, sector_df=None, sector_label=None,
+                         base_rates=None, today=TODAY)
+    assert [s["detector"] for s in tour["steps"] if s.get("detector")] == ["ok"]
+    assert any("bad" in n for n in tour["notes"])
+
+
+def test_build_tour_keeps_one_card_per_finding_when_a_fn_backs_two_keys(monkeypatch):
+    f = lambda df: [_fake("breakout55", 7, 0.5)]  # noqa: E731
+    dets = {"breakout55": ct.Detector("breakout55", "b", "evector", "dated", "directional", f),
+            "failed_breakout55": ct.Detector("failed_breakout55", "fb", "evector", "dated", "directional", f)}
+    monkeypatch.setattr(ct, "DETECTORS", dets)
+    tour = ct.build_tour(_base(), market_df=None, sector_df=None, sector_label=None,
+                         base_rates=None, today=TODAY)
+    assert len([s for s in tour["steps"] if s.get("detector")]) == 1
+
+
+def test_every_action_in_a_tour_is_valid():
+    df = frame(100 + np.cumsum(np.random.default_rng(7).normal(0.1, 1.5, 320)))
+    tour = ct.build_tour(df, market_df=_ret_frame(0.02, 320), sector_df=None, sector_label=None,
+                         base_rates=RATES, today=TODAY)
+    assert tour["steps"][0]["id"] == "now" and tour["steps"][1]["id"] == "context"
+    for s in tour["steps"]:
+        ct.validate_actions(s["actions"])
