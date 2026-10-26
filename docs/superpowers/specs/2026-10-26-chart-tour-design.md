@@ -154,7 +154,9 @@ re-fire within 20 bars (for the base-rate job; the tour shows the current state)
 `CLEAR` · `ZOOM_TO_RANGE{from,to}` · `PRICE_LEVEL{price,label,tone}` ·
 `HIGHLIGHT_CANDLE{time,tone}` · `HIGHLIGHT_RANGE{from,to,tone}` ·
 `INDICATORS{ids}` (existing `INDICATOR_DEFS` keys only) · `COMPARE{symbols}`.
-Times are ISO dates of bars in the response; tone ∈ up/down/neutral/accent.
+Times are the bars' own `time` values (unix seconds, as `/api/ohlcv` serves them and
+the chart plots them); tone ∈ up/down/neutral/accent. *(Amended 2026-10-26 while
+planning: ISO dates would need a conversion the chart never does elsewhere.)*
 `validate_actions` rejects anything else; the JS executor ignores unknown types.
 
 ## 3. Base rates (`tour_base_rates.py`)
