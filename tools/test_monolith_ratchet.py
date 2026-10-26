@@ -41,7 +41,7 @@ MAX_SILENT_HANDLERS = 12    # actual 12 — peer comparison continue handler fro
 # the next page removes its `if current_page == "..."` block and adds nothing,
 # taking this number to 324, then 323, then 322 — the ratchet now falls with
 # each extraction instead of creeping up, which is what B-87 installed it for.
-MAX_MODULE_STATEMENTS = 304  # actual 304 — B-179 Home terminal layout (2026-10-18)
+MAX_MODULE_STATEMENTS = 303  # actual 303 — PA merge shim folded (2026-10-26)
 MAX_RAW_HTML_RENDERS = 82  # actual 82 — B-179 Home terminal layout (2026-10-18)
 
 
