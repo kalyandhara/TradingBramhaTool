@@ -68,8 +68,13 @@ trading-wiki/wiki/analyses/Policy-Event-Study-Result.md
 
 - **d0** = the trading session containing the announcement. All announcements are
   intraday, so d0's close-to-close return captures them.
-- If the date has no bar (e.g. a Saturday budget session Yahoo lacks), snap to the
-  next session and set a `snapped` flag in the output.
+- If Yahoo has no bar for an event date, the session is restored from NSE's
+  all-indices file for that day (`patch_sessions`; Yahoo and NSE closes agree to
+  the paisa). Yahoo lacks Sat 2015-02-28, Sat 2020-02-01, Sun 2026-02-01 and
+  2014-02-17 — all real sessions. *(Amended 2026-10-26 during implementation:
+  snapping these to the next session would make d0 a two-session return, ~√2
+  larger, inflating the magnitude tests.)* Only a date NSE also has no file for
+  is snapped to the next session, with a `snapped` flag.
 - Validation: unknown `event_type`/`label` → error; duplicate (date, type) → error.
 - Unscheduled MPC moves (27-Mar-2020, 22-May-2020, 4-May-2022) are excluded from
   the primary set and reported separately as an n=3 note.

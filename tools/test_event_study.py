@@ -356,9 +356,11 @@ def test_small_bucket_is_na():
 def test_run_study_json_serialisable():
     import json
     closes, ev = _synthetic()
-    res = es.run_study(closes, ev, es.StudyConfig(**FAST), omitted=["^CNXMEDIA"])
+    res = es.run_study(closes, ev, es.StudyConfig(**FAST), omitted=["^CNXMEDIA"],
+                       patched=[pd.Timestamp("2020-02-01")])
     json.dumps(res)
     assert res["meta"]["omitted"] == ["^CNXMEDIA"]
+    assert res["meta"]["patched"] == ["2020-02-01"]
     md = es.render_markdown(res)
     assert "P1" in md and "Verdicts" in md
 
@@ -380,3 +382,45 @@ def test_rolling_ar_matches_single_event_model():
     for p in (150, 260, 330, 399):
         assert rolled.iloc[p] == pytest.approx(es.market_model_ar(pr, p).loc[0], abs=1e-10)
     assert np.isnan(rolled.iloc[100])        # < 120 estimation rows, like market_model_ar -> None
+
+
+# ── special sessions Yahoo never printed (Saturday/Sunday budgets) ───────────
+
+def test_patch_sessions_inserts_missing_event_day():
+    """Yahoo has no bar for the 2020-02-01 Saturday budget session; NSE does.
+    Without the patch, d0 would be Monday and its return would span two
+    sessions — about sqrt(2) larger, which inflates a magnitude test."""
+    idx = pd.to_datetime(["2020-01-30", "2020-01-31", "2020-02-03", "2020-02-04"])
+    closes = pd.DataFrame({es.MARKET: [100.0, 101, 95, 96], "^NSEBANK": [50.0, 51, 47, 48]},
+                          index=idx)
+    nse = pd.DataFrame({"Index Name": ["Nifty 50", "Nifty Bank", "Nifty IT"],
+                        "Closing Index Value": ["98.0", "49.5", "-"]})
+    calls = []
+    def fetch(day):
+        calls.append(day)
+        return nse if day == pd.Timestamp("2020-02-01").date() else None
+    out, patched = es.patch_sessions(closes, pd.Series(pd.to_datetime(["2020-02-01", "2020-01-31"])),
+                                     fetch=fetch)
+    assert patched == [pd.Timestamp("2020-02-01")]
+    assert out.loc["2020-02-01", es.MARKET] == 98.0
+    assert out.loc["2020-02-01", "^NSEBANK"] == 49.5
+    assert out.index.is_monotonic_increasing and len(out) == 5
+    assert calls == [pd.Timestamp("2020-02-01").date()]    # dates Yahoo has are not fetched
+
+
+def test_patch_sessions_reads_legacy_cnx_names():
+    idx = pd.to_datetime(["2015-02-27", "2015-03-02"])
+    closes = pd.DataFrame({es.MARKET: [100.0, 102], "NIFTY_FIN_SERVICE.NS": [10.0, 11]}, index=idx)
+    nse = pd.DataFrame({"Index Name": ["CNX Nifty", "CNX Finance"],
+                        "Closing Index Value": ["101.0", "10.5"]})
+    out, patched = es.patch_sessions(closes, pd.Series(pd.to_datetime(["2015-02-28"])),
+                                     fetch=lambda d: nse)
+    assert out.loc["2015-02-28", "NIFTY_FIN_SERVICE.NS"] == 10.5
+
+
+def test_patch_sessions_leaves_non_trading_day_alone():
+    idx = pd.to_datetime(["2020-01-30", "2020-01-31"])
+    closes = pd.DataFrame({es.MARKET: [100.0, 101]}, index=idx)
+    out, patched = es.patch_sessions(closes, pd.Series(pd.to_datetime(["2020-02-02"])),
+                                     fetch=lambda d: None)
+    assert patched == [] and len(out) == 2

@@ -44,8 +44,10 @@ def main(argv: list[str] | None = None) -> Path:
     if es.MARKET in omitted:
         raise SystemExit("NIFTY (^NSEI) download failed — no partial run")
 
+    closes, patched = es.patch_sessions(closes, events["date"])
+
     cfg = es.StudyConfig(draws=args.draws, seed=args.seed)
-    result = es.run_study(closes, events, cfg, omitted=omitted)
+    result = es.run_study(closes, events, cfg, omitted=omitted, patched=patched)
 
     out = Path(args.out)
     out.mkdir(parents=True, exist_ok=True)

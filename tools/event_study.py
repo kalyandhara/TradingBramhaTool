@@ -140,6 +140,73 @@ def load_closes(tickers: list[str], start: str, download=None,
     return df.drop(columns=omitted), omitted
 
 
+#: NSE all-indices file names per ticker: current name first, then the pre-2016
+#: "CNX" name. Yahoo's closes equal NSE's to the paisa (checked 2026-10-23, all 13).
+NSE_NAMES: dict[str, tuple[str, ...]] = {
+    "^NSEI": ("Nifty 50", "CNX Nifty"), "^NSEBANK": ("Nifty Bank", "CNX Bank"),
+    "^CNXIT": ("Nifty IT", "CNX IT"), "^CNXPHARMA": ("Nifty Pharma", "CNX Pharma"),
+    "^CNXFMCG": ("Nifty FMCG", "CNX FMCG"), "^CNXMETAL": ("Nifty Metal", "CNX Metal"),
+    "^CNXINFRA": ("Nifty Infrastructure", "CNX Infrastructure"),
+    "^CNXREALTY": ("Nifty Realty", "CNX Realty"), "^CNXENERGY": ("Nifty Energy", "CNX Energy"),
+    "^CNXAUTO": ("Nifty Auto", "CNX Auto"), "^CNXPSUBANK": ("Nifty PSU Bank", "CNX PSU Bank"),
+    "^CNXPSE": ("Nifty PSE", "CNX PSE"),
+    "NIFTY_FIN_SERVICE.NS": ("Nifty Financial Services", "CNX Finance"),
+}
+
+
+def _nse_fetch_any_day(day):
+    """NSE's all-indices file for exactly `day`, weekends included (special
+    budget sessions). sector_rotation.fetch_nse_index_closes skips weekends by
+    design, so this asks for the file directly; it shares that disk cache."""
+    import io
+    import requests
+    import sector_rotation as sr
+    cached = sr._nse_index_cache(day)
+    if cached.exists():
+        return pd.read_csv(cached)
+    r = requests.get(sr.NSE_INDEX_CLOSE_URL.format(ddmmyyyy=day.strftime("%d%m%Y")),
+                     headers=sr.NSE_HEADERS, timeout=20)
+    if r.status_code != 200 or len(r.content) < 500 or b"Index Name" not in r.content[:2000]:
+        return None
+    cached.parent.mkdir(parents=True, exist_ok=True)
+    cached.write_bytes(r.content)
+    return pd.read_csv(io.BytesIO(r.content))
+
+
+def patch_sessions(closes: pd.DataFrame, dates: pd.Series,
+                   fetch=None) -> tuple[pd.DataFrame, list[pd.Timestamp]]:
+    """Insert NSE closes for event dates Yahoo has no bar for.
+
+    Yahoo never printed the special budget sessions (Sat 2015-02-28, Sat
+    2020-02-01, Sun 2026-02-01) nor 2014-02-17. Snapping those to the next
+    session would make d0 a two-session return — ~sqrt(2) larger, inflating a
+    magnitude test — so the real session is restored instead. A date NSE has no
+    file for was not a trading day and is left for snap_to_sessions."""
+    fetch = fetch or _nse_fetch_any_day
+    out = closes.copy()
+    patched = []
+    have = set(out.index.normalize())
+    for d in sorted(set(pd.to_datetime(pd.Series(dates)).dt.normalize())):
+        if d in have:
+            continue
+        nse = fetch(d.date())
+        if nse is None:
+            continue
+        vals = dict(zip(nse["Index Name"], pd.to_numeric(nse["Closing Index Value"],
+                                                         errors="coerce")))
+        row = {}
+        for t in out.columns:
+            for name in NSE_NAMES.get(t, ()):
+                if name in vals and not np.isnan(vals[name]):
+                    row[t] = float(vals[name])
+                    break
+        if MARKET not in row:
+            continue
+        out.loc[d] = pd.Series(row)
+        patched.append(d)
+    return out.sort_index(), patched
+
+
 def pair_returns(closes: pd.DataFrame, ticker: str, market: str = MARKET) -> pd.DataFrame:
     """Log returns of `ticker` (r) and the market (m) on the dates BOTH printed.
 
@@ -547,7 +614,8 @@ def _exploratory(panel, set_, pos, M, cfg) -> list[dict]:
 
 
 def run_study(closes: pd.DataFrame, events: pd.DataFrame, cfg: StudyConfig | None = None,
-              omitted: list[str] | None = None) -> dict:
+              omitted: list[str] | None = None,
+              patched: list[pd.Timestamp] | None = None) -> dict:
     """Run the pre-registered tests (spec section 3); returns a JSON-safe dict.
 
     `events` may hold scheduled and unscheduled rows: only scheduled rows are
@@ -612,6 +680,7 @@ def run_study(closes: pd.DataFrame, events: pd.DataFrame, cfg: StudyConfig | Non
 
     sched = ev[ev["scheduled"] == 1]
     meta = {"config": asdict(cfg), "omitted": list(omitted or []),
+            "patched": list(patched or []),
             "sample": [panel.index[0], panel.index[-1]], "sectors": panel.sectors,
             "events": {s: int(n) for s, n in sched["event_type"].value_counts().sort_index().items()},
             "labels": {f"{s}:{l}": int(n) for (s, l), n
@@ -637,6 +706,7 @@ def render_markdown(result: dict) -> str:
          f"- Sample: {m['sample'][0]} .. {m['sample'][1]}",
          f"- Scheduled events: {m['events']} · labels: {m['labels']}",
          f"- Sectors: {len(m['sectors'])} · omitted: {m['omitted'] or 'none'}",
+         f"- Sessions patched from NSE (missing on Yahoo): {m.get('patched') or 'none'}",
          f"- Snapped to next session: {m['snapped'] or 'none'}",
          f"- Null A: {m['config']['draws']} matched random-date draws, exclusion "
          f"+/-{m['config']['exclude']} days, seed {m['config']['seed']}, "
