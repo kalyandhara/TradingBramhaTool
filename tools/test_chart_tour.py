@@ -90,3 +90,88 @@ def test_now_step_rvol_skips_zero_volume():
 def test_t_of_is_unix_seconds():
     df = frame(np.full(5, 1.0), start="2024-01-01")
     assert ct.t_of(df, 0) == int(pd.Timestamp("2024-01-01", tz="UTC").timestamp())
+
+
+# ── breakout / breakdown (55-session closing extremes) ───────────────────────
+
+def _flat_then(n=80, at=-5, value=106.0, after=105.0, base=100.0):
+    c = np.full(n, base)
+    k = n + at
+    c[k] = value
+    c[k + 1:] = after
+    return c
+
+
+def test_breakout55_fires_and_watch_is_98pct():
+    df = frame(_flat_then())
+    f = ct.det_breakout55(df)
+    assert len(f) == 1 and f[0].detector == "breakout55" and f[0].tone == "up"
+    assert f[0].facts["level"] == pytest.approx(100.0)
+    assert f[0].watch["level"] == pytest.approx(98.0)
+    assert f[0].time == ct.t_of(df, -5)
+    ct.validate_actions(f[0].actions)
+
+
+def test_breakout_becomes_failed_below_98pct():
+    df = frame(_flat_then(after=97.5))
+    f = ct.det_breakout55(df)
+    assert f[0].detector == "failed_breakout55" and f[0].tone == "down"
+
+
+def test_breakout_at_exactly_98pct_is_not_failed():
+    assert ct.det_breakout55(frame(_flat_then(after=98.0)))[0].detector == "breakout55"
+
+
+def test_breakout_older_than_15_bars_ignored():
+    assert ct.det_breakout55(frame(_flat_then(at=-20))) == []
+
+
+def test_breakout_weight_formula():
+    c = _flat_then(at=-1, value=106.0)
+    v = np.full(80, 1000.0)
+    v[-1] = 2000.0
+    f = ct.det_breakout55(frame(c, volume=v))
+    assert f[0].weight == pytest.approx(0.7 + 14 / 50 + 0.2)
+
+
+def test_breakdown55_mirror_and_failed_at_102pct():
+    f = ct.det_breakdown55(frame(_flat_then(value=94.0, after=95.0)))
+    assert f[0].detector == "breakdown55" and f[0].tone == "down"
+    assert f[0].watch["level"] == pytest.approx(102.0)
+    g = ct.det_breakdown55(frame(_flat_then(value=94.0, after=102.5)))
+    assert g[0].detector == "failed_breakdown55" and g[0].tone == "up"
+
+
+# ── gaps ──────────────────────────────────────────────────────────────────────
+
+def _gap_frame(gap=0.035, at=-4, fill=False, n=80):
+    c = np.full(n, 100.0)
+    k = n + at
+    c[k:] = 100.0 * (1 + gap)
+    o = c.copy()
+    lo = c * 0.995
+    hi = c * 1.005
+    if fill:
+        lo[k + 1] = 99.9 if gap > 0 else lo[k + 1]
+        hi[k + 1] = 100.1 if gap < 0 else hi[k + 1]
+    return frame(c, open_=o, low=lo, high=hi)
+
+
+def test_gap_up_unfilled_fires_filled_does_not():
+    f = ct.det_gaps(_gap_frame())
+    assert len(f) == 1 and f[0].detector == "gap_up"
+    assert f[0].watch["level"] == pytest.approx(100.0)
+    assert ct.det_gaps(_gap_frame(fill=True)) == []
+
+
+def test_gap_down_unfilled():
+    f = ct.det_gaps(_gap_frame(gap=-0.04))
+    assert f[0].detector == "gap_down" and f[0].tone == "down"
+
+
+def test_gap_below_3pct_ignored():
+    assert ct.det_gaps(_gap_frame(gap=0.029)) == []
+
+
+def test_gap_older_than_10_bars_ignored():
+    assert ct.det_gaps(_gap_frame(at=-12)) == []

@@ -141,3 +141,134 @@ def now_step(df: pd.DataFrame) -> dict:
 
 #: Registry filled in by the detector sections below.
 DETECTORS: dict[str, Detector] = {}
+
+
+def _register(key, label, family, kind, claim, fn):
+    DETECTORS[key] = Detector(key, label, family, kind, claim, fn)
+
+
+def _zoom63(df) -> dict:
+    return {"type": "ZOOM_TO_RANGE", "from": t_of(df, -min(63, len(df))), "to": t_of(df, -1)}
+
+
+# --------------------------------------------------------------------------- #
+# Ported from eVector: 55-session closing breakout / breakdown, unfilled gaps
+# --------------------------------------------------------------------------- #
+
+BRK_LOOKBACK = 55          # prior closes the level is taken from
+BRK_SCAN = 15              # how far back a cross still counts
+BRK_FAIL_UP = 0.98         # a later close under 0.98 x level fails a breakout
+BRK_FAIL_DN = 1.02         # a later close over 1.02 x level fails a breakdown
+
+
+def _cross_55(df: pd.DataFrame, up: bool) -> list[Finding]:
+    """The oldest close in the last 15 bars that crosses the prior 55-session
+    closing high (low), as eVector scans it. Failed when any LATER close is back
+    beyond 2% the other side of the level."""
+    c = df["close"].to_numpy(float)
+    n = len(c)
+    for i in range(n - BRK_SCAN, n):
+        if i - BRK_LOOKBACK < 0:
+            continue
+        prior = c[i - BRK_LOOKBACK:i]
+        level = prior.max() if up else prior.min()
+        crossed = (c[i] > level and c[i - 1] <= level) if up else (c[i] < level and c[i - 1] >= level)
+        if not crossed:
+            continue
+        later = c[i + 1:]
+        failed = bool((later < BRK_FAIL_UP * level).any()) if up else bool((later > BRK_FAIL_DN * level).any())
+        rv = rvol(df, i)
+        weight = 0.7 + (i - (n - BRK_SCAN)) / 50 + (min(0.2, (rv - 1) / 5) if rv is not None else 0.0)
+        vol_txt = f" on {rv:.1f}× usual volume" if rv is not None else ""
+        ago = n - 1 - i
+        when = "today" if ago == 0 else f"{ago} session{'s' if ago > 1 else ''} ago"
+        if up:
+            key = "failed_breakout55" if failed else "breakout55"
+            tone = "down" if failed else "up"
+            title = ("A breakout over its 55-day closing high failed" if failed
+                     else "Broke out over its 55-day closing high")
+            body = (f"Closed above {_px(level)}{vol_txt} {when}"
+                    + (", then closed back more than 2% below it." if failed else "."))
+            watch = ({"text": f"A close back above {_px(level)} reclaims the level", "level": float(level)}
+                     if failed else
+                     {"text": f"A close under {_px(BRK_FAIL_UP * level)} (−2%) turns it into a failed breakout",
+                      "level": round(float(BRK_FAIL_UP * level), 2)})
+        else:
+            key = "failed_breakdown55" if failed else "breakdown55"
+            tone = "up" if failed else "down"
+            title = ("A breakdown under its 55-day closing low failed" if failed
+                     else "Broke down under its 55-day closing low")
+            body = (f"Closed below {_px(level)}{vol_txt} {when}"
+                    + (", then closed back more than 2% above it." if failed else "."))
+            watch = ({"text": f"A close back below {_px(level)} loses the level again", "level": float(level)}
+                     if failed else
+                     {"text": f"A close over {_px(BRK_FAIL_DN * level)} (+2%) turns it into a failed breakdown",
+                      "level": round(float(BRK_FAIL_DN * level), 2)})
+        t = t_of(df, i)
+        return [Finding(
+            id=f"{key}:{t}", detector=key, title=title, body=body,
+            facts={"level": float(level), "rvol": rv, "sessions": BRK_LOOKBACK, "bars_ago": ago},
+            time=t, weight=weight, tone=tone, watch=watch,
+            actions=validate_actions([
+                {"type": "CLEAR"}, _zoom63(df),
+                {"type": "PRICE_LEVEL", "price": float(level),
+                 "label": f"55-day closing {'high' if up else 'low'}", "tone": "up" if up else "down"},
+                {"type": "HIGHLIGHT_CANDLE", "time": t, "tone": "accent"},
+            ]))]
+    return []
+
+
+def det_breakout55(df: pd.DataFrame) -> list[Finding]:
+    return _cross_55(df, up=True)
+
+
+def det_breakdown55(df: pd.DataFrame) -> list[Finding]:
+    return _cross_55(df, up=False)
+
+
+GAP_MIN = 0.03
+GAP_SCAN = 10
+
+
+def det_gaps(df: pd.DataFrame) -> list[Finding]:
+    """The newest open gap of at least 3% in the last 10 bars that price has not
+    traded back to (a gap up is filled when any later-or-same bar's low reaches
+    the prior close; a gap down when a high does)."""
+    o, h, l, c = (df[k].to_numpy(float) for k in ("open", "high", "low", "close"))
+    n = len(c)
+    for i in range(n - 1, max(0, n - 1 - GAP_SCAN), -1):
+        prev = c[i - 1]
+        if not prev or not np.isfinite(prev):
+            continue
+        r = o[i] / prev - 1
+        if abs(r) < GAP_MIN:
+            continue
+        filled = bool((l[i:] <= prev).any()) if r > 0 else bool((h[i:] >= prev).any())
+        if filled:
+            continue
+        up = r > 0
+        key = "gap_up" if up else "gap_down"
+        t = t_of(df, i)
+        ago = n - 1 - i
+        return [Finding(
+            id=f"{key}:{t}", detector=key,
+            title=f"An unfilled gap {'up' if up else 'down'} of {_pct(r)}",
+            body=f"Opened {_pct(r)} {'above' if up else 'below'} the prior close {_px(prev)} "
+                 f"{ago} session{'s' if ago != 1 else ''} ago and has not traded back to it.",
+            facts={"gap": float(r), "level": float(prev), "bars_ago": ago},
+            time=t, weight=0.6 + min(0.2, abs(r)), tone="up" if up else "down",
+            watch={"text": f"A trade back to {_px(prev)} fills the gap", "level": float(prev)},
+            actions=validate_actions([
+                {"type": "CLEAR"}, _zoom63(df),
+                {"type": "PRICE_LEVEL", "price": float(prev), "label": "gap fill", "tone": "neutral"},
+                {"type": "HIGHLIGHT_CANDLE", "time": t, "tone": "accent"},
+            ]))]
+    return []
+
+
+_register("breakout55", "55-day closing-high breakout", "evector", "dated", "directional", det_breakout55)
+_register("failed_breakout55", "Failed 55-day breakout", "evector", "dated", "directional", det_breakout55)
+_register("breakdown55", "55-day closing-low breakdown", "evector", "dated", "directional", det_breakdown55)
+_register("failed_breakdown55", "Failed 55-day breakdown", "evector", "dated", "directional", det_breakdown55)
+_register("gap_up", "Unfilled gap up (≥3%)", "evector", "dated", "directional", det_gaps)
+_register("gap_down", "Unfilled gap down (≥3%)", "evector", "dated", "directional", det_gaps)
