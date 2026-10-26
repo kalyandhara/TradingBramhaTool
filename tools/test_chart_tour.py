@@ -294,3 +294,107 @@ def test_golden_and_death_cross_within_20():
     assert ct.det_crosses(frame(dn))[0].detector == "death_cross"
     old = np.r_[np.full(200, 100.0), np.linspace(101, 130, 60)]
     assert ct.det_crosses(frame(old)) == []
+
+
+# ── desk detectors (wrappers) ─────────────────────────────────────────────────
+
+import scanner_templates as sc  # noqa: E402
+import flag_pole as fp  # noqa: E402
+import harmonic_patterns as hp  # noqa: E402
+
+
+def _base(n=120):
+    return frame(np.linspace(100, 120, n))
+
+
+def test_structure_break_held_from_chain(monkeypatch):
+    df = _base()
+    n = len(df)
+    monkeypatch.setattr(sc, "detect_structure_chain", lambda d, **k: {"events": [
+        {"bar": n - 3, "type": "BOS", "direction": "up", "level": 105.0, "quality": "STRONG",
+         "failed": False, "failed_bar": None}]})
+    f = ct.det_structure_break_held(df)
+    assert f and f[0].detector == "structure_break_held" and f[0].tone == "up"
+    assert f[0].watch["level"] == pytest.approx(105.0)
+    assert f[0].time == ct.t_of(df, n - 3)
+
+
+def test_structure_break_failed_or_old_gives_nothing(monkeypatch):
+    df = _base()
+    n = len(df)
+    monkeypatch.setattr(sc, "detect_structure_chain", lambda d, **k: {"events": [
+        {"bar": n - 3, "type": "BOS", "direction": "up", "level": 105.0, "failed": True}]})
+    assert ct.det_structure_break_held(df) == []
+    monkeypatch.setattr(sc, "detect_structure_chain", lambda d, **k: {"events": [
+        {"bar": n - 40, "type": "BOS", "direction": "up", "level": 105.0, "failed": False}]})
+    assert ct.det_structure_break_held(df) == []
+
+
+def test_liquidity_sweep_bull_only(monkeypatch):
+    df = _base()
+    monkeypatch.setattr(sc, "detect_liquidity_sweep",
+                        lambda d, **k: {"direction": "bearish", "level": 130.0, "bars_ago": 1})
+    assert ct.det_liquidity_sweep_bull(df) == []
+    monkeypatch.setattr(sc, "detect_liquidity_sweep",
+                        lambda d, **k: {"direction": "bullish", "level": 95.0, "bars_ago": 2,
+                                        "touches": 3})
+    f = ct.det_liquidity_sweep_bull(df)
+    assert f and f[0].tone == "up" and f[0].watch["level"] == pytest.approx(95.0)
+    assert f[0].time == ct.t_of(df, -3)
+
+
+def test_flag_pole_bull(monkeypatch):
+    df = _base()
+    n = len(df)
+    monkeypatch.setattr(fp, "detect_flag_pole", lambda d, direction="bull", **k: {
+        "direction": "bull", "flag_end": n - 2, "pole_low": 100.0, "pole_high": 115.0,
+        "flag_high": 114.0, "flag_low": 110.0, "entry": 114.0, "stop": 110.0, "target": 129.0,
+        "broken": False})
+    f = ct.det_flag_pole_bull(df)
+    assert f and f[0].watch["level"] == pytest.approx(110.0)
+
+
+def test_abcd_requires_bullish_abcd(monkeypatch):
+    df = _base()
+    monkeypatch.setattr(sc, "scan_harmonic_reversal", lambda d: {
+        "pattern_type": "Harmonic Gartley", "direction": "bullish", "entry": 100.0, "stop": 95.0})
+    assert ct.det_abcd(df) == []
+    monkeypatch.setattr(sc, "scan_harmonic_reversal", lambda d: {
+        "pattern_type": "Harmonic AB=CD", "direction": "bullish", "entry": 100.0, "stop": 92.0})
+    monkeypatch.setattr(hp, "detect_last_pattern",
+                        lambda d, **k: {"points": {"D": {"idx": len(d) - 3, "price": 100.0}}})
+    f = ct.det_abcd(df)
+    assert f and f[0].watch["level"] == pytest.approx(92.0)
+    assert f[0].time == ct.t_of(df, len(df) - 3)
+
+
+def test_adx_up_state_rule():
+    # chop, then a trend: ADX climbs (a trend with no down-moves pins ADX at 100,
+    # which is not "rising")
+    up = np.r_[100 + np.where(np.arange(60) % 2 == 0, 1.0, -1.0), np.linspace(100, 160, 60)]
+    assert [f.detector for f in ct.det_adx_up_state(frame(up))] == ["adx_up_state"]
+    flat = 100 + np.where(np.arange(120) % 2 == 0, 1.0, -1.0)
+    assert ct.det_adx_up_state(frame(flat)) == []
+
+
+def test_wrapper_tolerates_missing_keys(monkeypatch):
+    df = _base()
+    monkeypatch.setattr(sc, "detect_liquidity_sweep", lambda d, **k: {})
+    monkeypatch.setattr(sc, "detect_structure_chain", lambda d, **k: {})
+    monkeypatch.setattr(fp, "detect_flag_pole", lambda d, direction="bull", **k: {})
+    assert ct.det_liquidity_sweep_bull(df) == []
+    assert ct.det_structure_break_held(df) == []
+    assert ct.det_flag_pole_bull(df) == []
+
+
+def test_study_links_are_exactly_five():
+    assert ct.STUDY_LINKS == {"structure_break_held": "B-114", "liquidity_sweep_bull": "B-41m",
+                              "flag_pole_bull": "B-92", "abcd": "B-132", "adx_up_state": "ADX"}
+    assert all(ct.DETECTORS[k].family == "desk" for k in ct.STUDY_LINKS)
+
+
+def test_desk_wrappers_run_on_real_detectors():
+    df = frame(100 + np.cumsum(np.random.default_rng(3).normal(0, 1, 300)))
+    for k in ct.STUDY_LINKS:
+        for f in ct.DETECTORS[k].fn(df):
+            ct.validate_actions(f.actions)

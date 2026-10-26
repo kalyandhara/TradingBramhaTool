@@ -506,3 +506,176 @@ _register("above_sma200", "Above the 200-day average", "evector", "state", "dire
 _register("below_sma200", "Below the 200-day average", "evector", "state", "directional", det_sma200)
 _register("golden_cross", "Golden cross (50/200)", "evector", "dated", "directional", det_crosses)
 _register("death_cross", "Death cross (50/200)", "evector", "dated", "directional", det_crosses)
+
+
+# --------------------------------------------------------------------------- #
+# The desk's own detectors: called, never copied, so the card, the overlay, the
+# scanner and the study all read one rule. Each wrapper reads only documented
+# keys and returns no finding when a key it needs is missing.
+# --------------------------------------------------------------------------- #
+
+#: Strict study links (indicator_evidence's rule): only where the study tested
+#: THIS detector. eVector-ported detectors get none.
+STUDY_LINKS: dict[str, str] = {
+    "structure_break_held": "B-114",
+    "liquidity_sweep_bull": "B-41m",
+    "flag_pole_bull": "B-92",
+    "abcd": "B-132",
+    "adx_up_state": "ADX",
+}
+DESK_WEIGHT = 0.75
+STRUCT_RECENT = 20
+
+
+def _idx_ok(df, i) -> bool:
+    return isinstance(i, (int, np.integer)) and 0 <= int(i) < len(df)
+
+
+def det_structure_break_held(df: pd.DataFrame) -> list[Finding]:
+    """The latest structural break (BOS/CHOCH, the overlay's defaults) if it has
+    not failed and is at most 20 bars old. B-114 measured held vs failed."""
+    import scanner_templates as sc
+    res = sc.detect_structure_chain(df, pivot_len=15, confirm="close", fail_win=3, max_swings=15)
+    events = (res or {}).get("events") or []
+    if not events:
+        return []
+    e = events[-1]
+    bar, level, direction = e.get("bar"), e.get("level"), e.get("direction")
+    if e.get("failed") or not _idx_ok(df, bar) or level is None or direction not in ("up", "down"):
+        return []
+    if len(df) - 1 - int(bar) > STRUCT_RECENT:
+        return []
+    up = direction == "up"
+    kind = e.get("type", "break")
+    t = t_of(df, int(bar))
+    ago = len(df) - 1 - int(bar)
+    return [Finding(
+        id=f"structure_break_held:{t}", detector="structure_break_held",
+        title=f"A {'bullish' if up else 'bearish'} structure break ({kind}) is holding",
+        body=f"Closed {'above' if up else 'below'} the swing level {_px(level)} {ago} sessions ago "
+             f"and has not closed back inside.",
+        facts={"level": float(level), "type": kind, "quality": e.get("quality"), "bars_ago": ago},
+        time=t, weight=DESK_WEIGHT, tone="up" if up else "down",
+        watch={"text": f"A close back {'below' if up else 'above'} {_px(level)} fails the break",
+               "level": float(level)},
+        actions=validate_actions([
+            {"type": "CLEAR"}, _zoom63(df),
+            {"type": "PRICE_LEVEL", "price": float(level), "label": f"{kind} level",
+             "tone": "up" if up else "down"},
+            {"type": "HIGHLIGHT_CANDLE", "time": t, "tone": "accent"},
+            {"type": "INDICATORS", "ids": ["structure_chain"]},
+        ]))]
+
+
+def det_liquidity_sweep_bull(df: pd.DataFrame) -> list[Finding]:
+    """A sell-side pool swept and reclaimed (the scanner's bullish sweep, B-41m)."""
+    import scanner_templates as sc
+    s = sc.detect_liquidity_sweep(df, pivot_len=5) or {}
+    level, ago = s.get("level"), s.get("bars_ago")
+    if s.get("direction") != "bullish" or level is None or ago is None:
+        return []
+    i = len(df) - 1 - int(ago)
+    if not _idx_ok(df, i):
+        return []
+    t = t_of(df, i)
+    return [Finding(
+        id=f"liquidity_sweep_bull:{t}", detector="liquidity_sweep_bull",
+        title="Swept the lows and reclaimed them",
+        body=f"Wicked under a pool of equal lows at {_px(level)} ({s.get('touches', '?')} touches) "
+             f"{ago} sessions ago and closed back above it.",
+        facts={"level": float(level), "bars_ago": int(ago), "touches": s.get("touches")},
+        time=t, weight=DESK_WEIGHT, tone="up",
+        watch={"text": f"A close back under {_px(level)} undoes the reclaim", "level": float(level)},
+        actions=validate_actions([
+            {"type": "CLEAR"}, _zoom63(df),
+            {"type": "PRICE_LEVEL", "price": float(level), "label": "swept lows", "tone": "up"},
+            {"type": "HIGHLIGHT_CANDLE", "time": t, "tone": "accent"},
+            {"type": "INDICATORS", "ids": ["liquidity"]},
+        ]))]
+
+
+def det_flag_pole_bull(df: pd.DataFrame) -> list[Finding]:
+    """The most recent bull flag & pole (flag_pole.detect_flag_pole, B-92)."""
+    import flag_pole as fp
+    g = fp.detect_flag_pole(df, "bull") or {}
+    end, stop, entry = g.get("flag_end"), g.get("stop"), g.get("entry")
+    if not _idx_ok(df, end) or stop is None or entry is None:
+        return []
+    t = t_of(df, int(end))
+    broken = bool(g.get("broken"))
+    return [Finding(
+        id=f"flag_pole_bull:{t}", detector="flag_pole_bull",
+        title="Bull flag & pole" + (": broke out of the flag" if broken else ": watching the trigger"),
+        body=f"Pole {_px(g.get('pole_low', np.nan))} -> {_px(g.get('pole_high', np.nan))}; "
+             f"flag {_px(g.get('flag_low', np.nan))}-{_px(g.get('flag_high', np.nan))}; "
+             f"trigger {_px(entry)}, target {_px(g.get('target', np.nan))}.",
+        facts={k: g.get(k) for k in ("entry", "stop", "target", "broken", "pole_low", "pole_high")},
+        time=t, weight=DESK_WEIGHT, tone="up",
+        watch={"text": f"A close under the flag's stop {_px(stop)} ends the pattern", "level": float(stop)},
+        actions=validate_actions([
+            {"type": "CLEAR"}, _zoom63(df),
+            {"type": "PRICE_LEVEL", "price": float(entry), "label": "flag trigger", "tone": "up"},
+            {"type": "PRICE_LEVEL", "price": float(stop), "label": "flag stop", "tone": "down"},
+            {"type": "INDICATORS", "ids": ["flag_pole"]},
+        ]))]
+
+
+def det_abcd(df: pd.DataFrame) -> list[Finding]:
+    """A bullish AB=CD from the Harmonic Reversal scanner itself (D within 10
+    bars, R:R gate, stop D - 2 x ATR14): exactly the signal set B-132 measured."""
+    import harmonic_patterns as hp
+    import scanner_templates as sc
+    h = sc.scan_harmonic_reversal(df) or {}
+    if "AB=CD" not in str(h.get("pattern_type", "")) or h.get("direction") != "bullish":
+        return []
+    entry, stop = h.get("entry"), h.get("stop")
+    if entry is None or stop is None:
+        return []
+    m = hp.detect_last_pattern(df) or {}
+    d_idx = ((m.get("points") or {}).get("D") or {}).get("idx")
+    t = t_of(df, int(d_idx)) if _idx_ok(df, d_idx) else None
+    return [Finding(
+        id=f"abcd:{t or 'state'}", detector="abcd",
+        title="A bullish AB=CD completed",
+        body=f"D at {_px(entry)}; the plan's stop is D - 2 x ATR14 = {_px(stop)}.",
+        facts={"entry": float(entry), "stop": float(stop), "target": h.get("target")},
+        time=t, weight=DESK_WEIGHT, tone="up",
+        watch={"text": f"A close under {_px(stop)} (the B-132 stop) ends it", "level": float(stop)},
+        actions=validate_actions(
+            [{"type": "CLEAR"}, _zoom63(df),
+             {"type": "PRICE_LEVEL", "price": float(entry), "label": "AB=CD D", "tone": "up"},
+             {"type": "PRICE_LEVEL", "price": float(stop), "label": "stop (D - 2 ATR)", "tone": "down"},
+             {"type": "INDICATORS", "ids": ["harmonic"]}]
+            + ([{"type": "HIGHLIGHT_CANDLE", "time": t, "tone": "accent"}] if t else [])))]
+
+
+ADX_TREND = 25.0
+
+
+def det_adx_up_state(df: pd.DataFrame) -> list[Finding]:
+    """+DI > -DI, ADX >= 25 and ADX rising on the last bar: the ADX study's
+    `state_bull_adx_rising`, on the desk's own Wilder ADX."""
+    import scanner_templates as sc
+    p, m, a = (s.to_numpy(float) for s in sc._adx_di_series(df))
+    if len(a) < 2 or not all(np.isfinite(x) for x in (p[-1], m[-1], a[-1], a[-2])):
+        return []
+    if not (p[-1] > m[-1] and a[-1] >= ADX_TREND and a[-1] > a[-2]):
+        return []
+    return [Finding(
+        id="adx_up_state:state", detector="adx_up_state",
+        title="ADX confirms an up-trend with strength",
+        body=f"+DI {p[-1]:.0f} over -DI {m[-1]:.0f}, ADX {a[-1]:.0f} and rising.",
+        facts={"plus_di": float(p[-1]), "minus_di": float(m[-1]), "adx": float(a[-1])},
+        time=None, weight=DESK_WEIGHT, tone="up",
+        watch={"text": "-DI crossing back above +DI ends the up-state", "level": None},
+        actions=validate_actions([{"type": "CLEAR"}, _zoom63(df),
+                                  {"type": "INDICATORS", "ids": ["adxdi"]}]))]
+
+
+_register("structure_break_held", "Structure break holding (BOS/CHOCH)", "desk", "dated", "directional",
+          det_structure_break_held)
+_register("liquidity_sweep_bull", "Bullish liquidity sweep", "desk", "dated", "directional",
+          det_liquidity_sweep_bull)
+_register("flag_pole_bull", "Bull flag & pole", "desk", "dated", "directional", det_flag_pole_bull)
+_register("abcd", "Bullish AB=CD (B-132 stop)", "desk", "dated", "directional", det_abcd)
+_register("adx_up_state", "ADX confirmed up-state", "desk", "state", "directional", det_adx_up_state)
