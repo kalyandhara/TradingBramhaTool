@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-26] study | B-184 policy event study — Budget re-sorts sectors, MPC days ordinary
+- [[analyses/Policy-Event-Study-Result]] run as pre-registered: PROMOTE budget dispersion 1.65× (Holm p 0.0008, both halves); budget |NIFTY| 1.35× p 0.10 (not established); MPC magnitude and direction CALIBRATION. `patch_sessions` now restores event-day gaps from NSE (5 sessions). rec_audit's 'Yahoo has ~4 days of sector history' note contradicted.
+
 ## [2026-10-26] pre-reg | B-184 policy event study (RBI MPC + Union Budget)
 - [[analyses/Policy-Event-Study-Pre-Registration]] pre-registered before any real-data run: `tools/event_study.py` (35 offline tests incl. planted-effect detection), events in `data/events/policy_events.csv` (81 rows, 8 single-source). P1/P2 × MPC/Budget Holm 0.05; S1–S3 MPC directional. Idea from a review of marketontology.com/political.
 

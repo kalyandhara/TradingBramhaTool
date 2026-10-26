@@ -661,6 +661,17 @@ STUDIES: tuple[dict, ...] = (
                      "+0.03% @20d (p 0.98); plain failed breakouts (3,563) +0.11% "
                      "(p 0.47), no negative edge even when powered."),
     },
+    {
+        "item": "B-184", "tool": "event_study.py", "date": "2026-10-26",
+        "source": "analyses/Policy-Event-Study-Result",
+        # Component labels, not scanners: the study measures calendar events.
+        "subjects": ("budget day sector dispersion", "rbi mpc day"),
+        "verdict": "MIXED",
+        "headline": ("pre-registered: Budget days re-sort sectors -- dispersion 1.65x a "
+                     "normal day, Holm p 0.0008, both halves; budget |NIFTY| 1.35x p 0.10 "
+                     "(not established). MPC decision days ordinary: 1.03x / 0.94x, "
+                     "cut-vs-hike basket p 0.71."),
+    },
 )
 
 

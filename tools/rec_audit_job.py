@@ -55,6 +55,10 @@ SECTOR_INDEX = {
 #: 2026-10-22: FMCG, Infra, Fin Services, Metal, Realty, Energy, Consumption),
 #: so sector bars are rebuilt from NSE's own daily all-indices file instead
 #: (`sector_rotation.fetch_nse_index_closes`, disk-cached per session).
+#: Contradicted 2026-10-26 (B-184): single-ticker `yf.download(t, start=2010)` gave
+#: full 2010-11 history for all of these except ^CNXMEDIA (1 bar), with closes equal
+#: to NSE's to the paisa. Either the 10-22 probe hit a transient Yahoo gap or the
+#: request shape differs; the NSE path is kept because it is never worse.
 NSE_SECTOR_NAMES = {
     "^CNXIT": "Nifty IT", "^CNXPHARMA": "Nifty Pharma",
     "NIFTY_FIN_SERVICE.NS": "Nifty Financial Services", "^CNXFMCG": "Nifty FMCG",
