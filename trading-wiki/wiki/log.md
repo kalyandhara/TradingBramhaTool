@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-26] pre-reg | B-186 chart tour base rates
+- [[analyses/Chart-Tour-Base-Rates-Pre-Registration]] before any real run: 17 detectors, point-in-time events, excess vs ordinary day, Holm across all, EDGE/INVERTED/ORDINARY/TOO_FEW. Tour engine, /api/tour and the side panel built and browser-verified (badges read 'Not measured' until the run).
+
 ## [2026-10-26] ingest | eVector — full REA pass (stack, endpoints, data model, detector thresholds)
 - [[sources/Web-eVector-Event-Vector-Markets]] updated from a REA pass over a local CDP endpoint: Next.js RSC (data in HTML), public endpoint shapes (bars, consensus with hidden-until-threshold crowd), event-node model with excess + z measurement, momentum record with previousState/stateDuration/reasonCode, and the exact chart-tour detector rules + action protocol. REA capture_browser_scenario fails here (provider closing); passive tools work.
 
