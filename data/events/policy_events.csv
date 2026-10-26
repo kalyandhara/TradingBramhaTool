@@ -1,1 +1,82 @@
 date,event_type,label,scheduled,time_ist,source_url,notes
+2011-02-28,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press
+2012-03-16,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press
+2013-02-28,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press
+2014-02-17,budget,interim,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press; Yahoo lacks this session; NSE has it
+2014-07-10,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press
+2015-02-28,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press; Saturday special session
+2016-02-29,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press
+2016-10-04,mpc,cut,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.50->6.25; src A+B
+2016-12-07,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.25->6.25; src A; SINGLE-SOURCE
+2017-02-01,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press
+2017-02-08,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.25->6.25; src A+press
+2017-04-06,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.25->6.25; src A; SINGLE-SOURCE
+2017-06-07,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.25->6.25; src A; SINGLE-SOURCE
+2017-08-02,mpc,cut,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.25->6.00; src A+B
+2017-10-04,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.00->6.00; src A; SINGLE-SOURCE
+2017-12-06,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.00->6.00; src A+press
+2018-02-01,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press
+2018-02-07,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.00->6.00; src A+B+press
+2018-04-05,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.00->6.00; src A+press
+2018-06-06,mpc,hike,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.00->6.25; src A+B+press
+2018-08-01,mpc,hike,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.25->6.50; src A+B
+2018-10-05,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.50->6.50; src A; SINGLE-SOURCE
+2018-12-05,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.50->6.50; src A+press
+2019-02-01,budget,interim,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press
+2019-02-07,mpc,cut,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.50->6.25; src A+B
+2019-04-04,mpc,cut,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.25->6.00; src A+B
+2019-06-06,mpc,cut,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.00->5.75; src A+B
+2019-07-05,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press
+2019-08-07,mpc,cut,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 5.75->5.40; src A+B
+2019-10-04,mpc,cut,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 5.40->5.15; src A+B
+2019-12-05,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 5.15->5.15; src A+B
+2020-02-01,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press; Saturday special session
+2020-02-06,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 5.15->5.15; src A+B
+2020-03-27,mpc,cut,0,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,"repo 5.15->4.40; src A+B; off-cycle (advanced meeting, COVID)"
+2020-05-22,mpc,cut,0,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.40->4.00; src A+B; off-cycle (COVID)
+2020-08-06,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.00->4.00; src A+B
+2020-10-09,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.00->4.00; src A+B
+2020-12-04,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.00->4.00; src A+B
+2021-02-01,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press
+2021-02-05,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.00->4.00; src A+B
+2021-04-07,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.00->4.00; src A+B
+2021-06-04,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.00->4.00; src A+B
+2021-08-06,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.00->4.00; src A+B
+2021-10-08,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.00->4.00; src A+B; B prints 09-Oct (a Saturday) - typo; A has 08-Oct
+2021-12-08,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.00->4.00; src A+B
+2022-02-01,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press
+2022-02-10,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.00->4.00; src A+B
+2022-04-08,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.00->4.00; src A+B
+2022-05-04,mpc,hike,0,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.00->4.40; src A+B; off-cycle hike
+2022-06-08,mpc,hike,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.40->4.90; src A+B
+2022-08-05,mpc,hike,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 4.90->5.40; src A+B
+2022-09-30,mpc,hike,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 5.40->5.90; src A+B
+2022-12-07,mpc,hike,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 5.90->6.25; src A+B
+2023-02-01,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press
+2023-02-08,mpc,hike,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.25->6.50; src A+B
+2023-04-06,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.50->6.50; src A+B
+2023-06-08,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.50->6.50; src A+B
+2023-08-10,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.50->6.50; src A+B
+2023-10-06,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.50->6.50; src A+B; B prints 08-Oct (a Sunday) - typo; A has 06-Oct
+2023-12-08,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.50->6.50; src A+B
+2024-02-01,budget,interim,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press
+2024-02-08,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.50->6.50; src A+B
+2024-04-05,mpc,hold,1,,https://tradingqna.com/t/historical-rbi-monetary-policy-mpc-interest-rate-data-and-how-bank-nifty-fared-on-the-event-day/163527,repo 6.50->6.50; src A+B
+2024-06-07,mpc,hold,1,,https://stableinvestor.com/2021/10/rbi-repo-rate-history-india.html,repo 6.50->6.50; src B+press
+2024-07-23,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src press; Wikipedia prints 22-Jul (Economic Survey day); budget 23-Jul per press
+2024-08-08,mpc,hold,1,,https://stableinvestor.com/2021/10/rbi-repo-rate-history-india.html,repo 6.50->6.50; src B; SINGLE-SOURCE
+2024-10-09,mpc,hold,1,,https://stableinvestor.com/2021/10/rbi-repo-rate-history-india.html,repo 6.50->6.50; src B+press
+2024-12-06,mpc,hold,1,,https://stableinvestor.com/2021/10/rbi-repo-rate-history-india.html,repo 6.50->6.50; src B+press; CRR cut; repo held
+2025-02-01,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press; Saturday special session
+2025-02-07,mpc,cut,1,,https://stableinvestor.com/2021/10/rbi-repo-rate-history-india.html,repo 6.50->6.25; src B; SINGLE-SOURCE
+2025-04-09,mpc,cut,1,,https://stableinvestor.com/2021/10/rbi-repo-rate-history-india.html,repo 6.25->6.00; src B; SINGLE-SOURCE
+2025-06-06,mpc,cut,1,,https://stableinvestor.com/2021/10/rbi-repo-rate-history-india.html,repo 6.00->5.50; src B+press; 50 bp
+2025-08-06,mpc,hold,1,,https://stableinvestor.com/2021/10/rbi-repo-rate-history-india.html,repo 5.50->5.50; src B+press
+2025-10-01,mpc,hold,1,,https://stableinvestor.com/2021/10/rbi-repo-rate-history-india.html,repo 5.50->5.50; src B+press
+2025-12-05,mpc,cut,1,,https://stableinvestor.com/2021/10/rbi-repo-rate-history-india.html,repo 5.50->5.25; src B+press
+2026-02-01,budget,full,1,11:00,https://en.wikipedia.org/wiki/Union_budget_of_India,src Wikipedia+press; Sunday special session
+2026-02-06,mpc,hold,1,,https://stableinvestor.com/2021/10/rbi-repo-rate-history-india.html,repo 5.25->5.25; src B+press
+2026-04-08,mpc,hold,1,,https://www.rbi.org.in/Scripts/Annualpolicy.aspx,repo 5.25->5.25; src RBI+B+press
+2026-06-05,mpc,hold,1,,https://www.rbi.org.in/Scripts/Annualpolicy.aspx,repo 5.25->5.25; src RBI+B+press
+2026-08-05,mpc,hold,1,,https://www.rbi.org.in/Scripts/Annualpolicy.aspx,repo 5.25->5.25; src RBI+B
+2026-10-07,mpc,hike,1,,https://www.rbi.org.in/Scripts/Annualpolicy.aspx,repo 5.25->5.50; src RBI+B+press; stance to calibrated tightening

@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-26] pre-reg | B-184 policy event study (RBI MPC + Union Budget)
+- [[analyses/Policy-Event-Study-Pre-Registration]] pre-registered before any real-data run: `tools/event_study.py` (35 offline tests incl. planted-effect detection), events in `data/events/policy_events.csv` (81 rows, 8 single-source). P1/P2 × MPC/Budget Holm 0.05; S1–S3 MPC directional. Idea from a review of marketontology.com/political.
+
 ## [2026-10-23] study | B-182 Bull Trap — TOO FEW; failed breakouts do not warn
 - [[analyses/Bull-Trap-Detector]] run as pre-registered: TRAP 55 events / 49 names, +0.03% @20d (p 0.98) — under the 100-event gate. FB_ONLY 3,563 events / 258 names +0.11% (p 0.47). Bull Trap stays a display-only Risk flag + chart overlay.
 
