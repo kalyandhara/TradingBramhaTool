@@ -268,6 +268,33 @@ html, body {
    for. Container query, so it keys off the PANE's width, not the window's — the
    same layout is fine at 2 charts and cramped at 8. */
 .pane { container-type: inline-size; }
+/* ── B-186 Tour panel (layout A: right side) ─────────────────────────────────── */
+.tour-panel {
+  display: none; flex-direction: column; position: absolute; right: 64px; top: 44px; bottom: 34px;
+  width: min(340px, 46%); z-index: 6; background: var(--bg-pane-header);
+  border: 1px solid var(--border); border-radius: 6px; box-shadow: 0 6px 22px rgba(0,0,0,0.25);
+  color: var(--text-primary); font-size: 12px; overflow: hidden;
+}
+.tour-head { display: flex; justify-content: space-between; align-items: center; padding: 7px 10px;
+  border-bottom: 1px solid var(--border-soft); font-weight: 600; font-size: 12.5px; gap: 6px; }
+.tour-close { background: none; border: none; color: var(--text-secondary); font-size: 16px; cursor: pointer; line-height: 1; }
+.tour-nav { padding: 4px 10px; color: var(--text-secondary); font-size: 11px; }
+.tour-nav kbd { border: 1px solid var(--border); border-radius: 3px; padding: 0 4px; font-family: monospace; }
+.tour-list { overflow-y: auto; padding: 4px 8px 10px; }
+.tour-card { border: 1px solid var(--border-soft); border-radius: 6px; padding: 7px 9px; margin-bottom: 6px;
+  cursor: pointer; background: var(--bg-pane); }
+.tour-card.on { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
+.tour-t { font-weight: 600; margin-bottom: 2px; }
+.tour-b { color: var(--text-secondary); line-height: 1.35; }
+.tour-badge { display: inline-block; margin-top: 5px; padding: 2px 7px; border-radius: 10px; font-size: 10.5px; }
+.tour-badge.edge { background: rgba(46,160,67,0.18); color: #3fb950; }
+.tour-badge.inv  { background: rgba(248,81,73,0.18); color: #f85149; }
+.tour-badge.ord  { background: rgba(139,148,158,0.18); color: var(--text-secondary); }
+.tour-badge.few, .tour-badge.stale { background: rgba(210,153,34,0.18); color: #d29922; }
+.tour-study { margin-top: 3px; font-size: 10.5px; color: var(--text-muted); }
+.tour-watch { margin-top: 4px; font-size: 11px; color: var(--accent); }
+.tour-note { margin-top: 4px; font-size: 10.5px; color: var(--text-muted); }
+
 @container (max-width: 640px) {
   .ph { flex-wrap: wrap; row-gap: 3px; }
   .ticker-wrap {
@@ -3149,6 +3176,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
         <div class="ind-panel">${renderIndicatorPanel()}</div>
       </div>
       <button type="button" class="ind-btn snap-btn" title="Copy chart image to clipboard">📷</button>
+      <button type="button" class="ind-btn tour-btn" title="Tour this chart: what it is doing now, what would change the reading, and what each finding has been followed by on NSE (daily)">TOUR</button>
       <div class="qlinks" title="External research links for this symbol"></div>
       <div class="ticker-wrap">
         <span class="sym-badge">${symbol}</span>
@@ -3679,6 +3707,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
   });
 
   snapBtn.addEventListener('click', () => copyChartSnapshot(pane));
+  el.querySelector('.tour-btn').addEventListener('click', () => toggleTour(pane));
 
   const rangeBtns = el.querySelectorAll('.range-btn[data-range]');
   rangeBtns.forEach(btn => {
@@ -10628,6 +10657,217 @@ function drawLiquidity(pane) {
 const BT_TRAP = '#e53935';
 const BT_FAILED = '#9e9e9e';
 
+// ── B-186: Tour this chart ──────────────────────────────────────────────────────
+// The server (/api/tour → chart_tour.build_tour) decides every finding, its
+// Watch line and its measured badge; nothing is recomputed here. This block only
+// renders the side panel and executes the step's ACTIONS, which come from a closed
+// set of seven. Everything the tour draws lives on its own layer: tour price
+// lines, the 'tour' marker source, compare line series, and an indicator set
+// saved before the tour first adds one — CLEAR (and closing the panel) removes
+// exactly that and restores the user's indicators, never their drawings.
+const TOUR_TONE  = { up: C_UP, down: C_DOWN, neutral: '#8b949e', accent: '#58a6ff' };
+const TOUR_BADGE = { EDGE: 'edge', INVERTED: 'inv', ORDINARY: 'ord', TOO_FEW: 'few', NOT_MEASURED: 'few' };
+const TOUR_CMP_COLORS = ['#f0883e', '#a371f7', '#3fb950'];
+let tourPane = null;
+
+function tourEsc(s) {
+  return String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+}
+
+function tourDate(t) {
+  return t ? new Date(t * 1000).toISOString().slice(0, 10) : '—';
+}
+
+function ensureTourPanel(pane) {
+  let el = pane.el.querySelector('.tour-panel');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'tour-panel';
+    el.addEventListener('click', e => {
+      if (e.target.closest('.tour-close')) { closeTour(pane); return; }
+      const card = e.target.closest('.tour-card');
+      if (card) runTourStep(pane, Number(card.dataset.i));
+    });
+    pane.el.appendChild(el);
+  }
+  return el;
+}
+
+async function openTour(pane) {
+  const panel = ensureTourPanel(pane);
+  if (!pane.tour) pane.tour = { data: null, idx: 0, priceLines: [], markers: [], compare: [], savedInd: null, reqKey: null };
+  tourPane = pane;
+  const btn = pane.el.querySelector('.tour-btn');
+  if (btn) btn.classList.add('active');
+  panel.style.display = 'flex';
+  panel.innerHTML = `<div class="tour-head"><span>Tour · ${tourEsc(pane.symbol)} · loading…</span><button type="button" class="tour-close" title="Close the tour">×</button></div>`;
+  const key = `${pane.symbol}|${pane.tf}`;
+  pane.tour.reqKey = key;
+  let data;
+  try {
+    const r = await fetch(`${SERVER}/api/tour?symbol=${encodeURIComponent(pane.symbol)}&timeframe=${encodeURIComponent(pane.tf)}`);
+    data = await r.json();
+  } catch (e) {
+    data = { steps: [], notes: [`Tour unavailable (${e})`] };
+  }
+  // Race guard: the pane switched symbol/timeframe, or the tour was closed.
+  if (!pane.tour || pane.tour.reqKey !== key || `${pane.symbol}|${pane.tf}` !== key) return;
+  tourClear(pane);
+  pane.tour.data = data;
+  pane.tour.idx = 0;
+  renderTourPanel(pane);
+  if ((data.steps || []).length) runTourStep(pane, 0);
+}
+
+function closeTour(pane) {
+  if (!pane.tour) return;
+  tourClear(pane);
+  pane.tour = null;
+  const panel = pane.el.querySelector('.tour-panel');
+  if (panel) panel.style.display = 'none';
+  const btn = pane.el.querySelector('.tour-btn');
+  if (btn) btn.classList.remove('active');
+  if (tourPane === pane) tourPane = null;
+}
+
+function toggleTour(pane) { pane.tour ? closeTour(pane) : openTour(pane); }
+
+function renderTourPanel(pane) {
+  const panel = ensureTourPanel(pane);
+  const d = pane.tour.data || {};
+  const steps = d.steps || [];
+  const cards = steps.map((s, i) => {
+    const b = s.badge;
+    const badge = b ? `<div class="tour-badge ${TOUR_BADGE[b.label] || 'few'}${b.stale ? ' stale' : ''}" title="Panel base rate, gross of costs${b.stale ? ` — measured ${tourEsc(b.asOf)}, refresh due` : ''}">${tourEsc(b.text)}${b.stale ? ` · <b>as of ${tourEsc(b.asOf)}</b>` : ''}</div>` : '';
+    const study = b && b.study && b.study.headline
+      ? `<div class="tour-study">Pre-registered: ${tourEsc(b.study.id)} (${tourEsc(b.study.date || '')}) — ${tourEsc(b.study.headline)}</div>` : '';
+    const watch = s.watch ? `<div class="tour-watch">Watch: ${tourEsc(s.watch.text)}</div>` : '';
+    return `<div class="tour-card" data-i="${i}"><div class="tour-t">${tourEsc(s.title)}</div><div class="tour-b">${tourEsc(s.body)}</div>${badge}${study}${watch}</div>`;
+  }).join('');
+  const notes = (d.notes || []).map(n => `<div class="tour-note">${tourEsc(n)}</div>`).join('');
+  panel.innerHTML = `
+    <div class="tour-head"><span>Tour · ${tourEsc(d.symbol || pane.symbol)} · ${steps.length ? `daily · as of ${tourDate(d.asOf)}` : 'daily only'}</span>
+      <button type="button" class="tour-close" title="Close the tour">×</button></div>
+    <div class="tour-nav"><kbd>[</kbd><kbd>]</kbd> <span class="tour-pos"></span></div>
+    <div class="tour-list">${cards}${notes}</div>`;
+}
+
+function runTourStep(pane, i) {
+  if (!pane.tour || !pane.tour.data) return;
+  const steps = pane.tour.data.steps || [];
+  if (!steps.length) return;
+  i = Math.max(0, Math.min(steps.length - 1, i));
+  pane.tour.idx = i;
+  const panel = ensureTourPanel(pane);
+  panel.querySelectorAll('.tour-card').forEach(c => c.classList.toggle('on', Number(c.dataset.i) === i));
+  const on = panel.querySelector('.tour-card.on');
+  if (on) on.scrollIntoView({ block: 'nearest' });
+  const pos = panel.querySelector('.tour-pos');
+  if (pos) pos.textContent = `step ${i + 1} of ${steps.length}`;
+  runTourActions(pane, steps[i].actions || []);
+}
+
+function tourSyncIndicatorChecks(pane) {
+  pane.el.querySelectorAll('.ind-chk').forEach(chk => { chk.checked = pane.indicators.has(chk.dataset.key); });
+  if (pane._refreshIndActiveCount) pane._refreshIndActiveCount();
+}
+
+function tourClear(pane) {
+  const st = pane.tour;
+  if (!st) return;
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+  st.markers = [];
+  setPaneMarkers(pane, 'tour', null);
+  (st.compare || []).forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
+  st.compare = [];
+  if (st.savedInd) {
+    // Restore exactly the user's set. Deliberately NOT savePaneCfg(): nothing the
+    // tour switched on is ever persisted to the user's layout.
+    pane.indicators = new Set(st.savedInd);
+    st.savedInd = null;
+    applyIndicators(pane);
+    tourSyncIndicatorChecks(pane);
+  }
+}
+
+async function tourCompare(pane, symbols) {
+  const st = pane.tour;
+  if (!st || !pane.bars || !pane.bars.length) return;
+  const range = pane.chart.timeScale().getVisibleRange();
+  const t0 = range && typeof range.from === 'number' ? range.from : pane.bars[Math.max(0, pane.bars.length - 21)].time;
+  const base = pane.bars.find(b => b.time >= t0);
+  if (!base) return;
+  const key = st.reqKey;
+  for (let k = 0; k < symbols.length; k++) {
+    const sym = symbols[k];
+    let bars = [];
+    try {
+      const r = await fetch(`${SERVER}/api/ohlcv?symbol=${encodeURIComponent(sym)}&timeframe=1d&bars=400`);
+      bars = (await r.json()).bars || [];
+    } catch { continue; }
+    if (!pane.tour || pane.tour.reqKey !== key) return;
+    const ref = bars.find(b => b.time >= t0);
+    if (!ref || !ref.close) continue;
+    const f = base.close / ref.close;
+    const s = pane.chart.addLineSeries({ color: TOUR_CMP_COLORS[k % TOUR_CMP_COLORS.length], lineWidth: 2,
+      priceLineVisible: false, lastValueVisible: true, title: `${sym} (rebased)` });
+    s.setData(bars.filter(b => b.time >= t0).map(b => ({ time: b.time, value: b.close * f })));
+    pane.tour.compare.push(s);
+  }
+}
+
+function runTourActions(pane, actions) {
+  const st = pane.tour;
+  if (!st) return;
+  for (const a of actions) {
+    switch (a.type) {
+      case 'CLEAR':
+        tourClear(pane);
+        break;
+      case 'ZOOM_TO_RANGE':
+        try { pane.chart.timeScale().setVisibleRange({ from: a.from, to: a.to }); } catch {}
+        break;
+      case 'PRICE_LEVEL':
+        try {
+          st.priceLines.push(pane.series.createPriceLine({ price: a.price, color: TOUR_TONE[a.tone] || TOUR_TONE.accent,
+            lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title: a.label }));
+        } catch {}
+        break;
+      case 'HIGHLIGHT_CANDLE':
+        st.markers.push({ time: a.time, position: a.tone === 'down' ? 'aboveBar' : 'belowBar',
+          color: TOUR_TONE[a.tone] || TOUR_TONE.accent, shape: a.tone === 'down' ? 'arrowDown' : a.tone === 'up' ? 'arrowUp' : 'circle' });
+        setPaneMarkers(pane, 'tour', st.markers.slice());
+        break;
+      case 'HIGHLIGHT_RANGE':
+        [a.from, a.to].forEach(t => st.markers.push({ time: t, position: 'belowBar', shape: 'square',
+          color: TOUR_TONE[a.tone] || TOUR_TONE.accent }));
+        setPaneMarkers(pane, 'tour', st.markers.slice());
+        break;
+      case 'INDICATORS': {
+        if (!st.savedInd) st.savedInd = [...pane.indicators];
+        (a.ids || []).forEach(id => pane.indicators.add(id));
+        applyIndicators(pane);
+        tourSyncIndicatorChecks(pane);
+        break;
+      }
+      case 'COMPARE':
+        tourCompare(pane, a.symbols || []);
+        break;
+      default:
+        break;      // unknown action types are ignored, never guessed at
+    }
+  }
+}
+
+document.addEventListener('keydown', e => {
+  if (!tourPane || !tourPane.tour) return;
+  if (e.target && /^(INPUT|TEXTAREA|SELECT)$/.test(e.target.tagName)) return;
+  if (e.key === ']') { e.preventDefault(); runTourStep(tourPane, tourPane.tour.idx + 1); }
+  else if (e.key === '[') { e.preventDefault(); runTourStep(tourPane, tourPane.tour.idx - 1); }
+  else if (e.key === 'Escape') { closeTour(tourPane); }
+});
+
 function ensureBullTrapState(pane) {
   if (!pane.btrap) pane.btrap = {priceLines: [], lastFetchKey: null, inflight: false};
   return pane.btrap;
@@ -11687,6 +11927,7 @@ async function loadData(idx) {
       if (data.exchange_fallback) showToast(`⚠ ${data.exchange_fallback}`, 4500);
       updateTicker(idx, last.close, false);
       ok = true;
+      if (p.tour) openTour(p);     // B-186: re-tour the new symbol/timeframe, never show the old one
     } else if (loader) {
       loader.textContent = `⚠ ${p.symbol} — no data`;
       loader.style.display = 'flex';
