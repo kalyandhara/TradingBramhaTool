@@ -1229,6 +1229,91 @@ def api_bull_trap():
     return jsonify({"symbol": symbol, "events": events, "fired": fired})
 
 
+#: B-186: the tour's measured base rates, written by tour_base_rates.py. Re-read
+#: when its mtime changes, so a refresh needs no server restart.
+TOUR_RATES_PATH = HERE / "cache" / "tour_base_rates.json"
+_tour_rates_cache: dict = {"mtime": None, "path": None, "data": None}
+
+
+def _tour_rates() -> dict | None:
+    p = Path(TOUR_RATES_PATH)
+    try:
+        mt = p.stat().st_mtime
+    except OSError:
+        return None
+    if _tour_rates_cache["path"] == str(p) and _tour_rates_cache["mtime"] == mt:
+        return _tour_rates_cache["data"]
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        data = data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        data = None                       # a corrupt file reads as "not measured"
+    _tour_rates_cache.update(mtime=mt, path=str(p), data=data)
+    return data
+
+
+def _jsonable(o):
+    """numpy scalars inside finding facts -> plain Python for jsonify."""
+    import numpy as np
+    if isinstance(o, dict):
+        return {k: _jsonable(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_jsonable(v) for v in o]
+    if isinstance(o, np.integer):
+        return int(o)
+    if isinstance(o, np.floating):
+        return None if not np.isfinite(o) else float(o)
+    if isinstance(o, float) and o != o:
+        return None
+    if isinstance(o, np.bool_):
+        return bool(o)
+    return o
+
+
+@app.route("/api/tour")
+def api_tour():
+    """"Tour this chart" (B-186): Now, Stock-or-market?, then up to eight
+    findings, each with chart actions, a Watch line and its measured base-rate
+    badge. Daily only — the base rates are measured on daily bars. All logic is
+    in chart_tour.build_tour; this route only gathers bars and the rates file."""
+    import pandas as pd
+    import chart_tour as ct
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    if timeframe != "1d":
+        return jsonify({"symbol": symbol, "asOf": None, "steps": [], "base_rates_asOf": None,
+                        "notes": ["The tour is daily-only: its base rates are measured on daily bars."]})
+    symbol = sym_dir.resolve_symbol(symbol)
+
+    def _daily(sym: str):
+        try:
+            return _bars_to_df(ds.detect_source(sym).get_ohlcv(sym, "1d", 400))
+        except Exception:
+            return None
+
+    df = _daily(symbol)
+    if df is None or df.empty:
+        return jsonify({"symbol": symbol, "asOf": None, "steps": [], "base_rates_asOf": None,
+                        "notes": ["No daily price history for this symbol."]})
+    market_df = _daily("^NSEI")
+    sector_df = sector_label = sector_symbol = None
+    try:
+        import pa_chart_focus as pcf
+        sector = pcf.stock_sector(symbol.split(".")[0])
+        tkr, label, is_sector = pcf.context_for(sector)
+        if is_sector:
+            sector_df, sector_label, sector_symbol = _daily(tkr), label, tkr
+    except Exception:
+        pass
+    rates = _tour_rates()
+    tour = ct.build_tour(df, market_df=market_df, sector_df=sector_df, sector_label=sector_label,
+                         base_rates=rates, today=pd.Timestamp.today(), sector_symbol=sector_symbol)
+    return jsonify(_jsonable({"symbol": symbol, "asOf": tour["asOf"], "steps": tour["steps"],
+                              "base_rates_asOf": (rates or {}).get("asOf"), "notes": tour["notes"]}))
+
+
 @app.route("/api/liquidity")
 def api_liquidity():
     """Liquidity pools (equal highs/lows) + the most recent sweep-and-reclaim.
