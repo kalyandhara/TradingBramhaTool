@@ -509,9 +509,12 @@ def _na_row(test, set_, n):
             "ratio": None, "p": NA_SMALL, "p_adj": None, "ci_lo": None, "ci_hi": None}
 
 
-def _test_row(test, set_, vals, pos, M, cfg, sign=1.0):
+def _test_row(test, set_, vals, pos, M, cfg, sign=1.0, magnitude=True):
     """Real statistic (mean over events, NaN events dropped) against the same
-    statistic on each Null A draw. sign=-1 tests 'less than' by negation."""
+    statistic on each Null A draw. sign=-1 tests 'less than' by negation.
+    `ratio` (real / null mean) is reported only for magnitude statistics: a
+    signed mean over a null mean near zero prints numbers like -33x that mean
+    nothing and read as dramatic."""
     v = vals[pos]
     v = v[~np.isnan(v)]
     if len(v) < MIN_BUCKET:
@@ -521,7 +524,7 @@ def _test_row(test, set_, vals, pos, M, cfg, sign=1.0):
     nm = float(np.nanmean(null))
     lo, hi = bootstrap_ci(v, reps=cfg.boot, seed=cfg.seed)
     return {"test": test, "set": set_, "n": int(len(v)), "real": real, "null_mean": nm,
-            "ratio": real / nm if nm != 0 and not np.isnan(nm) else None,
+            "ratio": real / nm if magnitude and nm != 0 and not np.isnan(nm) else None,
             "p": p_greater(sign * real, sign * null), "p_adj": None,
             "ci_lo": lo, "ci_hi": hi}
 
@@ -588,7 +591,8 @@ def _directional(panel, e, e_all, years, cfg) -> list[dict]:
             rows.append(_na_row(test, "mpc", len(bp)))
             continue
         BM = _set_null(panel, e_all["pos"].to_numpy(), years, None, len(bp), cfg, off)
-        rows.append(_test_row(test, "mpc", panel.basket, bp, BM, cfg, sign=sign))
+        rows.append(_test_row(test, "mpc", panel.basket, bp, BM, cfg, sign=sign,
+                              magnitude=False))
     ch = e[e["label"].isin(["cut", "hike"])]
     vals = panel.basket[ch["pos"].to_numpy()]
     keep = ~np.isnan(vals)
@@ -614,7 +618,8 @@ def _exploratory(panel, set_, pos, M, cfg) -> list[dict]:
             car = panel.window_values(base, w)
             for stat, vals, sgn in (("abs", np.abs(car), 1.0), ("up", car, 1.0),
                                     ("down", car, -1.0)):
-                rows.append(_test_row(f"{t}|{wname}|{stat}", set_, vals, pos, M, cfg, sign=sgn))
+                rows.append(_test_row(f"{t}|{wname}|{stat}", set_, vals, pos, M, cfg,
+                                      sign=sgn, magnitude=stat == "abs"))
     ps = [r["p"] for r in rows if isinstance(r["p"], float)]
     qs = iter(bh(ps)) if ps else iter(())
     for r in rows:
@@ -657,7 +662,8 @@ def run_study(closes: pd.DataFrame, events: pd.DataFrame, cfg: StudyConfig | Non
         sensitivity.append(_test_row("P2-adjusted", set_, adj.disp, pos, M, cfg))
         if set_ == "mpc":
             sensitivity.append(_test_row("basket-adjusted|cut", set_, adj.basket,
-                                         e.loc[e["label"] == "cut", "pos"].to_numpy(), M, cfg))
+                                         e.loc[e["label"] == "cut", "pos"].to_numpy(), M, cfg,
+                                         magnitude=False))
 
         for half, mask in ((f"before {cfg.split}", panel.index[pos] < split),
                            (f"from {cfg.split}", panel.index[pos] >= split)):

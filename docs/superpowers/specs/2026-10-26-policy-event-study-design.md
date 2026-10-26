@@ -98,8 +98,10 @@ trading-wiki/wiki/analyses/Policy-Event-Study-Result.md
 
 - Draw `n_events` trading days without replacement from the same years as the
   event set, excluding ±10 trading days around every real event of that set.
-- Optional `calendar_match` (used for Budget): draw only from the same calendar
-  months as the real events (Jan–Mar, plus July for July budgets).
+- Optional `calendar_match` (used for Budget): draw only from the calendar
+  months the real events fall in. For the 2011–2026 budgets that is {Feb, Mar, Jul}.
+  *(Amended 2026-10-26: the earlier wording "Jan–Mar, plus July" named a month no
+  budget fell in; the code always used the events' own months.)*
 - Recompute the identical statistic on each draw; 10,000 draws, fixed seed.
 - p-value = (1 + #{null ≥ real}) / (1 + draws) (one-sided in the hypothesised
   direction; magnitude stats are one-sided "greater").

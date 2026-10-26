@@ -458,3 +458,84 @@ def test_patch_sessions_fills_sector_gap_when_market_printed():
     assert out.loc["2025-02-01", "^NSEBANK"] == 51.0
     assert out.loc["2025-02-01", es.MARKET] == 101.0       # Yahoo's value kept
     assert np.isnan(out.loc["2025-02-01", "^CNXAUTO"])     # not started: not a gap
+
+
+# ── final-review fixes: the verdict rule, S2, and signed ratios ──────────────
+
+def _p(test, set_, p_adj, ratio):
+    return {"test": test, "set": set_, "p_adj": p_adj, "ratio": ratio}
+
+
+def _h(test, set_, p, ratio):
+    return {"test": test, "set": set_, "p": p, "ratio": ratio}
+
+
+def _s(test, real, p):
+    return {"test": test, "real": real, "p": p}
+
+
+GOOD_SEC = [_s("S1", 0.01, 0.01), _s("S2", -0.01, 0.01), _s("S3", 0.02, 0.01)]
+
+
+@pytest.mark.parametrize("primary,halves,promote", [
+    # passes every clause
+    ([_p("P1", "budget", 0.01, 1.30)], [_h("P1", "budget", 0.09, 1.2), _h("P1", "budget", 0.05, 1.5)], True),
+    # ratio just under 1.3
+    ([_p("P1", "budget", 0.01, 1.29)], [_h("P1", "budget", 0.01, 1.5), _h("P1", "budget", 0.01, 1.5)], False),
+    # Holm p not under 0.05
+    ([_p("P1", "budget", 0.05, 2.0)], [_h("P1", "budget", 0.01, 1.5), _h("P1", "budget", 0.01, 1.5)], False),
+    # one half fails p < 0.10
+    ([_p("P1", "budget", 0.01, 2.0)], [_h("P1", "budget", 0.10, 1.5), _h("P1", "budget", 0.01, 1.5)], False),
+    # one half fails ratio >= 1.2
+    ([_p("P1", "budget", 0.01, 2.0)], [_h("P1", "budget", 0.01, 1.19), _h("P1", "budget", 0.01, 1.5)], False),
+    # a half too small to test
+    ([_p("P1", "budget", 0.01, 2.0)], [_h("P1", "budget", es.NA_SMALL, None), _h("P1", "budget", 0.01, 1.5)], False),
+    # only one half reported
+    ([_p("P1", "budget", 0.01, 2.0)], [_h("P1", "budget", 0.01, 1.5)], False),
+    # the halves belong to the OTHER statistic
+    ([_p("P1", "budget", 0.01, 2.0)], [_h("P2", "budget", 0.01, 1.5), _h("P2", "budget", 0.01, 1.5)], False),
+])
+def test_verdict_magnitude_rule(primary, halves, promote):
+    v = es._verdicts(primary, halves, [])
+    assert v[0].startswith("PROMOTE") is promote, v
+
+
+@pytest.mark.parametrize("sec,promote", [
+    (GOOD_SEC, True),
+    ([_s("S1", 0.01, 0.01), _s("S2", -0.01, 0.01), _s("S3", 0.02, 0.05)], False),   # S3 p not < 0.05
+    ([_s("S1", -0.01, 0.9), _s("S2", -0.01, 0.01), _s("S3", 0.02, 0.01)], False),   # S1 wrong sign
+    ([_s("S1", 0.01, 0.01), _s("S2", 0.01, 0.9), _s("S3", 0.02, 0.01)], False),     # S2 wrong sign
+    ([_s("S1", 0.01, 0.01), _s("S2", None, es.NA_SMALL), _s("S3", 0.02, 0.01)], False),
+])
+def test_verdict_directional_rule(sec, promote):
+    v = es._verdicts([], [], sec)
+    assert v[-1].startswith("PROMOTE: MPC directional") is promote, v
+
+
+def test_planted_directional_hike_effect():
+    """S2 is tested on negated values; a reversed sign would hide here."""
+    closes, ev = _synthetic(dir_plant=True)
+    res = es.run_study(closes, ev, es.StudyConfig(**FAST))
+    s2 = _row(res, "secondary", "S2")
+    assert s2["real"] < 0 and s2["p"] < 0.05
+
+
+def test_hike_only_plant_does_not_pass_s1():
+    closes, ev = _synthetic(dir_plant=True)
+    ev = ev.assign(label=ev["label"].replace({"cut": "hold"}))
+    res = es.run_study(closes, ev, es.StudyConfig(**FAST))
+    assert _row(res, "secondary", "S1")["p"] == es.NA_SMALL
+    assert _row(res, "secondary", "S2")["p"] < 0.05
+
+
+def test_signed_statistics_carry_no_ratio():
+    """A signed mean over a near-zero null mean prints -33x: meaningless, and it
+    reads as dramatic. Ratios are only reported for magnitude statistics."""
+    closes, ev = _synthetic(dir_plant=True)
+    res = es.run_study(closes, ev, es.StudyConfig(**FAST))
+    assert _row(res, "secondary", "S1")["ratio"] is None
+    assert _row(res, "secondary", "S2")["ratio"] is None
+    signed = [r for r in res["exploratory"] if r["test"].endswith(("|up", "|down"))]
+    assert signed and all(r["ratio"] is None for r in signed)
+    absrows = [r for r in res["exploratory"] if r["test"].endswith("|abs")]
+    assert any(r["ratio"] is not None for r in absrows)

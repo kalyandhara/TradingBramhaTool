@@ -62,6 +62,10 @@ The rate-sensitive basket (Bank, PSU Bank, Realty, Auto, Fin Services) shows no
 decision-day reaction in either direction. Hike days were, if anything, slightly
 positive for it.
 
+The verdict and S2 paths were pinned by tests after the final review: 13
+table-driven cases for the decision rule, plus planted hike-day effects. Neither
+the tests nor the fix changed a number above.
+
 ## Evidence against / limitations
 
 - **Small samples.** There are 19 budgets and 8–11 events per MPC bucket. The
@@ -108,10 +112,12 @@ rumour and sold on the news. Pharma's post-window (+1 to +5) drift of +2.0 %
 
 - **Budget day is a sector-rotation day, not (provably) a market-direction day.**
   Sectors scatter about 1.65× more than on a normal day, consistently across
-  2011–2026. NIFTY's own move is only possibly larger.
-- **MPC decision days are ordinary days** for NIFTY, for sector dispersion and for
-  the rate-sensitive basket. The market prices RBI decisions before they are
-  announced.
+  2012–2026. 2011 has too few sector series old enough to measure. NIFTY's own
+  move is only possibly larger.
+- **MPC decision days show no abnormal day-0 move** for NIFTY, for sector
+  dispersion or for the rate-sensitive basket. *Why* is not measured here. One
+  reading is that decisions are anticipated, but this study tested the decision
+  day, not expectations or the run-up. See "Decision, not surprise" above.
 
 ## Action taken / plan
 
