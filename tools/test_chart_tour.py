@@ -175,3 +175,122 @@ def test_gap_below_3pct_ignored():
 
 def test_gap_older_than_10_bars_ignored():
     assert ct.det_gaps(_gap_frame(at=-12)) == []
+
+
+# ── volume / ATR expansion, squeeze ───────────────────────────────────────────
+
+def _vol_frame(last5):
+    v = np.full(80, 1000.0)
+    v[-5:] = last5
+    return frame(np.linspace(100, 110, 80), volume=v)
+
+
+def test_volume_expansion_threshold_and_weight():
+    f = ct.det_volume_expansion(_vol_frame(1500.0))
+    assert f and f[0].detector == "volume_expansion"
+    assert f[0].weight == pytest.approx(0.4)
+    assert f[0].tone == "up"                          # price rose over the 5 bars
+    assert ct.det_volume_expansion(_vol_frame(1490.0)) == []
+
+
+def test_volume_expansion_skips_nan_or_zero_volume():
+    assert ct.det_volume_expansion(frame(np.linspace(100, 110, 80), volume=np.zeros(80))) == []
+    assert ct.det_volume_expansion(frame(np.linspace(100, 110, 80), volume=np.full(80, np.nan))) == []
+
+
+def _range_frame(late_range, n=120, k=42):
+    c = np.full(n, 100.0)
+    rng = np.full(n, 1.0)
+    rng[-k:] = late_range
+    return frame(c, high=c + rng / 2, low=c - rng / 2)
+
+
+def test_atr_expansion_fires_on_a_widening_range():
+    f = ct.det_atr_expansion(_range_frame(3.0))
+    assert f and f[0].detector == "atr_expansion" and f[0].tone == "neutral"
+    assert f[0].facts["ratio"] >= 1.4
+
+
+def test_atr_expansion_quiet_on_a_small_widening():
+    assert ct.det_atr_expansion(_range_frame(1.2)) == []
+
+
+def _wave(amp_early, amp_late, n=200, k=20):
+    i = np.arange(n)
+    amp = np.where(i < n - k, amp_early, amp_late)
+    return frame(100 + amp * np.where(i % 2 == 0, 1, -1))
+
+
+def test_squeeze_narrowest_in_126():
+    f = ct.det_squeeze(_wave(2.0, 0.5))
+    assert f and f[0].detector == "squeeze" and f[0].tone == "neutral"
+    assert f[0].weight == pytest.approx(0.65)
+    assert ct.det_squeeze(_wave(0.5, 2.0)) == []
+
+
+# ── divergence ────────────────────────────────────────────────────────────────
+
+def _swing_frame(bearish=True, n=80, p1=-30, p2=-10):
+    base = 100 + 0.1 * np.arange(n) if bearish else 100 - 0.1 * np.arange(n)
+    hi = base + 0.5
+    lo = base - 0.5
+    a, b = n + p1, n + p2
+    if bearish:
+        hi[a] = base[a] + 5
+        hi[b] = base[b] + 5
+    else:
+        lo[a] = base[a] - 5
+        lo[b] = base[b] - 5
+    return frame(base, high=hi, low=lo), a, b
+
+
+def _pin_rsi(monkeypatch, n, a, b, ra, rb):
+    r = np.full(n, 50.0)
+    r[a], r[b] = ra, rb
+    monkeypatch.setattr(ct, "_rsi", lambda close: pd.Series(r, index=close.index))
+
+
+def test_bearish_divergence_needs_rsi_gap_over_4(monkeypatch):
+    df, a, b = _swing_frame(True)
+    _pin_rsi(monkeypatch, len(df), a, b, 70, 64)
+    f = [x for x in ct.det_divergence(df) if x.detector == "bearish_div"]
+    assert f and f[0].tone == "down" and f[0].weight == pytest.approx(0.7)
+    assert f[0].watch["level"] == pytest.approx(df["high"].iloc[b])
+    _pin_rsi(monkeypatch, len(df), a, b, 70, 67)
+    assert [x for x in ct.det_divergence(df) if x.detector == "bearish_div"] == []
+
+
+def test_bullish_divergence_mirror(monkeypatch):
+    df, a, b = _swing_frame(False)
+    _pin_rsi(monkeypatch, len(df), a, b, 30, 36)
+    f = [x for x in ct.det_divergence(df) if x.detector == "bullish_div"]
+    assert f and f[0].tone == "up"
+
+
+# ── 200-day average, crosses ──────────────────────────────────────────────────
+
+def _step(n=260, k=10, to=105.0):
+    c = np.full(n, 100.0)
+    c[-k:] = to
+    return frame(c)
+
+
+def test_sma200_state_and_cross_time():
+    df = _step(k=10)
+    f = ct.det_sma200(df)
+    assert f[0].detector == "above_sma200" and f[0].time == ct.t_of(df, -10)
+    assert f[0].watch["level"] == pytest.approx(df["close"].rolling(200).mean().iloc[-1])
+    g = ct.det_sma200(_step(k=50))
+    assert g[0].detector == "above_sma200" and g[0].time is None
+    h = ct.det_sma200(_step(k=10, to=95.0))
+    assert h[0].detector == "below_sma200" and h[0].tone == "down"
+
+
+def test_golden_and_death_cross_within_20():
+    up = np.r_[np.full(245, 100.0), np.linspace(101, 130, 15)]
+    f = ct.det_crosses(frame(up))
+    assert f and f[0].detector == "golden_cross"
+    dn = np.r_[np.full(245, 100.0), np.linspace(99, 70, 15)]
+    assert ct.det_crosses(frame(dn))[0].detector == "death_cross"
+    old = np.r_[np.full(200, 100.0), np.linspace(101, 130, 60)]
+    assert ct.det_crosses(frame(old)) == []

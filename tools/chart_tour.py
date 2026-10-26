@@ -272,3 +272,237 @@ _register("breakdown55", "55-day closing-low breakdown", "evector", "dated", "di
 _register("failed_breakdown55", "Failed 55-day breakdown", "evector", "dated", "directional", det_breakdown55)
 _register("gap_up", "Unfilled gap up (≥3%)", "evector", "dated", "directional", det_gaps)
 _register("gap_down", "Unfilled gap down (≥3%)", "evector", "dated", "directional", det_gaps)
+
+
+# --------------------------------------------------------------------------- #
+# Ported from eVector: volume / ATR expansion, squeeze, divergence; trend lines
+# --------------------------------------------------------------------------- #
+
+def _rsi(close: pd.Series) -> pd.Series:
+    """RSI14: the desk's own Wilder RSI, so a divergence here is the same RSI
+    the chart's `rsi` indicator draws. A module-level hook so tests can pin it."""
+    import scanner_templates as sc
+    return sc._rsi_series(close, 14)
+
+
+def wilder_atr(df: pd.DataFrame, n: int = 14) -> np.ndarray:
+    """ATR as eVector computes it: first TR is high-low, seed = mean of TR[1..n],
+    then Wilder smoothing. NaN before the seed."""
+    h, l, c = (df[k].to_numpy(float) for k in ("high", "low", "close"))
+    tr = np.empty(len(c))
+    tr[0] = h[0] - l[0]
+    tr[1:] = np.maximum(h[1:] - l[1:], np.maximum(abs(h[1:] - c[:-1]), abs(l[1:] - c[:-1])))
+    out = np.full(len(c), np.nan)
+    if len(c) <= n:
+        return out
+    s = tr[1:n + 1].mean()
+    out[n] = s
+    for i in range(n + 1, len(c)):
+        s = (s * (n - 1) + tr[i]) / n
+        out[i] = s
+    return out
+
+
+def det_volume_expansion(df: pd.DataFrame) -> list[Finding]:
+    v = df["volume"].to_numpy(float)
+    c = df["close"].to_numpy(float)
+    n = len(v)
+    if n < 56:
+        return []
+    last, prior = v[n - 5:], v[n - 55:n - 5]
+    if not (np.all(np.isfinite(last)) and np.all(np.isfinite(prior))) or prior.mean() <= 0:
+        return []
+    x = last.mean() / prior.mean()
+    if x < 1.5:
+        return []
+    up = c[-1] >= c[-6]
+    return [Finding(
+        id="volume_expansion:state", detector="volume_expansion",
+        title="Volume is expanding",
+        body=f"The last five sessions traded {x:.1f}x the 50 before, while price "
+             f"{'rose' if up else 'fell'} {_pct(c[-1] / c[-6] - 1)}.",
+        facts={"ratio": float(x)}, time=None, weight=min(0.85, 0.4 + (x - 1.5) / 3),
+        tone="up" if up else "down", watch=None,
+        actions=validate_actions([
+            {"type": "CLEAR"}, _zoom63(df),
+            {"type": "INDICATORS", "ids": ["volume"]},
+            {"type": "HIGHLIGHT_RANGE", "from": t_of(df, -5), "to": t_of(df, -1), "tone": "accent"},
+        ]))]
+
+
+def det_atr_expansion(df: pd.DataFrame) -> list[Finding]:
+    a = wilder_atr(df)
+    n = len(a)
+    if n < 43 or not np.isfinite(a[-1]) or not np.isfinite(a[-43]) or a[-43] <= 0:
+        return []
+    x = a[-1] / a[-43]
+    if x < 1.4:
+        return []
+    close = float(df["close"].iloc[-1])
+    return [Finding(
+        id="atr_expansion:state", detector="atr_expansion",
+        title="Volatility is expanding",
+        body=f"The daily range (ATR14 {a[-1] / close * 100:.1f}% of price) is {x:.1f}x "
+             f"what it was two months ago.",
+        facts={"ratio": float(x), "atr": float(a[-1])}, time=None,
+        weight=min(0.8, 0.4 + (x - 1.4) / 2), tone="neutral", watch=None,
+        actions=validate_actions([{"type": "CLEAR"}, _zoom63(df),
+                                  {"type": "INDICATORS", "ids": ["atr"]}]))]
+
+
+def det_squeeze(df: pd.DataFrame) -> list[Finding]:
+    c = df["close"]
+    mid = c.rolling(20).mean()
+    sd = c.rolling(20).std(ddof=0)
+    width = ((mid + 2 * sd) - (mid - 2 * sd)) / mid
+    hist = width.iloc[-126:].dropna()
+    p = width.iloc[-1]
+    if len(hist) <= 60 or not np.isfinite(p) or p > 1.05 * hist.min():
+        return []
+    upper, lower = float(mid.iloc[-1] + 2 * sd.iloc[-1]), float(mid.iloc[-1] - 2 * sd.iloc[-1])
+    return [Finding(
+        id="squeeze:state", detector="squeeze",
+        title="A squeeze: the Bollinger Bands are the narrowest in six months",
+        body=f"Band width {p * 100:.1f}% of price, within 5% of its 126-session minimum.",
+        facts={"width": float(p), "upper": upper, "lower": lower}, time=None, weight=0.65,
+        tone="neutral",
+        watch={"text": f"Whichever breaks first: the upper band {_px(upper)} or the lower band {_px(lower)}",
+               "level": None},
+        actions=validate_actions([{"type": "CLEAR"}, _zoom63(df),
+                                  {"type": "INDICATORS", "ids": ["bollinger"]}]))]
+
+
+def _swings(df: pd.DataFrame, highs: bool) -> list[int]:
+    """The last two 5-bar fractal swings (a bar at least as extreme as the two
+    either side) in bars n-40 .. n-3, as eVector scans them."""
+    x = df["high" if highs else "low"].to_numpy(float)
+    n = len(x)
+    out = []
+    for s in range(max(2, n - 40), n - 2):
+        nb = [x[s + k] for k in (-2, -1, 1, 2)]
+        ok = all(x[s] >= v for v in nb) if highs else all(x[s] <= v for v in nb)
+        if ok:
+            out.append(s)
+    return out[-2:]
+
+
+def det_divergence(df: pd.DataFrame) -> list[Finding]:
+    r = _rsi(df["close"]).to_numpy(float)
+    found = []
+    for highs in (True, False):
+        sw = _swings(df, highs)
+        if len(sw) != 2 or not np.isfinite(r[sw[0]]) or not np.isfinite(r[sw[1]]):
+            continue
+        a, b = sw
+        col = "high" if highs else "low"
+        pa, pb = float(df[col].iloc[a]), float(df[col].iloc[b])
+        if highs and not (pb > pa and r[b] < r[a] - 4):
+            continue
+        if not highs and not (pb < pa and r[b] > r[a] + 4):
+            continue
+        key = "bearish_div" if highs else "bullish_div"
+        tone = "down" if highs else "up"
+        t0, t1 = t_of(df, a), t_of(df, b)
+        found.append(Finding(
+            id=f"{key}:{t1}", detector=key,
+            title="Bearish divergence" if highs else "Bullish divergence",
+            body=(f"Price made a {'higher high' if highs else 'lower low'} ({_px(pa)} -> {_px(pb)}) "
+                  f"while RSI14 made a {'lower' if highs else 'higher'} one ({r[a]:.0f} -> {r[b]:.0f})."),
+            facts={"p1": pa, "p2": pb, "r1": float(r[a]), "r2": float(r[b])},
+            time=t1, weight=0.7, tone=tone,
+            watch={"text": f"A {'close above' if highs else 'close below'} the swing {col} {_px(pb)} "
+                           f"overrides the divergence", "level": pb},
+            actions=validate_actions([
+                {"type": "CLEAR"},
+                {"type": "ZOOM_TO_RANGE", "from": t_of(df, max(0, a - 10)), "to": t_of(df, -1)},
+                {"type": "INDICATORS", "ids": ["ema20", "rsi"]},
+                {"type": "HIGHLIGHT_CANDLE", "time": t0, "tone": tone},
+                {"type": "HIGHLIGHT_CANDLE", "time": t1, "tone": tone},
+            ])))
+    return found
+
+
+CROSS_RECENT = 20
+
+
+def _run_start(flags: np.ndarray) -> int | None:
+    """Index where the run of True ending at the last bar began (None if the last
+    bar is False)."""
+    if not flags[-1]:
+        return None
+    i = len(flags) - 1
+    while i > 0 and flags[i - 1]:
+        i -= 1
+    return i
+
+
+def det_sma200(df: pd.DataFrame) -> list[Finding]:
+    c = df["close"].to_numpy(float)
+    sma = df["close"].rolling(200).mean().to_numpy(float)
+    if len(c) < 200 or not np.isfinite(sma[-1]):
+        return []
+    above = c[-1] > sma[-1]
+    side = (c > sma) if above else (c < sma)
+    start = _run_start(np.where(np.isfinite(sma), side, False))
+    if start is None:
+        return []
+    ago = len(c) - 1 - start
+    recent = ago < CROSS_RECENT
+    key = "above_sma200" if above else "below_sma200"
+    t = t_of(df, start) if recent else None
+    lvl = float(sma[-1])
+    dist = c[-1] / lvl - 1
+    return [Finding(
+        id=f"{key}:{t or 'state'}", detector=key,
+        title=f"{'Above' if above else 'Below'} its 200-day average",
+        body=(f"{_pct(dist)} {'above' if above else 'below'} the 200-day average ({_px(lvl)})"
+              + (f"; crossed {ago} sessions ago." if recent else ".")
+              + (" The long trend is up." if above else " The long trend is down.")),
+        facts={"sma200": lvl, "dist": float(dist)}, time=t, weight=0.6,
+        tone="up" if above else "down",
+        watch={"text": f"A close {'under' if above else 'over'} the 200-day average {_px(lvl)}", "level": lvl},
+        actions=validate_actions(
+            [{"type": "CLEAR"}, _zoom63(df), {"type": "INDICATORS", "ids": ["sma200"]}]
+            + ([{"type": "HIGHLIGHT_CANDLE", "time": t, "tone": "accent"}] if t else [])))]
+
+
+def det_crosses(df: pd.DataFrame) -> list[Finding]:
+    s50 = df["close"].rolling(50).mean().to_numpy(float)
+    s200 = df["close"].rolling(200).mean().to_numpy(float)
+    n = len(s50)
+    for i in range(n - 1, max(0, n - CROSS_RECENT) - 1, -1):
+        if i < 1 or not np.isfinite(s200[i - 1]):
+            break
+        gold = s50[i] > s200[i] and s50[i - 1] <= s200[i - 1]
+        death = s50[i] < s200[i] and s50[i - 1] >= s200[i - 1]
+        if not (gold or death):
+            continue
+        key = "golden_cross" if gold else "death_cross"
+        t = t_of(df, i)
+        return [Finding(
+            id=f"{key}:{t}", detector=key,
+            title=("Trend turned up: the 50-day average crossed above the 200-day" if gold
+                   else "Trend turned down: the 50-day average crossed below the 200-day"),
+            body=f"{n - 1 - i} sessions ago; 50-day {_px(s50[-1])}, 200-day {_px(s200[-1])}.",
+            facts={"sma50": float(s50[-1]), "sma200": float(s200[-1])}, time=t, weight=0.6,
+            tone="up" if gold else "down",
+            watch={"text": f"The 50-day crossing back {'under' if gold else 'over'} the 200-day "
+                           f"({_px(s200[-1])})", "level": float(s200[-1])},
+            actions=validate_actions([
+                {"type": "CLEAR"}, _zoom63(df), {"type": "INDICATORS", "ids": ["sma50", "sma200"]},
+                {"type": "HIGHLIGHT_CANDLE", "time": t, "tone": "accent"}]))]
+    return []
+
+
+_register("volume_expansion", "Volume expansion (5 vs 50 sessions, at least 1.5x)", "evector", "state",
+          "directional", det_volume_expansion)
+_register("atr_expansion", "Volatility expansion (ATR14 at least 1.4x two months ago)", "evector", "state",
+          "magnitude", det_atr_expansion)
+_register("squeeze", "Bollinger squeeze (narrowest in 126 sessions)", "evector", "state", "magnitude",
+          det_squeeze)
+_register("bearish_div", "Bearish RSI divergence", "evector", "dated", "directional", det_divergence)
+_register("bullish_div", "Bullish RSI divergence", "evector", "dated", "directional", det_divergence)
+_register("above_sma200", "Above the 200-day average", "evector", "state", "directional", det_sma200)
+_register("below_sma200", "Below the 200-day average", "evector", "state", "directional", det_sma200)
+_register("golden_cross", "Golden cross (50/200)", "evector", "dated", "directional", det_crosses)
+_register("death_cross", "Death cross (50/200)", "evector", "dated", "directional", det_crosses)
