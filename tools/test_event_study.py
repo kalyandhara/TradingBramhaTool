@@ -144,3 +144,78 @@ def test_snap_after_last_session_is_minus_one():
     idx = pd.bdate_range("2020-01-27", "2020-02-07")
     pos, _ = es.snap_to_sessions(pd.Series(pd.to_datetime(["2020-03-01"])), idx)
     assert pos[0] == -1
+
+
+# ── abnormal returns ─────────────────────────────────────────────────────────
+
+def _pair(n=400, beta=1.5, alpha=0.001, plant=None, seed=0):
+    """Synthetic pair returns: r = alpha + beta*m + small noise, optional plant {pos: amount}."""
+    rng = np.random.default_rng(seed)
+    m = rng.normal(0, 0.01, n)
+    r = alpha + beta * m + rng.normal(0, 0.0005, n)
+    for p, amt in (plant or {}).items():
+        r[p] += amt
+    idx = pd.bdate_range("2015-01-01", periods=n)
+    return pd.DataFrame({"r": r, "m": m}, index=idx)
+
+
+def test_market_model_recovers_beta():
+    pr = _pair(plant={300: 0.03})
+    ar = es.market_model_ar(pr, 300)
+    assert ar.loc[0] == pytest.approx(0.03, abs=0.003)
+    assert abs(ar.loc[-3]) < 0.003          # an unplanted day is ~0 once beta is removed
+
+
+def test_market_model_too_short_returns_none():
+    pr = _pair(n=400)
+    assert es.market_model_ar(pr, 110) is None   # only 100 estimation rows exist
+
+
+def test_adjusted_model_is_sector_minus_market():
+    pr = _pair(plant={300: 0.03})
+    ar = es.market_model_ar(pr, 300, model="adjusted")
+    assert ar.loc[0] == pytest.approx(pr["r"].iloc[300] - pr["m"].iloc[300])
+
+
+def _closes_from(pr_by_ticker, market_m):
+    """Price levels whose log returns are exactly the given returns."""
+    idx = market_m.index
+    out = {es.MARKET: 1000 * np.exp(np.r_[0, np.cumsum(market_m.to_numpy())])}
+    for t, r in pr_by_ticker.items():
+        out[t] = 100 * np.exp(np.r_[0, np.cumsum(r.to_numpy())])
+    full = idx.insert(0, idx[0] - pd.offsets.BDay(1))
+    return pd.DataFrame(out, index=full)
+
+
+def _events(dates, etype="mpc", label="hold"):
+    return pd.DataFrame({"date": pd.to_datetime(dates), "event_type": etype,
+                         "label": label, "scheduled": 1})
+
+
+def test_event_near_end_drops_only_drift():
+    pr = _pair(n=400)
+    closes = _closes_from({"S": pr["r"]}, pr["m"])
+    ev = _events([pr.index[397]])
+    t = es.event_ar_table(closes, ev, sectors=["S"])
+    s = t[t["ticker"] == "S"]
+    assert "day" in set(s["window"])
+    assert "drift" not in set(s["window"])
+
+
+def test_overlapping_events_both_kept():
+    pr = _pair(n=400)
+    closes = _closes_from({"S": pr["r"]}, pr["m"])
+    ev = _events([pr.index[300], pr.index[308]])
+    t = es.event_ar_table(closes, ev, sectors=["S"])
+    day = t[(t["ticker"] == "S") & (t["window"] == "day")]
+    assert len(day) == 2
+
+
+def test_event_table_market_rows_are_raw_returns():
+    pr = _pair(n=400)
+    closes = _closes_from({"S": pr["r"]}, pr["m"])
+    ev = _events([pr.index[300]])
+    t = es.event_ar_table(closes, ev, sectors=["S"])
+    mk = t[(t["ticker"] == es.MARKET) & (t["window"] == "day")]
+    assert mk["car"].iloc[0] == pytest.approx(pr["m"].iloc[300])
+    assert not mk["snapped"].iloc[0]

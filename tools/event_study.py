@@ -159,3 +159,90 @@ def snap_to_sessions(dates: pd.Series, index: pd.DatetimeIndex) -> tuple[np.ndar
             out[i] = p
             snapped[i] = index[p] != pd.Timestamp(d[i])
     return out, snapped
+
+
+# --------------------------------------------------------------------------- #
+# Abnormal returns
+# --------------------------------------------------------------------------- #
+
+#: Trading days relative to d0 (the session containing the announcement).
+WINDOWS: dict[str, tuple[int, int]] = {"pre": (-5, -1), "day": (0, 0),
+                                       "post": (1, 5), "drift": (0, 20)}
+SPAN = (-5, 20)
+EST = (-250, -11)
+MIN_EST_OBS = 120
+
+
+def market_model_ar(pr: pd.DataFrame, d0_pos: int, est: tuple[int, int] = EST,
+                    min_obs: int = MIN_EST_OBS, model: str = "market") -> pd.Series | None:
+    """Abnormal returns over SPAN, indexed by relative day (days past the data are
+    absent). `pr` is pair_returns(); `d0_pos` a position in pr's own index.
+
+    market: OLS of r on m over the estimation window; adjusted: beta 1, alpha 0
+    (the sensitivity check). None when the estimation window is too short —
+    both models require it, so the two never disagree about the sample."""
+    lo, hi = max(0, d0_pos + est[0]), d0_pos + est[1] + 1
+    if hi - lo < min_obs:
+        return None
+    if model == "market":
+        beta, alpha = np.polyfit(pr["m"].to_numpy()[lo:hi], pr["r"].to_numpy()[lo:hi], 1)
+    elif model == "adjusted":
+        beta, alpha = 1.0, 0.0
+    else:
+        raise ValueError(f"unknown model {model!r}")
+    s_lo, s_hi = max(0, d0_pos + SPAN[0]), min(len(pr), d0_pos + SPAN[1] + 1)
+    seg = pr.iloc[s_lo:s_hi]
+    ar = seg["r"].to_numpy() - (alpha + beta * seg["m"].to_numpy())
+    return pd.Series(ar, index=np.arange(s_lo, s_hi) - d0_pos)
+
+
+def _window_sum(s: pd.Series, w: tuple[int, int]) -> float | None:
+    """Cumulative value over a window, or None if any day of it is missing."""
+    days = range(w[0], w[1] + 1)
+    if not all(d in s.index for d in days):
+        return None
+    return float(s.loc[list(days)].sum())
+
+
+def event_ar_table(closes: pd.DataFrame, events: pd.DataFrame,
+                   sectors: list[str] = SECTORS,
+                   windows: dict[str, tuple[int, int]] = WINDOWS,
+                   model: str = "market") -> pd.DataFrame:
+    """Long table: one row per (event, ticker, window) with the cumulative AR
+    (`car`). MARKET rows hold the raw NIFTY log return over the window.
+
+    d0 is snapped on the market's own sessions; a sector missing that session
+    takes its next printed one. A window running past the data is omitted for
+    that event only — the shorter windows keep it."""
+    mkt = closes[MARKET].dropna()
+    mkt_r = np.log(mkt).diff().dropna()
+    pos, snapped = snap_to_sessions(events["date"], mkt_r.index)
+    rows = []
+    pairs = {t: pair_returns(closes, t) for t in sectors if t in closes.columns}
+    for (_, ev), p, sn in zip(events.iterrows(), pos, snapped):
+        if p < 0:
+            continue
+        d0 = mkt_r.index[p]
+        base = {"event_date": ev["date"], "event_type": ev["event_type"],
+                "label": ev["label"], "snapped": bool(sn), "session": d0}
+        raw = pd.Series(mkt_r.to_numpy()[max(0, p + SPAN[0]):p + SPAN[1] + 1],
+                        index=np.arange(max(0, p + SPAN[0]),
+                                        min(len(mkt_r), p + SPAN[1] + 1)) - p)
+        for wname, w in windows.items():
+            v = _window_sum(raw, w)
+            if v is not None:
+                rows.append({**base, "ticker": MARKET, "window": wname, "car": v})
+        for t, pr in pairs.items():
+            q = int(pr.index.searchsorted(d0, side="left"))
+            if q >= len(pr):
+                continue
+            ar = market_model_ar(pr, q, model=model)
+            if ar is None:
+                continue
+            for wname, w in windows.items():
+                v = _window_sum(ar, w)
+                if v is not None:
+                    rows.append({**base, "ticker": t, "window": wname, "car": v})
+    cols = ["event_date", "event_type", "label", "snapped", "session",
+            "ticker", "window", "car"]
+    return pd.DataFrame(rows, columns=cols)
