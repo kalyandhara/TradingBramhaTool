@@ -424,3 +424,18 @@ def test_patch_sessions_leaves_non_trading_day_alone():
     out, patched = es.patch_sessions(closes, pd.Series(pd.to_datetime(["2020-02-02"])),
                                      fetch=lambda d: None)
     assert patched == [] and len(out) == 2
+
+
+def test_patch_sessions_fills_nan_market_on_existing_row():
+    """2014-02-17: Yahoo prints Bank Nifty that day but NIFTY is NaN. The row
+    exists, so a date-presence check skipped it and the event was snapped."""
+    idx = pd.to_datetime(["2014-02-14", "2014-02-17", "2014-02-18"])
+    closes = pd.DataFrame({es.MARKET: [100.0, np.nan, 102], "^NSEBANK": [50.0, 51.0, 52]},
+                          index=idx)
+    nse = pd.DataFrame({"Index Name": ["CNX Nifty", "CNX Bank"],
+                        "Closing Index Value": ["101.0", "99.0"]})
+    out, patched = es.patch_sessions(closes, pd.Series(pd.to_datetime(["2014-02-17"])),
+                                     fetch=lambda d: nse)
+    assert patched == [pd.Timestamp("2014-02-17")]
+    assert out.loc["2014-02-17", es.MARKET] == 101.0
+    assert out.loc["2014-02-17", "^NSEBANK"] == 51.0       # Yahoo's own value kept

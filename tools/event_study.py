@@ -180,14 +180,15 @@ def patch_sessions(closes: pd.DataFrame, dates: pd.Series,
     Yahoo never printed the special budget sessions (Sat 2015-02-28, Sat
     2020-02-01, Sun 2026-02-01) nor 2014-02-17. Snapping those to the next
     session would make d0 a two-session return — ~sqrt(2) larger, inflating a
-    magnitude test — so the real session is restored instead. A date NSE has no
+    magnitude test — so the real session is restored instead. A row that exists
+    with NIFTY missing (2014-02-17) is gap-filled; Yahoo's own values are kept. A date NSE has no
     file for was not a trading day and is left for snap_to_sessions."""
     fetch = fetch or _nse_fetch_any_day
     out = closes.copy()
     patched = []
-    have = set(out.index.normalize())
+    have = set(out.index[out[MARKET].notna()].normalize()) if MARKET in out else set()
     for d in sorted(set(pd.to_datetime(pd.Series(dates)).dt.normalize())):
-        if d in have:
+        if d in have:                       # NIFTY printed that day: nothing to restore
             continue
         nse = fetch(d.date())
         if nse is None:
@@ -202,7 +203,12 @@ def patch_sessions(closes: pd.DataFrame, dates: pd.Series,
                     break
         if MARKET not in row:
             continue
-        out.loc[d] = pd.Series(row)
+        if d in out.index:                  # row exists (other series printed): fill gaps only
+            for t, v in row.items():
+                if pd.isna(out.at[d, t]):
+                    out.at[d, t] = v
+        else:
+            out.loc[d] = pd.Series(row)
         patched.append(d)
     return out.sort_index(), patched
 
