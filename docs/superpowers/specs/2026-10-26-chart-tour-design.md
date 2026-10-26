@@ -111,7 +111,7 @@ Weights only order the cards; they are never shown as meaning.
 | `structure_break_held` | `scanner_templates.detect_structure_chain` (overlay defaults) — latest break not failed | by break side / directional | B-114 |
 | `liquidity_sweep_bull` | `scanner_templates.detect_liquidity_sweep` (bull) | up / directional | B-41m |
 | `flag_pole_bull` | `flag_pole.detect_flag_pole(direction="bull")` | up / directional | B-92 |
-| `abcd` | the AB=CD detector behind `/api/harmonic` with stop D − 2×ATR14 | by side / directional | B-132 |
+| `abcd` | `harmonic_patterns.detect_last_pattern` (the "Harmonic Reversal (XABCD)" scanner's detector), bullish only, `pattern` containing "AB=CD", stop D − 2×ATR14 (`scanner_templates.ABCD_STOP_ATR`) | up / directional | B-132 |
 | `adx_up_state` | ADX confirmed up-state (ADX study rule) | up / directional | ADX (the `named_studies` entry) |
 
 Study links follow `indicator_evidence`'s rule: a study is linked only where it
