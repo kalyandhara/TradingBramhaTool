@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-26] ingest | eVector (evector.io) — event map, momentum lifecycle, chart tour
+- [[sources/Web-eVector-Event-Vector-Markets]] read from public pages + the public JS bundle (UI strings and client-side detector logic; REA needs a CDP endpoint this session lacks). Filed B-185…B-189: lifecycle state (measure first), chart tour narration with measured base rates, context ladder + 'stock or market?', event markers on the chart, graded calls.
+
 ## [2026-10-26] study | B-184 policy event study — Budget re-sorts sectors, MPC days ordinary
 - [[analyses/Policy-Event-Study-Result]] run as pre-registered: PROMOTE budget dispersion 1.65× (Holm p 0.0008, both halves); budget |NIFTY| 1.35× p 0.10 (not established); MPC magnitude and direction CALIBRATION. `patch_sessions` now restores event-day gaps from NSE (5 sessions). rec_audit's 'Yahoo has ~4 days of sector history' note contradicted.
 
