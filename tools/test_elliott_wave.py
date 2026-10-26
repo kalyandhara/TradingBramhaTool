@@ -36,7 +36,10 @@ def ew(expr: str, **data) -> object:
     binds = "".join(f"const {k} = {json.dumps(v)};\n" for k, v in data.items())
     script = (f"global.window = global; require({JS!r});\n{binds}"
               f"process.stdout.write(JSON.stringify({expr}));")
-    out = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+    # Script goes in on stdin, not `node -e`: inlined bar data can pass the
+    # 32,767-char Windows command-line limit (WinError 206).
+    out = subprocess.run(["node", "-"], input=script, capture_output=True,
+                         text=True, encoding="utf-8")
     assert out.returncode == 0, out.stderr
     return json.loads(out.stdout)
 
