@@ -11,6 +11,9 @@ injectable callables so the tests never touch the network.
 from __future__ import annotations
 
 import logging
+import warnings
+from contextlib import contextmanager
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import numpy as np
@@ -275,12 +278,20 @@ def date_null(stat_fn, candidates: np.ndarray, n_events: int, draws: int = 10_00
               seed: int = 7) -> np.ndarray:
     """Null A: the statistic recomputed on `draws` sets of `n_events` pseudo-event
     positions drawn without replacement from `candidates`."""
+    return np.array([stat_fn(row) for row in draw_matrix(candidates, n_events, draws, seed)],
+                    dtype=float)
+
+
+def draw_matrix(candidates: np.ndarray, n_events: int, draws: int = 10_000,
+                seed: int = 7) -> np.ndarray:
+    """The pseudo-event position sets behind Null A, one sorted row per draw.
+    Exposed so many statistics can share one set of draws, vectorised."""
     rng = np.random.default_rng(seed)
     cand = np.asarray(candidates)
     if len(cand) < n_events:
         raise ValueError(f"only {len(cand)} candidate days for {n_events} events")
-    return np.array([stat_fn(np.sort(rng.choice(cand, n_events, replace=False)))
-                     for _ in range(draws)], dtype=float)
+    return np.sort(np.stack([rng.choice(cand, n_events, replace=False)
+                             for _ in range(draws)]), axis=1)
 
 
 def p_greater(real: float, null: np.ndarray) -> float:
@@ -336,3 +347,318 @@ def bh(p) -> np.ndarray:
     out = np.empty(m)
     out[order] = np.minimum(adj, 1.0)
     return out
+
+
+# --------------------------------------------------------------------------- #
+# The study
+# --------------------------------------------------------------------------- #
+
+NA_SMALL = "n/a (n<5)"
+MIN_BUCKET = 5
+MIN_SECTORS_DISP = 6        # a dispersion needs at least this many sectors that day
+MIN_BASKET = 3              # a basket mean needs at least this many members that day
+
+
+@dataclass
+class StudyConfig:
+    draws: int = 10_000
+    seed: int = 7
+    boot: int = 5_000
+    exclude: int = 10
+    split: str = "2019-01-01"
+    calendar_match: dict = field(default_factory=lambda: {"mpc": False, "budget": True})
+
+
+def _rolling_ar(pr: pd.DataFrame, model: str) -> pd.Series:
+    """Day-0 abnormal return for EVERY row of a pair, each with its own
+    estimation window [-250, -11] — what market_model_ar gives for one d0,
+    vectorised so the null can draw any day."""
+    if model == "adjusted":
+        return pr["r"] - pr["m"]
+    span = EST[1] - EST[0] + 1
+    lag = -EST[1]                                   # window ends 11 rows before d0
+    roll = pr.rolling(span, min_periods=MIN_EST_OBS)
+    mean = roll.mean()
+    cov = pr["r"].rolling(span, min_periods=MIN_EST_OBS).cov(pr["m"])
+    beta = cov / roll.var()["m"]
+    alpha = mean["r"] - beta * mean["m"]
+    return pr["r"] - (alpha.shift(lag) + beta.shift(lag) * pr["m"])
+
+
+class _Panel:
+    """Everything a statistic needs, as arrays on the market's session index."""
+
+    def __init__(self, closes: pd.DataFrame, model: str = "market"):
+        mkt = closes[MARKET].dropna()
+        self.mkt_r = np.log(mkt).diff().dropna()
+        self.index = self.mkt_r.index
+        self.sectors = [t for t in SECTORS if t in closes.columns]
+        self.ar = pd.DataFrame({t: _rolling_ar(pair_returns(closes, t), model).reindex(self.index)
+                                for t in self.sectors}, index=self.index)
+        a = self.ar.to_numpy()
+        with _quiet():
+            disp = np.nanstd(a, axis=1, ddof=1)
+            b = self.ar[[t for t in BASKET if t in self.ar.columns]].to_numpy()
+            bmean = np.nanmean(b, axis=1)
+        self.disp = np.where(np.sum(~np.isnan(a), axis=1) >= MIN_SECTORS_DISP, disp, np.nan)
+        self.basket = np.where(np.sum(~np.isnan(b), axis=1) >= MIN_BASKET, bmean, np.nan)
+        self.abs_mkt = np.abs(self.mkt_r.to_numpy())
+
+    @staticmethod
+    def window_values(base: np.ndarray, w: tuple[int, int]) -> np.ndarray:
+        """Sum of `base` over [pos+w0, pos+w1] for every pos (NaN past the edges
+        or where any day in the window is missing)."""
+        width = w[1] - w[0] + 1
+        return (pd.Series(base).rolling(width, min_periods=width).sum()
+                .shift(-w[1]).to_numpy())
+
+
+@contextmanager
+def _quiet():
+    """All-NaN rows are expected (a sector before its series starts); numpy's
+    'mean of empty slice' warning about them is noise."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        yield
+
+
+def _nanmean_rows(vals: np.ndarray, M: np.ndarray) -> np.ndarray:
+    with _quiet():
+        return np.nanmean(vals[M], axis=1)
+
+
+def _na_row(test, set_, n):
+    return {"test": test, "set": set_, "n": int(n), "real": None, "null_mean": None,
+            "ratio": None, "p": NA_SMALL, "p_adj": None, "ci_lo": None, "ci_hi": None}
+
+
+def _test_row(test, set_, vals, pos, M, cfg, sign=1.0):
+    """Real statistic (mean over events, NaN events dropped) against the same
+    statistic on each Null A draw. sign=-1 tests 'less than' by negation."""
+    v = vals[pos]
+    v = v[~np.isnan(v)]
+    if len(v) < MIN_BUCKET:
+        return _na_row(test, set_, len(v))
+    real = float(v.mean())
+    null = _nanmean_rows(vals, M)
+    nm = float(np.nanmean(null))
+    lo, hi = bootstrap_ci(v, reps=cfg.boot, seed=cfg.seed)
+    return {"test": test, "set": set_, "n": int(len(v)), "real": real, "null_mean": nm,
+            "ratio": real / nm if nm != 0 and not np.isnan(nm) else None,
+            "p": p_greater(sign * real, sign * null), "p_adj": None,
+            "ci_lo": lo, "ci_hi": hi}
+
+
+def _set_null(panel, set_pos_all, years, months, n, cfg, seed_offset=0):
+    cand = candidate_positions(panel.index, set_pos_all, exclude=cfg.exclude,
+                               years=years, months=months)
+    return draw_matrix(cand, n, cfg.draws, cfg.seed + seed_offset)
+
+
+def _verdicts(primary, split_half, secondary) -> list[str]:
+    """Spec section 3.4, applied mechanically."""
+    out = []
+    for set_ in sorted({r["set"] for r in primary}):
+        promoted = None
+        for r in (x for x in primary if x["set"] == set_):
+            if not isinstance(r["p_adj"], float) or r["ratio"] is None:
+                continue
+            halves = [h for h in split_half if h["set"] == set_ and h["test"] == r["test"]]
+            robust = len(halves) == 2 and all(
+                isinstance(h["p"], float) and h["p"] < 0.10
+                and h["ratio"] is not None and h["ratio"] >= 1.2 for h in halves)
+            if r["p_adj"] < 0.05 and r["ratio"] >= 1.3 and robust:
+                promoted = r
+                break
+        if promoted:
+            out.append(f"PROMOTE: {set_} policy days are volatility events "
+                       f"({promoted['test']} ratio {promoted['ratio']:.2f}x)")
+        else:
+            out.append(f"CALIBRATION: {set_} magnitude - no promotable effect")
+    if secondary:
+        s = {r["test"]: r for r in secondary}
+        ok = (isinstance(s["S3"]["p"], float) and s["S3"]["p"] < 0.05
+              and s["S1"]["real"] is not None and s["S1"]["real"] > 0
+              and s["S2"]["real"] is not None and s["S2"]["real"] < 0)
+        out.append("PROMOTE: MPC directional tilt (decision-conditional - not tradeable "
+                   "before the announcement)" if ok
+                   else "CALIBRATION: mpc directional - no promotable effect")
+    return out
+
+
+def _clean(o):
+    """JSON-safe: numpy scalars to Python, NaN to None, Timestamps to ISO dates."""
+    if isinstance(o, dict):
+        return {str(k): _clean(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple, set)):
+        return [_clean(v) for v in o]
+    if isinstance(o, pd.Timestamp):
+        return o.date().isoformat()
+    if isinstance(o, (np.bool_, bool)):
+        return bool(o)
+    if isinstance(o, (np.integer,)):
+        return int(o)
+    if isinstance(o, (np.floating, float)):
+        return None if np.isnan(o) else float(o)
+    return o
+
+
+def _directional(panel, e, e_all, years, cfg) -> list[dict]:
+    rows = []
+    for test, lab, sign, off in (("S1", "cut", 1.0, 2), ("S2", "hike", -1.0, 3)):
+        bp = e.loc[e["label"] == lab, "pos"].to_numpy()
+        if len(bp) < MIN_BUCKET:
+            rows.append(_na_row(test, "mpc", len(bp)))
+            continue
+        BM = _set_null(panel, e_all["pos"].to_numpy(), years, None, len(bp), cfg, off)
+        rows.append(_test_row(test, "mpc", panel.basket, bp, BM, cfg, sign=sign))
+    ch = e[e["label"].isin(["cut", "hike"])]
+    vals = panel.basket[ch["pos"].to_numpy()]
+    keep = ~np.isnan(vals)
+    labs = ch["label"].to_numpy()[keep]
+    if min((labs == "cut").sum(), (labs == "hike").sum()) < MIN_BUCKET:
+        rows.append(_na_row("S3", "mpc", keep.sum()))
+    else:
+        real, null = label_permutation(vals[keep], labs, draws=cfg.draws, seed=cfg.seed)
+        rows.append({"test": "S3", "set": "mpc", "n": int(keep.sum()), "real": real,
+                     "null_mean": float(null.mean()), "ratio": None,
+                     "p": p_greater(real, null), "p_adj": None, "ci_lo": None, "ci_hi": None})
+    return rows
+
+
+def _exploratory(panel, set_, pos, M, cfg) -> list[dict]:
+    """Per ticker x window: |CAR| and signed CAR (both tails), BH within the set.
+    Multi-day windows here sum each day's own rolling-model AR — exploratory only."""
+    bases = {MARKET: panel.mkt_r.to_numpy(),
+             **{t: panel.ar[t].to_numpy() for t in panel.sectors}}
+    rows = []
+    for t, base in bases.items():
+        for wname, w in WINDOWS.items():
+            car = panel.window_values(base, w)
+            for stat, vals, sgn in (("abs", np.abs(car), 1.0), ("up", car, 1.0),
+                                    ("down", car, -1.0)):
+                rows.append(_test_row(f"{t}|{wname}|{stat}", set_, vals, pos, M, cfg, sign=sgn))
+    ps = [r["p"] for r in rows if isinstance(r["p"], float)]
+    qs = iter(bh(ps)) if ps else iter(())
+    for r in rows:
+        if isinstance(r["p"], float):
+            r["p_adj"] = float(next(qs))
+    return rows
+
+
+def run_study(closes: pd.DataFrame, events: pd.DataFrame, cfg: StudyConfig | None = None,
+              omitted: list[str] | None = None) -> dict:
+    """Run the pre-registered tests (spec section 3); returns a JSON-safe dict.
+
+    `events` may hold scheduled and unscheduled rows: only scheduled rows are
+    tested, unscheduled ones are listed under `unscheduled`. Real and null
+    statistics are read from the same per-session arrays, so they can differ
+    only in WHICH days they look at."""
+    cfg = cfg or StudyConfig()
+    panel, adj = _Panel(closes, "market"), _Panel(closes, "adjusted")
+    pos_all, snapped = snap_to_sessions(events["date"], panel.index)
+    ev = events.assign(pos=pos_all, snapped=snapped)
+    ev = ev[ev["pos"] >= 0]
+    split = pd.Timestamp(cfg.split)
+
+    primary, secondary, split_half = [], [], []
+    sensitivity, exploratory, unscheduled = [], [], []
+    for set_ in sorted(ev["event_type"].unique()):
+        e_all = ev[ev["event_type"] == set_]
+        e = e_all[e_all["scheduled"] == 1]
+        if e.empty:
+            continue
+        pos = e["pos"].to_numpy()
+        all_pos = e_all["pos"].to_numpy()
+        years = set(panel.index[pos].year)
+        months = set(panel.index[pos].month) if cfg.calendar_match.get(set_) else None
+        M = _set_null(panel, all_pos, years, months, len(pos), cfg)
+
+        primary.append(_test_row("P1", set_, panel.abs_mkt, pos, M, cfg))
+        primary.append(_test_row("P2", set_, panel.disp, pos, M, cfg))
+        sensitivity.append(_test_row("P2-adjusted", set_, adj.disp, pos, M, cfg))
+        if set_ == "mpc":
+            sensitivity.append(_test_row("basket-adjusted|cut", set_, adj.basket,
+                                         e.loc[e["label"] == "cut", "pos"].to_numpy(), M, cfg))
+
+        for half, mask in ((f"before {cfg.split}", panel.index[pos] < split),
+                           (f"from {cfg.split}", panel.index[pos] >= split)):
+            hp = pos[mask]
+            if len(hp) < MIN_BUCKET:
+                split_half += [{"test": t, "set": set_, "half": half, "n": int(len(hp)),
+                                "p": NA_SMALL, "ratio": None} for t in ("P1", "P2")]
+                continue
+            HM = _set_null(panel, all_pos, set(panel.index[hp].year), months, len(hp), cfg, 1)
+            for t, vals in (("P1", panel.abs_mkt), ("P2", panel.disp)):
+                r = _test_row(t, set_, vals, hp, HM, cfg)
+                split_half.append({"test": t, "set": set_, "half": half, "n": r["n"],
+                                   "p": r["p"], "ratio": r["ratio"]})
+
+        if set_ == "mpc":
+            secondary = _directional(panel, e, e_all, years, cfg)
+        exploratory += _exploratory(panel, set_, pos, M, cfg)
+
+        for _, u in e_all[e_all["scheduled"] == 0].iterrows():
+            p = int(u["pos"])
+            unscheduled.append({"set": set_, "date": u["date"], "label": u["label"],
+                                "nifty_abs": panel.abs_mkt[p], "dispersion": panel.disp[p],
+                                "basket_ar": panel.basket[p]})
+
+    ps = [r["p"] for r in primary if isinstance(r["p"], float)]
+    holm_p = iter(holm(ps)) if ps else iter(())
+    for r in primary:
+        if isinstance(r["p"], float):
+            r["p_adj"] = float(next(holm_p))
+
+    sched = ev[ev["scheduled"] == 1]
+    meta = {"config": asdict(cfg), "omitted": list(omitted or []),
+            "sample": [panel.index[0], panel.index[-1]], "sectors": panel.sectors,
+            "events": {s: int(n) for s, n in sched["event_type"].value_counts().sort_index().items()},
+            "labels": {f"{s}:{l}": int(n) for (s, l), n
+                       in sched.groupby(["event_type", "label"]).size().items()},
+            "snapped": [d for d, s in zip(ev["date"], ev["snapped"]) if s]}
+    return _clean({"meta": meta, "primary": primary, "secondary": secondary,
+                   "split_half": split_half, "sensitivity": sensitivity,
+                   "exploratory": exploratory, "unscheduled": unscheduled,
+                   "verdicts": _verdicts(primary, split_half, secondary)})
+
+
+def _fmt(v, nd=4):
+    if v is None:
+        return "–"
+    if isinstance(v, (str, int)):
+        return str(v)
+    return f"{v:.{nd}f}"
+
+
+def render_markdown(result: dict) -> str:
+    m = result["meta"]
+    L = [f"# Policy Event Study — {', '.join(m['events'])}", "",
+         f"- Sample: {m['sample'][0]} .. {m['sample'][1]}",
+         f"- Scheduled events: {m['events']} · labels: {m['labels']}",
+         f"- Sectors: {len(m['sectors'])} · omitted: {m['omitted'] or 'none'}",
+         f"- Snapped to next session: {m['snapped'] or 'none'}",
+         f"- Null A: {m['config']['draws']} matched random-date draws, exclusion "
+         f"+/-{m['config']['exclude']} days, seed {m['config']['seed']}, "
+         f"calendar-matched {m['config']['calendar_match']}", ""]
+
+    def table(title, rows, cols):
+        L.extend([f"## {title}", "", "| " + " | ".join(cols) + " |",
+                  "|" + "|".join("---" for _ in cols) + "|"])
+        L.extend("| " + " | ".join(_fmt(r.get(c)) for c in cols) + " |" for r in rows)
+        L.append("")
+
+    std = ["test", "set", "n", "real", "null_mean", "ratio", "p", "p_adj", "ci_lo", "ci_hi"]
+    table("Primary (Holm, family alpha 0.05)", result["primary"], std)
+    table("Split half", result["split_half"], ["test", "set", "half", "n", "ratio", "p"])
+    if result["secondary"]:
+        table("Secondary — MPC directional (raw p)", result["secondary"], std)
+    table("Sensitivity — beta = 1", result["sensitivity"], std)
+    if result["unscheduled"]:
+        table("Unscheduled moves (not tested)", result["unscheduled"],
+              ["set", "date", "label", "nifty_abs", "dispersion", "basket_ar"])
+    L.extend(["## Verdicts", ""] + [f"- {v}" for v in result["verdicts"]] + [""])
+    top = sorted((r for r in result["exploratory"] if isinstance(r["p_adj"], float)),
+                 key=lambda r: r["p_adj"])[:15]
+    table("Exploratory — 15 smallest BH q (no claims)", top, std)
+    return "\n".join(L)

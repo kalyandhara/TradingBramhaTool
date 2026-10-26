@@ -278,3 +278,105 @@ def test_bootstrap_ci_brackets_mean():
     v = np.random.default_rng(0).normal(1.0, 0.1, 200)
     lo, hi = es.bootstrap_ci(v, reps=500)
     assert lo < v.mean() < hi and hi - lo < 0.05
+
+
+# ── run_study: planted effects must be found, unplanted must not ─────────────
+
+FAST = dict(draws=500, boot=200)
+
+
+def _synthetic(n=3000, events=40, vol_plant=False, dir_plant=False, seed=11,
+               n_hike=12, n_cut=12):
+    """13 index series on n business days; `events` MPC dates spread across the
+    sample. vol_plant: NIFTY +/-3 sigma and sector idiosyncratic noise x3 on
+    event days. dir_plant: basket +2 sigma on cut days, -2 sigma on hike days."""
+    rng = np.random.default_rng(seed)
+    idx = pd.bdate_range("2010-01-04", periods=n + 1)
+    m = rng.normal(0.0003, 0.01, n)
+    ev_pos = np.linspace(300, n - 30, events).astype(int)
+    labels = (["cut"] * n_cut + ["hike"] * n_hike + ["hold"] * events)[:events]
+    labels = list(rng.permutation(labels))
+    if vol_plant:
+        m[ev_pos] += rng.choice([-1, 1], events) * 0.03
+    rets = {es.MARKET: m}
+    for i, t in enumerate(es.SECTORS):
+        beta = 0.8 + 0.05 * i
+        idio = rng.normal(0, 0.006, n)
+        if vol_plant:
+            idio[ev_pos] *= 3
+        r = beta * m + idio
+        if dir_plant and t in es.BASKET:
+            for p, lab in zip(ev_pos, labels):
+                if lab == "cut":
+                    r[p] += 2 * 0.006
+                elif lab == "hike":
+                    r[p] -= 2 * 0.006
+        rets[t] = r
+    closes = pd.DataFrame({t: 100 * np.exp(np.r_[0, np.cumsum(r)]) for t, r in rets.items()},
+                          index=idx)
+    ev = pd.DataFrame({"date": idx[ev_pos + 1], "event_type": "mpc", "label": labels,
+                       "scheduled": 1, "time_ist": "10:00", "source_url": "", "notes": ""})
+    return closes, ev
+
+
+def _row(result, section, test, set_="mpc"):
+    return next(r for r in result[section] if r["test"] == test and r["set"] == set_)
+
+
+def test_planted_volatility_detected():
+    closes, ev = _synthetic(vol_plant=True)
+    res = es.run_study(closes, ev, es.StudyConfig(**FAST))
+    for t in ("P1", "P2"):
+        r = _row(res, "primary", t)
+        assert r["p"] < 0.01 and r["ratio"] > 1.3, r
+    assert any(v.startswith("PROMOTE: mpc policy days are volatility events") for v in res["verdicts"])
+
+
+def test_unplanted_control_not_detected():
+    closes, ev = _synthetic(vol_plant=False)
+    res = es.run_study(closes, ev, es.StudyConfig(**FAST))
+    assert _row(res, "primary", "P1")["p"] > 0.05
+    assert not any(v.startswith("PROMOTE") for v in res["verdicts"])
+    assert any(v.startswith("CALIBRATION: mpc") for v in res["verdicts"])
+
+
+def test_planted_directional_cut_effect():
+    closes, ev = _synthetic(dir_plant=True)
+    res = es.run_study(closes, ev, es.StudyConfig(**FAST))
+    assert _row(res, "secondary", "S1")["p"] < 0.05
+    assert _row(res, "secondary", "S3")["p"] < 0.05
+
+
+def test_small_bucket_is_na():
+    closes, ev = _synthetic(n_hike=3, n_cut=12)
+    res = es.run_study(closes, ev, es.StudyConfig(**FAST))
+    assert _row(res, "secondary", "S2")["p"] == "n/a (n<5)"
+
+
+def test_run_study_json_serialisable():
+    import json
+    closes, ev = _synthetic()
+    res = es.run_study(closes, ev, es.StudyConfig(**FAST), omitted=["^CNXMEDIA"])
+    json.dumps(res)
+    assert res["meta"]["omitted"] == ["^CNXMEDIA"]
+    md = es.render_markdown(res)
+    assert "P1" in md and "Verdicts" in md
+
+
+def test_unscheduled_events_reported_not_tested():
+    closes, ev = _synthetic()
+    extra = ev.iloc[[0]].copy()
+    extra["date"] = closes.index[1500]; extra["scheduled"] = 0; extra["label"] = "cut"
+    res = es.run_study(closes, pd.concat([ev, extra], ignore_index=True), es.StudyConfig(**FAST))
+    assert len(res["unscheduled"]) == 1
+    assert _row(res, "primary", "P1")["n"] == 40
+
+
+def test_rolling_ar_matches_single_event_model():
+    """The null reads a vectorised day-0 AR; it must be the same number
+    market_model_ar gives for that day, or real and null measure different things."""
+    pr = _pair(n=400, plant={330: 0.02})
+    rolled = es._rolling_ar(pr, "market")
+    for p in (150, 260, 330, 399):
+        assert rolled.iloc[p] == pytest.approx(es.market_model_ar(pr, p).loc[0], abs=1e-10)
+    assert np.isnan(rolled.iloc[100])        # < 120 estimation rows, like market_model_ar -> None
