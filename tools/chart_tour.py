@@ -603,8 +603,12 @@ def det_flag_pole_bull(df: pd.DataFrame) -> list[Finding]:
         return []
     t = t_of(df, int(end))
     broken = bool(g.get("broken"))
+    # Identity is the pole: the flag grows a bar at a time, so an id built on
+    # flag_end would turn one pattern into a new event every session.
+    pole = g.get("pole_end")
+    ident = t_of(df, int(pole)) if _idx_ok(df, pole) else t
     return [Finding(
-        id=f"flag_pole_bull:{t}", detector="flag_pole_bull",
+        id=f"flag_pole_bull:{ident}", detector="flag_pole_bull",
         title="Bull flag & pole" + (": broke out of the flag" if broken else ": watching the trigger"),
         body=f"Pole {_px(g.get('pole_low', np.nan))} -> {_px(g.get('pole_high', np.nan))}; "
              f"flag {_px(g.get('flag_low', np.nan))}-{_px(g.get('flag_high', np.nan))}; "

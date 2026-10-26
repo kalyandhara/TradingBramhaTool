@@ -544,3 +544,17 @@ def test_build_tour_survives_a_badge_failure(monkeypatch):
     tour = ct.build_tour(df, market_df=None, sector_df=None, sector_label=None, base_rates=RATES, today=TODAY)
     found = [s for s in tour["steps"] if s.get("detector")]
     assert all(s["badge"]["label"] == "NOT_MEASURED" for s in found)
+
+
+def test_flag_identity_is_its_pole_not_its_moving_flag_end(monkeypatch):
+    """A flag grows a bar at a time; if its card id followed flag_end, one pattern
+    would be counted as a new event every day in the base rates."""
+    df = _base()
+    n = len(df)
+    def geo(end):
+        return lambda d, direction="bull", **k: {"pole_end": n - 12, "flag_end": end, "entry": 114.0,
+                                                 "stop": 110.0, "target": 129.0, "broken": False}
+    monkeypatch.setattr(fp, "detect_flag_pole", geo(n - 3))
+    a = ct.det_flag_pole_bull(df)[0].id
+    monkeypatch.setattr(fp, "detect_flag_pole", geo(n - 2))
+    assert ct.det_flag_pole_bull(df)[0].id == a
