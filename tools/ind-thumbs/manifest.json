@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-15",
+ "generated": "2026-10-26",
  "thumbs": {
   "adxdi": {
    "file": "adxdi.0c5d31ce07.webp",
@@ -25,6 +25,11 @@
    "file": "bollinger.3a67a84deb.webp",
    "chart": "RELIANCE.NS · 1d · 6M",
    "bytes": 9550
+  },
+  "bulltrap": {
+   "file": "bulltrap.173b03d2cf.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 7510
   },
   "cpr": {
    "file": "cpr.3f56ebb937.webp",
