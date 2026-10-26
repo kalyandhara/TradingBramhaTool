@@ -754,20 +754,33 @@ def badge_for(key: str, base_rates: dict | None, today) -> dict:
     """The badge on a finding: its panel base-rate row in words, whether that row
     is stale, and the strict study link for the desk's own detectors."""
     study = _study(STUDY_LINKS.get(key))
-    row = ((base_rates or {}).get("detectors") or {}).get(key)
-    if not row:
-        return {"label": "NOT_MEASURED", "text": LABEL_TEXT["NOT_MEASURED"], "stale": False,
-                "asOf": None, "study": study}
-    as_of = pd.Timestamp(base_rates["asOf"])
+    blank = {"label": "NOT_MEASURED", "text": LABEL_TEXT["NOT_MEASURED"], "stale": False,
+             "asOf": None, "study": study}
+    # The file is read from disk: any field may be missing or malformed, and a
+    # bad row must read "Not measured", never crash the tour or render as blank.
+    rates = base_rates if isinstance(base_rates, dict) else {}
+    dets = rates.get("detectors")
+    row = dets.get(key) if isinstance(dets, dict) else None
+    if not isinstance(row, dict):
+        return blank
+    try:
+        as_of = pd.Timestamp(rates.get("asOf"))
+        if pd.isna(as_of):
+            return blank
+    except (TypeError, ValueError):
+        return blank
+    label = row.get("label") if row.get("label") in LABEL_TEXT else "NOT_MEASURED"
+    if label == "NOT_MEASURED":
+        return blank
     stale = (pd.Timestamp(today).normalize() - as_of.normalize()).days > STALE_DAYS
-    label = row.get("label", "NOT_MEASURED")
-    head = LABEL_TEXT.get(label, label)
-    if label == "NOT_MEASURED" or row.get("mean20") is None:
+    head = LABEL_TEXT[label]
+    stats = [row.get(k) for k in ("mean20", "n_events", "n_symbols", "p20")]
+    if any(not isinstance(v, (int, float)) or isinstance(v, bool) for v in stats):
         text = head
     else:
-        text = (f"{head} · {_pct(row['mean20'])} vs a normal day @20d · "
-                f"{row['n_events']} events / {row['n_symbols']} names · "
-                f"p {row['p20']:.2f} · as of {as_of:%Y-%m}")
+        mean20, n_ev, n_sym, p20 = stats
+        text = (f"{head} · {_pct(mean20)} vs a normal day @20d · "
+                f"{int(n_ev)} events / {int(n_sym)} names · p {p20:.2f} · as of {as_of:%Y-%m}")
     return {"label": label, "text": text, "stale": bool(stale), "asOf": as_of.date().isoformat(),
             "study": study}
 
@@ -803,7 +816,12 @@ def build_tour(df: pd.DataFrame, *, market_df: pd.DataFrame | None, sector_df: p
                      key=lambda f: (-(f.time if f.time is not None else last_t), -f.weight))
     for f in ordered[:max_findings]:
         d = f.to_dict()
-        d["badge"] = badge_for(f.detector, base_rates, today)
+        try:
+            d["badge"] = badge_for(f.detector, base_rates, today)
+        except Exception as e:                          # noqa: BLE001 - a badge, not the tour
+            notes.append(f"badge for {f.detector} unavailable ({type(e).__name__})")
+            d["badge"] = {"label": "NOT_MEASURED", "text": LABEL_TEXT["NOT_MEASURED"],
+                          "stale": False, "asOf": None, "study": None}
         d["family"] = DETECTORS[f.detector].family if f.detector in DETECTORS else None
         steps.append(d)
     return {"asOf": last_t, "steps": steps, "notes": notes}

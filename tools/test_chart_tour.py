@@ -517,3 +517,30 @@ def test_every_action_in_a_tour_is_valid():
     assert tour["steps"][0]["id"] == "now" and tour["steps"][1]["id"] == "context"
     for s in tour["steps"]:
         ct.validate_actions(s["actions"])
+
+
+# ── security review: a malformed base-rate file never blanks or crashes a badge ──
+
+@pytest.mark.parametrize("bad", [
+    {"detectors": {"breakout55": RATES["detectors"]["breakout55"]}},                 # no asOf
+    {"asOf": "not-a-date", "detectors": {"breakout55": RATES["detectors"]["breakout55"]}},
+    {"asOf": "2026-10-20", "detectors": {"breakout55": {"label": "ORDINARY", "mean20": 0.01}}},
+    {"asOf": "2026-10-20", "detectors": {"breakout55": "not a dict"}},
+])
+def test_badge_survives_malformed_rates(bad):
+    b = ct.badge_for("breakout55", bad, TODAY)
+    assert b["label"] in ct.LABEL_TEXT and b["text"]
+
+
+def test_badge_label_clamped_to_known_set():
+    bad = {"asOf": "2026-10-20", "detectors": {"breakout55": {**RATES["detectors"]["breakout55"],
+                                                              "label": "<script>x</script>"}}}
+    assert ct.badge_for("breakout55", bad, TODAY)["label"] == "NOT_MEASURED"
+
+
+def test_build_tour_survives_a_badge_failure(monkeypatch):
+    monkeypatch.setattr(ct, "badge_for", lambda *a, **k: (_ for _ in ()).throw(RuntimeError("x")))
+    df = frame(100 + np.cumsum(np.random.default_rng(7).normal(0.1, 1.5, 320)))
+    tour = ct.build_tour(df, market_df=None, sector_df=None, sector_label=None, base_rates=RATES, today=TODAY)
+    found = [s for s in tour["steps"] if s.get("detector")]
+    assert all(s["badge"]["label"] == "NOT_MEASURED" for s in found)
