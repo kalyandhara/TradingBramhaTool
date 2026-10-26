@@ -219,3 +219,62 @@ def test_event_table_market_rows_are_raw_returns():
     mk = t[(t["ticker"] == es.MARKET) & (t["window"] == "day")]
     assert mk["car"].iloc[0] == pytest.approx(pr["m"].iloc[300])
     assert not mk["snapped"].iloc[0]
+
+
+# ── nulls, corrections, intervals ────────────────────────────────────────────
+
+def test_candidates_exclude_window_and_months():
+    idx = pd.bdate_range("2012-01-02", periods=1500)
+    ev = np.array([400, 800])
+    cand = es.candidate_positions(idx, ev, exclude=10)
+    assert not any(abs(c - e) <= 10 for c in cand for e in ev)
+    assert cand.min() >= 250 and cand.max() <= len(idx) - 21
+    feb = es.candidate_positions(idx, ev, exclude=10, months={2})
+    assert len(feb) > 0 and all(idx[c].month == 2 for c in feb)
+    y = es.candidate_positions(idx, ev, exclude=10, years={2014})
+    assert all(idx[c].year == 2014 for c in y)
+
+
+def test_date_null_deterministic():
+    cand = np.arange(300, 1000)
+    f = lambda pos: float(pos.mean())
+    a = es.date_null(f, cand, 20, draws=200, seed=7)
+    b = es.date_null(f, cand, 20, draws=200, seed=7)
+    assert np.array_equal(a, b) and len(a) == 200
+
+
+def test_date_null_draws_without_replacement():
+    seen = []
+    es.date_null(lambda pos: seen.append(pos) or 0.0, np.arange(300, 1000), 20, draws=50, seed=1)
+    assert all(len(set(p)) == 20 for p in seen)
+
+
+def test_p_greater_formula():
+    assert es.p_greater(5.0, np.array([1.0, 2.0, 6.0])) == pytest.approx(0.5)
+
+
+def test_label_permutation_preserves_sizes():
+    vals = np.array([1.0, 2, 3, 4, 5, 6, 7])
+    labs = np.array(["cut"] * 4 + ["hike"] * 3)
+    real, null = es.label_permutation(vals, labs, draws=300, seed=3)
+    assert real == pytest.approx(np.mean([1, 2, 3, 4]) - np.mean([5, 6, 7]))
+    # With 4 "cut" and 3 "hike" drawn from 1..7, d = a - b and 4a + 3b = 28 give
+    # sum_cut = 4a = 4(3d + 28)/7. Sizes preserved <=> sum_cut is a whole number
+    # between 1+2+3+4 and 4+5+6+7 on every draw.
+    sum_cut = 4 * (3 * null + 28) / 7
+    assert np.allclose(sum_cut, np.round(sum_cut))
+    assert sum_cut.min() >= 10 - 1e-9 and sum_cut.max() <= 22 + 1e-9
+
+
+def test_holm_matches_hand():
+    assert es.holm([0.01, 0.04, 0.03, 0.005]) == pytest.approx([0.03, 0.06, 0.06, 0.02])
+
+
+def test_bh_matches_hand():
+    assert es.bh([0.01, 0.04, 0.03, 0.005]) == pytest.approx([0.02, 0.04, 0.04, 0.02])
+
+
+def test_bootstrap_ci_brackets_mean():
+    v = np.random.default_rng(0).normal(1.0, 0.1, 200)
+    lo, hi = es.bootstrap_ci(v, reps=500)
+    assert lo < v.mean() < hi and hi - lo < 0.05

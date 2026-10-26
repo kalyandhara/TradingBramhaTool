@@ -246,3 +246,93 @@ def event_ar_table(closes: pd.DataFrame, events: pd.DataFrame,
     cols = ["event_date", "event_type", "label", "snapped", "session",
             "ticker", "window", "car"]
     return pd.DataFrame(rows, columns=cols)
+
+
+# --------------------------------------------------------------------------- #
+# Nulls, corrections, intervals
+# --------------------------------------------------------------------------- #
+
+def candidate_positions(index: pd.DatetimeIndex, event_pos: np.ndarray, exclude: int = 10,
+                        years: set[int] | None = None, months: set[int] | None = None,
+                        margin: tuple[int, int] = (250, 20)) -> np.ndarray:
+    """Positions eligible as pseudo-events for Null A: not within +/-`exclude` of
+    any real event, inside `years`/`months` when given, and with room for an
+    estimation window before and the drift window after."""
+    n = len(index)
+    ok = np.zeros(n, dtype=bool)
+    ok[margin[0]:max(margin[0], n - margin[1])] = True
+    for e in np.asarray(event_pos, dtype=int):
+        if e >= 0:
+            ok[max(0, e - exclude):min(n, e + exclude + 1)] = False
+    if years is not None:
+        ok &= np.isin(index.year, list(years))
+    if months is not None:
+        ok &= np.isin(index.month, list(months))
+    return np.flatnonzero(ok)
+
+
+def date_null(stat_fn, candidates: np.ndarray, n_events: int, draws: int = 10_000,
+              seed: int = 7) -> np.ndarray:
+    """Null A: the statistic recomputed on `draws` sets of `n_events` pseudo-event
+    positions drawn without replacement from `candidates`."""
+    rng = np.random.default_rng(seed)
+    cand = np.asarray(candidates)
+    if len(cand) < n_events:
+        raise ValueError(f"only {len(cand)} candidate days for {n_events} events")
+    return np.array([stat_fn(np.sort(rng.choice(cand, n_events, replace=False)))
+                     for _ in range(draws)], dtype=float)
+
+
+def p_greater(real: float, null: np.ndarray) -> float:
+    """One-sided p with the +1 correction; for a 'less' hypothesis negate both."""
+    null = np.asarray(null, dtype=float)
+    return float((1 + np.sum(null >= real)) / (1 + len(null)))
+
+
+def label_permutation(values: np.ndarray, labels: np.ndarray, a: str = "cut",
+                      b: str = "hike", draws: int = 10_000,
+                      seed: int = 7) -> tuple[float, np.ndarray]:
+    """Null C: mean(a) - mean(b) with the a/b labels shuffled, sizes preserved."""
+    values, labels = np.asarray(values, float), np.asarray(labels)
+    keep = np.isin(labels, [a, b])
+    v, lab = values[keep], labels[keep] == a
+    real = float(v[lab].mean() - v[~lab].mean())
+    rng = np.random.default_rng(seed)
+    null = np.empty(draws)
+    for i in range(draws):
+        perm = rng.permutation(lab)
+        null[i] = v[perm].mean() - v[~perm].mean()
+    return real, null
+
+
+def bootstrap_ci(values: np.ndarray, stat=np.mean, reps: int = 5_000,
+                 level: float = 0.90, seed: int = 7) -> tuple[float, float]:
+    """Percentile bootstrap CI over events."""
+    v = np.asarray(values, float)
+    rng = np.random.default_rng(seed)
+    boots = np.array([stat(rng.choice(v, len(v), replace=True)) for _ in range(reps)])
+    tail = (1 - level) / 2
+    return float(np.quantile(boots, tail)), float(np.quantile(boots, 1 - tail))
+
+
+def holm(p) -> np.ndarray:
+    """Holm step-down adjusted p-values, original order, capped at 1."""
+    p = np.asarray(p, float)
+    m = len(p)
+    order = np.argsort(p)
+    adj = np.maximum.accumulate((m - np.arange(m)) * p[order])
+    out = np.empty(m)
+    out[order] = np.minimum(adj, 1.0)
+    return out
+
+
+def bh(p) -> np.ndarray:
+    """Benjamini-Hochberg adjusted p-values (q), original order, capped at 1."""
+    p = np.asarray(p, float)
+    m = len(p)
+    order = np.argsort(p)
+    ranked = p[order] * m / np.arange(1, m + 1)
+    adj = np.minimum.accumulate(ranked[::-1])[::-1]
+    out = np.empty(m)
+    out[order] = np.minimum(adj, 1.0)
+    return out
