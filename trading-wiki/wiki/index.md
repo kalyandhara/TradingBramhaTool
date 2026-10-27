@@ -1,12 +1,12 @@
 ---
 title: "Wiki Index"
 updated: 2026-10-27
-pages: 351
-sources_ingested: 123
+pages: 352
+sources_ingested: 124
 ---
 
 # Trading Wiki — Index
-_Last updated: 2026-10-27 | Pages: 351 | Sources ingested: 123_
+_Last updated: 2026-10-27 | Pages: 352 | Sources ingested: 124_
 <!-- Counting convention, stated because these two counters silently drifted to
      TWO DIFFERENT wrong numbers before 2026-08-07 (see B-27 in
      analyses/Open-Backlog.md): "Pages" = every .md under wiki/ EXCLUDING the
@@ -22,6 +22,7 @@ _Last updated: 2026-10-27 | Pages: 351 | Sources ingested: 123_
 | Page | Type | Date | Key Topics |
 |------|------|------|------------|
 | [Web-eVector-Event-Vector-Markets](sources/Web-eVector-Event-Vector-Markets.md) | Web app | 2026-10-26 | eVector (US): the day as a map of events with measured vs hypothesis links, a 7-state momentum lifecycle (Ignition → Acceleration → Expansion → Healthy Pullback → Weakening → Breakdown) with plain glosses, a market→sector→industry→theme context ladder, a narrated 'Tour this chart', E/N/M/⚡ chart markers, and calls graded by the market. Owner likes the design (serif display, warm canvas, one question per section). Nothing measured publicly. Adoption candidates **B-185…B-189** |
+| [Web-Flagium-Structural-Risk-Attribution](sources/Web-Flagium-Structural-Risk-Attribution.md) | web app | 2026-10-27 | Flagium AI |
 | [Design-Resources-For-Developers](sources/Design-Resources-For-Developers.md) | GitHub list | 2026-10-13 | Curated design-link list (not software, not an MCP). Desk shortlist: contrast/colour-blind checkers, self-hosted fonts, one icon family, Carbon/Primer/Fluent for dark data-dense UI. Feeds B-161…B-164 |
 | [YT-Chuck-Carnevale-Fallen-Angels-Valuation](sources/YT-Chuck-Carnevale-Fallen-Angels-Valuation.md) | YouTube | 2026-10-12 | Fast Graphs: know intrinsic value before buying; 22 US 'fallen angels' as multiple compression. **Weight zero** — vendor content, survivor-picked examples, no base rate, US-only. Desk has a relative P/E-P/B axis but no valuation in any decision and no own-history or intrinsic-value view. Plan **B-140…B-145** |
 | [Infographic-SMC-Top-Down-Analysis](sources/Infographic-SMC-Top-Down-Analysis.md) | Infographic | 2026-09-26 | SMC three-timeframe workflow (4H→1H→5M): HTF bias via market structure, ITF order block POI + liquidity pools, LTF 5-step precision entry (sweep→CHoCH→OB pullback→entry→confirmation). Workflow instantiation of ICT methodology; 3/5 chart components ship, 2 gaps logged |

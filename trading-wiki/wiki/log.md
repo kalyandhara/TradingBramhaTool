@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-27] ingest | Flagium AI — structural risk attribution (MAZDOCK)
+- [[sources/Web-Flagium-Structural-Risk-Attribution]]: flag objects with lifecycle, QoQ score waterfall, six pillars with peer percentiles, cash/accrual forensics; nothing measured, four self-contradictions (incl. a wrong-sign inventory flag). Filed B-191..B-193.
+
 ## [2026-10-27] study | B-186d sweep card, full window — ORDINARY on both panels
 - [[analyses/Sweep-Full-Window-Pre-Registration]] (`48560ea`) → [[analyses/Sweep-Full-Window-Result]]: fresh +0.34% p 0.35, main +0.48% p 0.10. Card now full-history live and in replay; badge updated; `confirmed` null by ruling.
 
