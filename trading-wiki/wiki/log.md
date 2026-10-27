@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-26] study | B-186 tour base rates — gaps up, AB=CD, ATR carry; 15 of 20 ordinary
+- [[analyses/Chart-Tour-Base-Rates-Result]] as pre-registered + confirmatory panel nifty500[300:500]: confirmed EDGE gap_up, abcd, atr_expansion; INVERTED breakdown55; below_sma200 unconfirmed (flagged on the card). Badges live on the Chart Tool TOUR panel.
+
 ## [2026-10-26] pre-reg | B-186 chart tour base rates
 - [[analyses/Chart-Tour-Base-Rates-Pre-Registration]] before any real run: 17 detectors, point-in-time events, excess vs ordinary day, Holm across all, EDGE/INVERTED/ORDINARY/TOO_FEW. Tour engine, /api/tour and the side panel built and browser-verified (badges read 'Not measured' until the run).
 
