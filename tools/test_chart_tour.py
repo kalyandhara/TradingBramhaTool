@@ -602,3 +602,21 @@ def test_badge_magnitude_negative_reads_smaller():
     rates = {"asOf": "2026-10-20", "detectors": {"squeeze": {
         "label": "ORDINARY", "n_events": 1570, "n_symbols": 258, "mean20": -0.0046, "p20": 0.008}}}
     assert "moves 0.5 pts smaller than a normal day" in ct.badge_for("squeeze", rates, TODAY, tone="neutral")["text"]
+
+
+def test_sweep_card_sees_full_history_others_the_window(monkeypatch):
+    """B-186d: pools older than 260 bars are what the sweep trades, so its card gets
+    the whole series; every other card keeps DETECTOR_WINDOW."""
+    seen = {}
+
+    def rec(key):
+        def fn(df):
+            seen[key] = len(df)
+            return []
+        return fn
+    dets = {k: ct.Detector(k, k, "desk", "dated", "directional", rec(k))
+            for k in ("liquidity_sweep_bull", "gap_up")}
+    monkeypatch.setattr(ct, "DETECTORS", dets)
+    ct.build_tour(_base(600), market_df=None, sector_df=None, sector_label=None,
+                  base_rates=None, today=TODAY)
+    assert seen == {"liquidity_sweep_bull": 600, "gap_up": ct.DETECTOR_WINDOW}

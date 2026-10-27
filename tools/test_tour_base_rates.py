@@ -167,3 +167,22 @@ def test_dated_card_already_visible_before_start_is_not_an_event_at_start():
     c[146:] = 105.0
     ev = br.detector_events(frame(c), {"breakout55": ct.DETECTORS["breakout55"]}, start=150)
     assert ev == []
+
+
+def test_full_history_cards_replay_on_the_whole_series(monkeypatch):
+    """B-186d: the replay must feed a FULL_HISTORY card what the live tour does."""
+    import chart_tour as ct
+    import tour_base_rates as tbr
+    lens = []
+
+    def fn(df):
+        lens.append(len(df))
+        return []
+    det = ct.Detector("liquidity_sweep_bull", "x", "desk", "dated", "directional", fn)
+    monkeypatch.setattr(tbr, "_candidates", lambda df, f, start: [len(df) - 1])
+    n = 700
+    c = np.linspace(100, 120, n)
+    df = pd.DataFrame({"open": c, "high": c, "low": c, "close": c, "volume": 1.0},
+                      index=pd.date_range("2023-01-02", periods=n, freq="B", tz="UTC"))
+    tbr.detector_events(df, {"liquidity_sweep_bull": det}, start=600)
+    assert lens == [n]

@@ -79,7 +79,8 @@ def _candidates(df: pd.DataFrame, fn, start: int) -> range | list[int]:
     return range(start, len(df))
 
 
-def detector_events(df: pd.DataFrame, detectors: dict, start: int, window: int = WINDOW) -> list[dict]:
+def detector_events(df: pd.DataFrame, detectors: dict, start: int, window: int = WINDOW,
+                    honor_full_history: bool = True) -> list[dict]:
     """Every event of every detector in `detectors` from bar `start` on, each on
     the first bar it would have been visible, using bars <= that bar only.
 
@@ -94,8 +95,10 @@ def detector_events(df: pd.DataFrame, detectors: dict, start: int, window: int =
         seen: set[str] = set()
         state_prev: dict[str, bool] = {k: False for k in keys}
         last_ev: dict[str, int] = {}
+        # B-186d: a card the live tour feeds the whole series is replayed on it too
+        w = 10 ** 9 if honor_full_history and any(k in ct.FULL_HISTORY for k in keys) else window
         for i in _candidates(df, fn, max(0, start - WARMUP)):
-            win = df.iloc[max(0, i - window + 1):i + 1]
+            win = df.iloc[max(0, i - w + 1):i + 1]
             try:
                 found = fn(win)
             except Exception:                          # noqa: BLE001 - one bar, not the run

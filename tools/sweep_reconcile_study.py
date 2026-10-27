@@ -106,7 +106,8 @@ def outcome_rows(sym: str, df: pd.DataFrame, bars: list[int], start: int, end: i
 
 def tour_rows(sym: str, df: pd.DataFrame, start: int, window: int) -> list[dict]:
     """The tour's event rule for the sweep card, with a chosen start and window."""
-    evs = tbr.detector_events(df, {KEY: ct.DETECTORS[KEY]}, start, window)
+    # the ladder sets the window itself (S6 is exactly 260), so no B-186d override
+    evs = tbr.detector_events(df, {KEY: ct.DETECTORS[KEY]}, start, window, honor_full_history=False)
     bars = [e["bar"] for e in evs if e["key"] == KEY and e["tone"] != "down"]
     return outcome_rows(sym, df, bars, start, len(df))
 

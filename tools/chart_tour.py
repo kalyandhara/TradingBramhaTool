@@ -693,6 +693,9 @@ CONTEXT_BAND = 0.05
 #: Bars every detector sees, live and in tour_base_rates — the badge must measure
 #: the rule the card ran, and several detectors depend on where the series starts.
 DETECTOR_WINDOW = 260
+# B-186d: the sweep trades pools older than the window (Sweep-Reconciliation-Result),
+# so its card sees the whole series, as the scanner does.
+FULL_HISTORY = {"liquidity_sweep_bull"}
 MIN_BARS = 80
 STALE_DAYS = 45
 LABEL_TEXT = {"EDGE": "Edge", "INVERTED": "Worked backwards", "ORDINARY": "Ordinary",
@@ -833,7 +836,7 @@ def build_tour(df: pd.DataFrame, *, market_df: pd.DataFrame | None, sector_df: p
             continue
         seen_fns.add(id(det.fn))
         try:
-            for f in det.fn(win):
+            for f in det.fn(df if key in FULL_HISTORY else win):
                 validate_actions(f.actions)
                 findings.setdefault(f.id, f)
         except Exception as e:                          # noqa: BLE001 - a card, not the tour
