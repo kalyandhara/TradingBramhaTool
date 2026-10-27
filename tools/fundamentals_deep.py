@@ -59,6 +59,8 @@ _EQUITY    = ("Stockholders Equity", "Common Stock Equity",
 _TOT_DEBT  = ("Total Debt",)
 _RECV      = ("Accounts Receivable", "Receivables", "Gross Accounts Receivable")
 _WORK_CAP  = ("Working Capital",)
+_TOT_ASSET = ("Total Assets",)
+_INVENTORY = ("Inventory",)
 _CUR_ASSET = ("Current Assets", "Total Current Assets")
 _CUR_LIAB  = ("Current Liabilities", "Total Current Liabilities")
 _FCF       = ("Free Cash Flow",)
@@ -569,6 +571,16 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
         debtor_hist.append(None if rv is None else round(rv / rev_i * 365, 1))
         wc_hist.append(None if wv is None else round(wv / rev_i * 365, 1))
 
+    # B-192: inventory days per year, matched BY DATE like debtor days above.
+    inv_row = _row(bal, _INVENTORY)
+    inv_hist: list[float | None] = []
+    for i, col in enumerate(inc_cols):
+        rev_i = _at(rev, i)
+        j = next((k for k, bc in enumerate(bal_cols) if _is_same_period(bc, col)), None)
+        iv = _at(inv_row, j) if j is not None else None
+        inv_hist.append(None if (iv is None or rev_i in (None, 0) or rev_i <= 0)
+                        else round(iv / rev_i * 365, 1))
+
     fcf_hist = _fcf_series(stmts)
     fcf = fcf_hist[0] if fcf_hist else None
     # Period ends for the cash-flow frame, so fcf_history can be truncated to
@@ -596,6 +608,23 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
             n_pairs += 1
     cfo_pat_ratio = (round(cfo_sum / pat_sum, 2)
                      if (n_pairs >= 2 and pat_sum > 0) else None)
+
+    # B-192: accrual ratio for the latest year = (PAT - OCF) / average total
+    # assets, in %. Positive = reported profit ran ahead of cash. Every input is
+    # matched BY DATE; any gap leaves it None (unknown), never 0.
+    accrual_ratio = None
+    ta_row = _row(bal, _TOT_ASSET)
+    if inc_cols:
+        col0 = inc_cols[0]
+        n0 = _at(ni, 0)
+        jc = next((k for k, cc in enumerate(cf_cols) if _is_same_period(cc, col0)), None)
+        o0 = _at(ocf_row, jc) if jc is not None else None
+        jb = next((k for k, bc in enumerate(bal_cols) if _is_same_period(bc, col0)), None)
+        ta0 = _at(ta_row, jb) if jb is not None else None
+        ta1 = (_at(ta_row, jb + 1) if jb is not None and jb + 1 < len(bal_cols)
+               and _is_one_year_apart(bal_cols[jb], bal_cols[jb + 1]) else None)
+        if None not in (n0, o0, ta0, ta1) and (ta0 + ta1) > 0:
+            accrual_ratio = round((n0 - o0) / ((ta0 + ta1) / 2) * 100, 2)
 
     neg_streak = 0
     for v in fcf_hist:
@@ -639,6 +668,8 @@ def derive_fundamentals(symbol: str, stmts: dict[str, Any] | None = None) -> dic
         "wc_days":       wc_days,
         "debtor_days_history": debtor_hist,   # newest first, aligned to `annual`
         "wc_days_history":     wc_hist,
+        "inventory_days_history": inv_hist,  # newest first (B-192)
+        "accrual_ratio":     accrual_ratio,  # (PAT-OCF)/avg assets, %, latest year
         "fcf":           fcf,
         "fcf_history":   fcf_hist,
         "fcf_negative_streak": neg_streak,
