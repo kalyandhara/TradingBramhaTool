@@ -558,3 +558,21 @@ def test_flag_identity_is_its_pole_not_its_moving_flag_end(monkeypatch):
     a = ct.det_flag_pole_bull(df)[0].id
     monkeypatch.setattr(fp, "detect_flag_pole", geo(n - 2))
     assert ct.det_flag_pole_bull(df)[0].id == a
+
+
+# ── badge wording: the number reads in the stock's own direction ──────────────
+
+def test_badge_bearish_card_shows_the_real_direction():
+    rates = {"asOf": "2026-10-20", "detectors": {"below_sma200": {
+        "label": "EDGE", "n_events": 1646, "n_symbols": 258, "mean20": 0.0101, "p20": 0.0004}}}
+    b = ct.badge_for("below_sma200", rates, TODAY, tone="down")
+    assert b["text"].startswith("Edge · -1.0% vs a normal day @20d")
+    assert "p < 0.001" in b["text"]
+
+
+def test_badge_magnitude_card_reads_as_larger_moves():
+    rates = {"asOf": "2026-10-20", "detectors": {"atr_expansion": {
+        "label": "EDGE", "n_events": 1593, "n_symbols": 258, "mean20": 0.0059, "p20": 0.0022}}}
+    b = ct.badge_for("atr_expansion", rates, TODAY, tone="neutral")
+    assert b["text"].startswith("Edge · moves 0.6 pts larger than a normal day @20d")
+    assert "p 0.002" in b["text"]

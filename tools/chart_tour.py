@@ -754,7 +754,11 @@ def _study(study_id: str | None) -> dict | None:
             "verdict": st.get("verdict"), "source": st.get("source")}
 
 
-def badge_for(key: str, base_rates: dict | None, today) -> dict:
+def _p_txt(p: float) -> str:
+    return "p < 0.001" if p < 0.001 else f"p {p:.3f}" if p < 0.01 else f"p {p:.2f}"
+
+
+def badge_for(key: str, base_rates: dict | None, today, tone: str = "up") -> dict:
     """The badge on a finding: its panel base-rate row in words, whether that row
     is stale, and the strict study link for the desk's own detectors."""
     study = _study(STUDY_LINKS.get(key))
@@ -783,8 +787,17 @@ def badge_for(key: str, base_rates: dict | None, today) -> dict:
         text = head
     else:
         mean20, n_ev, n_sym, p20 = stats
-        text = (f"{head} · {_pct(mean20)} vs a normal day @20d · "
-                f"{int(n_ev)} events / {int(n_sym)} names · p {p20:.2f} · as of {as_of:%Y-%m}")
+        # The table stores sign-ALIGNED excess (positive = did what the card
+        # implies). Shown raw, a bearish card that worked would read "+1.0%" and
+        # sound like the stock rose — so it is shown in the stock's own direction,
+        # and a magnitude card as how much larger the moves were.
+        det = DETECTORS.get(key)
+        if det is not None and det.claim == "magnitude":
+            what = f"moves {mean20 * 100:.1f} pts larger than a normal day @20d"
+        else:
+            what = f"{_pct(-mean20 if tone == 'down' else mean20)} vs a normal day @20d"
+        text = (f"{head} · {what} · {int(n_ev)} events / {int(n_sym)} names · "
+                f"{_p_txt(p20)} · as of {as_of:%Y-%m}")
     return {"label": label, "text": text, "stale": bool(stale), "asOf": as_of.date().isoformat(),
             "study": study}
 
@@ -821,7 +834,7 @@ def build_tour(df: pd.DataFrame, *, market_df: pd.DataFrame | None, sector_df: p
     for f in ordered[:max_findings]:
         d = f.to_dict()
         try:
-            d["badge"] = badge_for(f.detector, base_rates, today)
+            d["badge"] = badge_for(f.detector, base_rates, today, tone=f.tone)
         except Exception as e:                          # noqa: BLE001 - a badge, not the tour
             notes.append(f"badge for {f.detector} unavailable ({type(e).__name__})")
             d["badge"] = {"label": "NOT_MEASURED", "text": LABEL_TEXT["NOT_MEASURED"],
