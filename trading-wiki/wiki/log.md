@@ -23,6 +23,9 @@
 ## [2026-10-26] pre-reg | B-184 policy event study (RBI MPC + Union Budget)
 - [[analyses/Policy-Event-Study-Pre-Registration]] pre-registered before any real-data run: `tools/event_study.py` (35 offline tests incl. planted-effect detection), events in `data/events/policy_events.csv` (81 rows, 8 single-source). P1/P2 × MPC/Budget Holm 0.05; S1–S3 MPC directional. Idea from a review of marketontology.com/political.
 
+## [2026-10-25] pre-reg | B-183 no-edge plan-odds baseline
+- [[analyses/Plan-Odds-Baseline-Pre-Registration]] pre-registered before any trade was scored: each plan's realised R vs a block-bootstrap (5-bar blocks, 2,000 replays, 500 pre-entry bars) of the same levels; per-symbol t across symbols, Holm 0.05, ≥ 30 symbols / 100 trades, 2/3 thirds. Placebo gate first. Prior: ≥ 80 % AT BASELINE, none BEATS.
+
 ## [2026-10-23] study | B-182 Bull Trap — TOO FEW; failed breakouts do not warn
 - [[analyses/Bull-Trap-Detector]] run as pre-registered: TRAP 55 events / 49 names, +0.03% @20d (p 0.98) — under the 100-event gate. FB_ONLY 3,563 events / 258 names +0.11% (p 0.47). Bull Trap stays a display-only Risk flag + chart overlay.
 
