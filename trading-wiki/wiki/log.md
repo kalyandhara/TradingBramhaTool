@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-27] study | B-186a sweep reconciliation — the 260-bar window is the cause
+- [[analyses/Sweep-Reconciliation-Result]]: S1 reproduces B-41m (+0.54% net); S6 (260-bar window) −0.78 pp turns +0.48% into −0.31%. B-41m stands; filed B-186d.
+
 ## [2026-10-27] pre-reg | B-186a sweep reconciliation (B-41m vs the chart tour)
 - [[analyses/Sweep-Reconciliation-Pre-Registration]] committed before any code or run (`d05b294`): six-step ladder, one change per step, largest fall in mean20 names the cause; diagnosis only.
 
