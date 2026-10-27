@@ -3011,7 +3011,7 @@ function saveCount(n)  { localStorage.setItem(LS_COUNT, String(n)); }
 function loadPaneCfg() { try { return JSON.parse(localStorage.getItem(LS_PANES)||'{}'); } catch { return {}; } }
 function savePaneCfg() {
   const c = {};
-  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...p.indicators], rangePreset:p.rangePreset, chartType:p.chartType, cardMode:p.cardMode, subStackH:p.subStackH || null, collapsedSubs:[...(p.collapsedSubs || [])], subSizes:p.subSizes || {}, subOrder:p.subOrder || []}; });
+  panes.forEach((p,i) => { c[i] = {symbol:p.symbol, tf:p.tf, indicators:[...((p.tour && p.tour.savedInd) || p.indicators)], rangePreset:p.rangePreset, chartType:p.chartType, cardMode:p.cardMode, subStackH:p.subStackH || null, collapsedSubs:[...(p.collapsedSubs || [])], subSizes:p.subSizes || {}, subOrder:p.subOrder || []}; });
   localStorage.setItem(LS_PANES, JSON.stringify(c));
 }
 
@@ -3742,6 +3742,12 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
       }
       if (chk.checked) pane.indicators.add(key);
       else             pane.indicators.delete(key);
+      // B-186: mid-tour, the user's own tick belongs to the set the tour restores.
+      if (pane.tour && pane.tour.savedInd) {
+        const s = new Set(pane.tour.savedInd);
+        if (chk.checked) s.add(key); else s.delete(key);
+        pane.tour.savedInd = [...s];
+      }
       applyIndicators(pane);
       savePaneCfg();
       if (pane._refreshIndActiveCount) pane._refreshIndActiveCount();

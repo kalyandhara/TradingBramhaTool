@@ -1263,7 +1263,7 @@ def _jsonable(o):
         return int(o)
     if isinstance(o, np.floating):
         return None if not np.isfinite(o) else float(o)
-    if isinstance(o, float) and o != o:
+    if isinstance(o, float) and (o != o or o in (float("inf"), float("-inf"))):
         return None
     if isinstance(o, np.bool_):
         return bool(o)

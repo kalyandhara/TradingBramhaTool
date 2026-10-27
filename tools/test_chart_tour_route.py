@@ -61,3 +61,7 @@ def test_tour_reads_base_rates_and_survives_a_corrupt_file(client, monkeypatch, 
     monkeypatch.setattr(cs, "TOUR_RATES_PATH", bad)
     body = client.get("/api/tour?symbol=TEST").get_json()
     assert body["base_rates_asOf"] is None and body["steps"]
+
+
+def test_jsonable_maps_infinities_to_null():
+    assert cs._jsonable({"a": float("inf"), "b": [float("-inf"), 1.0]}) == {"a": None, "b": [None, 1.0]}

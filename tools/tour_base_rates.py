@@ -37,9 +37,12 @@ import chart_tour as ct
 HERE = Path(__file__).resolve().parent
 OUT = HERE / "cache" / "tour_base_rates.json"
 HORIZONS = (5, 20, 60)
-WINDOW = 260                 # bars each point-in-time evaluation sees (SMA200 + slack)
+WINDOW = ct.DETECTOR_WINDOW  # bars each point-in-time evaluation sees — the same window the live tour uses
 EVAL_BARS = 750
 REFRACTORY = 20
+#: Bars evaluated before `start` to prime what is already visible / already on, so
+#: the first evaluated bar is not a burst of stale events on one shared date.
+WARMUP = REFRACTORY + 15
 MIN_SYMBOLS, MIN_EVENTS = 30, 100
 ALPHA = 0.05
 
@@ -78,7 +81,11 @@ def _candidates(df: pd.DataFrame, fn, start: int) -> range | list[int]:
 
 def detector_events(df: pd.DataFrame, detectors: dict, start: int, window: int = WINDOW) -> list[dict]:
     """Every event of every detector in `detectors` from bar `start` on, each on
-    the first bar it would have been visible, using bars <= that bar only."""
+    the first bar it would have been visible, using bars <= that bar only.
+
+    Evaluation starts WARMUP bars before `start` and nothing earlier than `start`
+    is emitted: a card already visible, or a state already on, when the window
+    opens is not a new event (final review I-1)."""
     by_fn: dict[int, tuple] = {}
     for key, det in detectors.items():
         by_fn.setdefault(id(det.fn), (det.fn, []))[1].append(key)
@@ -87,7 +94,7 @@ def detector_events(df: pd.DataFrame, detectors: dict, start: int, window: int =
         seen: set[str] = set()
         state_prev: dict[str, bool] = {k: False for k in keys}
         last_ev: dict[str, int] = {}
-        for i in _candidates(df, fn, start):
+        for i in _candidates(df, fn, max(0, start - WARMUP)):
             win = df.iloc[max(0, i - window + 1):i + 1]
             try:
                 found = fn(win)
@@ -102,13 +109,15 @@ def detector_events(df: pd.DataFrame, detectors: dict, start: int, window: int =
                     on_now[f.detector] = f.tone
                 elif f.id not in seen:
                     seen.add(f.id)
-                    events.append({"key": f.detector, "bar": i, "tone": f.tone})
+                    if i >= start:
+                        events.append({"key": f.detector, "bar": i, "tone": f.tone})
             for k in keys:
                 if detectors[k].kind != "state":
                     continue
                 now = k in on_now
                 if now and not state_prev[k] and (k not in last_ev or i - last_ev[k] >= REFRACTORY):
-                    events.append({"key": k, "bar": i, "tone": on_now[k]})
+                    if i >= start:
+                        events.append({"key": k, "bar": i, "tone": on_now[k]})
                     last_ev[k] = i
                 state_prev[k] = now
     return sorted(events, key=lambda e: (e["bar"], e["key"]))

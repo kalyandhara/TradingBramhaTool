@@ -690,6 +690,9 @@ _register("adx_up_state", "ADX confirmed up-state", "desk", "state", "directiona
 # --------------------------------------------------------------------------- #
 
 CONTEXT_BAND = 0.05
+#: Bars every detector sees, live and in tour_base_rates — the badge must measure
+#: the rule the card ran, and several detectors depend on where the series starts.
+DETECTOR_WINDOW = 260
 MIN_BARS = 80
 STALE_DAYS = 45
 LABEL_TEXT = {"EDGE": "Edge", "INVERTED": "Worked backwards", "ORDINARY": "Ordinary",
@@ -793,7 +796,8 @@ def badge_for(key: str, base_rates: dict | None, today, tone: str = "up") -> dic
         # and a magnitude card as how much larger the moves were.
         det = DETECTORS.get(key)
         if det is not None and det.claim == "magnitude":
-            what = f"moves {mean20 * 100:.1f} pts larger than a normal day @20d"
+            what = (f"moves {abs(mean20) * 100:.1f} pts {'larger' if mean20 >= 0 else 'smaller'} "
+                    f"than a normal day @20d")
         else:
             what = f"{_pct(-mean20 if tone == 'down' else mean20)} vs a normal day @20d"
         text = (f"{head} · {what} · {int(n_ev)} events / {int(n_sym)} names · "
@@ -823,12 +827,13 @@ def build_tour(df: pd.DataFrame, *, market_df: pd.DataFrame | None, sector_df: p
 
     findings: dict[str, Finding] = {}
     seen_fns = set()
+    win = df.iloc[-DETECTOR_WINDOW:]
     for key, det in DETECTORS.items():
         if id(det.fn) in seen_fns:
             continue
         seen_fns.add(id(det.fn))
         try:
-            for f in det.fn(df):
+            for f in det.fn(win):
                 validate_actions(f.actions)
                 findings.setdefault(f.id, f)
         except Exception as e:                          # noqa: BLE001 - a card, not the tour

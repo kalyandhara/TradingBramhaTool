@@ -150,3 +150,20 @@ def test_merge_confirmation_marks_only_edge_and_inverted():
     assert d["a"]["confirmed"] is True and d["b"]["confirmed"] is False and d["c"]["confirmed"] is True
     assert d["d"]["confirmed"] is None                 # an ORDINARY needs no confirmation
     assert d["b"]["confirm_label"] == "ORDINARY" and out["confirm_panel"] == "nifty500[300:500]"
+
+
+# ── final review I-1: the first evaluated bar is not a burst of fake events ──
+
+def test_state_already_on_before_start_is_not_an_event_at_start():
+    df = frame(np.full(300, 100.0))
+    on = set(df.index[50:300])                        # on long before start=150
+    ev = br.detector_events(df, {"sq": _stub("sq", "state", "magnitude", "neutral", state_bars=on)}, start=150)
+    assert ev == []
+
+
+def test_dated_card_already_visible_before_start_is_not_an_event_at_start():
+    c = np.full(200, 100.0)
+    c[145] = 106.0                                    # breakout 5 bars before start
+    c[146:] = 105.0
+    ev = br.detector_events(frame(c), {"breakout55": ct.DETECTORS["breakout55"]}, start=150)
+    assert ev == []

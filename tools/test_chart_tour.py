@@ -585,3 +585,20 @@ def test_badge_unconfirmed_edge_is_flagged():
     assert b["unconfirmed"] is True and b["text"].endswith("not confirmed on a fresh panel")
     rates["detectors"]["below_sma200"]["confirmed"] = True
     assert ct.badge_for("below_sma200", rates, TODAY, tone="down")["unconfirmed"] is False
+
+
+# ── final review I-4 / M-4 ────────────────────────────────────────────────────
+
+def test_build_tour_runs_detectors_on_the_measured_window(monkeypatch):
+    seen = []
+    det = ct.Detector("w", "w", "evector", "dated", "directional", lambda d: seen.append(len(d)) or [])
+    monkeypatch.setattr(ct, "DETECTORS", {"w": det})
+    ct.build_tour(frame(np.linspace(100, 150, 400)), market_df=None, sector_df=None, sector_label=None,
+                  base_rates=None, today=TODAY)
+    assert seen == [ct.DETECTOR_WINDOW] and ct.DETECTOR_WINDOW == 260
+
+
+def test_badge_magnitude_negative_reads_smaller():
+    rates = {"asOf": "2026-10-20", "detectors": {"squeeze": {
+        "label": "ORDINARY", "n_events": 1570, "n_symbols": 258, "mean20": -0.0046, "p20": 0.008}}}
+    assert "moves 0.5 pts smaller than a normal day" in ct.badge_for("squeeze", rates, TODAY, tone="neutral")["text"]
