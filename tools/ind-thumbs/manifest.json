@@ -1,0 +1,310 @@
+{
+ "generated": "2026-10-26",
+ "thumbs": {
+  "adxdi": {
+   "file": "adxdi.0c5d31ce07.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 12214
+  },
+  "atr": {
+   "file": "atr.d73bb705e4.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8614
+  },
+  "atrtrail": {
+   "file": "atrtrail.c1c3ab39a2.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9524
+  },
+  "avwap": {
+   "file": null,
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "reason": "nothing drawn on the reference chart"
+  },
+  "bollinger": {
+   "file": "bollinger.3a67a84deb.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9550
+  },
+  "bulltrap": {
+   "file": "bulltrap.173b03d2cf.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 7510
+  },
+  "cpr": {
+   "file": "cpr.3f56ebb937.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9220
+  },
+  "deltaprofile": {
+   "file": "deltaprofile.79b910c6db.webp",
+   "chart": "BTC · 1h · 6M",
+   "bytes": 8568
+  },
+  "donchian": {
+   "file": "donchian.74215bc98e.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9308
+  },
+  "doublebottom": {
+   "file": null,
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "reason": "nothing drawn on the reference chart"
+  },
+  "elliott": {
+   "file": "elliott.d3ba43ba94.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8192
+  },
+  "ema20": {
+   "file": "ema20.a11133df64.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8106
+  },
+  "ema200": {
+   "file": "ema200.be82fb2e8b.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8254
+  },
+  "ema50": {
+   "file": "ema50.dd441bbe0a.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8162
+  },
+  "ema9": {
+   "file": "ema9.0dd6004020.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8350
+  },
+  "evmacd": {
+   "file": "evmacd.8e48aab75d.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 12120
+  },
+  "ew2deg": {
+   "file": "ew2deg.09165ee7be.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8348
+  },
+  "falling_wedge": {
+   "file": "falling_wedge.f02a72818c.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 7850
+  },
+  "fib": {
+   "file": "fib.46175d47c1.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8084
+  },
+  "flag_pole": {
+   "file": null,
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "reason": "nothing drawn on the reference chart"
+  },
+  "fvg": {
+   "file": "fvg.06706cb346.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8718
+  },
+  "gann": {
+   "file": "gann.10cb6d6bb5.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9034
+  },
+  "harmonic": {
+   "file": "harmonic.e7fb38f29f.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 7834
+  },
+  "hm": {
+   "file": "hm.a19e5ff551.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 13694
+  },
+  "ichimoku": {
+   "file": "ichimoku.f3bcc9aec8.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 10070
+  },
+  "keltner": {
+   "file": "keltner.6fe1ca48e4.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9718
+  },
+  "liquidity": {
+   "file": "liquidity.97a95737f5.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 11560
+  },
+  "mabias": {
+   "file": "mabias.afb58de0f3.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 7460
+  },
+  "macd": {
+   "file": "macd.fc1b4ae231.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 11764
+  },
+  "mfi": {
+   "file": "mfi.189a33aee3.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8802
+  },
+  "obv": {
+   "file": "obv.5690c84df2.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8000
+  },
+  "obvdiv": {
+   "file": "obvdiv.e869b793ab.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 10024
+  },
+  "oiwalls": {
+   "file": "oiwalls.ac19d32606.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 10538
+  },
+  "orderblock": {
+   "file": "orderblock.540ddc2183.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9338
+  },
+  "pmax": {
+   "file": "pmax.deec278807.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9744
+  },
+  "projection": {
+   "file": null,
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "reason": "nothing drawn on the reference chart"
+  },
+  "prte": {
+   "file": "prte.6a1903250b.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 10286
+  },
+  "psar": {
+   "file": "psar.de1005d81d.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9010
+  },
+  "renko": {
+   "file": "renko.f89168f199.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9346
+  },
+  "reversal_calendar": {
+   "file": "reversal_calendar.e01066e5b9.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9974
+  },
+  "riskbox": {
+   "file": "riskbox.01f4aa94a1.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8938
+  },
+  "roc": {
+   "file": "roc.677ece9dbd.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9120
+  },
+  "roundbottom": {
+   "file": null,
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "reason": "nothing drawn on the reference chart"
+  },
+  "rs": {
+   "file": "rs.09b215fb69.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9494
+  },
+  "rsi": {
+   "file": "rsi.6e04ae1037.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9354
+  },
+  "rsidiv": {
+   "file": "rsidiv.f5734eb7c1.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 12114
+  },
+  "simplevol": {
+   "file": "simplevol.8fba73526e.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9994
+  },
+  "sma20": {
+   "file": "sma20.e6fb5a73d8.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8048
+  },
+  "sma200": {
+   "file": "sma200.459891a295.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8256
+  },
+  "sma50": {
+   "file": "sma50.74f392f999.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8402
+  },
+  "stai": {
+   "file": "stai.bbe2adb2e5.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9678
+  },
+  "stoch": {
+   "file": "stoch.4f2234d0e9.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 11562
+  },
+  "structure_chain": {
+   "file": "structure_chain.d64a63d199.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8218
+  },
+  "svp": {
+   "file": "svp.1c99501547.webp",
+   "chart": "RELIANCE.NS · 1h · 6M",
+   "bytes": 7492
+  },
+  "tpo": {
+   "file": "tpo.ffab9b061b.webp",
+   "chart": "RELIANCE.NS · 1h · 6M",
+   "bytes": 8348
+  },
+  "trendlines": {
+   "file": "trendlines.d133435b66.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 10014
+  },
+  "vcp": {
+   "file": null,
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "reason": "nothing drawn on the reference chart"
+  },
+  "volprofile": {
+   "file": "volprofile.2f4b9aba5d.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9594
+  },
+  "volume": {
+   "file": "volume.f845d37238.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 10612
+  },
+  "vwap": {
+   "file": "vwap.4cc5ac82ee.webp",
+   "chart": "RELIANCE.NS · 1h · 6M",
+   "bytes": 8044
+  },
+  "vwmr": {
+   "file": "vwmr.a3279b5d07.webp",
+   "chart": "RELIANCE.NS · 1h · 6M",
+   "bytes": 9076
+  }
+ }
+}

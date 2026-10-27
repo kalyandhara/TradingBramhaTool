@@ -66,8 +66,12 @@ def _arm(k_atr: float | None):
     return fn
 
 
-for _tag, (_name, _k) in ARMS.items():
-    sc.SCANNERS[_name] = {**sc.SCANNERS[BASE], "fn": _arm(_k)}
+def _register_arms() -> None:
+    """Add the three arms to the live registry — from main() only. Done at import,
+    as it once was, every test session that imported this module carried three
+    `_B132 ...` scanners into test_scanner_plans' census check."""
+    for _name, _k in ARMS.values():
+        sc.SCANNERS[_name] = {**sc.SCANNERS[BASE], "fn": _arm(_k)}
 
 
 def _ttest(xs) -> tuple[float | None, float | None]:
@@ -87,6 +91,7 @@ def _pct(tr: dict) -> float:
 def main() -> int:
     import nse_universe as nu
     import screener_pipeline as sp
+    _register_arms()
     cache: dict = {}
 
     def fetch(s):

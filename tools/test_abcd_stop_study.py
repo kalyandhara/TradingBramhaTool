@@ -107,3 +107,9 @@ def test_tier_recheck_plan_pct_matches_b132():
     d = rc.plan_pct([{"entry_px": 100.0, "stop": 98.0, "r": 1.5, "outcome": "target"},
                      {"entry_px": 100.0, "stop": 99.5, "r": -1.0, "outcome": "stop"}])
     assert d["mean_plan_pct"] == 1.25 and d["target_rate"] == 0.5 and d["stop_rate"] == 0.5
+
+
+def test_importing_the_study_registers_nothing():
+    """The arms join sc.SCANNERS only when main() runs; at import they leaked
+    into test_scanner_plans' census check for the rest of the session."""
+    assert not [k for k in sc.SCANNERS if k.startswith("_B132")]

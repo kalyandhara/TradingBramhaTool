@@ -1390,8 +1390,7 @@ st.iframe(
 # the old `pa_symbol` key — lands on the merged page with that symbol loaded.
 if st.session_state["current_page"] == "Predictive Analysis":
     st.session_state["current_page"] = "Stock Analyzer"
-_pa_legacy_sym = st.session_state.pop("pa_symbol", None)
-if _pa_legacy_sym:
+if _pa_legacy_sym := st.session_state.pop("pa_symbol", None):
     st.session_state["selected_symbol"] = _pa_legacy_sym
     st.session_state["last_analyzed"] = _pa_legacy_sym
 
@@ -8288,15 +8287,16 @@ def _pa_pdf_model(sym, df, bench, rating, breakdown, fund, deep,
 # opened the page on the wrong (or no) ticker.
 # See wiki/analyses/Dashboard-UI-Roadmap.md §Milestone 4.
 # ──────────────────────────────────────────────────────────────────────────────
-def _sa_load(sym) -> None:
-    """Point the Stock Analyzer at `sym` and prime the auto-run."""
-    sym = str(sym or "").strip().upper()
-    if sym:
-        st.session_state["selected_symbol"] = sym
-        st.session_state["last_analyzed"] = sym
-
-
 if current_page == "Stock Analyzer":
+    # Defined inside the page block, its only user, so it is not one more
+    # module-level statement (test_monolith_ratchet).
+    def _sa_load(sym) -> None:
+        """Point the Stock Analyzer at `sym` and prime the auto-run."""
+        sym = str(sym or "").strip().upper()
+        if sym:
+            st.session_state["selected_symbol"] = sym
+            st.session_state["last_analyzed"] = sym
+
     # Override the global 1440px cap — this page needs the full viewport for the
     # chart iframe, same reason TradingView uses edge-to-edge layout.
     st.markdown(

@@ -296,6 +296,11 @@ window.INDICATOR_INFO = /*JSON-BEGIN*/{
     "desc": "Marks liquidity pools — equal highs or lows where stop orders tend to cluster — and flags a sweep when price pokes through one and closes back. A sweep below a pool that reclaims the level gets a BUY mark; a sweep above is shown as risk only, with no SELL. These are the same detector functions the desk's Liquidity Sweep scanner uses. A sweep can also be the start of a real breakdown, so the reclaim matters more than the poke.",
     "level": "Advanced", "goals": ["levels"], "added": "2026-09-11", "concept": "concepts/Equal-Highs-Lows.md"
   },
+  "bulltrap": {
+    "short": "Failed breakouts above resistance; a bull trap when on weak volume with RSI divergence.",
+    "desc": "Marks breakouts that closed above the prior 20-session high and fell back below it within three bars. A red arrow means a full bull trap — the breakout came on below-average volume and RSI made a lower high — while a grey dot is a plain failed breakout. The trap level line shows only while the trap is fresh. It is a risk flag, not a sell signal: some failed breakouts recover and break out again.",
+    "level": "Intermediate", "goals": ["levels", "volume"], "added": "2026-10-23", "concept": "concepts/Breakout.md"
+  },
   "harmonic": {
     "short": "Harmonic patterns (Gartley, Bat, Butterfly, Crab, AB=CD) from Fibonacci ratios.",
     "desc": "Finds five-point XABCD swings whose leg ratios match the named harmonic patterns, or the simpler AB=CD, and marks the completion zone where the pattern expects a reversal. It gives a precise price zone to watch. The ratios have tolerances, so patterns are easy to find in any noisy chart, and a completion zone is a place to look, not a turn.",

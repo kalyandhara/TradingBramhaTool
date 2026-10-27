@@ -36,7 +36,8 @@ POSITIVE_VERDICT: set[str] = indicator_evidence.positive_keys()
 
 
 def test_every_def_has_an_entry_and_no_orphans():
-    assert len(KEYS) == len(set(KEYS)) == 60
+    # 60 -> 61 on 2026-10-23 (B-182 added the Bull Trap overlay).
+    assert len(KEYS) == len(set(KEYS)) == 61
     assert set(KEYS) == set(INFO), (
         f"missing: {sorted(set(KEYS) - set(INFO))}, orphan: {sorted(set(INFO) - set(KEYS))}")
 
