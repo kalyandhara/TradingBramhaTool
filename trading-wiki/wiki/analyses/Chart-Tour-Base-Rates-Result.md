@@ -26,15 +26,21 @@ with the same stock's ordinary day?
 
 | Card | Main panel `nifty500[:300]` | Fresh panel `nifty500[300:500]` | Shown on the card |
 |---|---|---|---|
-| **Unfilled gap up (≥3%)** | **EDGE** +2.85% @20d (+1.43 @5, +3.78 @60), Holm p 4e-13, all 3 thirds | **EDGE** +2.48%, Holm p 5e-9 | Edge, confirmed |
-| **Bullish AB=CD (B-132 stop)** | **EDGE** +1.18% @20d, Holm p 0.019 | **EDGE** +1.64%, Holm p 0.013 | Edge, confirmed |
-| **Volatility expansion (ATR14 ≥1.4×)** | **EDGE**: moves 0.59 pts larger @20d, Holm p 0.035 | **EDGE**: 1.12 pts larger, Holm p 0.0008 | Edge, confirmed |
-| **55-day breakdown** | **INVERTED**: the stock *outperformed* by 0.81% @20d (2.56% @60d), Holm p 0.002 | **INVERTED** −0.77%, Holm p 0.018 | Worked backwards, confirmed |
-| **Below the 200-day average** | **EDGE**: fell a further 1.01% vs normal, Holm p 0.007 | ORDINARY (same sign, −1.03%, Holm p 0.16) | Edge, **not confirmed on a fresh panel** (amber) |
+| **Unfilled gap up (≥3%)** | **EDGE** +2.89% @20d (+3.83 @60), Holm p 2.5e-13, all 3 thirds | **EDGE** +2.50%, Holm p 5e-9 | Edge, confirmed |
+| **Bullish AB=CD (B-132 stop)** | **EDGE** +1.18% @20d, Holm p 0.017, all 3 thirds | **EDGE** +1.67%, Holm p 0.011 | Edge, confirmed |
+| **Volatility expansion (ATR14 ≥1.4×)** | **EDGE**: moves 0.67 pts larger @20d, Holm p 0.01 | **EDGE**: 1.17 pts larger, Holm p 0.0008 | Edge, confirmed |
+| **55-day breakdown** | **INVERTED**: the stock *outperformed* by 0.82% @20d (2.54% @60d), Holm p 0.002 | **INVERTED** −0.76%, Holm p 0.02 | Worked backwards, confirmed |
+| **Below the 200-day average** | **EDGE**: fell a further 0.98% vs normal, Holm p 0.012 | ORDINARY (same sign, −1.02%, Holm p 0.18) | Edge, **not confirmed on a fresh panel** (amber) |
 | The other 15 | ORDINARY | ORDINARY except the two leads below | Ordinary |
 
-The main panel had 258 names with data (60,577 events); the fresh panel had 170
-names (39,913 events). Every label cleared the floors, so none is TOO_FEW.
+The main panel had 258 names with data; the fresh panel had 170. Every label
+cleared the floors, so none is TOO_FEW.
+
+**Re-run after the final review (2026-10-26).** The first run counted every card
+already visible, and every state already on, at each stock's first evaluated bar
+as a new event, all on one shared date (review I-1). The replay now primes 35
+bars before the window opens. Labels are unchanged, the numbers moved by
+hundredths, and the figures above are from the re-run.
 
 **Ordinary on both panels:**
 - the 55-day breakout and the failed breakout;
@@ -52,6 +58,19 @@ names (39,913 events). Every label cleared the floors, so none is TOO_FEW.
 
 - **Gross of costs**, and these are 20-session holding numbers from the first bar
   the card is visible, not a trade plan.
+- **Survivorship (review I-2).** Both panels use *today's* NIFTY 500 list, applied
+  750 bars back. Names joined because they rallied, and their gap-ups cluster in
+  those rallies. The confirmatory panel comes from the same index, so it carries
+  the same bias.
+- **Clustered events (review I-2).** The excess is measured against the stock's
+  own average, not the market. On index-wide gap days dozens of names fire on the
+  same date, so the per-symbol t treats dependent stocks as independent. The
+  p-values are therefore optimistic, and gap up's 2.5e-13 is not credible at face
+  value. Most ORDINARY rows sharing the thirds pattern [+, −, −] points the same
+  way: market regime is driving outcomes.
+- **Upper circuits (review I-2).** A gap up whose low never trades back is often
+  locked at the upper price band. That close can't be bought, and part of the
+  next day's continuation is mechanical.
 - **Gap up is the large one, and its direction is plausible.** Gaps on news or
   results tend to keep going (post-earnings drift). But +2.85% at p 4e-13 is big
   enough to deserve a look for data causes. A split or bonus done on unadjusted
@@ -102,7 +121,11 @@ names (39,913 events). Every label cleared the floors, so none is TOO_FEW.
   the stock's own direction and flags any result the fresh panel didn't confirm.
 - **Follow-ups** (filed under B-186, not started):
   - reconcile the bullish-sweep result with B-41m;
-  - test gap-up with a news- or earnings-matched control;
+  - re-test gap up and AB=CD with **market-adjusted** excess (stock minus NIFTY),
+    **date-clustered** standard errors and **circuit-locked event bars excluded**,
+    plus a news- or earnings-matched control for gap up. This is the review's
+    I-2; switching method now would be post-hoc, so it is a new
+    pre-registration;
   - pre-register the two exploratory leads (squeeze smaller moves, gap-down
     bounce) on a third panel before they are shown as anything but ordinary.
 - **Refresh:** re-run `tour_base_rates.py`, then `--merge-confirm`, monthly. A

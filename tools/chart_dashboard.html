@@ -10747,7 +10747,7 @@ function renderTourPanel(pane) {
     // Prototype-safe lookup and escaped anyway: nothing from the server reaches
     // the HTML parser unescaped, even a label the server is meant to clamp.
     const cls = b && Object.prototype.hasOwnProperty.call(TOUR_BADGE, b.label) ? TOUR_BADGE[b.label] : 'few';
-    const badge = b ? `<div class="tour-badge ${tourEsc(cls)}${b.stale || b.unconfirmed ? ' stale' : ''}" title="Panel base rate, gross of costs${b.stale ? ` — measured ${tourEsc(b.asOf)}, refresh due` : ''}">${tourEsc(b.text)}${b.stale ? ` · <b>as of ${tourEsc(b.asOf)}</b>` : ''}</div>` : '';
+    const badge = b ? `<div class="tour-badge ${tourEsc(cls)}${b.stale || b.unconfirmed ? ' stale' : ''}" title="Panel base rate: gross of costs, today's NIFTY 500 members applied back (survivorship), excess vs the stock's own normal day, not the market${b.stale ? ` — measured ${tourEsc(b.asOf)}, refresh due` : ''}">${tourEsc(b.text)}${b.stale ? ` · <b>as of ${tourEsc(b.asOf)}</b>` : ''}</div>` : '';
     const study = b && b.study && b.study.headline
       ? `<div class="tour-study">Pre-registered: ${tourEsc(b.study.id)} (${tourEsc(b.study.date || '')}) — ${tourEsc(b.study.headline)}</div>` : '';
     const watch = s.watch ? `<div class="tour-watch">Watch: ${tourEsc(s.watch.text)}</div>` : '';
