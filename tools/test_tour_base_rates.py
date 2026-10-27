@@ -131,3 +131,9 @@ def test_thirds_rule_blocks_one_period_edge():
 def test_inverted_when_significant_wrong_way():
     rows = {"x": {"p20": 0.0001, "n_events": 500, "n_symbols": 50, "mean20": -0.02, "thirds": [-1, -1, 1]}}
     assert br.label(rows)["x"]["label"] == "INVERTED"
+
+
+def test_panel_slice_for_the_confirmatory_run():
+    syms = [f"S{i}" for i in range(500)]
+    assert br.panel_symbols(syms, offset=0, n=300) == syms[:300]
+    assert br.panel_symbols(syms, offset=300, n=200) == syms[300:500]

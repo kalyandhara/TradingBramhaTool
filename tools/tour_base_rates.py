@@ -240,6 +240,11 @@ def _load(sym: str) -> pd.DataFrame | None:
     return df[["open", "high", "low", "close", "volume"]].astype(float)
 
 
+def panel_symbols(all_syms: list[str], offset: int = 0, n: int = 300) -> list[str]:
+    """The panel slice: [0:300] is B-165's; [300:500] is the fresh confirmatory panel."""
+    return list(all_syms)[offset:offset + n]
+
+
 def _worker(sym: str) -> list[dict]:
     df = _load(sym)
     if df is None or len(df) < EVAL_BARS + 60:
@@ -258,11 +263,13 @@ def write_atomic(path: Path, payload: dict) -> None:
 def main(argv: list[str] | None = None) -> dict:
     ap = argparse.ArgumentParser(description="Tour base rates over the B-165 panel")
     ap.add_argument("--symbols", type=int, default=300)
+    ap.add_argument("--offset", type=int, default=0,
+                    help="panel start; 300 with --symbols 200 is the confirmatory panel")
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
     a = ap.parse_args(argv)
     import nse_universe as nu
-    syms = list(nu.symbols("nifty500"))[:a.symbols]
+    syms = panel_symbols(nu.symbols("nifty500"), a.offset, a.symbols)
     rows: list[dict] = []
     if a.workers > 1:
         from multiprocessing import Pool
@@ -276,7 +283,8 @@ def main(argv: list[str] | None = None) -> dict:
             rows += _worker(s)
     labelled = label(aggregate(rows, list(ct.DETECTORS)))
     payload = {"asOf": date.today().isoformat(),
-               "panel": f"nifty500[:{a.symbols}], last {EVAL_BARS} daily bars, crt_sweep_overlap._fetch",
+               "panel": f"nifty500[{a.offset}:{a.offset + a.symbols}], last {EVAL_BARS} daily bars, "
+                        "crt_sweep_overlap._fetch",
                "horizons": list(HORIZONS), "decides": 20,
                "rules": "docs/superpowers/specs/2026-10-26-chart-tour-design.md section 3",
                "detectors": labelled}
