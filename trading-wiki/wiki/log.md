@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-27] pre-reg | B-186a sweep reconciliation (B-41m vs the chart tour)
+- [[analyses/Sweep-Reconciliation-Pre-Registration]] committed before any code or run (`d05b294`): six-step ladder, one change per step, largest fall in mean20 names the cause; diagnosis only.
+
 ## [2026-10-26] ingest | eVector Event Explorer (#explore) — cascading sector-impact graph
 - Source: https://evector.io/#explore (public, logged out); summary in [[sources/Web-eVector-Event-Vector-Markets]] § Event Explorer
 - Key insight: the cascade is a flat parent-pointer node list (event → sector → industry → stocks) with measured/hypothesis/second-order edges and expected-vs-actual direction per node; ports to NSE on top of event_study.py. Filed B-190.
