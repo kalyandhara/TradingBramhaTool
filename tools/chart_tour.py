@@ -763,7 +763,7 @@ def badge_for(key: str, base_rates: dict | None, today, tone: str = "up") -> dic
     is stale, and the strict study link for the desk's own detectors."""
     study = _study(STUDY_LINKS.get(key))
     blank = {"label": "NOT_MEASURED", "text": LABEL_TEXT["NOT_MEASURED"], "stale": False,
-             "asOf": None, "study": study}
+             "asOf": None, "study": study, "unconfirmed": False}
     # The file is read from disk: any field may be missing or malformed, and a
     # bad row must read "Not measured", never crash the tour or render as blank.
     rates = base_rates if isinstance(base_rates, dict) else {}
@@ -798,8 +798,13 @@ def badge_for(key: str, base_rates: dict | None, today, tone: str = "up") -> dic
             what = f"{_pct(-mean20 if tone == 'down' else mean20)} vs a normal day @20d"
         text = (f"{head} · {what} · {int(n_ev)} events / {int(n_sym)} names · "
                 f"{_p_txt(p20)} · as of {as_of:%Y-%m}")
+    # Pre-registered: an EDGE / INVERTED is not trusted until a fresh panel
+    # reproduces it. One that did not is still shown, but flagged as such.
+    unconfirmed = label in ("EDGE", "INVERTED") and row.get("confirmed") is False
+    if unconfirmed:
+        text += " · not confirmed on a fresh panel"
     return {"label": label, "text": text, "stale": bool(stale), "asOf": as_of.date().isoformat(),
-            "study": study}
+            "study": study, "unconfirmed": unconfirmed}
 
 
 def build_tour(df: pd.DataFrame, *, market_df: pd.DataFrame | None, sector_df: pd.DataFrame | None,

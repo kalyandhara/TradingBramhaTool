@@ -576,3 +576,12 @@ def test_badge_magnitude_card_reads_as_larger_moves():
     b = ct.badge_for("atr_expansion", rates, TODAY, tone="neutral")
     assert b["text"].startswith("Edge · moves 0.6 pts larger than a normal day @20d")
     assert "p 0.002" in b["text"]
+
+
+def test_badge_unconfirmed_edge_is_flagged():
+    rates = {"asOf": "2026-10-20", "detectors": {"below_sma200": {
+        "label": "EDGE", "n_events": 1646, "n_symbols": 258, "mean20": 0.0101, "p20": 0.0004, "confirmed": False}}}
+    b = ct.badge_for("below_sma200", rates, TODAY, tone="down")
+    assert b["unconfirmed"] is True and b["text"].endswith("not confirmed on a fresh panel")
+    rates["detectors"]["below_sma200"]["confirmed"] = True
+    assert ct.badge_for("below_sma200", rates, TODAY, tone="down")["unconfirmed"] is False

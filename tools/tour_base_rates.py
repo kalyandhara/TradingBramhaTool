@@ -252,6 +252,26 @@ def _worker(sym: str) -> list[dict]:
     return symbol_events(sym, df, ct.DETECTORS, len(df) - EVAL_BARS)
 
 
+def merge_confirmation(main: dict, confirm: dict) -> dict:
+    """Mark each EDGE / INVERTED row as confirmed or not by the fresh-panel run
+    (pre-registered: no edge is trusted until it reproduces). Other labels need
+    no confirmation and carry `confirmed: None`."""
+    out = dict(main)
+    out["confirm_panel"] = confirm.get("panel")
+    out["confirm_asOf"] = confirm.get("asOf")
+    dets = {}
+    for k, row in (main.get("detectors") or {}).items():
+        row = dict(row)
+        c = (confirm.get("detectors") or {}).get(k) or {}
+        row["confirm_label"] = c.get("label")
+        row["confirm_mean20"] = c.get("mean20")
+        row["confirm_p20_holm"] = c.get("p20_holm")
+        row["confirmed"] = (c.get("label") == row.get("label")) if row.get("label") in ("EDGE", "INVERTED") else None
+        dets[k] = row
+    out["detectors"] = dets
+    return out
+
+
 def write_atomic(path: Path, payload: dict) -> None:
     """Write via a temp file and os.replace, so the tour never reads half a file."""
     path.parent.mkdir(parents=True, exist_ok=True)
@@ -267,7 +287,17 @@ def main(argv: list[str] | None = None) -> dict:
                     help="panel start; 300 with --symbols 200 is the confirmatory panel")
     ap.add_argument("--out", default=str(OUT))
     ap.add_argument("--workers", type=int, default=min(8, os.cpu_count() or 1))
+    ap.add_argument("--merge-confirm", default=None,
+                    help="merge a confirmatory run's JSON into --out and exit (no fetching)")
     a = ap.parse_args(argv)
+    if a.merge_confirm:
+        merged = merge_confirmation(json.loads(Path(a.out).read_text(encoding="utf-8")),
+                                    json.loads(Path(a.merge_confirm).read_text(encoding="utf-8")))
+        write_atomic(Path(a.out), merged)
+        for k, r in merged["detectors"].items():
+            if r["confirmed"] is not None:
+                print(f"{k:22s} {r['label']:9s} confirmed={r['confirmed']} (fresh panel: {r['confirm_label']})")
+        return merged
     import nse_universe as nu
     syms = panel_symbols(nu.symbols("nifty500"), a.offset, a.symbols)
     rows: list[dict] = []

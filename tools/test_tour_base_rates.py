@@ -137,3 +137,16 @@ def test_panel_slice_for_the_confirmatory_run():
     syms = [f"S{i}" for i in range(500)]
     assert br.panel_symbols(syms, offset=0, n=300) == syms[:300]
     assert br.panel_symbols(syms, offset=300, n=200) == syms[300:500]
+
+
+def test_merge_confirmation_marks_only_edge_and_inverted():
+    main = {"asOf": "2026-10-26", "detectors": {
+        "a": {"label": "EDGE"}, "b": {"label": "EDGE"}, "c": {"label": "INVERTED"}, "d": {"label": "ORDINARY"}}}
+    conf = {"asOf": "2026-10-26", "panel": "nifty500[300:500]", "detectors": {
+        "a": {"label": "EDGE", "mean20": 0.02, "p20_holm": 0.001}, "b": {"label": "ORDINARY", "mean20": 0.01, "p20_holm": 0.2},
+        "c": {"label": "INVERTED", "mean20": -0.01, "p20_holm": 0.01}, "d": {"label": "INVERTED", "mean20": -0.01, "p20_holm": 0.01}}}
+    out = br.merge_confirmation(main, conf)
+    d = out["detectors"]
+    assert d["a"]["confirmed"] is True and d["b"]["confirmed"] is False and d["c"]["confirmed"] is True
+    assert d["d"]["confirmed"] is None                 # an ORDINARY needs no confirmation
+    assert d["b"]["confirm_label"] == "ORDINARY" and out["confirm_panel"] == "nifty500[300:500]"
