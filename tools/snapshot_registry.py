@@ -262,7 +262,10 @@ def gap_volume_scan(universe: list[str], fetch_ohlcv: Callable, *,
     scanned = 0
     for sym in universe:
         try:
-            df = fetch_ohlcv(f"{sym}.NS", days=40)
+            # Bare symbol: the fetchers add ".NS" themselves. 90 days, because
+            # sp.fetch_ohlcv rejects anything under its 60-bar floor (the scan
+            # itself only reads the last 21 bars).
+            df = fetch_ohlcv(sym, days=90)
         except Exception:                             # noqa: BLE001
             continue
         if df is None or len(df) < 21:
