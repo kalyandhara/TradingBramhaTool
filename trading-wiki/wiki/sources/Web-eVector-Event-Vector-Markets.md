@@ -12,7 +12,7 @@ related: [analyses/Policy-Event-Study-Result, analyses/Home-Terminal-Layout-Spec
 
 ## Metadata
 
-- **Site:** https://evector.io. Read 2026-10-26: the public home page and `/markets/TSLA`.
+- **Site:** https://evector.io. Read 2026-10-26: the public home page, `/markets/TSLA` and the Event Explorer (`/#explore`).
 - **What it is:** a US-market research app. It is free at the top and has a waitlisted "Research Desk" at $19.99/month (full event map, full picks list, an AI analyst, state-change alerts, and MCP access for your own AI).
 - **How it was read:**
   - Page text, screenshots and a passive read of the public JavaScript bundle (UI strings and client-side detector logic).
@@ -113,6 +113,49 @@ The tour also always opens with a **"now" step**: the 63-bar high-low range and 
 
 Each finding drives the chart through a small action language: `CLEAR`, `ZOOM_TO_RANGE`, `PRICE_LEVEL{price,label,tone}`, `HIGHLIGHT_CANDLE`, `HIGHLIGHT_RANGE`, `INDICATORS{ids}`, `COMPARE{symbols}`, `CONTEXT`, `SELECT_EVENT`. This finding-plus-actions protocol is the most portable piece of the whole site.
 
+## Event Explorer: the cascading impact graph (`/#explore`, read 2026-10-26)
+
+Read logged out. The free tier opens about 3 events per visitor (`freeOpensLeft`). Other events come back with their node *skeleton* (kinds, parents, depths), but with labels and measurements blanked and `locked: true`. The cascade below is the fully open "Oil & Gas E&P" event; the "Meta AI capex financing" event was read as a locked skeleton.
+
+**What you see.** Under the eyebrow "Event Explorer", the heading reads "Follow it through everything it touched".
+- **Chip rows** pick the root. "Who's leading the market" offers Software, Oil & Gas E&P, Retail chatter and Crypto today. "What's moving the world today" offers about 10 news events. "The rate cycle" offers the Fed decision.
+- **The canvas is a left-to-right tree, one column per depth.** Root event card (depth 0) → sector (1) → theme or industry (2) → stocks (3). Each card shows:
+  - a small kind tag (SECTOR / THEME / STOCK / MACRO / ASSET CLASS);
+  - the label and symbol;
+  - the signed move with its window ("+11.8% · 20 sessions", "since Oct 22");
+  - the momentum-state pill (e.g. Acceleration).
+- **Root card.** Category, impact grade (bars plus "High impact"), the topic name, and the event's own reaction.
+- **Edge legend:** solid = **Measured**, dashed = **Hypothesis**, dotted = **Second-order**.
+- **Navigation.** A breadcrumb (All events › topic › event) and zoom / fit controls. Tapping a node goes a layer deeper.
+- **Side panel on the right.** Category eyebrow, a serif headline, a two-to-three-sentence summary, a "Call it" higher/lower question, and a "Touches" chip list (e.g. Energy +11.8%).
+- **Reverse cascade under "Your stocks".** Pick a stock and the same tree is drawn *from the stock outward*: stock → its sector ETF → every event on today's map that reaches it. It is labelled "directly, through its industry or sector, or through the macro backdrop". On top sits a one-line "bottom line" that weighs momentum against linked events, e.g. "Leaning lower · momentum is neutral · 0 linked events point up, 1 down".
+
+**Data shape** (`POST /api/events/<id>/open` → `{opened, event, freeOpensLeft}`). The graph is a **flat node list with parent pointers**; the client lays it out by `depth`.
+
+```
+event: {id, headline, summary, category, origin (market|world), status, occurredOn,
+        impact{score,label}, assets[], themes[], reaction{label,change},
+        nodes[], vectors[], heroChain[], scenarios[], topic{id,title,summary}, questionId}
+node:  {id, kind, label, symbol, parent, depth, rationale, evidence (observed|hypothesis),
+        secondOrder, expectedDirection, direction, strength (Mild|Moderate|Strong|Expected),
+        measured, measurement{windowLabel, asOf, change, excess, z, price}, momentum{…}, locked?}
+```
+
+- `vectors[]` holds the strongest measured leaves (e.g. REPX +33.6%, z 3.04). `heroChain` is the path the UI highlights by default (`root → sector → theme → s-REPX`).
+- **Two kinds of root, one shape.**
+  - `origin: market` roots (industry cohorts) are built from prices alone. The rationale is generated, e.g. "10 of the market's 40 strongest momentum names are oil & gas e&p".
+  - `origin: world` roots (news) list the stocks the event *should* touch. Each carries `expectedDirection` (the hypothesis) beside `direction` (what happened). The Meta event expected VRT **up**; it went **down** −8.4% (excess −6.7%, z −1.53). The node shows the miss rather than hiding it.
+- **Stock-node rationale is assembled from coded "why" parts**: `why.gaps{n}`, `why.new_highs{share}`, `why.accelerating`, `why.leadership`. The result reads like "8 consecutive gaps; new highs in 45% of sessions; accelerating price discovery". Every word traces to a measured fact.
+- **Sector-vs-industry attribution is said outright:** "The Energy sector ETF moved +11.8% … this is an industry move, not a sector one". The industry node's `excess` (+23.7%) is set against the sector's (+13.2%).
+
+**Ported to this desk (NSE).** The tree maps one-to-one:
+- root = a policy event (B-184's `policy_events.csv`), a results day, or a price-only cohort ("6 of the 40 strongest NIFTY 500 names are defence");
+- depth 1 = NSE sector index;
+- depth 2 = industry or thematic index (Nifty India Defence, Nifty CPSE…);
+- depth 3 = stocks.
+
+`excess` and `z` are exactly what `event_study.py` already computes per node. An edge is drawn solid only when that measurement exists, and dashed ("hypothesis until <date>") otherwise. The reverse cascade (stock → sector → events reaching it) is the natural Stock Analyzer entry point. Filed as **B-190**.
+
 ## Design and presentation notes (owner likes these)
 
 - **Look.** Warm off-white canvas, a large serif display face for headlines ("Every event creates a vector in the market."), a small all-caps eyebrow above each section, and generous whitespace.
@@ -146,5 +189,5 @@ Each finding drives the chart through a small action language: `CLEAR`, `ZOOM_TO
 
 ## Pages updated
 
-- [[analyses/Open-Backlog]]: B-185 to B-189 filed (eVector adoption candidates)
+- [[analyses/Open-Backlog]]: B-185 to B-189 filed (eVector adoption candidates); B-190 (cascading sector-impact graph) filed 2026-10-26
 - `index.md`, `log.md`

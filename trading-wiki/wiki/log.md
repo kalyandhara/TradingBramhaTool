@@ -1,6 +1,10 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-26] ingest | eVector Event Explorer (#explore) — cascading sector-impact graph
+- Source: https://evector.io/#explore (public, logged out); summary in [[sources/Web-eVector-Event-Vector-Markets]] § Event Explorer
+- Key insight: the cascade is a flat parent-pointer node list (event → sector → industry → stocks) with measured/hypothesis/second-order edges and expected-vs-actual direction per node; ports to NSE on top of event_study.py. Filed B-190.
+
 ## [2026-10-26] study | B-186 tour base rates — gaps up, AB=CD, ATR carry; 15 of 20 ordinary
 - [[analyses/Chart-Tour-Base-Rates-Result]] as pre-registered + confirmatory panel nifty500[300:500]: confirmed EDGE gap_up, abcd, atr_expansion; INVERTED breakdown55; below_sma200 unconfirmed (flagged on the card). Badges live on the Chart Tool TOUR panel.
 
