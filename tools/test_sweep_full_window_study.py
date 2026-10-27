@@ -25,8 +25,9 @@ def test_merge_badge_sets_confirmed_only_on_fresh_edge():
     fresh = fw.label(_r(0.006, 0.001))
     out = fw.merge_badge(rates, main, fresh)
     d = out["detectors"]["liquidity_sweep_bull"]
-    assert d["label"] == "ORDINARY" and d["confirm_label"] == "EDGE" and d["confirmed"] is False
+    # the pre-registration: `confirmed` is the fresh panel's EDGE, whatever the main label
+    assert d["label"] == "ORDINARY" and d["confirm_label"] == "EDGE" and d["confirmed"] is True
     assert d["window"] == "full history (B-186d)"
     assert out["detectors"]["gap_up"] == {"label": "EDGE"}
-    out2 = fw.merge_badge(rates, fw.label(_r(0.006, 0.001)), fresh)
-    assert out2["detectors"]["liquidity_sweep_bull"]["confirmed"] is True
+    out2 = fw.merge_badge(rates, main, fw.label(_r(0.006, 0.10)))
+    assert out2["detectors"]["liquidity_sweep_bull"]["confirmed"] is False
