@@ -54,7 +54,8 @@ def merge_badge(rates: dict, main: dict, fresh: dict) -> dict:
         "p20_holm": main.get("p20_bonf"),
         "confirm_label": fresh["label"], "confirm_mean20": fresh.get("mean20"),
         "confirm_p20_holm": fresh.get("p20_bonf"),
-        "confirmed": fresh["label"] == "EDGE",
+        # as merge_confirmation: only an EDGE/INVERTED main label can be (un)confirmed
+        "confirmed": (fresh["label"] == main["label"]) if main["label"] in ("EDGE", "INVERTED") else None,
         "window": "full history (B-186d)",
     }
     return out

@@ -314,23 +314,24 @@
    "confirmed": null
   },
   "liquidity_sweep_bull": {
-   "n_events": 2424,
-   "n_symbols": 252,
-   "mean5": -0.0009674599810024051,
-   "mean20": -0.003067696695835167,
-   "mean60": 0.004352063244900531,
-   "p20": 0.365760858121565,
+   "n_events": 5119,
+   "n_symbols": 257,
+   "mean5": 0.0009373786016362028,
+   "mean20": 0.004754055937730203,
+   "mean60": 0.020567809262392295,
+   "p20": 0.10361088435803155,
    "thirds": [
     1,
     -1,
     -1
    ],
-   "p20_holm": 1.0,
    "label": "ORDINARY",
+   "p20_holm": 1.0,
    "confirm_label": "ORDINARY",
-   "confirm_mean20": -0.0010536189455214798,
+   "confirm_mean20": 0.0033692294502312412,
    "confirm_p20_holm": 1.0,
-   "confirmed": null
+   "confirmed": null,
+   "window": "full history (B-186d)"
   },
   "flag_pole_bull": {
    "n_events": 1775,

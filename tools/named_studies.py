@@ -672,6 +672,24 @@ STUDIES: tuple[dict, ...] = (
                      "(not established). MPC decision days ordinary: 1.03x / 0.94x, "
                      "cut-vs-hike basket p 0.71."),
     },
+    {
+        "item": "B-186a", "tool": "sweep_reconcile_study.py", "date": "2026-10-27",
+        "source": "analyses/Sweep-Reconciliation-Result",
+        # A diagnosis between two measurements, not a new edge test.
+        "subjects": ("liquidity sweep tour window",),
+        "verdict": "MIXED",
+        "headline": ("pre-registered six-step ladder: B-41m reproduces (+0.54% net); the "
+                     "tour's 260-bar detection window is the cause (-0.78 pp), turning "
+                     "+0.48% into -0.31%."),
+    },
+    {
+        "item": "B-186d", "tool": "sweep_full_window_study.py", "date": "2026-10-27",
+        "source": "analyses/Sweep-Full-Window-Result",
+        "subjects": ("liquidity sweep tour card full window",),
+        "verdict": "NULL",
+        "headline": ("pre-registered: full-window sweep card ORDINARY on the unseen panel "
+                     "(+0.34% @20d, p 0.35) and the main (+0.48%, p 0.10)."),
+    },
 )
 
 

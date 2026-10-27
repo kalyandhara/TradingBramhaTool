@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-27] study | B-186d sweep card, full window — ORDINARY on both panels
+- [[analyses/Sweep-Full-Window-Pre-Registration]] (`48560ea`) → [[analyses/Sweep-Full-Window-Result]]: fresh +0.34% p 0.35, main +0.48% p 0.10. Card now full-history live and in replay; badge updated; `confirmed` null by ruling.
+
 ## [2026-10-27] study | B-186a sweep reconciliation — the 260-bar window is the cause
 - [[analyses/Sweep-Reconciliation-Result]]: S1 reproduces B-41m (+0.54% net); S6 (260-bar window) −0.78 pp turns +0.48% into −0.31%. B-41m stands; filed B-186d.
 

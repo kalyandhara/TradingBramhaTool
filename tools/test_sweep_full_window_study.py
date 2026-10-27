@@ -19,15 +19,21 @@ def test_inverted_and_thirds_and_floors():
     assert fw.label(_r(0.005, 0.001, syms=29))["label"] == "TOO_FEW"
 
 
-def test_merge_badge_sets_confirmed_only_on_fresh_edge():
+def test_merge_badge_confirms_an_edge_only_when_the_fresh_panel_agrees():
     rates = {"detectors": {"liquidity_sweep_bull": {"label": "ORDINARY"}, "gap_up": {"label": "EDGE"}}}
-    main = fw.label(_r(0.0048, 0.10))
-    fresh = fw.label(_r(0.006, 0.001))
-    out = fw.merge_badge(rates, main, fresh)
+    edge = fw.label(_r(0.006, 0.001))
+    out = fw.merge_badge(rates, edge, fw.label(_r(0.006, 0.001)))
     d = out["detectors"]["liquidity_sweep_bull"]
-    # the pre-registration: `confirmed` is the fresh panel's EDGE, whatever the main label
-    assert d["label"] == "ORDINARY" and d["confirm_label"] == "EDGE" and d["confirmed"] is True
+    assert d["label"] == "EDGE" and d["confirm_label"] == "EDGE" and d["confirmed"] is True
     assert d["window"] == "full history (B-186d)"
     assert out["detectors"]["gap_up"] == {"label": "EDGE"}
-    out2 = fw.merge_badge(rates, main, fw.label(_r(0.006, 0.10)))
+    out2 = fw.merge_badge(rates, edge, fw.label(_r(0.006, 0.10)))
     assert out2["detectors"]["liquidity_sweep_bull"]["confirmed"] is False
+
+
+def test_ordinary_main_label_carries_no_confirmation_flag():
+    """As tour_base_rates.merge_confirmation: confirmation only applies to EDGE/INVERTED,
+    so an ORDINARY card never shows 'not confirmed on a fresh panel'."""
+    rates = {"detectors": {"liquidity_sweep_bull": {}}}
+    out = fw.merge_badge(rates, fw.label(_r(0.0048, 0.10)), fw.label(_r(0.003, 0.35)))
+    assert out["detectors"]["liquidity_sweep_bull"]["confirmed"] is None
