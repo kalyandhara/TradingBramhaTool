@@ -1970,35 +1970,49 @@ def snapshot_panel(name: str, *, key: str, compact: bool = False,
                 cached_latest_sentiment.clear()
 
     meta, payload = snapshot_get(name)
-    running = q.is_active(label)
-    last_meta = snapstore.latest_meta(name)          # may be an error row
-    c1, c2 = st.columns([1, 4] if not compact else [1, 3])
-    with c1:
-        if st.button(button_label, key=f"{key}_snap_refresh", width="stretch",
-                     disabled=running,
-                     help=help or f"Recompute {spec.label} now (runs in the "
-                                  f"background; the page stays live)."):
-            snapshot_refresh(name)
-            st.rerun()
-    with c2:
-        bits = []
-        if running:
-            bits.append("⏳ refreshing in the background…")
-        if meta is None:
-            bits.append("**No stored run yet** — press ↻ or wait for the scheduled "
-                        "Report Snapshot Refresh (Scheduler Hub).")
-        else:
-            when = meta.run_at_dt.strftime("%d %b %Y %H:%M")
-            stale = snapstore.is_stale(meta)
-            dot = lc.fresh_dot(meta.run_at_dt, stale=stale,
-                               live=_market_status()[0] == "LIVE")
-            bits.append(f"{dot} Last run **{when}**" + (" · ⚠ older than the last close"
-                                                  if stale else "") +
-                        (f" · {meta.elapsed:.0f}s" if meta.elapsed >= 1 else ""))
-        if last_meta is not None and last_meta.error and (
-                meta is None or last_meta.run_at >= meta.run_at):
-            bits.append(f"⚠ last attempt failed: {last_meta.error}")
-        st.caption(" · ".join(bits))
+
+    @st.fragment
+    def _snapshot_bar(name: str, *, key: str, compact: bool, button_label: str,
+                      help: str | None, meta):
+        """The ↻ button and its status line, as a fragment: a click reruns only this
+        bar, not the page. A full Home rerun took ~40s, during which the page showed
+        a half-rebuilt layout and the scroll jumped away from the panel clicked.
+        The new run appears on the next full rerun, as before."""
+        spec = snapreg.SNAPSHOTS[name]
+        label = _snapshot_job_label(name)
+        q = ui_jobs.get_queue()
+        running = q.is_active(label)
+        last_meta = snapstore.latest_meta(name)          # may be an error row
+        c1, c2 = st.columns([1, 4] if not compact else [1, 3])
+        with c1:
+            if st.button(button_label, key=f"{key}_snap_refresh", width="stretch",
+                         disabled=running,
+                         help=help or f"Recompute {spec.label} now (runs in the "
+                                      f"background; the page stays live)."):
+                snapshot_refresh(name)
+                st.rerun(scope="fragment")
+        with c2:
+            bits = []
+            if running:
+                bits.append("⏳ refreshing in the background…")
+            if meta is None:
+                bits.append("**No stored run yet** — press ↻ or wait for the scheduled "
+                            "Report Snapshot Refresh (Scheduler Hub).")
+            else:
+                when = meta.run_at_dt.strftime("%d %b %Y %H:%M")
+                stale = snapstore.is_stale(meta)
+                dot = lc.fresh_dot(meta.run_at_dt, stale=stale,
+                                   live=_market_status()[0] == "LIVE")
+                bits.append(f"{dot} Last run **{when}**" + (" · ⚠ older than the last close"
+                                                      if stale else "") +
+                            (f" · {meta.elapsed:.0f}s" if meta.elapsed >= 1 else ""))
+            if last_meta is not None and last_meta.error and (
+                    meta is None or last_meta.run_at >= meta.run_at):
+                bits.append(f"⚠ last attempt failed: {last_meta.error}")
+            st.caption(" · ".join(bits))
+
+    _snapshot_bar(name, key=key, compact=compact, button_label=button_label,
+                  help=help, meta=meta)
     return meta, payload
 
 
