@@ -1084,3 +1084,49 @@ def _flag_col(items: list[str], label: str, tone: str, mark: str) -> str:
         f'line-height:1.5;">—</div>')
     return (f'<div style="flex:1;min-width:150px;">'
             f'<div class="tb-micro" style="color:{fg};">{label}</div>{rows}</div>')
+
+def render_context_ladder(symbol: str, df: "pd.DataFrame", nifty_df) -> None:
+    """B-187 — market → sector rungs and 'was it the stock or the market?'.
+
+    Descriptive context, never a signal: the trend word is close vs a rising /
+    falling 20-day average, and the attribution just splits last month's move.
+    The sector frame comes from the `sector_index_data` snapshot (no new fetch);
+    a missing frame says so rather than disappearing.
+    """
+    import context_ladder as cl
+    import nse_universe as nseu
+    import snapshot_store as snaps
+    try:
+        imap = nseu.industry_map("nifty500")
+    except Exception:
+        imap = {}
+    ticker, label = cl.sector_for(symbol, imap)
+    sector_df = None
+    if ticker:
+        try:
+            _meta, payload = snaps.load_latest("sector_index_data")
+            sector_df = ((payload or {}).get("sector_data") or {}).get(ticker)
+        except Exception:
+            sector_df = None
+    lad = cl.build_ladder(df, nifty_df, sector_df, sector_label=label,
+                          sector_ticker=ticker)
+    tone = {"Up": "good", "Down": "risk"}
+    tiles = []
+    for r in lad["rungs"]:
+        if r["missing"]:
+            sub = ("no index for this sector" if not ticker
+                   else "index frame not in the snapshot")
+            tiles.append(rs.stat_card(f'{r["rung"]} · {r["label"]}', None, sub))
+            continue
+        d1 = "—" if r["d1"] is None else f'{r["d1"]:+.1f} %'
+        m1 = "—" if r["m1"] is None else f'{r["m1"]:+.1f} %'
+        tiles.append(rs.stat_card(f'{r["rung"]} · {r["label"]}', r["trend"] or "—",
+                                  f"1D {d1} · 1M {m1}", tone.get(r["trend"], "neutral")))
+    if not label:
+        tiles.append(rs.stat_card("Sector", None, "not in NIFTY 500 — sector unknown"))
+    st.markdown(rs.section("Context ladder"), unsafe_allow_html=True)
+    st.markdown('<div style="display:flex;flex-wrap:wrap;gap:8px;">'
+                + "".join(tiles) + "</div>", unsafe_allow_html=True)
+    st.caption(f'**{lad["text"]}** · Description of the last month, not a signal. '
+               "Trend: Up = close above a rising 20-day average, Down = below a "
+               "falling one, Mixed otherwise.")
