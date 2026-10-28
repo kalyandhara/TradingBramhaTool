@@ -76,6 +76,11 @@
    "chart": "RELIANCE.NS · 1d · 6M",
    "bytes": 8350
   },
+  "events": {
+   "file": null,
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "reason": "markers come from the live event feed; no preview generated"
+  },
   "evmacd": {
    "file": "evmacd.8e48aab75d.webp",
    "chart": "RELIANCE.NS · 1d · 6M",

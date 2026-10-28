@@ -1715,6 +1715,45 @@ def api_reversal_events():
                     "from": d_from.isoformat(), "to": d_to.isoformat()})
 
 
+_EVENTS_ANN_CACHE: dict[tuple[str, str], list] = {}
+
+
+@app.route("/api/events")
+def api_events():
+    """B-188 event markers (E results, N material filing, M Budget/MPC,
+    A anomaly) for the daily chart, each with its measured/hypothesis status
+    and the event-day / 5-session move. See tools/chart_events.py."""
+    import datetime as _dt
+    import chart_events as ce
+    from nse_announcements import fetch_announcements
+    symbol = request.args.get("symbol", "").strip().upper()
+    bars_n = min(int(request.args.get("bars", 300)), 3000)
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    if symbol.startswith("^"):
+        return jsonify({"symbol": symbol, "events": [], "missing": []})
+    bare = re.sub(r"\.(NS|BO)$", "", symbol, flags=re.IGNORECASE)
+    bars = ds.detect_source(symbol).get_ohlcv(symbol, "1d", bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < 2:
+        return jsonify({"symbol": symbol, "events": [], "missing": []})
+    df.index = df.index.tz_convert("Asia/Kolkata").tz_localize(None).normalize()
+    times = {str(ts.date()): int(b["time"]) for ts, b in zip(df.index, bars)}
+
+    def ann(sym):
+        key = (sym, _dt.date.today().isoformat())
+        if key not in _EVENTS_ANN_CACHE:
+            _EVENTS_ANN_CACHE[key] = fetch_announcements(sym)
+        return _EVENTS_ANN_CACHE[key]
+
+    res = ce.collect(bare, df, ann_fn=ann)
+    for e in res["events"]:
+        e["time"] = times.get(e["session"])
+    res["symbol"] = symbol
+    return jsonify(res)
+
+
 @app.route("/api/symbols")
 def api_symbols():
     return jsonify({

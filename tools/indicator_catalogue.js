@@ -335,5 +335,10 @@ window.INDICATOR_INFO = /*JSON-BEGIN*/{
     "short": "Marks dates of Vedic yogas and lunar phases that some traders watch for turns.",
     "desc": "Marks calendar dates of selected Vedic yogas and lunar phases on the time axis. Some traders use these dates as moments to watch for a change in direction. The dates come from astrological rules, not from price or volume, so treat them as a calendar to keep an eye on, not as a forecast.",
     "level": "Intermediate", "goals": [], "added": "2026-07-20", "concept": "concepts/Vedic-Calendar-Volatility-Triggers.md"
+  },
+  "events": {
+    "short": "Marks results, material filings, Budget/RBI days and volume anomalies on the chart.",
+    "desc": "Puts a letter on each event day: E for a results date, N for a material NSE filing, M for a Union Budget or RBI policy day, and a lightning bolt for a day with at least three times normal volume and an unusually large move. Press [ and ] to step between events; a card shows the day's move and the move five sessions later. Each card also says what is known about that kind of event: Budget days are measured to re-sort sectors and RBI days measured as ordinary, while the other kinds are untested ideas. Daily charts only.",
+    "level": "Beginner", "goals": [], "added": "2026-10-28", "concept": null
   }
 }/*JSON-END*/;

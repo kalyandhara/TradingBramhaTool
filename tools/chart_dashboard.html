@@ -1922,6 +1922,8 @@ const INDICATOR_DEFS = [
   // ── Calendar ────────────────────────────────────────────────────────────────
   {key:'reversal_calendar', label:'Reversal Calendar (Yogas + Lunar)',
                                                      group:'Calendar',           color:'#ffd60a'},
+  {key:'events',       label:'Event Markers (E results · N filing · M Budget/MPC · ⚡ anomaly)',
+                                                     group:'Calendar',           color:'#4a90d9'},
 ];
 // Families, in the order they appear in the rail. Display-only grouping: the
 // stored `key` is unchanged, so saved pane configs survive a regroup.
@@ -4688,6 +4690,7 @@ function applyIndicators(pane) {
   if (!pane.indicators.has('oiwalls') && pane.oiw) clearOiWalls(pane);
   // Tear down Reversal Calendar markers if deselected
   if (!pane.indicators.has('reversal_calendar') && pane.rev) clearReversalCalendar(pane);
+  if (!pane.indicators.has('events') && pane.evt) clearEventMarkers(pane);
   if (!bars || bars.length < 2) return;
 
   INDICATOR_DEFS.forEach(def => {
@@ -5641,6 +5644,10 @@ function applyIndicators(pane) {
   // ── Reversal Calendar overlay (yogas + lunar phases, see reversal_calendar.py)
   if (pane.indicators.has('reversal_calendar')) {
     renderReversalCalendar(pane);
+  }
+  // ── Event markers (B-188, see chart_events.py) ─────────────────────────────
+  if (pane.indicators.has('events')) {
+    renderEventMarkers(pane);
   }
 
   // ── Sub-pane time-range re-sync (fixes stale-range collapse) ─────────────────
@@ -11639,6 +11646,93 @@ function renderFibInfo(pane, d) {
   el.classList.toggle('collapsed', st.collapsed);
   el.style.display = 'block';
 }
+
+// ── Event markers (B-188) ─────────────────────────────────────────────────────
+// Backed by /api/events (tools/chart_events.py). E results, N material NSE
+// filing, M Budget / RBI MPC day, A (drawn ⚡) price/volume anomaly. Each
+// event carries what the desk knows about its kind: only Budget and MPC days
+// are measured (B-184); the rest say "hypothesis". [ and ] step between events
+// on daily panes and pin a card with the event-day and 5-session move.
+const EVENT_STYLE = {
+  E: {text: 'E', color: '#4a90d9', position: 'aboveBar', shape: 'circle'},
+  N: {text: 'N', color: '#8e7cc3', position: 'aboveBar', shape: 'circle'},
+  M: {text: 'M', color: '#d9822b', position: 'belowBar', shape: 'square'},
+  A: {text: '⚡', color: '#e0b000', position: 'aboveBar', shape: 'arrowDown'},
+};
+
+function clearEventMarkers(pane) {
+  if (!pane.evt) return;
+  setPaneMarkers(pane, 'events', null);
+  if (pane.evt.cardEl) pane.evt.cardEl.remove();
+  pane.evt = null;
+}
+
+async function renderEventMarkers(pane) {
+  if (pane.tf !== '1d') { setPaneMarkers(pane, 'events', null); return; }
+  if (!pane.evt) pane.evt = {key: null, events: [], idx: -1, cardEl: null, missing: []};
+  const ev = pane.evt;
+  const n = (pane.bars || []).length;
+  const key = `${pane.symbol}:${n}`;
+  if (ev.key !== key) {
+    try {
+      const r = await fetch(`${SERVER}/api/events?symbol=${encodeURIComponent(pane.symbol)}&bars=${n}`);
+      if (!r.ok) throw new Error(r.status);
+      const data = await r.json();
+      ev.events = (data.events || []).filter(e => e.time != null);
+      ev.missing = data.missing || [];
+      ev.key = key; ev.idx = -1;
+    } catch (e) {
+      console.warn('events fetch failed:', e);
+      setPaneMarkers(pane, 'events', null);
+      return;
+    }
+  }
+  setPaneMarkers(pane, 'events', ev.events.map(e => {
+    const st = EVENT_STYLE[e.kind] || EVENT_STYLE.N;
+    return {time: e.time, position: st.position, color: st.color,
+            shape: st.shape, size: 0.9, text: st.text};
+  }));
+}
+
+function _pct(v) { return v == null ? '—' : (v >= 0 ? '+' : '') + v.toFixed(1) + ' %'; }
+
+function stepEvent(pane, dir) {
+  const ev = pane.evt;
+  if (!ev || !ev.events.length) return;
+  ev.idx = ev.idx < 0 ? (dir > 0 ? 0 : ev.events.length - 1)
+                      : Math.min(ev.events.length - 1, Math.max(0, ev.idx + dir));
+  const e = ev.events[ev.idx];
+  const bars = pane.bars || [];
+  const i = bars.findIndex(b => b.time === e.time);
+  if (i >= 0) {
+    try { pane.chart.timeScale().setVisibleLogicalRange({from: i - 60, to: i + 25}); } catch {}
+    try { pane.chart.setCrosshairPosition(bars[i].close, e.time, pane.series); } catch {}
+  }
+  if (!ev.cardEl) {
+    ev.cardEl = document.createElement('div');
+    ev.cardEl.className = 'evt-card';
+    ev.cardEl.style.cssText = 'position:absolute;left:8px;bottom:34px;z-index:6;max-width:320px;'
+      + 'background:rgba(20,24,32,.92);color:#e6e9ef;border:1px solid #3a4150;border-radius:6px;'
+      + 'padding:6px 9px;font:12px/1.4 system-ui,sans-serif;pointer-events:none;';
+    pane.el.appendChild(ev.cardEl);
+  }
+  const st = EVENT_STYLE[e.kind] || EVENT_STYLE.N;
+  const esc = t => String(t || '').replace(/[&<>]/g, c => ({'&': '&amp;', '<': '&lt;', '>': '&gt;'}[c]));
+  ev.cardEl.innerHTML =
+    `<div><b style="color:${st.color}">${st.text}</b> ${esc(e.session)} · ${ev.idx + 1}/${ev.events.length}</div>`
+    + `<div style="font-weight:600">${esc(e.label)}</div>`
+    + (e.note ? `<div style="opacity:.8">${esc(e.note)}</div>` : '')
+    + `<div>Day ${_pct(e.r1)} · 5 sessions ${_pct(e.r5)}</div>`
+    + `<div style="opacity:.75;font-size:11px">${esc(e.status)}</div>`
+    + (ev.missing.length ? `<div style="opacity:.6;font-size:11px">Not loaded: ${ev.missing.join(', ')}</div>` : '');
+}
+
+document.addEventListener('keydown', e => {
+  if (e.key !== '[' && e.key !== ']') return;
+  const t = e.target;
+  if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
+  panes.forEach(pane => { if (pane && pane.evt) stepEvent(pane, e.key === ']' ? 1 : -1); });
+});
 
 // ── Reversal Calendar overlay ─────────────────────────────────────────────────
 // Backed by /api/reversal_events (which reads tools/reversal_calendar.db).
