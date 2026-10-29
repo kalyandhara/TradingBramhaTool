@@ -2671,57 +2671,15 @@ def render_concalls(data: dict) -> None:
         )
 
 
-_TONE_DOT   = {"good": "🟢", "neutral": "🟡", "bad": "🔴"}
-_TONE_COLOR = {"good": "green", "neutral": "orange", "bad": "red"}
-
-
 # Two years of sessions for the pattern-metrics panel, plus RSI warm-up.
 PM_HISTORY_BARS = 520
 
 
 def render_setup_intelligence(intel) -> None:
-    """Scannable plain-language setup panel derived from the council's evidence."""
-    with st.container(border=True):
-        st.markdown("#### ⭐ Setup Intelligence")
-        st.caption("Structured setup analysis · research only")
-
-        dot = _TONE_DOT.get(intel.status_tone, "⚪")
-        color = _TONE_COLOR.get(intel.status_tone, "gray")
-        st.markdown(f"{dot} **Setup status · :{color}[{intel.status_label}]**")
-
-        # Chips
-        chip_cols = st.columns(len(intel.chips))
-        for col, (label, value, tone) in zip(chip_cols, intel.chips):
-            with col:
-                with st.container(border=True):
-                    st.caption(label.upper())
-                    st.markdown(f"**:{_TONE_COLOR.get(tone, 'gray')}[{value}]**")
-
-        # Factor lists
-        c_bull, c_risk = st.columns(2)
-        with c_bull:
-            with st.container(border=True):
-                st.markdown(":green[**BULLISH FACTORS**]")
-                if intel.bullish_factors:
-                    st.markdown("\n".join(f"- {x}" for x in intel.bullish_factors))
-                else:
-                    st.caption("None detected.")
-        with c_risk:
-            with st.container(border=True):
-                st.markdown(":red[**RISK FACTORS**]")
-                if intel.risk_factors:
-                    st.markdown("\n".join(f"- {x}" for x in intel.risk_factors))
-                else:
-                    st.caption("None detected.")
-
-        st.caption("OVERALL VIEW")
-        st.markdown(intel.overall_view)
-        st.caption(
-            "Derived automatically from historical market data by our research "
-            "algorithms. May be incomplete or inaccurate and can change between "
-            "scans. Research and educational study only — not investment advice "
-            "or a recommendation to buy, sell, or hold any security."
-        )
+    """Scannable plain-language setup panel derived from the council's evidence:
+    status pill, bull/bear balance, signal tiles, factor lists, overall view."""
+    import setup_intel_view as _siv
+    st.markdown(_siv.render_html(intel, rs.TOKENS), unsafe_allow_html=True)
 
 
 def render_council(bundle, bull, bear, card) -> None:

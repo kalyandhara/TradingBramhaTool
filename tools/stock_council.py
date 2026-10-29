@@ -687,6 +687,11 @@ class SetupIntel:
     bullish_factors: list[str]
     risk_factors: list[str]
     overall_view: str
+    # The Judge's own numbers, so the panel can draw the balance instead of
+    # only quoting it in the overall-view sentence.
+    bull_conviction: float | None = None
+    bear_conviction: float | None = None
+    net_score: float | None = None
 
 
 def _band(score: float, labels: tuple[str, str, str],
@@ -991,4 +996,7 @@ def setup_intelligence(b: EvidenceBundle, bull: Thesis, bear: Thesis,
         bullish_factors=bulls,
         risk_factors=risks,
         overall_view=" ".join(view_parts),
+        bull_conviction=bull.conviction,
+        bear_conviction=bear.conviction,
+        net_score=card.net_score,
     )
