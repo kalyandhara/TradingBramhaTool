@@ -107,3 +107,15 @@ def home_rail(db, search_options: str = "") -> None:
         import streamlit as st
         logging.getLogger(__name__).exception("home rail failed")
         st.warning(f"Watchlist rail unavailable: {e}")
+
+
+def home_scan_table(df, extra_cols, **kw):
+    """B-180 hover rows for a Home scan table (Volume Shockers, Institutional
+    volume). None when the component or the layout module is unavailable, so
+    the caller falls back to its plain table."""
+    try:
+        return importlib.import_module(f"{__name__}.home_layout").scan_table(df, extra_cols, **kw)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("home scan table failed")
+        return None

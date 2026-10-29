@@ -205,6 +205,41 @@ def _go_to(page: str, symbol: str) -> None:
     st.session_state["last_analyzed"] = symbol   # triggers the auto-run
 
 
+def scan_table(df, extra_cols: list[dict], *, key: str, close_col: str,
+               pct_col: str, pct_label: str = "Close · Day") -> list[str] | None:
+    """A scan's hits in the watch_rail component: the rail's rows and hover
+    chart, plus the scan's own columns. Returns the ticked symbols, or None
+    when the component is unavailable so the caller draws its plain table."""
+    comp = _rail_component()
+    if comp is None:
+        return None
+    rows = wr.scan_rows(df, extra_cols, close_col=close_col, pct_col=pct_col,
+                        names=_company_names(), sparks=wr.read_sparks())
+    t = rs.TOKENS
+    value = comp(
+        rows=rows, show_heart=False, extra_cols=extra_cols, pct_label=pct_label,
+        good=rs.tone_colors("good")[0], risk=rs.tone_colors("risk")[0],
+        theme={"surface": t["surface"], "surface_alt": t["surface_alt"],
+               "border": t["border"], "text": t["text"],
+               "muted": t["text_muted"], "link": t["info"],
+               "grid": t["surface_alt"], "sma20": t["info"],
+               "sma50": t["accent"]},
+        chart_api="http://localhost:5001/api/ohlcv",
+        analyze_base=uit.DASHBOARD_BASE + "/?nav=analyze&symbol=",
+        height=min(520, 28 + 45 * max(len(rows), 1)),
+        key=key, default={"picked": [], "open": None})
+    shown = {r["symbol"] for r in rows}
+    value = value or {}
+    req = value.get("open")
+    if (isinstance(req, dict) and req.get("symbol") in shown
+            and req.get("page") in ("predict", "analyze")
+            and req.get("n") != st.session_state.get(f"_{key}_open_n")):
+        st.session_state[f"_{key}_open_n"] = req.get("n")
+        _go_to(req["page"], req["symbol"])
+        st.rerun()
+    return [s for s in value.get("picked", []) if s in shown]
+
+
 @st.dialog("Watchlists")
 def _list_dialog(db, source: str, lists) -> None:
     """Create, rename and delete named lists. A dialog, not a popover: every

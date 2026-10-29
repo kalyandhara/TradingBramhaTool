@@ -58,6 +58,7 @@
   .chartbtn:hover { color: var(--accent-link); }
   input[type=checkbox] { margin: 0; cursor: pointer; }
   .empty { padding: 10px; color: var(--muted); }
+  .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 </style>
 </head>
 <body>
@@ -93,9 +94,26 @@ function fmtPct(v)   { return v == null ? "—" : (v > 0 ? "+" : "") + v.toFixed
 function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;"}[c])); }
 
 function columns() {
-  // checkbox · symbol/name · sparkline · price/day% · [♥] · chart
-  return ARGS.show_heart ? "14px minmax(0,1fr) 54px 74px 12px 14px"
-                         : "14px minmax(0,1fr) 54px 74px 14px";
+  // checkbox · symbol/name · sparkline · price/day% · [extra…] · [♥] · chart
+  // Text columns may shrink (ellipsis) so a half-width pane never clips the numbers.
+  const extra = (ARGS.extra_cols || []).map(c => {
+    const w = (Number(c.width) || 70) + "px";
+    return c.fmt === "text" ? `minmax(0,${w})` : w;
+  }).join(" ");
+  // No stored sparkline on any row (usual for scan names): keep just room for SA.
+  const spk = (ARGS.rows || []).some(r => r.spark && r.spark.length > 1) ? "54px" : "26px";
+  // In a wide band a 1fr name column would push the scan columns to the far edge.
+  return "14px " + (extra ? "minmax(84px,260px)" : "minmax(0,1fr)") + " " + spk + " 74px " +
+         (extra ? extra + " " : "") +
+         (ARGS.show_heart ? "12px " : "") + "14px";
+}
+
+// Scan-table cells (watch_rail.SCAN_FORMATS). Text is escaped; numbers are formatted here.
+function fmtCell(c, v) {
+  if (v == null || v === "") return "—";
+  if (c.fmt === "x") return Number(v).toFixed(1) + "×";
+  if (c.fmt === "pct") return (v > 0 ? "+" : "") + Number(v).toFixed(2) + "%";
+  return esc(v);
 }
 
 // One-month closes as a line, with a dotted baseline at the first close and a
@@ -127,8 +145,11 @@ function renderRows() {
   const rows = ARGS.rows || [];
   const cols = columns();
   let html = `<div class="row head" style="grid-template-columns:${cols}">` +
-             `<span></span><span>Symbol</span><span title="One month of daily closes">1M</span>` +
-             `<span class="num">Close · Day</span>` + (ARGS.show_heart ? `<span class="heart">♥</span>` : "") +
+             `<span></span><span>Symbol</span><span title="One month of daily closes">${(ARGS.rows || []).some(r => r.spark && r.spark.length > 1) ? "1M" : ""}</span>` +
+             `<span class="num">${esc(ARGS.pct_label || "Close · Day")}</span>` +
+             (ARGS.extra_cols || []).map(c =>
+               `<span class="${c.fmt === "text" ? "txt" : "num"}">${esc(c.label)}</span>`).join("") +
+             (ARGS.show_heart ? `<span class="heart">♥</span>` : "") +
              `<span></span></div>`;
   if (!rows.length) html += `<div class="empty">No names match.</div>`;
   rows.forEach((r, i) => {
@@ -144,6 +165,10 @@ function renderRows() {
       `</span></span>` +
       `<span class="num"><div class="px">${fmtClose(r.close)}</div>` +
       `<div class="pc" style="${pc}">${fmtPct(r.day_pct)}${badge(r.day_pct)}</div></span>` +
+      (ARGS.extra_cols || []).map(c =>
+        `<span class="${c.fmt === "text" ? "txt" : "num"}"` +
+        (c.fmt === "text" ? ` title="${esc((r.extra || {})[c.key] || "")}"` : "") +
+        `>${fmtCell(c, (r.extra || {})[c.key])}</span>`).join("") +
       (ARGS.show_heart ? `<span class="heart">${r.watched ? "♥" : ""}</span>` : "") +
       `<button class="chartbtn" data-i="${i}" title="Chart" aria-label="Chart">&#x1F4C8;</button>` +
       `</div>`;
@@ -397,10 +422,15 @@ function onOutside(e) {
   hideCard();
 }
 P.addEventListener("pointerdown", onOutside);
+// The card is pinned to where the row WAS; once the page scrolls it points at
+// nothing, so it closes. Capture phase: Streamlit scrolls an inner container.
+P.addEventListener("scroll", hideCard, true);
+document.addEventListener("scroll", hideCard, true);   // the list's own scroll
 window.addEventListener("pagehide", () => {
   hideCard();
   P.removeEventListener("keydown", onKey);
   P.removeEventListener("pointerdown", onOutside);
+  P.removeEventListener("scroll", hideCard, true);
 });
 
 // ── Host handshake ──────────────────────────────────────────────────────────
@@ -416,7 +446,7 @@ window.addEventListener("message", (event) => {
   root.setProperty("--muted", t.muted || "#6b7280");
   root.setProperty("--accent-link", t.link || "#2563eb");
   root.setProperty("--risk", ARGS.risk || "#dc2626");
-  const sig = JSON.stringify([ARGS.rows, ARGS.show_heart]);
+  const sig = JSON.stringify([ARGS.rows, ARGS.show_heart, ARGS.extra_cols, ARGS.pct_label]);
   if (sig !== rowsSig) {
     rowsSig = sig;
     // Keep only ticks whose rows are still shown, and tell Python whenever that

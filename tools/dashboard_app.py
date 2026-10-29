@@ -4413,33 +4413,42 @@ def _darvas_rows_table(df, key_prefix: str):
         return
     import sector_column as _sc
     out = _sc.attach(df.copy(), "symbol")
-    out = _with_chart_family(out, "symbol")
-    import columns as _cols
-    cfg = dict(_chart_family_colcfg())
-    # One definition per column (B-63a). `multiple` resolves to the shared
-    # `rvol` spec — the same ratio this table labelled "x SMA10" and the
-    # trending tables labelled "x avg vol".
-    cfg.update(_cols.configure_df(out))
-    # Green/red on Chg%. Colour is REDUNDANT here, never load-bearing: the Dir
-    # column already says UP/DOWN and the number carries its own sign, so the
-    # table still reads correctly in greyscale or with colour-blindness — the
-    # same rule gain_loss_badge() follows.
-    def _chg_color(v):
-        if v is None or pd.isna(v):
-            return ""
-        return (f"color:{rs.TOKENS['good']};font-weight:600" if v > 0
-                else f"color:{rs.TOKENS['risk']};font-weight:600" if v < 0
-                else "")
+    # B-180 hover rows: the Home rail's rows and hover chart, with the scan's own
+    # columns. Dir is dropped (the ▲/▼ badge and the sign already say it) and
+    # the five chart-icon columns give way to the hover card.
+    _picked = dpages.home_scan_table(
+        out.sort_values("multiple", ascending=False),
+        [{"key": "multiple", "label": "Vol ×", "fmt": "x", "width": 56},
+         {"key": "sector", "label": "Sector", "fmt": "text", "width": 160}],
+        key=f"{key_prefix}_hv", close_col="close", pct_col="chg_pct")
+    if _picked is None:   # component missing: the plain table, as before
+        out = _with_chart_family(out, "symbol")
+        import columns as _cols
+        cfg = dict(_chart_family_colcfg())
+        # One definition per column (B-63a). `multiple` resolves to the shared
+        # `rvol` spec — the same ratio this table labelled "x SMA10" and the
+        # trending tables labelled "x avg vol".
+        cfg.update(_cols.configure_df(out))
+        # Green/red on Chg%. Colour is REDUNDANT here, never load-bearing: the Dir
+        # column already says UP/DOWN and the number carries its own sign, so the
+        # table still reads correctly in greyscale or with colour-blindness — the
+        # same rule gain_loss_badge() follows.
+        def _chg_color(v):
+            if v is None or pd.isna(v):
+                return ""
+            return (f"color:{rs.TOKENS['good']};font-weight:600" if v > 0
+                    else f"color:{rs.TOKENS['risk']};font-weight:600" if v < 0
+                    else "")
 
-    _show = _cols.formatted(out.style.map(_chg_color, subset=["chg_pct"]))
-    _sel = st.dataframe(_show, width="stretch", hide_index=True, column_config=cfg,
-                        key=f"{key_prefix}_tbl", on_select="rerun",
-                        selection_mode="multi-row")
-    try:
-        _rows = list(_sel.selection.rows)
-    except Exception:
-        _rows = []
-    _picked = [str(df.iloc[i]["symbol"]) for i in _rows if i < len(df)]
+        _show = _cols.formatted(out.style.map(_chg_color, subset=["chg_pct"]))
+        _sel = st.dataframe(_show, width="stretch", hide_index=True, column_config=cfg,
+                            key=f"{key_prefix}_tbl", on_select="rerun",
+                            selection_mode="multi-row")
+        try:
+            _rows = list(_sel.selection.rows)
+        except Exception:
+            _rows = []
+        _picked = [str(df.iloc[i]["symbol"]) for i in _rows if i < len(df)]
 
     _wc1, _wc3, _wc2 = st.columns([1, 1, 2])
     with _wc3:
@@ -5275,6 +5284,31 @@ def _render_institutional_volume(key_prefix: str) -> None:
     out = df.copy()
     out = out.rename(columns={"change_pct": "chg_pct"})
     out = _sc.attach(out, "symbol")
+
+    _iv_cols = [{"key": "date", "label": "PPV date", "fmt": "date", "width": 84},
+                {"key": "rvol", "label": "RVOL ×", "fmt": "x", "width": 60},
+                {"key": "sector", "label": "Sector", "fmt": "text", "width": 150}]
+    _hv = out.sort_values(["date", "rvol"], ascending=[False, False])
+    _picked = dpages.home_scan_table(_hv, _iv_cols, key=f"{key_prefix}_hv",
+                                     close_col="close", pct_col="chg_pct",
+                                     pct_label="Close · PPV day")
+    if _picked is not None:
+        # The % is the move on the PPV bar, not today's — the header says so.
+        _c1, _c2 = st.columns([1, 2])
+        with _c1:
+            if st.button(f"♥ Add {len(_picked) or ''} to watchlist".replace("  ", " "),
+                         key=f"{key_prefix}_addwl", disabled=not _picked,
+                         width="stretch", type="primary" if _picked else "secondary"):
+                for _s in _picked:
+                    db.add_watchlist_symbol(_s, "Institutional volume · PPV ≥ 5x RVOL")
+                st.toast(f"♥ {len(_picked)} → Watchlist")
+                st.rerun()
+        with _c2:
+            _pa_send_button(key_prefix, "Institutional volume · PPV ≥ 5x RVOL", out, "symbol",
+                            note_fn=lambda r: f"{r.get('rvol', '')}x rvol · "
+                                              f"{float(r.get('chg_pct') or 0):+.1f}% · {r.get('date', '')}")
+        return
+
     out = _with_chart_family(out, "symbol")
 
     display_cols = ["symbol", "date", "close", "chg_pct", "rvol",

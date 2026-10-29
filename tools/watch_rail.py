@@ -326,3 +326,53 @@ def rail_rows(frame: pd.DataFrame, source: str,
              "spark": [round(x, 4) for x in sparks.get(str(r["Symbol"]), [])],
              "chart": chart_symbol(r["Symbol"])}
             for _, r in frame.iterrows() if is_safe_symbol(r["Symbol"])]
+
+
+#: Cell formats the watch_rail component knows how to draw for scan tables.
+SCAN_FORMATS = ("x", "pct", "date", "text")
+
+
+def scan_rows(df: pd.DataFrame | None, extra_cols: list[dict], *, close_col: str,
+              pct_col: str, names: dict[str, str] | None = None,
+              sparks: dict[str, list[float]] | None = None) -> list[dict]:
+    """A scan's hits as rows for the watch_rail component in table mode.
+
+    Same row shape as `rail_rows` plus `extra` = {key: value} for each of
+    `extra_cols` ({key, label, fmt, width}). `pct_col` fills the Day % slot,
+    whatever day it measures (the caller labels it). Missing columns and NaN
+    become None; symbols with markup characters are dropped.
+    """
+    for c in extra_cols:
+        if c.get("fmt") not in SCAN_FORMATS:
+            raise ValueError(f"unknown cell format {c.get('fmt')!r}")
+    if df is None or getattr(df, "empty", True):
+        return []
+    names, sparks = names or {}, sparks or {}
+
+    def num(v):
+        try:
+            f = float(v)
+        except (TypeError, ValueError):
+            return None
+        return None if math.isnan(f) else f
+
+    def cell(r, c):
+        v = r.get(c["key"]) if c["key"] in r else None
+        if c["fmt"] in ("x", "pct"):
+            return num(v)
+        if v is None or (isinstance(v, float) and math.isnan(v)):
+            return None
+        return str(v)
+
+    out = []
+    for _, r in df.iterrows():
+        sym = str(r["symbol"])
+        if not is_safe_symbol(sym):
+            continue
+        out.append({"symbol": sym, "name": str(names.get(sym, "") or ""),
+                    "close": num(r.get(close_col)), "day_pct": num(r.get(pct_col)),
+                    "watched": None,
+                    "spark": [round(x, 4) for x in sparks.get(sym, [])],
+                    "chart": chart_symbol(sym),
+                    "extra": {c["key"]: cell(r, c) for c in extra_cols}})
+    return out

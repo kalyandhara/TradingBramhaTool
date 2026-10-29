@@ -212,3 +212,45 @@ def test_rail_rows_drop_symbols_with_markup():
     assert [r["symbol"] for r in rows] == ["BAJAJ-AUTO", "M&M"]
     assert wr.is_safe_symbol("^NSEI") and wr.is_safe_symbol("MARINE.BO")
     assert not wr.is_safe_symbol("A B")
+
+
+# ── scan tables on Home: Volume Shockers, Institutional volume ───────────────
+_VS = [{"key": "multiple", "label": "Vol ×", "fmt": "x", "width": 52},
+       {"key": "sector", "label": "Sector", "fmt": "text", "width": 140}]
+
+
+def test_scan_rows_carry_extra_columns_and_are_json_safe():
+    import json
+    df = pd.DataFrame({"symbol": ["RAMKY", "AARTIDRUGS"], "close": [300.2, float("nan")],
+                       "chg_pct": [17.38, 11.35], "multiple": [9.3, float("nan")],
+                       "sector": ["Construction", None]})
+    rows = wr.scan_rows(df, _VS, close_col="close", pct_col="chg_pct",
+                        names={"RAMKY": "Ramky Infra"}, sparks={"RAMKY": [1.0, 2.0]})
+    assert [r["symbol"] for r in rows] == ["RAMKY", "AARTIDRUGS"]
+    assert rows[0]["name"] == "Ramky Infra" and rows[0]["spark"] == [1.0, 2.0]
+    assert rows[0]["extra"] == {"multiple": 9.3, "sector": "Construction"}
+    assert rows[1]["close"] is None and rows[1]["extra"] == {"multiple": None, "sector": None}
+    assert rows[0]["chart"] == "RAMKY.NS" and rows[0]["watched"] is None
+    json.dumps(rows, allow_nan=False)
+
+
+def test_scan_rows_drop_unsafe_symbols_and_tolerate_missing_columns():
+    df = pd.DataFrame({"symbol": ["A<b>", "TCS"], "close": [1.0, 2.0],
+                       "change_pct": [0.5, -1.0]})
+    rows = wr.scan_rows(df, _VS, close_col="close", pct_col="change_pct")
+    assert [r["symbol"] for r in rows] == ["TCS"]
+    assert rows[0]["day_pct"] == -1.0
+    assert rows[0]["extra"] == {"multiple": None, "sector": None}
+
+
+def test_scan_rows_reject_an_unknown_format():
+    import pytest
+    df = pd.DataFrame({"symbol": ["TCS"], "close": [1.0], "chg_pct": [0.0]})
+    with pytest.raises(ValueError):
+        wr.scan_rows(df, [{"key": "x", "label": "X", "fmt": "html"}],
+                     close_col="close", pct_col="chg_pct")
+
+
+def test_scan_rows_empty_frame_is_empty():
+    assert wr.scan_rows(None, _VS, close_col="close", pct_col="chg_pct") == []
+    assert wr.scan_rows(pd.DataFrame(), _VS, close_col="close", pct_col="chg_pct") == []
