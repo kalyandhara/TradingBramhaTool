@@ -2679,7 +2679,7 @@ def render_setup_intelligence(intel) -> None:
     """Scannable plain-language setup panel derived from the council's evidence:
     status pill, bull/bear balance, signal tiles, factor lists, overall view."""
     import setup_intel_view as _siv
-    st.markdown(_siv.render_html(intel, rs.TOKENS), unsafe_allow_html=True)
+    _siv.render(intel)
 
 
 def render_council(bundle, bull, bear, card) -> None:

@@ -106,3 +106,10 @@ def render_html(intel: Any, t: dict[str, str]) -> str:
     return (f'<div style="background:{t["surface"]};border:1px solid {t["border"]};'
             f'border-radius:12px;padding:16px 18px;margin:6px 0 12px;color:{t["text_body"]};">'
             f'{header}{strip}{factors}{view}</div>')
+
+
+def render(intel: Any) -> None:
+    """Draw the card in Streamlit. Kept here, not in dashboard_app, so the
+    monolith's raw-HTML count does not grow (test_monolith_ratchet)."""
+    import streamlit as st
+    st.markdown(render_html(intel, rs.TOKENS), unsafe_allow_html=True)
