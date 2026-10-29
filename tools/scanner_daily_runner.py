@@ -20,7 +20,10 @@ Executed by the Windows Scheduled Task **TradingBramha-DailyScanner**, whose
 What it does
 ------------
 Runs the selected scanners over one universe and writes a JSON snapshot to
-``tools/cache/scanner_daily_<ts>.json``.
+``tools/cache/scanner_daily_<ts>.json``. It also publishes each scanner's hits
+to the Scanner Hub cache (``scanner_run_cache``, via ``db.save_scanner_run``),
+so the Hub opens on last night's results. Until 2026-10-29 only the JSON was
+written, nothing read it, and the Hub's cache was weeks old.
 
 Two things it gets right that the old template did not, both reused from
 :mod:`opportunity_daily` rather than re-implemented:
@@ -64,6 +67,7 @@ HERE = Path(__file__).resolve().parent
 if str(HERE) not in sys.path:
     sys.path.insert(0, str(HERE))
 
+import portfolio_db as db               # noqa: E402
 import screener_pipeline as sp          # noqa: E402
 import scanner_templates as sc          # noqa: E402
 # The frame cache + needs_full_history router already exist and are already
@@ -105,8 +109,13 @@ def build_universe(mode: str, top_n: int) -> list[str]:
 
 
 def run(scanners: list[str], universe: list[str], *,
-        days: int = DEFAULT_DAYS) -> dict[str, list[dict]]:
-    """Run each scanner over `universe`. One broken scanner never kills the run."""
+        days: int = DEFAULT_DAYS, failed: set[str] | None = None) -> dict[str, list[dict]]:
+    """Run each scanner over `universe`. One broken scanner never kills the run.
+
+    A scanner that raises still gets `[]` in the result (the JSON snapshot keeps
+    every section), and its name goes into `failed` so it is not published as
+    a real zero-hit run.
+    """
     router = _FetchRouter(days=days)
     try:
         bench = sp.fetch_nifty50(days=days)
@@ -126,6 +135,8 @@ def run(scanners: list[str], universe: list[str], *,
             log.info("[%d/%d] %s: %d hits", i, len(scanners), name, len(hits))
         except Exception as exc:
             out[name] = []
+            if failed is not None:
+                failed.add(name)
             log.error("[%d/%d] %s: ERROR %s", i, len(scanners), name, exc,
                       exc_info=True)
     log.info("Fetched %d distinct symbol-frames for %d scanners "
@@ -147,6 +158,30 @@ def save(payload: dict[str, list[dict]], meta: dict, dest: Path | None = None) -
     return dest
 
 
+def publish_to_hub(payload: dict[str, list[dict]], *, failed: set[str],
+                   run_date: str | None = None) -> int:
+    """Save each scanner that ran into the Scanner Hub cache. Returns the count.
+
+    Errored scanners are skipped: save_scanner_run REPLACES the (scanner, date)
+    entry, so publishing an error's empty list would wipe a manual run saved
+    earlier that day. A real zero-hit run is published, so the Hub can tell
+    "ran, found nothing" from "never ran". One save failing skips that scanner.
+    """
+    n = 0
+    for name, hits in payload.items():
+        if name in failed:
+            continue
+        try:
+            # The same json round-trip the snapshot uses: cards carry Timestamps
+            # and numpy scalars, and save_scanner_run json.dumps without default.
+            cards = json.loads(json.dumps(hits, default=str))
+            db.save_scanner_run(name, cards, run_date=run_date)
+            n += 1
+        except Exception as exc:
+            log.error("publish %s to Hub cache failed: %s", name, exc)
+    return n
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description="Headless nightly Scanner Hub run")
     ap.add_argument("--universe", default="bhavcopy", choices=["bhavcopy", "screener"])
@@ -156,6 +191,8 @@ def main(argv: list[str] | None = None) -> int:
                     help="scanner names; default = every registered scanner")
     ap.add_argument("--days", type=int, default=DEFAULT_DAYS)
     ap.add_argument("--out", default=None, help="explicit output path")
+    ap.add_argument("--no-hub", action="store_true",
+                    help="write the JSON snapshot only; leave the Scanner Hub cache alone")
     args = ap.parse_args(argv)
 
     logging.basicConfig(
@@ -173,7 +210,8 @@ def main(argv: list[str] | None = None) -> int:
 
     log.info("Universe: %d symbols (%s) | scanners: %d",
              len(universe), args.universe, len(names))
-    payload = run(names, universe, days=args.days)
+    failed: set[str] = set()
+    payload = run(names, universe, days=args.days, failed=failed)
     dest = save(payload, {"universe_mode": args.universe,
                           "universe_size": len(universe),
                           "days": args.days,
@@ -181,6 +219,10 @@ def main(argv: list[str] | None = None) -> int:
                 Path(args.out) if args.out else None)
     total = sum(len(v) for v in payload.values())
     log.info("Saved -> %s (%d scanners, %d hits total)", dest, len(payload), total)
+    if not args.no_hub:
+        n = publish_to_hub(payload, failed=failed)
+        log.info("Published %d/%d scanners to the Scanner Hub cache%s", n, len(payload),
+                 f" ({len(failed)} errored, not published)" if failed else "")
     return 0
 
 

@@ -89,8 +89,10 @@ JOBS: dict[str, JobSpec] = {
     "daily_scanner": JobSpec(
         id="daily_scanner",
         label="Daily Scanner Suite",
-        desc="Runs the full pattern-scanner suite after market close and writes a "
-             "dated results JSON. Also configurable from Scanner Hub.",
+        desc="Runs every registered scanner after market close over the top-300 "
+             "bhavcopy universe, writes a dated results JSON, and saves each "
+             "scanner's hits to the Scanner Hub cache (Cached results). Also "
+             "configurable from Scanner Hub.",
         task_name="TradingBramha-DailyScanner",
         kind="daily",
         command="",                 # owned by scanner_daily.bat
@@ -221,27 +223,16 @@ JOBS: dict[str, JobSpec] = {
         # After rec_audit (17:30), the last job that writes something it reads.
         default_time="17:45",
     ),
-    "batch_screener": JobSpec(
-        id="batch_screener",
-        label="Batch Screener (Category-Based)",
-        desc="Runs all screeners in category-based batches (Entry, Trend, Risk, Pattern), "
-             "aggregates confluence, and generates segregated reports (Entry, Risk, Confluence). "
-             "Replaces the older scanner_daily_runner. ~15-20 min for universe 500.",
-        task_name="TradingBramha-BatchScreener",
-        kind="daily",
-        command="",  # owned by scanner_batch.bat
-        managed_bat=False,
-        default_time="16:25",  # Between opportunity_daily (16:20) and sentiment_daily (16:30)
-    ),
+    # batch_screener (scanner_batch_runner.py, added 2026-10-12) was listed here
+    # as "replacing" daily_scanner but was never registered and never ran, while
+    # the hub showed it as a second scanner job. Removed from the registry
+    # 2026-10-29; its runner and scanner_batch.bat are kept. daily_scanner is the
+    # nightly scanner run, and it now also fills the Scanner Hub cache.
 }
 
 
 def _scanner_bat() -> Path:
     return HERE / "scanner_daily.bat"
-
-
-def _batch_bat() -> Path:
-    return HERE / "scanner_batch.bat"
 
 
 # ── .bat generation ──────────────────────────────────────────────────────────
@@ -250,10 +241,7 @@ def write_bat(job: JobSpec) -> Path:
     if not job.managed_bat:
         if job.id == "daily_scanner":
             return _scanner_bat()
-        elif job.id == "batch_screener":
-            return _batch_bat()
-        else:
-            return job.bat_path
+        return job.bat_path
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log = job.log_path
     src = (
@@ -323,12 +311,7 @@ def register_argv(job: JobSpec, *, time: str | None = None,
     it will never fire, which is why `status()` returns `next_run` and the hub
     must show it.
     """
-    if job.id == "daily_scanner":
-        bat = _scanner_bat()
-    elif job.id == "batch_screener":
-        bat = _batch_bat()
-    else:
-        bat = job.bat_path
+    bat = _scanner_bat() if job.id == "daily_scanner" else job.bat_path
     argv = ["schtasks", "/create", "/f", "/tn", job.task_name, "/tr", str(bat)]
     if job.kind == "interval":
         st = time or job.default_time
@@ -435,8 +418,6 @@ def status(job: JobSpec) -> dict:
 def tail_log(job: JobSpec, n: int = 40) -> str:
     if job.id == "daily_scanner":
         p = HERE / "scanner_daily.log"
-    elif job.id == "batch_screener":
-        p = HERE / "scanner_batch.log"
     elif job.managed_bat:
         p = job.log_path
     else:
