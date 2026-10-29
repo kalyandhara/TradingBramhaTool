@@ -1130,3 +1130,100 @@ def render_context_ladder(symbol: str, df: "pd.DataFrame", nifty_df) -> None:
     st.caption(f'**{lad["text"]}** · Description of the last month, not a signal. '
                "Trend: Up = close above a rising 20-day average, Down = below a "
                "falling one, Mixed otherwise.")
+
+
+def render_event_cascade(symbol: str, df: "pd.DataFrame", nifty_df) -> None:
+    """B-190 — reverse event cascade: stock → sector → the events that reached it.
+
+    Solid edge = the event kind is measured (B-184), dashed = hypothesis, dotted
+    = the stock only rode its sector. Moves are d0..d+5 abnormal returns vs
+    NIFTY 50 (market model). Description, never a signal.
+    """
+    import html
+    import context_ladder as cl
+    import event_cascade as ecas
+    import nse_universe as nseu
+    import snapshot_store as snaps
+    try:
+        imap = nseu.industry_map("nifty500")
+    except Exception:
+        imap = {}
+    ticker, label = cl.sector_for(symbol, imap)
+    sector_df = None
+    if ticker:
+        try:
+            _meta, payload = snaps.load_latest("sector_index_data")
+            sector_df = ((payload or {}).get("sector_data") or {}).get(ticker)
+        except Exception:
+            sector_df = None
+    try:
+        cas = ecas.collect(symbol, df, nifty_df, sector_df,
+                           sector_ticker=ticker, sector_label=label)
+    except Exception as exc:
+        st.caption(f"Event cascade unavailable: {exc}")
+        return
+    nodes = {n["id"]: n for n in cas["nodes"]}
+    evs = [n for n in cas["nodes"] if n["depth"] == 2]
+    st.markdown(rs.section("Event cascade"), unsafe_allow_html=True)
+    if not evs:
+        st.caption(cas["text"])
+        return
+    W, CW, CH, GAP = 760, 200, 54, 10
+    H = max(len(evs) * (CH + GAP), 2 * CH)
+    xs = {0: 0, 1: 270, 2: W - CW - 2}
+    pos = {"stock": (xs[0], H / 2 - CH / 2),
+           "sector": (xs[1], H / 2 - CH / 2)}
+    for i, n in enumerate(evs):
+        pos[n["id"]] = (xs[2], i * (CH + GAP))
+    tone = {"up": "#1f9d55", "down": "#d64545", "flat": "#8a8f98"}
+    dash = {"solid": "", "dashed": "6 4", "dotted": "2 4"}
+    parts = []
+
+    def card(nid, title, line1, line2="", colour="#8a8f98", faded=False):
+        x, y = pos[nid]
+        op = "0.45" if faded else "1"
+        parts.append(
+            f'<g opacity="{op}"><rect x="{x}" y="{y}" width="{CW}" height="{CH}" rx="8" '
+            f'fill="var(--background-color,#fff)" stroke="{colour}" stroke-width="1.5"/>'
+            f'<text x="{x + 10}" y="{y + 17}" font-size="12" font-weight="600" '
+            f'fill="currentColor">{html.escape(title[:30])}</text>'
+            f'<text x="{x + 10}" y="{y + 33}" font-size="11" fill="{colour}">'
+            f'{html.escape(line1)}</text>'
+            f'<text x="{x + 10}" y="{y + 47}" font-size="10" fill="#8a8f98">'
+            f'{html.escape(line2[:44])}</text></g>')
+
+    def edge(a, b, style, colour="#8a8f98"):
+        (x1, y1), (x2, y2) = pos[a], pos[b]
+        x1, y1, y2 = x1 + CW, y1 + CH / 2, y2 + CH / 2
+        mx = (x1 + x2) / 2
+        parts.append(f'<path d="M{x1},{y1} C{mx},{y1} {mx},{y2} {x2},{y2}" fill="none" '
+                     f'stroke="{colour}" stroke-width="1.4" stroke-dasharray="{dash[style]}"/>')
+
+    sec = nodes["sector"]
+    if not sec["missing"]:
+        edge("stock", "sector", "solid")
+    for n in evs:
+        edge(n["parent"], n["id"], n["edge"], tone[n["direction"]])
+    card("stock", symbol, cas["text"].split(" · ")[0], "")
+    card("sector", f'Sector · {sec["label"]}',
+         "frame not in snapshot" if sec["missing"] else (sec.get("ticker") or ""),
+         "", faded=sec["missing"])
+    kind_tag = {"M": "Policy", "E": "Results"}
+    for n in evs:
+        line1 = f'{n["move"]:+.1f} % · {n["window"]} · z {n["z"]:+.1f}'
+        if n["sector_move"] is not None:
+            line1 += f' · sector {n["sector_move"]:+.1f}'
+        exp = ""
+        if n["expected"]:
+            exp = f' · exp {n["expected"]}' + (" · MISS" if n["miss"] else "")
+        title = n["label"] if n["kind"] == "E" else f'{kind_tag.get(n["kind"], n["kind"])} · {n["label"]}'
+        card(n["id"], title, line1,
+             f'{n["date"]} · {"measured" if n["measured"] else "hypothesis"}{exp}',
+             tone[n["direction"]])
+    st.markdown(f'<svg viewBox="-2 -2 {W + 4} {H + 4}" width="100%" '
+                f'style="max-width:{W}px;color:inherit;font-family:inherit">'
+                + "".join(parts) + "</svg>", unsafe_allow_html=True)
+    miss = f' · not loaded: {", ".join(cas["missing"])}' if cas["missing"] else ""
+    st.caption(f'**{cas["text"]}**{miss} · Moves are abnormal returns vs NIFTY 50 over '
+               "d0..d+5 (market model). Solid edge = measured kind (B-184), dashed = "
+               "hypothesis, dotted = the stock only rode its sector. Description, not a signal.")

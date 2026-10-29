@@ -84,6 +84,7 @@ from desk_pages.stock_panels import (  # B-171 extraction
     render_horizon_geometry,
     render_momentum_meter,
     render_context_ladder,
+    render_event_cascade,
     render_ownership_flow,
     render_pattern_metrics,
     render_red_flags)
@@ -8730,6 +8731,7 @@ if current_page == "Stock Analyzer":
                     f"{ew['note']}"
                 )
                 render_context_ladder(symbol, pa_df, pa_bench)
+                render_event_cascade(symbol, pa_df, pa_bench)
 
                 # UI-2 — the Chart Tool is the default chart. The classic Plotly
                 # chart stays one click away because it is not strictly a
