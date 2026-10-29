@@ -87,6 +87,11 @@ def _clear_selection() -> None:
     st.session_state["home_rail_nonce"] = st.session_state.get("home_rail_nonce", 0) + 1
 
 
+#: Height of the rail's list (px). Tall enough to run alongside the centre
+#: pane (verdict, market bar, action map ≈ 1,600 px) instead of stopping at
+#: half its height and leaving the left column blank.
+RAIL_HEIGHT = 1350
+
 _COMPONENT: Any = None
 
 
@@ -121,7 +126,7 @@ def _rail_table_fallback(frame, source: str, key: str) -> list[str]:
         # has na_rep: a NumberColumn renders a missing price as "None".
         show.style.map(_day_colour, subset=["Day %"])
             .format({"Close": "{:.2f}", "Day %": "{:+.2f}%"}, na_rep="—"),
-        height=520, hide_index=True, width="stretch",
+        height=RAIL_HEIGHT, hide_index=True, width="stretch",
         key=key,
         on_select="rerun", selection_mode="multi-row",
         column_config={
@@ -391,7 +396,7 @@ def render_rail(db, search_options: str = "") -> None:
                        "sma50": t["accent"]},
                 chart_api="http://localhost:5001/api/ohlcv",
                 analyze_base=uit.DASHBOARD_BASE + "/?nav=analyze&symbol=",
-                height=520, key=key, default={"picked": [], "open": None})
+                height=RAIL_HEIGHT, key=key, default={"picked": [], "open": None})
             shown = set(shown_syms)
             value = value or {}
             picked = [s for s in value.get("picked", []) if s in shown]
