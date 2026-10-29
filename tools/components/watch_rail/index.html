@@ -96,17 +96,19 @@ function esc(s) { return String(s).replace(/[&<>"]/g, c => ({"&":"&amp;","<":"&l
 
 function columns() {
   // checkbox · symbol/name · sparkline · price/day% · [extra…] · [♥] · chart
-  // Text columns may shrink (ellipsis) so a half-width pane never clips the numbers.
+  const spk = (ARGS.rows || []).some(r => r.spark && r.spark.length > 1) ? "54px" : "26px";
+  const lead = ARGS.no_check ? "0px " : "14px ";
+  const tail = (ARGS.show_heart ? "12px " : "") + "18px";
+  if (!(ARGS.extra_cols || []).length)
+    return lead + "minmax(0,1fr) " + spk + " 74px " + tail;
+  // Scan tables: every column has a floor (the narrow panes) and a share of any
+  // spare width (the full-width band), so a wide table spreads out instead of
+  // bunching on the left. Text may shrink to an ellipsis; numbers never do.
   const extra = (ARGS.extra_cols || []).map(c => {
     const w = (Number(c.width) || 70) + "px";
-    return c.fmt === "text" ? `minmax(0,${w})` : w;
+    return c.fmt === "text" ? `minmax(0,1.2fr)` : `minmax(${w},0.6fr)`;
   }).join(" ");
-  // No stored sparkline on any row (usual for scan names): keep just room for SA.
-  const spk = (ARGS.rows || []).some(r => r.spark && r.spark.length > 1) ? "54px" : "26px";
-  // In a wide band a 1fr name column would push the scan columns to the far edge.
-  return (ARGS.no_check ? "0px " : "14px ") + (extra ? "minmax(84px,260px)" : "minmax(0,1fr)") + " " + spk + " 74px " +
-         (extra ? extra + " " : "") +
-         (ARGS.show_heart ? "12px " : "") + "14px";
+  return lead + "minmax(84px,1.6fr) " + spk + " minmax(74px,0.8fr) " + extra + " " + tail;
 }
 
 // Scan-table cells (watch_rail.SCAN_FORMATS). Text is escaped; numbers are formatted here.
@@ -175,7 +177,7 @@ function renderRows() {
         (c.fmt === "text" ? ` title="${esc((r.extra || {})[c.key] || "")}"` : "") +
         `>${fmtCell(c, (r.extra || {})[c.key])}</span>`).join("") +
       (ARGS.show_heart ? `<span class="heart">${r.watched ? "♥" : ""}</span>` : "") +
-      `<button class="chartbtn" data-i="${i}" title="Chart" aria-label="Chart">&#x1F4C8;</button>` +
+      `<button class="chartbtn" data-i="${i}" title="Open in the chart tool (new window)" aria-label="Open chart">&#x1F4C8;</button>` +
       `</div>`;
   });
   wrap.innerHTML = html;
@@ -422,13 +424,19 @@ wrap.addEventListener("click", (e) => {
   report();
 });
 
-// Chart icon: toggles the card (the only trigger on touch screens).
+// Chart icon: the desk's own chart tool (:5001) in a separate window. One named
+// window, reused, so stepping down a list does not pile up windows. Hover still
+// shows the quick card; on touch screens the icon is now the way to a chart.
 wrap.addEventListener("click", (e) => {
   const btn = e.target.closest(".chartbtn");
   if (!btn) return;
-  const i = Number(btn.dataset.i), r = (ARGS.rows || [])[i];
-  if (r && openFor === r.symbol && card && card.style.display === "block") hideCard();
-  else openCard(i, btn.closest(".row"));
+  const r = (ARGS.rows || [])[Number(btn.dataset.i)];
+  if (!r) return;
+  hideCard();
+  const base = ARGS.chart_tool || "http://localhost:5001/";
+  const url = base + "?symbol=" + encodeURIComponent(r.chart) + "&tf=1d";
+  const w = window.parent.open(url, "tb_chart_tool", "popup,width=1400,height=900");
+  if (w) w.focus();
 });
 
 function onKey(e) { if (e.key === "Escape") hideCard(); }
