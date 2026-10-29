@@ -131,12 +131,16 @@ def main() -> int:
     raw = ff.fetch(3 if ist_today.weekday() == 0 else 2, today=ist_today)
     if not raw:
         print("NSE announcements endpoint did not answer — failed read, nothing sent")
+        print("##RESULT NSE did not answer — failed read")
         return 2
     names = load_names()
     seen_list = _load_seen()
     seen = set(seen_list)
     fresh = new_filings(ff.material(raw), names, seen)
     print(f"{len(raw)} filings · {len(names)} names watched · {len(fresh)} new on my names")
+    # One line for Scheduler Hub -> History (job_audit). Printed before the send
+    # so a failed send still leaves the counts on record.
+    print(f"##RESULT {len(raw)} filings · {len(fresh)} new on {len(names)} names")
 
     if not fresh:
         return 0

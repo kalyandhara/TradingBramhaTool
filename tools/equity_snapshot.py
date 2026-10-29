@@ -69,6 +69,9 @@ def main() -> int:
     if not a.dry_run:
         db.save_equity_snapshot(row)
         print("written")
+    # One line for Scheduler Hub -> History (job_audit).
+    print(f"##RESULT {row['date']} · equity {row['equity']:,.0f} · {row['n_open']} open"
+          + (f" · {row['unpriced']} unpriced" if row["unpriced"] else ""))
     return 0
 
 

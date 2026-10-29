@@ -223,6 +223,9 @@ def main(argv: list[str] | None = None) -> int:
         n = publish_to_hub(payload, failed=failed)
         log.info("Published %d/%d scanners to the Scanner Hub cache%s", n, len(payload),
                  f" ({len(failed)} errored, not published)" if failed else "")
+    # One line for Scheduler Hub -> History (job_audit).
+    print(f"##RESULT {len(payload)} scanners · {total} hits · universe {len(universe)}"
+          + (f" · {len(failed)} errored" if failed else ""), flush=True)
     return 0
 
 

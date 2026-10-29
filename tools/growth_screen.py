@@ -215,6 +215,8 @@ def main(argv=None) -> int:
         print(f"  {r['symbol']:<12} sales {r['sales_growth']:.1f}% profit {r['profit_growth']:.1f}% "
               f"({r['growth_basis']}) qtr {r['yoy_qtr_profit'] or 0:.0f}% ROE {r['roe'] or 0:.1f} "
               f"ROCE {r['roce'] or 0:.1f} OPM {r['opm'] or 0:.1f}")
+    # One line for Scheduler Hub -> History (job_audit).
+    print(f"##RESULT {len(hits)} hits · snapshot {str(snap['built_at'])[:10]} · {snap['universe']}")
     return 0
 
 

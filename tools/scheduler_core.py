@@ -236,6 +236,11 @@ def _scanner_bat() -> Path:
 
 
 # ── .bat generation ──────────────────────────────────────────────────────────
+def audited(job_id: str, command: str) -> str:
+    """`command` run through job_audit.py, so the run lands in job_runs."""
+    return f'"{PYTHON_EXE}" "{HERE / "job_audit.py"}" run {job_id} -- {command}'
+
+
 def write_bat(job: JobSpec) -> Path:
     """Write the .bat wrapper for a managed job. Returns the bat path."""
     if not job.managed_bat:
@@ -254,7 +259,9 @@ def write_bat(job: JobSpec) -> Path:
         'cd /d "%REPO%"\r\n'
         'echo. >> "%LOG%"\r\n'
         f'echo ===== %DATE% %TIME% -- {job.id} starting ===== >> "%LOG%"\r\n'
-        f'{job.command} >> "%LOG%" 2>&1\r\n'
+        # Every run goes through job_audit, which records it in job_runs (the
+        # Scheduler Hub History tab) and returns the command's own exit code.
+        f'{audited(job.id, job.command)} >> "%LOG%" 2>&1\r\n'
         "if errorlevel 1 (\r\n"
         f'    echo ***** FAILED at %DATE% %TIME% ***** >> "%LOG%"\r\n'
         ") else (\r\n"

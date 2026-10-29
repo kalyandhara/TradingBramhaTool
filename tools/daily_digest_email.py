@@ -676,6 +676,7 @@ def send_digest(to_override: str | None = None, today: date | None = None) -> No
         smtp.login(sender, pw)
         smtp.sendmail(sender, [recipient], msg.as_bytes())
     print("Sent.")
+    print(f"##RESULT digest for {today} sent to {recipient}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

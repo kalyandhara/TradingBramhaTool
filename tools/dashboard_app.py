@@ -7652,6 +7652,10 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                     f"cd /d \"%REPO%\"\n"
                     f"echo. >> \"%LOG%\"\n"
                     f"echo ===== %DATE% %TIME% - daily scanner starting ===== >> \"%LOG%\"\n"
+                    # Through job_audit, so the run is recorded for
+                    # Scheduler Hub -> History (the exit code passes through).
+                    f"set PYTHONIOENCODING=utf-8\n"
+                    f"\"%PYTHON%\" \"%~dp0job_audit.py\" run daily_scanner -- "
                     f"\"%PYTHON%\" \"%~dp0scanner_daily_runner.py\" {_universe_arg}{_scanners_arg} >> \"%LOG%\" 2>&1\n"
                     f"if errorlevel 1 (\n"
                     f"    echo ***** FAILED ***** >> \"%LOG%\"\n"

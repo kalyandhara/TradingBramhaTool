@@ -519,6 +519,7 @@ def main() -> int:
         print(f"Unknown scanner names skipped: {res['scanners_dropped']}")
     if not res["rows"]:
         print(f"\nNo shortlist: {res.get('reason')}")
+        print(f"##RESULT {res['run_date']} · no shortlist: {res.get('reason')}")
         return 0
     print(f"\n{'#':<3}{'SYMBOL':<14}{'SCORE':>6}{'RATING':>7}{'SCAN':>5}{'FAM':>4}  SCANNERS")
     for r in res["rows"]:
@@ -527,6 +528,9 @@ def main() -> int:
               f"  {r['scanners']}")
     print("\nSCAN = scanners that fired · FAM = independent families they span "
           "(correlated scanners capped; the score spends FAM, not SCAN).")
+    # One line for Scheduler Hub -> History (job_audit).
+    print(f"##RESULT {res['run_date']} · {len(res['rows'])} picks from "
+          f"{res['candidates']} candidates · {m['verdict']}")
     return 0
 
 
