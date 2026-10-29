@@ -3953,7 +3953,7 @@ def _money_flow_window(key_prefix: str, *, compact: bool = False):
     import money_flow as _mf
 
     if compact:
-        st.markdown("#### 💸 Sector money flow · positive today")
+        st.markdown("#### 💸 Sector money flow · last month")
     else:
         st.markdown("#### 💸 Sector money flow · Chaikin Money Flow")
 
@@ -3974,6 +3974,20 @@ def _money_flow_window(key_prefix: str, *, compact: bool = False):
 
     cols = grid["columns"]
 
+    import money_flow_chart as _mfc
+    _ridge = _mfc.ridgeline(grid, rs.TOKENS)
+    _ridge_note = ("Daily CMF(21) per sector over the last month, strongest inflow "
+                   "today on top; green above each line is money in, red below is "
+                   "money out. Neighbouring days share 20 of their 21 sessions, so the "
+                   "ridges are smooth by construction: a drift is real, a wiggle is not.")
+
+    if compact and _ridge is not None:
+        st.plotly_chart(_ridge, width="stretch", config={"displayModeBar": False},
+                        key=f"{key_prefix}_ridge")
+        st.caption(_ridge_note + " Where money went, not where it will go — "
+                   "a reading order, not a buy list. Nothing here has been measured.")
+        return
+
     if compact:
         pos = _mf.positive_sectors(grid, top_n=5)
         if pos.empty:
@@ -3990,6 +4004,11 @@ def _money_flow_window(key_prefix: str, *, compact: bool = False):
         st.caption("Where money went, not where it will go — a reading order, "
                    "not a buy list. Nothing here has been measured.")
         return
+
+    if _ridge is not None:
+        st.plotly_chart(_ridge, width="stretch", config={"displayModeBar": False},
+                        key=f"{key_prefix}_ridge")
+        st.caption(_ridge_note)
 
     # Full grid: red → white → green, clipped at the practical range so ordinary
     # readings use the whole scale instead of hugging white (CMF is bounded ±1
