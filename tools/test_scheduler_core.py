@@ -38,16 +38,26 @@ def test_an_interval_job_never_uses_a_one_time_minute_trigger():
 
 
 def test_an_interval_job_recurs_weekly_on_the_trading_days():
-    argv = _argv("alert_watcher")
+    argv = _argv("filings_watch")
     assert _flag(argv, "/sc") == "WEEKLY"
     assert _flag(argv, "/d") == "MON,TUE,WED,THU,FRI"
-    # No weekend runs: NSE is shut and the bot would no-op 26 times a day.
     assert "SAT" not in argv and "SUN" not in argv
+
+
+def test_the_alert_bot_runs_all_day_every_day_and_gates_itself():
+    """A local 09:15-15:45 window was 18:45-01:15 IST on this US-Eastern PC.
+    The watcher now gates NSE symbols on the IST clock, so the task just
+    repeats round the clock (crypto has no session)."""
+    argv = _argv("alert_watcher")
+    assert _flag(argv, "/sc") == "WEEKLY"
+    assert _flag(argv, "/d") == "MON,TUE,WED,THU,FRI,SAT,SUN"
+    assert _flag(argv, "/st") == "00:00"
+    assert _flag(argv, "/du") == "0023:59"
 
 
 def test_the_repeat_window_is_expressed_as_a_duration_not_an_end_time():
     """schtasks silently DROPPED `/et` here (`Repeat: Until: Time: None`)."""
-    argv = _argv("alert_watcher")
+    argv = _argv("alert_watcher", time="09:15", end="15:45")
     assert "/et" not in argv
     assert _flag(argv, "/ri") == "15"
     assert _flag(argv, "/du") == "0006:30"   # 09:15 -> 15:45

@@ -57,6 +57,7 @@ class JobSpec:
     default_end: str = "15:45"      # interval window end (HH:MM, 24h)
     default_interval: int = 15      # interval minutes
     elevate: bool = False           # /rl HIGHEST (needs admin to register)
+    days: str = "MON,TUE,WED,THU,FRI"   # weekly-trigger days (/d); see _TRADING_DAYS
 
     @property
     def bat_path(self) -> Path:
@@ -72,13 +73,18 @@ JOBS: dict[str, JobSpec] = {
     "alert_watcher": JobSpec(
         id="alert_watcher",
         label="Alert Bot (SVP / indicator signals)",
-        desc="Runs the alert engine each interval during market hours, evaluating "
-             "the live SVP/indicator signals for the watchlist and firing on "
-             "pattern-buildup transitions. Delivery per alert_config.json.",
+        desc="Runs the alert engine every interval, round the clock. Each symbol "
+             "is evaluated only while its market is open (NSE 09:15-15:45 IST, "
+             "crypto always), firing on pattern-buildup transitions. Delivery "
+             "per alert_config.json. Needs chart_server running.",
         task_name="TradingBramha-AlertWatcher",
         kind="interval",
         command=f'"{_node_exe()}" "{HERE / "alert_watcher.js"}" --once',
-        default_time="09:15", default_end="15:45", default_interval=15,
+        # All day, every day: the watcher gates each symbol on ITS market's
+        # clock (NSE 09:15-15:45 IST; crypto never). A local "09:15-15:45" was
+        # 18:45-01:15 IST on this US-Eastern machine, i.e. after the close.
+        default_time="00:00", default_end="23:59", default_interval=15,
+        days="MON,TUE,WED,THU,FRI,SAT,SUN",
     ),
     "daily_scanner": JobSpec(
         id="daily_scanner",
@@ -272,9 +278,9 @@ def write_bat(job: JobSpec) -> Path:
 
 
 # ── schtasks command construction ────────────────────────────────────────────
-#: Weekdays an interval job runs on. NSE trades Mon-Fri, so a market-hours bot
-#: has nothing to do at the weekend and the schedule should say so rather than
-#: firing 26 no-op runs every Saturday and Sunday.
+#: The default `JobSpec.days`. NSE trades Mon-Fri, so after-close jobs have
+#: nothing to do at the weekend. A job that watches 24x7 markets (the alert bot,
+#: for crypto) sets its own days.
 _TRADING_DAYS = "MON,TUE,WED,THU,FRI"
 
 
@@ -328,11 +334,11 @@ def register_argv(job: JobSpec, *, time: str | None = None,
         st = time or job.default_time
         et = end or job.default_end
         mo = int(interval or job.default_interval)
-        argv += ["/sc", "WEEKLY", "/d", _TRADING_DAYS, "/st", st,
+        argv += ["/sc", "WEEKLY", "/d", job.days, "/st", st,
                  "/ri", str(mo), "/du", _duration(st, et)]
     else:  # daily — on trading weekdays; /sc DAILY also fired every Sat/Sun
         st = time or job.default_time
-        argv += ["/sc", "WEEKLY", "/d", _TRADING_DAYS, "/st", st]
+        argv += ["/sc", "WEEKLY", "/d", job.days, "/st", st]
     if job.elevate:
         argv += ["/rl", "HIGHEST"]
     return argv

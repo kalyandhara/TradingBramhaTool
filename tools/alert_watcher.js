@@ -41,6 +41,26 @@ function loadJSON(p, fallback) {
 
 function nowISO() { return new Date().toISOString(); }
 
+// ── Session gate (IST, not machine time) ───────────────────────────────────────
+// The desk PC runs on US Eastern time, so a schtasks window of "09:15-15:45" was
+// 18:45-01:15 IST: every NSE pass ran after the close. The task now repeats all
+// day and each symbol is gated here against ITS market's clock, which also
+// survives US daylight-saving changes. Crypto has no session.
+const IST_OFFSET_MS = 5.5 * 3600 * 1000;
+const NSE_OPEN = 9 * 60 + 15, NSE_CLOSE = 15 * 60 + 45;   // 15:30 close + one settle pass
+
+function marketOf(w) {
+  if (w.market) return String(w.market).toUpperCase();
+  return /\.(NS|BO)$|^\^(NSE|BSE|CNX|INDIA)/i.test(w.symbol) ? 'NSE' : '24X7';
+}
+
+function sessionOpen(market, now = new Date()) {
+  if (market !== 'NSE') return true;
+  const ist = new Date(now.getTime() + IST_OFFSET_MS);    // read with getUTC*
+  const dow = ist.getUTCDay(), mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  return dow >= 1 && dow <= 5 && mins >= NSE_OPEN && mins <= NSE_CLOSE;
+}
+
 async function fetchBars(server, symbol, tf, bars) {
   const url = `${server}/api/ohlcv?symbol=${encodeURIComponent(symbol)}`
     + `&timeframe=${encodeURIComponent(tf)}&bars=${bars}`;
@@ -175,10 +195,12 @@ async function pass(cfg, statePath, feedPath) {
   const state = loadJSON(statePath, {});
   const channels = cfg.delivery || ['log'];
   const passAlerts = [];
-  let checked = 0, fired = 0, errs = 0, firstErr = '';
+  let checked = 0, fired = 0, errs = 0, firstErr = '', attempted = 0, closed = 0;
 
   for (const w of cfg.watch) {
     const key = `${w.symbol}|${w.tf}`;
+    if (!sessionOpen(marketOf(w))) { closed++; continue; }
+    attempted++;
     let bars;
     try { bars = await fetchBars(cfg.server, w.symbol, w.tf, w.bars || 400); }
     catch (e) {
@@ -208,11 +230,14 @@ async function pass(cfg, statePath, feedPath) {
 
   if (channels.includes('email')) emailBatch(passAlerts, cfg);
 
-  const blind = cfg.watch.length > 0 && errs === cfg.watch.length;
+  // Blind = every symbol we TRIED failed. A pass where every market is shut
+  // tried nothing and is quiet, not blind.
+  const blind = attempted > 0 && errs === attempted;
   if (blind) notifyBlind(state, cfg, channels, firstErr);
 
   try { fs.writeFileSync(statePath, JSON.stringify(state, null, 1), 'utf-8'); } catch {}
   console.log(`  · checked ${checked} · fired ${fired}${errs ? ' · errors ' + errs : ''}`
+    + (closed ? ` · skipped ${closed} (session closed)` : '')
     + (blind ? ' · BLIND (no symbol could be fetched)' : ''));
   return { blind };
 }
@@ -249,4 +274,5 @@ async function main() {
   }
 }
 
-main();
+if (require.main === module) main();
+module.exports = { marketOf, sessionOpen };
