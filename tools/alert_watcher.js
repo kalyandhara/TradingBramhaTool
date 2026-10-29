@@ -7,10 +7,13 @@
  * *state transitions* in the signal ("indicator-wise pattern buildup"), dedupes
  * against a persisted state file, and DELIVERS the triggered alert.
  *
- * Phase 1 delivery is dry-run only: it logs to the console and appends a JSONL
- * feed. Out-of-band delivery (email / Telegram) is deliberately stubbed — sending
- * messages on the user's behalf needs an explicit channel choice, so those
- * adapters refuse until wired.
+ * Delivery: `log` (console + JSONL feed) and `email` (one batch per pass, via
+ * alert_email_send.py). Telegram is still a stub.
+ *
+ * BLIND passes: when every symbol's fetch fails (chart_server not running), the
+ * pass checked nothing. That used to log "checked 0" and exit 0, so the task
+ * looked healthy for a whole session while watching nothing. Now a blind pass
+ * exits 2 (the .bat logs FAILED) and emails ONE notice per day.
  *
  * Usage:
  *   node alert_watcher.js --once                 # single pass, then exit
@@ -117,8 +120,6 @@ function deliver(alert, channels, feedPath) {
 function emailBatch(alerts, cfg) {
   if (!alerts.length) return;
   const emailCfg = cfg.email || {};
-  const py = emailCfg.python || process.env.TB_PYTHON || 'python';
-  const script = path.join(__dirname, 'alert_email_send.py');
   // Prices to 2 decimals: the engine's raw floats (2400.5990658333335) read as noise.
   const px = v => (typeof v === 'number' && Number.isFinite(v)) ? v.toFixed(2) : '—';
   // One block per symbol|tf|direction: two rules firing on the same state (a
@@ -138,6 +139,13 @@ function emailBatch(alerts, cfg) {
     `${a.headline}\n  ${a.detail || ''}\n  target ${px(a.target)} · `
     + `invalidate ${px(a.invalidation)}`).join('\n\n')
     + `\n\n— Trading Bramha alert bot (${new Date().toISOString()})`;
+  sendEmail(subject, body, cfg);
+}
+
+function sendEmail(subject, body, cfg) {
+  const emailCfg = cfg.email || {};
+  const py = emailCfg.python || process.env.TB_PYTHON || 'python';
+  const script = path.join(__dirname, 'alert_email_send.py');
   try {
     const args = [script, '--subject', subject];
     if (emailCfg.to) args.push('--to', emailCfg.to);
@@ -149,18 +157,34 @@ function emailBatch(alerts, cfg) {
   }
 }
 
+// A blind pass is reported once per local day, not every 15 minutes.
+function notifyBlind(state, cfg, channels, firstErr) {
+  const today = new Date().toLocaleDateString('en-CA');   // YYYY-MM-DD, local
+  if (!channels.includes('email') || state._blind_notified === today) return;
+  state._blind_notified = today;
+  sendEmail(`${(cfg.email || {}).subject_prefix || 'Trading Bramha Alert'} · bot is BLIND`,
+    `The alert bot could not fetch any of its ${cfg.watch.length} symbols from `
+    + `${cfg.server} (${firstErr || 'no bars'}).\n\nNo signals are being checked until `
+    + `chart_server is running again. Start it with:\n  py -3 tools/chart_server.py\n\n`
+    + `You will get at most one of these per day.\n`
+    + `— Trading Bramha alert bot (${nowISO()})`, cfg);
+}
+
 // ── One evaluation pass over the whole watchlist ───────────────────────────────
 async function pass(cfg, statePath, feedPath) {
   const state = loadJSON(statePath, {});
   const channels = cfg.delivery || ['log'];
   const passAlerts = [];
-  let checked = 0, fired = 0, errs = 0;
+  let checked = 0, fired = 0, errs = 0, firstErr = '';
 
   for (const w of cfg.watch) {
     const key = `${w.symbol}|${w.tf}`;
     let bars;
     try { bars = await fetchBars(cfg.server, w.symbol, w.tf, w.bars || 400); }
-    catch (e) { console.warn(`  ! ${key} fetch failed: ${e.message}`); errs++; continue; }
+    catch (e) {
+      console.warn(`  ! ${key} fetch failed: ${e.message}`);
+      errs++; firstErr = firstErr || e.message; continue;
+    }
     if (!bars.length) { errs++; continue; }
 
     const cur = svpState(bars, w.tf);
@@ -184,8 +208,13 @@ async function pass(cfg, statePath, feedPath) {
 
   if (channels.includes('email')) emailBatch(passAlerts, cfg);
 
+  const blind = cfg.watch.length > 0 && errs === cfg.watch.length;
+  if (blind) notifyBlind(state, cfg, channels, firstErr);
+
   try { fs.writeFileSync(statePath, JSON.stringify(state, null, 1), 'utf-8'); } catch {}
-  console.log(`  · checked ${checked} · fired ${fired}${errs ? ' · errors ' + errs : ''}`);
+  console.log(`  · checked ${checked} · fired ${fired}${errs ? ' · errors ' + errs : ''}`
+    + (blind ? ' · BLIND (no symbol could be fetched)' : ''));
+  return { blind };
 }
 
 async function main() {
@@ -204,7 +233,11 @@ async function main() {
   console.log(`alert_watcher · ${cfg.watch.length} symbols · rules: `
     + cfg.rules.map(r => r.id).join(', ') + ` · delivery: ${(cfg.delivery || ['log']).join(',')}`);
 
-  if (once) { await pass(cfg, statePath, feedPath); return; }
+  if (once) {
+    const { blind } = await pass(cfg, statePath, feedPath);
+    if (blind) process.exitCode = 2;
+    return;
+  }
 
   const every = (cfg.poll_seconds || 60) * 1000;
   console.log(`polling every ${cfg.poll_seconds || 60}s (Ctrl-C to stop)`);

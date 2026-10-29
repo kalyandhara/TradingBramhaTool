@@ -187,6 +187,34 @@ JOBS: dict[str, JobSpec] = {
         # After opportunity_daily (16:20) has saved today's picks.
         default_time="17:30",
     ),
+    "filings_watch": JobSpec(
+        id="filings_watch",
+        label="Filings Watch (NSE, my names)",
+        desc="Reads today's NSE corporate-filings stream, keeps the material "
+             "filings on held / watchlist / latest-pick names, and emails the ones "
+             "not sent before. Also feeds the digest's filings section. A failed "
+             "NSE read exits 2 and sends nothing. Seconds.",
+        task_name="TradingBramha-FilingsWatch",
+        kind="interval",
+        command=f'"{PYTHON_EXE}" -X utf8 "{HERE / "filings_watch.py"}"',
+        # The whole day, not a local "market hours" window: this machine runs on
+        # US Eastern time, and NSE filings land through the IST day and evening
+        # (results are often filed after the close).
+        default_time="00:00", default_end="23:59", default_interval=30,
+    ),
+    "daily_digest": JobSpec(
+        id="daily_digest",
+        label="Daily Digest Email",
+        desc="Emails the end-of-day digest: market brief, sentiment and verdict, "
+             "the stored shortlist, open positions, today's filings on my names "
+             "and the alerts that fired. Reads what the earlier jobs stored, so "
+             "it runs last.",
+        task_name="TradingBramha-DailyDigest",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "daily_digest_email.py"}"',
+        # After rec_audit (17:30), the last job that writes something it reads.
+        default_time="17:45",
+    ),
     "batch_screener": JobSpec(
         id="batch_screener",
         label="Batch Screener (Category-Based)",

@@ -62,14 +62,25 @@ def main() -> None:
         sys.stderr.write("empty body\n")
         sys.exit(3)
 
+    print(send(args.subject, body, to=recipient))
+
+
+def send(subject: str, body: str, to: str | None = None) -> str:
+    """Send one plain-text email with the digest credentials. For Python callers
+    (filings_watch) that would otherwise shell out to this script."""
+    sender, pw, recipient = get_credentials()
+    recipient = to or recipient
+    if not (sender and pw and recipient):
+        raise RuntimeError("no gmail credentials — run: "
+                           "python daily_digest_email.py --configure")
     msg = MIMEText(body, "plain", "utf-8")
-    msg["Subject"] = Header(args.subject, "utf-8")
+    msg["Subject"] = Header(subject, "utf-8")
     msg["From"] = sender
     msg["To"] = recipient
     with smtplib.SMTP_SSL("smtp.gmail.com", 465) as smtp:
         smtp.login(sender, pw)
         smtp.sendmail(sender, [recipient], msg.as_bytes())
-    print(f"sent to {recipient}")
+    return f"sent to {recipient}"
 
 
 if __name__ == "__main__":
