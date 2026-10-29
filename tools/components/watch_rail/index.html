@@ -58,6 +58,7 @@
   .chartbtn:hover { color: var(--accent-link); }
   input[type=checkbox] { margin: 0; cursor: pointer; }
   .empty { padding: 10px; color: var(--muted); }
+  .row.cur { background: var(--surface-alt); box-shadow: inset 3px 0 0 var(--accent-link); }
   .txt { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--muted); }
 </style>
 </head>
@@ -103,7 +104,7 @@ function columns() {
   // No stored sparkline on any row (usual for scan names): keep just room for SA.
   const spk = (ARGS.rows || []).some(r => r.spark && r.spark.length > 1) ? "54px" : "26px";
   // In a wide band a 1fr name column would push the scan columns to the far edge.
-  return "14px " + (extra ? "minmax(84px,260px)" : "minmax(0,1fr)") + " " + spk + " 74px " +
+  return (ARGS.no_check ? "0px " : "14px ") + (extra ? "minmax(84px,260px)" : "minmax(0,1fr)") + " " + spk + " 74px " +
          (extra ? extra + " " : "") +
          (ARGS.show_heart ? "12px " : "") + "14px";
 }
@@ -113,6 +114,7 @@ function fmtCell(c, v) {
   if (v == null || v === "") return "—";
   if (c.fmt === "x") return Number(v).toFixed(1) + "×";
   if (c.fmt === "pct") return (v > 0 ? "+" : "") + Number(v).toFixed(2) + "%";
+  if (c.fmt === "num") return String(Math.round(Number(v)));
   return esc(v);
 }
 
@@ -155,9 +157,12 @@ function renderRows() {
   rows.forEach((r, i) => {
     const pc = r.day_pct == null || r.day_pct === 0 ? "" :
                `color:${r.day_pct > 0 ? ARGS.good : ARGS.risk}`;
-    html += `<div class="row" data-i="${i}" style="grid-template-columns:${cols}">` +
-      `<input type="checkbox" data-i="${i}"${picked.has(r.symbol) ? " checked" : ""}>` +
-      `<span class="sym" data-i="${i}" style="min-width:0"><a target="_blank" rel="noopener" ` +
+    const cur = ARGS.current && r.symbol === ARGS.current ? " cur" : "";
+    html += `<div class="row${cur}" data-i="${i}" style="grid-template-columns:${cols}">` +
+      (ARGS.no_check ? `<span></span>` :
+        `<input type="checkbox" data-i="${i}"${picked.has(r.symbol) ? " checked" : ""}>`) +
+      `<span class="sym" data-i="${i}" style="min-width:0"><a ` +
+      (ARGS.link_mode === "select" ? `class="sel" data-i="${i}" ` : `target="_blank" rel="noopener" `) +
       `href="${esc(ARGS.analyze_base + encodeURIComponent(r.symbol))}">${esc(r.symbol)}</a>` +
       `<div class="nm" title="${esc(r.name || "")}">${esc(r.name || "")}</div></span>` +
       `<span class="spk">${spark(r.spark)}<span class="acts">` +
@@ -404,6 +409,19 @@ wrap.addEventListener("click", (e) => {
   report();
 });
 
+// link_mode "select": the ticker loads the stock into the host page instead of
+// opening a new tab (the Stock Analyzer's candidate list).
+wrap.addEventListener("click", (e) => {
+  const a = e.target.closest("a.sel");
+  if (!a) return;
+  e.preventDefault();
+  const r = (ARGS.rows || [])[Number(a.dataset.i)];
+  if (!r) return;
+  hideCard();
+  openReq = {page: "select", symbol: r.symbol, n: Date.now() + (++openN)};
+  report();
+});
+
 // Chart icon: toggles the card (the only trigger on touch screens).
 wrap.addEventListener("click", (e) => {
   const btn = e.target.closest(".chartbtn");
@@ -446,7 +464,8 @@ window.addEventListener("message", (event) => {
   root.setProperty("--muted", t.muted || "#6b7280");
   root.setProperty("--accent-link", t.link || "#2563eb");
   root.setProperty("--risk", ARGS.risk || "#dc2626");
-  const sig = JSON.stringify([ARGS.rows, ARGS.show_heart, ARGS.extra_cols, ARGS.pct_label]);
+  const sig = JSON.stringify([ARGS.rows, ARGS.show_heart, ARGS.extra_cols, ARGS.pct_label,
+                              ARGS.current, ARGS.no_check, ARGS.link_mode]);
   if (sig !== rowsSig) {
     rowsSig = sig;
     // Keep only ticks whose rows are still shown, and tell Python whenever that

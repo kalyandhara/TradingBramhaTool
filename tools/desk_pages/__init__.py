@@ -119,3 +119,14 @@ def home_scan_table(df, extra_cols, **kw):
         import logging
         logging.getLogger(__name__).exception("home scan table failed")
         return None
+
+
+def sa_candidate_table(lst, **kw):
+    """The Stock Analyzer's candidate list as rail rows. None when the
+    component or the layout module is unavailable (caller falls back)."""
+    try:
+        return importlib.import_module(f"{__name__}.home_layout").candidate_table(lst, **kw)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("candidate table failed")
+        return None

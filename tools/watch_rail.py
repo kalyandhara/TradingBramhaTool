@@ -329,7 +329,7 @@ def rail_rows(frame: pd.DataFrame, source: str,
 
 
 #: Cell formats the watch_rail component knows how to draw for scan tables.
-SCAN_FORMATS = ("x", "pct", "date", "text")
+SCAN_FORMATS = ("x", "pct", "date", "text", "num")
 
 
 def scan_rows(df: pd.DataFrame | None, extra_cols: list[dict], *, close_col: str,
@@ -358,7 +358,7 @@ def scan_rows(df: pd.DataFrame | None, extra_cols: list[dict], *, close_col: str
 
     def cell(r, c):
         v = r.get(c["key"]) if c["key"] in r else None
-        if c["fmt"] in ("x", "pct"):
+        if c["fmt"] in ("x", "pct", "num"):
             return num(v)
         if v is None or (isinstance(v, float) and math.isnan(v)):
             return None
@@ -375,4 +375,58 @@ def scan_rows(df: pd.DataFrame | None, extra_cols: list[dict], *, close_col: str
                     "spark": [round(x, 4) for x in sparks.get(sym, [])],
                     "chart": chart_symbol(sym),
                     "extra": {c["key"]: cell(r, c) for c in extra_cols}})
+    return out
+
+
+CANDIDATE_CAP = 30
+
+
+def _candidate(key: str, label: str, rows: list[dict], fallback: str) -> dict | None:
+    """One switcher entry. The pattern/note goes in the header when every row
+    shares it, and on each row (`tag`) only when the rows differ."""
+    rows = [r for r in rows if is_safe_symbol(r["symbol"])]
+    if not rows:
+        return None
+    notes = {r["note"] for r in rows}
+    one = len(notes) == 1
+    return {"key": key, "label": label, "count": len(rows),
+            "header": (next(iter(notes)) or fallback) if one else fallback,
+            "tag": not one,
+            "df": pd.DataFrame(rows, columns=["symbol", "rating", "note"])}
+
+
+def candidate_lists(hits: list[dict] | None, ran_for: str, sent: dict | None,
+                    watchlist: pd.DataFrame | None) -> list[dict]:
+    """The Stock Analyzer's candidate lists: Scanner hits (by Overall Rating,
+    unrated last, capped), a list sent from another table, and watchlist names
+    not already in either. Empty lists are left out."""
+    ranked = sorted(hits or [], key=lambda h: (h.get("overall") is not None,
+                                               h.get("overall") or 0), reverse=True)
+    sc = [{"symbol": str(h["symbol"]), "rating": h.get("overall"),
+           "note": str(h.get("pattern_type") or ran_for or "")}
+          for h in ranked if is_safe_symbol(h.get("symbol", ""))][:CANDIDATE_CAP]
+    items = (sent or {}).get("items") or []
+    se = [{"symbol": str(i["symbol"]), "rating": None, "note": str(i.get("note") or "")}
+          for i in items[:60]]
+    seen = {r["symbol"] for r in sc} | {r["symbol"] for r in se}
+    wl = []
+    if watchlist is not None and not watchlist.empty:
+        for _, r in watchlist.iterrows():
+            s = str(r["symbol"])
+            if s not in seen:
+                n = r.get("notes") if "notes" in watchlist.columns else ""
+                wl.append({"symbol": s, "rating": None,
+                           "note": "" if n is None or (isinstance(n, float) and math.isnan(n)) else str(n)})
+    out = [_candidate("scanner", "Scanner", sc, ran_for or "Scanner"),
+           _candidate("sent", "Sent", se, (sent or {}).get("source") or "Sent list"),
+           _candidate("watchlist", "♥ Watchlist", wl, "Watchlist")]
+    return [c for c in out if c]
+
+
+def with_closes(df: pd.DataFrame, closes: dict[str, tuple[float, float]]) -> pd.DataFrame:
+    """`close` and `day_pct` from the stored closes file; NaN when unknown."""
+    out = df.copy()
+    out["close"] = [closes[s][0] if s in closes else float("nan") for s in out["symbol"]]
+    out["day_pct"] = [_day_pct(*closes[s]) if s in closes else float("nan")
+                      for s in out["symbol"]]
     return out

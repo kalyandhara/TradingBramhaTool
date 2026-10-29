@@ -245,6 +245,49 @@ def scan_table(df, extra_cols: list[dict], *, key: str, close_col: str,
     return [s for s in value.get("picked", []) if s in shown]
 
 
+def candidate_table(lst: dict, *, key: str, current: str | None) -> str | None:
+    """One Stock Analyzer candidate list (`watch_rail.candidate_lists`) as rail
+    rows: no ticks, the current stock highlighted, a ticker click loads it here.
+
+    Returns the clicked symbol, "" when nothing was clicked, or None when the
+    component is unavailable so the caller draws its old buttons."""
+    comp = _rail_component()
+    if comp is None:
+        return None
+    df = wr.with_closes(lst["df"], wr.read_closes()[0])
+    cols = []
+    if lst["df"]["rating"].notna().any():
+        cols.append({"key": "rating", "label": "Rtg", "fmt": "num", "width": 30})
+    if lst["tag"]:
+        cols.append({"key": "note", "label": "Note", "fmt": "text", "width": 96})
+    rows = wr.scan_rows(df, cols, close_col="close", pct_col="day_pct",
+                        names=_company_names(), sparks=wr.read_sparks())
+    t = rs.TOKENS
+    value = comp(
+        rows=rows, show_heart=False, extra_cols=cols, no_check=True,
+        link_mode="select", current=(current or "").upper(),
+        good=rs.tone_colors("good")[0], risk=rs.tone_colors("risk")[0],
+        theme={"surface": t["surface"], "surface_alt": t["surface_alt"],
+               "border": t["border"], "text": t["text"],
+               "muted": t["text_muted"], "link": t["info"],
+               "grid": t["surface_alt"], "sma20": t["info"],
+               "sma50": t["accent"]},
+        chart_api="http://localhost:5001/api/ohlcv",
+        analyze_base=uit.DASHBOARD_BASE + "/?nav=analyze&symbol=",
+        # The panel sits in a 680 px box with the switcher and caption above it;
+        # taller and the box scrolls the switcher out of sight.
+        height=min(530, 28 + 45 * max(len(rows), 1)),
+        key=key, default={"picked": [], "open": None})
+    req = (value or {}).get("open")
+    shown = {r["symbol"] for r in rows}
+    if (isinstance(req, dict) and req.get("symbol") in shown
+            and req.get("page") in ("select", "analyze")
+            and req.get("n") != st.session_state.get(f"_{key}_open_n")):
+        st.session_state[f"_{key}_open_n"] = req.get("n")
+        return req["symbol"]
+    return ""
+
+
 @st.dialog("Watchlists")
 def _list_dialog(db, source: str, lists) -> None:
     """Create, rename and delete named lists. A dialog, not a popover: every

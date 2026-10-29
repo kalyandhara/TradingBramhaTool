@@ -254,3 +254,45 @@ def test_scan_rows_reject_an_unknown_format():
 def test_scan_rows_empty_frame_is_empty():
     assert wr.scan_rows(None, _VS, close_col="close", pct_col="chg_pct") == []
     assert wr.scan_rows(pd.DataFrame(), _VS, close_col="close", pct_col="chg_pct") == []
+
+
+# ── Stock Analyzer candidates panel ──────────────────────────────────────────
+def _hits():
+    return [{"symbol": "UTTAMSUGAR", "overall": None, "pattern_type": "20 EMA Base Setup"},
+            {"symbol": "CYIENT", "overall": 71, "pattern_type": "20 EMA Base Setup"},
+            {"symbol": "SYRMA", "overall": 88, "pattern_type": "20 EMA Base Setup"}]
+
+
+def test_candidates_rank_by_rating_with_unrated_last_and_one_header_pattern():
+    lists = wr.candidate_lists(_hits(), "20 EMA (2026-10-28)", None, None)
+    sc = lists[0]
+    assert sc["key"] == "scanner" and sc["count"] == 3
+    assert list(sc["df"]["symbol"]) == ["SYRMA", "CYIENT", "UTTAMSUGAR"]
+    assert sc["header"] == "20 EMA Base Setup" and sc["tag"] is False
+    assert [l["key"] for l in lists] == ["scanner"]          # empty lists omitted
+
+
+def test_candidates_tag_rows_when_notes_differ_and_dedupe_the_watchlist():
+    sent = {"source": "Volume Shockers · Darvas",
+            "items": [{"symbol": "CYIENT", "note": "9.3x vol"},
+                      {"symbol": "IGIL", "note": "5.5x vol"}]}
+    wl = pd.DataFrame({"symbol": ["SYRMA", "IGIL", "TCS"], "notes": ["", "", "core"]})
+    lists = {l["key"]: l for l in wr.candidate_lists(_hits(), "x", sent, wl)}
+    assert lists["sent"]["tag"] is True and lists["sent"]["header"] == "Volume Shockers · Darvas"
+    assert list(lists["sent"]["df"]["note"]) == ["9.3x vol", "5.5x vol"]
+    assert list(lists["watchlist"]["df"]["symbol"]) == ["TCS"]   # SYRMA, IGIL shown above
+
+
+def test_candidates_drop_unsafe_symbols_and_cap_the_scanner_list():
+    hits = [{"symbol": f"S{i}", "overall": i} for i in range(40)] + [{"symbol": "A<b>", "overall": 99}]
+    sc = wr.candidate_lists(hits, "x", None, None)[0]
+    assert sc["count"] == 30 and "A<b>" not in set(sc["df"]["symbol"])
+    assert sc["header"] == "x"                 # no pattern_type: the run name
+
+
+def test_candidate_frame_prices_from_stored_closes():
+    sc = wr.candidate_lists(_hits(), "x", None, None)[0]
+    f = wr.with_closes(sc["df"], {"SYRMA": (110.0, 100.0)})
+    assert f.loc[f.symbol == "SYRMA", "close"].item() == 110.0
+    assert math.isclose(f.loc[f.symbol == "SYRMA", "day_pct"].item(), 10.0)
+    assert math.isnan(f.loc[f.symbol == "CYIENT", "close"].item())

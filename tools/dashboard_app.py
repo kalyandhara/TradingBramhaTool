@@ -8479,64 +8479,95 @@ if current_page == "Stock Analyzer":
             key=lambda h: (h.get("overall") is not None, h.get("overall") or 0),
             reverse=True,
         )
-        st.markdown("**Candidates**")
-        if not ranked:
-            st.info("No scanner results found — run a scanner in the Scanner Hub, "
-                    "or type a symbol above.")
-        else:
-            st.caption(f"{len(ranked)} from **{ran_for}** · ranked by Overall Rating")
-            for h in ranked[:30]:
-                _sym = h["symbol"]
-                rcol, tcol, pcol = st.columns([1.2, 1.8, 3.0], gap="small",
-                                              vertical_alignment="center")
-                rcol.markdown(_rating_badge_html(h), unsafe_allow_html=True)
-                if tcol.button(f"**{_sym}**", key=f"pa_view_{_sym}", type="tertiary",
-                               help=f"Analyze {_sym}"):
-                    _sa_load(_sym)
-                pcol.badge(str(h.get("pattern_type", ran_for)), color="orange")
-
-        # ── A table sent here with "→ Stock Analyzer" ────────────────────
+        # Candidates as rail rows (one switcher, the Home rail's look and hover
+        # chart); the stacked buttons below are the fallback if the component
+        # is missing.
+        import watch_rail as _wrl
         _pa_sent = _pa_sent_load()
-        if _pa_sent and _pa_sent.get("items"):
-            st.divider()
-            _sh1, _sh2 = st.columns([4, 1], vertical_alignment="center")
-            _sh1.markdown(f"**📤 {_pa_sent.get('source', 'Sent list')}** "
-                          f"({len(_pa_sent['items'])})")
-            _sh1.caption("sent " + str(_pa_sent.get("sent_at", ""))[:16].replace("T", " "))
-            if _sh2.button("✕", key="pa_sent_clear", type="tertiary",
-                           help="Clear this sent list"):
+        _cand = _wrl.candidate_lists(hits, ran_for, _pa_sent, db.get_watchlist())
+        _cand_done = False
+        if _cand:
+            _ckeys = [c["key"] for c in _cand]
+            _clab = {c["key"]: f'{c["label"]} {c["count"]}' for c in _cand}
+            _cpick = st.segmented_control(
+                "Candidates", _ckeys, format_func=_clab.get, default=_ckeys[0],
+                key="sa_cand_src_" + "_".join(_ckeys), label_visibility="collapsed")
+            _cl = next((c for c in _cand if c["key"] == _cpick), _cand[0])
+            _ch1, _ch2 = st.columns([5, 1], vertical_alignment="center")
+            _ch1.caption(f'**{_cl["header"]}** · {_cl["count"]} names'
+                         + (" · by Overall Rating" if _cl["key"] == "scanner" else ""))
+            if _cl["key"] == "sent" and _ch2.button("✕", key="pa_sent_clear_rr",
+                                                   type="tertiary",
+                                                   help="Clear this sent list"):
                 _pa_sent_save(None)
                 st.rerun()
-            for _it in _pa_sent["items"][:60]:
-                _ss = _it["symbol"]
-                _stc, _snc = st.columns([1.9, 3.7], gap="small",
-                                        vertical_alignment="center")
-                if _stc.button(f"**{_ss}**", key=f"pa_sent_{_ss}", type="tertiary",
-                               help=f"Analyze {_ss}"):
-                    _sa_load(_ss)
-                _snc.badge(str(_it.get("note") or _pa_sent.get("source", "")),
-                           color="blue")
+            _cres = dpages.sa_candidate_table(
+                _cl, key=f"sa_cand_{_cl['key']}",
+                current=st.session_state.get("selected_symbol"))
+            if _cres is not None:
+                _cand_done = True
+                if _cres:
+                    _sa_load(_cres)
+                    st.rerun()
+        if not _cand_done:
+            st.markdown("**Candidates**")
+            if not ranked:
+                st.info("No scanner results found — run a scanner in the Scanner Hub, "
+                        "or type a symbol above.")
+            else:
+                st.caption(f"{len(ranked)} from **{ran_for}** · ranked by Overall Rating")
+                for h in ranked[:30]:
+                    _sym = h["symbol"]
+                    rcol, tcol, pcol = st.columns([1.2, 1.8, 3.0], gap="small",
+                                                  vertical_alignment="center")
+                    rcol.markdown(_rating_badge_html(h), unsafe_allow_html=True)
+                    if tcol.button(f"**{_sym}**", key=f"pa_view_{_sym}", type="tertiary",
+                                   help=f"Analyze {_sym}"):
+                        _sa_load(_sym)
+                    pcol.badge(str(h.get("pattern_type", ran_for)), color="orange")
 
-        # ── Watchlist as candidates ──────────────────────────────────────
-        _pa_wl = db.get_watchlist()
-        if _pa_wl is not None and not _pa_wl.empty:
-            _scanner_syms = {h["symbol"] for h in ranked} if ranked else set()
-            # …and not already listed in the sent block above
+            # ── A table sent here with "→ Stock Analyzer" ────────────────────
+            _pa_sent = _pa_sent_load()
             if _pa_sent and _pa_sent.get("items"):
-                _scanner_syms |= {it["symbol"] for it in _pa_sent["items"]}
-            _wl_only = _pa_wl[~_pa_wl["symbol"].isin(_scanner_syms)]
-            if not _wl_only.empty:
                 st.divider()
-                st.markdown(f"**♥ Watchlist** ({len(_wl_only)})")
-                for _, _wr in _wl_only.iterrows():
-                    _ws = _wr["symbol"]
-                    _wtc, _wnc = st.columns([1.9, 3.7], gap="small",
+                _sh1, _sh2 = st.columns([4, 1], vertical_alignment="center")
+                _sh1.markdown(f"**📤 {_pa_sent.get('source', 'Sent list')}** "
+                              f"({len(_pa_sent['items'])})")
+                _sh1.caption("sent " + str(_pa_sent.get("sent_at", ""))[:16].replace("T", " "))
+                if _sh2.button("✕", key="pa_sent_clear", type="tertiary",
+                               help="Clear this sent list"):
+                    _pa_sent_save(None)
+                    st.rerun()
+                for _it in _pa_sent["items"][:60]:
+                    _ss = _it["symbol"]
+                    _stc, _snc = st.columns([1.9, 3.7], gap="small",
                                             vertical_alignment="center")
-                    if _wtc.button(f"**{_ws}**", key=f"pa_wl_{_ws}", type="tertiary",
-                                   help=f"Analyze {_ws}"):
-                        _sa_load(_ws)
-                    _wn = _wr.get("notes") or ""
-                    _wnc.badge(f"watchlist · {_wn}" if _wn else "watchlist", color="green")
+                    if _stc.button(f"**{_ss}**", key=f"pa_sent_{_ss}", type="tertiary",
+                                   help=f"Analyze {_ss}"):
+                        _sa_load(_ss)
+                    _snc.badge(str(_it.get("note") or _pa_sent.get("source", "")),
+                               color="blue")
+
+            # ── Watchlist as candidates ──────────────────────────────────────
+            _pa_wl = db.get_watchlist()
+            if _pa_wl is not None and not _pa_wl.empty:
+                _scanner_syms = {h["symbol"] for h in ranked} if ranked else set()
+                # …and not already listed in the sent block above
+                if _pa_sent and _pa_sent.get("items"):
+                    _scanner_syms |= {it["symbol"] for it in _pa_sent["items"]}
+                _wl_only = _pa_wl[~_pa_wl["symbol"].isin(_scanner_syms)]
+                if not _wl_only.empty:
+                    st.divider()
+                    st.markdown(f"**♥ Watchlist** ({len(_wl_only)})")
+                    for _, _wr in _wl_only.iterrows():
+                        _ws = _wr["symbol"]
+                        _wtc, _wnc = st.columns([1.9, 3.7], gap="small",
+                                                vertical_alignment="center")
+                        if _wtc.button(f"**{_ws}**", key=f"pa_wl_{_ws}", type="tertiary",
+                                       help=f"Analyze {_ws}"):
+                            _sa_load(_ws)
+                        _wn = _wr.get("notes") or ""
+                        _wnc.badge(f"watchlist · {_wn}" if _wn else "watchlist", color="green")
 
     with pa_main:
         # Candidates parked by the ribbon search when what was typed was a prefix
