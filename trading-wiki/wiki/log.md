@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-10-30] probe | B-112 filing PDFs — text is there, a regex is not enough
+- [[analyses/Filing-PDF-Data-Probe]]: 120 PDFs, bars committed before the run. Text layer 100%, recovery 82%, hand precision 50% vs 80% bar → extractor not built; filed B-201 (anchored extractor). v1 exposed a live `amount_from` bug (`rs` inside "orders," read as `₹,`), fixed in `nse_filings_feed`.
+
 ## [2026-10-30] build | B-198 — 200-DMA break and bulk/block-deal alerts on my names
 - [[analyses/Open-Backlog#B-198]]: `tools/dma_watch.py` (new daily job `dma_watch`, 08:00 ET) emails a close crossing below the 200-SMA on held / watchlist / latest-pick names, once per cross; `filings_watch` now also emails NSE bulk/block deals on those names, and marks same-client buy+sell pairs as likely intraday turnover. State alerts, not signals; nothing measured. First live run: 8 of 30 names already below, 0 new crosses; 2 PASHUPATI deals (HRTI round trip).
 
