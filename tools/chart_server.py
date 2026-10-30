@@ -45,6 +45,21 @@ HERE = Path(__file__).resolve().parent
 app = Flask(__name__, static_folder=str(HERE))
 sock = Sock(app)
 
+# B-180: the Home rail's hover chart runs in the desk's page and reads candles
+# from here — a cross-port fetch the browser blocks without this header. Only
+# the desk's own origins, and only /api/ohlcv: nothing else on this server is
+# meant to be read by another page.
+ALLOWED_ORIGINS = frozenset({"http://localhost:8501", "http://localhost:8502"})
+
+
+@app.after_request
+def _cors_for_ohlcv(resp):
+    origin = request.headers.get("Origin")
+    if request.path == "/api/ohlcv" and origin in ALLOWED_ORIGINS:
+        resp.headers["Access-Control-Allow-Origin"] = origin
+        resp.vary.add("Origin")
+    return resp
+
 # ── Client registry ───────────────────────────────────────────────────────────
 # Each browser WS connection gets an outbound queue; a sender thread drains it.
 
@@ -391,6 +406,84 @@ def pwa_icon_512():
 @app.route("/icon-maskable-512.png")
 def pwa_icon_maskable():
     return send_from_directory(HERE, "icon-maskable-512.png", mimetype="image/png")
+
+
+@app.route("/api/indicator_evidence")
+def indicator_evidence_api():
+    """B-154: key → {verdict, label, line, items} for every INDICATOR_DEFS key, from
+    indicator_evidence (which reads named_studies). Small and static per process."""
+    import indicator_evidence as ie
+    html = (HERE / "chart_dashboard.html").read_text(encoding="utf-8", errors="replace")
+    body = html.split("const INDICATOR_DEFS = [", 1)[-1].split("\n];", 1)[0]
+    keys = re.findall(r"key:'([a-z0-9_]+)'", body)
+    return jsonify(ie.evidence(keys))
+
+
+#: B-157 "Learn more": the indicator's wiki concept page, rendered read-only. The
+#: key → page map is the catalogue's own `concept` field, so only the ~44 pages
+#: an indicator names are reachable — not the wiki, not a path the caller picks.
+WIKI_DIR = HERE.parent / "trading-wiki" / "wiki"
+_LEARN_PAGE = """<!doctype html><html lang="en"><head><meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1"><title>{title}</title><style>
+:root{{--bg:#fffdf8;--fg:#2b2118;--mut:#6b5b4b;--line:#e5cfae;--acc:#a14a0b}}
+@media (prefers-color-scheme:dark){{:root{{--bg:#131722;--fg:#e6edf3;--mut:#8b949e;--line:#30363d;--acc:#58a6ff}}}}
+body{{margin:0;background:var(--bg);color:var(--fg);font:15px/1.6 'Segoe UI Variable Text','Segoe UI',system-ui,sans-serif}}
+main{{max-width:760px;margin:0 auto;padding:24px 16px 48px}} a{{color:var(--acc)}}
+.note{{font-size:12px;color:var(--mut);border-bottom:1px solid var(--line);padding-bottom:10px;margin-bottom:16px}}
+table{{border-collapse:collapse;display:block;overflow-x:auto}} th,td{{border:1px solid var(--line);padding:4px 8px;vertical-align:top}}
+code{{font-family:ui-monospace,Consolas,monospace;font-size:.9em}} h1{{font-size:24px}} h2{{font-size:19px;margin-top:28px}}
+</style></head><body><main><div class="note">From the desk's wiki: <code>{path}</code> · read-only.
+Wiki links are shown as plain text.</div>{body}</main></body></html>"""
+
+
+def _concept_for(key: str) -> str | None:
+    js = (HERE / "indicator_catalogue.js").read_text(encoding="utf-8", errors="replace")
+    info = json.loads(js.split("/*JSON-BEGIN*/", 1)[1].split("/*JSON-END*/", 1)[0])
+    c = (info.get(key) or {}).get("concept")
+    return c if c and re.fullmatch(r"concepts/[A-Za-z0-9_.-]+\.md", c) else None
+
+
+@app.route("/learn/<key>")
+def learn_more(key: str):
+    from html import escape
+    from markdown_it import MarkdownIt
+    if not re.fullmatch(r"[a-z0-9_]+", key):
+        abort(404)
+    rel = _concept_for(key)
+    page = (WIKI_DIR / rel) if rel else None
+    if page is None or not page.is_file():
+        abort(404)
+    text = page.read_text(encoding="utf-8", errors="replace")
+    if text.startswith("---"):
+        text = text.split("---", 2)[-1]                     # drop the frontmatter
+    text = re.sub(r"\[\[([^\]|]+)\|?([^\]]*)\]\]", lambda m: m.group(2) or m.group(1).split("/")[-1], text)
+    # html=False: anything that looks like markup in a wiki page is shown, not run.
+    body = MarkdownIt("commonmark", {"html": False}).enable("table").render(text)
+    m = re.search(r"<h1>(.*?)</h1>", body)
+    title = re.sub(r"<[^>]+>", "", m.group(1)) if m else rel
+    return _LEARN_PAGE.format(title=escape(title), path=escape(rel), body=body)
+
+
+#: B-151 indicator preview pictures, written by gen_indicator_thumbs.py. Only the
+#: manifest and hash-named webp files are reachable — the name pattern is the
+#: gate, as `_page_modules` is for scripts. The pictures never change under one
+#: name (a redraw gets a new hash), so they cache forever; the manifest, which
+#: says which hash is current, must not.
+THUMBS_DIR = HERE / "ind-thumbs"
+_THUMB_NAME = re.compile(r"[a-z0-9_]+\.[0-9a-f]{10}\.webp")
+
+
+@app.route("/ind-thumbs/<name>")
+def indicator_thumb(name: str):
+    if name == "manifest.json":
+        resp = send_from_directory(THUMBS_DIR, name, mimetype="application/json")
+        resp.headers["Cache-Control"] = "no-cache"
+        return resp
+    if not _THUMB_NAME.fullmatch(name):
+        abort(404)
+    resp = send_from_directory(THUMBS_DIR, name, mimetype="image/webp")
+    resp.headers["Cache-Control"] = "public, max-age=31536000, immutable"
+    return resp
 
 
 # Bhavcopy is one file per session and every strike-level read comes out of it,
@@ -1018,10 +1111,12 @@ def api_order_blocks():
     bars_n    = min(int(request.args.get("bars", 300)), 3000)
     # Order blocks are more LOCAL than major structure swings, so a tighter pivot
     # than /api/structure_chain — otherwise a daily chart surfaces almost none.
+    # Daily/weekly use 5 = scan_order_block's pivot (B-171, owner 2026-10-17), so
+    # the chart draws the zones the scanner reads.
     piv_default = {
         "1m": 3, "5m": 4, "15m": 5, "30m": 5,
-        "1h": 6, "4h": 6, "6h": 6, "1d": 6, "1w": 6,
-    }.get(timeframe, 6)
+        "1h": 6, "4h": 6, "6h": 6, "1d": 5, "1w": 5,
+    }.get(timeframe, 5)
     pivot_len = max(2, min(int(request.args.get("pivot_len", piv_default)), 100))
     if not symbol:
         return jsonify({"error": "symbol required"}), 400
@@ -1087,6 +1182,136 @@ def api_order_blocks():
         })
 
     return jsonify({"symbol": symbol, "order_blocks": out, "retests": retest_out})
+
+
+@app.route("/api/bull_trap")
+def api_bull_trap():
+    """Bull traps (B-182) for the `bulltrap` chart overlay.
+
+    Calls the SAME `scanner_templates.bull_trap_events` the `Bull Trap` risk
+    scanner and `bull_trap_study.py` use, so the chart, the scanner and the
+    measurement cannot disagree. Every failed breakout in the window comes back,
+    graded: `full` (weak volume AND RSI divergence) is a bull trap; the rest are
+    plain failed breakouts, drawn as context. `fired` is the scanner's own
+    freshness gate (trap within 3 bars, level not reclaimed).
+
+    {"events": [...], "fired": bool}. Bar indices are mapped to timestamps.
+    """
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < sc.BT_RES_LOOKBACK + 20:
+        return jsonify({"symbol": symbol, "events": [], "fired": False})
+
+    def _t(idx):
+        return int(bars[idx]["time"]) if idx is not None and 0 <= idx < len(bars) else None
+
+    events = []
+    for e in sc.bull_trap_events(df):
+        events.append({
+            "level": e["level"], "peak_high": e["peak_high"],
+            "res_time": _t(e["res_bar"]), "breakout_time": _t(e["breakout_bar"]),
+            "trap_time": _t(e["trap_bar"]), "peak_time": _t(e["peak_bar"]),
+            "vol_x": e["vol_x"], "div_pts": e["div_pts"],
+            "rsi_old": e["rsi_old"], "rsi_new": e["rsi_new"],
+            "weak_vol": e["weak_vol"], "divergence": e["divergence"], "full": e["full"],
+        })
+    try:
+        fired = sc.scan_bull_trap(df) is not None
+    except Exception:
+        fired = False
+    return jsonify({"symbol": symbol, "events": events, "fired": fired})
+
+
+#: B-186: the tour's measured base rates, written by tour_base_rates.py. Re-read
+#: when its mtime changes, so a refresh needs no server restart.
+TOUR_RATES_PATH = HERE / "cache" / "tour_base_rates.json"
+_tour_rates_cache: dict = {"mtime": None, "path": None, "data": None}
+
+
+def _tour_rates() -> dict | None:
+    p = Path(TOUR_RATES_PATH)
+    try:
+        mt = p.stat().st_mtime
+    except OSError:
+        return None
+    if _tour_rates_cache["path"] == str(p) and _tour_rates_cache["mtime"] == mt:
+        return _tour_rates_cache["data"]
+    try:
+        data = json.loads(p.read_text(encoding="utf-8"))
+        data = data if isinstance(data, dict) else None
+    except (OSError, ValueError):
+        data = None                       # a corrupt file reads as "not measured"
+    _tour_rates_cache.update(mtime=mt, path=str(p), data=data)
+    return data
+
+
+def _jsonable(o):
+    """numpy scalars inside finding facts -> plain Python for jsonify."""
+    import numpy as np
+    if isinstance(o, dict):
+        return {k: _jsonable(v) for k, v in o.items()}
+    if isinstance(o, (list, tuple)):
+        return [_jsonable(v) for v in o]
+    if isinstance(o, np.integer):
+        return int(o)
+    if isinstance(o, np.floating):
+        return None if not np.isfinite(o) else float(o)
+    if isinstance(o, float) and (o != o or o in (float("inf"), float("-inf"))):
+        return None
+    if isinstance(o, np.bool_):
+        return bool(o)
+    return o
+
+
+@app.route("/api/tour")
+def api_tour():
+    """"Tour this chart" (B-186): Now, Stock-or-market?, then up to eight
+    findings, each with chart actions, a Watch line and its measured base-rate
+    badge. Daily only — the base rates are measured on daily bars. All logic is
+    in chart_tour.build_tour; this route only gathers bars and the rates file."""
+    import pandas as pd
+    import chart_tour as ct
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    if timeframe != "1d":
+        return jsonify({"symbol": symbol, "asOf": None, "steps": [], "base_rates_asOf": None,
+                        "notes": ["The tour is daily-only: its base rates are measured on daily bars."]})
+    symbol = sym_dir.resolve_symbol(symbol)
+
+    def _daily(sym: str):
+        try:
+            return _bars_to_df(ds.detect_source(sym).get_ohlcv(sym, "1d", 400))
+        except Exception:
+            return None
+
+    df = _daily(symbol)
+    if df is None or df.empty:
+        return jsonify({"symbol": symbol, "asOf": None, "steps": [], "base_rates_asOf": None,
+                        "notes": ["No daily price history for this symbol."]})
+    market_df = _daily("^NSEI")
+    sector_df = sector_label = sector_symbol = None
+    try:
+        import pa_chart_focus as pcf
+        sector = pcf.stock_sector(symbol.split(".")[0])
+        tkr, label, is_sector = pcf.context_for(sector)
+        if is_sector:
+            sector_df, sector_label, sector_symbol = _daily(tkr), label, tkr
+    except Exception:
+        pass
+    rates = _tour_rates()
+    tour = ct.build_tour(df, market_df=market_df, sector_df=sector_df, sector_label=sector_label,
+                         base_rates=rates, today=pd.Timestamp.today(), sector_symbol=sector_symbol)
+    return jsonify(_jsonable({"symbol": symbol, "asOf": tour["asOf"], "steps": tour["steps"],
+                              "base_rates_asOf": (rates or {}).get("asOf"), "notes": tour["notes"]}))
 
 
 @app.route("/api/liquidity")
@@ -1488,6 +1713,45 @@ def api_reversal_events():
     coincidence = rev_cal.coincidence_scores(d_from, d_to)
     return jsonify({"events": events, "coincidence": coincidence,
                     "from": d_from.isoformat(), "to": d_to.isoformat()})
+
+
+_EVENTS_ANN_CACHE: dict[tuple[str, str], list] = {}
+
+
+@app.route("/api/events")
+def api_events():
+    """B-188 event markers (E results, N material filing, M Budget/MPC,
+    A anomaly) for the daily chart, each with its measured/hypothesis status
+    and the event-day / 5-session move. See tools/chart_events.py."""
+    import datetime as _dt
+    import chart_events as ce
+    from nse_announcements import fetch_announcements
+    symbol = request.args.get("symbol", "").strip().upper()
+    bars_n = min(int(request.args.get("bars", 300)), 3000)
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    if symbol.startswith("^"):
+        return jsonify({"symbol": symbol, "events": [], "missing": []})
+    bare = re.sub(r"\.(NS|BO)$", "", symbol, flags=re.IGNORECASE)
+    bars = ds.detect_source(symbol).get_ohlcv(symbol, "1d", bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < 2:
+        return jsonify({"symbol": symbol, "events": [], "missing": []})
+    df.index = df.index.tz_convert("Asia/Kolkata").tz_localize(None).normalize()
+    times = {str(ts.date()): int(b["time"]) for ts, b in zip(df.index, bars)}
+
+    def ann(sym):
+        key = (sym, _dt.date.today().isoformat())
+        if key not in _EVENTS_ANN_CACHE:
+            _EVENTS_ANN_CACHE[key] = fetch_announcements(sym)
+        return _EVENTS_ANN_CACHE[key]
+
+    res = ce.collect(bare, df, ann_fn=ann)
+    for e in res["events"]:
+        e["time"] = times.get(e["session"])
+    res["symbol"] = symbol
+    return jsonify(res)
 
 
 @app.route("/api/symbols")

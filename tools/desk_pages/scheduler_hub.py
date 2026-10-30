@@ -17,15 +17,25 @@ import scheduler_core as sched
 import snapshot_registry as snapreg
 import snapshot_store as snapstore
 import ui_jobs
+from desk_pages import job_history
 
 
 def render() -> None:
     st.subheader("Scheduler Hub")
+    tab_jobs, tab_hist = st.tabs(["Jobs", "History"])
+    with tab_jobs:
+        _render_jobs()
+    with tab_hist:
+        job_history.render()
+
+
+def _render_jobs() -> None:
     st.caption(
         "Batch jobs registered as Windows Scheduled Tasks. **Register / Remove / "
         "Run now change persistent OS scheduled tasks.** The Alert Bot runs the live "
-        "SVP / indicator signal engine each interval during market hours and fires on "
-        "pattern-buildup transitions."
+        "SVP / indicator signal engine round the clock, checking each symbol only "
+        "while its market is open, and fires on pattern-buildup transitions. "
+        "Every run is recorded under **History**."
     )
     st.info(
         "Jobs read live bars from the chart server (http://127.0.0.1:5001) and the "

@@ -243,6 +243,7 @@ def sector_grid(universe: str = "nifty500", n: int = CMF_N,
         hist = ts._batch_history(symbols, period="6mo")
 
     rows: list[dict[str, Any]] = []
+    longest: dict[str, pd.DataFrame] = {}
     for sector, syms in sorted(by_sector.items()):
         members = {s: hist[s] for s in syms if s in hist and hist[s] is not None}
         if len(members) < min_members:
@@ -261,7 +262,10 @@ def sector_grid(universe: str = "nifty500", n: int = CMF_N,
             row[label] = v
             vals.append(v)
         row["trend"] = trend_label(vals)
+        row["series"] = sector_series(members, n=n)
         rows.append(row)
+        if len(members) > len(longest):
+            longest = members
 
     df = pd.DataFrame(rows)
     if not df.empty:
@@ -277,6 +281,7 @@ def sector_grid(universe: str = "nifty500", n: int = CMF_N,
         "universe": universe,
         "clip": HEAT_CLIP,
         "caveat": CAVEAT,
+        "series_dates": series_dates(longest),
     }
 
 
@@ -291,6 +296,50 @@ def positive_sectors(grid: dict[str, Any], top_n: int = 5) -> pd.DataFrame:
     col = grid["columns"][0]
     out = df[df[col].notna() & (df[col] > 0)]
     return out.nlargest(min(top_n, len(out)), col).reset_index(drop=True)
+
+
+#: Sessions of daily CMF readings stored for the ridgeline (one month).
+SERIES_DAYS = 21
+
+
+def sector_series(members: dict[str, pd.DataFrame], n: int = CMF_N,
+                  days: int = SERIES_DAYS) -> list[Optional[float]]:
+    """Daily sector CMF(n) for the last `days` sessions, oldest first; the last
+    point is today's reading. Neighbouring points share n-1 of their n bars, so
+    the line is smooth by construction — a drift is real, a wiggle is not."""
+    return [sector_cmf(members, n=n, offset=off) for off in range(days - 1, -1, -1)]
+
+
+def series_dates(members: dict[str, pd.DataFrame], days: int = SERIES_DAYS) -> list[str]:
+    """ISO dates for `sector_series`, from the member with the longest history."""
+    frames = [d for d in members.values() if d is not None and len(d)]
+    if not frames:
+        return []
+    idx = max(frames, key=len).index[-days:]
+    return [str(pd.Timestamp(x).date()) for x in idx]
+
+
+def ridge_rows(grid: dict[str, Any]) -> list[dict[str, Any]]:
+    """One ridge per sector with a stored series, strongest inflow today first.
+    Values are clipped to the heat scale; `today` keeps the real reading for
+    the label. A run stored before series existed gives []."""
+    df = grid.get("rows")
+    if df is None or getattr(df, "empty", True) or "series" not in df.columns:
+        return []
+    col, clip = grid["columns"][0], float(grid.get("clip", HEAT_CLIP))
+    out = []
+    for _, r in df.iterrows():
+        vals = list(r["series"] or [])
+        if not any(v is not None for v in vals):
+            continue
+        out.append({"sector": r["sector"],
+                    "values": [None if v is None else max(-clip, min(clip, float(v)))
+                               for v in vals],
+                    "today": None if pd.isna(r[col]) else float(r[col]),
+                    "members": int(r.get("members") or 0),
+                    "low_coverage": bool(r.get("low_coverage", False))})
+    out.sort(key=lambda x: (x["today"] is None, -(x["today"] or 0)))
+    return out
 
 
 def main() -> int:

@@ -1540,6 +1540,25 @@ def scan_10y_breakout(df: pd.DataFrame) -> dict | None:
     return _consolidation_breakout(df, lookback=2520, label="10-Year", max_range_pct=200)
 
 
+def scan_3y_breakout(df: pd.DataFrame) -> dict | None:
+    """3-year high breakout — the tier the Chartink page offered and this engine
+    lacked. The 65% range gate is INTERPOLATED between the 1Y (50%) and 5Y (80%)
+    gates, not measured. Breakout Scans page only: deliberately NOT a tier of
+    `scan_all_duration_breakout`, so the hub/pipeline scanner is unchanged."""
+    return _consolidation_breakout(df, lookback=756, label="3-Year", max_range_pct=65)
+
+
+#: Duration tiers for the Breakout Scans page, longest first.
+#: (sessions, label, scanner).
+BREAKOUT_TIERS = (
+    (2520, "10-Year", scan_10y_breakout),
+    (1260, "5-Year",  scan_5y_breakout),
+    (756,  "3-Year",  scan_3y_breakout),
+    (252,  "1-Year",  scan_1y_breakout),
+    (126,  "6-Month", scan_6m_consolidation_breakout),
+)
+
+
 def scan_all_duration_breakout(df: pd.DataFrame) -> dict | None:
     """Every consolidation-breakout duration in a single pass.
 
@@ -1638,6 +1657,305 @@ def scan_high_tight_flag(df: pd.DataFrame, min_pole_pct: float = 90.0,
     ]
     return {"pattern_type": "High Tight Flag", "tags": tags,
             "reasons": reasons, "score": score}
+
+
+# ── Qullamaggie (Kristjan Kullamägi) setups — the daily-bar halves ───────────
+# He trades three setups: the breakout/continuation, the Episodic Pivot and the
+# parabolic short (strategies/Qullamaggie-Momentum-Setups.md). These two are the
+# long ones. His ENTRY is intraday — the opening-range high — with the low of the
+# entry day as the stop. This repo has no intraday store, so a card's entry is
+# the daily close and its stop the day's low: the nearest daily proxy, which is a
+# different (later, wider) trade than his. Neither card carries a target — he
+# trails with the 10/20 MA rather than aiming at a level — so the backtest
+# harness measures their SIGNAL and does not simulate a plan. Both UNMEASURED.
+
+def scan_qullamaggie_breakout(df: pd.DataFrame, min_run_pct: float = 30.0,
+                              run_lookback: int = 126, max_base_bars: int = 30,
+                              min_base_bars: int = 3,
+                              max_base_depth_pct: float = 25.0,
+                              max_tight_ratio: float = 0.8,
+                              min_vol_x: float = 1.5,
+                              near_pct: float = 3.0) -> dict | None:
+    """Qullamaggie breakout / continuation on daily bars.
+
+    1. A prior run: the pole high (highest high of the last `max_base_bars`
+       sessions before today) sits >= `min_run_pct` above the lowest low of the
+       `run_lookback` sessions before it.
+    2. An orderly base after that high: at least `min_base_bars` bars, no deeper
+       than `max_base_depth_pct` off the pole high, and TIGHT — the last 5 base
+       bars' average range is <= `max_tight_ratio` of the range on the 20 bars
+       into the high (volatility contraction).
+    3. Riding rising short MAs: SMA10 > SMA20, SMA20 higher than 5 bars ago, and
+       yesterday's close at or above the SMA20.
+    4. Today: a close above the base high (the pivot) on >= `min_vol_x` × the
+       prior 20-day average volume → BREAKOUT (actionable). Within `near_pct`%
+       of the pivot, or above it on light volume → a pre-breakout setup card,
+       `actionable: False`: the alert level for an intraday entry.
+    """
+    if "volume" not in df.columns:
+        return None
+    # yfinance hands back an unfinished session as a NaN-price bar WITH volume;
+    # every NaN comparison is False, so it would slip through each gate below
+    # (the same trap scan_pead documents).
+    df = df.dropna(subset=["open", "high", "low", "close", "volume"])
+    if len(df) < run_lookback + max_base_bars + 5:
+        return None
+    h = df["high"].to_numpy(dtype=float)
+    l = df["low"].to_numpy(dtype=float)
+    c = df["close"].to_numpy(dtype=float)
+    v = df["volume"].to_numpy(dtype=float)
+    n = len(df)
+
+    zone_start = n - 1 - max_base_bars
+    p = zone_start + int(h[zone_start:n - 1].argmax())        # pole-high bar
+    base_len = n - 2 - p                                       # bars p+1 .. n-2
+    if base_len < min_base_bars:
+        return None
+
+    pole_high = float(h[p])
+    run_start = max(0, p - run_lookback)
+    low_idx = run_start + int(l[run_start:p + 1].argmin())
+    run_low = float(l[low_idx])
+    if run_low <= 0:
+        return None
+    run_pct = (pole_high - run_low) / run_low * 100
+    if run_pct < min_run_pct:
+        return None
+
+    base_h = h[p + 1:n - 1]
+    base_l = l[p + 1:n - 1]
+    pivot = float(base_h.max())
+    base_low = float(base_l.min())
+    depth = (pole_high - base_low) / pole_high * 100
+    if depth > max_base_depth_pct:
+        return None
+
+    rng = h - l
+    leg_rng = float(rng[max(low_idx, p - 19):p + 1].mean())
+    base_rng = float(rng[max(p + 1, n - 6):n - 1].mean())
+    if not leg_rng > 0:
+        return None
+    tight_ratio = base_rng / leg_rng
+    if tight_ratio > max_tight_ratio:
+        return None
+
+    close_s = df["close"].astype(float)
+    sma10 = close_s.rolling(10).mean().to_numpy()
+    sma20 = close_s.rolling(20).mean().to_numpy()
+    if np.isnan(sma20[-6]) or np.isnan(sma10[-1]):
+        return None
+    if not (sma10[-1] > sma20[-1] and sma20[-1] > sma20[-6] and c[-2] >= sma20[-2]):
+        return None
+
+    vol_avg20 = float(v[n - 21:n - 1].mean())
+    vol_avg50 = float(v[n - 51:n - 1].mean())
+    if not vol_avg20 > 0:
+        return None
+    vol_x = float(v[-1]) / vol_avg20
+    last = float(c[-1])
+    cleared = last > pivot
+    breakout = cleared and vol_x >= min_vol_x
+    near = last >= pivot * (1 - near_pct / 100)
+    if not (breakout or near):
+        return None
+
+    atr = float(_atr_series(df, 14).iloc[-1])
+    if breakout:
+        entry, stop = last, float(l[-1])                      # low of the day
+        state = f"Breakout on {vol_x:.1f}× volume"
+    else:
+        # Not a trade yet. The level to watch is the pivot; the stop is the
+        # recent low a low-of-day stop would sit near if it triggers tomorrow.
+        entry, stop = pivot, float(l[n - 3:].min())
+        state = ("Pre-breakout: pivot cleared on light volume" if cleared
+                 else f"Pre-breakout: within {(pivot - last) / pivot * 100:.1f}% of pivot")
+
+    score = 50.0
+    score += min(15.0, (run_pct - min_run_pct) / 70 * 15)                 # 30→100%
+    score += max(0.0, (max_tight_ratio - tight_ratio) / max_tight_ratio) * 20
+    score += (max_base_depth_pct - depth) / max_base_depth_pct * 5
+    if breakout:
+        score += 5 + min(5.0, (vol_x - min_vol_x) * 2.5)
+    score = round(min(100.0, score), 1)
+
+    tags = [f"{run_pct:.0f}% run", f"{depth:.0f}% base", f"{base_len}d base",
+            f"range {tight_ratio:.0%} of leg"]
+    tags.append("Breakout" if breakout else "Pre-breakout")
+    reasons = [
+        f"Prior run: +{run_pct:.0f}% into {pole_high:.2f}",
+        f"Base: {base_len} bars, {depth:.1f}% deep, pivot {pivot:.2f}",
+        f"Tight: last-5-bar range is {tight_ratio:.0%} of the range on the "
+        f"leg up — volatility contracting",
+        f"Riding the short MAs: SMA10 {sma10[-1]:.2f} > rising SMA20 {sma20[-1]:.2f}",
+        state,
+    ]
+    if atr > 0:
+        # His "skip it if the low-of-day stop is wider than ~1 ATR" rule is about
+        # an opening-range entry. A daily-close entry on a breakout day is nearly
+        # always wider than that (a tag fired on ~every breakout in a 150-name
+        # sample), so the card reports the cost instead of vetoing on it.
+        reasons.append(f"Stop is {(entry - stop) / atr:.1f}× ATR below the entry — "
+                       "size the position to that; an opening-range entry "
+                       "would sit far closer")
+    card = {
+        "pattern_type": "Qullamaggie Breakout",
+        "tags": tags,
+        "reasons": reasons,
+        "score_base": score,
+        "score": score,
+        "signal": _signal_band(score),
+        "rs_raw": round(_rs_raw(df), 3),
+        "vol_x50d": round(float(v[-1]) / vol_avg50, 2) if vol_avg50 > 0 else None,
+        "entry": round(entry, 2),
+        "stop": round(stop, 2),
+        "pivot": round(pivot, 2),
+    }
+    if not breakout:
+        card["actionable"] = False
+    return card
+
+
+def scan_episodic_pivot(df: pd.DataFrame, min_gap_pct: float = 8.0,
+                        min_vol_x: float = 3.0, max_bars_ago: int = 3,
+                        quiet_lookback: int = 63,
+                        max_prior_run_pct: float = 25.0,
+                        min_close_pos: float = 0.5) -> dict | None:
+    """Qullamaggie Episodic Pivot on daily bars.
+
+    Fires on the most recent bar within the last `max_bars_ago` sessions that:
+    * gapped up >= `min_gap_pct`% (open vs the prior close);
+    * traded >= `min_vol_x` × its prior 50-day average volume;
+    * came out of a QUIET stock — the close before the gap was no more than
+      `max_prior_run_pct`% above the close `quiet_lookback` sessions earlier, so
+      this is a re-rating, not another leg of a run already priced;
+    * closed in the upper part of its range (>= `min_close_pos`) — the gap was
+      bought, not faded.
+    It must still be HOLDING: no later bar has traded below the gap-day low,
+    which is his EP stop. The catalyst is not visible in price; the enrichment
+    pass checks the NSE result calendar and tags earnings-confirmed gaps.
+    """
+    if "volume" not in df.columns:
+        return None
+    df = df.dropna(subset=["open", "high", "low", "close", "volume"])  # see above
+    if len(df) < quiet_lookback + 55:
+        return None
+    o = df["open"].to_numpy(dtype=float)
+    h = df["high"].to_numpy(dtype=float)
+    l = df["low"].to_numpy(dtype=float)
+    c = df["close"].to_numpy(dtype=float)
+    v = df["volume"].to_numpy(dtype=float)
+    n = len(df)
+
+    hit = None
+    for k in range(max_bars_ago + 1):
+        e = n - 1 - k
+        prev = c[e - 1]
+        if not prev > 0:
+            continue
+        gap = (o[e] / prev - 1) * 100
+        if gap < min_gap_pct:
+            continue
+        vol_avg = float(v[e - 50:e].mean())
+        if not vol_avg > 0:
+            continue
+        vol_x = float(v[e]) / vol_avg
+        if vol_x < min_vol_x:
+            continue
+        base = c[e - 1 - quiet_lookback]
+        prior_run = (prev / base - 1) * 100 if base > 0 else float("inf")
+        if prior_run > max_prior_run_pct:
+            continue
+        span = h[e] - l[e]
+        close_pos = (c[e] - l[e]) / span if span > 0 else 1.0
+        if close_pos < min_close_pos:
+            continue
+        hit = (e, k, gap, vol_x, prior_run, close_pos)
+        break
+    if hit is None:
+        return None
+    e, k, gap, vol_x, prior_run, close_pos = hit
+
+    ep_low = float(l[e])
+    if k and float(l[e + 1:].min()) < ep_low:
+        return None                                            # undercut — stopped
+    last = float(c[-1])
+    since = (last / c[e - 1] - 1) * 100
+    atr = float(_atr_series(df, 14).iloc[e - 1])
+
+    score = 50.0
+    score += min(15.0, (gap - min_gap_pct) / 12 * 15)                    # 8→20%
+    score += min(15.0, (vol_x - min_vol_x) / 7 * 15)                     # 3→10×
+    score += max(0.0, min(10.0, (max_prior_run_pct - prior_run) / 50 * 10))
+    score += (close_pos - min_close_pos) / (1 - min_close_pos) * 10 if min_close_pos < 1 else 0
+    score = round(min(100.0, score), 1)
+
+    when = "today" if k == 0 else f"{k}d ago"
+    tags = [f"{gap:.0f}% gap", f"{vol_x:.1f}× vol", f"EP {when}",
+            f"{prior_run:+.0f}% prior 3m"]
+    reasons = [
+        f"Gapped +{gap:.1f}% {when} on {vol_x:.1f}× the 50-day average volume",
+        f"Quiet beforehand: {prior_run:+.1f}% over the {quiet_lookback} sessions "
+        f"before the gap — a re-rating, not a late leg",
+        f"Gap was bought: closed at {close_pos:.0%} of the day's range",
+        f"Holding: {since:+.1f}% vs the pre-gap close, gap-day low {ep_low:.2f} intact",
+        "Catalyst not visible in price — check the news (enrichment tags "
+        "earnings gaps against the NSE result calendar)",
+    ]
+    if atr > 0:
+        # Pre-gap ATR, so the reader sees what the gap-day-low stop costs in the
+        # stock's OLD volatility — EPs are wide by nature; this sizes, not vetoes.
+        reasons.append(f"Stop at the gap-day low is {(last - ep_low) / atr:.1f}× the "
+                       f"pre-gap ATR — size the position to that")
+    event_date = None
+    try:
+        ts = df.index[e]
+        if hasattr(ts, "date"):
+            event_date = ts.date().isoformat()
+    except Exception:
+        pass
+    return {
+        "pattern_type": "Episodic Pivot",
+        "tags": tags,
+        "reasons": reasons,
+        "score_base": score,
+        "score": score,
+        "signal": _signal_band(score),
+        "rs_raw": round(_rs_raw(df), 3),
+        "vol_x50d": round(vol_x, 2),
+        "entry": round(last, 2),
+        "stop": round(ep_low, 2),              # his EP stop: the gap-day low
+        "event_date": event_date,
+    }
+
+
+def _enrich_episodic_pivot(results: list[dict]) -> list[dict]:
+    """Tag each EP with whether the gap lines up with a real result date.
+
+    Tag only — no score bonus. Whether an earnings EP beats a non-earnings one
+    is a measurement this desk has not made. Failure-tolerant like the PEAD hook.
+    """
+    try:
+        import earnings_calendar as ec
+    except Exception as e:
+        log.debug("EP earnings enrichment unavailable: %s", e)
+        return results
+    for hit in results:
+        try:
+            rec = ec.reconcile_event(hit.get("symbol"), hit.get("event_date"))
+        except Exception as e:
+            log.debug("EP enrichment skipped for %s: %s", hit.get("symbol"), e)
+            continue
+        hit["earnings_state"] = rec.get("state")
+        tags = hit.setdefault("tags", [])
+        reasons = hit.setdefault("reasons", [])
+        if rec.get("state") == ec.CONFIRMED:
+            tags.insert(0, "Earnings EP")
+            reasons[:] = [r for r in reasons if not r.startswith("Catalyst not visible")]
+            reasons.append(f"Catalyst: results dated {rec.get('earnings_date')} — "
+                           "an earnings gap")
+        elif rec.get("state") == ec.GAP_ONLY:
+            tags.append("Non-earnings gap")
+    return results
 
 
 def scan_structural_breakout(df: pd.DataFrame, lookback: int = 120,
@@ -2054,6 +2372,25 @@ def compute_pre_breakout_conviction(df: pd.DataFrame) -> dict | None:
         "rsi": round(rsi, 1) if rsi is not None else None,
         "reasons": reasons,
     }
+
+
+def pre_breakout_gate(df: pd.DataFrame) -> bool:
+    """The Chartink "Pre-Breakout Setup (1-2 Day)" clause, evaluated locally so
+    the screener needs no Chartink session. Same five gates, same numbers:
+    close > EMA50; close <= prior 20-day high and > 90% of it; 40 < RSI14 < 72;
+    volume < 1.3x its 20-day mean; volume > 50,000 shares.
+    """
+    if df is None or len(df) < 60:
+        return False
+    close, high, volume = df["close"], df["high"], df["volume"]
+    last, vol = float(close.iloc[-1]), float(volume.iloc[-1])
+    prior_high = float(high.iloc[-21:-1].max())
+    rsi = float(_rsi_series(close, 14).iloc[-1])
+    return (last > float(_ema_series(close, 50).iloc[-1])
+            and 0.90 * prior_high < last <= prior_high
+            and 40 < rsi < 72
+            and vol < 1.3 * float(volume.tail(20).mean())
+            and vol > 50_000)
 
 
 def compute_ibd_rs_blend(df: pd.DataFrame) -> float | None:
@@ -2688,6 +3025,12 @@ def detect_structure_chain(df: pd.DataFrame, pivot_len: int = 15,
 # names — which makes it an OWNER decision about what "structure" means at each
 # timeframe, not a default to tidy. Every read carries its own `params.pivot_len`,
 # so a consumer can always say which definition produced the word.
+#
+# OWNER DECIDED 2026-10-15 (B-42r, Option C): keep BOTH, named. pivot_len 5 is
+# "short-term structure" (the SMC scanners, and the definition B-41m measured the
+# sweep edge on); 15 is "swing structure" (this read's default and the chart's
+# Structure Break Chain). Neither default changes. A surface that shows both shows
+# ONE agreement reading of them (smc_state.py), never two peer columns.
 # ─────────────────────────────────────────────────────────────────────────────
 
 def label_swing_sequence(swings: list[dict], tol_pct: float = 0.0) -> list[dict]:
@@ -4000,6 +4343,142 @@ def scan_liquidity_sweep_bear(df: pd.DataFrame, max_bars_ago: int = 3,
     }
 
 
+# ── B-182 · Bull Trap — failed breakout on weak volume with bearish divergence ──
+# Every threshold is a named prior, fixed in the B-182 pre-registration
+# (trading-wiki analyses/Bull-Trap-Detector.md) before any forward return.
+BT_RES_LOOKBACK = 20     # resistance = highest high of the prior 20 sessions
+BT_FAIL_BARS = 3         # close back below it within 3 sessions of the breakout
+BT_WEAK_VOL_X = 1.0      # breakout-bar volume below the prior 20-session average
+BT_DIV_MIN_PTS = 3.0     # RSI(14) at the new high this many points under RSI at the old high
+BT_MIN_RES_AGE = 5       # the old high must be at least 5 sessions before the breakout
+BT_MIN_GAP = 10          # at most one event per 10 sessions
+#: RSI is not read for divergence in the first 100 bars of the frame: Wilder's
+#: RSI needs that long to forget its seed. Found on SUNPHARMA before the run —
+#: a 300-bar window read a 4.5-pt divergence that the full history reads as 0.3.
+BT_RSI_WARMUP = 100
+
+
+def bull_trap_events(df: pd.DataFrame, *, res_lookback: int = BT_RES_LOOKBACK,
+                     fail_bars: int = BT_FAIL_BARS, weak_vol_x: float = BT_WEAK_VOL_X,
+                     div_min: float = BT_DIV_MIN_PTS, min_res_age: int = BT_MIN_RES_AGE,
+                     min_gap: int = BT_MIN_GAP) -> list[dict]:
+    """Every failed breakout in `df`, each graded for the two bull-trap tells.
+
+    A FAILED BREAKOUT at breakout bar b and trap bar t:
+      * R = highest high of the `res_lookback` sessions before b (bar `res_bar`);
+      * close[b] > R and close[b-1] <= R  — the first close above resistance;
+      * t = the first bar in b+1 … b+fail_bars that closes back below R.
+    The event is dated t: the close at which the trap is known.
+
+    Graded on:
+      * weak_vol   — volume[b] < weak_vol_x × mean(volume[b-20 : b]);
+      * divergence — price made a higher high but RSI(14) did not: RSI at the
+        highest high of b … t is ≥ div_min points below RSI at res_bar, and
+        res_bar is at least `min_res_age` sessions before b and at least
+        BT_RSI_WARMUP bars into the frame (RSI seed has decayed).
+    `full` (a BULL TRAP) = weak_vol AND divergence. Spacing (on t): a full trap
+    must be `min_gap` sessions after the previous FULL trap; a plain failed
+    breakout must be `min_gap` after the previous event of either kind. A plain
+    failed breakout never suppresses a full trap (amended before the run,
+    2026-10-23). Uses only bars up to t — no look-ahead.
+    """
+    if df is None or len(df) < res_lookback + 20:
+        return []
+    h = df["high"].to_numpy(float)
+    c = df["close"].to_numpy(float)
+    v = df["volume"].to_numpy(float) if "volume" in df else np.zeros(len(df))
+    rsi = _rsi_series(df["close"].astype(float), 14).to_numpy()
+    n = len(df)
+    out, last_any, last_full = [], -10**9, -10**9
+    b = max(res_lookback, 20) + 1
+    while b < n:
+        win = h[b - res_lookback:b]
+        R = float(win.max())
+        res_bar = b - res_lookback + int(len(win) - 1 - np.argmax(win[::-1]))
+        if not (c[b] > R and c[b - 1] <= R):
+            b += 1
+            continue
+        t = next((k for k in range(b + 1, min(b + fail_bars, n - 1) + 1) if c[k] < R), None)
+        if t is None:
+            b += 1
+            continue
+        vol20 = float(v[b - 20:b].mean())
+        vol_x = float(v[b] / vol20) if vol20 > 0 else None
+        peak = b + int(np.argmax(h[b:t + 1]))
+        r_new, r_old = rsi[peak], rsi[res_bar]
+        div_pts = (float(r_old - r_new) if np.isfinite(r_new) and np.isfinite(r_old)
+                   else None)
+        weak = vol_x is not None and vol_x < weak_vol_x
+        div = (div_pts is not None and div_pts >= div_min and b - res_bar >= min_res_age
+               and res_bar >= BT_RSI_WARMUP)
+        full = bool(weak and div)
+        if t - (last_full if full else last_any) < min_gap:
+            b = t + 1
+            continue
+        out.append({"breakout_bar": b, "trap_bar": t, "res_bar": res_bar, "peak_bar": peak,
+                    "level": round(R, 2), "peak_high": round(float(h[peak]), 2),
+                    "vol_x": None if vol_x is None else round(vol_x, 2),
+                    "rsi_old": None if not np.isfinite(r_old) else round(float(r_old), 1),
+                    "rsi_new": None if not np.isfinite(r_new) else round(float(r_new), 1),
+                    "div_pts": None if div_pts is None else round(div_pts, 1),
+                    "weak_vol": bool(weak), "divergence": bool(div),
+                    "full": full})
+        last_any = t
+        if full:
+            last_full = t
+        b = t + 1
+    return out
+
+
+def scan_bull_trap(df: pd.DataFrame, max_bars_ago: int = 3) -> dict | None:
+    """Bull Trap (B-182, Risk lane): a breakout above 20-session resistance that
+    closed back below within 3 sessions, on below-average breakout volume, with
+    a bearish RSI divergence at the new high. Fires only on a FULL trap whose
+    trap bar is within `max_bars_ago` and whose level is still not reclaimed.
+
+    Registered under Risk, so a NEGATIVE forward edge is the desired direction —
+    a name to avoid or exit, not a short.
+    """
+    d = df.dropna(subset=["close"])
+    evs = [e for e in bull_trap_events(d) if e["full"]]
+    if not evs:
+        return None
+    ev = evs[-1]
+    n = len(d)
+    bars_ago = n - 1 - ev["trap_bar"]
+    last = float(d["close"].iloc[-1])
+    if bars_ago > max_bars_ago or last >= ev["level"]:
+        return None
+    invalidation = round(ev["peak_high"] * 1.005, 2)
+    depth = (ev["level"] - last) / ev["level"] * 100
+    base = (40.0 + min(ev["div_pts"], 15.0) + 15.0 * max(0.0, 1.0 - ev["vol_x"])
+            + (10.0 if bars_ago <= 1 else 0.0) + min(depth * 3.0, 15.0))
+    dates = d.index if not isinstance(d.index, pd.RangeIndex) else None
+    when = (lambda i: str(pd.Timestamp(dates[i]).date())) if dates is not None else (lambda i: f"bar {i}")
+    reasons = [
+        f"Broke above 20-session resistance ₹{ev['level']:.2f} on {when(ev['breakout_bar'])} "
+        f"and closed back below it {ev['trap_bar'] - ev['breakout_bar']} session(s) later",
+        f"Breakout volume only {ev['vol_x']:.2f}× its 20-session average — no real demand",
+        f"Bearish RSI divergence: price made a higher high (₹{ev['peak_high']:.2f}) but "
+        f"RSI {ev['rsi_new']:.0f} vs {ev['rsi_old']:.0f} at the prior high",
+        f"Invalidated on a close above ₹{invalidation:.2f}",
+        "⚠ Risk flag, not a short signal — B-182: too few traps to measure (55); "
+        "plain failed breakouts showed no negative edge",
+    ]
+    return {
+        "pattern_type": "Bull Trap",
+        "tags": ["Bull trap", f"₹{ev['level']:.0f}", f"vol {ev['vol_x']:.1f}×",
+                 f"RSI −{ev['div_pts']:.0f}", f"{bars_ago}d ago"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, base), 1),
+        "rs_raw": _rs_raw(d),
+        "entry": round(last, 2),
+        "stop": invalidation,
+        "target": None,
+        "vol_x50d": ev["vol_x"],
+    }
+
+
 def scan_ict_setup(df: pd.DataFrame, pivot_len: int = 5,
                    lookback: int = 120,
                    min_body_ratio: float = 0.5) -> dict | None:
@@ -4353,6 +4832,10 @@ def scan_early_reversal(df: pd.DataFrame) -> dict | None:
     }
 
 
+#: B-132: AB=CD plan stop distance below D, in ATR14 (abcd_stop_study.py).
+ABCD_STOP_ATR = 2.0
+
+
 def scan_harmonic_reversal(df: pd.DataFrame) -> dict | None:
     """Fibonacci-ratio harmonic pattern (Gartley/Bat/Butterfly/Crab) completing
     at D within the last 10 bars — low-risk / high-reward reversal setup."""
@@ -4375,6 +4858,21 @@ def scan_harmonic_reversal(df: pd.DataFrame) -> dict | None:
     t = h["trade"]
     if t["rr_to_t2"] < 1.5:
         return None
+    # B-132 (2026-10-14, pre-registered, fresh 200-name panel): the AB=CD stop at
+    # D - 0.5% of D stopped 67% of plans and gave the signal's edge away. D - 2 x
+    # ATR14 beat it by +0.52pp a trade (p=0.0019) and was itself positive
+    # (+0.56%/trade, per-symbol p=0.012), stop-outs 67% -> 21%. Applied exactly
+    # as tested: the R:R gate above stays on the ORIGINAL stop (it defines the
+    # signal set that was measured); only the plan's stop moves. XABCD patterns
+    # keep their X-based stop — they were not part of the test.
+    if "AB=CD" in str(h.get("pattern", "")):
+        atr = float(_atr_series(df, 14).iloc[-1])
+        if atr > 0:
+            new_stop = round(float(t["entry"]) - ABCD_STOP_ATR * atr, 2)
+            risk = float(t["entry"]) - new_stop
+            t = {**t, "stop": new_stop,
+                 "rr_to_t2": round((float(t["targets"][1]) - float(t["entry"])) / risk, 2)
+                 if risk > 0 else t["rr_to_t2"]}
     reasons = [
         f"{h['pattern']} ({h['direction']}) completed at D, {h['age_bars']} bars ago",
         # Generic join: the four-point AB=CD family has no X, so no AB/XA or
@@ -8937,7 +9435,68 @@ def scan_breakout_retest(df: pd.DataFrame, lookback: int = 120,
     }
 
 
+
+# ── Bullish CHoCH (fresh change of character) ────────────────────────────────
+def scan_bullish_choch(df: pd.DataFrame, within: int = 5,
+                       pivot_len: int = 5) -> dict | None:
+    """Bullish CHoCH in the last `within` sessions: first close above the latest
+    confirmed swing high while structure was bearish, not since invalidated by a
+    close below a confirmed swing low. Logic lives in tools/choch_scan.py
+    (`bullish_choch`), which keeps a CHoCH even when a BOS followed it.
+    MEASURED NO EDGE (choch_study.py) - PIPELINE_EXCLUDED."""
+    from choch_scan import bullish_choch   # lazy: choch_scan imports this module
+    r = bullish_choch(df, pivot_len=pivot_len, within=within)
+    if not r:
+        return None
+    ba = r["bars_ago"]
+    when = "today" if ba == 0 else f"{ba} bar{'s' if ba > 1 else ''} ago"
+    close, level, leg = r["close"], r["broken_level"], r.get("leg_low")
+    reasons = [
+        f"Bullish CHoCH {when}: closed above swing high {level:.2f} while "
+        f"structure was bearish (pivot {pivot_len})",
+        f"Price {close:.2f}, {r['pct_above_level']:+.2f}% vs the broken level",
+        f"Break candle body {r['body_ratio']:.2f} of range"
+        + (" - displacement" if r["displacement"] else " - soft close")
+        + (f", {r['break_rvol']:.1f}x 20d volume" if r.get("break_rvol") else ""),
+    ]
+    if r["bos_after"]:
+        reasons.append(f"{r['bos_after']} BOS since the CHoCH - new uptrend extending")
+    if r.get("ote_zone"):
+        reasons.append(f"OTE pullback zone (61.8-79%): {r['ote_zone']}")
+    card = {
+        "pattern_type": "Bullish CHoCH (market structure shift)",
+        "tags": ["CHoCH", when] + (["Displacement"] if r["displacement"] else [])
+                + (["Measured: no edge"]),
+        "reasons": reasons,
+        "score": round(max(10.0, 70.0 - 8.0 * ba
+                           + (10.0 if r["displacement"] else 0.0)
+                           + min(10.0, 3.0 * ((r.get("break_rvol") or 1.0) - 1.0))), 1),
+        "choch_level": level,
+        "choch_bars_ago": ba,
+        "rs_raw": _rs_raw(df),
+    }
+    if leg and leg < close:
+        card.update({"entry": close, "stop": leg,
+                     "target": round(close + 2 * (close - leg), 2)})
+    return card
+
+
 SCANNERS: dict[str, dict] = {
+    "Bullish CHoCH (last 5 sessions)": {
+        "fn": scan_bullish_choch,
+        "description": (
+            "Fresh bullish change of character: within the last 5 sessions a daily "
+            "close broke the most recent confirmed swing high (pivot 5) while "
+            "structure was bearish, and no close has since broken a confirmed swing "
+            "low. Caught even if a BOS followed. Stop = swing low that started the "
+            "leg, target 2R; OTE 61.8-79% zone shown for pullback entries. "
+            "MEASURED NO EDGE (choch_study.py, 2026-10-07, 459 names, ~13y avg daily history): "
+            "+0.24% @20d vs bearish-state baseline, p_rot 0.511, n=15,851; "
+            "+0.77% @60d, p_rot 0.263. The card window vs all bars is -0.30%. "
+            "Attention list - PIPELINE_EXCLUDED, never votes."
+        ),
+        "category": "Entry",
+    },
     "Shallow Flip (Renko, bounded correction)": {
         "fn": scan_shallow_flip,
         "description": (
@@ -9140,9 +9699,11 @@ SCANNERS: dict[str, dict] = {
             "sessions — the Simple Volume 'no supply + demand' read. A screen, "
             "not a trade trigger: no entry/stop/target, no confluence vote. The "
             "thesis is that a new-high stock with no selling pressure visible in "
-            "volume is in the cleanest part of its move. UNMEASURED — ships at "
-            "weight 0 until the gate-vs-no-gate study (B-122) says whether the "
-            "supply filter adds anything to the family. Built from the Python "
+            "volume is in the cleanest part of its move. MEASURED NO DIFFERENCE "
+            "(no_supply_gate_study.py, B-122, 2026-09-23, 24 symbols, paired by "
+            "symbol): gated vs ungated family -0.118% @10d (p=0.79), +0.157% @20d "
+            "(p=0.25), +0.789% @60d (p=0.25) — the filter picks a subset, not a "
+            "better one. Stays weight 0, a screen for attention. Built from the Python "
             "port of simple_volume.js with bar-for-bar parity."
         ),
         "category": "Momentum",
@@ -9259,6 +9820,22 @@ SCANNERS: dict[str, dict] = {
             "SIGNAL as measured and the STOP as a known defect."
         ),
         "category": "Entry",
+    },
+    "Bull Trap": {
+        "fn": scan_bull_trap,
+        "description": (
+            "Bull trap (B-182) — a close above 20-session resistance that fails: "
+            "price closes back below within 3 sessions, the breakout bar's volume "
+            "was below its 20-session average, and RSI(14) at the new high is at "
+            "least 3 points under RSI at the prior high (bearish divergence). "
+            "Risk flag rather than a short signal: a negative forward edge is the "
+            "desired direction. Card shows CMP and an invalidation above the trap "
+            "high; target=None. MEASURED (B-182, pre-registered): TOO FEW to read — 55 full "
+            "traps on 49 names, 20-session edge +0.03% (p 0.98); plain failed "
+            "breakouts (3,563 events) +0.11% (p 0.47), so the base pattern does not "
+            "warn either. Display only; re-run when the panel grows."
+        ),
+        "category": "Risk",
     },
     "Liquidity Sweep Bear": {
         "fn": scan_liquidity_sweep_bear,
@@ -9377,6 +9954,11 @@ SCANNERS: dict[str, dict] = {
             "longest duration it cleared; results table sorts longest first."
         ),
         "category": "Pattern",
+        # The 1Y / 5Y / 10Y tiers need 257 / 1,265 / 2,525 bars. On the default
+        # ~300-bar window only the 6M tier could ever fire, so this scanner
+        # silently reported 6-month breakouts under a 6M–10Y label. It replaces
+        # the Chartink 5Y/10Y scans, so it gets the full listing history.
+        "needs_full_history": True,
     },
     "Flag & Pole": {
         "fn": _fp.scan_flag_pole,
@@ -9431,6 +10013,50 @@ SCANNERS: dict[str, dict] = {
             "Momentum Buildup ingest)"
         ),
         "category": "Pattern",
+    },
+    "Qullamaggie Breakout": {
+        "fn": scan_qullamaggie_breakout,
+        "description": (
+            "Qullamaggie's primary setup on daily bars: a prior run of ≥30% "
+            "inside ~6 months, then an orderly base off the high (≥3 bars, ≤25% "
+            "deep) that is TIGHT — the last 5 bars' range ≤80% of the range on "
+            "the leg up — while price rides a rising SMA10 > SMA20. Fires as "
+            "BREAKOUT on a close above the base high on ≥1.5× 20-day volume "
+            "(entry the close, stop the day's low, his stop), or as a "
+            "PRE-BREAKOUT card within 3% of that pivot (not actionable: the "
+            "pivot is the alert level). His real entry is the intraday "
+            "opening-range high, which this desk cannot see, so the daily card "
+            "is a later, wider trade. No target — he trails with the 10/20 MA. "
+            "His market filter (NIFTY SMA10 above SMA20) is shown on the Home "
+            "regime line. MEASURED NULL (qullamaggie_edge_study.py, B-147, "
+            "2026-10-14, 459 names, 19y, 3,672 breakouts on 400 symbols): "
+            "+0.67 points over the same stock's ordinary bar @20d, p=0.031 — "
+            "short of the pre-registered 0.0125 bar (+1.76 @60d, p=0.005, not "
+            "the decisive horizon). With his trail, 19% reached +3R before the "
+            "low-of-day stop, 33% won, avg win 2.66x avg loss, +0.18R a trade. "
+            "His filter did not help on NSE: signals with it OFF did no worse. "
+            "An attention list, not a measured edge."
+        ),
+        "category": "Momentum",
+    },
+    "Episodic Pivot": {
+        "fn": scan_episodic_pivot,
+        "enrich": _enrich_episodic_pivot,
+        "description": (
+            "Qullamaggie's Episodic Pivot on daily bars: a ≥8% gap-up on ≥3× the "
+            "50-day average volume, out of a QUIET stock (≤25% gain over the 3 "
+            "months before the gap), closing in the upper half of the day's "
+            "range, within the last 3 sessions and never undercutting the "
+            "gap-day low since (that low is the stop). Each hit is checked "
+            "against the NSE result calendar and tagged Earnings EP or "
+            "Non-earnings gap — tag only, no score bonus. Overlaps PEAD Drift by "
+            "construction (same Event family, one vote). MEASURED NULL "
+            "(qullamaggie_edge_study.py, B-147, 2026-10-14): 320 gap-day signals "
+            "on 171 symbols, +0.47 points vs the stock's ordinary bar @20d, "
+            "p=0.68. Earnings EPs since 2021 looked stronger than non-earnings "
+            "gaps (n=21 vs 33) — too few to call; descriptive only."
+        ),
+        "category": "Momentum",
     },
     "Structural Breakout": {
         "fn": scan_structural_breakout,
@@ -9573,7 +10199,10 @@ SCANNERS: dict[str, dict] = {
             "2026-09-23; re-measured 2026-10-05 with AB=CD, 300 names, fresh, "
             "next-open fill): +0.55% @20d over 2,389 signals but not stable "
             "across windows, and the plan is -0.18R. Bearish patterns dropped "
-            "because their short thesis failed."
+            "because their short thesis failed. AB=CD plan stop moved to D - 2 x "
+            "ATR14 (B-132, 2026-10-14, pre-registered, fresh 200 names): +0.56% "
+            "a trade vs +0.01% with the old D - 0.5% stop (p=0.0019), stop-outs "
+            "67% -> 21%. The tier is unchanged until B-129r's check is re-run."
         ),
         "category": "Pattern",
     },

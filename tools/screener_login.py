@@ -155,6 +155,35 @@ def capture_session(timeout_s: int = 300, headless: bool = False) -> str | None:
     return None
 
 
+def refresh_silently(timeout_s: int = 25) -> str | None:
+    """Re-read the sessionid from the persistent Playwright profile HEADLESS, with
+    no window and no user action. Works whenever that profile is still logged in
+    (screener.in keeps it signed in for months). Returns the verified sessionid
+    (and caches it) or None. Never raises."""
+    if not PROFILE_DIR.exists():
+        return None
+    try:
+        from playwright.sync_api import sync_playwright
+    except ImportError:
+        return None
+    sid = None
+    try:
+        with sync_playwright() as p:
+            ctx = p.chromium.launch_persistent_context(str(PROFILE_DIR), headless=True)
+            try:
+                page = ctx.pages[0] if ctx.pages else ctx.new_page()
+                page.goto(f"{SCREENER_BASE}/dash/", timeout=timeout_s * 1000)
+                sid = _find_sessionid(ctx.cookies())
+            finally:
+                ctx.close()
+    except Exception:
+        return None
+    if sid and verify_authenticated(sid):
+        save_session(sid)
+        return sid
+    return None
+
+
 def _detect_default_browser() -> str | None:
     """Read the Windows default https handler → 'chrome' | 'edge' | 'brave' | 'firefox'."""
     try:

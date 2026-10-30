@@ -39,6 +39,7 @@ import symbol_directory as symdir
 import ew_module
 import scanner_templates as sc
 import timeframe_board as tfb
+import horizon_geometry as hgeo
 import opportunity_hub as oh
 import screener_scraper as ss
 import multibagger_candidates as mb
@@ -56,13 +57,58 @@ import harmonic_patterns as hp
 import sentiment_index as senti
 import market_verdict as mvd
 import index_strip as istrip
+import live_chrome as lc
 import desk_pages as dpages
+from desk_pages.stock_panels import (  # B-171 extraction
+    _axis_tone,
+    _compare,
+    _cr,
+    _flag_col,
+    _FLAG_TONE,
+    _FLAG_WORD,
+    _gauge_svg,
+    _peer_head_to_head,
+    _period_return,
+    _q,
+    _QTR_ANOMALY_PCT,
+    _render_thesis,
+    _tone_signed,
+    _volume_profile,
+    cached_ownership,
+    fmt_money,
+    fmt_pct,
+    gain_loss_badge,
+    render_condition_table,
+    render_fundamental_header,
+    render_fundamental_history,
+    render_fundamental_signals,
+    render_horizon_geometry,
+    render_momentum_meter,
+    render_context_ladder,
+    render_event_cascade,
+    render_ownership_flow,
+    render_pattern_metrics,
+    render_red_flags)
+from desk_pages.table_cells import (  # B-171 extraction
+    _card_trade_fundamentals_html,
+    _confluence_chips,
+    _fam_of,
+    _pct_tone,
+    _pw,
+    _rating_color,
+    _rs_walk_cell,
+    _rs_walk_lookup,
+    _scanner_stats_html,
+    _svp_caption,
+    _svp_cells,
+    _wl_rs_mom)
 import breadth_strip as bstrip
 import block_deal_intel as bdi
 import deal_infographic as dinf
 import nse_oi_momentum as oim
 import browser_cookie_helper as bch
 import portfolio_risk as prisk
+import position_sizing as psz
 import ui_tables as uit
 import stock_council as council
 import fundamentals_deep as fdeep
@@ -81,6 +127,7 @@ import market_health as mh
 import report_style as rs
 import sector_card as scard
 import opportunity_report as orep
+import pa_report
 import pcr
 import price_levels as plv
 import rrg as rrg_mod
@@ -88,6 +135,10 @@ import ownership_cache as ocache
 import concalls
 import snapshot_store as snapstore
 import snapshot_registry as snapreg
+
+# Beginner-friendly help system
+import ui_help as help
+import help_panels
 
 # The M1 rating lives in rating.py so the headless daily Opportunity Hub job
 # scores with the SAME code the interactive Hub shows. Aliased to the old
@@ -158,7 +209,7 @@ def _share_card_html(title: str, subtitle: str, items: list[dict]) -> tuple[str,
                     f'font-weight:600;">{sym}</a>') if tv else f'<b>{sym}</b>'
             parts.append(("— " if label else "") + link)
         if score is not None and score != "":
-            parts.append(f'<span style="color:#16a34a;font-weight:600;">{score}</span>')
+            parts.append(f'<span style="color:#166534;font-weight:600;">{score}</span>')
         if meta:
             parts.append(f'<span style="color:#8a7a68;">· {meta}</span>')
         rows_html.append(
@@ -203,7 +254,7 @@ def _render_copy_card(card_html: str, plain_text: str, key: str) -> None:
                    padding:7px 14px;cursor:pointer;font-size:13px;font-weight:600;">
             📋 Copy card
           </button>
-          <span id="tbmsg-{key}" style="margin-left:10px;font-size:12px;color:#16a34a;"></span>
+          <span id="tbmsg-{key}" style="margin-left:10px;font-size:12px;color:#166534;"></span>
         </div>
         <script>
         function tbCopy_{key}() {{
@@ -211,7 +262,7 @@ def _render_copy_card(card_html: str, plain_text: str, key: str) -> None:
           var msg  = document.getElementById('tbmsg-{key}');
           var plain = {plain_js};
           var html = card.innerHTML;
-          function ok()  {{ msg.style.color='#16a34a';
+          function ok()  {{ msg.style.color='#166534';
                             msg.textContent='✓ Copied — paste into Telegram / email'; }}
           function bad() {{ msg.style.color='#b45309';
                             msg.textContent='⚠ Blocked — select the card and press Ctrl+C'; }}
@@ -283,14 +334,14 @@ def _render_copy_plain(text: str, key: str) -> None:
                    padding:7px 14px;cursor:pointer;font-size:13px;font-weight:600;">
             💬 Copy plain text
           </button>
-          <span id="tbplmsg-{key}" style="margin-left:10px;font-size:12px;color:#16a34a;"></span>
+          <span id="tbplmsg-{key}" style="margin-left:10px;font-size:12px;color:#166534;"></span>
         </div>
         <script>
         function tbPlain_{key}() {{
           var ta  = document.getElementById('tbpl-{key}');
           var msg = document.getElementById('tbplmsg-{key}');
           var txt = {txt_js};
-          function ok()  {{ msg.style.color='#16a34a';
+          function ok()  {{ msg.style.color='#166534';
                             msg.textContent='✓ Copied — paste into WhatsApp / Telegram'; }}
           function bad() {{ msg.style.color='#b45309';
                             msg.textContent='⚠ Blocked — tap the box and press Ctrl+C'; }}
@@ -574,10 +625,10 @@ st.markdown(
 # ── Content-width constraint ───────────────────────────────────────────────────
 # layout="wide" is kept so the 5-column metric strip and scanner card grid have
 # room to breathe on large monitors, but raw "wide" fills every pixel edge-to-edge
-# on a 4K/ultrawide display — uncomfortable to read and scan. Clamping the main
-# block container to 1 440 px and centering it gives the best of both: wide-mode
-# Streamlit widgets stay proportional at their natural widths, while the whole
-# column sits comfortably in the viewport center at any resolution above that.
+# on an ultrawide display. The clamp was 1 440 px until 2026-10-22; on a large
+# monitor that used under half the screen and squeezed Home's centre pane to
+# ~830 px, so 10-column scans scrolled sideways. 2 200 px fits those tables and
+# still stops short of edge-to-edge on an ultrawide.
 #
 # The selector [data-testid="stMainBlockContainer"] wraps the entire main-content
 # column that Streamlit renders inside the wide layout. The sidebar is a sibling
@@ -586,7 +637,7 @@ st.markdown(
     """
     <style>
       [data-testid="stMainBlockContainer"] {
-        max-width: 1440px !important;
+        max-width: 2200px !important;
         margin-left: auto !important;
         margin-right: auto !important;
         padding-left: 2rem !important;
@@ -1045,41 +1096,46 @@ PAGE_GROUPS = {
     "Screening":        ["Opportunity Hub", "Delete Funnel", "Hidden Treasures", "Screener", "Other Screeners", "Scanner Hub",
                          "Breakout Scans", "High-Growth Screener", "SVP Structure"],
     "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
-    "Research":         ["Predictive Analysis", "Stock Analyzer", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals"],
-    "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts"],
+    "Research":         ["Stock Analyzer", "Sector wise Navigation", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals", "Glossary"],
+    "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts", "Recommendation Audit"],
     "Ops":              ["Pipeline Log", "Scheduler Hub"],
 }
 
 #: One line per page, shown as the tooltip on its nav-popover button (Home no
 #: longer cards the pages). Kept factual — each says what the page DOES, not how
 #: good it is. Any page missing from here still routes fine, just without a hint.
+#: Each starts with its pipeline stage (SCAN → SIGNAL → PLAN → RISK → MONITOR,
+#: per analyses/Pipeline-Alignment-Audit) and "start here" marks the canonical
+#: entry point (B-108, owner chose option b 2026-10-17). Routing is unchanged.
 PAGE_BLURBS = {
-    "Opportunity Hub":      "Ranked daily shortlist across every scanner",
-    "Delete Funnel":        "Technofunda 8-filter noise sieve — deletes to a shortlist",
-    "Hidden Treasures":     "Small/micro-cap conviction screen — ownership + quality",
-    "Screener":             "The core NSE screen with the saved pipeline",
-    "Other Screeners":      "Ownership pipeline, sector rotation, bulk data",
+    "Opportunity Hub":      "SIGNAL — start here · Ranked daily shortlist across every scanner",
+    "Delete Funnel":        "SCAN · Technofunda 8-filter noise sieve — deletes to a shortlist",
+    "Hidden Treasures":     "SCAN · Small/micro-cap conviction screen — ownership + quality",
+    "Screener":             "SCAN — start here · The core NSE screen with the saved pipeline",
+    "Other Screeners":      "SCAN · Ownership pipeline, sector rotation, bulk data",
     # COMPUTED, not typed. This read "24 pattern scanners" against a registry of  # claims-lint: checked B-79
     # 46 -- stale since whenever the 25th shipped, and sitting one hover away
     # from a Home tile that counts the registry correctly (B-79).
-    "Scanner Hub":          f"{len(sc.SCANNERS)} pattern scanners, run on any universe",
-    "Breakout Scans":       "External new-high breakout feeds — Chartink or TradingView",
-    "High-Growth Screener": "Quality growth names on ROE / ROCE / OPM floors",
-    "SVP Structure":        "Volume-profile structure — a bystander lens, not in the pipeline",
-    "Market Sentiment":     "0–100 composite regime gauge, with coverage",
-    "India Market Intel":   "Bulk & block deals, insider trades, gap scanner",
-    "OI Momentum":          "Open-interest build-up and unwinding",
-    "Predictive Analysis":  "Consolidated rating, chart and intel per stock",
-    "Stock Analyzer":       "Full fundamental + technical deep dive",
-    "Sector Map":           "Relative Rotation Graph and sector orbit",
-    "Astro Timing":         "Reversal calendar — context, never an entry",
-    "Telegram Signals":     "Ingested channel calls, parsed and tabulated",
-    "Portfolio":            "Open positions, capital at risk, heat",
-    "Watchlist":            "Tracked names and their trade plans",
-    "Alerts":               "Price and metric alerts you have armed",
-    "Pipeline Log":         "What the 4:05 PM batch did, and whether it failed",
-    "Scheduler Hub":        "Batch jobs & the live alert bot — schedule, run, monitor",
-    "Strategy Hub":         "Chart patterns, trading strategies, and fundamental scores",
+    "Scanner Hub":          f"SIGNAL · {len(sc.SCANNERS)} pattern scanners, run on any universe",
+    "Breakout Scans":       "SCAN · New-high breakout feeds — yfinance 6M–10Y or TradingView",
+    "High-Growth Screener": "SCAN · Quality growth names on ROE / ROCE / OPM floors",
+    "SVP Structure":        "SIGNAL (bystander) · Volume-profile structure — not in the shortlist ranking",
+    "Market Sentiment":     "SCAN · market · 0–100 composite regime gauge, with coverage",
+    "India Market Intel":   "SCAN · market · Bulk & block deals, insider trades, gap scanner",
+    "OI Momentum":          "SCAN · market · Open-interest build-up and unwinding",
+    "Glossary":             "REFERENCE · Plain-English guide to every term, in learning order",
+    "Stock Analyzer":       "RESEARCH · Full fundamental + technical deep dive",
+    "Sector Map":           "SCAN · sectors · Relative Rotation Graph and sector orbit",
+    "Sector wise Navigation":         "RESEARCH · Every industry peer in a ribbon — step through one by one",
+    "Astro Timing":         "CONTEXT · Reversal calendar — context, never an entry",
+    "Telegram Signals":     "SIGNAL · third-party · Ingested channel calls, parsed and tabulated",
+    "Portfolio":            "RISK · Open positions, capital at risk, heat",
+    "Watchlist":            "PLAN · Tracked names and their trade plans",
+    "Alerts":               "MONITOR · Price and metric alerts you have armed",
+    "Recommendation Audit": "MONITOR · How every past shortlist pick did since the day it was picked",
+    "Pipeline Log":         "MONITOR · What the 4:05 PM batch did, and whether it failed",
+    "Scheduler Hub":        "MONITOR · Batch jobs & the live alert bot — schedule, run, monitor",
+    "Strategy Hub":         "SIGNAL · Chart patterns, trading strategies, and fundamental scores",
 }
 
 if "current_page" not in st.session_state:
@@ -1088,7 +1144,10 @@ if "current_page" not in st.session_state:
 # Deep-link: a table's "Analyze ↗" link opens ?nav=analyze&symbol=SYM in a new
 # tab. Consume the params once, route to the Stock Analyzer, pre-load the symbol
 # and prime an auto-run, then clear the URL so sidebar navigation isn't pinned.
-if st.query_params.get("nav") == "analyze" and st.query_params.get("symbol"):
+# ?nav=predict is the old Predictive Analysis link (Sector Lobby's openers,
+# saved bookmarks); that page was merged into the Stock Analyzer, so it lands
+# there too.
+if st.query_params.get("nav") in ("analyze", "predict") and st.query_params.get("symbol"):
     _dl_sym = st.query_params["symbol"].strip().upper()
     st.session_state["current_page"] = "Stock Analyzer"
     st.session_state["selected_symbol"] = _dl_sym
@@ -1150,44 +1209,10 @@ def _batch_freshness() -> str:
     return f"batch {when} · {rel}"
 
 
-#: (yahoo ticker, ribbon label). Three is the ceiling: the strip shares a line
-#: with the breadcrumb, and a fourth starts truncating the page name on a laptop.
-_RIBBON_INDICES = [("^NSEI", "NIFTY"), ("^NSEBANK", "BANKNIFTY"), ("^INDIAVIX", "VIX")]
-
-
-@st.cache_data(ttl=3600, show_spinner=False)
-def _ribbon_quotes(_bucket: int):
-    """Last close and day change for the ribbon indices. ONE yfinance call.
-
-    `_bucket` is a time bucket the caller passes in purely to bust this cache —
-    the long ttl is a backstop, the bucket is the real clock. That indirection
-    buys a refresh cadence that changes with the session (see the call site):
-    a fixed short ttl would re-download the same closed-market numbers all
-    evening, and a fixed long one would freeze the strip during a live session.
-
-    Daily bars, so intraday this is the LAST CLOSE, not a live tick — the same
-    basis as the Nifty stat card on Home. Every failure returns None values and
-    the strip renders "—" rather than a stale or invented number.
-    """
-    try:
-        import yfinance as yf
-        data = yf.download(
-            [t for t, _ in _RIBBON_INDICES], period="7d", interval="1d",
-            progress=False, group_by="ticker", auto_adjust=False, threads=True,
-        )
-    except Exception as e:
-        _log.warning("ribbon quotes fetch failed: %s", e)
-        return [(lbl, None, None) for _, lbl in _RIBBON_INDICES]
-
-    out = []
-    for tkr, lbl in _RIBBON_INDICES:
-        try:
-            closes = data[tkr]["Close"].dropna()
-            last, prev = float(closes.iloc[-1]), float(closes.iloc[-2])
-            out.append((lbl, last, (last - prev) / prev * 100.0))
-        except Exception:
-            out.append((lbl, None, None))
-    return out
+# The ticker tape's quotes (live_chrome.TAPE): ONE yfinance call, daily bars.
+# `_bucket` is the real clock — the caller passes a time bucket so one cached
+# function refreshes every minute in session and every 15 minutes outside it.
+_ribbon_quotes = st.cache_data(ttl=3600, show_spinner=False)(lc.fetch_tape)
 
 
 # ── Horizontal top nav ────────────────────────────────────────────────────────
@@ -1202,7 +1227,7 @@ def _ribbon_quotes(_bucket: int):
 st.markdown('<div id="tb-navstart"></div>', unsafe_allow_html=True)
 
 # Widths, left to right: brand · Home · the five group popovers · spacer ·
-# search · sign-in. The current-page label used to live here; it is a breadcrumb,
+# search · sign-in · help. The current-page label used to live here; it is a breadcrumb,
 # and it now sits on the strip below the bar where a breadcrumb belongs.
 #
 # The quote strip is NOT in this row: width here is scarce (at these weights
@@ -1258,6 +1283,7 @@ with _nav[8]:
 with _nav[9]:
     _signin_control()
 
+
 # ── Breadcrumb + status strip ────────────────────────────────────
 # One 30px line under the bar: where you are on the left, whether the data is
 # current on the right. Rendered as a single markdown flex row rather than
@@ -1283,25 +1309,6 @@ _mkt_state, _mkt_dot, _mkt_label = _market_status()
 # a quarter-hour once it is not. Passing the bucket in (rather than setting a
 # short ttl) is what lets one cached function have two cadences.
 _q_bucket = int(_time.time() // (60 if _mkt_state in ("LIVE", "PRE-OPEN") else 900))
-_quote_html = ""
-for _lbl, _val, _chg in _ribbon_quotes(_q_bucket):
-    if _val is None:
-        _quote_html += (
-            f'<span style="display:inline-flex;gap:5px;align-items:baseline;">'
-            f'<span style="color:{_T["text_muted"]};font-weight:600;">{_lbl}</span>'
-            f'<span style="color:{_T["absent"]};">—</span></span>'
-        )
-        continue
-    _tone = _T["good"] if _chg >= 0 else _T["risk"]
-    _num = f"{_val:,.0f}" if _lbl != "VIX" else f"{_val:,.2f}"
-    _quote_html += (
-        f'<span style="display:inline-flex;gap:5px;align-items:baseline;">'
-        f'<span style="color:{_T["text_muted"]};font-weight:600;">{_lbl}</span>'
-        f'<span style="color:{_T["text"]};font-variant-numeric:tabular-nums;">{_num}</span>'
-        f'<span style="color:{_tone};font-variant-numeric:tabular-nums;">{_chg:+.2f}%</span>'
-        f'</span>'
-    )
-
 st.markdown(
     f'<div style="display:flex;align-items:center;justify-content:space-between;'
     f'gap:16px;height:30px;font-size:11.5px;margin:0;'
@@ -1312,8 +1319,6 @@ st.markdown(
     f'  </div>'
     f'  <div style="display:flex;align-items:center;gap:14px;white-space:nowrap;'
     f'color:{_T["text_muted"]};">'
-    f'    {_quote_html}'
-    f'    <span style="color:{_T["border_strong"]};">|</span>'
     f'    <span style="display:inline-flex;align-items:center;gap:5px;">'
     f'      <span style="width:6px;height:6px;border-radius:50%;'
     f'background:{_mkt_dot};display:inline-block;"></span>{_mkt_label}</span>'
@@ -1323,6 +1328,8 @@ st.markdown(
     f'</div>',
     unsafe_allow_html=True,
 )
+# The quotes moved off this line into a scrolling tape under it (2026-10-22).
+lc.render_tape(_tape := _ribbon_quotes(_q_bucket))
 
 # ── ⌘K / Ctrl-K ───────────────────────────────────────────────────
 # Streamlit gives no keyboard API, and st.markdown strips <script>, so the only
@@ -1388,6 +1395,15 @@ st.iframe(
     height=1,    # st.iframe rejects 0; a 1px frame is as invisible as the old 0px one
 )
 
+# Predictive Analysis was merged into the Stock Analyzer (2026-10-25). Anything
+# still routing to it — a session open across the deploy, or a jump that sets
+# the old `pa_symbol` key — lands on the merged page with that symbol loaded.
+if st.session_state["current_page"] == "Predictive Analysis":
+    st.session_state["current_page"] = "Stock Analyzer"
+if _pa_legacy_sym := st.session_state.pop("pa_symbol", None):
+    st.session_state["selected_symbol"] = _pa_legacy_sym
+    st.session_state["last_analyzed"] = _pa_legacy_sym
+
 current_page = st.session_state["current_page"]
 
 # A page that no longer exists must not render a blank screen. This happens to a
@@ -1411,8 +1427,19 @@ ui_jobs.render_panel()
 # ≤ page_size rows renders as a plain dataframe (no controls shown).
 # ──────────────────────────────────────────────────────────────────────────────
 
+def _smc_cells(df) -> dict:
+    """SMC state columns for one symbol's bars (smc_state.py). A failure is blank
+    cells for that row — a context column must not take the table down."""
+    try:
+        import smc_state as _smc
+        return _smc.row(df)
+    except Exception:
+        return {}
+
+
 def _notes_table(df, key: str, symbol_col: str, *, column_config=None,
-                 page_size: int = 200, select_col: str | None = None):
+                 page_size: int = 200, select_col: str | None = None,
+                 preselect: "set[str] | None" = None):
     """A table whose ONLY editable cells are the note and an optional tick-box.
 
     UI-2 (2026-09-10). Generalises the pattern B-63b proved on the Watchlist so
@@ -1432,6 +1459,9 @@ def _notes_table(df, key: str, symbol_col: str, *, column_config=None,
     is a second `st.data_editor` over the same frame, and two editors against one
     table is the drift `columns.py` exists to stop.
 
+    `preselect` starts those symbols ticked. It is still only a tick: the
+    caller's own button is what acts on it, so a suggestion stays a suggestion.
+
     Returns the edited frame so a caller can keep using it.
     """
     import columns as _cols
@@ -1446,7 +1476,9 @@ def _notes_table(df, key: str, symbol_col: str, *, column_config=None,
         # a destructive control at the far right of ~25 columns is a control
         # aimed at whichever row you happened to scroll to. Verified in the
         # running dashboard rather than inferred from the insert position.
-        work.insert(0, select_col, False)
+        _pre = {str(x).strip().upper() for x in (preselect or ())}
+        work.insert(0, select_col, [str(x).strip().upper() in _pre
+                                    for x in work[symbol_col]])
     before = dict(zip((str(x).strip().upper() for x in work[symbol_col]),
                       work["notes"]))
 
@@ -1486,8 +1518,6 @@ def _notes_table(df, key: str, symbol_col: str, *, column_config=None,
                    f"{'…' if len(changed) > 5 else ''}.")
         st.rerun()
     return edited
-
-
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -1950,41 +1980,57 @@ def snapshot_panel(name: str, *, key: str, compact: bool = False,
                 cached_latest_sentiment.clear()
 
     meta, payload = snapshot_get(name)
-    running = q.is_active(label)
-    last_meta = snapstore.latest_meta(name)          # may be an error row
-    c1, c2 = st.columns([1, 4] if not compact else [1, 3])
-    with c1:
-        if st.button(button_label, key=f"{key}_snap_refresh", width="stretch",
-                     disabled=running,
-                     help=help or f"Recompute {spec.label} now (runs in the "
-                                  f"background; the page stays live)."):
-            snapshot_refresh(name)
-            st.rerun()
-    with c2:
-        bits = []
-        if running:
-            bits.append("⏳ refreshing in the background…")
-        if meta is None:
-            bits.append("**No stored run yet** — press ↻ or wait for the scheduled "
-                        "Report Snapshot Refresh (Scheduler Hub).")
-        else:
-            when = meta.run_at_dt.strftime("%d %b %Y %H:%M")
-            stale = snapstore.is_stale(meta)
-            bits.append(f"Last run **{when}**" + (" · ⚠ older than the last close"
-                                                  if stale else "") +
-                        (f" · {meta.elapsed:.0f}s" if meta.elapsed >= 1 else ""))
-        if last_meta is not None and last_meta.error and (
-                meta is None or last_meta.run_at >= meta.run_at):
-            bits.append(f"⚠ last attempt failed: {last_meta.error}")
-        st.caption(" · ".join(bits))
+
+    @st.fragment
+    def _snapshot_bar(name: str, *, key: str, compact: bool, button_label: str,
+                      help: str | None, meta):
+        """The ↻ button and its status line, as a fragment: a click reruns only this
+        bar, not the page. A full Home rerun took ~40s, during which the page showed
+        a half-rebuilt layout and the scroll jumped away from the panel clicked.
+        The new run appears on the next full rerun, as before."""
+        spec = snapreg.SNAPSHOTS[name]
+        label = _snapshot_job_label(name)
+        q = ui_jobs.get_queue()
+        running = q.is_active(label)
+        last_meta = snapstore.latest_meta(name)          # may be an error row
+        c1, c2 = st.columns([1, 4] if not compact else [1, 3])
+        with c1:
+            if st.button(button_label, key=f"{key}_snap_refresh", width="stretch",
+                         disabled=running,
+                         help=help or f"Recompute {spec.label} now (runs in the "
+                                      f"background; the page stays live)."):
+                snapshot_refresh(name)
+                st.rerun(scope="fragment")
+        with c2:
+            bits = []
+            if running:
+                bits.append("⏳ refreshing in the background…")
+            if meta is None:
+                bits.append("**No stored run yet** — press ↻ or wait for the scheduled "
+                            "Report Snapshot Refresh (Scheduler Hub).")
+            else:
+                when = meta.run_at_dt.strftime("%d %b %Y %H:%M")
+                stale = snapstore.is_stale(meta)
+                dot = lc.fresh_dot(meta.run_at_dt, stale=stale,
+                                   live=_market_status()[0] == "LIVE")
+                bits.append(f"{dot} Last run **{when}**" + (" · ⚠ older than the last close"
+                                                      if stale else "") +
+                            (f" · {meta.elapsed:.0f}s" if meta.elapsed >= 1 else ""))
+            if last_meta is not None and last_meta.error and (
+                    meta is None or last_meta.run_at >= meta.run_at):
+                bits.append(f"⚠ last attempt failed: {last_meta.error}")
+            st.caption(" · ".join(bits))
+
+    _snapshot_bar(name, key=key, compact=compact, button_label=button_label,
+                  help=help, meta=meta)
     return meta, payload
 
 
-# ── "→ Predictive Analysis": hand a whole table over as the candidate set ────
+# ── "→ Stock Analyzer": hand a whole table over as the candidate set ─────────
 # Any table (Home's institutional-volume and volume-shocker lists, the
-# Watchlist) can push its symbols to Research › Predictive Analysis for a
+# Watchlist) can push its symbols to Research › Stock Analyzer for a
 # side-by-side read. The list persists in the settings table so it is still
-# there after a restart, until replaced or cleared on the PA page.
+# there after a restart, until replaced or cleared on the Stock Analyzer.
 _PA_SENT_KEY = "pa_sent_candidates"
 
 
@@ -2007,7 +2053,7 @@ def _pa_sent_save(data: dict | None) -> None:
 
 def _pa_send_button(key: str, source: str, df, symbol_col: str,
                     note_fn=None, *, label: str | None = None) -> None:
-    """One button under a table: make its symbols the Predictive Analysis
+    """One button under a table: make its symbols the Stock Analyzer
     candidate list (replacing the previous sent list) and jump there."""
     if df is None or getattr(df, "empty", True) or symbol_col not in df.columns:
         return
@@ -2027,14 +2073,15 @@ def _pa_send_button(key: str, source: str, df, symbol_col: str,
         items.append({"symbol": sym, "note": note})
     if not items:
         return
-    if st.button(label or f"→ Predictive Analysis ({len(items)})", key=f"{key}_to_pa",
-                 help=f"Open Research › Predictive Analysis with these {len(items)} "
+    if st.button(label or f"→ Stock Analyzer ({len(items)})", key=f"{key}_to_pa",
+                 help=f"Open Research › Stock Analyzer with these {len(items)} "
                       f"names as the candidate list for a side-by-side read."):
         _pa_sent_save({"source": source,
                        "sent_at": datetime.now().isoformat(timespec="minutes"),
                        "items": items})
-        st.session_state["pa_symbol"] = items[0]["symbol"]
-        st.session_state["current_page"] = "Predictive Analysis"
+        st.session_state["selected_symbol"] = items[0]["symbol"]
+        st.session_state["last_analyzed"] = items[0]["symbol"]
+        st.session_state["current_page"] = "Stock Analyzer"
         st.rerun()
 
 
@@ -2058,7 +2105,6 @@ try:
     _snapshot_startup_fill()
 except Exception:                                    # noqa: BLE001 — never block the app
     pass
-
 
 
 @st.cache_data(ttl=300, show_spinner=False)
@@ -2100,304 +2146,11 @@ def cached_fetch_benchmark(ticker: str = "^NSEI") -> pd.DataFrame | None:
         return None
 
 
-def _period_return(df: pd.DataFrame, days: int) -> float | None:
-    col = next((c for c in ("Close", "close") if c in df.columns), None)
-    if col is None or len(df) < 2:
-        return None
-    close = df[col]
-    idx = max(0, len(close) - 1 - days)
-    start, end = float(close.iloc[idx]), float(close.iloc[-1])
-    return round((end / start - 1) * 100, 2) if start != 0 else None
-
-
-def fmt_money(x: float) -> str:
-    if x is None or pd.isna(x):
-        return "—"
-    sign = "-" if x < 0 else ""
-    return f"{sign}₹{abs(x):,.0f}"
-
-
-def fmt_pct(x: float) -> str:
-    if x is None or pd.isna(x):
-        return "—"
-    return f"{x:+.2f}%"
-
-
-def gain_loss_badge(x: float) -> str:
-    """Icon + sign, never color alone (accessibility — see Lollypop UX research)."""
-    if x is None or pd.isna(x):
-        return "—"
-    arrow = "▲" if x >= 0 else "▼"
-    return f"{arrow} {x:+.2f}%"
-
-
-def render_condition_table(mv_conds: dict, tf_conds: dict,
-                            canslim_conds: dict | None = None) -> None:
-    rows = [{"Strategy": "Minervini", "Condition": k, "Pass": "✅" if v else "❌"}
-            for k, v in mv_conds.items()]
-    rows += [{"Strategy": "TechnoFunda", "Condition": k, "Pass": "✅" if v else "❌"}
-             for k, v in tf_conds.items()]
-    if canslim_conds:
-        rows += [{"Strategy": "CANSLIM", "Condition": k,
-                  "Pass": ("✅" if v else "❌") if v is not None else "—"}
-                 for k, v in canslim_conds.items()]
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-
-
 _VERDICT_STYLE = {
     "BUY":   ("🟢", "success"),
     "WATCH": ("🟡", "warning"),
     "AVOID": ("🔴", "error"),
 }
-
-
-def _render_thesis(title: str, thesis, accent: str) -> None:
-    st.markdown(f"**{title} — conviction {thesis.conviction}/10**")
-    rows = [{"Pillar": p.name, "Score": f"{p.score:.0f}/100",
-             "Weight": p.weight, "Reasoning": p.reason} for p in thesis.pillars]
-    st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-    if thesis.breakers:
-        st.caption("⚠️ Thesis-breakers: " + "; ".join(thesis.breakers))
-
-
-def _cr(v: float | None, currency: str | None = "INR") -> str | None:
-    """Indian-crore formatting for statement figures (1 Cr = 1e7).
-
-    Non-INR reporting currencies are left in millions rather than silently
-    converted — yfinance reports some cross-listed names in USD and a crore
-    label on a dollar figure would be wrong, not just unusual.
-    """
-    if v is None:
-        return None
-    if (currency or "INR").upper() != "INR":
-        return f"{v/1e6:,.0f}M {currency}"
-    return f"₹{v/1e7:,.0f} Cr"
-
-
-def _q(v: float | None, suffix: str = "", dp: int = 2) -> str | None:
-    """Format a number, preserving None so stat_card can render DATA N/A."""
-    return None if v is None else f"{v:,.{dp}f}{suffix}"
-
-
-def render_fundamental_header(symbol: str, df: pd.DataFrame,
-                              fundamentals: dict, deep: dict) -> None:
-    """FR-1 — sticky identity header + the 9-metric strip, plus the growth and
-    quality figures that only exist now that statements are fetched.
-
-    Tone discipline: colour is applied only where this repo already has a stated
-    threshold (D/E, ROE, ROCE — the High-Growth Screener sliders and the
-    multibagger query use exactly these floors). Valuation bands (P/E, P/B) are
-    deliberately left neutral here: band-scoring is FR-2's job and must live in
-    ONE shared scorer feeding both these figures and the radar's axes, or the
-    page grows a fourth competing "overall" verdict.
-    """
-    f, d = fundamentals or {}, deep or {}
-    cur = d.get("currency") or "INR"
-
-    price = float(df["close"].iloc[-1])
-    prev = float(df["close"].iloc[-2]) if len(df) > 1 else price
-    chg = (price / prev - 1) * 100 if prev else 0.0
-    as_of = str(df.index[-1])[:10]
-    # A move that rounds to 0.00% is flat, not a down day — an unqualified ▼ on
-    # "-0.00%" reads as a rendering fault.
-    if chg > 0.005:
-        chg_arrow, chg_col = "▲", rs.TOKENS["good"]
-    elif chg < -0.005:
-        chg_arrow, chg_col = "▼", rs.TOKENS["risk"]
-    else:
-        chg_arrow, chg_col = "•", rs.TOKENS["text_muted"]
-
-    # ── Identity header ──
-    chips = []
-    if f.get("sector"):
-        chips.append(rs.chip(f["sector"], "info"))
-    if f.get("industry"):
-        chips.append(rs.chip(f["industry"], "neutral"))
-    mcap = f.get("market_cap")
-    if mcap:
-        # NSE convention: >₹20,000 Cr large, ₹5,000-20,000 Cr mid, below small.
-        cr = mcap / 1e7
-        band = "LARGE CAP" if cr >= 20000 else ("MID CAP" if cr >= 5000 else "SMALL CAP")
-        chips.append(rs.chip(band, "neutral"))
-    cov = d.get("coverage") or {}
-    if cov:
-        cov_tone = "good" if cov.get("have", 0) >= cov.get("total", 11) - 2 else "warn"
-        chips.append(rs.chip("STATEMENT FIELDS", cov_tone,
-                             f"{cov.get('have', 0)}/{cov.get('total', 0)}"))
-    if not d.get("available"):
-        chips.append(rs.chip("NO STATEMENTS", "absent"))
-
-    st.markdown(
-        f"""
-        <div style="position:sticky;top:0;z-index:99;background:{rs.TOKENS['surface_warm']};
-                    border:1px solid {rs.TOKENS['border']};border-radius:12px;
-                    padding:11px 15px;margin:4px 0 10px 0;">
-          <div style="display:flex;align-items:baseline;gap:12px;flex-wrap:wrap;">
-            <span style="font-family:Georgia,'Times New Roman',serif;font-size:23px;
-                         font-weight:700;color:{rs.TOKENS['accent']};">{symbol}</span>
-            <span style="font-size:13px;color:{rs.TOKENS['text_body']};">
-              {d.get('long_name') or ''}</span>
-            <span class="tb-mono" style="font-size:26px;font-weight:700;
-                         color:{rs.TOKENS['text']};margin-left:auto;">₹{price:,.2f}</span>
-            <span class="tb-mono" style="font-size:14px;font-weight:700;color:{chg_col};">
-              {chg_arrow} {chg:+.2f}%</span>
-          </div>
-          <div style="margin-top:7px;">{''.join(chips)}</div>
-          <div class="tb-micro" style="margin-top:2px;">
-            PRICE AS OF {as_of} · STATEMENTS AS OF {d.get('as_of') or '—'}</div>
-        </div>
-        """,
-        unsafe_allow_html=True,
-    )
-
-    # ── 9-metric strip ──
-    d2e, roe, roce = f.get("debt_to_equity"), f.get("roe"), d.get("roce")
-    # 52W range is computed from the loaded frame, but only when the frame
-    # actually covers a year. On a 3M lookback a 60-bar high/low labelled
-    # "52W RANGE" would be a quietly wrong number, so it renders DATA N/A.
-    if len(df) >= 252:
-        hi = float(df["high"].tail(252).max())
-        lo = float(df["low"].tail(252).min())
-    else:
-        hi = lo = None
-    cells = [
-        rs.stat_card("P / E", _q(f.get("pe"), "×")),
-        rs.stat_card("P / B", _q(f.get("pb"), "×")),
-        # yfinance reports debtToEquity as a percentage (50 = 0.50×).
-        rs.stat_card("D / E", None if d2e is None else f"{d2e/100:,.2f}×",
-                     tone=("good" if (d2e is not None and d2e < 50)
-                           else "risk" if (d2e is not None and d2e > 100) else "neutral")),
-        rs.stat_card("ROE", _q(roe, "%"),
-                     tone="good" if (roe is not None and roe >= 15) else "neutral"),
-        rs.stat_card("ROCE", _q(roce, "%"),
-                     sub=None if d.get("roce_prev") is None else f"prev {d['roce_prev']:.1f}%",
-                     tone="good" if (roce is not None and roce >= 15) else "neutral"),
-        rs.stat_card("EPS TTM", _q(f.get("eps_ttm") if f.get("eps_ttm") is not None
-                                   else d.get("eps_ttm"))),
-        rs.stat_card("DIV YIELD", _q(f.get("dividend_yield"), "%")),
-        rs.stat_card("MKT CAP", _cr(mcap, cur)),
-        rs.stat_card("52W RANGE",
-                     None if (hi is None or lo is None) else f"{lo:,.0f}–{hi:,.0f}"),
-    ]
-    st.markdown(rs.section("Valuation & Quality"), unsafe_allow_html=True)
-    # Both rows on a 5-column grid: the second row holds 4 cards and simply
-    # leaves the fifth slot empty, so card widths stay identical down the page.
-    st.markdown(rs.strip(cells[:5], cols=5) + rs.strip(cells[5:], cols=5),
-                unsafe_allow_html=True)
-
-    # ── Statement-derived figures (the layer FR-1 adds) ──
-    if d.get("available"):
-        g = [
-            rs.stat_card("REV CAGR 3Y", _q(d.get("revenue_cagr_3y"), "%"),
-                         sub=_q(d.get("revenue_cagr_5y"), "% (5Y)") or "5Y n/a"),
-            rs.stat_card("PROFIT CAGR 3Y", _q(d.get("profit_cagr_3y"), "%"),
-                         sub=_q(d.get("profit_cagr_5y"), "% (5Y)") or "5Y n/a"),
-            rs.stat_card("NET MARGIN", _q(d.get("net_margin"), "%"),
-                         sub=_q(d.get("opm"), "% OPM")),
-            rs.stat_card("FREE CASH FLOW", _cr(d.get("fcf"), cur),
-                         sub=(f"{d['fcf_negative_streak']}y negative streak"
-                              if d.get("fcf_negative_streak") else None),
-                         tone="risk" if d.get("fcf_negative_streak") else "neutral"),
-            rs.stat_card("DEBTOR DAYS", _q(d.get("debtor_days"), "d", 0),
-                         sub=_q(d.get("wc_days"), "d working cap", 0)),
-        ]
-        st.markdown(rs.section("Growth & Quality — from financial statements"),
-                    unsafe_allow_html=True)
-        st.markdown(rs.strip(g, cols=5), unsafe_allow_html=True)
-        miss = (d.get("coverage") or {}).get("missing") or []
-        st.caption(
-            f"{d.get('annual_periods', 0)} annual / {d.get('quarterly_periods', 0)} "
-            f"quarterly periods available from yfinance"
-            + (f" · not computable: {', '.join(miss)}" if miss else "")
-            + " · a 5Y CAGR needs six annual columns; fewer means it is genuinely "
-              "unavailable, not zero."
-        )
-    else:
-        st.markdown(
-            rs.callout("No financial statements.",
-                       "yfinance returned no income statement, balance sheet or "
-                       "cash-flow for this symbol — common for newly-listed and "
-                       "thin BSE/SME names. Growth, ROCE and working-capital "
-                       "figures are not shown rather than estimated.",
-                       tone="absent"),
-            unsafe_allow_html=True)
-
-
-def _axis_tone(score: int | None) -> str:
-    """Score band -> semantic tone. Absent scores are grey, never a middling
-    amber that would read as 'average' when it means 'unknown'."""
-    if score is None:
-        return "absent"
-    if score >= 70:
-        return "good"
-    if score >= 45:
-        return "warn"
-    return "risk"
-
-
-def render_fundamental_signals(score: dict) -> None:
-    """FR-2 — six signal donuts, the coverage dial, and the good-business vs
-    bad-entry split, all off the one shared scorer in fundamental_score.py.
-
-    No overall number is rendered here on purpose. The page already carries the
-    M1 technical Overall Rating and the council verdict; a fourth /100 badged
-    "fundamental" would be read as a competing master score. The split is two
-    words instead.
-    """
-    axes, cov = score.get("axes") or {}, score.get("coverage") or {}
-    biz, entry = score.get("business") or {}, score.get("entry") or {}
-
-    st.markdown(rs.section("Fundamental signals"), unsafe_allow_html=True)
-
-    # ── Verdict chips + coverage dial ──
-    biz_tone = _axis_tone(biz.get("score"))
-    entry_tone = _axis_tone(entry.get("score"))
-    chips = (
-        rs.chip("Business", biz_tone, biz.get("word") or rs.NA) +
-        rs.chip("Entry", entry_tone, entry.get("word") or rs.NA)
-    )
-    have, total = cov.get("have", 0), cov.get("total", 0)
-    dial = rs.donut(f"{have}/{total}" if total else None, "Scored inputs",
-                    pct=(have / total * 100) if total else None,
-                    tone="good" if (total and have / total >= 0.8) else "warn")
-    st.markdown(
-        rs.card(
-            f'<div style="display:flex;align-items:center;gap:18px;">'
-            f'  <div style="flex:1;">{chips}'
-            f'    <div style="font-size:12px;color:{rs.TOKENS["text_body"]};margin-top:6px;">'
-            f'      A good business and a good entry price are separate questions — '
-            f'      this page answers them separately and never merges them into one '
-            f'      number. Fundamental read only; the technical Overall Rating '
-            f'      /100 is a different lens.</div>'
-            f'  </div>{dial}</div>'
-        ),
-        unsafe_allow_html=True,
-    )
-
-    # ── Six donuts ──
-    cells = []
-    for name in fscore.AXES:
-        a = axes.get(name) or {}
-        s = a.get("score")
-        cells.append(
-            f'<div style="flex:1;min-width:120px;">'
-            f'{rs.donut(None if s is None else str(s), a.get("label", name), a.get("verdict"), pct=s, tone=_axis_tone(s))}'
-            f'<div style="font-size:9.5px;color:{rs.TOKENS["text_muted"]};'
-            f'text-align:center;margin-top:2px;line-height:1.35;">'
-            f'{a.get("drivers") or "no inputs available"}</div></div>'
-        )
-    st.markdown(
-        f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin:4px 0 6px 0;">'
-        f'{"".join(cells)}</div>',
-        unsafe_allow_html=True,
-    )
-    st.caption(
-        "Bands are calibrated for NSE listed equity and live in one place "
-        "(`fundamental_score.py`) so this page and the fundamental radar can "
-        "never disagree. Earnings Consistency measures **realised** results "
-        "(profitable years, growth years, margin stability) — consensus "
-        "estimates have no free NSE source, so this is not a beat/miss record."
-    )
 
 
 @st.cache_data(ttl=1800, show_spinner=False)
@@ -2414,6 +2167,35 @@ def _cached_hourly(symbol: str) -> "pd.DataFrame":
         h.columns = h.columns.get_level_values(0)
     h.columns = [str(c).lower() for c in h.columns]
     return h[[c for c in ("open", "high", "low", "close", "volume") if c in h.columns]]
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _cached_daily_max(symbol: str) -> "pd.DataFrame":
+    """Full listed daily history for the timeframe board. The page's own `df`
+    is a short analysis window (~1y), which starves Half-yearly / Yearly / Y-on-Y
+    of bars — those panels refused with "1.2y listed" on decades-old names."""
+    import yfinance as yf
+    tk = symbol if "." in symbol else f"{symbol}.NS"
+    d = yf.download(tk, period="max", interval="1d", progress=False,
+                    auto_adjust=False)
+    if d is None or d.empty:
+        return pd.DataFrame()
+    if isinstance(d.columns, pd.MultiIndex):
+        d.columns = d.columns.get_level_values(0)
+    d.columns = [str(c).lower() for c in d.columns]
+    return d[[c for c in ("open", "high", "low", "close", "volume") if c in d.columns]]
+
+
+def _board_daily(symbol: str, df: "pd.DataFrame") -> "pd.DataFrame":
+    """Longest daily frame available: full history if the download works, else
+    the page's window — so a network failure degrades to today's behaviour."""
+    try:
+        full = _cached_daily_max(symbol)
+    except Exception:
+        full = pd.DataFrame()
+    if full is not None and not full.empty and (df is None or len(full) > len(df)):
+        return full
+    return df
 
 
 def render_timeframe_board(symbol: str, df: "pd.DataFrame") -> None:
@@ -2445,7 +2227,8 @@ def render_timeframe_board(symbol: str, df: "pd.DataFrame") -> None:
         return
 
     with st.spinner("Building six horizons..."):
-        panels = tfb.build(symbol, daily=df, hourly=_cached_hourly(symbol))
+        panels = tfb.build(symbol, daily=_board_daily(symbol, df),
+                           hourly=_cached_hourly(symbol))
 
     for row in (panels[:3], panels[3:]):
         cols = st.columns(3)
@@ -2499,94 +2282,7 @@ def render_timeframe_board(symbol: str, df: "pd.DataFrame") -> None:
         "compares SHAPE and says nothing about absolute performance — that is "
         "what the other five panels are for."
     )
-
-
-def render_momentum_meter(df: "pd.DataFrame") -> None:
-    """RSI(14) and ADX(14) as banded gauges — CONTEXT, never a signal.
-
-    Its own section rather than inside Fundamental signals, deliberately. RSI and
-    ADX are price-derived; filing them under a heading that says "fundamental"
-    would misdescribe them, and this page's whole convention is that the
-    fundamental read and the technical read are separate questions that never get
-    merged into one number (see `render_fundamental_signals`). Adjacent, not
-    merged.
-
-    Why gauges and not donuts: these live on scales with MEANINGFUL REGIONS.
-    RSI 36 is not "36% of something" — it sits in a zone, and the zone is the
-    information. A donut would draw it as a third-full ring and say nothing about
-    oversold. `rs.gauge` exists for exactly this distinction.
-
-    Bands are the textbook ones and are NOT measured here:
-      RSI  <30 oversold · 30-70 neutral · >70 overbought
-      ADX  <20 no trend · 20-25 forming · >25 trending
-    They are conventions, not thresholds this desk has tested. Anything stronger
-    would need the harness, and B-19 measured most single-indicator readings at or
-    below a random-entry baseline. Hence the caption, and hence no BUY/SELL.
-    """
-    if df is None or len(df) < 30:
-        return
-    try:
-        rsi_v = float(sc._rsi_series(df["close"].astype(float), 14).iloc[-1])
-        adx_s, _pdi, _mdi = sc._adx_di_series(df, 14)
-        adx_v = float(adx_s.iloc[-1])
-    except Exception:
-        return
-    rsi_v = None if not np.isfinite(rsi_v) else rsi_v
-    adx_v = None if not np.isfinite(adx_v) else adx_v
-
-    st.markdown(rs.section("Momentum"), unsafe_allow_html=True)
-
-    rsi_word = (None if rsi_v is None else
-                "OVERSOLD" if rsi_v < 30 else
-                "OVERBOUGHT" if rsi_v > 70 else "NEUTRAL")
-    adx_word = (None if adx_v is None else
-                "NO TREND" if adx_v < 20 else
-                "FORMING" if adx_v < 25 else "TRENDING")
-
-    g_rsi = rs.gauge(rsi_v, "RSI 14", verdict=rsi_word,
-                     bands=[(30, "risk"), (70, "neutral"), (100, "good")])
-    g_adx = rs.gauge(adx_v, "ADX 14", verdict=adx_word, hi=60.0,
-                     bands=[(20, "absent"), (25, "warn"), (60, "good")])
-    # 52-week position under the dials. RSI and ADX say how price is MOVING;
-    # this says WHERE it is. Both are the same kind of read - descriptive, no
-    # verdict - so they share one card rather than being split by a heading.
-    close = df["close"].astype(float)
-    win = close.tail(252)
-    lo52, hi52 = float(win.min()), float(win.max())
-    price = float(close.iloc[-1])
-    # Nearest swing levels from the same window, as reference ticks. Taken from
-    # the recent extremes rather than a pivot detector: this bar is orientation,
-    # not a levels engine, and a second definition of "support" on this page
-    # would be one more thing that can silently disagree with the chart.
-    tail = close.tail(60)
-    marks = []
-    if len(tail) >= 20:
-        sup, res = float(tail.min()), float(tail.max())
-        if sup < price:
-            marks.append((sup, f"Sup {sup:,.0f}"))
-        if res > price:
-            marks.append((res, f"Res {res:,.0f}"))
-    spectrum = rs.range_spectrum(lo52, hi52, price, marks=marks)
-
-    st.markdown(
-        rs.card(f'<div style="display:flex;gap:26px;justify-content:center;'
-                f'align-items:flex-start;">{g_rsi}{g_adx}</div>'
-                f'{spectrum}'),
-        unsafe_allow_html=True,
-    )
-    st.caption(
-        "**Context, not a signal.** Both are descriptive readings of price, and the "
-        "bands are textbook conventions rather than thresholds measured here — "
-        "B-19's walk-forward put most single-indicator readings at or below a "
-        "random-entry baseline, so neither dial implies an action. ADX measures "
-        "trend STRENGTH and is direction-blind: a high reading is as consistent "
-        "with a strong downtrend as an uptrend. The 52-week bar shows POSITION, "
-        "not direction — near the high is green because it means strength, but "
-        "B-19 measured 52-Week High Leaders at −0.51% @20d, so green there is "
-        "emphatically not 'buy'. Sup/Res ticks are the 60-day extremes, "
-        "orientation rather than a levels engine. Read all of it beside the "
-        "fundamental block above, not merged into it."
-    )
+    render_horizon_geometry(symbol, df)
 
 
 @st.cache_data(ttl=3600, show_spinner=False)
@@ -2653,24 +2349,35 @@ def render_peer_comparison(anchor: str) -> None:
     df, med = res["table"], res["median"] or {}
 
     # ── What group is this, and how honest is it ──
+    src = res.get("source", "yfinance")
     widened = res.get("group_level") == "family"
+    n_group = res.get("n_in_group") or len(df) - 1
     chips = (
         rs.chip("Group", "info", res.get("group_label")) +
-        rs.chip("Names", "neutral", str(len(df))) +
+        rs.chip("Source", "neutral" if src == "yfinance" else "warn",
+                {"screener.in": "screener.in", "yfinance-cross-sector":
+                 "yfinance · cross-sector"}.get(src, "yfinance")) +
+        rs.chip("Names", "neutral",
+                str(len(df)) + (f" of {n_group + 1}" if n_group + 1 > len(df) else "")) +
         (rs.chip("Widened", "warn", f"only {res['n_same_industry']} in {res['industry']}")
-         if widened else "")
+         if widened and src == "yfinance" else "")
     )
+    _top = (f"the {len(df) - 1} largest by market cap of {n_group} in the group"
+            if n_group > len(df) - 1 else "ranked by market cap")
     st.markdown(
         rs.card(
             f'{chips}<div style="font-size:12px;color:{rs.TOKENS["text_body"]};'
             f'margin-top:6px;">'
+            + f'Source: {pcmp.source_label(res)}. '
             + (f'yfinance tags <b>{anchor}</b> as <i>{res["industry"]}</i>, which holds '
                f'only {res["n_same_industry"]} other NSE name(s) — too thin to compare '
                f'against, so the group was widened one rung to <b>{res["group_label"]}</b>. '
                'Read it as a sector-adjacent group, not a like-for-like one. '
-               if widened else
-               f'Peers are the NSE names yfinance tags <i>{res["industry"]}</i>, '
-               'ranked by market cap. ')
+               if widened and src == "yfinance" else
+               f'The NSE-sector search found too few peers for <b>{anchor}</b>, so the '
+               f'group comes from the wider search the Sector Lobby uses; peers are {_top}. '
+               if src != "yfinance" else
+               f'Peers are the NSE names yfinance tags <i>{res["industry"]}</i>, {_top}. ')
             + 'Fundamental axes only — no technical or timing content here, and no '
               'overall peer score: this ranks measured business characteristics, and '
               'none of it is backtested as an edge.</div>'
@@ -2781,74 +2488,6 @@ def render_peer_comparison(anchor: str) -> None:
         _peer_head_to_head(anchor, compare, df, want_tech)
 
 
-def _peer_head_to_head(anchor: str, other: str, df, with_technicals: bool) -> None:
-    """Two names, axis by axis, with the gap stated in the direction that matters.
-
-    The mockup's "vs ANCHOR" link. It reuses the rows already scored for the table
-    rather than re-fetching, so the drill costs nothing and — more importantly —
-    cannot disagree with the table it was opened from.
-    """
-    a_row = df[df["symbol"] == anchor]
-    b_row = df[df["symbol"] == other]
-    if not len(a_row) or not len(b_row):
-        return
-    a_row, b_row = a_row.iloc[0], b_row.iloc[0]
-
-    rows = []
-    for ax in fscore.AXES:
-        av, bv = pcmp._score_or_none(a_row[ax]), pcmp._score_or_none(b_row[ax])
-        if av is None or bv is None:
-            gap_txt, tone = rs.NA, "absent"
-        else:
-            gap = av - bv
-            gap_txt = f"{gap:+d}"
-            tone = "good" if gap > 5 else ("risk" if gap < -5 else "neutral")
-        fg = rs.tone_colors(tone)[0]
-        rows.append(
-            f'<tr><td style="padding:3px 8px;font-size:11.5px;">'
-            f'{fscore.AXIS_LABELS[ax]}</td>'
-            f'<td class="tb-mono" style="text-align:right;padding:3px 8px;">'
-            f'{"—" if av is None else av}</td>'
-            f'<td class="tb-mono" style="text-align:right;padding:3px 8px;">'
-            f'{"—" if bv is None else bv}</td>'
-            f'<td class="tb-mono" style="text-align:right;padding:3px 8px;'
-            f'color:{fg};font-weight:600;">{gap_txt}</td></tr>'
-        )
-    if with_technicals and "stage_label" in df.columns:
-        for col, label, _d in pcmp.TECH_COLUMNS:
-            av, bv = a_row.get(col), b_row.get(col)
-            # Same formatter as the table: the drill must not render 52w as a
-            # bare 3.2 while the row above it says -3.2%.
-            fmt = lambda v: pcmp.tech_text(v, col)
-            rows.append(
-                f'<tr><td style="padding:3px 8px;font-size:11.5px;color:'
-                f'{rs.TOKENS["text_muted"]};">{label}</td>'
-                f'<td class="tb-mono" style="text-align:right;padding:3px 8px;">{fmt(av)}</td>'
-                f'<td class="tb-mono" style="text-align:right;padding:3px 8px;">{fmt(bv)}</td>'
-                f'<td></td></tr>'
-            )
-
-    st.markdown(
-        rs.card(
-            f'<table style="width:100%;border-collapse:collapse;">'
-            f'<thead><tr>'
-            f'<th style="text-align:left;font-size:10px;text-transform:uppercase;'
-            f'letter-spacing:.04em;color:{rs.TOKENS["text_muted"]};padding:3px 8px;"></th>'
-            f'<th style="text-align:right;font-size:11px;padding:3px 8px;">{anchor}</th>'
-            f'<th style="text-align:right;font-size:11px;padding:3px 8px;">{other}</th>'
-            f'<th style="text-align:right;font-size:10px;text-transform:uppercase;'
-            f'letter-spacing:.04em;color:{rs.TOKENS["text_muted"]};padding:3px 8px;">Gap</th>'
-            f'</tr></thead><tbody>{"".join(rows)}</tbody></table>'
-            f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};margin-top:6px;">'
-            f'Gap is {anchor} minus {other} in score points, so positive favours '
-            f'{anchor}. Technical rows carry no gap column on purpose — a 12-point '
-            f'RSI difference is not comparable to a 12-point axis difference.</div>',
-            title=f"{anchor} vs {other}",
-        ),
-        unsafe_allow_html=True,
-    )
-
-
 _SCENARIO_TONE = {"Bull": "good", "Base": "info", "Bear": "risk"}
 
 
@@ -2927,103 +2566,6 @@ def render_scenarios(res: dict | None, deep: dict | None) -> None:
     )
 
 
-_FLAG_TONE = {
-    ("FLAG", "critical"): "risk",
-    ("FLAG", "watch"):    "warn",
-    ("CLEAN", "critical"): "good",
-    ("CLEAN", "watch"):    "good",
-}
-_FLAG_WORD = {"FLAG": "FLAG", "CLEAN": "CHECKED · CLEAN", "NOT_CHECKED": "NOT CHECKED"}
-
-
-def render_red_flags(res: dict) -> None:
-    """FR-4 — the three-state red-flag list.
-
-    Ordered FLAG → NOT CHECKED → CLEAN, which is deliberately not the flattering
-    order. The unchecked items sit second, above the clean ones, because an
-    unexamined governance surface deserves more of the reader's attention than a
-    check that passed.
-    """
-    flags = res.get("flags") or []
-    c = res.get("counts") or {}
-    if not flags:
-        return
-
-    st.markdown(rs.section("Red flags"), unsafe_allow_html=True)
-
-    ran = c.get("flagged", 0) + c.get("clean", 0)
-    total = len(flags)
-    header_chips = (
-        rs.chip("Flagged", "risk" if c.get("flagged") else "neutral", str(c.get("flagged", 0)))
-        + rs.chip("Checked & clean", "good", str(c.get("clean", 0)))
-        + rs.chip("Not checked", "absent", str(c.get("not_checked", 0)))
-    )
-
-    # The source mockup shows a green "No Critical Red Flags" panel. It is only
-    # honest when every critical check actually ran, which — with three
-    # unsourceable governance items — it never does here.
-    if res.get("no_critical_flags"):
-        verdict = rs.callout("No critical red flags.",
-                             "Every critical check ran and came back clean.", tone="good")
-    else:
-        verdict = rs.callout(
-            f"{ran} of {total} checks could run.",
-            "This is not a clean bill of health. Auditor qualifications, "
-            "related-party transactions and revenue concentration live in "
-            "annual-report prose that nothing here parses, so they are shown as "
-            "<b>not checked</b> rather than omitted — an unexamined risk is not "
-            "an absent one.",
-            tone="warn")
-    st.markdown(rs.card(f'<div style="margin-bottom:8px;">{header_chips}</div>{verdict}'),
-                unsafe_allow_html=True)
-
-    # Plan C — a "verify" deep link per gray-zone flag, so a NOT CHECKED item is
-    # actionable (go look here) rather than a dead end. Screener's consolidated
-    # page carries promoter/pledge tables AND the annual-report documents; the
-    # NSE quote page carries the official shareholding pattern.
-    from urllib.parse import quote as _q
-    _sym = res.get("symbol", "")
-    _scr = f"https://www.screener.in/company/{_q(_sym)}/consolidated/"
-    _nseq = f"https://www.nseindia.com/get-quotes/equity?symbol={_q(_sym)}"
-    _verify_links = {
-        "promoter_holding":      [("screener.in ↗", _scr), ("NSE filing ↗", _nseq)],
-        "promoter_pledge":       [("screener.in ↗", _scr), ("NSE filing ↗", _nseq)],
-        "auditor_qualification": [("Annual report ↗", _scr)],
-        "related_party_txns":    [("Annual report ↗", _scr)],
-        "revenue_concentration": [("Annual report ↗", _scr)],
-    }
-    _link_col = rs.TOKENS.get("accent", "#3fb950")
-
-    order = {"FLAG": 0, "NOT_CHECKED": 1, "CLEAN": 2}
-    rows = []
-    for f in sorted(flags, key=lambda x: (order.get(x["state"], 9),
-                                          0 if x["severity"] == "critical" else 1)):
-        tone = _FLAG_TONE.get((f["state"], f["severity"]), "absent")
-        fg, bg = rs.tone_colors(tone)
-        sev = ("critical" if f["severity"] == "critical" else "watch")
-        _lk = _verify_links.get(f["key"])
-        links_html = ""
-        if _lk:
-            anchors = " · ".join(
-                f'<a href="{u}" target="_blank" rel="noopener" '
-                f'style="color:{_link_col};text-decoration:none;">{t}</a>' for t, u in _lk)
-            links_html = (f'<div class="tb-micro" style="margin-top:3px;">'
-                          f'Verify manually: {anchors}</div>')
-        rows.append(
-            f'<div style="display:flex;gap:10px;align-items:flex-start;padding:7px 0;'
-            f'border-top:1px solid {rs.TOKENS["border"]};">'
-            f'<span class="tb-chip" style="background:{bg};color:{fg};'
-            f'border:1px solid {fg}33;min-width:118px;text-align:center;flex-shrink:0;">'
-            f'{_FLAG_WORD.get(f["state"], f["state"])}</span>'
-            f'<div style="flex:1;min-width:0;">'
-            f'<b style="font-size:12.5px;color:{rs.TOKENS["text"]};">{f["label"]}</b>'
-            f'<span class="tb-micro" style="margin-left:7px;">{sev} · {f["source"]}</span>'
-            f'<div style="font-size:12px;color:{rs.TOKENS["text_body"]};line-height:1.45;">'
-            f'{f["detail"]}</div>{links_html}</div></div>'
-        )
-    st.markdown("".join(rows), unsafe_allow_html=True)
-
-
 def _render_screener_unlock(res: dict) -> None:
     """Plan B — paste a screener.in sessionid to unlock the screener-gated checks
     (promoter pledge, deeper history) when the browser auto-grab found none.
@@ -3069,110 +2611,6 @@ def _render_screener_unlock(res: dict) -> None:
                 st.success("Cleared."); st.rerun()
             except Exception as e:
                 st.error(f"Could not clear: {e}")
-
-
-#: |YoY| beyond this on a quarter is annotated rather than left for the reader
-#: to spot. Wide enough that ordinary Indian seasonality doesn't trip it.
-_QTR_ANOMALY_PCT = 40.0
-
-
-def render_fundamental_history(deep: dict) -> None:
-    """FR-3 — the annual table and the quarterly EPS card grid.
-
-    Two different surfaces on purpose. Years are a *comparison* (how did margin
-    trend over five years) and a table is the honest shape for that. Quarters
-    are read one at a time, with their own annotations, so they get cards.
-
-    Nothing here is fetched: FR-1's `derive_fundamentals()` already returns
-    `annual` and `quarters` with date-matched YoY.
-    """
-    d = deep or {}
-    annual, quarters = d.get("annual") or [], d.get("quarters") or []
-    cur = d.get("currency") or "INR"
-    if not annual and not quarters:
-        return
-
-    if annual:
-        st.markdown(rs.section("Annual financials"), unsafe_allow_html=True)
-        rows = []
-        for a in annual:
-            rows.append({
-                "Year":        a["period"],
-                "Revenue":     _cr(a.get("revenue"), cur) or "—",
-                "Rev YoY":     "—" if a.get("revenue_yoy") is None else f"{a['revenue_yoy']:+.1f}%",
-                "Net Profit":  _cr(a.get("net_income"), cur) or "—",
-                "Profit YoY":  "—" if a.get("profit_yoy") is None else f"{a['profit_yoy']:+.1f}%",
-                "Net Margin":  "—" if a.get("net_margin") is None else f"{a['net_margin']:.1f}%",
-                "OPM":         "—" if a.get("opm") is None else f"{a['opm']:.1f}%",
-                "EPS":         "—" if a.get("eps") is None else f"{a['eps']:,.2f}",
-            })
-        st.dataframe(pd.DataFrame(rows), width="stretch", hide_index=True)
-
-    if quarters:
-        n = len(quarters)
-        st.markdown(rs.section(f"Quarterly earnings — last {n} reported"),
-                    unsafe_allow_html=True)
-
-        revs = [q.get("revenue") for q in quarters if q.get("revenue") is not None]
-        best_rev = max(revs) if revs else None
-
-        cells = []
-        for q in quarters:
-            eps, yoy = q.get("eps"), q.get("profit_yoy")
-            tone = "neutral" if yoy is None else ("good" if yoy >= 0 else "risk")
-            # "Highest of the N shown" — NOT "record quarter". yfinance returns
-            # about six quarters, so an all-time claim would be unsupported.
-            is_best = (best_rev is not None and q.get("revenue") == best_rev)
-
-            sub_bits = []
-            if q.get("revenue") is not None:
-                sub_bits.append(_cr(q["revenue"], cur))
-            if yoy is not None:
-                sub_bits.append(f"{'▲' if yoy >= 0 else '▼'} {yoy:+.1f}% profit YoY")
-            elif q.get("revenue_yoy") is None:
-                sub_bits.append("no year-ago quarter filed")
-
-            card_tone = "good" if is_best else tone
-            body = rs.stat_card(
-                fdeep.fiscal_quarter_label(q["period"]),
-                None if eps is None else f"{eps:,.2f}",
-                sub=" · ".join(b for b in sub_bits if b),
-                tone=card_tone,
-            )
-            flags = ""
-            if is_best:
-                flags += rs.chip(f"Highest revenue of the {n} shown", "good")
-            if yoy is not None and abs(yoy) >= _QTR_ANOMALY_PCT:
-                flags += rs.chip("Outlier" if yoy > 0 else "Sharp drop",
-                                 "good" if yoy > 0 else "risk",
-                                 f"{yoy:+.0f}% YoY")
-            cells.append(f'<div style="flex:1;min-width:165px;">{body}'
-                         f'<div style="margin-top:4px;">{flags}</div></div>')
-
-        st.markdown(
-            f'<div style="display:flex;gap:8px;flex-wrap:wrap;margin:4px 0;">'
-            f'{"".join(cells)}</div>',
-            unsafe_allow_html=True,
-        )
-        st.caption(
-            "Card value is **EPS**; revenue and profit-YoY sit underneath. YoY is "
-            "matched to the same quarter a year earlier **by date** — yfinance's "
-            "quarterly frames have gaps, and counting four columns back would "
-            "compare a March quarter against the previous December."
-        )
-
-    # The honest panel the source mockup shipped, kept as copy rather than built.
-    st.markdown(
-        rs.callout(
-            "Consensus data unavailable.",
-            "There is no free NSE analyst-consensus feed, so this page cannot show "
-            "a beat/miss record or an estimate-revision trend — and does not "
-            "approximate one. What is shown above is entirely reported actuals: "
-            "filed revenue, profit, margin and EPS, with year-on-year changes "
-            "computed from the filings themselves.",
-            tone="risk"),
-        unsafe_allow_html=True,
-    )
 
 
 #: FR-6. Announcements land continuously, so this is cached far shorter than the
@@ -3241,317 +2679,15 @@ def render_concalls(data: dict) -> None:
         )
 
 
-_TONE_DOT   = {"good": "🟢", "neutral": "🟡", "bad": "🔴"}
-_TONE_COLOR = {"good": "green", "neutral": "orange", "bad": "red"}
-
-
-# ── Filter C — ownership flow (DS-2) ──────────────────────────────────────────
-#: Cached a full day: the underlying filing is QUARTERLY, so anything shorter
-#: re-downloads two ~500 KB XBRLs from NSE to redraw an identical card.
-@st.cache_data(ttl=86400, show_spinner=False)
-def cached_ownership(symbol: str):
-    return nse.fetch_ownership(symbol)
-
-
-def render_ownership_flow(symbol: str) -> None:
-    """Filter C of the Crash-Proof system — the quarter-over-quarter rotation.
-
-    Behind a button because each read pulls two multi-hundred-KB XBRL filings
-    from NSE, and because the data only changes once a quarter — paying that on
-    every analyzer run would be pure waste.
-    """
-    st.markdown(rs.section("Filter C — ownership flow (quarterly)"),
-                unsafe_allow_html=True)
-    _key = f"own_{symbol}"
-    if not st.session_state.get(_key):
-        if st.button("Fetch shareholding pattern", key=f"own_btn_{symbol}",
-                     help="Reads the last two quarterly SEBI shareholding filings "
-                          "from NSE (~10s)."):
-            st.session_state[_key] = True
-            st.rerun()
-        st.caption("Not fetched — the ownership leg is unmeasured until you pull it.")
-        return
-
-    with st.spinner("Reading the last two shareholding filings…"):
-        try:
-            own = cached_ownership(symbol)
-        except Exception as exc:
-            own = None
-            st.warning(f"Shareholding fetch failed — {exc}")
-    if not own:
-        st.info("No readable shareholding filing for this symbol. The ownership "
-                "leg stays unmeasured — that is not the same as 'no institutions'.")
-        return
-
-    rot = nse.interpret_rotation(own["change"])
-    _fg, _bg = rs.tone_colors(rot["tone"])
-
-    # The filing period leads the card. A shareholding read presented without its
-    # quarter invites being taken as current positioning, which it never is.
-    st.markdown(
-        rs.callout(f'{rot["headline"]} — as of {own["as_of"]}'
-                   + (f' (vs {own["prev_as_of"]})' if own["prev_as_of"]
-                      else ' · no prior quarter to compare'),
-                   rot["detail"], tone=rot["tone"]),
-        unsafe_allow_html=True)
-
-    if not own["reconciles"]:
-        st.warning("This filing did **not** reconcile against NSE's own promoter / "
-                   "public figures — treat the split below as unverified.")
-
-    _latest = own["latest"]
-    _labels = {"fii": "FII / FPI", "dii": "DII", "mf": "Mutual funds",
-               "retail": "Retail", "promoter": "Promoter"}
-    for _col, _leg in zip(st.columns(len(nse.HEADLINE_LEGS)), nse.HEADLINE_LEGS):
-        _held, _chg = _latest.get(_leg), own["change"].get(_leg)
-        _dir = nse.direction(_chg)
-        _dc = {"up": rs.TOKENS["good"], "down": rs.TOKENS["risk"],
-               "flat": rs.TOKENS["text_muted"], "unknown": rs.TOKENS["absent"]}[_dir]
-        with _col:
-            st.markdown(
-                rs.card(
-                    f'<div class="tb-micro">{_labels[_leg]}</div>'
-                    f'<div class="tb-mono" style="font-size:17px;font-weight:700;'
-                    f'margin-top:2px;">'
-                    + (rs.NA if _held is None else f'{_held:.2f}%') + '</div>'
-                    f'<div style="font-size:11px;color:{_dc};font-weight:600;'
-                    f'margin-top:2px;">{nse.ARROWS[_dir]} '
-                    + ("no prior quarter" if _chg is None else f'{_chg:+.2f} pp') +
-                    '</div>'),
-                unsafe_allow_html=True)
-
-    _marks = {nse.MET: ("✓", rs.TOKENS["good"]), nse.NOT_MET: ("✗", rs.TOKENS["risk"]),
-              nse.UNKNOWN: ("?", rs.TOKENS["absent"])}
-    _crit = "".join(
-        f'<span class="tb-chip" style="background:{_marks[c["state"]][1]}1a;'
-        f'color:{_marks[c["state"]][1]};border:1px solid {_marks[c["state"]][1]}33;">'
-        f'{_marks[c["state"]][0]} {c["label"]}</span>'
-        for c in rot["criteria"])
-    st.markdown(
-        f'<div style="margin-top:6px;"><span class="tb-micro" '
-        f'style="margin-right:6px;">FILTER C CRITERIA</span>{_crit}</div>',
-        unsafe_allow_html=True)
-
-    st.caption(
-        f"Read straight from the SEBI shareholding-pattern XBRL (the regulatory "
-        f"filing, not an aggregator). **Mutual funds are a subset of DII** — those "
-        f"two bars overlap and do not add. Moves under "
-        f"{rot['flat_band_pp']:.2f} pp read as flat (filing noise). "
-        "**Quarterly and lagging**: this describes the register on the filing date, "
-        "not today's positioning. It is the *structural* leg only — the framework "
-        "reads it against market health (DS-3) and price+volume (DS-4) before it "
-        "means buy or avoid. On its own, FII↑ into a falling price is a watchlist, "
-        "not a signal.")
-
-
-def _gauge_svg(pct: float, color: str, label: str, sub: str, size: int = 150) -> str:
-    """A half-ring gauge 0-100 as inline SVG (no plotly for one number)."""
-    import math
-    pct = max(0.0, min(100.0, float(pct)))
-    r, cx, cy, w = size * 0.4, size / 2, size * 0.56, size * 0.085
-    def arc(a0, a1):
-        x0, y0 = cx + r * math.cos(math.pi * (1 - a0)), cy - r * math.sin(math.pi * (1 - a0))
-        x1, y1 = cx + r * math.cos(math.pi * (1 - a1)), cy - r * math.sin(math.pi * (1 - a1))
-        # A half ring spans 180° at most, so the SVG large-arc flag is never set:
-        # with it, anything past 50% drew the long way round the circle.
-        return f"M{x0:.1f},{y0:.1f} A{r:.1f},{r:.1f} 0 0 1 {x1:.1f},{y1:.1f}"
-    t = rs.TOKENS
-    fg = arc(0, max(0.004, pct / 100.0))
-    return (f'<svg width="{size}" height="{size * 0.68:.0f}" viewBox="0 0 {size} {size * 0.68:.0f}">'
-            f'<path d="{arc(0, 1)}" fill="none" stroke="{t["surface_alt"]}" stroke-width="{w:.1f}" stroke-linecap="round"/>'
-            f'<path d="{fg}" fill="none" stroke="{color}" stroke-width="{w:.1f}" stroke-linecap="round"/>'
-            f'<text x="{cx}" y="{cy - 2}" text-anchor="middle" font-size="{size * 0.17:.0f}" font-weight="800" fill="{t["text"]}">{label}</text>'
-            f'<text x="{cx}" y="{cy + size * 0.1:.0f}" text-anchor="middle" font-size="{size * 0.075:.0f}" font-weight="700" fill="{color}">{sub}</text>'
-            f'</svg>')
-
-
 # Two years of sessions for the pattern-metrics panel, plus RSI warm-up.
 PM_HISTORY_BARS = 520
 
 
-def render_pattern_metrics(df, nifty_df=None, *, key: str = "pm") -> None:
-    """Historical pattern metrics — overhead supply, extension, base / VCP coil,
-    scanner-metric radar, exceptional volume. Descriptions of the history the
-    page already holds; nothing here is a signal (pattern_metrics.py)."""
-    import pattern_metrics as pm
-    t = rs.TOKENS
-    try:
-        m = pm.compute_all(df, nifty_df)
-    except Exception as e:                                # noqa: BLE001
-        st.caption(f"Historical pattern metrics unavailable: {e}")
-        return
-    st.markdown("#### 📐 Historical pattern metrics")
-    st.caption("Volume · overhead · VCP · normalised fields — read from the daily bars "
-               "already loaded. Descriptive only; none of these has been measured for "
-               "forward return here.")
-
-    micro = f'font-size:11px;font-weight:700;letter-spacing:.08em;text-transform:uppercase;color:{t["text_muted"]};'
-    c1, c2 = st.columns(2)
-    oh, ex = m["overhead"], m["extension"]
-    with c1:
-        if oh:
-            col = t["good"] if oh["pct"] < pm.OVERHEAD_CLEAR else t["accent"] if oh["pct"] < pm.OVERHEAD_HEAVY else t["risk"]
-            gauge = _gauge_svg(oh["pct"], col, f"{oh['pct']:.0f}%", oh["label"])
-            body = (f'<div style="{micro}">Overhead supply</div>'
-                    f'<div style="font-size:12px;color:{t["text_muted"]};">Prior highs above the current price · last {oh["bars"]} sessions</div>'
-                    f'<div style="text-align:center;">{gauge}</div>'
-                    f'<div style="font-size:12px;color:{t["text_muted"]};text-align:center;">{oh["note"]}</div>')
-            st.markdown(rs.card(body), unsafe_allow_html=True)
-    with c2:
-        if ex and ex["score"] is not None:
-            col = t["good"] if ex["score"] < 33 else t["accent"] if ex["score"] < 66 else t["risk"]
-            gauge = _gauge_svg(ex["score"], col, f"{ex['score']:.0f}", ex["band"])
-            flag = (f'<div style="font-size:12px;color:{t["risk"]};">⚠ RSI exhaustion — '
-                    f'{ex["rsi_pct"]:.0f}th pct of two years, {ex["run5_pct"]:+.1f}% in 5 sessions</div>'
-                    if ex["rsi_exhaustion"] else
-                    f'<div style="font-size:12px;color:{t["text_muted"]};">RSI {ex["rsi"]:.0f} · '
-                    f'{(ex.get("above_sma50_pct") or 0):+.1f}% vs 50-day · {ex["run5_pct"]:+.1f}% / 5d</div>'
-                    if ex.get("rsi") is not None else "")
-            body = (f'<div style="{micro}">Extension metric</div>'
-                    f'<div style="font-size:12px;color:{t["text_muted"]};">Composite: above 50-day and 20-day means, RSI percentile, 5-day run</div>'
-                    f'<div style="text-align:center;">{gauge}</div>'
-                    f'{flag}')
-            st.markdown(rs.card(body), unsafe_allow_html=True)
-
-    c3, c4 = st.columns(2)
-    vc, rd = m["vcp"], m["radar"]
-    with c3:
-        if vc:
-            tiles = "".join(
-                f'<div style="flex:1;background:{t["surface_alt"]};border-radius:8px;padding:8px 6px;text-align:center;">'
-                f'<div style="font-size:16px;font-weight:800;color:{t["text"]};">{v}</div>'
-                f'<div style="{micro}font-size:9.5px;">{k}</div></div>'
-                for k, v in (("Base length", f"{vc['base_weeks']:.0f}w"),
-                             ("Depth", f"{vc['depth_pct']:.1f}%"),
-                             ("Contractions", f"{vc['contractions']}")))
-            mx = max(vc["ladder"]) or 1.0
-            ladder = "".join(
-                f'<div style="flex:1;text-align:center;">'
-                f'<div style="height:6px;margin:0 8px;border-radius:3px;background:{t["accent"]};'
-                f'width:{max(12, d / mx * 100):.0f}%;margin-left:auto;margin-right:auto;"></div>'
-                f'<div style="font-size:11px;font-weight:700;color:{t["text_muted"]};margin-top:4px;">L{i + 1}</div>'
-                f'<div style="font-size:12px;color:{t["text"]};">{d:.1f}%</div></div>'
-                for i, d in enumerate(vc["ladder"]))
-            tight = (f'Tightness {vc["tightness_pct"]:.1f}% — final contraction as a share of the first (lower is tighter)'
-                     if vc["tightness_pct"] is not None else "")
-            body = (f'<div style="{micro}">Base / VCP coil</div>'
-                    f'<div style="font-size:12px;color:{t["text_muted"]};">Depth and contractions from the pivot-based detector'
-                    f'{" · still forming" if vc["in_progress"] else ""}</div>'
-                    f'<div style="display:flex;gap:8px;margin:8px 0;">{tiles}</div>'
-                    f'<div style="{micro}font-size:10px;margin-top:4px;">Contraction ladder</div>'
-                    f'<div style="display:flex;gap:4px;margin-top:6px;">{ladder}</div>'
-                    f'<div style="font-size:11.5px;color:{t["text_muted"]};text-align:center;margin-top:8px;">{tight}</div>')
-            st.markdown(rs.card(body), unsafe_allow_html=True)
-        else:
-            st.markdown(rs.card(f'<div style="{micro}">Base / VCP coil</div>'
-                                f'<div style="font-size:12px;color:{t["text_muted"]};">No confirmed contraction '
-                                f'sequence in the last 120 sessions — the detector abstains rather than guess.</div>'),
-                        unsafe_allow_html=True)
-    with c4:
-        if rd:
-            axes = {k: v for k, v in rd["axes"].items() if v is not None}
-            names, vals = list(axes), [axes[k] for k in axes]
-            fig = go.Figure(go.Scatterpolar(r=vals + vals[:1], theta=names + names[:1],
-                                            fill="toself", line=dict(color="#5b4bd6", width=2),
-                                            fillcolor="rgba(91,75,214,0.18)", hoverinfo="theta+r"))
-            fig.update_layout(height=230, margin=dict(l=30, r=30, t=20, b=10),
-                              polar=dict(radialaxis=dict(range=[0, 100], showticklabels=False, gridcolor="#e8e2d6"),
-                                         angularaxis=dict(tickfont=dict(size=11), gridcolor="#e8e2d6"),
-                                         bgcolor="rgba(0,0,0,0)"),
-                              paper_bgcolor="rgba(0,0,0,0)", showlegend=False,
-                              annotations=[dict(text=f"<b>{rd['score']:.1f}</b>" if rd["score"] is not None else "—",
-                                                x=0.5, y=0.5, showarrow=False, font=dict(size=22, color=t["text"]))])
-            bars = "".join(
-                f'<div style="display:flex;align-items:center;gap:8px;font-size:12px;margin:3px 0;">'
-                f'<div style="width:70px;color:{t["text_muted"]};">{k}</div>'
-                f'<div style="flex:1;height:6px;background:{t["surface_alt"]};border-radius:3px;">'
-                f'<div style="width:{v:.0f}%;height:6px;border-radius:3px;background:linear-gradient(90deg,#8a7cf0,#5b4bd6);"></div></div>'
-                f'<div style="width:28px;text-align:right;font-weight:700;color:{t["text"]};">{v:.0f}</div></div>'
-                for k, v in axes.items())
-            st.markdown(f'<div style="{micro}">Scanner metric radar</div>'
-                        f'<div style="font-size:12px;color:{t["text_muted"]};">Six normalised axes (0-100) and their mean</div>',
-                        unsafe_allow_html=True)
-            st.plotly_chart(fig, width="stretch", key=f"{key}_radar", config={"displayModeBar": False})
-            st.markdown(bars, unsafe_allow_html=True)
-            st.caption("VCP: contraction count, shrinkage, tightness · RS: 1y vs benchmark, ±40pp · Stage: "
-                       "Weinstein stack · Volume: share of the last 60 sessions' volume on up bars · "
-                       "Low risk: distance to the 10-bar swing low, ≤3% best · Clear path: 100 − overhead %.")
-
-    xv = m["exceptional_volume"]
-    if xv:
-        # The window is whatever the page loaded (≤ 2 years), so name it by
-        # its real length instead of always calling it "two-year".
-        _yrs = xv["n_sessions"] / 250
-        _win = "two-year" if _yrs >= 1.9 else f"{_yrs:.1f}-year"
-        tiles = "".join(
-            f'<div style="flex:1;background:{t["surface"]};border:1px solid {t["surface_alt"]};border-radius:8px;padding:10px 12px;">'
-            f'<div style="font-size:18px;font-weight:800;color:{t["text"]};">{v}</div>'
-            f'<div style="{micro}font-size:9.5px;">{k}</div></div>'
-            for k, v in ((f"{_win} avg volume", f"{xv['avg_volume']:,.0f}"),
-                         ("Exceptional sessions", f"{xv['count']}"),
-                         (f"{xv['mult']:.0f}× threshold", f"{xv['threshold']:,.0f}")))
-        top = xv["sessions"][:8]
-        mx = max((s["ratio"] for s in top), default=1.0)
-        rows = "".join(
-            f'<div style="display:flex;align-items:center;gap:10px;font-size:12px;padding:6px 0;border-top:1px solid {t["surface_alt"]};">'
-            f'<div style="width:90px;color:{t["text"]};">{pd.Timestamp(s["date"]).strftime("%d %b %Y")}</div>'
-            f'<div style="flex:1;height:8px;background:{t["surface_alt"]};border-radius:4px;">'
-            f'<div style="width:{s["ratio"] / mx * 100:.0f}%;height:8px;border-radius:4px;background:linear-gradient(90deg,#f6b73c,#e8590c);"></div></div>'
-            f'<div style="width:110px;text-align:right;color:{t["text_muted"]};">{s["volume"]:,.0f}</div>'
-            f'<div style="width:48px;text-align:right;font-weight:800;color:{t["risk"]};">{s["ratio"]:.1f}×</div></div>'
-            for s in top) or f'<div style="font-size:12px;color:{t["text_muted"]};">No session reached the threshold.</div>'
-        body = (f'<div style="{micro}">Exceptional volume activity</div>'
-                f'<div style="font-size:12px;color:{t["text_muted"]};">Sessions with at least {xv["mult"]:.0f}× the {_win} average volume</div>'
-                f'<div style="display:flex;gap:10px;margin:8px 0 10px;">{tiles}</div>{rows}'
-                f'<div style="font-size:11px;color:{t["text_muted"]};text-align:center;margin-top:8px;">'
-                + (f'Top {len(top)} of {xv["count"]} shown · ' if xv["count"] > len(top) else '')
-                + f'{xv["n_sessions"]} trading sessions · {xv["from"]} to {xv["to"]}</div>')
-        st.markdown(rs.card(body), unsafe_allow_html=True)
-
-
 def render_setup_intelligence(intel) -> None:
-    """Scannable plain-language setup panel derived from the council's evidence."""
-    with st.container(border=True):
-        st.markdown("#### ⭐ Setup Intelligence")
-        st.caption("Structured setup analysis · research only")
-
-        dot = _TONE_DOT.get(intel.status_tone, "⚪")
-        color = _TONE_COLOR.get(intel.status_tone, "gray")
-        st.markdown(f"{dot} **Setup status · :{color}[{intel.status_label}]**")
-
-        # Chips
-        chip_cols = st.columns(len(intel.chips))
-        for col, (label, value, tone) in zip(chip_cols, intel.chips):
-            with col:
-                with st.container(border=True):
-                    st.caption(label.upper())
-                    st.markdown(f"**:{_TONE_COLOR.get(tone, 'gray')}[{value}]**")
-
-        # Factor lists
-        c_bull, c_risk = st.columns(2)
-        with c_bull:
-            with st.container(border=True):
-                st.markdown(":green[**BULLISH FACTORS**]")
-                if intel.bullish_factors:
-                    st.markdown("\n".join(f"- {x}" for x in intel.bullish_factors))
-                else:
-                    st.caption("None detected.")
-        with c_risk:
-            with st.container(border=True):
-                st.markdown(":red[**RISK FACTORS**]")
-                if intel.risk_factors:
-                    st.markdown("\n".join(f"- {x}" for x in intel.risk_factors))
-                else:
-                    st.caption("None detected.")
-
-        st.caption("OVERALL VIEW")
-        st.markdown(intel.overall_view)
-        st.caption(
-            "Derived automatically from historical market data by our research "
-            "algorithms. May be incomplete or inaccurate and can change between "
-            "scans. Research and educational study only — not investment advice "
-            "or a recommendation to buy, sell, or hold any security."
-        )
+    """Scannable plain-language setup panel derived from the council's evidence:
+    status pill, bull/bear balance, signal tiles, factor lists, overall view."""
+    import setup_intel_view as _siv
+    _siv.render(intel)
 
 
 def render_council(bundle, bull, bear, card) -> None:
@@ -3612,22 +2748,6 @@ def render_council(bundle, bull, bear, card) -> None:
                        + " · ".join(f"{k}={v}" for k, v in fu.items() if v is not None))
         else:
             st.caption("No fundamentals available — technical-only verdict.")
-
-
-def _volume_profile(df: pd.DataFrame, n_bins: int = 50):
-    """Return (bin_centers, volume_at_price) arrays across the full price range."""
-    lo_p, hi_p = df["low"].min(), df["high"].max()
-    bins = np.linspace(lo_p, hi_p, n_bins + 1)
-    bin_centers = (bins[:-1] + bins[1:]) / 2
-    highs   = df["high"].values.astype(float)
-    lows    = df["low"].values.astype(float)
-    volumes = df["volume"].values.astype(float)
-    ranges  = np.where(highs - lows > 0, highs - lows, 1e-9)
-    vap = np.zeros(n_bins)
-    for i in range(n_bins):
-        overlaps = np.maximum(0.0, np.minimum(highs, bins[i + 1]) - np.maximum(lows, bins[i]))
-        vap[i] = np.sum(volumes * overlaps / ranges)
-    return bin_centers, vap
 
 
 CHART_TOOL_PORT = 5001
@@ -4047,16 +3167,6 @@ def check_alert(alert: pd.Series, portfolio_summary: dict) -> tuple[bool, str]:
     return False, "unknown category"
 
 
-def _compare(value, operator: str, threshold) -> bool:
-    try:
-        if isinstance(value, str):
-            return (value == threshold) if operator == "==" else False
-        v, t = float(value), float(threshold)
-    except (TypeError, ValueError):
-        return False
-    return {">": v > t, "<": v < t, ">=": v >= t, "<=": v <= t, "==": v == t}.get(operator, False)
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Overview panel — rendered above the tabs, always visible regardless of which
 # tab is selected (Streamlit has no true CSS-sticky; this is the practical
@@ -4081,19 +3191,6 @@ if not active_alerts.empty:
     for _, a in active_alerts.iterrows():
         triggered, _ = check_alert(a, portfolio_summary)
         triggered_count += int(triggered)
-
-# The overview strip was the last native `st.metric` row on the page: cold grey
-# labels, a proportional face on the figures, and no semantic colour, sitting
-# directly above a token-styled verdict card. It now uses the same stat cards as
-# everything else, so the numbers line up in mono and each one states its own
-# verdict through tone rather than being uniformly black.
-def _tone_signed(v, *, good_when_positive=True):
-    """Tone for a signed number; neutral when it is missing or flat."""
-    if v is None or pd.isna(v) or abs(float(v)) < 1e-9:
-        return "neutral"
-    up = float(v) > 0
-    return "good" if up == good_when_positive else "risk"
-
 
 
 _ov_cards = [
@@ -4133,220 +3230,214 @@ _ov_cards = [
         "active alerts firing",
         tone="warn" if triggered_count else "neutral"),
 ]
-st.markdown(rs.strip(_ov_cards, cols=5), unsafe_allow_html=True)
-
-# ── Index strip — the four headline indices, intraday ─────────────────────────
-# Home only. It is context for the verdict directly below it, and on the working
-# pages (Scanner Hub, Stock Analyzer, ...) four charts above the fold would push
-# the thing the reader actually navigated to off the first screen. The fetch,
-# the cards and the figures all live in index_strip.py — this file only says
-# WHERE the strip goes.
-if current_page == "Home":
-    istrip.render()
+_slots = dpages.home_header(_ov_cards, current_page == "Home")
 
 # ── Regime + today's verdict — ONE card ───────────────────────────────────────
 _show_regime = current_page == "Home"
-# These were two stacked cards and between them they owned most of the first
-# screen on every page. They are now one, because they are one thought: the
-# regime is the CONTEXT and the verdict is the DECISION taken in it, and the
-# reader was scrolling past both to reach the page they asked for.
-#
-# The old code already carried the rule that makes the merge safe — "two
-# coloured surfaces stacked would read as two verdicts, and only one of these is
-# a decision". One card with the verdict's tone on its border keeps exactly one
-# decision on screen; the regime sits inside it as a labelled context line.
-#
-# Compaction is layout only. No flag, number or sentence is dropped: the
-# caution / favorable / not-checked blocks moved from stacked full-width lists
-# into three columns, which is where most of the height went.
-regime_info = mvd.classify_regime(nifty_overview)
+# B-179: the verdict card and its controls open Home's centre pane.
+with _slots.verdict:
+    # These were two stacked cards and between them they owned most of the first
+    # screen on every page. They are now one, because they are one thought: the
+    # regime is the CONTEXT and the verdict is the DECISION taken in it, and the
+    # reader was scrolling past both to reach the page they asked for.
+    #
+    # The old code already carried the rule that makes the merge safe — "two
+    # coloured surfaces stacked would read as two verdicts, and only one of these is
+    # a decision". One card with the verdict's tone on its border keeps exactly one
+    # decision on screen; the regime sits inside it as a labelled context line.
+    #
+    # Compaction is layout only. No flag, number or sentence is dropped: the
+    # caution / favorable / not-checked blocks moved from stacked full-width lists
+    # into three columns, which is where most of the height went.
+    regime_info = mvd.classify_regime(nifty_overview)
 
-_senti_reading = cached_latest_sentiment()
-# A reading from three sessions ago must not read as today's green light.
-_stale_flags = []
-_senti_age = None
-if _senti_reading and _senti_reading.get("reading_date"):
-    _senti_age = (date.today() - date.fromisoformat(_senti_reading["reading_date"])).days
-    if _senti_age >= 1:
-        # The instruction used to be "refresh Market Sentiment", pointing at
-        # another page. There is a button directly under this card now, so the
-        # flag states the fact and the button owns the fix.
-        _stale_flags.append(
-            f"Sentiment reading is {_senti_age} day(s) old "
-            f"(dated {_senti_reading['reading_date']})")
-verdict = mvd.build_verdict(_senti_reading, portfolio_summary, _stale_flags)
+    _senti_reading = cached_latest_sentiment()
+    # A reading from three sessions ago must not read as today's green light.
+    _stale_flags = []
+    _senti_age = None
+    if _senti_reading and _senti_reading.get("reading_date"):
+        _senti_age = (date.today() - date.fromisoformat(_senti_reading["reading_date"])).days
+        if _senti_age >= 1:
+            # The instruction used to be "refresh Market Sentiment", pointing at
+            # another page. There is a button directly under this card now, so the
+            # flag states the fact and the button owns the fix.
+            _stale_flags.append(
+                f"Sentiment reading is {_senti_age} day(s) old "
+                f"(dated {_senti_reading['reading_date']})")
+    verdict = mvd.build_verdict(_senti_reading, portfolio_summary, _stale_flags)
 
-# ── Breadth strip — the market's internals, under the index charts ───────────
-# Home only, same reasoning as the index strip. Placed here rather than next to
-# it because it needs `_senti_reading`, which owns both the Adv/Decl counts and
-# the sentiment score — reading them from the same object is what keeps this
-# strip and the verdict card below it from disagreeing about the same market.
-if current_page == "Home":
-    bstrip.render(_senti_reading)
+    _vfg, _ = rs.tone_colors(verdict["tone"])
 
 
-_vfg, _ = rs.tone_colors(verdict["tone"])
+    def _regime_line() -> str:
+        """The regime as a context strip inside the verdict card, or '' if unknown."""
+        if regime_info["label"] == "UNKNOWN":
+            return ""
+        bits = []
+        if regime_info["vol"] is not None and regime_info["vol_baseline"] is not None:
+            bits.append(f'Vol <span class="tb-mono">{regime_info["vol"]:.2f}%</span> vs '
+                        f'<span class="tb-mono">{regime_info["vol_baseline"]:.2f}%</span> baseline')
+        if regime_info["dist_pct"] is not None:
+            bits.append(f'within <span class="tb-mono">'
+                        f'{abs(regime_info["dist_pct"]):.1f}%</span> of the 50 SMA')
+        # Qullamaggie's switch for momentum longs: NIFTY SMA10 vs SMA20.
+        _ml = regime_info.get("momentum_longs")
+        if _ml is not None:
+            bits.append(f'Momentum longs <b>{"ON" if _ml else "OFF"}</b> — SMA10 '
+                        f'<span class="tb-mono">{regime_info["sma10"]:,.0f}</span> '
+                        f'{"above" if _ml else "below"} SMA20 '
+                        f'<span class="tb-mono">{regime_info["sma20"]:,.0f}</span>')
+        return (
+            f'<div style="border-top:1px solid {rs.TOKENS["border"]};margin-top:10px;'
+            f'padding-top:8px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">'
+            f'<span class="tb-micro">Regime</span>'
+            + rs.chip(regime_info["label"], tone=regime_info["tone"])
+            + f'<span style="font-size:12.5px;color:{rs.TOKENS["text_body"]};">'
+              f'{regime_info["playbook"]}</span>'
+            + (f'<span style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
+               f'{" · ".join(bits)}</span>' if bits else "")
+            + '</div>'
+        )
 
 
-def _flag_col(items: list[str], label: str, tone: str, mark: str) -> str:
-    """One flag column — micro header in the tone, then the flags themselves.
-
-    Empty columns still render (as a dash) so the three keep their widths and
-    the reader can see that a category is empty rather than missing.
-    """
-    fg, _bg = rs.tone_colors(tone)
-    rows = "".join(
-        f'<div style="font-size:11.5px;color:{fg};line-height:1.5;">{mark} {i}</div>'
-        for i in items) or (
-        f'<div style="font-size:11.5px;color:{rs.TOKENS["absent"]};'
-        f'line-height:1.5;">—</div>')
-    return (f'<div style="flex:1;min-width:150px;">'
-            f'<div class="tb-micro" style="color:{fg};">{label}</div>{rows}</div>')
-
-
-def _regime_line() -> str:
-    """The regime as a context strip inside the verdict card, or '' if unknown."""
-    if regime_info["label"] == "UNKNOWN":
-        return ""
-    bits = []
-    if regime_info["vol"] is not None and regime_info["vol_baseline"] is not None:
-        bits.append(f'Vol <span class="tb-mono">{regime_info["vol"]:.2f}%</span> vs '
-                    f'<span class="tb-mono">{regime_info["vol_baseline"]:.2f}%</span> baseline')
-    if regime_info["dist_pct"] is not None:
-        bits.append(f'within <span class="tb-mono">'
-                    f'{abs(regime_info["dist_pct"]):.1f}%</span> of the 50 SMA')
-    return (
-        f'<div style="border-top:1px solid {rs.TOKENS["border"]};margin-top:10px;'
-        f'padding-top:8px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">'
-        f'<span class="tb-micro">Regime</span>'
-        + rs.chip(regime_info["label"], tone=regime_info["tone"])
-        + f'<span style="font-size:12.5px;color:{rs.TOKENS["text_body"]};">'
-          f'{regime_info["playbook"]}</span>'
-        + (f'<span style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
-           f'{" · ".join(bits)}</span>' if bits else "")
-        + '</div>'
-    )
-
-
-# One bordered card: the verdict, the regime it was formed in, and the flags that
-# produced it are a single object. The border colour is where the decision is
-# stated (report_style's `tone` rule — a value's colour states its verdict).
-if _show_regime:
-    st.markdown(
-        rs.card(
-            '<div style="display:flex;align-items:flex-start;gap:16px;">'
-            '<div style="flex:1;min-width:0;">'
-            '<div class="tb-micro">Today\'s verdict</div>'
-            f'<div style="font-size:24px;font-weight:800;color:{_vfg};'
-            f'line-height:1.15;letter-spacing:-.01em;">{verdict["verdict"]}</div>'
-            f'<div style="font-size:13px;color:{rs.TOKENS["text_body"]};'
-            f'margin-top:2px;">{verdict["instruction"]}</div>'
-            '</div>'
-            '<div style="text-align:right;flex-shrink:0;">'
-            '<div class="tb-micro">Position size</div>'
-            f'<div class="tb-mono" style="font-size:24px;font-weight:800;'
-            f'color:{_vfg};line-height:1.15;">{verdict["size_pct"]}%</div>'
-            f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
-            f'max <span class="tb-mono">{verdict["max_trades"]}</span> trade(s) today</div>'
-            '</div></div>'
-            + _regime_line()
-            # Components that could not be measured abstain from the vote (B-1),
-            # so the verdict above was formed on LESS than the full weight. Shown
-            # explicitly — otherwise the only visible difference between a
-            # complete verdict and a partial one is that it has fewer flags.
-            + f'<div style="border-top:1px solid {rs.TOKENS["border"]};margin-top:10px;'
-              f'padding-top:8px;display:flex;gap:18px;flex-wrap:wrap;">'
-            + _flag_col(verdict["caution"], "Caution", "risk", "✗")
-            + _flag_col(verdict["favorable"], "Favorable", "good", "✓")
-            + _flag_col(verdict.get("not_checked") or [], "Not checked", "neutral", "—")
-            + '</div>',
-            tone=verdict["tone"]),
-        unsafe_allow_html=True,
-    )
-
-# ── Inline sentiment refresh ────────────────────────────────────────────
-if _show_regime and (_senti_reading is None or (_senti_age or 0) >= 1):
-    _rf1, _rf2 = st.columns([1, 3])
-    with _rf1:
-        _do_refresh = st.button(
-            "↻ Refresh sentiment", key="ov_senti_refresh",
-            help="Recomputes breadth, sector participation, the 200-SMA regime "
-                 "and NIFTY PMax, then re-reads this verdict. Takes ~25s.")
-    with _rf2:
-        st.caption(
-            "No sentiment reading has been computed yet — the verdict above is "
-            "running on a missing input." if _senti_reading is None else
-            f"Reading is **{_senti_age} day(s) old** (dated "
-            f"{_senti_reading['reading_date']}). The verdict above counts that "
-            "as a caution flag, so refreshing may change it.")
-
-    if _do_refresh:
-        # Queue the ~25s compute on the serial job queue rather than running it
-        # inline — so a funnel run in progress is NOT cancelled, and vice-versa.
-        _sjid = ui_jobs.submit_unique("Refresh sentiment", senti.compute_sentiment,
-                                      persist=True)
-        if _sjid is None:
-            st.info("A sentiment refresh is already running — click ignored.")
-        st.rerun()
-
-    # Consume a completed sentiment refresh (fires once on completion). The cache
-    # bust + rerun must happen on the MAIN thread, so it lives here, not in the job.
-    _sfin = ui_jobs.get_queue().take_result("Refresh sentiment")
-    if _sfin is not None:
-        if _sfin.status == "error":
-            st.error(f"Sentiment compute failed: {_sfin.error}")
-        else:
-            cached_latest_sentiment.clear()   # else the ribbon serves stale for ~5 min
-            st.session_state["ov_senti_refreshed"] = True
-
-if _show_regime and st.session_state.pop("ov_senti_refreshed", False):
-    st.success("Sentiment recomputed — the verdict above reflects the new reading.")
-
-if _show_regime:
-    with st.expander("Why this verdict?"):
-        # stat_card, not st.metric: the native metric renders its value in the
-        # proportional face with its own grey label, which is the one thing on this
-        # page that never matched the rest of the figures.
+    # One bordered card: the verdict, the regime it was formed in, and the flags that
+    # produced it are a single object. The border colour is where the decision is
+    # stated (report_style's `tone` rule — a value's colour states its verdict).
+    if _show_regime:
         st.markdown(
-            rs.strip([
-                rs.stat_card("Min conviction required", verdict["min_conviction"],
-                             tone="warn" if verdict["min_conviction"] == "HIGH" else "neutral"),
-                rs.stat_card("Caution flags", str(verdict["n_caution"]),
-                             tone="risk" if verdict["n_caution"] else "neutral"),
-                rs.stat_card("Favorable flags", str(verdict["n_favorable"]),
-                             tone="good" if verdict["n_favorable"] else "neutral"),
-            ], cols=3),
+            rs.card(
+                '<div style="display:flex;align-items:flex-start;gap:16px;">'
+                '<div style="flex:1;min-width:0;">'
+                '<div class="tb-micro">Today\'s verdict</div>'
+                f'<div style="font-size:24px;font-weight:800;color:{_vfg};'
+                f'line-height:1.15;letter-spacing:-.01em;">{verdict["verdict"]}</div>'
+                f'<div style="font-size:13px;color:{rs.TOKENS["text_body"]};'
+                f'margin-top:2px;">{verdict["instruction"]}</div>'
+                '</div>'
+                '<div style="text-align:right;flex-shrink:0;">'
+                '<div class="tb-micro">Position size</div>'
+                f'<div class="tb-mono" style="font-size:24px;font-weight:800;'
+                f'color:{_vfg};line-height:1.15;">{verdict["size_pct"]}%</div>'
+                f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
+                f'max <span class="tb-mono">{verdict["max_trades"]}</span> trade(s) today</div>'
+                '</div></div>'
+                + _regime_line()
+                # Components that could not be measured abstain from the vote (B-1),
+                # so the verdict above was formed on LESS than the full weight. Shown
+                # explicitly — otherwise the only visible difference between a
+                # complete verdict and a partial one is that it has fewer flags.
+                + f'<div style="border-top:1px solid {rs.TOKENS["border"]};margin-top:10px;'
+                  f'padding-top:8px;display:flex;gap:18px;flex-wrap:wrap;">'
+                + _flag_col(verdict["caution"], "Caution", "risk", "✗")
+                + _flag_col(verdict["favorable"], "Favorable", "good", "✓")
+                + _flag_col(verdict.get("not_checked") or [], "Not checked", "neutral", "—")
+                + '</div>',
+                tone=verdict["tone"]),
             unsafe_allow_html=True,
         )
-        if verdict["score"] is not None:
-            st.caption(f"Sentiment score {verdict['score']} ({verdict['band']}) "
-                       f"· reading dated {verdict['as_of']}")
-        st.markdown("**Decision rule**")
-        for line in verdict["rule"]:
-            st.markdown(f"- {line}")
-        st.caption(
-            "Each sentiment component votes once, by the share of its own weight it "
-            "earned. Portfolio heat and stale data can only add caution, never "
-            "conviction. Thresholds are defaults — tune them against Verdict "
-            "Calibration before trusting the ladder with size."
-        )
 
+    # ── Inline sentiment refresh ────────────────────────────────────────────
+    if _show_regime and (_senti_reading is None or (_senti_age or 0) >= 1):
+        _rf1, _rf2 = st.columns([1, 3])
+        with _rf1:
+            _do_refresh = st.button(
+                "↻ Refresh sentiment", key="ov_senti_refresh",
+                help="Recomputes breadth, sector participation, the 200-SMA regime "
+                     "and NIFTY PMax, then re-reads this verdict. Takes ~25s.")
+        with _rf2:
+            st.caption(
+                "No sentiment reading has been computed yet — the verdict above is "
+                "running on a missing input." if _senti_reading is None else
+                f"Reading is **{_senti_age} day(s) old** (dated "
+                f"{_senti_reading['reading_date']}). The verdict above counts that "
+                "as a caution flag, so refreshing may change it.")
+
+        if _do_refresh:
+            # Queue the ~25s compute on the serial job queue rather than running it
+            # inline — so a funnel run in progress is NOT cancelled, and vice-versa.
+            _sjid = ui_jobs.submit_unique("Refresh sentiment", senti.compute_sentiment,
+                                          persist=True)
+            if _sjid is None:
+                st.info("A sentiment refresh is already running — click ignored.")
+            st.rerun()
+
+        # Consume a completed sentiment refresh (fires once on completion). The cache
+        # bust + rerun must happen on the MAIN thread, so it lives here, not in the job.
+        _sfin = ui_jobs.get_queue().take_result("Refresh sentiment")
+        if _sfin is not None:
+            if _sfin.status == "error":
+                st.error(f"Sentiment compute failed: {_sfin.error}")
+            else:
+                cached_latest_sentiment.clear()   # else the ribbon serves stale for ~5 min
+                st.session_state["ov_senti_refreshed"] = True
+
+    if _show_regime and st.session_state.pop("ov_senti_refreshed", False):
+        st.success("Sentiment recomputed — the verdict above reflects the new reading.")
+
+    if _show_regime:
+        with st.expander("Why this verdict?"):
+            # stat_card, not st.metric: the native metric renders its value in the
+            # proportional face with its own grey label, which is the one thing on this
+            # page that never matched the rest of the figures.
+            st.markdown(
+                rs.strip([
+                    rs.stat_card("Min conviction required", verdict["min_conviction"],
+                                 tone="warn" if verdict["min_conviction"] == "HIGH" else "neutral"),
+                    rs.stat_card("Caution flags", str(verdict["n_caution"]),
+                                 tone="risk" if verdict["n_caution"] else "neutral"),
+                    rs.stat_card("Favorable flags", str(verdict["n_favorable"]),
+                                 tone="good" if verdict["n_favorable"] else "neutral"),
+                ], cols=3),
+                unsafe_allow_html=True,
+            )
+            if verdict["score"] is not None:
+                st.caption(f"Sentiment score {verdict['score']} ({verdict['band']}) "
+                           f"· reading dated {verdict['as_of']}")
+            st.markdown("**Decision rule**")
+            for line in verdict["rule"]:
+                st.markdown(f"- {line}")
+            st.caption(
+                "Each sentiment component votes once, by the share of its own weight it "
+                "earned. Portfolio heat and stale data can only add caution, never "
+                "conviction. Thresholds are defaults — tune them against Verdict "
+                "Calibration before trusting the ladder with size."
+            )
+
+    if _show_regime:
+        with st.expander("Set total capital (used for % capital-at-risk)"):
+            new_cap = st.number_input(
+                "Total capital (₹)", min_value=0.0,
+                value=portfolio_summary["total_capital"], step=10000.0,
+            )
+            if st.button("Save total capital"):
+                db.set_setting("total_capital", str(new_cap))
+                st.success("Saved — refresh metrics above.")
+
+# ── Index + breadth strips — the market context, AFTER the decision (B-162) ───
+# Home only: on working pages four charts above the fold would push the page the
+# reader navigated to off the first screen. They sat ABOVE the verdict until
+# 2026-10-13, which put the day's one decision two-thirds down the first screen.
+# Breadth reads `_senti_reading`, the same object the verdict used, so the two
+# cannot disagree. Everything else lives in index_strip.py / breadth_strip.py.
 if _show_regime:
-    with st.expander("Set total capital (used for % capital-at-risk)"):
-        new_cap = st.number_input(
-            "Total capital (₹)", min_value=0.0,
-            value=portfolio_summary["total_capital"], step=10000.0,
-        )
-        if st.button("Save total capital"):
-            db.set_setting("total_capital", str(new_cap))
-            st.success("Saved — refresh metrics above.")
+    with _slots.hero:
+        lc.render_hero(
+            market_state=_mkt_state, market_label=_mkt_label,
+            verdict=verdict["verdict"], instruction=verdict["instruction"],
+            verdict_tone=verdict["tone"], regime=nifty_regime, tiles=_tape[:3],
+            today=datetime.now().strftime("%A, %d %B %Y"))
+    with _slots.market:
+        istrip.render()
+        bstrip.render(_senti_reading)
+        st.divider()
 
-if _show_regime:
-    st.divider()
-
+# B-161: the ring prints the score IN this colour, so every step must read as
+# text (>= 4.5:1). The 600-level steps (#65a30d, #ca8a04, #ea580c) measured
+# ~2.9-3.6 on the cream card; the whole scale moved to its 800 level together
+# so the gradient stays even.
 _SIGNAL_COLORS = {
-    "Very Strong": "#16a34a", "Strong": "#65a30d", "Moderate": "#ca8a04",
-    "Watch": "#ea580c", "Weak": "#dc2626",
+    "Very Strong": "#166534", "Strong": "#3f6212", "Moderate": "#854d0e",
+    "Watch": "#9a3412", "Weak": "#b91c1c",
 }
 
 
@@ -4367,25 +3458,6 @@ def _score_ring_html(score: float, signal: str) -> str:
     )
 
 
-# ── Overall Rating (M1) — one cross-system quality score /100 ──────────────────
-# Fuses the four scoring frameworks already computed elsewhere in the app into a
-# single triage number, independent of which scanner matched. Weights bias toward
-# Minervini as the most-referenced framework on the wiki; tune them in the Scanner
-# Hub sidebar (changes apply on the next scan). See
-# wiki/analyses/Dashboard-UI-Roadmap.md Milestone 1.
-def _rating_color(r: int | None) -> str:
-    """Color scale for the Overall Rating badge (matches Market Terminal source)."""
-    if r is None:
-        return "#7a6858"
-    if r >= 85:
-        return "#16a34a"   # green
-    if r >= 70:
-        return "#d97706"   # amber
-    if r >= 50:
-        return "#6b7280"   # grey
-    return "#dc2626"       # red
-
-
 def _rating_badge_html(card: dict) -> str:
     """Overall Rating pill for the scanner card header. Empty when not computed."""
     if card.get("overall") is None:
@@ -4400,45 +3472,6 @@ def _rating_badge_html(card: dict) -> str:
         f'margin-right:8px;flex-shrink:0;">{r}<span style="font-weight:500;'
         f'opacity:.8;font-size:10px;">/100</span></span>'
     )
-
-
-def _scanner_stats_html(card: dict) -> str:
-    """Compact stat row (RS · Vol Q · From pivot · Vol ×50d) + fail-risk chips.
-    Renders only the fields the card actually carries, so scanners that don't
-    emit the richer metadata degrade to nothing."""
-    def chip(label: str, value: str, color: str = "#5c4a3a") -> str:
-        return (
-            f'<span style="display:inline-block;background:#f7efe3;border-radius:6px;'
-            f'padding:2px 8px;margin:0 6px 4px 0;font-size:11px;color:{color};">'
-            f'<b style="color:#7a6858;font-weight:600;">{label}</b> {value}</span>'
-        )
-
-    parts = []
-    if "rs_rank" in card:
-        rs = card["rs_rank"]
-        parts.append(chip("RS", f"{rs:.0f}", "#16a34a" if rs >= 80 else "#5c4a3a"))
-    if "base_q" in card:
-        bq = card["base_q"]
-        parts.append(chip("Base Q", f"{bq:.0f}", "#16a34a" if bq >= 65 else "#5c4a3a"))
-    if card.get("vol_q"):
-        parts.append(chip("Vol Q", card["vol_q"]))
-    if "from_pivot" in card:
-        parts.append(chip("From pivot", f'{card["from_pivot"]:+.1f}%'))
-    if "vol_x50d" in card:
-        vx = card["vol_x50d"]
-        parts.append(chip("Vol ×50d", f"{vx:.1f}×", "#16a34a" if vx >= 1.5 else "#5c4a3a"))
-    stats = "".join(parts)
-
-    risks = card.get("fail_risk") or []
-    risk_html = "".join(
-        f'<span style="display:inline-block;background:#fef2f2;color:#b45309;'
-        f'border:1px solid #fde0c0;border-radius:6px;padding:2px 8px;'
-        f'margin:0 6px 4px 0;font-size:11px;">⚠ {r}</span>'
-        for r in risks
-    )
-    if not stats and not risk_html:
-        return ""
-    return (f'<div style="margin:8px 0 4px 0;">{stats}{risk_html}</div>')
 
 
 def _card_action_links(sym: str, analyze: bool = True) -> str:
@@ -4513,138 +3546,6 @@ def _scanner_source_chips(scanners: str | None) -> str:
             f'style="margin-right:6px;">FIRED BY</span>{"".join(out)}</div>')
 
 
-def _fam_of(row) -> list[str]:
-    """Family list for a stored shortlist row.
-
-    Rows written before the family columns existed carry NULL there, so the
-    families are re-derived from the stored scanner list rather than rendering
-    a blank — the mapping is deterministic, so an old row and a new one show
-    the same thing.
-    """
-    stored = row.get("family_names") if hasattr(row, "get") else None
-    if stored and pd.notna(stored):
-        return [f.strip() for f in str(stored).split(",") if f.strip()]
-    fired = [s.strip() for s in str(row.get("scanners") or "").split(",") if s.strip()]
-    fams, _pts, _risk = oh.tally_evidence(fired)
-    return fams
-
-
-def _confluence_chips(n_scanners: int, families: list[str] | int | None) -> str:
-    """The headline pair — raw scanner count beside the independent-family count.
-
-    Both are shown on purpose. The raw count is what you asked the pipeline for;
-    the family count is what the ranking actually spends, and the gap between
-    them is the point: "7 scanners · 2 families" says six of those seven were
-    reading the same fact about the chart.
-    """
-    if isinstance(families, int):
-        fam_n, fam_list = families, []
-    else:
-        fam_list = list(families or [])
-        fam_n = len(fam_list)
-    detail = (" — " + ", ".join(fam_list)) if fam_list else ""
-    # One family = no confluence at all, however many scanners fired.
-    fam_tone = "good" if fam_n >= 3 else ("warn" if fam_n == 2 else "neutral")
-    ffg, fbg = rs.tone_colors(fam_tone)
-    return (
-        f'<span class="tb-chip" title="Scanners that fired on this name" '
-        f'style="background:{rs.TOKENS["surface_alt"]};'
-        f'color:{rs.TOKENS["text_body"]};">{n_scanners} scanners</span>'
-        f'<span class="tb-chip" title="Independent scanner families{detail}. '
-        f'Correlated scanners are capped at their best member — this is what '
-        f'the score spends." style="background:{fbg};color:{ffg};'
-        f'font-weight:600;">{fam_n} famil{"y" if fam_n == 1 else "ies"}</span>')
-
-
-def _card_trade_fundamentals_html(sym: str, card: dict) -> str:
-    """CMP · PMax T1/T2/T3 (derived from trade plan) · PE — compact info strip."""
-    def _cell(label: str, value: str, color: str = "#5c4a3a") -> str:
-        return (
-            f'<div style="display:inline-block;background:#f7efe3;border-radius:6px;'
-            f'padding:3px 9px;margin:0 5px 4px 0;font-size:11px;">'
-            f'<span style="color:#7a6858;font-weight:600;">{label}</span>'
-            f'<span style="color:{color};font-weight:700;margin-left:4px;">{value}</span></div>'
-        )
-
-    parts: list[str] = []
-
-    # CMP — last close (entry ≈ last close for all scanners)
-    cmp = card.get("entry") or card.get("close")
-    if cmp is not None:
-        parts.append(_cell("CMP", f"₹{cmp:,.1f}"))
-
-    # PMax targets derived from the trade plan emitted by the scanner.
-    # T1 = primary target, T2 = 2R extension, T3 = 3R extension.
-    entry = card.get("entry") or cmp
-    stop  = card.get("stop")
-    t1    = card.get("target")
-    t2    = card.get("target2")
-    if entry is not None and stop is not None and t1 is not None:
-        risk = entry - stop
-        if risk > 0:
-            t2 = t2 or round(entry + 2 * risk, 1)
-            t3 = round(entry + 3 * risk, 1)
-            parts.append(_cell("T1", f"₹{t1:,.1f}", "#16a34a"))
-            parts.append(_cell("T2", f"₹{t2:,.1f}", "#16a34a"))
-            parts.append(_cell("T3", f"₹{t3:,.1f}", "#16a34a"))
-
-    # Fundamentals — from cached yfinance .info (disk cache, not network).
-    try:
-        fund = sc.fetch_fundamentals_yf(sym) or {}
-    except Exception:
-        fund = {}
-
-    pe = fund.get("pe")
-    if pe is not None:
-        pe_color = "#b45309" if pe > 40 else ("#16a34a" if pe < 20 else "#5c4a3a")
-        parts.append(_cell("PE", f"{pe:.1f}×", pe_color))
-
-    # PEG — <1 cheap-for-growth (green), >2 pricey (amber). 'calc' = derived from
-    # PE/earnings-growth rather than the vendor's own ratio (marked with ~).
-    peg = fund.get("peg")
-    if peg is not None:
-        peg_color = "#16a34a" if peg < 1 else ("#b45309" if peg > 2 else "#5c4a3a")
-        peg_txt = f"{'~' if fund.get('peg_src') == 'calc' else ''}{peg:.2f}"
-        parts.append(_cell("PEG", peg_txt, peg_color))
-
-    eps = fund.get("eps")
-    if eps is not None:
-        parts.append(_cell("EPS", f"₹{eps:,.2f}", "#16a34a" if eps > 0 else "#b45309"))
-
-    ebitda_cr = fund.get("ebitda_cr")
-    if ebitda_cr is not None:
-        # ≥1 lakh-crore → abbreviate to "L Cr", else plain "₹N Cr".
-        _eb = (f"₹{ebitda_cr / 1e5:,.2f}L Cr" if abs(ebitda_cr) >= 1e5
-               else f"₹{ebitda_cr:,.0f} Cr")
-        parts.append(_cell("EBITDA", _eb, "#16a34a" if ebitda_cr > 0 else "#b45309"))
-
-    # Cash-flow margin (OCF ÷ revenue). Positive & fat = cash-generative (green);
-    # negative = burning operating cash (amber).
-    cfm = fund.get("cf_margin_pct")
-    if cfm is not None:
-        parts.append(_cell("CF%", f"{cfm:.1f}%",
-                           "#16a34a" if cfm > 0 else "#b45309"))
-
-    # Promoter pledge — not in yfinance. Read the screener.in disk cache (pure
-    # local read, no network); populated by the Scanner Hub "Fetch pledge %"
-    # button. High pledge is a risk flag → red above 5%.
-    pledge = fund.get("pledge_pct")
-    if pledge is None:
-        try:
-            _plrec = ss.read_pledge_cache(sym)
-            if _plrec is not None:
-                pledge = _plrec.get("pledge_pct")
-        except Exception:
-            pledge = None
-    if pledge is not None:
-        parts.append(_cell("Pledge", f"{pledge:.1f}%",
-                           "#dc2626" if pledge > 5 else "#16a34a"))
-
-    if not parts:
-        return ""
-    return f'<div style="margin:6px 0 2px 0;">{"".join(parts)}</div>'
-
-
 # Per-render sequence for scanner-card widget keys. Reset every rerun (Streamlit
 # re-executes this whole script top-to-bottom), so keys are deterministic and
 # stable across identical reruns, yet unique even when the SAME symbol+scanner
@@ -4670,7 +3571,7 @@ def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -
             f' style="display:inline-flex;align-items:center;justify-content:center;'
             f'width:{w};height:{w};border-radius:6px;text-decoration:none;'
             f'font-size:{sz};line-height:1;background:#f7efe3;'
-            f'color:#d97706;border:1px solid #f0e0cc;margin-left:4px;">'
+            f'color:#a14a0b;border:1px solid #f0e0cc;margin-left:4px;">'
             f'{glyph}</a>'
         )
 
@@ -4708,7 +3609,7 @@ def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -
         if r.startswith("⚠") else
         (f'<div style="display:flex;align-items:baseline;margin-bottom:4px;'
          f'font-size:12px;color:#5c4a3a;">'
-         f'<span style="color:#16a34a;font-weight:700;margin-right:5px;flex-shrink:0;">✓</span>'
+         f'<span style="color:#166534;font-weight:700;margin-right:5px;flex-shrink:0;">✓</span>'
          f'{r}</div>')
         for r in card.get("reasons", [])
     )
@@ -4897,8 +3798,8 @@ def _render_pipeline_card(hit: dict) -> None:
         f'<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;'
         f'margin-bottom:4px;">'
         f'{_confluence_chips(len(hit["scanners"]), hit["families"])}'
-        f'<span class="tb-chip" title="Rank score — 0.45×Overall Rating + '
-        f'0.30×best scanner score + 0.25×family-capped confluence" '
+        f'<span class="tb-chip" title="Rank score — 0.45×Overall Rating + 0.30×best scanner '
+        f'score (UNMEASURED as a ranking input, B-172) + 0.25×family-capped confluence" '
         f'style="background:{rs.TOKENS["surface_alt"]};'
         f'color:{rs.TOKENS["text_body"]};">score '
         f'{(hit.get("rank_score") or 0):.1f}</span></div>'
@@ -4909,13 +3810,6 @@ def _render_pipeline_card(hit: dict) -> None:
     card["overall_breakdown"] = hit.get("overall_breakdown") or {}
     _render_scanner_card(card, best, header_html=header_html)
     _render_pead_walk(hit.get("pead"))
-
-
-def _pct_tone(v) -> str:
-    """Colour for a signed per-cent, or the muted token for an absent one."""
-    if v is None:
-        return rs.TOKENS["text_muted"]
-    return rs.TOKENS["good"] if v > 0 else rs.TOKENS["risk"] if v < 0 else         rs.TOKENS["text_body"]
 
 
 def _render_pead_walk(walk: dict | None) -> None:
@@ -4997,7 +3891,6 @@ with st.expander("Daily Workflow (IST)"):
     st.caption("Screener pipeline auto-runs at 4:05 PM — aligned with the post-market review window.")
 
 
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Sector money flow (CMF) — B-60. Shared window, used on Sector Map AND Home.
 # ------------------------------------------------------------------------------
@@ -5026,7 +3919,7 @@ def _money_flow_window(key_prefix: str, *, compact: bool = False):
     import money_flow as _mf
 
     if compact:
-        st.markdown("#### 💸 Sector money flow · positive today")
+        st.markdown("#### 💸 Sector money flow · last month")
     else:
         st.markdown("#### 💸 Sector money flow · Chaikin Money Flow")
 
@@ -5047,6 +3940,20 @@ def _money_flow_window(key_prefix: str, *, compact: bool = False):
 
     cols = grid["columns"]
 
+    import money_flow_chart as _mfc
+    _ridge = _mfc.ridgeline(grid, rs.TOKENS)
+    _ridge_note = ("Daily CMF(21) per sector over the last month, strongest inflow "
+                   "today on top; green above each line is money in, red below is "
+                   "money out. Neighbouring days share 20 of their 21 sessions, so the "
+                   "ridges are smooth by construction: a drift is real, a wiggle is not.")
+
+    if compact and _ridge is not None:
+        st.plotly_chart(_ridge, width="stretch", config={"displayModeBar": False},
+                        key=f"{key_prefix}_ridge")
+        st.caption(_ridge_note + " Where money went, not where it will go — "
+                   "a reading order, not a buy list. Nothing here has been measured.")
+        return
+
     if compact:
         pos = _mf.positive_sectors(grid, top_n=5)
         if pos.empty:
@@ -5063,6 +3970,11 @@ def _money_flow_window(key_prefix: str, *, compact: bool = False):
         st.caption("Where money went, not where it will go — a reading order, "
                    "not a buy list. Nothing here has been measured.")
         return
+
+    if _ridge is not None:
+        st.plotly_chart(_ridge, width="stretch", config={"displayModeBar": False},
+                        key=f"{key_prefix}_ridge")
+        st.caption(_ridge_note)
 
     # Full grid: red → white → green, clipped at the practical range so ordinary
     # readings use the whole scale instead of hugging white (CMF is bounded ±1
@@ -5334,30 +4246,6 @@ def _hub_price_button(symbols, key: str, label: str) -> None:
         st.rerun()
 
 
-# B-75's four helpers live in `profit_walk_ui` rather than here. They are new
-# UI code, and the B-87 ratchet's rule is that new UI code does not land in this
-# file. `_pw()` is the whole of its footprint here: the call sites go straight
-# through it, so mounting the column costs this file one function, not five.
-def _pw():
-    import profit_walk_ui as _pwu
-    return _pwu
-
-
-def _wl_rs_mom(df):
-    """The RAW weighted trailing return behind `rs_walk`'s percentile.
-
-    Computed straight from the frame the caller already holds — `rs_walk`'s own
-    `weighted_return_asof`, not a second formula. The rank says where a name
-    stands against the universe; this says what it actually returned, and a rank
-    of 90 in a flat market is a different fact from a rank of 90 in a strong one.
-    """
-    try:
-        import rs_walk as _rw
-        return _rw.weighted_return_asof(df, offset=0)
-    except Exception:
-        return None
-
-
 @st.cache_data(ttl=600, show_spinner=False)
 def _svp_screen_lookup() -> dict:
     """The SVP screen file, read-only. `{}` when it has never been built.
@@ -5373,78 +4261,6 @@ def _svp_screen_lookup() -> dict:
     except Exception as _e:                                  # pragma: no cover
         _log.warning("svp screen unavailable: %s", _e)
         return {}
-
-
-def _svp_cells(symbol: str, screen: dict) -> dict:
-    """The two SVP cells for one row. One implementation, three mount points."""
-    try:
-        import svp_screen as _svp
-        return _svp.cells(symbol, screen)
-    except Exception:                                        # pragma: no cover
-        return {"svp_hist_8w": "", "svp_factors": None}
-
-
-def _svp_caption(screen: dict) -> str:
-    """The staleness line every table showing these columns must print.
-
-    The screen is built by a MANUAL two-command pipeline, not a scheduled job,
-    so the file can be days old while the table around it is live. Presenting a
-    stale profile as today's structure is the failure this caption exists to
-    prevent, which is why the age is stated in hours and the as-of date is in
-    the tooltip rather than both being left implicit.
-    """
-    if not screen or not screen.get("n"):
-        return ""
-    # The AS-OF range, not the file's mtime: rewriting the CSV to add a few
-    # fresh names would reset the mtime and flatter every old row in it. The
-    # dates below are what each row actually describes.
-    lo, hi = screen.get("asof_min"), screen.get("asof_max")
-    if lo and hi and lo != hi:
-        when = f"bars from **{lo} – {hi}** (mixed)"
-    elif hi:
-        when = f"bars as of **{hi}**"
-    else:
-        age = screen.get("age_hours") or 0
-        when = f"file written {age / 24:.1f} days ago"
-    stale = False
-    try:
-        from datetime import date as _d
-        stale = hi is not None and (_d.today() - _d.fromisoformat(str(hi))).days > 3
-    except Exception:
-        pass
-    warn = " ⚠️ **stale** — rebuild before reading it as current" if stale else ""
-    return (f"**SVP 8w / SVP fac** read from the session-profile screen — "
-            f"{screen['n']} symbols, {when}{warn}. A name outside that screen "
-            f"shows BLANK, which means no structure on file, not flat "
-            f"structure. Structure only: the composite score and its BUY/SELL "
-            f"direction measured a clean negative on 2026-08-29 and are not "
-            f"shown anywhere on this desk.")
-
-
-def _rs_walk_lookup() -> dict:
-    """The stored RS-walk grid, or {} when none has been computed.
-
-    Read-only and cheap. Every page that shows the column goes through this and
-    `_rs_walk_cell` rather than formatting its own, so the `*` convention and the
-    oldest-first order cannot drift between the Watchlist and the Scanner Hub.
-    """
-    try:
-        return db.get_rs_walk()
-    except Exception:
-        return {}
-
-
-def _rs_walk_cell(symbol: str, walk: dict) -> str:
-    """One cell: `18 → 86 → 95 → 99`, with a trailing `*` for a non-constituent.
-
-    Empty string when the symbol is not in the stored grid — a name nobody has
-    ranked reads as blank, not as a rank of zero.
-    """
-    import rs_walk as _rw
-    r = walk.get(str(symbol).strip().upper())
-    if not r:
-        return ""
-    return _rw.format_walk(r) + ("" if r.get("in_universe") else " *")
 
 
 def _cols_mod():
@@ -5478,9 +4294,9 @@ def _turnover_share_window(key_prefix: str = "tsh_page"):
 
     show = df[["sector", "members", "turnover_cr", "share_pct",
                "d_share_d", "d_share_w"]]
-    styled = show.style.background_gradient(
+    styled = _cols_mod().formatted(show.style.background_gradient(
         cmap="RdYlGn", subset=["d_share_d", "d_share_w"], vmin=-3.0, vmax=3.0
-    )  # numbers are formatted by columns.py, not here — one formatter, not two
+    ))  # numbers are formatted by columns.py, not here — one formatter, not two
     st.dataframe(
         styled, hide_index=True, width="stretch",
         column_config=_cols_mod().configure_df(show))
@@ -5582,33 +4398,42 @@ def _darvas_rows_table(df, key_prefix: str):
         return
     import sector_column as _sc
     out = _sc.attach(df.copy(), "symbol")
-    out = _with_chart_family(out, "symbol")
-    import columns as _cols
-    cfg = dict(_chart_family_colcfg())
-    # One definition per column (B-63a). `multiple` resolves to the shared
-    # `rvol` spec — the same ratio this table labelled "x SMA10" and the
-    # trending tables labelled "x avg vol".
-    cfg.update(_cols.configure_df(out))
-    # Green/red on Chg%. Colour is REDUNDANT here, never load-bearing: the Dir
-    # column already says UP/DOWN and the number carries its own sign, so the
-    # table still reads correctly in greyscale or with colour-blindness — the
-    # same rule gain_loss_badge() follows.
-    def _chg_color(v):
-        if v is None or pd.isna(v):
-            return ""
-        return (f"color:{rs.TOKENS['good']};font-weight:600" if v > 0
-                else f"color:{rs.TOKENS['risk']};font-weight:600" if v < 0
-                else "")
+    # B-180 hover rows: the Home rail's rows and hover chart, with the scan's own
+    # columns. Dir is dropped (the ▲/▼ badge and the sign already say it) and
+    # the five chart-icon columns give way to the hover card.
+    _picked = dpages.home_scan_table(
+        out.sort_values("multiple", ascending=False),
+        [{"key": "multiple", "label": "Vol ×", "fmt": "x", "width": 56},
+         {"key": "sector", "label": "Sector", "fmt": "text", "width": 160}],
+        key=f"{key_prefix}_hv", close_col="close", pct_col="chg_pct")
+    if _picked is None:   # component missing: the plain table, as before
+        out = _with_chart_family(out, "symbol")
+        import columns as _cols
+        cfg = dict(_chart_family_colcfg())
+        # One definition per column (B-63a). `multiple` resolves to the shared
+        # `rvol` spec — the same ratio this table labelled "x SMA10" and the
+        # trending tables labelled "x avg vol".
+        cfg.update(_cols.configure_df(out))
+        # Green/red on Chg%. Colour is REDUNDANT here, never load-bearing: the Dir
+        # column already says UP/DOWN and the number carries its own sign, so the
+        # table still reads correctly in greyscale or with colour-blindness — the
+        # same rule gain_loss_badge() follows.
+        def _chg_color(v):
+            if v is None or pd.isna(v):
+                return ""
+            return (f"color:{rs.TOKENS['good']};font-weight:600" if v > 0
+                    else f"color:{rs.TOKENS['risk']};font-weight:600" if v < 0
+                    else "")
 
-    _show = out.style.map(_chg_color, subset=["chg_pct"])
-    _sel = st.dataframe(_show, width="stretch", hide_index=True, column_config=cfg,
-                        key=f"{key_prefix}_tbl", on_select="rerun",
-                        selection_mode="multi-row")
-    try:
-        _rows = list(_sel.selection.rows)
-    except Exception:
-        _rows = []
-    _picked = [str(df.iloc[i]["symbol"]) for i in _rows if i < len(df)]
+        _show = _cols.formatted(out.style.map(_chg_color, subset=["chg_pct"]))
+        _sel = st.dataframe(_show, width="stretch", hide_index=True, column_config=cfg,
+                            key=f"{key_prefix}_tbl", on_select="rerun",
+                            selection_mode="multi-row")
+        try:
+            _rows = list(_sel.selection.rows)
+        except Exception:
+            _rows = []
+        _picked = [str(df.iloc[i]["symbol"]) for i in _rows if i < len(df)]
 
     _wc1, _wc3, _wc2 = st.columns([1, 1, 2])
     with _wc3:
@@ -5764,7 +4589,9 @@ if current_page == "Hidden Treasures":
                "the ranking at −0.12% @60d (p=0.94) / +0.20% @120d (p=0.94) once "
                "the drifting promoter window is bounded — the earlier +2.5% was "
                "that artefact. Coverage, not edge.")
-
+    
+    # Beginner-friendly help
+    help_panels.render("hidden_treasures")
     _ht_c1, _ht_c2 = st.columns([2, 1])
     with _ht_c1:
         _ht_kind = st.radio("Universe",
@@ -5959,7 +4786,7 @@ if current_page == "Hidden Treasures":
                             f' style="display:inline-flex;align-items:center;justify-content:center;'
                             f'width:{w};height:{w};border-radius:6px;text-decoration:none;'
                             f'font-size:{sz};line-height:1;background:#f7efe3;'
-                            f'color:#d97706;border:1px solid #f0e0cc;margin-left:4px;">'
+                            f'color:#a14a0b;border:1px solid #f0e0cc;margin-left:4px;">'
                             f'{glyph}</a>')
                     _ht_icons = ""
                     _ht_ch = _chart_url(_sym)
@@ -6395,9 +5222,10 @@ def _action_card(col, title: str, blurb: str, rows: list, target_page,
                 for a, b in rows[:3]:
                     _sub = str(b).replace("&middot;", "·")
                     if st.button(f"**{a}** :gray[{_sub}]", key=f"am_{key}_{a}",
-                                 type="tertiary", help=f"Open {a} in Predictive Analysis"):
-                        st.session_state["pa_symbol"] = a
-                        st.session_state["current_page"] = "Predictive Analysis"
+                                 type="tertiary", help=f"Open {a} in Stock Analyzer"):
+                        st.session_state["selected_symbol"] = a
+                        st.session_state["last_analyzed"] = a
+                        st.session_state["current_page"] = "Stock Analyzer"
                         st.rerun()
                 return
             cells = "".join(
@@ -6441,6 +5269,31 @@ def _render_institutional_volume(key_prefix: str) -> None:
     out = df.copy()
     out = out.rename(columns={"change_pct": "chg_pct"})
     out = _sc.attach(out, "symbol")
+
+    _iv_cols = [{"key": "date", "label": "PPV date", "fmt": "date", "width": 84},
+                {"key": "rvol", "label": "RVOL ×", "fmt": "x", "width": 60},
+                {"key": "sector", "label": "Sector", "fmt": "text", "width": 150}]
+    _hv = out.sort_values(["date", "rvol"], ascending=[False, False])
+    _picked = dpages.home_scan_table(_hv, _iv_cols, key=f"{key_prefix}_hv",
+                                     close_col="close", pct_col="chg_pct",
+                                     pct_label="Close · PPV day")
+    if _picked is not None:
+        # The % is the move on the PPV bar, not today's — the header says so.
+        _c1, _c2 = st.columns([1, 2])
+        with _c1:
+            if st.button(f"♥ Add {len(_picked) or ''} to watchlist".replace("  ", " "),
+                         key=f"{key_prefix}_addwl", disabled=not _picked,
+                         width="stretch", type="primary" if _picked else "secondary"):
+                for _s in _picked:
+                    db.add_watchlist_symbol(_s, "Institutional volume · PPV ≥ 5x RVOL")
+                st.toast(f"♥ {len(_picked)} → Watchlist")
+                st.rerun()
+        with _c2:
+            _pa_send_button(key_prefix, "Institutional volume · PPV ≥ 5x RVOL", out, "symbol",
+                            note_fn=lambda r: f"{r.get('rvol', '')}x rvol · "
+                                              f"{float(r.get('chg_pct') or 0):+.1f}% · {r.get('date', '')}")
+        return
+
     out = _with_chart_family(out, "symbol")
 
     display_cols = ["symbol", "date", "close", "chg_pct", "rvol",
@@ -6457,7 +5310,7 @@ def _render_institutional_volume(key_prefix: str) -> None:
                 else f"color:{t['risk']};font-weight:600" if v < 0
                 else "")
 
-    styled = out.style.map(_chg_color, subset=["chg_pct"])
+    styled = _cols.formatted(out.style.map(_chg_color, subset=["chg_pct"]))
     st.dataframe(styled, width="stretch", hide_index=True,
                  column_config=cfg, key=f"{key_prefix}_tbl")
 
@@ -6514,7 +5367,7 @@ def _render_cpr_vp(key_prefix: str) -> None:
         return (f"color:{t['good']};font-weight:600" if v > 0
                 else f"color:{t['risk']};font-weight:600" if v < 0 else "")
 
-    styled = out.style.map(_chg_color, subset=["Chg %"]).map(_bias_color, subset=["Bias"])
+    styled = _cols.formatted(out.style.map(_chg_color, subset=["Chg %"]).map(_bias_color, subset=["Bias"]))  # B-164
     st.dataframe(styled, width="stretch", hide_index=True, column_config=cfg,
                  key=f"{key_prefix}_tbl")
     st.caption(f"{len(rows)} of {_snap.get('scanned_n', '?')} names scanned · "
@@ -6631,7 +5484,7 @@ def render_action_map() -> None:
                      if pd.notna(r.get("overall_rating"))]
     _action_card(c4, "Highest rated",
                  "The M1 technical Overall Rating - a different lens from the "
-                 "shortlist score.", _rat_rows, "Predictive Analysis", "rat", tickers=True)
+                 "shortlist score.", _rat_rows, "Stock Analyzer", "rat", tickers=True)
 
     _conf_rows = []
     if "confluence" in _df.columns:
@@ -6661,214 +5514,182 @@ if current_page == "Home":
     _t = rs.TOKENS
     _n_pages = sum(len(v) for v in PAGE_GROUPS.values())
 
-    st.markdown(
-        f'<div style="background:linear-gradient(135deg,{_t["surface_warm"]} 0%,'
-        f'{_t["surface_alt"]} 55%,{_t["surface"]} 100%);'
-        f'border:1px solid {_t["border_strong"]};border-radius:16px;'
-        f'padding:30px 34px;margin:2px 0 20px;">'
-        f'<div class="tb-micro" style="color:{_t["accent"]};">TRADING BRAMHA</div>'
-        f'<div style="font-size:30px;font-weight:800;line-height:1.22;'
-        f'color:{_t["text"]};margin-top:8px;">Screening, research and risk —<br>'
-        f'<span style="color:{_t["accent"]};">in one place.</span></div>'
-        f'<div style="font-size:14px;color:{_t["text_body"]};margin-top:12px;'
-        f'max-width:620px;line-height:1.55;">'
-        f'A personal NSE swing-trading desk. Every number on it is computed from '
-        f'filed data or measured history — where something could not be measured, '
-        f'the page says so rather than guessing.</div>'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
-
-    # Call-to-action row, as in the reference layout. Real buttons rather than
-    # styled anchors, because navigation here is session_state + rerun.
-    _cta1, _cta2, _cta3, _cta4 = st.columns([1.15, 1, 1, 3])
-    with _cta1:
+    # B-179: the call-to-action row became the right rail's quick actions, under
+    # the account cards. Real buttons rather than styled anchors, because
+    # navigation here is session_state + rerun.
+    with _slots.right:
+        st.caption("Quick actions")
         if st.button("Open screener dashboard", key="home_cta_screen",
                      type="primary", width="stretch"):
             st.session_state["current_page"] = "Opportunity Hub"
             st.rerun()
-    with _cta2:
-        if st.button("View top movers", key="home_cta_movers",
-                     width="stretch"):
+        if st.button("View top movers", key="home_cta_movers", width="stretch"):
+            # The section sits a few screens down, so setting the flag alone
+            # looked like a dead button. Also queue a one-shot scroll to it.
             st.session_state["home_trending_open"] = True
+            st.session_state["home_trending_scroll"] = True
             st.rerun()
-    with _cta3:
         if st.button("Scanner Hub", key="home_cta_hub", width="stretch"):
             st.session_state["current_page"] = "Scanner Hub"
             st.rerun()
-    st.markdown(
-        f'<div style="font-size:11px;color:{_t["text_muted"]};margin:8px 0 18px;">'
-        f'No sign-in required to browse. '
-        f'<b>For research and educational purposes only — not investment advice.</b>'
-        f'</div>', unsafe_allow_html=True)
+        st.markdown(
+            f'<div style="font-size:11px;color:{_t["text_muted"]};margin:8px 0 18px;">'
+            f'No sign-in required to browse. '
+            f'<b>For research and educational purposes only — not investment advice.</b>'
+            f'</div>', unsafe_allow_html=True)
 
-    # Three genuinely cheap facts. Nothing here fetches.
-    try:
-        _n_scanners = len(sc.SCANNERS)
-    except Exception:
-        _n_scanners = None
-    _senti = None
-    try:
-        _senti = cached_latest_sentiment()
-    except Exception:
-        _senti = None
+    # B-179: the watchlist roster that closed Home became the left rail.
+    with _slots.left:
+        dpages.home_rail(db, _symbol_payload())
 
-    _senti_val = f"{_senti['score']:.0f} · {_senti['band']}" if _senti else None
-    _senti_sub = f"as of {_senti['reading_date']}" if _senti else "never refreshed"
-    _senti_tone = "neutral"
-    if _senti and str(_senti.get("band")) == "NOT_CHECKED":
-        _senti_tone = "absent"
+    # Centre pane, below the verdict card and market bar the header put there.
+    with _slots.centre:
+        # ── The action map — stored state only, so it costs nothing on load ──────
+        render_action_map()
 
-    st.markdown(
-        rs.strip([
-            rs.stat_card("Pattern scanners",
-                         str(_n_scanners) if _n_scanners is not None else None,
-                         "backtest-measured where marked", tone="info"),
-            rs.stat_card("Pages", str(_n_pages),
-                          f"across {len(PAGE_GROUPS)} sidebar groups", tone="neutral"),
-            rs.stat_card("Last sentiment", _senti_val, _senti_sub, tone=_senti_tone),
-        ], cols=3),
-        unsafe_allow_html=True,
-    )
-    st.write("")
+    # Full width under the panes: the tables below need more than the centre
+    # pane's width (Volume Shockers is 10+ columns).
+    with _slots.band:
+        # Home used to be a card grid of every page. It is now a working surface: the
+        # scan that was buried three clicks deep, then the roster it feeds. Navigation
+        # lives in the top ribbon, where it was already complete.
+        _darvas_window("home_vs", compact=True)
+        st.write("")
 
-    # ── The action map — stored state only, so it costs nothing on load ──────
-    render_action_map()
-    st.write("")
+        _mf_col, _iv_col = st.columns(2)
+        with _mf_col:
+            # Sector money flow, positive side only (B-60). Where the day's names sit in
+            # the bigger flow picture -- deliberately AFTER the shockers, because it is
+            # context for that list rather than a list of its own. Scan-on-click, same as
+            # above: Home never fetches on load.
+            _money_flow_window("home_smf", compact=True)
+            st.write("")
+        with _iv_col:
+            # ── Institutional volume (PPV >= 5x RVOL, last 5 sessions) ───────────────
+            # Context, not a signal: ppv_edge_study.py showed no forward-return edge at
+            # any RVOL threshold. This answers "where did institutions show up" — a
+            # screen, not an alert.
+            _render_institutional_volume("home_iv")
+            st.write("")
 
-    # ── Institutional volume (PPV >= 5x RVOL, last 5 sessions) ───────────────
-    # Context, not a signal: ppv_edge_study.py showed no forward-return edge at
-    # any RVOL threshold. This answers "where did institutions show up" — a
-    # screen, not an alert.
-    _render_institutional_volume("home_iv")
-    st.write("")
-    _render_cpr_vp("home_cpr")
-    st.write("")
+        _render_cpr_vp("home_cpr")
+        st.write("")
 
-    # Home used to be a card grid of every page. It is now a working surface: the
-    # scan that was buried three clicks deep, then the roster it feeds. Navigation
-    # lives in the top ribbon, where it was already complete.
-    _darvas_window("home_vs", compact=True)
-    st.write("")
-
-    # Sector money flow, positive side only (B-60). Where the day's names sit in
-    # the bigger flow picture -- deliberately AFTER the shockers, because it is
-    # context for that list rather than a list of its own. Scan-on-click, same as
-    # above: Home never fetches on load.
-    _money_flow_window("home_smf", compact=True)
-    st.write("")
-
-    # ── What moved today (was the Trending Stocks page) ──────────────────────
-    # Folded in because the page was a single nav click that only ever led here,
-    # and Home already carried one of its four lenses (the Darvas window above).
-    #
-    # LAZY ON PURPOSE. Home's rule is that it must not fetch on load, and these
-    # lenses are the most expensive fetches in the app: Price Movers pulls the
-    # whole-market bhavcopy plus live quotes, and the 52W/ATH pair downloads
-    # history for a few hundred names. Rendering them eagerly would put a
-    # minutes-long wait on the landing page.
-    st.markdown("#### 📈 What moved today")
-    _tr_key = "home_trending_open"
-    if _tr_key not in st.session_state:
-        # Open by default when a stored run exists — showing a snapshot costs
-        # no fetch, which is the only thing Home ever refused to do on load.
-        st.session_state[_tr_key] = snapstore.latest_meta("trending", ok_only=True) is not None
-    if not st.session_state.get(_tr_key):
-        _tc_a, _tc_b = st.columns([1, 4])
-        with _tc_a:
-            if st.button("Load", key="home_trending_btn", width="stretch"):
-                st.session_state[_tr_key] = True
+        # ── What moved today (was the Trending Stocks page) ──────────────────────
+        # Folded in because the page was a single nav click that only ever led here,
+        # and Home already carried one of its four lenses (the Darvas window above).
+        #
+        # LAZY ON PURPOSE. Home's rule is that it must not fetch on load, and these
+        # lenses are the most expensive fetches in the app: Price Movers pulls the
+        # whole-market bhavcopy plus live quotes, and the 52W/ATH pair downloads
+        # history for a few hundred names. Rendering them eagerly would put a
+        # minutes-long wait on the landing page.
+        st.markdown('<div id="tb-home-movers"></div>', unsafe_allow_html=True)
+        st.markdown("#### 📈 What moved today")
+        if st.session_state.pop("home_trending_scroll", False):
+            # st.markdown strips <script>, so — as with the ⌘K binding — a 1px
+            # same-origin iframe reaches into the parent. Retries because the
+            # sections above are still painting when it first runs; fails silently.
+            st.iframe(
+                """
+                <script>
+                (function () {
+                  let n = 0;
+                  (function go() {
+                    const doc = window.parent.document;
+                    const el = doc.getElementById('tb-home-movers');
+                    if (el) {
+                      // Clear the sticky top ribbon, measured rather than assumed:
+                      // it wraps taller on narrow screens.
+                      let p = doc.elementFromPoint(window.parent.innerWidth / 2, 5);
+                      while (p && getComputedStyle(p).position !== 'sticky') p = p.parentElement;
+                      el.style.scrollMarginTop = ((p ? p.getBoundingClientRect().bottom : 0) + 12) + 'px';
+                      el.scrollIntoView({block: 'start'});   // smooth was a no-op in stMain
+                      return;
+                    }
+                    if (++n < 40) setTimeout(go, 100);
+                  })();
+                })();
+                </script>
+                """,
+                height=1,
+            )
+        _tr_key = "home_trending_open"
+        if _tr_key not in st.session_state:
+            # Open by default when a stored run exists — showing a snapshot costs
+            # no fetch, which is the only thing Home ever refused to do on load.
+            st.session_state[_tr_key] = snapstore.latest_meta("trending", ok_only=True) is not None
+        if not st.session_state.get(_tr_key):
+            _tc_a, _tc_b = st.columns([1, 4])
+            with _tc_a:
+                if st.button("Load", key="home_trending_btn", width="stretch"):
+                    st.session_state[_tr_key] = True
+                    st.rerun()
+            with _tc_b:
+                st.caption("Price movers, 52-week and all-time extremes, and the "
+                           "cause-attributed volume spikes. Runs on request — the "
+                           "range lenses download history for a few hundred names.")
+        else:
+            render_trending_stocks("home_tr", include_volume=False)
+            if st.button("Hide", key="home_trending_hide"):
+                st.session_state[_tr_key] = False
                 st.rerun()
-        with _tc_b:
-            st.caption("Price movers, 52-week and all-time extremes, and the "
-                       "cause-attributed volume spikes. Runs on request — the "
-                       "range lenses download history for a few hundred names.")
-    else:
-        render_trending_stocks("home_tr", include_volume=False)
-        if st.button("Hide", key="home_trending_hide"):
-            st.session_state[_tr_key] = False
-            st.rerun()
-    st.write("")
+        st.write("")
 
-    # The nav-card grid is gone: every page is already one click away in the top
-    # ribbon, so carding them twice made Home a menu of a menu. Home now shows the
-    # two things you actually act on — today's volume shockers, and what you are
-    # already tracking.
-    st.markdown("#### ♥ Watchlist")
-    _wl = db.get_watchlist()
-    if _wl is None or _wl.empty:
-        st.info("Watchlist is empty — tick rows in the scan above and press ♥.")
-    else:
-        # Deliberately NOT price-enriched here: the Watchlist page fetches OHLCV
-        # per symbol to score Minervini/TechnoFunda, and Home must not fetch on
-        # load. This is the roster; the scored view is one click away.
-        _wl_out = _wl.rename(columns={"symbol": "Symbol", "added_date": "Added",
-                                      "notes": "Notes"})
-        # Sector rides along even on this deliberately un-enriched roster: it
-        # costs no fetch (the month's map is already cached), which is the whole
-        # reason "Home must not fetch on load" does not exclude it.
-        import sector_column as _sc
-        _wl_out = _sc.attach(_wl_out, "Symbol")
-        _wl_out = _with_chart_family(_wl_out, "Symbol")
-        _wl_out["Symbol"] = _wl_out.pop("Analyze")
-        _wl_out = _wl_out[["Symbol"] + [c for c in _wl_out.columns if c != "Symbol"]]
-        _wl_cfg = dict(_chart_family_colcfg())
-        _wl_cfg.pop("Analyze", None)
-        _wl_cfg.update(_cols_mod().configure("sector"))
-        _wl_cfg["Symbol"] = st.column_config.LinkColumn(
-            "Symbol", width="small", display_text=r"symbol=([^&]+)",
-            help="Click the ticker to analyze it (opens in a new tab)")
-        _wl_cfg["Added"] = st.column_config.TextColumn("Added", width="small")
-        _wl_cfg["Notes"] = st.column_config.TextColumn("Notes", width="medium")
-        _wl_sel = st.dataframe(_wl_out, width="stretch", hide_index=True,
-                               column_config=_wl_cfg, key="home_wl_tbl",
-                               on_select="rerun", selection_mode="multi-row")
+        # ── About this desk — the hero, moved to the foot of Home (B-162) ─────────
+        # A landing-page hero is for a first visit; mid-page on a daily-use surface it
+        # pushed the scans a full screen down. "Last sentiment" was dropped from its
+        # fact row: the verdict card at the top already states that reading.
         try:
-            _wl_rows = list(_wl_sel.selection.rows)
+            _n_scanners = len(sc.SCANNERS)
         except Exception:
-            _wl_rows = []
-        _wl_pick = [str(_wl.iloc[i]["symbol"]) for i in _wl_rows if i < len(_wl)]
+            _n_scanners = None
+        st.markdown(
+            f'<div style="background:linear-gradient(135deg,{_t["surface_warm"]} 0%,'
+            f'{_t["surface_alt"]} 55%,{_t["surface"]} 100%);'
+            f'border:1px solid {_t["border_strong"]};border-radius:16px;'
+            f'padding:22px 28px;margin:2px 0 14px;">'
+            f'<div class="tb-micro" style="color:{_t["accent"]};">TRADING BRAMHA</div>'
+            f'<div style="font-size:22px;font-weight:800;line-height:1.25;'
+            f'color:{_t["text"]};margin-top:6px;">Screening, research and risk — '
+            f'<span style="color:{_t["accent"]};">in one place.</span></div>'
+            f'<div style="font-size:14px;color:{_t["text_body"]};margin:10px 0 14px;'
+            f'max-width:620px;line-height:1.55;">'
+            f'A personal NSE swing-trading desk. Every number on it is computed from '
+            f'filed data or measured history — where something could not be measured, '
+            f'the page says so rather than guessing.</div>'
+            + rs.strip([
+                rs.stat_card("Pattern scanners",
+                             str(_n_scanners) if _n_scanners is not None else None,
+                             "backtest-measured where marked", tone="info"),
+                rs.stat_card("Pages", str(_n_pages),
+                             f"across {len(PAGE_GROUPS)} sidebar groups", tone="neutral"),
+            ], cols=2)
+            + '</div>',
+            unsafe_allow_html=True,
+        )
 
-        _h1, _h2, _h3 = st.columns([1, 1, 2])
-        with _h1:
-            if st.button(f"Remove {len(_wl_pick) or ''}".strip(), key="home_wl_rm",
-                         disabled=not _wl_pick, width="stretch"):
-                for _s in _wl_pick:
-                    db.remove_watchlist_symbol(_s)
-                st.toast(f"Removed {len(_wl_pick)}")
-                st.rerun()
-        with _h2:
-            if st.button("Open Watchlist →", key="home_wl_open",
-                         width="stretch"):
-                st.session_state["current_page"] = "Watchlist"
-                st.rerun()
-        with _h3:
-            st.caption(f"{len(_wl)} tracked. Scores and trade plans live on the "
-                       f"Watchlist page.")
-
-    st.write("")
-
-    st.markdown(
-        f'<div style="border-top:1px solid {_t["border"]};margin-top:6px;padding-top:14px;'
-        f'font-size:11.5px;color:{_t["text_muted"]};line-height:1.65;max-width:900px;">'
-        f'<b style="color:{_t["text_body"]};">Research notice.</b> Scores, signals and '
-        f'ratings on this dashboard are automated outputs computed from historical '
-        f'market data and filed disclosures. They are <b>not investment advice</b> and '
-        f'not a recommendation to buy, sell or hold. Scanner edges shown as measured '
-        # This said "a single backtest window and no significance test yet" for
-        # five weeks after both became false -- B-20a added the t-test and CI
-        # (2026-08-12), B-21 added walk-forward pooling and B-29 the cost model
-        # (2026-09-01). The correction is not a softening: the honest sentence is
-        # a STRONGER warning than the stale one, because what the measurement
-        # found was 0 of 41 stable (B-19). A caveat that understates the work
-        # also understates the result. (B-79)
-        f'are walk-forward and net of Indian delivery costs, with a significance '
-        f'test — and of the {len(oh.pipeline_scanners())} scanners measured that '
-        f'way, <b>none was stable across every horizon</b>. Treat them as leads, '
-        f'not signals. Nothing here executes trades.'
-        f'</div>',
-        unsafe_allow_html=True,
-    )
+        st.markdown(
+            f'<div style="border-top:1px solid {_t["border"]};margin-top:6px;padding-top:14px;'
+            f'font-size:11.5px;color:{_t["text_muted"]};line-height:1.65;max-width:900px;">'
+            f'<b style="color:{_t["text_body"]};">Research notice.</b> Scores, signals and '
+            f'ratings on this dashboard are automated outputs computed from historical '
+            f'market data and filed disclosures. They are <b>not investment advice</b> and '
+            f'not a recommendation to buy, sell or hold. Scanner edges shown as measured '
+            # This said "a single backtest window and no significance test yet" for
+            # five weeks after both became false -- B-20a added the t-test and CI
+            # (2026-08-12), B-21 added walk-forward pooling and B-29 the cost model
+            # (2026-09-01). The correction is not a softening: the honest sentence is
+            # a STRONGER warning than the stale one, because what the measurement
+            # found was 0 of 41 stable (B-19). A caveat that understates the work
+            # also understates the result. (B-79)
+            f'are walk-forward and net of Indian delivery costs, with a significance '
+            f'test — and of the {len(oh.pipeline_scanners())} scanners measured that '
+            f'way, <b>none was stable across every horizon</b>. Treat them as leads, '
+            f'not signals. Nothing here executes trades.'
+            f'</div>',
+            unsafe_allow_html=True,
+        )
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -6961,367 +5782,13 @@ if current_page == "Screener":
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Tab 2 — Stock Analyzer
-# ──────────────────────────────────────────────────────────────────────────────
-if current_page == "Stock Analyzer":
-    st.subheader("Individual Stock Analyzer")
-
-    # Candidates parked by the ribbon search when what was typed was a prefix
-    # rather than a ticker. This is the chart tool's typeahead dropdown, one
-    # step later: Streamlit cannot filter a list per keystroke (a widget only
-    # reports on Enter or blur), so the choice is offered after submit instead
-    # of during typing. Same directory, same ranking, same NSE/BSE reality.
-    _sa_typed, _sa_matches = st.session_state.get("tb_search_matches", (None, []))
-    if _sa_matches:
-        st.caption(f"No exact NSE ticker for **{_sa_typed}** — {len(_sa_matches)} match"
-                   f"{'es' if len(_sa_matches) != 1 else ''}:")
-        _mc = st.columns(min(len(_sa_matches), 4))
-        for _mi, _m in enumerate(_sa_matches):
-            with _mc[_mi % 4]:
-                if st.button(f"{_m['display']}", key=f"tb_match_{_m['display']}",
-                             width="stretch",
-                             help=_m.get("name") or _m["display"]):
-                    st.session_state["selected_symbol"] = _m["display"]
-                    st.session_state["last_analyzed"] = _m["display"]
-                    st.session_state.pop("tb_search_matches", None)
-                    st.rerun()
-                st.caption(f"<span style='font-size:10.5px;color:{_T['text_muted']}'>"
-                           f"{(_m.get('name') or '')[:34]}</span>",
-                           unsafe_allow_html=True)
-        if st.button("✕ Dismiss", key="tb_match_clear"):
-            st.session_state.pop("tb_search_matches", None)
-            st.rerun()
-
-    # Resolved a prefix/typo to a single ticker. Worth one line: the page is
-    # about to show a company nobody typed the exact name of.
-    _sa_res = st.session_state.pop("tb_search_resolved", None)
-    if _sa_res:
-        _typed, _to, _nm = _sa_res
-        st.caption(f"**{_typed}** → **{_to}**{f' · {_nm}' if _nm else ''} "
-                   f"(only NSE match)")
-
-    # Typed something the directory has never heard of. Say so once — the
-    # analysis below still runs, and its own failure message is the detail.
-    _sa_miss = st.session_state.pop("tb_search_miss", None)
-    if _sa_miss:
-        st.caption(f"**{_sa_miss}** is not in the NSE symbol directory — analysing "
-                   f"it anyway, in case the directory is behind on a new listing.")
-
-    # Consume symbol pushed from Scanner Hub card "↗ Analyze" button
-    _sa_override = st.session_state.pop("sa_symbol_override", None)
-    if _sa_override:
-        st.session_state["selected_symbol"] = _sa_override
-        st.session_state["last_analyzed"] = _sa_override
-
-    # Show Analyzer Roster if any symbols queued from Scanner Hub cards
-    _sa_roster = st.session_state.get("sa_roster", [])
-    if _sa_roster:
-        with st.expander(f"Analyzer Roster — {len(_sa_roster)} symbol(s)", expanded=True):
-            _rc = st.columns(min(len(_sa_roster), 6))
-            for _ri, _rsym in enumerate(_sa_roster):
-                with _rc[_ri % 6]:
-                    if st.button(_rsym, key=f"roster_pick_{_rsym}",
-                                 width="stretch",
-                                 help=f"Analyze {_rsym}"):
-                        st.session_state["selected_symbol"] = _rsym
-                        st.session_state["last_analyzed"] = _rsym
-                        st.rerun()
-            if st.button("✕ Clear roster", key="roster_clear"):
-                st.session_state["sa_roster"] = []
-                st.rerun()
-
-    screener_symbols = sorted(st.session_state["screener_results"]["Symbol"].unique()) \
-        if st.session_state.get("screener_results") is not None else []
-
-    col_a, col_b = st.columns(2)
-    with col_a:
-        default_idx = 0
-        sel_symbol = st.session_state.get("selected_symbol")
-        if screener_symbols:
-            if sel_symbol in screener_symbols:
-                default_idx = screener_symbols.index(sel_symbol)
-            from_screener = st.selectbox(
-                "From screener results", screener_symbols, index=default_idx
-            )
-        else:
-            from_screener = None
-            st.caption("Run the screener in Tab 1 to populate this list.")
-    with col_b:
-        # Same live typeahead as the ribbon search, over the same
-        # symbol_directory index — so "what is a valid symbol" has ONE answer on
-        # this page and in the bar. Typing a company name resolves to its NSE
-        # code, which the plain box could never do: it took a code or nothing.
-        #
-        # It reports a pick rather than firing _symbol_jump: the ribbon's job is
-        # to NAVIGATE to the analyzer, and this box is already on it. Jumping
-        # would rerun the page to where it already is and drop the picked symbol.
-        manual_symbol = st.session_state.get("_sa_manual", "")
-        if _SYMSEARCH is not None:
-            st.caption("Or enter any NSE symbol manually (no .NS suffix)")
-            _picked = _SYMSEARCH(options=_symbol_payload(),
-                                 placeholder="Type a name or NSE code…",
-                                 key="sa_symsearch", default=None)
-            if isinstance(_picked, dict) and _picked.get("symbol"):
-                # Nonce-guarded like the ribbon: `picked` is the component's
-                # current VALUE and persists across reruns, so acting on it
-                # directly would re-select on every rerun and pin the page to
-                # one symbol.
-                if _picked.get("n") != st.session_state.get("_sa_pick_n"):
-                    st.session_state["_sa_pick_n"] = _picked["n"]
-                    st.session_state["_sa_manual"] = _picked["symbol"]
-                    st.rerun()
-            if manual_symbol:
-                st.caption(f"Selected **{manual_symbol}** — pick another to change it.")
-        else:
-            # Component missing is a packaging accident, not a reason to lose the
-            # ability to analyse an arbitrary symbol.
-            manual_symbol = st.text_input(
-                "Or enter any NSE symbol manually (no .NS suffix)",
-                value="" if from_screener else (sel_symbol or ""),
-            )
-
-    symbol = (manual_symbol or from_screener or "").strip().upper()
-
-    # ── Prev / Next navigation ────────────────────────────────────────────────
-    if screener_symbols:
-        _cur_idx = screener_symbols.index(symbol) if symbol in screener_symbols else -1
-        _nav_c1, _nav_c2, _nav_c3 = st.columns([1, 6, 1])
-        with _nav_c1:
-            _at_start = _cur_idx <= 0
-            if st.button(
-                "◀ Prev",
-                key="sa_prev",
-                disabled=_at_start,
-                width="stretch",
-                help=(screener_symbols[_cur_idx - 1] if _cur_idx > 0 else ""),
-            ):
-                _prev = screener_symbols[_cur_idx - 1]
-                st.session_state["selected_symbol"] = _prev
-                st.session_state["last_analyzed"] = _prev
-                st.rerun()
-        with _nav_c2:
-            if _cur_idx >= 0:
-                st.caption(
-                    f"{_cur_idx + 1} / {len(screener_symbols)} — **{symbol}**",
-                )
-        with _nav_c3:
-            _at_end = _cur_idx >= len(screener_symbols) - 1 or _cur_idx < 0
-            if st.button(
-                "Next ▶",
-                key="sa_next",
-                disabled=_at_end,
-                width="stretch",
-                help=(screener_symbols[_cur_idx + 1] if not _at_end else ""),
-            ):
-                _next = screener_symbols[_cur_idx + 1]
-                st.session_state["selected_symbol"] = _next
-                st.session_state["last_analyzed"] = _next
-                st.rerun()
-
-    tf_choice = st.select_slider(
-        "Chart lookback",
-        options=["3M", "6M", "1Y", "2Y", "5Y", "10Y", "Max"],
-        value="Max",
-    )
-    _tf_map = {"3M": 90, "6M": 180, "1Y": 365, "2Y": 730, "5Y": 1825, "10Y": 3650, "Max": 0}
-    tf_days = _tf_map[tf_choice]
-
-    if st.button("Analyze", type="primary") or st.session_state.get("last_analyzed") == symbol:
-        if not symbol:
-            st.warning("Enter or pick a symbol first.")
-        else:
-            st.session_state["last_analyzed"] = symbol
-            with st.spinner(f"Fetching {symbol}..."):
-                # enforce_liquidity=False: the user asked for THIS symbol.
-                df = cached_fetch_ohlcv(symbol, days=tf_days, enforce_liquidity=False)
-            if df is None:
-                st.error(f"No usable data for {symbol} — fewer than {sp.MIN_BARS} "
-                         f"daily bars, or not on yfinance under that NSE code.")
-            else:
-                _thin_volume_note(df, symbol)
-                # FR-1 — identity header + valuation/quality strip lead the page:
-                # who is this company and what does it cost, before any signal.
-                with st.spinner("Fetching fundamentals & statements..."):
-                    _fund = cached_fetch_fundamentals(symbol)
-                    _deep = cached_fundamentals_deep(symbol)
-                render_fundamental_header(symbol, df, _fund, _deep)
-                render_fundamental_signals(fscore.score_all(_fund, _deep))
-                render_momentum_meter(df)
-                render_timeframe_board(symbol, df)
-                render_fundamental_history(_deep)
-                render_peer_comparison(symbol)
-                _rf_res = cached_red_flags(symbol)
-                render_red_flags(_rf_res)
-                _render_screener_unlock(_rf_res)
-                render_scenarios(scen.build(_deep), _deep)
-                render_concalls(cached_concalls(symbol))
-
-                nifty_df = cached_fetch_nifty50(days=tf_days)
-                mv_score, mv_conds = sp.score_minervini(df, nifty_df=nifty_df)
-                tf_score, tf_conds = sp.score_technofunda(df)
-                ew = ew_module.analyze_ew(df)
-                cs_score, cs_conds, rs_pct, _ = _compute_canslim(df, nifty_df)
-
-                c1, c2, c3, c4, c5 = st.columns(5)
-                c1.metric("Minervini", f"{mv_score}/8")
-                c2.metric("TechnoFunda", f"{tf_score}/6")
-                c3.metric("Total", f"{mv_score + tf_score}/14")
-                c4.metric("EW Confidence", f"{ew['confidence']}%")
-                c5.metric("CANSLIM (RS)", f"{cs_score}/4",
-                           delta=f"{rs_pct:+.1f}% vs Nifty",
-                           delta_color="normal")
-
-                st.info(
-                    f"**Wave Position:** {ew['wave_pos']}  |  "
-                    f"**Extension Risk:** {ew['ext_risk']}  |  "
-                    f"**OWL:** {ew['owl_signal']}  |  **PTF:** {ew['ptf_signal']}  \n"
-                    f"{ew['note']}"
-                )
-
-                # UI-2 — the Chart Tool is the default chart here, as it already
-                # is on Predictive Analysis. The classic Plotly chart stays one
-                # click away because it is not strictly a subset: RS Line, TSI
-                # and CPR exist only there. Until those are ported, dropping it
-                # outright would lose three indicators to gain a nicer canvas.
-                classic_chart = st.toggle(
-                    "Classic chart (RS Line · TSI · CPR)",
-                    key="sa_classic_chart",
-                    help="The Chart Tool is richer — live crosshair, volume "
-                         "profile, Elliott/VCP/harmonic overlays, price "
-                         "projection — but it does not yet carry the RS Line, "
-                         "TSI or CPR panes. Flip this when you need those.",
-                )
-
-                # ── Chart sizing ──────────────────────────────────────────────
-                # Applies to whichever chart is showing. Both renderers are
-                # fixed-height by construction — the Chart Tool is an iframe and
-                # Plotly figures carry an explicit height — so vertical size is
-                # the one dimension `use_container_width` cannot solve, and the
-                # right value depends on the monitor rather than on the data.
-                # Defaults are exactly what each chart used before this control
-                # existed, so an untouched page renders identically.
-                with st.expander("Chart size"):
-                    _sz1, _sz2 = st.columns(2)
-                    with _sz1:
-                        _h_min, _h_def = ((CHART_H_MIN_CLASSIC, CHART_H_DEFAULT_CLASSIC)
-                                          if classic_chart
-                                          else (CHART_H_MIN_TOOL, CHART_H_DEFAULT_TOOL))
-                        sa_chart_h = st.slider(
-                            "Chart height (px)", _h_min, CHART_H_MAX, _h_def, 50,
-                            key=f"sa_chart_h_{'classic' if classic_chart else 'tool'}",
-                            help="Vertical size of the chart. The two chart modes "
-                                 "keep separate values — the Chart Tool is one "
-                                 "pane and the classic chart stacks six, so they "
-                                 "do not want the same number.")
-                    with _sz2:
-                        if classic_chart:
-                            sa_price_share = st.slider(
-                                "Price pane share (%)", 38, int(PRICE_SHARE_MAX * 100),
-                                38, 1, key="sa_price_share",
-                                help="How much of the figure the candles get. The "
-                                     "default 38% is why raising height alone can "
-                                     "feel like it did not help — everything grows "
-                                     "together. Raising this takes room from the "
-                                     "oscillators instead.")
-                        else:
-                            sa_price_share = None
-                            st.caption("Pane share applies to the classic chart — "
-                                       "the Chart Tool manages its own sub-panes.")
-
-                if classic_chart:
-                    show_harmonic = st.checkbox(
-                        "Show Harmonic Pattern (Gartley/Bat/Butterfly/Crab)",
-                        key="sa_harmonic",
-                        help="Detects the most recent completed XABCD harmonic pattern "
-                             "with a valid PRZ within the last ~10 bars. Plots entry, "
-                             "stop (beyond X), and 0.382 / 0.618 / 1.0-of-AD targets.",
-                    )
-                    harmonic = hp.detect_last_pattern(df) if show_harmonic else None
-                    if show_harmonic:
-                        if harmonic:
-                            t = harmonic["trade"]
-                            st.success(
-                                f"**{harmonic['pattern']} ({harmonic['direction']})** — "
-                                f"Entry {t['entry']} · Stop {t['stop']} · "
-                                f"T1 {t['targets'][0]} / T2 {t['targets'][1]} / T3 {t['targets'][2]} · "
-                                f"R:R to T2 = {t['rr_to_t2']} · D pivot {harmonic['age_bars']} bars ago"
-                            )
-                        else:
-                            st.caption("No active harmonic pattern completing in the last 10 bars.")
-
-                    st.plotly_chart(
-                        build_chart(symbol, df, ew, nifty_df=nifty_df,
-                                    harmonic=harmonic, height=sa_chart_h,
-                                    price_share=(sa_price_share / 100.0
-                                                 if sa_price_share else None)),
-                        width="stretch")
-                # Harmonic lives on the Chart Tool's own indicator menu, so the
-                # checkbox above would be a second switch for the same overlay —
-                # it stays with the chart it drives.
-                elif not render_chart_tool(symbol, height=sa_chart_h):
-                    # Server down. Fall back to the classic chart rather than
-                    # leaving the page chartless behind a warning — this is the
-                    # analysis surface, and every read below assumes you have
-                    # looked at the price.
-                    #
-                    # The height carries over, but NOT the pane share: this path
-                    # is reached with the Chart Tool selected, so `sa_price_share`
-                    # is None and the classic chart keeps its own default.
-                    st.plotly_chart(
-                        build_chart(symbol, df, ew, nifty_df=nifty_df,
-                                    height=sa_chart_h),
-                        width="stretch")
-
-                # ── Side-by-side: condition table (left) + chart preview (right) ──
-                sa_cond_col, sa_chart_col = st.columns([1, 1.4], gap="medium")
-                with sa_cond_col:
-                    render_condition_table(mv_conds, tf_conds, cs_conds)
-                with sa_chart_col:
-                    # Embed the Chart Tool iframe beside the condition table so
-                    # the pattern context is visible while reading the scores.
-                    _chart_inline_url = (
-                        f"http://localhost:{CHART_TOOL_PORT}/?symbol="
-                        f"{symbol if ('.' in symbol or symbol.startswith('^')) else symbol + '.NS'}"
-                        f"&tf=1d"
-                    )
-                    st.markdown("**Chart preview**")
-                    st.iframe(_chart_inline_url, height=460)
-                    st.caption(
-                        f"[Open full chart ↗]({_chart_inline_url}) · "
-                        "Chart Tool must be running on :5001"
-                    )
-
-                # ── 3-POV Council: Bull / Bear / Judge ──
-                st.divider()
-                with st.spinner("Running deterministic council..."):
-                    fundamentals = _fund          # already fetched for the header
-                    bundle, bull, bear, card = council.run_council(
-                        symbol, df, nifty_df, fundamentals, regime=nifty_regime
-                    )
-
-                # Plain-language summary first, then the Bull/Bear/Judge drill-down.
-                render_setup_intelligence(
-                    council.setup_intelligence(bundle, bull, bear, card)
-                )
-
-                # Ownership sits directly under the setup read: the structural
-                # leg that says who has been buying the thing the setup likes.
-                render_ownership_flow(symbol)
-
-                st.markdown("### 🧭 Council Verdict — Bull vs Bear vs Judge")
-                render_council(bundle, bull, bear, card)
-
-                if st.button("Add to Watchlist", key="sa_wl"):
-                    db.add_watchlist_symbol(symbol, "From Stock Analyzer")
-                    st.success(f"{symbol} added to watchlist.")
-
-
-# ──────────────────────────────────────────────────────────────────────────────
 # Tab 3 — Portfolio
 # ──────────────────────────────────────────────────────────────────────────────
 if current_page == "Portfolio":
     st.subheader("Portfolio / Position Tracker")
-
+    
+    # Beginner-friendly help
+    help_panels.render("portfolio")
     with st.form("add_position_form", clear_on_submit=True):
         st.caption("Add a position")
         c1, c2, c3 = st.columns(3)
@@ -7376,6 +5843,12 @@ if current_page == "Portfolio":
         st.markdown(_cards, unsafe_allow_html=True)
         for _c in _caps:
             st.caption(_c)
+        # B-173: what sector labels miss — which holdings move as one.
+        import book_correlation as _bc
+        _bc.render(st, open_pos["symbol"].tolist(),
+                   lambda s_: cached_fetch_ohlcv(s_, enforce_liquidity=False),
+                   weights={r["symbol"]: float(r["entry_price"]) * float(r["quantity"])
+                            for _, r in open_pos.iterrows()}, key="pf_corr")
 
         rows = []
         for _, pos in open_pos.iterrows():
@@ -7383,16 +5856,21 @@ if current_page == "Portfolio":
             current = float(df["close"].iloc[-1]) if df is not None and not df.empty else None
             pl_pct = ((current - pos["entry_price"]) / pos["entry_price"] * 100
                       ) if current else None
-            r_mult = None
-            has_stop = pd.notna(pos["stop_loss"]) and pos["stop_loss"] not in (None, 0)
-            if current is not None and has_stop and pos["entry_price"] != pos["stop_loss"]:
-                r_mult = (current - pos["entry_price"]) / (pos["entry_price"] - pos["stop_loss"])
+            # R against the stop the trade was OPENED with (positions.initial_stop),
+            # not today's stop: a raised stop shrinks entry - stop, and R measured
+            # against it inflates every winner. Falls back to stop_loss for a row
+            # whose initial stop is unknown.
+            _r_stop = pos.get("initial_stop")
+            if _r_stop is None or pd.isna(_r_stop):
+                _r_stop = pos["stop_loss"]
+            r_mult = psz.r_multiple(pos["entry_price"], _r_stop, current)
             rows.append({
                 "id": pos["id"], "Symbol": pos["symbol"], "Entry": pos["entry_price"],
                 "Qty": pos["quantity"], "Current": current,
                 "P&L %": gain_loss_badge(pl_pct) if pl_pct is not None else "—",
                 "R-Multiple": f"{r_mult:.2f}R" if r_mult is not None else "—",
-                "Stop": pos["stop_loss"], "Target": pos["target"],
+                "Stop": pos["stop_loss"], "Initial stop": pos.get("initial_stop"),
+                "Target": pos["target"],
                 "Entry Date": pos["entry_date"], "Notes": pos["notes"],
             })
         uit.paginated_df(pd.DataFrame(rows).drop(columns=["id"]), key="portfolio_open")
@@ -7425,9 +5903,22 @@ if current_page == "Portfolio":
             closed_pos["Result"] = closed_pos["closed_price"].ge(closed_pos["entry_price"]).map(
                 {True: "Win", False: "Loss"}
             )
+            # Realised R against the opening stop. Blank, not 0, when the trade had
+            # no stop: an unbounded risk has no R, and 0R would read as a scratch.
+            _r = [psz.r_multiple(e, s0, x) for e, s0, x in zip(
+                closed_pos["entry_price"],
+                closed_pos.get("initial_stop", closed_pos["stop_loss"]),
+                closed_pos["closed_price"])]
+            closed_pos["R"] = [f"{v:+.2f}R" if v is not None else "—" for v in _r]
+            _rs = [v for v in _r if v is not None]
+            if _rs:
+                st.caption(f"Realised R over {len(_rs)} closed trade(s) with a stop: "
+                           f"mean **{sum(_rs) / len(_rs):+.2f}R**, "
+                           f"total **{sum(_rs):+.2f}R**. 1R = entry − the stop the "
+                           f"trade was opened with.")
             uit.paginated_df(
                 closed_pos[["symbol", "entry_price", "closed_price", "quantity",
-                            "P&L %", "Result", "entry_date", "closed_date", "notes"]],
+                            "P&L %", "R", "Result", "entry_date", "closed_date", "notes"]],
                 key="portfolio_closed",
             )
 
@@ -7545,7 +6036,7 @@ if current_page == "Watchlist":
                 "ema_cross_age": (None if _age is None else
                                   (_age if m["ema_cross_dir"] == "up" else -_age)),
                 "pivot_d": m["pivot_d"],
-                "pivot_w": m["pivot_w"],
+                "pivot_w": m["pivot_w"], "pivot_agree": m.get("pivot_agree"),
                 "from_52w_high_pct": m["from_52w_high_pct"],
                 "bo_gain_pct": m["bo_gain_pct"],
                 "bo_date": m["bo_date"],
@@ -7558,6 +6049,9 @@ if current_page == "Watchlist":
                 **_svp_cells(w["symbol"], _wl_svp),
                 "minervini": f"{mv_score}/8",
                 "technofunda": f"{tf_score}/6",
+                # SMC state (smc_state.py, B-42r Option C): one ST/SW agreement
+                # reading, P/D in the swing band, liquidity at pivot 5.
+                **_smc_cells(df),
                 # NOTE deliberately absent: `_notes_table` sources it from the
                 # shared per-symbol store and appends it, so the page cannot show
                 # a note from one place while writing to another.
@@ -7574,6 +6068,29 @@ if current_page == "Watchlist":
         for _r in rows:
             _r["cap_bucket"] = _cap_map.get(str(_r["Symbol"]).strip().upper(), "")
 
+        # Plan status (LuxAlgo R&E step 2, plan_status.py). The newest cached
+        # scanner plan per name, judged by the harness's own walk. Bars come from
+        # the same cached fetch the rows above used, so this costs no new fetch.
+        import plan_status as _pst
+        try:
+            _pconn = db.get_connection()
+            try:
+                _wl_plans = _pst.watchlist_status(
+                    [r["Symbol"] for r in rows],
+                    lambda s_: _pst.cache_rows_from_db(_pconn, s_),
+                    lambda s_: cached_fetch_ohlcv(s_, enforce_liquidity=False))
+            finally:
+                _pconn.close()
+        except Exception as _e:           # a status column must not take the page down
+            _wl_plans = {}
+            st.caption(f"Plan status unavailable — {type(_e).__name__}: {_e}")
+        for _r in rows:
+            _p = _wl_plans.get(_r["Symbol"], {})
+            _r["plan_status"] = _pst.label(_p) if _p else ""
+            _r["plan_from"] = _pst.plan_source(_p)
+        _wl_done = [s_ for s_, p_ in _wl_plans.items()
+                    if p_.get("status") in _pst.REMOVE_SUGGESTED]
+
         _wl_df = pd.DataFrame(rows)
         # Cap is an IDENTITY attribute, not a measurement, so it belongs beside
         # the symbol rather than wherever dict insertion order left it — which
@@ -7586,8 +6103,10 @@ if current_page == "Watchlist":
         import sector_column as _sc
         _wl_df = _sc.attach(_wl_df, "Symbol")
         _wl_df = _with_chart_family(_wl_df, "Symbol")
+        # Plan status sits with the identity columns: it is what the removal tick
+        # beside the symbol is most often deciding on.
         _head = ["Symbol"] + [c for c in ("cap_bucket", "sector")
-                              if c in _wl_df.columns] + _CHART_FAMILY_COLS
+                              if c in _wl_df.columns] + _CHART_FAMILY_COLS +                 [c for c in ("plan_status", "plan_from") if c in _wl_df.columns]
         _wl_df = _wl_df[_head + [c for c in _wl_df.columns if c not in _head]]
         # A symbol whose history failed to load contributes only Symbol/Notes,
         # which leaves the numeric columns as object dtype holding None — and
@@ -7595,7 +6114,7 @@ if current_page == "Watchlist":
         # Coercing makes them NaN, which renders as an empty cell: an absent
         # reading should look absent, not like a value.
         for _c in ("close", "chg_pct", "turnover_cr", "gap_pct", "ema_cross_age",
-                   "svp_factors",
+                   "svp_factors", "ssl_atr", "bsl_atr",
                    "from_52w_high_pct", "bo_gain_pct", "hist_price",
                    "gain_since_pct", "rsi", "pct_from_20ema", "rs_momentum",
                    "earn_d_minus_1", "earn_day", "earn_d_plus_1"):
@@ -7603,9 +6122,10 @@ if current_page == "Watchlist":
                 _wl_df[_c] = pd.to_numeric(_wl_df[_c], errors="coerce")
         if not _wl_walk and "rs_walk" in _wl_df.columns:
             _wl_df = _wl_df.drop(columns=["rs_walk"])
-        for _c in ("pivot_d", "pivot_w", "bo_date", "rs_walk", "minervini",
+        for _c in ("pivot_d", "pivot_w", "pivot_agree", "bo_date", "rs_walk", "minervini",
                    "technofunda", "ema_stack", "cap_bucket", "sector",
-                   "svp_hist_8w"):
+                   "svp_hist_8w", "plan_status", "plan_from",
+                   "smc_structure", "pd_swing", "swept_recent"):
             if _c in _wl_df.columns:
                 _wl_df[_c] = _wl_df[_c].where(_wl_df[_c].notna(), "")
         if _wl_ref is None and not _wl_df.empty:
@@ -7637,9 +6157,28 @@ if current_page == "Watchlist":
         _earnings_fill_button(_wl_df["Symbol"], "wl")
         _pw().fill_button(_wl_df["Symbol"], "wl", "Watchlist",
                           fetch=cached_fundamentals_deep)
-        _wl_edited = _notes_table(_wl_df, key="wl_notes_editor",
-                                  symbol_col="Symbol", column_config=_wl_cfg,
-                                  select_col="✕")
+        # Removal SUGGESTIONS from the Plan column. Pressing this only ticks the
+        # finished rows; the existing two-step remove button still does the
+        # removing, so nothing leaves the list without a second, deliberate click.
+        if _wl_done:
+            _sg1, _sg2 = st.columns([3, 1])
+            _sg1.info(f"**{len(_wl_done)}** name(s) have a finished plan "
+                      f"(stop or target hit, past the time stop, or the entry "
+                      f"never filled): "
+                      f"{', '.join(_wl_done[:10])}{'…' if len(_wl_done) > 10 else ''}. "
+                      f"Finished plan ≠ finished stock — review before removing.")
+            if _sg2.button(f"Tick these {len(_wl_done)}", key="wl_tick_done",
+                           help="Ticks the finished-plan rows in the ✕ column. "
+                                "Nothing is removed until you press Remove."):
+                st.session_state["wl_preselect"] = list(_wl_done)
+                # A fresh editor key so the new defaults show instead of the
+                # editor's remembered (unticked) state.
+                st.session_state["wl_editor_gen"] = st.session_state.get("wl_editor_gen", 0) + 1
+                st.rerun()
+        _wl_edited = _notes_table(
+            _wl_df, key=f"wl_notes_editor_{st.session_state.get('wl_editor_gen', 0)}",
+            symbol_col="Symbol", column_config=_wl_cfg, select_col="✕",
+            preselect=set(st.session_state.get("wl_preselect", [])))
         _pa_send_button("wl", "Watchlist", _wl_df, "Symbol",
                         note_fn=lambda r: str(r.get("Notes") or r.get("notes") or "watchlist"))
         # Per-row removal, replacing the detached "Remove from watchlist"
@@ -7667,6 +6206,10 @@ if current_page == "Watchlist":
                 # reverse it.
                 st.success(f"Removed {', '.join(_wl_picked)} from the watchlist. "
                            f"Notes kept.")
+                # The rows shifted, so remembered ticks would land on the wrong
+                # names: drop the suggestion set and start a fresh editor.
+                st.session_state.pop("wl_preselect", None)
+                st.session_state["wl_editor_gen"] = st.session_state.get("wl_editor_gen", 0) + 1
                 st.rerun()
         st.caption(
             "**EMA cross (d)** is signed: **+12** = the 10-EMA crossed ABOVE the "
@@ -7677,6 +6220,10 @@ if current_page == "Watchlist":
             "+3% from four months ago are not the same situation, and a faded "
             "breakout shows here as a negative."
         )
+        # B-173: how many independent bets the watchlist really is.
+        import book_correlation as _bc
+        _bc.render(st, [r["Symbol"] for r in rows],
+                   lambda s_: cached_fetch_ohlcv(s_, enforce_liquidity=False), key="wl_corr")
         _thin = [r["Symbol"] for r in rows
                  if r.get("turnover_cr") is not None
                  and r["turnover_cr"] < sp.MIN_TURNOVER / 1e7]
@@ -7825,6 +6372,11 @@ if current_page == "Opportunity Hub":
                "ranked bottom-up from their constituents' momentum, then a pattern "
                "scanner runs on just the leaders. The Hub narrows & ranks — you "
                "validate the setup and manage the risk.")
+    
+    # Beginner-friendly help
+    help_panels.render("opportunity_hub")
+    
+    # ── Regime posture banner (B-36) — the one-line "what do I do today?" ──────
 
     # ── Regime posture banner (B-36) — the one-line "what do I do today?" ──────
     # Driven by the SAME regime + conviction gate B-32/B-33 validated, so the
@@ -7996,11 +6548,11 @@ if current_page == "Opportunity Hub":
                     txt = fmt.format(v)
                     if green_thr is not None and amber_thr is not None:
                         if lo_good:
-                            col = ("#16a34a" if v <= green_thr
-                                   else "#d97706" if v <= amber_thr else "#dc2626")
+                            col = ("#166534" if v <= green_thr
+                                   else "#a14a0b" if v <= amber_thr else "#b91c1c")
                         else:
-                            col = ("#16a34a" if v >= green_thr
-                                   else "#d97706" if v >= amber_thr else "#dc2626")
+                            col = ("#166534" if v >= green_thr
+                                   else "#a14a0b" if v >= amber_thr else "#b91c1c")
                     else:
                         col = "#5c4a3a"
                     return (f'<span style="display:inline-block;background:#f7efe3;'
@@ -8084,9 +6636,13 @@ if current_page == "Opportunity Hub":
                 "0.25 × confluence**. Confluence weights scanners by *measured* "
                 "backtest edge — Falling Wedge, Harmonic Reversal and Order Block "
                 "count double, because the harness found the others at or below a "
-                "random-entry baseline. Every name here already sits in a leading "
-                "sector **and** industry; that is a filter, not a bonus. This is a "
-                "shortlist to research, not a buy list.")
+                "random-entry baseline. **The scanner-score term is unmeasured as a "
+                "ranking input:** B-172 found a scanner's own 0–100 score separates "
+                "better hits from worse for only 1–2 of the 41 it could test (inverted for "
+                "Downside Risk), and no-score scanners such as Liquidity Sweep count as "
+                "0. Kept by owner decision (B-172r), not by evidence. Every name here "
+                "already sits in a leading sector **and** industry; that is a filter, "
+                "not a bonus. This is a shortlist to research, not a buy list.")
 
     st.divider()
     st.markdown("**Manual funnel** — drive the same steps yourself")
@@ -8612,6 +7168,9 @@ if current_page == "Delete Funnel":
 if current_page == "Scanner Hub":
     st.subheader("Scanner Hub")
     st.caption("Pre-built pattern scanners — choose a scanner, select a universe, run.")
+    
+    # Beginner-friendly help
+    help_panels.render("scanner_hub")
     __import__("scanner_plans").render()      # PR-2 · trade-plan coverage census
 
 
@@ -9101,6 +7660,10 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
                     f"cd /d \"%REPO%\"\n"
                     f"echo. >> \"%LOG%\"\n"
                     f"echo ===== %DATE% %TIME% - daily scanner starting ===== >> \"%LOG%\"\n"
+                    # Through job_audit, so the run is recorded for
+                    # Scheduler Hub -> History (the exit code passes through).
+                    f"set PYTHONIOENCODING=utf-8\n"
+                    f"\"%PYTHON%\" \"%~dp0job_audit.py\" run daily_scanner -- "
                     f"\"%PYTHON%\" \"%~dp0scanner_daily_runner.py\" {_universe_arg}{_scanners_arg} >> \"%LOG%\" 2>&1\n"
                     f"if errorlevel 1 (\n"
                     f"    echo ***** FAILED ***** >> \"%LOG%\"\n"
@@ -9645,14 +8208,134 @@ div[data-testid="stColumn"] > div[data-testid="stVerticalBlock"]
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Predictive Analysis (Milestone 4) — the consolidated "should I take this
-# trade" surface. PURE COMPOSITION of shipped pieces: M1's Overall Rating
-# (ranked candidate rail from the last Scanner Hub run) + the Chart Tool iframe
-# carrying M2 pattern overlays and the M3 price-projection line + the Setup
-# Intelligence / Council engine from the Stock Analyzer. No new backend.
+# PDF export for one Predictive Analysis ticker — every section of the page,
+# the expander contents included, gathered from what the page already computed
+# (or from the same cached fetchers) and laid out by pa_report.render_pdf.
+def _pa_pdf_model(sym, df, bench, rating, breakdown, fund, deep,
+                  bull, bear, card, intel, pm_df, size_note=None,
+                  page_title="Predictive Analysis", analyzer_scores=None) -> dict:
+    close = df["close"].astype(float)
+    price = float(close.iloc[-1])
+    prev = float(close.iloc[-2]) if len(close) > 1 else price
+    win = close.tail(252)
+    lo52, hi52 = float(win.min()), float(win.max())
+    tail = close.tail(60)
+    sup = float(tail.min()) if len(tail) >= 20 and float(tail.min()) < price else None
+    res = float(tail.max()) if len(tail) >= 20 and float(tail.max()) > price else None
+
+    m: dict = {"symbol": sym, "as_of": str(df.index[-1])[:10],
+               "generated_at": datetime.now(), "regime": str(nifty_regime).upper(),
+               "long_name": (deep or {}).get("long_name"), "price": price,
+               "chg_pct": (price / prev - 1) * 100 if prev else None,
+               "rating": rating, "rating_breakdown": breakdown or {}, "df": df,
+               "bull": bull, "bear": bear, "card": card, "intel": intel,
+               "size_note": size_note, "deep": deep or {},
+               "page_title": page_title, "analyzer_scores": analyzer_scores}
+    try:        # Six horizons: same build the page uses (hourly is cached there)
+        m["horizon_panels"] = tfb.build(sym, daily=_board_daily(sym, df),
+                                        hourly=_cached_hourly(sym))
+    except Exception:
+        m["horizon_panels"] = None
+
+    try:
+        mv, conds = sp.score_minervini(df, nifty_df=bench)
+        m["summary"] = {"lo52": lo52, "hi52": hi52,
+                        "pct_from_high": (price / hi52 - 1) * 100 if hi52 else 0.0,
+                        "mv": mv, "stage": pa_report.stage_label(mv)[0],
+                        "conds": conds, "support": sup, "resistance": res,
+                        "patterns": db.get_symbol_patterns(sym) or []}
+    except Exception:
+        _log.debug("PA PDF: chart reading section skipped", exc_info=True)
+    try:
+        import money_flow as _mf
+        flow = pa_report.smart_money(df)
+        obv = _mf.obv(df).tail(60).values
+        flow["obv_trend"] = "rising" if float(obv[-1]) > float(obv[0]) else "falling"
+        flow["cmf"] = _mf.cmf(df, n=21)
+        m["flow"] = flow
+    except Exception:
+        _log.debug("PA PDF: money flow section skipped", exc_info=True)
+    try:
+        import pattern_metrics as _pm
+        m["pattern_metrics"] = _pm.compute_all(pm_df, bench)
+    except Exception:
+        _log.debug("PA PDF: pattern metrics section skipped", exc_info=True)
+
+    f, d = fund or {}, deep or {}
+    d2e = f.get("debt_to_equity")
+    m["fundamentals"] = {
+        "statements": bool(d.get("available")),
+        "valuation": [
+            ("P / E", _q(f.get("pe"), "x") or "-"), ("P / B", _q(f.get("pb"), "x") or "-"),
+            ("D / E", "-" if d2e is None else f"{d2e / 100:,.2f}x"),
+            ("ROE", _q(f.get("roe"), "%") or "-"), ("ROCE", _q(d.get("roce"), "%") or "-"),
+            ("EPS TTM", _q(f.get("eps_ttm") if f.get("eps_ttm") is not None
+                           else d.get("eps_ttm")) or "-"),
+            ("Div yield", _q(f.get("dividend_yield"), "%") or "-"),
+            ("Mkt cap", _cr(f.get("market_cap")) or "-"),
+            ("Sector", f.get("sector") or "-")],
+        "growth": [
+            ("Rev CAGR 3Y", _q(d.get("revenue_cagr_3y"), "%") or "-"),
+            ("Profit CAGR 3Y", _q(d.get("profit_cagr_3y"), "%") or "-"),
+            ("Net margin", _q(d.get("net_margin"), "%") or "-"),
+            ("OPM", _q(d.get("opm"), "%") or "-"),
+            ("Free cash flow", _cr(d.get("fcf")) or "-"),
+            ("Debtor days", _q(d.get("debtor_days"), "d", 0) or "-")]
+        if d.get("available") else [],
+    }
+    try:
+        m["signals"] = fscore.score_all(fund, deep)
+    except Exception:
+        _log.debug("PA PDF: fundamental signals section skipped", exc_info=True)
+    try:
+        rsi_v = float(sc._rsi_series(close, 14).iloc[-1])
+        adx_v = float(sc._adx_di_series(df, 14)[0].iloc[-1])
+        rsi_v = rsi_v if np.isfinite(rsi_v) else None
+        adx_v = adx_v if np.isfinite(adx_v) else None
+        m["momentum"] = {
+            "rsi": rsi_v, "adx": adx_v,
+            "rsi_word": None if rsi_v is None else ("OVERSOLD" if rsi_v < 30 else
+                                                    "OVERBOUGHT" if rsi_v > 70 else "NEUTRAL"),
+            "adx_word": None if adx_v is None else ("NO TREND" if adx_v < 20 else
+                                                    "FORMING" if adx_v < 25 else "TRENDING")}
+    except Exception:
+        _log.debug("PA PDF: momentum words section skipped", exc_info=True)
+    for k, fn in (("red_flags", lambda: cached_red_flags(sym)),
+                  ("scenarios", lambda: scen.build(deep)),
+                  ("concalls", lambda: cached_concalls(sym))):
+        try:
+            m[k] = fn()
+        except Exception:
+            m[k] = None
+    return m
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Stock Analyzer — the one per-stock research page. Predictive Analysis (M4,
+# the candidates rail + rating + Chart Tool + council surface) and the classic
+# Stock Analyzer (scores, classic chart, condition table, fundamentals) were
+# merged here on 2026-10-25: one page, every section of both. "Predictive
+# Analysis" survives only as an alias — `?nav=predict`, `pa_symbol` and the
+# old page name are all redirected to this page above the router.
+#
+# ONE symbol key: `selected_symbol` is what the page shows, `last_analyzed`
+# equal to it is what makes it run without a click. Every jump into the page
+# (deep-links, rail buttons, Home's watchlist hover card, roster, Prev/Next)
+# sets both. The search box used to write a private `_sa_manual` that the page
+# preferred over `selected_symbol`, which is why the hover card's "Analyze ↗"
+# opened the page on the wrong (or no) ticker.
 # See wiki/analyses/Dashboard-UI-Roadmap.md §Milestone 4.
 # ──────────────────────────────────────────────────────────────────────────────
-if current_page == "Predictive Analysis":
+if current_page == "Stock Analyzer":
+    # Defined inside the page block, its only user, so it is not one more
+    # module-level statement (test_monolith_ratchet).
+    def _sa_load(sym) -> None:
+        """Point the Stock Analyzer at `sym` and prime the auto-run."""
+        sym = str(sym or "").strip().upper()
+        if sym:
+            st.session_state["selected_symbol"] = sym
+            st.session_state["last_analyzed"] = sym
+
     # Override the global 1440px cap — this page needs the full viewport for the
     # chart iframe, same reason TradingView uses edge-to-edge layout.
     st.markdown(
@@ -9675,18 +8358,99 @@ if current_page == "Predictive Analysis":
         </style>""",
         unsafe_allow_html=True,
     )
-    st.subheader("Predictive Analysis")
+    st.subheader("Stock Analyzer")
     st.caption(
-        "One screen: ranked candidates (left) → annotated chart + ratings + setup "
-        "intelligence (right). Candidates come from the last **Scanner Hub** run, "
-        "from any table sent here with **→ Predictive Analysis**, and from the "
-        "Watchlist; the chart carries the pattern overlays and price projection "
-        "from the Chart Tool."
+        "One screen: candidates (left) → rating, scores, annotated chart, council "
+        "and fundamentals (right). Candidates come from the last **Scanner Hub** "
+        "run, the screener, the Analyzer Roster, any table sent here with "
+        "**→ Stock Analyzer**, and the Watchlist."
     )
+
+    # Beginner-friendly help
+    help_panels.render("stock_analyzer")
+
+    # Consume symbol pushed from Scanner Hub card "↗ Analyze" button
+    _sa_override = st.session_state.pop("sa_symbol_override", None)
+    if _sa_override:
+        _sa_load(_sa_override)
+
+    screener_symbols = sorted(st.session_state["screener_results"]["Symbol"].unique()) \
+        if st.session_state.get("screener_results") is not None else []
 
     pa_left, pa_main = st.columns([1, 3.5], gap="medium")
 
     with pa_left:
+        # Same live typeahead as the ribbon search, over the same
+        # symbol_directory index — so "what is a valid symbol" has ONE answer on
+        # this page and in the bar.
+        #
+        # It reports a pick rather than firing _symbol_jump: the ribbon's job is
+        # to NAVIGATE to the analyzer, and this box is already on it.
+        if _SYMSEARCH is not None:
+            _sa_pick = _SYMSEARCH(options=_symbol_payload(),
+                                  placeholder="Type a name or NSE code…",
+                                  key="sa_symsearch", default=None)
+            if isinstance(_sa_pick, dict) and _sa_pick.get("symbol"):
+                # Nonce-guarded like the ribbon: `picked` is the component's
+                # current VALUE and persists across reruns, so acting on it
+                # directly would re-select on every rerun and pin the page to
+                # one symbol.
+                if _sa_pick.get("n") != st.session_state.get("_sa_pick_n"):
+                    st.session_state["_sa_pick_n"] = _sa_pick["n"]
+                    _sa_load(_sa_pick["symbol"])
+                    st.rerun()
+        else:
+            # Component missing is a packaging accident, not a reason to lose the
+            # ability to analyse an arbitrary symbol.
+            mcol1, mcol2 = st.columns([3, 1])
+            pa_manual = mcol1.text_input("Any symbol", key="pa_manual",
+                                         placeholder="e.g. TITAN",
+                                         label_visibility="collapsed")
+            if mcol2.button("Go", key="pa_go", width="stretch") and pa_manual.strip():
+                _sa_load(pa_manual)
+                st.rerun()
+
+        # ── Screener results: pick + Prev / Next ──────────────────────────
+        if screener_symbols:
+            _sel = st.session_state.get("selected_symbol")
+            if _sel in screener_symbols:
+                st.session_state["sa_from_screener"] = _sel
+            st.selectbox("From screener results", screener_symbols,
+                         key="sa_from_screener",
+                         on_change=lambda: _sa_load(st.session_state["sa_from_screener"]))
+            _cur_idx = screener_symbols.index(_sel) if _sel in screener_symbols else -1
+            _nav_c1, _nav_c2 = st.columns(2)
+            _at_start = _cur_idx <= 0
+            if _nav_c1.button("◀ Prev", key="sa_prev", disabled=_at_start,
+                              width="stretch",
+                              help=(screener_symbols[_cur_idx - 1] if _cur_idx > 0 else "")):
+                _sa_load(screener_symbols[_cur_idx - 1])
+                st.rerun()
+            _at_end = _cur_idx >= len(screener_symbols) - 1 or _cur_idx < 0
+            if _nav_c2.button("Next ▶", key="sa_next", disabled=_at_end,
+                              width="stretch",
+                              help=(screener_symbols[_cur_idx + 1] if not _at_end else "")):
+                _sa_load(screener_symbols[_cur_idx + 1])
+                st.rerun()
+            if _cur_idx >= 0:
+                st.caption(f"{_cur_idx + 1} / {len(screener_symbols)} — **{_sel}**")
+
+        # Show Analyzer Roster if any symbols queued from Scanner Hub cards
+        _sa_roster = st.session_state.get("sa_roster", [])
+        if _sa_roster:
+            with st.expander(f"Analyzer Roster — {len(_sa_roster)} symbol(s)", expanded=True):
+                _rc = st.columns(min(len(_sa_roster), 3))
+                for _ri, _rsym in enumerate(_sa_roster):
+                    with _rc[_ri % 3]:
+                        if st.button(_rsym, key=f"roster_pick_{_rsym}",
+                                     width="stretch",
+                                     help=f"Analyze {_rsym}"):
+                            _sa_load(_rsym)
+                            st.rerun()
+                if st.button("✕ Clear roster", key="roster_clear"):
+                    st.session_state["sa_roster"] = []
+                    st.rerun()
+
         _pa_scroll = st.container(height=680)
     with _pa_scroll:
         hits = st.session_state.get("hub_results") or []
@@ -9704,96 +8468,175 @@ if current_page == "Predictive Analysis":
             key=lambda h: (h.get("overall") is not None, h.get("overall") or 0),
             reverse=True,
         )
-        st.markdown("**Candidates**")
-        if not ranked:
-            st.info("No scanner results found — run a scanner in the Scanner Hub, "
-                    "or type a symbol below.")
-        else:
-            st.caption(f"{len(ranked)} from **{ran_for}** · ranked by Overall Rating")
-            for h in ranked[:30]:
-                _sym = h["symbol"]
-                rcol, tcol, pcol = st.columns([1.2, 1.8, 3.0], gap="small",
-                                              vertical_alignment="center")
-                rcol.markdown(_rating_badge_html(h), unsafe_allow_html=True)
-                if tcol.button(f"**{_sym}**", key=f"pa_view_{_sym}", type="tertiary",
-                               help=f"Analyze {_sym}"):
-                    st.session_state["pa_symbol"] = _sym
-                pcol.badge(str(h.get("pattern_type", ran_for)), color="orange")
-
-        # ── A table sent here with "→ Predictive Analysis" ───────────────
+        # Candidates as rail rows (one switcher, the Home rail's look and hover
+        # chart); the stacked buttons below are the fallback if the component
+        # is missing.
+        import watch_rail as _wrl
         _pa_sent = _pa_sent_load()
-        if _pa_sent and _pa_sent.get("items"):
-            st.divider()
-            _sh1, _sh2 = st.columns([4, 1], vertical_alignment="center")
-            _sh1.markdown(f"**📤 {_pa_sent.get('source', 'Sent list')}** "
-                          f"({len(_pa_sent['items'])})")
-            _sh1.caption("sent " + str(_pa_sent.get("sent_at", ""))[:16].replace("T", " "))
-            if _sh2.button("✕", key="pa_sent_clear", type="tertiary",
-                           help="Clear this sent list"):
+        _cand = _wrl.candidate_lists(hits, ran_for, _pa_sent, db.get_watchlist())
+        _cand_done = False
+        if _cand:
+            _ckeys = [c["key"] for c in _cand]
+            _clab = {c["key"]: f'{c["label"]} {c["count"]}' for c in _cand}
+            _cpick = st.segmented_control(
+                "Candidates", _ckeys, format_func=_clab.get, default=_ckeys[0],
+                key="sa_cand_src_" + "_".join(_ckeys), label_visibility="collapsed")
+            _cl = next((c for c in _cand if c["key"] == _cpick), _cand[0])
+            _ch1, _ch2 = st.columns([5, 1], vertical_alignment="center")
+            _ch1.caption(f'**{_cl["header"]}** · {_cl["count"]} names'
+                         + (" · by Overall Rating" if _cl["key"] == "scanner" else ""))
+            if _cl["key"] == "sent" and _ch2.button("✕", key="pa_sent_clear_rr",
+                                                   type="tertiary",
+                                                   help="Clear this sent list"):
                 _pa_sent_save(None)
                 st.rerun()
-            for _it in _pa_sent["items"][:60]:
-                _ss = _it["symbol"]
-                _stc, _snc = st.columns([1.9, 3.7], gap="small",
-                                        vertical_alignment="center")
-                if _stc.button(f"**{_ss}**", key=f"pa_sent_{_ss}", type="tertiary",
-                               help=f"Analyze {_ss}"):
-                    st.session_state["pa_symbol"] = _ss
-                _snc.badge(str(_it.get("note") or _pa_sent.get("source", "")),
-                           color="blue")
-
-        # ── Watchlist as candidates ──────────────────────────────────────
-        _pa_wl = db.get_watchlist()
-        if _pa_wl is not None and not _pa_wl.empty:
-            _scanner_syms = {h["symbol"] for h in ranked} if ranked else set()
-            # …and not already listed in the sent block above
-            if _pa_sent and _pa_sent.get("items"):
-                _scanner_syms |= {it["symbol"] for it in _pa_sent["items"]}
-            _wl_only = _pa_wl[~_pa_wl["symbol"].isin(_scanner_syms)]
-            if not _wl_only.empty:
-                st.divider()
-                st.markdown(f"**♥ Watchlist** ({len(_wl_only)})")
-                for _, _wr in _wl_only.iterrows():
-                    _ws = _wr["symbol"]
-                    _wtc, _wnc = st.columns([1.9, 3.7], gap="small",
-                                            vertical_alignment="center")
-                    if _wtc.button(f"**{_ws}**", key=f"pa_wl_{_ws}", type="tertiary",
-                                   help=f"Analyze {_ws}"):
-                        st.session_state["pa_symbol"] = _ws
-                    _wn = _wr.get("notes") or ""
-                    _wnc.badge(f"watchlist · {_wn}" if _wn else "watchlist", color="green")
-
-    with pa_left:
-        if _SYMSEARCH is not None:
-            _pa_pick = _SYMSEARCH(options=_symbol_payload(),
-                                  placeholder="Search symbol…",
-                                  key="pa_symsearch", default=None)
-            if isinstance(_pa_pick, dict) and _pa_pick.get("symbol"):
-                if _pa_pick.get("n") != st.session_state.get("_pa_pick_n"):
-                    st.session_state["_pa_pick_n"] = _pa_pick["n"]
-                    st.session_state["pa_symbol"] = _pa_pick["symbol"].strip().upper()
+            _cres = dpages.sa_candidate_table(
+                _cl, key=f"sa_cand_{_cl['key']}",
+                current=st.session_state.get("selected_symbol"))
+            if _cres is not None:
+                _cand_done = True
+                if _cres:
+                    _sa_load(_cres)
                     st.rerun()
-        else:
-            mcol1, mcol2 = st.columns([3, 1])
-            pa_manual = mcol1.text_input("Any symbol", key="pa_manual",
-                                         placeholder="e.g. TITAN",
-                                         label_visibility="collapsed")
-            if mcol2.button("Go", key="pa_go", width="stretch") and pa_manual.strip():
-                st.session_state["pa_symbol"] = pa_manual.strip().upper()
+        if not _cand_done:
+            st.markdown("**Candidates**")
+            if not ranked:
+                st.info("No scanner results found — run a scanner in the Scanner Hub, "
+                        "or type a symbol above.")
+            else:
+                st.caption(f"{len(ranked)} from **{ran_for}** · ranked by Overall Rating")
+                for h in ranked[:30]:
+                    _sym = h["symbol"]
+                    rcol, tcol, pcol = st.columns([1.2, 1.8, 3.0], gap="small",
+                                                  vertical_alignment="center")
+                    rcol.markdown(_rating_badge_html(h), unsafe_allow_html=True)
+                    if tcol.button(f"**{_sym}**", key=f"pa_view_{_sym}", type="tertiary",
+                                   help=f"Analyze {_sym}"):
+                        _sa_load(_sym)
+                    pcol.badge(str(h.get("pattern_type", ran_for)), color="orange")
+
+            # ── A table sent here with "→ Stock Analyzer" ────────────────────
+            _pa_sent = _pa_sent_load()
+            if _pa_sent and _pa_sent.get("items"):
+                st.divider()
+                _sh1, _sh2 = st.columns([4, 1], vertical_alignment="center")
+                _sh1.markdown(f"**📤 {_pa_sent.get('source', 'Sent list')}** "
+                              f"({len(_pa_sent['items'])})")
+                _sh1.caption("sent " + str(_pa_sent.get("sent_at", ""))[:16].replace("T", " "))
+                if _sh2.button("✕", key="pa_sent_clear", type="tertiary",
+                               help="Clear this sent list"):
+                    _pa_sent_save(None)
+                    st.rerun()
+                for _it in _pa_sent["items"][:60]:
+                    _ss = _it["symbol"]
+                    _stc, _snc = st.columns([1.9, 3.7], gap="small",
+                                            vertical_alignment="center")
+                    if _stc.button(f"**{_ss}**", key=f"pa_sent_{_ss}", type="tertiary",
+                                   help=f"Analyze {_ss}"):
+                        _sa_load(_ss)
+                    _snc.badge(str(_it.get("note") or _pa_sent.get("source", "")),
+                               color="blue")
+
+            # ── Watchlist as candidates ──────────────────────────────────────
+            _pa_wl = db.get_watchlist()
+            if _pa_wl is not None and not _pa_wl.empty:
+                _scanner_syms = {h["symbol"] for h in ranked} if ranked else set()
+                # …and not already listed in the sent block above
+                if _pa_sent and _pa_sent.get("items"):
+                    _scanner_syms |= {it["symbol"] for it in _pa_sent["items"]}
+                _wl_only = _pa_wl[~_pa_wl["symbol"].isin(_scanner_syms)]
+                if not _wl_only.empty:
+                    st.divider()
+                    st.markdown(f"**♥ Watchlist** ({len(_wl_only)})")
+                    for _, _wr in _wl_only.iterrows():
+                        _ws = _wr["symbol"]
+                        _wtc, _wnc = st.columns([1.9, 3.7], gap="small",
+                                                vertical_alignment="center")
+                        if _wtc.button(f"**{_ws}**", key=f"pa_wl_{_ws}", type="tertiary",
+                                       help=f"Analyze {_ws}"):
+                            _sa_load(_ws)
+                        _wn = _wr.get("notes") or ""
+                        _wnc.badge(f"watchlist · {_wn}" if _wn else "watchlist", color="green")
 
     with pa_main:
-        pa_sym = st.session_state.get("pa_symbol")
-        if not pa_sym:
-            st.info("Pick a candidate on the left (→) or type a symbol to load the "
-                    "annotated chart, ratings breakdown, and setup intelligence.")
+        # Candidates parked by the ribbon search when what was typed was a prefix
+        # rather than a ticker. This is the chart tool's typeahead dropdown, one
+        # step later: Streamlit cannot filter a list per keystroke (a widget only
+        # reports on Enter or blur), so the choice is offered after submit instead
+        # of during typing. Same directory, same ranking, same NSE/BSE reality.
+        _sa_typed, _sa_matches = st.session_state.get("tb_search_matches", (None, []))
+        if _sa_matches:
+            st.caption(f"No exact NSE ticker for **{_sa_typed}** — {len(_sa_matches)} match"
+                       f"{'es' if len(_sa_matches) != 1 else ''}:")
+            _mc = st.columns(min(len(_sa_matches), 4))
+            for _mi, _m in enumerate(_sa_matches):
+                with _mc[_mi % 4]:
+                    if st.button(f"{_m['display']}", key=f"tb_match_{_m['display']}",
+                                 width="stretch",
+                                 help=_m.get("name") or _m["display"]):
+                        _sa_load(_m["display"])
+                        st.session_state.pop("tb_search_matches", None)
+                        st.rerun()
+                    st.caption(f"<span style='font-size:10.5px;color:{_T['text_muted']}'>"
+                               f"{(_m.get('name') or '')[:34]}</span>",
+                               unsafe_allow_html=True)
+            if st.button("✕ Dismiss", key="tb_match_clear"):
+                st.session_state.pop("tb_search_matches", None)
+                st.rerun()
+
+        # Resolved a prefix/typo to a single ticker. Worth one line: the page is
+        # about to show a company nobody typed the exact name of.
+        _sa_res = st.session_state.pop("tb_search_resolved", None)
+        if _sa_res:
+            _typed, _to, _nm = _sa_res
+            st.caption(f"**{_typed}** → **{_to}**{f' · {_nm}' if _nm else ''} "
+                       f"(only NSE match)")
+
+        # Typed something the directory has never heard of. Say so once — the
+        # analysis below still runs, and its own failure message is the detail.
+        _sa_miss = st.session_state.pop("tb_search_miss", None)
+        if _sa_miss:
+            st.caption(f"**{_sa_miss}** is not in the NSE symbol directory — analysing "
+                       f"it anyway, in case the directory is behind on a new listing.")
+
+        # With a screener list and nothing picked yet, its first row is the
+        # symbol — as before, it waits for the Analyze click.
+        symbol = (st.session_state.get("selected_symbol")
+                  or (screener_symbols[0] if screener_symbols else "") or "").strip().upper()
+
+        _lb_c, _go_c = st.columns([5, 1], vertical_alignment="bottom")
+        with _lb_c:
+            tf_choice = st.select_slider(
+                "Chart lookback",
+                options=["3M", "6M", "1Y", "2Y", "5Y", "10Y", "Max"],
+                value="Max",
+            )
+        _tf_map = {"3M": 90, "6M": 180, "1Y": 365, "2Y": 730, "5Y": 1825, "10Y": 3650, "Max": 0}
+        tf_days = _tf_map[tf_choice]
+        _sa_go = _go_c.button("Analyze", type="primary", width="stretch")
+
+        if not (_sa_go or (symbol and st.session_state.get("last_analyzed") == symbol)):
+            st.info("Pick a candidate on the left or type a symbol to load the "
+                    "rating, scores, annotated chart, council and fundamentals."
+                    + (f" **{symbol}** is selected — press **Analyze**." if symbol else ""))
+        elif not symbol:
+            st.warning("Enter or pick a symbol first.")
         else:
-            pa_df = cached_fetch_ohlcv(pa_sym, enforce_liquidity=False)
-            if pa_df is None:
-                st.error(f"No usable data for {pa_sym} — fewer than {sp.MIN_BARS} "
+            st.session_state["last_analyzed"] = symbol
+            with st.spinner(f"Fetching {symbol}..."):
+                # enforce_liquidity=False: the user asked for THIS symbol.
+                # `df` follows the lookback (scores, classic chart); `pa_df` is
+                # the default frame the Overall Rating, smart money, council and
+                # PDF have always been computed on, so they match the scanner.
+                df = cached_fetch_ohlcv(symbol, days=tf_days, enforce_liquidity=False)
+                pa_df = cached_fetch_ohlcv(symbol, enforce_liquidity=False)
+            if df is None or pa_df is None:
+                st.error(f"No usable data for {symbol} — fewer than {sp.MIN_BARS} "
                          f"daily bars, or not on yfinance under that NSE code.")
             else:
-                _thin_volume_note(pa_df, pa_sym)
+                _thin_volume_note(pa_df, symbol)
                 pa_bench = cached_fetch_nifty50()
+                nifty_df = cached_fetch_nifty50(days=tf_days)
                 _pa_w = st.session_state.get("hub_overall_weights", OVERALL_WEIGHTS)
                 pa_rating, pa_bd = _overall_rating(pa_df, pa_bench, _pa_w)
                 pa_chips = "".join(
@@ -9807,9 +8650,17 @@ if current_page == "Predictive Analysis":
                     f'margin-bottom:4px;">'
                     f'{_rating_badge_html({"overall": pa_rating, "overall_breakdown": pa_bd or {}})}'
                     f'<span style="font-size:20px;font-weight:800;color:#3a2a1e;'
-                    f'margin-right:12px;">{pa_sym}</span>{pa_chips}</div>',
+                    f'margin-right:12px;">{symbol}</span>{pa_chips}</div>',
                     unsafe_allow_html=True,
                 )
+
+                # FR-1 — identity header + valuation/quality strip lead the page:
+                # who is this company and what does it cost, before any signal.
+                with st.spinner("Fetching fundamentals & statements..."):
+                    _fund = cached_fetch_fundamentals(symbol)
+                    _deep = cached_fundamentals_deep(symbol)
+                render_fundamental_header(symbol, df, _fund, _deep)
+                render_fundamental_signals(fscore.score_all(_fund, _deep))
 
                 # ── B-130 + B-131: Stock Summary & Smart Money Flow ──────
                 _card_l, _card_r = st.columns(2)
@@ -9830,18 +8681,7 @@ if current_page == "Predictive Analysis":
                         _pa_spectrum = rs.range_spectrum(_pa_lo52, _pa_hi52, _pa_price, marks=_pa_marks)
                         _pa_pct_from_high = (_pa_price / _pa_hi52 - 1) * 100 if _pa_hi52 else 0
                         _pa_mv, _pa_conds = sp.score_minervini(pa_df, nifty_df=pa_bench)
-                        _pa_stage_label = (
-                            "Stage-2 ideal band" if _pa_mv >= 6 else
-                            "Stage-2 emerging" if _pa_mv >= 4 else
-                            "Stage-1 base" if _pa_mv >= 2 else
-                            "Stage-3/4 caution"
-                        )
-                        _pa_stage_color = (
-                            "#16a34a" if _pa_mv >= 6 else
-                            "#65a30d" if _pa_mv >= 4 else
-                            "#d97706" if _pa_mv >= 2 else
-                            "#dc2626"
-                        )
+                        _pa_stage_label, _pa_stage_color = pa_report.stage_label(_pa_mv)
                         _pa_cond_chips = "".join(
                             f'<span style="background:{"#dcfce7" if v else "#fef2f2"};'
                             f'color:{"#166534" if v else "#991b1b"};border-radius:4px;'
@@ -9849,13 +8689,13 @@ if current_page == "Predictive Analysis":
                             f'display:inline-block;">{"✓" if v else "✗"} {k.split(" ",1)[1]}</span>'
                             for k, v in _pa_conds.items()
                         )
-                        _pa_patterns = db.get_symbol_patterns(pa_sym)
+                        _pa_patterns = db.get_symbol_patterns(symbol)
                         _pa_pat_chips = "".join(
                             f'<span style="background:#fef3c7;color:#92400e;border-radius:4px;'
                             f'padding:2px 8px;font-size:11px;margin:2px 3px;'
                             f'display:inline-block;font-weight:600;">{p}</span>'
                             for p in _pa_patterns
-                        ) if _pa_patterns else '<span style="color:#9ca3af;font-size:11px;">No patterns detected in latest scan</span>'
+                        ) if _pa_patterns else '<span style="color:#636a75;font-size:11px;">No patterns detected in latest scan</span>'
                         st.markdown(rs.card(
                             f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">'
                             f'<div><span style="font-size:22px;font-weight:700;">₹{_pa_price:,.2f}</span>'
@@ -9875,35 +8715,10 @@ if current_page == "Predictive Analysis":
                 with _card_r:
                     try:
                         import money_flow as _mf
-                        _smf_df = pa_df.tail(60).copy()
-                        _smf_close = _smf_df["close"].values
-                        _smf_open = _smf_df["open"].values
-                        _smf_vol = _smf_df["volume"].values
-                        _smf_avg_vol = float(_smf_df["volume"].mean())
-                        _smf_bars = []
-                        _smf_acc, _smf_dist = 0, 0
-                        for i in range(len(_smf_df)):
-                            c, o, v = float(_smf_close[i]), float(_smf_open[i]), float(_smf_vol[i])
-                            if c > o and v > _smf_avg_vol:
-                                _smf_bars.append("#16a34a")
-                                _smf_acc += 1
-                            elif c < o and v > _smf_avg_vol:
-                                _smf_bars.append("#dc2626")
-                                _smf_dist += 1
-                            else:
-                                _smf_bars.append("#9ca3af")
-                        _smf_n = len(_smf_bars)
-                        if _smf_acc > _smf_dist * 1.5:
-                            _smf_verdict, _smf_vc = "Strong accumulation", "#16a34a"
-                        elif _smf_acc > _smf_dist:
-                            _smf_verdict, _smf_vc = "Mild accumulation", "#65a30d"
-                        elif _smf_dist > _smf_acc * 1.5:
-                            _smf_verdict, _smf_vc = "Strong distribution", "#dc2626"
-                        elif _smf_dist > _smf_acc:
-                            _smf_verdict, _smf_vc = "Mild distribution", "#ea580c"
-                        else:
-                            _smf_verdict, _smf_vc = "Neutral", "#6b7280"
-                        _smf_bar_w = max(1, int(100 / max(_smf_n, 1)))
+                        _smf = pa_report.smart_money(pa_df)
+                        _smf_bars, _smf_acc, _smf_dist = _smf["bars"], _smf["acc"], _smf["dist"]
+                        _smf_n = _smf["n"]
+                        _smf_verdict, _smf_vc = _smf["verdict"], _smf["color"]
                         _smf_strip = "".join(
                             f'<div style="flex:1;height:32px;background:{c};'
                             f'margin-right:1px;border-radius:1px;"></div>'
@@ -9920,10 +8735,10 @@ if current_page == "Predictive Analysis":
                             _smf_obv_pts.append(f"{x:.1f},{y:.1f}")
                         _smf_obv_line = " ".join(_smf_obv_pts)
                         _smf_obv_trend = "rising" if float(_smf_obv_tail[-1]) > float(_smf_obv_tail[0]) else "falling"
-                        _smf_obv_color = "#16a34a" if _smf_obv_trend == "rising" else "#dc2626"
+                        _smf_obv_color = "#166534" if _smf_obv_trend == "rising" else "#b91c1c"
                         _smf_cmf = _mf.cmf(pa_df, n=21)
                         _smf_cmf_str = f"{_smf_cmf:+.3f}" if _smf_cmf is not None else "n/a"
-                        _smf_cmf_color = "#16a34a" if (_smf_cmf or 0) > 0 else "#dc2626" if (_smf_cmf or 0) < 0 else "#6b7280"
+                        _smf_cmf_color = "#166534" if (_smf_cmf or 0) > 0 else "#b91c1c" if (_smf_cmf or 0) < 0 else "#6b7280"
                         st.markdown(rs.card(
                             f'<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">'
                             f'<span style="font-weight:700;color:{_smf_vc};">{_smf_verdict}</span>'
@@ -9940,7 +8755,7 @@ if current_page == "Predictive Analysis":
                             f'<div style="text-align:center;"><b style="font-size:11px;color:#374151;">CMF (21)</b>'
                             f'<div style="font-size:20px;font-weight:700;color:{_smf_cmf_color};">'
                             f'{_smf_cmf_str}</div></div></div>'
-                            f'<div style="margin-top:8px;font-size:10px;color:#9ca3af;">'
+                            f'<div style="margin-top:8px;font-size:10px;color:#636a75;">'
                             f'Session flow is a bar-level heuristic (close vs open + above-average volume) '
                             f'— not institutional delivery data, not measured against forward returns.</div>',
                             title="Smart Money Flow",
@@ -9948,28 +8763,171 @@ if current_page == "Predictive Analysis":
                     except Exception:
                         pass
 
-                # Annotated chart — the Chart Tool iframe carries every overlay the
-                # user has enabled there (M2 base zones, harmonic, trendlines, M3
-                # price projection, MA Bias, …). Indicator selection persists in
-                # the Chart Tool's own localStorage, so it survives reloads.
-                import pa_chart_focus as _pcf
-                _ctx, _note = _pcf.render_pin_bar(pa_sym)
-                st.caption(_note)
-                render_chart_tool(pa_sym, height=1080, query=_pcf.chart_query(
-                    pa_sym, _ctx, st.session_state.get("pa_pins", [])))
+                # ── Scores on the lookback frame ─────────────────────────
+                mv_score, mv_conds = sp.score_minervini(df, nifty_df=nifty_df)
+                tf_score, tf_conds = sp.score_technofunda(df)
+                ew = ew_module.analyze_ew(df)
+                cs_score, cs_conds, rs_pct, _ = _compute_canslim(df, nifty_df)
 
-                # Setup Intelligence + Council — same engine as the Stock Analyzer.
-                st.divider()
-                with st.spinner("Running deterministic council…"):
-                    pa_fund = cached_fetch_fundamentals(pa_sym)
-                    pa_bundle, pa_bull, pa_bear, pa_card = council.run_council(
-                        pa_sym, pa_df, pa_bench, pa_fund, regime=nifty_regime
-                    )
-                render_setup_intelligence(
-                    council.setup_intelligence(pa_bundle, pa_bull, pa_bear, pa_card)
+                c1, c2, c3, c4, c5 = st.columns(5)
+                c1.metric("Minervini", f"{mv_score}/8")
+                c2.metric("TechnoFunda", f"{tf_score}/6")
+                c3.metric("Total", f"{mv_score + tf_score}/14")
+                c4.metric("EW Confidence", f"{ew['confidence']}%")
+                c5.metric("CANSLIM (RS)", f"{cs_score}/4",
+                           delta=f"{rs_pct:+.1f}% vs Nifty",
+                           delta_color="normal")
+
+                st.info(
+                    f"**Wave Position:** {ew['wave_pos']}  |  "
+                    f"**Extension Risk:** {ew['ext_risk']}  |  "
+                    f"**OWL:** {ew['owl_signal']}  |  **PTF:** {ew['ptf_signal']}  \n"
+                    f"{ew['note']}"
                 )
-                with st.expander("Council drill-down (Bull / Bear / Judge)"):
-                    render_council(pa_bundle, pa_bull, pa_bear, pa_card)
+                render_context_ladder(symbol, pa_df, pa_bench)
+                render_event_cascade(symbol, pa_df, pa_bench)
+
+                # UI-2 — the Chart Tool is the default chart. The classic Plotly
+                # chart stays one click away because it is not strictly a
+                # subset: RS Line, TSI and CPR exist only there. Until those are
+                # ported, dropping it outright would lose three indicators to
+                # gain a nicer canvas.
+                classic_chart = st.toggle(
+                    "Classic chart (RS Line · TSI · CPR)",
+                    key="sa_classic_chart",
+                    help="The Chart Tool is richer — live crosshair, volume "
+                         "profile, Elliott/VCP/harmonic overlays, price "
+                         "projection — but it does not yet carry the RS Line, "
+                         "TSI or CPR panes. Flip this when you need those.",
+                )
+
+                # ── Chart sizing ──────────────────────────────────────────────
+                # Applies to whichever chart is showing. Both renderers are
+                # fixed-height by construction — the Chart Tool is an iframe and
+                # Plotly figures carry an explicit height — so vertical size is
+                # the one dimension `use_container_width` cannot solve, and the
+                # right value depends on the monitor rather than on the data.
+                # The Chart Tool defaults to 1080, the height Predictive Analysis
+                # gave it; the classic chart keeps its own default.
+                with st.expander("Chart size"):
+                    _sz1, _sz2 = st.columns(2)
+                    with _sz1:
+                        _h_min, _h_def = ((CHART_H_MIN_CLASSIC, CHART_H_DEFAULT_CLASSIC)
+                                          if classic_chart
+                                          else (CHART_H_MIN_TOOL, 1080))
+                        sa_chart_h = st.slider(
+                            "Chart height (px)", _h_min, CHART_H_MAX, _h_def, 50,
+                            key=f"sa_chart_h_{'classic' if classic_chart else 'tool'}",
+                            help="Vertical size of the chart. The two chart modes "
+                                 "keep separate values — the Chart Tool is one "
+                                 "pane and the classic chart stacks six, so they "
+                                 "do not want the same number.")
+                    with _sz2:
+                        if classic_chart:
+                            sa_price_share = st.slider(
+                                "Price pane share (%)", 38, int(PRICE_SHARE_MAX * 100),
+                                38, 1, key="sa_price_share",
+                                help="How much of the figure the candles get. The "
+                                     "default 38% is why raising height alone can "
+                                     "feel like it did not help — everything grows "
+                                     "together. Raising this takes room from the "
+                                     "oscillators instead.")
+                        else:
+                            sa_price_share = None
+                            st.caption("Pane share applies to the classic chart — "
+                                       "the Chart Tool manages its own sub-panes.")
+
+                if classic_chart:
+                    show_harmonic = st.checkbox(
+                        "Show Harmonic Pattern (Gartley/Bat/Butterfly/Crab)",
+                        key="sa_harmonic",
+                        help="Detects the most recent completed XABCD harmonic pattern "
+                             "with a valid PRZ within the last ~10 bars. Plots entry, "
+                             "stop (beyond X), and 0.382 / 0.618 / 1.0-of-AD targets.",
+                    )
+                    harmonic = hp.detect_last_pattern(df) if show_harmonic else None
+                    if show_harmonic:
+                        if harmonic:
+                            t = harmonic["trade"]
+                            st.success(
+                                f"**{harmonic['pattern']} ({harmonic['direction']})** — "
+                                f"Entry {t['entry']} · Stop {t['stop']} · "
+                                f"T1 {t['targets'][0]} / T2 {t['targets'][1]} / T3 {t['targets'][2]} · "
+                                f"R:R to T2 = {t['rr_to_t2']} · D pivot {harmonic['age_bars']} bars ago"
+                            )
+                        else:
+                            st.caption("No active harmonic pattern completing in the last 10 bars.")
+
+                    st.plotly_chart(
+                        build_chart(symbol, df, ew, nifty_df=nifty_df,
+                                    harmonic=harmonic, height=sa_chart_h,
+                                    price_share=(sa_price_share / 100.0
+                                                 if sa_price_share else None)),
+                        width="stretch")
+                else:
+                    # Annotated chart — the Chart Tool iframe carries every
+                    # overlay the user has enabled there (M2 base zones,
+                    # harmonic, trendlines, M3 price projection, MA Bias, …).
+                    # Indicator selection persists in the Chart Tool's own
+                    # localStorage, so it survives reloads. Harmonic lives on
+                    # its own indicator menu, so the checkbox above stays with
+                    # the classic chart it drives.
+                    import pa_chart_focus as _pcf
+                    _ctx, _note = _pcf.render_pin_bar(symbol)
+                    st.caption(_note)
+                    if not render_chart_tool(symbol, height=sa_chart_h, query=_pcf.chart_query(
+                            symbol, _ctx, st.session_state.get("pa_pins", []))):
+                        # Server down. Fall back to the classic chart rather than
+                        # leaving the page chartless behind a warning — this is
+                        # the analysis surface, and every read below assumes you
+                        # have looked at the price.
+                        #
+                        # The height carries over, but NOT the pane share: this
+                        # path is reached with the Chart Tool selected, so
+                        # `sa_price_share` is None and the classic chart keeps
+                        # its own default.
+                        st.plotly_chart(
+                            build_chart(symbol, df, ew, nifty_df=nifty_df,
+                                        height=sa_chart_h),
+                            width="stretch")
+
+                # ── Side-by-side: condition table (left) + chart preview (right) ──
+                sa_cond_col, sa_chart_col = st.columns([1, 1.4], gap="medium")
+                with sa_cond_col:
+                    render_condition_table(mv_conds, tf_conds, cs_conds)
+                with sa_chart_col:
+                    # Embed the Chart Tool iframe beside the condition table so
+                    # the pattern context is visible while reading the scores.
+                    _chart_inline_url = (
+                        f"http://localhost:{CHART_TOOL_PORT}/?symbol="
+                        f"{symbol if ('.' in symbol or symbol.startswith('^')) else symbol + '.NS'}"
+                        f"&tf=1d"
+                    )
+                    st.markdown("**Chart preview**")
+                    st.iframe(_chart_inline_url, height=460)
+                    st.caption(
+                        f"[Open full chart ↗]({_chart_inline_url}) · "
+                        "Chart Tool must be running on :5001"
+                    )
+
+                # ── 3-POV Council: Bull / Bear / Judge ──
+                st.divider()
+                with st.spinner("Running deterministic council..."):
+                    bundle, bull, bear, card = council.run_council(
+                        symbol, pa_df, pa_bench, _fund, regime=nifty_regime
+                    )
+                _sa_intel = council.setup_intelligence(bundle, bull, bear, card)
+
+                # Plain-language summary first, then the Bull/Bear/Judge drill-down.
+                render_setup_intelligence(_sa_intel)
+
+                # Ownership sits directly under the setup read: the structural
+                # leg that says who has been buying the thing the setup likes.
+                render_ownership_flow(symbol)
+
+                with st.expander("🧭 Council Verdict — Bull vs Bear vs Judge",
+                                 expanded=True):
+                    render_council(bundle, bull, bear, card)
 
                 # ── Historical pattern metrics (overhead · extension · VCP ·
                 #    radar · exceptional volume) — from the bars already loaded.
@@ -9978,38 +8936,78 @@ if current_page == "Predictive Analysis":
                 # over two years (500 sessions); the page's own frame is 300,
                 # so give this panel its own longer frame (+20 for RSI warm-up).
                 # The council keeps pa_df, so its outputs are unchanged.
-                _pm_df = cached_fetch_ohlcv(pa_sym, days=PM_HISTORY_BARS,
+                _pm_df = cached_fetch_ohlcv(symbol, days=PM_HISTORY_BARS,
                                             enforce_liquidity=False)
                 if _pm_df is None or len(_pm_df) < len(pa_df):
                     _pm_df = pa_df
                 render_pattern_metrics(_pm_df, pa_bench, key="pa_pm")
 
-                # ── Reused Stock Analyzer sections ───────────────────────
                 st.divider()
-                with st.spinner("Fetching fundamentals & statements…"):
-                    _pa_deep = cached_fundamentals_deep(pa_sym)
-                render_fundamental_header(pa_sym, pa_df, pa_fund, _pa_deep)
-                render_fundamental_signals(fscore.score_all(pa_fund, _pa_deep))
-                render_ownership_flow(pa_sym)
+                render_momentum_meter(df)
+                render_timeframe_board(symbol, df)
 
-                render_momentum_meter(pa_df)
-                render_timeframe_board(pa_sym, pa_df)
-
-                with st.expander("Fundamental history"):
-                    render_fundamental_history(_pa_deep)
-                with st.expander("Peer comparison"):
-                    render_peer_comparison(pa_sym)
-                with st.expander("Red flags"):
-                    _pa_rf = cached_red_flags(pa_sym)
-                    render_red_flags(_pa_rf)
+                with st.expander("Fundamental history", expanded=True):
+                    render_fundamental_history(_deep)
+                with st.expander("Peer comparison", expanded=True):
+                    render_peer_comparison(symbol)
+                with st.expander("Red flags", expanded=True):
+                    _rf_res = cached_red_flags(symbol)
+                    render_red_flags(_rf_res)
+                    _render_screener_unlock(_rf_res)
                 with st.expander("Scenario analysis"):
-                    render_scenarios(scen.build(_pa_deep), _pa_deep)
+                    render_scenarios(scen.build(_deep), _deep)
                 with st.expander("Conference calls"):
-                    render_concalls(cached_concalls(pa_sym))
+                    render_concalls(cached_concalls(symbol))
 
-                if st.button("Add to Watchlist", key="pa_wl"):
-                    db.add_watchlist_symbol(pa_sym, "From Predictive Analysis")
-                    st.success(f"{pa_sym} added to watchlist.")
+                if st.button("Add to Watchlist", key="sa_wl"):
+                    db.add_watchlist_symbol(symbol, "From Stock Analyzer")
+                    st.success(f"{symbol} added to watchlist.")
+
+                # ── PDF of the whole page, collapsed sections expanded ───
+                # Built on request, like the Opportunity Hub export:
+                # download_button needs the bytes up front, and most visits
+                # never export.
+                st.divider()
+                _pdf_c1, _pdf_c2 = st.columns([1, 3], vertical_alignment="center")
+                _pdf_c2.caption("One PDF of this page for this ticker — rating, "
+                                "scores, council, six horizons, horizon geometry "
+                                "and every fundamental section, a static price "
+                                "chart in place of the Chart Tool. Text is "
+                                "selectable and searchable.")
+                if _pdf_c1.button(f"📄 Build PDF — {symbol}", key="sa_pdf_go",
+                                  width="stretch"):
+                    with st.spinner("Rendering the report…"):
+                        try:
+                            _pa_size = None
+                            if card.size_pct is not None:
+                                _pa_size = prisk.size_note(prisk.reconcile_size(
+                                    card.size_pct, verdict,
+                                    portfolio_summary.get("open_count", 0)))
+                            _sa_pdf = pa_report.render_pdf(_pa_pdf_model(
+                                symbol, pa_df, pa_bench, pa_rating, pa_bd,
+                                _fund, _deep, bull, bear, card, _sa_intel,
+                                _pm_df, size_note=_pa_size,
+                                page_title="Stock Analyzer",
+                                analyzer_scores={
+                                    "pairs": [("Minervini", f"{mv_score}/8"),
+                                              ("TechnoFunda", f"{tf_score}/6"),
+                                              ("Total", f"{mv_score + tf_score}/14"),
+                                              ("EW confidence", f"{ew['confidence']}%"),
+                                              ("CANSLIM (RS)", f"{cs_score}/4 "
+                                               f"({rs_pct:+.1f}% vs Nifty)")],
+                                    "ew": (f"Wave position: {ew['wave_pos']} | "
+                                           f"Extension risk: {ew['ext_risk']} | "
+                                           f"OWL: {ew['owl_signal']} | PTF: "
+                                           f"{ew['ptf_signal']}. {ew['note']}")}))
+                        except Exception as exc:
+                            st.error(f"PDF render failed: {exc}")
+                            _sa_pdf = None
+                    if _sa_pdf:
+                        _sa_fn = pa_report.file_name(symbol, page="stock-analyzer")
+                        st.download_button(f"⬇ {_sa_fn}", _sa_pdf, file_name=_sa_fn,
+                                           mime="application/pdf", type="primary",
+                                           key="sa_pdf_dl")
+                        st.caption(f"{len(_sa_pdf) / 1024:.0f} KB")
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -10556,468 +9554,260 @@ if dpages.handles(current_page):
 
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Breakout Scans · Chartink source  (live Chartink fetch across entire market)
+# Breakout Scans · yfinance source — replaced the Chartink feed 2026-10-06.
+# Chartink needed a `_chartink_session` cookie pasted by hand whenever it
+# expired. This runs the repo's own breakout engine on yfinance history over
+# the NSE-bhavcopy universe: no login, no cookie. Engine: breakout_scan.py.
 # ──────────────────────────────────────────────────────────────────────────────
-import chartink_scraper as ck
+import breakout_scan as bks
+
+
+@st.cache_data(ttl=6 * 3600, show_spinner=False)
+def _bks_frames(top_n: int, as_of: str) -> dict:
+    """Full yfinance history for the top-N bhavcopy names. Keyed on the date so
+    a new session forces a fresh download; cached six hours within a day."""
+    syms = cached_fetch_bhavcopy_universe(top_n)
+    return bks.download_history(list(syms), period="max")
+
 
 # ──────────────────────────────────────────────────────────────────────────────
-# Page — Breakout Scans (B-36r fold, 2026-08-27). Formerly two sibling nav pages
-# — "Breakout Screener" (Chartink) and "TradingView Screener" — collapsed into one
-# page with a source toggle. Same task (external new-high breakout feed), two
-# providers, so the split was structural redundancy, not two distinct tools. The
-# two bodies below are unchanged; they now guard on `bscan_src` instead of being
-# separate top-level pages. Invariant: both feeds stay reachable, nothing lost.
+# Page — Breakout Scans (B-36r fold, 2026-08-27). One page, two sources: the
+# yfinance engine (formerly Chartink) and the TradingView BrkoutGeek replica.
+# Invariant: both feeds stay reachable, nothing lost.
 # ──────────────────────────────────────────────────────────────────────────────
+_BKS_YF = "yfinance (no login)"
 if current_page == "Breakout Scans":
-    st.subheader("Breakout Scans — external new-high feeds")
-    st.caption(
-        "Two login-light breakout feeds, same idea (a stock clearing a prior high) "
-        "from different providers. Pick a source."
-    )
+    st.subheader("Breakout Scans — new-high breakout feeds")
+    st.caption("Two no-login breakout feeds, same idea (a stock clearing a prior "
+               "high) from different engines. Pick a source.")
+    if st.session_state.get("bscan_src") not in (_BKS_YF, "TradingView"):
+        st.session_state["bscan_src"] = _BKS_YF      # old "Chartink" value
     st.radio(
-        "Source",
-        ["Chartink", "TradingView"],
-        horizontal=True,
-        key="bscan_src",
-        help="Chartink: 6M–10Y consolidation breakouts (needs a session cookie). "
-             "TradingView: BrkoutGeek 1-month-high replica, no login.",
+        "Source", [_BKS_YF, "TradingView"], horizontal=True, key="bscan_src",
+        help="yfinance: 6M → 10Y consolidation breakouts on NSE-bhavcopy names, "
+             "computed here. TradingView: BrkoutGeek 1-month-high replica.",
     )
 
-if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chartink") == "Chartink":
-    st.markdown("**Chartink — 6M → 10Y consolidation breakouts**")
+if current_page == "Breakout Scans" and st.session_state.get("bscan_src") == _BKS_YF:
+    st.markdown("**6M → 10Y consolidation breakouts — yfinance history, no login**")
     st.caption(
-        "Runs directly against **chartink.com** across the entire cash market. "
-        "No stock list needed — Chartink scans every listed stock server-side. "
-        "Paste your `_chartink_session` cookie once; it lasts for months."
+        "Universe: the top names by traded value from today's **NSE bhavcopy**. "
+        "Bars: full **yfinance** daily history. Rules: the same consolidation-"
+        "breakout engine the Scanner Hub runs (close above the period high, above "
+        "EMA50, traded-value floor, and a per-duration range gate). Results differ "
+        "from Chartink on purpose — Chartink's clauses had no real consolidation "
+        "test — and cover the top-N liquid names rather than the whole market."
     )
 
-    # Colours come from rs.TOKENS, not literals. These were GitHub's dark-theme
-    # palette (#58a6ff / #3fb950 / #d29922 / #f0883e / #f85149) sitting on a
-    # cream dashboard — the same off-palette hard-coding backlog B-16 records for
-    # OI Momentum. The RAMP is deliberate and is the point: lookback lengthens
-    # 6M → 10Y, so the colour walks info → good → accent → risk, i.e. a longer
+    # Ramp walks info → good → accent → risk as the base lengthens: a longer
     # base is a rarer, heavier claim. Reading order, not decoration.
-    _CK_SCANNERS = {
-        "6M Consolidation Breakout": {"color": rs.TOKENS["info"],   "lookback": "6 months"},
-        "1Y All-Time Breakout":      {"color": rs.TOKENS["good"],   "lookback": "1 year"},
-        "3Y Breakout":               {"color": rs.TOKENS["accent"], "lookback": "3 years"},
-        "5Y Breakout":               {"color": "#c2410c",           "lookback": "5 years"},
-        "10Y Breakout":              {"color": rs.TOKENS["risk"],   "lookback": "10 years"},
-    }
+    _BKS_COLOR = {"6-Month": rs.TOKENS["info"], "1-Year": rs.TOKENS["good"],
+                  "3-Year": rs.TOKENS["accent"], "5-Year": "#c2410c",
+                  "10-Year": rs.TOKENS["risk"]}
+    _BKS_LABELS = [lab for _d, lab, _f in reversed(sc.BREAKOUT_TIERS)]
 
     bk_left, bk_main = st.columns([1, 3])
-
     with bk_left:
-        # ── Session cookie ─────────────────────────────────────────────────
-        st.markdown("**Chartink Session Cookie**")
-        st.caption(
-            "Open chartink.com → F12 → Application → Cookies → chartink.com "
-            "→ copy the value of `_chartink_session`."
-        )
-        ck_cookie = st.text_input(
-            "_chartink_session",
-            value=st.session_state.get("ck_cookie", ""),
-            type="password",
-            key="ck_cookie_input",
-            placeholder="paste cookie value here",
-        )
-        if ck_cookie:
-            st.session_state["ck_cookie"] = ck_cookie
+        bks_top = st.select_slider("Universe (top N by traded value)",
+                                   options=[200, 500, 1000, 2000], value=500,
+                                   key="bks_top",
+                                   help="First run downloads full history for "
+                                        "these names (~1–3 min for 500); "
+                                        "cached for six hours after.")
+        bks_tiers = st.multiselect("Durations", _BKS_LABELS,
+                                   default=["10-Year", "5-Year", "3-Year", "1-Year"],
+                                   key="bks_tiers")
+        st.caption("3-Year uses a 65% range gate interpolated between the 1Y and "
+                   "5Y gates — not measured.")
+        if st.button("▶ Run breakout scan", type="primary", key="bks_run",
+                     width="stretch"):
+            with st.spinner(f"Downloading history for the top {bks_top} NSE names "
+                            f"and scanning…"):
+                try:
+                    _fr = _bks_frames(int(bks_top), date.today().isoformat())
+                    st.session_state["bks_results"] = {
+                        "rows": bks.breakouts(_fr, bks_tiers),
+                        "n": len(_fr), "top": int(bks_top),
+                        "tiers": list(bks_tiers),
+                        "short_10y": len(bks.short_history(_fr, 2520)),
+                        "short_5y": len(bks.short_history(_fr, 1260)),
+                    }
+                except Exception as exc:
+                    st.error(f"Breakout scan failed: {exc}")
 
-        st.divider()
-
-        # ── Scanner selector ───────────────────────────────────────────────
-        st.markdown("**Breakout Timeframe**")
-        for bk_name in _CK_SCANNERS:
-            lbl = f"{bk_name}  ({_CK_SCANNERS[bk_name]['lookback']})"
-            if st.button(lbl, key=f"ck_sel_{bk_name}", width="stretch"):
-                st.session_state["ck_scanner"] = bk_name
-                st.session_state.pop("ck_results", None)
-
-        selected_ck = st.session_state.get("ck_scanner", "1Y All-Time Breakout")
-        st.divider()
-        color_ck = _CK_SCANNERS[selected_ck]["color"]
-        st.markdown(
-            f"**Selected:** <span style='color:{color_ck}'>{selected_ck}</span>",
-            unsafe_allow_html=True,
-        )
-        full_clause = ck.SCAN_CLAUSES.get(selected_ck, "")
-        st.caption(full_clause[:180] + ("…" if len(full_clause) > 180 else ""))
-
-        # ── Copy scan clause to clipboard ──────────────────────────────────
-        if full_clause:
-            # Use a JS snippet injected via st.components to copy to clipboard
-            safe = full_clause.replace("\\", "\\\\").replace("`", "\\`")
-            st.iframe(
-                f"""
-                <button onclick="navigator.clipboard.writeText(`{safe}`)
-                  .then(()=>this.textContent='✓ Copied!')
-                  .catch(()=>this.textContent='⚠ Failed')"
-                  style="background:{rs.TOKENS['accent']};color:#fff;border:none;
-                         border-radius:8px;padding:6px 12px;cursor:pointer;
-                         font-size:12px;font-weight:600;width:100%">
-                  📋 Copy Scan Clause
-                </button>
-                """,
-                height=38,
-            )
-
-        st.divider()
-
-        # ── Custom clause ──────────────────────────────────────────────────
-        with st.expander("Custom scan clause (advanced)"):
-            custom_clause = st.text_area(
-                "Paste any Chartink scan clause",
-                height=120,
-                key="ck_custom_clause",
-                placeholder="( {cash} ( daily close > ... ) )",
-            )
-
-        # ── Run buttons ────────────────────────────────────────────────────
-        if st.button("▶ Run Selected Scan", type="primary", key="ck_run"):
-            cookie = st.session_state.get("ck_cookie", "").strip()
-            if not cookie:
-                st.error("Paste your `_chartink_session` cookie first.")
-            else:
-                clause = custom_clause.strip() if custom_clause.strip() else None
-                with st.spinner(f"Querying Chartink — {selected_ck}…"):
-                    try:
-                        if clause:
-                            rows = ck.run_chartink_scan(clause, cookie)
-                            ran_name = "Custom Clause"
-                        else:
-                            rows = ck.run_named_scan(selected_ck, cookie)
-                            ran_name = selected_ck
-                        st.session_state["ck_results"]     = rows
-                        st.session_state["ck_scanner_ran"] = ran_name
-                        st.session_state.pop("ck_all_results", None)
-                    except Exception as exc:
-                        st.error(f"Chartink fetch failed: {exc}")
-
-        if st.button("▶ Run All 5 Timeframes", key="ck_run_all", type="primary"):
-            cookie = st.session_state.get("ck_cookie", "").strip()
-            if not cookie:
-                st.error("Paste your `_chartink_session` cookie first.")
-            else:
-                all_ck: dict[str, list] = {}
-                failed = []
-                for bk_n in _CK_SCANNERS:
-                    with st.spinner(f"Scanning {bk_n}…"):
-                        try:
-                            all_ck[bk_n] = ck.run_named_scan(bk_n, cookie)
-                        except Exception as exc:
-                            all_ck[bk_n] = []
-                            failed.append(f"{bk_n}: {exc}")
-                st.session_state["ck_all_results"] = all_ck
-                st.session_state.pop("ck_results", None)
-                if failed:
-                    st.warning("Some scans failed:\n" + "\n".join(failed))
-
-    # ── Right panel — results ──────────────────────────────────────────────────
     with bk_main:
-
-        _CHART_SERVER = "http://localhost:5001"
-
-        def _render_ck_table(rows: list[dict], scan_label: str, color: str) -> None:
-            """Render Chartink result rows with chart-launch links + CSV export."""
-            if not rows:
-                st.info(f"No stocks matched **{scan_label}**.")
-                return
-
-            df_res = pd.DataFrame(rows)
-
-            # Normalise Chartink column names.
-            # Chartink returns "price" for LTP (not "close"), and sometimes
-            # both exist — prefer "price" if present.
-            col_map = {
-                "nsecode":         "Symbol",
-                "bsecode":         "BSE Code",
-                "per_chg":         "% Chg",
-                "close":           "Price",   # fallback if price absent
-                "price":           "Price",   # Chartink primary field
-                "volume":          "Volume",
-                "series":          "Series",
-                "market_cap_full": "Mkt Cap (Cr)",
-            }
-            df_res = df_res.rename(columns={k: v for k, v in col_map.items() if k in df_res.columns})
-            # Drop duplicate Price column that can appear when both close+price exist
-            df_res = df_res.loc[:, ~df_res.columns.duplicated()]
-
-            # Coerce numerics
-            for num_col in ["Price", "% Chg", "Volume", "Mkt Cap (Cr)"]:
-                if num_col in df_res.columns:
-                    df_res[num_col] = pd.to_numeric(df_res[num_col], errors="coerce")
-
-            # Build chart URL: NSE code + ".NS" suffix → opens chart dashboard
-            if "Symbol" in df_res.columns:
-                df_res["Chart"] = df_res["Symbol"].apply(
-                    lambda s: f"{_CHART_SERVER}/?symbol={s}.NS&tf=1d"
-                )
-                df_res["Analyze"] = df_res["Symbol"].map(_analyze_url)
-
-            df_res = df_res.sort_values("% Chg", ascending=False).reset_index(drop=True)
-
-            # Column order — Chart + Analyze links first so they're always visible
-            keep = [c for c in ["Chart", "Analyze", "Symbol", "Price", "% Chg",
-                                 "Volume", "Mkt Cap (Cr)", "BSE Code", "Series"]
-                    if c in df_res.columns]
-
-            st.markdown(
-                f"<span style='color:{color};font-weight:700;font-size:15px;'>"
-                f"▶ {scan_label} — {len(rows)} stocks</span>",
-                unsafe_allow_html=True,
-            )
-            st.caption("Click **Chart** to open the live chart dashboard in a new tab.")
-
-            col_cfg = {}
-            if "Chart" in df_res.columns:
-                col_cfg["Chart"] = st.column_config.LinkColumn(
-                    "Chart",
-                    display_text="Open Chart",   # plain text — emoji causes pencil icon bug
-                    help="Opens Trading Bramha live chart for this stock (chart server must be running on :5001)",
-                    width="small",
-                )
-            if "Analyze" in df_res.columns:
-                col_cfg["Analyze"] = _analyze_colcfg()
-            if "% Chg" in df_res.columns:
-                col_cfg["% Chg"] = st.column_config.NumberColumn(
-                    "% Chg", format="%.2f%%"
-                )
-            if "Price" in df_res.columns:
-                col_cfg["Price"] = st.column_config.NumberColumn(
-                    "Price", format="%.2f"
-                )
-            if "Volume" in df_res.columns:
-                col_cfg["Volume"] = st.column_config.NumberColumn(
-                    "Volume", format="%d"
-                )
-
-            st.dataframe(
-                df_res[keep],
-                width="stretch",
-                hide_index=True,
-                column_config=col_cfg,
-            )
-
-            csv = df_res[[c for c in keep if c not in ("Chart", "Analyze")]].to_csv(index=False).encode()
-            st.download_button(
-                f"⬇ Download {scan_label} CSV",
-                data=csv,
-                file_name=f"chartink_{scan_label.replace(' ', '_')}.csv",
-                mime="text/csv",
-                key=f"ck_dl_{scan_label}",
-            )
-
-        # Combined "Run All" view
-        if "ck_all_results" in st.session_state and "ck_results" not in st.session_state:
-            all_res: dict = st.session_state["ck_all_results"]
-            total = sum(len(v) for v in all_res.values())
-            st.markdown(f"### All Timeframes — **{total}** hits")
-            for bk_n, rows in all_res.items():
-                _render_ck_table(rows, bk_n, _CK_SCANNERS[bk_n]["color"])
-                st.divider()
-
-        # Single scan view
-        elif "ck_results" in st.session_state:
-            rows    = st.session_state["ck_results"]
-            ran     = st.session_state.get("ck_scanner_ran", selected_ck)
-            color_r = _CK_SCANNERS.get(ran, {}).get("color", rs.TOKENS["info"])
-            _render_ck_table(rows, ran, color_r)
-
+        _res = st.session_state.get("bks_results")
+        if not _res:
+            st.info("Pick a universe size and durations, then **Run breakout "
+                    "scan**. No cookie or login needed.")
         else:
-            st.info(
-                "1. Paste your `_chartink_session` cookie on the left.\n"
-                "2. Pick a breakout timeframe.\n"
-                "3. Click **Run Selected Scan** — results scan the **entire NSE cash market** via Chartink."
-            )
+            st.caption(
+                f"{len(_res['rows'])} breakout(s) among {_res['n']} of the top "
+                f"{_res['top']} names yfinance served · durations: "
+                f"{', '.join(_res['tiers'])} · {_res['short_10y']} names have under "
+                f"10 years of history and {_res['short_5y']} under 5, so those "
+                f"tiers cannot fire for them.")
+            if not _res["rows"]:
+                st.info("No stock cleared the selected durations today.")
+            else:
+                _bdf = pd.DataFrame(_res["rows"])
+                _bdf.insert(0, "Chart", _bdf["symbol"].map(
+                    lambda s: f"http://localhost:5001/?symbol={s}.NS&tf=1d"))
+                _bdf.insert(1, "Analyze", _bdf["symbol"].map(_analyze_url))
+                _bdf = _bdf.rename(columns={
+                    "symbol": "Symbol", "longest": "Longest", "tiers": "Cleared",
+                    "price": "Price", "chg_pct": "% Chg", "broke_level": "Broke",
+                    "breakout_pct": "Above %", "range_pct": "Range %",
+                    "vol_ratio": "Vol ×", "years_history": "Years"})
+                st.markdown(" · ".join(
+                    f"<span style='color:{_BKS_COLOR[lab]};font-weight:700;'>"
+                    f"{lab} {int((_bdf['Longest'] == lab).sum())}</span>"
+                    for lab in _res["tiers"]), unsafe_allow_html=True)
+                _keep = ["Chart", "Analyze", "Symbol", "Longest", "Cleared", "Price",
+                         "% Chg", "Broke", "Above %", "Range %", "Vol ×", "Years"]
+                st.dataframe(
+                    _bdf[_keep], width="stretch", hide_index=True,
+                    column_config={
+                        "Chart": st.column_config.LinkColumn(
+                            "Chart", display_text="Open Chart", width="small"),
+                        "Analyze": _analyze_colcfg(),
+                        "% Chg": st.column_config.NumberColumn(format="%.2f%%"),
+                        "Above %": st.column_config.NumberColumn(format="%.1f%%"),
+                        "Range %": st.column_config.NumberColumn(format="%.0f%%"),
+                    })
+                st.download_button(
+                    "⬇ Download CSV",
+                    _bdf[[c for c in _keep if c not in ("Chart", "Analyze")]]
+                    .to_csv(index=False).encode(),
+                    file_name=f"breakouts_{date.today().isoformat()}.csv",
+                    mime="text/csv", key="bks_dl")
+                _pa_send_button("bks", "Breakout Scans (yfinance)", _bdf, "Symbol",
+                                note_fn=lambda r: r["Longest"])
 
     st.divider()
 
     # ── Pre-Breakout Screener (conviction score + pledge/cash-flow gate) ────────
     st.subheader("Pre-Breakout Screener — Conviction ≥ 60%, Pledge & Cash-Flow Safe")
     st.caption(
-        "Chartink finds stocks coiled just under a 20-day high — 1-2 sessions from a "
-        "possible breakout — then each candidate is scored 0-100 (proximity to the "
-        "trigger, volatility contraction, RSI, trend/volume) using its own OHLCV. "
-        "Only score ≥ 60 survives. Chartink has no pledge% or cash-flow fields, so "
-        "that red-flag check runs separately against screener.in (optional below)."
+        "Finds stocks coiled just under a 20-day high — 1-2 sessions from a possible "
+        "breakout — using the same five gates as Chartink's pre-breakout clause, "
+        "evaluated locally on yfinance bars (no login). Each candidate is then "
+        "scored 0-100 (proximity to the trigger, volatility contraction, RSI, "
+        "trend/volume); only scores at or above the slider survive. The pledge / "
+        "cash-flow red-flag check runs against screener.in using your browser's "
+        "existing login, if there is one."
     )
 
     pb_left, pb_main = st.columns([1, 3])
-
     with pb_left:
-        st.markdown("**screener.in Session (optional)**")
         pb_screener_cookie, pb_browser = bch.get_screener_sessionid()
         if pb_screener_cookie:
-            st.session_state["pb_screener_cookie"] = pb_screener_cookie
-            st.caption(
-                f"✅ Using screener.in session from local browser ({pb_browser}) — "
-                "auto-drops stocks with promoter pledge ≥ 5% or negative operating cash flow."
-            )
+            st.caption(f"✅ screener.in session found in {pb_browser} — stocks with "
+                       "promoter pledge above the limit or negative operating cash "
+                       "flow are dropped automatically.")
         else:
             pb_screener_cookie = ""
-            st.caption(
-                "⚠️ No screener.in `sessionid` cookie in your local browsers. Log into "
-                "screener.in in your default browser to auto-drop pledged / negative-cash-flow "
-                "stocks; otherwise results show a manual check-link instead."
-            )
-
-        st.divider()
-        pb_min_conviction = st.slider(
-            "Minimum conviction %", min_value=0, max_value=100, value=60, step=5,
-            key="pb_min_conviction",
-            help="Lower this to see more (weaker) candidates while testing.",
-        )
-        pb_max_pledge = st.slider(
-            "Max pledge %", min_value=0.0, max_value=25.0, value=5.0, step=0.5,
-            key="pb_max_pledge",
-            help="Only used if a screener.in cookie is pasted above.",
-        )
-
-        st.divider()
-        if st.button("▶ Run Pre-Breakout Scan", type="primary", key="pb_run"):
-            cookie = st.session_state.get("ck_cookie", "").strip()
-            if not cookie:
-                st.error("Paste your `_chartink_session` cookie above first.")
-            else:
-                with st.spinner("Querying Chartink for pre-breakout candidates…"):
-                    try:
-                        candidates = ck.run_named_scan("Pre-Breakout Setup (1-2 Day)", cookie)
-                    except Exception as exc:
-                        candidates = None
-                        st.error(f"Chartink fetch failed: {exc}")
-
-                if candidates is not None:
-                    safe_symbols = None
-                    if pb_screener_cookie.strip():
-                        with st.spinner("Checking pledge % / cash flow on screener.in…"):
-                            try:
-                                safe_symbols = cached_fetch_safe_symbols(
-                                    pb_screener_cookie.strip(), max_pledge_pct=pb_max_pledge,
-                                )
-                            except Exception as exc:
-                                st.warning(f"screener.in fundamental check failed: {exc}")
-
-                    funnel = {"chartink": len(candidates), "conviction": 0, "fundamentals": 0}
-                    scored = []
-                    with st.spinner(f"Scoring conviction on {len(candidates)} candidates…"):
-                        for row in candidates:
-                            sym = row.get("nsecode", "").strip().upper()
-                            if not sym:
-                                continue
-                            try:
-                                df_pb = cached_fetch_ohlcv(f"{sym}.NS", days=90)
-                            except Exception:
-                                continue
-                            if df_pb is None or df_pb.empty:
-                                continue
-                            hit = sc.compute_pre_breakout_conviction(df_pb)
-                            if hit is None or hit["conviction"] < pb_min_conviction:
-                                continue
-                            funnel["conviction"] += 1
-                            if safe_symbols is not None:
-                                hit["fundamentals_safe"] = sym in safe_symbols
-                                if not hit["fundamentals_safe"]:
-                                    continue
-                                funnel["fundamentals"] += 1
-                            else:
-                                hit["fundamentals_safe"] = None
-                            hit["symbol"] = sym
-                            hit["price"] = row.get("price") or row.get("close")
-                            hit["pct_chg"] = row.get("per_chg")
-                            scored.append(hit)
-
-                    st.session_state["pb_results"] = sorted(
-                        scored, key=lambda h: h["conviction"], reverse=True
-                    )
-                    st.session_state["pb_funnel"] = funnel
+            st.caption("⚠️ Not logged into screener.in in a local browser — results "
+                       "show a manual check-link instead of auto-dropping pledged / "
+                       "negative-cash-flow stocks.")
+        pb_min_conviction = st.slider("Minimum conviction %", 0, 100, 60, 5,
+                                      key="pb_min_conviction",
+                                      help="Lower this to see more (weaker) candidates.")
+        pb_max_pledge = st.slider("Max pledge %", 0.0, 25.0, 5.0, 0.5,
+                                  key="pb_max_pledge",
+                                  help="Only applied when a screener.in session exists.")
+        st.caption(f"Universe: top {st.session_state.get('bks_top', 500)} NSE names "
+                   "(the slider above); reuses the downloaded history.")
+        if st.button("▶ Run Pre-Breakout Scan", type="primary", key="pb_run",
+                     width="stretch"):
+            _top = int(st.session_state.get("bks_top", 500))
+            with st.spinner(f"Scanning the top {_top} NSE names for pre-breakouts…"):
+                try:
+                    _fr = _bks_frames(_top, date.today().isoformat())
+                    gated = bks.pre_breakouts(_fr, 0)
+                except Exception as exc:
+                    gated = None
+                    st.error(f"Pre-breakout scan failed: {exc}")
+            if gated is not None:
+                safe_symbols = None
+                if pb_screener_cookie:
+                    with st.spinner("Checking pledge % / cash flow on screener.in…"):
+                        try:
+                            safe_symbols = cached_fetch_safe_symbols(
+                                pb_screener_cookie, max_pledge_pct=pb_max_pledge)
+                        except Exception as exc:
+                            st.warning(f"screener.in fundamental check failed: {exc}")
+                funnel = {"gate": len(gated), "conviction": 0, "fundamentals": 0}
+                scored = []
+                for hit in gated:
+                    if hit["conviction"] < pb_min_conviction:
+                        continue
+                    funnel["conviction"] += 1
+                    if safe_symbols is not None:
+                        hit["fundamentals_safe"] = hit["symbol"] in safe_symbols
+                        if not hit["fundamentals_safe"]:
+                            continue
+                        funnel["fundamentals"] += 1
+                    else:
+                        hit["fundamentals_safe"] = None
+                    scored.append(hit)
+                st.session_state["pb_results"] = scored
+                st.session_state["pb_funnel"] = funnel
 
         pb_funnel = st.session_state.get("pb_funnel")
         if pb_funnel:
-            funnel_line = (
-                f"Chartink: **{pb_funnel['chartink']}** → "
-                f"conviction ≥{pb_min_conviction}%: **{pb_funnel['conviction']}**"
-            )
-            if pb_funnel["fundamentals"] or pb_screener_cookie.strip():
-                funnel_line += f" → pledge/cash-flow safe: **{pb_funnel['fundamentals']}**"
-            st.caption(funnel_line)
-
-        st.divider()
-        st.caption(
-            "screener.in field names confirmed via its public "
-            "`/api/ratio/search/` endpoint: **Pledged percentage** and "
-            "**Cash from operations last year**."
-        )
+            line = (f"Pre-breakout gates: **{pb_funnel.get('gate', 0)}** → "
+                    f"conviction ≥{pb_min_conviction}%: **{pb_funnel['conviction']}**")
+            if pb_screener_cookie:
+                line += f" → pledge/cash-flow safe: **{pb_funnel['fundamentals']}**"
+            st.caption(line)
 
     with pb_main:
         pb_results = st.session_state.get("pb_results")
         if pb_results is None:
-            st.info(
-                "Uses the `_chartink_session` cookie from the left panel above. "
-                "Click **Run Pre-Breakout Scan** to look for stocks 1-2 sessions "
-                "from a breakout."
-            )
+            st.info("Click **Run Pre-Breakout Scan** to look for stocks 1-2 sessions "
+                    "from a breakout. No cookie needed.")
         elif not pb_results:
-            st.info(
-                "No candidates cleared both the Chartink pre-breakout filter and "
-                "the ≥60% conviction score right now."
-            )
+            st.info("No candidate cleared both the pre-breakout gates and the "
+                    "conviction floor right now.")
         else:
             df_pb_res = pd.DataFrame(pb_results)
             df_pb_res["Chart"] = df_pb_res["symbol"].apply(
-                lambda s: f"{_CHART_SERVER}/?symbol={s}.NS&tf=1d"
-            )
+                lambda s: f"http://localhost:5001/?symbol={s}.NS&tf=1d")
             df_pb_res["Analyze"] = df_pb_res["symbol"].map(_analyze_url)
             if df_pb_res["fundamentals_safe"].isna().all():
                 df_pb_res["Pledge/CF Check"] = df_pb_res["symbol"].apply(
-                    lambda s: f"https://www.screener.in/company/{s}/consolidated/#shareholding"
-                )
-                pledge_note = "manual — paste a screener.in cookie to automate"
+                    lambda s: f"https://www.screener.in/company/{s}/consolidated/#shareholding")
+                pledge_note = "manual — log into screener.in in your browser to automate"
             else:
-                # Only rows that already passed the pledge/cash-flow gate reach
-                # here (flagged candidates were dropped when the list was built).
                 df_pb_res["Pledge/CF Check"] = "✅ Verified Safe"
                 pledge_note = "auto-verified via screener.in"
-
             df_pb_res = df_pb_res.rename(columns={
                 "symbol": "Symbol", "price": "Price", "pct_chg": "% Chg",
                 "conviction": "Conviction %", "distance_pct": "Dist to Trigger %",
-                "rsi": "RSI",
-            })
-            for c in ["Price", "% Chg", "Conviction %", "Dist to Trigger %", "RSI"]:
-                df_pb_res[c] = pd.to_numeric(df_pb_res[c], errors="coerce")
-
+                "rsi": "RSI"})
             st.caption(f"{len(df_pb_res)} candidates · pledge/cash-flow check: {pledge_note}")
-
             col_cfg_pb = {
-                "Chart": st.column_config.LinkColumn(
-                    "Chart", display_text="Open Chart", width="small",
-                ),
+                "Chart": st.column_config.LinkColumn("Chart", display_text="Open Chart",
+                                                     width="small"),
                 "Analyze": _analyze_colcfg(),
                 "Conviction %": st.column_config.ProgressColumn(
-                    "Conviction %", min_value=0, max_value=100, format="%.0f%%",
-                ),
-                # B-63a: "% Chg" and "Price" resolve to the shared chg_pct /
-                # close definitions — this table spelled them its own way.
+                    "Conviction %", min_value=0, max_value=100, format="%.0f%%"),
                 **_cols_mod().configure("% Chg", "Price"),
             }
             if pledge_note.startswith("manual"):
                 col_cfg_pb["Pledge/CF Check"] = st.column_config.LinkColumn(
-                    "Pledge/CF Check", display_text="Verify", width="small",
-                )
-
+                    "Pledge/CF Check", display_text="Verify", width="small")
             keep_pb = ["Chart", "Analyze", "Symbol", "Price", "% Chg", "Conviction %",
                        "Dist to Trigger %", "RSI", "Pledge/CF Check"]
-            st.dataframe(
-                df_pb_res[[c for c in keep_pb if c in df_pb_res.columns]],
-                width="stretch", hide_index=True, column_config=col_cfg_pb,
-            )
+            st.dataframe(df_pb_res[[c for c in keep_pb if c in df_pb_res.columns]],
+                         width="stretch", hide_index=True, column_config=col_cfg_pb)
 
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Breakout Scans · TradingView source (BrkoutGeek: Horz Break replica, public scan API)
 # ──────────────────────────────────────────────────────────────────────────────
-if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chartink") == "TradingView":
+if current_page == "Breakout Scans" and st.session_state.get("bscan_src") == "TradingView":
     st.markdown("**TradingView — BrkoutGeek: Horz Break (replica)**")
     st.caption(
         "Replicates saved screener uPUJdiD5 via TradingView's public scan endpoint — "
@@ -11101,8 +9891,6 @@ if current_page == "Breakout Scans" and st.session_state.get("bscan_src", "Chart
 # Dispatched by the desk_pages registry block above.
 
 
-
-
 # ──────────────────────────────────────────────────────────────────────────────
 # Page — Market Sentiment (Phase 1: 4-input composite gauge)
 # Backed by tools/sentiment_index.py. Composite 0-100 score → Strong Sell / Sell
@@ -11119,6 +9907,11 @@ if current_page == "Market Sentiment":
         "PMax direction on NIFTY 1H. Phase 2 adds PCR when the option-chain "
         "scraper lands."
     )
+    
+    # Beginner-friendly help
+    help_panels.render("market_sentiment")
+    # B-145 · index valuation with its window stated; never labelled cheap/expensive.
+    __import__("index_valuation_card").render()
     # B-66 measured all four inputs AND the composite against NIFTY's forward
     # returns and found no discrimination anywhere. The page is not being removed
     # — a null is not evidence of harm, and a description of today's tape is worth
@@ -11969,7 +10762,8 @@ if current_page == "India Market Intel":
             col_config["Chart"] = st.column_config.LinkColumn("Chart", display_text="📈 Open", width="small")
         if "Analyze" in df_deals.columns:
             col_config["Analyze"] = _analyze_colcfg()
-        uit.paginated_df(df_deals.style.apply(_row_color, axis=1), key="deals_main",
+        # Four tables (bulk/block × BSE/NSE) share this helper: key per table.
+        uit.paginated_df(df_deals.style.apply(_row_color, axis=1), key=f"deals_{filter_key}",
                       column_config=col_config)
 
     with intel_tabs[0]:
@@ -12230,7 +11024,6 @@ if current_page == "India Market Intel":
                 )
         else:
             st.info("Not built yet — press **Build deal board**.")
-
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -12697,11 +11490,11 @@ _L4_NEG = {"confirmed_distribution", "slow_distribution", "fast_distribution",
 
 def _l4_color(agreement: str) -> str:
     if agreement in _L4_POS:
-        return "#16a34a"
+        return "#166534"
     if agreement in _L4_NEG:
-        return "#dc2626"
+        return "#b91c1c"
     if agreement == "bought_now_selling":
-        return "#d97706"                     # amber — the warning divergence
+        return "#a14a0b"                     # amber — the warning divergence
     return "#6b7280"                         # neutral / no data
 
 
@@ -12710,7 +11503,7 @@ def _l4_signed_bar(label: str, v: float) -> str:
     v = max(-1.0, min(1.0, float(v)))
     half = abs(v) * 50.0
     left = 50.0 if v >= 0 else 50.0 - half
-    color = "#16a34a" if v >= 0 else "#dc2626"
+    color = "#166534" if v >= 0 else "#b91c1c"
     return (
         '<div style="display:flex;align-items:center;gap:8px;font-size:11px;margin:3px 0;">'
         f'<span style="width:112px;color:#7a6858;">{label}</span>'
@@ -12767,7 +11560,7 @@ def _render_smart_money_result(res: dict, include_fast: bool) -> None:
     veto = res["veto"]
     if veto["status"] == "pledged":
         st.markdown(
-            f"<span style='color:#dc2626;font-weight:600;'>⚠ Promoter pledge "
+            f"<span style='color:#b91c1c;font-weight:600;'>⚠ Promoter pledge "
             f"{veto['pledge_pct']:.1f}% — governance risk</span>",
             unsafe_allow_html=True,
         )

@@ -49,6 +49,13 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--prune-days", type=int, default=store.RETENTION_DAYS)
     args = ap.parse_args(argv)
 
+    # Task Scheduler hands this process a cp1252 console. A "≥" in a progress
+    # label raised UnicodeEncodeError at step 6/16 on every scheduled run
+    # (2026-10-12..21), so every later snapshot went stale.
+    for stream in (sys.stdout, sys.stderr):
+        if hasattr(stream, "reconfigure"):
+            stream.reconfigure(encoding="utf-8", errors="replace")
+
     logging.basicConfig(level=logging.INFO,
                         format="%(asctime)s %(levelname)s %(name)s: %(message)s")
 
