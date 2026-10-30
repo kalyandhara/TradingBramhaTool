@@ -52,3 +52,43 @@ def test_email_puts_held_first_and_never_invents_amount():
     assert body.index("HERANBA") < body.index("TRF")
     assert "x.pdf" in body
     assert "₹" not in body          # no amount in the text → none shown
+
+
+# ── B-198: bulk / block deals on my names ─────────────────────────────────────
+def _deal(sym, client="ABC FUND", side="BUY", qty=100000.0, deal_type="BULK"):
+    return {"date": "30-OCT-2026", "symbol": sym, "name": f"{sym} Ltd", "client": client,
+            "side": side, "qty": qty, "price": 50.0, "value": qty * 50.0,
+            "exchange": "NSE", "deal_type": deal_type}
+
+
+def test_only_my_unseen_deals_are_new():
+    names = {"HERANBA": "held"}
+    deals = [_deal("HERANBA"), _deal("RELIANCE")]
+    seen = set()
+    first = fw.new_deals(deals, names, seen)
+    assert [d["symbol"] for d in first] == ["HERANBA"]
+    assert first[0]["why"] == "held"
+    assert fw.new_deals(deals, names, seen) == []
+
+
+def test_two_tickets_same_client_same_day_are_two_deals():
+    assert fw.deal_key(_deal("X", qty=100.0)) != fw.deal_key(_deal("X", qty=200.0))
+    assert fw.deal_key(_deal("X", side="BUY")) != fw.deal_key(_deal("X", side="SELL"))
+
+
+def test_email_carries_deals_section():
+    subject, body = fw.render_email([], [{**_deal("HERANBA", side="SELL"), "why": "held"}])
+    assert "1 deal" in subject and "on held" in subject
+    assert "HERANBA (held) · BULK SELL" in body
+    assert "ABC FUND" in body and "₹50" in body
+
+
+def test_same_client_both_sides_is_marked_as_round_trip():
+    deals = [{**_deal("PASHUPATI", client="HRTI PRIVATE LIMITED", side="BUY", qty=880197.0),
+              "why": "pick"},
+             {**_deal("PASHUPATI", client="HRTI PRIVATE LIMITED", side="SELL", qty=842978.0),
+              "why": "pick"},
+             {**_deal("PASHUPATI", client="SOME FUND", side="BUY"), "why": "pick"}]
+    _, body = fw.render_email([], deals)
+    assert body.count("bought AND sold") == 2      # both HRTI tickets, not the fund
+    assert "net +37,219" in body

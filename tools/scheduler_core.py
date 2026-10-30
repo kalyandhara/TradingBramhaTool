@@ -198,10 +198,11 @@ JOBS: dict[str, JobSpec] = {
     "filings_watch": JobSpec(
         id="filings_watch",
         label="Filings Watch (NSE, my names)",
-        desc="Reads today's NSE corporate-filings stream, keeps the material "
-             "filings on held / watchlist / latest-pick names, and emails the ones "
-             "not sent before. Also feeds the digest's filings section. A failed "
-             "NSE read exits 2 and sends nothing. Seconds.",
+        desc="Reads today's NSE corporate-filings stream and the latest session's "
+             "bulk/block deals, keeps those on held / watchlist / latest-pick "
+             "names, and emails the ones not sent before (B-198 for deals). Also "
+             "feeds the digest's filings section. A failed filings read exits 2. "
+             "Seconds.",
         task_name="TradingBramha-FilingsWatch",
         kind="interval",
         command=f'"{PYTHON_EXE}" -X utf8 "{HERE / "filings_watch.py"}"',
@@ -209,6 +210,21 @@ JOBS: dict[str, JobSpec] = {
         # US Eastern time, and NSE filings land through the IST day and evening
         # (results are often filed after the close).
         default_time="00:00", default_end="23:59", default_interval=30,
+    ),
+    "dma_watch": JobSpec(
+        id="dma_watch",
+        label="200-DMA Watch (my names)",
+        desc="B-198. After the NSE close, checks every held / watchlist / "
+             "latest-pick name and emails the ones whose close crossed below "
+             "their 200-day average on the latest session (the cross, not every "
+             "day spent below). Also lands in the digest's Alerts Fired. ~1 min.",
+        task_name="TradingBramha-DmaWatch",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" -X utf8 "{HERE / "dma_watch.py"}"',
+        # 08:00 local (US Eastern) is 17:30 IST in summer and 18:30 in winter:
+        # after the 15:30 IST close, with the day's bar final, and the same
+        # calendar weekday as the NSE session it reads.
+        default_time="08:00",
     ),
     "daily_digest": JobSpec(
         id="daily_digest",
