@@ -4,6 +4,7 @@ Run:  python -m pytest tools/test_rec_audit.py -q
 """
 from __future__ import annotations
 
+import numpy as np
 import pandas as pd
 import pytest
 
@@ -201,3 +202,62 @@ def test_a_20pct_circuit_is_a_real_move_not_a_split():
     closes = [100.0] * 5 + [80.0, 64.0, 51.2] + [51.2] * 30
     o = ra.episode_outcome(_ep(), _bars(closes, opens=closes), _bars([1.0] * 38))
     assert o["status"] == "matured" and "data_suspect_date" not in o
+
+
+# ── A3: sources, equal-weight baseline, proposals ────────────────────────────
+
+def test_scanner_hits_are_episodes_per_scanner_and_symbol():
+    recs = pd.DataFrame({"run_date": pd.to_datetime(["2026-08-03"] * 3 + ["2026-08-05"]),
+                         "symbol": ["A", "A", "B", "A"],
+                         "scanner": ["X", "Y", "X", "X"]})
+    ep = ra.build_episodes(recs, SESS, source="scanner", by=("scanner", "symbol"))
+    assert len(ep) == 3                                   # X:A (2 runs), Y:A, X:B
+    assert set(ep["episode_id"]) == {"scanner:X:A:2026-08-03", "scanner:Y:A:2026-08-03",
+                                     "scanner:X:B:2026-08-03"}
+    assert ep.set_index("episode_id").loc["scanner:X:A:2026-08-03", "appearances"] == 2
+
+
+def test_equal_weight_excess_uses_the_same_dates():
+    bars = _bars([100.0] + [110.0] * 30, opens=[100.0, 100.0] + [110.0] * 29)
+    seen = []
+
+    def ew(a, b):
+        seen.append((a, b))
+        return 4.0
+
+    o = ra.episode_outcome(_ep(), bars, _bars([1.0] * 31), ew=ew)
+    assert o["excess_ew_5"] == pytest.approx(10.0 - 4.0)
+    assert seen[0] == (bars.index[1], bars.index[5])
+
+
+def test_horizons_are_per_source():
+    o = ra.episode_outcome(_ep(), _bars([100.0] * 140), _bars([1.0] * 140), horizons=(63, 126))
+    assert "ret_126" in o and "ret_21" not in o
+
+
+def _slice_frame(n_weeks=10, per=4, excess=2.0, noise=0.5, fam="Trend"):
+    rows, rng = [], np.random.default_rng(1)
+    for w in range(n_weeks):
+        d = pd.Timestamp("2026-07-06") + pd.Timedelta(weeks=w)
+        for _ in range(per):
+            rows.append({"family_names": fam, "rec_date": d, "entry_date": d,
+                         "excess_21": excess + rng.normal(0, noise)})
+    return pd.DataFrame(rows)
+
+
+def test_propose_needs_size_weekly_t_and_more_than_one_month():
+    df = _slice_frame()                                    # 40 picks, 10 weeks, ~3 months
+    got = ra.propose(df, ("family_names",))
+    assert len(got) == 1 and got[0]["direction"] == "up" and got[0]["months"] >= 2
+    assert ra.propose(_slice_frame(n_weeks=10, per=2), ("family_names",)) == []   # n=20
+    assert ra.propose(_slice_frame(excess=0.0), ("family_names",)) == []          # no effect
+    one_month = _slice_frame(n_weeks=3, per=12)
+    assert ra.propose(one_month, ("family_names",)) == []                          # 1 batch
+
+
+def test_summary_carries_the_equal_weight_line():
+    df = pd.DataFrame({"ret_21": [5.0, -5.0], "excess_21": [2.0, -1.0],
+                       "excess_ew_21": [1.0, -3.0], "status": ["matured"] * 2,
+                       "entry_date": ["2026-08-03", "2026-08-10"]})
+    s = ra.summarise(df)
+    assert s["median_excess_ew"] == -1.0 and s["beat_ew_rate"] == 50.0

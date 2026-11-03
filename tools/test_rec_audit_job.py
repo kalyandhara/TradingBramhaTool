@@ -5,6 +5,7 @@ import sqlite3
 from datetime import date
 
 import pandas as pd
+import pytest
 
 import rec_audit_job as job
 
@@ -112,3 +113,83 @@ def test_monthly_report_is_one_file_per_month(tmp_path):
     p2 = job.write_monthly_report(rep, date(2026, 9, 30), out_dir=tmp_path / "r")
     assert p1 == p2 and p1.name == "2026-09.md"
     assert "as of 2026-09-30" in p1.read_text(encoding="utf-8")
+
+
+# ── A3: sources, equal-weight baseline, decisions, track record ──────────────
+
+def _multi(tmp_path):
+    opp = pd.DataFrame({"run_date": pd.to_datetime(["2026-08-03"]), "symbol": ["UP"],
+                        "rank": [1], "sector": [""], "family_names": ["Trend"],
+                        "risk_flags": [""], "stop": [None], "target": [None]})
+    ht = pd.DataFrame({"run_date": pd.to_datetime(["2026-08-03"]), "symbol": ["UP"],
+                       "rank": [3], "score": [70]})
+    scn = pd.DataFrame({"run_date": pd.to_datetime(["2026-08-03", "2026-08-03"]),
+                        "symbol": ["UP", "UP"], "scanner": ["X", "Y"],
+                        "entry": [None, None], "stop": [None, None], "target": [None, None]})
+
+    def fake(tickers, start, end):
+        return {job.MARKET: _frame(n=200), job.SMALLCAP: _frame(n=200),
+                "UP.NS": _frame(n=200, step=1.0), "U1.NS": _frame(n=200, step=0.5),
+                "U2.NS": _frame(n=200, step=-0.5)}
+
+    return job.run_all(as_of=date(2026, 12, 31), download=fake,
+                       sector_fetch=lambda d: (None, None), db_path=tmp_path / "a.db",
+                       universe=["U1", "U2"],
+                       recs_by_source={"opportunity": opp, "hidden_treasures": ht,
+                                       "scanner": scn})
+
+
+def test_run_all_audits_each_source_into_its_own_table(tmp_path):
+    reps = _multi(tmp_path)
+    assert set(reps) == {"opportunity", "hidden_treasures", "scanner"}
+    assert reps["hidden_treasures"]["summary"]["h"] == 63
+    assert len(reps["scanner"]["episodes_df"]) == 2                     # X:UP and Y:UP
+    for s in reps:
+        assert not job.load_latest(tmp_path / "a.db", source=s)["episodes"].empty
+    run = job.load_latest(tmp_path / "a.db", source="scanner")["run"]
+    assert run["summary"]["source"] == "scanner"
+
+
+def test_equal_weight_excess_is_filled_from_the_universe(tmp_path):
+    ep = _multi(tmp_path)["opportunity"]["episodes_df"].iloc[0]
+    uni = {"U1.NS": _frame(n=200, step=0.5), "U2.NS": _frame(n=200, step=-0.5)}
+    entry = pd.Timestamp(ep["entry_date"])
+    exit_ = uni["U1.NS"].index[uni["U1.NS"].index.get_loc(entry) + 20]
+    ew = job.ew_baseline(uni, list(uni))(entry, exit_)
+    assert ep["excess_ew_21"] == pytest.approx(ep["ret_21"] - ew)
+
+
+def test_proposals_are_logged_once_and_decisions_stick(tmp_path):
+    import sqlite3
+    db = tmp_path / "d.db"
+    conn = job.connect(db)
+    prop = {"slice": "family_names", "value": "Trend", "direction": "up", "n": 40,
+            "median_excess": 2.0, "t_weekly": 3.1, "months": 3, "proposal": "review up"}
+    assert job.record_proposals(conn, "opportunity", [prop], date(2026, 11, 1)) == 1
+    assert job.record_proposals(conn, "opportunity", [prop], date(2026, 11, 2)) == 0
+    conn.commit()
+    conn.close()
+    d = job.load_decisions(db)
+    assert len(d) == 1 and d.iloc[0]["decision"] == "pending"
+    job.decide(int(d.iloc[0]["id"]), "rejected", "  one regime only ", db_path=db)
+    conn = job.connect(db)
+    assert job.record_proposals(conn, "opportunity", [prop], date(2026, 12, 1)) == 0
+    conn.close()
+    row = job.load_decisions(db).iloc[0]
+    assert row["decision"] == "rejected" and row["note"] == "one regime only"
+    with pytest.raises(ValueError):
+        job.decide(1, "maybe", db_path=db)
+
+
+def test_track_record_reads_the_opportunity_audit(tmp_path):
+    _multi(tmp_path)
+    tr = job.track_record(tmp_path / "a.db")
+    assert tr["Trend"]["n"] == 1 and tr["Trend"]["median_excess"] is not None
+    assert job.track_record(tmp_path / "none.db") == {}
+
+
+def test_monthly_report_covers_every_source(tmp_path):
+    reps = _multi(tmp_path)
+    p = job.write_monthly_report(reps, date(2026, 12, 31), out_dir=tmp_path / "r")
+    text = p.read_text(encoding="utf-8")
+    assert "Hidden Treasures" in text and "Raw scanner hits" in text

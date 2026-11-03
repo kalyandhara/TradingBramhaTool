@@ -69,11 +69,14 @@ def rec_session(run_date, sessions: pd.DatetimeIndex) -> pd.Timestamp | None:
 
 
 def build_episodes(recs: pd.DataFrame, sessions: pd.DatetimeIndex,
-                   source: str = "opportunity") -> pd.DataFrame:
+                   source: str = "opportunity",
+                   by: tuple[str, ...] = ("symbol",)) -> pd.DataFrame:
     """Rows of (run_date, symbol, …) → one row per episode.
 
     Adds: episode_id, source, rec_date (session), last_rec_date, appearances.
-    Attributes come from the episode's first appearance.
+    Attributes come from the episode's first appearance. `by` is the episode key:
+    ("symbol",) for a shortlist; ("scanner", "symbol") for raw scanner hits (A3),
+    where two scanners firing on one name are two ideas, not one.
     """
     if recs.empty:
         return recs.assign(episode_id=[], source=[], rec_date=[],
@@ -82,18 +85,20 @@ def build_episodes(recs: pd.DataFrame, sessions: pd.DatetimeIndex,
     df["rec_date"] = [rec_session(d, sessions) for d in df["run_date"]]
     df = df.dropna(subset=["rec_date"])
     # One row per (symbol, session): a weekend re-save is the Friday pick again.
-    df = (df.sort_values(["symbol", "rec_date", "run_date"])
-            .drop_duplicates(["symbol", "rec_date"], keep="first"))
-    gap = df.groupby("symbol")["rec_date"].diff().dt.days
+    key = list(by)
+    df = (df.sort_values(key + ["rec_date", "run_date"])
+            .drop_duplicates(key + ["rec_date"], keep="first"))
+    gap = df.groupby(key)["rec_date"].diff().dt.days
     df["_new"] = gap.isna() | (gap > MERGE_GAP_DAYS)
-    df["_ep"] = df.groupby("symbol")["_new"].cumsum()
-    g = df.groupby(["symbol", "_ep"], sort=False)
-    first = g.head(1).set_index(["symbol", "_ep"])
+    df["_ep"] = df.groupby(key)["_new"].cumsum()
+    g = df.groupby(key + ["_ep"], sort=False)
+    first = g.head(1).set_index(key + ["_ep"])
     first["last_rec_date"] = g["rec_date"].max()
     first["appearances"] = g.size()
     out = first.reset_index().drop(columns=["_ep", "_new"])
     out["source"] = source
-    out["episode_id"] = (out["source"] + ":" + out["symbol"] + ":"
+    ident = out[key].astype(str).agg(":".join, axis=1)
+    out["episode_id"] = (out["source"] + ":" + ident + ":"
                          + pd.to_datetime(out["rec_date"]).dt.strftime("%Y-%m-%d"))
     return out.sort_values(["rec_date", "symbol"]).reset_index(drop=True)
 
@@ -139,8 +144,15 @@ def plan_outcome(after: pd.DataFrame, stop, target) -> tuple[str | None, int | N
 def episode_outcome(ep: pd.Series | dict, bars: pd.DataFrame | None,
                     market: pd.DataFrame | None, *, smallcap: pd.DataFrame | None = None,
                     sector: pd.DataFrame | None = None,
-                    as_of: date | None = None) -> dict:
-    """Everything the audit records about one episode. Never raises on thin data."""
+                    as_of: date | None = None,
+                    horizons: tuple[int, ...] = HORIZONS,
+                    ew=None) -> dict:
+    """Everything the audit records about one episode. Never raises on thin data.
+
+    `horizons` differ by source (Hidden Treasures is quarterly). `ew(entry_day,
+    exit_day)` is the equal-weight universe return over the same dates (A3): the
+    "random pick from the same pool" baseline, beside the cap-weighted indices.
+    """
     rec = pd.Timestamp(ep["rec_date"])
     out: dict = {"episode_id": ep["episode_id"]}
     if bars is not None and as_of is not None:
@@ -177,7 +189,7 @@ def episode_outcome(ep: pd.Series | dict, bars: pd.DataFrame | None,
     out.update(entry_date=entry_day.date().isoformat(), entry_px=entry_px,
                sessions=len(after), status=status)
 
-    for h in HORIZONS:
+    for h in horizons:
         if len(after) < h:
             continue
         exit_day = after.index[h - 1]
@@ -190,14 +202,17 @@ def episode_outcome(ep: pd.Series | dict, bars: pd.DataFrame | None,
         out[f"excess_sc_{h}"] = None if s is None else out[f"ret_{h}"] - s
         out[f"excess_sec_{h}"] = None if x is None else out[f"ret_{h}"] - x
         out[f"sec_{h}"] = x
+        w = ew(entry_day, exit_day) if ew is not None else None
+        out[f"excess_ew_{h}"] = None if w is None else out[f"ret_{h}"] - w
 
     out["ret_to_date"] = _pct(after["close"].iloc[-1], entry_px)
-    win = after.head(max(HORIZONS))
+    span = max(horizons)
+    win = after.head(span)
     out["mfe"] = _pct(win["high"].max(), entry_px)
     out["mae"] = _pct(win["low"].min(), entry_px)
     out["days_to_mfe"] = int(np.argmax(win["high"].to_numpy())) + 1
 
-    po, n_po = plan_outcome(after.head(max(HORIZONS)), ep.get("stop"), ep.get("target"))
+    po, n_po = plan_outcome(after.head(span), ep.get("stop"), ep.get("target"))
     out["plan_outcome"], out["plan_sessions"] = po, n_po
 
     before = bars[bars.index <= rec]
@@ -208,7 +223,7 @@ def episode_outcome(ep: pd.Series | dict, bars: pd.DataFrame | None,
         if "volume" in before:
             out["turnover10_at_rec"] = float(
                 (before["close"] * before["volume"]).tail(10).mean())
-    out["worst_day"] = (float(after["close"].head(max(HORIZONS)).pct_change().min() * 100)
+    out["worst_day"] = (float(after["close"].head(span).pct_change().min() * 100)
                         if len(after) > 1 else None)
     out["broke_low20_by"] = (
         bool((after["close"].head(SETUP_FAIL_SESSIONS) < out["low20_at_rec"]).any())
@@ -293,6 +308,7 @@ def _col(df: pd.DataFrame, name: str) -> pd.Series:
 def summarise(df: pd.DataFrame, h: int = HEADLINE_H) -> dict:
     """Headline numbers over episodes matured at horizon h."""
     r, e, esc = _col(df, f"ret_{h}"), _col(df, f"excess_{h}"), _col(df, f"excess_sc_{h}")
+    eew = _col(df, f"excess_ew_{h}")
     m = r.notna()
     po = df.get("plan_outcome")
     plans = po[po.notna() & m] if po is not None else pd.Series(dtype=object)
@@ -309,6 +325,8 @@ def summarise(df: pd.DataFrame, h: int = HEADLINE_H) -> dict:
         "t_excess": t_stat(e),
         "median_excess_smallcap": _f(esc.median()), "t_excess_smallcap": t_stat(esc),
         **_weekly(df, e, esc),
+        "median_excess_ew": _f(eew.median()), "beat_ew_rate": _rate(eew[eew.notna()] > 0),
+        "t_excess_ew_weekly": weekly_t(df, eew),
         "median_mfe": _f(_col(df, "mfe")[m].median()),
         "median_mae": _f(_col(df, "mae")[m].median()),
         "plans": int(len(plans)),
@@ -328,6 +346,14 @@ def _weekly(df: pd.DataFrame, e: pd.Series, esc: pd.Series) -> dict:
     w2 = esc.groupby(wk).mean().dropna()
     return {"weeks": int(len(w1)), "t_excess_weekly": t_stat(w1),
             "t_excess_smallcap_weekly": t_stat(w2)}
+
+
+def weekly_t(df: pd.DataFrame, x: pd.Series) -> float | None:
+    """t over weekly mean values of `x`, picks grouped by entry week."""
+    if "entry_date" not in df:
+        return None
+    wk = pd.to_datetime(df["entry_date"], errors="coerce").dt.to_period("W")
+    return t_stat(x.groupby(wk).mean().dropna())
 
 
 def _rate(mask: pd.Series) -> float | None:
@@ -361,7 +387,7 @@ def attribution(df: pd.DataFrame, by: str, h: int = HEADLINE_H,
     return pd.DataFrame(rows).sort_values("n", ascending=False).reset_index(drop=True)
 
 
-def cohorts(df: pd.DataFrame) -> pd.DataFrame:
+def cohorts(df: pd.DataFrame, horizons: tuple[int, ...] = HORIZONS) -> pd.DataFrame:
     """Recommendation month × horizon: n, median excess, beat-market rate."""
     if df.empty:
         return pd.DataFrame()
@@ -369,7 +395,7 @@ def cohorts(df: pd.DataFrame) -> pd.DataFrame:
     rows = []
     for mth, g in d.groupby("month"):
         row = {"month": mth, "episodes": len(g)}
-        for h in HORIZONS:
+        for h in horizons:
             e = _col(g, f"excess_{h}").dropna()
             row[f"n_{h}"] = len(e)
             row[f"med_excess_{h}"] = _f(e.median()) if len(e) else None
@@ -423,3 +449,53 @@ def max_drawdown(equity: pd.Series) -> float | None:
     if equity is None or equity.empty:
         return None
     return _f(((equity / equity.cummax()) - 1).min() * 100)
+
+
+# ──────────────────────────────────────────────────────────────────────────────
+# Proposed changes (A3) — written for the owner to accept or reject, never applied
+# ──────────────────────────────────────────────────────────────────────────────
+PROPOSAL_T = 2.0          # |t| over ENTRY-WEEK means, not over picks
+PROPOSAL_MIN_MONTHS = 2   # a slice must hold up across more than one monthly batch
+
+
+def slice_rows(df: pd.DataFrame, by: str, h: int = HEADLINE_H,
+               min_n: int = MIN_N) -> list[dict]:
+    """Per value of `by`: n, median excess, the entry-week t and how many
+    recommendation months the value appears in. Comma lists are exploded."""
+    col = f"excess_{h}"
+    if df.empty or by not in df or col not in df:
+        return []
+    d = df[df[col].notna()].copy()
+    if not pd.api.types.is_numeric_dtype(d[by]):
+        d[by] = d[by].fillna("").astype(str).str.split(r",\s*")
+        d = d.explode(by)
+    d[by] = d[by].fillna("(none)").replace("", "(none)")
+    out = []
+    for key, g in d.groupby(by):
+        e = pd.to_numeric(g[col], errors="coerce")
+        months = pd.to_datetime(g["rec_date"]).dt.to_period("M").nunique()
+        out.append({"slice": by, "value": str(key), "n": int(len(g)),
+                    "median_excess": _f(e.median()), "t_weekly": weekly_t(g, e),
+                    "months": int(months), "sufficient": len(g) >= min_n})
+    return out
+
+
+def propose(df: pd.DataFrame, by: tuple[str, ...], h: int = HEADLINE_H,
+            min_n: int = MIN_N) -> list[dict]:
+    """Slices that clear n >= min_n, |entry-week t| >= PROPOSAL_T and appear in
+    >= PROPOSAL_MIN_MONTHS monthly batches, each with a one-line proposal. The
+    owner decides; nothing here changes a weight."""
+    out = []
+    for col in by:
+        for r in slice_rows(df, col, h, min_n):
+            t = r["t_weekly"]
+            if (not r["sufficient"] or t is None or abs(t) < PROPOSAL_T
+                    or r["months"] < PROPOSAL_MIN_MONTHS or r["value"] == "(none)"):
+                continue
+            way = "up" if t > 0 else "down"
+            r["proposal"] = (f"{col} = {r['value']}: n={r['n']}, median {h}-session excess "
+                             f"{r['median_excess']:+.2f}%, entry-week t={t:.2f} over "
+                             f"{r['months']} months -> review weight {way}")
+            r["direction"] = way
+            out.append(r)
+    return out

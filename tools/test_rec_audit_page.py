@@ -55,3 +55,18 @@ def test_audit_job_is_in_the_scheduler_registry():
     import scheduler_core as sch
     job = sch.JOBS["rec_audit"]
     assert job.default_time == "17:30" and "rec_audit_job.py" in job.command
+
+
+def test_track_record_text():
+    tr = {"Trend": {"n": 234, "median_excess": 1.94, "t_weekly": 1.2},
+          "Event": {"n": 127, "median_excess": -0.5, "t_weekly": 2.4}}
+    assert page.track_record_text(["Trend"], tr) == \
+        "Audit 21d vs NIFTY 500: Trend +1.9% (n 234) — not significant"
+    assert page.track_record_text(["Trend", "Event"], tr).endswith("Event -0.5% (n 127)")
+    assert page.track_record_text(["Unknown"], tr) == ""
+    assert page.track_record_text([], tr) == ""
+
+
+def test_every_source_has_slices():
+    import rec_audit_job as job
+    assert set(page.SLICES_BY_SOURCE) == set(job.SOURCES)

@@ -1,4 +1,8 @@
-"""Recommendation Audit page (A2) — how every past Opportunity Hub pick did.
+"""Recommendation Audit page (A2, A3) — how every past recommendation did.
+
+A3 adds a source picker (Opportunity shortlist / Hidden Treasures / raw scanner
+hits, audited separately and never mixed), an equal-weight NIFTY 500 baseline,
+and the "Proposed changes" log the owner accepts or rejects.
 
 Reads only the stored audit (`rec_audit_job.load_latest`); nothing fetches on
 open. "↻ Re-run audit" is the one fetch, and the scheduled `rec_audit` job does
@@ -26,6 +30,13 @@ SLICES: dict[str, str] = {
     "Risk flags at pick": "flagged", "Plan source": "plan_source",
     "Model version": "model_version", "Market regime": "market_regime",
     "Days on list": "list_band",
+}
+#: A3: what each source can be sliced by.
+SLICES_BY_SOURCE: dict[str, dict[str, str]] = {
+    "opportunity": SLICES,
+    "hidden_treasures": {"Rank band": "rank_band", "Pledge flag": "pledge_flag",
+                         "Universe": "universe_kind", "Model version": "model_version"},
+    "scanner": {"Scanner": "scanner", "Category": "category"},
 }
 REVIEW_TAGS: tuple[str, ...] = (*ra.TAG_ORDER, ra.UNEXPLAINED)
 CARDS_PER_PAGE = 12
@@ -59,8 +70,8 @@ def review_queue(eps: pd.DataFrame, tag: str | None = None,
     return q.sort_values(f"excess_{h}", na_position="last")
 
 
-def tag_counts(eps: pd.DataFrame) -> dict[str, int]:
-    q = review_queue(eps)
+def tag_counts(eps: pd.DataFrame, h: int = ra.HEADLINE_H) -> dict[str, int]:
+    q = review_queue(eps, h=h)
     return q["review_tag"].fillna(ra.UNEXPLAINED).value_counts().to_dict() if not q.empty else {}
 
 
@@ -78,7 +89,12 @@ def _pct(v, signed: bool = True) -> str:
 # ── Page ─────────────────────────────────────────────────────────────────────
 def render() -> None:
     st.subheader("Recommendation Audit")
-    data = job.load_latest()
+    src = st.segmented_control("Source", list(job.SOURCES), default="opportunity",
+                               format_func=lambda k: job.SOURCES[k]["label"],
+                               key="ra_src") or "opportunity"
+    cfg = job.SOURCES[src]
+    head, horizons = cfg["headline"], cfg["horizons"]
+    data = job.load_latest(source=src)
     run, eps = data["run"], data["episodes"]
 
     top = st.columns([5, 1])
@@ -89,14 +105,16 @@ def render() -> None:
     else:
         top[0].caption(
             f"As of **{run['as_of']}** · run {run['created_at'].replace('T', ' ')} · "
-            f"{len(eps)} picks since {str(eps['rec_date'].min())[:10]}. Entry = next "
+            f"{len(eps)} {'hits' if src == 'scanner' else 'picks'} since "
+            f"{str(eps['rec_date'].min())[:10] if not eps.empty else '—'}. Entry = next "
             f"session's open; every return is compared with benchmarks over the same dates.")
     if top[1].button("↻ Re-run audit", key="ra_rerun", use_container_width=True):
-        with st.spinner("Fetching prices and re-scoring every pick…"):
+        with st.spinner("Fetching prices and re-scoring every source…"):
             try:
-                rep = job.run_audit()
-                job.write_monthly_report(rep, pd.Timestamp(rep["episodes_df"]["as_of"]
-                                                           .iloc[0]).date())
+                reps = job.run_all()
+                any_rep = next(iter(reps.values()))
+                job.write_monthly_report(reps, pd.Timestamp(any_rep["episodes_df"]["as_of"]
+                                                            .iloc[0]).date())
                 st.toast("Audit refreshed.")
             except Exception as e:
                 st.error(f"Audit failed: {type(e).__name__}: {e}")
@@ -106,27 +124,29 @@ def render() -> None:
         return
 
     eps = with_slices(eps)
-    h = st.segmented_control("Horizon (sessions)", HORIZONS, default=ra.HEADLINE_H,
-                             key="ra_h") or ra.HEADLINE_H
-    _tiles(eps, data["portfolio"], h)
+    h = st.segmented_control("Horizon (sessions)", horizons, default=head,
+                             key=f"ra_h_{src}") or head
+    _tiles(eps, data["portfolio"], h, head)
 
     tabs = st.tabs(["Monthly batches", "What worked", "Post-mortems", "All picks",
-                    "Run history"])
+                    "Proposed changes", "Run history"])
     with tabs[0]:
-        _cohorts(eps)
+        _cohorts(eps, horizons)
     with tabs[1]:
-        _attribution(eps, h)
+        _attribution(eps, h, src)
     with tabs[2]:
-        _postmortems(eps)
+        _postmortems(eps, head)
     with tabs[3]:
         _all_picks(eps, h)
     with tabs[4]:
+        _proposals(src)
+    with tabs[5]:
         _history(data["history"])
 
 
-def _tiles(eps: pd.DataFrame, port: pd.DataFrame, h: int) -> None:
+def _tiles(eps: pd.DataFrame, port: pd.DataFrame, h: int, head: int) -> None:
     s = ra.summarise(eps, h)
-    c = st.columns(6)
+    c = st.columns(7)
     c[0].metric("Picks judged", s["n"], help=f"Picks at least {h} sessions old. "
                 f"{s['pending']} not yet entered, {s['no_data']} with no price data, "
                 f"{s['data_suspect']} set aside for a suspected split/bonus "
@@ -136,45 +156,50 @@ def _tiles(eps: pd.DataFrame, port: pd.DataFrame, h: int) -> None:
                 help=f"{_pct(s['beat_market_rate'], False)} of picks beat it")
     c[3].metric("Median vs Smallcap 250", _pct(s["median_excess_smallcap"]),
                 help="Most picks are small caps — this is the like-for-like benchmark.")
+    c[4].metric("Median vs equal-weight", _pct(s.get("median_excess_ew")),
+                help="Against the average NIFTY 500 stock over the same dates — the "
+                     "'random pick from the pool' baseline. Today's constituents, so "
+                     "names dropped from the index since are missing (a mild tilt).")
     tw = s.get("t_excess_weekly")
-    c[4].metric("Significance (t)", "—" if tw is None else f"{tw:.2f}",
+    c[5].metric("Significance (t)", "—" if tw is None else f"{tw:.2f}",
                 help=f"Picks grouped by entry week ({s['weeks']} weeks): picks entered the "
                      "same week move together, so the per-pick t overstates confidence. "
                      "Below 2 is not significant.")
-    if not port.empty and h == ra.HEADLINE_H:
+    if not port.empty and h == head:
         b, m = (port["basket"].iloc[-1] - 1) * 100, (port["market"].iloc[-1] - 1) * 100
-        c[5].metric("₹1 in every pick", _pct(b), delta=f"{b - m:+.2f} pts vs NIFTY 500",
-                    help=f"Each pick held {ra.HEADLINE_H} sessions from its entry open; "
+        c[6].metric("₹1 in every pick", _pct(b), delta=f"{b - m:+.2f} pts vs NIFTY 500",
+                    help=f"Each pick held {head} sessions from its entry open; "
                          "a shadow ₹1 in NIFTY 500 over the same dates.")
     if tw is not None and abs(tw) < 2:
         st.caption(f"⚠️ Not statistically significant at {h} sessions (t = {tw:.2f} over "
                    f"{s['weeks']} entry weeks). Treat slices below as leads, not findings.")
-    if not port.empty and h == ra.HEADLINE_H:
+    if not port.empty and h == head:
         st.line_chart(((port[["basket", "market"]] - 1) * 100)
                       .rename(columns={"basket": "₹1 per pick", "market": "NIFTY 500 shadow"}),
                       height=220, y_label="% return")
 
 
-def _cohorts(eps: pd.DataFrame) -> None:
+def _cohorts(eps: pd.DataFrame, horizons: tuple[int, ...]) -> None:
     st.caption("Each month's picks, judged at each horizon: median return over NIFTY 500, "
                "and the share that beat it. A blank cell is a horizon not reached yet.")
-    co = ra.cohorts(eps)
+    co = ra.cohorts(eps, horizons)
     if co.empty:
         st.info("No cohorts yet.")
         return
     # Unreached horizons are None in an object column, which renders "None".
     co = co.apply(lambda s: s if s.name == "month" else pd.to_numeric(s, errors="coerce"))
     cfg = {"month": "Month", "episodes": "Picks"}
-    for hh in HORIZONS:
+    for hh in horizons:
         cfg[f"n_{hh}"] = st.column_config.NumberColumn(f"n {hh}d")
         cfg[f"med_excess_{hh}"] = st.column_config.NumberColumn(f"Median {hh}d", format="%+.2f%%")
         cfg[f"beat_{hh}"] = st.column_config.NumberColumn(f"Beat {hh}d", format="%.0f%%")
     st.dataframe(co, column_config=cfg, hide_index=True, use_container_width=True)
 
 
-def _attribution(eps: pd.DataFrame, h: int) -> None:
-    label = st.selectbox("Slice by", list(SLICES), key="ra_slice")
-    col = SLICES[label]
+def _attribution(eps: pd.DataFrame, h: int, src: str = "opportunity") -> None:
+    slices = SLICES_BY_SOURCE.get(src, SLICES)
+    label = st.selectbox("Slice by", list(slices), key=f"ra_slice_{src}")
+    col = slices[label]
     if col not in eps:
         st.info(f"No `{col}` recorded yet — it starts with picks made after 2026-10-22.")
         return
@@ -192,31 +217,31 @@ def _attribution(eps: pd.DataFrame, h: int) -> None:
                f"until a slice holds up across several monthly batches.")
 
 
-def _postmortems(eps: pd.DataFrame) -> None:
-    counts = tag_counts(eps)
+def _postmortems(eps: pd.DataFrame, h: int = ra.HEADLINE_H) -> None:
+    counts = tag_counts(eps, h)
     if not counts:
         st.success("No failures among the judged picks.")
         return
-    st.caption(f"Failures at {ra.HEADLINE_H} sessions: return or excess ≤ "
+    st.caption(f"Failures at {h} sessions: return or excess ≤ "
                f"{ra.FAIL_RET_PCT:.0f}%, or the stop hit first. The tag is the first "
                "explanation that applies; override it and add a note after you look.")
     opts = [f"All ({sum(counts.values())})"] + [f"{t} ({n})" for t, n in counts.items()]
     pick = st.pills("Cause", opts, default=opts[0], key="ra_tag") or opts[0]
     tag = None if pick.startswith("All") else pick.rsplit(" (", 1)[0]
-    q = review_queue(eps, tag)
+    q = review_queue(eps, tag, h)
     pages = max(1, -(-len(q) // CARDS_PER_PAGE))
     pg = st.number_input("Page", 1, pages, 1, key=f"ra_pg_{tag}") if pages > 1 else 1
     chunk = q.iloc[(pg - 1) * CARDS_PER_PAGE: pg * CARDS_PER_PAGE]
     cols = st.columns(3)
     for i, (_, r) in enumerate(chunk.iterrows()):
         with cols[i % 3]:
-            _card(r)
+            _card(r, h)
 
 
-def _card(r: pd.Series) -> None:
-    h = ra.HEADLINE_H
+def _card(r: pd.Series, h: int = ra.HEADLINE_H) -> None:
     with st.container(border=True):
-        st.markdown(f"**{r['symbol']}** · picked {str(r['rec_date'])[:10]} · "
+        who = f" · {r['scanner']}" if pd.notna(r.get("scanner")) and r.get("scanner") else ""
+        st.markdown(f"**{r['symbol']}**{who} · picked {str(r['rec_date'])[:10]} · "
                     f"rank {int(r['rank']) if pd.notna(r.get('rank')) else '—'}")
         st.markdown(f"{h}d **{_pct(r.get(f'ret_{h}'))}** · vs NIFTY 500 "
                     f"{_pct(r.get(f'excess_{h}'))} · vs sector {_pct(r.get(f'excess_sec_{h}'))}")
@@ -249,8 +274,8 @@ def _card(r: pd.Series) -> None:
 
 
 def _all_picks(eps: pd.DataFrame, h: int) -> None:
-    cols = ["symbol", "rec_date", "rank", "status", f"ret_{h}", f"excess_{h}",
-            f"excess_sc_{h}", "mfe", "mae", "plan_outcome", "review_tag", "family_names",
+    cols = ["symbol", "scanner", "rec_date", "rank", "status", f"ret_{h}", f"excess_{h}",
+            f"excess_sc_{h}", f"excess_ew_{h}", "mfe", "mae", "plan_outcome", "review_tag", "family_names",
             "sector", "appearances"]
     d = eps[[c for c in cols if c in eps]].copy()
     d["rec_date"] = d["rec_date"].astype(str).str[:10]
@@ -262,9 +287,42 @@ def _all_picks(eps: pd.DataFrame, h: int) -> None:
                          f"{h}d return", format="%+.2f%%"),
                      f"excess_{h}": st.column_config.NumberColumn("vs NIFTY 500", format="%+.2f%%"),
                      f"excess_sc_{h}": st.column_config.NumberColumn("vs Smallcap", format="%+.2f%%"),
+                     f"excess_ew_{h}": st.column_config.NumberColumn("vs equal-weight",
+                                                                    format="%+.2f%%"),
                      "mfe": st.column_config.NumberColumn("Best", format="%+.1f%%"),
                      "mae": st.column_config.NumberColumn("Worst", format="%+.1f%%"),
                      "review_tag": "Failure cause", "appearances": "Runs on list"})
+
+
+def _proposals(src: str) -> None:
+    st.caption(f"Proposed only from slices with ≥ {ra.MIN_N} picks, an entry-week "
+               f"|t| ≥ {ra.PROPOSAL_T:g}, and a presence in ≥ {ra.PROPOSAL_MIN_MONTHS} monthly "
+               "batches. Nothing here changes a weight: an accepted change is made in code "
+               "and shows up as a new model version, which the 'Model version' slice then "
+               "compares before and after. A rejected idea is not raised again.")
+    d = job.load_decisions()
+    d = d[d["source"] == src] if not d.empty else d
+    if d.empty:
+        st.info("No proposals: no slice has held up strongly enough yet.")
+        return
+    for _, r in d.iterrows():
+        with st.container(border=True):
+            badge = {"pending": ":orange-badge[pending]", "accepted": ":green-badge[accepted]",
+                     "rejected": ":gray-badge[rejected]"}.get(r["decision"], r["decision"])
+            st.markdown(f"{badge} {r['proposal']}")
+            st.caption(f"Raised {str(r['created_at'])[:10]} · last seen as of {r['as_of']}"
+                       + (f" · decided {str(r['decided_at'])[:10]}" if r.get("decided_at") else "")
+                       + (f" · 📝 {r['note']}" if r.get("note") else ""))
+            if r["decision"] == "pending":
+                k = int(r["id"])
+                note = st.text_input("Note", key=f"ra_dec_note_{k}")
+                a, b = st.columns(2)
+                if a.button("Accept", key=f"ra_acc_{k}", use_container_width=True):
+                    job.decide(k, "accepted", note)
+                    st.rerun()
+                if b.button("Reject", key=f"ra_rej_{k}", use_container_width=True):
+                    job.decide(k, "rejected", note)
+                    st.rerun()
 
 
 def _history(history: pd.DataFrame) -> None:
@@ -278,6 +336,30 @@ def _history(history: pd.DataFrame) -> None:
         "judged": s.map(lambda x: x.get("n")),
         "median vs NIFTY 500": s.map(lambda x: x.get("median_excess")),
         "median vs Smallcap": s.map(lambda x: x.get("median_excess_smallcap")),
+        "median vs equal-weight": s.map(lambda x: x.get("median_excess_ew")),
         "t (weekly)": s.map(lambda x: x.get("t_excess_weekly")),
         "failures": s.map(lambda x: x.get("failures"))})
     st.dataframe(out.iloc[::-1], hide_index=True, use_container_width=True)
+
+
+# ── A3: the track-record line on Opportunity Hub cards ───────────────────────
+@st.cache_data(ttl=3600, show_spinner=False)
+def _track_record_cached() -> dict:
+    return job.track_record()
+
+
+def track_record_text(families, tr: dict | None = None, h: int = ra.HEADLINE_H) -> str:
+    """'Audit 21d vs NIFTY 500: Trend/Momentum +1.9% (n 234) · … — not significant',
+    or '' when no family of the card has an audited record yet. Plain text: the
+    caller decides how to show it."""
+    tr = _track_record_cached() if tr is None else tr
+    fams = [f for f in (families or []) if f in tr]
+    if not fams:
+        return ""
+    parts = [f"{f} {tr[f]['median_excess']:+.1f}% (n {tr[f]['n']})" for f in fams
+             if tr[f].get("median_excess") is not None]
+    if not parts:
+        return ""
+    sig = any(abs(tr[f].get("t_weekly") or 0) >= 2 for f in fams)
+    return (f"Audit {h}d vs NIFTY 500: " + " · ".join(parts)
+            + ("" if sig else " — not significant"))

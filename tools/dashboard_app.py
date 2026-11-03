@@ -3796,6 +3796,12 @@ def _render_pipeline_card(hit: dict) -> None:
         f'color:{rs.TOKENS["text_body"]};">score '
         f'{(hit.get("rank_score") or 0):.1f}</span></div>'
         f'{_scanner_source_chips(", ".join(hit["scanners"]))}{warn}')
+    # A3: the families' audited record, so a card never reads as untested.
+    import html as _html
+    from desk_pages import rec_audit_page as _rap
+    _tr = _html.escape(_rap.track_record_text(hit["families"]))
+    header_html += (f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};'
+                    f'margin-top:4px;">📊 {_tr}</div>') if _tr else ""
     card = dict(hit["best_card"] or {})
     card["symbol"] = sym
     card["overall"] = hit.get("overall")
