@@ -1909,6 +1909,7 @@ const INDICATOR_DEFS = [
   {key:'structure_chain', label:'Structure Break Chain (BOS/CHoCH + quality)', group:'Smart Money & Structure', color:'#00e676'},
   {key:'orderblock',   label:'Order Blocks (SMC demand / supply zones)', group:'Smart Money & Structure', color:'#4c9aff', alias:'order block ob smart money smc demand supply zone mitigation institutional'},
   {key:'liquidity',    label:'Liquidity Pools + Sweep + BUY signal (equal highs/lows · stop run)', group:'Smart Money & Structure', color:'#ff6d00', alias:'liquidity pool sweep stop hunt stop run raid equal highs equal lows resting stops smc trap reclaim'},
+  {key:'failbreak',    label:'Failed Breakdown (2-candle stop run · SL candle)', group:'Smart Money & Structure', color:'#00c853', alias:'failed breakdown stop run sl candle stop loss hunt two candle sweep bear trap reclaim support b-203'},
   {key:'bulltrap',     label:'Bull Trap (failed breakout · weak volume · RSI divergence)', group:'Smart Money & Structure', color:'#e53935', alias:'bull trap fake breakout false breakout failed breakout stop run weak volume rsi divergence b-182'},
   {key:'harmonic',     label:'Harmonic (Gartley/Bat/Butterfly/Crab + AB=CD)', group:'Price Patterns', color:'#ba68c8'},
   {key:'projection',   label:'Price Projection (EW + patterns)', group:'Levels & Projection', color:'#4c9aff'},
@@ -4630,6 +4631,7 @@ function applyIndicators(pane) {
   // Clear liquidity pools + sweep marker if deselected.
   if (!pane.indicators.has('liquidity') && pane.liq) clearLiquidity(pane);
   if (!pane.indicators.has('bulltrap') && pane.btrap) clearBullTrap(pane);
+  if (!pane.indicators.has('failbreak') && pane.fbrk) clearFailedBreakdown(pane);
   // Clear the %R exhaustion main-chart overlay (arrows + tint) if deselected.
   if (!pane.indicators.has('prte') && (pane.prteData || pane._markerSrcs?.prte)) clearPrteOverlay(pane);
   // B-127 status cards go with their line.
@@ -5557,6 +5559,8 @@ function applyIndicators(pane) {
   if (pane.indicators.has('liquidity')) renderLiquidity(pane);
   // Bull traps (B-182): server-fetched, markers + one price line, like liquidity.
   if (pane.indicators.has('bulltrap')) renderBullTrap(pane);
+  // Two-candle stop runs (B-203): same pattern as the bull trap, mirrored.
+  if (pane.indicators.has('failbreak')) renderFailedBreakdown(pane);
 
   // Risk box: price lines by PRICE, like liquidity, so no RAF deferral.
   if (pane.indicators.has('riskbox')) renderRiskBox(pane);
@@ -10949,6 +10953,72 @@ function drawBullTrap(pane) {
   }
   const markers = bullTrapMarkers(events, !!st.data.fired);
   setPaneMarkers(pane, 'btrap', markers.length ? markers : null);
+}
+
+// ── Failed Breakdown overlay (B-203) ────────────────────────────────────────
+// Detector: scanner_templates.failed_breakdown_events via /api/failed_breakdown.
+// A green arrow under each reclaim bar (the close back above support); bolder
+// text when the support was a pool of equal lows. The support line shows only
+// while the scanner's freshness gate is live, like the bull trap's level.
+const FB_UP = '#00c853';
+
+function ensureFailedBreakdownState(pane) {
+  if (!pane.fbrk) pane.fbrk = {priceLines: [], lastFetchKey: null, inflight: false};
+  return pane.fbrk;
+}
+
+function clearFailedBreakdown(pane) {
+  const st = pane.fbrk;
+  if (!st) return;
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+  setPaneMarkers(pane, 'fbrk', null);
+  pane.fbrk = null;
+}
+
+async function renderFailedBreakdown(pane) {
+  const st = ensureFailedBreakdownState(pane);
+  if (!pane.bars || !pane.bars.length) return;
+  const key = `${pane.symbol}:${pane.tf}:${pane.bars[pane.bars.length - 1].time}`;
+  if (st.lastFetchKey === key && st.data) { drawFailedBreakdown(pane); return; }
+  if (st.inflight) return;
+  st.inflight = true;
+  try {
+    const url = `${SERVER}/api/failed_breakdown?symbol=${encodeURIComponent(pane.symbol)}` +
+                `&timeframe=${pane.tf}&bars=${TF_BARS[pane.tf] || 300}`;
+    const res = await fetch(url);
+    st.data = res.ok ? await res.json() : {events: [], fired: false};
+    st.lastFetchKey = key;
+  } catch (e) {
+    console.warn('failed breakdown fetch failed:', e);
+    st.data = {events: [], fired: false};
+  } finally {
+    st.inflight = false;
+  }
+  if (pane.indicators.has('failbreak')) drawFailedBreakdown(pane);
+}
+
+function drawFailedBreakdown(pane) {
+  const st = pane.fbrk;
+  if (!st || !st.data) return;
+  (st.priceLines || []).forEach(pl => { try { pane.series.removePriceLine(pl); } catch {} });
+  st.priceLines = [];
+  const events = (st.data.events || []).filter(e => e.reclaim_time);
+  const last = events[events.length - 1];
+  if (last && st.data.fired) {
+    try {
+      st.priceLines.push(pane.series.createPriceLine({
+        price: last.level, color: FB_UP, lineWidth: 1, lineStyle: 2, axisLabelVisible: true,
+        title: `stop run reclaimed ${last.level} · NOW`,
+      }));
+    } catch {}
+  }
+  const markers = events.map(e => ({
+    time: e.reclaim_time, position: 'belowBar', color: FB_UP,
+    shape: e.pool ? 'arrowUp' : 'circle', size: e.pool ? 1 : 0.6,
+    text: e.pool ? `STOP RUN · ${e.touches}-touch lows` : '',
+  }));
+  setPaneMarkers(pane, 'fbrk', markers.length ? markers : null);
 }
 
 function clearOiWalls(pane) {

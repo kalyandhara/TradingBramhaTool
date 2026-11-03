@@ -1314,6 +1314,42 @@ def api_tour():
                               "base_rates_asOf": (rates or {}).get("asOf"), "notes": tour["notes"]}))
 
 
+@app.route("/api/failed_breakdown")
+def api_failed_breakdown():
+    """Two-candle stop runs (B-203) for the `failbreak` chart overlay.
+
+    Same detector as the `Failed Breakdown (2-bar sweep)` scanner and
+    `failed_breakdown_study.py`, so chart, scanner and measurement agree.
+    {"events": [...], "fired": bool}; `fired` is the scanner's freshness gate.
+    """
+    symbol    = request.args.get("symbol", "").strip().upper()
+    timeframe = request.args.get("timeframe", "1d")
+    bars_n    = min(int(request.args.get("bars", 300)), 3000)
+    if not symbol:
+        return jsonify({"error": "symbol required"}), 400
+    symbol = sym_dir.resolve_symbol(symbol)
+    source = ds.detect_source(symbol)
+    bars   = source.get_ohlcv(symbol, timeframe, bars_n)
+    df = _bars_to_df(bars)
+    if df is None or len(df) < sc.FB_SUP_LOOKBACK + 20:
+        return jsonify({"symbol": symbol, "events": [], "fired": False})
+
+    def _t(idx):
+        return int(bars[idx]["time"]) if idx is not None and 0 <= idx < len(bars) else None
+
+    events = [{"level": e["level"], "trough_low": e["trough_low"], "touches": e["touches"],
+               "pool": e["pool"], "weak_vol": e["weak_vol"], "divergence": e["divergence"],
+               "vol_x": e["vol_x"], "div_pts": e["div_pts"],
+               "sup_time": _t(e["sup_bar"]), "break_time": _t(e["break_bar"]),
+               "reclaim_time": _t(e["reclaim_bar"])}
+              for e in sc.failed_breakdown_events(df)]
+    try:
+        fired = sc.scan_failed_breakdown(df) is not None
+    except Exception:
+        fired = False
+    return jsonify({"symbol": symbol, "events": events, "fired": fired})
+
+
 @app.route("/api/liquidity")
 def api_liquidity():
     """Liquidity pools (equal highs/lows) + the most recent sweep-and-reclaim.

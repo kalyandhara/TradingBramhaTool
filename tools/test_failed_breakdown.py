@@ -92,3 +92,31 @@ def test_registered_to_screen_but_kept_out_of_the_vote():
     name = "Failed Breakdown (2-bar sweep)"
     assert sc.SCANNERS[name]["category"] == "Entry"
     assert name in oh.PIPELINE_EXCLUDED and name not in oh.pipeline_scanners()
+
+
+def test_chart_endpoint_serves_the_scanners_own_events(monkeypatch):
+    import chart_server as cs
+    df = _chart(tail=1)
+    bars = [{"time": int(ts.timestamp()), "open": r.open, "high": r.high, "low": r.low,
+             "close": r.close, "volume": r.volume} for ts, r in df.iterrows()]
+
+    class _Src:
+        def get_ohlcv(self, symbol, timeframe, n):
+            return bars
+
+    monkeypatch.setattr(cs.ds, "detect_source", lambda s: _Src())
+    monkeypatch.setattr(cs.sym_dir, "resolve_symbol", lambda s: s)
+    cs.app.config["TESTING"] = True
+    with cs.app.test_client() as c:
+        got = c.get("/api/failed_breakdown?symbol=TEST&timeframe=1d").get_json()
+    assert got["fired"] is True and len(got["events"]) == 1
+    e = got["events"][0]
+    assert e["level"] == 48.0 and e["reclaim_time"] == bars[RCL]["time"]
+    assert e["break_time"] == bars[BRK]["time"]
+
+
+def test_chart_page_wires_the_overlay():
+    from pathlib import Path
+    html = (Path(__file__).resolve().parent / "chart_dashboard.html").read_text(encoding="utf-8")
+    assert "key:'failbreak'" in html and "renderFailedBreakdown(pane)" in html
+    assert "clearFailedBreakdown(pane)" in html and "/api/failed_breakdown" in html
