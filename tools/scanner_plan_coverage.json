@@ -2,12 +2,12 @@
  "scanners": {
   "%R Bottoming": {
    "fields": {
-    "entry": 490,
-    "stop": 490,
-    "target": 490
+    "entry": 604,
+    "stop": 604,
+    "target": 603
    },
-   "fired": 490,
-   "with_plan": 490
+   "fired": 604,
+   "with_plan": 603
   },
   "%R Exhaustion Sell": {
    "fields": {
@@ -15,16 +15,16 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 656,
+   "fired": 705,
    "with_plan": 0
   },
   "20 EMA Base Setup": {
    "fields": {
     "entry": 0,
-    "stop": 5706,
-    "target": 5706
+    "stop": 5628,
+    "target": 5628
    },
-   "fired": 5706,
+   "fired": 5628,
    "with_plan": 0
   },
   "52-Week High Leaders": {
@@ -33,7 +33,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 2829,
+   "fired": 2738,
    "with_plan": 0
   },
   "ADX Trend Confirmation": {
@@ -42,7 +42,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 2263,
+   "fired": 2183,
    "with_plan": 0
   },
   "ATH Breakout (all-time high)": {
@@ -51,7 +51,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 409,
+   "fired": 429,
    "with_plan": 0
   },
   "Base Formation": {
@@ -60,7 +60,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 613,
+   "fired": 598,
    "with_plan": 0
   },
   "Bearish Reversal Candle": {
@@ -69,35 +69,35 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 401,
+   "fired": 434,
    "with_plan": 0
   },
   "Breakout Retest": {
    "fields": {
-    "entry": 599,
-    "stop": 599,
-    "target": 599
+    "entry": 569,
+    "stop": 569,
+    "target": 569
    },
-   "fired": 599,
-   "with_plan": 599
+   "fired": 569,
+   "with_plan": 569
   },
   "Bull Trap": {
    "fields": {
-    "entry": 17,
-    "stop": 17,
+    "entry": 20,
+    "stop": 20,
     "target": 0
    },
-   "fired": 17,
+   "fired": 20,
    "with_plan": 0
   },
   "Bullish CHoCH (last 5 sessions)": {
    "fields": {
-    "entry": 909,
-    "stop": 909,
-    "target": 909
+    "entry": 913,
+    "stop": 913,
+    "target": 913
    },
-   "fired": 1026,
-   "with_plan": 909
+   "fired": 1030,
+   "with_plan": 913
   },
   "Candlestick Patterns": {
    "fields": {
@@ -105,7 +105,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 1247,
+   "fired": 1290,
    "with_plan": 0
   },
   "Consolidation Breakout (6M\u201310Y)": {
@@ -114,7 +114,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 145,
+   "fired": 141,
    "with_plan": 0
   },
   "Darvas Box": {
@@ -123,17 +123,17 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 2510,
+   "fired": 2545,
    "with_plan": 0
   },
   "Double Bottom": {
    "fields": {
-    "entry": 1246,
-    "stop": 1246,
-    "target": 1246
+    "entry": 1219,
+    "stop": 1219,
+    "target": 1219
    },
-   "fired": 1246,
-   "with_plan": 1246
+   "fired": 1219,
+   "with_plan": 1219
   },
   "Downside Risk": {
    "fields": {
@@ -141,7 +141,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 8757,
+   "fired": 8847,
    "with_plan": 0
   },
   "EMA-50 Coil": {
@@ -150,7 +150,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 28,
+   "fired": 17,
    "with_plan": 0
   },
   "Early Reversal Detector": {
@@ -159,7 +159,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 4055,
+   "fired": 4074,
    "with_plan": 0
   },
   "Episodic Pivot": {
@@ -173,48 +173,57 @@
   },
   "FVG Pullback": {
    "fields": {
-    "entry": 1768,
-    "stop": 1768,
-    "target": 1768
+    "entry": 1779,
+    "stop": 1779,
+    "target": 1779
    },
-   "fired": 1768,
-   "with_plan": 1768
+   "fired": 1779,
+   "with_plan": 1779
+  },
+  "Failed Breakdown (2-bar sweep)": {
+   "fields": {
+    "entry": 1218,
+    "stop": 1218,
+    "target": 1218
+   },
+   "fired": 1218,
+   "with_plan": 1218
   },
   "Falling Wedge": {
    "fields": {
-    "entry": 168,
-    "stop": 168,
-    "target": 168
+    "entry": 186,
+    "stop": 186,
+    "target": 186
    },
-   "fired": 168,
-   "with_plan": 168
+   "fired": 186,
+   "with_plan": 186
   },
   "Flag & Pole": {
    "fields": {
-    "entry": 970,
-    "stop": 970,
-    "target": 970
+    "entry": 989,
+    "stop": 989,
+    "target": 989
    },
-   "fired": 970,
-   "with_plan": 970
+   "fired": 989,
+   "with_plan": 989
   },
   "HM Buy (Hilega Milega)": {
    "fields": {
-    "entry": 3973,
-    "stop": 3973,
-    "target": 3973
+    "entry": 4046,
+    "stop": 4046,
+    "target": 4046
    },
-   "fired": 3973,
-   "with_plan": 3973
+   "fired": 4046,
+   "with_plan": 4046
   },
   "Harmonic Reversal (XABCD)": {
    "fields": {
-    "entry": 1052,
-    "stop": 1052,
-    "target": 1052
+    "entry": 1057,
+    "stop": 1057,
+    "target": 1057
    },
-   "fired": 1052,
-   "with_plan": 1052
+   "fired": 1057,
+   "with_plan": 1057
   },
   "High Tight Flag": {
    "fields": {
@@ -222,17 +231,17 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 82,
+   "fired": 77,
    "with_plan": 0
   },
   "ICT Setup": {
    "fields": {
-    "entry": 90,
-    "stop": 90,
-    "target": 90
+    "entry": 78,
+    "stop": 78,
+    "target": 78
    },
-   "fired": 90,
-   "with_plan": 90
+   "fired": 78,
+   "with_plan": 78
   },
   "IPO-Base Breakout": {
    "fields": {
@@ -245,29 +254,29 @@
   },
   "Inverted Flag & Pole": {
    "fields": {
-    "entry": 693,
-    "stop": 693,
-    "target": 693
+    "entry": 676,
+    "stop": 676,
+    "target": 676
    },
-   "fired": 693,
-   "with_plan": 693
+   "fired": 676,
+   "with_plan": 676
   },
   "Liquidity Sweep": {
    "fields": {
-    "entry": 1100,
-    "stop": 1100,
-    "target": 1100
+    "entry": 1195,
+    "stop": 1195,
+    "target": 1195
    },
-   "fired": 1100,
-   "with_plan": 1100
+   "fired": 1195,
+   "with_plan": 1195
   },
   "Liquidity Sweep Bear": {
    "fields": {
-    "entry": 1242,
-    "stop": 1242,
+    "entry": 1234,
+    "stop": 1234,
     "target": 0
    },
-   "fired": 1242,
+   "fired": 1234,
    "with_plan": 0
   },
   "MFI Oversold Recovery": {
@@ -276,25 +285,25 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 85,
+   "fired": 86,
    "with_plan": 0
   },
   "Mean Reversion (Connors RSI2)": {
    "fields": {
-    "entry": 25,
-    "stop": 25,
-    "target": 25
+    "entry": 15,
+    "stop": 15,
+    "target": 15
    },
-   "fired": 25,
-   "with_plan": 25
+   "fired": 15,
+   "with_plan": 15
   },
   "Minervini VCP (valchak)": {
    "fields": {
     "entry": 0,
-    "stop": 14,
-    "target": 14
+    "stop": 11,
+    "target": 11
    },
-   "fired": 14,
+   "fired": 11,
    "with_plan": 0
   },
   "Momentum Continuation": {
@@ -303,7 +312,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 5520,
+   "fired": 5416,
    "with_plan": 0
   },
   "Near Pivot": {
@@ -312,7 +321,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 6722,
+   "fired": 6657,
    "with_plan": 0
   },
   "No-Supply (new high + clean volume)": {
@@ -321,17 +330,17 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 1909,
+   "fired": 1846,
    "with_plan": 0
   },
   "Order Block Retest": {
    "fields": {
-    "entry": 1808,
-    "stop": 1808,
-    "target": 1808
+    "entry": 1816,
+    "stop": 1816,
+    "target": 1816
    },
-   "fired": 1808,
-   "with_plan": 1808
+   "fired": 1816,
+   "with_plan": 1816
   },
   "PEAD Drift": {
    "fields": {
@@ -339,7 +348,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 2331,
+   "fired": 2298,
    "with_plan": 0
   },
   "Pullback Entry": {
@@ -348,44 +357,44 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 6306,
+   "fired": 6215,
    "with_plan": 0
   },
   "Qullamaggie Breakout": {
    "fields": {
-    "entry": 384,
-    "stop": 384,
+    "entry": 360,
+    "stop": 360,
     "target": 0
    },
-   "fired": 384,
+   "fired": 360,
    "with_plan": 0
   },
   "RSI 60-40 Setup": {
    "fields": {
-    "entry": 678,
-    "stop": 678,
-    "target": 678
+    "entry": 641,
+    "stop": 641,
+    "target": 641
    },
-   "fired": 678,
-   "with_plan": 678
+   "fired": 641,
+   "with_plan": 641
   },
   "RSI Divergence Bear": {
    "fields": {
-    "entry": 102,
-    "stop": 102,
-    "target": 102
+    "entry": 103,
+    "stop": 103,
+    "target": 103
    },
-   "fired": 102,
-   "with_plan": 102
+   "fired": 103,
+   "with_plan": 103
   },
   "RSI Divergence Bull": {
    "fields": {
-    "entry": 97,
-    "stop": 97,
-    "target": 97
+    "entry": 82,
+    "stop": 82,
+    "target": 82
    },
-   "fired": 97,
-   "with_plan": 97
+   "fired": 82,
+   "with_plan": 82
   },
   "RSI Mid-Band Momentum": {
    "fields": {
@@ -393,17 +402,17 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 1680,
+   "fired": 1628,
    "with_plan": 0
   },
   "RSI-Fibo Hidden Divergence": {
    "fields": {
-    "entry": 3,
-    "stop": 3,
-    "target": 3
+    "entry": 4,
+    "stop": 4,
+    "target": 4
    },
-   "fired": 3,
-   "with_plan": 3
+   "fired": 4,
+   "with_plan": 4
   },
   "Renko Flip (structure change)": {
    "fields": {
@@ -411,17 +420,17 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 2290,
+   "fired": 2356,
    "with_plan": 0
   },
   "Rounding Bottom": {
    "fields": {
-    "entry": 612,
-    "stop": 612,
-    "target": 612
+    "entry": 595,
+    "stop": 595,
+    "target": 595
    },
-   "fired": 612,
-   "with_plan": 612
+   "fired": 595,
+   "with_plan": 595
   },
   "Shallow Flip (Renko, bounded correction)": {
    "fields": {
@@ -429,7 +438,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 171,
+   "fired": 169,
    "with_plan": 0
   },
   "Stage 2 Uptrend": {
@@ -438,7 +447,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 4977,
+   "fired": 4916,
    "with_plan": 0
   },
   "Structural Breakout": {
@@ -447,17 +456,17 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 519,
+   "fired": 526,
    "with_plan": 0
   },
   "Support Breakdown": {
    "fields": {
-    "entry": 2847,
-    "stop": 2847,
-    "target": 2847
+    "entry": 2897,
+    "stop": 2897,
+    "target": 2897
    },
-   "fired": 2847,
-   "with_plan": 2847
+   "fired": 2897,
+   "with_plan": 2897
   },
   "Symmetrical Triangle (bilateral)": {
    "fields": {
@@ -474,26 +483,26 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 521,
+   "fired": 509,
    "with_plan": 0
   },
   "VCP Coiling": {
    "fields": {
-    "entry": 4049,
-    "stop": 4049,
-    "target": 4049
+    "entry": 4079,
+    "stop": 4079,
+    "target": 4079
    },
-   "fired": 4049,
-   "with_plan": 4049
+   "fired": 4079,
+   "with_plan": 4079
   },
   "VWAP Mean Reversion": {
    "fields": {
-    "entry": 105,
-    "stop": 105,
-    "target": 105
+    "entry": 103,
+    "stop": 103,
+    "target": 103
    },
-   "fired": 105,
-   "with_plan": 105
+   "fired": 103,
+   "with_plan": 103
   },
   "VWAP Reclaim/Support": {
    "fields": {
@@ -501,7 +510,7 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 1447,
+   "fired": 1384,
    "with_plan": 0
   },
   "Zero-Debt Quality PEAD": {
@@ -510,11 +519,11 @@
     "stop": 0,
     "target": 0
    },
-   "fired": 2331,
+   "fired": 2298,
    "with_plan": 0
   }
  },
  "stride": 5,
  "symbols_requested": 150,
- "symbols_used": 145
+ "symbols_used": 146
 }
