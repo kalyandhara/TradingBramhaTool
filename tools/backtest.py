@@ -730,9 +730,12 @@ def backtest_scanner(scanner_name: str,
                     if r:
                         r_results.append(r)
                         if keep_trades:
+                            # target / time_stop / max_bars (B-183): the levels a
+                            # no-edge baseline needs to replay the same plan.
                             _tr = {"symbol": sym, "t": int(t), "side": _side,
                                    "entry_idx": int(f_idx), "entry_px": float(f_px),
-                                   "stop": float(stop_p), **r}
+                                   "stop": float(stop_p), "target": float(tgt_p),
+                                   "time_stop": _ts, "max_bars": int(max_h), **r}
                             if _trade_dates is not None:
                                 _x = min(int(f_idx) + int(r["bars"]), n - 1)
                                 _tr["entry_date"] = _trade_dates[int(f_idx)]
