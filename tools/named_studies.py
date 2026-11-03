@@ -690,6 +690,13 @@ STUDIES: tuple[dict, ...] = (
         "headline": ("pre-registered: full-window sweep card ORDINARY on the unseen panel "
                      "(+0.34% @20d, p 0.35) and the main (+0.48%, p 0.10)."),
     },
+    {
+        "item": "B-183", "tool": "plan_baseline_study.py", "date": "2026-11-03",
+        "source": "analyses/Plan-Odds-Baseline-Pre-Registration",
+        "subjects": ("plan-odds no-edge baseline",),
+        "verdict": "UNRECORDED",
+        "headline": "pre-registered 2026-10-25 (082f73f) before any trade was scored; not yet run.",
+    },
 )
 
 

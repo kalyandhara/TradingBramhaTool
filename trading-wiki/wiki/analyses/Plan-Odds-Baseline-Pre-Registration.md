@@ -114,6 +114,21 @@ Watchlist plan column showing each PENDING or LIVE plan's no-edge odds
 (target first / stop first). Those are descriptive numbers about the plan's
 geometry, not claims about the scanner.
 
+## Amendment, 2026-11-03, before the run (procedure only)
+
+**Scanners the plan census shows never emit a plan are not replayed.**
+`scanner_plan_coverage.json` (re-run 2026-10-23, 57 scanners) records each one's
+hits. A scanner that fired and never once carried entry, stop and target cannot
+produce a simulated plan, because a plan is a property of the scanner (PR-2, no
+PARTIAL scanners were ever observed). Replaying it would spend hours to add zero
+trades. Scanners that never fired in the census stay in. Nothing about the
+statistic, floors, Holm family or decision rule changes. The skipped names are
+listed in the output JSON (`skipped_never_plan`).
+
+Execution detail, not a design change: scanners run in parallel worker processes
+over one shared fetch of the panel. The engine's own calibration gates 1 and 2
+pass in `tools/test_plan_baseline.py` (commit `3276462`).
+
 ## Prior (stated before the run)
 
 Most scanners land **AT BASELINE**: at least 80 % of those that clear the floors.
