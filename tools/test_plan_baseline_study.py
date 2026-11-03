@@ -98,3 +98,27 @@ def test_never_plan_scanners_are_skipped_by_the_census():
     census = {"scanners": {"A": {"fired": 10, "with_plan": 0}, "B": {"fired": 10, "with_plan": 4},
                            "C": {"fired": 0, "with_plan": 0}}}
     assert sps.planning_scanners(["A", "B", "C", "_x"], census) == ["B", "C"]
+
+
+# ── B-183c: winsorized d, strict gate, placebo-noise label ───────────────────
+
+def test_d_cap_clips_each_trade_before_the_symbol_mean():
+    trades = [_tr("A", 40.0), _tr("A", 1.0), _tr("B", -25.0)]
+    raw = sps.scanner_stats(trades)
+    cap = sps.scanner_stats(trades, d_cap=3.0)
+    assert raw["mean_d"] == pytest.approx(((40 + 1) / 2 + -25) / 2)
+    assert cap["mean_d"] == pytest.approx(((3 + 1) / 2 + -3) / 2)
+    assert cap["thirds"] == [3.0, 1.0, -3.0]
+
+
+def test_strict_gate_has_no_p_escape():
+    assert sps.placebo_passes({"mean_d": 0.31, "p": 0.24})                 # the old rule
+    assert not sps.placebo_passes_strict({"mean_d": 0.31, "p": 0.24})
+    assert sps.placebo_passes_strict({"mean_d": -0.04, "p": 0.0001})
+    assert not sps.placebo_passes_strict({"mean_d": None, "p": 0.9})
+
+
+def test_within_placebo_noise():
+    assert sps.within_placebo_noise({"mean_d": 0.07}, {"mean_d": 0.04})       # 0.07 <= 0.08
+    assert not sps.within_placebo_noise({"mean_d": 0.18}, {"mean_d": 0.04})
+    assert not sps.within_placebo_noise({"mean_d": -0.20}, {"mean_d": -0.04})

@@ -136,15 +136,22 @@ def _ttest(xs) -> tuple[float | None, float | None]:
     return t, float(2 * stats.t.sf(abs(t), df=len(a) - 1))
 
 
-def scanner_stats(trades: list[dict]) -> dict:
+def _d(t: dict, d_cap: float | None) -> float:
+    d = float(t["r"]) - float(t["exp_r"])
+    return d if d_cap is None else max(-d_cap, min(d_cap, d))
+
+
+def scanner_stats(trades: list[dict], d_cap: float | None = None) -> dict:
+    """`d_cap` (B-183c) winsorizes each trade's d to [-d_cap, +d_cap] before the
+    symbol means, the thirds and the t-test; None is B-183's raw d."""
     based = [t for t in trades if t.get("exp_r") is not None]
     by: dict[str, list[float]] = {}
     for t in based:
-        by.setdefault(t["symbol"], []).append(float(t["r"]) - float(t["exp_r"]))
+        by.setdefault(t["symbol"], []).append(_d(t, d_cap))
     means = [float(np.mean(v)) for v in by.values()]
     t_, p_ = _ttest(means)
     ordered = sorted(based, key=lambda t: pd.Timestamp(t.get("entry_date") or 0))
-    thirds = [round(float(np.mean([float(t["r"]) - float(t["exp_r"]) for t in part])), 4)
+    thirds = [round(float(np.mean([_d(t, d_cap) for t in part])), 4)
               if len(part) else None for part in np.array_split(np.array(ordered, dtype=object), 3)]
     n = len(based)
     return {
@@ -186,6 +193,18 @@ def verdict(stats: dict, significant: bool) -> str:
     return "AT BASELINE"
 
 
+def placebo_passes_strict(stats: dict) -> bool:
+    """B-183c: |mean d| <= PLACEBO_MAX_D, with no p-value escape."""
+    md = stats.get("mean_d")
+    return md is not None and abs(md) <= PLACEBO_MAX_D
+
+
+def within_placebo_noise(stats: dict, placebo: dict) -> bool:
+    """B-183c label: |mean d| within 2x the main panel placebo's |mean d|."""
+    md, pd_ = stats.get("mean_d"), placebo.get("mean_d")
+    return md is not None and pd_ is not None and abs(md) <= 2 * abs(pd_)
+
+
 def placebo_passes(stats: dict) -> bool:
     md, p = stats.get("mean_d"), stats.get("p")
     return (md is not None and abs(md) <= PLACEBO_MAX_D) or (p is not None and p >= ALPHA)
@@ -193,12 +212,14 @@ def placebo_passes(stats: dict) -> bool:
 
 # ── Workers ──────────────────────────────────────────────────────────────────
 _FR: dict = {}
+_DCAP: float | None = None
 
 
-def _init(path: str) -> None:
-    global _FR
+def _init(path: str, d_cap: float | None = None) -> None:
+    global _FR, _DCAP
     with open(path, "rb") as fh:
         _FR = pickle.load(fh)
+    _DCAP = d_cap
     _register_placebo()
 
 
@@ -210,7 +231,7 @@ def _run_one(name: str) -> dict:
     except Exception as e:                      # noqa: BLE001 — recorded, not hidden
         return {"name": name, "error": f"{type(e).__name__}: {e}"}
     trades = attach_baseline(res.get("trades") or [], _FR)
-    st = scanner_stats(trades)
+    st = scanner_stats(trades, _DCAP)
     st.update(name=name, n_signals=res.get("n_signals"), elapsed_s=round(time.time() - t0, 1))
     return st
 
@@ -218,7 +239,13 @@ def _run_one(name: str) -> dict:
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__.split("\n")[0])
     ap.add_argument("--procs", type=int, default=7)
+    ap.add_argument("--d-cap", type=float, default=None,
+                    help="B-183c: winsorize per-trade d at +/- this many R")
+    ap.add_argument("--strict-gate", action="store_true",
+                    help="B-183c: placebo gate |mean d| <= 0.05R with no p escape")
+    ap.add_argument("--out", type=Path, default=OUT)
     a = ap.parse_args()
+    gate_ok = placebo_passes_strict if a.strict_gate else placebo_passes
     import nse_universe as nu
     import screener_pipeline as sp
     universe = list(nu.symbols("nifty500"))
@@ -239,7 +266,7 @@ def main() -> int:
         return frames
 
     gate_frames = _load(*GATE_PANEL, GATE_FRAMES)
-    with Pool(a.procs, initializer=_init, initargs=(str(GATE_FRAMES),)) as pool:
+    with Pool(a.procs, initializer=_init, initargs=(str(GATE_FRAMES), a.d_cap)) as pool:
         gate = pool.apply(_run_one, (PLACEBO,))
     print(f"placebo gate [{GATE_PANEL[0]}:{GATE_PANEL[1]}]: {gate}", flush=True)
     frames = _load(*PANEL, FRAMES)
@@ -248,6 +275,7 @@ def main() -> int:
     names = planning_scanners(list(sc.SCANNERS), census)
     out: dict = {"preregistered": "2026-10-25", "pre_registration_commit": "082f73f",
                  "amendment": "2 (2026-11-03): zero-drift pool; gate on nifty500[300:500]",
+                 "b183c": {"d_cap": a.d_cap, "strict_gate": a.strict_gate},
                  "gate_panel": f"nifty500[{GATE_PANEL[0]}:{GATE_PANEL[1]}]",
                  "gate_symbols_loaded": len(gate_frames), "placebo_gate": gate,
                  "panel": f"nifty500[{PANEL[0]}:{PANEL[1]}]", "days": DAYS,
@@ -256,13 +284,13 @@ def main() -> int:
                             "min_pool": pb.MIN_POOL, "seed": pb.SEED},
                  "skipped_never_plan": sorted(set(n for n in sc.SCANNERS if not n.startswith("_"))
                                               - set(names))}
-    if "error" in gate or not placebo_passes(gate):
+    if "error" in gate or not gate_ok(gate):
         out["placebo_failed"] = True
-        OUT.write_text(json.dumps(out, indent=2, default=str), encoding="utf-8")
+        a.out.write_text(json.dumps(out, indent=2, default=str), encoding="utf-8")
         print("PLACEBO GATE FAILED -- the baseline is miscalibrated; no scanner verdict written.")
         return 1
     out["placebo_failed"] = False
-    with Pool(a.procs, initializer=_init, initargs=(str(FRAMES),)) as pool:
+    with Pool(a.procs, initializer=_init, initargs=(str(FRAMES), a.d_cap)) as pool:
         plc = pool.apply(_run_one, (PLACEBO,))
         out["placebo"] = plc                    # main-panel placebo: context only
         print(f"placebo (main panel, context): {plc}", flush=True)
@@ -280,6 +308,7 @@ def main() -> int:
     for n, r in ok.items():
         r["holm_p"] = adj.get(n)
         r["verdict"] = verdict(r, n in adj and adj[n] < ALPHA)
+        r["within_placebo_noise"] = within_placebo_noise(r, out["placebo"])
     out["scanners"] = dict(sorted(ok.items()))
     out["no_plans"] = sorted(r["name"] for r in rows if "error" not in r and not r.get("n_trades"))
     out["errors"] = {r["name"]: r["error"] for r in rows if "error" in r}
@@ -287,11 +316,12 @@ def main() -> int:
     for r in ok.values():
         counts[r["verdict"]] = counts.get(r["verdict"], 0) + 1
     out["verdict_counts"] = counts
-    OUT.write_text(json.dumps(out, indent=2, default=str), encoding="utf-8")
+    a.out.write_text(json.dumps(out, indent=2, default=str), encoding="utf-8")
     print(json.dumps({"verdict_counts": counts}, indent=2))
     for n, r in sorted(ok.items(), key=lambda kv: kv[1]["verdict"]):
         print(f"{r['verdict']:15} {n:40} n={r['n_trades']:5} sym={r['n_symbols']:3} "
-              f"d={r['mean_d']} holm={r['holm_p']} thirds={r['thirds']}")
+              f"d={r['mean_d']} holm={r['holm_p']} thirds={r['thirds']}"
+              + ("  [within placebo noise]" if r["within_placebo_noise"] else ""))
     return 0
 
 
