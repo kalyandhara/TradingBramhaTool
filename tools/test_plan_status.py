@@ -117,3 +117,47 @@ def test_limit_fill_that_gaps_through_the_stop_claims_no_r():
     limit = {"entry": 97.0, "stop": 95.0, "target": 105.0, "time_stop": 10}
     st = ps.judge(limit, "2026-10-01", _bars([FLAT, (93, 94, 92, 93)]))
     assert st["status"] == "STOP HIT" and st["r"] is None
+
+
+# ── B-183: the plan's no-edge odds ───────────────────────────────────────────
+
+def _walk_bars(n, seed=3):
+    import test_plan_baseline as tpb
+    df = tpb._walk(n, seed=seed)
+    df.insert(0, "date", pd.bdate_range("2024-01-01", periods=n))
+    return df
+
+
+def test_live_plan_carries_no_edge_odds():
+    df = _walk_bars(600)
+    entry = float(df["close"].iloc[550])
+    card = {"entry": entry, "stop": entry * 0.8, "target": entry * 1.5, "time_stop": None}
+    st = ps.judge(card, str(df["date"].iloc[550].date()), df)
+    assert st["status"] == "LIVE"
+    assert 0 <= st["null_odds"]["p_target"] <= 1 and 0 <= st["null_odds"]["p_stop"] <= 1
+    assert "no-edge at entry T" in ps.label(st)
+
+
+def test_pending_plan_carries_no_edge_odds():
+    df = _walk_bars(600)
+    top = float(df["high"].max())
+    card = {"entry": top * 1.5, "stop": top * 1.4, "target": top * 1.8, "time_stop": 10}
+    st = ps.judge(card, str(df["date"].iloc[-3].date()), df)
+    assert st["status"] == "PENDING" and st["null_odds"] is not None
+    lab = ps.label(st)
+    assert "no-edge T" in lab and "at entry" not in lab
+
+
+def test_unbaselineable_row_omits_odds_not_zero():
+    df = _walk_bars(60)
+    entry = float(df["close"].iloc[40])
+    card = {"entry": entry, "stop": entry * 0.8, "target": entry * 1.5, "time_stop": None}
+    st = ps.judge(card, str(df["date"].iloc[40].date()), df)
+    assert st["status"] == "LIVE" and st["null_odds"] is None
+    assert "no-edge" not in ps.label(st)
+
+
+def test_closed_plans_show_no_odds():
+    st = ps.judge(LONG, "2026-10-01", _bars([FLAT, (101, 111, 100, 110)]))
+    assert st["status"] == "TARGET HIT" and not st.get("null_odds")
+    assert "no-edge" not in ps.label(st)

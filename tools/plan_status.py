@@ -100,6 +100,22 @@ def _dates(df: pd.DataFrame) -> pd.Series:
     return pd.Series(pd.to_datetime(df.index).normalize(), index=df.index)
 
 
+def _null_odds(df: pd.DataFrame, entry_idx: int, entry: float, stop: float,
+               target: float, ts, side: str) -> dict | None:
+    """B-183: the plan's odds if price kept moving the way it moved before
+    `entry_idx` — forward-looking (full horizon), gross like the rest of judge.
+    None when the history is too thin to baseline; never shown as 0%."""
+    import plan_baseline as pb
+    horizon = MAX_WALK_BARS if not ts else min(MAX_WALK_BARS, int(float(ts)))
+    try:
+        nb = pb.null_plan_odds(df, entry_idx, entry, stop, target, max_bars=MAX_WALK_BARS,
+                               time_stop=(float(ts) if ts else None), side=side,
+                               n_bars=horizon + 1)
+    except Exception:
+        return None
+    return None if nb is None else {"p_target": nb["p_target"], "p_stop": nb["p_stop"]}
+
+
 def judge(card: dict, run_date: str, df: pd.DataFrame | None,
           last: float | None = None) -> dict[str, Any]:
     """Status of one plan against the bars after ``run_date``.
@@ -111,7 +127,7 @@ def judge(card: dict, run_date: str, df: pd.DataFrame | None,
     import backtest
 
     out: dict[str, Any] = {"status": "NO PLAN", "bars": None, "r": None,
-                           "side": None, "time_stop": None}
+                           "side": None, "time_stop": None, "null_odds": None}
     if not card or not has_plan(card):
         return out
     side = side_of(card)
@@ -138,6 +154,8 @@ def judge(card: dict, run_date: str, df: pd.DataFrame | None,
         out["bars"] = waited
         out["status"] = ("PENDING" if waited < backtest.FILL_MAX_WAIT
                          else "NOT FILLED")
+        if out["status"] == "PENDING":
+            out["null_odds"] = _null_odds(df, sig + 1, entry, stop, target, ts, side)
         return out
     f_idx, f_px = int(fill["idx"]), float(fill["px"])
     short = side == "short"
@@ -159,6 +177,8 @@ def judge(card: dict, run_date: str, df: pd.DataFrame | None,
     out["r"] = res["r"]
     out["status"] = {"stop": "STOP HIT", "target": "TARGET HIT",
                      "time": "EXPIRED"}.get(res["outcome"], "LIVE")
+    if out["status"] == "LIVE":                 # the odds as they stood at the fill
+        out["null_odds"] = _null_odds(df, f_idx, f_px, stop, target, ts, side)
     return out
 
 
@@ -205,6 +225,12 @@ def label(st: dict[str, Any]) -> str:
     elif st.get("bars") is not None:
         ts = st.get("time_stop")
         bits.append(f"{st['bars']}/{int(ts)} bars" if ts else f"{st['bars']} bars")
+    odds = st.get("null_odds")
+    if odds and s in ("PENDING", "LIVE"):
+        # B-183: what this plan's geometry earns with no edge — about the plan,
+        # not a claim about the scanner. LIVE odds are as of the fill.
+        bits.append(f"no-edge{' at entry' if s == 'LIVE' else ''} "
+                    f"T {odds['p_target']:.0%} / S {odds['p_stop']:.0%}")
     return " · ".join(bits)
 
 
