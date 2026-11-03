@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-11-03] study | B-183 plan-odds baseline (amended) — 8 BEATS, 2 BELOW, caveats
+- [[analyses/Plan-Odds-Baseline-Measured]]: gate on nifty500[300:500] passed on p only (mean +0.31R, heavy tail); main placebo +0.04R (p 0.0006). Robust BEATS: Flag & Pole, Rounding Bottom, Bullish CHoCH, %R Bottoming; BELOW: RSI Divergence Bull, Connors RSI2. Filed B-183a/b/c. Target-first odds well calibrated (31.0% vs 30.6–30.9%).
+
 ## [2026-11-03] study | B-203 Failed Breakdown — NULL; the one-candle wick carries the sweep edge
 - [[analyses/Failed-Breakdown-Sweep]] run as pre-registered: ALL +0.17% @20d (p 0.32), POOL +0.46% (p 0.15), neither window-stable. Same-panel one-candle Liquidity Sweep +0.60% @20d / +2.43% @60d (p 0.003). Scanner stays screen-only; overlay kept as context.
 

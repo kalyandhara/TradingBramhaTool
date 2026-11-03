@@ -163,6 +163,8 @@ normal noise.
 
 ## Outcome
 
+> **Amended re-run 2026-11-03: gate passed, verdicts written.** See [[analyses/Plan-Odds-Baseline-Measured]]: 8 BEATS (4 robust), 11 AT, 2 BELOW, 1 THIN. The first run below failed its gate.
+
 **RUN 2026-11-03: PLACEBO FAILED. No scanner verdict is written**, as pre-registered.
 `tools/plan_baseline_study.py` (`aa2f3d0`), panel 299 of 300 loaded (BAGMANE has no
 Yahoo data).

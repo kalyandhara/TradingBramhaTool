@@ -692,12 +692,12 @@ STUDIES: tuple[dict, ...] = (
     },
     {
         "item": "B-183", "tool": "plan_baseline_study.py", "date": "2026-11-03",
-        "source": "analyses/Plan-Odds-Baseline-Pre-Registration",
+        "source": "analyses/Plan-Odds-Baseline-Measured",
         "subjects": ("plan-odds no-edge baseline",),
-        "verdict": "INCONCLUSIVE",
-        "headline": ("aborted at the pre-registered placebo gate: placebo d -0.092R "
-                     "(p 4e-17), the drift-carrying null over-expects; no scanner "
-                     "verdict. A zero-drift null calibrates (+0.009, p 0.54)."),
+        "verdict": "MIXED",
+        "headline": ("amended zero-drift re-run: 8 BEATS (4 robust: Flag & Pole, Rounding "
+                     "Bottom, Bullish CHoCH, %R Bottoming), 11 AT, 2 BELOW; first run "
+                     "failed its placebo; gate passed on p only, main placebo +0.04R."),
     },
     {
         "item": "B-203", "tool": "failed_breakdown_study.py", "date": "2026-11-03",
