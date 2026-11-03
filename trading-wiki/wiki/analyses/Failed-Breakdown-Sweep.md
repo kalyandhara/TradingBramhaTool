@@ -73,4 +73,36 @@ the "resting stops" premise.
 
 ## Result
 
-*Not yet run.*
+**RUN 2026-11-03: NULL / NULL.** `tools/failed_breakdown_study.py` as pre-registered
+(`85682d2`). 258 of 300 names loaded.
+
+| Arm | events (20 s) | symbols | 10 s | **20 s** | 60 s | 20 s by window |
+|---|---|---|---|---|---|---|
+| **ALL** | 3,674 | 258 | +0.17 (p 0.16) | **+0.17 (p 0.32)** | +0.54 (p 0.11) | +2.01 / −0.99 / −0.02 |
+| **POOL** (equal lows) | 1,468 | 258 | +0.26 (p 0.24) | **+0.46 (p 0.15)** | −0.07 (p 0.92) | +1.68 / −0.70 / −0.27 |
+| *ctx* WEAK_VOL | 1,776 | 257 | −0.11 | −0.10 (p 0.68) | −0.22 | +0.84 / −0.28 / −0.74 |
+| *ctx* DIVERGENCE | 190 | 136 | +0.98 | +0.68 (p 0.46) | −0.77 | +1.78 / −0.85 / +2.19 |
+| *ctx* one-candle Liquidity Sweep | 5,143 | 257 | −0.08 | +0.60 (p 0.073) | **+2.43 (p 0.003)** | +3.33 / +0.31 / −0.66 |
+
+**Verdict: NULL on both arms.** Neither reaches p < 0.025, and neither is positive in 2 of
+the 3 windows.
+
+**Reading:**
+- The two-candle "SL candle" reclaim is a coin flip with a regime-shaped sign: it was
+  positive in the first window and flat or negative after. Pool support did not rescue
+  it.
+- The context row matters most. On the same panel and span, the registered
+  **one-candle** sweep reads +0.60% at 20 sessions and **+2.43% at 60 (p 0.003)**. That
+  reproduces B-166's +2.59% @60. What carries the edge is the **same-bar rejection
+  wick**, not the reclaim as such.
+- A stop candle that *closes* below support is a weaker signal than one whose wick is
+  rejected.
+- This agrees with B-182: plain failed breakouts above resistance were not followed by
+  weakness either (+0.11%).
+
+**Consequence, as pre-registered:** `Failed Breakdown (2-bar sweep)` stays screen-only
+(`PIPELINE_EXCLUDED`) and keeps its chart overlay, and the card now states the NULL. No
+B-203r.
+
+On the owner's gold chart (GC=F 4h, 2026-10-30 to 11-01) the overlay marks the move.
+Read the mark as context, not as a long signal.

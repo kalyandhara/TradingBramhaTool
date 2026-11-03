@@ -4606,7 +4606,7 @@ def scan_failed_breakdown(df: pd.DataFrame, max_bars_ago: int = 3) -> dict | Non
         (f"Bullish RSI divergence: +{ev['div_pts']:.0f} pts at the new low"
          if ev["divergence"] else "No RSI divergence at the new low"),
         f"Stop under the sweep low ₹{stop:.2f}; target 2R ₹{target:.2f} (a prior, unmeasured)",
-        "⚠ Unmeasured until B-203 runs; excluded from the Opportunity ranking",
+        "⚠ B-203 measured this NULL (+0.17% @20d, p 0.32); screens only, never votes",
     ]
     return {
         "pattern_type": "Failed Breakdown (2-bar sweep)",
@@ -9973,7 +9973,10 @@ SCANNERS: dict[str, dict] = {
             "(equal-lows pool or a single low), break-bar volume and RSI "
             "divergence; plan = stop under the sweep low, target 2R (a prior). "
             "Screens only — excluded from the Opportunity ranking until B-203 "
-            "measures it. PRE-REGISTERED as B-203 (Failed-Breakdown-Sweep); result pending."
+            "measures it. MEASURED (B-203, pre-registered): NULL -- all two-candle "
+            "failed breakdowns +0.17% @20d (p 0.32, 3,674 events), equal-lows pool "
+            "+0.46% (p 0.15, 1,468), neither window-stable; the one-candle Liquidity "
+            "Sweep on the same panel read +0.60% @20d / +2.43% @60d. Screens only."
         ),
         "category": "Entry",
     },

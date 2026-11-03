@@ -703,8 +703,10 @@ STUDIES: tuple[dict, ...] = (
         "item": "B-203", "tool": "failed_breakdown_study.py", "date": "2026-11-03",
         "source": "analyses/Failed-Breakdown-Sweep",
         "subjects": ("Failed Breakdown (2-bar sweep)",),
-        "verdict": "UNRECORDED",
-        "headline": "pre-registered 2026-11-03 before any forward return; not yet run.",
+        "verdict": "NULL",
+        "headline": ("pre-registered, 258 names: two-candle failed breakdown +0.17% @20d "
+                     "(p 0.32, 3,674); equal-lows pool +0.46% (p 0.15, 1,468); neither "
+                     "window-stable. Same-panel one-candle sweep +2.43% @60d (p 0.003)."),
     },
 )
 

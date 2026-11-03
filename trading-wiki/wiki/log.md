@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-11-03] study | B-203 Failed Breakdown — NULL; the one-candle wick carries the sweep edge
+- [[analyses/Failed-Breakdown-Sweep]] run as pre-registered: ALL +0.17% @20d (p 0.32), POOL +0.46% (p 0.15), neither window-stable. Same-panel one-candle Liquidity Sweep +0.60% @20d / +2.43% @60d (p 0.003). Scanner stays screen-only; overlay kept as context.
+
 ## [2026-11-03] pre-reg | B-203 Failed Breakdown (two-candle stop run)
 - [[analyses/Failed-Breakdown-Sweep]] pre-registered before any forward return: close below 20-session support, reclaimed within 3 sessions; arms ALL and POOL (equal lows); EDGE rule fixed; screen-only until measured. Prior NULL for ALL.
 
