@@ -1,12 +1,12 @@
 ---
 title: "Wiki Index"
-updated: 2026-10-28
+updated: 2026-10-29
 pages: 352
 sources_ingested: 124
 ---
 
 # Trading Wiki — Index
-_Last updated: 2026-10-28 | Pages: 352 | Sources ingested: 124_
+_Last updated: 2026-10-29 | Pages: 352 | Sources ingested: 124_
 <!-- Counting convention, stated because these two counters silently drifted to
      TWO DIFFERENT wrong numbers before 2026-08-07 (see B-27 in
      analyses/Open-Backlog.md): "Pages" = every .md under wiki/ EXCLUDING the
@@ -266,6 +266,7 @@ _Last updated: 2026-10-28 | Pages: 352 | Sources ingested: 124_
 ## Analyses
 | Page | Date | Topic |
 |------|------|-------|
+| [Failed-Breakdown-Sweep](analyses/Failed-Breakdown-Sweep.md) | 2026-11-03 | B-203: the two-candle stop run (close below support, reclaimed within 3) as a screen-only scanner and chart overlay; pre-registered 20-session edge study, ALL and equal-lows POOL arms |
 | [Bull-Trap-Detector](analyses/Bull-Trap-Detector.md) | 2026-10-23 | B-182: failed breakout + weak volume + bearish RSI divergence as one Risk flag and chart overlay; pre-registered 20-session edge study |
 | [Recommendation-Audit-Roadmap](analyses/Recommendation-Audit-Roadmap.md) | 2026-10-22 | Monthly portfolio-level audit of past screener picks: 774 daily_opportunities rows → 472 episodes (429 mature), all in a below-200-SMA regime so benchmark-relative only. Episode/next-open entry/NIFTY 500 + sector + universe baseline, MFE/MAE, cohort table, attribution, rule-based post-mortem tags, human-approved learning loop. Roadmap A0–A4 |
 | [Daily-Pipeline-Morning-Report-Roadmap](analyses/Daily-Pipeline-Morning-Report-Roadmap.md) | 2026-10-22 | Why the scheduled screener pipeline never produced a morning report: batch_screener never registered, nightly scanner JSON read by nothing, snapshot_refresh crashes daily on cp1252 '≥'. Roadmap R0 fix jobs → R1 one orchestrated run → R2 noise/confluence ranker → R3 Home card + four-step report cards → R4 delivery + track record |

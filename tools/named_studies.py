@@ -699,6 +699,13 @@ STUDIES: tuple[dict, ...] = (
                      "(p 4e-17), the drift-carrying null over-expects; no scanner "
                      "verdict. A zero-drift null calibrates (+0.009, p 0.54)."),
     },
+    {
+        "item": "B-203", "tool": "failed_breakdown_study.py", "date": "2026-11-03",
+        "source": "analyses/Failed-Breakdown-Sweep",
+        "subjects": ("Failed Breakdown (2-bar sweep)",),
+        "verdict": "UNRECORDED",
+        "headline": "pre-registered 2026-11-03 before any forward return; not yet run.",
+    },
 )
 
 

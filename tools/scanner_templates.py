@@ -4479,6 +4479,147 @@ def scan_bull_trap(df: pd.DataFrame, max_bars_ago: int = 3) -> dict | None:
     }
 
 
+# ── B-203 · Failed Breakdown — the two-candle sell-side sweep ("SL candle") ──
+# The mirror of B-182's bull trap. One candle CLOSES below support (the stop
+# run), and a later candle closes back above it. `detect_liquidity_sweep` only
+# sees the one-candle form (wick below a pool, close back above in the same
+# bar), so this two-candle reclaim was invisible to the desk. Every threshold
+# is a named prior fixed in the B-203 pre-registration
+# (trading-wiki analyses/Failed-Breakdown-Sweep.md) before any forward return.
+FB_SUP_LOOKBACK = 20     # support = lowest low of the prior 20 sessions
+FB_RECLAIM_BARS = 3      # close back above it within 3 sessions of the break
+FB_POOL_TOL_PCT = 0.75   # a pool: >= 2 lows within 0.75% of support …
+FB_POOL_MIN_TOUCHES = 2
+FB_POOL_SPACING = 3      # … at least 3 sessions apart
+FB_WEAK_VOL_X = 1.0      # break-bar volume below its prior 20-session mean
+FB_DIV_MIN_PTS = 3.0     # RSI(14) at the new low >= 3 pts ABOVE RSI at the old low
+FB_MIN_SUP_AGE = 5
+FB_MIN_GAP = 10          # at most one event per 10 sessions (per kind, as B-182)
+
+
+def failed_breakdown_events(df: pd.DataFrame, *, sup_lookback: int = FB_SUP_LOOKBACK,
+                            reclaim_bars: int = FB_RECLAIM_BARS,
+                            min_gap: int = FB_MIN_GAP) -> list[dict]:
+    """Every two-candle failed breakdown in `df`, graded.
+
+    At break bar b and reclaim bar t:
+      * S = lowest low of the `sup_lookback` sessions before b (bar `sup_bar`);
+      * close[b] < S and close[b-1] >= S — the first close below support;
+      * t = the first bar in b+1 … b+reclaim_bars that closes back ABOVE S.
+    The event is dated t, the close at which the reclaim is known.
+
+    Graded on:
+      * pool       — >= FB_POOL_MIN_TOUCHES lows of that window within
+                     FB_POOL_TOL_PCT of S, >= FB_POOL_SPACING sessions apart
+                     (resting stops, as `detect_liquidity_pools` means it);
+      * weak_vol   — volume[b] < FB_WEAK_VOL_X x mean(volume[b-20 : b]);
+      * divergence — RSI(14) at the lowest low of b … t is >= FB_DIV_MIN_PTS
+                     above RSI at sup_bar, sup_bar >= FB_MIN_SUP_AGE before b and
+                     past BT_RSI_WARMUP bars into the frame.
+    Spacing as amended for B-182: a pool event needs `min_gap` after the
+    previous pool event, any other after the previous event of either kind.
+    Uses only bars up to t — no look-ahead.
+    """
+    if df is None or len(df) < sup_lookback + 20:
+        return []
+    lo_ = df["low"].to_numpy(float)
+    c = df["close"].to_numpy(float)
+    v = df["volume"].to_numpy(float) if "volume" in df else np.zeros(len(df))
+    rsi = _rsi_series(df["close"].astype(float), 14).to_numpy()
+    n = len(df)
+    out, last_any, last_pool = [], -10**9, -10**9
+    b = max(sup_lookback, 20) + 1
+    while b < n:
+        win = lo_[b - sup_lookback:b]
+        S = float(win.min())
+        sup_bar = b - sup_lookback + int(len(win) - 1 - np.argmin(win[::-1]))
+        if not (c[b] < S and c[b - 1] >= S):
+            b += 1
+            continue
+        t = next((k for k in range(b + 1, min(b + reclaim_bars, n - 1) + 1) if c[k] > S), None)
+        if t is None:
+            b += 1
+            continue
+        near = np.flatnonzero(np.abs(win - S) / S * 100 <= FB_POOL_TOL_PCT)
+        touches, last_k = 0, -10**9
+        for k in near:
+            if k - last_k >= FB_POOL_SPACING:
+                touches += 1
+                last_k = k
+        pool = touches >= FB_POOL_MIN_TOUCHES
+        if t - (last_pool if pool else last_any) < min_gap:
+            b = t + 1
+            continue
+        vol20 = float(v[b - 20:b].mean())
+        vol_x = float(v[b] / vol20) if vol20 > 0 else None
+        trough = b + int(np.argmin(lo_[b:t + 1]))
+        r_new, r_old = rsi[trough], rsi[sup_bar]
+        div_pts = (float(r_new - r_old) if np.isfinite(r_new) and np.isfinite(r_old) else None)
+        div = (div_pts is not None and div_pts >= FB_DIV_MIN_PTS
+               and b - sup_bar >= FB_MIN_SUP_AGE and sup_bar >= BT_RSI_WARMUP)
+        out.append({"break_bar": b, "reclaim_bar": t, "sup_bar": sup_bar, "trough_bar": trough,
+                    "level": round(S, 2), "trough_low": round(float(lo_[trough]), 2),
+                    "touches": int(touches), "pool": bool(pool),
+                    "vol_x": None if vol_x is None else round(vol_x, 2),
+                    "weak_vol": bool(vol_x is not None and vol_x < FB_WEAK_VOL_X),
+                    "div_pts": None if div_pts is None else round(div_pts, 1),
+                    "divergence": bool(div)})
+        last_any = t
+        if pool:
+            last_pool = t
+        b = t + 1
+    return out
+
+
+def scan_failed_breakdown(df: pd.DataFrame, max_bars_ago: int = 3) -> dict | None:
+    """Failed Breakdown (B-203): a close below 20-session support reclaimed
+    within 3 sessions — the two-candle stop run. Fires on the latest event while
+    fresh (reclaim within `max_bars_ago`) and still above the level. Plan:
+    entry = last close, stop just under the sweep low, target 2R — a named
+    prior, unmeasured as a plan. Excluded from the Opportunity ranking until
+    B-203 measures the signal."""
+    d = df.dropna(subset=["close"])
+    evs = failed_breakdown_events(d)
+    if not evs:
+        return None
+    ev = evs[-1]
+    n = len(d)
+    bars_ago = n - 1 - ev["reclaim_bar"]
+    last = float(d["close"].iloc[-1])
+    if bars_ago > max_bars_ago or last <= ev["level"]:
+        return None
+    stop = round(ev["trough_low"] * 0.995, 2)
+    if not stop < last:
+        return None
+    target = round(last + 2.0 * (last - stop), 2)
+    base = (40.0 + (20.0 if ev["pool"] else 0.0) + (10.0 if ev["weak_vol"] else 0.0)
+            + (10.0 if ev["divergence"] else 0.0) + (10.0 if bars_ago <= 1 else 0.0))
+    dates = d.index if not isinstance(d.index, pd.RangeIndex) else None
+    when = (lambda i: str(pd.Timestamp(dates[i]).date())) if dates is not None else (lambda i: f"bar {i}")
+    reasons = [
+        f"Closed below 20-session support ₹{ev['level']:.2f} on {when(ev['break_bar'])} and "
+        f"closed back above it {ev['reclaim_bar'] - ev['break_bar']} session(s) later",
+        (f"Support was a {ev['touches']}-touch pool of equal lows — resting stops were run"
+         if ev["pool"] else "Support was a single low, not a pool of equal lows"),
+        (f"Break-bar volume {ev['vol_x']:.2f}× average — no follow-through selling"
+         if ev["weak_vol"] else f"Break-bar volume {ev['vol_x']}× average"),
+        (f"Bullish RSI divergence: +{ev['div_pts']:.0f} pts at the new low"
+         if ev["divergence"] else "No RSI divergence at the new low"),
+        f"Stop under the sweep low ₹{stop:.2f}; target 2R ₹{target:.2f} (a prior, unmeasured)",
+        "⚠ Unmeasured until B-203 runs; excluded from the Opportunity ranking",
+    ]
+    return {
+        "pattern_type": "Failed Breakdown (2-bar sweep)",
+        "tags": ["Stop run", f"₹{ev['level']:.0f}", "pool" if ev["pool"] else "single low",
+                 f"{bars_ago}d ago"],
+        "reasons": reasons,
+        "score_base": round(min(100.0, base), 1),
+        "rs_raw": _rs_raw(d),
+        "entry": round(last, 2), "stop": stop, "target": target,
+        "vol_x50d": ev["vol_x"],
+    }
+
+
 def scan_ict_setup(df: pd.DataFrame, pivot_len: int = 5,
                    lookback: int = 120,
                    min_body_ratio: float = 0.5) -> dict | None:
@@ -9818,6 +9959,21 @@ SCANNERS: dict[str, dict] = {
             "better than the wick stop. It is not where the stop is, it is that "
             "there is one — the drawdown path is part of the edge. Read the "
             "SIGNAL as measured and the STOP as a known defect."
+        ),
+        "category": "Entry",
+    },
+    "Failed Breakdown (2-bar sweep)": {
+        "fn": scan_failed_breakdown,
+        "description": (
+            "Failed breakdown (B-203) — the two-candle stop run: a close below "
+            "20-session support, reclaimed by a close back above it within 3 "
+            "sessions. The one-candle form (wick below an equal-lows pool, close "
+            "back above in the same bar) is Liquidity Sweep; this catches the "
+            "version where the stop candle CLOSES below. Card grades the support "
+            "(equal-lows pool or a single low), break-bar volume and RSI "
+            "divergence; plan = stop under the sweep low, target 2R (a prior). "
+            "Screens only — excluded from the Opportunity ranking until B-203 "
+            "measures it. PRE-REGISTERED as B-203 (Failed-Breakdown-Sweep); result pending."
         ),
         "category": "Entry",
     },

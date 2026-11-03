@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-11-03] pre-reg | B-203 Failed Breakdown (two-candle stop run)
+- [[analyses/Failed-Breakdown-Sweep]] pre-registered before any forward return: close below 20-session support, reclaimed within 3 sessions; arms ALL and POOL (equal lows); EDGE rule fixed; screen-only until measured. Prior NULL for ALL.
+
 ## [2026-11-03] build | Recommendation audit A3 — three sources, equal-weight baseline, proposals
 - [[analyses/Recommendation-Audit-Roadmap]]: shortlist vs equal-weight NIFTY 500 +0.10% (t 1.85), raw scanner hits +0.17% (t 1.81) — even with the average stock; Hidden Treasures not matured. Two rank-band proposals pending owner review.
 
