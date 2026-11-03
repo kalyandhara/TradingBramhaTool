@@ -8956,6 +8956,8 @@ if current_page == "Stock Analyzer":
                     render_scenarios(scen.build(_deep), _deep)
                 with st.expander("Conference calls"):
                     render_concalls(cached_concalls(symbol))
+                    from desk_pages import llm_filings as _llmf   # local LLM reads (LM Studio)
+                    _llmf.render(symbol)
 
                 if st.button("Add to Watchlist", key="sa_wl"):
                     db.add_watchlist_symbol(symbol, "From Stock Analyzer")
