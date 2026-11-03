@@ -17,6 +17,9 @@ committed 2026-10-25 (082f73f) before any trade was scored. In short:
   * Stability: the sign of mean d agrees in >= 2 of 3 entry-date thirds.
   * Gate: the `_B183 Placebo` arm (every 5th bar, stop 1 ATR, target 2 ATR, time
     stop 10) must have |mean d| <= 0.05R or p >= 0.05, else NO verdict is written.
+    Amendment 2 (2026-11-03): the engine's pool is drift-free, and the gate is read
+    on the disjoint panel nifty500[300:500] first; the main panel's placebo is
+    context only.
   * Verdicts: BEATS / BELOW / AT BASELINE / THIN. No tier or weight changes.
   * Prior: >= 80% AT BASELINE; none BEATS after Holm.
 
@@ -43,6 +46,9 @@ import plan_baseline as pb
 import scanner_templates as sc
 
 PANEL = (0, 300)
+#: Amendment 2 (2026-11-03): the placebo gate is read on a panel the zero-drift
+#: diagnosis never touched, BEFORE any scanner result.
+GATE_PANEL = (300, 500)
 DAYS = 1500
 MIN_SYMBOLS, MIN_TRADES = 30, 100
 ALPHA = 0.05
@@ -55,6 +61,7 @@ OUT = HERE / "cache" / "plan_baseline_study.json"
 #: Written and read only by this script (same machine, same run), never fetched
 #: from elsewhere, which is why pickle is acceptable here.
 FRAMES = HERE / "cache" / "plan_baseline_frames.pkl"
+GATE_FRAMES = HERE / "cache" / "plan_baseline_gate_frames.pkl"
 CENSUS = HERE / "scanner_plan_coverage.json"
 COMMON = dict(cost_model=bt.COST_INDIAN, signal_mode="fresh", fill_model="market",
               keep_trades=True)
@@ -214,39 +221,51 @@ def main() -> int:
     a = ap.parse_args()
     import nse_universe as nu
     import screener_pipeline as sp
-    syms = list(nu.symbols("nifty500"))[PANEL[0]:PANEL[1]]
-    frames = {}
-    for s in syms:
-        try:
-            df = sp.fetch_ohlcv(s, days=DAYS)
-        except Exception:
-            df = None
-        if df is not None and not df.empty:
-            frames[s] = df
-    FRAMES.parent.mkdir(parents=True, exist_ok=True)
-    with open(FRAMES, "wb") as fh:
-        pickle.dump(frames, fh)
-    print(f"panel: {len(frames)} of {len(syms)} symbols loaded", flush=True)
+    universe = list(nu.symbols("nifty500"))
+
+    def _load(lo: int, hi: int, path: Path) -> dict:
+        frames = {}
+        for s in universe[lo:hi]:
+            try:
+                df = sp.fetch_ohlcv(s, days=DAYS)
+            except Exception:
+                df = None
+            if df is not None and not df.empty:
+                frames[s] = df
+        path.parent.mkdir(parents=True, exist_ok=True)
+        with open(path, "wb") as fh:
+            pickle.dump(frames, fh)
+        print(f"panel [{lo}:{hi}]: {len(frames)} of {hi - lo} symbols loaded", flush=True)
+        return frames
+
+    gate_frames = _load(*GATE_PANEL, GATE_FRAMES)
+    with Pool(a.procs, initializer=_init, initargs=(str(GATE_FRAMES),)) as pool:
+        gate = pool.apply(_run_one, (PLACEBO,))
+    print(f"placebo gate [{GATE_PANEL[0]}:{GATE_PANEL[1]}]: {gate}", flush=True)
+    frames = _load(*PANEL, FRAMES)
 
     census = json.loads(CENSUS.read_text(encoding="utf-8"))
     names = planning_scanners(list(sc.SCANNERS), census)
     out: dict = {"preregistered": "2026-10-25", "pre_registration_commit": "082f73f",
+                 "amendment": "2 (2026-11-03): zero-drift pool; gate on nifty500[300:500]",
+                 "gate_panel": f"nifty500[{GATE_PANEL[0]}:{GATE_PANEL[1]}]",
+                 "gate_symbols_loaded": len(gate_frames), "placebo_gate": gate,
                  "panel": f"nifty500[{PANEL[0]}:{PANEL[1]}]", "days": DAYS,
                  "symbols_loaded": len(frames), "harness": {k: str(v) for k, v in COMMON.items()},
                  "engine": {"replays": pb.REPLAYS, "block": pb.BLOCK, "lookback": pb.LOOKBACK,
                             "min_pool": pb.MIN_POOL, "seed": pb.SEED},
                  "skipped_never_plan": sorted(set(n for n in sc.SCANNERS if not n.startswith("_"))
                                               - set(names))}
+    if "error" in gate or not placebo_passes(gate):
+        out["placebo_failed"] = True
+        OUT.write_text(json.dumps(out, indent=2, default=str), encoding="utf-8")
+        print("PLACEBO GATE FAILED -- the baseline is miscalibrated; no scanner verdict written.")
+        return 1
+    out["placebo_failed"] = False
     with Pool(a.procs, initializer=_init, initargs=(str(FRAMES),)) as pool:
         plc = pool.apply(_run_one, (PLACEBO,))
-        out["placebo"] = plc
-        print(f"placebo: {plc}", flush=True)
-        if "error" in plc or not placebo_passes(plc):
-            out["placebo_failed"] = True
-            OUT.write_text(json.dumps(out, indent=2, default=str), encoding="utf-8")
-            print("PLACEBO FAILED -- the baseline is miscalibrated; no scanner verdict written.")
-            return 1
-        out["placebo_failed"] = False
+        out["placebo"] = plc                    # main-panel placebo: context only
+        print(f"placebo (main panel, context): {plc}", flush=True)
         rows = []
         for st in pool.imap_unordered(_run_one, names):
             rows.append(st)

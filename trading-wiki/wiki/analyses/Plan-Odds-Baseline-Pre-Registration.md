@@ -129,6 +129,30 @@ Execution detail, not a design change: scanners run in parallel worker processes
 over one shared fetch of the panel. The engine's own calibration gates 1 and 2
 pass in `tools/test_plan_baseline.py` (commit `3276462`).
 
+## Amendment 2, 2026-11-03: zero-drift engine (written after the failed gate, before the re-run)
+
+Owner-approved after the first run's placebo failed (see Outcome). Fixed now, before
+any re-run:
+
+- **Engine:** the pool is **drift-free**. Within each trade's pool, every OHLC ratio
+  is multiplied by `exp(−μ)`, where μ is the mean log close-to-close ratio of the
+  pool's valid rows. The stock keeps its own volatility, ranges, gaps and 5-bar
+  clustering, but loses its trailing trend. The null is now "no information and no
+  trend". Everything else in the engine is unchanged: blocks, replays, lookback,
+  minimum pool, seed, scoring and costs.
+- **Why this is not a free choice:** the first run's diagnosis tried four nulls on the
+  placebo. This one was picked *because* it calibrated there, so the original panel's
+  placebo is no longer an independent check.
+- **New gate, on a disjoint panel:** the `_B183 Placebo` must pass the same rule
+  (|mean d| ≤ 0.05R or p ≥ 0.05) on **`nifty500[300:500]`**, a panel the diagnosis
+  never touched, before any scanner result is read. If it fails, the study stops again,
+  with no verdict.
+- **Scanner verdicts** are on the pre-registered panel (`nifty500[0:300]`), with the
+  statistic, floors, Holm family, stability rule and decision table unchanged. That
+  panel's placebo is reported as context only.
+- **The Watchlist no-edge odds** use the same amended engine.
+- **The prior is unchanged:** at least 80% AT BASELINE, and none BEATS after Holm.
+
 ## Prior (stated before the run)
 
 Most scanners land **AT BASELINE**: at least 80 % of those that clear the floors.

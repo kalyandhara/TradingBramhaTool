@@ -21,8 +21,12 @@ earned?
   * Scoring: `backtest._simulate_plan`'s fixed exit exactly — stop checked before
     target on every bar, a bar touching both is the stop, stop/target fill at
     their level, R net of the cost model, short = exact mirror.
-  * Drift is kept: the null is "no information beyond what the tape already
-    showed", the same null as the harness's random-entry baseline.
+  * Drift is REMOVED (amendment 2, 2026-11-03): every ratio in the pool is scaled
+    by exp(-mu), mu = the pool's mean log close-to-close ratio. The first run kept
+    the trailing drift and its placebo failed (-0.092R, p 4e-17): a stock that
+    rose for 500 bars was assumed to keep rising, and over that span it did not.
+    The harness's random-entry baseline samples the SAME forward period; a
+    backward-looking pool's drift is a stale forecast, not "no information".
 """
 from __future__ import annotations
 
@@ -102,6 +106,9 @@ def null_plan_odds(df: pd.DataFrame, entry_idx: int, entry: float, stop: float,
     starts = _block_starts(ratios, lo, entry_idx, block)
     if len(starts) == 0:
         return None
+    pool_ok = ~np.isnan(ratios[lo:entry_idx]).any(axis=1)
+    mu = float(np.mean(np.log(ratios[lo:entry_idx][pool_ok, 3])))
+    ratios = ratios * math.exp(-mu)                     # drift-free: vol, ranges, gaps kept
 
     rng = np.random.default_rng(seed)
     n_blocks = math.ceil(n_bars / block)

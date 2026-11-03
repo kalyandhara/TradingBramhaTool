@@ -27,8 +27,10 @@ def _walk(n: int, sigma: float = 0.015, seed: int = 1) -> pd.DataFrame:
 
 def _constant(n: int) -> pd.DataFrame:
     """Every bar is the SAME ratio row to its previous close, so every replay of
-    any pool is the exact path the real bars take."""
-    k = np.array([1.001, 1.012, 0.994, 1.002])          # open, high, low, close
+    any pool is the exact path the real bars take. The close ratio is 1.0: the
+    engine removes the pool's drift (amendment 2), and a drift-free pool is the
+    one where that removal is a no-op."""
+    k = np.array([1.001, 1.012, 0.994, 1.0])            # open, high, low, close
     prev = 100.0 * k[3] ** np.arange(n)
     return pd.DataFrame({"open": prev * k[0], "high": prev * k[1], "low": prev * k[2],
                          "close": prev * k[3], "volume": 1e6})
@@ -38,7 +40,7 @@ def test_parity_with_simulate_plan_on_a_one_block_pool():
     df = _constant(800)
     e_idx = 600
     entry = float(df["close"].iloc[e_idx - 1])            # prev close = the fill price
-    for stop, target in ((entry * 0.97, entry * 1.05), (entry * 0.999, entry * 1.5),
+    for stop, target in ((entry * 0.99, entry * 1.011), (entry * 0.999, entry * 1.5),
                          (entry * 0.9, entry * 1.01)):
         r = pb.null_plan_odds(df, e_idx, entry, stop, target, max_bars=20)
         sim = bt._simulate_plan(df, e_idx, entry, stop, target, 20)
@@ -50,9 +52,9 @@ def test_parity_with_simulate_plan_on_a_one_block_pool():
 def test_parity_is_net_of_costs_too():
     df = _constant(800)
     entry = float(df["close"].iloc[599])
-    r = pb.null_plan_odds(df, 600, entry, entry * 0.97, entry * 1.05, max_bars=20,
+    r = pb.null_plan_odds(df, 600, entry, entry * 0.99, entry * 1.011, max_bars=20,
                           cost_model=bt.COST_INDIAN)
-    sim = bt._simulate_plan(df, 600, entry, entry * 0.97, entry * 1.05, 20,
+    sim = bt._simulate_plan(df, 600, entry, entry * 0.99, entry * 1.011, 20,
                             cost_model=bt.COST_INDIAN)
     assert abs(r["exp_r"] - sim["r"]) < 1e-9
 
@@ -167,3 +169,30 @@ def test_probabilities_sum_to_one():
     r = pb.null_plan_odds(df, 700, entry, entry * 0.98, entry * 1.03, max_bars=20)
     assert r["p_target"] + r["p_stop"] + r["p_open"] == pytest.approx(1.0)
     assert r["replays"] == pb.REPLAYS and r["block"] == pb.BLOCK
+
+
+def test_pool_drift_is_removed():
+    # Amendment 2: a steady trend in the history must not leak into the null.
+    # Scaling bar i by g**i multiplies every ratio by g; the result must not move.
+    df = _walk(900)
+    g = 1.004
+    up = df.copy()
+    up[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].mul(
+        g ** np.arange(len(df)), axis=0)
+    e = 700
+    entry = float(df["open"].iloc[e])
+    a = pb.null_plan_odds(df, e, entry, entry * 0.97, entry * 1.06, max_bars=20)
+    b = pb.null_plan_odds(up, e, entry, entry * 0.97, entry * 1.06, max_bars=20)
+    assert abs(a["exp_r"] - b["exp_r"]) < 1e-9 and a["p_target"] == b["p_target"]
+
+
+def test_a_trending_pool_is_not_extrapolated():
+    # A stock that rose 0.4% a day for 500 bars gets no extra target odds for it.
+    df = _walk(900, sigma=0.01)
+    up = df.copy()
+    up[["open", "high", "low", "close"]] = df[["open", "high", "low", "close"]].mul(
+        1.004 ** np.arange(len(df)), axis=0)
+    e = 700
+    entry = float(up["open"].iloc[e])
+    r = pb.null_plan_odds(up, e, entry, entry * 0.95, entry * 1.05, max_bars=60)
+    assert abs(r["p_target"] - r["p_stop"]) < 0.08     # symmetric plan, no drift -> ~even
