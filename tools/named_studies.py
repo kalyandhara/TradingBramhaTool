@@ -694,8 +694,10 @@ STUDIES: tuple[dict, ...] = (
         "item": "B-183", "tool": "plan_baseline_study.py", "date": "2026-11-03",
         "source": "analyses/Plan-Odds-Baseline-Pre-Registration",
         "subjects": ("plan-odds no-edge baseline",),
-        "verdict": "UNRECORDED",
-        "headline": "pre-registered 2026-10-25 (082f73f) before any trade was scored; not yet run.",
+        "verdict": "INCONCLUSIVE",
+        "headline": ("aborted at the pre-registered placebo gate: placebo d -0.092R "
+                     "(p 4e-17), the drift-carrying null over-expects; no scanner "
+                     "verdict. A zero-drift null calibrates (+0.009, p 0.54)."),
     },
 )
 

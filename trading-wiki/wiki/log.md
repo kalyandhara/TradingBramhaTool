@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-11-03] study | B-183 plan-odds baseline — PLACEBO FAILED, no verdict
+- [[analyses/Plan-Odds-Baseline-Pre-Registration]]: placebo 62,817 trades / 286 names, mean d −0.092R (p 4e-17) — baseline over-expects (+0.065 vs −0.029R; p_target 35.2% vs 30.6% realised). Exploratory diagnosis on the placebo only: trailing drift is the cause; drift removed → d +0.009 (p 0.54). No scanner verdict written. Engine shipped (Watchlist no-edge odds) is affected — see the result page.
+
 ## [2026-10-30] probe | B-112 filing PDFs — text is there, a regex is not enough
 - [[analyses/Filing-PDF-Data-Probe]]: 120 PDFs, bars committed before the run. Text layer 100%, recovery 82%, hand precision 50% vs 80% bar → extractor not built; filed B-201 (anchored extractor). v1 exposed a live `amount_from` bug (`rs` inside "orders," read as `₹,`), fixed in `nse_filings_feed`.
 

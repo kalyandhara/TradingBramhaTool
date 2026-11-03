@@ -137,9 +137,50 @@ with a stable edge after costs) and the run of measured nulls since. A BELOW res
 for one or two scanners would not be surprising: some plans place stops inside
 normal noise.
 
-## Outcome (fill in later)
+## Outcome
 
-Not run.
+**RUN 2026-11-03: PLACEBO FAILED. No scanner verdict is written**, as pre-registered.
+`tools/plan_baseline_study.py` (`aa2f3d0`), panel 299 of 300 loaded (BAGMANE has no
+Yahoo data).
+
+| `_B183 Placebo` | value |
+|---|---|
+| trades / baselined symbols | 62,817 / 286 (2,297 unbaselined: pool under 250 rows) |
+| mean d (per-symbol) | **−0.092R**, t −8.97, p 4e-17. The gate is \|d\| ≤ 0.05 or p ≥ 0.05 |
+| thirds | −0.18 / −0.12 / +0.03 |
+| realised mean R vs baseline exp_r | −0.029 vs **+0.065** |
+| realised target-first vs mean p_target | 30.6% vs **35.2%** |
+
+The engine is miscalibrated on real data in one direction: it expects too much. It
+passed both synthetic gates (parity, and a random walk within 0.03R), and those walks
+had no drift.
+
+### Diagnosis (exploratory, placebo arm only, no scanner scored)
+
+Same 14,450 sampled placebo trades and 500 replays, four nulls:
+
+| null | mean d | p | p_target vs realised 30.2% |
+|---|---|---|---|
+| V0 as registered (trailing drift kept, first bar anchored at the previous close) | −0.121 | 5e-17 | 35.2% |
+| **V1 trailing drift removed** (pool close ratios rescaled to zero mean log return) | **+0.009** | **0.54** | **31.0%** |
+| V2 first bar anchored at the fill (open) | −0.041 | 0.003 | 32.8% |
+| V3 both | +0.058 | 4e-5 | 29.6% |
+
+**Cause: the pool's trailing drift.** A stock that rose over its last 500 bars is
+assumed to keep rising, and over this span (largely below the 200 SMA) it did not.
+
+The design's line, "drift kept ... the same null as the harness's random-entry
+baseline", was wrong. The random-entry baseline samples the **same forward period**
+the signals trade in, while this pool looks **backwards**, so its drift is a stale
+forecast, not "no information".
+
+Removing drift calibrates the placebo. Anchoring the first bar at the fill does not
+help.
+
+**Next step (an owner decision, not taken here):** amend the engine to a zero-drift
+null (V1). V1 was chosen *after* seeing placebo data, so the placebo on this panel is
+no longer an independent check. An amended re-run should pass the gate on a
+**disjoint panel** (`nifty500[300:500]`) before any scanner verdict is read.
 
 ## Related Pages
 
