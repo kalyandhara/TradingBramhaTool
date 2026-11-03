@@ -48,8 +48,9 @@ def with_slices(eps: pd.DataFrame) -> pd.DataFrame:
     if eps.empty:
         return eps
     d = eps.copy()
-    d["rank_band"] = pd.cut(pd.to_numeric(d["rank"], errors="coerce"), [0, 5, 20, 10**6],
-                            labels=["1-5", "6-20", "21+"]).astype(str)
+    if "rank" in d:                       # raw scanner hits carry no rank (A3)
+        d["rank_band"] = pd.cut(pd.to_numeric(d["rank"], errors="coerce"), [0, 5, 20, 10**6],
+                                labels=["1-5", "6-20", "21+"]).astype(str)
     d["flagged"] = (d.get("risk_flags", pd.Series("", index=d.index)).fillna("")
                     .astype(str).str.strip().ne("").map({True: "flagged", False: "clean"}))
     d["list_band"] = pd.cut(pd.to_numeric(d.get("appearances"), errors="coerce"),
@@ -353,7 +354,9 @@ def track_record_text(families, tr: dict | None = None, h: int = ra.HEADLINE_H) 
     or '' when no family of the card has an audited record yet. Plain text: the
     caller decides how to show it."""
     tr = _track_record_cached() if tr is None else tr
-    fams = [f for f in (families or []) if f in tr]
+    # Only families with a readable record (n >= MIN_N), at most three: a card
+    # line, not a table, and a 14-pick slice is noise either way.
+    fams = [f for f in (families or []) if f in tr and (tr[f].get("n") or 0) >= ra.MIN_N][:3]
     if not fams:
         return ""
     parts = [f"{f} {tr[f]['median_excess']:+.1f}% (n {tr[f]['n']})" for f in fams

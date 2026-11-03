@@ -278,6 +278,45 @@ Nearly all of this is one August cohort, so no weight changes are proposed.
 - **Scheduler:** job `rec_audit`, Mon–Fri 17:30, in the registry. It still has to be registered from Scheduler Hub.
 - **Monthly report:** each run rewrites `reports/audit/YYYY-MM.md`. The last run of a month freezes that month's report.
 
+### A3: three sources, equal-weight baseline, proposals log, card track record (built 2026-11-03)
+
+- **Sources, audited separately and never mixed:**
+  - Opportunity shortlist (21-session headline).
+  - Hidden Treasures (quarterly: 21/63/126/252 sessions, 63-session headline).
+  - Raw scanner hits from `scanner_run_cache`, one episode per scanner AND symbol.
+
+  `rec_audit_job.run_all` fetches every symbol once, and each source has its own tables.
+- **Equal-weight NIFTY 500 baseline:** the average constituent over the same dates,
+  leaving out a name with a suspected split inside the window. It uses today's
+  constituents, so there is a mild survivorship tilt.
+- **Proposed changes** (`audit_decisions`):
+  - Raised only from slices with n ≥ 30, an entry-week |t| ≥ 2, and presence in ≥ 2 monthly batches.
+  - Logged as pending. The owner accepts or rejects them on the page, and a rejected idea is not re-raised.
+  - Nothing changes a weight.
+- **Opportunity Hub cards** show the audited 21-session record for up to three of their
+  families (n ≥ 30 each), marked "not significant" when it is.
+
+**First A3 run (as of 2026-11-03):**
+
+| Source | Judged | vs NIFTY 500 (entry-week t) | **vs equal-weight NIFTY 500** (entry-week t) | vs Smallcap 250 |
+|---|---|---|---|---|
+| Opportunity shortlist | 529 at 21 | +0.95% (1.29) | **+0.10%**, beat 50.5% (1.85) | −1.40% |
+| Raw scanner hits | 8,040 of 12,370 at 21 | +0.86% (0.45) | **+0.17%**, beat 51.0% (1.81) | −1.56% |
+| Hidden Treasures | 0 of 172 at 63 | — | — | — |
+
+**Reading:**
+- Against the *average NIFTY 500 stock*, the shortlist and the raw scanner hits are
+  roughly even. This is the clearest confirmation yet that the gain over the
+  cap-weighted index is a size/breadth effect, not stock picking.
+- Hidden Treasures picks reach 63 sessions from about December.
+
+**Two proposals logged (pending, the owner's call):**
+- Rank 6–20: n 90, +2.95%, t 2.27, 2 months.
+- Rank 1–5: n 71, +0.26%, t 2.06, 4 months.
+
+Both are only "review weight up". They come from one regime (below the 200 SMA), and
+several slices were tested with no correction for that, so treat them as leads.
+
 ### Where the build departed from the design above
 - **Sector bars come from NSE's daily all-indices file**
   (`sector_rotation.fetch_nse_index_closes`, disk-cached). Yahoo serves only

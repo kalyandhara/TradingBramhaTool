@@ -70,3 +70,15 @@ def test_track_record_text():
 def test_every_source_has_slices():
     import rec_audit_job as job
     assert set(page.SLICES_BY_SOURCE) == set(job.SOURCES)
+
+
+def test_with_slices_handles_a_source_without_rank():
+    d = page.with_slices(pd.DataFrame({"symbol": ["A"], "scanner": ["X"], "appearances": [1]}))
+    assert "rank_band" not in d and d.loc[0, "flagged"] == "clean"
+
+
+def test_track_record_skips_thin_families_and_caps_at_three():
+    tr = {f"F{i}": {"n": 50, "median_excess": 1.0, "t_weekly": 0.5} for i in range(5)}
+    tr["Thin"] = {"n": 14, "median_excess": -5.1, "t_weekly": 3.0}
+    txt = page.track_record_text(["Thin", "F0", "F1", "F2", "F3"], tr)
+    assert "Thin" not in txt and "F3" not in txt and txt.endswith("— not significant")
