@@ -5557,9 +5557,6 @@ if current_page == "Home":
             st.session_state["home_trending_open"] = True
             st.session_state["home_trending_scroll"] = True
             st.rerun()
-        if st.button("Scanner Hub", key="home_cta_hub", width="stretch"):
-            st.session_state["current_page"] = "Scanner Hub"
-            st.rerun()
         st.markdown(
             f'<div style="font-size:11px;color:{_t["text_muted"]};margin:8px 0 10px;">'
             f'No sign-in required to browse. '
