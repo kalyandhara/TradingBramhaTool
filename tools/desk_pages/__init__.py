@@ -109,6 +109,18 @@ def home_rail(db, search_options: str = "") -> None:
         st.warning(f"Watchlist rail unavailable: {e}")
 
 
+def band_title(text: str) -> None:
+    """The small caps title over a Home band table. Side-by-side tables start
+    level only if they share it. `text` is the desk's own, not escaped."""
+    import report_style as rs
+    import streamlit as st
+    st.markdown(
+        f'<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
+        f'text-transform:uppercase;color:{rs.TOKENS["text_muted"]};padding-top:6px;">'
+        f'{text}</div>',
+        unsafe_allow_html=True)
+
+
 def home_scan_table(df, extra_cols, **kw):
     """B-180 hover rows for a Home scan table (Volume Shockers, Institutional
     volume). None when the component or the layout module is unavailable, so

@@ -4463,13 +4463,21 @@ def _darvas_window(key_prefix: str, *, compact: bool = False):
     default thresholds. Both mountings read the persisted snapshot; ↻ queues a
     background recompute (see snapshot_panel).
     """
-    st.markdown("#### 📊 Volume Shockers · Darvas")
-    st.caption(
+    # Home sets this beside Institutional volume: same title, one caption line,
+    # so the two tables start level. The detail goes under the table instead.
+    _notes = [
         "Chartink's *Volume Shockers (rising volumes) — Darvas* scan, computed "
         "locally: **volume > 2× SMA(volume,10)** *and* a **≥5% move** up or down "
         "vs the previous close. An attention list, not a signal — a box only "
         "breaks on conviction volume, but volume alone is a question, not an entry."
-    )
+    ]
+    if compact:
+        dpages.band_title("Volume Shockers · Darvas (&ge; 2x volume &middot; &ge; 5% move)")
+        st.caption("Volume above twice its 10-day average on a 5% move. "
+                   "An attention list, not a signal.")
+    else:
+        st.markdown("#### 📊 Volume Shockers · Darvas")
+        st.caption(_notes.pop())
     # Chartink applies NO liquidity floor, so its list carries names trading a few
     # thousand shares (SURYALA: 3,061). The floor defaults to 0 here for parity —
     # raise it when you want a list you can actually take size in.
@@ -4533,14 +4541,14 @@ def _darvas_window(key_prefix: str, *, compact: bool = False):
     else:
         _src = ("NSE EOD bhavcopy — yfinance had nothing newer, so this is the "
                 "last completed session.")
-    st.caption(f"Session **{_res.get('trade_date') or '—'}**. " + _src +
-               " Chartink runs intraday — compare like sessions before "
-               "concluding the filters differ.")
+    _notes.append(f"Session **{_res.get('trade_date') or '—'}**. " + _src +
+                  " Chartink runs intraday — compare like sessions before "
+                  "concluding the filters differ.")
     _n_hits = _res.get("n_hits", 0)
     _n_shown = 0 if _res.get("rows") is None else len(_res["rows"])
     _n_price = _res.get("n_price", 0)
     _n_scanned = _res.get("n_scanned", 0)
-    st.caption(
+    _notes.append(
         f"**{_n_hits}** hits"
         + (f" (showing {_n_shown} — raise *Rows*)" if _n_shown < _n_hits else "")
         + f" · {_n_price} names cleared the ±{_res.get('move_pct', 5)}% price gate "
@@ -4552,8 +4560,17 @@ def _darvas_window(key_prefix: str, *, compact: bool = False):
         # This is the one gap Chartink does not have: it holds its own volume
         # history, we fetch ours. A name too new (or unmatched on yfinance) is
         # NOT reported as "no spike" — it is reported as untested.
-        st.caption(f"⚠ {_n_price - _n_scanned} name(s) could not be tested — no "
-                   f"10-session volume history from the feed. Untested, not rejected.")
+        _notes.append(f"⚠ {_n_price - _n_scanned} name(s) could not be tested — no "
+                      f"10-session volume history from the feed. Untested, not rejected.")
+    if compact:
+        _darvas_rows_table(_res.get("rows"), key_prefix)
+        with st.expander(f"Session {_res.get('trade_date') or '—'} · {_n_hits} hits · "
+                         "how this scan works"):
+            for _note in _notes:
+                st.caption(_note)
+        return
+    for _note in _notes:
+        st.caption(_note)
     _darvas_rows_table(_res.get("rows"), key_prefix)
 
 
@@ -5251,12 +5268,7 @@ def _action_card(col, title: str, blurb: str, rows: list, target_page,
 def _render_institutional_volume(key_prefix: str) -> None:
     """PPV bars with RVOL >= 5x in the last 5 trading sessions."""
     t = rs.TOKENS
-    st.markdown(
-        f'<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
-        f'text-transform:uppercase;color:{t["text_muted"]};padding-top:6px;">'
-        f'Institutional volume (last 5 sessions &middot; PPV &ge; 5x RVOL)'
-        f'</div>',
-        unsafe_allow_html=True)
+    dpages.band_title("Institutional volume (last 5 sessions &middot; PPV &ge; 5x RVOL)")
     st.caption("Pocket pivot bars where volume exceeded 5x the 50-day average. "
                "Context, not a signal — measured edge is zero (ppv_edge_study).")
 
@@ -5568,16 +5580,10 @@ if current_page == "Home":
         # Home used to be a card grid of every page. It is now a working surface: the
         # scan that was buried three clicks deep, then the roster it feeds. Navigation
         # lives in the top ribbon, where it was already complete.
-        _darvas_window("home_vs", compact=True)
-        st.write("")
-
-        _mf_col, _iv_col = st.columns(2)
-        with _mf_col:
-            # Sector money flow, positive side only (B-60). Where the day's names sit in
-            # the bigger flow picture -- deliberately AFTER the shockers, because it is
-            # context for that list rather than a list of its own. Scan-on-click, same as
-            # above: Home never fetches on load.
-            _money_flow_window("home_smf", compact=True)
+        # Side by side: at full width these rows spent most of it on blank columns.
+        _vs_col, _iv_col = st.columns(2)
+        with _vs_col:
+            _darvas_window("home_vs", compact=True)
             st.write("")
         with _iv_col:
             # ── Institutional volume (PPV >= 5x RVOL, last 5 sessions) ───────────────
@@ -5586,6 +5592,13 @@ if current_page == "Home":
             # screen, not an alert.
             _render_institutional_volume("home_iv")
             st.write("")
+
+        # Sector money flow, positive side only (B-60). Where the day's names sit in
+        # the bigger flow picture -- deliberately AFTER the shockers, because it is
+        # context for that list rather than a list of its own. Scan-on-click, same as
+        # above: Home never fetches on load.
+        _money_flow_window("home_smf", compact=True)
+        st.write("")
 
         _render_cpr_vp("home_cpr")
         st.write("")
