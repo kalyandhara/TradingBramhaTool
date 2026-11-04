@@ -117,6 +117,8 @@ function fmtCell(c, v) {
   if (c.fmt === "x") return Number(v).toFixed(1) + "×";
   if (c.fmt === "pct") return (v > 0 ? "+" : "") + Number(v).toFixed(2) + "%";
   if (c.fmt === "num") return String(Math.round(Number(v)));
+  if (c.fmt === "px") return Number(v).toFixed(2);
+  if (c.fmt === "qty") return Math.round(Number(v)).toLocaleString("en-IN");
   return esc(v);
 }
 
@@ -157,7 +159,9 @@ function renderRows() {
              `<span></span></div>`;
   if (!rows.length) html += `<div class="empty">No names match.</div>`;
   rows.forEach((r, i) => {
-    const pc = r.day_pct == null || r.day_pct === 0 ? "" :
+    // pct_plain: the % is a distance, not a move. "-0.4% from high" sits at the
+    // high, so it must not read as a red, falling name.
+    const pc = ARGS.pct_plain || r.day_pct == null || r.day_pct === 0 ? "" :
                `color:${r.day_pct > 0 ? ARGS.good : ARGS.risk}`;
     const cur = ARGS.current && r.symbol === ARGS.current ? " cur" : "";
     html += `<div class="row${cur}" data-i="${i}" style="grid-template-columns:${cols}">` +
@@ -171,7 +175,7 @@ function renderRows() {
       `<button class="act" data-i="${i}" data-page="analyze" title="Stock Analyzer">SA</button>` +
       `</span></span>` +
       `<span class="num"><div class="px">${fmtClose(r.close)}</div>` +
-      `<div class="pc" style="${pc}">${fmtPct(r.day_pct)}${badge(r.day_pct)}</div></span>` +
+      `<div class="pc" style="${pc}">${fmtPct(r.day_pct)}${ARGS.pct_plain ? "" : badge(r.day_pct)}</div></span>` +
       (ARGS.extra_cols || []).map(c =>
         `<span class="${c.fmt === "text" ? "txt" : "num"}"` +
         (c.fmt === "text" ? ` title="${esc((r.extra || {})[c.key] || "")}"` : "") +
@@ -473,7 +477,8 @@ window.addEventListener("message", (event) => {
   root.setProperty("--accent-link", t.link || "#2563eb");
   root.setProperty("--risk", ARGS.risk || "#dc2626");
   const sig = JSON.stringify([ARGS.rows, ARGS.show_heart, ARGS.extra_cols, ARGS.pct_label,
-                              ARGS.current, ARGS.no_check, ARGS.link_mode]);
+                              ARGS.current, ARGS.no_check, ARGS.link_mode,
+                              ARGS.pct_plain]);
   if (sig !== rowsSig) {
     rowsSig = sig;
     // Keep only ticks whose rows are still shown, and tell Python whenever that

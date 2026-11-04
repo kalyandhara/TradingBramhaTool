@@ -4954,16 +4954,13 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
         _t_vol = _tabs[1] if include_volume else None
         _t_52, _t_ath = _tabs[-2], _tabs[-1]
 
-        def _tr_table(df):
-            """Render one lens as a table with the chart-icon link family."""
+        def _tr_table(df, key, pct_col="chg_pct", pct_label="Last · Day", pct_plain=False):
+            """One lens as B-180 hover rows; the chart-icon table if unavailable."""
             if df is None or df.empty:
                 st.info("Nothing qualifies in this session.")
                 return
             import sector_column as _sc
             out = _sc.attach(df.copy(), "symbol")
-            out = _with_chart_family(out, "symbol")
-            import columns as _cols
-            colcfg = dict(_chart_family_colcfg())
             # Raw-rupee turnover is RENAMED on conversion rather than aliased:
             # `turnover` and `turnover_cr` differ by 1e7, and columns.py refuses
             # to treat them as one id for exactly that reason.
@@ -4977,6 +4974,15 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
             # see which number is a day old.
             if "turnover_prev" in out.columns:
                 out["turnover_prev"] = out["turnover_prev"] / 1e7
+            import watch_rail as _wr
+            if dpages.home_scan_table(out, _wr.trend_columns(out, pct_col),
+                                      key=f"{key_prefix}_{key}", close_col="close",
+                                      pct_col=pct_col, pct_label=pct_label,
+                                      no_check=True, pct_plain=pct_plain) is not None:
+                return
+            out = _with_chart_family(out, "symbol")
+            import columns as _cols
+            colcfg = dict(_chart_family_colcfg())
             colcfg.update(_cols.configure_df(out))
             # Bespoke to this lens and used nowhere else, so left inline rather
             # than promoted to a shared id no other table would ask for.
@@ -4990,6 +4996,11 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
                                 "n_deals", "churn_share", "pct_mcap", "bars") if c in out.columns]
             out = out.drop(columns=drop)
             st.dataframe(out, width="stretch", hide_index=True, column_config=colcfg)
+
+        # The range lenses have no day move: the % slot is the distance to the
+        # extreme the list is ranked on.
+        _TO_HIGH = dict(pct_col="from_high_pct", pct_label="Close · From high", pct_plain=True)
+        _TO_LOW = dict(pct_col="from_low_pct", pct_label="Close · From low", pct_plain=True)
 
         with _t_mv:
             _mv = _lens_movers()
@@ -5012,9 +5023,9 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
                 st.caption("**EOD bhavcopy** — the live intraday feed was "
                            "unreachable, so these are last session's closes.")
             st.markdown("**Top gainers**")
-            _tr_table(_mv["gainers"])
+            _tr_table(_mv["gainers"], "tr_gain")
             st.markdown("**Top losers**")
-            _tr_table(_mv["losers"])
+            _tr_table(_mv["losers"], "tr_lose")
             # The caveat belongs ON the page, not in a wiki drawer. B-67,
             # tools/movers_edge.py, 1,215 sessions of NIFTY-500 (2021-2026).
             st.caption(
@@ -5039,7 +5050,8 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
                                  for k, n in _tal.items() if n)
                     + ".  Each spike is attributed to a filing, prop churn, deal activity, "
                       "or nothing — the list answers *why*, not only *what*.")
-                _tr_table(_vol["rows"])
+                _tr_table(_vol["rows"], "tr_spike", pct_col="day_pct",
+                          pct_label="Close · Day")
 
                 # B-37: volume share-card export
                 _vol_rows = _vol.get("raw", {}).get("rows") or _vol.get("rows")
@@ -5125,9 +5137,9 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
                        + (f" · {_w.get('n_cash_equivalents', 0)} cash-equivalent ETFs excluded"
                           if _w.get("n_cash_equivalents") else "") + ".")
             st.markdown("**At / near 52-week highs**")
-            _tr_table(_w["highs"])
+            _tr_table(_w["highs"], "tr_52h", **_TO_HIGH)
             st.markdown("**At / near 52-week lows**")
-            _tr_table(_w["lows"])
+            _tr_table(_w["lows"], "tr_52l", **_TO_LOW)
 
         with _t_ath:
             with st.spinner(f"Computing all-time extremes over the top {_tr_uni} names…"):
@@ -5140,9 +5152,9 @@ def render_trending_stocks(key_prefix: str = "tr", *, include_volume: bool = Tru
                        + ". History is bounded by what yfinance serves, so \"all-time\" "
                          "means \"as far back as the feed goes\".")
             st.markdown("**At / near all-time highs**")
-            _tr_table(_a["highs"])
+            _tr_table(_a["highs"], "tr_ath", **_TO_HIGH)
             st.markdown("**At / near all-time lows**")
-            _tr_table(_a["lows"])
+            _tr_table(_a["lows"], "tr_atl", **_TO_LOW)
 
         st.divider()
         st.caption(
@@ -5347,6 +5359,10 @@ def _render_cpr_vp(key_prefix: str) -> None:
     import sector_column as _sc
     out = pd.DataFrame(rows)
     out = _sc.attach(out, "Symbol")
+    import watch_rail as _wrl
+    _hover = dpages.home_scan_table(out.rename(columns={"Symbol": "symbol"}), _wrl.CPR_COLUMNS,
+                                    key=f"{key_prefix}_hv", close_col="Close", pct_col="Chg %",
+                                    no_check=True)
     out = _with_chart_family(out, "Symbol")
     show_cols = ["Symbol", "Close", "Chg %", "RVOL", "CPR", "Band", "Confluence",
                  "Setups", "Bias", "sector"] + _CHART_FAMILY_COLS
@@ -5365,9 +5381,10 @@ def _render_cpr_vp(key_prefix: str) -> None:
         return (f"color:{t['good']};font-weight:600" if v > 0
                 else f"color:{t['risk']};font-weight:600" if v < 0 else "")
 
-    styled = _cols.formatted(out.style.map(_chg_color, subset=["Chg %"]).map(_bias_color, subset=["Bias"]))  # B-164
-    st.dataframe(styled, width="stretch", hide_index=True, column_config=cfg,
-                 key=f"{key_prefix}_tbl")
+    if _hover is None:   # component missing: the plain table, as before
+        styled = _cols.formatted(out.style.map(_chg_color, subset=["Chg %"]).map(_bias_color, subset=["Bias"]))  # B-164
+        st.dataframe(styled, width="stretch", hide_index=True, column_config=cfg,
+                     key=f"{key_prefix}_tbl")
     st.caption(f"{len(rows)} of {_snap.get('scanned_n', '?')} names scanned · "
                f"setups: {', '.join(_cv.SETUP_LABELS.values())}.")
     _pa_send_button(key_prefix, "CPR × Volume Profile", out, "Symbol",

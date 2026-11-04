@@ -329,7 +329,40 @@ def rail_rows(frame: pd.DataFrame, source: str,
 
 
 #: Cell formats the watch_rail component knows how to draw for scan tables.
-SCAN_FORMATS = ("x", "pct", "date", "text", "num")
+SCAN_FORMATS = ("x", "pct", "date", "text", "num", "px", "qty")
+
+#: The CPR x Volume Profile table's own columns, after Close and Chg %.
+CPR_COLUMNS = [
+    {"key": "RVOL", "label": "RVOL ×", "fmt": "x", "width": 58},
+    {"key": "CPR", "label": "CPR", "fmt": "text", "width": 90},
+    {"key": "Band", "label": "Band", "fmt": "text", "width": 64},
+    {"key": "Confluence", "label": "Confluence", "fmt": "text", "width": 150},
+    {"key": "Setups", "label": "Setups", "fmt": "text", "width": 170},
+    {"key": "Bias", "label": "Bias", "fmt": "text", "width": 64},
+    {"key": "sector", "label": "Sector", "fmt": "text", "width": 140},
+]
+
+#: Every column a "What moved today" lens can carry, in display order. The
+#: lenses share one renderer and differ by source (live vs EOD), so a lens shows
+#: the subset its frame actually has.
+TREND_COLUMNS = [
+    {"key": "multiple", "label": "Vol ×", "fmt": "x", "width": 56},
+    {"key": "range_high", "label": "High", "fmt": "px", "width": 70},
+    {"key": "range_low", "label": "Low", "fmt": "px", "width": 70},
+    {"key": "from_high_pct", "label": "From high", "fmt": "pct", "width": 70},
+    {"key": "from_low_pct", "label": "From low", "fmt": "pct", "width": 70},
+    {"key": "turnover_cr", "label": "Turnover ₹Cr", "fmt": "px", "width": 84},
+    {"key": "turnover_prev", "label": "Turnover ₹Cr (prev)", "fmt": "px", "width": 84},
+    {"key": "volume", "label": "Volume", "fmt": "qty", "width": 90},
+    {"key": "volume_prev", "label": "Volume (prev)", "fmt": "qty", "width": 90},
+    {"key": "cause", "label": "Cause", "fmt": "text", "width": 120},
+    {"key": "sector", "label": "Sector", "fmt": "text", "width": 150},
+]
+
+
+def trend_columns(df: pd.DataFrame, pct_col: str) -> list[dict]:
+    """The `TREND_COLUMNS` this lens has, minus the one in the % slot."""
+    return [c for c in TREND_COLUMNS if c["key"] in df.columns and c["key"] != pct_col]
 
 
 def scan_rows(df: pd.DataFrame | None, extra_cols: list[dict], *, close_col: str,

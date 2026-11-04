@@ -211,10 +211,14 @@ def _go_to(page: str, symbol: str) -> None:
 
 
 def scan_table(df, extra_cols: list[dict], *, key: str, close_col: str,
-               pct_col: str, pct_label: str = "Close · Day") -> list[str] | None:
+               pct_col: str, pct_label: str = "Close · Day",
+               no_check: bool = False, pct_plain: bool = False) -> list[str] | None:
     """A scan's hits in the watch_rail component: the rail's rows and hover
     chart, plus the scan's own columns. Returns the ticked symbols, or None
-    when the component is unavailable so the caller draws its plain table."""
+    when the component is unavailable so the caller draws its plain table.
+
+    `no_check` drops the ticks, for tables with nothing to do with a selection;
+    `pct_plain` draws the % uncoloured, for a distance rather than a move."""
     comp = _rail_component()
     if comp is None:
         return None
@@ -223,6 +227,7 @@ def scan_table(df, extra_cols: list[dict], *, key: str, close_col: str,
     t = rs.TOKENS
     value = comp(
         rows=rows, show_heart=False, extra_cols=extra_cols, pct_label=pct_label,
+        no_check=no_check, pct_plain=pct_plain,
         good=rs.tone_colors("good")[0], risk=rs.tone_colors("risk")[0],
         theme={"surface": t["surface"], "surface_alt": t["surface_alt"],
                "border": t["border"], "text": t["text"],

@@ -296,3 +296,30 @@ def test_candidate_frame_prices_from_stored_closes():
     assert f.loc[f.symbol == "SYRMA", "close"].item() == 110.0
     assert math.isclose(f.loc[f.symbol == "SYRMA", "day_pct"].item(), 10.0)
     assert math.isnan(f.loc[f.symbol == "CYIENT", "close"].item())
+
+
+# ── "What moved today" lenses and CPR: the rest of Home's stock tables ────────
+def test_trend_columns_keep_only_what_the_lens_has():
+    df = pd.DataFrame(columns=["symbol", "close", "from_high_pct", "from_low_pct",
+                               "range_high", "range_low", "sector"])
+    keys = [c["key"] for c in wr.trend_columns(df, "from_high_pct")]
+    assert keys == ["range_high", "range_low", "from_low_pct", "sector"]
+
+
+def test_trend_columns_keep_the_prev_session_labels_apart():
+    df = pd.DataFrame(columns=["symbol", "close", "chg_pct", "turnover_prev", "volume_prev"])
+    labels = [c["label"] for c in wr.trend_columns(df, "chg_pct")]
+    assert labels == ["Turnover ₹Cr (prev)", "Volume (prev)"]
+
+
+def test_every_table_column_uses_a_known_format():
+    assert {c["fmt"] for c in wr.TREND_COLUMNS + wr.CPR_COLUMNS} <= set(wr.SCAN_FORMATS)
+
+
+def test_cpr_rows_fill_the_rail_slots():
+    df = pd.DataFrame({"symbol": ["JYOTICNC"], "Close": [1004.4], "Chg %": [6.69],
+                       "RVOL": [3.16], "Bias": ["bullish"]})
+    r = wr.scan_rows(df, wr.CPR_COLUMNS, close_col="Close", pct_col="Chg %")[0]
+    assert (r["close"], r["day_pct"]) == (1004.4, 6.69)
+    assert r["extra"]["RVOL"] == 3.16 and r["extra"]["Bias"] == "bullish"
+    assert r["extra"]["Band"] is None
