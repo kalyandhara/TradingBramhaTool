@@ -5572,6 +5572,9 @@ if current_page == "Home":
         dpages.home_scanner_thumb(_hub_hits, _hub_name)
         _oi_recs, _oi_date = cached_oi_momentum_scan()
         dpages.home_oi_thumb(_oi_recs, _oi_date)
+        _mf_meta, _mf_grid = snapshot_panel("sector_money_flow", key="home_mf_thumb",
+                                             compact=True)
+        dpages.home_mf_thumb(_mf_grid)
 
     # B-179: the watchlist roster that closed Home became the left rail.
     with _slots.left:
@@ -5600,13 +5603,6 @@ if current_page == "Home":
             # screen, not an alert.
             _render_institutional_volume("home_iv")
             st.write("")
-
-        # Sector money flow, positive side only (B-60). Where the day's names sit in
-        # the bigger flow picture -- deliberately AFTER the shockers, because it is
-        # context for that list rather than a list of its own. Scan-on-click, same as
-        # above: Home never fetches on load.
-        _money_flow_window("home_smf", compact=True)
-        st.write("")
 
         _render_cpr_vp("home_cpr")
         st.write("")

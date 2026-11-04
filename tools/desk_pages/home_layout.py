@@ -618,3 +618,69 @@ def render_oi_momentum_thumb(recs: list[dict], trade_date) -> None:
     if st.button("OI Momentum →", key="home_right_oi_nav", width="stretch"):
         st.session_state["current_page"] = "OI Momentum"
         st.rerun()
+
+
+def render_money_flow_thumb(grid) -> None:
+    """Compact Sector Money Flow card for the right rail.
+
+    Shows a bullish/bearish sector-breadth bar and the top positive and
+    bottom negative sectors as colour-coded chips. Full ridgeline and
+    full grid live on the Sector Money Flow page."""
+    t = rs.TOKENS
+    band = (f'background:{t["surface_alt"]};border:1px solid {t["border"]};'
+            f'border-radius:8px;padding:8px 10px 6px;margin-bottom:8px;')
+    header_html = (
+        f'<div style="font-size:10px;font-weight:700;letter-spacing:.07em;'
+        f'text-transform:uppercase;color:{t["text_muted"]};margin-bottom:4px;">'
+        f'Sector Money Flow · last month</div>'
+    )
+    if grid is None or grid.get("error") or (grid.get("rows") is None):
+        body_html = (f'<div style="font-size:11px;color:{t["text_muted"]};">'
+                     f'No data yet — press ↻.</div>')
+    else:
+        df = grid["rows"]
+        if df.empty:
+            body_html = (f'<div style="font-size:11px;color:{t["text_muted"]};">'
+                         f'No sectors with enough history.</div>')
+        else:
+            col0 = grid["columns"][0]
+            pos_df = df[df[col0] > 0].head(4)
+            neg_df = df[df[col0] <= 0].tail(3)
+            n_pos = int((df[col0] > 0).sum())
+            n_tot = len(df)
+            bull_pct = round(n_pos / n_tot * 100) if n_tot else 0
+            bear_pct = 100 - bull_pct
+            bar_html = (
+                f'<div style="display:flex;height:5px;border-radius:3px;overflow:hidden;'
+                f'margin-bottom:4px;">'
+                f'<div style="flex:{bull_pct};background:#22c55e;"></div>'
+                f'<div style="flex:{bear_pct};background:#ef4444;"></div>'
+                f'</div>'
+                f'<div style="font-size:10px;color:{t["text_muted"]};margin-bottom:5px;">'
+                f'{n_pos} of {n_tot} sectors positive</div>'
+            )
+
+            def _chip(name: str, cmf: float, color: str) -> str:
+                label = name[:14] + "…" if len(name) > 14 else name
+                chip_css = (f'display:inline-block;font-size:10px;font-weight:500;'
+                            f'background:{t["surface"]};border:1px solid {color}44;'
+                            f'border-radius:4px;padding:1px 5px;margin:1px 2px 1px 0;'
+                            f'color:{color};white-space:nowrap;')
+                return f'<span style="{chip_css}" title="{name} CMF {cmf:.3f}">{label}</span>'
+
+            pos_chips = "".join(_chip(r["sector"], r[col0], "#22c55e")
+                                for _, r in pos_df.iterrows())
+            neg_chips = "".join(_chip(r["sector"], r[col0], "#ef4444")
+                                for _, r in neg_df.iterrows())
+            body_html = bar_html
+            if pos_chips:
+                body_html += (f'<div style="font-size:9px;color:{t["text_muted"]};'
+                              f'margin:2px 0 1px;">In-flow</div>{pos_chips}')
+            if neg_chips:
+                body_html += (f'<div style="font-size:9px;color:{t["text_muted"]};'
+                              f'margin:4px 0 1px;">Out-flow</div>{neg_chips}')
+    st.markdown(f'<div style="{band}">{header_html}{body_html}</div>',
+                unsafe_allow_html=True)
+    if st.button("Sector Map →", key="home_right_mf_nav", width="stretch"):
+        st.session_state["current_page"] = "Sector Map"
+        st.rerun()

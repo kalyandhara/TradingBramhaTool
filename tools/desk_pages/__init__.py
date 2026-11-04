@@ -160,3 +160,12 @@ def home_oi_thumb(recs: list, trade_date) -> None:
     except Exception:
         import logging
         logging.getLogger(__name__).exception("oi momentum thumb failed")
+
+
+def home_mf_thumb(grid) -> None:
+    """Right-rail thumbnail: Sector Money Flow breadth + sector chips."""
+    try:
+        importlib.import_module(f"{__name__}.home_layout").render_money_flow_thumb(grid)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("money flow thumb failed")
