@@ -503,3 +503,118 @@ def render_rail(db, search_options: str = "") -> None:
         if st.button("Open Watchlist →", key="home_wl_open"):
             st.session_state["current_page"] = "Watchlist"
             st.rerun()
+
+
+# ── Right-rail thumbnail cards ────────────────────────────────────────────────
+
+def render_scanner_hub_thumb(hits: list[dict], scanner_name: str) -> None:
+    """Compact Scanner Hub summary card for the right rail.
+
+    Shows the scanner name, hit count, and up to 8 symbol chips so the user
+    can see at a glance what the last run found. The full grid lives on
+    Scanner Hub; this is the thumbnail only."""
+    t = rs.TOKENS
+    band = f'background:{t["surface_alt"]};border:1px solid {t["border"]};'
+    band += f'border-radius:8px;padding:8px 10px 6px;margin-bottom:8px;'
+    name_html = (
+        f'<div style="font-size:10px;font-weight:700;letter-spacing:.07em;'
+        f'text-transform:uppercase;color:{t["text_muted"]};margin-bottom:4px;">'
+        f'Scanner Hub</div>'
+        f'<div style="font-size:12px;font-weight:600;color:{t["text"]};'
+        f'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;'
+        f'margin-bottom:4px;" title="{scanner_name}">{scanner_name}</div>'
+    )
+    n = len(hits)
+    if not hits:
+        body_html = (f'<div style="font-size:11px;color:{t["text_muted"]};">'
+                     f'No results — run a scanner.</div>')
+    else:
+        chip_css = (f'display:inline-block;font-size:11px;font-weight:600;'
+                    f'background:{t["surface"]};border:1px solid {t["border"]};'
+                    f'border-radius:4px;padding:1px 5px;margin:1px 2px 1px 0;'
+                    f'color:{t["text"]};')
+        chips = "".join(
+            f'<span style="{chip_css}">'
+            f'{h["symbol"].upper().replace(".NS","")}</span>'
+            for h in hits[:8]
+        )
+        more = f' <span style="font-size:10px;color:{t["text_muted"]};">+{n-8} more</span>' if n > 8 else ""
+        body_html = (
+            f'<div style="font-size:11px;color:{t["text_muted"]};margin-bottom:4px;">'
+            f'{n} hit{"s" if n != 1 else ""}</div>'
+            f'<div style="line-height:1.6;">{chips}{more}</div>'
+        )
+    st.markdown(f'<div style="{band}">{name_html}{body_html}</div>',
+                unsafe_allow_html=True)
+    if st.button("Scanner Hub →", key="home_right_scan_nav", width="stretch"):
+        st.session_state["current_page"] = "Scanner Hub"
+        st.rerun()
+
+
+def render_oi_momentum_thumb(recs: list[dict], trade_date) -> None:
+    """Compact OI Momentum summary card for the right rail.
+
+    Shows a bullish/bearish breadth bar and up to 4 names per key quadrant.
+    The full page has filters, tables and index futures; this is the
+    thumbnail only."""
+    import nse_oi_momentum as oim
+    t = rs.TOKENS
+    band = (f'background:{t["surface_alt"]};border:1px solid {t["border"]};'
+            f'border-radius:8px;padding:8px 10px 6px;margin-bottom:8px;')
+    date_str = trade_date.strftime("%d %b") if hasattr(trade_date, "strftime") else str(trade_date or "")
+    header_html = (
+        f'<div style="font-size:10px;font-weight:700;letter-spacing:.07em;'
+        f'text-transform:uppercase;color:{t["text_muted"]};margin-bottom:4px;">'
+        f'OI Momentum · {date_str}</div>'
+    )
+    if not recs:
+        body_html = (f'<div style="font-size:11px;color:{t["text_muted"]};">'
+                     f'F&amp;O bhavcopy unavailable.</div>')
+    else:
+        b = oim.breadth(recs)
+        lb = b[oim.LONG_BUILDUP]
+        sb = b[oim.SHORT_BUILDUP]
+        sc = b[oim.SHORT_COVERING]
+        lu = b[oim.LONG_UNWINDING]
+        total = lb + sb + sc + lu or 1
+        bull_pct = round((lb + sc) / total * 100)
+        bear_pct = 100 - bull_pct
+        # Mini breadth bar
+        bar_html = (
+            f'<div style="display:flex;height:5px;border-radius:3px;overflow:hidden;'
+            f'margin-bottom:6px;">'
+            f'<div style="flex:{bull_pct};background:#22c55e;"></div>'
+            f'<div style="flex:{bear_pct};background:#ef4444;"></div>'
+            f'</div>'
+            f'<div style="display:flex;justify-content:space-between;'
+            f'font-size:10px;color:{t["text_muted"]};margin-bottom:6px;">'
+            f'<span>&#x25B2; {lb} built · {sc} cov</span>'
+            f'<span>{sb} built · {lu} unw &#x25BC;</span>'
+            f'</div>'
+        )
+        # Top names per quadrant
+        def _chips(quadrant: str, color: str) -> str:
+            names = [r["symbol"].replace(".NS", "")
+                     for r in recs if r.get("reading") == quadrant][:4]
+            if not names:
+                return ""
+            chip_css = (f'display:inline-block;font-size:10px;font-weight:600;'
+                        f'background:{t["surface"]};border:1px solid {color}44;'
+                        f'border-radius:4px;padding:1px 4px;margin:1px 2px 1px 0;'
+                        f'color:{color};')
+            return "".join(f'<span style="{chip_css}">{s}</span>' for s in names)
+
+        lb_chips = _chips(oim.LONG_BUILDUP, "#22c55e")
+        sb_chips = _chips(oim.SHORT_BUILDUP, "#ef4444")
+        body_html = bar_html
+        if lb_chips:
+            body_html += (f'<div style="font-size:9px;color:{t["text_muted"]};'
+                          f'margin:2px 0 1px;">Long build-up</div>{lb_chips}')
+        if sb_chips:
+            body_html += (f'<div style="font-size:9px;color:{t["text_muted"]};'
+                          f'margin:4px 0 1px;">Short build-up</div>{sb_chips}')
+    st.markdown(f'<div style="{band}">{header_html}{body_html}</div>',
+                unsafe_allow_html=True)
+    if st.button("OI Momentum →", key="home_right_oi_nav", width="stretch"):
+        st.session_state["current_page"] = "OI Momentum"
+        st.rerun()

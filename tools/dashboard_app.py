@@ -3592,7 +3592,8 @@ def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -
     )
 
     # Reasons: warning lines in amber, confirmation lines in green — each on its
-    # own row inside the card body.
+    # own row inside the card body. B-183c's plan-odds line rides at the end.
+    import plan_odds_labels
     reasons_html = "".join(
         (f'<div style="display:flex;align-items:baseline;margin-bottom:4px;'
          f'font-size:12px;color:#b45309;">'
@@ -3603,7 +3604,7 @@ def _render_scanner_card(card: dict, scanner_name: str, header_html: str = "") -
          f'font-size:12px;color:#5c4a3a;">'
          f'<span style="color:#166534;font-weight:700;margin-right:5px;flex-shrink:0;">✓</span>'
          f'{r}</div>')
-        for r in card.get("reasons", [])
+        for r in [*card.get("reasons", []), *plan_odds_labels.card_lines(scanner_name)]
     )
 
     # Score ring only when the card carries a graded score + signal.
@@ -5560,10 +5561,17 @@ if current_page == "Home":
             st.session_state["current_page"] = "Scanner Hub"
             st.rerun()
         st.markdown(
-            f'<div style="font-size:11px;color:{_t["text_muted"]};margin:8px 0 18px;">'
+            f'<div style="font-size:11px;color:{_t["text_muted"]};margin:8px 0 10px;">'
             f'No sign-in required to browse. '
             f'<b>For research and educational purposes only — not investment advice.</b>'
             f'</div>', unsafe_allow_html=True)
+        # Thumbnail cards: last scanner run + OI momentum breadth.
+        # Read-only: both pull already-cached data, no fetch on load.
+        _hub_hits = st.session_state.get("hub_results") or []
+        _hub_name = st.session_state.get("hub_scanner_ran", "")
+        dpages.home_scanner_thumb(_hub_hits, _hub_name)
+        _oi_recs, _oi_date = cached_oi_momentum_scan()
+        dpages.home_oi_thumb(_oi_recs, _oi_date)
 
     # B-179: the watchlist roster that closed Home became the left rail.
     with _slots.left:

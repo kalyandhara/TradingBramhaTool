@@ -142,3 +142,21 @@ def sa_candidate_table(lst, **kw):
         import logging
         logging.getLogger(__name__).exception("candidate table failed")
         return None
+
+
+def home_scanner_thumb(hits: list, scanner_name: str) -> None:
+    """Right-rail thumbnail: last Scanner Hub run summary."""
+    try:
+        importlib.import_module(f"{__name__}.home_layout").render_scanner_hub_thumb(hits, scanner_name)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("scanner thumb failed")
+
+
+def home_oi_thumb(recs: list, trade_date) -> None:
+    """Right-rail thumbnail: OI Momentum breadth + top names."""
+    try:
+        importlib.import_module(f"{__name__}.home_layout").render_oi_momentum_thumb(recs, trade_date)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("oi momentum thumb failed")
