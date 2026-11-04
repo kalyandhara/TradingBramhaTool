@@ -684,3 +684,175 @@ def render_money_flow_thumb(grid) -> None:
     if st.button("Sector Map →", key="home_right_mf_nav", width="stretch"):
         st.session_state["current_page"] = "Sector Map"
         st.rerun()
+
+
+# ── Shared helpers for Sector Map thumbnails ──────────────────────────────────
+
+def _sm_band_html(t: dict, title: str) -> str:
+    return (f'<div style="background:{t["surface_alt"]};border:1px solid {t["border"]};'
+            f'border-radius:8px;padding:8px 10px 6px;margin-bottom:8px;">'
+            f'<div style="font-size:10px;font-weight:700;letter-spacing:.07em;'
+            f'text-transform:uppercase;color:{t["text_muted"]};margin-bottom:4px;">'
+            f'{title}</div>')
+
+
+def _sm_chips(names: list[str], values: list[float | None], color: str, t: dict,
+              fmt: str = "{:+.1f}%") -> str:
+    chip_css = (f'display:inline-flex;align-items:center;gap:3px;font-size:10px;'
+                f'font-weight:500;background:{t["surface"]};border:1px solid {color}44;'
+                f'border-radius:4px;padding:1px 5px;margin:1px 2px 1px 0;color:{color};'
+                f'white-space:nowrap;')
+    out = ""
+    for name, val in zip(names, values):
+        label = name[:13] + "…" if len(name) > 13 else name
+        val_str = (fmt.format(val) if val is not None else "")
+        out += (f'<span style="{chip_css}" title="{name}">'
+                f'{label}'
+                f'{"&nbsp;<span style=\'font-size:9px;opacity:.8\'>" + val_str + "</span>" if val_str else ""}'
+                f'</span>')
+    return out
+
+
+def _sm_not_built(t: dict) -> str:
+    return (f'<div style="font-size:11px;color:{t["text_muted"]};">'
+            f'Not built yet — visit Sector Map.</div>')
+
+
+def render_sector_heatmap_thumb(sector_data: dict) -> None:
+    """Compact 1D sector performance heatmap card for the right rail."""
+    t = rs.TOKENS
+    html = _sm_band_html(t, "Sector Heatmap · 1D")
+    if not sector_data:
+        html += _sm_not_built(t)
+    else:
+        import snapshot_registry as _snapreg
+        from desk_pages.stock_panels import _period_return  # noqa: PLC0415
+        rows = []
+        for ticker, name in _snapreg.SECTOR_DISPLAY_NAMES.items():
+            df_s = sector_data.get(ticker)
+            if df_s is None:
+                continue
+            ret = _period_return(df_s, 1)
+            if ret is not None:
+                rows.append((name, ret))
+        rows.sort(key=lambda x: x[1], reverse=True)
+        top = rows[:3]
+        bot = rows[-3:]
+        if top:
+            names_t, vals_t = zip(*top)
+            html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:2px 0 1px;">'
+                     f'Top</div>' + _sm_chips(list(names_t), list(vals_t), "#22c55e", t))
+        if bot:
+            names_b, vals_b = zip(*bot)
+            html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:4px 0 1px;">'
+                     f'Bottom</div>' + _sm_chips(list(names_b), list(vals_b), "#ef4444", t))
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)
+    if st.button("Sector Map →", key="home_right_hm_nav", width="stretch"):
+        st.session_state["current_page"] = "Sector Map"
+        st.rerun()
+
+
+def render_sector_ranking_thumb() -> None:
+    """Compact Sector Ranking card — only renders data if already built this session."""
+    t = rs.TOKENS
+    html = _sm_band_html(t, "Sector Ranking · rotation + health")
+    if not st.session_state.get("srk_ran"):
+        html += _sm_not_built(t)
+    else:
+        try:
+            import sector_ranking as _srk
+            g = _srk.ranking_grid(_srk.GROUPINGS.get(
+                st.session_state.get("srk_group", "industry"), "nifty500"),
+                smap=_srk.group_map(st.session_state.get("srk_group", "industry")))
+            df = g.get("rows")
+            if g.get("error") or df is None or df.empty:
+                html += (f'<div style="font-size:11px;color:{t["text_muted"]};">'
+                         f'{g.get("error") or "No data."}</div>')
+            else:
+                top = df.head(3)
+                bot = df.tail(3)
+                html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:2px 0 1px;">'
+                         f'Inflow</div>' +
+                         _sm_chips(list(top["sector"]), list(top["chg_d"]), "#22c55e", t))
+                html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:4px 0 1px;">'
+                         f'Outflow</div>' +
+                         _sm_chips(list(bot["sector"]), list(bot["chg_d"]), "#ef4444", t))
+        except Exception:
+            html += _sm_not_built(t)
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)
+    if st.button("Sector Map →", key="home_right_srk_nav", width="stretch"):
+        st.session_state["current_page"] = "Sector Map"
+        st.rerun()
+
+
+def render_rs_leadership_thumb() -> None:
+    """Compact RS Leadership card — only renders data if already built this session."""
+    t = rs.TOKENS
+    html = _sm_band_html(t, "RS Leadership")
+    if not st.session_state.get("rsl_ran"):
+        html += _sm_not_built(t)
+    else:
+        try:
+            import sector_rs_leadership as _rsl
+            g = _rsl.grid(st.session_state.get("srk_group", "industry"))
+            df = g.get("rows") if isinstance(g, dict) else g
+            if df is None or (hasattr(df, "empty") and df.empty):
+                html += _sm_not_built(t)
+            else:
+                top = df.head(3)
+                html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:2px 0 1px;">'
+                         f'Leading (RS T-0)</div>' +
+                         _sm_chips(list(top["group"]), list(top["rs_t0"]),
+                                   "#22c55e", t, fmt="{:.0f}"))
+                rising = df[df["change"] > 0].sort_values("change", ascending=False).head(3)
+                if not rising.empty:
+                    html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:4px 0 1px;">'
+                             f'Rising ▲</div>' +
+                             _sm_chips(list(rising["group"]), list(rising["change"]),
+                                       "#22c55e", t, fmt="{:+.1f}"))
+        except Exception:
+            html += _sm_not_built(t)
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)
+    if st.button("Sector Map →", key="home_right_rsl_nav", width="stretch"):
+        st.session_state["current_page"] = "Sector Map"
+        st.rerun()
+
+
+def render_turnover_heatmap_thumb() -> None:
+    """Compact Turnover Heatmap card — only renders data if already built this session."""
+    t = rs.TOKENS
+    html = _sm_band_html(t, "Turnover Heatmap · last 15 sessions")
+    if not st.session_state.get("tah_ran"):
+        html += _sm_not_built(t)
+    else:
+        try:
+            import sector_turnover_heatmap as _tah
+            g = _tah.grid(st.session_state.get("srk_group", "sector"))
+            if g.get("error"):
+                html += (f'<div style="font-size:11px;color:{t["text_muted"]};">'
+                         f'{g["error"]}</div>')
+            else:
+                ad = g["ad"]
+                # first column = today, sort by it
+                col0 = ad.columns[0]
+                today = ad[col0].dropna().sort_values(ascending=False)
+                top = today.head(3)
+                bot = today.tail(3)
+                html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:2px 0 1px;">'
+                         f'A/D top</div>' +
+                         _sm_chips(list(top.index), list(top.values), "#22c55e", t,
+                                   fmt="{:+.0f}%"))
+                html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:4px 0 1px;">'
+                         f'A/D bottom</div>' +
+                         _sm_chips(list(bot.index), list(bot.values), "#ef4444", t,
+                                   fmt="{:+.0f}%"))
+        except Exception:
+            html += _sm_not_built(t)
+    html += "</div>"
+    st.markdown(html, unsafe_allow_html=True)
+    if st.button("Sector Map →", key="home_right_tah_nav", width="stretch"):
+        st.session_state["current_page"] = "Sector Map"
+        st.rerun()

@@ -5572,6 +5572,15 @@ if current_page == "Home":
         _mf_meta, _mf_grid = snapshot_panel("sector_money_flow", key="home_mf_thumb",
                                              compact=True)
         dpages.home_mf_thumb(_mf_grid)
+        # Sector Map thumbnails: heatmap from stored snapshot; the other three
+        # only show data if the user has built them this session (expensive fetches).
+        _si_meta, _si_payload = snapshot_panel("sector_index_data", key="home_si_thumb",
+                                               compact=True)
+        _si_data = (_si_payload or {}).get("sector_data") or {}
+        dpages.home_sector_heatmap_thumb(_si_data)
+        dpages.home_sector_ranking_thumb()
+        dpages.home_rs_leadership_thumb()
+        dpages.home_turnover_heatmap_thumb()
 
     # B-179: the watchlist roster that closed Home became the left rail.
     with _slots.left:
