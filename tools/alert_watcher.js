@@ -7,10 +7,13 @@
  * *state transitions* in the signal ("indicator-wise pattern buildup"), dedupes
  * against a persisted state file, and DELIVERS the triggered alert.
  *
- * Phase 1 delivery is dry-run only: it logs to the console and appends a JSONL
- * feed. Out-of-band delivery (email / Telegram) is deliberately stubbed — sending
- * messages on the user's behalf needs an explicit channel choice, so those
- * adapters refuse until wired.
+ * Delivery: `log` (console + JSONL feed) and `email` (one batch per pass, via
+ * alert_email_send.py). Telegram is still a stub.
+ *
+ * BLIND passes: when every symbol's fetch fails (chart_server not running), the
+ * pass checked nothing. That used to log "checked 0" and exit 0, so the task
+ * looked healthy for a whole session while watching nothing. Now a blind pass
+ * exits 2 (the .bat logs FAILED) and emails ONE notice per day.
  *
  * Usage:
  *   node alert_watcher.js --once                 # single pass, then exit
@@ -37,6 +40,26 @@ function loadJSON(p, fallback) {
 }
 
 function nowISO() { return new Date().toISOString(); }
+
+// ── Session gate (IST, not machine time) ───────────────────────────────────────
+// The desk PC runs on US Eastern time, so a schtasks window of "09:15-15:45" was
+// 18:45-01:15 IST: every NSE pass ran after the close. The task now repeats all
+// day and each symbol is gated here against ITS market's clock, which also
+// survives US daylight-saving changes. Crypto has no session.
+const IST_OFFSET_MS = 5.5 * 3600 * 1000;
+const NSE_OPEN = 9 * 60 + 15, NSE_CLOSE = 15 * 60 + 45;   // 15:30 close + one settle pass
+
+function marketOf(w) {
+  if (w.market) return String(w.market).toUpperCase();
+  return /\.(NS|BO)$|^\^(NSE|BSE|CNX|INDIA)/i.test(w.symbol) ? 'NSE' : '24X7';
+}
+
+function sessionOpen(market, now = new Date()) {
+  if (market !== 'NSE') return true;
+  const ist = new Date(now.getTime() + IST_OFFSET_MS);    // read with getUTC*
+  const dow = ist.getUTCDay(), mins = ist.getUTCHours() * 60 + ist.getUTCMinutes();
+  return dow >= 1 && dow <= 5 && mins >= NSE_OPEN && mins <= NSE_CLOSE;
+}
 
 async function fetchBars(server, symbol, tf, bars) {
   const url = `${server}/api/ohlcv?symbol=${encodeURIComponent(symbol)}`
@@ -117,16 +140,32 @@ function deliver(alert, channels, feedPath) {
 function emailBatch(alerts, cfg) {
   if (!alerts.length) return;
   const emailCfg = cfg.email || {};
-  const py = emailCfg.python || process.env.TB_PYTHON || 'python';
-  const script = path.join(__dirname, 'alert_email_send.py');
-  const n = alerts.length;
+  // Prices to 2 decimals: the engine's raw floats (2400.5990658333335) read as noise.
+  const px = v => (typeof v === 'number' && Number.isFinite(v)) ? v.toFixed(2) : '—';
+  // One block per symbol|tf|direction: two rules firing on the same state (a
+  // direction change AND a trap-reversal) used to print the same signal twice.
+  const seen = new Set();
+  const uniq = alerts.filter(a => {
+    const k = `${a.symbol}|${a.tf}|${a.dir}`;
+    if (seen.has(k)) return false;
+    seen.add(k);
+    return true;
+  });
+  const n = uniq.length;
   const subject = emailCfg.subject_prefix
     ? `${emailCfg.subject_prefix} · ${n} signal${n > 1 ? 's' : ''}`
     : `Trading Bramha Alert · ${n} signal${n > 1 ? 's' : ''}`;
-  const body = alerts.map(a =>
-    `${a.headline}\n  ${a.detail || ''}\n  target ${a.target ?? '—'} · `
-    + `invalidate ${a.invalidation ?? '—'}`).join('\n\n')
+  const body = uniq.map(a =>
+    `${a.headline}\n  ${a.detail || ''}\n  target ${px(a.target)} · `
+    + `invalidate ${px(a.invalidation)}`).join('\n\n')
     + `\n\n— Trading Bramha alert bot (${new Date().toISOString()})`;
+  sendEmail(subject, body, cfg);
+}
+
+function sendEmail(subject, body, cfg) {
+  const emailCfg = cfg.email || {};
+  const py = emailCfg.python || process.env.TB_PYTHON || 'python';
+  const script = path.join(__dirname, 'alert_email_send.py');
   try {
     const args = [script, '--subject', subject];
     if (emailCfg.to) args.push('--to', emailCfg.to);
@@ -138,18 +177,36 @@ function emailBatch(alerts, cfg) {
   }
 }
 
+// A blind pass is reported once per local day, not every 15 minutes.
+function notifyBlind(state, cfg, channels, firstErr) {
+  const today = new Date().toLocaleDateString('en-CA');   // YYYY-MM-DD, local
+  if (!channels.includes('email') || state._blind_notified === today) return;
+  state._blind_notified = today;
+  sendEmail(`${(cfg.email || {}).subject_prefix || 'Trading Bramha Alert'} · bot is BLIND`,
+    `The alert bot could not fetch any of its ${cfg.watch.length} symbols from `
+    + `${cfg.server} (${firstErr || 'no bars'}).\n\nNo signals are being checked until `
+    + `chart_server is running again. Start it with:\n  py -3 tools/chart_server.py\n\n`
+    + `You will get at most one of these per day.\n`
+    + `— Trading Bramha alert bot (${nowISO()})`, cfg);
+}
+
 // ── One evaluation pass over the whole watchlist ───────────────────────────────
 async function pass(cfg, statePath, feedPath) {
   const state = loadJSON(statePath, {});
   const channels = cfg.delivery || ['log'];
   const passAlerts = [];
-  let checked = 0, fired = 0, errs = 0;
+  let checked = 0, fired = 0, errs = 0, firstErr = '', attempted = 0, closed = 0;
 
   for (const w of cfg.watch) {
     const key = `${w.symbol}|${w.tf}`;
+    if (!sessionOpen(marketOf(w))) { closed++; continue; }
+    attempted++;
     let bars;
     try { bars = await fetchBars(cfg.server, w.symbol, w.tf, w.bars || 400); }
-    catch (e) { console.warn(`  ! ${key} fetch failed: ${e.message}`); errs++; continue; }
+    catch (e) {
+      console.warn(`  ! ${key} fetch failed: ${e.message}`);
+      errs++; firstErr = firstErr || e.message; continue;
+    }
     if (!bars.length) { errs++; continue; }
 
     const cur = svpState(bars, w.tf);
@@ -173,8 +230,16 @@ async function pass(cfg, statePath, feedPath) {
 
   if (channels.includes('email')) emailBatch(passAlerts, cfg);
 
+  // Blind = every symbol we TRIED failed. A pass where every market is shut
+  // tried nothing and is quiet, not blind.
+  const blind = attempted > 0 && errs === attempted;
+  if (blind) notifyBlind(state, cfg, channels, firstErr);
+
   try { fs.writeFileSync(statePath, JSON.stringify(state, null, 1), 'utf-8'); } catch {}
-  console.log(`  · checked ${checked} · fired ${fired}${errs ? ' · errors ' + errs : ''}`);
+  console.log(`  · checked ${checked} · fired ${fired}${errs ? ' · errors ' + errs : ''}`
+    + (closed ? ` · skipped ${closed} (session closed)` : '')
+    + (blind ? ' · BLIND (no symbol could be fetched)' : ''));
+  return { blind };
 }
 
 async function main() {
@@ -193,7 +258,11 @@ async function main() {
   console.log(`alert_watcher · ${cfg.watch.length} symbols · rules: `
     + cfg.rules.map(r => r.id).join(', ') + ` · delivery: ${(cfg.delivery || ['log']).join(',')}`);
 
-  if (once) { await pass(cfg, statePath, feedPath); return; }
+  if (once) {
+    const { blind } = await pass(cfg, statePath, feedPath);
+    if (blind) process.exitCode = 2;
+    return;
+  }
 
   const every = (cfg.poll_seconds || 60) * 1000;
   console.log(`polling every ${cfg.poll_seconds || 60}s (Ctrl-C to stop)`);
@@ -205,4 +274,5 @@ async function main() {
   }
 }
 
-main();
+if (require.main === module) main();
+module.exports = { marketOf, sessionOpen };

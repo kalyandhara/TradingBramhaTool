@@ -1,0 +1,70 @@
+# Email Configuration Template
+# Copy this file to email_config.yaml and customize for your setup
+
+# SMTP Server Configuration
+smtp:
+  # Gmail example
+  host: smtp.gmail.com
+  port: 587
+  username: your-email@gmail.com
+  password: your-app-password  # Use app-specific password, not regular password
+  from_email: your-email@gmail.com  # Optional, defaults to username
+  from_name: Trading Bramha
+  use_tls: true
+  use_ssl: false
+  timeout: 30
+
+# Outlook example (commented out)
+# smtp:
+#   host: smtp-mail.outlook.com
+#   port: 587
+#   username: your-email@outlook.com
+#   password: your-password
+#   use_tls: true
+
+# Custom SMTP example (commented out)
+# smtp:
+#   host: mail.yourcompany.com
+#   port: 465
+#   username: notifications@yourcompany.com
+#   password: your-password
+#   use_ssl: true
+
+# Recipient Lists by Report Type
+recipients:
+  # Daily batch scanner report
+  batch_report:
+    - trader1@example.com
+    - trader2@example.com
+
+  # Entry signals (actionable setups)
+  entry_signals:
+    - trader1@example.com
+
+  # Risk alerts (urgent)
+  risk_alerts:
+    - portfolio-manager@example.com
+    - risk-team@example.com
+
+  # High-conviction confluence picks
+  confluence:
+    - trader1@example.com
+    - analyst@example.com
+
+  # Portfolio risk monitoring
+  portfolio_risk:
+    - portfolio-manager@example.com
+
+  # Daily digest summary
+  daily_digest:
+    - team@example.com
+
+  # Recipients who get ALL reports
+  all_reports:
+    - head-trader@example.com
+
+# Notes:
+# 1. Gmail requires "App Passwords" - enable 2FA first, then generate app password
+# 2. Outlook may require "Allow less secure apps" in account settings
+# 3. Test with dry_run=True first to verify configuration
+# 4. Use environment variables for passwords in production (more secure)

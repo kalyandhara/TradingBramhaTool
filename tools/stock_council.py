@@ -35,6 +35,7 @@ import screener_pipeline as sp
 import scanner_templates as sc
 import volume_profile as vp
 import cpr_vp
+import position_sizing as ps
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -64,7 +65,10 @@ BEAR_WEIGHTS = {
 BUY_THRESHOLD   = 25
 AVOID_THRESHOLD = -10
 
-RISK_PER_TRADE_PCT = 2.0   # % of total capital risked per trade (for sizing)
+# % of total capital risked per trade (for sizing). Owned by position_sizing so the
+# council, portfolio_sim and the chart's risk box read one number; kept as a name
+# here because callers cite `council.RISK_PER_TRADE_PCT`.
+RISK_PER_TRADE_PCT = ps.RISK_PER_TRADE_PCT
 ATR_STOP_MULT      = 1.5   # stop = entry - mult * ATR (fallback when no swing low)
 
 
@@ -630,10 +634,8 @@ def judge(
         targets, rr = targets[:3], rr[:3]
 
     risk_pct = round(risk_per_share / entry * 100, 2) if risk_per_share else None
-    size_pct = None
-    if risk_pct:
-        # position size so that a stop-out loses RISK_PER_TRADE_PCT of capital
-        size_pct = round(min(100.0, RISK_PER_TRADE_PCT / risk_pct * 100), 1)
+    # position size so that a stop-out loses RISK_PER_TRADE_PCT of capital
+    size_pct = ps.size_pct_from_stop_pct(risk_pct, RISK_PER_TRADE_PCT)
 
     horizon = "positional (weeks-months)" if F["stage"] == 2 else \
               "swing (days-weeks)" if F["stage"] in (1, 3) else "avoid / short-only"
@@ -685,6 +687,11 @@ class SetupIntel:
     bullish_factors: list[str]
     risk_factors: list[str]
     overall_view: str
+    # The Judge's own numbers, so the panel can draw the balance instead of
+    # only quoting it in the overall-view sentence.
+    bull_conviction: float | None = None
+    bear_conviction: float | None = None
+    net_score: float | None = None
 
 
 def _band(score: float, labels: tuple[str, str, str],
@@ -989,4 +996,7 @@ def setup_intelligence(b: EvidenceBundle, bull: Thesis, bear: Thesis,
         bullish_factors=bulls,
         risk_factors=risks,
         overall_view=" ".join(view_parts),
+        bull_conviction=bull.conviction,
+        bear_conviction=bear.conviction,
+        net_score=card.net_score,
     )

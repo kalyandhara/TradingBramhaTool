@@ -379,6 +379,15 @@ def _scan_uncovered_studies() -> list[tuple[str, int, str]]:
              f"cannot be checked for stale labels") for g in gaps]
 
 
+def _scan_indicator_evidence() -> list[tuple[str, int, str]]:
+    """CHECK 0d — the Indicator Browser's evidence lines vs the study index."""
+    try:
+        import indicator_evidence as ie
+    except Exception as e:                                   # pragma: no cover
+        return [("indicator_evidence.py", 0, f"could not import: {e}")]
+    return [("indicator_evidence.py", 0, p) for p in ie.self_check()]
+
+
 def _scan_unrecorded_studies() -> list[tuple[str, int, str]]:
     """Indexed studies with no citable result. Debt, displayed."""
     try:
@@ -610,6 +619,14 @@ def main(argv: list[str]) -> int:
         "scanners become checkable. Expected to be non-empty while the index is "
         "still being filled in.",
         _scan_uncovered_studies(),
+    )
+    _report(
+        "0d. CHART TOOL EVIDENCE LINES OUT OF STEP WITH THE INDEX (B-154)",
+        "indicator_evidence.EVIDENCE writes a plain sentence per indicator against a "
+        "verdict. A subject renamed out of named_studies, or a study whose verdict "
+        "moved, makes that sentence wrong on every beginner's screen. Rewrite the "
+        "line and its `expect`.",
+        _scan_indicator_evidence(),
     )
     _report(
         "0c. STUDIES THAT RAN AND LEFT NO WRITE-UP (the stale-claim disease, "

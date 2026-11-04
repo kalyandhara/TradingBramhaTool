@@ -88,7 +88,9 @@ def test_the_first_matching_bucket_wins_in_priority_order():
     ("order value of ₹1,220 Cr", "₹1,220 crore"),
     ("over 771 million SAR", None),          # unit BEFORE currency — not matched
     ("valued at SAR 771 million", "SAR 771 million"),
-    ("warrants at Rs.115 each", "₹115"),
+    # A per-unit price is labelled as one (2026-10-30): a bare "₹115" read as
+    # the size of the deal.
+    ("warrants at Rs.115 each", "₹115 each"),
 ])
 def test_amounts_are_read_only_when_the_text_states_them(text, expected):
     assert ff.amount_from(text) == expected
@@ -165,3 +167,27 @@ def test_summarise_counts_by_bucket():
         _row("B", "Credit Rating", "about Credit Rating"),
         _row("C", "Acquisition", "about Acquisition")])
     assert ff.summarise(rows) == {"M&A": 2, "RATING": 1}
+
+
+# ── 2026-10-30: the `rs` inside a word (B-112 probe finding) ───────────────────
+def test_rs_inside_a_word_is_not_a_rupee():
+    # "orders," / "transfers," / "Towers," matched `rs` + a bare comma and
+    # returned "₹," — and, coming first, hid the real amount after it.
+    assert ff.amount_from("Receipt of orders, worth Rs 50 crore") == "₹50 crore"
+    assert ff.amount_from("The board approved the transfers, see") is None
+    assert ff.amount_from("BSE Limited, P J Towers, Dalal Street") is None
+
+
+def test_an_amount_needs_a_digit():
+    assert ff.amount_from("INR , as applicable") is None
+
+
+def test_crs_is_crore():
+    assert ff.amount_from("acquires a hospital for approx. INR 277 Crs") == "₹277 crore"
+
+
+def test_a_per_unit_price_yields_to_a_total_and_is_labelled():
+    assert ff.amount_from("8,695,400 warrants at Rs.115 each, aggregating Rs 100 crore") \
+        == "₹100 crore"
+    assert ff.amount_from("granted at Rs. 16.50 per option") == "₹16.50 per option"
+    assert ff.amount_from("face value of Rs. 10/- each") == "₹10 each"

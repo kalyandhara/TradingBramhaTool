@@ -198,7 +198,7 @@ def test_from_52w_high_is_zero_at_the_high_and_negative_below():
 def test_row_returns_every_column_even_on_a_thin_frame():
     r = rm.row(_frame([100.0, 101.0]), ref_date=None)
     expected = {"gap_pct", "ema_cross_age", "ema_cross_dir", "ema_cross_searched",
-                "pivot_d", "pivot_w", "bo_gain_pct", "bo_date",
+                "pivot_d", "pivot_w", "pivot_agree", "bo_gain_pct", "bo_date",
                 "from_52w_high_pct", "hist_price", "gain_since_pct",
                 # UI-2 additions. A thin frame must still produce the KEYS —
                 # a caller building a DataFrame from these rows gets ragged
@@ -327,3 +327,48 @@ def test_profit_walk_caps_the_number_of_steps_and_keeps_the_newest():
     steps = rm.profit_qoq_steps(q)
     assert len(steps) == rm.QOQ_MAX_STEPS
     assert steps[-1]["period"] == q[0]["period"]
+
+
+# ── B-96: multi-timeframe pivot agreement ─────────────────────────────────────
+def _dated(closes, start="2023-01-02"):
+    idx = pd.bdate_range(start, periods=len(closes))
+    c = np.asarray(closes, dtype=float)
+    return pd.DataFrame({"open": c, "high": c * 1.01, "low": c * 0.99, "close": c}, index=idx)
+
+
+def test_pivot_agreement_all_above_in_a_long_rise():
+    df = _dated(np.linspace(100, 300, 700))          # ~2.7 years, steadily up
+    sides = rm.pivot_sides(df)
+    assert set(sides) == {"D", "W", "M", "Q", "Y"}
+    assert rm.pivot_agreement(df) == "5/5 above"
+
+
+def test_pivot_agreement_all_below_in_a_long_fall():
+    df = _dated(np.linspace(300, 100, 700))
+    assert rm.pivot_agreement(df) == "0/5 above"
+
+
+def test_young_listing_prints_a_smaller_denominator_not_a_guess():
+    df = _dated(np.linspace(100, 150, 120))          # < 1 year: no prior YEAR
+    sides = rm.pivot_sides(df)
+    assert sides["Y"] is None
+    assert rm.pivot_agreement(df).endswith(f"/{sum(v is not None for v in sides.values())} above")
+
+
+def test_pivot_agreement_needs_two_readable_timeframes():
+    assert rm.pivot_agreement(_dated([100.0, 101.0])) is None or \
+        rm.pivot_agreement(_dated([100.0, 101.0])).endswith("above")
+    assert rm.pivot_agreement(None) is None
+
+
+def test_monthly_pivot_uses_the_last_completed_month():
+    df = _dated(np.linspace(100, 200, 300))
+    m = rm.period_frame(df, "ME")
+    lv = rm.pivot_levels(m)
+    prior = m.iloc[-2]
+    assert lv["pp"] == pytest.approx((prior["high"] + prior["low"] + prior["close"]) / 3)
+
+
+def test_pivot_agree_has_a_column_spec():
+    import columns
+    assert columns.resolve("pivot_agree") == "pivot_agree"

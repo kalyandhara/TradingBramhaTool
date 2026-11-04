@@ -227,6 +227,15 @@ COLUMNS: dict[str, ColSpec] = {
     "pivot_w": ColSpec(
         "W-Pivot", "The same band, against WEEKLY pivots.",
         "text", width="small"),
+    "pivot_agree": ColSpec(
+        "Pivots above",
+        "Of the daily, weekly, monthly, quarterly and yearly floor pivots (each "
+        "from its last COMPLETED period), how many the close sits above. "
+        "5/5 = above every one; 0/5 = below every one. A young listing shows a "
+        "smaller denominator (no prior year), not a guess. One reading on "
+        "purpose: daily and weekly disagree for ~38% of names (B-97), so five "
+        "separate columns would contradict each other.",
+        "text", width="small"),
     "bo_gain_pct": ColSpec(
         "BO gain%",
         "Gain since the last close above its prior 20-bar high. Can be "
@@ -255,6 +264,63 @@ COLUMNS: dict[str, ColSpec] = {
         "one population over time. '?' = the name lacked history that far back, "
         "which is not the same as ranking weak.",
         "text", width="medium", tone="rank"),
+    # ── SMC state (smc_state.py, B-42r Option C) — descriptions, not signals ──
+    "smc_structure": ColSpec(
+        "Structure ST/SW",
+        "ONE reading of two structure definitions (owner decision B-42r): ST = "
+        "short-term, pivot length 5 — what every SMC scanner uses; SW = swing, "
+        "pivot length 15 — what the chart's Structure Break Chain draws. "
+        "▲ uptrend (HH+HL) · ▼ downtrend (LH+LL) · ↔ range · ⇕ broadening · "
+        "~ transition. 'agree' / 'split' / 'opposite' is the reading: the two "
+        "agree on only ~30% of names, so a split is normal, and 'opposite' "
+        "means the scanners and the chart are describing different trends. "
+        "Structure state measured no edge (CHoCH study) — context, not a signal.",
+        "text", width="medium"),
+    "pd_swing": ColSpec(
+        "P/D (swing)",
+        "Where the last close sits inside the latest SWING (pivot 15) high-low "
+        "band: PREM >70%, DISC <30%, EQ between. ABOVE / BELOW = price has left "
+        "the band, so it is outside the range rather than 'very premium'. "
+        "Unmeasured as a signal.",
+        "text", width="small"),
+    "ssl_atr": ColSpec(
+        "SSL ↓ (ATR)",
+        "Distance down to the nearest UNTOUCHED sell-side pool (equal lows, "
+        "short-term pivot 5 — the pools the Liquidity Sweep scanner fires on), "
+        "in ATR(14). A pool price has already traded through is spent and not "
+        "counted. Blank = none below.",
+        "number", "%.1f", width="small"),
+    "bsl_atr": ColSpec(
+        "BSL ↑ (ATR)",
+        "Distance up to the nearest UNTOUCHED buy-side pool (equal highs, pivot "
+        "5), in ATR(14). Blank = none above.",
+        "number", "%.1f", width="small"),
+    "swept_recent": ColSpec(
+        "Swept",
+        "A liquidity sweep (pool pierced on the wick, close back inside) in the "
+        "last 5 sessions, pivot 5. 'SSL' = equal lows swept — the bullish event "
+        "the Liquidity Sweep scanner trades (B-41m, +0.51% @20d); 'BSL' = equal "
+        "highs swept, the unmeasured bearish twin.",
+        "text", width="small"),
+    # ── trade-plan status (plan_status.py, LuxAlgo R&E step 2) ────────────────
+    "plan_status": ColSpec(
+        "Plan",
+        "Where the name's newest cached scanner plan stands, judged the way the "
+        "backtest harness scores a plan: the entry is an ORDER that waits 5 "
+        "sessions (B-121 touch fill), then stop-first when one bar spans both "
+        "levels, against the card's own time stop. STOP HIT / TARGET HIT / "
+        "EXPIRED / NOT FILLED / MISSED (filled only past the target) = the plan "
+        "is finished, so the row is a removal SUGGESTION — nothing is removed for "
+        "you. PENDING = the entry has not traded yet. R is from the fill, gross "
+        "of costs. WATCH ONLY = the card's levels are not a plan (B-128). No plan "
+        "= no cached card with entry/stop/target.",
+        "text", width="medium"),
+    "plan_from": ColSpec(
+        "Plan from",
+        "Which scanner card, and from which run date, the Plan column is judging "
+        "— the newest one with a full plan. The watchlist does not record the "
+        "plan a name was added on, so this is never claimed to be that one.",
+        "text", width="medium"),
     "profit_qoq_walk": ColSpec(
         "Profit walk (QoQ)",
         "Net profit change from one quarter to the NEXT one, per cent, oldest "
@@ -574,7 +640,53 @@ def tint(df):
     st_ = df.style
     for c in cols:
         st_ = st_.map(_TINTERS[COLUMNS[resolve(str(c))].tone], subset=[c])
-    return st_
+    return formatted(st_)
+
+
+#: Decimals for a float column the registry does not know. Two, because a price
+#: and a percentage both read correctly at two and nothing on the desk needs six.
+DEFAULT_DP = 2
+
+
+def _cell_formatter(fmt: Optional[str]):
+    """A Python callable rendering one cell the way `fmt` would in the grid."""
+    def _f(v):
+        if v is None or (isinstance(v, float) and v != v):
+            return ""
+        if not isinstance(v, (int, float)) or isinstance(v, bool):
+            return str(v)
+        if fmt == "localized":
+            return f"{v:,.2f}" if isinstance(v, float) and v != int(v) else f"{int(v):,}"
+        if fmt:
+            try:
+                return fmt % v
+            except (TypeError, ValueError):
+                return str(v)
+        return f"{v:.{DEFAULT_DP}f}" if isinstance(v, float) else str(v)
+    return _f
+
+
+def formatted(styler):
+    """Give a pandas Styler the registry's number formats — B-164.
+
+    Once a frame is STYLED, Streamlit renders the Styler's own display text, and
+    pandas formats every float to six decimals by default. `column_config`'s
+    `format` never reaches those cells, which is how Home's CPR × Volume Profile
+    table printed `3.100000` beside a plain table printing `5.30%` (measured
+    2026-10-13). Every Styler handed to `st.dataframe` goes through here:
+    registry columns get their declared format, any other float column gets
+    `DEFAULT_DP` decimals, everything else is left as it is.
+    """
+    df = styler.data
+    fmts = {}
+    for c in df.columns:
+        k = resolve(str(c))
+        s = COLUMNS[k] if k else None
+        if s is not None and s.kind == "number":
+            fmts[c] = _cell_formatter(s.fmt)
+        elif s is None and str(df[c].dtype).startswith("float"):
+            fmts[c] = _cell_formatter(None)
+    return styler.format(fmts) if fmts else styler
 
 
 #: Row height, in px. Theirs is 36 at 11px type; Streamlit will not let us set

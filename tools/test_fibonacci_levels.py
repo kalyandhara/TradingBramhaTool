@@ -105,3 +105,47 @@ def test_every_level_carries_the_same_keys():
     keys = {"ratio", "price", "kind", "label", "golden", "deep", "entryEligible"}
     for l in levels:
         assert set(l) == keys, f"{l['kind']} {l['ratio']} has {set(l) ^ keys}"
+
+
+# ── B-133: the 0.70 rung — DRAWN, never an entry ─────────────────────────────
+
+def test_70_rung_exists_on_the_retracement_grid_both_directions():
+    """Elliott counts commonly mark a 61.8%-70% completion band for a Y / C wave."""
+    assert _by_ratio(_levels(), 0.70, "retracement")["price"] == pytest.approx(130.0, abs=0.01)
+    assert _by_ratio(_levels(direction="down"), 0.70, "retracement")["price"] == \
+        pytest.approx(170.0, abs=0.01)
+
+
+def test_70_rung_is_never_entry_eligible_even_under_deep_entry():
+    """It sits INSIDE the 38.2-78.6% entry band, so the band test alone would
+    promote it. It is unmeasured, so it must be excluded by name."""
+    assert _by_ratio(_levels(), 0.70, "retracement")["entryEligible"] is False
+    assert _by_ratio(_levels(opts="{deepEntry: true}"), 0.70,
+                     "retracement")["entryEligible"] is False
+
+
+def test_70_rung_is_not_golden_and_not_deep():
+    lv = _by_ratio(_levels(), 0.70, "retracement")
+    assert lv["golden"] is False and lv["deep"] is False
+
+
+def test_buildPlan_never_enters_at_70_even_when_only_it_has_confluence():
+    """Give ONLY the 0.70 rung volume confluence: the plan must not pick it."""
+    script = f"""
+        global.window = global;
+        require({str(HERE / 'fibonacci.js').replace(chr(92), '/')!r});
+        const swing = {{direction: 'up', high: 200, low: 100, range: 100}};
+        const lv = FIB.computeLevels(swing).map(l => Object.assign({{}}, l,
+            {{matches: (l.kind === 'retracement' && Math.abs(l.ratio - 0.70) < 1e-9)
+                         ? [{{type: 'POC'}}] : [],
+              score: (l.kind === 'retracement' && Math.abs(l.ratio - 0.70) < 1e-9) ? 1 : 0}}));
+        const plan = FIB.buildPlan(swing, lv, {{lastClose: 190}});
+        process.stdout.write(JSON.stringify(plan));
+    """
+    out = subprocess.run(["node", "-e", script], capture_output=True, text=True)
+    assert out.returncode == 0, out.stderr
+    plan = json.loads(out.stdout)
+    entry = plan.get("entry")
+    if isinstance(entry, dict):
+        entry = entry.get("price")
+    assert entry is None or abs(float(entry) - 130.0) > 1e-6, plan

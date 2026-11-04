@@ -66,7 +66,16 @@ cluster in falling markets by construction.
   works only where a participant is *obliged* to act. Show the obligation or the fuel is
   hypothetical.
 
-## Status on this desk — a DATA gap, not a build gap
+## Status on this desk — MEASURED 2026-10-15: NULL
+
+**Data:** `tools/participant_oi.py` reads NSE's participant-wise F&O OI file (2016 onward,
+cached per session). **Test:** [[analyses/FII-Short-Squeeze-Study]] (B-95), pre-registered
+blind, rotation p-values, prior-move control. FII ≥ 85% short in index futures (261 sessions,
+12 episodes): NIFTY 20 sessions later was **1.42 points worse** than otherwise after the
+control, rotation p = 0.38 — **NULL**, leaning against the squeeze claim. All 12 episodes are
+from 2020 on; heavy FII index shorts are a recent norm, not a rare extreme.
+
+*Earlier status (kept for the record):*  — a DATA gap, not a build gap
 
 **Nothing here reads participant-wise F&O OI.** `FII` appears in the toolchain only inside
 `block_deal_intel.py`, where it classifies *shareholder names*, not derivatives positions.

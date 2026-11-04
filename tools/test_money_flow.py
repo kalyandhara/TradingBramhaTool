@@ -146,3 +146,65 @@ def test_it_is_not_registered_as_a_scanner():
     names = " ".join(sc.SCANNERS).lower()
     assert "money flow" not in names or "mfi" in names
     assert not hasattr(mf, "scan_money_flow")
+
+
+# ── daily series for the ridgeline ───────────────────────────────────────────
+
+def _dated(frame, end="2026-10-28"):
+    return frame.set_index(pd.bdate_range(end=end, periods=len(frame)))
+
+
+def test_series_runs_oldest_to_newest_and_ends_on_todays_reading():
+    d = pd.concat([_bars(21, close_at="low"), _bars(21, close_at="high")],
+                  ignore_index=True)
+    s = mf.sector_series({"A": d}, n=21, days=22)
+    assert len(s) == 22
+    assert s[0] == pytest.approx(-1.0)                   # offset 21: all-low window
+    assert s[-1] == pytest.approx(mf.sector_cmf({"A": d}, n=21, offset=0))
+    assert s[-1] == pytest.approx(1.0)
+
+
+def test_series_is_none_where_history_runs_out():
+    s = mf.sector_series({"A": _bars(25)}, n=21, days=10)
+    assert s[:5] == [None] * 5 and all(v is not None for v in s[5:])
+
+
+def test_series_dates_come_from_the_longest_member():
+    d = _dated(_bars(40))
+    dates = mf.series_dates({"A": d, "B": _dated(_bars(10))}, days=3)
+    assert dates == ["2026-10-26", "2026-10-27", "2026-10-28"]
+
+
+def test_ridge_rows_sort_by_today_clip_and_skip_empty_series():
+    grid = {"columns": ["today"], "clip": 0.25,
+            "rows": pd.DataFrame({
+                "sector": ["Up", "Down", "Empty"], "today": [0.1, -0.4, None],
+                "members": [10, 8, 4], "low_coverage": [False, True, False],
+                "series": [[0.0, 0.1], [-0.1, -0.4], [None, None]]})}
+    rows = mf.ridge_rows(grid)
+    assert [r["sector"] for r in rows] == ["Up", "Down"]
+    assert rows[1]["values"] == [-0.1, -0.25]             # clipped to the scale
+    assert rows[1]["today"] == -0.4                       # the label keeps the real value
+    assert rows[1]["low_coverage"] is True
+
+
+def test_a_run_stored_before_series_has_no_ridges():
+    grid = {"columns": ["today"], "clip": 0.25,
+            "rows": pd.DataFrame({"sector": ["A"], "today": [0.1], "members": [3]})}
+    assert mf.ridge_rows(grid) == []
+
+
+def test_ridgeline_figure_one_ridge_and_label_per_sector():
+    import money_flow_chart as mfc
+    import report_style as rs
+    grid = {"columns": ["today"], "clip": 0.25,
+            "series_dates": ["2026-10-27", "2026-10-28"],
+            "rows": pd.DataFrame({
+                "sector": ["Up", "Down"], "today": [0.1, -0.2], "members": [10, 8],
+                "low_coverage": [False, False],
+                "series": [[0.0, 0.1], [-0.1, -0.2]]})}
+    fig = mfc.ridgeline(grid, rs.TOKENS)
+    assert len(fig.data) == 2 * 4                         # base+pos, base+neg per ridge
+    assert [a.text for a in fig.layout.annotations] == ["+0.100", "-0.200"]
+    assert list(fig.layout.yaxis.ticktext) == ["Up", "Down"]
+    assert mfc.ridgeline({**grid, "series_dates": []}, rs.TOKENS) is None

@@ -125,7 +125,10 @@ def test_gap_volume_scan_shape_matches_page():
     gapper.loc[gapper.index[-1], ["open", "close", "volume"]] = [105.0, 106.0, 5000]
 
     def fetch(sym, days=40):
-        return gapper if sym == "GAP.NS" else calm
+        # Both real fetchers (sp.fetch_ohlcv, cached_fetch_ohlcv) add ".NS"
+        # themselves; a suffixed name became "GAP.NS.NS" and fetched nothing.
+        assert not sym.endswith(".NS"), sym
+        return gapper if sym == "GAP" else calm
 
     hits = reg.gap_volume_scan(["GAP", "CALM"], fetch, gap_pct=3.0, vol_mult=2.0)
     assert [h["Symbol"] for h in hits] == ["GAP"]
@@ -267,3 +270,16 @@ def test_scan_raise_on_no_data_flag(monkeypatch):
     monkeypatch.setattr(ivs, "_batch_download", lambda syms: {})
     with pytest.raises(RuntimeError, match="no price history"):
         ivs.scan(raise_on_no_data=True)
+
+
+def test_gap_volume_scan_asks_for_enough_bars_to_pass_the_fetcher_gate():
+    """sp.fetch_ohlcv drops anything under MIN_BARS (60); asking for 40 days
+    returned None for every name, so the snapshot failed even with clean tickers."""
+    import screener_pipeline as sp
+    asked = []
+
+    def fetch(sym, days=40):
+        asked.append(days)
+        return None
+    reg.gap_volume_scan(["X"], fetch, gap_pct=3.0, vol_mult=2.0)
+    assert asked and asked[0] >= sp.MIN_BARS

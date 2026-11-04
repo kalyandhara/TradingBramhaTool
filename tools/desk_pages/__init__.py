@@ -64,6 +64,9 @@ PAGES: dict[str, str] = {
     "Other Screeners": "other_screeners",
     "Pipeline Log": "pipeline_log",
     "High-Growth Screener": "high_growth_screener",
+    "Sector wise Navigation": "sector_lobby",
+    "Glossary": "glossary",
+    "Recommendation Audit": "rec_audit_page",
 }
 
 
@@ -82,3 +85,132 @@ def render(page: str) -> None:
     """
     mod = importlib.import_module(f"{__name__}.{PAGES[page]}")
     mod.render()
+
+
+def home_header(cards, is_home: bool):
+    """B-179. Home is not a registered page — it only borrows panes from
+    `home_layout`. Lazy, like `render`, and one call site in the monolith."""
+    return importlib.import_module(f"{__name__}.home_layout").header(cards, is_home)
+
+
+def home_rail(db, search_options: str = "") -> None:
+    """B-179. The left watchlist/sector rail on Home.
+
+    Guarded: it renders before the centre block in the monolith, so an
+    exception here would otherwise stop the script and leave the centre pane
+    (the decision surface) blank. A broken rail is a warning in the rail.
+    """
+    try:
+        importlib.import_module(f"{__name__}.home_layout").render_rail(db, search_options)
+    except Exception as e:
+        import logging
+        import streamlit as st
+        logging.getLogger(__name__).exception("home rail failed")
+        st.warning(f"Watchlist rail unavailable: {e}")
+
+
+def band_title(text: str) -> None:
+    """The small caps title over a Home band table. Side-by-side tables start
+    level only if they share it. `text` is the desk's own, not escaped."""
+    import report_style as rs
+    import streamlit as st
+    st.markdown(
+        f'<div style="font-size:11px;font-weight:700;letter-spacing:.08em;'
+        f'text-transform:uppercase;color:{rs.TOKENS["text_muted"]};padding-top:6px;">'
+        f'{text}</div>',
+        unsafe_allow_html=True)
+
+
+def home_scan_table(df, extra_cols, **kw):
+    """B-180 hover rows for a Home scan table (Volume Shockers, Institutional
+    volume). None when the component or the layout module is unavailable, so
+    the caller falls back to its plain table."""
+    try:
+        return importlib.import_module(f"{__name__}.home_layout").scan_table(df, extra_cols, **kw)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("home scan table failed")
+        return None
+
+
+def sa_candidate_table(lst, **kw):
+    """The Stock Analyzer's candidate list as rail rows. None when the
+    component or the layout module is unavailable (caller falls back)."""
+    try:
+        return importlib.import_module(f"{__name__}.home_layout").candidate_table(lst, **kw)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("candidate table failed")
+        return None
+
+
+def home_scanner_thumb(hits: list, scanner_name: str) -> None:
+    """Right-rail thumbnail: last Scanner Hub run summary."""
+    try:
+        importlib.import_module(f"{__name__}.home_layout").render_scanner_hub_thumb(hits, scanner_name)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("scanner thumb failed")
+
+
+def home_oi_thumb(recs: list, trade_date) -> None:
+    """Right-rail thumbnail: OI Momentum breadth + top names."""
+    try:
+        importlib.import_module(f"{__name__}.home_layout").render_oi_momentum_thumb(recs, trade_date)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("oi momentum thumb failed")
+
+
+def home_mf_thumb(grid) -> None:
+    """Right-rail thumbnail: Sector Money Flow breadth + sector chips."""
+    try:
+        importlib.import_module(f"{__name__}.home_layout").render_money_flow_thumb(grid)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("money flow thumb failed")
+
+
+def home_sector_map_group_thumb(sector_data: dict) -> None:
+    """Right-rail grouped card: Sector Map overview (heatmap + ranking + RSL + turnover)."""
+    try:
+        importlib.import_module(f"{__name__}.home_layout").render_sector_map_group_thumb(sector_data)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("sector map group thumb failed")
+
+
+def home_sector_heatmap_thumb(sector_data: dict) -> None:
+    """Right-rail thumbnail: 1D sector heatmap top/bottom chips."""
+    try:
+        importlib.import_module(f"{__name__}.home_layout").render_sector_heatmap_thumb(sector_data)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("sector heatmap thumb failed")
+
+
+def home_sector_ranking_thumb() -> None:
+    """Right-rail thumbnail: Sector Ranking rotation + health (snapshot or session-cached)."""
+    try:
+        importlib.import_module(f"{__name__}.home_layout").render_sector_ranking_thumb()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("sector ranking thumb failed")
+
+
+def home_rs_leadership_thumb() -> None:
+    """Right-rail thumbnail: Relative-strength leadership (snapshot or session-cached)."""
+    try:
+        importlib.import_module(f"{__name__}.home_layout").render_rs_leadership_thumb()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("rs leadership thumb failed")
+
+
+def home_turnover_heatmap_thumb() -> None:
+    """Right-rail thumbnail: Turnover heatmap A/D top/bottom (snapshot or session-cached)."""
+    try:
+        importlib.import_module(f"{__name__}.home_layout").render_turnover_heatmap_thumb()
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("turnover heatmap thumb failed")

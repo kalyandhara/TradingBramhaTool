@@ -112,3 +112,39 @@ def test_the_package_is_not_named_pages(app_src):
     assert not (HERE / "pages").exists(), (
         "tools/pages/ exists — Streamlit will treat it as a multipage app and "
         "render its own nav. The package is tools/desk_pages/ for that reason.")
+
+
+def test_home_layout_does_not_import_the_monolith():
+    """B-179: Home borrows panes from desk_pages/home_layout.py; the same
+    no-monolith rule as the registered pages applies to it."""
+    tree = ast.parse((HERE / "desk_pages" / "home_layout.py").read_text(encoding="utf-8"))
+    for n in ast.walk(tree):
+        names = ([a.name for a in n.names] if isinstance(n, ast.Import)
+                 else [n.module or ""] if isinstance(n, ast.ImportFrom) else [])
+        assert "dashboard_app" not in names
+
+
+def test_home_helpers_exist_and_home_is_not_a_registered_page():
+    assert callable(desk_pages.home_header) and callable(desk_pages.home_rail)
+    assert not desk_pages.handles("Home")
+
+
+def test_home_rail_failure_cannot_blank_the_centre(monkeypatch):
+    """B-179 review: the rail renders BEFORE the centre block, so an exception
+    there used to abort the script and leave the centre pane empty."""
+    import importlib
+    hl = importlib.import_module("desk_pages.home_layout")
+
+    def boom(db):
+        raise RuntimeError("watchlist table locked")
+    monkeypatch.setattr(hl, "render_rail", boom)
+    desk_pages.home_rail(None)          # must not raise
+
+
+def test_watch_rail_component_ships():
+    """B-180: the rail's rows are a component; its folder must ship index.html
+    or home_layout falls back to the hover-less table."""
+    html = (HERE / "components" / "watch_rail" / "index.html").read_text(encoding="utf-8")
+    assert "streamlit:componentReady" in html
+    assert "lightweight-charts@4.1.3" in html
+    assert "/api/ohlcv" not in html          # the URL comes from Python (chart_api arg)

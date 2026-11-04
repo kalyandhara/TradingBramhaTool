@@ -53,15 +53,19 @@ TOKENS = {
     "text_body":   "#5c4a3a",
     "text_muted":  "#7a6858",
     # semantic roles
-    "accent":      "#d97706",   # caution / watch / primary accent
+    # B-161 (2026-10-13): good/risk/accent/absent darkened so each reads at
+    # >= 4.5:1 (WCAG AA) on every surface AND on its own *_soft tint. The old
+    # 16a34a / d97706 / 9ca3af (hex) measured 3.24 / 3.13 / 2.50 on `surface`;
+    # test_report_style_contrast.py pins the new values and bans the old ones.
+    "accent":      "#a14a0b",   # caution / watch / primary accent
     "accent_soft": "#fde0c0",
-    "good":        "#16a34a",
+    "good":        "#166534",
     "good_soft":   "#e8f5e9",
-    "risk":        "#dc2626",
+    "risk":        "#b91c1c",
     "risk_soft":   "#fef2f2",
     "info":        "#2563eb",
     "info_soft":   "#eef4ff",
-    "absent":      "#9ca3af",
+    "absent":      "#636a75",   # still lighter than text_body: "no data"
     "absent_soft": "#f3f4f6",
 }
 

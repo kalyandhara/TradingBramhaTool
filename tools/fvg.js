@@ -19,7 +19,14 @@
  *   top, bottom,                 // price boundaries of the gap
  *   filledIdx, filledTime,       // index/time the gap was first touched, or null if still open
  *   sizePct,                     // gap size as % of price, for minSizePct filtering
+ *   ce,                          // consequent encroachment: the gap's 50% line (B-168)
+ *   invertedIdx, invertedTime,   // first CLOSE fully through the far side, or null (B-168)
  * }
+ *
+ * Inversion (B-168, display only): a bullish gap whose first later close is below
+ * its bottom has failed as support and is drawn as an inversion FVG (resistance);
+ * a bearish gap closed above its top flips to support. The desk measured FVGs as
+ * NOT magnets (fvg_fill_study); inversion and CE are unmeasured — geometry, not signals.
  */
 (function (global) {
   'use strict';
@@ -85,11 +92,30 @@
     });
   }
 
+  // ── Step 3 (B-168): CE and inversion ─────────────────────────────────────────
+  // A close (not a wick) fully through the far side: wicks probe, closes commit.
+  function markInversions(bars, zones) {
+    zones.forEach(z => {
+      z.ce = (z.top + z.bottom) / 2;
+      z.invertedIdx = null;
+      z.invertedTime = null;
+      for (let i = z.startIdx + 3; i < bars.length; i++) {
+        const c = bars[i].close;
+        if (z.bullish ? c < z.bottom : c > z.top) {
+          z.invertedIdx = i;
+          z.invertedTime = bars[i].time;
+          break;
+        }
+      }
+    });
+  }
+
   function compute(bars, opts) {
     opts = Object.assign({}, DEFAULT_OPTS, opts || {});
     if (!bars || bars.length < 3) return [];
     const zones = findZones(bars, opts);
     markFills(bars, zones);
+    markInversions(bars, zones);
     return zones.slice(-opts.maxZones);
   }
 
@@ -241,7 +267,7 @@
   }
 
   global.FVG = {
-    VERSION: '1.1.0',
+    VERSION: '1.2.0',
     compute,
     signals,
   };
