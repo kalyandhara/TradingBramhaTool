@@ -718,13 +718,14 @@ def _sm_not_built(t: dict) -> str:
             f'Not built yet — visit Sector Map.</div>')
 
 
-def render_sector_heatmap_thumb(sector_data: dict) -> None:
-    """Compact 1D sector performance heatmap card for the right rail."""
-    t = rs.TOKENS
-    html = _sm_band_html(t, "Sector Heatmap · 1D")
+def _sector_heatmap_html(sector_data: dict, t: dict) -> str:
+    """HTML fragment for the 1D sector heatmap sub-section."""
+    html = (f'<div style="font-size:9px;font-weight:700;letter-spacing:.06em;'
+            f'text-transform:uppercase;color:{t["text_muted"]};margin:6px 0 3px;">'
+            f'Heatmap · 1D</div>')
     if not sector_data:
-        html += _sm_not_built(t)
-    else:
+        return html + _sm_not_built(t)
+    try:
         import snapshot_registry as _snapreg
         from desk_pages.stock_panels import _period_return  # noqa: PLC0415
         rows = []
@@ -736,8 +737,7 @@ def render_sector_heatmap_thumb(sector_data: dict) -> None:
             if ret is not None:
                 rows.append((name, ret))
         rows.sort(key=lambda x: x[1], reverse=True)
-        top = rows[:3]
-        bot = rows[-3:]
+        top, bot = rows[:3], rows[-3:]
         if top:
             names_t, vals_t = zip(*top)
             html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:2px 0 1px;">'
@@ -746,113 +746,196 @@ def render_sector_heatmap_thumb(sector_data: dict) -> None:
             names_b, vals_b = zip(*bot)
             html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:4px 0 1px;">'
                      f'Bottom</div>' + _sm_chips(list(names_b), list(vals_b), "#ef4444", t))
+    except Exception:
+        html += _sm_not_built(t)
+    return html
+
+
+def _sector_ranking_html(t: dict) -> str:
+    """HTML fragment for the Sector Ranking sub-section.
+    Reads from the daily snapshot if available; falls back to session-cached data."""
+    html = (f'<div style="font-size:9px;font-weight:700;letter-spacing:.06em;'
+            f'text-transform:uppercase;color:{t["text_muted"]};margin:8px 0 3px;">'
+            f'Ranking · rotation + health</div>')
+    # Try snapshot first, then session cache
+    snap_df = None
+    try:
+        import snapshot_store as _ss
+        _, payload = _ss.load_latest("sector_ranking")
+        if payload and not payload.get("error"):
+            snap_df = payload.get("rows")
+    except Exception:
+        pass
+    if snap_df is None and not st.session_state.get("srk_ran"):
+        return html + _sm_not_built(t)
+    try:
+        if snap_df is None:
+            import sector_ranking as _srk
+            g = _srk.ranking_grid(
+                _srk.GROUPINGS.get(st.session_state.get("srk_group", "industry"), "nifty500"),
+                smap=_srk.group_map(st.session_state.get("srk_group", "industry")))
+            snap_df = g.get("rows") if not g.get("error") else None
+        if snap_df is None or (hasattr(snap_df, "empty") and snap_df.empty):
+            return html + _sm_not_built(t)
+        top, bot = snap_df.head(3), snap_df.tail(3)
+        html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:2px 0 1px;">'
+                 f'Inflow</div>' +
+                 _sm_chips(list(top["sector"]), list(top["chg_d"]), "#22c55e", t))
+        html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:4px 0 1px;">'
+                 f'Outflow</div>' +
+                 _sm_chips(list(bot["sector"]), list(bot["chg_d"]), "#ef4444", t))
+    except Exception:
+        html += _sm_not_built(t)
+    return html
+
+
+def _rs_leadership_html(t: dict) -> str:
+    """HTML fragment for the RS Leadership sub-section.
+    Reads from the daily snapshot if available; falls back to session-cached data."""
+    html = (f'<div style="font-size:9px;font-weight:700;letter-spacing:.06em;'
+            f'text-transform:uppercase;color:{t["text_muted"]};margin:8px 0 3px;">'
+            f'RS Leadership</div>')
+    snap_df = None
+    try:
+        import snapshot_store as _ss
+        _, payload = _ss.load_latest("sector_rs_leadership")
+        if payload and not payload.get("error"):
+            snap_df = payload.get("rows")
+    except Exception:
+        pass
+    if snap_df is None and not st.session_state.get("rsl_ran"):
+        return html + _sm_not_built(t)
+    try:
+        if snap_df is None:
+            import sector_rs_leadership as _rsl
+            g = _rsl.grid(st.session_state.get("srk_group", "industry"))
+            snap_df = g.get("rows") if isinstance(g, dict) else g
+        if snap_df is None or (hasattr(snap_df, "empty") and snap_df.empty):
+            return html + _sm_not_built(t)
+        top = snap_df.head(3)
+        html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:2px 0 1px;">'
+                 f'Leading (RS T-0)</div>' +
+                 _sm_chips(list(top["group"]), list(top["rs_t0"]),
+                           "#22c55e", t, fmt="{:.0f}"))
+        rising = snap_df[snap_df["change"] > 0].sort_values("change", ascending=False).head(3)
+        if not rising.empty:
+            html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:4px 0 1px;">'
+                     f'Rising ▲</div>' +
+                     _sm_chips(list(rising["group"]), list(rising["change"]),
+                               "#22c55e", t, fmt="{:+.1f}"))
+    except Exception:
+        html += _sm_not_built(t)
+    return html
+
+
+def _turnover_heatmap_html(t: dict) -> str:
+    """HTML fragment for the Turnover Heatmap sub-section.
+    Reads from the existing sector_turnover_share snapshot."""
+    html = (f'<div style="font-size:9px;font-weight:700;letter-spacing:.06em;'
+            f'text-transform:uppercase;color:{t["text_muted"]};margin:8px 0 3px;">'
+            f'Turnover · last 15 sessions</div>')
+    snap_data = None
+    try:
+        import snapshot_store as _ss
+        _, snap_data = _ss.load_latest("sector_turnover_share")
+    except Exception:
+        pass
+    if snap_data is None and not st.session_state.get("tah_ran"):
+        return html + _sm_not_built(t)
+    try:
+        if snap_data is not None and not snap_data.get("error"):
+            # sector_turnover_share snapshot stores the rotation_grid dict
+            # Reconstruct A/D from the rows if present
+            rows_data = snap_data.get("rows")
+            if rows_data is not None:
+                import pandas as _pd
+                ad_col = snap_data.get("columns", [None])[0]
+                if ad_col:
+                    df_snap = _pd.DataFrame(rows_data) if isinstance(rows_data, list) else rows_data
+                    today = df_snap.set_index("sector")[ad_col].dropna().sort_values(ascending=False)
+                    top, bot = today.head(3), today.tail(3)
+                    html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:2px 0 1px;">'
+                             f'A/D top</div>' +
+                             _sm_chips(list(top.index), list(top.values), "#22c55e", t,
+                                       fmt="{:+.1f}%"))
+                    html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:4px 0 1px;">'
+                             f'A/D bottom</div>' +
+                             _sm_chips(list(bot.index), list(bot.values), "#ef4444", t,
+                                       fmt="{:+.1f}%"))
+                    return html
+        # Fall back to live session data
+        import sector_turnover_heatmap as _tah
+        g = _tah.grid(st.session_state.get("srk_group", "sector"))
+        if g.get("error"):
+            return html + (f'<div style="font-size:11px;color:{t["text_muted"]};">'
+                           f'{g["error"]}</div>')
+        ad = g["ad"]
+        col0 = ad.columns[0]
+        today = ad[col0].dropna().sort_values(ascending=False)
+        top, bot = today.head(3), today.tail(3)
+        html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:2px 0 1px;">'
+                 f'A/D top</div>' +
+                 _sm_chips(list(top.index), list(top.values), "#22c55e", t, fmt="{:+.0f}%"))
+        html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:4px 0 1px;">'
+                 f'A/D bottom</div>' +
+                 _sm_chips(list(bot.index), list(bot.values), "#ef4444", t, fmt="{:+.0f}%"))
+    except Exception:
+        html += _sm_not_built(t)
+    return html
+
+
+def render_sector_map_group_thumb(sector_data: dict) -> None:
+    """Single grouped card for all Sector Map visualisations with one nav button."""
+    t = rs.TOKENS
+    divider = (f'<hr style="border:none;border-top:1px solid {t["border"]};margin:6px 0;"/>')
+    html = (f'<div style="background:{t["surface_alt"]};border:1px solid {t["border"]};'
+            f'border-radius:8px;padding:8px 10px 6px;margin-bottom:8px;">'
+            f'<div style="font-size:10px;font-weight:700;letter-spacing:.07em;'
+            f'text-transform:uppercase;color:{t["text_muted"]};margin-bottom:4px;">'
+            f'Sector Map</div>')
+    html += _sector_heatmap_html(sector_data, t)
+    html += divider + _sector_ranking_html(t)
+    html += divider + _rs_leadership_html(t)
+    html += divider + _turnover_heatmap_html(t)
     html += "</div>"
     st.markdown(html, unsafe_allow_html=True)
+    if st.button("Sector Map →", key="home_right_sm_group_nav", width="stretch"):
+        st.session_state["current_page"] = "Sector Map"
+        st.rerun()
+
+
+# Keep old per-card functions as thin wrappers so any external caller doesn't break.
+def render_sector_heatmap_thumb(sector_data: dict) -> None:
+    t = rs.TOKENS
+    st.markdown(_sm_band_html(t, "Sector Heatmap · 1D") +
+                _sector_heatmap_html(sector_data, t) + "</div>", unsafe_allow_html=True)
     if st.button("Sector Map →", key="home_right_hm_nav", width="stretch"):
         st.session_state["current_page"] = "Sector Map"
         st.rerun()
 
 
 def render_sector_ranking_thumb() -> None:
-    """Compact Sector Ranking card — only renders data if already built this session."""
     t = rs.TOKENS
-    html = _sm_band_html(t, "Sector Ranking · rotation + health")
-    if not st.session_state.get("srk_ran"):
-        html += _sm_not_built(t)
-    else:
-        try:
-            import sector_ranking as _srk
-            g = _srk.ranking_grid(_srk.GROUPINGS.get(
-                st.session_state.get("srk_group", "industry"), "nifty500"),
-                smap=_srk.group_map(st.session_state.get("srk_group", "industry")))
-            df = g.get("rows")
-            if g.get("error") or df is None or df.empty:
-                html += (f'<div style="font-size:11px;color:{t["text_muted"]};">'
-                         f'{g.get("error") or "No data."}</div>')
-            else:
-                top = df.head(3)
-                bot = df.tail(3)
-                html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:2px 0 1px;">'
-                         f'Inflow</div>' +
-                         _sm_chips(list(top["sector"]), list(top["chg_d"]), "#22c55e", t))
-                html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:4px 0 1px;">'
-                         f'Outflow</div>' +
-                         _sm_chips(list(bot["sector"]), list(bot["chg_d"]), "#ef4444", t))
-        except Exception:
-            html += _sm_not_built(t)
-    html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(_sm_band_html(t, "Sector Ranking · rotation + health") +
+                _sector_ranking_html(t) + "</div>", unsafe_allow_html=True)
     if st.button("Sector Map →", key="home_right_srk_nav", width="stretch"):
         st.session_state["current_page"] = "Sector Map"
         st.rerun()
 
 
 def render_rs_leadership_thumb() -> None:
-    """Compact RS Leadership card — only renders data if already built this session."""
     t = rs.TOKENS
-    html = _sm_band_html(t, "RS Leadership")
-    if not st.session_state.get("rsl_ran"):
-        html += _sm_not_built(t)
-    else:
-        try:
-            import sector_rs_leadership as _rsl
-            g = _rsl.grid(st.session_state.get("srk_group", "industry"))
-            df = g.get("rows") if isinstance(g, dict) else g
-            if df is None or (hasattr(df, "empty") and df.empty):
-                html += _sm_not_built(t)
-            else:
-                top = df.head(3)
-                html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:2px 0 1px;">'
-                         f'Leading (RS T-0)</div>' +
-                         _sm_chips(list(top["group"]), list(top["rs_t0"]),
-                                   "#22c55e", t, fmt="{:.0f}"))
-                rising = df[df["change"] > 0].sort_values("change", ascending=False).head(3)
-                if not rising.empty:
-                    html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:4px 0 1px;">'
-                             f'Rising ▲</div>' +
-                             _sm_chips(list(rising["group"]), list(rising["change"]),
-                                       "#22c55e", t, fmt="{:+.1f}"))
-        except Exception:
-            html += _sm_not_built(t)
-    html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(_sm_band_html(t, "RS Leadership") +
+                _rs_leadership_html(t) + "</div>", unsafe_allow_html=True)
     if st.button("Sector Map →", key="home_right_rsl_nav", width="stretch"):
         st.session_state["current_page"] = "Sector Map"
         st.rerun()
 
 
 def render_turnover_heatmap_thumb() -> None:
-    """Compact Turnover Heatmap card — only renders data if already built this session."""
     t = rs.TOKENS
-    html = _sm_band_html(t, "Turnover Heatmap · last 15 sessions")
-    if not st.session_state.get("tah_ran"):
-        html += _sm_not_built(t)
-    else:
-        try:
-            import sector_turnover_heatmap as _tah
-            g = _tah.grid(st.session_state.get("srk_group", "sector"))
-            if g.get("error"):
-                html += (f'<div style="font-size:11px;color:{t["text_muted"]};">'
-                         f'{g["error"]}</div>')
-            else:
-                ad = g["ad"]
-                # first column = today, sort by it
-                col0 = ad.columns[0]
-                today = ad[col0].dropna().sort_values(ascending=False)
-                top = today.head(3)
-                bot = today.tail(3)
-                html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:2px 0 1px;">'
-                         f'A/D top</div>' +
-                         _sm_chips(list(top.index), list(top.values), "#22c55e", t,
-                                   fmt="{:+.0f}%"))
-                html += (f'<div style="font-size:9px;color:{t["text_muted"]};margin:4px 0 1px;">'
-                         f'A/D bottom</div>' +
-                         _sm_chips(list(bot.index), list(bot.values), "#ef4444", t,
-                                   fmt="{:+.0f}%"))
-        except Exception:
-            html += _sm_not_built(t)
-    html += "</div>"
-    st.markdown(html, unsafe_allow_html=True)
+    st.markdown(_sm_band_html(t, "Turnover Heatmap · last 15 sessions") +
+                _turnover_heatmap_html(t) + "</div>", unsafe_allow_html=True)
     if st.button("Sector Map →", key="home_right_tah_nav", width="stretch"):
         st.session_state["current_page"] = "Sector Map"
         st.rerun()

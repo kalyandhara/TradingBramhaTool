@@ -123,6 +123,29 @@ def produce_sector_turnover_share() -> dict:
     return grid
 
 
+def produce_sector_ranking() -> dict:
+    """Daily sector ranking by turnover share change — feeds the right-rail thumb."""
+    import sector_ranking as _srk
+    g = _srk.ranking_grid("nifty500")
+    if g.get("error"):
+        raise RuntimeError(g["error"])
+    if _empty(g.get("rows")):
+        raise RuntimeError("ranking grid returned no rows")
+    return g
+
+
+def produce_sector_rs_leadership() -> dict:
+    """Daily RS leadership grid — feeds the right-rail thumb."""
+    import sector_rs_leadership as _rsl
+    g = _rsl.grid("industry")
+    rows = g.get("rows") if isinstance(g, dict) else g
+    if _empty(rows):
+        raise RuntimeError("RS leadership grid returned no rows")
+    if isinstance(g, dict):
+        return g
+    return {"rows": rows}
+
+
 def produce_volume_shockers() -> dict:
     """Bhavcopy frame + the default-threshold Darvas scan. The page re-runs the
     scan from the stored bhavcopy when a slider moves."""
@@ -370,6 +393,10 @@ SNAPSHOTS: dict[str, SnapshotSpec] = {s.name: s for s in [
                  "Sector Map", produce_sector_money_flow, order=20),
     SnapshotSpec("sector_turnover_share", "Sector turnover share",
                  "Sector Map", produce_sector_turnover_share, order=21),
+    SnapshotSpec("sector_ranking", "Sector ranking · rotation + health",
+                 "Sector Map", produce_sector_ranking, order=22),
+    SnapshotSpec("sector_rs_leadership", "Sector RS leadership",
+                 "Sector Map", produce_sector_rs_leadership, order=23),
     SnapshotSpec("volume_shockers", "Volume shockers · Darvas",
                  "Home", produce_volume_shockers, order=30),
     SnapshotSpec("trending", "What moved today",

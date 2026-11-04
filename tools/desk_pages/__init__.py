@@ -171,6 +171,15 @@ def home_mf_thumb(grid) -> None:
         logging.getLogger(__name__).exception("money flow thumb failed")
 
 
+def home_sector_map_group_thumb(sector_data: dict) -> None:
+    """Right-rail grouped card: Sector Map overview (heatmap + ranking + RSL + turnover)."""
+    try:
+        importlib.import_module(f"{__name__}.home_layout").render_sector_map_group_thumb(sector_data)
+    except Exception:
+        import logging
+        logging.getLogger(__name__).exception("sector map group thumb failed")
+
+
 def home_sector_heatmap_thumb(sector_data: dict) -> None:
     """Right-rail thumbnail: 1D sector heatmap top/bottom chips."""
     try:
@@ -181,7 +190,7 @@ def home_sector_heatmap_thumb(sector_data: dict) -> None:
 
 
 def home_sector_ranking_thumb() -> None:
-    """Right-rail thumbnail: Sector Ranking rotation + health (session-cached)."""
+    """Right-rail thumbnail: Sector Ranking rotation + health (snapshot or session-cached)."""
     try:
         importlib.import_module(f"{__name__}.home_layout").render_sector_ranking_thumb()
     except Exception:
@@ -190,7 +199,7 @@ def home_sector_ranking_thumb() -> None:
 
 
 def home_rs_leadership_thumb() -> None:
-    """Right-rail thumbnail: Relative-strength leadership (session-cached)."""
+    """Right-rail thumbnail: Relative-strength leadership (snapshot or session-cached)."""
     try:
         importlib.import_module(f"{__name__}.home_layout").render_rs_leadership_thumb()
     except Exception:
@@ -199,7 +208,7 @@ def home_rs_leadership_thumb() -> None:
 
 
 def home_turnover_heatmap_thumb() -> None:
-    """Right-rail thumbnail: Turnover heatmap A/D top/bottom (session-cached)."""
+    """Right-rail thumbnail: Turnover heatmap A/D top/bottom (snapshot or session-cached)."""
     try:
         importlib.import_module(f"{__name__}.home_layout").render_turnover_heatmap_thumb()
     except Exception:
