@@ -5483,7 +5483,9 @@ def scan_mean_reversion(df: pd.DataFrame,
     score = stretch_score + rsi_score + down_score + slope_bonus
 
     entry = last
-    stop = round(float(low.iloc[-1]) * 0.995, 2)     # below session low
+    # B-183g: session_low×0.995 had 79% noise_stop_share; B-8 measured 2-ATR costs nothing
+    atr = float(_atr_series(df, 14).iloc[-1])
+    stop = round(entry - 2.0 * atr, 2)
     risk = entry - stop
     if risk <= 0:
         return None

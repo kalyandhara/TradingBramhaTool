@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-11-19] study | B-183g Mean Reversion (Connors RSI2) — wider stop AT BASELINE; scanner fixed
+- Fresh panel (nifty500[300:500], 178 trades, 111 symbols): `mean_d = +0.056R` (p 0.44, thirds [+0.135, +0.148, −0.035] sign-unstable). `noise_stop_share = 0.6%` (was 79.1%). `mean_exp_r = −0.015R` (near-zero). The −0.406R BELOW in B-183c was entirely the tight-stop distortion. Scanner stop fixed in `scanner_templates.py` to `entry − 2×ATR`. `plan_odds_labels.py` updated (−0.41 → AT BASELINE).
+
 ## [2026-11-19] study | B-183f RSI Divergence Bull — corrected stop AT BASELINE; scanner fixed
 - Fresh panel (nifty500[300:500], 591 trades, 175 symbols): `mean_d = +0.005R` (p 0.89, sign-unstable thirds). `noise_stop_share = 4.3%`. `realised_target_rate = 51.0%` ≈ baseline. The −0.22R BELOW in B-183c was entirely the inverted `fib_618 − 0.3×ATR` stop. Scanner fixed in `scanner_templates.py` to always use `price2 − 0.5×ATR`.
 

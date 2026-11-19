@@ -729,6 +729,16 @@ STUDIES: tuple[dict, ...] = (
                      "B-183c was entirely the inverted fib stop geometry."),
     },
     {
+        "item": "B-183g", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("Mean Reversion (Connors RSI2) plan geometry — wider stop",),
+        "verdict": "AT BASELINE",
+        "headline": ("Wider stop entry−2×ATR on fresh panel (nifty500[300:500]): "
+                     "mean_d +0.056R (p 0.44, 178 trades, 111 symbols). noise_stop_share 0.6% "
+                     "(was 79.1% with session_low×0.995). mean_exp_r −0.015R (near-zero). "
+                     "The −0.406R BELOW in B-183c was entirely the tight-stop distortion."),
+    },
+    {
         "item": "B-183e", "tool": "plan_baseline_study.py", "date": "2026-11-19",
         "source": "analyses/Open-Backlog",
         "subjects": ("Support Breakdown plan geometry", "Inverted Flag & Pole plan geometry"),

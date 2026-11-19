@@ -11,10 +11,18 @@ The line is about the plan's levels, not the signal: Failed Breakdown's plan BEA
 while its signal measured NULL (B-203). Source:
 wiki/analyses/Plan-Odds-Baseline-Robust; re-running the study does not change these
 numbers until they are updated here.
+
+Corrections applied after B-183c (stop geometry audits):
+  B-183f (2026-11-19): RSI Divergence Bull stop was INVERTED; corrected stop gives
+    AT BASELINE on fresh panel (+0.005R p 0.89). Card line REMOVED.
+  B-183g (2026-11-19): Mean Reversion (Connors RSI2) stop was inside noise (79.1%);
+    wider stop entry−2×ATR gives AT BASELINE (+0.056R p 0.44). Card line REMOVED.
 """
 from __future__ import annotations
 
 #: scanner -> mean d in R, per symbol, net of costs, clipped at ±3R.
+#: Scanners absent here (RSI Divergence Bull, Mean Reversion Connors RSI2) were
+#: re-measured after stop geometry fixes and confirmed AT BASELINE — no card line.
 PLAN_ODDS_D: dict[str, float] = {
     "Flag & Pole": 0.37,
     "Bullish CHoCH (last 5 sessions)": 0.18,
@@ -26,10 +34,8 @@ PLAN_ODDS_D: dict[str, float] = {
     "Harmonic Reversal (XABCD)": 0.07,
     "Liquidity Sweep": -0.09,
     "VWAP Mean Reversion": -0.16,
-    "RSI Divergence Bull": -0.22,
     "Support Breakdown": -0.33,
     "Inverted Flag & Pole": -0.41,
-    "Mean Reversion (Connors RSI2)": -0.41,
 }
 
 
