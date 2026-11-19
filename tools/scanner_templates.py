@@ -5907,11 +5907,11 @@ def scan_rsi_divergence_bull(df: pd.DataFrame, pivot_len: int = 3,
 
     # ── Trade plan: CMP / SL / TGT ───────────────────────────────────────────
     cmp = round(float(close.iloc[-1]), 2)
+    # B-183f: fib_618 - 0.3*ATR sits 38.2% ABOVE price2 (inverted) — always use pivot low.
+    stop = round(price2 - 0.5 * atr, 2)
     if has_fib:
-        stop = round(fib_618 - 0.3 * atr, 2)
         target = round(fib_0, 2)
     else:
-        stop = round(price2 - 0.5 * atr, 2)
         risk = cmp - stop
         target = round(cmp + 2.0 * risk, 2) if risk > 0 else None
 

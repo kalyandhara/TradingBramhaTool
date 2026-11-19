@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-11-19] study | B-183f RSI Divergence Bull — corrected stop AT BASELINE; scanner fixed
+- Fresh panel (nifty500[300:500], 591 trades, 175 symbols): `mean_d = +0.005R` (p 0.89, sign-unstable thirds). `noise_stop_share = 4.3%`. `realised_target_rate = 51.0%` ≈ baseline. The −0.22R BELOW in B-183c was entirely the inverted `fib_618 − 0.3×ATR` stop. Scanner fixed in `scanner_templates.py` to always use `price2 − 0.5×ATR`.
+
 ## [2026-11-19] audit | B-183e — Support Breakdown (stop geometry) + Inverted F&P (inverted signal)
 - **Support Breakdown**: `noise_stop_share = 80.7%`. Stop = `bk_level × 1.005` sits just above the retest trigger; routine bounces stop the short. `mean_exp_r = −0.308R` — even a random short with this plan geometry loses. Per-symbol `mean_d = −0.325R` (BELOW); per-trade `mean_r = −0.018R` (nearly zero; high-frequency symbols mask the problem). PRIMARY: stop geometry.
 - **Inverted Flag & Pole**: `noise_stop_share = 90.6%`; `mean_r = −0.455R` vs `mean_exp_r = −0.173R`. B-92 already measured INVERTED signal (+1.33% above baseline after breakdown). Tight stop compounds it. PRIMARY: inverted signal; no geometry fix applicable.

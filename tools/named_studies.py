@@ -719,6 +719,16 @@ STUDIES: tuple[dict, ...] = (
                      "correct. Filed B-183f to pre-register fix and re-run."),
     },
     {
+        "item": "B-183f", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("RSI Divergence Bull plan geometry — corrected stop",),
+        "verdict": "AT BASELINE",
+        "headline": ("Corrected stop price2−0.5×ATR on fresh panel (nifty500[300:500]): "
+                     "mean_d +0.005R (p 0.89, thirds sign-unstable). noise_stop_share 4.3%. "
+                     "realised_target_rate 51.0% ≈ baseline 50.3%. The −0.22R BELOW in "
+                     "B-183c was entirely the inverted fib stop geometry."),
+    },
+    {
         "item": "B-183e", "tool": "plan_baseline_study.py", "date": "2026-11-19",
         "source": "analyses/Open-Backlog",
         "subjects": ("Support Breakdown plan geometry", "Inverted Flag & Pole plan geometry"),
