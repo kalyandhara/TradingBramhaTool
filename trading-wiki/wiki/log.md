@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-11-03] study | B-183c heavy-tail-robust plan odds — gate passed, card lines live
+- [[analyses/Plan-Odds-Baseline-Robust]]: per-trade d clipped at ±3R, placebo gate with no p escape. Gate +0.0013R (p 0.89), main placebo −0.0045R (p 0.63). 8 BEATS, 8 AT, 6 BELOW, 1 THIN; none within placebo noise. Rounding Bottom fell to AT; four new BELOWs. The 14 BEATS/BELOW scanners get a card line by the pre-registered rule (`plan_odds_labels.py`), worded as about the levels, not the signal. Follow-ups B-183d/e.
+
 ## [2026-11-03] study | B-183 plan-odds baseline (amended) — 8 BEATS, 2 BELOW, caveats
 - [[analyses/Plan-Odds-Baseline-Measured]]: gate on nifty500[300:500] passed on p only (mean +0.31R, heavy tail); main placebo +0.04R (p 0.0006). Robust BEATS: Flag & Pole, Rounding Bottom, Bullish CHoCH, %R Bottoming; BELOW: RSI Divergence Bull, Connors RSI2. Filed B-183a/b/c. Target-first odds well calibrated (31.0% vs 30.6–30.9%).
 

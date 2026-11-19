@@ -266,6 +266,7 @@ _Last updated: 2026-10-29 | Pages: 352 | Sources ingested: 124_
 ## Analyses
 | Page | Date | Topic |
 |------|------|-------|
+| [Plan-Odds-Baseline-Robust](analyses/Plan-Odds-Baseline-Robust.md) | 2026-11-03 | B-183c: plan odds with d clipped at ±3R and a strict placebo gate — gate passed; 8 BEATS, 8 AT, 6 BELOW, 1 THIN; 14 card lines live |
 | [Plan-Odds-Baseline-Measured](analyses/Plan-Odds-Baseline-Measured.md) | 2026-11-03 | B-183 result: scanner plans vs a drift-free no-edge baseline — 8 BEATS (4 robust), 11 AT, 2 BELOW; placebo caveats; card labels held |
 | [Failed-Breakdown-Sweep](analyses/Failed-Breakdown-Sweep.md) | 2026-11-03 | B-203: the two-candle stop run (close below support, reclaimed within 3) as a screen-only scanner and chart overlay; pre-registered 20-session edge study, ALL and equal-lows POOL arms |
 | [Bull-Trap-Detector](analyses/Bull-Trap-Detector.md) | 2026-10-23 | B-182: failed breakout + weak volume + bearish RSI divergence as one Risk flag and chart overlay; pre-registered 20-session edge study |

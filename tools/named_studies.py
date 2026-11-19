@@ -700,6 +700,15 @@ STUDIES: tuple[dict, ...] = (
                      "failed its placebo; gate passed on p only, main placebo +0.04R."),
     },
     {
+        "item": "B-183c", "tool": "plan_baseline_study.py", "date": "2026-11-03",
+        "source": "analyses/Plan-Odds-Baseline-Robust",
+        "subjects": ("plan-odds no-edge baseline, robust",),
+        "verdict": "MIXED",
+        "headline": ("d clipped at 3R, strict gate passed (+0.001R, p 0.89): 8 BEATS, 8 AT, "
+                     "6 BELOW, 1 THIN; Rounding Bottom fell to AT; 14 card lines, on the "
+                     "plan's levels, not the signal."),
+    },
+    {
         "item": "B-203", "tool": "failed_breakdown_study.py", "date": "2026-11-03",
         "source": "analyses/Failed-Breakdown-Sweep",
         "subjects": ("Failed Breakdown (2-bar sweep)",),
