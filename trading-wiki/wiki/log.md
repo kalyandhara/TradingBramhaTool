@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-11-19] audit | B-183b Mean Reversion (Connors RSI2) — stop inside noise; B-183g filed
+- `noise_stop_share = 79.1%` (B-183c bootstrap): stop = `session_low × 0.995` is inside the noise band for 79% of trades. B-8 independently measured 68.1% actual stop-out on the same formula. `mean_d = −0.406R`; `realised_target_rate = 14.1%` vs `mean_p_target = 18.2%` — stop fires before target is reached. Fix candidate: `entry − 2×ATR` (B-8: cost nothing measurable). Filed B-183g to pre-register and re-run.
+
 ## [2026-11-19] audit | B-183a RSI Divergence Bull — stop formula inverted; B-183f filed
 - Stop `fib_618 − 0.3×ATR` places the stop 38.2% above the second pivot low (the entry). Valid plans only form when price has already bounced past fib_618 — a late, spent entry. The fallback formula `price2 − 0.5×ATR` is correct. Filed B-183f to pre-register and re-run on a fresh panel.
 

@@ -719,6 +719,17 @@ STUDIES: tuple[dict, ...] = (
                      "correct. Filed B-183f to pre-register fix and re-run."),
     },
     {
+        "item": "B-183b", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("Mean Reversion (Connors RSI2) plan geometry",),
+        "verdict": "GEOMETRY_DEFECT",
+        "headline": ("Stop = session_low × 0.995 is inside normal noise: noise_stop_share "
+                     "79.1% (B-183c), B-8 measured 68.1% stop-out rate on the same formula. "
+                     "Mean_d −0.406R; realised_target_rate 14.1% vs mean_p_target 18.2% — "
+                     "stop fires before target is reached. Fix candidate: entry − 2×ATR "
+                     "(B-8: cost nothing measurable). Filed B-183g to pre-register."),
+    },
+    {
         "item": "B-203", "tool": "failed_breakdown_study.py", "date": "2026-11-03",
         "source": "analyses/Failed-Breakdown-Sweep",
         "subjects": ("Failed Breakdown (2-bar sweep)",),
