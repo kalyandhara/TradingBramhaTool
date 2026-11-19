@@ -3678,7 +3678,8 @@ def scan_support_breakdown(df: pd.DataFrame) -> dict | None:
     vol_ok = vol_x >= 1.0
 
     entry = last
-    stop = round(bk_level * 1.005, 2)   # just above the breakdown level
+    # B-183h: bk_level×1.005 had 80.7% noise_stop_share; widen to bk_level+ATR
+    stop = round(bk_level + atr, 2)
     risk = stop - entry
     if risk <= 0:
         return None
@@ -4217,7 +4218,8 @@ def scan_liquidity_sweep(df: pd.DataFrame, max_bars_ago: int = 3,
     if last <= ev["level"] * 0.995:
         return None
 
-    stop = round(wick_low * 0.995, 2)
+    # B-183h/B-41p: wick_low×0.995 had 64.9% noise_stop_share; widen to wick_low−1.5×ATR
+    stop = round(wick_low - 1.5 * atr, 2)
     risk = last - stop
     if risk <= 0:
         return None

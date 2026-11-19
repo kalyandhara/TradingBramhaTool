@@ -32,9 +32,9 @@ PLAN_ODDS_D: dict[str, float] = {
     "RSI 60-40 Setup": 0.07,
     "FVG Pullback": 0.07,
     "Harmonic Reversal (XABCD)": 0.07,
-    "Liquidity Sweep": -0.09,
+    "Liquidity Sweep": 0.13,   # B-183i: wider stop wick_low−1.5×ATR → BEATS
     "VWAP Mean Reversion": -0.16,
-    "Support Breakdown": -0.33,
+    "Support Breakdown": -0.08,  # B-183h: wider stop bk_level+ATR; signal-driven BELOW
     "Inverted Flag & Pole": -0.41,
 }
 

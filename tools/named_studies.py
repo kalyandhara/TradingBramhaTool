@@ -719,6 +719,30 @@ STUDIES: tuple[dict, ...] = (
                      "correct. Filed B-183f to pre-register fix and re-run."),
     },
     {
+        "item": "B-183i", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("Liquidity Sweep plan geometry — wider stop",),
+        "verdict": "BEATS",
+        "headline": ("Wider stop wick_low−1.5×ATR on fresh panel (nifty500[300:500]): "
+                     "mean_d +0.126R (p 0.0008, thirds [+0.207, +0.019, −0.038], 2/3 positive). "
+                     "noise_stop_share 30.0% (was 64.9%). mean_exp_r −0.018R (near-zero). "
+                     "The −0.09R BELOW in B-183c was stop-driven; wider stop unlocks the edge. "
+                     "B-41p pre-registered this arm (no-stop +0.504R); a stopped arm at "
+                     "wick_low−1.5×ATR gives +0.126R per-symbol — a tractable compromise."),
+    },
+    {
+        "item": "B-183h", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("Support Breakdown plan geometry — wider stop",),
+        "verdict": "BELOW",
+        "headline": ("Wider stop bk_level+ATR on fresh panel (nifty500[300:500]): "
+                     "mean_d −0.082R (p 7.1e-7, thirds all negative). "
+                     "noise_stop_share 24.8% (was 80.7%). mean_exp_r −0.101R (geometry still "
+                     "negative — stop widening not sufficient). realised_target_rate 3.8% vs "
+                     "p_target 5.0%. The signal itself selects into continued moves against "
+                     "the short; no stop geometry fix resolves this."),
+    },
+    {
         "item": "B-183f", "tool": "plan_baseline_study.py", "date": "2026-11-19",
         "source": "analyses/Open-Backlog",
         "subjects": ("RSI Divergence Bull plan geometry — corrected stop",),

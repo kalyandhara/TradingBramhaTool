@@ -1,6 +1,10 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-11-19] study | B-183i/h Liquidity Sweep (BEATS) + Support Breakdown (BELOW) — scanner stops widened
+- **Liquidity Sweep** (B-183i): `wick_low − 1.5×ATR` on fresh panel (3757 trades, 186 symbols): `mean_d = +0.126R` (p 0.0008, 2/3 thirds positive). `noise_stop_share = 30.0%` (was 64.9%). AT BASELINE geometry (`mean_exp_r = −0.018R`). BEATS — the edge was real, the tight stop destroyed it. `plan_odds_labels.py` updated (−0.09 → +0.13).
+- **Support Breakdown** (B-183h): `bk_level + ATR` on fresh panel (10245 trades, 187 symbols): `mean_d = −0.082R` (p 7.1e-7, all thirds negative). `noise_stop_share = 24.8%` (was 80.7%). `mean_exp_r = −0.101R` — geometry still negative after widening; signal quality is the primary driver. BELOW confirmed. `plan_odds_labels.py` updated (−0.33 → −0.08).
+
 ## [2026-11-19] study | B-183g Mean Reversion (Connors RSI2) — wider stop AT BASELINE; scanner fixed
 - Fresh panel (nifty500[300:500], 178 trades, 111 symbols): `mean_d = +0.056R` (p 0.44, thirds [+0.135, +0.148, −0.035] sign-unstable). `noise_stop_share = 0.6%` (was 79.1%). `mean_exp_r = −0.015R` (near-zero). The −0.406R BELOW in B-183c was entirely the tight-stop distortion. Scanner stop fixed in `scanner_templates.py` to `entry − 2×ATR`. `plan_odds_labels.py` updated (−0.41 → AT BASELINE).
 
