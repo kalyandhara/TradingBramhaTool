@@ -34,6 +34,7 @@ import sys
 from datetime import date, datetime, timezone, timedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -120,6 +121,48 @@ def _collect_opportunities(run_date: str) -> list[dict]:
         return []
 
 
+def _latest_run_date(on_or_before: str) -> str:
+    """The newest stored shortlist date not after `on_or_before`.
+
+    The digest dates itself in IST, but opportunity_daily stores the machine's
+    LOCAL date, and this machine runs on US Eastern time. A 17:45 ET digest is
+    03:15 IST the next day, so an exact-date lookup found no shortlist at all.
+    """
+    try:
+        dates = [d for d in db.get_opportunity_run_dates() if d <= on_or_before]
+        return dates[0] if dates else on_or_before
+    except Exception:
+        return on_or_before
+
+
+ALERT_DIR = Path(__file__).resolve().parent / "cache" / "alerts"
+
+
+def _collect_recent_jsonl(name: str, hours: int = 24) -> list[dict]:
+    """Rows from cache/alerts/<name> stamped in the last `hours`.
+
+    A rolling window, not "today": the watchers stamp machine time and the
+    digest dates itself in IST, and the two disagree by 9.5 hours.
+    """
+    cutoff = datetime.now() - timedelta(hours=hours)
+    out = []
+    try:
+        lines = (ALERT_DIR / name).read_text(encoding="utf-8").splitlines()
+    except OSError:
+        return []
+    for line in lines:
+        try:
+            row = json.loads(line)
+            ts = datetime.fromisoformat(str(row.get("ts", "")).replace("Z", "+00:00"))
+        except (ValueError, TypeError):
+            continue
+        if ts.tzinfo is not None:
+            ts = ts.astimezone().replace(tzinfo=None)
+        if ts >= cutoff:
+            out.append(row)
+    return out
+
+
 def _collect_positions() -> list[dict]:
     try:
         df = db.get_open_positions()
@@ -152,15 +195,15 @@ _PALETTE = {
     "text":       "#3a2a1e",
     "text_body":  "#5c4a3a",
     "text_muted": "#7a6858",
-    "accent":     "#d97706",
+    "accent":     "#a14a0b",
     "accent_bg":  "#fde0c0",
-    "good":       "#16a34a",
+    "good":       "#166534",
     "good_bg":    "#e8f5e9",
-    "risk":       "#dc2626",
+    "risk":       "#b91c1c",
     "risk_bg":    "#fef2f2",
     "info":       "#2563eb",
     "info_bg":    "#eef4ff",
-    "muted":      "#9ca3af",
+    "muted":      "#636a75",
     "muted_bg":   "#f3f4f6",
 }
 
@@ -401,6 +444,40 @@ def _opportunities_html(opps: list[dict]) -> str:
     return html
 
 
+_WHY_RANK = {"held": 0, "watchlist": 1, "pick": 2}
+
+
+def _filings_html(filings: list[dict]) -> str:
+    if not filings:
+        return ('<p class="empty-note">No new material filings on your names in the '
+                'last 24 hours (or the filings watch has not run).</p>')
+    rows = sorted(filings, key=lambda r: (_WHY_RANK.get(r.get("why"), 9), r.get("symbol", "")))
+    html = ""
+    for r in rows[:15]:
+        amt = f' · {escape(r["amount"])} as filed' if r.get("amount") else ""
+        link = (f' · <a href="{escape(r["pdf"])}" style="color:{_PALETTE["accent"]}">PDF</a>'
+                if r.get("pdf") else "")
+        html += f"""
+<div class="opp-row">
+  <span class="opp-symbol">{escape(r.get("symbol", "?"))}</span>
+  <span style="font-size:12px;color:{_PALETTE['text_muted']}"> {escape(r.get("why", ""))} · {escape(r.get("bucket", ""))}{amt}</span>
+  <div class="opp-meta">{escape((r.get("headline") or r.get("category") or "")[:180])}{link}</div>
+</div>"""
+    if len(rows) > 15:
+        html += f'<p class="empty-note">+{len(rows) - 15} more in the filings emails.</p>'
+    return html
+
+
+def _alerts_html(alerts: list[dict]) -> str:
+    if not alerts:
+        return '<p class="empty-note">No alerts fired in the last 24 hours.</p>'
+    html = ""
+    for a in alerts[-10:]:
+        html += (f'<div class="opp-row"><div class="opp-meta">'
+                 f'{escape(a.get("headline") or a.get("symbol", "?"))}</div></div>')
+    return html
+
+
 def _positions_html(positions: list[dict]) -> str:
     if not positions:
         return '<p class="empty-note">No open positions.</p>'
@@ -472,9 +549,11 @@ def render_html(today: date | None = None) -> str:
     market   = _collect_market_brief()
     reading  = _collect_sentiment()
     verdict  = _collect_verdict(reading)
-    run_date = today.isoformat()
+    run_date = _latest_run_date(today.isoformat())
     opps     = _collect_opportunities(run_date)
     positions = _collect_positions()
+    filings  = _collect_recent_jsonl("filings.jsonl")
+    alerts   = _collect_recent_jsonl("alerts.jsonl")
     panch    = _collect_panchang(today)
 
     verdict_str = verdict.get("verdict", "UNKNOWN")
@@ -518,7 +597,7 @@ def render_html(today: date | None = None) -> str:
 
 <!-- OPPORTUNITIES -->
 <div class="section">
-  <p class="section-label">Today's Opportunities <span style="font-size:10px;font-weight:400;text-transform:none;color:{_PALETTE['text_muted']}">(daily funnel run)</span></p>
+  <p class="section-label">Today's Opportunities <span style="font-size:10px;font-weight:400;text-transform:none;color:{_PALETTE['text_muted']}">(daily funnel run · {run_date})</span></p>
   {_opportunities_html(opps)}
 </div>
 
@@ -526,6 +605,18 @@ def render_html(today: date | None = None) -> str:
 <div class="section">
   <p class="section-label">Open Positions</p>
   {_positions_html(positions)}
+</div>
+
+<!-- FILINGS -->
+<div class="section">
+  <p class="section-label">Filings on Your Names <span style="font-size:10px;font-weight:400;text-transform:none;color:{_PALETTE['text_muted']}">(last 24h · a reason to read, not a signal)</span></p>
+  {_filings_html(filings)}
+</div>
+
+<!-- ALERTS -->
+<div class="section">
+  <p class="section-label">Alerts Fired</p>
+  {_alerts_html(alerts)}
 </div>"""
 
     # Panchang (optional)
@@ -585,6 +676,7 @@ def send_digest(to_override: str | None = None, today: date | None = None) -> No
         smtp.login(sender, pw)
         smtp.sendmail(sender, [recipient], msg.as_bytes())
     print("Sent.")
+    print(f"##RESULT digest for {today} sent to {recipient}")
 
 
 # ──────────────────────────────────────────────────────────────────────────────

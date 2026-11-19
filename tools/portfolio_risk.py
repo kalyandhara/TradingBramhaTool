@@ -40,12 +40,19 @@ from typing import Any, Callable, Iterable
 import pandas as pd
 
 
+def _is_missing(v) -> bool:
+    return v is None or (isinstance(v, float) and v != v)      # NaN
+
+
 def position_risk(entry: float, stop: float | None, last: float,
-                  qty: float) -> dict[str, float]:
+                  qty: float, initial_stop: float | None = None) -> dict[str, float]:
     """Initial and open risk for ONE position, in currency.
 
-    ``initial`` = (entry - stop) x qty, floored at 0 — a stop placed above the
-    entry never risked anything to begin with.
+    ``initial`` = (entry - initial_stop) x qty, floored at 0 — a stop placed above
+    the entry never risked anything to begin with. ``initial_stop`` is the stop
+    the trade was OPENED with (`positions.initial_stop`); when it is not known the
+    current ``stop`` stands in, which is the old behaviour and exact for any
+    position whose stop has never been moved.
     ``open``    = (last - stop) x qty, floored at 0 — see the module docstring
     for why the floor matters more here than it looks.
     A position with **no stop** has unbounded risk and is reported as 0 with
@@ -53,11 +60,12 @@ def position_risk(entry: float, stop: float | None, last: float,
     treating "no stop" as "no risk" — which is the precise inversion of the
     truth.
     """
-    if stop is None or (isinstance(stop, float) and stop != stop):      # NaN
+    if _is_missing(stop):
         return {"initial": 0.0, "open": 0.0, "has_stop": 0.0}
     q = float(qty)
+    first = stop if _is_missing(initial_stop) else initial_stop
     return {
-        "initial": max(0.0, (float(entry) - float(stop))) * q,
+        "initial": max(0.0, (float(entry) - float(first))) * q,
         "open": max(0.0, (float(last) - float(stop))) * q,
         "has_stop": 1.0,
     }
@@ -97,7 +105,7 @@ def summarise(open_pos: pd.DataFrame,
         day_pl += (last - prev) * qty
 
         stop = pos.get("stop_loss")
-        r = position_risk(entry, stop, last, qty)
+        r = position_risk(entry, stop, last, qty, pos.get("initial_stop"))
         initial_risk += r["initial"]
         open_risk += r["open"]
         if not r["has_stop"]:

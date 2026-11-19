@@ -58,7 +58,7 @@ BAR_HALF_MIN = 120
 BAR_HALF_MAX = 340
 BAR_H      = 26
 
-#: The dashboard masthead's orange. Deliberately not TOKENS["accent"] (#d97706):
+#: The dashboard masthead's orange. Deliberately not TOKENS["accent"] (#a14a0b):
 #: this is the wordmark, the one place the card is allowed to be brand rather
 #: than palette, and it must match the header the reader sees on the app.
 BRAND_ORANGE = "#ea580c"

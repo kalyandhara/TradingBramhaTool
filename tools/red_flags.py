@@ -137,6 +137,56 @@ def _check_days_trend(deep: dict, key: str, label: str, hist_key: str,
                f"({oldest:.0f}d → {latest:.0f}d).", "yfinance")
 
 
+# ──────────────────────────────────────────────────────────────────────────────
+# B-192 — cash and accrual forensics (from sources/Web-Flagium-Structural-Risk-
+# Attribution). Thresholds are accounting conventions, NOT measured on this desk
+# (B-193 is the study that would measure them), so every one is a WATCH, never
+# CRITICAL. Each check states its sign explicitly: Flagium's inventory flag fired
+# on inventory FALLING faster than sales, and the tests pin the right direction.
+# ──────────────────────────────────────────────────────────────────────────────
+_CFO_PAT_MIN = 0.5          # under half of reported profit arrived as cash
+_CFO_PAT_MIN_YEARS = 3      # one or two years is a working-capital swing
+_ACCRUAL_MAX_PCT = 10.0     # (PAT - OCF) / avg assets, latest year
+_INVENTORY_DAYS_FLOOR = 90.0
+
+
+def _check_cash_conversion(deep: dict) -> dict[str, Any]:
+    key, label = "cash_conversion", "Profit not turning into cash (CFO/PAT)"
+    ratio, years = _f(deep.get("cfo_pat_ratio")), int(deep.get("cfo_pat_years") or 0)
+    if ratio is None and years >= _CFO_PAT_MIN_YEARS:
+        return _mk(key, label, NOT_CHECKED, WATCH,
+                   f"Profit summed over {years} years was a loss, so cash conversion of "
+                   f"profit is undefined.", "yfinance")
+    if ratio is None or years < _CFO_PAT_MIN_YEARS:
+        return _mk(key, label, NOT_CHECKED, WATCH,
+                   f"Need operating cash flow and profit for {_CFO_PAT_MIN_YEARS}+ matched "
+                   f"years with positive total profit; have {years}.", "yfinance")
+    if ratio < _CFO_PAT_MIN:
+        return _mk(key, label, FLAG, WATCH,
+                   f"Operating cash flow was {ratio:.2f}x reported profit over {years} years: "
+                   f"less than half the profit arrived as cash. (Convention, unmeasured here.)",
+                   "yfinance")
+    return _mk(key, label, CLEAN, WATCH,
+               f"Operating cash flow {ratio:.2f}x reported profit over {years} years.", "yfinance")
+
+
+def _check_accruals(deep: dict) -> dict[str, Any]:
+    key, label = "accrual_ratio", "High accruals (profit ahead of cash)"
+    a = _f(deep.get("accrual_ratio"))
+    if a is None:
+        return _mk(key, label, NOT_CHECKED, WATCH,
+                   "Needs profit, operating cash flow and two years of total assets "
+                   "for the same fiscal year.", "yfinance")
+    if a > _ACCRUAL_MAX_PCT:
+        return _mk(key, label, FLAG, WATCH,
+                   f"Profit exceeded operating cash flow by {a:.1f}% of average assets in the "
+                   f"latest year (above {_ACCRUAL_MAX_PCT:.0f}%). (Convention, unmeasured here.)",
+                   "yfinance")
+    side = ("cash ran ahead of profit" if a < 0 else "profit ran ahead of cash")
+    return _mk(key, label, CLEAN, WATCH,
+               f"Accruals {a:+.1f}% of average assets in the latest year ({side}).", "yfinance")
+
+
 # Equity dilution over the observed window — "constant equity dilution" is on the
 # governance checklist. A QIP for real growth is legitimate, so moderate dilution
 # is a WATCH (caveat), and only egregious issuance is CRITICAL.
@@ -327,6 +377,11 @@ def evaluate(symbol: str, fundamentals: dict | None, deep: dict | None,
         _check_days_trend(deep, "wc_days_trend", "Rising working-capital days",
                           "wc_days_history", _WC_DAYS_FLOOR, WATCH,
                           "Working-capital days"),
+        _check_days_trend(deep, "inventory_days_trend", "Rising inventory days",
+                          "inventory_days_history", _INVENTORY_DAYS_FLOOR, WATCH,
+                          "Inventory days"),
+        _check_cash_conversion(deep),
+        _check_accruals(deep),
         _check_promoter_holding_nse(promoter_series) or _check_promoter_holding(holdings),
         _check_promoter_pledge_nse(promoter_pledge) or _check_promoter_pledge(holdings),
     ]

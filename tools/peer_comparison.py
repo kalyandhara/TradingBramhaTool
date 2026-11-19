@@ -881,12 +881,77 @@ def table_html(df: pd.DataFrame, median: dict[str, float | None], anchor: str,
 <tbody>{"".join(rows_html)}{median_row}</tbody></table></div>'''
 
 
+def _lobby_fallback(anchor: str, res: dict) -> dict:
+    """The Sector Lobby's rungs after this module's own: yfinance industry
+    across NSE sectors, then screener.in's NSE basic industry. Handed the
+    first-rung result so it is not resolved twice. No lobby overrides: the
+    analyzer's first rung never applied them either."""
+    import sector_lobby as sl
+    return sl.lobby_members(anchor, resolve=lambda a, **k: res, overrides={})
+
+
+def _climb_ladder(res: dict, lobby: Callable[[str, dict], dict],
+                  max_peers: int) -> dict:
+    """Fill `res` from the lobby ladder when the first rung found no group.
+
+    Measured 2026-10-25 on a scanner run + watchlist (105 names): 53 failed the
+    first rung outright because they are not in the NIFTY-500 / Total-Market
+    files, and screener.in's basic-industry listing gave 4+ NSE peers for every
+    one of the 10 checked. The lobby already climbed these rungs; the analyzer
+    stopping at the first one was why the two pages disagreed about peers.
+    """
+    a = res["anchor"]
+    try:
+        lob = lobby(a, res) or {}
+    except Exception as exc:                 # a scrape failure is a thin group
+        _log.warning("peer_comparison: ladder failed for %s: %s", a, exc)
+        lob = {}
+    peers = [p for p in lob.get("members") or [] if p != a]
+    if not lob.get("ok") or len(peers) < MIN_PEERS:
+        res["reason"] = ((res.get("reason") or "") + " The wider search — the same "
+                         "yfinance industry across every NSE sector, then NSE's basic "
+                         "industry via screener.in — found no group either.").strip()
+        return res
+    tags = lob.get("tags") or {}
+    peers.sort(key=lambda s: (tags.get(s, {}).get("market_cap_cr") or -1), reverse=True)
+    res.update({
+        "ok": True, "reason": None, "tags": tags, "peers": peers[:max_peers],
+        "n_in_group": len(peers), "group_label": lob.get("label"),
+        "group_level": lob.get("level"),
+        "macro_sector": lob.get("macro_sector") or res.get("macro_sector"),
+        "source": ("screener.in" if lob.get("source") == "screener.in"
+                   else "yfinance-cross-sector"),
+    })
+    if res["source"] != "screener.in":
+        res["industry"] = (tags.get(a) or {}).get("industry") or res.get("industry")
+    return res
+
+
+def source_label(res: dict) -> str:
+    """One line for the page: where this peer group came from."""
+    src, label = res.get("source"), res.get("group_label")
+    if src == "screener.in":
+        return (f"NSE basic industry <b>{label}</b>, via screener.in "
+                f"({res.get('macro_sector') or 'NSE classification'})")
+    if src == "yfinance-cross-sector":
+        rung = "industry" if res.get("group_level") == "industry" else "industry family"
+        return (f"yfinance {rung} <b>{label}</b>, searched across NSE sectors "
+                f"({res.get('macro_sector') or 'several sectors'})")
+    return f"yfinance industry <b>{label}</b>, within NSE sector {res.get('macro_sector')}"
+
+
 def build(anchor: str, score_fn: Callable[[str], dict], *,
           max_peers: int = MAX_PEERS,
           tag_progress: Callable[[int, int], None] | None = None,
-          score_progress: Callable[[int, int], None] | None = None) -> dict[str, Any]:
-    """resolve_peers → score_peer_group → median, as one call for the page."""
+          score_progress: Callable[[int, int], None] | None = None,
+          lobby: Callable[[str, dict], dict] | None = None) -> dict[str, Any]:
+    """resolve_peers → (lobby ladder) → score_peer_group → median, as one call
+    for the page. `res["source"]` says which rung produced the group."""
+    anchor = (anchor or "").strip().upper()
     res = resolve_peers(anchor, max_peers=max_peers, progress_cb=tag_progress)
+    res["anchor"], res["source"] = anchor, "yfinance"
+    if not res["ok"]:
+        res = _climb_ladder(res, lobby or _lobby_fallback, max_peers)
     if not res["ok"]:
         res["table"], res["median"], res["ranks"] = None, None, None
         return res

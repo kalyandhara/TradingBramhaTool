@@ -57,6 +57,7 @@ class JobSpec:
     default_end: str = "15:45"      # interval window end (HH:MM, 24h)
     default_interval: int = 15      # interval minutes
     elevate: bool = False           # /rl HIGHEST (needs admin to register)
+    days: str = "MON,TUE,WED,THU,FRI"   # weekly-trigger days (/d); see _TRADING_DAYS
 
     @property
     def bat_path(self) -> Path:
@@ -72,24 +73,42 @@ JOBS: dict[str, JobSpec] = {
     "alert_watcher": JobSpec(
         id="alert_watcher",
         label="Alert Bot (SVP / indicator signals)",
-        desc="Runs the alert engine each interval during market hours, evaluating "
-             "the live SVP/indicator signals for the watchlist and firing on "
-             "pattern-buildup transitions. Delivery per alert_config.json.",
+        desc="Runs the alert engine every interval, round the clock. Each symbol "
+             "is evaluated only while its market is open (NSE 09:15-15:45 IST, "
+             "crypto always), firing on pattern-buildup transitions. Delivery "
+             "per alert_config.json. Needs chart_server running.",
         task_name="TradingBramha-AlertWatcher",
         kind="interval",
         command=f'"{_node_exe()}" "{HERE / "alert_watcher.js"}" --once',
-        default_time="09:15", default_end="15:45", default_interval=15,
+        # All day, every day: the watcher gates each symbol on ITS market's
+        # clock (NSE 09:15-15:45 IST; crypto never). A local "09:15-15:45" was
+        # 18:45-01:15 IST on this US-Eastern machine, i.e. after the close.
+        default_time="00:00", default_end="23:59", default_interval=15,
+        days="MON,TUE,WED,THU,FRI,SAT,SUN",
     ),
     "daily_scanner": JobSpec(
         id="daily_scanner",
         label="Daily Scanner Suite",
-        desc="Runs the full pattern-scanner suite after market close and writes a "
-             "dated results JSON. Also configurable from Scanner Hub.",
+        desc="Runs every registered scanner after market close over the top-300 "
+             "bhavcopy universe, writes a dated results JSON, and saves each "
+             "scanner's hits to the Scanner Hub cache (Cached results). Also "
+             "configurable from Scanner Hub.",
         task_name="TradingBramha-DailyScanner",
         kind="daily",
         command="",                 # owned by scanner_daily.bat
         managed_bat=False,
         default_time="16:15",
+    ),
+    "growth_snapshot": JobSpec(
+        id="growth_snapshot",
+        label="Growth Snapshot (High-Growth Screener)",
+        desc="Refreshes the yfinance fundamentals snapshot behind the High-Growth "
+             "Screener (no screener.in login). Runs daily but only re-fetches when "
+             "the snapshot is 7+ days old, since statements change quarterly.",
+        task_name="TradingBramha-GrowthSnapshot",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "growth_screen.py"}" --refresh',
+        default_time="17:10",
     ),
     "sentiment_daily": JobSpec(
         id="sentiment_daily",
@@ -162,6 +181,69 @@ JOBS: dict[str, JobSpec] = {
         # and it is the slowest job after the snapshot refresh.
         default_time="16:45",
     ),
+    "rec_audit": JobSpec(
+        id="rec_audit",
+        label="Recommendation Audit",
+        desc="Re-scores every past Opportunity Hub pick against NIFTY 500, Smallcap "
+             "250 and its sector index (entry = next open) and stores it in "
+             "rec_audit.db for the Recommendation Audit page. Also rewrites "
+             "reports/audit/YYYY-MM.md, so each month's last run freezes that "
+             "month's report. ~3 min.",
+        task_name="TradingBramha-RecAudit",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "rec_audit_job.py"}"',
+        # After opportunity_daily (16:20) has saved today's picks.
+        default_time="17:30",
+    ),
+    "filings_watch": JobSpec(
+        id="filings_watch",
+        label="Filings Watch (NSE, my names)",
+        desc="Reads today's NSE corporate-filings stream and the latest session's "
+             "bulk/block deals, keeps those on held / watchlist / latest-pick "
+             "names, and emails the ones not sent before (B-198 for deals). Also "
+             "feeds the digest's filings section. A failed filings read exits 2. "
+             "Seconds.",
+        task_name="TradingBramha-FilingsWatch",
+        kind="interval",
+        command=f'"{PYTHON_EXE}" -X utf8 "{HERE / "filings_watch.py"}"',
+        # The whole day, not a local "market hours" window: this machine runs on
+        # US Eastern time, and NSE filings land through the IST day and evening
+        # (results are often filed after the close).
+        default_time="00:00", default_end="23:59", default_interval=30,
+    ),
+    "dma_watch": JobSpec(
+        id="dma_watch",
+        label="200-DMA Watch (my names)",
+        desc="B-198. After the NSE close, checks every held / watchlist / "
+             "latest-pick name and emails the ones whose close crossed below "
+             "their 200-day average on the latest session (the cross, not every "
+             "day spent below). Also lands in the digest's Alerts Fired. ~1 min.",
+        task_name="TradingBramha-DmaWatch",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" -X utf8 "{HERE / "dma_watch.py"}"',
+        # 08:00 local (US Eastern) is 17:30 IST in summer and 18:30 in winter:
+        # after the 15:30 IST close, with the day's bar final, and the same
+        # calendar weekday as the NSE session it reads.
+        default_time="08:00",
+    ),
+    "daily_digest": JobSpec(
+        id="daily_digest",
+        label="Daily Digest Email",
+        desc="Emails the end-of-day digest: market brief, sentiment and verdict, "
+             "the stored shortlist, open positions, today's filings on my names "
+             "and the alerts that fired. Reads what the earlier jobs stored, so "
+             "it runs last.",
+        task_name="TradingBramha-DailyDigest",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "daily_digest_email.py"}"',
+        # After rec_audit (17:30), the last job that writes something it reads.
+        default_time="17:45",
+    ),
+    # batch_screener (scanner_batch_runner.py, added 2026-10-12) was listed here
+    # as "replacing" daily_scanner but was never registered and never ran, while
+    # the hub showed it as a second scanner job. Removed from the registry
+    # 2026-10-29; its runner and scanner_batch.bat are kept. daily_scanner is the
+    # nightly scanner run, and it now also fills the Scanner Hub cache.
 }
 
 
@@ -170,20 +252,32 @@ def _scanner_bat() -> Path:
 
 
 # ── .bat generation ──────────────────────────────────────────────────────────
+def audited(job_id: str, command: str) -> str:
+    """`command` run through job_audit.py, so the run lands in job_runs."""
+    return f'"{PYTHON_EXE}" "{HERE / "job_audit.py"}" run {job_id} -- {command}'
+
+
 def write_bat(job: JobSpec) -> Path:
     """Write the .bat wrapper for a managed job. Returns the bat path."""
     if not job.managed_bat:
-        return _scanner_bat() if job.id == "daily_scanner" else job.bat_path
+        if job.id == "daily_scanner":
+            return _scanner_bat()
+        return job.bat_path
     LOG_DIR.mkdir(parents=True, exist_ok=True)
     log = job.log_path
     src = (
         "@echo off\r\n"
         f'set REPO={REPO}\r\n'
         f'set LOG={log}\r\n'
+        # The task's console is cp1252; without this a non-ASCII print kills
+        # a Python job (snapshot_refresh died at step 6/16 every run).
+        'set PYTHONIOENCODING=utf-8\r\n'
         'cd /d "%REPO%"\r\n'
         'echo. >> "%LOG%"\r\n'
         f'echo ===== %DATE% %TIME% -- {job.id} starting ===== >> "%LOG%"\r\n'
-        f'{job.command} >> "%LOG%" 2>&1\r\n'
+        # Every run goes through job_audit, which records it in job_runs (the
+        # Scheduler Hub History tab) and returns the command's own exit code.
+        f'{audited(job.id, job.command)} >> "%LOG%" 2>&1\r\n'
         "if errorlevel 1 (\r\n"
         f'    echo ***** FAILED at %DATE% %TIME% ***** >> "%LOG%"\r\n'
         ") else (\r\n"
@@ -195,9 +289,9 @@ def write_bat(job: JobSpec) -> Path:
 
 
 # ── schtasks command construction ────────────────────────────────────────────
-#: Weekdays an interval job runs on. NSE trades Mon-Fri, so a market-hours bot
-#: has nothing to do at the weekend and the schedule should say so rather than
-#: firing 26 no-op runs every Saturday and Sunday.
+#: The default `JobSpec.days`. NSE trades Mon-Fri, so after-close jobs have
+#: nothing to do at the weekend. A job that watches 24x7 markets (the alert bot,
+#: for crypto) sets its own days.
 _TRADING_DAYS = "MON,TUE,WED,THU,FRI"
 
 
@@ -246,11 +340,11 @@ def register_argv(job: JobSpec, *, time: str | None = None,
         st = time or job.default_time
         et = end or job.default_end
         mo = int(interval or job.default_interval)
-        argv += ["/sc", "WEEKLY", "/d", _TRADING_DAYS, "/st", st,
+        argv += ["/sc", "WEEKLY", "/d", job.days, "/st", st,
                  "/ri", str(mo), "/du", _duration(st, et)]
-    else:  # daily
+    else:  # daily — on trading weekdays; /sc DAILY also fired every Sat/Sun
         st = time or job.default_time
-        argv += ["/sc", "DAILY", "/st", st]
+        argv += ["/sc", "WEEKLY", "/d", job.days, "/st", st]
     if job.elevate:
         argv += ["/rl", "HIGHEST"]
     return argv
@@ -273,15 +367,42 @@ def _schtasks(argv: list[str]) -> subprocess.CompletedProcess:
                                            stderr=f"{UNAVAILABLE_MSG} ({e})")
 
 
+def task_settings_ps(task_name: str) -> str:
+    """PowerShell that sets what `schtasks /create` cannot express.
+
+    * StartWhenAvailable — a run missed while the PC slept fires on wake
+      instead of being skipped until tomorrow.
+    * Battery — schtasks' defaults refuse to START on battery and KILL a run
+      when the laptop unplugs; the logs' `^C` lines and runs stuck "running"
+      were this.
+
+    The task object is edited in place rather than replaced with
+    New-ScheduledTaskSettingsSet, which would reset every other setting.
+    """
+    name = task_name.replace("'", "''")
+    return (f"$t = Get-ScheduledTask -TaskName '{name}'; "
+            "$t.Settings.StartWhenAvailable = $true; "
+            "$t.Settings.DisallowStartIfOnBatteries = $false; "
+            "$t.Settings.StopIfGoingOnBatteries = $false; "
+            "Set-ScheduledTask -InputObject $t | Out-Null")
+
+
 def register(job: JobSpec, **kw) -> tuple[bool, str]:
     """CREATE/replace the scheduled task. Persistent OS change — user-triggered."""
     if job.managed_bat:
         write_bat(job)
     argv = register_argv(job, **kw)
     res = _schtasks(argv)
-    if res.returncode == 0:
-        return True, (res.stdout or "").strip() or "Task registered."
-    return False, (res.stderr or res.stdout or "schtasks failed").strip()
+    if res.returncode != 0:
+        return False, (res.stderr or res.stdout or "schtasks failed").strip()
+    msg = (res.stdout or "").strip() or "Task registered."
+    ps = _schtasks(["powershell", "-NoProfile", "-NonInteractive", "-Command",
+                    task_settings_ps(job.task_name)])
+    if ps.returncode != 0:
+        # Registered and will run; only catch-up/battery tolerance is missing.
+        msg += (" (warning: catch-up/battery settings not applied: "
+                f"{(ps.stderr or ps.stdout or 'powershell failed').strip()})")
+    return True, msg
 
 
 def remove(job: JobSpec) -> tuple[bool, str]:
@@ -318,7 +439,13 @@ def status(job: JobSpec) -> dict:
 
 
 def tail_log(job: JobSpec, n: int = 40) -> str:
-    p = job.log_path if job.managed_bat else HERE / "scanner_daily.log"
+    if job.id == "daily_scanner":
+        p = HERE / "scanner_daily.log"
+    elif job.managed_bat:
+        p = job.log_path
+    else:
+        p = HERE / "scanner_daily.log"
+    
     if not p.exists():
         return "(no log yet)"
     try:

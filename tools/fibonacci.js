@@ -59,7 +59,13 @@
   // Retracements of the impulse leg. 0.236 is included for completeness but is
   // never eligible as an entry: a 23.6% pullback is noise inside the leg, not a
   // structural test of it. 0.886 is the deep end — see DEEP_RETRACEMENT.
-  const RETRACEMENTS = [0.236, 0.382, 0.5, 0.618, 0.786, 0.886];
+  const RETRACEMENTS = [0.236, 0.382, 0.5, 0.618, 0.70, 0.786, 0.886];
+
+  // B-133 (2026-10-08): 0.70 is DRAWN for Elliott readers — a Y or C wave is
+  // commonly given a 61.8%-70% completion band — and is NEVER an entry. It sits
+  // inside ENTRY_BAND, so the band test alone would promote it; it is excluded
+  // by name because nothing on this desk has measured it. Same stance as 0.886.
+  const DRAWN_ONLY = [0.70];
 
   // 0.886 exists because the QM / CHOCH setups price their deepest entry there,
   // and 1.13 because those same setups put the stop there. Both were missing, so
@@ -212,7 +218,7 @@
         // The deep rung is flagged so a caller can style or reason about it
         // without re-testing the ratio and drifting from this definition.
         deep: r === DEEP_RETRACEMENT,
-        entryEligible: r >= band[0] && r <= band[1],
+        entryEligible: r >= band[0] && r <= band[1] && !DRAWN_ONLY.includes(r),
       });
     });
 

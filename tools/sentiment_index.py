@@ -950,3 +950,6 @@ if __name__ == "__main__":
     persist = "--peek" not in sys.argv
     r = compute_sentiment(persist=persist)
     print(json.dumps(r, indent=2, default=float))
+    # One line for Scheduler Hub -> History (job_audit).
+    print(f"##RESULT score {r.get('score')} · {r.get('band')}"
+          + ("" if persist else " · not stored (--peek)"))

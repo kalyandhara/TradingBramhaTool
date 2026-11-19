@@ -221,10 +221,17 @@ def pivot_zone(df: pd.DataFrame) -> Optional[str]:
 
 
 def weekly_frame(df: pd.DataFrame) -> Optional[pd.DataFrame]:
-    """Daily bars resampled to weekly OHLC — the input for weekly pivots.
+    """Daily bars resampled to weekly OHLC — the input for weekly pivots."""
+    return period_frame(df, "W")
 
-    Returns None when the index is not datetime-like, rather than resampling a
-    positional index into nonsense.
+
+def period_frame(df: pd.DataFrame, rule: str) -> Optional[pd.DataFrame]:
+    """Daily bars resampled to `rule` OHLC (`W`, `ME`, `QE`, `YE`).
+
+    The last row is the period in progress, so `pivot_levels` — which reads the
+    PRIOR bar — gets the last COMPLETED week / month / quarter / year, the way a
+    floor pivot is defined. Returns None when the index is not datetime-like,
+    rather than resampling a positional index into nonsense.
     """
     if df is None or len(df) < 2:
         return None
@@ -237,9 +244,50 @@ def weekly_frame(df: pd.DataFrame) -> Optional[pd.DataFrame]:
         "low": _f(df, "low").to_numpy(),
         "close": _f(df, "close").to_numpy(),
     }, index=pd.DatetimeIndex(idx))
-    agg = w.resample("W").agg({"open": "first", "high": "max",
+    agg = w.resample(rule).agg({"open": "first", "high": "max",
                                "low": "min", "close": "last"}).dropna()
     return agg if len(agg) >= 2 else None
+
+
+#: B-96. Five timeframes, ONE reading. B-97 measured daily and weekly zones on
+#: OPPOSITE sides of their pivot for 37.9% of 499 names, so five peer columns
+#: would routinely contradict each other with nothing saying which governs. The
+#: honest single reading is the agreement itself: how many of the timeframes that
+#: could be read have the close above their own pivot.
+PIVOT_TIMEFRAMES: tuple[tuple[str, Optional[str]], ...] = (
+    ("D", None), ("W", "W"), ("M", "ME"), ("Q", "QE"), ("Y", "YE"))
+
+
+def pivot_sides(df: pd.DataFrame) -> dict[str, Optional[int]]:
+    """+1 / -1 per timeframe: last close above / below that timeframe's PP.
+    None where the timeframe cannot be read (too little history for a prior
+    COMPLETED period) or the close sits exactly on the pivot."""
+    out: dict[str, Optional[int]] = {}
+    if df is None or len(df) < 2:
+        return {k: None for k, _ in PIVOT_TIMEFRAMES}
+    try:
+        last = float(_f(df, "close").iloc[-1])
+    except KeyError:
+        return {k: None for k, _ in PIVOT_TIMEFRAMES}
+    for key, rule in PIVOT_TIMEFRAMES:
+        fr = df if rule is None else period_frame(df, rule)
+        lv = pivot_levels(fr) if fr is not None else None
+        if not lv or not np.isfinite(last) or last == lv["pp"]:
+            out[key] = None
+        else:
+            out[key] = 1 if last > lv["pp"] else -1
+    return out
+
+
+def pivot_agreement(df: pd.DataFrame) -> Optional[str]:
+    """`"4/5 above"` — of the timeframes that could be read, how many have the
+    close above their pivot. The denominator is printed because a young listing
+    has no prior year: `3/4` and `3/5` are different statements. None below two
+    readable timeframes, where "agreement" means nothing."""
+    sides = [v for v in pivot_sides(df).values() if v is not None]
+    if len(sides) < 2:
+        return None
+    return f"{sum(1 for v in sides if v > 0)}/{len(sides)} above"
 
 
 # ── re-base the table on a date the reader picks ──────────────────────────────
@@ -509,6 +557,7 @@ def row(df: pd.DataFrame, ref_date=None) -> dict[str, Any]:
         "ema_cross_searched": x["searched"],
         "pivot_d": pivot_zone(df),
         "pivot_w": pivot_zone(wk) if wk is not None else None,
+        "pivot_agree": pivot_agreement(df),
         "bo_gain_pct": bo["gain_pct"],
         "bo_date": bo["date"],
         "from_52w_high_pct": from_52w_high_pct(df),

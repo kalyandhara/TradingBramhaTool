@@ -61,6 +61,22 @@ def init_db() -> None:
                 notes TEXT
             );
 
+            -- Named watchlists (2026-10-22). `watchlist` above stays the
+            -- DEFAULT list, so every "♥ Add to watchlist" button and the
+            -- Watchlist page keep working untouched; these are the extra,
+            -- user-named lists the Home rail can switch between.
+            CREATE TABLE IF NOT EXISTS watchlists (
+                id         INTEGER PRIMARY KEY AUTOINCREMENT,
+                name       TEXT NOT NULL UNIQUE COLLATE NOCASE,
+                created_at TEXT NOT NULL
+            );
+            CREATE TABLE IF NOT EXISTS watchlist_items (
+                list_id    INTEGER NOT NULL REFERENCES watchlists(id) ON DELETE CASCADE,
+                symbol     TEXT NOT NULL,
+                added_date TEXT NOT NULL,
+                PRIMARY KEY (list_id, symbol)
+            );
+
             -- UI-2 (2026-09-10). ONE note per symbol, for every surface that
             -- shows one. The Watchlist had `watchlist.notes`, which is scoped to
             -- membership: remove a name and the note goes with it, and a note on
@@ -138,11 +154,29 @@ def init_db() -> None:
         # columns added after the first release need an explicit backfill or a
         # machine that has been running the job just silently keeps the old
         # schema and the new INSERT fails.
+        # `initial_stop` is the stop a position was OPENED with, and it is what
+        # defines 1R (R-multiple framework). `stop_loss` may be raised later as
+        # the trade is managed; measuring R against the raised stop silently
+        # redefines what -1R meant, and the Portfolio page did exactly that.
+        #
+        # Backfilled from `stop_loss` once, for rows added before the column
+        # existed. That is exact for every row the desk can have written: until
+        # this column, nothing in the app ever MOVED `stop_loss` (the only
+        # `update_position` caller was `close_position`), so stop_loss still is
+        # the stop each position was opened with. The UPDATE only touches NULLs,
+        # so it is a no-op on every later start.
+        _add_missing_columns(conn, "positions", {"initial_stop": "REAL"})
+        conn.execute("UPDATE positions SET initial_stop = stop_loss "
+                     "WHERE initial_stop IS NULL AND stop_loss IS NOT NULL")
         _add_missing_columns(conn, "daily_opportunities", {
             "families": "INTEGER",        # independent scanner families hit
             "family_names": "TEXT",
             "edge_points": "REAL",        # family-capped weight the score spent
             "risk_flags": "TEXT",         # bearish scanners that also fired
+            # A0 (2026-10-22): which code + weights made the pick, and whether
+            # entry/stop/target came from the scanner card or the default plan.
+            "model_version": "TEXT",
+            "plan_source": "TEXT",
         })
         # Full per-card snapshot for a run date (Opportunity Hub). Stores the
         # frozen hit payload as JSON so a historical run renders identically to
@@ -402,12 +436,16 @@ def _add_missing_columns(conn, table: str, columns: dict[str, str]) -> None:
 def add_position(symbol: str, entry_price: float, quantity: float, entry_date: str,
                   stop_loss: float | None = None, target: float | None = None,
                   notes: str = "") -> int:
+    """Open a position. Its opening ``stop_loss`` is also frozen as
+    ``initial_stop`` — the stop that defines 1R for the life of the trade."""
     conn = get_connection()
     try:
         cur = conn.execute(
             "INSERT INTO positions (symbol, entry_price, quantity, entry_date, "
-            "stop_loss, target, status, notes) VALUES (?, ?, ?, ?, ?, ?, 'open', ?)",
-            (symbol.upper(), entry_price, quantity, entry_date, stop_loss, target, notes),
+            "stop_loss, initial_stop, target, status, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, 'open', ?)",
+            (symbol.upper(), entry_price, quantity, entry_date, stop_loss,
+             stop_loss, target, notes),
         )
         conn.commit()
         return cur.lastrowid
@@ -415,6 +453,9 @@ def add_position(symbol: str, entry_price: float, quantity: float, entry_date: s
         conn.close()
 
 
+#: `initial_stop` is deliberately NOT editable here: it is set once, at entry.
+#: Raising the stop is `update_position(id, stop_loss=...)`; rewriting what the
+#: trade risked on day one is not an operation the journal offers.
 _POSITION_COLUMNS = frozenset({
     "symbol", "entry_price", "quantity", "entry_date",
     "stop_loss", "target", "status", "closed_price", "closed_date", "notes",
@@ -603,6 +644,111 @@ def get_watchlist() -> pd.DataFrame:
         conn.close()
 
 
+# ── Named watchlists ─────────────────────────────────────────────────────────
+# The default list is `watchlist` (above); these are the user-named extras.
+# Names are unique ignoring case, so "Banks" and "banks" are one list.
+
+WATCHLIST_NAME_MAX = 40
+
+
+def _clean_list_name(name: str) -> str:
+    n = " ".join(str(name or "").split())
+    if not n:
+        raise ValueError("List name is empty.")
+    if len(n) > WATCHLIST_NAME_MAX:
+        raise ValueError(f"List name is over {WATCHLIST_NAME_MAX} characters.")
+    return n
+
+
+def create_watchlist(name: str) -> int:
+    """New named list; returns its id. ValueError on an empty or taken name."""
+    n = _clean_list_name(name)
+    conn = get_connection()
+    try:
+        cur = conn.execute("INSERT INTO watchlists (name, created_at) VALUES (?, ?)",
+                           (n, datetime.now().isoformat(timespec="seconds")))
+        conn.commit()
+        return int(cur.lastrowid)
+    except sqlite3.IntegrityError:
+        raise ValueError(f"A list named \"{n}\" already exists.") from None
+    finally:
+        conn.close()
+
+
+def rename_watchlist(list_id: int, name: str) -> None:
+    n = _clean_list_name(name)
+    conn = get_connection()
+    try:
+        conn.execute("UPDATE watchlists SET name = ? WHERE id = ?", (n, int(list_id)))
+        conn.commit()
+    except sqlite3.IntegrityError:
+        raise ValueError(f"A list named \"{n}\" already exists.") from None
+    finally:
+        conn.close()
+
+
+def delete_watchlist(list_id: int) -> None:
+    """Drop a named list and its members. The default list cannot be deleted
+    this way — it is not in this table."""
+    conn = get_connection()
+    try:
+        # Explicit, not ON DELETE CASCADE: sqlite only cascades with
+        # PRAGMA foreign_keys on, which this module does not set.
+        conn.execute("DELETE FROM watchlist_items WHERE list_id = ?", (int(list_id),))
+        conn.execute("DELETE FROM watchlists WHERE id = ?", (int(list_id),))
+        conn.commit()
+    finally:
+        conn.close()
+
+
+def get_watchlists() -> pd.DataFrame:
+    """`id, name, n` for every named list, oldest first."""
+    conn = get_connection()
+    try:
+        return pd.read_sql_query(
+            "SELECT w.id, w.name, COUNT(i.symbol) AS n FROM watchlists w "
+            "LEFT JOIN watchlist_items i ON i.list_id = w.id "
+            "GROUP BY w.id ORDER BY w.id", conn)
+    finally:
+        conn.close()
+
+
+def get_watchlist_items(list_id: int) -> list[str]:
+    """Symbols on a named list, newest first."""
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            "SELECT symbol FROM watchlist_items WHERE list_id = ? "
+            "ORDER BY added_date DESC, rowid DESC", (int(list_id),)).fetchall()
+        return [r["symbol"] for r in rows]
+    finally:
+        conn.close()
+
+
+def add_watchlist_item(list_id: int, symbol: str) -> bool:
+    """Add to a named list; False when it was already there (date kept)."""
+    conn = get_connection()
+    try:
+        cur = conn.execute(
+            "INSERT OR IGNORE INTO watchlist_items (list_id, symbol, added_date) "
+            "SELECT id, ?, ? FROM watchlists WHERE id = ?",
+            (symbol.strip().upper(), date.today().isoformat(), int(list_id)))
+        conn.commit()
+        return cur.rowcount > 0
+    finally:
+        conn.close()
+
+
+def remove_watchlist_item(list_id: int, symbol: str) -> None:
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM watchlist_items WHERE list_id = ? AND symbol = ?",
+                     (int(list_id), symbol.strip().upper()))
+        conn.commit()
+    finally:
+        conn.close()
+
+
 # ──────────────────────────────────────────────────────────────────────────────
 # Alerts
 # ──────────────────────────────────────────────────────────────────────────────
@@ -757,8 +903,8 @@ def save_daily_opportunities(rows: list[dict], run_date: str | None = None) -> i
                      families, family_names, edge_points, risk_flags,
                      scanners, sector, industry, momentum, close, entry, stop,
                      target, market_regime, market_verdict, universe_size, notes,
-                     created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     created_at, model_version, plan_source)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (run_date, r.get("rank"), r.get("symbol"), r.get("score"),
                  r.get("overall_rating"), r.get("confluence"),
@@ -767,7 +913,8 @@ def save_daily_opportunities(rows: list[dict], run_date: str | None = None) -> i
                  r.get("sector"), r.get("industry"), r.get("momentum"),
                  r.get("close"), r.get("entry"), r.get("stop"), r.get("target"),
                  r.get("market_regime"), r.get("market_verdict"),
-                 r.get("universe_size"), r.get("notes"), now),
+                 r.get("universe_size"), r.get("notes"), now,
+                 r.get("model_version"), r.get("plan_source")),
             )
         conn.commit()
         return len(rows)
@@ -1028,14 +1175,20 @@ def _ensure_hidden_treasures_table(conn: sqlite3.Connection) -> None:
         CREATE INDEX IF NOT EXISTS idx_ht_symbol
             ON hidden_treasures(symbol);
     """)
+    # Code that produced the run (model_version.py) — the audit's before/after key.
+    _add_missing_columns(conn, "hidden_treasures", {"model_version": "TEXT"})
 
 
 def save_hidden_treasures_run(hits: list[dict], universe_kind: str = "both",
                               universe_size: int = 0,
-                              run_date: str | None = None) -> int:
+                              run_date: str | None = None,
+                              model_version: str | None = None) -> int:
     """Persist a Hidden Treasures discovery run. Replaces any prior run for the
-    same run_date so a re-run reflects the latest data."""
+    same run_date so a re-run reflects the latest data. `model_version`
+    defaults to the current git sha."""
     import json as _json
+    import model_version as _mv
+    model_version = model_version or _mv.git_sha()
     run_date = run_date or date.today().isoformat()
     now = datetime.now().isoformat(timespec="seconds")
     conn = get_connection()
@@ -1051,8 +1204,8 @@ def save_hidden_treasures_run(hits: list[dict], universe_kind: str = "both",
                      promoter_delta, pledge_pct, pledge_flag,
                      roce, opm, debt_to_equity, market_cap_cr,
                      universe_kind, universe_size, index_source,
-                     card_json, created_at)
-                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+                     card_json, created_at, model_version)
+                VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
                 """,
                 (run_date, h.get("symbol"), h.get("name"), rank,
                  h.get("score"), h.get("inst_delta"),
@@ -1061,7 +1214,7 @@ def save_hidden_treasures_run(hits: list[dict], universe_kind: str = "both",
                  q.get("roce"), q.get("opm"), q.get("debt_to_equity"),
                  q.get("market_cap_cr"),
                  universe_kind, universe_size, h.get("index"),
-                 _json.dumps(h), now),
+                 _json.dumps(h), now, model_version),
             )
         conn.commit()
         return len(hits)
