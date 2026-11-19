@@ -1,6 +1,10 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-11-19] audit | B-183d — Liquidity Sweep (stop geometry) + VWAP MR (signal quality)
+- **Liquidity Sweep**: `mean_exp_r = +0.636R` — plan architecture (2R fallback target) is sound in expectation, but `wick_low × 0.995` stop destroys it (`noise_stop_share 64.9%`, actual −0.506R). B-41p already pre-registered and confirmed this; no new pre-registration needed.
+- **VWAP Mean Reversion**: `mean_exp_r = −0.132R` (R:R < 1 by construction; stop = excursion dist ≈ target dist). Stop geometry is correct; `mean_d = −0.156R` excess is signal quality — B-40m measured the signal NULL. No geometry fix available.
+
 ## [2026-11-19] audit | B-183b Mean Reversion (Connors RSI2) — stop inside noise; B-183g filed
 - `noise_stop_share = 79.1%` (B-183c bootstrap): stop = `session_low × 0.995` is inside the noise band for 79% of trades. B-8 independently measured 68.1% actual stop-out on the same formula. `mean_d = −0.406R`; `realised_target_rate = 14.1%` vs `mean_p_target = 18.2%` — stop fires before target is reached. Fix candidate: `entry − 2×ATR` (B-8: cost nothing measurable). Filed B-183g to pre-register and re-run.
 

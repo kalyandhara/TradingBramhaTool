@@ -719,6 +719,17 @@ STUDIES: tuple[dict, ...] = (
                      "correct. Filed B-183f to pre-register fix and re-run."),
     },
     {
+        "item": "B-183d", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("Liquidity Sweep plan geometry", "VWAP Mean Reversion plan geometry"),
+        "verdict": "GEOMETRY_DEFECT",
+        "headline": ("Liquidity Sweep: mean_exp_r +0.636R (plan should earn +0.636R by "
+                     "construction) but signal earns −0.506R; noise_stop_share 64.9%; "
+                     "stop at wick_low destroys expectation — B-41p already measured this. "
+                     "VWAP MR: mean_exp_r −0.132R (R:R < 1 by construction); signal excess "
+                     "−0.156R is signal quality (B-40m NULL), not geometry."),
+    },
+    {
         "item": "B-183b", "tool": "plan_baseline_study.py", "date": "2026-11-19",
         "source": "analyses/Open-Backlog",
         "subjects": ("Mean Reversion (Connors RSI2) plan geometry",),
