@@ -1,6 +1,10 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-11-19] audit | B-183e — Support Breakdown (stop geometry) + Inverted F&P (inverted signal)
+- **Support Breakdown**: `noise_stop_share = 80.7%`. Stop = `bk_level × 1.005` sits just above the retest trigger; routine bounces stop the short. `mean_exp_r = −0.308R` — even a random short with this plan geometry loses. Per-symbol `mean_d = −0.325R` (BELOW); per-trade `mean_r = −0.018R` (nearly zero; high-frequency symbols mask the problem). PRIMARY: stop geometry.
+- **Inverted Flag & Pole**: `noise_stop_share = 90.6%`; `mean_r = −0.455R` vs `mean_exp_r = −0.173R`. B-92 already measured INVERTED signal (+1.33% above baseline after breakdown). Tight stop compounds it. PRIMARY: inverted signal; no geometry fix applicable.
+
 ## [2026-11-19] audit | B-183d — Liquidity Sweep (stop geometry) + VWAP MR (signal quality)
 - **Liquidity Sweep**: `mean_exp_r = +0.636R` — plan architecture (2R fallback target) is sound in expectation, but `wick_low × 0.995` stop destroys it (`noise_stop_share 64.9%`, actual −0.506R). B-41p already pre-registered and confirmed this; no new pre-registration needed.
 - **VWAP Mean Reversion**: `mean_exp_r = −0.132R` (R:R < 1 by construction; stop = excursion dist ≈ target dist). Stop geometry is correct; `mean_d = −0.156R` excess is signal quality — B-40m measured the signal NULL. No geometry fix available.

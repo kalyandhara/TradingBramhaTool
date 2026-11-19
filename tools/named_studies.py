@@ -719,6 +719,18 @@ STUDIES: tuple[dict, ...] = (
                      "correct. Filed B-183f to pre-register fix and re-run."),
     },
     {
+        "item": "B-183e", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("Support Breakdown plan geometry", "Inverted Flag & Pole plan geometry"),
+        "verdict": "GEOMETRY_DEFECT",
+        "headline": ("Support Breakdown: noise_stop_share 80.7%; stop at bk_level×1.005 is "
+                     "inside routine-bounce range (scanner fires on a retest, so stop is just "
+                     "above the trigger); mean_exp_r −0.308R (plan itself is bad). "
+                     "Inverted Flag & Pole: noise_stop_share 90.6%; B-92 measured INVERTED "
+                     "signal (+1.33% above baseline); tight stop compounds the inversion. "
+                     "No geometry fix rescues an inverted signal."),
+    },
+    {
         "item": "B-183d", "tool": "plan_baseline_study.py", "date": "2026-11-19",
         "source": "analyses/Open-Backlog",
         "subjects": ("Liquidity Sweep plan geometry", "VWAP Mean Reversion plan geometry"),
