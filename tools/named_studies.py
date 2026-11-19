@@ -709,6 +709,16 @@ STUDIES: tuple[dict, ...] = (
                      "plan's levels, not the signal."),
     },
     {
+        "item": "B-183a", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("RSI Divergence Bull plan geometry",),
+        "verdict": "GEOMETRY_DEFECT",
+        "headline": ("Stop formula inverted: fib_618 − 0.3×ATR sits 38.2% above the second "
+                     "pivot low; only late-entry cases (price past fib_618) produce valid "
+                     "plans — 737 trades, entry spent. Fallback stop = price2 − 0.5×ATR is "
+                     "correct. Filed B-183f to pre-register fix and re-run."),
+    },
+    {
         "item": "B-203", "tool": "failed_breakdown_study.py", "date": "2026-11-03",
         "source": "analyses/Failed-Breakdown-Sweep",
         "subjects": ("Failed Breakdown (2-bar sweep)",),

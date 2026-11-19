@@ -1,6 +1,9 @@
 # Wiki Log
 <!-- Append-only. Newest entries at top. Format: ## [YYYY-MM-DD] operation | description -->
 
+## [2026-11-19] audit | B-183a RSI Divergence Bull — stop formula inverted; B-183f filed
+- Stop `fib_618 − 0.3×ATR` places the stop 38.2% above the second pivot low (the entry). Valid plans only form when price has already bounced past fib_618 — a late, spent entry. The fallback formula `price2 − 0.5×ATR` is correct. Filed B-183f to pre-register and re-run on a fresh panel.
+
 ## [2026-11-03] study | B-183c heavy-tail-robust plan odds — gate passed, card lines live
 - [[analyses/Plan-Odds-Baseline-Robust]]: per-trade d clipped at ±3R, placebo gate with no p escape. Gate +0.0013R (p 0.89), main placebo −0.0045R (p 0.63). 8 BEATS, 8 AT, 6 BELOW, 1 THIN; none within placebo noise. Rounding Bottom fell to AT; four new BELOWs. The 14 BEATS/BELOW scanners get a card line by the pre-registered rule (`plan_odds_labels.py`), worded as about the levels, not the signal. Follow-ups B-183d/e.
 
