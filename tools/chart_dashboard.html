@@ -1656,7 +1656,7 @@ function applyRangeView(pane) {
   if (!preset.bars || preset.bars >= n) {
     pane.chart.timeScale().fitContent();
   } else {
-    pane.chart.timeScale().setVisibleLogicalRange({ from: n - preset.bars, to: n - 1 });
+    pane.chart.timeScale().setVisibleLogicalRange({ from: n - preset.bars, to: n - 1 + (pane.ewFwdRoom || 0) });
   }
   // A preset jump rescales BOTH axes. The visible-range event alone is not
   // enough to re-anchor user drawings, because the price autoscale lands a
@@ -3290,6 +3290,11 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
   projCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:7;width:100%;height:100%;';
   chartMain.appendChild(projCanvas);
 
+  // ── Elliott Wave forward channel + scenario paths (drawing aid) ────────────
+  const ewFwdCanvas = document.createElement('canvas');
+  ewFwdCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:7;width:100%;height:100%;';
+  chartMain.appendChild(ewFwdCanvas);
+
   // ── Fibonacci grid + trade-plan canvas overlay ────────────────────────────
   // Lowest z-index of the price-anchored overlays: the grid is a horizontal
   // backdrop that the projection slope, FVG boxes and volume histogram are all
@@ -3347,6 +3352,8 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
           drawPatternZones(pane);
         if (pane && pane.indicators && pane.indicators.has('projection'))
           drawProjection(pane);
+        if (pane && pane.indicators && pane.indicators.has('elliott'))
+          drawEwForward(pane);
         // The drawing canvas is sized from offsetWidth/Height on every paint,
         // so a resize leaves it stretched until it repaints.
         if (pane && pane.drawings && pane.drawings.length) scheduleDrawRedraw(pane);
@@ -3428,7 +3435,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
                  subSizes: (savedSubSizes && typeof savedSubSizes === 'object') ? Object.assign({}, savedSubSizes) : {},
                  // User-chosen top-to-bottom order of sub-plot keys; unknown keys go last.
                  subOrder: Array.isArray(savedSubOrder) ? savedSubOrder.slice() : [],
-                 indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas, projCanvas,
+                 indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas, projCanvas, ewFwdCanvas,
                  fibCanvas, obCanvas, prteCanvas,
                  drawCanvas, drawTools,
                  drawings: [], drawTool: null, drawSel: null, drawMagnet: true,
@@ -4285,6 +4292,7 @@ async function copyChartSnapshot(pane) {
     blit(pane.fibCanvas);
     blit(pane.patternCanvas);
     blit(pane.projCanvas);
+    blit(pane.ewFwdCanvas);
     blit(pane.obCanvas);        // Order Blocks (z-index 7)
     // Session Volume Profile HD (z-index 8, below volCanvas) — draw before it.
     blit(pane.svpCanvas);
@@ -5768,7 +5776,7 @@ function resetPaneVisuals(pane) {
   // Canvas overlays are redrawn from pane.bars on resize/pan, and pane.bars
   // still holds the OLD candles until the fetch lands. Blank the canvases and
   // drop the bars so nothing repaints the old timeframe in the meantime.
-  [pane.volCanvas, pane.fvgCanvas, pane.patternCanvas, pane.projCanvas, pane.fibCanvas, pane.obCanvas, pane.prteCanvas]
+  [pane.volCanvas, pane.fvgCanvas, pane.patternCanvas, pane.projCanvas, pane.ewFwdCanvas, pane.fibCanvas, pane.obCanvas, pane.prteCanvas]
     .forEach(c => {
       if (!c) return;
       try { c.getContext('2d').clearRect(0, 0, c.width, c.height); } catch {}
@@ -6103,6 +6111,7 @@ function redrawPaneOverlays(pane, immediate = false) {
   // Pattern base-zone boxes are time+price anchored — same staleness as FVG.
   if (has('vcp') || has('roundbottom') || has('doublebottom')) drawPatternZones(pane);
   if (has('projection')) drawProjection(pane);
+  if (has('elliott')) drawEwForward(pane);
   // Fibonacci levels are price-anchored, so the y-mapping changing on
   // pan/zoom stales them for the same reason the volume profile stales.
   if (has('fib')) drawFibonacci(pane);
@@ -7488,8 +7497,77 @@ function renderObvDivergence(pane) {
   setPaneMarkers(pane, 'obvdiv', markers);
 }
 
+// Forward channel + primary/alternate paths from the LIVE count only. Placed by
+// bar index via logicalToCoordinate, which (unlike timeToCoordinate) maps
+// indices past the last bar into the chart's right-hand whitespace.
+const EW_FWD_BARS = 30;
+
+function computeEwForward(active) {
+  if (!active || !EW.forwardScenarios) return null;
+  return {channel: EW.channelFor(active, EW_FWD_BARS),
+          scenarios: EW.forwardScenarios(active, {session: null})};
+}
+
+function drawEwForward(pane) {
+  const canvas = pane.ewFwdCanvas;
+  if (!canvas) return;
+  const {W, H} = sizeOverlay(canvas);
+  if (W === 0 || H === 0) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  const f = pane.ew && pane.ew.fwd;
+  if (!f || !pane.indicators.has('elliott')) return;
+  const ts = pane.chart.timeScale();
+  const xy = (idx, price) => {
+    let x = null, y = null;
+    try { x = ts.logicalToCoordinate(idx); y = pane.series.priceToCoordinate(price); } catch {}
+    return (x == null || y == null) ? null : [x, y];
+  };
+  const seg = (a, b) => {
+    const p = xy(a.idx, a.price), q = xy(b.idx, b.price);
+    if (!p || !q) return;
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+  };
+  ctx.save();
+  ctx.font = '11px -apple-system, "Segoe UI", sans-serif';
+  ctx.textBaseline = 'middle';
+
+  if (f.channel) {
+    ctx.strokeStyle = 'rgba(66,165,245,0.75)'; ctx.lineWidth = 1.2; ctx.setLineDash([2, 3]);
+    seg(f.channel.base.from, f.channel.base.to);
+    seg(f.channel.parallel.from, f.channel.parallel.to);
+  }
+
+  f.scenarios.forEach(s => {
+    const primary = s.role === 'primary';
+    const col = primary ? 'rgba(255,255,255,0.9)' : 'rgba(255,171,64,0.7)';
+    ctx.strokeStyle = col; ctx.fillStyle = col;
+    ctx.lineWidth = primary ? 2 : 1.4; ctx.setLineDash(primary ? [7, 4] : [3, 4]);
+    for (let i = 1; i < s.points.length; i++) seg(s.points[i - 1], s.points[i]);
+    s.points.slice(1).forEach(p => {
+      const q = xy(p.idx, p.price);
+      if (q) ctx.fillText(`(${p.label})`, q[0] + 4, q[1] + (p.price >= s.points[0].price ? -9 : 9));
+    });
+    // Invalidation tick at the path's anchor, labelled with its price.
+    const a = s.points[0], q = xy(a.idx, s.invalidation.price);
+    if (q) {
+      ctx.setLineDash([]); ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(q[0] - 6, q[1]); ctx.lineTo(q[0] + 40, q[1]); ctx.stroke();
+      ctx.fillText(`✕ ${s.kind} ${s.invalidation.price.toFixed(2)}`, q[0] + 44, q[1]);
+    }
+  });
+
+  ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(158,158,158,0.9)';
+  ctx.textAlign = 'right';
+  ctx.fillText('EW forward path: drawing aid, not measured', W - 70, 12);
+  ctx.restore();
+}
+
 function clearElliottWave(pane) {
   if (!pane.ew) return;
+  pane.ew.fwd = null;
+  if (pane.ewFwdCanvas) pane.ewFwdCanvas.getContext('2d').clearRect(0, 0, pane.ewFwdCanvas.width, pane.ewFwdCanvas.height);
   Object.values(pane.ew.lineSeries).forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
   pane.ew.fibLineSeries.forEach(s => { try { pane.chart.removeSeries(s); } catch {} });
   setPaneMarkers(pane, 'elliott', null);
@@ -7636,6 +7714,21 @@ function renderElliottWave(pane) {
   const lastCorrective = lc.corrective || undefined;
   const lastComplex    = lc.complex || undefined;
   const cxLive = !!(lc.live && lc.active && lc.complex && lc.active.id === lc.complex.id);
+  ew.fwd = lc.live ? computeEwForward(lc.active) : null;
+  pane.ewFwdRoom = 0;
+  if (ew.fwd && ew.fwd.scenarios.length) {
+    // Make room right of the last bar so the path is visible — only when the
+    // view already ends at the last bar, and only on recompute, so a user who
+    // has panned into history is left alone.
+    const far = Math.max(...ew.fwd.scenarios.flatMap(s => s.points.map(q => q.idx)));
+    const need = Math.min(far - (bars.length - 1) + 3, 80);
+    pane.ewFwdRoom = need;
+    const tsc = pane.chart.timeScale();
+    const r = tsc.getVisibleLogicalRange();
+    if (r && r.to >= bars.length - 2 && r.to < bars.length - 1 + need)
+      tsc.setVisibleLogicalRange({from: r.from, to: bars.length - 1 + need});
+  }
+  requestAnimationFrame(() => drawEwForward(pane));
 
   // ── Elliott Wave + Volume Profile confluence ──────────────────────────────
   // Only meaningful once both modules have run — relies on drawVolumeProfile()

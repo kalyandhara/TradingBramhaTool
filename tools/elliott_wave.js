@@ -626,8 +626,174 @@
     return {minor, major, nesting};
   }
 
+  // ── Forward channel (drawing aid, not measured) ──────────────────────────────
+  // Impulse: base through W2 and W4 ends, parallel through W3 end.
+  // Corrective: base through the 5 (correction start) and B, parallel through A,
+  // so the channel is available while C is still forming.
+  // Future timestamps assume the structure's own bar spacing, so intraday
+  // session gaps are not skipped.
+  function channelFor(st, barsAhead) {
+    if (!st || !st.points) return null;
+    const at = lbl => st.points.find(p => p.label === lbl);
+    let a1, a2, par;
+    if (st.type === 'impulse') { a1 = at('2'); a2 = at('4'); par = at('3'); }
+    else if (st.type === 'corrective') { a1 = at('5'); a2 = at('B'); par = at('A'); }
+    if (!a1 || !a2 || !par || a2.idx === a1.idx) return null;
+
+    const slope = (a2.price - a1.price) / (a2.idx - a1.idx);
+    const pts = st.points;
+    const first = pts[0], last = pts[pts.length - 1];
+    const secPerBar = last.idx > first.idx ? (last.time - first.time) / (last.idx - first.idx) : 0;
+    const startIdx = a1.idx;
+    const endIdx = last.idx + (barsAhead || 0);
+    const timeAt = idx => first.time + (idx - first.idx) * secPerBar;
+    const line = (ax, ap) => ({
+      from: {idx: startIdx, time: timeAt(startIdx), price: ap + slope * (startIdx - ax)},
+      to:   {idx: endIdx,   time: timeAt(endIdx),   price: ap + slope * (endIdx - ax)},
+    });
+    return {id: 'ch_' + st.id, slope,
+            base: line(a1.idx, a1.price), parallel: line(par.idx, par.price)};
+  }
+
+  // ── Future bar timestamps ────────────────────────────────────────────────────
+  // Steps forward from `lastTime` one bar at a time, skipping weekends and (for
+  // intraday bars) time outside the session. Exchange holidays are NOT skipped.
+  // session = null disables all skipping.
+  const NSE_SESSION = {tzOffsetMin: 330, openMin: 9 * 60 + 15, closeMin: 15 * 60 + 30};
+
+  function futureTimes(lastTime, secPerBar, n, session) {
+    const out = [];
+    if (!(secPerBar > 0)) return out;
+    let t = lastTime;
+    const DAY = 86400;
+    const local = s => new Date((s + session.tzOffsetMin * 60) * 1000);
+    while (out.length < n) {
+      t += secPerBar;
+      if (session) {
+        if (secPerBar >= DAY) {
+          while ([0, 6].includes(local(t).getUTCDay())) t += DAY;
+        } else {
+          let d = local(t);
+          let mins = d.getUTCHours() * 60 + d.getUTCMinutes();
+          if (mins >= session.closeMin || mins < session.openMin
+              || [0, 6].includes(d.getUTCDay())) {
+            // jump to the next weekday's open
+            let dayStart = t - (mins * 60 + d.getUTCSeconds());
+            if (mins >= session.openMin) dayStart += DAY;
+            while ([0, 6].includes(local(dayStart).getUTCDay())) dayStart += DAY;
+            t = dayStart + session.openMin * 60;
+          }
+        }
+      }
+      out.push(t);
+    }
+    return out;
+  }
+
+  // ── Forward path (drawing aid, not measured) ─────────────────────────────────
+  // Named priors, textbook zigzag shape, not fitted to any data:
+  //   after a complete impulse, the A-B-C ends at a 38.2% retrace of 0->5;
+  //   B retraces 50% of A; C = 1.0 x A.  (so A = 0.382 x impulse / 1.5)
+  // Each projected leg lasts the median bar-length of the structure's own legs.
+  const FP_CORR_RETRACE = 0.382, FP_B_OF_A = 0.5, FP_C_OF_A = 1.0;
+
+  // proj = [[label, price], ...] after the structure's last pivot.
+  function assemblePath(st, proj, basis, opts) {
+    opts = opts || {};
+    const pts = st.points;
+    const first = pts[0], last = pts[pts.length - 1];
+    const legs = [];
+    for (let i = 1; i < pts.length; i++) legs.push(pts[i].idx - pts[i - 1].idx);
+    const sorted = legs.slice().sort((a, b) => a - b);
+    const legBars = Math.max(1, Math.round(sorted[Math.floor((sorted.length - 1) / 2)]));
+    basis = basis.concat(`each leg ≈ ${legBars} bars (median of this structure's legs)`);
+
+    const secPerBar = opts.secPerBar
+      || (last.idx > first.idx ? (last.time - first.time) / (last.idx - first.idx) : 0);
+    const session = opts.session === undefined ? NSE_SESSION : opts.session;
+    const times = futureTimes(last.time, secPerBar, legBars * proj.length, session);
+    const points = [{idx: last.idx, time: last.time, price: last.price, label: last.label}];
+    proj.forEach(([label, price], i) => {
+      const k = (i + 1) * legBars;
+      points.push({idx: last.idx + k, time: times[k - 1], price, label});
+    });
+    return {id: 'fp_' + st.id, from: st.type, points, basis, drawingAid: true};
+  }
+
+  function forwardPath(st, opts) {
+    if (!st || !st.points || st.points.length < 2) return null;
+    const pts = st.points;
+    const P = pts.map(p => p.price);
+    let proj = [], basis = [];
+    if (st.type === 'impulse') {
+      const dir = st.bullish ? -1 : 1;                 // correction runs against the impulse
+      const a = Math.abs(P[5] - P[0]) * FP_CORR_RETRACE / (1 - FP_B_OF_A + FP_C_OF_A);
+      const pA = P[5] + dir * a, pB = pA - dir * a * FP_B_OF_A, pC = pB + dir * a * FP_C_OF_A;
+      proj = [['A', pA], ['B', pB], ['C', pC]];
+      basis.push(`A-B-C to ${FP_CORR_RETRACE * 100}% retrace of the impulse; B = ${FP_B_OF_A * 100}% of A; C = ${FP_C_OF_A}×A`);
+    } else if (st.type === 'corrective' && !st.complete) {
+      const dir = Math.sign(P[1] - P[0]);              // direction of A
+      const a = Math.abs(P[1] - P[0]);
+      if (pts.length === 2) {
+        const pB = P[1] - dir * a * FP_B_OF_A;
+        proj = [['B', pB], ['C', pB + dir * a * FP_C_OF_A]];
+        basis.push(`B = ${FP_B_OF_A * 100}% retrace of A; C = ${FP_C_OF_A}×A from B`);
+      } else {
+        proj = [['C', P[2] + dir * a * FP_C_OF_A]];
+        basis.push(`C = ${FP_C_OF_A}×A from B`);
+      }
+    } else {
+      return null;
+    }
+    return assemblePath(st, proj, basis, opts);
+  }
+
+  // ── Primary + alternate count ────────────────────────────────────────────────
+  // Primary is always the textbook continuation (forwardPath). An alternate is
+  // offered only for two named ambiguities, each with the price that kills it:
+  //   complete impulse -> wave 5 still extending to 1.618 x W1 from W4
+  //                       (dead below W4; primary dead on a new extreme past W5)
+  //   5-A-B formed     -> contracting triangle, each leg 0.618 x the previous
+  //                       (dead if C passes A's end; primary dead back past B)
+  const FP_W5_EXT = 1.618, FP_TRI = 0.618;
+
+  function forwardScenarios(st, opts) {
+    const primary = forwardPath(st, opts);
+    if (!primary) return [];
+    const pts = st.points, P = pts.map(p => p.price);
+    const out = [];
+    if (st.type === 'impulse') {
+      const up = st.bullish ? 1 : -1;
+      out.push(Object.assign(primary, {role: 'primary', kind: 'abc',
+        invalidation: {price: P[5], side: st.bullish ? 'above' : 'below'}}));
+      const ext = P[4] + up * FP_W5_EXT * Math.abs(P[1] - P[0]);
+      if ((ext - P[5]) * up > 0) {
+        out.push(Object.assign(assemblePath(st, [['5', ext]],
+          [`wave 5 extends to ${FP_W5_EXT}×W1 from W4`], opts),
+          {role: 'alternate', kind: 'w5-extension',
+           invalidation: {price: P[4], side: st.bullish ? 'below' : 'above'}}));
+      }
+    } else {
+      const dir = Math.sign(P[1] - P[0]);              // direction of A (and C)
+      out.push(Object.assign(primary, {role: 'primary', kind: 'abc',
+        invalidation: pts.length >= 3 ? {price: P[2], side: dir < 0 ? 'above' : 'below'}
+                                      : {price: P[0], side: dir < 0 ? 'above' : 'below'}}));
+      if (pts.length === 3) {
+        const b = Math.abs(P[2] - P[1]);
+        const c = FP_TRI * b, d = FP_TRI * c, e = FP_TRI * d;
+        const pC = P[2] + dir * c, pD = pC - dir * d, pE = pD + dir * e;
+        out.push(Object.assign(assemblePath(st, [['C', pC], ['D', pD], ['E', pE]],
+          [`contracting triangle: each leg ${FP_TRI}× the previous`], opts),
+          {role: 'alternate', kind: 'triangle',
+           invalidation: {price: P[1], side: dir < 0 ? 'below' : 'above'}}));
+      }
+    }
+    return out;
+  }
+
   global.EW = {
-    VERSION: '1.4.0',
+    VERSION: '1.7.0',
+    channelFor, forwardPath, forwardScenarios, futureTimes, NSE_SESSION,
     computeZigzag, detectImpulses, detectCorrectives, detectComplexCorrectives,
     fibLevelsForImpulse, fibLevelsForCorrective, fibLevelsForComplex,
     invalidation, invalidationForImpulse, invalidationForCorrective,

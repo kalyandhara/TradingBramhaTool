@@ -423,3 +423,136 @@ def test_a_wxy_at_the_latest_swing_is_the_live_count():
     an = _an(DOWN_WXY, first="high")
     lc = ew("EW.liveCount(an)", an=an)
     assert lc["active"]["type"] == "complex-corrective" and lc["live"] is True
+
+
+# ── channelFor (forward channel) ─────────────────────────────────────────────
+
+def test_channel_impulse_base_through_w2_w4_parallel_through_w3():
+    pv = pivots([100, 120, 110, 150, 140, 165], "low")
+    ch = ew("EW.channelFor(EW.detectImpulses(pv)[0], 20)", pv=pv)
+    # W2 (idx 20, 110) -> W4 (idx 40, 140): slope 1.5 per bar
+    assert ch["slope"] == pytest.approx(1.5)
+    assert ch["base"]["from"]["price"] == pytest.approx(110)
+    assert ch["parallel"]["from"]["price"] == pytest.approx(150 - 1.5 * 10)
+    # extended 20 bars past the last pivot (idx 50 -> 70)
+    assert ch["base"]["to"]["idx"] == 70
+    assert ch["base"]["to"]["price"] == pytest.approx(110 + 1.5 * 50)
+    assert ch["parallel"]["to"]["price"] == pytest.approx(150 + 1.5 * 40)
+    # future timestamp from bar spacing (60 s per bar)
+    assert ch["base"]["to"]["time"] == 1_000_000 + 70 * 60
+
+
+def test_channel_corrective_projects_c_from_partial_abc():
+    pv = pivots([100, 120, 110, 150, 140, 165, 150, 158], "low")
+    ch = ew("""(() => { const imps = EW.detectImpulses(pv);
+               return EW.channelFor(EW.detectCorrectives(pv, imps)[0], 10); })()""", pv=pv)
+    # 5 (idx 50, 165) -> B (idx 70, 158): slope -0.35; parallel through A (idx 60, 150)
+    assert ch["slope"] == pytest.approx(-0.35)
+    assert ch["parallel"]["from"]["idx"] == 50
+    assert ch["parallel"]["from"]["price"] == pytest.approx(150 + 0.35 * 10)
+    assert ch["base"]["to"]["idx"] == 80
+
+
+def test_channel_null_when_not_enough_points():
+    pv = pivots([100, 120, 110, 150, 140, 165, 150], "low")
+    out = ew("""(() => { const imps = EW.detectImpulses(pv);
+               return [EW.channelFor(EW.detectCorrectives(pv, imps)[0], 10),
+                       EW.channelFor(null, 10)]; })()""", pv=pv)
+    assert out == [None, None]
+
+
+# ── forwardPath / futureTimes ────────────────────────────────────────────────
+from datetime import datetime, timezone, timedelta
+
+IMP = [100, 120, 110, 150, 140, 165]
+
+
+def _path(prices, which="impulse"):
+    pv = pivots(prices, "low")
+    pick = ("EW.detectImpulses(pv)[0]" if which == "impulse" else
+            "EW.detectCorrectives(pv, EW.detectImpulses(pv))[0]")
+    return ew(f"EW.forwardPath({pick}, {{session: null}})", pv=pv)
+
+
+def test_forward_path_after_impulse_projects_abc_to_382_retrace():
+    fp = _path(IMP)
+    labels = [p["label"] for p in fp["points"]]
+    assert labels == ["5", "A", "B", "C"]
+    a = 65 * 0.382 / 1.5
+    assert fp["points"][1]["price"] == pytest.approx(165 - a)
+    assert fp["points"][2]["price"] == pytest.approx(165 - a + 0.5 * a)
+    assert fp["points"][3]["price"] == pytest.approx(165 - 0.382 * 65)
+    assert [p["idx"] for p in fp["points"]] == [50, 60, 70, 80]
+    assert [p["time"] for p in fp["points"]][1] == 1_000_000 + 60 * 60
+    assert fp["drawingAid"] is True and fp["basis"]
+
+
+def test_forward_path_after_a_projects_b_and_c():
+    fp = _path(IMP + [150], "corrective")
+    assert [p["label"] for p in fp["points"]] == ["A", "B", "C"]
+    assert fp["points"][1]["price"] == pytest.approx(157.5)
+    assert fp["points"][2]["price"] == pytest.approx(142.5)
+
+
+def test_forward_path_after_b_projects_c_equal_to_a():
+    fp = _path(IMP + [150, 158], "corrective")
+    assert [p["label"] for p in fp["points"]] == ["B", "C"]
+    assert fp["points"][1]["price"] == pytest.approx(143)
+
+
+def test_forward_path_null_for_complete_corrective():
+    assert _path(IMP + [150, 158, 140], "corrective") is None
+
+
+def _ist(y, mo, d, h, mi):
+    return int(datetime(y, mo, d, h, mi, tzinfo=timezone(timedelta(minutes=330))).timestamp())
+
+
+def test_future_times_skip_overnight_and_weekend_intraday():
+    fri_1515 = _ist(2026, 11, 20, 15, 15)            # last 15m bar Friday
+    ts = ew("EW.futureTimes(t, 900, 2, EW.NSE_SESSION)", t=fri_1515)
+    assert ts == [_ist(2026, 11, 23, 9, 15), _ist(2026, 11, 23, 9, 30)]
+
+
+def test_future_times_daily_skip_weekend():
+    fri = _ist(2026, 11, 20, 0, 0)
+    ts = ew("EW.futureTimes(t, 86400, 1, EW.NSE_SESSION)", t=fri)
+    assert ts == [_ist(2026, 11, 23, 0, 0)]
+
+
+# ── forwardScenarios (primary + alternate count) ─────────────────────────────
+
+def _scen(prices, which="impulse"):
+    pv = pivots(prices, "low")
+    pick = ("EW.detectImpulses(pv)[0]" if which == "impulse" else
+            "EW.detectCorrectives(pv, EW.detectImpulses(pv))[0]")
+    return ew(f"EW.forwardScenarios({pick}, {{session: null}})", pv=pv)
+
+
+def test_scenarios_impulse_primary_abc_alternate_w5_extension():
+    sc = _scen(IMP)
+    assert [s["role"] for s in sc] == ["primary", "alternate"]
+    assert sc[0]["kind"] == "abc"
+    assert sc[0]["invalidation"] == {"price": 165, "side": "above"}
+    assert sc[1]["kind"] == "w5-extension"
+    assert sc[1]["points"][-1]["price"] == pytest.approx(140 + 1.618 * 20)
+    assert sc[1]["invalidation"] == {"price": 140, "side": "below"}
+
+
+def test_scenarios_after_b_alternate_contracting_triangle():
+    sc = _scen(IMP + [150, 158], "corrective")
+    prim, alt = sc
+    assert prim["kind"] == "abc" and prim["points"][-1]["price"] == pytest.approx(143)
+    assert prim["invalidation"] == {"price": 158, "side": "above"}
+    assert alt["kind"] == "triangle"
+    assert [p["label"] for p in alt["points"]] == ["B", "C", "D", "E"]
+    c, d, e = (p["price"] for p in alt["points"][1:])
+    assert c == pytest.approx(158 - 0.618 * 8)
+    assert d == pytest.approx(c + 0.618 * (158 - c))
+    assert e == pytest.approx(d - 0.618 * (d - c))
+    assert alt["invalidation"] == {"price": 150, "side": "below"}
+
+
+def test_scenarios_single_when_unambiguous_and_empty_when_complete():
+    assert [s["role"] for s in _scen(IMP + [150], "corrective")] == ["primary"]
+    assert _scen(IMP + [150, 158, 140], "corrective") == []
