@@ -651,7 +651,7 @@
       from: {idx: startIdx, time: timeAt(startIdx), price: ap + slope * (startIdx - ax)},
       to:   {idx: endIdx,   time: timeAt(endIdx),   price: ap + slope * (endIdx - ax)},
     });
-    return {id: 'ch_' + st.id, slope,
+    return {id: 'ch_' + st.id, slope, drawingAid: true,
             base: line(a1.idx, a1.price), parallel: line(par.idx, par.price)};
   }
 

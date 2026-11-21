@@ -553,6 +553,15 @@ def test_scenarios_after_b_alternate_contracting_triangle():
     assert alt["invalidation"] == {"price": 150, "side": "below"}
 
 
+def test_every_forward_object_is_flagged_drawing_aid():
+    """Step 5 honesty label: channel, path and every scenario carry the flag."""
+    pv = pivots(IMP + [150, 158], "low")
+    flags = ew("""(() => { const st = EW.detectCorrectives(pv, EW.detectImpulses(pv))[0];
+        return [EW.channelFor(st, 10).drawingAid, EW.forwardPath(st, {session: null}).drawingAid,
+                ...EW.forwardScenarios(st, {session: null}).map(s => s.drawingAid)]; })()""", pv=pv)
+    assert flags == [True, True, True, True]
+
+
 def test_scenarios_single_when_unambiguous_and_empty_when_complete():
     assert [s["role"] for s in _scen(IMP + [150], "corrective")] == ["primary"]
     assert _scen(IMP + [150, 158, 140], "corrective") == []
