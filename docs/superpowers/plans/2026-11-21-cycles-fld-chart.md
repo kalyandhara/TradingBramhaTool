@@ -34,6 +34,16 @@ The gray line in the reference chart is the FLD. Its forward part is known data 
    - Write `CY.dominantCycle(bars)` to find troughs with the existing `EW.computeZigzag` and measure the median trough-to-trough spacing in bars. It also reports the spread (inter-quartile range) and the count of troughs used.
    - Draw verticals at the next expected trough and the half-cycle mark, each with a shaded window of ± the inter-quartile range, not a single exact day.
    - Label the line with the measured length (e.g. "cycle ≈ 52 bars, IQR 44–61, n = 9"). Use the measured length, not the reference chart's 55.
+   - **Done 2026-11-21.** As built:
+     - `CY.dominantCycle(pivots, lastIdx)` (CY 1.1.0), with 3 tests. It takes pivots rather than bars, so `cycles.js` stays independent of EW; the chart passes `EW.computeZigzag(bars)`.
+     - It uses confirmed lows only (provisional ones are ignored) and needs at least 3 spacings.
+     - Quartiles use linear interpolation, the same as numpy.
+     - When the window has closed without a new low, it is flagged `overdue` and not rolled forward.
+     - Chart toggle `cyclewin` draws on `fldCanvas`: the last trough and half-cycle mark as dotted lines, the q1–q3 window shaded, and the median as a solid line labelled "next trough", with a caption giving the length, IQR and n.
+     - Verified on ^NSEI 15m (cycle ≈ 24 bars, IQR 21–25, n = 7). Turning it off clears the canvas.
+     - Known limits:
+       - The measured length depends on the zigzag swing size.
+       - The FLD toggles still use fixed 20/40/80 rather than the measured cycle.
 3. **Swing boxes.**
    - Optionally copy the last completed trough-to-peak swing (price and bars) forward from the latest trough as a shaded box.
    - Keep it as a drawing only.

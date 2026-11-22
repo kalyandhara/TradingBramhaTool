@@ -41,6 +41,38 @@ def test_fld_odd_cycle_floors_and_null_when_too_short():
     assert cy("[CY.fld([1,2,3], 6), CY.fld([1,2,3,4], 1), CY.fld(null, 20)]") == [None, None, None]
 
 
+def _lows(idxs, highs_between=True, provisional_last=False):
+    pv = []
+    for k, i in enumerate(idxs):
+        pv.append({"idx": i, "type": "low", "price": 100})
+        if highs_between:
+            pv.append({"idx": i + 2, "type": "high", "price": 110})
+    if provisional_last:
+        pv[-1 if not highs_between else -2]["provisional"] = True
+    return pv
+
+
+def test_dominant_cycle_median_iqr_and_next_window():
+    # low spacings 10, 12, 14, 20 -> median 13, q1 11.5, q3 15.5
+    dc = cy("CY.dominantCycle(pv, 60)", pv=_lows([0, 10, 22, 36, 56]))
+    assert (dc["median"], dc["q1"], dc["q3"], dc["n"]) == (13, 11.5, 15.5, 4)
+    assert dc["lastTrough"] == 56
+    assert dc["next"] == {"idx": 69, "from": 68, "to": 72}   # 56+11.5 rounds to 68
+    assert dc["half"] == 63 and dc["overdue"] is False and dc["drawingAid"] is True
+
+
+def test_dominant_cycle_ignores_provisional_and_flags_overdue():
+    pv = _lows([0, 10, 20, 30, 33], provisional_last=True)   # 33 is provisional
+    dc = cy("CY.dominantCycle(pv, 50)", pv=pv)
+    assert dc["median"] == 10 and dc["lastTrough"] == 30
+    assert dc["overdue"] is True                              # window 40..40 closed by bar 50
+
+
+def test_dominant_cycle_null_with_too_few_troughs():
+    assert cy("CY.dominantCycle(pv, 30)", pv=_lows([0, 10, 20])) is None
+    assert cy("CY.dominantCycle(null, 30)") is None
+
+
 def test_fld_matches_python_fld_confluence():
     fc = pytest.importorskip("fld_confluence")
     rng = np.random.default_rng(7)

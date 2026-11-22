@@ -26,5 +26,41 @@
     return {cycle, shift: s, known, forward, drawingAid: true};
   }
 
-  root.CY = {VERSION: '1.0.0', fld};
+  // Quantile with linear interpolation (numpy's default), on a sorted copy.
+  function quantile(xs, q) {
+    const s = xs.slice().sort((a, b) => a - b);
+    const pos = (s.length - 1) * q, lo = Math.floor(pos), hi = Math.ceil(pos);
+    return s[lo] + (s[hi] - s[lo]) * (pos - lo);
+  }
+
+  /* CY.dominantCycle(pivots, lastIdx, opts)
+   *   Measures the trough-to-trough spacing (in bars) of confirmed swing lows,
+   *   e.g. pivots from EW.computeZigzag(bars). Returns the median spacing, its
+   *   inter-quartile range and the count, plus the next expected trough as a
+   *   window [last low + q1, last low + q3] rather than one exact bar, and the
+   *   half-cycle mark. `overdue` is true when the window has already closed
+   *   by lastIdx (the latest bar) — the count is then stale, not extended.
+   *   Needs at least opts.minSpacings (default 3) spacings, else null.
+   *   Drawing aid, not measured.
+   */
+  function dominantCycle(pivots, lastIdx, opts) {
+    const minSpacings = (opts && opts.minSpacings) || 3;
+    const lows = (pivots || []).filter(p => p.type === 'low' && !p.provisional)
+                               .map(p => p.idx).sort((a, b) => a - b);
+    const gaps = [];
+    for (let i = 1; i < lows.length; i++) if (lows[i] > lows[i - 1]) gaps.push(lows[i] - lows[i - 1]);
+    if (gaps.length < minSpacings) return null;
+    const median = quantile(gaps, 0.5), q1 = quantile(gaps, 0.25), q3 = quantile(gaps, 0.75);
+    const last = lows[lows.length - 1];
+    const r = Math.round;
+    return {
+      median, q1, q3, n: gaps.length, lastTrough: last,
+      next: {idx: r(last + median), from: r(last + q1), to: r(last + q3)},
+      half: r(last + median / 2),
+      overdue: Number.isFinite(lastIdx) && r(last + q3) < lastIdx,
+      drawingAid: true,
+    };
+  }
+
+  root.CY = {VERSION: '1.1.0', fld, dominantCycle};
 })(typeof window !== 'undefined' ? window : globalThis);
