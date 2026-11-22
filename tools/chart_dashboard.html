@@ -3396,8 +3396,11 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
       const body = el.querySelector('.chart-body');
       const dock = body.querySelector(':scope > .card-dock');
       const dockH = (dock && dock.offsetParent) ? dock.getBoundingClientRect().height : 0;
-      // Keep the candles at their 100px floor and every sub-plot at least a label strip.
-      const maxH = Math.max(40, body.getBoundingClientRect().height - 100 - splitter.offsetHeight - dockH);
+      // Sub-plots may take at most SUB_STACK_MAX_FRAC of the chart body, and the
+      // candles keep their 100px floor; every sub-plot keeps at least a label strip.
+      const bodyH = body.getBoundingClientRect().height;
+      const maxH = Math.max(40, Math.min(bodyH * SUB_STACK_MAX_FRAC,
+                                         bodyH - 100 - splitter.offsetHeight - dockH));
       const h = Math.round(Math.min(maxH, Math.max(40, drag.h0 - (ev.clientY - drag.y0))));
       pane.subStackH = h;
       applySubStack(pane);
@@ -5999,8 +6002,17 @@ function removeSubPane(pane, key) {
 
 // Apply the user's chosen sub-plot stack height (or the automatic layout) and
 // show the splitter only while there is something below the candles to resize.
+// Largest share of the chart body the sub-plot stack may take when the user
+// drags the splitter up; the candles keep the rest (owner's call: 45%).
+const SUB_STACK_MAX_FRAC = 0.45;
+
 function applySubStack(pane) {
   const stack = pane.el.querySelector('.sub-panes');
+  // A height saved before the cap existed (or on a taller window) is clamped too.
+  const bodyEl = pane.el.querySelector('.chart-body');
+  const bodyH = bodyEl ? bodyEl.getBoundingClientRect().height : 0;
+  if (pane.subStackH && bodyH > 0)
+    pane.subStackH = Math.max(40, Math.min(pane.subStackH, Math.round(bodyH * SUB_STACK_MAX_FRAC)));
   const splitter = pane.el.querySelector('.pane-splitter');
   if (!stack) return;
   const n = stack.children.length;
