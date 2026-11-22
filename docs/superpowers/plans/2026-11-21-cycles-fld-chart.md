@@ -60,6 +60,10 @@ The gray line in the reference chart is the FLD. Its forward part is known data 
      - `CY.fld`, `CY.dominantCycle` and `CY.swingBox` all return `drawingAid: true`, and the tests in `test_cycles.py` assert it for each.
 5. **Optional measurement (later).**
    - Measure whether projected trough windows contain actual troughs more often than random windows of the same width. Pre-register the test first.
+   - **Done 2026-11-21 as B-204.** The pre-registration is in `Open-Backlog.md` (commit d7cb555) and the scorer is `tools/cycle_window_study.py`, with 3 tests.
+     - Result: hit 55.8% vs baseline 55.3%, +0.50 pts, CI [+0.23, +0.80], n = 56,632 over 458 symbols. That is a **PASS by rule, but too small to use**.
+     - The measured cycle was about 7 daily bars, so this covers short zigzag cycles, not a 55-day one.
+     - The chart caption now shows the measured numbers.
 
 ## Out of scope
 - Cloning the AKMid oscillator.

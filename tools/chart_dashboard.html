@@ -7703,7 +7703,9 @@ function drawFld(pane) {
     const xm = vline(cyc.next.idx, [], col);
     const iqr = `${Math.round(cyc.q1)}–${Math.round(cyc.q3)}`;
     cycNote = `cycle ≈ ${Math.round(cyc.median)} bars, IQR ${iqr}, n = ${cyc.n}` +
-              (cyc.overdue ? ' · next-trough window passed with no new low' : '');
+              (cyc.overdue ? ' · next-trough window passed with no new low' : '') +
+              // B-204 (daily, ~7-bar cycles): window hit 55.8% vs 55.3% same-width baseline.
+              ' · measured B-204 (daily): window 55.8% vs 55.3% baseline, +0.5 pts';
     if (xm != null) {
       ctx.setLineDash([]); ctx.fillStyle = col; ctx.textAlign = 'left';
       ctx.fillText('next trough', xm + 4, H - 40);

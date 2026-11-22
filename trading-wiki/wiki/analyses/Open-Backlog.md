@@ -7442,7 +7442,7 @@ PWA / chart server), not a side port — the sw.js trap; light and dark theme; p
 width; an ETF symbol (greyed rows); an 8-pane grid (adds to the right pane); panes
 saved before the change still load their indicators.
 
-## B-204 · Do measured cycle-trough windows catch troughs? — **PRE-REGISTERED 2026-11-21, NOT RUN**
+## B-204 · Do measured cycle-trough windows catch troughs? — **PRE-REGISTERED + MEASURED 2026-11-21: PASS, but the edge is tiny (+0.5 pts)**
 
 **Source.** The chart tool's new "Cycle troughs" layer (`cycles.js` `CY.dominantCycle`,
 plan `docs/superpowers/plans/2026-11-21-cycles-fld-chart.md` step 5), drawn after an
@@ -7482,6 +7482,21 @@ entry changes first and says why.
   - n events and n symbols
 - **What a PASS would change.** The caption "drawing aid, not measured" becomes a measured hit rate versus baseline. Nothing becomes a signal.
 - **What a FAIL changes.** The layer stays drawn and the caption gains "measured: no timing edge (B-204)".
+
+### Result — run 2026-11-21 (`tools/cycle_window_study.py`, commit after prereg d7cb555)
+
+```
+bars cardinality_deep | 459 files | cycles.js 1.2.0 | start 120 step 20 | boot 2000
+  events 56632 in 458 symbols | median cycle 7.0 bars
+  hit rate 55.8%  baseline 55.3%  edge +0.50 pts  95% CI [+0.23, +0.80]
+VERDICT B-204: PASS
+```
+
+**Reading.**
+- **The pass.** By the pre-registered rule it passes: n is far above 200 and the CI excludes 0.
+- **The size.** Half a percentage point on a base of 55% is not useful timing. The window's real information is about 1% of the hit rate. The very large n is what makes so small an effect "significant".
+- **What was tested.** The measured cycle is about **7 daily bars**, because the default ATR-adaptive zigzag finds short swings. This did **not** test a 55-day (or any multi-week) cycle like the one in the reference chart. A longer-swing test would be a new pre-registration with a larger zigzag size, not a rerun of this one.
+- **Action, as pre-registered.** The chart caption now states the measured hit rate against the baseline. Nothing becomes a signal.
 
 ## Outcome (fill in later)
 
