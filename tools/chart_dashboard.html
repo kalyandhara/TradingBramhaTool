@@ -3396,7 +3396,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
       const body = el.querySelector('.chart-body');
       const dock = body.querySelector(':scope > .card-dock');
       const dockH = (dock && dock.offsetParent) ? dock.getBoundingClientRect().height : 0;
-      // Free both ways from the 35% default: the candles keep their 100px floor
+      // Free both ways from the 25% default: the candles keep their 100px floor
       // and every sub-plot keeps at least a label strip.
       const maxH = Math.max(40, body.getBoundingClientRect().height - 100 - splitter.offsetHeight - dockH);
       const h = Math.round(Math.min(maxH, Math.max(40, drag.h0 - (ev.clientY - drag.y0))));
@@ -6000,10 +6000,10 @@ function removeSubPane(pane, key) {
 
 // Apply the user's chosen sub-plot stack height (or the automatic layout) and
 // show the splitter only while there is something below the candles to resize.
-// Starting share of the chart body for the sub-plot stack (owner's call: 35%).
+// Starting share of the chart body for the sub-plot stack (owner's call: 25%).
 // It is only the default: the splitter drags freely both ways from it, and a
 // double-click comes back to it. Not persisted, so it follows window resizes.
-const SUB_STACK_DEFAULT_FRAC = 0.35;
+const SUB_STACK_DEFAULT_FRAC = 0.25;
 
 function applySubStack(pane) {
   const stack = pane.el.querySelector('.sub-panes');
