@@ -1905,6 +1905,7 @@ const INDICATOR_DEFS = [
   {key:'fld20',        label:'FLD · 20-bar cycle (Hurst)', group:'Levels & Projection', color:'#ffd54f', alias:'fld future line of demarcation hurst cycle time cycle'},
   {key:'fld40',        label:'FLD · 40-bar cycle (Hurst)', group:'Levels & Projection', color:'#ba68c8', alias:'fld future line of demarcation hurst cycle time cycle'},
   {key:'fld80',        label:'FLD · 80-bar cycle (Hurst)', group:'Levels & Projection', color:'#bdbdbd', alias:'fld future line of demarcation hurst cycle time cycle'},
+  {key:'swingbox',     label:'Swing box — last trough-to-peak swing copied from the latest low', group:'Levels & Projection', color:'#81c784', alias:'swing box measured move projection time price box cycle'},
   {key:'cyclewin',     label:'Cycle troughs — measured spacing + next-trough window', group:'Levels & Projection', color:'#4fc3f7', alias:'time cycle trough hurst dominant cycle next low window vertical lines'},
   {key:'fvg',          label:'Fair Value Gap + Buy/Sell signal (FPV)', group:'Smart Money & Structure', color:C_UP},
   {key:'roundbottom',  label:'Rounding Bottom (saucer)',  group:'Price Patterns', color:'#ffab40'},
@@ -4672,7 +4673,7 @@ function applyIndicators(pane) {
   // Tear down Elliott Wave overlay if deselected
   if (!pane.indicators.has('elliott') && pane.ew) clearElliottWave(pane);
   if (!pane.indicators.has('ew2deg') && pane.ew2) clearEwMajor(pane);
-  if (!cycleLayerOn(pane)) { pane.fldRoom = 0; pane.cyc = null; drawFld(pane); }
+  if (!cycleLayerOn(pane)) { pane.fldRoom = 0; pane.cyc = null; pane.swing = null; drawFld(pane); }
   // Tear down RSI divergence if deselected. When only RSI is switched off the
   // divergence survives on the price pane; clearRsiDivergence skips the RSI-side
   // removal once subCharts.rsi is gone, since that chart is already destroyed.
@@ -7594,7 +7595,8 @@ function fldCycles(pane) {
 
 // FLD lines and the measured cycle-trough window share one canvas.
 function cycleLayerOn(pane) {
-  return fldCycles(pane).length > 0 || !!(pane && pane.indicators && pane.indicators.has('cyclewin'));
+  return fldCycles(pane).length > 0 ||
+         !!(pane && pane.indicators && (pane.indicators.has('cyclewin') || pane.indicators.has('swingbox')));
 }
 
 function renderFld(pane) {
@@ -7602,16 +7604,19 @@ function renderFld(pane) {
   if (!window.CY || !bars || !bars.length) return;
   const last = bars.length - 1;
   // Measured cycle: trough spacing of the same zigzag the EW count uses.
-  pane.cyc = null;
-  if (pane.indicators.has('cyclewin') && window.EW) {
+  pane.cyc = null; pane.swing = null;
+  const wantCyc = pane.indicators.has('cyclewin'), wantBox = pane.indicators.has('swingbox');
+  if ((wantCyc || wantBox) && window.EW) {
     let pv = [];
     try { pv = EW.computeZigzag(bars); } catch {}
-    pane.cyc = CY.dominantCycle(pv, last);
+    if (wantCyc) pane.cyc = CY.dominantCycle(pv, last);
+    if (wantBox) pane.swing = CY.swingBox(pv);
   }
   // Leave room right of the last bar for the longest selected tail / window,
   // but only move the view when it already ends at the last bar (as EW does).
   const ahead = fldCycles(pane).map(k => Math.floor(FLD_STYLES[k][0] / 2));
   if (pane.cyc && !pane.cyc.overdue) ahead.push(pane.cyc.next.to - last);
+  if (pane.swing) ahead.push(pane.swing.projected.to.idx - last);
   const need = Math.min(Math.max(0, ...ahead) + 3, 80);
   const grow = need > (pane.fldRoom || 0);
   pane.fldRoom = need;
@@ -7705,6 +7710,30 @@ function drawFld(pane) {
     }
   } else if (pane.indicators.has('cyclewin')) {
     cycNote = 'cycle: too few confirmed troughs to measure';
+  }
+
+  // Swing box: the source swing outlined faintly, the copy from the latest low
+  // shaded, with a diagonal from trough to the copied peak.
+  const sw = pane.indicators.has('swingbox') ? pane.swing : null;
+  const box = (b, fill, stroke) => {
+    const p = xy({idx: b.from.idx, value: b.from.price}), q = xy({idx: b.to.idx, value: b.to.price});
+    if (!p || !q) return null;
+    if (fill) { ctx.fillStyle = fill; ctx.fillRect(p[0], q[1], q[0] - p[0], p[1] - q[1]); }
+    ctx.strokeStyle = stroke; ctx.setLineDash([]); ctx.lineWidth = 1;
+    ctx.strokeRect(p[0], q[1], q[0] - p[0], p[1] - q[1]);
+    ctx.setLineDash([4, 3]);
+    ctx.beginPath(); ctx.moveTo(p[0], p[1]); ctx.lineTo(q[0], q[1]); ctx.stroke();
+    return q;
+  };
+  if (sw) {
+    box(sw.source, null, 'rgba(129,199,132,0.45)');
+    const q = box(sw.projected, 'rgba(129,199,132,0.12)', 'rgba(129,199,132,0.85)');
+    if (q) {
+      ctx.setLineDash([]); ctx.fillStyle = 'rgba(129,199,132,0.95)'; ctx.textAlign = 'left';
+      ctx.fillText(`+${sw.rise.toFixed(2)} in ${sw.bars} bars → ${sw.projected.to.price.toFixed(2)}`, q[0] + 4, q[1] - 8);
+    }
+  } else if (pane.indicators.has('swingbox')) {
+    cycNote = (cycNote ? cycNote + ' · ' : '') + 'swing box: no completed swing yet';
   }
 
   ctx.setLineDash([]);

@@ -62,5 +62,30 @@
     };
   }
 
-  root.CY = {VERSION: '1.1.0', fld, dominantCycle};
+  /* CY.swingBox(pivots)
+   *   Copies the last completed trough-to-peak swing forward from the latest
+   *   confirmed trough: same bars, same price rise. `source` is the swing it
+   *   copies (previous low -> highest high before the latest low), `projected`
+   *   the box from the latest low. Returns null with fewer than two confirmed
+   *   lows or no high between them. Drawing aid, not measured.
+   */
+  function swingBox(pivots) {
+    const pv = (pivots || []).filter(p => !p.provisional).slice().sort((a, b) => a.idx - b.idx);
+    const lows = pv.filter(p => p.type === 'low');
+    if (lows.length < 2) return null;
+    const L = lows[lows.length - 1], L0 = lows[lows.length - 2];
+    const highs = pv.filter(p => p.type === 'high' && p.idx > L0.idx && p.idx < L.idx);
+    if (!highs.length) return null;
+    const H0 = highs.reduce((a, b) => (b.price > a.price ? b : a));
+    const bars = H0.idx - L0.idx, rise = H0.price - L0.price;
+    if (!(bars > 0) || !(rise > 0)) return null;
+    return {
+      bars, rise,
+      source:    {from: {idx: L0.idx, price: L0.price}, to: {idx: H0.idx, price: H0.price}},
+      projected: {from: {idx: L.idx,  price: L.price},  to: {idx: L.idx + bars, price: L.price + rise}},
+      drawingAid: true,
+    };
+  }
+
+  root.CY = {VERSION: '1.2.0', fld, dominantCycle, swingBox};
 })(typeof window !== 'undefined' ? window : globalThis);

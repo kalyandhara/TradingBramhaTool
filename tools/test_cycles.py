@@ -73,6 +73,25 @@ def test_dominant_cycle_null_with_too_few_troughs():
     assert cy("CY.dominantCycle(null, 30)") is None
 
 
+def test_swing_box_copies_last_trough_to_peak_from_latest_low():
+    pv = [{"idx": 0, "type": "low", "price": 100}, {"idx": 6, "type": "high", "price": 118},
+          {"idx": 9, "type": "low", "price": 108}, {"idx": 12, "type": "high", "price": 125},
+          {"idx": 20, "type": "low", "price": 110},
+          {"idx": 24, "type": "high", "price": 119, "provisional": True}]
+    b = cy("CY.swingBox(pv)", pv=pv)
+    # previous low idx 9 (108) -> highest high before idx 20 is idx 12 (125)
+    assert b["source"] == {"from": {"idx": 9, "price": 108}, "to": {"idx": 12, "price": 125}}
+    assert (b["bars"], b["rise"]) == (3, 17)
+    assert b["projected"] == {"from": {"idx": 20, "price": 110}, "to": {"idx": 23, "price": 127}}
+    assert b["drawingAid"] is True
+
+
+def test_swing_box_null_without_two_lows_or_a_high_between():
+    one_low = [{"idx": 0, "type": "low", "price": 100}, {"idx": 5, "type": "high", "price": 110}]
+    no_high = [{"idx": 0, "type": "low", "price": 100}, {"idx": 5, "type": "low", "price": 95}]
+    assert cy("[CY.swingBox(a), CY.swingBox(b), CY.swingBox(null)]", a=one_low, b=no_high) == [None, None, None]
+
+
 def test_fld_matches_python_fld_confluence():
     fc = pytest.importorskip("fld_confluence")
     rng = np.random.default_rng(7)

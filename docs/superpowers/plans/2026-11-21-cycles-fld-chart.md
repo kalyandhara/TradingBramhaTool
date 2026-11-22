@@ -47,6 +47,11 @@ The gray line in the reference chart is the FLD. Its forward part is known data 
 3. **Swing boxes.**
    - Optionally copy the last completed trough-to-peak swing (price and bars) forward from the latest trough as a shaded box.
    - Keep it as a drawing only.
+   - **Done 2026-11-21.** As built:
+     - `CY.swingBox(pivots)` (CY 1.2.0), with 2 tests. The source swing runs from the previous confirmed low to the highest high before the latest confirmed low; the copy has the same bars and the same rise from the latest low. Returns null without two lows and a high between them.
+     - Chart toggle `swingbox`, on `fldCanvas`: the source is outlined, the copy is shaded with a diagonal, and the label reads "+rise in N bars → target".
+     - Verified on ^NSEI 15m (+409.50 in 23 bars → 25,763.35, already exceeded). Turning it off clears the canvas.
+     - Only up-swings from a trough are copied. There is no peak-to-trough mirror yet.
 4. **Honesty label.**
    - Caption it "Cycles/FLD: drawing aid, not measured" and flag the data with `drawingAid: true`.
    - FLD-1 is still uncalibrated (no fitted model), and the EW structure studies found no edge.
