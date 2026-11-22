@@ -55,6 +55,9 @@ The gray line in the reference chart is the FLD. Its forward part is known data 
 4. **Honesty label.**
    - Caption it "Cycles/FLD: drawing aid, not measured" and flag the data with `drawingAid: true`.
    - FLD-1 is still uncalibrated (no fitted model), and the EW structure studies found no edge.
+   - **Done 2026-11-21.** The work landed during steps 1–3:
+     - The canvas caption "FLD / cycles: drawing aid, not measured" is drawn whenever any of the toggles `fld20/40/80`, `cyclewin` or `swingbox` is on.
+     - `CY.fld`, `CY.dominantCycle` and `CY.swingBox` all return `drawingAid: true`, and the tests in `test_cycles.py` assert it for each.
 5. **Optional measurement (later).**
    - Measure whether projected trough windows contain actual troughs more often than random windows of the same width. Pre-register the test first.
 
