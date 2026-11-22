@@ -7442,6 +7442,47 @@ PWA / chart server), not a side port — the sw.js trap; light and dark theme; p
 width; an ETF symbol (greyed rows); an 8-pane grid (adds to the right pane); panes
 saved before the change still load their indicators.
 
+## B-204 · Do measured cycle-trough windows catch troughs? — **PRE-REGISTERED 2026-11-21, NOT RUN**
+
+**Source.** The chart tool's new "Cycle troughs" layer (`cycles.js` `CY.dominantCycle`,
+plan `docs/superpowers/plans/2026-11-21-cycles-fld-chart.md` step 5), drawn after an
+external NIFTY "55 Day's Time Cycle" chart. It shades a next-trough window
+[last low + q1, last low + q3] of the trough-to-trough spacing. The question is
+whether that window holds a real swing low more often than a window of the same
+width placed anywhere else in the same stretch of future bars.
+
+### Pre-registration — written 2026-11-21, BEFORE the scorer existed
+
+Nothing below may change after the scorer runs. If something must change, this
+entry changes first and says why.
+
+- **Data.** Daily bars, every `tools/cache/cardinality_deep/*_1d.json`.
+- **Engine.** The shipped `elliott_wave.js` `EW.computeZigzag` (default options) and `cycles.js` v1.2.0 `CY.dominantCycle` (`minSpacings` 3), both run through node.
+- **Troughs.** Zigzag pivots with `type 'low'`, not provisional.
+- **Known at bar t.** A low counts as known at t only if its `confirmedAt` ≤ t. There is no lookahead.
+- **Decision bars.**
+  - Start at t = 120 and step every 20 bars.
+  - At each t, call `dominantCycle(known lows, t)`.
+  - Skip t when the result is null or `overdue`.
+- **Window.** W = [max(next.from, t + 1), next.to]. Skip t if W is empty, or if next.to + 30 ≥ number of bars (so lows inside W have had time to confirm).
+- **Hit.** Any eventual non-provisional low whose idx lies in W.
+- **Baseline per event.** The share of ALL placements of a same-width window inside the span S = [t + 1, lastTrough + 2 × median] that contain an eventual low. This is computed exactly by sliding the window, not by random draws, and it is the null of "no timing information, same width, same horizon".
+  - If S is shorter than W, the event is skipped.
+- **Statistic.**
+  - Edge = mean over events of (hit − baseline), in percentage points.
+  - Uncertainty comes from a symbol-cluster bootstrap with 2,000 resamples and seed 7, giving a 95% percentile CI.
+- **Verdict.**
+  - PASS if n ≥ 200, edge > 0 and the CI's lower bound > 0.
+  - FAIL if n ≥ 200 and that does not hold.
+  - INCONCLUSIVE if n < 200.
+- **Reported alongside, without a verdict:**
+  - hit rate
+  - mean baseline
+  - median cycle length
+  - n events and n symbols
+- **What a PASS would change.** The caption "drawing aid, not measured" becomes a measured hit rate versus baseline. Nothing becomes a signal.
+- **What a FAIL changes.** The layer stays drawn and the caption gains "measured: no timing edge (B-204)".
+
 ## Outcome (fill in later)
 
 ## Related Pages
