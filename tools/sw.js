@@ -42,6 +42,7 @@ const SHELL = [
   '/icon-512.png',
   '/icon-maskable-512.png',
   '/elliott_wave.js',
+  '/cycles.js',
   '/volume_profile.js',
   '/session_volume_profile.js',
   '/fvg.js',

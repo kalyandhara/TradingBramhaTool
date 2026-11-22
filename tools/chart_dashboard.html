@@ -33,6 +33,8 @@
 <script src="/indicator_browser.js"></script>
 <!-- Elliott Wave detection plug-in — pure computation module, see elliott_wave.js -->
 <script src="/elliott_wave.js"></script>
+<!-- Hurst cycle helpers (FLD) — pure computation, see cycles.js -->
+<script src="/cycles.js"></script>
 <!-- Volume Profile (POC/Value Area/HVN/LVN) plug-in — pure computation module, see volume_profile.js -->
 <script src="/volume_profile.js"></script>
 <!-- Session Volume Profile HD — one profile per session, D/P/B/I classification +
@@ -1656,7 +1658,7 @@ function applyRangeView(pane) {
   if (!preset.bars || preset.bars >= n) {
     pane.chart.timeScale().fitContent();
   } else {
-    pane.chart.timeScale().setVisibleLogicalRange({ from: n - preset.bars, to: n - 1 + (pane.ewFwdRoom || 0) });
+    pane.chart.timeScale().setVisibleLogicalRange({ from: n - preset.bars, to: n - 1 + Math.max(pane.ewFwdRoom || 0, pane.fldRoom || 0) });
   }
   // A preset jump rescales BOTH axes. The visible-range event alone is not
   // enough to re-anchor user drawings, because the price autoscale lands a
@@ -1899,6 +1901,10 @@ const INDICATOR_DEFS = [
   {key:'elliott',      label:'Elliott Wave (1-5, A-B-C, W-X-Y)', group:'Levels & Projection', color:'#00e5ff', alias:'elliott wave wxy double zigzag double three complex correction'},
   // B-136: the same engine at a larger zigzag size, drawn over the normal count.
   {key:'ew2deg',       label:'Elliott Wave · larger degree (nesting)', group:'Levels & Projection', color:'#9e9e9e', alias:'elliott wave degree nested higher degree major minor'},
+  // Hurst FLD: price shifted half a cycle forward; the dashed tail runs into future bars.
+  {key:'fld20',        label:'FLD · 20-bar cycle (Hurst)', group:'Levels & Projection', color:'#ffd54f', alias:'fld future line of demarcation hurst cycle time cycle'},
+  {key:'fld40',        label:'FLD · 40-bar cycle (Hurst)', group:'Levels & Projection', color:'#ba68c8', alias:'fld future line of demarcation hurst cycle time cycle'},
+  {key:'fld80',        label:'FLD · 80-bar cycle (Hurst)', group:'Levels & Projection', color:'#bdbdbd', alias:'fld future line of demarcation hurst cycle time cycle'},
   {key:'fvg',          label:'Fair Value Gap + Buy/Sell signal (FPV)', group:'Smart Money & Structure', color:C_UP},
   {key:'roundbottom',  label:'Rounding Bottom (saucer)',  group:'Price Patterns', color:'#ffab40'},
   {key:'doublebottom', label:'Double Bottom (neckline + quality grade)', group:'Price Patterns', color:'#f778ba', alias:'double bottom W pattern reversal neckline retest agpro quality grade follow through'},
@@ -3295,6 +3301,11 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
   ewFwdCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:7;width:100%;height:100%;';
   chartMain.appendChild(ewFwdCanvas);
 
+  // ── Hurst FLD lines incl. forward tail (drawing aid) ───────────────────────
+  const fldCanvas = document.createElement('canvas');
+  fldCanvas.style.cssText = 'position:absolute;inset:0;pointer-events:none;z-index:7;width:100%;height:100%;';
+  chartMain.appendChild(fldCanvas);
+
   // ── Fibonacci grid + trade-plan canvas overlay ────────────────────────────
   // Lowest z-index of the price-anchored overlays: the grid is a horizontal
   // backdrop that the projection slope, FVG boxes and volume histogram are all
@@ -3354,6 +3365,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
           drawProjection(pane);
         if (pane && pane.indicators && pane.indicators.has('elliott'))
           drawEwForward(pane);
+        if (pane && pane.indicators) drawFld(pane);
         // The drawing canvas is sized from offsetWidth/Height on every paint,
         // so a resize leaves it stretched until it repaints.
         if (pane && pane.drawings && pane.drawings.length) scheduleDrawRedraw(pane);
@@ -3435,7 +3447,7 @@ function makePane(idx, symbol, tf, savedIndicators, savedRangePreset, savedChart
                  subSizes: (savedSubSizes && typeof savedSubSizes === 'object') ? Object.assign({}, savedSubSizes) : {},
                  // User-chosen top-to-bottom order of sub-plot keys; unknown keys go last.
                  subOrder: Array.isArray(savedSubOrder) ? savedSubOrder.slice() : [],
-                 indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas, projCanvas, ewFwdCanvas,
+                 indSeries: {}, subCharts: {}, volCanvas, fvgCanvas, patternCanvas, projCanvas, ewFwdCanvas, fldCanvas,
                  fibCanvas, obCanvas, prteCanvas,
                  drawCanvas, drawTools,
                  drawings: [], drawTool: null, drawSel: null, drawMagnet: true,
@@ -4293,6 +4305,7 @@ async function copyChartSnapshot(pane) {
     blit(pane.patternCanvas);
     blit(pane.projCanvas);
     blit(pane.ewFwdCanvas);
+    blit(pane.fldCanvas);
     blit(pane.obCanvas);        // Order Blocks (z-index 7)
     // Session Volume Profile HD (z-index 8, below volCanvas) — draw before it.
     blit(pane.svpCanvas);
@@ -4658,6 +4671,7 @@ function applyIndicators(pane) {
   // Tear down Elliott Wave overlay if deselected
   if (!pane.indicators.has('elliott') && pane.ew) clearElliottWave(pane);
   if (!pane.indicators.has('ew2deg') && pane.ew2) clearEwMajor(pane);
+  if (!fldCycles(pane).length) { pane.fldRoom = 0; drawFld(pane); }
   // Tear down RSI divergence if deselected. When only RSI is switched off the
   // divergence survives on the price pane; clearRsiDivergence skips the RSI-side
   // removal once subCharts.rsi is gone, since that chart is already destroyed.
@@ -5590,6 +5604,7 @@ function applyIndicators(pane) {
   if (pane.indicators.has('ew2deg')) {
     renderEwMajor(pane);
   }
+  if (fldCycles(pane).length) renderFld(pane);
 
   // ── Rounding Bottom overlay (server-side detection, see scanner_templates.py) ─
   if (pane.indicators.has('roundbottom')) {
@@ -5776,7 +5791,7 @@ function resetPaneVisuals(pane) {
   // Canvas overlays are redrawn from pane.bars on resize/pan, and pane.bars
   // still holds the OLD candles until the fetch lands. Blank the canvases and
   // drop the bars so nothing repaints the old timeframe in the meantime.
-  [pane.volCanvas, pane.fvgCanvas, pane.patternCanvas, pane.projCanvas, pane.ewFwdCanvas, pane.fibCanvas, pane.obCanvas, pane.prteCanvas]
+  [pane.volCanvas, pane.fvgCanvas, pane.patternCanvas, pane.projCanvas, pane.ewFwdCanvas, pane.fldCanvas, pane.fibCanvas, pane.obCanvas, pane.prteCanvas]
     .forEach(c => {
       if (!c) return;
       try { c.getContext('2d').clearRect(0, 0, c.width, c.height); } catch {}
@@ -6112,6 +6127,7 @@ function redrawPaneOverlays(pane, immediate = false) {
   if (has('vcp') || has('roundbottom') || has('doublebottom')) drawPatternZones(pane);
   if (has('projection')) drawProjection(pane);
   if (has('elliott')) drawEwForward(pane);
+  drawFld(pane);
   // Fibonacci levels are price-anchored, so the y-mapping changing on
   // pan/zoom stales them for the same reason the volume profile stales.
   if (has('fib')) drawFibonacci(pane);
@@ -7561,6 +7577,89 @@ function drawEwForward(pane) {
   ctx.fillStyle = 'rgba(158,158,158,0.9)';
   ctx.textAlign = 'right';
   ctx.fillText('EW forward path: drawing aid, not measured', W - 70, 12);
+  ctx.restore();
+}
+
+// ── Hurst FLD overlay (cycles.js) ────────────────────────────────────────────
+// FLD = close shifted c/2 bars right, so its last c/2 points sit on bars not
+// yet printed: solid up to the last bar, dashed beyond. Drawn by bar index via
+// logicalToCoordinate, like drawEwForward. Drawing aid, not measured.
+const FLD_STYLES = {fld20: [20, '#ffd54f'], fld40: [40, '#ba68c8'], fld80: [80, '#bdbdbd']};
+
+function fldCycles(pane) {
+  if (!pane || !pane.indicators) return [];
+  return Object.keys(FLD_STYLES).filter(k => pane.indicators.has(k));
+}
+
+function renderFld(pane) {
+  const bars = pane.bars;
+  if (!window.CY || !bars || !bars.length) return;
+  // Leave room right of the last bar for the longest selected tail, but only
+  // move the view when it already ends at the last bar (same rule as EW).
+  const need = Math.min(Math.max(...fldCycles(pane).map(k => Math.floor(FLD_STYLES[k][0] / 2))) + 3, 80);
+  const grow = need > (pane.fldRoom || 0);
+  pane.fldRoom = need;
+  const tsc = pane.chart.timeScale();
+  const r = tsc.getVisibleLogicalRange();
+  const room = Math.max(pane.ewFwdRoom || 0, need);
+  if (grow && r && r.to >= bars.length - 2 && r.to < bars.length - 1 + room)
+    tsc.setVisibleLogicalRange({from: r.from, to: bars.length - 1 + room});
+  requestAnimationFrame(() => drawFld(pane));
+}
+
+function drawFld(pane) {
+  const canvas = pane && pane.fldCanvas;
+  if (!canvas) return;
+  const {W, H} = sizeOverlay(canvas);
+  if (W === 0 || H === 0) return;
+  const ctx = canvas.getContext('2d');
+  ctx.clearRect(0, 0, W, H);
+  const keys = fldCycles(pane);
+  const bars = pane.bars;
+  if (!keys.length || !window.CY || !bars || !bars.length) return;
+  const closes = bars.map(b => b.close);
+  const ts = pane.chart.timeScale();
+  const range = ts.getVisibleLogicalRange();
+  const lo = range ? Math.floor(range.from) - 1 : -Infinity;
+  const hi = range ? Math.ceil(range.to) + 1 : Infinity;
+  const xy = p => {
+    let x = null, y = null;
+    try { x = ts.logicalToCoordinate(p.idx); y = pane.series.priceToCoordinate(p.value); } catch {}
+    return (x == null || y == null) ? null : [x, y];
+  };
+  const path = pts => {
+    ctx.beginPath();
+    let open = false;
+    pts.forEach(p => {
+      if (p.idx < lo || p.idx > hi) { open = false; return; }
+      const q = xy(p);
+      if (!q) { open = false; return; }
+      open ? ctx.lineTo(q[0], q[1]) : ctx.moveTo(q[0], q[1]);
+      open = true;
+    });
+    ctx.stroke();
+  };
+  ctx.save();
+  ctx.font = '11px -apple-system, "Segoe UI", sans-serif';
+  ctx.textBaseline = 'middle';
+  keys.forEach(k => {
+    const [cycle, col] = FLD_STYLES[k];
+    const f = CY.fld(closes, cycle);
+    if (!f) return;
+    ctx.strokeStyle = col; ctx.fillStyle = col; ctx.globalAlpha = 0.85;
+    ctx.lineWidth = 1.3; ctx.setLineDash([]);
+    path(f.known);
+    // Dashed tail starts at the last known point so the two parts join.
+    const tail = f.known.slice(-1).concat(f.forward);
+    ctx.setLineDash([5, 4]);
+    path(tail);
+    const end = f.forward[f.forward.length - 1], q = end && xy(end);
+    if (q) { ctx.setLineDash([]); ctx.fillText(`FLD ${cycle}`, q[0] + 4, q[1]); }
+  });
+  ctx.globalAlpha = 1; ctx.setLineDash([]);
+  ctx.fillStyle = 'rgba(158,158,158,0.9)';
+  ctx.textAlign = 'right';
+  ctx.fillText('FLD: past price shifted forward; drawing aid, not measured', W - 70, 26);
   ctx.restore();
 }
 
