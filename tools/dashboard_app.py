@@ -1179,26 +1179,14 @@ def _market_status() -> tuple[str, str, str]:
 
 
 def _batch_freshness() -> str:
-    """Age of the last pipeline run, from the log file's mtime.
+    """Newest evening-batch run from job_runs, and whether it failed.
 
-    The mtime is the honest signal here — it moves whenever the batch writes,
-    whether it succeeded or failed. It says "the pipeline last did something
-    at X", NOT "the data is good"; Pipeline Log is where you check the latter.
+    SBC_Tool-0gv: this used to be pipeline.log's mtime, which the desk's own
+    yfinance error logging moved (screener_pipeline configures root logging on
+    import), so the ribbon showed the last download error, not the last batch.
     """
-    from datetime import datetime as _dt
-    try:
-        ts = sp.LOG_FILE.stat().st_mtime
-    except Exception:
-        return "no batch run yet"
-    age = _dt.now().timestamp() - ts
-    when = _dt.fromtimestamp(ts).strftime("%H:%M")
-    if age < 3600:
-        rel = f"{int(age // 60)}m ago"
-    elif age < 86400:
-        rel = f"{int(age // 3600)}h ago"
-    else:
-        rel = f"{int(age // 86400)}d ago"
-    return f"batch {when} · {rel}"
+    import batch_status
+    return batch_status.current()
 
 
 # The ticker tape's quotes (live_chrome.TAPE): ONE yfinance call, daily bars.
