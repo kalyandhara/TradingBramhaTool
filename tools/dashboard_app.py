@@ -1321,7 +1321,7 @@ st.markdown(
     unsafe_allow_html=True,
 )
 # The quotes moved off this line into a scrolling tape under it (2026-10-22).
-lc.render_tape(_tape := _ribbon_quotes(_q_bucket))
+lc.render_tape(_ribbon_quotes(_q_bucket))
 
 # ── ⌘K / Ctrl-K ───────────────────────────────────────────────────
 # Streamlit gives no keyboard API, and st.markdown strips <script>, so the only
@@ -3279,6 +3279,19 @@ with _slots.verdict:
                         f'<span class="tb-mono">{regime_info["sma10"]:,.0f}</span> '
                         f'{"above" if _ml else "below"} SMA20 '
                         f'<span class="tb-mono">{regime_info["sma20"]:,.0f}</span>')
+        # The 200-SMA fact the "vs 200 SMA" stat card and the old hero chip
+        # stated separately (RISK-ON beside a red STAND DOWN read as a
+        # contradiction). Here it is one more context fact, dated, inside the
+        # card that owns the decision.
+        if nifty_regime != "Unknown" and nifty_overview is not None:
+            _s200 = float(nifty_overview["close"].rolling(200).mean().iloc[-1])
+            _d = getattr(nifty_overview.index[-1], "strftime", None)
+            bits.insert(0, f'NIFTY <span class="tb-mono">{nifty_last:,.0f}</span>'
+                           # Not "close": intraday this is the forming bar.
+                           + (f' ({_d("%d %b")} bar)' if _d else "")
+                           + f' · <span class="tb-mono">'
+                             f'{(nifty_last - _s200) / _s200 * 100:+.1f}%</span> vs 200 SMA '
+                             f'(<b>{nifty_regime}</b>)')
         return (
             f'<div style="border-top:1px solid {rs.TOKENS["border"]};margin-top:10px;'
             f'padding-top:8px;display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">'
@@ -3296,6 +3309,15 @@ with _slots.verdict:
     # produced it are a single object. The border colour is where the decision is
     # stated (report_style's `tone` rule — a value's colour states its verdict).
     if _show_regime:
+        # 50/200 SMA breadth over the index constituents. Same cached download as
+        # the breadth strip below, so Home fetches the NIFTY 500 once. Context
+        # only: build_verdict never reads it, and the row is labelled so.
+        _bhist = bstrip.cached_history()
+        _n50 = bstrip.nifty50_members()
+        _breadth_row = bstrip.quadrant_html(
+            bstrip.sma_quadrants(_bhist), bstrip.UNIVERSE_LABEL,
+            as_of=bstrip.last_close_date(_bhist),
+            sub=("NIFTY 50", bstrip.sma_quadrants(_bhist, members=_n50 or None)))
         st.markdown(
             rs.card(
                 '<div style="display:flex;align-items:flex-start;gap:16px;">'
@@ -3314,6 +3336,7 @@ with _slots.verdict:
                 f'max <span class="tb-mono">{verdict["max_trades"]}</span> trade(s) today</div>'
                 '</div></div>'
                 + _regime_line()
+                + _breadth_row
                 # Components that could not be measured abstain from the vote (B-1),
                 # so the verdict above was formed on LESS than the full weight. Shown
                 # explicitly — otherwise the only visible difference between a
@@ -3327,6 +3350,7 @@ with _slots.verdict:
                 tone=verdict["tone"]),
             unsafe_allow_html=True,
         )
+        bstrip.render_members(_bhist, _n50)
 
     # ── Inline sentiment refresh ────────────────────────────────────────────
     if _show_regime and (_senti_reading is None or (_senti_age or 0) >= 1):
@@ -3411,13 +3435,10 @@ with _slots.verdict:
 # 2026-10-13, which put the day's one decision two-thirds down the first screen.
 # Breadth reads `_senti_reading`, the same object the verdict used, so the two
 # cannot disagree. Everything else lives in index_strip.py / breadth_strip.py.
+# The dark hero band that restated the verdict above the panes is gone: the
+# verdict card is the one place the day's decision is stated. Its market pill
+# lives in the breadcrumb strip and its index tiles in the tape + index strip.
 if _show_regime:
-    with _slots.hero:
-        lc.render_hero(
-            market_state=_mkt_state, market_label=_mkt_label,
-            verdict=verdict["verdict"], instruction=verdict["instruction"],
-            verdict_tone=verdict["tone"], regime=nifty_regime, tiles=_tape[:3],
-            today=datetime.now().strftime("%A, %d %B %Y"))
     with _slots.market:
         istrip.render()
         bstrip.render(_senti_reading)

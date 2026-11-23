@@ -36,8 +36,6 @@ class Slots:
     centre: Any
     right: Any
     verdict: Any
-    #: Full-width dark band above the panes (live chrome).
-    hero: Any
     #: Full width UNDER the panes: wide tables live here, not in the centre
     #: pane, where a 10-column scan scrolled sideways.
     band: Any
@@ -48,18 +46,20 @@ def header(cards: list[str], is_home: bool) -> Slots:
 
     `cards` is `_ov_cards`: Nifty 50, vs 200 SMA, Portfolio P&L, Capital at
     Risk, Alerts Triggered. Off Home they stay one five-up strip; on Home the
-    two market cards head the market bar (centre pane, under the verdict) and
-    the three account cards stack in the right rail.
+    Nifty 50 card heads the market bar (centre pane, under the verdict) and
+    the three account cards stack in the right rail. "vs 200 SMA" is NOT drawn
+    on Home: the verdict card's regime line states it, and a third RISK-ON
+    beside a STAND DOWN read as a contradiction. Off Home, with no verdict
+    card, it stays.
     """
     if not is_home:
         st.markdown(rs.strip(cards, cols=5), unsafe_allow_html=True)
         c = st.container()
-        return Slots(c, c, c, c, c, c, c)
+        return Slots(c, c, c, c, c, c)
     # The market bar sits in the centre pane, AFTER the verdict, not across the
     # top: full width, the index charts and breadth bars measured ~450 px and
     # pushed the watchlist rail off the first screen — and B-162 already put
     # the strips after the decision for the same reason.
-    hero = st.container()
     st.markdown(lc.PANE_CSS, unsafe_allow_html=True)
     # Ratios are only the fallback: PANE_CSS pins the rails to fixed pixel
     # widths and gives the centre everything else, so a wider page widens the
@@ -69,11 +69,11 @@ def header(cards: list[str], is_home: bool) -> Slots:
         pane.markdown(lc.pane_mark(name), unsafe_allow_html=True)
     verdict = centre.container()
     market = centre.container()
-    market.markdown(rs.strip(cards[:2], cols=2), unsafe_allow_html=True)
+    market.markdown(rs.strip(cards[:1], cols=2), unsafe_allow_html=True)
     body = centre.container()
     right.markdown(rs.strip(cards[2:], cols=1), unsafe_allow_html=True)
     band = st.container()
-    return Slots(market, left, body, right, verdict, hero, band)
+    return Slots(market, left, body, right, verdict, band)
 
 
 def _day_colour(v: float) -> str:
