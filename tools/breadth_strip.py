@@ -452,6 +452,27 @@ def last_close_date(hist: dict[str, pd.DataFrame]) -> str | None:
     return newest.strftime("%Y-%m-%d") if newest is not None else None
 
 
+#: The bucket tables' own columns after Close · 1D, in the watch_rail
+#: component's {key, label, fmt, width} shape (B-180 hover rows).
+BUCKET_COLUMNS = [
+    {"key": "% vs SMA50", "label": "vs SMA50", "fmt": "pct", "width": 68},
+    {"key": "% vs SMA200", "label": "vs SMA200", "fmt": "pct", "width": 72},
+]
+
+
+def _bucket_table(k: str, df: pd.DataFrame, fmt: dict) -> None:
+    """One bucket as B-180 hover rows (ticker, sparkline, hover chart,
+    Analyze link); the plain dataframe when the component is unavailable."""
+    import streamlit as st
+    import desk_pages as dpages
+
+    shown = dpages.home_scan_table(
+        df.rename(columns={"Symbol": "symbol"}), BUCKET_COLUMNS, key=f"bq_{k}_hv",
+        close_col="Close", pct_col="1D %", pct_label="Close · 1D", no_check=True)
+    if shown is None:
+        st.dataframe(df, hide_index=True, column_config=fmt, use_container_width=True)
+
+
 def render_members(hist: dict[str, pd.DataFrame], nifty50: set[str]) -> None:
     """Expander under the verdict card: the top N names in each quadrant.
 
@@ -484,13 +505,12 @@ def render_members(hist: dict[str, pd.DataFrame], nifty50: set[str]) -> None:
                     if tables[k].empty:
                         st.caption("No names in this bucket.")
                     else:
-                        st.dataframe(tables[k], hide_index=True, column_config=fmt,
-                                     use_container_width=True)
+                        _bucket_table(k, tables[k], fmt)
         st.caption(
             "Ranked by % from each stock's own 50-day SMA, in the bucket's direction: "
             "the two above-50 buckets list the strongest first, the two below-50 "
-            "buckets the weakest first. Click a column header to re-sort the shown "
-            "names (e.g. by % vs SMA200). Last close of the cached download — "
+            "buckets the weakest first. Hover a ticker for its chart; Analyze opens "
+            "it in the Stock Analyzer. Last close of the cached download — "
             "intraday this is the forming bar. Context only; not a recommendation.")
 
 

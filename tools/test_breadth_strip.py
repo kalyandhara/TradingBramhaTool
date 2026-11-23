@@ -94,6 +94,15 @@ def test_members_filter_applies_to_tables():
     assert sum(len(v) for v in m.values()) == 1
 
 
+def test_bucket_tables_feed_the_hover_rows():
+    import watch_rail as wr
+    df = bs.quadrant_members(HIST)["both"].rename(columns={"Symbol": "symbol"})
+    rows = wr.scan_rows(df, bs.BUCKET_COLUMNS, close_col="Close", pct_col="1D %")
+    assert rows[0]["symbol"] == "UP" and rows[0]["chart"] == "UP.NS"
+    assert rows[0]["close"] == 120 and round(rows[0]["day_pct"], 6) == 20.0
+    assert rows[0]["extra"]["% vs SMA50"] > 0 and rows[0]["extra"]["% vs SMA200"] > 0
+
+
 def test_last_close_date_is_newest_bar():
     assert bs.last_close_date(HIST) == HIST["UP"].index[-1].strftime("%Y-%m-%d")
     assert bs.last_close_date({}) is None
