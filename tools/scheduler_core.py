@@ -76,10 +76,15 @@ JOBS: dict[str, JobSpec] = {
         desc="Runs the alert engine every interval, round the clock. Each symbol "
              "is evaluated only while its market is open (NSE 09:15-15:45 IST, "
              "crypto always), firing on pattern-buildup transitions. Delivery "
-             "per alert_config.json. Needs chart_server running.",
+             "per alert_config.json. Starts chart_server first if it is down.",
         task_name="TradingBramha-AlertWatcher",
         kind="interval",
-        command=f'"{_node_exe()}" "{HERE / "alert_watcher.js"}" --once',
+        # Through chart_supervisor (SBC_Tool-j0x): the watcher reads candles from
+        # chart_server, which used to start only with the desk, so runs went
+        # BLIND whenever the desk was closed. `ensure` starts it when :5001 is
+        # down and passes the watcher's own exit code through.
+        command=(f'"{PYTHON_EXE}" "{HERE / "chart_supervisor.py"}" ensure -- '
+                 f'"{_node_exe()}" "{HERE / "alert_watcher.js"}" --once'),
         # All day, every day: the watcher gates each symbol on ITS market's
         # clock (NSE 09:15-15:45 IST; crypto never). A local "09:15-15:45" was
         # 18:45-01:15 IST on this US-Eastern machine, i.e. after the close.
