@@ -42,7 +42,13 @@ logging.basicConfig(
 log = logging.getLogger("chart_server")
 
 HERE = Path(__file__).resolve().parent
-app = Flask(__name__, static_folder=str(HERE))
+# static_folder=None on purpose (SBC_Tool-z5u). `static_folder=str(HERE)` made
+# Flask register its built-in /tools/<path:filename> route, which served ANY
+# file in tools/ to the LAN -- trading_bramha.db (Gmail app password, screener
+# session cookie), rec_audit.db, source, configs. Every asset the page needs has
+# an explicit route below (/, manifest, sw.js, icons, /<module>.js, /ind-thumbs).
+# tools/test_chart_server_static.py pins this.
+app = Flask(__name__, static_folder=None)
 sock = Sock(app)
 
 # B-180: the Home rail's hover chart runs in the desk's page and reads candles
@@ -1861,30 +1867,33 @@ def ws_handler(ws):
 
 # ── Entry point ───────────────────────────────────────────────────────────────
 
-if __name__ == "__main__":
+def build_arg_parser():
+    """The CLI. A function so the default bind is testable (test_chart_routes)."""
+    import argparse
+    ap = argparse.ArgumentParser(description="Trading Bramha chart server")
     # --port so a second instance can be run alongside the live one (verifying a
     # feed change without dropping the websocket clients of the running chart).
-    import argparse as _argparse
-    _ap = _argparse.ArgumentParser(description="Trading Bramha chart server")
-    _ap.add_argument("--port", type=int, default=5001)
-    # ── Why the default is still 0.0.0.0 (B-86) ──────────────────────────────
-    # bandit flags this as B104, and the design review's recommendation was to
-    # default to loopback. That recommendation was made without checking what
-    # binds here, and it is WRONG for this server: the chart is a PWA -- it ships
-    # a service worker, a manifest and maskable icons, and there are INSTALLED
-    # clients (the 2026-08-29 cache regression was found precisely because a fix
-    # never reached one). A phone on the same wifi cannot reach 127.0.0.1, so
-    # defaulting to loopback would silently break the surface the PWA exists for.
-    #
-    # The finding is therefore ACCEPTED rather than fixed, and made explicit:
-    # `--host 127.0.0.1` is one flag away for anyone who wants it. What makes the
-    # exposure tolerable is the rest of the shape -- read-only market endpoints,
-    # no credentials, no writes, and a module route that serves only what the
-    # page references (B-85) rather than anything in `tools/`.
-    _ap.add_argument("--host", default="0.0.0.0",
-                     help="bind address; use 127.0.0.1 to keep it off the LAN "
-                          "(the installed PWA on a phone then cannot reach it)")
-    _args = _ap.parse_args()
+    ap.add_argument("--port", type=int, default=5001)
+    # ── Why the default is loopback (SBC_Tool-z5u, 2026-11-23; was B-86) ─────
+    # B-86 kept 0.0.0.0 because the chart is a PWA with installed clients, and a
+    # phone on the same wifi cannot reach 127.0.0.1. Its premise was "read-only
+    # market endpoints, no credentials, no writes" -- but until SBC_Tool-z5u
+    # Flask's built-in static route served all of tools/, including
+    # trading_bramha.db with the digest's Gmail app password and the screener
+    # session cookie. The 2026-11-23 audit (docs/audit/) found that; the owner
+    # re-decided the trade-off: the default is loopback, and the LAN/PWA bind is
+    # opt-in. The cost is explicit: the installed phone PWA cannot reach a server
+    # started without --lan. Plain HTTP and no auth either way.
+    ap.add_argument("--host", default="127.0.0.1",
+                    help="bind address (default 127.0.0.1, this PC only)")
+    ap.add_argument("--lan", dest="host", action="store_const", const="0.0.0.0",
+                    help="bind all interfaces so the phone PWA can reach it "
+                         "(same as --host 0.0.0.0)")
+    return ap
+
+
+if __name__ == "__main__":
+    _args = build_arg_parser().parse_args()
     _hl_start()
     log.info("Chart server → http://localhost:%d  (bound %s)",
              _args.port, _args.host)

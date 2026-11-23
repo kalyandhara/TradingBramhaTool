@@ -144,14 +144,23 @@ def test_a_missing_page_yields_an_empty_list_not_an_exception(tmp_path, monkeypa
 # ── the bind (B-86) ──────────────────────────────────────────────────────────
 
 def test_the_bind_is_configurable_and_its_default_is_explained():
-    """bandit's B104 is ACCEPTED here, not fixed: the chart is a PWA with
-    installed clients, and a phone cannot reach 127.0.0.1. What the fix adds is a
-    `--host` flag and the reasoning, so the exposure is a decision on the record
-    rather than a default nobody chose."""
+    """The bind is a decision on the record: the reasoning sits above `--host`
+    and the parsed value is what `app.run` binds."""
     src = (HERE / "chart_server.py").read_text(encoding="utf-8")
     assert '"--host"' in src
     assert "host=_args.host" in src
     assert "PWA" in src.split('"--host"')[0][-1200:]
+
+
+def test_the_default_bind_is_loopback_and_lan_is_opt_in():
+    """SBC_Tool-z5u (2026-11-23): the default is loopback. The B-86 trade-off
+    was re-decided by the owner: a LAN bind is opt-in via `--lan` (or `--host`),
+    at the cost of the phone PWA unless the server is started that way."""
+    ap = cs.build_arg_parser()
+    assert ap.parse_args([]).host == "127.0.0.1"
+    assert ap.parse_args(["--lan"]).host == "0.0.0.0"
+    assert ap.parse_args(["--host", "192.168.1.5"]).host == "192.168.1.5"
+    assert ap.parse_args([]).port == 5001
 
 # ── /api/flag_pole (B-92 / PR-4) ─────────────────────────────────────────────
 #
