@@ -645,8 +645,27 @@ def render_html(today: date | None = None) -> str:
 # Send
 # ──────────────────────────────────────────────────────────────────────────────
 
-def send_digest(to_override: str | None = None, today: date | None = None) -> None:
+#: Setting holding the digest date last sent to the configured recipient.
+#: SBC_Tool-erv: two scheduled tasks once called this script (07:00 daily and
+#: 17:45 Mon-Fri) and nothing stopped a second send for the same date.
+SENT_FOR_KEY = "digest_sent_for"
+
+
+def send_digest(to_override: str | None = None, today: date | None = None,
+                force: bool = False) -> None:
+    """Send the digest for `today`, at most once per date.
+
+    A repeat for an already-sent date is skipped unless `force`. A run to an
+    override address (`--to`, a test mail) is never skipped and never recorded.
+    The date is recorded only after SMTP accepted the message, so a failed send
+    is retried by the next run.
+    """
     today = today or datetime.now(IST).date()
+    if (to_override is None and not force
+            and db.get_setting(SENT_FOR_KEY) == today.isoformat()):
+        print(f"##RESULT digest for {today} already sent; skipped "
+              "(--force to resend)")
+        return
     sender, pw, recipient = get_credentials()
     recipient = to_override or recipient
 
@@ -676,6 +695,8 @@ def send_digest(to_override: str | None = None, today: date | None = None) -> No
         smtp.login(sender, pw)
         smtp.sendmail(sender, [recipient], msg.as_bytes())
     print("Sent.")
+    if to_override is None:
+        db.set_setting(SENT_FOR_KEY, today.isoformat())
     print(f"##RESULT digest for {today} sent to {recipient}")
 
 
@@ -693,6 +714,8 @@ def main() -> None:
                     help="Interactively store Gmail credentials.")
     ap.add_argument("--date", metavar="YYYY-MM-DD",
                     help="Override date (default: today IST).")
+    ap.add_argument("--force", action="store_true",
+                    help="Send even if the digest for this date was already sent.")
     args = ap.parse_args()
 
     db.init_db()
@@ -712,7 +735,7 @@ def main() -> None:
         sys.stdout.flush()
         return
 
-    send_digest(to_override=args.to, today=today)
+    send_digest(to_override=args.to, today=today, force=args.force)
 
 
 if __name__ == "__main__":
