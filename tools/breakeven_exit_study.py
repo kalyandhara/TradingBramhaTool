@@ -55,7 +55,8 @@ from typing import Any
 import numpy as np
 import pandas as pd
 
-from backtest import run_backtest
+import backtest as bt
+import screener_pipeline as sp
 from opportunity_hub import MEASURED_EDGE_SCANNERS, nse_universe
 
 # ---------------------------------------------------------------------------
@@ -112,6 +113,17 @@ def _verdict(mean_dr: float, p: float, n_sym: int, n_trades: int) -> str:
 
 def run(keep_time_stop: bool = False, out: Path = OUT) -> dict[str, Any]:
     symbols = nse_universe("nifty500")[:N_SYMBOLS]
+
+    _cache: dict = {}
+
+    def fetch_fn(s):
+        if s not in _cache:
+            try:
+                _cache[s] = sp.fetch_ohlcv(s, days=DAYS)
+            except Exception:
+                _cache[s] = None
+        return _cache[s]
+
     results: dict[str, Any] = {
         "meta": {
             "study": "B-205",
@@ -130,30 +142,30 @@ def run(keep_time_stop: bool = False, out: Path = OUT) -> dict[str, Any]:
             arm_key = f"breakeven:{k:g}"
             label = f"{setup} | {arm_key}"
 
-            ctrl_runs = run_backtest(
-                setup,
-                symbols=symbols,
-                days=DAYS,
+            _common = dict(cost_model=bt.COST_INDIAN, signal_mode="fresh",
+                           fill_model="market", keep_trades=True)
+            ctrl_runs = bt.backtest_scanner(
+                setup, symbols, fetch_fn,
                 exit_model="fixed",
                 honor_time_stop=keep_time_stop,
-            )
-            be_runs = run_backtest(
-                setup,
-                symbols=symbols,
-                days=DAYS,
+                **_common,
+            ).get("trades", [])
+            be_runs = bt.backtest_scanner(
+                setup, symbols, fetch_fn,
                 exit_model=f"breakeven:{k}",
                 honor_time_stop=keep_time_stop,
-            )
+                **_common,
+            ).get("trades", [])
 
             ctrl_index: dict[tuple, float] = {}
             for rec in ctrl_runs:
-                ctrl_index[(rec["symbol"], rec["signal_bar"])] = rec["r"]
+                ctrl_index[(rec["symbol"], rec["t"])] = rec["r"]
 
             sym_dr: dict[str, list[float]] = defaultdict(list)
             paired = 0
             be_triggered = 0
             for rec in be_runs:
-                key = (rec["symbol"], rec["signal_bar"])
+                key = (rec["symbol"], rec["t"])
                 if key not in ctrl_index:
                     continue
                 dr = rec["r"] - ctrl_index[key]

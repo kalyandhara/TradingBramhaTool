@@ -55,7 +55,8 @@ from typing import Any
 
 import numpy as np
 
-from backtest import run_backtest, _pool_r_blocks
+import backtest as bt
+import screener_pipeline as sp
 from opportunity_hub import nse_universe
 from target_anchors import tag_target, AnchorTag
 
@@ -107,6 +108,23 @@ def _verdict(p: float, z: float, n: int, alpha: float) -> str:
 def run(out: Path = OUT) -> dict[str, Any]:
     symbols = nse_universe("nifty500")[:N_SYMBOLS]
 
+    # Shared OHLCV cache: backtest_scanner fills it, tagging step reuses it.
+    _cache: dict = {}
+
+    def fetch_fn(s):
+        if s not in _cache:
+            try:
+                raw = sp.fetch_ohlcv(s, days=DAYS)
+                if raw is not None and not raw.empty:
+                    import pandas as pd
+                    raw = raw.dropna(subset=["high", "low", "close", "volume"])
+                    _cache[s] = raw.reset_index(drop=True)
+                else:
+                    _cache[s] = None
+            except Exception:
+                _cache[s] = None
+        return _cache[s]
+
     # Collect all plan records with their anchor tags
     # tag_counts[setup][tag] -> {"target": int, "stop": int}
     tag_counts: dict[str, dict[AnchorTag, dict[str, int]]] = {}
@@ -114,22 +132,34 @@ def run(out: Path = OUT) -> dict[str, Any]:
     for setup in SETUPS:
         tag_counts[setup] = defaultdict(lambda: {"target": 0, "stop": 0})
 
-        records = run_backtest(
-            setup,
-            symbols=symbols,
-            days=DAYS,
+        result = bt.backtest_scanner(
+            setup, symbols, fetch_fn,
+            cost_model=bt.COST_INDIAN,
+            signal_mode="fresh",
+            fill_model="market",
             exit_model="fixed",
             honor_time_stop=True,
-            return_per_trade=True,   # need per-trade detail
+            keep_trades=True,
         )
+        records = result.get("trades", [])
 
         for rec in records:
             outcome = rec.get("outcome")
             if outcome not in ("target", "stop"):
                 continue
-            # tag_target needs the card dict and df; run_backtest returns
-            # target_anchor if the enrichment hook is wired, else fall back
-            tag = rec.get("target_anchor") or "NONE"
+            # Tag the target using the signal-bar slice from the cached df
+            sym = rec["symbol"]
+            t = rec["t"]
+            df_sym = _cache.get(sym)
+            if df_sym is not None and t < len(df_sym):
+                card = {
+                    "entry": rec["entry_px"],
+                    "stop": rec["stop"],
+                    "target": rec["target"],
+                }
+                tag = tag_target(card, df_sym.iloc[: t + 1], tolerance=TOLERANCE)
+            else:
+                tag = "NONE"
             if outcome == "target":
                 tag_counts[setup][tag]["target"] += 1
             else:
