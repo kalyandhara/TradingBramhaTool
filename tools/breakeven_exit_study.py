@@ -57,7 +57,8 @@ import pandas as pd
 
 import backtest as bt
 import screener_pipeline as sp
-from opportunity_hub import MEASURED_EDGE_SCANNERS, nse_universe
+import nse_universe as _nu
+from opportunity_hub import MEASURED_EDGE_SCANNERS
 
 # ---------------------------------------------------------------------------
 # Registration constants (never modify after first run)
@@ -112,7 +113,7 @@ def _verdict(mean_dr: float, p: float, n_sym: int, n_trades: int) -> str:
 # ---------------------------------------------------------------------------
 
 def run(keep_time_stop: bool = False, out: Path = OUT) -> dict[str, Any]:
-    symbols = nse_universe("nifty500")[:N_SYMBOLS]
+    symbols = list(_nu.symbols("nifty500"))[:N_SYMBOLS]
 
     _cache: dict = {}
 

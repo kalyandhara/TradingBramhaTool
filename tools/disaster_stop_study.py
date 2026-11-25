@@ -233,9 +233,9 @@ def main() -> int:
             print("ERROR: desk modules not available. "
                   "Run from the desk environment or provide --cache <path>.")
             return 1
-        from opportunity_hub import nse_universe as _nse_universe
+        import nse_universe as _nu
         symbols = (args.symbols or
-                   _nse_universe("nifty500")[:50])  # B-41p used 50 names
+                   list(_nu.symbols("nifty500"))[:50])  # B-41p used 50 names
         print(f"Collecting {len(symbols)} symbols…")
         df = collect(symbols)
         if df.empty:

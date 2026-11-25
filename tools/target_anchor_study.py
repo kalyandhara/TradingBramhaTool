@@ -57,7 +57,7 @@ import numpy as np
 
 import backtest as bt
 import screener_pipeline as sp
-from opportunity_hub import nse_universe
+import nse_universe as _nu
 from target_anchors import tag_target, AnchorTag
 
 SETUPS: tuple[str, ...] = ("Falling Wedge", "Harmonic Reversal (XABCD)")
@@ -106,7 +106,7 @@ def _verdict(p: float, z: float, n: int, alpha: float) -> str:
 # ---------------------------------------------------------------------------
 
 def run(out: Path = OUT) -> dict[str, Any]:
-    symbols = nse_universe("nifty500")[:N_SYMBOLS]
+    symbols = list(_nu.symbols("nifty500"))[:N_SYMBOLS]
 
     # Shared OHLCV cache: backtest_scanner fills it, tagging step reuses it.
     _cache: dict = {}

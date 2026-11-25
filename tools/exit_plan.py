@@ -91,8 +91,11 @@ _RULES: dict[str, ExitRule] = {
     # B-183i (BEATS, 2026-11-19): wider stop wick_low−1.5×ATR for Liquidity Sweep.
     # The shipped wick_low stop had 64.9% noise_stop_share and returned −0.06R
     # (B-41p NEGATIVE).  Widening to wick_low−1.5×ATR gives +0.126R (p=0.0008).
-    # B-205 (breakeven:k) and B-206 (disaster stop) are pre-registered pending —
-    # they may add a secondary rule once measured.
+    # B-205 (NULL, 2026-11-25): breakeven:k ratchet — no difference vs fixed on
+    # Liquidity Sweep or any other setup; ratchet not adopted.
+    # B-206 (BEATS, 2026-11-25): disaster stop floor compatible at all k=2/3/4×R;
+    # D2 mean +0.193R CI [+0.056, +0.355]. Position sizing remains primary control;
+    # an operator may add entry−2×shipped_risk as a circuit-breaker.
     "Liquidity Sweep": ExitRule(
         scanner="Liquidity Sweep",
         stop_formula="wick_low - 1.5 * ATR14",
@@ -120,10 +123,8 @@ _RULES: dict[str, ExitRule] = {
 
 # Pre-registered studies that could update specific scanners when they run.
 # Key = scanner name; value = list of UNRECORDED study items.
+# B-205 (NULL) and B-206 (BEATS) recorded 2026-11-25 — removed from pending.
 _PENDING: dict[str, list[str]] = {
-    "Liquidity Sweep": ["B-205", "B-206"],   # breakeven:k and disaster stop
-    "Falling Wedge":   ["B-205"],             # breakeven:k also covers FW
-    "Harmonic Reversal (XABCD)": ["B-205"],
 }
 
 # Trail arms: none beat fixed (B-124).  Explicitly excluded so callers

@@ -827,30 +827,37 @@ STUDIES: tuple[dict, ...] = (
         "item": "B-205", "tool": "breakeven_exit_study.py", "date": "2026-11-25",
         "source": "analyses/Open-Backlog",
         "subjects": ("breakeven:k exit arm",),
-        "verdict": "UNRECORDED",
-        "headline": ("pre-registered; LuxAlgo step 3: once price gains k×R from entry "
-                     "the stop ratchets to entry exactly once. Prior = no difference or "
-                     "worse. 6 comparisons (2 setups × 3 k values), alpha=0.05/6."),
+        "verdict": "NULL",
+        "headline": ("pre-registered; LuxAlgo step 3: 6 comparisons (2 setups × 3 k), "
+                     "Bonferroni alpha=0.0083. ALL NO DIFFERENCE: Falling Wedge "
+                     "breakeven:1 dR=−0.1084 p=0.0105, :1.5 dR=−0.0619 p=0.1185, "
+                     ":2 dR=−0.0582 p=0.1216; Harmonic :1 dR=−0.0108 p=0.5417, "
+                     ":1.5 dR=+0.0184 p=0.2951, :2 dR=+0.0225 p=0.1916. "
+                     "Ratchet neither improves nor degrades outcomes; prior 'no difference' confirmed."),
     },
     {
         "item": "B-206", "tool": "disaster_stop_study.py", "date": "2026-11-25",
         "source": "analyses/Open-Backlog",
         "subjects": ("disaster stop on Liquidity Sweep arm C",),
-        "verdict": "UNRECORDED",
-        "headline": ("pre-registered; LuxAlgo step 5: does adding a hard floor at "
-                     "entry−k×R preserve arm C's +0.50R mean? 3 arms (D2/D3/D4), "
-                     "bootstrap CI, B-41p cache. Prior = D2 fails, D3/D4 preserve."),
+        "verdict": "BEATS",
+        "headline": ("pre-registered; LuxAlgo step 5: all 3 floors preserve arm C's edge — "
+                     "D2 mean +0.193R CI [+0.056, +0.355] vs C +0.209R, D3 +0.200R CI "
+                     "[+0.058, +0.353], D4 +0.208R CI [+0.068, +0.363]. All within 0.10R "
+                     "of C with CI excluding 0. Prior said D2 fails; D2 passes. "
+                     "A floor at 2× shipped_risk is compatible with the LS arm C edge."),
     },
     {
         "item": "B-207", "tool": "target_anchor_study.py", "date": "2026-11-25",
         "source": "analyses/Open-Backlog",
         "subjects": ("target-anchor type vs reach rate",),
-        "verdict": "UNRECORDED",
-        "headline": ("pre-registered; LuxAlgo step 6: does the structural anchor "
-                     "type of a plan's target (SD_1R/2R/3R, prior D/W/M "
-                     "high/low) predict whether the target is reached? "
-                     "Two-proportion z-test per tag, Bonferroni. "
-                     "Prior = no meaningful difference across tag types."),
+        "verdict": "MIXED",
+        "headline": ("pre-registered; LuxAlgo step 6: 2 setups × Bonferroni z-test. "
+                     "FW SD_1R TAG PREDICTIVE n=74 rate=59.5% vs base=42.6%; "
+                     "Harmonic DAY_HIGH TAG PREDICTIVE n=236 rate=72.0% vs base=60.8%; "
+                     "Harmonic SD_2R TAG DESTRUCTIVE n=48 rate=25.0% vs base=60.8%. "
+                     "Prior 'no difference' wrong — SD_1R and DAY_HIGH targets reach "
+                     "more often; SD_2R (2× move target on Harmonic) rarely reached. "
+                     "Licenses noting tag type in plan scoreboard."),
     },
 )
 
