@@ -4576,7 +4576,11 @@ function renderIndicatorLegend(pane) {
       `${shortIndicatorLabel(i.label)}</span>`).join('')
     + (rest > 0 ? `<span class="leg leg-more" title="${
         on.slice(LEGEND_MAX_CHIPS).map(i => i.label).join(' · ')
-      }">+${rest}</span>` : '');
+      }">+${rest}</span>` : '')
+    // B-91: VWAP selected but drew nothing — say why.
+    + (pane.indicators.has('vwap') && pane.vwapNote
+        ? `<span class="leg-more" style="color:#f0883e" title="${pane.vwapNote}">⚠ VWAP: ${pane.vwapNote}</span>`
+        : '');
 }
 
 function applyIndicators(pane) {
@@ -4898,7 +4902,19 @@ function applyIndicators(pane) {
       case 'ema20':  s.setData(emaSeries(bars, 20));  break;
       case 'ema50':  s.setData(emaSeries(bars, 50));  break;
       case 'ema200': s.setData(emaSeries(bars, 200)); break;
-      case 'vwap':   s.setData(vwapSeries(bars, pane.tf)); break;
+      case 'vwap': {
+        const vd = vwapSeries(bars, pane.tf);
+        s.setData(vd);
+        // B-91: absent renders absent, but absence has a cause the reader cannot see.
+        if (!vd.length) {
+          pane.vwapNote = !INTRADAY_TFS.has(pane.tf)
+            ? 'Session VWAP undefined on daily bars — use Anchored VWAP'
+            : 'No traded volume on this feed (index spot — use the futures chart)';
+        } else {
+          pane.vwapNote = null;
+        }
+        break;
+      }
       case 'volume': s.setData(volumeBarSeries(bars)); break;
       case 'simplevol': {
         const rows = classifySimpleVolume(bars);

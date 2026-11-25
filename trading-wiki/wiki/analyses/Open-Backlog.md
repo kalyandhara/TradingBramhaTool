@@ -7090,7 +7090,7 @@ Baseline matters more than hit rate here — "price below both averages" selects
 downtrends, so it will look right in any falling window without carrying
 information. **Frame it as an EXIT/AVOID rule for a cash book**, not an entry.
 
-### B-91 · VWAP draws nothing on index spot and does not say why — **P3, small**
+### B-91 · VWAP draws nothing on index spot and does not say why — **BUILT 2026-11-25**
 
 The behaviour is correct and the label is half-right. `VWAP (session · intraday
 only)` warns about the **timeframe** and says nothing about **volume**, so on
