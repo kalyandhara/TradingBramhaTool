@@ -1087,7 +1087,7 @@ def _symbol_jump_from_box() -> None:
 PAGE_GROUPS = {
     "Screening":        ["Opportunity Hub", "Delete Funnel", "Hidden Treasures", "Screener", "Other Screeners", "Scanner Hub",
                          "Breakout Scans", "High-Growth Screener", "SVP Structure"],
-    "Market Intel":     ["Market Sentiment", "India Market Intel", "OI Momentum"],
+    "Market Intel":     ["Market Health", "Market Sentiment", "India Market Intel", "OI Momentum"],
     "Research":         ["Stock Analyzer", "Sector wise Navigation", "Strategy Hub", "Sector Map", "Astro Timing", "Telegram Signals", "Glossary"],
     "Portfolio & Risk": ["Portfolio", "Watchlist", "Alerts", "Recommendation Audit"],
     "Ops":              ["Pipeline Log", "Scheduler Hub"],
@@ -1115,6 +1115,7 @@ PAGE_BLURBS = {
     "Market Sentiment":     "SCAN · market · 0–100 composite regime gauge, with coverage",
     "India Market Intel":   "SCAN · market · Bulk & block deals, insider trades, gap scanner",
     "OI Momentum":          "SCAN · market · Open-interest build-up and unwinding",
+    "Market Health":        "CONTEXT · Breadth under the 200 EMA per index + a weighted health score (unmeasured priors)",
     "Glossary":             "REFERENCE · Plain-English guide to every term, in learning order",
     "Stock Analyzer":       "RESEARCH · Full fundamental + technical deep dive",
     "Sector Map":           "SCAN · sectors · Relative Rotation Graph and sector orbit",

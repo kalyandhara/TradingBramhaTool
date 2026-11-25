@@ -67,6 +67,7 @@ PAGES: dict[str, str] = {
     "Sector wise Navigation": "sector_lobby",
     "Glossary": "glossary",
     "Recommendation Audit": "rec_audit_page",
+    "Market Health": "market_health_page",
 }
 
 

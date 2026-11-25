@@ -151,4 +151,16 @@ def test_every_job_targets_its_own_task_name_and_an_existing_bat():
         argv = sch.register_argv(job)
         assert _flag(argv, "/tn") == job.task_name, jid
         # daily_scanner's bat is owned by the Scanner Hub, not generated here.
-        assert str(_flag(argv, "/tr")).endswith(".bat"), jid
+        assert str(_flag(argv, "/tr")).endswith('.bat"'), jid
+
+
+def test_tasks_run_headless():
+    """2026-11-23: every run of an Interactive task that starts a .bat opened a
+    visible cmd window (AlertWatcher every 15 min, FilingsWatch every 30). The
+    task action goes through `conhost.exe --headless`, so no window appears.
+    conhost always exits 0, so Task Scheduler's Last Result stops reflecting
+    the job; job_runs (job_audit) holds the real outcome."""
+    for jid, job in sch.JOBS.items():
+        tr = str(_flag(sch.register_argv(job), "/tr"))
+        assert tr.startswith('"C:\\Windows\\System32\\conhost.exe" --headless "'), jid
+        assert len(tr) < 262, jid          # schtasks /tr limit

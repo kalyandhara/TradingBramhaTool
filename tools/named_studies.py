@@ -53,7 +53,15 @@ HERE = pathlib.Path(__file__).resolve().parent
 #:                   write-up. That is the same disease as a stale claim seen from
 #:                   the other side -- a measurement that left no trace -- and it is
 #:                   better surfaced as a labelled state than hidden by a guess.
-VERDICTS = ("POSITIVE", "NEGATIVE", "NULL", "INCONCLUSIVE", "MIXED", "UNRECORDED")
+VERDICTS = (
+    "POSITIVE", "NEGATIVE", "NULL", "INCONCLUSIVE", "MIXED", "UNRECORDED",
+    # Plan-odds family (B-183 series): these are plan-geometry outcomes, not
+    # signal-edge verdicts; they describe the shape of the plan, not the signal.
+    "GEOMETRY_DEFECT",  # stop / R:R geometry is structurally invalid
+    "BEATS",            # plan beats its own baseline significantly
+    "BELOW",            # plan falls below baseline significantly
+    "AT BASELINE",      # plan sits at baseline — no edge, no defect
+)
 
 #: item     — the backlog anchor (B-xx), the authoritative write-up
 #: tool     — the bespoke study file, or None when it ran through the shared harness
@@ -804,6 +812,16 @@ STUDIES: tuple[dict, ...] = (
         "headline": ("pre-registered, 258 names: two-candle failed breakdown +0.17% @20d "
                      "(p 0.32, 3,674); equal-lows pool +0.46% (p 0.15, 1,468); neither "
                      "window-stable. Same-panel one-candle sweep +2.43% @60d (p 0.003)."),
+    },
+    {
+        "item": "B-204", "tool": "cycle_window_study.py", "date": "2026-11-21",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("cycle trough window hit rate",),
+        "verdict": "NULL",
+        "headline": ("pre-registered; 56,632 events, 458 symbols, daily: hit rate 55.8% "
+                     "vs baseline 55.3%, +0.50 pts, CI [+0.23, +0.80]. Passes the "
+                     "pre-registered rule but the edge is too small to use as a signal. "
+                     "Cycle length measured was ~7 daily bars, not the 55-day reference."),
     },
 )
 

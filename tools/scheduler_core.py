@@ -38,6 +38,7 @@ LOG_DIR = HERE / "logs"
 
 # Match the interpreter the existing daily-scanner task uses.
 PYTHON_EXE = r"C:\Users\Owner\AppData\Local\Python\pythoncore-3.14-64\python.exe"
+CONHOST = r"C:\Windows\System32\conhost.exe"   # runs task .bat files windowless
 
 
 def _node_exe() -> str:
@@ -340,7 +341,12 @@ def register_argv(job: JobSpec, *, time: str | None = None,
     must show it.
     """
     bat = _scanner_bat() if job.id == "daily_scanner" else job.bat_path
-    argv = ["schtasks", "/create", "/f", "/tn", job.task_name, "/tr", str(bat)]
+    # Headless (2026-11-23): an Interactive task that starts a .bat opens a
+    # visible cmd window on every run -- AlertWatcher popped one every 15 min.
+    # conhost --headless runs it with no window. conhost always exits 0, so the
+    # task's Last Result no longer reflects the job; job_runs does.
+    tr = f'"{CONHOST}" --headless "{bat}"'
+    argv = ["schtasks", "/create", "/f", "/tn", job.task_name, "/tr", tr]
     if job.kind == "interval":
         st = time or job.default_time
         et = end or job.default_end

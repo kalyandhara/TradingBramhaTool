@@ -366,8 +366,9 @@ def test_the_registry_counts_parse_without_importing_the_modules():
     assert cl._count_symbol("dashboard_app.py", "PAGE_GROUPS", "dict_keys") == 5
     # 25 -> 26 on 2026-10-22 (A2 added Recommendation Audit under Portfolio & Risk).
     # 26 -> 25 on 2026-10-25 (f39c0c4 merged Predictive Analysis into Stock Analyzer).
+    # 25 -> 26 on 2026-11-22 (Market Health added under Market Intel).
     assert cl._count_symbol("dashboard_app.py", "PAGE_GROUPS",
-                            "sum_of_list_values") == 25
+                            "sum_of_list_values") == 26
 
 
 def test_a_missing_registry_file_is_silent_not_an_error(tmp_path, monkeypatch):
