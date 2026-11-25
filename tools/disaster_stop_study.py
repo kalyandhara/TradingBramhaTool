@@ -58,6 +58,7 @@ leaving day-to-day drawdown management to position sizing.
 from __future__ import annotations
 
 import argparse
+import ast
 import sys
 from pathlib import Path
 
@@ -220,7 +221,7 @@ def main() -> int:
     if not args.refresh and cache.exists():
         print(f"Loading cached trades from {cache}")
         try:
-            df = pd.read_csv(cache, converters={"hi": eval, "lo": eval})
+            df = pd.read_csv(cache, converters={"hi": ast.literal_eval, "lo": ast.literal_eval})
         except Exception as e:
             print(f"Cache read error: {e}; re-collecting")
             df = None
