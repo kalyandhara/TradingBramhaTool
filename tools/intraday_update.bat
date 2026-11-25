@@ -13,23 +13,23 @@
 ::      hermes-agent\venv, which has no pandas and would fail every run. The
 ::      full path below is the same interpreter .claude/launch.json uses for the
 ::      dashboard. See wiki/analyses/Python-Environments.md.
-::   2. A LOG. A scheduled task that silently stops working is the exact
-::      failure mode this repo keeps being bitten by (frozen Yahoo feeds). Every
-::      run appends a timestamped block, so `coverage` disagreeing with the log
-::      is diagnosable rather than mysterious.
+::   2. A LOG + JOB_AUDIT. Run history is recorded in trading_bramha.db so the
+::      Scheduler Hub can show it. A day that silently fails is a day of
+::      fine-grained data that can never be recovered; job_audit makes failures
+::      visible. (F-13 audit finding 2026-11-23.)
 :: ---------------------------------------------------------------------------
 
 set PYTHON=C:\Users\Owner\AppData\Local\Python\pythoncore-3.14-64\python.exe
-set REPO=%~dp0..
-set LOG=%~dp0intraday_update.log
-
+set REPO=C:\Users\Owner\OneDrive\Documents\Trading\Trading_Bramha\Trading_Bramha
+set LOG=%REPO%\tools\logs\intraday_update.log
+set PYTHONIOENCODING=utf-8
 cd /d "%REPO%"
 
 echo. >> "%LOG%"
-echo ===== %DATE% %TIME% (local) — intraday update starting ===== >> "%LOG%"
-"%PYTHON%" "%~dp0intraday_store.py" update >> "%LOG%" 2>&1
+echo ===== %DATE% %TIME% -- intraday_update starting ===== >> "%LOG%"
+"%PYTHON%" "%REPO%\tools\job_audit.py" run intraday_update -- "%PYTHON%" "%REPO%\tools\intraday_store.py" update >> "%LOG%" 2>&1
 if errorlevel 1 (
-    echo ***** FAILED with errorlevel %errorlevel% ***** >> "%LOG%"
+    echo ***** FAILED at %DATE% %TIME% ***** >> "%LOG%"
 ) else (
-    echo ----- ok ----- >> "%LOG%"
+    echo ----- ok at %DATE% %TIME% ----- >> "%LOG%"
 )
