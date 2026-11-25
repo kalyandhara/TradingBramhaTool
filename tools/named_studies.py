@@ -841,6 +841,17 @@ STUDIES: tuple[dict, ...] = (
                      "entry−k×R preserve arm C's +0.50R mean? 3 arms (D2/D3/D4), "
                      "bootstrap CI, B-41p cache. Prior = D2 fails, D3/D4 preserve."),
     },
+    {
+        "item": "B-207", "tool": "target_anchor_study.py", "date": "2026-11-25",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("target-anchor type vs reach rate",),
+        "verdict": "UNRECORDED",
+        "headline": ("pre-registered; LuxAlgo step 6: does the structural anchor "
+                     "type of a plan's target (SD_1R/2R/3R, prior D/W/M "
+                     "high/low) predict whether the target is reached? "
+                     "Two-proportion z-test per tag, Bonferroni. "
+                     "Prior = no meaningful difference across tag types."),
+    },
 )
 
 
