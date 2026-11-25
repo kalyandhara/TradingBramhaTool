@@ -823,6 +823,15 @@ STUDIES: tuple[dict, ...] = (
                      "pre-registered rule but the edge is too small to use as a signal. "
                      "Cycle length measured was ~7 daily bars, not the 55-day reference."),
     },
+    {
+        "item": "B-205", "tool": "breakeven_exit_study.py", "date": "2026-11-25",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("breakeven:k exit arm",),
+        "verdict": "UNRECORDED",
+        "headline": ("pre-registered; LuxAlgo step 3: once price gains k×R from entry "
+                     "the stop ratchets to entry exactly once. Prior = no difference or "
+                     "worse. 6 comparisons (2 setups × 3 k values), alpha=0.05/6."),
+    },
 )
 
 

@@ -149,8 +149,8 @@ def _to_float(x) -> float | None:
 #: MOVE the stop, which the harness could not express before -- every trailing
 #: stop on the chart (PMax, SuperTrend AI, PSAR) had never been measured as an
 #: exit by this harness.
-EXIT_MODELS = ("fixed", "atr_trail", "ema_close", "structure")
-_EXIT_DEFAULTS = {"atr_trail": 3.0, "ema_close": 20, "structure": 5}
+EXIT_MODELS = ("fixed", "atr_trail", "ema_close", "structure", "breakeven")
+_EXIT_DEFAULTS = {"atr_trail": 3.0, "ema_close": 20, "structure": 5, "breakeven": 1.0}
 
 
 def parse_exit_model(spec: str | None) -> tuple[str, float | None]:
@@ -327,7 +327,9 @@ def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
     ``exit_model`` (B-123) -- ``fixed`` (default, unchanged), ``atr_trail:k``
     (Chandelier: extreme since entry - k*ATR22), ``ema_close:n`` (close through
     EMA n), ``structure:p`` (close through the latest CONFIRMED swing low/high,
-    pivot length p -- the CHoCH that ends a long). Rules every moving model obeys:
+    pivot length p -- the CHoCH that ends a long), ``breakeven:k`` (B-205: once
+    price gains k×R from entry, the stop ratchets to entry exactly once; target
+    stays active, unlike the other trail models). Rules every moving model obeys:
 
     * **The initial stop still defines R and still fires intraday.** A trail can
       only TIGHTEN from it, never loosen -- ratchet-only.
@@ -382,6 +384,35 @@ def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
         timed_out = time_stop is not None and (end - entry_idx) >= horizon
         return {"outcome": "time" if timed_out else "open",
                 "r": _r(float(close[end])), "bars": end - entry_idx}
+
+    if model == "breakeven":
+        # B-205: one-time ratchet — once price reaches entry + param×risk the
+        # stop moves to entry and stays there. Target stays active throughout.
+        # Conservative tie-break: stop-first on a bar that spans both levels.
+        be_trigger = entry + param * risk if not short else entry - param * risk
+        live_be = stop
+        be_done = False
+        tag_be = f"breakeven:{param:g}"
+        for i in range(entry_idx, end + 1):
+            # Ratchet stop to breakeven on the first bar that reaches the trigger.
+            if not be_done:
+                extreme_ok = (high[i] >= be_trigger) if not short else (low[i] <= be_trigger)
+                if extreme_ok:
+                    be_done = True
+                    live_be = max(live_be, entry) if not short else min(live_be, entry)
+            # Resting stop (intraday), at whatever level it has ratcheted to.
+            if (high[i] >= live_be) if short else (low[i] <= live_be):
+                lbl = "trail" if be_done and live_be != stop else "stop"
+                return {"outcome": lbl, "r": _r(live_be), "bars": i - entry_idx,
+                        "exit_model": tag_be, "target_used": True}
+            # Target.
+            if (low[i] <= target) if short else (high[i] >= target):
+                return {"outcome": "target", "r": _r(target), "bars": i - entry_idx,
+                        "exit_model": tag_be, "target_used": True}
+        timed_out = time_stop is not None and (end - entry_idx) >= horizon
+        return {"outcome": "time" if timed_out else "open",
+                "r": _r(float(close[end])), "bars": end - entry_idx,
+                "exit_model": tag_be, "target_used": True}
 
     ser = _exit_series(df, model, param)
     tag = f"{model}:{param:g}"
