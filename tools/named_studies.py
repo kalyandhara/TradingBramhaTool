@@ -832,6 +832,15 @@ STUDIES: tuple[dict, ...] = (
                      "the stop ratchets to entry exactly once. Prior = no difference or "
                      "worse. 6 comparisons (2 setups × 3 k values), alpha=0.05/6."),
     },
+    {
+        "item": "B-206", "tool": "disaster_stop_study.py", "date": "2026-11-25",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("disaster stop on Liquidity Sweep arm C",),
+        "verdict": "UNRECORDED",
+        "headline": ("pre-registered; LuxAlgo step 5: does adding a hard floor at "
+                     "entry−k×R preserve arm C's +0.50R mean? 3 arms (D2/D3/D4), "
+                     "bootstrap CI, B-41p cache. Prior = D2 fails, D3/D4 preserve."),
+    },
 )
 
 
