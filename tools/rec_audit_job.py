@@ -191,6 +191,16 @@ def load_bars(conn, symbols: list[str]) -> dict[str, pd.DataFrame]:
     return out
 
 
+def bars_for(symbols: list[str], db_path: Path | str = DB_PATH) -> dict[str, pd.DataFrame]:
+    """Cached daily bars for `symbols` (Pick replay). Never fetches; a symbol
+    with no stored bars is simply absent from the result."""
+    conn = connect(db_path)
+    try:
+        return load_bars(conn, symbols)
+    finally:
+        conn.close()
+
+
 # ── Run ──────────────────────────────────────────────────────────────────────
 #: A3: three sources, audited separately and never mixed. Hidden Treasures is a
 #: quarterly ownership screen, so it is judged on quarterly horizons.
