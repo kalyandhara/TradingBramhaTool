@@ -1,5 +1,5 @@
 {
- "generated": "2026-10-26",
+ "generated": "2026-11-26",
  "thumbs": {
   "adxdi": {
    "file": "adxdi.0c5d31ce07.webp",
@@ -35,6 +35,11 @@
    "file": "cpr.3f56ebb937.webp",
    "chart": "RELIANCE.NS · 1d · 6M",
    "bytes": 9220
+  },
+  "cyclewin": {
+   "file": "cyclewin.482b0044c6.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9588
   },
   "deltaprofile": {
    "file": "deltaprofile.79b910c6db.webp",
@@ -91,6 +96,11 @@
    "chart": "RELIANCE.NS · 1d · 6M",
    "bytes": 8348
   },
+  "failbreak": {
+   "file": "failbreak.5655d7f1f3.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 8290
+  },
   "falling_wedge": {
    "file": "falling_wedge.f02a72818c.webp",
    "chart": "RELIANCE.NS · 1d · 6M",
@@ -105,6 +115,21 @@
    "file": null,
    "chart": "RELIANCE.NS · 1d · 6M",
    "reason": "nothing drawn on the reference chart"
+  },
+  "fld20": {
+   "file": "fld20.24c392510c.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 11408
+  },
+  "fld40": {
+   "file": "fld40.14d6c9f6cc.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 9852
+  },
+  "fld80": {
+   "file": "fld80.0d6ffeb431.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 10230
   },
   "fvg": {
    "file": "fvg.06706cb346.webp",
@@ -275,6 +300,11 @@
    "file": "svp.1c99501547.webp",
    "chart": "RELIANCE.NS · 1h · 6M",
    "bytes": 7492
+  },
+  "swingbox": {
+   "file": "swingbox.c3e568fcda.webp",
+   "chart": "RELIANCE.NS · 1d · 6M",
+   "bytes": 7416
   },
   "tpo": {
    "file": "tpo.ffab9b061b.webp",

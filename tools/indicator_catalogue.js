@@ -340,5 +340,69 @@ window.INDICATOR_INFO = /*JSON-BEGIN*/{
     "short": "Marks results, material filings, Budget/RBI days and volume anomalies on the chart.",
     "desc": "Puts a letter on each event day: E for a results date, N for a material NSE filing, M for a Union Budget or RBI policy day, and a lightning bolt for a day with at least three times normal volume and an unusually large move. Press [ and ] to step between events; a card shows the day's move and the move five sessions later. Each card also says what is known about that kind of event: Budget days are measured to re-sort sectors and RBI days measured as ordinary, while the other kinds are untested ideas. Daily charts only.",
     "level": "Beginner", "goals": [], "added": "2026-10-28", "concept": null
+  },
+  "fld20": {
+      "short": "Hurst FLD: price shifted forward half a 20-bar cycle, a drawn projection line.",
+      "desc": "Draws the closing price shifted forward by half of a 20-bar cycle, so its last 10 points fall on future bars as a dashed line. Price crossing the line is the classic Hurst cue that the cycle has turned, and the dashed tail shows where that crossing could come. It is a drawing aid, not a forecast: the cycle length is assumed, not measured on this chart.",
+      "level": "Advanced",
+      "goals": [
+          "target",
+          "trend"
+      ],
+      "added": "2026-11-21",
+      "concept": null
+  },
+  "fld40": {
+      "short": "Hurst FLD: price shifted forward half a 40-bar cycle, a drawn projection line.",
+      "desc": "Draws the closing price shifted forward by half of a 40-bar cycle, so its last 20 points fall on future bars as a dashed line. Price crossing the line is the classic Hurst cue that the cycle has turned, and the dashed tail shows where that crossing could come. It is a drawing aid, not a forecast: the cycle length is assumed, not measured on this chart.",
+      "level": "Advanced",
+      "goals": [
+          "target",
+          "trend"
+      ],
+      "added": "2026-11-21",
+      "concept": null
+  },
+  "fld80": {
+      "short": "Hurst FLD: price shifted forward half a 80-bar cycle, a drawn projection line.",
+      "desc": "Draws the closing price shifted forward by half of a 80-bar cycle, so its last 40 points fall on future bars as a dashed line. Price crossing the line is the classic Hurst cue that the cycle has turned, and the dashed tail shows where that crossing could come. It is a drawing aid, not a forecast: the cycle length is assumed, not measured on this chart.",
+      "level": "Advanced",
+      "goals": [
+          "target",
+          "trend"
+      ],
+      "added": "2026-11-21",
+      "concept": null
+  },
+  "swingbox": {
+      "short": "Copies the last trough-to-peak swing forward from the latest low, as a box.",
+      "desc": "Takes the swing from the previous confirmed low to the highest high before the latest low, and copies its length in bars and its rise onto the latest low as a shaded box. The box top is labelled as a target: where price would reach if the new swing matched the last one. Swings rarely repeat exactly, so treat it as a measured-move sketch.",
+      "level": "Intermediate",
+      "goals": [
+          "target"
+      ],
+      "added": "2026-11-21",
+      "concept": null
+  },
+  "cyclewin": {
+      "short": "Measures the spacing of recent troughs and shades the window for the next low.",
+      "desc": "Measures the median number of bars between confirmed swing lows, with the middle half of those spacings as a range. From the latest low it shades the window where the next trough would fall if that spacing holds, marks the half-cycle point, and flags the cycle as overdue once the window has passed. The caption shows how many troughs the measurement rests on; few troughs means a loose estimate.",
+      "level": "Advanced",
+      "goals": [
+          "target"
+      ],
+      "added": "2026-11-21",
+      "concept": null
+  },
+  "failbreak": {
+      "short": "Marks supports that broke for a bar or two and were reclaimed: a stop run.",
+      "desc": "Puts a green marker under the bar that closed back above a support after price briefly broke below it. An arrow labelled STOP RUN means the support was a pool of equal lows, where many stops sit; a dot is a plain reclaimed breakdown. The support line shows only while the setup is fresh. A close back below the support cancels the setup.",
+      "level": "Intermediate",
+      "goals": [
+          "levels",
+          "stop"
+      ],
+      "added": "2026-11-03",
+      "concept": "concepts/Support-Resistance.md"
   }
 }/*JSON-END*/;
