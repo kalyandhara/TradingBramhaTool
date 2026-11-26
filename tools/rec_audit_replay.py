@@ -137,8 +137,12 @@ def replay_frame(ep, bars: pd.DataFrame | None, idx_bars: pd.DataFrame | None,
     if idx_bars is not None and not idx_bars.empty:
         s = idx_bars["close"].astype(float).sort_index()
         s = s.reindex(s.index.union(post.index)).ffill().reindex(post.index)
-        if not s.isna().any() and s.iloc[0] > 0:
-            out["bench"] = s / s.iloc[0] * entry_px
+        # The audit's excess is measured from the index's entry-day OPEN
+        # (rec_audit._window_ret); start the line there so chart and number agree.
+        base = (_num(idx_bars["open"].get(post.index[0])) if "open" in idx_bars else None) \
+            or _num(s.iloc[0])
+        if not s.isna().any() and base and base > 0:
+            out["bench"] = s / base * entry_px
     return out
 
 
@@ -171,7 +175,10 @@ def footer_line(ep, f: dict) -> str:
         px = _num(ep.get("close"))
         if px is None and not f["pre"].empty:
             px = float(f["pre"]["close"].iloc[-1])
-        return f"Picked at {_rs(px)} · not entered yet" if px is not None else "Not entered yet"
+        status = _text(ep.get("status"))
+        tail = ("not entered yet" if status in ("", "pending")
+                else f"no usable session since the pick ({status})")
+        return f"Picked at {_rs(px)} · {tail}" if px is not None else tail[0].upper() + tail[1:]
     e, last = f["levels"]["entry_px"], f["last_px"]
     return f"{_rs(e)} → {_rs(last)} ({_pc(last / e * 100 - 100)}) · {_plan_text(ep, f)}"
 
@@ -215,7 +222,9 @@ def replay_candidates(eps: pd.DataFrame, kind: str, tag: str | None, h: int) -> 
         d = eps.sort_values("rec_date", ascending=False)
     if tag and "review_tag" in d:
         d = d[d["review_tag"] == tag]
-    return d
+    # Keyed by episode_id so a picker's stored choice means the same pick after a
+    # source switch or an audit re-run (row positions shift; ids do not).
+    return d.set_index("episode_id", drop=False) if "episode_id" in d else d
 
 
 def _candles(d: pd.DataFrame, name: str, opacity: float = 1.0):

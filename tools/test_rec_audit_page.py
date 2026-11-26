@@ -93,3 +93,13 @@ def test_pick_replay_tab_registered():
     fn = next(n for n in ast.walk(tree)
               if isinstance(n, ast.FunctionDef) and n.name == "_replay_dialog")
     assert any("dialog" in ast.unparse(d) for d in fn.decorator_list)
+
+
+def test_replay_pick_survives_source_switch_and_rerun():
+    src = (HERE / "desk_pages" / "rec_audit_page.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "_replay_tab")
+    assert "src" in [a.arg for a in fn.args.args]           # the pick key carries the source
+    assert "{src}" in ast.unparse(fn) and "ra_rp_pick_" in ast.unparse(fn)
+    assert "_replay_bars.clear()" in src                     # a re-run drops cached bars

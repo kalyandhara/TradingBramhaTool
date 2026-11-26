@@ -117,6 +117,7 @@ def render() -> None:
                 any_rep = next(iter(reps.values()))
                 job.write_monthly_report(reps, pd.Timestamp(any_rep["episodes_df"]["as_of"]
                                                             .iloc[0]).date())
+                _replay_bars.clear()        # the re-run may have stored new bars
                 st.toast("Audit refreshed.")
             except Exception as e:
                 st.error(f"Audit failed: {type(e).__name__}: {e}")
@@ -139,7 +140,7 @@ def render() -> None:
     with tabs[2]:
         _postmortems(eps, head)
     with tabs[3]:
-        _replay_tab(eps, head)
+        _replay_tab(eps, head, src)
     with tabs[4]:
         _all_picks(eps, h)
     with tabs[5]:
@@ -288,7 +289,7 @@ def _replay_bars(symbol: str) -> tuple[pd.DataFrame | None, pd.DataFrame | None]
     return got.get(symbol), got.get(job.MARKET)
 
 
-def _replay_tab(eps: pd.DataFrame, h: int) -> None:
+def _replay_tab(eps: pd.DataFrame, h: int, src: str) -> None:
     st.caption("One pick at a time: the chart as the desk saw it on the pick day, beside "
                f"everything since. Winners beat NIFTY 500 by ≥ {rp.WIN_EXCESS_PCT:g}% at "
                f"{h} sessions; losers are the post-mortem failures.")
@@ -306,7 +307,7 @@ def _replay_tab(eps: pd.DataFrame, h: int) -> None:
     if cands.empty:
         st.info("No picks match this filter.")
         return
-    i = st.selectbox("Pick", list(cands.index), key=f"ra_rp_pick_{kind}_{tag}",
+    i = st.selectbox("Pick", list(cands.index), key=f"ra_rp_pick_{src}_{kind}_{tag}",
                      format_func=lambda j: rp.replay_label(cands.loc[j], h))
     _replay_view(cands.loc[i], h, "tab")
 

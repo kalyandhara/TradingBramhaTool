@@ -238,3 +238,27 @@ def test_pending_note_uses_paper_coords():
     fig = rp.replay_figure(rp.replay_frame(ep, b, None), ep)
     note = next(a for a in fig.layout.annotations if "not entered yet" in (a.text or ""))
     assert (note.xref, note.yref) == ("paper", "paper")
+
+
+# ── Final-review fixes ───────────────────────────────────────────────────────
+def test_empty_post_that_is_not_pending_says_so():
+    b = _bars()
+    b = b[b.index <= pd.Timestamp(REC)]
+    ep = _ep(status="no_data", plan_outcome=None)
+    s = rp.footer_line(ep, rp.replay_frame(ep, b, None))
+    assert "not entered yet" not in s and "no usable session since the pick" in s
+
+
+def test_bench_rebases_on_index_open_like_the_audit():
+    # excess_h is measured from the index's entry-day OPEN (_window_ret), so the
+    # drawn NIFTY line must start from that open too, not the close.
+    idx = _bars(px=1000.0, step=2.0)
+    f = _frame(idx=idx)
+    d0 = f["post"].index[0]
+    o0, c0 = idx.at[d0, "open"], idx.at[d0, "close"]
+    assert f["bench"].iloc[0] == pytest.approx(f["levels"]["entry_px"] * c0 / o0)
+
+
+def test_candidates_are_keyed_by_episode_id():
+    c = _cands().assign(episode_id=[f"ep{i}" for i in range(5)])
+    assert list(rp.replay_candidates(c, "losers", None, 21).index) == ["ep0", "ep1"]
