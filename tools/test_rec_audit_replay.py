@@ -182,3 +182,33 @@ def test_label():
     assert rp.replay_label(r, 21) == "X · picked 2026-10-16 · 21d -25.4%"
     r = pd.Series({"symbol": "X", "rec_date": "2026-11-24 00:00:00", "ret_21": float("nan")})
     assert rp.replay_label(r, 21) == "X · picked 2026-11-24 · pending"
+
+
+# ── Task 2: the figure ───────────────────────────────────────────────────────
+def _names(fig) -> set[str]:
+    return {t.name for t in fig.data if t.name}
+
+
+def test_figure_no_leak():
+    ep = _ep()
+    fig = rp.replay_figure(_frame(ep, idx=_bars(px=1000.0)), ep)
+    left = [t for t in fig.data if t.xaxis in ("x", "x3") and t.x is not None and len(t.x)]
+    assert left, "pick-day column has no traces"
+    for t in left:
+        assert pd.to_datetime(list(t.x)).max() <= pd.Timestamp(REC), t.name
+
+
+def test_figure_traces():
+    post = _frame()["post"]
+    ep = _ep(plan_outcome="stop_first", plan_sessions=2, stop=post.iloc[1]["low"])
+    names = _names(rp.replay_figure(_frame(ep, idx=_bars(px=1000.0)), ep))
+    assert {"pick day", "since pick", "NIFTY 500 (rebased)", "best", "worst", "SL hit"} <= names
+
+
+def test_figure_pending():
+    b = _bars()
+    b = b[b.index <= pd.Timestamp(REC)]
+    ep = _ep(status="pending", plan_outcome=None)
+    fig = rp.replay_figure(rp.replay_frame(ep, b, None), ep)
+    assert "pick day" in _names(fig) and "since pick" not in _names(fig)
+    assert any("not entered yet" in (a.text or "") for a in fig.layout.annotations)

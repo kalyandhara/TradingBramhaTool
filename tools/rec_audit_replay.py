@@ -207,6 +207,101 @@ def replay_candidates(eps: pd.DataFrame, kind: str, tag: str | None, h: int) -> 
     return d
 
 
+def _candles(d: pd.DataFrame, name: str, opacity: float = 1.0):
+    import plotly.graph_objects as go
+    return go.Candlestick(x=d.index, open=d["open"], high=d["high"], low=d["low"],
+                          close=d["close"], name=name, opacity=opacity, showlegend=False)
+
+
+def _volume(fig, d: pd.DataFrame, col: int, T: dict) -> None:
+    import plotly.graph_objects as go
+    colours = [T["good"] if c >= o else T["risk"] for o, c in zip(d["open"], d["close"])]
+    fig.add_trace(go.Bar(x=d.index, y=d["volume"], marker_color=colours, opacity=0.6,
+                         name="volume", showlegend=False), row=2, col=col)
+    fig.add_trace(go.Scatter(x=d.index, y=d["vol_avg"], mode="lines", name="20-session avg volume",
+                             line=dict(color=T["text_muted"], width=1), showlegend=False),
+                  row=2, col=col)
+
+
+def _levels(fig, lv: dict, col: int, T: dict, entry_key: str, entry_label: str) -> None:
+    for key, label, colour in ((entry_key, entry_label, T["accent"]), ("stop", "stop", T["risk"]),
+                               ("target", "target", T["good"]), ("low20", "20-day low", T["text_muted"])):
+        if lv.get(key) is not None:
+            fig.add_hline(y=lv[key], line=dict(color=colour, width=1, dash="dash"), row=1, col=col,
+                          annotation_text=f"{label} {_rs(lv[key])}",
+                          annotation_font=dict(size=10, color=colour),
+                          annotation_position="top left")
+
+
+def replay_figure(f: dict, ep, h: int = ra.HEADLINE_H):
+    """Two panels with volume under each: Pick day (bars up to rec_date only) and
+    Since then (faded pre-pick bars + everything after, the headline window shaded,
+    markers for best / worst / plan hit, NIFTY 500 rebased to the entry)."""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    import report_style as rs
+    T = rs.TOKENS
+    pre, post, lv, m = f["pre"], f["post"], f["levels"], f["markers"]
+    rec = str(ep.get("rec_date"))[:10]
+    right = f"Since then · to {post.index[-1].date()}" if not post.empty else "Since then"
+    fig = make_subplots(rows=2, cols=2, shared_xaxes="columns", row_heights=[0.75, 0.25],
+                        column_widths=[0.4, 0.6], horizontal_spacing=0.04, vertical_spacing=0.03,
+                        subplot_titles=(f"Pick day · {rec}", right, "", ""))
+    if not pre.empty:
+        fig.add_trace(_candles(pre, "pick day"), row=1, col=1)
+        fig.add_trace(go.Scatter(x=pre.index, y=pre["ema20"], mode="lines", name="20 EMA",
+                                 line=dict(color=T["info"], width=1), showlegend=False),
+                      row=1, col=1)
+        _volume(fig, pre, 1, T)
+        _levels(fig, lv, 1, T, "plan_entry", "entry")
+
+    if post.empty:
+        fig.add_annotation(xref="x2 domain", yref="y2 domain", x=0.5, y=0.5, showarrow=False,
+                           text="Since then: not entered yet — no session since the pick",
+                           font=dict(color=T["text_muted"]))
+    else:
+        both = pd.concat([pre, post])
+        fig.add_trace(_candles(pre, "before pick", opacity=0.35), row=1, col=2)
+        fig.add_trace(_candles(post, "since pick"), row=1, col=2)
+        fig.add_trace(go.Scatter(x=both.index, y=both["ema20"], mode="lines", name="20 EMA",
+                                 line=dict(color=T["info"], width=1), showlegend=False),
+                      row=1, col=2)
+        _volume(fig, both, 2, T)
+        _levels(fig, {**lv, "low20": None}, 2, T, "entry_px", "entry")
+        x1 = m["window_end"] if m["window_end"] is not None else post.index[-1]
+        fig.add_vrect(x0=m["entry_date"], x1=x1, fillcolor=T["info"], opacity=0.08, line_width=0,
+                      row=1, col=2, annotation_text=f"{h}-session window",
+                      annotation_position="top left", annotation_font=dict(size=10))
+        fig.add_vline(x=m["entry_date"], line=dict(color=T["accent"], width=1, dash="dot"),
+                      row=1, col=2)
+        if f["bench"] is not None:
+            fig.add_trace(go.Scatter(x=f["bench"].index, y=f["bench"], mode="lines",
+                                     name="NIFTY 500 (rebased)",
+                                     line=dict(color=T["text_muted"], width=1.5, dash="dot")),
+                          row=1, col=2)
+        pts = [("best", m["best_date"], "high", "triangle-up", T["good"]),
+               ("worst", m["worst_date"], "low", "triangle-down", T["risk"])]
+        for name, d, field, sym, colour in pts:
+            if d is not None:
+                fig.add_trace(go.Scatter(x=[d], y=[post.at[d, field]], mode="markers", name=name,
+                                         marker=dict(symbol=sym, size=11, color=colour)),
+                              row=1, col=2)
+        if m["plan_date"] is not None:
+            hit_target = ep.get("plan_outcome") == "target_first"
+            y = f["exit_px"] if f["exit_px"] is not None else post.at[m["plan_date"], "close"]
+            fig.add_trace(go.Scatter(x=[m["plan_date"]], y=[y], mode="markers",
+                                     name="target hit" if hit_target else "SL hit",
+                                     marker=dict(symbol="x", size=12,
+                                                 color=T["good"] if hit_target else T["risk"])),
+                          row=1, col=2)
+
+    fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], rangeslider_visible=False)
+    fig.update_layout(height=620, margin=dict(l=10, r=10, t=40, b=10),
+                      legend=dict(orientation="h", y=-0.05), hovermode="x unified")
+    return fig
+
+
 def replay_label(r, h: int) -> str:
     ret = _num(r.get(f"ret_{h}"))
     head = f"{_text(r.get('symbol'))} · picked {str(r.get('rec_date'))[:10]}"
