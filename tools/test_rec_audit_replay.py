@@ -227,3 +227,14 @@ def test_far_off_level_is_not_drawn():
     texts = [a.text or "" for a in fig.layout.annotations]
     assert not any(t.startswith("entry ₹") and f"{close * 4:,.2f}" in t for t in texts)
     assert any(t.startswith("stop ₹") for t in texts)          # near levels still drawn
+
+
+def test_pending_note_uses_paper_coords():
+    # In the browser a "x2 domain" note on the empty right panel fell back to data
+    # coords (0.5, 0.5) on the left axes, stretching them to 1970 and to 0.
+    b = _bars()
+    b = b[b.index <= pd.Timestamp(REC)]
+    ep = _ep(status="pending", plan_outcome=None)
+    fig = rp.replay_figure(rp.replay_frame(ep, b, None), ep)
+    note = next(a for a in fig.layout.annotations if "not entered yet" in (a.text or ""))
+    assert (note.xref, note.yref) == ("paper", "paper")

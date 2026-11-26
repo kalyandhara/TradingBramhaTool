@@ -270,7 +270,9 @@ def replay_figure(f: dict, ep, h: int = ra.HEADLINE_H):
         _levels(fig, lv, 1, T, "plan_entry", "entry")
 
     if post.empty:
-        fig.add_annotation(xref="x2 domain", yref="y2 domain", x=0.5, y=0.5, showarrow=False,
+        # paper coords: a "x2 domain" ref on the empty panel fell back to the left
+        # panel's data axes in the browser and stretched them to 1970 / 0.
+        fig.add_annotation(xref="paper", yref="paper", x=0.71, y=0.62, showarrow=False,
                            text="Since then: not entered yet — no session since the pick",
                            font=dict(color=T["text_muted"]))
     else:
