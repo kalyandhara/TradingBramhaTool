@@ -192,13 +192,15 @@ def load_bars(conn, symbols: list[str]) -> dict[str, pd.DataFrame]:
 
 
 def bars_for(symbols: list[str], db_path: Path | str = DB_PATH) -> dict[str, pd.DataFrame]:
-    """Cached daily bars for `symbols` (Pick replay). Never fetches; a symbol
-    with no stored bars is simply absent from the result."""
+    """Cached daily bars for `symbols` (Pick replay), keyed by the symbol asked
+    for. The cache stores Yahoo symbols (`ATALREAL.NS`), so NSE symbols are
+    mapped on the way in. Never fetches; a symbol with no stored bars is absent."""
     conn = connect(db_path)
     try:
-        return load_bars(conn, symbols)
+        got = load_bars(conn, [yahoo_symbol(s) for s in symbols])
     finally:
         conn.close()
+    return {s: got[yahoo_symbol(s)] for s in symbols if yahoo_symbol(s) in got}
 
 
 # ── Run ──────────────────────────────────────────────────────────────────────

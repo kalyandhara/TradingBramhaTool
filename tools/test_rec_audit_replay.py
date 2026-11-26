@@ -168,12 +168,14 @@ def test_bars_for_reads_cache_only(tmp_path):
     db = tmp_path / "a.db"
     conn = job.connect(db)
     conn.executemany("INSERT INTO price_bars VALUES (?,?,?,?,?,?,?)",
-                     [("X", "2026-08-13", 1, 2, 0.5, 1.5, 100),
-                      ("X", "2026-08-14", 1.5, 2.5, 1, 2, 200)])
+                     [("X.NS", "2026-08-13", 1, 2, 0.5, 1.5, 100),
+                      ("X.NS", "2026-08-14", 1.5, 2.5, 1, 2, 200),
+                      ("^CRSLDX", "2026-08-14", 9, 9, 9, 9, 0)])
     conn.commit()
     conn.close()
-    out = job.bars_for(["X", "MISSING"], db)
-    assert list(out) == ["X"]
+    # the cache keys bars by Yahoo symbol (X.NS); callers ask by NSE symbol (X)
+    out = job.bars_for(["X", job.MARKET, "MISSING"], db)
+    assert sorted(out) == sorted(["X", job.MARKET])
     assert list(out["X"]["close"]) == [1.5, 2.0]
 
 
