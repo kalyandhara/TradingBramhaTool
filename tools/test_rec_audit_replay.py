@@ -214,3 +214,16 @@ def test_figure_pending():
     fig = rp.replay_figure(rp.replay_frame(ep, b, None), ep)
     assert "pick day" in _names(fig) and "since pick" not in _names(fig)
     assert any("not entered yet" in (a.text or "") for a in fig.layout.annotations)
+
+
+def test_far_off_level_is_not_drawn():
+    # RAYMOND 2026-08-13: a stale plan entry of ₹2,460 against a ~₹600 price
+    # squashed the pick-day panel flat. Such a level is listed, not drawn.
+    close = float(_bars().loc[pd.Timestamp(REC), "close"])
+    ep = _ep(entry=close * 4)
+    f = _frame(ep)
+    assert f["off_chart"] == {"entry": pytest.approx(close * 4)}
+    fig = rp.replay_figure(f, ep)
+    texts = [a.text or "" for a in fig.layout.annotations]
+    assert not any(t.startswith("entry ₹") and f"{close * 4:,.2f}" in t for t in texts)
+    assert any(t.startswith("stop ₹") for t in texts)          # near levels still drawn

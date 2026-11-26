@@ -332,6 +332,10 @@ def _replay_view(r: pd.Series, h: int, key: str) -> None:
                     key=f"ra_rp_fig_{key}_{r.get('episode_id')}")
     if f["note"]:
         st.caption("⚠️ " + f["note"])
+    if f["off_chart"]:
+        st.caption("⚠️ Not drawn — more than " f"{rp.OFF_CHART_PCT:.0f}% from the pick-day "
+                   "close, likely stale plan data: "
+                   + ", ".join(f"{k} ₹{v:,.2f}" for k, v in f["off_chart"].items()))
     st.markdown(f"**{rp.footer_line(r, f)}**")
     tag = txt(r.get("review_tag"))
     others = [t for t in txt(r.get("tags")).split(", ") if t and t != tag]

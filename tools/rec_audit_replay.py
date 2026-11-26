@@ -26,7 +26,12 @@ VOL_AVG = 20
 #: The audit looks for a stop/target hit over this many sessions (its longest horizon).
 PLAN_SPAN = max(ra.HORIZONS)
 
+#: A plan level further than this from the pick-day close is listed, not drawn —
+#: one stale level (RAYMOND's ₹2,460 entry vs a ~₹600 price) flattens the panel.
+OFF_CHART_PCT = 50.0
+
 _OHLCV = ["open", "high", "low", "close", "volume"]
+_LEVEL_LABELS = {"plan_entry": "entry", "stop": "stop", "target": "target", "low20": "20-day low"}
 
 
 def _num(v) -> float | None:
@@ -74,6 +79,7 @@ def replay_frame(ep, bars: pd.DataFrame | None, idx_bars: pd.DataFrame | None,
         "markers": {"entry_date": None, "best_date": None, "worst_date": None,
                     "plan_date": None, "window_end": None},
         "exit_px": None, "last_px": None, "rvol": None, "missing": None, "note": None,
+        "off_chart": {},
     }
     if bars is None or bars.empty:
         out["missing"] = (f"No stored daily bars for {sym} around {rec.date()} — "
@@ -102,6 +108,11 @@ def replay_frame(ep, bars: pd.DataFrame | None, idx_bars: pd.DataFrame | None,
         out["rvol"] = float(hist["volume"].iloc[-1] / prior.mean() * 100)
     low20 = _num(ep.get("low20_at_rec"))
     out["levels"]["low20"] = low20 if low20 is not None else float(hist["low"].tail(20).min())
+    ref = float(hist["close"].iloc[-1])
+    if ref > 0:
+        out["off_chart"] = {lbl: v for k, lbl in _LEVEL_LABELS.items()
+                            if (v := out["levels"][k]) is not None
+                            and abs(v / ref - 1) * 100 > OFF_CHART_PCT}
 
     if post.empty:
         return out
@@ -242,7 +253,9 @@ def replay_figure(f: dict, ep, h: int = ra.HEADLINE_H):
 
     import report_style as rs
     T = rs.TOKENS
-    pre, post, lv, m = f["pre"], f["post"], f["levels"], f["markers"]
+    pre, post, m = f["pre"], f["post"], f["markers"]
+    lv = {k: (None if _LEVEL_LABELS.get(k) in f.get("off_chart", {}) else v)
+          for k, v in f["levels"].items()}
     rec = str(ep.get("rec_date"))[:10]
     right = f"Since then · to {post.index[-1].date()}" if not post.empty else "Since then"
     fig = make_subplots(rows=2, cols=2, shared_xaxes="columns", row_heights=[0.75, 0.25],
