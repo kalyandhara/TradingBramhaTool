@@ -82,3 +82,14 @@ def test_track_record_skips_thin_families_and_caps_at_three():
     tr["Thin"] = {"n": 14, "median_excess": -5.1, "t_weekly": 3.0}
     txt = page.track_record_text(["Thin", "F0", "F1", "F2", "F3"], tr)
     assert "Thin" not in txt and "F3" not in txt and txt.endswith("— not significant")
+
+
+def test_pick_replay_tab_registered():
+    tree = ast.parse((HERE / "desk_pages" / "rec_audit_page.py").read_text(encoding="utf-8"))
+    tabs = [n for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "tabs"]
+    labels = [e.value for e in tabs[0].args[0].elts]
+    assert labels[labels.index("Post-mortems") + 1] == "Pick replay"
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "_replay_dialog")
+    assert any("dialog" in ast.unparse(d) for d in fn.decorator_list)

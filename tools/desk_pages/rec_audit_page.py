@@ -22,6 +22,7 @@ import streamlit as st
 
 import rec_audit as ra
 import rec_audit_job as job
+import rec_audit_replay as rp
 
 HORIZONS = ra.HORIZONS
 #: Slice label → column (derived columns are added by `with_slices`).
@@ -129,8 +130,8 @@ def render() -> None:
                              key=f"ra_h_{src}") or head
     _tiles(eps, data["portfolio"], h, head)
 
-    tabs = st.tabs(["Monthly batches", "What worked", "Post-mortems", "All picks",
-                    "Proposed changes", "Run history"])
+    tabs = st.tabs(["Monthly batches", "What worked", "Post-mortems", "Pick replay",
+                    "All picks", "Proposed changes", "Run history"])
     with tabs[0]:
         _cohorts(eps, horizons)
     with tabs[1]:
@@ -138,10 +139,12 @@ def render() -> None:
     with tabs[2]:
         _postmortems(eps, head)
     with tabs[3]:
-        _all_picks(eps, h)
+        _replay_tab(eps, head)
     with tabs[4]:
-        _proposals(src)
+        _all_picks(eps, h)
     with tabs[5]:
+        _proposals(src)
+    with tabs[6]:
         _history(data["history"])
 
 
@@ -258,9 +261,12 @@ def _card(r: pd.Series, h: int = ra.HEADLINE_H) -> None:
             st.caption(f"Families: {r['family_names']}")
         if pd.notna(r.get("note")) and r.get("note"):
             st.caption(f"📝 {r['note']}")
-        st.link_button("Analyzer ↗", link("analyze", r["symbol"]), use_container_width=True)
+        key = r["episode_id"]
+        b1, b2 = st.columns(2)
+        b1.link_button("Analyzer ↗", link("analyze", r["symbol"]), use_container_width=True)
+        if b2.button("Replay", key=f"ra_rp_btn_{key}", use_container_width=True):
+            _replay_dialog(r, h)
         with st.expander("Review"):
-            key = r["episode_id"]
             auto = r.get("primary_tag") or ra.UNEXPLAINED
             choices = [f"(auto) {auto}", *REVIEW_TAGS]
             cur = r.get("tag_override")
@@ -272,6 +278,77 @@ def _card(r: pd.Series, h: int = ra.HEADLINE_H) -> None:
                 job.save_note(key, None if sel.startswith("(auto)") else sel, note)
                 st.toast(f"Saved review for {r['symbol']}.")
                 st.rerun()
+
+
+# ── Pick replay: the chart on the pick day beside what happened since ────────
+@st.cache_data(ttl=600, show_spinner=False)
+def _replay_bars(symbol: str) -> tuple[pd.DataFrame | None, pd.DataFrame | None]:
+    """(symbol bars, NIFTY 500 bars) from the audit's price cache. Never fetches."""
+    got = job.bars_for([symbol, job.MARKET])
+    return got.get(symbol), got.get(job.MARKET)
+
+
+def _replay_tab(eps: pd.DataFrame, h: int) -> None:
+    st.caption("One pick at a time: the chart as the desk saw it on the pick day, beside "
+               f"everything since. Winners beat NIFTY 500 by ≥ {rp.WIN_EXCESS_PCT:g}% at "
+               f"{h} sessions; losers are the post-mortem failures.")
+    kind = (st.pills("Show", ["Losers", "Winners", "All"], default="Losers",
+                     key="ra_rp_kind") or "Losers").lower()
+    tag = None
+    if kind == "losers" and "review_tag" in eps:
+        tags = sorted(t for t in eps["review_tag"].dropna().unique() if t)
+        pick = st.selectbox("Cause", ["Any", *tags], key="ra_rp_tag")
+        tag = None if pick == "Any" else pick
+    cands = rp.replay_candidates(eps, kind, tag, h)
+    st.caption("Plan results for these picks: **" + rp.scorecard_text(rp.scorecard(cands))
+               + "** · ambiguous bars count as SL hit; no plan has a break-even rule, so "
+                 "there is no cost-to-cost count.")
+    if cands.empty:
+        st.info("No picks match this filter.")
+        return
+    i = st.selectbox("Pick", list(cands.index), key=f"ra_rp_pick_{kind}_{tag}",
+                     format_func=lambda j: rp.replay_label(cands.loc[j], h))
+    _replay_view(cands.loc[i], h, "tab")
+
+
+def _replay_view(r: pd.Series, h: int, key: str) -> None:
+    bars, idx = _replay_bars(str(r["symbol"]))
+    f = rp.replay_frame(r, bars, idx, h=h)
+    if f["missing"]:
+        st.info(f["missing"])
+        return
+    txt = rp._text
+    parts = [f"rank {int(r['rank'])}" if rp._num(r.get("rank")) is not None else "",
+             f"score {rp._num(r.get('score')):.1f}" if rp._num(r.get("score")) is not None else "",
+             txt(r.get("family_names")) or txt(r.get("scanners")) or txt(r.get("scanner")),
+             f"flags: {txt(r.get('risk_flags'))}" if txt(r.get("risk_flags")) else "",
+             f"{rp._num(r.get('ext_vs_ema20')):+.1f}% vs 20 EMA"
+             if rp._num(r.get("ext_vs_ema20")) is not None else "",
+             f"plan: {txt(r.get('plan_source'))}" if txt(r.get("plan_source")) else "",
+             f"regime: {txt(r.get('market_regime'))}" if txt(r.get("market_regime")) else "",
+             f"RVol {f['rvol']:.0f}%" if f["rvol"] is not None else ""]
+    st.caption("On the pick day — " + " · ".join(p for p in parts if p))
+    st.plotly_chart(rp.replay_figure(f, r, h), use_container_width=True,
+                    key=f"ra_rp_fig_{key}_{r.get('episode_id')}")
+    if f["note"]:
+        st.caption("⚠️ " + f["note"])
+    st.markdown(f"**{rp.footer_line(r, f)}**")
+    tag = txt(r.get("review_tag"))
+    others = [t for t in txt(r.get("tags")).split(", ") if t and t != tag]
+    detail = [f"{h}d {_pct(r.get(f'ret_{h}'))}", f"vs NIFTY 500 {_pct(r.get(f'excess_{h}'))}",
+              f"vs sector {_pct(r.get(f'excess_sec_{h}'))}",
+              f"best {_pct(r.get('mfe'))} / worst {_pct(r.get('mae'))}"]
+    if tag:
+        detail.append(f"cause {tag}" + (f" (+{', '.join(others)})" if others else ""))
+    if txt(r.get("note")):
+        detail.append(f"📝 {txt(r.get('note'))}")
+    st.caption(" · ".join(detail))
+    st.link_button("Analyzer ↗", link("analyze", r["symbol"]))
+
+
+@st.dialog("Pick replay", width="large")
+def _replay_dialog(r: pd.Series, h: int) -> None:
+    _replay_view(r, h, "dlg")
 
 
 def _all_picks(eps: pd.DataFrame, h: int) -> None:
