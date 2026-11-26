@@ -11,6 +11,13 @@ import scanner_templates as st
 
 RESULT = Path(__file__).resolve().parent / "cache" / "plan_baseline_robust_study.json"
 
+#: Stop-geometry audits after B-183c (wiki log, 2026-11-19). The stored file is the
+#: B-183c run; these re-measurements on fresh panels supersede it for named scanners.
+#: B-183f / B-183g: stop fixed → AT BASELINE → card line removed.
+B183_REMOVED = {"RSI Divergence Bull", "Mean Reversion (Connors RSI2)"}
+#: B-183i (Liquidity Sweep, BELOW → BEATS) and B-183h (Support Breakdown, still BELOW).
+B183_REMEASURED = {"Liquidity Sweep": 0.126, "Support Breakdown": -0.082}
+
 
 def test_every_label_names_a_registered_scanner():
     assert set(pol.PLAN_ODDS_D) <= set(st.SCANNERS)
@@ -20,7 +27,8 @@ def test_lines_say_it_is_about_the_levels():
     up, down = pol.card_lines("Flag & Pole"), pol.card_lines("Support Breakdown")
     assert len(up) == len(down) == 1
     assert "+0.37R" in up[0] and "levels, not the signal" in up[0]
-    assert down[0].startswith("⚠") and "0.33R below" in down[0]
+    # -0.33R in B-183c; B-183h (2026-11-19) re-measured with the wider stop: -0.08R
+    assert down[0].startswith("⚠") and "0.08R below" in down[0]
 
 
 def test_unlabelled_scanners_get_nothing():
@@ -38,6 +46,7 @@ def test_labels_match_the_preregistered_rule_on_the_stored_result():
     want = {k: v["mean_d"] for k, v in res["scanners"].items()
             if v["verdict"] in ("BEATS BASELINE", "BELOW BASELINE")
             and not v["within_placebo_noise"]}
+    want = {k: d for k, d in want.items() if k not in B183_REMOVED} | B183_REMEASURED
     assert set(pol.PLAN_ODDS_D) == set(want)
     for name, d in want.items():
         assert pol.PLAN_ODDS_D[name] == pytest.approx(d, abs=0.006)
