@@ -164,3 +164,9 @@ def test_tasks_run_headless():
         tr = str(_flag(sch.register_argv(job), "/tr"))
         assert tr.startswith('"C:\\Windows\\System32\\conhost.exe" --headless "'), jid
         assert len(tr) < 262, jid          # schtasks /tr limit
+
+
+def test_rescore_runs_after_the_audit():
+    j = sch.JOBS["rec_rescore"]
+    assert j.kind == "daily" and j.default_time > sch.JOBS["rec_audit"].default_time
+    assert "rec_rescore_job.py" in j.command and j.task_name == "TradingBramha-RecRescore"

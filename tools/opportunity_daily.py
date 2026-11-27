@@ -205,8 +205,11 @@ class _FrameCache:
     times over — which is both slow and a good way to get rate-limited.
     """
 
-    def __init__(self, days: int = 400):
+    def __init__(self, days: int = 400, min_turnover: float | None = None):
         self._days = days
+        # None = the screener's own liquidity floor (the shortlist's rule); the
+        # pick re-score passes 0 — an audit never drops a thin pick.
+        self._kw = {} if min_turnover is None else {"min_turnover": min_turnover}
         self._cache: dict[str, pd.DataFrame | None] = {}
         self.misses = 0
 
@@ -214,7 +217,7 @@ class _FrameCache:
         if symbol not in self._cache:
             self.misses += 1
             try:
-                df = sp.fetch_ohlcv(symbol, days=self._days)
+                df = sp.fetch_ohlcv(symbol, days=self._days, **self._kw)
             except Exception:
                 df = None
             # Same forming-bar discipline as the dashboard: a NaN last close
@@ -239,9 +242,10 @@ class _FetchRouter:
     scanners on the cheap window.
     """
 
-    def __init__(self, days: int = 400, full_days: int = 6000):
-        self.default = _FrameCache(days)
-        self.full = _FrameCache(full_days)
+    def __init__(self, days: int = 400, full_days: int = 6000,
+                 min_turnover: float | None = None):
+        self.default = _FrameCache(days, min_turnover)
+        self.full = _FrameCache(full_days, min_turnover)
 
     def __call__(self, scanner_name: str):
         if sc.SCANNERS.get(scanner_name, {}).get("needs_full_history"):

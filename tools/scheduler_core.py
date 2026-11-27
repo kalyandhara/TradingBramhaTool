@@ -201,6 +201,23 @@ JOBS: dict[str, JobSpec] = {
         # After opportunity_daily (16:20) has saved today's picks.
         default_time="17:30",
     ),
+    "rec_rescore": JobSpec(
+        id="rec_rescore",
+        label="Pick Re-score",
+        desc="Re-scores every open Opportunity pick (within 63 sessions of entry) "
+             "for the latest NSE session: Overall Rating and its parts, today's "
+             "scanners and full score, and rank in the shortlist's 500-name "
+             "universe. Stores one row per pick per session in rec_audit.db "
+             "(pick_scores) for Pick replay's drift, decay chart and D marker. "
+             "D (rating 15+ below the pick day) is a prior, not a tested signal. "
+             "History accrues forward only. ~10-15 min.",
+        task_name="TradingBramha-RecRescore",
+        kind="daily",
+        command=f'"{PYTHON_EXE}" "{HERE / "rec_rescore_job.py"}"',
+        # After rec_audit (17:30) has rebuilt the episode list, so today's picks
+        # get their day-0 row the same night.
+        default_time="17:45",
+    ),
     "filings_watch": JobSpec(
         id="filings_watch",
         label="Filings Watch (NSE, my names)",
