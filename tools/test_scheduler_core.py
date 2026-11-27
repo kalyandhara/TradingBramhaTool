@@ -166,6 +166,37 @@ def test_tasks_run_headless():
         assert len(tr) < 262, jid          # schtasks /tr limit
 
 
+# ── node path baked into alert_watcher.bat (2026-11-27) ──────────────────────
+# In an fnm shell, `which node` is fnm_multishells\<pid>_<ts>\node.exe, a link
+# that vanishes when that shell closes. A .bat written from such a shell broke
+# the scheduled alert job later, twice in one day.
+_FNM = r"C:\Users\x\AppData\Local\fnm_multishells\31704_1795790450039\node.EXE"
+
+
+def test_node_exe_prefers_the_system_install(monkeypatch, tmp_path):
+    system = tmp_path / "node.exe"
+    system.write_bytes(b"")
+    monkeypatch.setattr(sch, "_SYSTEM_NODE", system)
+    monkeypatch.setattr(sch.shutil, "which", lambda _n: _FNM)
+    assert sch._node_exe() == str(system)
+
+
+def test_node_exe_resolves_an_fnm_shell_link(monkeypatch, tmp_path):
+    monkeypatch.setattr(sch, "_SYSTEM_NODE", tmp_path / "missing.exe")
+    monkeypatch.setattr(sch.shutil, "which", lambda _n: _FNM)
+    real = r"C:\Users\x\AppData\Roaming\fnm\node-versions\v22.11.0\installation\node.exe"
+    monkeypatch.setattr(sch.os.path, "realpath", lambda p: real if p == _FNM else p)
+    assert sch._node_exe() == real
+
+
+def test_node_exe_keeps_a_plain_path_and_falls_back_to_node(monkeypatch, tmp_path):
+    monkeypatch.setattr(sch, "_SYSTEM_NODE", tmp_path / "missing.exe")
+    monkeypatch.setattr(sch.shutil, "which", lambda _n: r"D:\tools\node\node.exe")
+    assert sch._node_exe() == r"D:\tools\node\node.exe"
+    monkeypatch.setattr(sch.shutil, "which", lambda _n: None)
+    assert sch._node_exe() == "node"
+
+
 def test_rescore_runs_after_the_audit():
     j = sch.JOBS["rec_rescore"]
     assert j.kind == "daily" and j.default_time > sch.JOBS["rec_audit"].default_time
