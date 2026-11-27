@@ -113,3 +113,15 @@ def test_lessons_tab_registered_after_pick_replay():
     assert labels[labels.index("Pick replay") + 1] == "Lessons"
     names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
     assert "_lessons_tab" in names
+
+
+def test_rescore_for_is_empty_before_the_first_run(monkeypatch, tmp_path):
+    import portfolio_db as db
+    import rec_rescore_job as rj
+    monkeypatch.setattr(rj, "DB_PATH", tmp_path / "r.db")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "tb.db")
+    db.init_db()
+    page._all_scores.clear()
+    scores, pick = page._rescore_for({"episode_id": "e1", "symbol": "A",
+                                       "rec_date": "2026-11-20"})
+    assert scores.empty and pick is None

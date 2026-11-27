@@ -118,6 +118,7 @@ def render() -> None:
                 job.write_monthly_report(reps, pd.Timestamp(any_rep["episodes_df"]["as_of"]
                                                             .iloc[0]).date())
                 _replay_bars.clear()        # the re-run may have stored new bars
+                _all_scores.clear()         # …and the nightly re-score may have run
                 st.toast("Audit refreshed.")
             except Exception as e:
                 st.error(f"Audit failed: {type(e).__name__}: {e}")
@@ -351,9 +352,12 @@ def _replay_view(r: pd.Series, h: int, key: str) -> None:
     if txt(r.get("note")):
         detail.append(f"📝 {txt(r.get('note'))}")
     st.caption(" · ".join(detail))
+    import rec_rescore as rr
+    scores, _ = _rescore_for(r)
     a, b = st.columns(2)
     a.link_button("Open in Multi-Chart ↗ (before / after, side by side)",
-                  rp.multichart_url(r, f), use_container_width=True)
+                  rp.multichart_url(r, f, ddate=rr.first_downgrade(scores)),
+                  use_container_width=True)
     b.link_button("Analyzer ↗", link("analyze", r["symbol"]), use_container_width=True)
 
 
@@ -381,6 +385,23 @@ def _lessons_tab(eps: pd.DataFrame, h: int, src: str) -> None:
     st.download_button("Download lessons (JSON lines, one pick per line)",
                        rp.lessons_jsonl(eps, h), file_name=f"lessons_{src}.jsonl",
                        mime="application/json", key=f"ra_lessons_dl_{src}")
+    if src == "opportunity":
+        _decay_section(eps, h)
+
+
+def _decay_section(eps: pd.DataFrame, h: int) -> None:
+    """Median rating drift by session since entry, judged winners vs losers."""
+    st.markdown("**Confidence decay**")
+    st.caption("Median rating drift (vs the pick-day rating) by session since entry, for "
+               f"picks judged at {h} sessions: winners vs losers (audit failures). Fills in "
+               "as the nightly re-score accrues; descriptive, not causal.")
+    t = rp.decay_table(eps, _all_scores(), h)
+    if t.empty:
+        st.info("No re-scored picks yet — tracking starts with the next nightly run.")
+        return
+    st.line_chart(t.set_index("sessions_since_entry")[["winners_median", "losers_median"]]
+                  .rename(columns={"winners_median": "winners", "losers_median": "losers"}))
+    st.dataframe(t, hide_index=True, use_container_width=True)
 
 
 _BADGE = {"green": "green-badge", "amber": "orange-badge", "red": "red-badge",
@@ -397,6 +418,11 @@ def _snapshot(r: pd.Series, f: dict, h: int, key: str) -> None:
                 + (f" · rank #{s['rank']}" if s["rank"] is not None else "")
                 + (f" · on shortlist {s['shortlist']}" if s["shortlist"] else ""))
         st.markdown(f"{head} &nbsp; :{_BADGE[s['colour']]}[{s['outcome']}]")
+        scores, pick_uni = _rescore_for(r)
+        rescore = [rp.drift_line(r, scores, pick_uni), rp.what_moved(r, scores, pick_uni),
+                   rp.scanners_line(r, scores)]
+        if r.get("source", "opportunity") == "opportunity":   # only shortlist picks are re-scored
+            st.caption(" · ".join(x for x in rescore if x))
         c = st.columns(6)
         c[0].metric("Entry", money(s["entry"]))
         c[1].metric("Current", money(s["current"]))
@@ -426,6 +452,12 @@ def _snapshot(r: pd.Series, f: dict, h: int, key: str) -> None:
                 ins = rp.excursion_insight(r, f["levels"]["entry_px"])
                 if ins:
                     st.caption(ins)
+            if not scores.empty:
+                st.markdown("**Confidence decay**")
+                st.plotly_chart(rp.decay_figure(r, scores), use_container_width=True,
+                                key=f"ra_rp_decay_{key}_{r.get('episode_id')}")
+                st.caption("D = rating 15+ points below the pick day — a prior, not a "
+                           "tested signal.")
 
 
 @st.dialog("Pick replay", width="large")
@@ -500,6 +532,26 @@ def _history(history: pd.DataFrame) -> None:
         "t (weekly)": s.map(lambda x: x.get("t_excess_weekly")),
         "failures": s.map(lambda x: x.get("failures"))})
     st.dataframe(out.iloc[::-1], hide_index=True, use_container_width=True)
+
+
+# ── Pick re-score (spec 2026-11-26 pick-rescore §4) ──────────────────────────
+@st.cache_data(ttl=600, show_spinner=False)
+def _all_scores() -> pd.DataFrame:
+    """Every stored nightly re-score row (rec_audit.db › pick_scores). Never fetches."""
+    import rec_rescore_job as rj
+    return rj.load_scores(db_path=rj.DB_PATH)
+
+
+def _rescore_for(ep) -> tuple[pd.DataFrame, dict | None]:
+    """(this pick's re-score rows, its pick-day universe row or None)."""
+    import rec_rescore_job as rj
+    s = _all_scores()
+    s = s[s["episode_id"] == ep.get("episode_id")] if not s.empty else s
+    try:
+        pick = rj.pick_day_universe(str(ep.get("symbol")), str(ep.get("rec_date"))[:10])
+    except Exception:                 # universe table not created yet on this DB
+        pick = None
+    return s, pick
 
 
 # ── A3: the track-record line on Opportunity Hub cards ───────────────────────

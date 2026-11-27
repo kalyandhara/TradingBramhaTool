@@ -1,7 +1,7 @@
 /* replay_mode.js — Multi-Chart dual pick replay (pure computation, no DOM).
  *
  * Opened from Recommendation Audit › Pick replay with
- *   ?symbol=X&replay=YYYY-MM-DD&entry=&stop=&target=&sdate=&skind=S|T&sector=&rank=&label=
+ *   ?symbol=X&replay=YYYY-MM-DD&entry=&stop=&target=&sdate=&skind=S|T&sector=&rank=&label=&ddate=
  * pane 1 shows the chart as it stood on the pick day (bars cut at the pick
  * date, so every indicator is computed without hindsight), pane 2 everything
  * since, with the plan's levels, NIFTY 500 and the sector index rebased to the
