@@ -103,3 +103,13 @@ def test_replay_pick_survives_source_switch_and_rerun():
     assert "src" in [a.arg for a in fn.args.args]           # the pick key carries the source
     assert "{src}" in ast.unparse(fn) and "ra_rp_pick_" in ast.unparse(fn)
     assert "_replay_bars.clear()" in src                     # a re-run drops cached bars
+
+
+def test_lessons_tab_registered_after_pick_replay():
+    tree = ast.parse((HERE / "desk_pages" / "rec_audit_page.py").read_text(encoding="utf-8"))
+    tabs = [n for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "tabs"]
+    labels = [e.value for e in tabs[0].args[0].elts]
+    assert labels[labels.index("Pick replay") + 1] == "Lessons"
+    names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    assert "_lessons_tab" in names

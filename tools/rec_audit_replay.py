@@ -450,6 +450,141 @@ def excursion_figure(ep, f: dict):
     return fig
 
 
+# ── Lessons engine ───────────────────────────────────────────────────────────
+#: Lessons are read from the stored audit row alone (no bars), so they aggregate
+#: over every pick instantly. Thresholds are the audit's own post-mortem priors
+#: (rec_audit) — untested, like them. Breadth is not stored historically, so the
+#: market lesson uses NIFTY 500's own move over the window instead.
+#: Entry within this % of the pick-day close counts as respected (a desk rule).
+#: 2% was tried first: half of all picks gap that much overnight, equally often
+#: in winners and losers (lift 1.0) — small-cap noise, so the line is 5%.
+ENTRY_GAP_PCT = 5.0
+#: Lessons that restate the audit's failure test rather than explain it.
+DEFINITIONAL = {"RS_COLLAPSED": "part of the failure definition (excess ≤ −5%), "
+                                "so it cannot explain failures",
+                "STOPPED_THEN_RECOVERED": "a stop hit inside the window is itself a "
+                                          "failure, so this is mostly losers by construction"}
+#: Best move at least this large, then a loss at the window = a gain given back.
+GAVE_BACK_MFE_PCT = 10.0
+#: Best move below this = the setup never got going.
+NEVER_WORKED_MFE_PCT = 2.0
+
+LESSON_NAMES = {
+    "ENTRY_RESPECTED": "Entry respected", "ENTRY_GAPPED": "Entry gapped away from the pick",
+    "RS_HELD": "Held relative strength", "RS_COLLAPSED": "Relative strength collapsed",
+    "SECTOR_HELD": "Sector held up", "SECTOR_ROLLED_OVER": "Sector rolled over",
+    "MARKET_HELD": "Market held up", "MARKET_FELL": "Market fell (NIFTY 500)",
+    "NEVER_WORKED": "Never worked from day one", "GAVE_BACK_GAIN": "Gave back a big gain",
+    "ONE_DAY_SHOCK": "One-day shock", "STOP_PROTECTED": "Stop protected capital",
+    "STOPPED_THEN_RECOVERED": "Stopped out, then recovered",
+    "CHASED": "Entry chased", "WARNING_IGNORED": "Risk flag ignored",
+    "ILLIQUID": "Illiquid", "NO_STOP": "No stop in the plan",
+}
+
+
+def _lesson(lid: str, ok: bool, text: str) -> dict:
+    return {"id": lid, "ok": ok, "text": text}
+
+
+def lessons(ep, h: int = ra.HEADLINE_H) -> list[dict]:
+    """Machine-readable lessons for one judged pick: [{id, ok, text}], ✓ and ✗.
+    [] until the pick has a headline return."""
+    ret, e = _num(ep.get(f"ret_{h}")), _num(ep.get("entry_px"))
+    if ret is None or not e:
+        return []
+    out = []
+    c = _num(ep.get("close"))
+    # a gap past the split/bonus line means the stored close is bad data, not a gap
+    if c and abs(e / c * 100 - 100) < ra.SPLIT_SUSPECT_PCT:
+        gap = e / c * 100 - 100
+        out.append(_lesson("ENTRY_RESPECTED", True,
+                           f"Entry respected: opened {gap:+.1f}% vs the pick-day close")
+                   if abs(gap) <= ENTRY_GAP_PCT else
+                   _lesson("ENTRY_GAPPED", False,
+                           f"Entry gapped {gap:+.1f}% vs the pick-day close"))
+    for lid_ok, lid_bad, v, line, what in (
+            ("RS_HELD", "RS_COLLAPSED", _num(ep.get(f"excess_{h}")), ra.FAIL_EXCESS_PCT,
+             "vs NIFTY 500"),
+            ("SECTOR_HELD", "SECTOR_ROLLED_OVER", _num(ep.get(f"sec_{h}")),
+             ra.MARKET_FALL_PCT, "sector index"),
+            ("MARKET_HELD", "MARKET_FELL", _num(ep.get(f"mkt_{h}")), ra.MARKET_FALL_PCT,
+             "NIFTY 500")):
+        if v is None:
+            continue
+        if v <= line:
+            out.append(_lesson(lid_bad, False, f"{LESSON_NAMES[lid_bad]} ({what} {v:+.1f}%)"))
+        elif v >= 0:
+            out.append(_lesson(lid_ok, True, f"{LESSON_NAMES[lid_ok]} ({what} {v:+.1f}%)"))
+    mfe, wd = _num(ep.get("mfe")), _num(ep.get("worst_day"))
+    if mfe is not None and mfe < NEVER_WORKED_MFE_PCT:
+        out.append(_lesson("NEVER_WORKED", False,
+                           f"Never worked from day one (best {mfe:+.1f}%)"))
+    if mfe is not None and mfe >= GAVE_BACK_MFE_PCT and ret <= 0:
+        out.append(_lesson("GAVE_BACK_GAIN", False,
+                           f"Gave back a {mfe:+.1f}% gain ({h}d {ret:+.1f}%)"))
+    if wd is not None and wd <= ra.EVENT_GAP_PCT:
+        out.append(_lesson("ONE_DAY_SHOCK", False, f"One-day shock ({wd:+.1f}% in a session)"))
+    stop, rtd = _num(ep.get("stop")), _num(ep.get("ret_to_date"))
+    if ep.get("plan_outcome") in ("stop_first", "ambiguous") and stop is not None \
+            and rtd is not None:
+        sp = stop / e * 100 - 100
+        out.append(_lesson("STOP_PROTECTED", True,
+                           f"Stop protected capital (exit ≈{sp:+.1f}% vs {rtd:+.1f}% now)")
+                   if rtd < sp else
+                   _lesson("STOPPED_THEN_RECOVERED", False,
+                           f"Stopped out at ≈{sp:+.1f}%, then recovered to {rtd:+.1f}%"))
+    for ok, label in process_checks(ep):
+        if ok:
+            continue
+        lid = ("NO_STOP" if label.startswith("No stop") else "CHASED" if "chased" in label
+               else "WARNING_IGNORED" if label.startswith("Risk flag") else "ILLIQUID")
+        out.append(_lesson(lid, False, label))
+    return out
+
+
+def lesson_table(eps: pd.DataFrame, h: int = ra.HEADLINE_H) -> pd.DataFrame:
+    """The learning database: each ✗ lesson's share of all judged picks, of losers
+    (audit failures) and of winners. A lesson as common among winners as losers
+    is not what sank the losers — `lift` = share of losers / share of winners."""
+    cols = ["id", "lesson", "picks", "pct_all", "pct_losers", "pct_winners", "lift", "note"]
+    if eps.empty:
+        return pd.DataFrame(columns=cols)
+    rows = []
+    for _, r in eps.iterrows():
+        ls = lessons(r, h)
+        if ls:
+            fail = bool(r.get("failure")) if pd.notna(r.get("failure")) else False
+            rows.append((fail, {x["id"] for x in ls if not x["ok"]}))
+    if not rows:
+        return pd.DataFrame(columns=cols)
+    n, nl = len(rows), sum(f for f, _ in rows)
+    nw = n - nl
+    ids = sorted({i for _, s in rows for i in s})
+    out = []
+    for i in ids:
+        k = sum(i in s for _, s in rows)
+        kl = sum(i in s for f, s in rows if f)
+        pl = kl / nl * 100 if nl else None
+        pw = (k - kl) / nw * 100 if nw else None
+        out.append({"id": i, "lesson": LESSON_NAMES.get(i, i), "picks": k,
+                    "pct_all": k / n * 100, "pct_losers": pl, "pct_winners": pw,
+                    "lift": (pl / pw) if pl is not None and pw else None,
+                    "note": DEFINITIONAL.get(i, "")})
+    return (pd.DataFrame(out, columns=cols)
+            .sort_values(["pct_losers", "pct_all"], ascending=False, na_position="last")
+            .reset_index(drop=True))
+
+
+def lessons_jsonl(eps: pd.DataFrame, h: int = ra.HEADLINE_H) -> str:
+    """One JSON object per pick: episode_id, symbol, rec_date, lessons."""
+    import json
+    return "\n".join(json.dumps({"episode_id": _text(r.get("episode_id")),
+                                 "symbol": _text(r.get("symbol")),
+                                 "rec_date": str(r.get("rec_date"))[:10],
+                                 "lessons": lessons(r, h)}, ensure_ascii=False)
+                     for _, r in eps.iterrows())
+
+
 # ── Multi-Chart dual replay link ─────────────────────────────────────────────
 #: The chart tool (chart_server) — same convention as ui_tables.chart_url.
 CHART_BASE = "http://localhost:5001/"

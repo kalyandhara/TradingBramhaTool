@@ -375,3 +375,98 @@ def test_multichart_url_drops_far_off_levels_and_missing_hits():
     ep = _vep(entry=close * 4, sector="Unknown sector")
     q = parse_qs(urlsplit(rp.multichart_url(ep, _frame(ep))).query)
     assert "entry" not in q and "sdate" not in q and "skind" not in q and "sector" not in q
+
+
+# ── Project 3: lessons engine ────────────────────────────────────────────────
+def _lep(**kw):
+    """A matured pick row as the audit stores it (no bars needed)."""
+    base = dict(symbol="X", status="matured", close=100.0, entry_px=100.5, stop=92.0,
+                target=116.0, ret_21=8.0, excess_21=4.0, mkt_21=1.0, sec_21=2.0,
+                mfe=12.0, mae=-3.0, worst_day=-2.0, ret_to_date=9.0, plan_outcome="neither",
+                plan_source="scanner", ext_vs_ema20=3.0, risk_flags="",
+                turnover10_at_rec=5e7, failure=False)
+    base.update(kw)
+    return base
+
+
+def _ids(ls, ok=None):
+    return {x["id"] for x in ls if ok is None or x["ok"] is ok}
+
+
+def test_lessons_clean_winner_are_all_ticks():
+    ls = rp.lessons(_lep())
+    assert _ids(ls, False) == set()
+    assert {"ENTRY_RESPECTED", "RS_HELD", "SECTOR_HELD", "MARKET_HELD"} <= _ids(ls, True)
+    assert all(set(x) == {"id", "ok", "text"} for x in ls)
+
+
+def test_lessons_paushak_like_failure():
+    ep = _lep(entry_px=107.0, ret_21=-25.4, excess_21=-31.5, mkt_21=6.0, sec_21=-4.0,
+              mfe=0.6, mae=-29.5, worst_day=-12.0, ret_to_date=-28.3,
+              plan_outcome="stop_first", stop=90.0, ext_vs_ema20=14.1, failure=True)
+    bad = _ids(rp.lessons(ep), False)
+    assert {"ENTRY_GAPPED", "RS_COLLAPSED", "SECTOR_ROLLED_OVER", "NEVER_WORKED",
+            "ONE_DAY_SHOCK", "CHASED"} <= bad
+    good = _ids(rp.lessons(ep), True)
+    assert "STOP_PROTECTED" in good          # exited near -13%, now -28%
+    assert "MARKET_HELD" in good              # the market rose: not the market's fault
+
+
+def test_lessons_stop_then_recovered_and_gave_back():
+    ep = _lep(plan_outcome="stop_first", stop=92.0, ret_to_date=15.0, ret_21=-1.0,
+              mfe=14.0, excess_21=-3.0)
+    ls = rp.lessons(ep)
+    assert "STOPPED_THEN_RECOVERED" in _ids(ls, False)
+    assert "GAVE_BACK_GAIN" in _ids(ls, False)
+
+
+def test_lessons_unknowns_are_skipped_and_pending_has_none():
+    ls = rp.lessons(_lep(sec_21=None, mkt_21=float("nan"), stop=None, plan_source=None,
+                         ext_vs_ema20=None, turnover10_at_rec=None))
+    ids = _ids(ls)
+    assert not ids & {"SECTOR_HELD", "SECTOR_ROLLED_OVER", "MARKET_HELD", "MARKET_FELL",
+                      "CHASED", "ILLIQUID", "NO_STOP"}
+    assert rp.lessons(_lep(status="pending", ret_21=None, entry_px=None)) == []
+
+
+def test_lesson_table_compares_losers_with_winners():
+    eps = pd.DataFrame([
+        _lep(symbol="L1", failure=True, sec_21=-5.0, excess_21=-9.0, ret_21=-9.0),
+        _lep(symbol="L2", failure=True, sec_21=-6.0, excess_21=-8.0, ret_21=-8.0),
+        _lep(symbol="W1", sec_21=-4.0),
+        _lep(symbol="W2"),
+        _lep(symbol="P", status="pending", ret_21=None, entry_px=None),
+    ])
+    t = rp.lesson_table(eps).set_index("id")
+    row = t.loc["SECTOR_ROLLED_OVER"]
+    assert (row["picks"], row["pct_all"], row["pct_losers"], row["pct_winners"]) == \
+        (3, 75.0, 100.0, 50.0)
+    assert row["lift"] == pytest.approx(2.0)
+    assert t.index[0] in ("RS_COLLAPSED", "SECTOR_ROLLED_OVER")   # sorted by share of losers
+    assert "ENTRY_RESPECTED" not in t.index                      # only the ✗ lessons
+    assert rp.lesson_table(eps.iloc[0:0]).empty
+
+
+def test_lessons_jsonl_is_machine_readable():
+    import json
+    eps = pd.DataFrame([_lep(symbol="A", episode_id="e1", rec_date="2026-10-16")])
+    rows = [json.loads(line) for line in rp.lessons_jsonl(eps).splitlines()]
+    assert rows[0]["episode_id"] == "e1" and rows[0]["symbol"] == "A"
+    assert rows[0]["lessons"] and {"id", "ok", "text"} == set(rows[0]["lessons"][0])
+
+
+def test_entry_gap_threshold_and_bad_close():
+    # small caps gap 2% overnight half the time; 5% is the line (desk rule)
+    assert "ENTRY_RESPECTED" in _ids(rp.lessons(_lep(entry_px=104.0)), True)
+    assert "ENTRY_GAPPED" in _ids(rp.lessons(_lep(entry_px=106.0)), False)
+    # a stored close off by 100x is bad data, not a gap
+    assert not _ids(rp.lessons(_lep(close=1.0, entry_px=100.5))) & {"ENTRY_GAPPED",
+                                                                    "ENTRY_RESPECTED"}
+
+
+def test_lesson_table_flags_lessons_that_define_failure():
+    eps = pd.DataFrame([_lep(symbol="L", failure=True, excess_21=-9.0, ret_21=-9.0),
+                        _lep(symbol="W")])
+    t = rp.lesson_table(eps).set_index("id")
+    assert "failure definition" in t.loc["RS_COLLAPSED", "note"]
+    assert "STOPPED_THEN_RECOVERED" in rp.DEFINITIONAL      # a stop hit in the window = failure

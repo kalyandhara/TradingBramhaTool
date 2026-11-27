@@ -132,7 +132,7 @@ def render() -> None:
     _tiles(eps, data["portfolio"], h, head)
 
     tabs = st.tabs(["Monthly batches", "What worked", "Post-mortems", "Pick replay",
-                    "All picks", "Proposed changes", "Run history"])
+                    "Lessons", "All picks", "Proposed changes", "Run history"])
     with tabs[0]:
         _cohorts(eps, horizons)
     with tabs[1]:
@@ -142,10 +142,12 @@ def render() -> None:
     with tabs[3]:
         _replay_tab(eps, head, src)
     with tabs[4]:
-        _all_picks(eps, h)
+        _lessons_tab(eps, head, src)
     with tabs[5]:
-        _proposals(src)
+        _all_picks(eps, h)
     with tabs[6]:
+        _proposals(src)
+    with tabs[7]:
         _history(data["history"])
 
 
@@ -355,6 +357,32 @@ def _replay_view(r: pd.Series, h: int, key: str) -> None:
     b.link_button("Analyzer ↗", link("analyze", r["symbol"]), use_container_width=True)
 
 
+def _lessons_tab(eps: pd.DataFrame, h: int, src: str) -> None:
+    """The learning database: what the judged picks had in common, losers vs winners."""
+    st.caption(f"Every judged pick gets machine-readable lessons (✓ and ✗) from its stored "
+               f"audit row. Below: each ✗ lesson's share of all judged picks, of losers "
+               f"(audit failures at {h} sessions) and of winners. **Lift** = share of "
+               "losers ÷ share of winners: near 1 means losers and winners had it equally "
+               "often, so it did not sink the losers. Descriptive, not causal; thresholds "
+               "are the audit's untested priors.")
+    t = rp.lesson_table(eps, h)
+    if t.empty:
+        st.info("No judged picks yet.")
+        return
+    st.dataframe(t.drop(columns=["id"]), hide_index=True, use_container_width=True,
+                 column_config={
+                     "lesson": "Lesson", "picks": "Picks",
+                     "pct_all": st.column_config.NumberColumn("% of all", format="%.1f%%"),
+                     "pct_losers": st.column_config.NumberColumn("% of losers", format="%.1f%%"),
+                     "pct_winners": st.column_config.NumberColumn("% of winners",
+                                                                  format="%.1f%%"),
+                     "lift": st.column_config.NumberColumn("Lift", format="%.1f×"),
+                     "note": "Note"})
+    st.download_button("Download lessons (JSON lines, one pick per line)",
+                       rp.lessons_jsonl(eps, h), file_name=f"lessons_{src}.jsonl",
+                       mime="application/json", key=f"ra_lessons_dl_{src}")
+
+
 _BADGE = {"green": "green-badge", "amber": "orange-badge", "red": "red-badge",
           "grey": "gray-badge"}
 
@@ -387,6 +415,10 @@ def _snapshot(r: pd.Series, f: dict, h: int, key: str) -> None:
             st.caption("Green = thesis and process right · Amber = mixed · Red = both wrong. "
                        "Thesis = beat NIFTY 500 over the window; process uses only pick-day "
                        "facts and the audit's own thresholds.")
+            ls = rp.lessons(r, h)
+            if ls:
+                st.markdown("**Lessons detected**")
+                st.markdown("  \n".join(f"{'✓' if x['ok'] else '✗'} {x['text']}" for x in ls))
         with right:
             if not f["post"].empty:
                 st.plotly_chart(rp.excursion_figure(r, f), use_container_width=True,
