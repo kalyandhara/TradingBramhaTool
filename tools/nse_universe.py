@@ -53,6 +53,16 @@ INDEX_CSVS = {
     "nifty200": "https://nsearchives.nseindia.com/content/indices/ind_nifty200list.csv",
     "nifty100": "https://nsearchives.nseindia.com/content/indices/ind_nifty100list.csv",
     "nifty50":  "https://nsearchives.nseindia.com/content/indices/ind_nifty50list.csv",
+    # Home breadth sub-lines (breadth_strip.SUB_UNIVERSES). All three sit inside
+    # the NIFTY 500, so they filter its download rather than fetch history.
+    # Midcap 150 / Smallcap 250 are the same lists smallcap_universe caches for
+    # the CAP column; read here so breadth shares nse_universe's stale-cache
+    # fallback instead of smallcap_universe's handful-of-names bundled one.
+    "niftybank": "https://nsearchives.nseindia.com/content/indices/ind_niftybanklist.csv",
+    "niftymidcap150":
+        "https://nsearchives.nseindia.com/content/indices/ind_niftymidcap150list.csv",
+    "niftysmallcap250":
+        "https://nsearchives.nseindia.com/content/indices/ind_niftysmallcap250list.csv",
     # ~750 names: the broadest list NSE publishes as a CSV. Used as the
     # "index constituent vs beyond" split on the deal board, where it is a
     # MEMBERSHIP test, not a size cut.

@@ -248,12 +248,17 @@ def sma_quadrants(hist: dict[str, pd.DataFrame], fast: int = 50, slow: int = 200
     plain above-SMA50 / above-SMA200 counts are the sums of two buckets each.
 
     `members` restricts the count to a sub-index (e.g. NIFTY 50 inside the
-    NIFTY 500 download); names in `members` with no history count as missing.
+    NIFTY 500 download). A member absent from the download (a rename the
+    NIFTY 500 list has not caught up with) is `missing`, kept apart from
+    `excluded` so it is never told as "under `slow` sessions".
     """
     counts = {k: 0 for k, *_ in QUADRANTS}
-    covered = short = 0
+    covered = short = missing = 0
     universe = hist if members is None else {s: hist.get(s) for s in members}
     for df in universe.values():
+        if df is None:
+            missing += 1
+            continue
         row = _classify(df, fast, slow)
         if row is None:
             short += 1
@@ -262,7 +267,42 @@ def sma_quadrants(hist: dict[str, pd.DataFrame], fast: int = 50, slow: int = 200
         covered += 1
     pcts = {k: (v / covered * 100.0 if covered else None) for k, v in counts.items()}
     return {"counts": counts, "pcts": pcts, "covered": covered,
-            "excluded": short, "fast": fast, "slow": slow}
+            "excluded": short, "missing": missing, "fast": fast, "slow": slow}
+
+
+#: Sub-indices drawn inside the NIFTY 500 download, as (label, nse_universe
+#: key), in Breadth-row and radio order. Every one is a NIFTY 500 subset by
+#: construction (the 100 largest + Midcap 150 + Smallcap 250 make the 500;
+#: NIFTY Bank's banks are among them), so none needs a history fetch of its
+#: own — only its constituent CSV, cached a week by nse_universe. Midcap 150 /
+#: Smallcap 250 are the variants the desk already uses (market_breadth_score,
+#: the CAP column, the Recommendation Audit's Smallcap 250 benchmark).
+SUB_UNIVERSES = (("NIFTY 50", "nifty50"), ("NIFTY Bank", "niftybank"),
+                 ("NIFTY Midcap 150", "niftymidcap150"),
+                 ("NIFTY Smallcap 250", "niftysmallcap250"))
+
+
+def sub_quadrants(hist: dict[str, pd.DataFrame],
+                  subs: dict[str, set[str]]) -> list[tuple[str, dict]]:
+    """[(label, sma_quadrants over that sub-index)] in `subs` order."""
+    return [(lbl, sma_quadrants(hist, members=m)) for lbl, m in subs.items()]
+
+
+def universe_options(subs: dict[str, set[str]]) -> list[str]:
+    """The expander's Universe radio: the NIFTY 500, then each drawn sub-index."""
+    return [UNIVERSE_LABEL, *subs]
+
+
+def _coverage(q: dict) -> str:
+    """`492 measured, 7 under 200 sessions excluded` (+ any missing names)."""
+    s = f'<span class="tb-mono">{q["covered"]}</span> measured'
+    if q["excluded"]:
+        s += (f', <span class="tb-mono">{q["excluded"]}</span> under '
+              f'{q["slow"]} sessions excluded')
+    if q.get("missing"):
+        s += (f', <span class="tb-mono">{q["missing"]}</span> not in the '
+              f'{UNIVERSE_LABEL} download')
+    return s
 
 
 def build_bars(hist: dict[str, pd.DataFrame],
@@ -342,17 +382,18 @@ def _quad_inline(q: dict) -> str:
 
 
 def quadrant_html(q: dict, universe: str, as_of: str | None = None,
-                  sub: tuple[str, dict] | None = None) -> str:
+                  subs: list[tuple[str, dict]] | None = None) -> str:
     """The Breadth row inside the verdict card. No card of its own: it is a
     section of the verdict card, separated by the same rule as Regime.
 
     Labelled "context — does not vote": `build_verdict` never reads it, and the
     label says so, so a red split under a TRADE verdict is not read as a veto.
-    `sub` is an optional (label, quadrants) for a sub-index, shown as one line.
+    `subs` is an optional [(label, quadrants)] of sub-indices (`sub_quadrants`),
+    one line each with its own coverage; one with nothing measured is skipped.
     """
     t = rs.TOKENS
     rule = (f'border-top:1px solid {t["border"]};margin-top:10px;padding-top:8px;')
-    covered, excl = q["covered"], q["excluded"]
+    covered = q["covered"]
     head = (
         f'<div style="display:flex;align-items:baseline;gap:8px;flex-wrap:wrap;">'
         f'<span class="tb-micro">Breadth</span>'
@@ -360,9 +401,7 @@ def quadrant_html(q: dict, universe: str, as_of: str | None = None,
         f'vs its own {q["fast"]} / {q["slow"]} SMA</span>'
         f'<span style="font-size:11px;color:{t["text_muted"]};">'
         + (f'close {as_of} · ' if as_of else "")
-        + f'<span class="tb-mono">{covered}</span> measured'
-        + (f', <span class="tb-mono">{excl}</span> under {q["slow"]} sessions excluded'
-           if excl else "")
+        + _coverage(q)
         + '</span>'
         f'<span style="margin-left:auto;font-size:11px;color:{t["text_muted"]};'
         f'font-style:italic;">context — does not vote</span></div>')
@@ -384,13 +423,21 @@ def quadrant_html(q: dict, universe: str, as_of: str | None = None,
         f'{q["pcts"][k]:.1f}% <span style="font-size:11px;">({q["counts"][k]:,})</span></div>'
         f'<div style="font-size:11px;color:{t["text_muted"]};">{reading}</div></div>'
         for k, label, g, reading in QUADRANTS)
-    sub_line = ""
-    if sub and sub[1]["covered"]:
-        sub_line = (f'<div style="font-size:11.5px;color:{t["text_muted"]};margin-top:4px;">'
-                    f'{sub[0]} ({sub[1]["covered"]} measured): {_quad_inline(sub[1])}</div>')
+    # One line per sub-index — label, the four counts, its coverage. Fixed
+    # min-widths line the counts up down the column; on a narrow pane the
+    # coverage wraps below as a whole rather than squeezing into a sliver.
+    cells = "".join(
+        f'<div style="display:flex;flex-wrap:wrap;column-gap:14px;align-items:baseline;">'
+        f'<span style="min-width:9.5em;">{lbl}</span>'
+        f'<span style="min-width:15em;">{_quad_inline(sq)}</span>'
+        f'<span style="font-size:11px;">{_coverage(sq)}</span></div>'
+        for lbl, sq in (subs or []) if sq["covered"])
+    sub_lines = (
+        f'<div style="font-size:11.5px;color:{t["text_muted"]};margin-top:5px;">'
+        f'{cells}</div>') if cells else ""
     return (f'<div style="{rule}">{head}{bar}'
             f'<div style="display:flex;gap:10px;flex-wrap:wrap;margin-top:6px;">{cols}</div>'
-            f'{sub_line}</div>')
+            f'{sub_lines}</div>')
 
 
 # ──────────────────────────────────────────────────────────────────────────────
@@ -429,15 +476,26 @@ def cached_history() -> dict[str, pd.DataFrame]:
         ttl=900, show_spinner="Measuring NIFTY 500 breadth …")(fetch_history)()
 
 
-def nifty50_members() -> set[str]:
-    """NIFTY 50 symbols (constituent CSV, cached by nse_universe). Empty set if
-    unreachable — the sub-index line is then simply not drawn."""
+def index_members(index: str) -> set[str]:
+    """An NSE index's symbols (constituent CSV, cached a week by nse_universe).
+    Empty set if unreachable — that sub-index is then simply not drawn."""
     try:
         import nse_universe as nu
-        return {str(r["symbol"]).strip() for r in nu.fetch_constituents("nifty50")
+        return {str(r["symbol"]).strip() for r in nu.fetch_constituents(index)
                 if r.get("symbol")}
     except Exception:
         return set()
+
+
+def sub_universe_members() -> dict[str, set[str]]:
+    """{label: symbols} for each of `SUB_UNIVERSES` whose list is reachable.
+    An empty list is dropped, never widened to the whole NIFTY 500."""
+    out = {}
+    for lbl, key in SUB_UNIVERSES:
+        m = index_members(key)
+        if m:
+            out[lbl] = m
+    return out
 
 
 def last_close_date(hist: dict[str, pd.DataFrame]) -> str | None:
@@ -473,22 +531,31 @@ def _bucket_table(k: str, df: pd.DataFrame, fmt: dict) -> None:
         st.dataframe(df, hide_index=True, column_config=fmt, use_container_width=True)
 
 
-def render_members(hist: dict[str, pd.DataFrame], nifty50: set[str]) -> None:
-    """Expander under the verdict card: the top N names in each quadrant.
+def render_members(hist: dict[str, pd.DataFrame], subs: dict[str, set[str]]) -> None:
+    """Expander under the verdict card: the top N names in each quadrant, for
+    the NIFTY 500 or any sub-index in `subs` (`sub_universe_members`).
 
     Context like the row above it — a list of who is where, not a buy list.
     """
     import streamlit as st
 
     with st.expander("Top names in each breadth bucket"):
-        c1, c2 = st.columns([2, 1])
+        options = universe_options(subs)
+        # A sub-index whose list was unreachable this run is not offered; drop a
+        # remembered pick of it rather than let the radio fail on a stale value.
+        if st.session_state.get("bq_universe") not in options:
+            st.session_state.pop("bq_universe", None)
+        c1, c2 = st.columns([3, 1])
         with c1:
-            uni = st.radio("Universe", [UNIVERSE_LABEL, "NIFTY 50"], horizontal=True,
-                           key="bq_universe", disabled=not nifty50)
+            uni = st.radio("Universe", options, horizontal=True, key="bq_universe")
         with c2:
             n = st.radio("Show top", [5, 10], index=1, horizontal=True, key="bq_top")
-        tables = quadrant_members(
-            hist, members=nifty50 if uni == "NIFTY 50" else None, top=n)
+        members = subs.get(uni)
+        q = sma_quadrants(hist, members=members)
+        st.markdown(
+            f'<div style="font-size:11px;color:{rs.TOKENS["text_muted"]};">'
+            f'{uni} · {_coverage(q)}</div>', unsafe_allow_html=True)
+        tables = quadrant_members(hist, members=members, top=n)
         fmt = {"Close": st.column_config.NumberColumn(format="%.2f"),
                "% vs SMA50": st.column_config.NumberColumn(format="%+.1f%%"),
                "% vs SMA200": st.column_config.NumberColumn(format="%+.1f%%"),
