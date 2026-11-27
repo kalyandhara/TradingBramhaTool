@@ -119,3 +119,13 @@ def test_a_rating_failure_never_breaks_the_shortlist(stub_run, monkeypatch):
     assert res["ok"] and stub_run["shortlist"]
     assert res["universe_ratings"] == {"ok": False, "error": "boom"}
     assert "universe" not in stub_run
+
+
+def test_universe_bars_are_cut_at_the_benchmark_session(monkeypatch):
+    seen = []
+    monkeypatch.setattr(rating, "rating_detail",
+                        lambda df, nifty, w=None: seen.append(df.index[-1]) or _detail(70))
+    bars = _frame(n=300)
+    nifty_lag = bars.iloc[:-1]
+    od.rate_universe(["A"], lambda s: bars, nifty_lag, "v1")
+    assert seen == [nifty_lag.index[-1]]

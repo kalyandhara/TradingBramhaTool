@@ -43,6 +43,45 @@ def _num(v) -> float | None:
     return None if math.isnan(f) else f
 
 
+#: NSE closes 15:30 IST; a bar dated today (IST) before this time is still forming.
+#: The machine runs on US Eastern, whose evening is IST market hours, so a manual
+#: run there would otherwise score a live, thin bar.
+IST_OFFSET = pd.Timedelta(hours=5, minutes=30)
+SESSION_FINAL_IST = pd.Timedelta(hours=16)
+
+
+def _utc_now() -> pd.Timestamp:
+    return pd.Timestamp.now(tz="UTC")
+
+
+def completed_session(index, now: pd.Timestamp | None = None) -> pd.Timestamp | None:
+    """The last bar date in `index` whose NSE session has closed: the last bar,
+    unless it is dated today in IST and it is not yet 16:00 IST."""
+    idx = pd.DatetimeIndex(index).normalize()
+    if idx.empty:
+        return None
+    now = (now if now is not None else _utc_now()).tz_convert("UTC").tz_localize(None)
+    ist = now + IST_OFFSET
+    last = idx[-1]
+    if last >= ist.normalize() and ist - ist.normalize() < SESSION_FINAL_IST:
+        return idx[-2] if len(idx) > 1 else None
+    return last
+
+
+def cut(df: pd.DataFrame | None, session: pd.Timestamp) -> pd.DataFrame | None:
+    """Bars up to and including `session` — the row's date and its data agree."""
+    if df is None or df.empty:
+        return df
+    return df[pd.DatetimeIndex(df.index).normalize() <= session]
+
+
+def benchmark_sessions_since(rec_date, sessions: pd.DatetimeIndex) -> int:
+    """Benchmark sessions after the pick day — the pick's age even when its own
+    bars have stopped (delisted, suspended, renamed)."""
+    rec = pd.Timestamp(str(rec_date)[:10])
+    return int((pd.DatetimeIndex(sessions).normalize() > rec).sum())
+
+
 def select_open(eps: pd.DataFrame) -> pd.DataFrame:
     """Opportunity episodes still inside the tracking window, plus pending ones
     (picked, no entry session yet)."""

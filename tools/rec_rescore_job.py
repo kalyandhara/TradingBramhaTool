@@ -70,15 +70,28 @@ def run(*, eps: pd.DataFrame | None = None, fetch_for=None, nifty_df=None, scan=
     if eps is None:
         eps = rr.select_open(raj.load_latest(db_path, source="opportunity")["episodes"])
     nifty_df = _default_nifty() if nifty_df is None else nifty_df
-    if nifty_df is None or nifty_df.empty:
+    session = (rr.completed_session(nifty_df.index)
+               if nifty_df is not None and not nifty_df.empty else None)
+    if session is None:
         return {"ok": False, "reason": "no benchmark"}
-    session = pd.Timestamp(nifty_df.index[-1]).normalize()
     iso = session.strftime("%Y-%m-%d")
-    fetch_for = fetch_for or od._FetchRouter(days=400, min_turnover=0)
+    # Every frame is cut at the session: a stock a day ahead of the benchmark (or a
+    # bar still forming in IST market hours) must not be scored under this date.
+    nifty_df = rr.cut(nifty_df, session)
+    raw_for = fetch_for or od._FetchRouter(days=400, min_turnover=0)
+
+    def fetch_for(name, _raw=raw_for):
+        f = _raw(name)
+        return lambda s: rr.cut(f(s), session)
     scan = scan or _default_scan
     universe = universe or _default_universe
     version = od.model_version()
 
+    retired = 0
+    if not eps.empty:
+        age = eps["rec_date"].map(lambda d: rr.benchmark_sessions_since(d, nifty_df.index))
+        keep = (eps["status"] == "pending") | (age <= rr.TRACK_SESSIONS)
+        retired, eps = int((~keep).sum()), eps[keep]
     fetch = fetch_for(oh.DEFAULT_WINDOW)
     symbols = sorted(set(eps["symbol"].dropna().astype(str))) if not eps.empty else []
     say(f"Re-scoring {len(eps)} picks ({len(symbols)} symbols) for {iso}…")
@@ -118,6 +131,7 @@ def run(*, eps: pd.DataFrame | None = None, fetch_for=None, nifty_df=None, scan=
     finally:
         conn.close()
     return {"ok": True, "session": iso, "written": len(rows), "skipped": skipped,
+            "retired": retired,
             "not_in_universe": sum(r["universe_status"] == "not_in_universe" for r in rows),
             "downgrades": sum(r["downgrade"] for r in rows)}
 
@@ -161,7 +175,9 @@ def main(argv: list[str] | None = None) -> int:
         print(f"  skipped {sym}: {why}")
     print(f"##RESULT {rep['session']} · {rep['written']} picks re-scored · "
           f"{len(rep['skipped'])} skipped · {rep['not_in_universe']} not in today's 500 · "
-          f"{rep['downgrades']} downgrades")
+          f"{rep['downgrades']} downgrades"
+          + (f" · {rep['retired']} retired (past {rr.TRACK_SESSIONS} sessions)"
+             if rep.get("retired") else ""))
     return 0
 
 

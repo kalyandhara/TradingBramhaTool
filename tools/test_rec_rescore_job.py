@@ -59,6 +59,14 @@ def fake_universe(session, symbols=None):
 
 
 @pytest.fixture(autouse=True)
+def after_the_close(monkeypatch):
+    """Pin the clock to the morning after the last fixture session (IST), so the
+    27 Nov bar is complete regardless of when the suite runs."""
+    import rec_rescore as rr
+    monkeypatch.setattr(rr, "_utc_now", lambda: pd.Timestamp("2026-11-28 01:00", tz="UTC"))
+
+
+@pytest.fixture(autouse=True)
 def stub_rating(monkeypatch):
     monkeypatch.setattr(rating, "rating_detail", lambda df, n, w=None: {
         "rating": 52, "minervini": 4, "technofunda": 3, "canslim": 2, "canslim_n": 4,
@@ -166,3 +174,40 @@ def test_default_universe_before_the_table_exists_is_empty(monkeypatch, tmp_path
     import portfolio_db as db
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "fresh.db")     # no init_db: no table
     assert job._default_universe(SESSION).empty
+
+
+def test_stock_bars_are_cut_at_the_benchmark_session(tmp_path, monkeypatch):
+    """Nifty lagging the stocks by a day must not date rows to D-1 while scoring
+    them on D's bars (and overwrite D-1's real row)."""
+    seen_rating, seen_scan = [], []
+    monkeypatch.setattr(rating, "rating_detail", lambda df, n, w=None: seen_rating.append(
+        df.index[-1]) or {"rating": 52, "minervini": 4, "technofunda": 3, "canslim": 2,
+                          "canslim_n": 4, "ew_conf": 30, "cs_near_high": True,
+                          "cs_volume": False, "cs_market": True, "cs_rs": False})
+
+    def scan(symbols, fetch_for, bench):
+        seen_scan.extend(fetch_for("any")(s).index[-1] for s in symbols)
+        return {}
+    lagging = nifty.iloc[:-1]                                   # ends 2026-11-26
+    rep = _run(tmp_path, nifty_df=lagging, scan=scan)
+    cut = lagging.index[-1]
+    assert rep["session"] == "2026-11-26"
+    assert set(seen_rating) == {cut} and set(seen_scan) == {cut}
+
+
+def test_a_pick_past_the_window_in_benchmark_sessions_is_retired(tmp_path, monkeypatch):
+    """A dead symbol's own bar count freezes; age picks by benchmark sessions."""
+    import rec_rescore as rr
+    monkeypatch.setattr(rr, "TRACK_SESSIONS", 5)
+    eps = pd.concat([EPS, _eps({"episode_id": "old", "symbol": "DEAD", "rec_date": "2026-11-03",
+                                "sessions": 2})])
+    rep = _run(tmp_path, eps=eps, fetch=_Fetch(missing={"DEAD"}))
+    assert "DEAD" not in rep["skipped"] and rep["retired"] == 1 and rep["written"] == 3
+
+
+def test_run_during_ist_market_hours_scores_the_last_closed_session(tmp_path, monkeypatch):
+    import rec_rescore as rr
+    monkeypatch.setattr(rr, "_utc_now", lambda: pd.Timestamp("2026-11-27 03:54", tz="UTC"))
+    rep = _run(tmp_path)
+    assert rep["session"] == "2026-11-26"
+    assert set(job.load_scores(db_path=tmp_path / "r.db")["session_date"]) == {"2026-11-26"}

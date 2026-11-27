@@ -123,11 +123,18 @@ def rate_universe(symbols: list[str], fetch, nifty_df, version: str) -> list[dic
     ranked within the universe: highest rating = 1, ties share the better rank.
     The pick re-score ranks open picks against this pool (spec 2026-11-26
     pick-rescore §2). Names with no bars or no rating are left out."""
+    import rec_rescore as rr
+    session = (pd.Timestamp(nifty_df.index[-1]).normalize()
+               if nifty_df is not None and not nifty_df.empty else None)
     rows = []
     for s in symbols:
         df = fetch(s)
         if df is None or getattr(df, "empty", True):
             continue
+        if session is not None:          # rate on bars up to the stored session only
+            df = rr.cut(df, session)
+            if df.empty:
+                continue
         d = rating.rating_detail(df, nifty_df)
         if d is not None:
             rows.append({**d, "symbol": s, "model_version": version})
@@ -145,8 +152,12 @@ def _store_universe_ratings(universe: list[str], fetch, nifty_df, version: str,
     if nifty_df is None or nifty_df.empty:
         return {"ok": False, "error": "no benchmark"}
     try:
-        session = pd.Timestamp(nifty_df.index[-1]).strftime("%Y-%m-%d")
-        rows = rate_universe(universe, fetch, nifty_df, version)
+        import rec_rescore as rr
+        done = rr.completed_session(nifty_df.index)   # never a bar still forming in IST
+        if done is None:
+            return {"ok": False, "error": "no completed session"}
+        session = done.strftime("%Y-%m-%d")
+        rows = rate_universe(universe, fetch, rr.cut(nifty_df, done), version)
         db.save_universe_ratings(rows, session_date=session, run_date=run_date)
         say(f"Universe ratings: {len(rows)}/{len(universe)} rated for {session}.")
         return {"ok": True, "n": len(rows), "session_date": session}

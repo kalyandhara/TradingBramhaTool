@@ -119,3 +119,17 @@ def test_first_downgrade():
     assert rr.first_downgrade(scores([0, 1, 1])) == "2026-12-03"
     assert rr.first_downgrade(scores([0, 0, 0])) is None
     assert rr.first_downgrade(pd.DataFrame()) is None
+
+
+def test_completed_session_drops_a_forming_ist_bar():
+    idx = pd.DatetimeIndex(["2026-11-25", "2026-11-26", "2026-11-27"])
+    # 03:54 UTC = 09:24 IST on 27 Nov: the 27 Nov bar is still forming
+    assert rr.completed_session(idx, pd.Timestamp("2026-11-27 03:54", tz="UTC")) == \
+        pd.Timestamp("2026-11-26")
+    # 10:45 UTC = 16:15 IST: the session has closed
+    assert rr.completed_session(idx, pd.Timestamp("2026-11-27 10:45", tz="UTC")) == \
+        pd.Timestamp("2026-11-27")
+    # the next morning before the open: yesterday's bar is complete
+    assert rr.completed_session(idx, pd.Timestamp("2026-11-28 01:00", tz="UTC")) == \
+        pd.Timestamp("2026-11-27")
+    assert rr.completed_session(idx[:1], pd.Timestamp("2026-11-25 04:00", tz="UTC")) is None
