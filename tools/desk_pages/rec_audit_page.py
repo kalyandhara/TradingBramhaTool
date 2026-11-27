@@ -67,9 +67,12 @@ def review_queue(eps: pd.DataFrame, tag: str | None = None,
     if eps.empty or f"ret_{h}" not in eps:
         return eps.iloc[0:0]
     q = eps[eps["failure"].astype(bool) & eps[f"ret_{h}"].notna()]
+    # one card per ticker at its latest failed pick, grouped BEFORE the cause
+    # filter so the cause counts equal the cards under them (spec 2026-11-27)
+    q = rp.group_by_ticker(q.sort_values(f"excess_{h}", na_position="last"))
     if tag:
         q = q[q["review_tag"] == tag]
-    return q.sort_values(f"excess_{h}", na_position="last")
+    return q
 
 
 def tag_counts(eps: pd.DataFrame, h: int = ra.HEADLINE_H) -> dict[str, int]:
@@ -249,9 +252,15 @@ def _postmortems(eps: pd.DataFrame, h: int = ra.HEADLINE_H) -> None:
 
 def _card(r: pd.Series, h: int = ra.HEADLINE_H) -> None:
     with st.container(border=True):
-        who = f" · {r['scanner']}" if pd.notna(r.get("scanner")) and r.get("scanner") else ""
-        st.markdown(f"**{r['symbol']}**{who} · picked {str(r['rec_date'])[:10]} · "
-                    f"rank {int(r['rank']) if pd.notna(r.get('rank')) else '—'}")
+        many = [s for s in str(r.get("scanners_all") or "").split(", ") if s]
+        if len(many) > 1:
+            who = f" · {len(many)} scanners: {', '.join(many)}"
+        else:
+            who = f" · {r['scanner']}" if pd.notna(r.get("scanner")) and r.get("scanner") else ""
+        st.markdown(f"**{r['symbol']}** · picked {str(r['rec_date'])[:10]} · "
+                    f"rank {int(r['rank']) if pd.notna(r.get('rank')) else '—'}{who}")
+        if r.get("earlier_dates"):
+            st.caption(f"Also picked: {r['earlier_dates']}")
         st.markdown(f"{h}d **{_pct(r.get(f'ret_{h}'))}** · vs NIFTY 500 "
                     f"{_pct(r.get(f'excess_{h}'))} · vs sector {_pct(r.get(f'excess_sec_{h}'))}")
         st.caption(f"Best {_pct(r.get('mfe'))} / worst {_pct(r.get('mae'))} · "
@@ -467,10 +476,13 @@ def _replay_dialog(r: pd.Series, h: int) -> None:
 
 
 def _all_picks(eps: pd.DataFrame, h: int) -> None:
-    cols = ["symbol", "scanner", "rec_date", "rank", "status", f"ret_{h}", f"excess_{h}",
-            f"excess_sc_{h}", f"excess_ew_{h}", "mfe", "mae", "plan_outcome", "review_tag", "family_names",
-            "sector", "appearances"]
-    d = eps[[c for c in cols if c in eps]].copy()
+    cols = ["symbol", "scanners_all", "rec_date", "earlier_dates", "rank", "status", f"ret_{h}",
+            f"excess_{h}", f"excess_sc_{h}", f"excess_ew_{h}", "mfe", "mae", "plan_outcome",
+            "review_tag", "family_names", "sector", "appearances"]
+    g = rp.group_by_ticker(eps.sort_values("rec_date", ascending=False))   # one row per ticker
+    d = g[[c for c in cols if c in g]].copy()
+    if not d["scanners_all"].astype(bool).any():
+        d = d.drop(columns=["scanners_all"])
     d["rec_date"] = d["rec_date"].astype(str).str[:10]
     d.insert(1, "open", d["symbol"].map(lambda s: link("analyze", s)))
     st.dataframe(d.sort_values("rec_date", ascending=False), hide_index=True,

@@ -137,3 +137,18 @@ def test_rescore_for_reads_only_that_picks_rows(monkeypatch):
     page._scores_for.clear()
     scores, _ = page._rescore_for({"episode_id": "e9", "symbol": "A", "rec_date": "2026-11-20"})
     assert seen == [["e9"]] and list(scores["episode_id"]) == ["e9"]
+
+
+def test_review_queue_one_card_per_ticker_and_counts_match_cards():
+    eps = pd.DataFrame({
+        "episode_id": ["m1", "m2", "m0", "x1"], "symbol": ["M", "M", "M", "X"],
+        "scanner": ["Base", "VCP", "Old", "S"],
+        "rec_date": ["2026-10-13", "2026-10-13", "2026-08-14", "2026-10-13"],
+        "ret_21": [-9.0, -9.0, -7.0, -6.0], "excess_21": [-12.0, -12.0, -20.0, -6.0],
+        "failure": [True, True, True, True],
+        "review_tag": ["EVENT_GAP", "EVENT_GAP", "CHASED", "EVENT_GAP"]})
+    q = page.review_queue(eps)
+    assert sorted(q["symbol"]) == ["M", "X"]
+    assert q.set_index("symbol").loc["M", "episode_id"] == "m1"
+    assert page.tag_counts(eps) == {"EVENT_GAP": 2}
+    assert page.review_queue(eps, "CHASED").empty

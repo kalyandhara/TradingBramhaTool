@@ -203,6 +203,33 @@ def scorecard_text(sc: dict) -> str:
             f"Neither {sc['neither']} · No plan {sc['no_plan']} · Pending {sc['pending']}")
 
 
+def group_by_ticker(eps: pd.DataFrame) -> pd.DataFrame:
+    """One row per ticker for the card views (spec 2026-11-27): the first row, in
+    the incoming order, among the ticker's latest pick date. Adds `scanners_all`
+    (every scanner that fired on that date), `earlier_dates` (its other pick
+    dates, newest first) and `n_picks`. Statistics never use this — per-scanner
+    attribution needs every pick."""
+    if eps.empty or "symbol" not in eps:
+        return eps.assign(scanners_all=[], earlier_dates=[], n_picks=[]) if eps.empty else eps
+    day = (eps["rec_date"].astype(str).str[:10] if "rec_date" in eps
+           else pd.Series("", index=eps.index))
+    latest = day.groupby(eps["symbol"]).transform("max")
+    on_latest = eps[day == latest]
+    keep = on_latest[~on_latest["symbol"].duplicated()].copy()
+    if "scanner" in eps:
+        names = on_latest.groupby("symbol")["scanner"].agg(
+            lambda s: ", ".join(dict.fromkeys(_text(x) for x in s if _text(x))))
+        keep["scanners_all"] = keep["symbol"].map(names).fillna("")
+    else:
+        keep["scanners_all"] = ""
+    older = (pd.DataFrame({"symbol": eps["symbol"], "day": day})[day != latest]
+             .drop_duplicates().sort_values("day", ascending=False)
+             .groupby("symbol")["day"].agg(", ".join))
+    keep["earlier_dates"] = keep["symbol"].map(older).fillna("")
+    keep["n_picks"] = keep["symbol"].map(eps["symbol"].value_counts()).astype(int)
+    return keep
+
+
 def replay_candidates(eps: pd.DataFrame, kind: str, tag: str | None, h: int) -> pd.DataFrame:
     """Picks for the replay picker: losers worst first, winners best first, all newest first."""
     r, x = f"ret_{h}", f"excess_{h}"
@@ -220,6 +247,7 @@ def replay_candidates(eps: pd.DataFrame, kind: str, tag: str | None, h: int) -> 
             x, ascending=False)
     else:
         d = eps.sort_values("rec_date", ascending=False)
+    d = group_by_ticker(d)          # one entry per ticker, at its latest pick
     if tag and "review_tag" in d:
         d = d[d["review_tag"] == tag]
     # Keyed by episode_id so a picker's stored choice means the same pick after a
@@ -266,10 +294,13 @@ def replay_figure(f: dict, ep, h: int = ra.HEADLINE_H):
     lv = {k: (None if _LEVEL_LABELS.get(k) in f.get("off_chart", {}) else v)
           for k, v in f["levels"].items()}
     rec = str(ep.get("rec_date"))[:10]
-    right = f"Since then · to {post.index[-1].date()}" if not post.empty else "Since then"
+    sym = _text(ep.get("symbol"))
+    who = f"{sym} · " if sym else ""
+    right = (f"{who}Since then · to {post.index[-1].date()}" if not post.empty
+             else f"{who}Since then")
     fig = make_subplots(rows=2, cols=2, shared_xaxes="columns", row_heights=[0.75, 0.25],
                         column_widths=[0.4, 0.6], horizontal_spacing=0.04, vertical_spacing=0.03,
-                        subplot_titles=(f"Pick day · {rec}", right, "", ""))
+                        subplot_titles=(f"{who}Pick day · {rec}", right, "", ""))
     if not pre.empty:
         fig.add_trace(_candles(pre, "pick day"), row=1, col=1)
         fig.add_trace(go.Scatter(x=pre.index, y=pre["ema20"], mode="lines", name="20 EMA",

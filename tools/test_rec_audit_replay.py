@@ -580,3 +580,42 @@ def test_what_moved_weights_follow_the_rating_weights(monkeypatch):
     monkeypatch.setattr(rating, "OVERALL_WEIGHTS",
                         {"minervini": 0.10, "technofunda": 0.50, "canslim": 0.20, "ew": 0.20})
     assert rp.what_moved(_ep(), s, None).startswith("TechnoFunda")
+
+
+# ── One card per ticker (spec 2026-11-27) ────────────────────────────────────
+def test_group_by_ticker_keeps_latest_and_lists_scanners():
+    eps = pd.DataFrame({"episode_id": list("abcde"), "symbol": ["M", "M", "M", "X", "M"],
+                        "scanner": ["Base", "VCP", "Base", "S", "Old"],
+                        "rec_date": ["2026-10-13", "2026-10-13", "2026-10-13", "2026-10-13",
+                                     "2026-08-14"]})
+    g = rp.group_by_ticker(eps)
+    m = g.set_index("symbol").loc["M"]
+    assert list(g["symbol"]) == ["M", "X"] and m["episode_id"] == "a"
+    assert m["scanners_all"] == "Base, VCP" and m["earlier_dates"] == "2026-08-14"
+    assert m["n_picks"] == 4
+
+
+def test_group_by_ticker_without_scanner_column_and_empty():
+    eps = pd.DataFrame({"episode_id": ["a", "b"], "symbol": ["M", "M"],
+                        "rec_date": ["2026-10-13", "2026-11-02"]})
+    g = rp.group_by_ticker(eps)
+    assert list(g["episode_id"]) == ["b"] and g["scanners_all"].iloc[0] == ""
+    assert g["earlier_dates"].iloc[0] == "2026-10-13"
+    assert rp.group_by_ticker(eps.iloc[0:0]).empty
+
+
+def test_replay_candidates_one_per_ticker():
+    c = pd.DataFrame({"episode_id": ["a", "b", "c"], "symbol": ["M", "M", "X"],
+                      "scanner": ["Base", "VCP", "S"], "rec_date": ["2026-10-13"] * 3,
+                      "ret_21": [-9.0, -9.0, -3.0], "excess_21": [-12.0, -12.0, -6.0],
+                      "failure": [True, True, True], "review_tag": ["EVENT_GAP"] * 3})
+    got = rp.replay_candidates(c, "losers", None, 21)
+    assert list(got["symbol"]) == ["M", "X"] and got.loc["a", "scanners_all"] == "Base, VCP"
+
+
+def test_replay_titles_name_the_ticker():
+    ep = _ep(symbol="TEST")
+    fig = rp.replay_figure(_frame(ep), ep)
+    titles = [a.text for a in fig.layout.annotations]
+    assert f"TEST · Pick day · {REC}" in titles
+    assert any(t.startswith("TEST · Since then") for t in titles if t)
