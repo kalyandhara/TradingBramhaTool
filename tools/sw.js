@@ -29,7 +29,7 @@
  * forgotten bump can no longer freeze a code fix — at worst it costs one extra
  * network round trip.
  */
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';   // v3: + replay_mode.js
 const CACHE = 'tb-charts-' + CACHE_VERSION;
 
 // Static shell assets. The indicator JS files are served as individual routes by
@@ -43,6 +43,7 @@ const SHELL = [
   '/icon-maskable-512.png',
   '/elliott_wave.js',
   '/cycles.js',
+  '/replay_mode.js',
   '/volume_profile.js',
   '/session_volume_profile.js',
   '/fvg.js',

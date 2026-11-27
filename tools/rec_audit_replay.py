@@ -450,6 +450,38 @@ def excursion_figure(ep, f: dict):
     return fig
 
 
+# ── Multi-Chart dual replay link ─────────────────────────────────────────────
+#: The chart tool (chart_server) — same convention as ui_tables.chart_url.
+CHART_BASE = "http://localhost:5001/"
+
+
+def multichart_url(ep, f: dict) -> str:
+    """Deep link opening the pick in the Multi-Chart as two panes: the chart as it
+    stood on the pick day, and everything since (replay_mode.js reads these)."""
+    from urllib.parse import urlencode
+
+    import rec_audit_job as job
+    lv, off = f["levels"], f["off_chart"]
+    q = {"symbol": _text(ep.get("symbol")), "exchange": "NSE", "tf": "1d",
+         "layout": "replay", "replay": str(ep.get("rec_date"))[:10]}
+    for key, name in (("plan_entry", "entry"), ("stop", "stop"), ("target", "target")):
+        if lv.get(key) is not None and _LEVEL_LABELS[key] not in off:
+            q[name] = f"{lv[key]:.2f}"
+    if f["markers"]["plan_date"] is not None:
+        q["sdate"] = f["markers"]["plan_date"].date().isoformat()
+        q["skind"] = "T" if ep.get("plan_outcome") == "target_first" else "S"
+    sector = job.SECTOR_INDEX.get(_text(ep.get("sector")))
+    if sector:
+        q["sector"] = sector
+    rank = _num(ep.get("rank"))
+    if rank is not None:
+        q["rank"] = str(int(rank))
+    label = _text(ep.get("family_names")) or _text(ep.get("scanners"))
+    if label:
+        q["label"] = label[:80]
+    return CHART_BASE + "?" + urlencode(q)
+
+
 def replay_label(r, h: int) -> str:
     ret = _num(r.get(f"ret_{h}"))
     head = f"{_text(r.get('symbol'))} · picked {str(r.get('rec_date'))[:10]}"

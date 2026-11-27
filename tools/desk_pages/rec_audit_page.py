@@ -349,7 +349,10 @@ def _replay_view(r: pd.Series, h: int, key: str) -> None:
     if txt(r.get("note")):
         detail.append(f"📝 {txt(r.get('note'))}")
     st.caption(" · ".join(detail))
-    st.link_button("Analyzer ↗", link("analyze", r["symbol"]))
+    a, b = st.columns(2)
+    a.link_button("Open in Multi-Chart ↗ (before / after, side by side)",
+                  rp.multichart_url(r, f), use_container_width=True)
+    b.link_button("Analyzer ↗", link("analyze", r["symbol"]), use_container_width=True)
 
 
 _BADGE = {"green": "green-badge", "amber": "orange-badge", "red": "red-badge",

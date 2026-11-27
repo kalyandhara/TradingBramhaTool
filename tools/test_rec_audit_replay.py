@@ -349,3 +349,29 @@ def test_missing_stop_before_plans_were_recorded_is_not_a_failure():
     assert not any("stop" in lbl.lower() for lbl in labels)
     bad = rp.process_checks(_vep(stop=None, plan_source="scanner"))
     assert (False, "No stop in the plan") in bad
+
+
+# ── Project 2: open the pick in the Multi-Chart dual replay ──────────────────
+def test_multichart_url_carries_the_replay():
+    from urllib.parse import parse_qs, urlsplit
+    post = _frame()["post"]
+    o3 = post.iloc[2]["open"]
+    ep = _vep(plan_outcome="stop_first", plan_sessions=3, stop=o3 + 2,
+              sector="Healthcare", family_names="HM Buy (Hilega Milega)")
+    url = rp.multichart_url(ep, _frame(ep))
+    u = urlsplit(url)
+    q = {k: v[0] for k, v in parse_qs(u.query).items()}
+    assert url.startswith("http://localhost:5001/?")
+    assert (q["symbol"], q["exchange"], q["tf"], q["layout"]) == ("TEST", "NSE", "1d", "replay")
+    assert q["replay"] == REC and q["rank"] == "4" and q["label"] == "HM Buy (Hilega Milega)"
+    assert float(q["stop"]) == pytest.approx(o3 + 2) and float(q["target"]) == 200.0
+    assert q["sdate"] == post.index[2].date().isoformat() and q["skind"] == "S"
+    assert q["sector"] == "^CNXPHARMA"
+
+
+def test_multichart_url_drops_far_off_levels_and_missing_hits():
+    from urllib.parse import parse_qs, urlsplit
+    close = float(_bars().loc[pd.Timestamp(REC), "close"])
+    ep = _vep(entry=close * 4, sector="Unknown sector")
+    q = parse_qs(urlsplit(rp.multichart_url(ep, _frame(ep))).query)
+    assert "entry" not in q and "sdate" not in q and "skind" not in q and "sector" not in q

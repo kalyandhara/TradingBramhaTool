@@ -35,6 +35,8 @@
 <script src="/elliott_wave.js"></script>
 <!-- Hurst cycle helpers (FLD) — pure computation, see cycles.js -->
 <script src="/cycles.js"></script>
+<!-- Dual pick replay from Recommendation Audit (?replay=) — see replay_mode.js -->
+<script src="/replay_mode.js"></script>
 <!-- Volume Profile (POC/Value Area/HVN/LVN) plug-in — pure computation module, see volume_profile.js -->
 <script src="/volume_profile.js"></script>
 <!-- Session Volume Profile HD — one profile per session, D/P/B/I classification +
@@ -2842,6 +2844,9 @@ let retryDelay = 2000;
 const LAYOUT_NS = (new URLSearchParams(location.search).get('layout') || '').replace(/[^\w-]/g, '');
 const LS_COUNT = LAYOUT_NS ? `tb_chart_count_${LAYOUT_NS}` : 'tb_chart_count';
 const LS_PANES = LAYOUT_NS ? `tb_pane_cfg_${LAYOUT_NS}` : 'tb_pane_cfg';
+// `?replay=YYYY-MM-DD` (from Recommendation Audit › Pick replay): pane 1 is the
+// chart as it stood on the pick day, pane 2 everything since. See replay_mode.js.
+const REPLAY = (window.RPM && RPM.parseReplay(location.search)) || null;
 if (LAYOUT_NS && localStorage.getItem(LS_PANES) === null) {
   const base = localStorage.getItem('tb_pane_cfg');
   if (base) localStorage.setItem(LS_PANES, base);
@@ -12297,6 +12302,67 @@ async function fetchRsData(pane, bars) {
 }
 
 // ── Data loader ───────────────────────────────────────────────────────────────
+// ── Dual pick replay (?replay=) ──────────────────────────────────────────────
+function setReplayBanner(p, idx) {
+  let el = p.el.querySelector('.replay-banner');
+  if (!el) {
+    el = document.createElement('div');
+    el.className = 'replay-banner';
+    el.style.cssText = 'position:absolute;left:8px;bottom:8px;z-index:20;pointer-events:none;' +
+      'background:rgba(20,22,28,0.85);color:#e6e6e6;border:1px solid #444;border-radius:4px;' +
+      'padding:3px 8px;font:11px/1.4 system-ui,sans-serif;max-width:70%';
+    if (getComputedStyle(p.el).position === 'static') p.el.style.position = 'relative';
+    p.el.appendChild(el);
+  }
+  const r = REPLAY;
+  el.innerHTML = idx === 0
+    ? `<b>BEFORE PICK · ${r.date}</b>${r.rank != null ? ` · rank #${r.rank}` : ''}` +
+      (r.label ? ` · ${r.label.replace(/[<>&]/g, '')}` : '') +
+      '<br>bars cut at the pick day · dashed: entry / stop / target'
+    : '<b>AFTER PICK</b> · PICK entry · S stop / T target hit · V volume breakdown ' +
+      '(desk rule) · E results<br>dotted: NIFTY 500 (grey) and sector (blue) rebased to the entry';
+}
+
+async function applyReplay(p, idx) {
+  if (!REPLAY || !window.RPM || !p.series) return;
+  (p._rpLines || []).forEach(l => { try { p.series.removePriceLine(l); } catch {} });
+  (p._rpSeries || []).forEach(s => { try { p.chart.removeSeries(s); } catch {} });
+  p._rpLines = []; p._rpSeries = [];
+  const level = (price, title, color) => {
+    if (price > 0) p._rpLines.push(p.series.createPriceLine(
+      {price, color, lineWidth: 1, lineStyle: 2, axisLabelVisible: true, title}));
+  };
+  level(REPLAY.stop, 'stop', '#f85149');
+  level(REPLAY.target, 'target', '#3fb950');
+  setReplayBanner(p, idx);
+  const n = p.bars.length;
+  if (idx === 0) {
+    level(REPLAY.entry, 'entry', '#ffb020');
+    p.chart.timeScale().setVisibleLogicalRange({from: Math.max(0, n - 60), to: n + 2});
+    return;
+  }
+  const entryBar = p.bars.find(b => b.time > REPLAY.cut);
+  setPaneMarkers(p, 'replay', RPM.markers(REPLAY, p.bars, RPM.volumeBreakdown(p.bars, REPLAY.cut)));
+  if (!entryBar) return;
+  level(entryBar.open, 'entry', '#ffb020');
+  const i0 = p.bars.indexOf(entryBar);
+  p.chart.timeScale().setVisibleLogicalRange({from: Math.max(0, i0 - 40), to: n + 2});
+  for (const [sym, color, title] of [['^CRSLDX', '#9e9e9e', 'NIFTY 500'],
+                                     [REPLAY.sector, '#4fc3f7', 'sector']]) {
+    if (!sym) continue;
+    try {
+      const res = await fetch(`${SERVER}/api/ohlcv?symbol=${encodeURIComponent(sym)}` +
+                              `&timeframe=1d&bars=${TF_BARS['1d'] || 300}`);
+      const line = RPM.rebase(((await res.json()).bars) || [], entryBar.time, entryBar.open);
+      if (!line.length || p.symbol !== panes[idx].symbol) continue;
+      const s = p.chart.addLineSeries({color, lineWidth: 1, lineStyle: 1, title,
+                                       priceLineVisible: false, lastValueVisible: false});
+      s.setData(line);
+      p._rpSeries.push(s);
+    } catch {}
+  }
+}
+
 async function loadData(idx) {
   const p = panes[idx];
   if (!p) return;
@@ -12313,7 +12379,10 @@ async function loadData(idx) {
     const res  = await fetch(url);
     if (!res.ok) throw new Error(res.status);
     const data = await res.json();
-    const bars = data.bars || [];
+    // Replay: the before-pick pane keeps only bars on or before the pick day, so
+    // every indicator below is computed from what the desk could see then.
+    const bars = (REPLAY && idx === 0) ? RPM.cutBars(data.bars || [], REPLAY.cut)
+                                       : (data.bars || []);
 
     // Race guard: if the pane switched symbols/tf while we were fetching,
     // drop this response — otherwise a slow first-load (e.g. saved ADON.BO)
@@ -12399,6 +12468,7 @@ async function loadData(idx) {
       // different exchange is not — surface it.
       if (data.exchange_fallback) showToast(`⚠ ${data.exchange_fallback}`, 4500);
       updateTicker(idx, last.close, false);
+      if (REPLAY && idx <= 1) applyReplay(p, idx);
       ok = true;
       if (p.tour) openTour(p);     // B-186: re-tour the new symbol/timeframe, never show the old one
     } else if (loader) {
@@ -12525,6 +12595,7 @@ setInterval(async () => {
   for (let i = 0; i < panes.length; i++) {
     const p = panes[i];
     if (!p || !p.symbol) continue;
+    if (REPLAY && i === 0) continue;   // the before-pick pane is frozen at the pick day
     try {
       const r = await fetch(`${SERVER}/api/tick?symbol=${encodeURIComponent(p.symbol)}`);
       if (!r.ok) continue;
@@ -12543,6 +12614,7 @@ function wsSubscribe(idx) {
 function onCandleMsg(msg) {
   panes.forEach((p, i) => {
     if (p.symbol !== msg.symbol) return;
+    if (REPLAY && i === 0) return;   // never append live bars to the before-pick pane
     // Filter by timeframe too — otherwise a 1d tick lands on a 4h/1w pane and
     // series.update() writes a phantom bar off the pane's time grid, showing
     // up as a "mirrored duplicate" candle floating near current price.
@@ -12620,8 +12692,19 @@ cntSel.addEventListener('change', () => {
     cfg[k + 1] = Object.assign({}, cfg[k + 1] || {}, {symbol: s});
     if (tf) cfg[k + 1].tf = tf;
   });
+  if (REPLAY) {
+    // Both panes on the same stock, daily; EMA 20 on both, Event Markers (E = results)
+    // on the after-pick pane. The link sets ?layout=replay, so this never touches
+    // the standalone tool's saved layout.
+    [0, 1].forEach(k => {
+      const ind = new Set((cfg[k] && cfg[k].indicators) || []);
+      ind.add('ema20');
+      if (k === 1) ind.add('events');
+      cfg[k] = Object.assign({}, cfg[k] || {}, {symbol: sym, tf: '1d', indicators: [...ind]});
+    });
+  }
   localStorage.setItem(LS_PANES, JSON.stringify(cfg));
-  const n = parseInt(params.get('charts') || '', 10);
+  const n = REPLAY ? 2 : parseInt(params.get('charts') || '', 10);
   if (n >= 1 && n <= 8) { saveCount(n); cntSel.value = String(n); }
   document.title = `${display} — Trading Bramha`;
 })();
