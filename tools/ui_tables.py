@@ -20,6 +20,20 @@ import streamlit as st
 DASHBOARD_BASE = "http://localhost:8501"
 
 
+def page_link(page: str) -> str:
+    """Deep link that opens a desk page by name (`?nav=page&page=…`) — the
+    Multi-Chart replay's Back button returns here."""
+    return f"{DASHBOARD_BASE}/?nav=page&page={quote(page, safe='')}"
+
+
+def page_from_query(params, pages) -> str | None:
+    """The page a `?nav=page&page=…` link asks for, if it is one of `pages`."""
+    if params.get("nav") != "page":
+        return None
+    p = params.get("page")
+    return p if p in pages else None
+
+
 def analyze_url(sym) -> str | None:
     s = str(sym).strip().upper().replace(".NS", "")
     if not s or s.startswith("^"):

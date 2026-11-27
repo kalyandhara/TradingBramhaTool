@@ -12322,8 +12322,30 @@ function setReplayBanner(p, idx) {
     : RPM.afterLegend(r);
 }
 
+// "← Back to Recommendation Audit": the replay opens in a new tab from the audit,
+// so closing it returns there unchanged; without an opener it navigates to the
+// audit page (RPM.backAction only ever allows a localhost URL).
+function addReplayBack() {
+  if (document.getElementById('replay-back')) return;
+  const act = RPM.backAction(REPLAY, !!(window.opener && !window.opener.closed));
+  if (!act) return;
+  const b = document.createElement('button');
+  b.id = 'replay-back';
+  b.textContent = '← Back to Recommendation Audit';
+  b.style.cssText = 'position:fixed;top:6px;left:50%;transform:translateX(-50%);z-index:9999;' +
+    'background:#ffb020;color:#14161c;border:0;border-radius:4px;padding:4px 12px;' +
+    'font:600 12px system-ui,sans-serif;cursor:pointer';
+  b.onclick = () => {
+    const a = RPM.backAction(REPLAY, !!(window.opener && !window.opener.closed));
+    if (a && a.kind === 'close') { window.close(); if (!window.closed) location.href = REPLAY.back; }
+    else if (a) location.href = a.url;
+  };
+  document.body.appendChild(b);
+}
+
 async function applyReplay(p, idx) {
   if (!REPLAY || !window.RPM || !p.series) return;
+  addReplayBack();
   (p._rpLines || []).forEach(l => { try { p.series.removePriceLine(l); } catch {} });
   (p._rpSeries || []).forEach(s => { try { p.chart.removeSeries(s); } catch {} });
   p._rpLines = []; p._rpSeries = [];

@@ -619,3 +619,10 @@ def test_replay_titles_name_the_ticker():
     titles = [a.text for a in fig.layout.annotations]
     assert f"TEST · Pick day · {REC}" in titles
     assert any(t.startswith("TEST · Since then") for t in titles if t)
+
+
+def test_multichart_url_carries_a_back_link():
+    from urllib.parse import parse_qs, urlsplit
+    ep = _ep()
+    q = parse_qs(urlsplit(rp.multichart_url(ep, _frame(ep))).query)
+    assert q["back"] == ["http://localhost:8501/?nav=page&page=Recommendation%20Audit"]

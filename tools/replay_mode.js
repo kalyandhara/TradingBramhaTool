@@ -48,6 +48,7 @@
       sdate: sdate && DATE.test(sdate) ? sdate : null,
       skind: skind === 'S' || skind === 'T' ? skind : null,
       ddate: ddate && DATE.test(ddate) ? ddate : null,
+      back: q.get('back') || null,
       sector: q.get('sector') || null,
       rank: Number.isFinite(rank) ? rank : null,
       label: q.get('label') || '',
@@ -115,5 +116,19 @@
       '<br>dotted: NIFTY 500 (grey) and sector (blue) rebased to the entry';
   }
 
-  root.RPM = {dayTime, parseReplay, cutBars, rebase, volumeBreakdown, markers, afterLegend};
+  /** What the replay's Back button does. Opened from the audit (a new tab with an
+   *  opener): close it, which returns to the audit exactly where it was. Else go
+   *  to `back` — only a localhost URL, so the link cannot redirect anywhere else. */
+  function backAction(r, hasOpener) {
+    if (!r || !r.back) return null;
+    let u;
+    try { u = new URL(r.back); } catch (e) { return null; }
+    if (!/^https?:$/.test(u.protocol) || !['localhost', '127.0.0.1'].includes(u.hostname)) {
+      return null;
+    }
+    return hasOpener ? {kind: 'close'} : {kind: 'go', url: u.href};
+  }
+
+  root.RPM = {dayTime, parseReplay, cutBars, rebase, volumeBreakdown, markers, afterLegend,
+              backAction};
 })(typeof window !== 'undefined' ? window : globalThis);

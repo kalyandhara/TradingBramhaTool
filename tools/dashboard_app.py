@@ -1147,6 +1147,15 @@ if st.query_params.get("nav") in ("analyze", "predict") and st.query_params.get(
     st.session_state["last_analyzed"] = _dl_sym   # triggers auto-run in the tab
     st.query_params.clear()
 
+# Deep-link: ?nav=page&page=<name> opens a page from the ribbon — the Multi-Chart
+# replay's "← Back" lands on Recommendation Audit this way when the chart was not
+# opened from the audit tab (otherwise it just closes and returns to that tab).
+_dl_page = uit.page_from_query(st.query_params,
+                               {p for _ps in PAGE_GROUPS.values() for p in _ps})
+if _dl_page:
+    st.session_state["current_page"] = _dl_page
+    st.query_params.clear()
+
 # ── Ribbon status: market session + data freshness ──────────────────
 # What a trading bar is FOR is telling you whether what you are looking at is
 # current. Two facts, both cheap: is the NSE session on, and how old is the

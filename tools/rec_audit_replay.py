@@ -647,6 +647,8 @@ def multichart_url(ep, f: dict, ddate: str | None = None) -> str:
         q["label"] = label[:80]
     if ddate:                       # first session the re-score flagged a downgrade
         q["ddate"] = str(ddate)[:10]
+    import ui_tables as uit         # the chart's Back button returns to the audit
+    q["back"] = uit.page_link("Recommendation Audit")
     return CHART_BASE + "?" + urlencode(q)
 
 

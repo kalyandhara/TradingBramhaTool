@@ -124,3 +124,20 @@ def test_after_pane_legend_explains_d_as_a_prior_only_when_present():
     without = rpm("RPM.afterLegend(RPM.parseReplay(q))", q="?replay=2026-08-07")
     assert "D rating downgrade (a prior, untested)" in with_d
     assert "V volume breakdown" in without and "D rating" not in without
+
+
+def test_back_closes_the_tab_the_audit_opened():
+    assert rpm("RPM.backAction(RPM.parseReplay(q), true)",
+               q="?replay=2026-08-07&back=http%3A%2F%2Flocalhost%3A8501%2F") == {"kind": "close"}
+
+
+def test_back_navigates_when_there_is_no_opener():
+    got = rpm("RPM.backAction(RPM.parseReplay(q), false)",
+              q="?replay=2026-08-07&back=http%3A%2F%2Flocalhost%3A8501%2F%3Fnav%3Dpage")
+    assert got == {"kind": "go", "url": "http://localhost:8501/?nav=page"}
+
+
+def test_back_refuses_a_foreign_url_and_is_absent_without_back():
+    assert rpm("RPM.backAction(RPM.parseReplay(q), false)",
+               q="?replay=2026-08-07&back=https%3A%2F%2Fevil.example%2F") is None
+    assert rpm("RPM.backAction(RPM.parseReplay(q), false)", q="?replay=2026-08-07") is None
