@@ -326,6 +326,130 @@ def replay_figure(f: dict, ep, h: int = ra.HEADLINE_H):
     return fig
 
 
+# ── Decision snapshot, verdict, MFE/MAE ladder ───────────────────────────────
+#: Process (how the pick was made) and outcome (what the market did) are judged
+#: separately. Process uses only what was known on the pick day, with the audit's
+#: own post-mortem thresholds (rec_audit), so nothing new is invented here.
+def process_checks(ep) -> list[tuple[bool, str]]:
+    """Pick-day process checks; a reading the pick did not record is skipped."""
+    out = []
+    stop = _num(ep.get("stop"))
+    if stop is not None:
+        out.append((True, "Plan had a stop"))
+    elif _text(ep.get("plan_source")):
+        out.append((False, "No stop in the plan"))
+    # else: no plan was recorded (picks before 2026-10-22) — unknown, not a failure
+    ext = _num(ep.get("ext_vs_ema20"))
+    if ext is not None:
+        out.append((True, f"Entry not chased ({ext:+.1f}% vs the 20 EMA)")
+                   if ext <= ra.CHASED_ABOVE_EMA_PCT
+                   else (False, f"Entry chased: {ext:+.1f}% above the 20 EMA"))
+    flags = _text(ep.get("risk_flags"))
+    out.append((False, f"Risk flag ignored: {flags}") if flags
+               else (True, "No risk flag at pick"))
+    t10 = _num(ep.get("turnover10_at_rec"))
+    if t10 is not None:
+        cr = t10 / 1e7
+        out.append((True, f"Liquid (₹{cr:,.1f} Cr/day)") if t10 >= ra.ILLIQUID_TURNOVER_RS
+                   else (False, f"Illiquid: ₹{cr:,.1f} Cr/day"))
+    return out
+
+
+_COLOUR_LABEL = {"green": "SUCCESS", "amber": "MIXED", "red": "FAILED"}
+
+
+def verdict(ep, f: dict, h: int = ra.HEADLINE_H) -> dict:
+    """Thesis / process / outcome, judged apart, and the Green-Amber-Red colour:
+    green = thesis and process right, red = both wrong, amber = mixed."""
+    ret, exc = _num(ep.get(f"ret_{h}")), _num(ep.get(f"excess_{h}"))
+    checks = process_checks(ep)
+    process_ok = all(ok for ok, _ in checks)
+    items: list[tuple[bool, str]] = []
+    if exc is not None:
+        items.append((exc > 0, "THESIS_CORRECT" if exc > 0 else "THESIS_WRONG"))
+    items.append((process_ok, "PROCESS_CORRECT" if process_ok else "PROCESS_FLAWED"))
+    if ret is not None:
+        items.append((ret > 0, "OUTCOME_POSITIVE" if ret > 0 else "OUTCOME_NEGATIVE"))
+    stop = []
+    if ep.get("plan_outcome") in ("stop_first", "ambiguous") and f["exit_px"] is not None:
+        last = f["last_px"]
+        saved = last is not None and f["exit_px"] >= last
+        note = (f"exited {_rs(f['exit_px'])}; now {_rs(last)}"
+                + (" — the stop protected capital" if saved
+                   else " — price recovered above the exit") if last is not None else "")
+        stop.append((saved, "STOP_EXECUTED", note))
+    if exc is None:
+        label = "PENDING" if f["post"].empty else "OPEN"
+        colour = "grey"
+    else:
+        colour = ("green" if exc > 0 and process_ok else
+                  "red" if exc <= 0 and not process_ok else "amber")
+        label = _COLOUR_LABEL[colour]
+    return {"colour": colour, "label": label, "items": items, "checks": checks, "stop": stop}
+
+
+def snapshot(ep, f: dict, h: int = ra.HEADLINE_H) -> dict:
+    """The executive-summary numbers for one pick."""
+    v = verdict(ep, f, h)
+    e, last = f["levels"]["entry_px"], f["last_px"]
+    n, last_on = _num(ep.get("appearances")), _text(ep.get("last_rec_date"))[:10]
+    shortlist = (f"{int(n)} run{'s' if int(n) != 1 else ''}" + (f" · last {last_on}" if last_on else "")
+                 if n else "")
+    rank = _num(ep.get("rank"))
+    return {"outcome": v["label"], "colour": v["colour"],
+            "rank": int(rank) if rank is not None else None, "shortlist": shortlist,
+            "entry": e, "current": last,
+            "to_date": (last / e * 100 - 100) if e and last is not None else None,
+            "ret_h": _num(ep.get(f"ret_{h}")), "vs_n500": _num(ep.get(f"excess_{h}")),
+            "vs_sector": _num(ep.get(f"excess_sec_{h}"))}
+
+
+def excursion_insight(ep, entry_px: float | None = None) -> str:
+    """One plain line from the best (MFE) and worst (MAE) move after entry."""
+    mfe, mae = _num(ep.get("mfe")), _num(ep.get("mae"))
+    if mfe is None or mae is None:
+        return ""
+    tgt, e = _num(ep.get("target")), entry_px or _num(ep.get("entry"))
+    tgt_pct = (tgt / e * 100 - 100) if tgt is not None and e else None
+    if mfe < 2.0:
+        return f"Never got going: the best was {mfe:+.1f}% before a worst of {mae:+.1f}%."
+    if tgt_pct is not None and mfe >= tgt_pct:
+        return f"Reached the target zone ({mfe:+.1f}% vs a {tgt_pct:+.1f}% target)."
+    d = _num(ep.get("days_to_mfe"))
+    return f"Best {mfe:+.1f}%" + (f" on day {int(d)}" if d else "") + f", worst {mae:+.1f}%."
+
+
+def excursion_figure(ep, f: dict):
+    """MFE / MAE ladder: % from the entry, with the plan's target and stop."""
+    import plotly.graph_objects as go
+
+    import report_style as rs
+    T = rs.TOKENS
+    e = f["levels"]["entry_px"]
+    fig = go.Figure()
+    pts = [("MFE", _num(ep.get("mfe")), "triangle-up", T["good"]),
+           ("MAE", _num(ep.get("mae")), "triangle-down", T["risk"]),
+           ("now", (f["last_px"] / e * 100 - 100) if e and f["last_px"] is not None else None,
+            "circle", T["info"])]
+    for name, y, sym, colour in pts:
+        if y is not None:
+            fig.add_trace(go.Scatter(x=[0], y=[y], mode="markers+text", name=name,
+                                     text=[f"{name} {y:+.1f}%"], textposition="middle right",
+                                     marker=dict(symbol=sym, size=13, color=colour)))
+    fig.add_hline(y=0, line=dict(color=T["text_muted"], width=1),
+                  annotation_text="entry", annotation_position="top right")
+    for key, label, colour in (("target", "target", T["good"]), ("stop", "stop", T["risk"])):
+        lvl = f["levels"].get(key)
+        if lvl is not None and e and key not in {_LEVEL_LABELS.get(k) for k in f["off_chart"]}:
+            fig.add_hline(y=lvl / e * 100 - 100, line=dict(color=colour, width=1, dash="dash"),
+                          annotation_text=f"{label} {lvl / e * 100 - 100:+.1f}%",
+                          annotation_position="top right")
+    fig.update_layout(height=300, showlegend=False, margin=dict(l=10, r=10, t=10, b=10),
+                      xaxis=dict(visible=False, range=[-0.5, 2]),
+                      yaxis=dict(ticksuffix="%", zeroline=False))
+    return fig
+
+
 def replay_label(r, h: int) -> str:
     ret = _num(r.get(f"ret_{h}"))
     head = f"{_text(r.get('symbol'))} · picked {str(r.get('rec_date'))[:10]}"

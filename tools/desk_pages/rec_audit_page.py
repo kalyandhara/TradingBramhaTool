@@ -319,6 +319,7 @@ def _replay_view(r: pd.Series, h: int, key: str) -> None:
         st.info(f["missing"])
         return
     txt = rp._text
+    _snapshot(r, f, h, key)
     parts = [f"rank {int(r['rank'])}" if rp._num(r.get("rank")) is not None else "",
              f"score {rp._num(r.get('score')):.1f}" if rp._num(r.get("score")) is not None else "",
              txt(r.get("family_names")) or txt(r.get("scanners")) or txt(r.get("scanner")),
@@ -349,6 +350,47 @@ def _replay_view(r: pd.Series, h: int, key: str) -> None:
         detail.append(f"📝 {txt(r.get('note'))}")
     st.caption(" · ".join(detail))
     st.link_button("Analyzer ↗", link("analyze", r["symbol"]))
+
+
+_BADGE = {"green": "green-badge", "amber": "orange-badge", "red": "red-badge",
+          "grey": "gray-badge"}
+
+
+def _snapshot(r: pd.Series, f: dict, h: int, key: str) -> None:
+    """Decision snapshot: the numbers, the Green/Amber/Red verdict with thesis,
+    process and outcome judged apart, and the MFE/MAE ladder."""
+    s, v = rp.snapshot(r, f, h), rp.verdict(r, f, h)
+    money = lambda x: "—" if x is None else rp._rs(x)          # noqa: E731
+    with st.container(border=True):
+        head = (f"**PICK AUDIT · {r['symbol']}** · picked {str(r['rec_date'])[:10]}"
+                + (f" · rank #{s['rank']}" if s["rank"] is not None else "")
+                + (f" · on shortlist {s['shortlist']}" if s["shortlist"] else ""))
+        st.markdown(f"{head} &nbsp; :{_BADGE[s['colour']]}[{s['outcome']}]")
+        c = st.columns(6)
+        c[0].metric("Entry", money(s["entry"]))
+        c[1].metric("Current", money(s["current"]))
+        c[2].metric(f"{h}D return", _pct(s["ret_h"]))
+        c[3].metric("To date", _pct(s["to_date"]))
+        c[4].metric("vs NIFTY 500", _pct(s["vs_n500"]))
+        c[5].metric("vs sector", _pct(s["vs_sector"]))
+        left, right = st.columns([3, 2])
+        with left:
+            st.markdown("**Verdict** — process and outcome judged separately")
+            st.markdown("  \n".join(f"{'✓' if ok else '✗'} {t}" for ok, t in v["items"])
+                        + "".join(f"  \n{'✓' if ok else '✗'} {t} — {note}"
+                                  for ok, t, note in v["stop"]))
+            st.markdown("**Process on the pick day**")
+            st.markdown("  \n".join(f"{'✓' if ok else '✗'} {lbl}" for ok, lbl in v["checks"]))
+            st.caption("Green = thesis and process right · Amber = mixed · Red = both wrong. "
+                       "Thesis = beat NIFTY 500 over the window; process uses only pick-day "
+                       "facts and the audit's own thresholds.")
+        with right:
+            if not f["post"].empty:
+                st.plotly_chart(rp.excursion_figure(r, f), use_container_width=True,
+                                key=f"ra_rp_mfe_{key}_{r.get('episode_id')}")
+                ins = rp.excursion_insight(r, f["levels"]["entry_px"])
+                if ins:
+                    st.caption(ins)
 
 
 @st.dialog("Pick replay", width="large")

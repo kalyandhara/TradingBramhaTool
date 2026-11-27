@@ -262,3 +262,90 @@ def test_bench_rebases_on_index_open_like_the_audit():
 def test_candidates_are_keyed_by_episode_id():
     c = _cands().assign(episode_id=[f"ep{i}" for i in range(5)])
     assert list(rp.replay_candidates(c, "losers", None, 21).index) == ["ep0", "ep1"]
+
+
+# ── Project 1: decision snapshot, verdict, MFE/MAE ladder ────────────────────
+def _vep(**kw):
+    """A matured pick: clean process, beat the market, made money."""
+    base = dict(ext_vs_ema20=3.0, risk_flags="", turnover10_at_rec=5e7, stop=160.0,
+                ret_21=6.0, excess_21=2.0, excess_sec_21=1.0, status="matured",
+                mfe=9.0, mae=-3.0, days_to_mfe=12, rank=4, appearances=2,
+                last_rec_date="2026-08-15")
+    base.update(kw)
+    return _ep(**base)
+
+
+def test_process_checks_flag_each_breach():
+    ok = rp.process_checks(_vep())
+    assert all(c for c, _ in ok) and len(ok) == 4
+    bad = dict(rp.process_checks(_vep(ext_vs_ema20=14.1, risk_flags="%R Exhaustion Sell",
+                                      turnover10_at_rec=6e6, stop=float("nan"))))
+    assert set(bad) == {False}
+    labels = " | ".join(lbl for _, lbl in rp.process_checks(
+        _vep(ext_vs_ema20=14.1, risk_flags="%R Exhaustion Sell")))
+    assert "+14.1% above the 20 EMA" in labels and "%R Exhaustion Sell" in labels
+
+
+def test_process_checks_skip_unknowns():
+    # an early pick with no pick-time readings is not marked wrong for them
+    checks = rp.process_checks(_vep(ext_vs_ema20=None, turnover10_at_rec=float("nan")))
+    assert len(checks) == 2 and all(c for c, _ in checks)
+
+
+def test_verdict_colours():
+    f = _frame()
+    assert rp.verdict(_vep(), f)["colour"] == "green"
+    assert rp.verdict(_vep(excess_21=-8.0, ret_21=-9.0, ext_vs_ema20=14.0), f)["colour"] == "red"
+    assert rp.verdict(_vep(excess_21=-8.0, ret_21=-9.0), f)["colour"] == "amber"   # process ok
+    assert rp.verdict(_vep(ext_vs_ema20=14.0), f)["colour"] == "amber"            # lucky
+    v = rp.verdict(_vep(status="open", ret_21=None, excess_21=None), f)
+    assert v["colour"] == "grey" and v["label"] == "OPEN"
+
+
+def test_verdict_items_separate_thesis_process_outcome():
+    f = _frame()
+    v = rp.verdict(_vep(excess_21=-8.0, ret_21=-9.0), f)
+    assert [t for _, t in v["items"]][:3] == ["THESIS_WRONG", "PROCESS_CORRECT",
+                                              "OUTCOME_NEGATIVE"]
+    assert v["label"] == "MIXED"
+
+
+def test_verdict_stop_executed_and_protected():
+    post = _frame()["post"]
+    o3 = post.iloc[2]["open"]
+    ep = _vep(plan_outcome="stop_first", plan_sessions=3, stop=o3 + 2)
+    v = rp.verdict(ep, _frame(ep))
+    stop = [(ok, t, note) for ok, t, note in v["stop"]] if v.get("stop") else []
+    assert stop and stop[0][1] == "STOP_EXECUTED"
+
+
+def test_snapshot_fields():
+    f = _frame()
+    s = rp.snapshot(_vep(), f)
+    assert s["entry"] == f["levels"]["entry_px"] and s["current"] == f["last_px"]
+    assert s["to_date"] == pytest.approx(f["last_px"] / f["levels"]["entry_px"] * 100 - 100)
+    assert (s["ret_h"], s["vs_n500"], s["vs_sector"], s["rank"]) == (6.0, 2.0, 1.0, 4)
+    assert s["shortlist"] == "2 runs · last 2026-08-15"
+    assert s["outcome"] == "SUCCESS" and s["colour"] == "green"
+
+
+def test_excursion_insight():
+    assert rp.excursion_insight(_vep(mfe=0.6, mae=-29.5)).startswith("Never got going")
+    assert "target zone" in rp.excursion_insight(_vep(mfe=20.0, target=200.0, entry=175.0),
+                                                 entry_px=175.0)
+    assert rp.excursion_insight(_vep(mfe=None, mae=None)) == ""
+
+
+def test_excursion_figure():
+    f = _frame()
+    names = {t.name for t in rp.excursion_figure(_vep(), f).data}
+    assert {"MFE", "MAE", "now"} <= names
+
+
+def test_missing_stop_before_plans_were_recorded_is_not_a_failure():
+    # Plans (stop/target, plan_source) were recorded only from 2026-10-22; 411
+    # older picks have none. "Not recorded" is unknown, not a flawed process.
+    labels = [lbl for _, lbl in rp.process_checks(_vep(stop=None, plan_source=None))]
+    assert not any("stop" in lbl.lower() for lbl in labels)
+    bad = rp.process_checks(_vep(stop=None, plan_source="scanner"))
+    assert (False, "No stop in the plan") in bad
