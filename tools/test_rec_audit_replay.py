@@ -570,3 +570,13 @@ def test_decay_figure_builds_and_marks_the_downgrade():
     fig = rp.decay_figure(_ep(overall_rating=72), s)
     names = {t.name for t in fig.data}
     assert {"rating", "D", "universe rank"} <= names
+
+
+def test_what_moved_weights_follow_the_rating_weights(monkeypatch):
+    import rating
+    s = _rows(("2026-11-26", "2026-11-27"), minervini=[7, 5], technofunda=[6, 4])
+    # default weights: Minervini 2/8·35 = 8.75 > TechnoFunda 2/6·25 = 8.3
+    assert rp.what_moved(_ep(), s, None).startswith("Minervini")
+    monkeypatch.setattr(rating, "OVERALL_WEIGHTS",
+                        {"minervini": 0.10, "technofunda": 0.50, "canslim": 0.20, "ew": 0.20})
+    assert rp.what_moved(_ep(), s, None).startswith("TechnoFunda")

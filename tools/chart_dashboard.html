@@ -12319,8 +12319,7 @@ function setReplayBanner(p, idx) {
     ? `<b>BEFORE PICK · ${r.date}</b>${r.rank != null ? ` · rank #${r.rank}` : ''}` +
       (r.label ? ` · ${r.label.replace(/[<>&]/g, '')}` : '') +
       '<br>bars cut at the pick day · dashed: entry / stop / target'
-    : '<b>AFTER PICK</b> · PICK entry · S stop / T target hit · V volume breakdown ' +
-      '(desk rule) · E results<br>dotted: NIFTY 500 (grey) and sector (blue) rebased to the entry';
+    : RPM.afterLegend(r);
 }
 
 async function applyReplay(p, idx) {

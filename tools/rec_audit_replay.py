@@ -629,8 +629,9 @@ def replay_label(r, h: int) -> str:
 #: Read from `pick_scores` (rec_rescore_job), which accrues forward from the first
 #: nightly run; nothing here estimates a past evening. Spec:
 #: docs/superpowers/specs/2026-11-26-pick-rescore-design.md §4
-#: (key, label, max, weight in the rating) — the weight picks which part "led".
-_PARTS = (("minervini", "Minervini", 8, 35), ("technofunda", "TechnoFunda", 6, 25))
+#: (key, label, max) — each part's weight comes from rating.OVERALL_WEIGHTS at call
+#: time, so "led the drop" follows any retuning of the rating.
+_PARTS = (("minervini", "Minervini", 8), ("technofunda", "TechnoFunda", 6))
 _CHECK_NAMES = (("cs_near_high", "near high"), ("cs_volume", "volume"),
                 ("cs_market", "market"), ("cs_rs", "RS leader"))
 
@@ -665,18 +666,21 @@ def drift_line(ep, scores: pd.DataFrame, pick_uni: dict | None) -> str:
 
 def _part_moves(base, now) -> list[tuple[float, str]]:
     """(weighted rating-point change, 'Minervini 7/8 → 4/8') per rating part."""
+    import rating
+    w = {k: v * 100 for k, v in rating.OVERALL_WEIGHTS.items()}
     out = []
-    for key, label, mx, w in _PARTS:
+    for key, label, mx in _PARTS:
         a, b = _num(base.get(key)), _num(now.get(key))
         if a is not None and b is not None:
-            out.append(((b - a) / mx * w, f"{label} {int(a)}/{mx} → {int(b)}/{mx}"))
+            out.append(((b - a) / mx * w[key], f"{label} {int(a)}/{mx} → {int(b)}/{mx}"))
     a, an = _num(base.get("canslim")), _num(base.get("canslim_n"))
     b, bn = _num(now.get("canslim")), _num(now.get("canslim_n"))
     if a is not None and b is not None and an and bn:
-        out.append(((b / bn - a / an) * 20, f"CANSLIM {int(a)}/{int(an)} → {int(b)}/{int(bn)}"))
+        out.append(((b / bn - a / an) * w["canslim"],
+                    f"CANSLIM {int(a)}/{int(an)} → {int(b)}/{int(bn)}"))
     a, b = _num(base.get("ew_conf")), _num(now.get("ew_conf"))
     if a is not None and b is not None:
-        out.append(((b - a) / 100 * 20, f"EW conf {int(a)} → {int(b)}"))
+        out.append(((b - a) / 100 * w["ew"], f"EW conf {int(a)} → {int(b)}"))
     return out
 
 

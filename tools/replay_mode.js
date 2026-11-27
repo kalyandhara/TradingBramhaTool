@@ -106,5 +106,14 @@
     return out.sort((a, b) => a.time - b.time);
   }
 
-  root.RPM = {dayTime, parseReplay, cutBars, rebase, volumeBreakdown, markers};
+  /** Legend for the after-pick pane (HTML). D appears only when the link carries
+   *  one, and always with its caveat: it is a named prior, never a tested signal. */
+  function afterLegend(r) {
+    return '<b>AFTER PICK</b> · PICK entry · S stop / T target hit · V volume breakdown ' +
+      '(desk rule) · E results' +
+      (r && r.ddate ? ' · D rating downgrade (a prior, untested)' : '') +
+      '<br>dotted: NIFTY 500 (grey) and sector (blue) rebased to the entry';
+  }
+
+  root.RPM = {dayTime, parseReplay, cutBars, rebase, volumeBreakdown, markers, afterLegend};
 })(typeof window !== 'undefined' ? window : globalThis);

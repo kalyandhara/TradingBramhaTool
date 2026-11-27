@@ -105,8 +105,13 @@ def scanner_set(text, known: Iterable[str] | None = None) -> set[str]:
         import scanner_templates as sc
         known = sc.SCANNERS
     wrapped = f", {s}, "
-    got = {n for n in known if f", {n}, " in wrapped}
-    return got or {p.strip() for p in s.split(",") if p.strip()}
+    got = set()
+    for n in sorted(known, key=len, reverse=True):      # longest first: no partial eats
+        if f", {n}, " in wrapped:
+            got.add(n)
+            wrapped = wrapped.replace(f", {n}, ", ", ", 1)
+    # whatever is left (a renamed or retired scanner) still counts as one name per piece
+    return got | {p.strip() for p in wrapped.split(",") if p.strip()}
 
 
 def _bool(v):

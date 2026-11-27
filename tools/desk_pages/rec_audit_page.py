@@ -119,6 +119,7 @@ def render() -> None:
                                                             .iloc[0]).date())
                 _replay_bars.clear()        # the re-run may have stored new bars
                 _all_scores.clear()         # …and the nightly re-score may have run
+                _scores_for.clear()
                 st.toast("Audit refreshed.")
             except Exception as e:
                 st.error(f"Audit failed: {type(e).__name__}: {e}")
@@ -542,11 +543,17 @@ def _all_scores() -> pd.DataFrame:
     return rj.load_scores(db_path=rj.DB_PATH)
 
 
+@st.cache_data(ttl=600, show_spinner=False)
+def _scores_for(episode_id: str) -> pd.DataFrame:
+    """One pick's re-score rows — the snapshot never loads the whole table."""
+    import rec_rescore_job as rj
+    return rj.load_scores([episode_id], db_path=rj.DB_PATH)
+
+
 def _rescore_for(ep) -> tuple[pd.DataFrame, dict | None]:
     """(this pick's re-score rows, its pick-day universe row or None)."""
     import rec_rescore_job as rj
-    s = _all_scores()
-    s = s[s["episode_id"] == ep.get("episode_id")] if not s.empty else s
+    s = _scores_for(str(ep.get("episode_id")))
     try:
         pick = rj.pick_day_universe(str(ep.get("symbol")), str(ep.get("rec_date"))[:10])
     except Exception:                 # universe table not created yet on this DB

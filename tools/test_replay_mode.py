@@ -117,3 +117,10 @@ def test_d_marker_is_placed_and_sorted():
     assert [m["time"] for m in r] == sorted(m["time"] for m in r)
     assert not [m for m in rpm("RPM.markers(RPM.parseReplay(q), bars, null)",
                                q="?replay=2026-08-07", bars=_bars()) if m["text"] == "D"]
+
+
+def test_after_pane_legend_explains_d_as_a_prior_only_when_present():
+    with_d = rpm("RPM.afterLegend(RPM.parseReplay(q))", q="?replay=2026-08-07&ddate=2026-08-20")
+    without = rpm("RPM.afterLegend(RPM.parseReplay(q))", q="?replay=2026-08-07")
+    assert "D rating downgrade (a prior, untested)" in with_d
+    assert "V volume breakdown" in without and "D rating" not in without

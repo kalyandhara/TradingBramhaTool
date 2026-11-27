@@ -67,8 +67,16 @@ def run(*, eps: pd.DataFrame | None = None, fetch_for=None, nifty_df=None, scan=
     import rating
 
     say = progress or (lambda m: None)
+    as_of = None
     if eps is None:
-        eps = rr.select_open(raj.load_latest(db_path, source="opportunity")["episodes"])
+        latest = raj.load_latest(db_path, source="opportunity")
+        eps, as_of = latest["episodes"], (latest.get("run") or {}).get("as_of")
+    excluded: dict[str, int] = {}
+    if not eps.empty and {"source", "status"} <= set(eps.columns):
+        bad = eps[eps["source"].eq("opportunity")
+                  & eps["status"].isin(["no_data", "data_suspect"])]
+        excluded = {k: int(v) for k, v in bad["status"].value_counts().items()}
+        eps = rr.select_open(eps)
     nifty_df = _default_nifty() if nifty_df is None else nifty_df
     if nifty_df is None or nifty_df.empty:
         return {"ok": False, "reason": "no benchmark"}
@@ -134,8 +142,13 @@ def run(*, eps: pd.DataFrame | None = None, fetch_for=None, nifty_df=None, scan=
         conn.commit()
     finally:
         conn.close()
+    skipped_picks = int(eps["symbol"].astype(str).isin(skipped).sum()) if not eps.empty else 0
     return {"ok": True, "session": iso, "written": len(rows), "skipped": skipped,
-            "retired": retired,
+            "skipped_picks": skipped_picks, "retired": retired, "excluded": excluded,
+            # The audit (17:30) rebuilds the episode list; if it failed or overran,
+            # today's picks are missing and lose their day-0 row — say so.
+            "episodes_as_of": as_of,
+            "stale_episodes": bool(as_of) and str(as_of)[:10] < iso,
             "not_in_universe": sum(r["universe_status"] == "not_in_universe" for r in rows),
             "downgrades": sum(r["downgrade"] for r in rows)}
 
@@ -144,9 +157,16 @@ def run(*, eps: pd.DataFrame | None = None, fetch_for=None, nifty_df=None, scan=
 def load_scores(episode_ids: list[str] | None = None,
                 db_path: Path | str = DB_PATH) -> pd.DataFrame:
     """Stored re-score rows, oldest session first per episode. Never fetches;
-    an empty frame (with the columns) before the first run."""
-    conn = connect(db_path)
+    an empty frame (with the columns) before the first run. Read-only: never
+    creates the database file or the table."""
+    empty = pd.DataFrame(columns=list(_COLS))
+    if not Path(db_path).exists():
+        return empty
+    conn = sqlite3.connect(str(db_path))
     try:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                            "AND name='pick_scores'").fetchone():
+            return empty
         q, params = "SELECT * FROM pick_scores", []
         if episode_ids:
             q += f" WHERE episode_id IN ({', '.join('?' * len(episode_ids))})"
@@ -177,11 +197,19 @@ def main(argv: list[str] | None = None) -> int:
         return 1
     for sym, why in sorted(rep["skipped"].items()):
         print(f"  skipped {sym}: {why}")
+    ex = rep.get("excluded") or {}
+    extra = []
+    if rep.get("retired"):
+        extra.append(f"{rep['retired']} retired (past {rr.TRACK_SESSIONS} sessions)")
+    if ex:
+        extra.append(f"{sum(ex.values())} excluded ("
+                     + ", ".join(f"{k} {v}" for k, v in sorted(ex.items())) + ")")
+    if rep.get("stale_episodes"):
+        extra.append(f"episodes as of {rep['episodes_as_of']} (audit stale)")
     print(f"##RESULT {rep['session']} · {rep['written']} picks re-scored · "
-          f"{len(rep['skipped'])} skipped · {rep['not_in_universe']} not in today's 500 · "
-          f"{rep['downgrades']} downgrades"
-          + (f" · {rep['retired']} retired (past {rr.TRACK_SESSIONS} sessions)"
-             if rep.get("retired") else ""))
+          f"{rep.get('skipped_picks', len(rep['skipped']))} skipped · "
+          f"{rep['not_in_universe']} not in today's 500 · {rep['downgrades']} downgrades"
+          + "".join(f" · {x}" for x in extra))
     return 0
 
 

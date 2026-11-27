@@ -213,3 +213,54 @@ def test_run_during_ist_market_hours_refuses(tmp_path, monkeypatch):
     # market is open (CIPLA: 25 Nov then a live 27 Nov), so the job refuses to run.
     assert not rep["ok"] and "session in progress" in rep["reason"]
     assert job.load_scores(db_path=tmp_path / "r.db").empty
+
+
+# ── Deferred minors (final review 2026-11-26) ────────────────────────────────
+def test_a_stale_episode_list_is_flagged(tmp_path, monkeypatch):
+    import rec_audit_job as raj
+    monkeypatch.setattr(raj, "load_latest", lambda db_path=None, source="opportunity": {
+        "episodes": EPS, "run": {"as_of": "2026-11-26"}})
+    rep = _run(tmp_path, eps=None)
+    assert rep["ok"] and rep["episodes_as_of"] == "2026-11-26" and rep["stale_episodes"]
+    monkeypatch.setattr(raj, "load_latest", lambda db_path=None, source="opportunity": {
+        "episodes": EPS, "run": {"as_of": "2026-11-27"}})
+    assert not _run(tmp_path, eps=None)["stale_episodes"]
+
+
+def test_skipped_counts_picks_not_symbols(tmp_path):
+    eps = _eps({"episode_id": "g1", "symbol": "GONE", "rec_date": "2026-11-03"},
+               {"episode_id": "g2", "symbol": "GONE", "rec_date": "2026-11-20"},
+               {"episode_id": "ok", "symbol": "AAA", "rec_date": "2026-11-20"})
+    rep = _run(tmp_path, eps=eps, fetch=_Fetch(missing={"GONE"}))
+    assert rep["skipped"] == {"GONE": "no bars"} and rep["skipped_picks"] == 2
+
+
+def test_no_data_and_suspect_picks_are_counted_not_scored(tmp_path):
+    eps = pd.concat([EPS, _eps({"episode_id": "nd", "symbol": "NOD", "rec_date": "2026-11-20",
+                                "status": "no_data"},
+                               {"episode_id": "ds", "symbol": "SPL", "rec_date": "2026-11-20",
+                                "status": "data_suspect"})])
+    rep = _run(tmp_path, eps=eps)
+    assert rep["written"] == 3 and rep["excluded"] == {"no_data": 1, "data_suspect": 1}
+
+
+def test_result_line_reports_picks_exclusions_and_staleness(monkeypatch, capsys):
+    monkeypatch.setattr(job, "run", lambda **k: {
+        "ok": True, "session": SESSION, "written": 3, "skipped": {"GONE": "no bars"},
+        "skipped_picks": 2, "not_in_universe": 1, "downgrades": 2, "retired": 0,
+        "excluded": {"no_data": 1}, "episodes_as_of": "2026-11-26", "stale_episodes": True})
+    assert job.main([]) == 0
+    out = capsys.readouterr().out
+    assert "· 2 skipped ·" in out and "1 excluded (no_data 1)" in out
+    assert "episodes as of 2026-11-26 (audit stale)" in out
+
+
+def test_load_scores_never_creates_the_db_or_table(tmp_path):
+    p = tmp_path / "absent.db"
+    assert job.load_scores(db_path=p).empty and not p.exists()
+    import sqlite3
+    sqlite3.connect(p).execute("CREATE TABLE other (x)").connection.close()
+    got = job.load_scores(db_path=p)
+    assert got.empty and "rating_drift" in got.columns
+    tabs = {r[0] for r in sqlite3.connect(p).execute("SELECT name FROM sqlite_master")}
+    assert tabs == {"other"}

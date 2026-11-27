@@ -133,3 +133,9 @@ def test_completed_session_drops_a_forming_ist_bar():
     assert rr.completed_session(idx, pd.Timestamp("2026-11-28 01:00", tz="UTC")) == \
         pd.Timestamp("2026-11-27")
     assert rr.completed_session(idx[:1], pd.Timestamp("2026-11-25 04:00", tz="UTC")) is None
+
+
+def test_a_renamed_scanner_still_counts_beside_registered_ones():
+    name = "Shallow Flip (Renko, bounded correction)"
+    assert rr.scanner_set(f"A, Old Retired Scanner, {name}", KNOWN) == \
+        {"A", "Old Retired Scanner", name}

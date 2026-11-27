@@ -121,7 +121,19 @@ def test_rescore_for_is_empty_before_the_first_run(monkeypatch, tmp_path):
     monkeypatch.setattr(rj, "DB_PATH", tmp_path / "r.db")
     monkeypatch.setattr(db, "DB_PATH", tmp_path / "tb.db")
     db.init_db()
-    page._all_scores.clear()
+    page._all_scores.clear(); page._scores_for.clear()
     scores, pick = page._rescore_for({"episode_id": "e1", "symbol": "A",
                                        "rec_date": "2026-11-20"})
     assert scores.empty and pick is None
+
+
+def test_rescore_for_reads_only_that_picks_rows(monkeypatch):
+    import rec_rescore_job as rj
+    seen = []
+    monkeypatch.setattr(rj, "load_scores",
+                        lambda ids=None, db_path=None: seen.append(ids) or pd.DataFrame(
+                            {"episode_id": ["e9"], "session_date": ["2026-11-26"]}))
+    monkeypatch.setattr(rj, "pick_day_universe", lambda s, d: None)
+    page._scores_for.clear()
+    scores, _ = page._rescore_for({"episode_id": "e9", "symbol": "A", "rec_date": "2026-11-20"})
+    assert seen == [["e9"]] and list(scores["episode_id"]) == ["e9"]
