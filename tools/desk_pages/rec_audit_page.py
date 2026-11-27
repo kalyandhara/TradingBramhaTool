@@ -92,28 +92,64 @@ def _pct(v, signed: bool = True) -> str:
 
 
 # ── Page ─────────────────────────────────────────────────────────────────────
+# Compact layout (2026-11-27), scoped to this page's container so no other page
+# changes: smaller metric tiles and tabs, tighter gaps between blocks.
+_COMPACT_CSS = """<style>
+.st-key-ra_page [data-testid="stVerticalBlock"] { gap: 0.45rem; }
+.st-key-ra_page [data-testid="stHorizontalBlock"] { gap: 0.6rem; }
+.st-key-ra_page h3 { padding: 0.15rem 0 0; font-size: 1.25rem; }
+.st-key-ra_page [data-testid="stMetric"] { padding: 0; }
+.st-key-ra_page [data-testid="stMetricLabel"] p { font-size: 0.72rem; }
+.st-key-ra_page [data-testid="stMetricValue"] { font-size: 1.3rem; line-height: 1.25; }
+.st-key-ra_page [data-testid="stMetricDelta"] { font-size: 0.7rem; }
+.st-key-ra_page [data-testid="stCaptionContainer"] { font-size: 0.75rem; }
+.st-key-ra_page [data-baseweb="tab-list"] { gap: 1rem; }
+.st-key-ra_page button[data-testid="stTab"] { height: 2rem; }
+.st-key-ra_page button[data-testid="stTab"] p { font-size: 0.8rem; }
+.st-key-ra_page [data-baseweb="tab-panel"] { padding-top: 0.5rem; }
+.st-key-ra_page [data-testid="stExpander"] summary { padding: 0.35rem 0.6rem; }
+.st-key-ra_page [data-testid="stButton"] button,
+.st-key-ra_page [data-testid="stPopover"] button,
+.st-key-ra_page [data-testid="stLinkButton"] a { min-height: 1.9rem; padding: 0.1rem 0.6rem; }
+</style>"""
+
+
 def render() -> None:
-    st.subheader("Recommendation Audit")
-    src = st.segmented_control("Source", list(job.SOURCES), default="opportunity",
-                               format_func=lambda k: job.SOURCES[k]["label"],
-                               key="ra_src") or "opportunity"
+    with st.container(key="ra_page"):
+        st.html(_COMPACT_CSS)
+        _render()
+
+
+def _render() -> None:
+    bar = st.columns([2.2, 3.2, 2.2, 1.2], vertical_alignment="center")
+    bar[0].subheader("Recommendation Audit")
+    with bar[1]:
+        src = st.segmented_control("Source", list(job.SOURCES), default="opportunity",
+                                   format_func=lambda k: job.SOURCES[k]["label"],
+                                   key="ra_src", label_visibility="collapsed") or "opportunity"
     cfg = job.SOURCES[src]
     head, horizons = cfg["headline"], cfg["horizons"]
     data = job.load_latest(source=src)
     run, eps = data["run"], data["episodes"]
+    h = head
+    if run is not None and not eps.empty:
+        with bar[2]:
+            h = st.segmented_control("Horizon (sessions)", horizons, default=head,
+                                     format_func=lambda x: f"{x}d", key=f"ra_h_{src}",
+                                     label_visibility="collapsed") or head
 
-    top = st.columns([5, 1])
     if run is None:
-        top[0].info("No audit stored yet. Run it once (about 3 minutes — it fetches "
-                    "daily bars for every past pick), or register the **Recommendation "
-                    "Audit** job in Scheduler Hub to run it after each close.")
+        st.info("No audit stored yet. Run it once (about 3 minutes — it fetches "
+                "daily bars for every past pick), or register the **Recommendation "
+                "Audit** job in Scheduler Hub to run it after each close.")
     else:
-        top[0].caption(
+        st.caption(
             f"As of **{run['as_of']}** · run {run['created_at'].replace('T', ' ')} · "
             f"{len(eps)} {'hits' if src == 'scanner' else 'picks'} since "
             f"{str(eps['rec_date'].min())[:10] if not eps.empty else '—'}. Entry = next "
             f"session's open; every return is compared with benchmarks over the same dates.")
-    if top[1].button("↻ Re-run audit", key="ra_rerun", use_container_width=True):
+    if bar[3].button("↻ Re-run", key="ra_rerun", use_container_width=True,
+                     help="Re-run the audit for every source (about 3 minutes)"):
         with st.spinner("Fetching prices and re-scoring every source…"):
             try:
                 reps = job.run_all()
@@ -132,8 +168,6 @@ def render() -> None:
         return
 
     eps = with_slices(eps)
-    h = st.segmented_control("Horizon (sessions)", horizons, default=head,
-                             key=f"ra_h_{src}") or head
     _tiles(eps, data["portfolio"], h, head)
 
     tabs = st.tabs(["Monthly batches", "What worked", "Post-mortems", "Pick replay",
@@ -188,7 +222,7 @@ def _tiles(eps: pd.DataFrame, port: pd.DataFrame, h: int, head: int) -> None:
     if not port.empty and h == head:
         st.line_chart(((port[["basket", "market"]] - 1) * 100)
                       .rename(columns={"basket": "₹1 per pick", "market": "NIFTY 500 shadow"}),
-                      height=220, y_label="% return")
+                      height=150, y_label="% return")
 
 
 def _cohorts(eps: pd.DataFrame, horizons: tuple[int, ...]) -> None:
@@ -238,11 +272,17 @@ def _postmortems(eps: pd.DataFrame, h: int = ra.HEADLINE_H) -> None:
                f"{ra.FAIL_RET_PCT:.0f}%, or the stop hit first. The tag is the first "
                "explanation that applies; override it and add a note after you look.")
     opts = [f"All ({sum(counts.values())})"] + [f"{t} ({n})" for t, n in counts.items()]
-    pick = st.pills("Cause", opts, default=opts[0], key="ra_tag") or opts[0]
+    row = st.columns([6, 1], vertical_alignment="center")
+    with row[0]:
+        pick = st.pills("Cause", opts, default=opts[0], key="ra_tag",
+                        label_visibility="collapsed") or opts[0]
     tag = None if pick.startswith("All") else pick.rsplit(" (", 1)[0]
     q = review_queue(eps, tag, h)
     pages = max(1, -(-len(q) // CARDS_PER_PAGE))
-    pg = st.number_input("Page", 1, pages, 1, key=f"ra_pg_{tag}") if pages > 1 else 1
+    with row[1]:
+        pg = (st.number_input("Page", 1, pages, 1, key=f"ra_pg_{tag}",
+                              label_visibility="collapsed", help=f"Page (of {pages})")
+              if pages > 1 else 1)
     chunk = q.iloc[(pg - 1) * CARDS_PER_PAGE: pg * CARDS_PER_PAGE]
     cols = st.columns(3)
     for i, (_, r) in enumerate(chunk.iterrows()):
@@ -271,16 +311,16 @@ def _card(r: pd.Series, h: int = ra.HEADLINE_H) -> None:
         other = [t for t in str(r.get("tags") or "").split(", ") if t and t != r.get("review_tag")]
         if other:
             st.caption("Also: " + ", ".join(other))
-        if r.get("family_names"):
+        if pd.notna(r.get("family_names")) and r.get("family_names"):
             st.caption(f"Families: {r['family_names']}")
         if pd.notna(r.get("note")) and r.get("note"):
             st.caption(f"📝 {r['note']}")
         key = r["episode_id"]
-        b1, b2 = st.columns(2)
+        b1, b2, b3 = st.columns(3)
         b1.link_button("Analyzer ↗", link("analyze", r["symbol"]), use_container_width=True)
         if b2.button("Replay", key=f"ra_rp_btn_{key}", use_container_width=True):
             _replay_dialog(r, h)
-        with st.expander("Review"):
+        with b3.popover("Review", use_container_width=True):
             auto = r.get("primary_tag") or ra.UNEXPLAINED
             choices = [f"(auto) {auto}", *REVIEW_TAGS]
             cur = r.get("tag_override")
@@ -306,22 +346,28 @@ def _replay_tab(eps: pd.DataFrame, h: int, src: str) -> None:
     st.caption("One pick at a time: the chart as the desk saw it on the pick day, beside "
                f"everything since. Winners beat NIFTY 500 by ≥ {rp.WIN_EXCESS_PCT:g}% at "
                f"{h} sessions; losers are the post-mortem failures.")
-    kind = (st.pills("Show", ["Losers", "Winners", "All"], default="Losers",
-                     key="ra_rp_kind") or "Losers").lower()
+    row = st.columns([1.6, 1.8, 4], vertical_alignment="bottom")
+    with row[0]:
+        kind = (st.pills("Show", ["Losers", "Winners", "All"], default="Losers",
+                         key="ra_rp_kind") or "Losers").lower()
     tag = None
     if kind == "losers" and "review_tag" in eps:
         tags = sorted(t for t in eps["review_tag"].dropna().unique() if t)
-        pick = st.selectbox("Cause", ["Any", *tags], key="ra_rp_tag")
+        with row[1]:
+            pick = st.selectbox("Cause", ["Any", *tags], key="ra_rp_tag")
         tag = None if pick == "Any" else pick
     cands = rp.replay_candidates(eps, kind, tag, h)
+    i = None
+    if not cands.empty:
+        with row[2]:
+            i = st.selectbox("Pick", list(cands.index), key=f"ra_rp_pick_{src}_{kind}_{tag}",
+                             format_func=lambda j: rp.replay_label(cands.loc[j], h))
     st.caption("Plan results for these picks: **" + rp.scorecard_text(rp.scorecard(cands))
                + "** · ambiguous bars count as SL hit; no plan has a break-even rule, so "
                  "there is no cost-to-cost count.")
-    if cands.empty:
+    if i is None:
         st.info("No picks match this filter.")
         return
-    i = st.selectbox("Pick", list(cands.index), key=f"ra_rp_pick_{src}_{kind}_{tag}",
-                     format_func=lambda j: rp.replay_label(cands.loc[j], h))
     _replay_view(cands.loc[i], h, "tab")
 
 
@@ -410,7 +456,8 @@ def _decay_section(eps: pd.DataFrame, h: int) -> None:
         st.info("No re-scored picks yet — tracking starts with the next nightly run.")
         return
     st.line_chart(t.set_index("sessions_since_entry")[["winners_median", "losers_median"]]
-                  .rename(columns={"winners_median": "winners", "losers_median": "losers"}))
+                  .rename(columns={"winners_median": "winners", "losers_median": "losers"}),
+                  height=180)
     st.dataframe(t, hide_index=True, use_container_width=True)
 
 
