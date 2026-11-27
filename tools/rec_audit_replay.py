@@ -590,7 +590,7 @@ def lessons_jsonl(eps: pd.DataFrame, h: int = ra.HEADLINE_H) -> str:
 CHART_BASE = "http://localhost:5001/"
 
 
-def multichart_url(ep, f: dict) -> str:
+def multichart_url(ep, f: dict, ddate: str | None = None) -> str:
     """Deep link opening the pick in the Multi-Chart as two panes: the chart as it
     stood on the pick day, and everything since (replay_mode.js reads these)."""
     from urllib.parse import urlencode
@@ -614,6 +614,8 @@ def multichart_url(ep, f: dict) -> str:
     label = _text(ep.get("family_names")) or _text(ep.get("scanners"))
     if label:
         q["label"] = label[:80]
+    if ddate:                       # first session the re-score flagged a downgrade
+        q["ddate"] = str(ddate)[:10]
     return CHART_BASE + "?" + urlencode(q)
 
 
@@ -621,3 +623,168 @@ def replay_label(r, h: int) -> str:
     ret = _num(r.get(f"ret_{h}"))
     head = f"{_text(r.get('symbol'))} · picked {str(r.get('rec_date'))[:10]}"
     return f"{head} · {h}d {ret:+.1f}%" if ret is not None else f"{head} · pending"
+
+
+# ── Re-score: drift, attribution, decay ──────────────────────────────────────
+#: Read from `pick_scores` (rec_rescore_job), which accrues forward from the first
+#: nightly run; nothing here estimates a past evening. Spec:
+#: docs/superpowers/specs/2026-11-26-pick-rescore-design.md §4
+#: (key, label, max, weight in the rating) — the weight picks which part "led".
+_PARTS = (("minervini", "Minervini", 8, 35), ("technofunda", "TechnoFunda", 6, 25))
+_CHECK_NAMES = (("cs_near_high", "near high"), ("cs_volume", "volume"),
+                ("cs_market", "market"), ("cs_rs", "RS leader"))
+
+
+def _signed(v: float) -> str:
+    v = int(round(v))
+    return "0" if v == 0 else (f"+{v}" if v > 0 else f"−{-v}")
+
+
+def drift_line(ep, scores: pd.DataFrame, pick_uni: dict | None) -> str:
+    """`Rating drift −18 (72 → 54) · rank #9 → #146 of 500 · tracking since …`."""
+    if scores is None or scores.empty:
+        return "Re-score tracking starts with the next nightly run."
+    s = scores.sort_values("session_date")
+    last, first = s.iloc[-1], str(s["session_date"].iloc[0])[:10]
+    now, pick = _num(last.get("rating")), _num(ep.get("overall_rating"))
+    head = (f"Rating {int(now)} (no pick-day rating)" if pick is None
+            else f"Rating drift {_signed(now - pick)} ({int(pick)} → {int(now)})")
+    status = _text(last.get("universe_status"))
+    rank, size = _num(last.get("universe_rank")), _num(last.get("universe_size"))
+    if status == "ranked" and rank is not None:
+        p = _num((pick_uni or {}).get("universe_rank"))
+        of = f" of {int(size)}" if size else ""
+        rank_txt = (f"rank #{int(p)} → #{int(rank)}{of}" if p is not None
+                    else f"rank #{int(rank)}{of} today")
+    elif status == "not_in_universe":
+        rank_txt = "not in today's 500"
+    else:
+        rank_txt = "rank starts with the next shortlist run"
+    return f"{head} · {rank_txt} · tracking since {first}"
+
+
+def _part_moves(base, now) -> list[tuple[float, str]]:
+    """(weighted rating-point change, 'Minervini 7/8 → 4/8') per rating part."""
+    out = []
+    for key, label, mx, w in _PARTS:
+        a, b = _num(base.get(key)), _num(now.get(key))
+        if a is not None and b is not None:
+            out.append(((b - a) / mx * w, f"{label} {int(a)}/{mx} → {int(b)}/{mx}"))
+    a, an = _num(base.get("canslim")), _num(base.get("canslim_n"))
+    b, bn = _num(now.get("canslim")), _num(now.get("canslim_n"))
+    if a is not None and b is not None and an and bn:
+        out.append(((b / bn - a / an) * 20, f"CANSLIM {int(a)}/{int(an)} → {int(b)}/{int(bn)}"))
+    a, b = _num(base.get("ew_conf")), _num(now.get("ew_conf"))
+    if a is not None and b is not None:
+        out.append(((b - a) / 100 * 20, f"EW conf {int(a)} → {int(b)}"))
+    return out
+
+
+def what_moved(ep, scores: pd.DataFrame, pick_uni: dict | None) -> str:
+    """Which rating part moved most (weighted by its share of the rating) and
+    which CANSLIM checks flipped — against the pick day when its parts were
+    stored, else against the first tracked night (said with "since")."""
+    if scores is None or scores.empty:
+        return ""
+    s = scores.sort_values("session_date")
+    now = s.iloc[-1].to_dict()
+    if pick_uni:
+        base, since = pick_uni, ""
+    elif len(s) >= 2:
+        base, since = s.iloc[0].to_dict(), f" · since {str(s['session_date'].iloc[0])[:10]}"
+    else:
+        return ""
+    moves = [m for m in _part_moves(base, now) if abs(m[0]) > 1e-9]
+    lost, gained = [], []
+    for key, name in _CHECK_NAMES:
+        a, b = _num(base.get(key)), _num(now.get(key))
+        if a is not None and b is not None and bool(a) != bool(b):
+            (gained if b else lost).append(name)
+    if not moves and not lost and not gained:
+        return "Rating parts unchanged" + since
+    bits = []
+    if moves:
+        lead = max(moves, key=lambda m: abs(m[0]))
+        bits.append(f"{lead[1]} led the {'rise' if lead[0] > 0 else 'drop'}")
+    if lost:
+        bits.append("lost: " + ", ".join(lost))
+    if gained:
+        bits.append("gained: " + ", ".join(gained))
+    return " · ".join(bits) + since
+
+
+def scanners_line(ep, scores: pd.DataFrame) -> str:
+    """`2 of 3 original scanners still fire`, from the latest re-score."""
+    import rec_rescore as rr
+    n = len(rr.scanner_set(ep.get("scanners")))
+    if not n or scores is None or scores.empty:
+        return ""
+    k = int(_num(scores.sort_values("session_date").iloc[-1].get("original_still_firing")) or 0)
+    return f"{k} of {n} original scanner{'s' if n != 1 else ''} still {'fire' if n != 1 else 'fires'}"
+
+
+def decay_figure(ep, scores: pd.DataFrame):
+    """Confidence decay for one pick: rating by session since entry (pick-day
+    rating dashed, D threshold dotted, D where it first tripped) above the
+    pick's rank in the universe (rank 1 at the top)."""
+    import plotly.graph_objects as go
+    from plotly.subplots import make_subplots
+
+    import rec_rescore as rr
+    import report_style as rs
+    T = rs.TOKENS
+    s = scores.sort_values("session_date")
+    fig = make_subplots(rows=2, cols=1, shared_xaxes=True, row_heights=[0.65, 0.35],
+                        vertical_spacing=0.06)
+    fig.add_trace(go.Scatter(x=s["sessions_since_entry"], y=s["rating"], mode="lines+markers",
+                             name="rating", line=dict(color=T["info"])), row=1, col=1)
+    pick = _num(ep.get("overall_rating"))
+    if pick is not None:
+        fig.add_hline(y=pick, line=dict(color=T["accent"], width=1, dash="dash"), row=1, col=1,
+                      annotation_text=f"pick day {int(pick)}", annotation_position="top left")
+        fig.add_hline(y=pick - rr.DOWNGRADE_POINTS, line=dict(color=T["risk"], width=1, dash="dot"),
+                      row=1, col=1, annotation_text="D line (a prior)",
+                      annotation_position="bottom left")
+    d = rr.first_downgrade(s)
+    if d is not None:
+        r = s[s["session_date"].astype(str).str[:10] == d].iloc[0]
+        fig.add_trace(go.Scatter(x=[r["sessions_since_entry"]], y=[r["rating"]],
+                                 mode="markers+text", name="D", text=["D"],
+                                 textposition="top center",
+                                 marker=dict(symbol="triangle-down", size=12, color=T["risk"])),
+                      row=1, col=1)
+    ranked = s[s["universe_status"] == "ranked"] if "universe_status" in s else s.iloc[0:0]
+    fig.add_trace(go.Scatter(x=ranked["sessions_since_entry"], y=ranked["universe_rank"],
+                             mode="lines+markers", name="universe rank",
+                             line=dict(color=T["text_muted"])), row=2, col=1)
+    fig.update_yaxes(title_text="rating", row=1, col=1)
+    fig.update_yaxes(title_text="rank", autorange="reversed", row=2, col=1)
+    fig.update_xaxes(title_text="sessions since entry", row=2, col=1)
+    fig.add_annotation(xref="paper", yref="paper", x=0, y=1.08, showarrow=False,
+                       text=f"tracking since {str(s['session_date'].iloc[0])[:10]}",
+                       font=dict(size=10, color=T["text_muted"]))
+    fig.update_layout(height=320, showlegend=False, margin=dict(l=10, r=10, t=30, b=10))
+    return fig
+
+
+def decay_table(eps: pd.DataFrame, scores: pd.DataFrame, h: int = ra.HEADLINE_H) -> pd.DataFrame:
+    """Median rating drift by session since entry, judged winners vs losers
+    (loser = audit failure at `h`). Descriptive; fills in as tracking accrues."""
+    cols = ["sessions_since_entry", "winners_median", "losers_median", "n_winners", "n_losers"]
+    r = f"ret_{h}"
+    if scores is None or scores.empty or eps.empty or r not in eps:
+        return pd.DataFrame(columns=cols)
+    judged = eps[eps[r].notna()][["episode_id", "failure"]]
+    d = scores[["episode_id", "sessions_since_entry", "rating_drift"]].merge(judged, on="episode_id")
+    d = d[d["rating_drift"].notna()]
+    if d.empty:
+        return pd.DataFrame(columns=cols)
+    d["loser"] = d["failure"].fillna(False).astype(bool)
+    rows = []
+    for k, g in d.groupby("sessions_since_entry"):
+        w, l = g.loc[~g["loser"], "rating_drift"], g.loc[g["loser"], "rating_drift"]
+        rows.append({"sessions_since_entry": k,
+                     "winners_median": float(w.median()) if len(w) else None,
+                     "losers_median": float(l.median()) if len(l) else None,
+                     "n_winners": len(w), "n_losers": len(l)})
+    return pd.DataFrame(rows, columns=cols)

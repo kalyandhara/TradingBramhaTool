@@ -470,3 +470,103 @@ def test_lesson_table_flags_lessons_that_define_failure():
     t = rp.lesson_table(eps).set_index("id")
     assert "failure definition" in t.loc["RS_COLLAPSED", "note"]
     assert "STOPPED_THEN_RECOVERED" in rp.DEFINITIONAL      # a stop hit in the window = failure
+
+
+# ── Re-score: drift, attribution, decay (spec 2026-11-26 pick-rescore §4) ────
+def _rows(dates=("2026-11-26",), **cols) -> pd.DataFrame:
+    n = len(dates)
+    base = {"episode_id": ["e1"] * n, "session_date": list(dates),
+            "sessions_since_entry": list(range(3, 3 + n)), "rating": [55] * n,
+            "minervini": [5] * n, "technofunda": [4] * n, "canslim": [2] * n,
+            "canslim_n": [4] * n, "ew_conf": [40] * n, "cs_near_high": [1] * n,
+            "cs_volume": [1] * n, "cs_market": [1] * n, "cs_rs": [1] * n,
+            "universe_rank": [146] * n, "universe_size": [500] * n,
+            "universe_status": ["ranked"] * n, "original_still_firing": [0] * n,
+            "rating_at_pick": [50] * n, "rating_drift": [5] * n, "downgrade": [0] * n}
+    base.update({k: list(v) for k, v in cols.items()})
+    return pd.DataFrame(base)
+
+
+def test_drift_line_with_pick_rank():
+    s = _rows(("2026-11-26", "2026-11-27"), rating=[60, 54], universe_rank=[120, 146])
+    assert rp.drift_line(_ep(overall_rating=72), s, {"universe_rank": 9}) == \
+        "Rating drift −18 (72 → 54) · rank #9 → #146 of 500 · tracking since 2026-11-26"
+
+
+def test_drift_line_without_pick_rank():
+    assert rp.drift_line(_ep(overall_rating=50), _rows(), None) == \
+        "Rating drift +5 (50 → 55) · rank #146 of 500 today · tracking since 2026-11-26"
+
+
+def test_drift_line_universe_states():
+    out = _rows(universe_status=["not_in_universe"], universe_rank=[None], universe_size=[None])
+    none = _rows(universe_status=["no_universe"], universe_rank=[None], universe_size=[None])
+    assert rp.drift_line(_ep(overall_rating=50), out, None) == \
+        "Rating drift +5 (50 → 55) · not in today's 500 · tracking since 2026-11-26"
+    assert rp.drift_line(_ep(overall_rating=50), none, None) == \
+        "Rating drift +5 (50 → 55) · rank starts with the next shortlist run · " \
+        "tracking since 2026-11-26"
+
+
+def test_drift_line_edge_cases():
+    assert rp.drift_line(_ep(), _rows().iloc[0:0], None) == \
+        "Re-score tracking starts with the next nightly run."
+    assert rp.drift_line(_ep(overall_rating=None), _rows(), None) == \
+        "Rating 55 (no pick-day rating) · rank #146 of 500 today · tracking since 2026-11-26"
+    assert rp.drift_line(_ep(overall_rating=55), _rows(), None).startswith("Rating drift 0 (55 → 55)")
+
+
+def test_what_moved_names_the_biggest_weighted_change():
+    s = _rows(("2026-11-26", "2026-11-27"), minervini=[7, 4], technofunda=[5, 5],
+              canslim=[3, 1], cs_rs=[1, 0], cs_volume=[1, 0])
+    assert rp.what_moved(_ep(), s, None) == \
+        "Minervini 7/8 → 4/8 led the drop · lost: volume, RS leader · since 2026-11-26"
+
+
+def test_what_moved_from_the_pick_day_and_rises():
+    pick = {"minervini": 5, "technofunda": 2, "canslim": 2, "canslim_n": 4, "ew_conf": 40,
+            "cs_near_high": 0, "cs_volume": 1, "cs_market": 1, "cs_rs": 1}
+    s = _rows(technofunda=[6], cs_near_high=[1])
+    assert rp.what_moved(_ep(), s, pick) == \
+        "TechnoFunda 2/6 → 6/6 led the rise · gained: near high"
+    assert rp.what_moved(_ep(), _rows(), None) == ""        # one row, no pick-day parts
+
+
+def test_what_moved_when_nothing_moved():
+    assert rp.what_moved(_ep(), _rows(("2026-11-26", "2026-11-27")), None) == \
+        "Rating parts unchanged · since 2026-11-26"
+
+
+def test_scanners_line():
+    assert rp.scanners_line(_ep(scanners="A, B, C"), _rows(original_still_firing=[2])) == \
+        "2 of 3 original scanners still fire"
+    assert rp.scanners_line(_ep(scanners="A"), _rows(original_still_firing=[1])) == \
+        "1 of 1 original scanner still fires"
+    assert rp.scanners_line(_ep(scanners="A"), _rows().iloc[0:0]) == ""
+
+
+def test_multichart_url_carries_ddate():
+    ep = _ep()
+    assert "ddate=2026-12-03" in rp.multichart_url(ep, _frame(ep), ddate="2026-12-03")
+    assert "ddate" not in rp.multichart_url(ep, _frame(ep))
+
+
+def test_decay_table():
+    eps = pd.DataFrame({"episode_id": ["w", "l", "open"], "ret_21": [5.0, -9.0, None],
+                        "failure": [False, True, False]})
+    s = pd.DataFrame({"episode_id": ["w", "w", "l", "l", "open"],
+                      "sessions_since_entry": [1, 2, 1, 2, 1],
+                      "rating_drift": [2, 4, -10, -20, -50]})
+    t = rp.decay_table(eps, s, 21)
+    assert list(t.columns) == ["sessions_since_entry", "winners_median", "losers_median",
+                               "n_winners", "n_losers"]
+    assert t.set_index("sessions_since_entry").loc[2].tolist() == [4.0, -20.0, 1, 1]
+    assert rp.decay_table(eps, s.iloc[0:0], 21).empty
+
+
+def test_decay_figure_builds_and_marks_the_downgrade():
+    s = _rows(("2026-11-26", "2026-11-27"), rating=[60, 54], rating_drift=[-12, -18],
+              downgrade=[0, 1])
+    fig = rp.decay_figure(_ep(overall_rating=72), s)
+    names = {t.name for t in fig.data}
+    assert {"rating", "D", "universe rank"} <= names
