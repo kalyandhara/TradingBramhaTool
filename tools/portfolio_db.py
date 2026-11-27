@@ -987,9 +987,13 @@ def save_universe_ratings(rows: list[dict], session_date: str, run_date: str) ->
 
 
 def get_universe_ratings(session_date: str, symbols: list[str] | None = None) -> pd.DataFrame:
-    """Universe ratings for one session (optionally only `symbols`); empty if none."""
+    """Universe ratings for one session (optionally only `symbols`); empty if none,
+    including before the table exists (init_db runs with the next shortlist job)."""
     conn = get_connection()
     try:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' "
+                            "AND name='universe_ratings'").fetchone():
+            return pd.DataFrame(columns=["session_date", "symbol", *_UNIVERSE_COLS])
         q, params = "SELECT * FROM universe_ratings WHERE session_date = ?", [session_date]
         if symbols:
             q += f" AND symbol IN ({', '.join('?' * len(symbols))})"

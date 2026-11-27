@@ -160,3 +160,9 @@ def test_frame_cache_passes_the_liquidity_floor_through(monkeypatch):
     od._FrameCache(400)("X")
     od._FetchRouter(days=400, min_turnover=0).default("Y")
     assert seen == [{}, {"min_turnover": 0}]
+
+
+def test_default_universe_before_the_table_exists_is_empty(monkeypatch, tmp_path):
+    import portfolio_db as db
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "fresh.db")     # no init_db: no table
+    assert job._default_universe(SESSION).empty
