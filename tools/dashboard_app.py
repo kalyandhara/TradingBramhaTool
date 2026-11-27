@@ -3318,12 +3318,15 @@ with _slots.verdict:
         # 50/200 SMA breadth over the index constituents. Same cached download as
         # the breadth strip below, so Home fetches the NIFTY 500 once. Context
         # only: build_verdict never reads it, and the row is labelled so.
+        # The sub-indices (NIFTY 50 / Bank / Midcap 150 / Smallcap 250) are all
+        # inside the NIFTY 500, so they filter this one download — no history
+        # fetch of their own, only week-cached constituent CSVs.
         _bhist = bstrip.cached_history()
-        _n50 = bstrip.nifty50_members()
+        _bsubs = bstrip.sub_universe_members()
         _breadth_row = bstrip.quadrant_html(
             bstrip.sma_quadrants(_bhist), bstrip.UNIVERSE_LABEL,
             as_of=bstrip.last_close_date(_bhist),
-            sub=("NIFTY 50", bstrip.sma_quadrants(_bhist, members=_n50 or None)))
+            subs=bstrip.sub_quadrants(_bhist, _bsubs))
         st.markdown(
             rs.card(
                 '<div style="display:flex;align-items:flex-start;gap:16px;">'
@@ -3356,7 +3359,7 @@ with _slots.verdict:
                 tone=verdict["tone"]),
             unsafe_allow_html=True,
         )
-        bstrip.render_members(_bhist, _n50)
+        bstrip.render_members(_bhist, _bsubs)
 
     # ── Inline sentiment refresh ────────────────────────────────────────────
     if _show_regime and (_senti_reading is None or (_senti_age or 0) >= 1):

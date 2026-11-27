@@ -124,7 +124,9 @@ class TestRunSummary:
 
 
 class TestWriteBat:
-    def test_bat_includes_end_timestamp(self):
+    def test_bat_includes_end_timestamp(self, monkeypatch, tmp_path):
+        monkeypatch.setattr(sc, "HERE", tmp_path)          # not the live tools/*.bat
+        monkeypatch.setattr(sc, "LOG_DIR", tmp_path / "logs")
         job = sc.JOBS["sentiment_daily"]
         bat = sc.write_bat(job)
         content = bat.read_text(encoding="utf-8")
