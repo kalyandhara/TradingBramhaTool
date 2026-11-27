@@ -194,6 +194,26 @@ def init_db() -> None:
             );
             """
         )
+        # Pick re-score (2026-11-26): the Overall Rating of every name in the
+        # shortlist job's universe, one row per NSE session, so an open pick can
+        # be ranked against the whole universe each night. Keyed by the session
+        # the bars end on (IST by construction), never the machine's local date.
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS universe_ratings (
+                run_date TEXT NOT NULL,
+                session_date TEXT NOT NULL,
+                symbol TEXT NOT NULL,
+                rating INTEGER, minervini INTEGER, technofunda INTEGER,
+                canslim INTEGER, canslim_n INTEGER, ew_conf INTEGER,
+                cs_near_high INTEGER, cs_volume INTEGER, cs_market INTEGER,
+                cs_rs INTEGER,
+                universe_rank INTEGER, universe_size INTEGER,
+                model_version TEXT, created_at TEXT NOT NULL,
+                PRIMARY KEY (session_date, symbol)
+            );
+            """
+        )
         # Universe-wide RS rank walk (B-63b). A CACHE, not a journal: the walk is
         # recomputable from price history at any time, so a missing run_date
         # costs a recompute rather than a hole in a record. Keyed by run_date so
@@ -934,6 +954,47 @@ def get_daily_opportunities(run_date: str | None = None) -> pd.DataFrame:
         return pd.read_sql_query(
             "SELECT * FROM daily_opportunities ORDER BY run_date DESC, rank", conn
         )
+    finally:
+        conn.close()
+
+
+_UNIVERSE_COLS = ("rating", "minervini", "technofunda", "canslim", "canslim_n", "ew_conf",
+                  "cs_near_high", "cs_volume", "cs_market", "cs_rs", "universe_rank",
+                  "universe_size", "model_version")
+
+
+def _sql_bool(v):
+    return None if v is None else int(bool(v))
+
+
+def save_universe_ratings(rows: list[dict], session_date: str, run_date: str) -> int:
+    """Replace the universe ratings for `session_date`; returns rows saved."""
+    now = datetime.now().isoformat(timespec="seconds")
+    conn = get_connection()
+    try:
+        conn.execute("DELETE FROM universe_ratings WHERE session_date = ?", (session_date,))
+        conn.executemany(
+            f"INSERT INTO universe_ratings (run_date, session_date, symbol, "
+            f"{', '.join(_UNIVERSE_COLS)}, created_at) "
+            f"VALUES ({', '.join('?' * (len(_UNIVERSE_COLS) + 4))})",
+            [(run_date, session_date, r["symbol"],
+              *(_sql_bool(r.get(c)) if c.startswith("cs_") else r.get(c)
+                for c in _UNIVERSE_COLS), now) for r in rows])
+        conn.commit()
+        return len(rows)
+    finally:
+        conn.close()
+
+
+def get_universe_ratings(session_date: str, symbols: list[str] | None = None) -> pd.DataFrame:
+    """Universe ratings for one session (optionally only `symbols`); empty if none."""
+    conn = get_connection()
+    try:
+        q, params = "SELECT * FROM universe_ratings WHERE session_date = ?", [session_date]
+        if symbols:
+            q += f" AND symbol IN ({', '.join('?' * len(symbols))})"
+            params += list(symbols)
+        return pd.read_sql_query(q + " ORDER BY universe_rank, symbol", conn, params=params)
     finally:
         conn.close()
 
