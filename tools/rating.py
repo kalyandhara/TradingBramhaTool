@@ -76,11 +76,20 @@ def compute_canslim(df: pd.DataFrame, nifty_df: pd.DataFrame | None) -> tuple:
     return score, conds, rs_pct, rs_line
 
 
-def overall_rating(df: pd.DataFrame, nifty_df: pd.DataFrame | None,
-                   weights: dict | None = None) -> tuple[int | None, dict]:
-    """Return (rating 0-100, breakdown) fusing Minervini/8 + TechnoFunda/6 +
-    CANSLIM/computable + EW confidence/100. Rating is None if scoring fails
-    (e.g. too few bars). Each sub-score is normalised to 0-1 then weighted."""
+#: CANSLIM condition label prefix → rating_detail key (labels live in compute_canslim).
+_CS_KEYS = {"N": "cs_near_high", "S": "cs_volume", "M": "cs_market", "L": "cs_rs"}
+
+
+def rating_detail(df: pd.DataFrame, nifty_df: pd.DataFrame | None,
+                  weights: dict | None = None) -> dict | None:
+    """The Overall Rating and its parts as numbers, or None if scoring fails
+    (e.g. too few bars). The one scorer: `overall_rating` is built on this, and
+    the pick re-score stores these parts nightly to attribute drift.
+
+    Keys: rating (0-100), minervini (0-8), technofunda (0-6), canslim (passes),
+    canslim_n (computable conditions), ew_conf (0-100), and the four CANSLIM
+    checks cs_near_high / cs_volume / cs_market / cs_rs (bool, None = not computable).
+    """
     w = weights or OVERALL_WEIGHTS
     try:
         mv, _ = sp.score_minervini(df, nifty_df=nifty_df)          # 0-8
@@ -88,7 +97,7 @@ def overall_rating(df: pd.DataFrame, nifty_df: pd.DataFrame | None,
         cs, cs_conds, _, _ = compute_canslim(df, nifty_df)         # 0-4 (some None)
         ew_conf = int(ew_module.analyze_ew(df).get("confidence", 0) or 0)  # 0-100
     except Exception:
-        return None, {}
+        return None
 
     # Normalise CANSLIM by the count of computable (non-None) conditions so a
     # missing benchmark doesn't silently deflate the score.
@@ -98,10 +107,28 @@ def overall_rating(df: pd.DataFrame, nifty_df: pd.DataFrame | None,
     cs_n = (cs / computable) if computable else 0.0
     ew_n = ew_conf / 100.0
 
-    rating = round(100 * (mv_n * w["minervini"] + tf_n * w["technofunda"]
-                          + cs_n * w["canslim"] + ew_n * w["ew"]))
-    return rating, {
-        "Minervini": f"{mv}/8", "TechnoFunda": f"{tf}/6",
-        "CANSLIM": f"{cs}/{computable}" if computable else "n/a",
-        "EW conf": str(ew_conf),
+    out = {"rating": round(100 * (mv_n * w["minervini"] + tf_n * w["technofunda"]
+                                  + cs_n * w["canslim"] + ew_n * w["ew"])),
+           "minervini": int(mv), "technofunda": int(tf), "canslim": int(cs),
+           "canslim_n": computable, "ew_conf": ew_conf}
+    out.update({k: None for k in _CS_KEYS.values()})
+    for label, v in cs_conds.items():
+        key = _CS_KEYS.get(str(label)[:1])
+        if key:
+            out[key] = None if v is None else bool(v)
+    return out
+
+
+def overall_rating(df: pd.DataFrame, nifty_df: pd.DataFrame | None,
+                   weights: dict | None = None) -> tuple[int | None, dict]:
+    """Return (rating 0-100, breakdown) fusing Minervini/8 + TechnoFunda/6 +
+    CANSLIM/computable + EW confidence/100. Rating is None if scoring fails
+    (e.g. too few bars). Each sub-score is normalised to 0-1 then weighted."""
+    d = rating_detail(df, nifty_df, weights)
+    if d is None:
+        return None, {}
+    return d["rating"], {
+        "Minervini": f"{d['minervini']}/8", "TechnoFunda": f"{d['technofunda']}/6",
+        "CANSLIM": f"{d['canslim']}/{d['canslim_n']}" if d["canslim_n"] else "n/a",
+        "EW conf": str(d["ew_conf"]),
     }
