@@ -11,6 +11,9 @@
  *   V     volume breakdown: first close below the prior 20-session low on at
  *         least 1.5× the prior 20-session average volume. A desk rule for
  *         reading the chart, not a measured signal.
+ *   D     re-score downgrade (`ddate=`): the first session the nightly pick
+ *         re-score found the Overall Rating 15+ points below the pick day.
+ *         A prior, not a measured signal (rec_rescore.DOWNGRADE_POINTS).
  *   E     results days come from the existing Event Markers indicator.
  *
  * Daily bars are stamped 00:00 UTC on the trading date (chart_server /api/ohlcv).
@@ -37,12 +40,14 @@
     if (!date || !DATE.test(date)) return null;
     const sdate = q.get('sdate');
     const skind = q.get('skind');
+    const ddate = q.get('ddate');
     const rank = parseInt(q.get('rank') || '', 10);
     return {
       date, cut: dayTime(date),
       entry: num(q.get('entry')), stop: num(q.get('stop')), target: num(q.get('target')),
       sdate: sdate && DATE.test(sdate) ? sdate : null,
       skind: skind === 'S' || skind === 'T' ? skind : null,
+      ddate: ddate && DATE.test(ddate) ? ddate : null,
       sector: q.get('sector') || null,
       rank: Number.isFinite(rank) ? rank : null,
       label: q.get('label') || '',
@@ -96,6 +101,8 @@
     }
     if (vTime != null) out.push({time: vTime, position: 'aboveBar', shape: 'circle',
                                  color: '#ff9800', text: 'V'});
+    if (r.ddate) out.push({time: dayTime(r.ddate), position: 'aboveBar', shape: 'arrowDown',
+                           color: '#d29922', text: 'D'});
     return out.sort((a, b) => a.time - b.time);
   }
 

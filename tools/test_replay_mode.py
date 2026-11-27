@@ -100,3 +100,20 @@ def test_markers():
     assert [x["time"] for x in m] == sorted(x["time"] for x in m)
     assert {x["text"] for x in rpm("RPM.markers(r, b, null)", r={**r, "skind": "T"}, b=bars)} \
         == {"PICK", "T"}
+
+
+def test_parse_replay_reads_ddate():
+    assert rpm("RPM.parseReplay(q).ddate", q="?replay=2026-10-16&ddate=2026-10-30") == "2026-10-30"
+    assert rpm("RPM.parseReplay(q).ddate", q="?replay=2026-10-16&ddate=junk") is None
+    assert rpm("RPM.parseReplay(q).ddate", q="?replay=2026-10-16") is None
+
+
+def test_d_marker_is_placed_and_sorted():
+    r = rpm("RPM.markers(RPM.parseReplay(q), bars, null)",
+            q="?replay=2026-08-07&ddate=2026-08-20&sdate=2026-08-25&skind=S", bars=_bars())
+    d = [m for m in r if m["text"] == "D"]
+    assert len(d) == 1 and d[0]["time"] == rpm("RPM.dayTime('2026-08-20')")
+    assert d[0]["position"] == "aboveBar" and d[0]["shape"] == "arrowDown"
+    assert [m["time"] for m in r] == sorted(m["time"] for m in r)
+    assert not [m for m in rpm("RPM.markers(RPM.parseReplay(q), bars, null)",
+                               q="?replay=2026-08-07", bars=_bars()) if m["text"] == "D"]
