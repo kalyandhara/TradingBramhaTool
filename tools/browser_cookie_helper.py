@@ -84,12 +84,52 @@ def read_from_local_browsers(surface_errors: bool = False) -> tuple[str | None, 
     return None, None
 
 
-def get_screener_sessionid() -> tuple[str | None, str | None]:
-    """Return (sessionid_value, source) or (None, None).
+#: A verified sessionid is trusted for this long before it is re-checked, so a
+#: page re-render does not cost an HTTP round-trip every time.
+_VERIFY_TTL_S = 6 * 3600
+_verified: dict = {"sid": None, "at": 0.0}
 
-    Order: the screener_login.py cache first (reliable on Windows), then a direct
-    read from each local browser (works where cookie encryption permits)."""
-    cached = _read_cached_sessionid()
-    if cached:
+
+def _cached_any_age() -> str | None:
+    try:
+        return json.loads(_CACHE_FILE.read_text(encoding="utf-8")).get("sessionid")
+    except Exception:
+        return None
+
+
+def invalidate_cache() -> None:
+    """Forget the in-memory verification (call when a scrape hits the login page)."""
+    _verified.update(sid=None, at=0.0)
+
+
+def get_screener_sessionid() -> tuple[str | None, str | None]:
+    """Return (sessionid_value, source) or (None, None) — with no user action
+    whenever possible.
+
+    Order:
+      1. the saved session (tools/cache/screener_session.json), kept for as long as
+         screener.in still accepts it (checked, not aged out);
+      2. a SILENT headless refresh from the persistent login profile that
+         screener_login.py created (cache/pw_screener_profile) — no window;
+      3. a direct read of the local browsers' cookie stores.
+    Only if all three fail does the page need the one-click "Connect" login."""
+    now = time.time()
+    if _verified["sid"] and now - _verified["at"] < _VERIFY_TTL_S:
+        return _verified["sid"], "saved login"
+    try:
+        import screener_login as sl
+    except Exception:  # pragma: no cover
+        sl = None
+    cached = _cached_any_age()
+    if cached and (sl is None or sl.verify_authenticated(cached)):
+        _verified.update(sid=cached, at=now)
         return cached, "saved login"
-    return read_from_local_browsers()
+    if sl is not None:
+        sid = sl.refresh_silently()
+        if sid:
+            _verified.update(sid=sid, at=now)
+            return sid, "auto-refreshed login"
+    sid, src = read_from_local_browsers()
+    if sid:
+        _verified.update(sid=sid, at=now)
+    return sid, src

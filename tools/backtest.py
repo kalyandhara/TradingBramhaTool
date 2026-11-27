@@ -149,8 +149,8 @@ def _to_float(x) -> float | None:
 #: MOVE the stop, which the harness could not express before -- every trailing
 #: stop on the chart (PMax, SuperTrend AI, PSAR) had never been measured as an
 #: exit by this harness.
-EXIT_MODELS = ("fixed", "atr_trail", "ema_close", "structure")
-_EXIT_DEFAULTS = {"atr_trail": 3.0, "ema_close": 20, "structure": 5}
+EXIT_MODELS = ("fixed", "atr_trail", "ema_close", "structure", "breakeven")
+_EXIT_DEFAULTS = {"atr_trail": 3.0, "ema_close": 20, "structure": 5, "breakeven": 1.0}
 
 
 def parse_exit_model(spec: str | None) -> tuple[str, float | None]:
@@ -327,7 +327,9 @@ def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
     ``exit_model`` (B-123) -- ``fixed`` (default, unchanged), ``atr_trail:k``
     (Chandelier: extreme since entry - k*ATR22), ``ema_close:n`` (close through
     EMA n), ``structure:p`` (close through the latest CONFIRMED swing low/high,
-    pivot length p -- the CHoCH that ends a long). Rules every moving model obeys:
+    pivot length p -- the CHoCH that ends a long), ``breakeven:k`` (B-205: once
+    price gains k×R from entry, the stop ratchets to entry exactly once; target
+    stays active, unlike the other trail models). Rules every moving model obeys:
 
     * **The initial stop still defines R and still fires intraday.** A trail can
       only TIGHTEN from it, never loosen -- ratchet-only.
@@ -382,6 +384,35 @@ def _simulate_plan(df: pd.DataFrame, entry_idx: int, entry: float,
         timed_out = time_stop is not None and (end - entry_idx) >= horizon
         return {"outcome": "time" if timed_out else "open",
                 "r": _r(float(close[end])), "bars": end - entry_idx}
+
+    if model == "breakeven":
+        # B-205: one-time ratchet — once price reaches entry + param×risk the
+        # stop moves to entry and stays there. Target stays active throughout.
+        # Conservative tie-break: stop-first on a bar that spans both levels.
+        be_trigger = entry + param * risk if not short else entry - param * risk
+        live_be = stop
+        be_done = False
+        tag_be = f"breakeven:{param:g}"
+        for i in range(entry_idx, end + 1):
+            # Ratchet stop to breakeven on the first bar that reaches the trigger.
+            if not be_done:
+                extreme_ok = (high[i] >= be_trigger) if not short else (low[i] <= be_trigger)
+                if extreme_ok:
+                    be_done = True
+                    live_be = max(live_be, entry) if not short else min(live_be, entry)
+            # Resting stop (intraday), at whatever level it has ratcheted to.
+            if (high[i] >= live_be) if short else (low[i] <= live_be):
+                lbl = "trail" if be_done and live_be != stop else "stop"
+                return {"outcome": lbl, "r": _r(live_be), "bars": i - entry_idx,
+                        "exit_model": tag_be, "target_used": True}
+            # Target.
+            if (low[i] <= target) if short else (high[i] >= target):
+                return {"outcome": "target", "r": _r(target), "bars": i - entry_idx,
+                        "exit_model": tag_be, "target_used": True}
+        timed_out = time_stop is not None and (end - entry_idx) >= horizon
+        return {"outcome": "time" if timed_out else "open",
+                "r": _r(float(close[end])), "bars": end - entry_idx,
+                "exit_model": tag_be, "target_used": True}
 
     ser = _exit_series(df, model, param)
     tag = f"{model}:{param:g}"
@@ -545,12 +576,28 @@ def backtest_scanner(scanner_name: str,
         # every run, including the five dashboard call sites that pass a
         # benchmark. Nothing errored and nothing said so (B-104).
         _dates = df.index if isinstance(df.index, pd.DatetimeIndex) else None
-        df = df.dropna(subset=["high", "low", "close", "volume"]).reset_index(drop=True)
+        df = df.dropna(subset=["high", "low", "close", "volume"])
+        # B-159: kept trades carry calendar dates so a portfolio can line them
+        # up across symbols. Taken AFTER the dropna, so they stay aligned even
+        # where `_dates` (the market model's, unchanged) gives up below.
+        _trade_dates = df.index if isinstance(df.index, pd.DatetimeIndex) else None
+        df = df.reset_index(drop=True)
         if _dates is not None and len(_dates) != len(df):
             _dates = None          # NaN rows were dropped; the alignment is gone
         n = len(df)
         if n < warmup + max_h + 2:
             continue
+        # B-158: a spec may offer `prepare(df) -> hit_at(t)`, computed ONCE per
+        # symbol, instead of the per-bar `fn(df.iloc[:t+1])`. The contract is
+        # that hit_at(t) reads bars 0..t only (rule_engine pins it with a
+        # parity test); the harness cannot check that, so only specs that are
+        # tested for it should offer the hook.
+        hit_at = None
+        if spec.get("prepare") is not None:
+            try:
+                hit_at = spec["prepare"](df)
+            except Exception:
+                continue
         n_symbols_used += 1
         has_open = "open" in df.columns
         close = df["close"].to_numpy(dtype=float)
@@ -590,7 +637,7 @@ def backtest_scanner(scanner_name: str,
                 t += 1
                 continue
             try:
-                hit = fn(df.iloc[:t + 1])
+                hit = hit_at(t) if hit_at is not None else fn(df.iloc[:t + 1])
             except Exception:
                 hit = None
             if not hit:
@@ -714,8 +761,17 @@ def backtest_scanner(scanner_name: str,
                     if r:
                         r_results.append(r)
                         if keep_trades:
-                            trades.append({"symbol": sym, "t": int(t),
-                                           "side": _side, **r})
+                            # target / time_stop / max_bars (B-183): the levels a
+                            # no-edge baseline needs to replay the same plan.
+                            _tr = {"symbol": sym, "t": int(t), "side": _side,
+                                   "entry_idx": int(f_idx), "entry_px": float(f_px),
+                                   "stop": float(stop_p), "target": float(tgt_p),
+                                   "time_stop": _ts, "max_bars": int(max_h), **r}
+                            if _trade_dates is not None:
+                                _x = min(int(f_idx) + int(r["bars"]), n - 1)
+                                _tr["entry_date"] = _trade_dates[int(f_idx)]
+                                _tr["exit_date"] = _trade_dates[_x]
+                            trades.append(_tr)
                     else:
                         # Degenerate plans (zero risk) are counted, not dropped,
                         # so the report can say how much of the plan coverage it

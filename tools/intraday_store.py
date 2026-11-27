@@ -429,7 +429,8 @@ def main(argv: Sequence[str] | None = None) -> int:   # pragma: no cover
                     if a.mode == "backfill" else {}))
     ok = sum(1 for r in results if not r["error"])
     total = sum(r["written"] for r in results)
-    print(f"\n{a.mode}: {ok}/{len(results)} fetches ok, {total} bars written")
+    print(f"\n##RESULT {a.mode}: {ok}/{len(results)} fetches ok, {total} bars written")
+    print(f"{a.mode}: {ok}/{len(results)} fetches ok, {total} bars written")
     for r in (r for r in results if r["error"]):
         print(f"  FAILED {r['symbol']} {r['interval']}: {r['error']}")
     cov = coverage()

@@ -80,6 +80,9 @@ def load_bhav() -> tuple[Optional[pd.DataFrame], Optional[str]]:
     date = None
     if "trade_date" in df.columns and not df["trade_date"].isna().all():
         date = str(df["trade_date"].dropna().iloc[0])
+    # B-179: keep the closes on disk so Home's rail shows prices without fetching.
+    import watch_rail
+    watch_rail.write_closes(df, date, watch_rail.CLOSES_PATH)
     return df, date
 
 

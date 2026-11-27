@@ -53,7 +53,15 @@ HERE = pathlib.Path(__file__).resolve().parent
 #:                   write-up. That is the same disease as a stale claim seen from
 #:                   the other side -- a measurement that left no trace -- and it is
 #:                   better surfaced as a labelled state than hidden by a guess.
-VERDICTS = ("POSITIVE", "NEGATIVE", "NULL", "INCONCLUSIVE", "MIXED", "UNRECORDED")
+VERDICTS = (
+    "POSITIVE", "NEGATIVE", "NULL", "INCONCLUSIVE", "MIXED", "UNRECORDED",
+    # Plan-odds family (B-183 series): these are plan-geometry outcomes, not
+    # signal-edge verdicts; they describe the shape of the plan, not the signal.
+    "GEOMETRY_DEFECT",  # stop / R:R geometry is structurally invalid
+    "BEATS",            # plan beats its own baseline significantly
+    "BELOW",            # plan falls below baseline significantly
+    "AT BASELINE",      # plan sits at baseline — no edge, no defect
+)
 
 #: item     — the backlog anchor (B-xx), the authoritative write-up
 #: tool     — the bespoke study file, or None when it ran through the shared harness
@@ -389,6 +397,100 @@ STUDIES: tuple[dict, ...] = (
         "headline": "daily-vedha NIFTY event study: clean negative under 5,000x rotation",
         "source": "analyses/Contra-Strategy-Roadmap",
     },
+    # ── Indexed 2026-10-14 (B-154 follow-up): nine study files the index had missed.
+    {
+        "item": "B-134", "tool": "ew_structure_study.py", "date": "2026-10-08",
+        # The flag the elliott overlay prints as "⚠ Unusual B", scored through the
+        # shipped elliott_wave.js at its default options.
+        "subjects": ("EW unusual wave B flag",),
+        "verdict": "NULL",
+        "headline": ("unusual B vs normal B +0.17% @20d, p=0.281, n=13,077 vs 32,724 -- "
+                     "neither a buy feature nor a valid warning; re-run after the B-137 "
+                     "zigzag fix +0.09%, p=0.649. Stays a label"),
+        "source": "analyses/Open-Backlog#B-134",
+    },
+    {
+        "item": "B-135", "tool": "ew_structure_study.py", "date": "2026-10-08",
+        "subjects": ("EW W-X-Y complex correction",),
+        "verdict": "NULL",
+        "headline": ("W-X-Y vs any correction ending in the same 61.8-78.6% band +0.36% "
+                     "@20d, p=0.620, n=353 vs 28,210 -- the shape adds nothing over the "
+                     "depth; re-run after B-137 -0.49%, p=0.557. Drawing aid only"),
+        "source": "analyses/Open-Backlog#B-135",
+    },
+    {
+        "item": "CHoCH", "tool": "choch_study.py", "date": "2026-10-07",
+        # No backlog item of its own: the result lives in the scanner's description
+        # and in one aside in the B-133-B-136 prior paragraph.
+        "subjects": ("Bullish CHoCH (last 5 sessions)",),
+        "verdict": "NULL",
+        "headline": ("+0.24% @20d vs a bearish-structure baseline, p_rot 0.511, "
+                     "n=15,851; +0.77% @60d, p_rot 0.263. PIPELINE_EXCLUDED, never votes"),
+        "source": "analyses/Open-Backlog#B-134",
+    },
+    {
+        "item": "B-122", "tool": "no_supply_gate_study.py", "date": "2026-09-23",
+        "subjects": ("No-Supply (new high + clean volume)",),
+        "verdict": "NULL",
+        "headline": ("gate vs no gate on the Trend/Momentum family, paired by symbol, 24 "
+                     "symbols / 8,580 signals / 1,728 gated: -0.118% @10d (p=0.79), "
+                     "+0.157% @20d (p=0.25), +0.789% @60d (p=0.25) -- a subset, not a "
+                     "better one"),
+        "source": "analyses/Open-Backlog#B-122",
+    },
+    {
+        "item": "B-90", "tool": "vwap_ema_agreement_study.py", "date": "2026-10-12",
+        # The state was never built (B-90 says "do not build"); the vwap and ema20
+        # overlays draw the two lines, not the agreement.
+        "subjects": ("VWAP+EMA20 agreement state",),
+        "verdict": "NEGATIVE",
+        "headline": ("BELOW-both, hypothesised negative, was +0.12pp @1h / +0.16pp @2h "
+                     "within-session, p<0.001 -- wrong sign. 5 names, 15m, 102 sessions; "
+                     "the pooled day-level view does not show it"),
+        "source": "analyses/Open-Backlog#B-90",
+    },
+    {
+        "item": "B-98", "tool": "yearly_opening_range_study.py", "date": "2026-10-12",
+        "subjects": ("January opening-range break",),
+        "verdict": "NULL",
+        "headline": ("442 names, 5,960 symbol-years: break excess -0.03 / -1.57 / -0.59pp "
+                     "@20/60/120d, deciding by-year p=0.874 / 0.230 / 0.680; held vs "
+                     "failed no separation. A level, not a scanner"),
+        "source": "analyses/Open-Backlog#B-98",
+    },
+    {
+        "item": "B-142", "tool": "valuation_edge_study.py", "date": "2026-10-12",
+        "subjects": ("earnings-yield quintile at entry",),
+        "verdict": "INCONCLUSIVE",
+        "headline": ("thin run, 168 names: cheapest minus dearest +12.31pp @12m on ~5 "
+                     "independent windows against a floor of 8; sign flips in 2024. "
+                     "Reopens with B-141 depth"),
+        "source": "analyses/Open-Backlog#B-142",
+    },
+    {
+        "item": "CHoCH-f", "tool": "choch_filters_study.py", "date": "2026-10-07",
+        "subjects": ("CHoCH inside an SMA200 uptrend", "CHoCH after a sell-side sweep"),
+        "verdict": "UNRECORDED",
+        "headline": ("only written as 'both FAIL' in an aside in the B-134 prior -- no "
+                     "edge, p or n for either test anywhere"),
+        "source": "analyses/Open-Backlog#B-134",
+    },
+    {
+        "item": "PPV", "tool": "ppv_edge_study.py", "date": "2026-09-24",
+        "subjects": ("pocket pivot volume bar",),
+        "verdict": "UNRECORDED",
+        "headline": ("no wiki write-up; only commit 80fa6e8's message (\"no forward-return "
+                     "edge\", 24 symbols) and code comments -- no per-horizon numbers"),
+        "source": "concepts/Pocket-Pivot",
+    },
+    {
+        "item": "PPV-v", "tool": "ppv_variant_study.py", "date": "2026-09-24",
+        "subjects": ("pocket pivot at RVOL 3x / 5x", "pocket pivot near a 20-day high"),
+        "verdict": "UNRECORDED",
+        "headline": ("no wiki write-up; commit 80fa6e8 calls all three variants clean "
+                     "negatives (24 symbols, 9,879 signals) with no per-horizon numbers"),
+        "source": "concepts/Pocket-Pivot",
+    },
     # ── The four with no findable write-up ────────────────────────────────────
     # Each RAN or was BUILT to run, and none has a result this index can cite. They
     # are indexed anyway: the mapping (tool -> subjects) is what CHECK 0 needs, and
@@ -420,6 +522,342 @@ STUDIES: tuple[dict, ...] = (
         "verdict": "UNRECORDED",
         "headline": "new-moon highs/lows as S/R vs an adjacent day; no result located",
         "source": "analyses/Open-Backlog#B-30",
+    },
+    {
+        "item": "B-147", "tool": "qullamaggie_edge_study.py", "date": "2026-10-14",
+        "source": "analyses/Qullamaggie-Edge-Study",
+        "subjects": ("Qullamaggie Breakout", "Episodic Pivot"),
+        "verdict": "NULL",
+        "headline": ("pre-registered, 459 names x 19y: Breakout +0.67pp @20d vs the "
+                     "stock's ordinary bar, p=0.031 (bar 0.0125) -- NULL; +1.76pp @60d "
+                     "p=0.005 not decisive. EP +0.47pp p=0.68 -- NULL. Right tail: 19% "
+                     "reach +3R before the low-of-day stop, win/loss 2.66, +0.18R a "
+                     "trade; the pre-registered R baseline was void (tiny R on ordinary "
+                     "bars), post-hoc % plan +0.73% vs +0.12% (CI +0.29..+0.99). His "
+                     "NIFTY SMA10>SMA20 filter did not help."),
+    },
+    {
+        "item": "B-147b", "tool": "qullamaggie_breakout_retest.py", "date": "2026-10-14",
+        "source": "analyses/Qullamaggie-Edge-Study",
+        "subjects": ("Qullamaggie Breakout",),
+        "verdict": "NULL",
+        "headline": ("pre-registered confirmatory re-test of B-147's two Breakout leads on "
+                     "424 names B-147 never saw (mostly small caps, 2021-26): 874 signals / "
+                     "290 symbols. Decisive % plan vs the same plan on an ordinary bar with "
+                     "a stop matched at 1.32x ATR14: +0.09pp a trade, p=0.85 (bar 0.025), "
+                     "CI -0.56..+1.00 -- NULL. 60d forward +0.47pp p=0.68 -- the 60d lead "
+                     "does not carry over. In-sample the matched-stop gap is +0.51pp "
+                     "(p=0.028) but only +0.23pp vs a trend-matched bar."),
+    },
+    {
+        "item": "B-132", "tool": "abcd_stop_study.py", "date": "2026-10-14",
+        "source": "analyses/ABCD-Stop-Study",
+        "subjects": ("AB=CD plan stop",),
+        "verdict": "POSITIVE",
+        "headline": ("pre-registered, nifty500[300:500] (fresh vs B-129r): AB=CD plan with "
+                     "stop D - 2 x ATR14 +0.56%/trade vs +0.01% at the card's D - 0.5% "
+                     "(paired by symbol +0.52pp, p=0.0019; own per-symbol p=0.012; 1,385 "
+                     "trades / 183 symbols); 1 x ATR also passed (+0.37pp, p=0.010). "
+                     "Stop-outs 67% -> 21%, but 43% now leave on the 10-bar time stop. "
+                     "SHIPPED A2. Tier unchanged."),
+    },
+    {
+        "item": "B-132r", "tool": "harmonic_tier_recheck.py", "date": "2026-10-14",
+        "source": "analyses/ABCD-Stop-Study",
+        "subjects": ("Harmonic Reversal (XABCD)",),
+        "verdict": "POSITIVE",
+        "headline": ("pre-registered re-run of B-129r's promotion check with B-132's AB=CD "
+                     "stop (D - 2 x ATR14), nifty500 first 300 (out of sample for the stop). "
+                     "R0 PASS (n=109, +1.10%). P: 2,349 signals / 281 symbols, @20d +0.55% "
+                     "windows +0.33/+0.15/+1.06, clustered p=0.025, plan +0.04R (was -0.18R), "
+                     "+0.55%/trade -> rule says PROMOTE (recommendation only). The window-2 pass "
+                     "(-0.03 -> +0.15) came from calendar drift, not the stop; margins thin. "
+                     "Tier unchanged -- owner's call."),
+    },
+    {
+        "item": "B-132r2", "tool": "harmonic_tier_recheck.py", "date": "2026-10-21",
+        "source": "analyses/ABCD-Stop-Study",
+        "subjects": ("Harmonic Reversal (XABCD)",),
+        "verdict": "MIXED",
+        "headline": ("second re-run of B-129r's promotion check (rule fixed 2026-10-14, run "
+                     "on/after 2026-10-21). R0 PASS (n=109, +1.13%). P: 2,359 signals / 281 "
+                     "symbols, @20d +0.54% windows +0.40/+0.13/+0.97, clustered p=0.0235, "
+                     "plan +0.043R. Condition 3 FAILS: 10d window 1 = 0.0 (not > 0); 60d "
+                     "window 2 = -0.94. Rule: STAYS WEAK. Not re-checked on calendar drift alone."),
+    },
+    {
+        "item": "B-95", "tool": "participant_oi_study.py", "date": "2026-10-15",
+        "source": "analyses/FII-Short-Squeeze-Study",
+        "subjects": ("FII index-futures extreme short",),
+        "verdict": "NULL",
+        "headline": ("pre-registered blind, 2016-2026, rotation p: FII >= 85% short in index "
+                     "futures (261 sessions, 12 episodes) -> NIFTY +20 sessions -1.42pp vs "
+                     "otherwise after a prior-move control, p=0.38 -- NULL, leaning AGAINST "
+                     "the squeeze claim; entry days -3.55pp p=0.052 on 12 events. All "
+                     "episodes 2020+."),
+    },
+    {
+        "item": "B-174", "tool": "gmm_regime_study.py", "date": "2026-10-15",
+        "source": "analyses/GMM-Regime-vs-Verdict",
+        "subjects": ("Gaussian-mixture regime", "VOLATILE regime label"),
+        "verdict": "NEGATIVE",
+        "headline": ("pre-registered, NIFTY 2010-2026, Spearman with forward 20d vol: GMM "
+                     "P(stressed) 0.226 vs VOLATILE 0.310 vs naive trailing vol 0.599 -- the "
+                     "learned regime is significantly WORSE than the vol it is fed; closed, "
+                     "regime stays rule-based."),
+    },
+    {
+        "item": "B-172", "tool": "score_calibration_study.py", "date": "2026-10-15",
+        "source": "analyses/Scanner-Score-Calibration",
+        "subjects": ("scanner score", "best_score", "rank_score scanner term"),
+        "verdict": "NULL",
+        "headline": ("pre-registered census, 132k scored hits / 41 scanners: the 0-100 score "
+                     "ranks hits within the scanner for 1-2 of 41 @20d (Renko Flip; ATH "
+                     "Breakout fragile), INVERTED for Downside Risk; 38 no evidence. "
+                     "B-172r (owner) on best_score's 30% of rank_score."),
+    },
+    {
+        "item": "B-165r", "tool": "crt_edge_study.py", "date": "2026-10-15",
+        "source": "analyses/Weekly-CRT-Sweep-Overlap",
+        "subjects": ("weekly Candle Range Theory", "CRT"),
+        "verdict": "NULL",
+        "headline": ("pre-registered, 258 names x 750 bars, net costs, per-symbol t: weekly "
+                     "bullish CRT -> 20d edge -0.16% (p 0.21) all events, -0.27% (p 0.09) "
+                     "where no sweep fired; window signs flip. Detector only, no scanner."),
+    },
+    {
+        "item": "B-175", "tool": "residual_momentum_study.py", "date": "2026-10-16",
+        "source": "analyses/Residual-Momentum-vs-RS",
+        "subjects": ("residual momentum", "RS rank"),
+        "verdict": "NULL",
+        "headline": ("pre-registered monthly IC, 58 dates x ~258 names: RS 0.036 (p 0.067), "
+                     "residual momentum 0.044 (p 0.007), difference +0.008 (p 0.42) -- "
+                     "not better than RS; no change."),
+    },
+    {
+        "item": "B-166", "tool": "htf_sweep_study.py", "date": "2026-10-17",
+        "source": "analyses/HTF-Liquidity-Sweep",
+        "subjects": ("HTF liquidity sweep", "prior-week low sweep", "prior-month low sweep"),
+        "verdict": "NULL",
+        "headline": ("pre-registered, 258 names: HTF sweeps the scanner misses +0.21% @20d "
+                     "(p 0.35); pools stay daily. Registered sweep on the same panel +2.59% "
+                     "@60d (p 0.003)."),
+    },
+    {
+        "item": "B-167", "tool": "sweep_confirm_study.py", "date": "2026-10-17",
+        "source": "analyses/Sweep-Confirmation-Filter",
+        "subjects": ("sweep confirmation", "CISD", "smart money reversal"),
+        "verdict": "NULL",
+        "headline": ("pre-registered, 5,305 sweeps: CISD/BOS-confirmed minus unconfirmed "
+                     "-0.02pp @20d (p 0.97); confirmation does not select better sweeps."),
+    },
+    {
+        "item": "B-177", "tool": "ml_cross_section_study.py", "date": "2026-10-17",
+        "source": "analyses/Cross-Sectional-ML-Experiment",
+        "subjects": ("machine learning", "cross-sectional ML", "gradient boosting"),
+        "verdict": "NULL",
+        "headline": ("pre-registered, purged + embargoed walk-forward, 33 monthly test dates: "
+                     "8-feature GBM IC 0.030 vs RS 0.019, difference +0.012 (p 0.59); LOGIT "
+                     "-0.002 (p 0.94). Nothing learnable beyond RS; no model ships."),
+    },
+    {
+        "item": "B-182", "tool": "bull_trap_study.py", "date": "2026-10-23",
+        "source": "analyses/Bull-Trap-Detector",
+        "subjects": ("Bull Trap",),
+        "verdict": "INCONCLUSIVE",
+        "headline": ("pre-registered, 258 names: TOO FEW -- 55 full traps on 49 names, "
+                     "+0.03% @20d (p 0.98); plain failed breakouts (3,563) +0.11% "
+                     "(p 0.47), no negative edge even when powered."),
+    },
+    {
+        "item": "B-184", "tool": "event_study.py", "date": "2026-10-26",
+        "source": "analyses/Policy-Event-Study-Result",
+        # Component labels, not scanners: the study measures calendar events.
+        "subjects": ("budget day sector dispersion", "rbi mpc day"),
+        "verdict": "MIXED",
+        "headline": ("pre-registered: Budget days re-sort sectors -- dispersion 1.65x a "
+                     "normal day, Holm p 0.0008, both halves; budget |NIFTY| 1.35x p 0.10 "
+                     "(not established). MPC decision days ordinary: 1.03x / 0.94x, "
+                     "cut-vs-hike basket p 0.71."),
+    },
+    {
+        "item": "B-186a", "tool": "sweep_reconcile_study.py", "date": "2026-10-27",
+        "source": "analyses/Sweep-Reconciliation-Result",
+        # A diagnosis between two measurements, not a new edge test.
+        "subjects": ("liquidity sweep tour window",),
+        "verdict": "MIXED",
+        "headline": ("pre-registered six-step ladder: B-41m reproduces (+0.54% net); the "
+                     "tour's 260-bar detection window is the cause (-0.78 pp), turning "
+                     "+0.48% into -0.31%."),
+    },
+    {
+        "item": "B-186d", "tool": "sweep_full_window_study.py", "date": "2026-10-27",
+        "source": "analyses/Sweep-Full-Window-Result",
+        "subjects": ("liquidity sweep tour card full window",),
+        "verdict": "NULL",
+        "headline": ("pre-registered: full-window sweep card ORDINARY on the unseen panel "
+                     "(+0.34% @20d, p 0.35) and the main (+0.48%, p 0.10)."),
+    },
+    {
+        "item": "B-183", "tool": "plan_baseline_study.py", "date": "2026-11-03",
+        "source": "analyses/Plan-Odds-Baseline-Measured",
+        "subjects": ("plan-odds no-edge baseline",),
+        "verdict": "MIXED",
+        "headline": ("amended zero-drift re-run: 8 BEATS (4 robust: Flag & Pole, Rounding "
+                     "Bottom, Bullish CHoCH, %R Bottoming), 11 AT, 2 BELOW; first run "
+                     "failed its placebo; gate passed on p only, main placebo +0.04R."),
+    },
+    {
+        "item": "B-183c", "tool": "plan_baseline_study.py", "date": "2026-11-03",
+        "source": "analyses/Plan-Odds-Baseline-Robust",
+        "subjects": ("plan-odds no-edge baseline, robust",),
+        "verdict": "MIXED",
+        "headline": ("d clipped at 3R, strict gate passed (+0.001R, p 0.89): 8 BEATS, 8 AT, "
+                     "6 BELOW, 1 THIN; Rounding Bottom fell to AT; 14 card lines, on the "
+                     "plan's levels, not the signal."),
+    },
+    {
+        "item": "B-183a", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("RSI Divergence Bull plan geometry",),
+        "verdict": "GEOMETRY_DEFECT",
+        "headline": ("Stop formula inverted: fib_618 − 0.3×ATR sits 38.2% above the second "
+                     "pivot low; only late-entry cases (price past fib_618) produce valid "
+                     "plans — 737 trades, entry spent. Fallback stop = price2 − 0.5×ATR is "
+                     "correct. Filed B-183f to pre-register fix and re-run."),
+    },
+    {
+        "item": "B-183i", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("Liquidity Sweep plan geometry — wider stop",),
+        "verdict": "BEATS",
+        "headline": ("Wider stop wick_low−1.5×ATR on fresh panel (nifty500[300:500]): "
+                     "mean_d +0.126R (p 0.0008, thirds [+0.207, +0.019, −0.038], 2/3 positive). "
+                     "noise_stop_share 30.0% (was 64.9%). mean_exp_r −0.018R (near-zero). "
+                     "The −0.09R BELOW in B-183c was stop-driven; wider stop unlocks the edge. "
+                     "B-41p pre-registered this arm (no-stop +0.504R); a stopped arm at "
+                     "wick_low−1.5×ATR gives +0.126R per-symbol — a tractable compromise."),
+    },
+    {
+        "item": "B-183h", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("Support Breakdown plan geometry — wider stop",),
+        "verdict": "BELOW",
+        "headline": ("Wider stop bk_level+ATR on fresh panel (nifty500[300:500]): "
+                     "mean_d −0.082R (p 7.1e-7, thirds all negative). "
+                     "noise_stop_share 24.8% (was 80.7%). mean_exp_r −0.101R (geometry still "
+                     "negative — stop widening not sufficient). realised_target_rate 3.8% vs "
+                     "p_target 5.0%. The signal itself selects into continued moves against "
+                     "the short; no stop geometry fix resolves this."),
+    },
+    {
+        "item": "B-183f", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("RSI Divergence Bull plan geometry — corrected stop",),
+        "verdict": "AT BASELINE",
+        "headline": ("Corrected stop price2−0.5×ATR on fresh panel (nifty500[300:500]): "
+                     "mean_d +0.005R (p 0.89, thirds sign-unstable). noise_stop_share 4.3%. "
+                     "realised_target_rate 51.0% ≈ baseline 50.3%. The −0.22R BELOW in "
+                     "B-183c was entirely the inverted fib stop geometry."),
+    },
+    {
+        "item": "B-183g", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("Mean Reversion (Connors RSI2) plan geometry — wider stop",),
+        "verdict": "AT BASELINE",
+        "headline": ("Wider stop entry−2×ATR on fresh panel (nifty500[300:500]): "
+                     "mean_d +0.056R (p 0.44, 178 trades, 111 symbols). noise_stop_share 0.6% "
+                     "(was 79.1% with session_low×0.995). mean_exp_r −0.015R (near-zero). "
+                     "The −0.406R BELOW in B-183c was entirely the tight-stop distortion."),
+    },
+    {
+        "item": "B-183e", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("Support Breakdown plan geometry", "Inverted Flag & Pole plan geometry"),
+        "verdict": "GEOMETRY_DEFECT",
+        "headline": ("Support Breakdown: noise_stop_share 80.7%; stop at bk_level×1.005 is "
+                     "inside routine-bounce range (scanner fires on a retest, so stop is just "
+                     "above the trigger); mean_exp_r −0.308R (plan itself is bad). "
+                     "Inverted Flag & Pole: noise_stop_share 90.6%; B-92 measured INVERTED "
+                     "signal (+1.33% above baseline); tight stop compounds the inversion. "
+                     "No geometry fix rescues an inverted signal."),
+    },
+    {
+        "item": "B-183d", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("Liquidity Sweep plan geometry", "VWAP Mean Reversion plan geometry"),
+        "verdict": "GEOMETRY_DEFECT",
+        "headline": ("Liquidity Sweep: mean_exp_r +0.636R (plan should earn +0.636R by "
+                     "construction) but signal earns −0.506R; noise_stop_share 64.9%; "
+                     "stop at wick_low destroys expectation — B-41p already measured this. "
+                     "VWAP MR: mean_exp_r −0.132R (R:R < 1 by construction); signal excess "
+                     "−0.156R is signal quality (B-40m NULL), not geometry."),
+    },
+    {
+        "item": "B-183b", "tool": "plan_baseline_study.py", "date": "2026-11-19",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("Mean Reversion (Connors RSI2) plan geometry",),
+        "verdict": "GEOMETRY_DEFECT",
+        "headline": ("Stop = session_low × 0.995 is inside normal noise: noise_stop_share "
+                     "79.1% (B-183c), B-8 measured 68.1% stop-out rate on the same formula. "
+                     "Mean_d −0.406R; realised_target_rate 14.1% vs mean_p_target 18.2% — "
+                     "stop fires before target is reached. Fix candidate: entry − 2×ATR "
+                     "(B-8: cost nothing measurable). Filed B-183g to pre-register."),
+    },
+    {
+        "item": "B-203", "tool": "failed_breakdown_study.py", "date": "2026-11-03",
+        "source": "analyses/Failed-Breakdown-Sweep",
+        "subjects": ("Failed Breakdown (2-bar sweep)",),
+        "verdict": "NULL",
+        "headline": ("pre-registered, 258 names: two-candle failed breakdown +0.17% @20d "
+                     "(p 0.32, 3,674); equal-lows pool +0.46% (p 0.15, 1,468); neither "
+                     "window-stable. Same-panel one-candle sweep +2.43% @60d (p 0.003)."),
+    },
+    {
+        "item": "B-204", "tool": "cycle_window_study.py", "date": "2026-11-21",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("cycle trough window hit rate",),
+        "verdict": "NULL",
+        "headline": ("pre-registered; 56,632 events, 458 symbols, daily: hit rate 55.8% "
+                     "vs baseline 55.3%, +0.50 pts, CI [+0.23, +0.80]. Passes the "
+                     "pre-registered rule but the edge is too small to use as a signal. "
+                     "Cycle length measured was ~7 daily bars, not the 55-day reference."),
+    },
+    {
+        "item": "B-205", "tool": "breakeven_exit_study.py", "date": "2026-11-25",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("breakeven:k exit arm",),
+        "verdict": "NULL",
+        "headline": ("pre-registered; LuxAlgo step 3: 6 comparisons (2 setups × 3 k), "
+                     "Bonferroni alpha=0.0083. ALL NO DIFFERENCE: Falling Wedge "
+                     "breakeven:1 dR=−0.1084 p=0.0105, :1.5 dR=−0.0619 p=0.1185, "
+                     ":2 dR=−0.0582 p=0.1216; Harmonic :1 dR=−0.0108 p=0.5417, "
+                     ":1.5 dR=+0.0184 p=0.2951, :2 dR=+0.0225 p=0.1916. "
+                     "Ratchet neither improves nor degrades outcomes; prior 'no difference' confirmed."),
+    },
+    {
+        "item": "B-206", "tool": "disaster_stop_study.py", "date": "2026-11-25",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("disaster stop on Liquidity Sweep arm C",),
+        "verdict": "BEATS",
+        "headline": ("pre-registered; LuxAlgo step 5: all 3 floors preserve arm C's edge — "
+                     "D2 mean +0.193R CI [+0.056, +0.355] vs C +0.209R, D3 +0.200R CI "
+                     "[+0.058, +0.353], D4 +0.208R CI [+0.068, +0.363]. All within 0.10R "
+                     "of C with CI excluding 0. Prior said D2 fails; D2 passes. "
+                     "A floor at 2× shipped_risk is compatible with the LS arm C edge."),
+    },
+    {
+        "item": "B-207", "tool": "target_anchor_study.py", "date": "2026-11-25",
+        "source": "analyses/Open-Backlog",
+        "subjects": ("target-anchor type vs reach rate",),
+        "verdict": "MIXED",
+        "headline": ("pre-registered; LuxAlgo step 6: 2 setups × Bonferroni z-test. "
+                     "FW SD_1R TAG PREDICTIVE n=74 rate=59.5% vs base=42.6%; "
+                     "Harmonic DAY_HIGH TAG PREDICTIVE n=236 rate=72.0% vs base=60.8%; "
+                     "Harmonic SD_2R TAG DESTRUCTIVE n=48 rate=25.0% vs base=60.8%. "
+                     "Prior 'no difference' wrong — SD_1R and DAY_HIGH targets reach "
+                     "more often; SD_2R (2× move target on Harmonic) rarely reached. "
+                     "Licenses noting tag type in plan scoreboard."),
     },
 )
 

@@ -38,26 +38,75 @@ def test_an_interval_job_never_uses_a_one_time_minute_trigger():
 
 
 def test_an_interval_job_recurs_weekly_on_the_trading_days():
-    argv = _argv("alert_watcher")
+    argv = _argv("filings_watch")
     assert _flag(argv, "/sc") == "WEEKLY"
     assert _flag(argv, "/d") == "MON,TUE,WED,THU,FRI"
-    # No weekend runs: NSE is shut and the bot would no-op 26 times a day.
     assert "SAT" not in argv and "SUN" not in argv
+
+
+def test_the_alert_bot_runs_all_day_every_day_and_gates_itself():
+    """A local 09:15-15:45 window was 18:45-01:15 IST on this US-Eastern PC.
+    The watcher now gates NSE symbols on the IST clock, so the task just
+    repeats round the clock (crypto has no session)."""
+    argv = _argv("alert_watcher")
+    assert _flag(argv, "/sc") == "WEEKLY"
+    assert _flag(argv, "/d") == "MON,TUE,WED,THU,FRI,SAT,SUN"
+    assert _flag(argv, "/st") == "00:00"
+    assert _flag(argv, "/du") == "0023:59"
 
 
 def test_the_repeat_window_is_expressed_as_a_duration_not_an_end_time():
     """schtasks silently DROPPED `/et` here (`Repeat: Until: Time: None`)."""
-    argv = _argv("alert_watcher")
+    argv = _argv("alert_watcher", time="09:15", end="15:45")
     assert "/et" not in argv
     assert _flag(argv, "/ri") == "15"
     assert _flag(argv, "/du") == "0006:30"   # 09:15 -> 15:45
 
 
-def test_a_daily_job_stays_a_plain_daily_trigger():
+def test_a_daily_job_runs_on_trading_weekdays_only():
+    # /sc DAILY fired every after-close job on Saturdays and Sundays too —
+    # equity_snapshot "failed" on 2026-10-17 and 10-18 with nothing to price.
     argv = _argv("opportunity_daily")
-    assert _flag(argv, "/sc") == "DAILY"
+    assert _flag(argv, "/sc") == "WEEKLY"
+    assert _flag(argv, "/d") == "MON,TUE,WED,THU,FRI"
     assert _flag(argv, "/st") == "16:20"
     assert "/ri" not in argv and "/du" not in argv
+
+
+# ── Task settings schtasks /create cannot express ────────────────────────────
+
+def test_settings_script_enables_catch_up_and_battery_runs():
+    ps = sch.task_settings_ps("TradingBramha-SnapshotRefresh")
+    assert "Get-ScheduledTask -TaskName 'TradingBramha-SnapshotRefresh'" in ps
+    assert "StartWhenAvailable = $true" in ps
+    assert "DisallowStartIfOnBatteries = $false" in ps
+    assert "StopIfGoingOnBatteries = $false" in ps
+    assert "Set-ScheduledTask" in ps
+
+
+def test_settings_script_quotes_a_task_name_with_an_apostrophe():
+    assert "'it''s'" in sch.task_settings_ps("it's")
+
+
+def test_register_applies_settings_after_a_successful_create(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(sch, "HERE", tmp_path)
+    monkeypatch.setattr(sch, "LOG_DIR", tmp_path / "logs")
+    monkeypatch.setattr(sch, "_schtasks",
+                        lambda argv: (calls.append(argv[0]),
+                                      sch.subprocess.CompletedProcess(argv, 0, "ok", ""))[1])
+    ok, msg = sch.register(sch.JOBS["sentiment_daily"])
+    assert ok and calls == ["schtasks", "powershell"]
+
+
+def test_generated_bats_force_utf8_python_output(monkeypatch, tmp_path):
+    # Task Scheduler's console is cp1252; a "≥" in a progress line killed
+    # snapshot_refresh at step 6/16 on every scheduled run.
+    monkeypatch.setattr(sch, "HERE", tmp_path)
+    monkeypatch.setattr(sch, "LOG_DIR", tmp_path / "logs")
+    bat = sch.write_bat(sch.JOBS["snapshot_refresh"]).read_text(encoding="utf-8")
+    assert "set PYTHONIOENCODING=utf-8" in bat
+    assert bat.index("PYTHONIOENCODING") < bat.index("snapshot_refresh.py")
 
 
 # ── The duration arithmetic ──────────────────────────────────────────────────
@@ -102,4 +151,22 @@ def test_every_job_targets_its_own_task_name_and_an_existing_bat():
         argv = sch.register_argv(job)
         assert _flag(argv, "/tn") == job.task_name, jid
         # daily_scanner's bat is owned by the Scanner Hub, not generated here.
-        assert str(_flag(argv, "/tr")).endswith(".bat"), jid
+        assert str(_flag(argv, "/tr")).endswith('.bat"'), jid
+
+
+def test_tasks_run_headless():
+    """2026-11-23: every run of an Interactive task that starts a .bat opened a
+    visible cmd window (AlertWatcher every 15 min, FilingsWatch every 30). The
+    task action goes through `conhost.exe --headless`, so no window appears.
+    conhost always exits 0, so Task Scheduler's Last Result stops reflecting
+    the job; job_runs (job_audit) holds the real outcome."""
+    for jid, job in sch.JOBS.items():
+        tr = str(_flag(sch.register_argv(job), "/tr"))
+        assert tr.startswith('"C:\\Windows\\System32\\conhost.exe" --headless "'), jid
+        assert len(tr) < 262, jid          # schtasks /tr limit
+
+
+def test_rescore_runs_after_the_audit():
+    j = sch.JOBS["rec_rescore"]
+    assert j.kind == "daily" and j.default_time > sch.JOBS["rec_audit"].default_time
+    assert "rec_rescore_job.py" in j.command and j.task_name == "TradingBramha-RecRescore"

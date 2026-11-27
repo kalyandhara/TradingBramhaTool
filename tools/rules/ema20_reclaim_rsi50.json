@@ -1,0 +1,13 @@
+{
+  "name": "EMA20 reclaim, then RSI crosses 50",
+  "hypothesis": "EXAMPLE rule, written to exercise the engine. Expectation stated before any run: a close back above EMA20, followed within 5 bars by RSI(14) crossing above 50, while price holds above SMA50, beats the random-entry baseline at 20 sessions on NIFTY 500 daily bars. Prior: weak or none - this is a generic momentum-reclaim entry.",
+  "side": "long",
+  "steps": [
+    {"all": [{"lhs": "close", "op": "crosses_above", "rhs": "ema:20"},
+             {"lhs": "close", "op": ">", "rhs": "sma:50"}]},
+    {"all": [{"lhs": "rsi:14", "op": "crosses_above", "rhs": 50}],
+     "within": 5}
+  ],
+  "invalidate": [{"lhs": "close", "op": "<", "rhs": "sma:50"}],
+  "plan": {"stop": "atr:14:2", "target_r": 2, "time_stop": 20}
+}

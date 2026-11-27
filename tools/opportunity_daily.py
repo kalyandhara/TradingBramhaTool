@@ -99,6 +99,88 @@ REGIME_GATE: dict[str, dict] = {
 }
 
 
+#: Default plan for a pick whose best scanner card carries no levels (A0,
+#: 2026-10-22): stop at the 20-session low, target at 2R. Only 182 of the first
+#: 774 stored picks had levels, so the audit could check a stop on a quarter of
+#: them. A named prior, not a measured stop.
+DEFAULT_STOP_LOOKBACK = 20
+DEFAULT_TARGET_R = 2.0
+
+
+def default_plan(df: pd.DataFrame) -> tuple[float, float | None, float | None]:
+    """(entry, stop, target) from bars: entry = last close, stop = lowest low of
+    the last DEFAULT_STOP_LOOKBACK sessions, target = entry + DEFAULT_TARGET_R × risk.
+    Stop/target are None when the close IS the low (no risk to measure)."""
+    entry = float(df["close"].iloc[-1])
+    stop = float(df["low"].tail(DEFAULT_STOP_LOOKBACK).min())
+    if not stop < entry:
+        return entry, None, None
+    return entry, stop, round(entry + DEFAULT_TARGET_R * (entry - stop), 2)
+
+
+def rate_universe(symbols: list[str], fetch, nifty_df, version: str) -> list[dict]:
+    """Overall Rating (with its parts) for every symbol `fetch` has bars for,
+    ranked within the universe: highest rating = 1, ties share the better rank.
+    The pick re-score ranks open picks against this pool (spec 2026-11-26
+    pick-rescore §2). Names with no bars or no rating are left out."""
+    import rec_rescore as rr
+    session = (pd.Timestamp(nifty_df.index[-1]).normalize()
+               if nifty_df is not None and not nifty_df.empty else None)
+    rows = []
+    for s in symbols:
+        df = fetch(s)
+        if df is None or getattr(df, "empty", True):
+            continue
+        if session is not None:          # rate on bars up to the stored session only
+            df = rr.cut(df, session)
+            # a name whose bars stop short of the session would be rated on stale
+            # data under this session's date
+            if df.empty or pd.Timestamp(df.index[-1]).normalize() != session:
+                continue
+        d = rating.rating_detail(df, nifty_df)
+        if d is not None:
+            rows.append({**d, "symbol": s, "model_version": version})
+    if rows:
+        ranks = pd.Series([r["rating"] for r in rows]).rank(method="min", ascending=False)
+        for r, k in zip(rows, ranks):
+            r["universe_rank"], r["universe_size"] = int(k), len(rows)
+    return rows
+
+
+def _store_universe_ratings(universe: list[str], fetch, nifty_df, version: str,
+                            run_date: str, say) -> dict:
+    """rate_universe + save, never raising: a failure here must not cost the
+    shortlist. Returns the status stored in the run result."""
+    if nifty_df is None or nifty_df.empty:
+        return {"ok": False, "error": "no benchmark"}
+    try:
+        import rec_rescore as rr
+        done = rr.completed_session(nifty_df.index)   # never a bar still forming in IST
+        if done is None or done != pd.Timestamp(nifty_df.index[-1]).normalize():
+            # mid-session Yahoo daily bars miss the prior session for many names
+            return {"ok": False, "error": "NSE session in progress"}
+        session = done.strftime("%Y-%m-%d")
+        rows = rate_universe(universe, fetch, rr.cut(nifty_df, done), version)
+        db.save_universe_ratings(rows, session_date=session, run_date=run_date)
+        say(f"Universe ratings: {len(rows)}/{len(universe)} rated for {session}.")
+        return {"ok": True, "n": len(rows), "session_date": session}
+    except Exception as e:                     # noqa: BLE001 — logged, never fatal
+        say(f"Universe ratings skipped: {e}")
+        return {"ok": False, "error": str(e)}
+
+
+def model_version() -> str:
+    """Code + weights that rank the shortlist (model_version.py)."""
+    import model_version as mv
+    return mv.version(
+        {"w": (W_RATING, W_SCANNER, W_CONFLUENCE), "gate": REGIME_GATE,
+         "families": oh.SCANNER_FAMILIES, "measured": oh.MEASURED_EDGE_SCANNERS,
+         "weak": oh.MEASURED_WEAK_SCANNERS, "risk": oh.RISK_SCANNERS,
+         "tiers": (oh.WEIGHT_MEASURED, oh.WEIGHT_UNMEASURED, oh.WEIGHT_WEAK,
+                   oh.FULL_CONFLUENCE),
+         "plan": (DEFAULT_STOP_LOOKBACK, DEFAULT_TARGET_R)})
+
+
 def _apply_regime_gate(rows: list[dict], regime: str, top_n: int,
                        score_key: str = "score",
                        rating_key: str = "overall_rating") -> tuple[list[dict], dict]:
@@ -137,8 +219,11 @@ class _FrameCache:
     times over — which is both slow and a good way to get rate-limited.
     """
 
-    def __init__(self, days: int = 400):
+    def __init__(self, days: int = 400, min_turnover: float | None = None):
         self._days = days
+        # None = the screener's own liquidity floor (the shortlist's rule); the
+        # pick re-score passes 0 — an audit never drops a thin pick.
+        self._kw = {} if min_turnover is None else {"min_turnover": min_turnover}
         self._cache: dict[str, pd.DataFrame | None] = {}
         self.misses = 0
 
@@ -146,7 +231,7 @@ class _FrameCache:
         if symbol not in self._cache:
             self.misses += 1
             try:
-                df = sp.fetch_ohlcv(symbol, days=self._days)
+                df = sp.fetch_ohlcv(symbol, days=self._days, **self._kw)
             except Exception:
                 df = None
             # Same forming-bar discipline as the dashboard: a NaN last close
@@ -171,9 +256,10 @@ class _FetchRouter:
     scanners on the cheap window.
     """
 
-    def __init__(self, days: int = 400, full_days: int = 6000):
-        self.default = _FrameCache(days)
-        self.full = _FrameCache(full_days)
+    def __init__(self, days: int = 400, full_days: int = 6000,
+                 min_turnover: float | None = None):
+        self.default = _FrameCache(days, min_turnover)
+        self.full = _FrameCache(full_days, min_turnover)
 
     def __call__(self, scanner_name: str):
         if sc.SCANNERS.get(scanner_name, {}).get("needs_full_history"):
@@ -291,11 +377,17 @@ def run(universe_size: int = 200, top_n: int = 100,
                            "data for the whole universe, usually rate-limiting "
                            "(HTTP 401 'Invalid Crumb'). Re-run later.")}
 
+    version = model_version()
+    # Pick re-score: rate the whole universe while the bar cache is warm (tagging
+    # just fetched every name). Never fatal — the shortlist does not depend on it.
+    uni = (_store_universe_ratings(universe, fetch, nifty_df, version, run_date, _say)
+           if save else {"ok": False, "error": "not saved"})
+
     _say("Ranking sectors…")
     sectors = oh.rank_groups(table, "sector", min_constituents=min_constituents)
     if sectors.empty:
         return {"ok": False, "reason": "no sector had enough constituents",
-                "run_date": run_date}
+                "run_date": run_date, "universe_ratings": uni}
     lead_sectors = sectors[sectors["avg_momentum"] > 0]["sector"].head(max_sectors).tolist()
     if not lead_sectors:
         # Nothing is going up. Say so rather than quietly ranking the least-bad.
@@ -312,7 +404,7 @@ def run(universe_size: int = 200, top_n: int = 100,
          f"{len(lead_inds)} industries.")
     if not stocks:
         return {"ok": False, "reason": "no stocks in the leading groups",
-                "run_date": run_date}
+                "run_date": run_date, "universe_ratings": uni}
 
     # ── Scanners over the leaders only ────────────────────────────────────────
     # The whole pipeline — every registered scanner, family-capped confluence —
@@ -325,7 +417,8 @@ def run(universe_size: int = 200, top_n: int = 100,
         return {"ok": True, "run_date": run_date, "rows": [], "market": market,
                 "universe_size": len(universe), "candidates": len(stocks),
                 "scanners_used": use_scanners, "scanners_dropped": dropped,
-                "reason": "no scanner fired on any leading-industry stock"}
+                "reason": "no scanner fired on any leading-industry stock",
+                "universe_ratings": uni}
 
     # ── Rank ──────────────────────────────────────────────────────────────────
     _say(f"Rating {len(hits)} candidates…")
@@ -341,6 +434,12 @@ def run(universe_size: int = 200, top_n: int = 100,
                  + W_CONFLUENCE * oh.confluence_pct(h["edge_points"]))
         card = h["best_card"] or {}
         row = tags.loc[sym] if (tags is not None and sym in tags.index) else None
+        if card.get("stop") is not None:
+            plan = (card.get("entry"), card.get("stop"), card.get("target"))
+            plan_source = "scanner"
+        else:
+            plan = default_plan(df)
+            plan_source = "default_20d_low_2R" if plan[1] is not None else None
         rows.append({
             "symbol": sym,
             "score": round(score, 1),
@@ -358,9 +457,11 @@ def run(universe_size: int = 200, top_n: int = 100,
             "momentum": (float(row["momentum"]) if row is not None
                          and pd.notna(row.get("momentum")) else None),
             "close": float(df["close"].iloc[-1]),
-            "entry": card.get("entry"),
-            "stop": card.get("stop"),
-            "target": card.get("target"),
+            "entry": plan[0],
+            "stop": plan[1],
+            "target": plan[2],
+            "plan_source": plan_source,
+            "model_version": version,
             "market_regime": market["regime"],
             "market_verdict": market["verdict"],
             "universe_size": len(universe),
@@ -410,7 +511,7 @@ def run(universe_size: int = 200, top_n: int = 100,
             "universe_size": len(universe), "candidates": len(stocks),
             "lead_sectors": lead_sectors, "lead_industries": lead_inds,
             "scanners_used": use_scanners, "scanners_dropped": dropped,
-            "fetches": fetches.misses}
+            "fetches": fetches.misses, "universe_ratings": uni}
 
 
 def _explain(hit: dict, rating_val: int | None, row) -> str:
@@ -479,6 +580,7 @@ def main() -> int:
         print(f"Unknown scanner names skipped: {res['scanners_dropped']}")
     if not res["rows"]:
         print(f"\nNo shortlist: {res.get('reason')}")
+        print(f"##RESULT {res['run_date']} · no shortlist: {res.get('reason')}")
         return 0
     print(f"\n{'#':<3}{'SYMBOL':<14}{'SCORE':>6}{'RATING':>7}{'SCAN':>5}{'FAM':>4}  SCANNERS")
     for r in res["rows"]:
@@ -487,6 +589,12 @@ def main() -> int:
               f"  {r['scanners']}")
     print("\nSCAN = scanners that fired · FAM = independent families they span "
           "(correlated scanners capped; the score spends FAM, not SCAN).")
+    # One line for Scheduler Hub -> History (job_audit).
+    u = res.get("universe_ratings") or {}
+    uni_txt = (f"universe ratings {u['n']}" if u.get("ok")
+               else f"universe ratings skipped ({u.get('error', 'n/a')})")
+    print(f"##RESULT {res['run_date']} · {len(res['rows'])} picks from "
+          f"{res['candidates']} candidates · {uni_txt} · {m['verdict']}")
     return 0
 
 

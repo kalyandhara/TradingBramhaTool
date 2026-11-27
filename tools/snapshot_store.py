@@ -31,9 +31,10 @@ import pickle
 import sqlite3
 import zlib
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, time, timedelta, tzinfo
 from pathlib import Path
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 TOOLS_DIR = Path(__file__).resolve().parent
 DB_PATH = TOOLS_DIR / "trading_bramha.db"
@@ -287,24 +288,42 @@ def delete(name: str, run_date: str | None = None, *,
         conn.close()
 
 
-def is_stale(meta: SnapshotMeta | None, *, close_hour: int = 16,
-             close_minute: int = 0, now: datetime | None = None) -> bool:
-    """A snapshot is stale once a trading session has closed since it ran.
+IST = ZoneInfo("Asia/Kolkata")
+NSE_CLOSE = time(15, 30)          # IST
 
-    "Today's close" is the most recent weekday close at or before `now`; a
-    snapshot taken after that instant is fresh. Weekend runs stay fresh until
-    Monday's close.
+
+def _aware(dt: datetime, local_tz: tzinfo | None) -> datetime:
+    """`dt` with a zone. Naive values are machine-local time (how run_at is
+    stored); `local_tz` pins that zone for tests, else the OS zone is used, with
+    the DST offset of `dt`'s own date."""
+    if dt.tzinfo is not None:
+        return dt
+    return dt.replace(tzinfo=local_tz) if local_tz is not None else dt.astimezone()
+
+
+def last_nse_close(now: datetime | None = None, *,
+                   local_tz: tzinfo | None = None) -> datetime:
+    """The most recent weekday 15:30 IST at or before `now`, as an IST datetime.
+    Weekday-only: there is no exchange holiday calendar yet (SBC_Tool-anl)."""
+    now_ist = _aware(now or datetime.now(IST), local_tz).astimezone(IST)
+    d = now_ist.date()
+    if now_ist.time() < NSE_CLOSE:
+        d -= timedelta(days=1)
+    while d.weekday() >= 5:
+        d -= timedelta(days=1)
+    return datetime.combine(d, NSE_CLOSE, tzinfo=IST)
+
+
+def is_stale(meta: SnapshotMeta | None, *, now: datetime | None = None,
+             local_tz: tzinfo | None = None) -> bool:
+    """A snapshot is stale once an NSE session has closed since it ran.
+
+    The close is 15:30 IST (SBC_Tool-0gv). It used to be 16:00 on the machine
+    clock, which on this US-Eastern desk is ~10 h after the real close: a
+    snapshot read fresh for most of the day after a new session had ended.
+    Weekend runs stay fresh until Monday's close.
     """
     if meta is None:
         return True
-    now = now or datetime.now()
-    d = now.date()
-    last_close = datetime.combine(d, datetime.min.time()).replace(
-        hour=close_hour, minute=close_minute)
-    if now < last_close:
-        d = d - timedelta(days=1)
-    while d.weekday() >= 5:
-        d = d - timedelta(days=1)
-    last_close = datetime.combine(d, datetime.min.time()).replace(
-        hour=close_hour, minute=close_minute)
-    return meta.run_at_dt < last_close
+    run = _aware(meta.run_at_dt, local_tz)
+    return run < last_nse_close(now, local_tz=local_tz)

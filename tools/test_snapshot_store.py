@@ -5,6 +5,7 @@ from __future__ import annotations
 import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 import pandas as pd
 import pytest
@@ -76,20 +77,44 @@ def test_overview_lists_newest_per_name(dbp):
     assert ov["a"].run_date == date.today().isoformat()
 
 
+# SBC_Tool-0gv: the close is NSE's 15:30 IST, not 16:00 on the machine clock.
+# The desk PC runs on US Eastern, where 15:30 IST is 06:00 EDT / 05:00 EST, so
+# the old 16:00-local rule called a snapshot fresh for ~11 h after a new session
+# had closed. Naive timestamps are machine-local; the zone is pinned here so the
+# cases do not depend on the machine running the tests.
+ET = ZoneInfo("America/New_York")
+
+
 @pytest.mark.parametrize("run_at,now,stale", [
-    # Wednesday 17:00 run, checked Thursday 09:00 → fresh (Thu close not yet)
-    ("2026-09-23T17:00:00", "2026-09-24T09:00:00", False),
-    # Wednesday 15:00 run, checked Wednesday 17:00 → stale (Wed close passed)
-    ("2026-09-23T15:00:00", "2026-09-23T17:00:00", True),
-    # Friday 17:00 run, checked Sunday → fresh (no session closed since)
-    ("2026-09-25T17:00:00", "2026-09-27T12:00:00", False),
-    # Thursday 17:00 run, checked Saturday → stale (Friday closed)
-    ("2026-09-24T17:00:00", "2026-09-26T12:00:00", True),
+    # Wed 16:30 EDT run (Thu 02:00 IST), checked Thu 05:00 EDT (14:30 IST) → fresh
+    ("2026-09-23T16:30:00", "2026-09-24T05:00:00", False),
+    # same run, checked Thu 07:00 EDT (16:30 IST, Thu closed) → stale. The old
+    # 16:00-local rule called this fresh until Thu 16:00 EDT.
+    ("2026-09-23T16:30:00", "2026-09-24T07:00:00", True),
+    # Fri 16:30 EDT run, checked Sunday → fresh (no session closed since)
+    ("2026-09-25T16:30:00", "2026-09-27T12:00:00", False),
+    # same run, checked Mon 05:30 EDT (15:00 IST, Mon not closed) → fresh
+    ("2026-09-25T16:30:00", "2026-09-28T05:30:00", False),
+    # same run, checked Mon 06:30 EDT (16:00 IST, Mon closed) → stale
+    ("2026-09-25T16:30:00", "2026-09-28T06:30:00", True),
+    # Thu 16:30 EDT run, checked Saturday → stale (Friday closed)
+    ("2026-09-24T16:30:00", "2026-09-26T12:00:00", True),
+    # winter (EST, IST = ET + 10:30): Mon 16:30 EST run, Tue 04:50 EST → fresh,
+    ("2026-11-23T16:30:00", "2026-11-24T04:50:00", False),
+    # ... Tue 05:10 EST (15:40 IST) → stale
+    ("2026-11-23T16:30:00", "2026-11-24T05:10:00", True),
 ])
-def test_is_stale_uses_last_weekday_close(run_at, now, stale):
+def test_is_stale_uses_last_nse_close_in_ist(run_at, now, stale):
     m = store.SnapshotMeta(name="x", run_date=run_at[:10], run_at=run_at,
                            status="ok", params={}, elapsed=0)
-    assert store.is_stale(m, now=datetime.fromisoformat(now)) is stale
+    assert store.is_stale(m, now=datetime.fromisoformat(now), local_tz=ET) is stale
+
+
+def test_is_stale_accepts_aware_now():
+    m = store.SnapshotMeta(name="x", run_date="2026-09-23", run_at="2026-09-23T16:30:00",
+                           status="ok", params={}, elapsed=0)
+    now_ist = datetime(2026, 9, 24, 16, 30, tzinfo=ZoneInfo("Asia/Kolkata"))
+    assert store.is_stale(m, now=now_ist, local_tz=ET) is True
 
 
 def test_is_stale_none_is_stale():
@@ -125,7 +150,10 @@ def test_gap_volume_scan_shape_matches_page():
     gapper.loc[gapper.index[-1], ["open", "close", "volume"]] = [105.0, 106.0, 5000]
 
     def fetch(sym, days=40):
-        return gapper if sym == "GAP.NS" else calm
+        # Both real fetchers (sp.fetch_ohlcv, cached_fetch_ohlcv) add ".NS"
+        # themselves; a suffixed name became "GAP.NS.NS" and fetched nothing.
+        assert not sym.endswith(".NS"), sym
+        return gapper if sym == "GAP" else calm
 
     hits = reg.gap_volume_scan(["GAP", "CALM"], fetch, gap_pct=3.0, vol_mult=2.0)
     assert [h["Symbol"] for h in hits] == ["GAP"]
@@ -267,3 +295,16 @@ def test_scan_raise_on_no_data_flag(monkeypatch):
     monkeypatch.setattr(ivs, "_batch_download", lambda syms: {})
     with pytest.raises(RuntimeError, match="no price history"):
         ivs.scan(raise_on_no_data=True)
+
+
+def test_gap_volume_scan_asks_for_enough_bars_to_pass_the_fetcher_gate():
+    """sp.fetch_ohlcv drops anything under MIN_BARS (60); asking for 40 days
+    returned None for every name, so the snapshot failed even with clean tickers."""
+    import screener_pipeline as sp
+    asked = []
+
+    def fetch(sym, days=40):
+        asked.append(days)
+        return None
+    reg.gap_volume_scan(["X"], fetch, gap_pct=3.0, vol_mult=2.0)
+    assert asked and asked[0] >= sp.MIN_BARS

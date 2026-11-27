@@ -1,0 +1,154 @@
+"""Recommendation Audit page — pure helpers and registration (A2)."""
+from __future__ import annotations
+
+import ast
+from pathlib import Path
+
+import pandas as pd
+
+from desk_pages import rec_audit_page as page
+
+HERE = Path(__file__).resolve().parent
+
+
+def _eps():
+    return pd.DataFrame({
+        "episode_id": ["a", "b", "c", "d"], "symbol": ["A", "B", "C", "M&M"],
+        "rank": [1, 7, 30, 2], "risk_flags": ["", "Downside Risk", None, ""],
+        "appearances": [1, 3, 6, 1],
+        "ret_21": [-9.0, -6.0, 2.0, None], "excess_21": [-4.0, -12.0, 1.0, None],
+        "failure": [True, True, False, False],
+        "review_tag": ["MARKET_DRAG", "EVENT_GAP", None, None]})
+
+
+def test_with_slices_bands():
+    d = page.with_slices(_eps()).set_index("symbol")
+    assert d.loc["A", "rank_band"] == "1-5" and d.loc["C", "rank_band"] == "21+"
+    assert d.loc["B", "flagged"] == "flagged" and d.loc["C", "flagged"] == "clean"
+    assert d.loc["B", "list_band"] == "2-3 runs" and d.loc["C", "list_band"] == "4+ runs"
+
+
+def test_review_queue_is_matured_failures_worst_first():
+    q = page.review_queue(_eps())
+    assert q["symbol"].tolist() == ["B", "A"]
+    assert page.review_queue(_eps(), "MARKET_DRAG")["symbol"].tolist() == ["A"]
+
+
+def test_tag_counts():
+    assert page.tag_counts(_eps()) == {"MARKET_DRAG": 1, "EVENT_GAP": 1}
+
+
+def test_link_encodes_symbol():
+    assert page.link("analyze", "M&M").endswith("/?nav=analyze&symbol=M%26M")
+
+
+def test_page_is_registered_in_registry_and_nav():
+    import desk_pages
+    assert desk_pages.PAGES["Recommendation Audit"] == "rec_audit_page"
+    tree = ast.parse((HERE / "dashboard_app.py").read_text(encoding="utf-8"))
+    groups = next(n.value for n in ast.walk(tree) if isinstance(n, ast.Assign)
+                  and any(getattr(t, "id", None) == "PAGE_GROUPS" for t in n.targets))
+    assert "Recommendation Audit" in ast.literal_eval(groups)["Portfolio & Risk"]
+
+
+def test_audit_job_is_in_the_scheduler_registry():
+    import scheduler_core as sch
+    job = sch.JOBS["rec_audit"]
+    assert job.default_time == "17:30" and "rec_audit_job.py" in job.command
+
+
+def test_track_record_text():
+    tr = {"Trend": {"n": 234, "median_excess": 1.94, "t_weekly": 1.2},
+          "Event": {"n": 127, "median_excess": -0.5, "t_weekly": 2.4}}
+    assert page.track_record_text(["Trend"], tr) == \
+        "Audit 21d vs NIFTY 500: Trend +1.9% (n 234) — not significant"
+    assert page.track_record_text(["Trend", "Event"], tr).endswith("Event -0.5% (n 127)")
+    assert page.track_record_text(["Unknown"], tr) == ""
+    assert page.track_record_text([], tr) == ""
+
+
+def test_every_source_has_slices():
+    import rec_audit_job as job
+    assert set(page.SLICES_BY_SOURCE) == set(job.SOURCES)
+
+
+def test_with_slices_handles_a_source_without_rank():
+    d = page.with_slices(pd.DataFrame({"symbol": ["A"], "scanner": ["X"], "appearances": [1]}))
+    assert "rank_band" not in d and d.loc[0, "flagged"] == "clean"
+
+
+def test_track_record_skips_thin_families_and_caps_at_three():
+    tr = {f"F{i}": {"n": 50, "median_excess": 1.0, "t_weekly": 0.5} for i in range(5)}
+    tr["Thin"] = {"n": 14, "median_excess": -5.1, "t_weekly": 3.0}
+    txt = page.track_record_text(["Thin", "F0", "F1", "F2", "F3"], tr)
+    assert "Thin" not in txt and "F3" not in txt and txt.endswith("— not significant")
+
+
+def test_pick_replay_tab_registered():
+    tree = ast.parse((HERE / "desk_pages" / "rec_audit_page.py").read_text(encoding="utf-8"))
+    tabs = [n for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "tabs"]
+    labels = [e.value for e in tabs[0].args[0].elts]
+    assert labels[labels.index("Post-mortems") + 1] == "Pick replay"
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "_replay_dialog")
+    assert any("dialog" in ast.unparse(d) for d in fn.decorator_list)
+
+
+def test_replay_pick_survives_source_switch_and_rerun():
+    src = (HERE / "desk_pages" / "rec_audit_page.py").read_text(encoding="utf-8")
+    tree = ast.parse(src)
+    fn = next(n for n in ast.walk(tree)
+              if isinstance(n, ast.FunctionDef) and n.name == "_replay_tab")
+    assert "src" in [a.arg for a in fn.args.args]           # the pick key carries the source
+    assert "{src}" in ast.unparse(fn) and "ra_rp_pick_" in ast.unparse(fn)
+    assert "_replay_bars.clear()" in src                     # a re-run drops cached bars
+
+
+def test_lessons_tab_registered_after_pick_replay():
+    tree = ast.parse((HERE / "desk_pages" / "rec_audit_page.py").read_text(encoding="utf-8"))
+    tabs = [n for n in ast.walk(tree)
+            if isinstance(n, ast.Call) and getattr(n.func, "attr", "") == "tabs"]
+    labels = [e.value for e in tabs[0].args[0].elts]
+    assert labels[labels.index("Pick replay") + 1] == "Lessons"
+    names = {n.name for n in ast.walk(tree) if isinstance(n, ast.FunctionDef)}
+    assert "_lessons_tab" in names
+
+
+def test_rescore_for_is_empty_before_the_first_run(monkeypatch, tmp_path):
+    import portfolio_db as db
+    import rec_rescore_job as rj
+    monkeypatch.setattr(rj, "DB_PATH", tmp_path / "r.db")
+    monkeypatch.setattr(db, "DB_PATH", tmp_path / "tb.db")
+    db.init_db()
+    page._all_scores.clear(); page._scores_for.clear()
+    scores, pick = page._rescore_for({"episode_id": "e1", "symbol": "A",
+                                       "rec_date": "2026-11-20"})
+    assert scores.empty and pick is None
+
+
+def test_rescore_for_reads_only_that_picks_rows(monkeypatch):
+    import rec_rescore_job as rj
+    seen = []
+    monkeypatch.setattr(rj, "load_scores",
+                        lambda ids=None, db_path=None: seen.append(ids) or pd.DataFrame(
+                            {"episode_id": ["e9"], "session_date": ["2026-11-26"]}))
+    monkeypatch.setattr(rj, "pick_day_universe", lambda s, d: None)
+    page._scores_for.clear()
+    scores, _ = page._rescore_for({"episode_id": "e9", "symbol": "A", "rec_date": "2026-11-20"})
+    assert seen == [["e9"]] and list(scores["episode_id"]) == ["e9"]
+
+
+def test_review_queue_one_card_per_ticker_and_counts_match_cards():
+    eps = pd.DataFrame({
+        "episode_id": ["m1", "m2", "m0", "x1"], "symbol": ["M", "M", "M", "X"],
+        "scanner": ["Base", "VCP", "Old", "S"],
+        "rec_date": ["2026-10-13", "2026-10-13", "2026-08-14", "2026-10-13"],
+        "ret_21": [-9.0, -9.0, -7.0, -6.0], "excess_21": [-12.0, -12.0, -20.0, -6.0],
+        "failure": [True, True, True, True],
+        "review_tag": ["EVENT_GAP", "EVENT_GAP", "CHASED", "EVENT_GAP"]})
+    q = page.review_queue(eps)
+    assert sorted(q["symbol"]) == ["M", "X"]
+    assert q.set_index("symbol").loc["M", "episode_id"] == "m1"
+    assert page.tag_counts(eps) == {"EVENT_GAP": 2}
+    assert page.review_queue(eps, "CHASED").empty

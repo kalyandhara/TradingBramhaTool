@@ -83,11 +83,25 @@ NOISE = re.compile(
 #: generic pattern matched the "ver" in "over 771 million SAR" and produced
 #: "VER 771 million" — a plausible-looking amount in a currency that does not
 #: exist, which is worse than no amount at all.
+#:
+#: `rs` / `inr` must start a WORD and the figure must contain a DIGIT (fixed
+#: 2026-10-30, found by the B-112 PDF probe). Before that, the "rs" in
+#: "orders," / "Towers," plus the bare comma after it read as an amount of
+#: "₹,", and coming first it HID the real figure: "orders, worth Rs 50 crore"
+#: returned "₹,". 3 of 22 amounts on a week of live filings were that.
 _CCY = "SAR|USD|EUR|AED|GBP|JPY|SGD|CHF|AUD|CAD|QAR|OMR|KWD"
 _AMOUNT = re.compile(
-    r"(?:(?:rs\.?|inr|₹)\s*([\d,]+(?:\.\d+)?)\s*(crore|cr\b|lakh|mn|million|bn|billion)?)"
-    r"|(?:\b(" + _CCY + r")\s*([\d,]+(?:\.\d+)?)\s*(million|mn|billion|bn)\b)",
+    r"(?:(?:\b(?:rs\.?|inr)|₹)\s*(?P<inr>\d[\d,]*(?:\.\d+)?)(?:\s*/-)?"
+    r"\s*(?P<inr_unit>crores?\b|crs?\b|lakhs?\b|mn\b|million\b|bn\b|billion\b)?)"
+    r"|(?:\b(?P<ccy>" + _CCY + r")\s*(?P<fx>\d[\d,]*(?:\.\d+)?)\s*"
+    r"(?P<fx_unit>million|mn|billion|bn)\b)",
     re.I)
+#: What follows a price PER UNIT ("Rs.115 each", "Rs. 16.50 per option"). Such a
+#: figure is not the size of the deal: it yields to any total in the same text,
+#: and when it is all there is, it is returned labelled ("₹115 each").
+_PER_UNIT = re.compile(r"\s*(?:/-)?\s*(each\b|per\s+\w+)", re.I)
+_UNIT_NAME = {"cr": "crore", "crs": "crore", "crores": "crore", "lakhs": "lakh",
+              "mn": "million", "bn": "billion"}
 
 
 def _norm(row: dict) -> dict[str, Any]:
@@ -120,14 +134,20 @@ def amount_from(text: str) -> str | None:
     attached PDF, which nothing here parses. It never means "small", and the
     surface must not render it as a zero.
     """
-    m = _AMOUNT.search(text or "")
-    if not m:
-        return None
-    if m.group(1):
-        num, unit = m.group(1), (m.group(2) or "").lower()
-        unit = {"cr": "crore", "mn": "million", "bn": "billion"}.get(unit, unit)
-        return f"₹{num}" + (f" {unit}" if unit else "")
-    return f"{m.group(3).upper()} {m.group(4)} {m.group(5).lower()}"
+    text = text or ""
+    per_unit = None
+    for m in _AMOUNT.finditer(text):
+        if m.group("ccy"):
+            return f"{m.group('ccy').upper()} {m.group('fx')} {m.group('fx_unit').lower()}"
+        unit = (m.group("inr_unit") or "").lower()
+        unit = _UNIT_NAME.get(unit, unit)
+        if not unit:
+            pu = _PER_UNIT.match(text, m.end())
+            if pu:
+                per_unit = per_unit or f"₹{m.group('inr')} {pu.group(1).lower()}"
+                continue
+        return f"₹{m.group('inr')}" + (f" {unit}" if unit else "")
+    return per_unit
 
 
 def fetch(days: int = 1, *, session=None, today: date | None = None,

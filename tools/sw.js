@@ -29,7 +29,7 @@
  * forgotten bump can no longer freeze a code fix — at worst it costs one extra
  * network round trip.
  */
-const CACHE_VERSION = 'v2';
+const CACHE_VERSION = 'v3';   // v3: + replay_mode.js
 const CACHE = 'tb-charts-' + CACHE_VERSION;
 
 // Static shell assets. The indicator JS files are served as individual routes by
@@ -42,6 +42,8 @@ const SHELL = [
   '/icon-512.png',
   '/icon-maskable-512.png',
   '/elliott_wave.js',
+  '/cycles.js',
+  '/replay_mode.js',
   '/volume_profile.js',
   '/session_volume_profile.js',
   '/fvg.js',
@@ -56,6 +58,8 @@ const SHELL = [
   '/evwma_vwap_macd.js',
   '/psar.js',
   '/renko.js',
+  '/indicator_catalogue.js',
+  '/indicator_browser.js',
 ];
 
 self.addEventListener('install', (e) => {
@@ -87,7 +91,10 @@ function isLiveData(url) {
 // Content-stable assets worth pinning. Everything else that reaches the cache
 // layer is code, and code must be allowed to change.
 function isImmutableAsset(url) {
-  return /\.(png|ico|svg|woff2?)$/i.test(url.pathname);
+  // B-151 preview pictures carry a content hash in their name, so a redraw is a
+  // new URL and cache-first can never pin a stale one. Their manifest.json is
+  // NOT matched here — it is the file that says which hash is current.
+  return /\.(png|ico|svg|woff2?|webp)$/i.test(url.pathname);
 }
 
 async function cacheFirst(req) {
