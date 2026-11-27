@@ -24,6 +24,7 @@ CLI (read-only unless you pass register/remove/run):
 """
 from __future__ import annotations
 
+import os
 import re
 import shutil
 import subprocess
@@ -41,8 +42,23 @@ PYTHON_EXE = r"C:\Users\Owner\AppData\Local\Python\pythoncore-3.14-64\python.exe
 CONHOST = r"C:\Windows\System32\conhost.exe"   # runs task .bat files windowless
 
 
+_SYSTEM_NODE = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "nodejs" / "node.exe"
+
+
 def _node_exe() -> str:
-    return shutil.which("node") or "node"
+    """The node a scheduled .bat should call — a path that outlives this shell.
+
+    In an fnm shell, PATH's node is fnm_multishells\\<pid>_<ts>\\node.exe, a
+    link deleted when that shell closes; baking it into alert_watcher.bat broke
+    the scheduled job (2026-11-27). Prefer the system install, else resolve an
+    fnm link to the real installation it points at.
+    """
+    if _SYSTEM_NODE.is_file():
+        return str(_SYSTEM_NODE)
+    found = shutil.which("node")
+    if found and "fnm_multishells" in found.lower():
+        found = os.path.realpath(found)
+    return found or "node"
 
 
 @dataclass
