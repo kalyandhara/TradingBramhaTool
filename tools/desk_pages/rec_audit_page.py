@@ -332,7 +332,7 @@ def _replay_view(r: pd.Series, h: int, key: str) -> None:
         st.info(f["missing"])
         return
     txt = rp._text
-    _snapshot(r, f, h, key)
+    scores = _snapshot(r, f, h, key)
     parts = [f"rank {int(r['rank'])}" if rp._num(r.get("rank")) is not None else "",
              f"score {rp._num(r.get('score')):.1f}" if rp._num(r.get("score")) is not None else "",
              txt(r.get("family_names")) or txt(r.get("scanners")) or txt(r.get("scanner")),
@@ -342,9 +342,9 @@ def _replay_view(r: pd.Series, h: int, key: str) -> None:
              f"plan: {txt(r.get('plan_source'))}" if txt(r.get("plan_source")) else "",
              f"regime: {txt(r.get('market_regime'))}" if txt(r.get("market_regime")) else "",
              f"RVol {f['rvol']:.0f}%" if f["rvol"] is not None else ""]
-    st.caption("On the pick day — " + " · ".join(p for p in parts if p))
-    st.plotly_chart(rp.replay_figure(f, r, h), use_container_width=True,
+    st.plotly_chart(rp.replay_figure(f, r, h, height=420), use_container_width=True,
                     key=f"ra_rp_fig_{key}_{r.get('episode_id')}")
+    st.caption("On the pick day — " + " · ".join(p for p in parts if p))
     if f["note"]:
         st.caption("⚠️ " + f["note"])
     if f["off_chart"]:
@@ -363,12 +363,12 @@ def _replay_view(r: pd.Series, h: int, key: str) -> None:
         detail.append(f"📝 {txt(r.get('note'))}")
     st.caption(" · ".join(detail))
     import rec_rescore as rr
-    scores, _ = _rescore_for(r)
     a, b = st.columns(2)
     a.link_button("Open in Multi-Chart ↗ (before / after, side by side)",
                   rp.multichart_url(r, f, ddate=rr.first_downgrade(scores)),
                   use_container_width=True)
     b.link_button("Analyzer ↗", link("analyze", r["symbol"]), use_container_width=True)
+    _details(r, f, h, key, scores)
 
 
 def _lessons_tab(eps: pd.DataFrame, h: int, src: str) -> None:
@@ -418,28 +418,29 @@ _BADGE = {"green": "green-badge", "amber": "orange-badge", "red": "red-badge",
           "grey": "gray-badge"}
 
 
-def _snapshot(r: pd.Series, f: dict, h: int, key: str) -> None:
-    """Decision snapshot: the numbers, the Green/Amber/Red verdict with thesis,
-    process and outcome judged apart, and the MFE/MAE ladder."""
-    s, v = rp.snapshot(r, f, h), rp.verdict(r, f, h)
-    money = lambda x: "—" if x is None else rp._rs(x)          # noqa: E731
-    with st.container(border=True):
-        head = (f"**PICK AUDIT · {r['symbol']}** · picked {str(r['rec_date'])[:10]}"
-                + (f" · rank #{s['rank']}" if s["rank"] is not None else "")
-                + (f" · on shortlist {s['shortlist']}" if s["shortlist"] else ""))
-        st.markdown(f"{head} &nbsp; :{_BADGE[s['colour']]}[{s['outcome']}]")
-        scores, pick_uni = _rescore_for(r)
+def _snapshot(r: pd.Series, f: dict, h: int, key: str) -> pd.DataFrame:
+    """Compact decision snapshot (2026-11-27): header with the verdict badge, the
+    six numbers on one line, and the re-score line. Returns this pick's re-score
+    rows for the rest of the view."""
+    s = rp.snapshot(r, f, h)
+    head = (f"**PICK AUDIT · {r['symbol']}** · picked {str(r['rec_date'])[:10]}"
+            + (f" · rank #{s['rank']}" if s["rank"] is not None else "")
+            + (f" · on shortlist {s['shortlist']}" if s["shortlist"] else ""))
+    st.markdown(f"{head} &nbsp; :{_BADGE[s['colour']]}[{s['outcome']}]  \n"
+                f"{rp.numbers_line(s, h)}")
+    scores, pick_uni = _rescore_for(r)
+    if r.get("source", "opportunity") == "opportunity":   # only shortlist picks are re-scored
         rescore = [rp.drift_line(r, scores, pick_uni), rp.what_moved(r, scores, pick_uni),
                    rp.scanners_line(r, scores)]
-        if r.get("source", "opportunity") == "opportunity":   # only shortlist picks are re-scored
-            st.caption(" · ".join(x for x in rescore if x))
-        c = st.columns(6)
-        c[0].metric("Entry", money(s["entry"]))
-        c[1].metric("Current", money(s["current"]))
-        c[2].metric(f"{h}D return", _pct(s["ret_h"]))
-        c[3].metric("To date", _pct(s["to_date"]))
-        c[4].metric("vs NIFTY 500", _pct(s["vs_n500"]))
-        c[5].metric("vs sector", _pct(s["vs_sector"]))
+        st.caption(" · ".join(x for x in rescore if x))
+    return scores
+
+
+def _details(r: pd.Series, f: dict, h: int, key: str, scores: pd.DataFrame) -> None:
+    """Collapsed: the Green/Amber/Red verdict with thesis, process and outcome
+    judged apart, the lessons, the MFE/MAE ladder and the decay chart."""
+    v, ls = rp.verdict(r, f, h), rp.lessons(r, h)
+    with st.expander(rp.verdict_summary(v, ls)):
         left, right = st.columns([3, 2])
         with left:
             st.markdown("**Verdict** — process and outcome judged separately")
@@ -451,7 +452,6 @@ def _snapshot(r: pd.Series, f: dict, h: int, key: str) -> None:
             st.caption("Green = thesis and process right · Amber = mixed · Red = both wrong. "
                        "Thesis = beat NIFTY 500 over the window; process uses only pick-day "
                        "facts and the audit's own thresholds.")
-            ls = rp.lessons(r, h)
             if ls:
                 st.markdown("**Lessons detected**")
                 st.markdown("  \n".join(f"{'✓' if x['ok'] else '✗'} {x['text']}" for x in ls))

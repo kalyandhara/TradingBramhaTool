@@ -281,7 +281,28 @@ def _levels(fig, lv: dict, col: int, T: dict, entry_key: str, entry_label: str) 
                           annotation_position="top left")
 
 
-def replay_figure(f: dict, ep, h: int = ra.HEADLINE_H):
+def numbers_line(s: dict, h: int = ra.HEADLINE_H) -> str:
+    """The snapshot's six numbers on one line (compact pop-up, 2026-11-27)."""
+    pct = lambda v: "—" if v is None else _pc(v)              # noqa: E731
+    px = (f"{_rs(s['entry'])} → {_rs(s['current'])}"
+          if s.get("entry") is not None and s.get("current") is not None
+          else "not entered yet")
+    return (f"{px} · {h}D {pct(s.get('ret_h'))} · to date {pct(s.get('to_date'))} · "
+            f"vs NIFTY 500 {pct(s.get('vs_n500'))} · vs sector {pct(s.get('vs_sector'))}")
+
+
+_VERDICT_WORD = {"THESIS": "thesis", "PROCESS": "process", "OUTCOME": "outcome"}
+
+
+def verdict_summary(v: dict, lessons_: list) -> str:
+    """Title of the collapsed verdict section: `Verdict ✗ thesis ✗ process ✓ outcome · 3 lessons`."""
+    bits = [f"{'✓' if ok else '✗'} {_VERDICT_WORD.get(t.split('_')[0], t.lower())}"
+            for ok, t in v.get("items", [])]
+    tail = f" · {len(lessons_)} lesson{'s' if len(lessons_) != 1 else ''}" if lessons_ else ""
+    return "Verdict " + " ".join(bits) + tail
+
+
+def replay_figure(f: dict, ep, h: int = ra.HEADLINE_H, height: int = 620):
     """Two panels with volume under each: Pick day (bars up to rec_date only) and
     Since then (faded pre-pick bars + everything after, the headline window shaded,
     markers for best / worst / plan hit, NIFTY 500 rebased to the entry)."""
@@ -352,7 +373,7 @@ def replay_figure(f: dict, ep, h: int = ra.HEADLINE_H):
                           row=1, col=2)
 
     fig.update_xaxes(rangebreaks=[dict(bounds=["sat", "mon"])], rangeslider_visible=False)
-    fig.update_layout(height=620, margin=dict(l=10, r=10, t=40, b=10),
+    fig.update_layout(height=height, margin=dict(l=10, r=10, t=40, b=10),
                       legend=dict(orientation="h", y=-0.05), hovermode="x unified")
     return fig
 

@@ -626,3 +626,27 @@ def test_multichart_url_carries_a_back_link():
     ep = _ep()
     q = parse_qs(urlsplit(rp.multichart_url(ep, _frame(ep))).query)
     assert q["back"] == ["http://localhost:8501/?nav=page&page=Recommendation%20Audit"]
+
+
+# ── Compact pop-up (2026-11-27) ──────────────────────────────────────────────
+def test_numbers_line():
+    s = {"entry": 33.55, "current": 13.68, "ret_h": -57.2, "to_date": -59.23,
+         "vs_n500": -54.86, "vs_sector": None}
+    assert rp.numbers_line(s, 21) == ("₹33.55 → ₹13.68 · 21D -57.20% · to date -59.23% · "
+                                      "vs NIFTY 500 -54.86% · vs sector —")
+    assert rp.numbers_line({**s, "entry": None, "current": None}, 21).startswith(
+        "not entered yet · 21D")
+
+
+def test_verdict_summary():
+    v = {"items": [(False, "THESIS_WRONG"), (False, "PROCESS_FLAWED"), (True, "OUTCOME_POSITIVE")]}
+    assert rp.verdict_summary(v, [{"ok": False}, {"ok": True}, {"ok": False}]) == \
+        "Verdict ✗ thesis ✗ process ✓ outcome · 3 lessons"
+    assert rp.verdict_summary({"items": [(True, "PROCESS_CORRECT")]}, []) == \
+        "Verdict ✓ process"
+
+
+def test_replay_figure_height_is_adjustable():
+    ep = _ep()
+    assert rp.replay_figure(_frame(ep), ep).layout.height == 620
+    assert rp.replay_figure(_frame(ep), ep, height=420).layout.height == 420
