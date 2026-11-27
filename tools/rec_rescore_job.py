@@ -70,10 +70,14 @@ def run(*, eps: pd.DataFrame | None = None, fetch_for=None, nifty_df=None, scan=
     if eps is None:
         eps = rr.select_open(raj.load_latest(db_path, source="opportunity")["episodes"])
     nifty_df = _default_nifty() if nifty_df is None else nifty_df
-    session = (rr.completed_session(nifty_df.index)
-               if nifty_df is not None and not nifty_df.empty else None)
-    if session is None:
+    if nifty_df is None or nifty_df.empty:
         return {"ok": False, "reason": "no benchmark"}
+    session = rr.completed_session(nifty_df.index)
+    if session is None or session != pd.Timestamp(nifty_df.index[-1]).normalize():
+        # Measured 2026-11-27 09:24 IST: while NSE is open, Yahoo's daily series drops
+        # the previous session for ~1/3 of picks (CIPLA: 25 Nov, then a live 27 Nov).
+        return {"ok": False, "reason": "NSE session in progress — Yahoo's daily bars are "
+                                       "unreliable until the close; run after 16:00 IST"}
     iso = session.strftime("%Y-%m-%d")
     # Every frame is cut at the session: a stock a day ahead of the benchmark (or a
     # bar still forming in IST market hours) must not be scored under this date.

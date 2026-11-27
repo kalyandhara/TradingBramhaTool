@@ -129,3 +129,21 @@ def test_universe_bars_are_cut_at_the_benchmark_session(monkeypatch):
     nifty_lag = bars.iloc[:-1]
     od.rate_universe(["A"], lambda s: bars, nifty_lag, "v1")
     assert seen == [nifty_lag.index[-1]]
+
+
+def test_a_name_missing_the_session_bar_is_not_rated(monkeypatch):
+    monkeypatch.setattr(rating, "rating_detail", lambda df, nifty, w=None: _detail(70))
+    nifty = _frame(n=300)
+    gap = nifty.drop(nifty.index[-1])                     # stock lacks the session bar
+    rows = od.rate_universe(["A", "GAP"], lambda s: gap if s == "GAP" else nifty, nifty, "v1")
+    assert [r["symbol"] for r in rows] == ["A"]
+
+
+def test_universe_step_skips_while_the_session_is_in_progress(monkeypatch):
+    import rec_rescore as rr
+    nifty = _frame(n=300)
+    last = nifty.index[-1]
+    monkeypatch.setattr(rr, "_utc_now", lambda: pd.Timestamp(last).tz_localize("UTC")
+                        + pd.Timedelta(hours=4))          # 09:30 IST on the last bar's day
+    got = od._store_universe_ratings(["A"], lambda s: nifty, nifty, "v1", "x", lambda m: None)
+    assert got == {"ok": False, "error": "NSE session in progress"}

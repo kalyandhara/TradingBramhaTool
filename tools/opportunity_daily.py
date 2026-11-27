@@ -133,7 +133,9 @@ def rate_universe(symbols: list[str], fetch, nifty_df, version: str) -> list[dic
             continue
         if session is not None:          # rate on bars up to the stored session only
             df = rr.cut(df, session)
-            if df.empty:
+            # a name whose bars stop short of the session would be rated on stale
+            # data under this session's date
+            if df.empty or pd.Timestamp(df.index[-1]).normalize() != session:
                 continue
         d = rating.rating_detail(df, nifty_df)
         if d is not None:
@@ -154,8 +156,9 @@ def _store_universe_ratings(universe: list[str], fetch, nifty_df, version: str,
     try:
         import rec_rescore as rr
         done = rr.completed_session(nifty_df.index)   # never a bar still forming in IST
-        if done is None:
-            return {"ok": False, "error": "no completed session"}
+        if done is None or done != pd.Timestamp(nifty_df.index[-1]).normalize():
+            # mid-session Yahoo daily bars miss the prior session for many names
+            return {"ok": False, "error": "NSE session in progress"}
         session = done.strftime("%Y-%m-%d")
         rows = rate_universe(universe, fetch, rr.cut(nifty_df, done), version)
         db.save_universe_ratings(rows, session_date=session, run_date=run_date)

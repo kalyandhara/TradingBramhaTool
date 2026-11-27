@@ -205,9 +205,11 @@ def test_a_pick_past_the_window_in_benchmark_sessions_is_retired(tmp_path, monke
     assert "DEAD" not in rep["skipped"] and rep["retired"] == 1 and rep["written"] == 3
 
 
-def test_run_during_ist_market_hours_scores_the_last_closed_session(tmp_path, monkeypatch):
+def test_run_during_ist_market_hours_refuses(tmp_path, monkeypatch):
     import rec_rescore as rr
     monkeypatch.setattr(rr, "_utc_now", lambda: pd.Timestamp("2026-11-27 03:54", tz="UTC"))
     rep = _run(tmp_path)
-    assert rep["session"] == "2026-11-26"
-    assert set(job.load_scores(db_path=tmp_path / "r.db")["session_date"]) == {"2026-11-26"}
+    # Yahoo's daily series drops the previous session for many NSE names while the
+    # market is open (CIPLA: 25 Nov then a live 27 Nov), so the job refuses to run.
+    assert not rep["ok"] and "session in progress" in rep["reason"]
+    assert job.load_scores(db_path=tmp_path / "r.db").empty
