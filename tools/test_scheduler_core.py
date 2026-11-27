@@ -197,6 +197,17 @@ def test_node_exe_keeps_a_plain_path_and_falls_back_to_node(monkeypatch, tmp_pat
     assert sch._node_exe() == "node"
 
 
+def test_write_bat_uses_plain_crlf(monkeypatch, tmp_path):
+    """2026-11-27: the src already holds \\r\\n and write_text's Windows text
+    mode turned each \\n into \\r\\n again, so every generated .bat ended its
+    lines \\r\\r\\n. cmd wants plain CRLF (.gitattributes: *.bat eol=crlf)."""
+    monkeypatch.setattr(sch, "HERE", tmp_path)
+    monkeypatch.setattr(sch, "LOG_DIR", tmp_path / "logs")
+    raw = sch.write_bat(sch.JOBS["alert_watcher"]).read_bytes()
+    assert b"\r\r\n" not in raw
+    assert raw.count(b"\n") == raw.count(b"\r\n") > 10
+
+
 def test_rescore_runs_after_the_audit():
     j = sch.JOBS["rec_rescore"]
     assert j.kind == "daily" and j.default_time > sch.JOBS["rec_audit"].default_time

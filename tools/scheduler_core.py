@@ -323,7 +323,8 @@ def write_bat(job: JobSpec) -> Path:
         f'    echo ----- ok at %DATE% %TIME% ----- >> "%LOG%"\r\n'
         ")\r\n"
     )
-    job.bat_path.write_text(src, encoding="utf-8")
+    # newline="": src already carries \r\n; text mode would add a second \r.
+    job.bat_path.write_text(src, encoding="utf-8", newline="")
     return job.bat_path
 
 

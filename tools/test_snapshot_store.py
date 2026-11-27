@@ -189,13 +189,17 @@ def test_finviz_all_none_raises(monkeypatch):
 
 
 # ── scheduler_core must not crash where schtasks does not exist ───────────────
-def test_scheduler_status_without_schtasks(monkeypatch):
+def test_scheduler_status_without_schtasks(monkeypatch, tmp_path):
     import subprocess
     import scheduler_core as sc
 
     def boom(*a, **k):
         raise FileNotFoundError("schtasks")
     monkeypatch.setattr(subprocess, "run", boom)
+    # register() writes the job's .bat before calling schtasks; keep it out of
+    # tools/ — this test rewrote the live alert_watcher.bat on every run.
+    monkeypatch.setattr(sc, "HERE", tmp_path)
+    monkeypatch.setattr(sc, "LOG_DIR", tmp_path / "logs")
     job = next(iter(sc.JOBS.values()))
     assert sc.status(job) == {"registered": False}
     ok, msg = sc.register(job)
